@@ -81,6 +81,11 @@ pub trait TriggerCrud: Send + Sync + 'static {
     /// constant set by each trigger impl — it is never user-controllable.
     const TABLE_NAME: &'static str;
     const TRIGGER_TYPE: &'static str;
+    /// `UserDraftItemKind` for this trigger's per-user `draft` table rows.
+    /// A required associated const (no default) so adding a trigger that
+    /// forgets to set it is a compile error — not a runtime panic on the
+    /// first draft save. Replaces the old `TRIGGER_TYPE` string-match.
+    const DRAFT_KIND: UserDraftItemKind;
     const SUPPORTS_SERVER_STATE: bool;
     const SUPPORTS_TEST_CONNECTION: bool;
     const ROUTE_PREFIX: &'static str;
@@ -131,27 +136,11 @@ pub trait TriggerCrud: Send + Sync + 'static {
         &Self::ROUTE_PREFIX[1..]
     }
 
-    /// `UserDraftItemKind` for the per-user `draft` table lookup. Defaults
-    /// to derive from `TRIGGER_TYPE` so each impl gets it for free as long
-    /// as the string matches the canonical kind (e.g. `"http"` →
-    /// `TriggerHttp`). Override only when the mapping isn't 1:1.
+    /// `UserDraftItemKind` for the per-user `draft` table lookup — just
+    /// the `DRAFT_KIND` const each impl declares. Kept as a fn so the
+    /// existing call sites (`T::user_draft_item_kind()`) are unchanged.
     fn user_draft_item_kind() -> UserDraftItemKind {
-        match Self::TRIGGER_TYPE {
-            "http" => UserDraftItemKind::TriggerHttp,
-            "websocket" => UserDraftItemKind::TriggerWebsocket,
-            "kafka" => UserDraftItemKind::TriggerKafka,
-            "nats" => UserDraftItemKind::TriggerNats,
-            "sqs" => UserDraftItemKind::TriggerSqs,
-            "mqtt" => UserDraftItemKind::TriggerMqtt,
-            "gcp" => UserDraftItemKind::TriggerGcp,
-            "azure" => UserDraftItemKind::TriggerAzure,
-            "postgres" => UserDraftItemKind::TriggerPostgres,
-            "email" => UserDraftItemKind::TriggerEmail,
-            other => panic!(
-                "TriggerCrud impl with TRIGGER_TYPE = {:?} must override user_draft_item_kind()",
-                other
-            ),
-        }
+        Self::DRAFT_KIND
     }
 
     async fn create_trigger(
