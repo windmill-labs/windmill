@@ -1,9 +1,11 @@
 <script lang="ts">
 	import CompareWorkspaces from '$lib/components/CompareWorkspaces.svelte'
+	import CompareDrafts from '$lib/components/CompareDrafts.svelte'
 	import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
+	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import { page } from '$app/state'
-	import { userWorkspaces, usersWorkspaceStore } from '$lib/stores'
-	import { untrack } from 'svelte'
+	import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { onDestroy, untrack } from 'svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -13,14 +15,82 @@
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { goto } from '$lib/navigation'
 
+	type CompareMode = 'fork' | 'draft'
+
 	let comparison: WorkspaceComparison | undefined = $state(undefined)
 
 	let currentWorkspaceId: string | undefined = $state(
-		page.url.searchParams.get('workspace_id') ?? undefined
+		page.url.searchParams.get('workspace_id') ?? $workspaceStore ?? undefined
 	)
 
 	let currentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === currentWorkspaceId))
 	let parentWorkspaceId = $derived(currentWorkspaceData?.parent_workspace_id)
+	const isFork = $derived(!!parentWorkspaceId && currentWorkspaceId?.startsWith('wm-fork-'))
+
+	// Mode is seeded from the URL (?mode=draft|fork). `draft` is valid for any
+	// workspace, so it resolves immediately. `fork` is only valid for an actual
+	// fork, so it (like an absent mode) defers to the effect below, which falls
+	// back to draft for a non-fork once the workspace list has loaded (so `isFork`
+	// is known) — otherwise `?mode=fork` on a non-fork would strand the page on the
+	// fork UI, which can't render without a parent.
+	const urlMode = page.url.searchParams.get('mode')
+	let mode = $state<CompareMode>(urlMode === 'draft' ? 'draft' : 'fork')
+	let modeResolved = $state(urlMode === 'draft')
+
+	// Which fork direction to restore when switching back from draft mode. The
+	// merged toggle (CompareModeToggle, rendered inside each card) reports its
+	// selection here; the page only swaps which comparison component is shown.
+	let forkDirection = $state<'deploy_to' | 'update'>('deploy_to')
+
+	function selectMode(v: 'deploy_to' | 'update' | 'draft') {
+		if (v === 'draft') {
+			mode = 'draft'
+		} else {
+			forkDirection = v
+			mode = 'fork'
+		}
+	}
+
+	// Draft count drives the "Deployed ↔ draft" toggle badge. Reads the shared
+	// Workspace Drafts resource — count ≡ the draft list, and it refreshes itself
+	// when a deploy/discard invalidates the workspace.
+	const drafts = useWorkspaceDrafts(() => currentWorkspaceId)
+	const draftCount = $derived(drafts.count)
+
+	// Keys (`kind:path`) of fork items that are deployed *and* carry a pending
+	// draft (has_draft, i.e. not draft_only). CompareWorkspaces uses this to flag
+	// those rows — deploying/updating moves the deployed version, not the draft —
+	// and to leave them out of the default selection. Raw apps map to the
+	// `raw_app:` diff kind. draft_only items (never deployed) are excluded: they
+	// don't appear in the fork comparison as deployed rows.
+	const draftKeys = $derived(
+		new Set(
+			drafts.items
+				.filter((d) => !d.draft_only)
+				.map((d) => `${d.raw_app ? 'raw_app' : d.kind}:${d.path}`)
+		)
+	)
+
+	// Per-direction counts for the merged toggle badges. Deployable = items ahead
+	// (fork has changes the parent lacks); updateable = items behind. Computed
+	// here so they show on the toggle in draft mode too (where CompareDrafts has
+	// no comparison data of its own). Typed helpers avoid a $state `never`
+	// inference quirk on `comparison` inside $derived. A conflict (ahead AND
+	// behind) is intentionally counted in both directions — it's actionable either
+	// way.
+	function countDir(c: WorkspaceComparison | undefined, dir: 'ahead' | 'behind'): number {
+		return c?.diffs.filter((d) => d[dir] > 0).length ?? 0
+	}
+	const deployCount = $derived(countDir(comparison, 'ahead'))
+	const updateCount = $derived(countDir(comparison, 'behind'))
+
+	$effect(() => {
+		if (modeResolved || !currentWorkspaceData) return
+		untrack(() => {
+			mode = isFork ? 'fork' : 'draft'
+			modeResolved = true
+		})
+	})
 
 	async function checkForChanges() {
 		if (!currentWorkspaceId || !parentWorkspaceId) {
@@ -44,6 +114,25 @@
 
 		untrack(() => checkForChanges())
 	})
+
+	// Refresh the *fork comparison* after a child mutates state (deploy / update /
+	// discard). The Draft Count refreshes itself (the mutation invalidates the
+	// Workspace Drafts resource). The fork comparison (workspace_diff) is
+	// recomputed *asynchronously* (~hundreds of ms after the action), so an
+	// immediate re-fetch returns the pre-change diff — re-poll a few times to let
+	// the tally catch up.
+	let comparisonPollTimers: ReturnType<typeof setTimeout>[] = []
+	function refreshCounts() {
+		checkForChanges()
+		comparisonPollTimers.forEach(clearTimeout)
+		comparisonPollTimers = [800, 1800, 3500].map((delay) =>
+			setTimeout(() => checkForChanges(), delay)
+		)
+	}
+
+	// Don't let the catch-up timers fire after navigating away (network call +
+	// $state write on a gone component).
+	onDestroy(() => comparisonPollTimers.forEach(clearTimeout))
 
 	// Fork lifecycle actions — placed in the page header so they're available
 	// regardless of merge state. Both go through a confirmation modal because
@@ -99,14 +188,15 @@
 			acting = false
 		}
 	}
-
-	const isFork = $derived(!!parentWorkspaceId && currentWorkspaceId?.startsWith('wm-fork-'))
 </script>
 
 <CenteredPage>
-	<PageHeader title="Merge workspaces">
-		{#if isFork}
-			<div class="flex flex-row gap-2 items-center">
+	<PageHeader title="Compare & Deploy">
+		<div class="flex flex-row gap-2 items-center">
+			<!-- The merged compare toggle (fork direction + deployed↔draft) now lives
+			     inside each comparison card; only the fork lifecycle actions remain
+			     in the page header. -->
+			{#if isFork}
 				<Button
 					variant="default"
 					color="light"
@@ -127,15 +217,38 @@
 				>
 					Delete fork
 				</Button>
-			</div>
-		{/if}
+			{/if}
+		</div>
 	</PageHeader>
-	{#if currentWorkspaceId && parentWorkspaceId}
-		<CompareWorkspaces {currentWorkspaceId} {parentWorkspaceId} {comparison} />
-	{/if}
 	{#if !currentWorkspaceId}
 		No workspace selected
-	{:else if !parentWorkspaceId}
+	{:else if mode === 'draft'}
+		<CompareDrafts
+			{currentWorkspaceId}
+			draftItems={drafts.items}
+			draftsLoading={drafts.loading}
+			onChanged={refreshCounts}
+			{isFork}
+			parentWorkspaceId={parentWorkspaceId ?? undefined}
+			{deployCount}
+			{updateCount}
+			{draftCount}
+			onModeSelected={selectMode}
+		/>
+	{:else if parentWorkspaceId}
+		<CompareWorkspaces
+			{currentWorkspaceId}
+			{parentWorkspaceId}
+			{comparison}
+			initialMergeIntoParent={forkDirection === 'deploy_to'}
+			{deployCount}
+			{updateCount}
+			{draftCount}
+			{draftKeys}
+			onChanged={refreshCounts}
+			onModeSelected={selectMode}
+		/>
+	{:else}
 		workspace {currentWorkspaceId} has no parent workspace
 	{/if}
 </CenteredPage>

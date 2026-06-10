@@ -160,6 +160,9 @@
 		modules?: { [key: string]: ScriptModule } | null
 		editorBarRight?: import('svelte').Snippet
 		enablePreprocessorSnippet?: boolean
+		// Fired whenever a test run is started from this editor, with the
+		// preview job id. Used by whitelabel embedders to track test jobs.
+		onTestJob?: (e: { jobId: string }) => void
 		// When true the right-hand test/run pane mounts collapsed. The user
 		// can still expand it via `toggleTestPanel`. Defaults to false so the
 		// regular /scripts/edit route keeps its current open-by-default UX;
@@ -199,6 +202,7 @@
 		modules = $bindable(undefined),
 		editorBarRight,
 		enablePreprocessorSnippet = false,
+		onTestJob,
 		initialTestPanelCollapsed = false
 	}: Props = $props()
 
@@ -729,6 +733,9 @@
 			undefined,
 			activeModuleTab !== null ? undefined : modules
 		)
+		if (job) {
+			onTestJob?.({ jobId: job })
+		}
 		logPanel?.setFocusToLogs()
 		return job
 	}
@@ -1357,9 +1364,7 @@
 	// width (Svelte wires a ResizeObserver for bind:clientWidth).
 	let splitContainerWidth = $state(0)
 	const TEST_PANE_MIN_PX = 400
-	const testPaneMinPercent = $derived(
-		paneMinPercent(splitContainerWidth, TEST_PANE_MIN_PX)
-	)
+	const testPaneMinPercent = $derived(paneMinPercent(splitContainerWidth, TEST_PANE_MIN_PX))
 
 	// Raw user-controlled test size (what the splitter wrote, or what the
 	// toggle set). The size we actually pass to <Pane> is clamped to the

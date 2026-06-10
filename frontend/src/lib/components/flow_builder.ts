@@ -51,4 +51,7 @@ export type FlowBuilderProps = {
 	onDetails?: ({ path }: { path: string }) => void
 	onHistoryRestore?: () => void
 	onNavigate?: (item: WorkspaceItem) => void
+	// Fired whenever a test run is started from the flow editor, with the
+	// preview job id. Used by whitelabel embedders to track test jobs.
+	onTestJob?: (e: { jobId: string }) => void
 }

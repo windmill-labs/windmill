@@ -74,6 +74,9 @@
 		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 		/** Fired after a successful deploy; the session preview reloads on it. */
 		onDeploy?: (e: { path: string }) => void
+		/** Fired after a successful server-draft save; the session refreshes its
+		 * draft-bar count on it (parity with the script/flow editors). */
+		onSaveDraft?: (e: { path: string }) => void
 		/** Initial collapsed state for the file/runnable sidebar. The user's
 		 * toggled preference is persisted under `sidebarStorageKey`; this prop
 		 * only seeds the very first open. */
@@ -112,6 +115,7 @@
 		diffDrawer = undefined,
 		onNavigate,
 		onDeploy = undefined,
+		onSaveDraft = undefined,
 		defaultSidebarCollapsed = false,
 		sidebarStorageKey = 'raw-app-sidebar-collapsed',
 		liveEditorDraftStoragePath = undefined,
@@ -1433,6 +1437,7 @@
 		{getBundle}
 		{onNavigate}
 		{onDeploy}
+		{onSaveDraft}
 		canUndo={historyManager.canUndo}
 		canRedo={historyManager.canRedo}
 		onUndo={handleUndo}
@@ -1699,8 +1704,9 @@
 											title="Build failed"
 											class="relative before:absolute before:inset-0 before:-z-10 before:rounded-md before:bg-surface before:content-['']"
 										>
-											<pre
-												class="overflow-auto whitespace-pre-wrap text-xs max-h-60">{buildError}</pre>
+											<pre class="overflow-auto whitespace-pre-wrap text-xs max-h-60"
+												>{buildError}</pre
+											>
 										</Alert>
 									</div>
 								{/if}
