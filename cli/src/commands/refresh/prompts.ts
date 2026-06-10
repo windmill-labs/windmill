@@ -32,7 +32,8 @@ export async function refreshPrompts(opts: {
     // If config can't be read, use the conservative default above.
   }
 
-  const interactive = process.stdin.isTTY && !opts.yes;
+  const assumeYes = opts.yes === true;
+  const interactive = process.stdin.isTTY && !assumeYes;
 
   try {
     const result = await writeAiGuidanceFiles({
@@ -42,8 +43,13 @@ export async function refreshPrompts(opts: {
       agentsSourcePath: process.env[WMILL_INIT_AI_AGENTS_SOURCE_ENV],
       claudeSourcePath: process.env[WMILL_INIT_AI_CLAUDE_SOURCE_ENV],
       resolveAgentsMdMigration: async () => {
-        if (!interactive) return "append";
-        return await promptMigration();
+        // Consent model (matches `wmill refresh tsconfig`): we only touch an
+        // existing user-owned file that we don't recognize when the user opts
+        // in. `--yes` (and `wmill init --default`) appends without asking; an
+        // interactive run prompts; a plain non-interactive run leaves it alone.
+        if (assumeYes) return "append";
+        if (interactive) return await promptMigration();
+        return "skip";
       },
     });
 
@@ -175,7 +181,7 @@ const command = new Command()
   .description("Refresh AGENTS.cli.md and managed skills. User-owned AGENTS.md and CLAUDE.md are never overwritten unless you opt in.")
   .option(
     "--yes",
-    "Non-interactive: skip the migration prompt for existing AGENTS.md / CLAUDE.md without the expected include; defaults to appending the include."
+    "Non-interactive: append the @AGENTS.cli.md include to an existing AGENTS.md / CLAUDE.md without prompting. Without it, a non-interactive run leaves an unlinked file untouched."
   )
   .action(promptsAction as any);
 

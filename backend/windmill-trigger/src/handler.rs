@@ -32,6 +32,27 @@ use std::sync::Arc;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_git_sync::handle_deployment_metadata;
 
+/// True when the workspace is a fork (`parent_workspace_id IS NOT NULL`).
+///
+/// Operational state (`mode`) belongs to the parent workspace: a git-sync /
+/// merge / clone / UI-create write into a fork must never set it. On create we
+/// force `disabled` so a fork trigger can't compete with the parent's listener;
+/// on update we preserve the fork's existing value. `setmode` is the intended
+/// explicit mutator of a fork's mode (and carries its own conflict warning) —
+/// runtime error handling may still auto-disable an errored trigger, which is
+/// orthogonal to this rule. This is the write half whose read half lives in
+/// `workspaces_export.rs` (parent-value substitution on fork export), and it is
+/// the single authority shared by both the git-sync round-trip and the in-app
+/// compare-workspaces merge.
+async fn workspace_is_fork(db: &DB, workspace_id: &str) -> Result<bool> {
+    let is_fork: Option<bool> =
+        sqlx::query_scalar("SELECT parent_workspace_id IS NOT NULL FROM workspace WHERE id = $1")
+            .bind(workspace_id)
+            .fetch_optional(db)
+            .await?;
+    Ok(is_fork.unwrap_or(false))
+}
+
 #[async_trait]
 pub trait TriggerCrud: Send + Sync + 'static {
     type Trigger: Serialize
@@ -440,6 +461,13 @@ async fn create_trigger<T: TriggerCrud>(
 
     let mut tx = user_db.begin(&authed).await?;
 
+    // Writing into a fork never sets operational state: force `disabled` so a
+    // cloned / synced / merged / UI-created trigger can't compete with the
+    // parent's listener. The fork owner re-enables locally via `setmode`.
+    if workspace_is_fork(&db, &workspace_id).await? {
+        new_trigger.base.set_mode(TriggerMode::Disabled);
+    }
+
     let new_path = new_trigger.base.path.clone();
     let labels = new_trigger.base.labels.clone();
 
@@ -591,11 +619,16 @@ async fn update_trigger<T: TriggerCrud>(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    // When the request omits `mode`/`enabled`, preserve the existing DB value
-    // instead of falling back to the BaseTriggerData default (Enabled). This
-    // keeps fork→parent git-sync round-trips from flipping the parent's
-    // operational state — see fork_trigger_ignore_keys in workspaces_export.rs.
-    if edit_trigger.base.is_mode_unspecified() {
+    // Preserve the existing DB `mode` instead of writing the incoming value
+    // when either:
+    //   * the target is a fork — a fork's operational state is fork-local and
+    //     is never set through a git-sync/merge write (only via `setmode`); or
+    //   * the request omits `mode`/`enabled` (legacy clients / YAML round-trip),
+    //     where falling back to the BaseTriggerData default (Enabled) would flip
+    //     the parent on a fork→parent merge.
+    // Read half of the rule: parent-value substitution on fork export in
+    // workspaces_export.rs.
+    if workspace_is_fork(&db, &workspace_id).await? || edit_trigger.base.is_mode_unspecified() {
         let existing_mode: Option<TriggerMode> = sqlx::query_scalar(&format!(
             "SELECT mode FROM {} WHERE workspace_id = $1 AND path = $2",
             T::TABLE_NAME

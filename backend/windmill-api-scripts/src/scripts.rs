@@ -9,7 +9,8 @@
 use axum::extract::Multipart;
 use windmill_api_auth::{
     auth::{list_tokens_internal, AuthCache, TruncatedTokenWithEmail},
-    check_scopes, maybe_refresh_folders, require_owner_of_path, ApiAuthed,
+    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
+    ApiAuthed,
 };
 use windmill_common::{
     utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT},
@@ -275,6 +276,7 @@ async fn list_search_scripts(
     #[cfg(not(feature = "enterprise"))]
     let n = 10;
 
+    let allowed = build_scope_path_predicate(&authed, "scripts", "read");
     let rows = sqlx::query_as!(
         SearchScript,
         "SELECT path, content from script WHERE workspace_id = $1 AND archived = false LIMIT $2",
@@ -284,6 +286,7 @@ async fn list_search_scripts(
     .fetch_all(&mut *tx)
     .await?
     .into_iter()
+    .filter(|r| allowed(&r.path))
     .collect::<Vec<_>>();
     tx.commit().await?;
     Ok(Json(rows))
@@ -438,9 +441,13 @@ async fn list_scripts(
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
+    let allowed = build_scope_path_predicate(&authed, "scripts", "read");
     let rows = sqlx::query_as::<_, ListableScript>(&sql)
         .fetch_all(&mut *tx)
-        .await?;
+        .await?
+        .into_iter()
+        .filter(|r| allowed(&r.path))
+        .collect::<Vec<_>>();
     tx.commit().await?;
     Ok(Json(rows))
 }
@@ -2092,12 +2099,62 @@ async fn raw_script_by_path_unpinned(
 lazy_static::lazy_static! {
     static ref DEBUG_RAW_SCRIPT_ENDPOINTS: bool =
         std::env::var("DEBUG_RAW_SCRIPT_ENDPOINTS").is_ok();
+
+    /// Fallback freshness window (seconds) for [`RAW_SCRIPT_LATEST_HASH_CACHE`].
+    /// Primary invalidation is event-driven: deploying a script writes a
+    /// `notify_runnable_version_change` row, and the server's polling-events handler
+    /// evicts the entry across all replicas (see `main.rs`). This TTL only bounds
+    /// staleness if that event is missed. Defaults to 60s (matches
+    /// `DEPLOYED_SCRIPT_HASH_CACHE`). Override with `RAW_SCRIPT_CACHE_TTL_SECONDS`.
+    static ref RAW_SCRIPT_CACHE_TTL_S: i64 = std::env::var("RAW_SCRIPT_CACHE_TTL_SECONDS")
+        .ok()
+        .and_then(|s| s.parse::<i64>().ok())
+        .filter(|s| *s >= 0)
+        .unwrap_or(60);
 }
 
 lazy_static::lazy_static! {
+    // Imported-script content, keyed by
+    // `{ws}:{path}:{importer_cache_key}[:unpinned]:{latest_hash}`. Including the
+    // imported script's own latest hash makes each entry immutable, so no
+    // per-entry TTL is needed; staleness is bounded by RAW_SCRIPT_LATEST_HASH_CACHE.
     pub static ref RAW_SCRIPT_CACHE: Cache<String, String> = Cache::new(1000);
+    // `{ws}:{path}` (bare path) -> (latest non-archived hash, unix_ts cached).
+    // Resolving the imported script's own hash and keying content by it is what
+    // fixes relative-import staleness for deployed scripts, whose importer hash
+    // never moves (see #6769). Evicted on deploy by the `notify_runnable_version_change`
+    // handler in main.rs (cross-replica, within a poll interval); RAW_SCRIPT_CACHE_TTL_S
+    // is a fallback bound.
+    pub static ref RAW_SCRIPT_LATEST_HASH_CACHE: Cache<String, (i64, i64)> = Cache::new(1000);
     pub static ref CACHE_FOLDERS_PATH: Cache<String, i64> = Cache::new(1000);
 
+}
+
+/// Records a [`RAW_SCRIPT_CACHE`] lookup outcome (`hit` / `expired` / `miss`) to
+/// the `raw_script_cache_total` counter when the prometheus feature is enabled.
+#[cfg(feature = "prometheus")]
+fn record_raw_script_cache(result: &str) {
+    if let Some(c) = RAW_SCRIPT_CACHE_METRIC.as_ref() {
+        c.with_label_values(&[result]).inc();
+    }
+}
+
+#[cfg(not(feature = "prometheus"))]
+fn record_raw_script_cache(_result: &str) {}
+
+#[cfg(feature = "prometheus")]
+lazy_static::lazy_static! {
+    /// Raw relative-import cache lookups, labeled by `result` (hit/expired/miss).
+    static ref RAW_SCRIPT_CACHE_METRIC: Option<prometheus::IntCounterVec> =
+        if windmill_common::METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+            Some(prometheus::register_int_counter_vec!(
+                "raw_script_cache_total",
+                "Raw script relative-import cache lookups by result (hit/expired/miss)",
+                &["result"]
+            ).unwrap())
+        } else {
+            None
+        };
 }
 
 async fn raw_script_by_path_internal(
@@ -2121,23 +2178,10 @@ async fn raw_script_by_path_internal(
         }
     }
 
-    let cache_path = query
-        .cache_key
-        .map(|x| format!("{w_id}:{path}:{x}{}", if unpin { ":unpinned" } else { "" }));
-    if let Some(cache_path) = cache_path.clone() {
-        let cached_content = RAW_SCRIPT_CACHE.get(&cache_path);
-        if let Some(cached_content) = cached_content {
-            if *DEBUG_RAW_SCRIPT_ENDPOINTS {
-                tracing::warn!("Raw script by path request: {} (cached)", path);
-            }
-            return Ok(cached_content);
-        }
-    }
-
-    if *DEBUG_RAW_SCRIPT_ENDPOINTS {
-        tracing::warn!("Raw script by path request: {} (not cached)", path);
-    }
-
+    // Validate + strip the language extension up front so cache keys use the bare
+    // script path. This matches the `notify_runnable_version_change` event payload
+    // (which carries the bare path), so a deploy can evict RAW_SCRIPT_LATEST_HASH_CACHE
+    // by key from the polling-events handler in the server binary.
     if !path.ends_with(".py")
         && !path.ends_with(".ts")
         && !path.ends_with(".go")
@@ -2155,6 +2199,52 @@ async fn raw_script_by_path_internal(
         .trim_end_matches(".ts")
         .trim_end_matches(".go")
         .trim_end_matches(".sh");
+
+    // Content cache is keyed by the IMPORTED script's own latest hash, not by the
+    // importer's runnable hash (`query.cache_key`). The importer hash never moves
+    // when only an imported script's content changes (relock is in-place — see
+    // #6769), so keying solely on it served stale content indefinitely. The
+    // importer + unpin dimensions are kept to preserve per-runnable authorization
+    // scoping (a content-cache hit skips the authed RLS query, so an entry must
+    // stay scoped to the runnable that fetched it); the imported latest hash is
+    // appended for content correctness.
+    let cache_path_base = query
+        .cache_key
+        .as_ref()
+        .map(|x| format!("{w_id}:{path}:{x}{}", if unpin { ":unpinned" } else { "" }));
+
+    // Resolve the imported script's latest hash from RAW_SCRIPT_LATEST_HASH_CACHE
+    // (keyed by the bare path so the deploy event can evict it). A fresh entry
+    // serves from the immutable content cache with no DB hit; a stale/absent entry
+    // falls through to the query below, which refreshes both caches.
+    let hash_cache_key = format!("{w_id}:{path}");
+    let (fresh_hash, had_stale_hash) = match RAW_SCRIPT_LATEST_HASH_CACHE.get(&hash_cache_key) {
+        Some((hash, cached_at))
+            if chrono::Utc::now().timestamp() - cached_at <= *RAW_SCRIPT_CACHE_TTL_S =>
+        {
+            (Some(hash), false)
+        }
+        Some(_) => (None, true),
+        None => (None, false),
+    };
+
+    if let (Some(base), Some(latest_hash)) = (cache_path_base.as_ref(), fresh_hash) {
+        let content_key = format!("{base}:{latest_hash}");
+        if let Some(cached_content) = RAW_SCRIPT_CACHE.get(&content_key) {
+            if *DEBUG_RAW_SCRIPT_ENDPOINTS {
+                tracing::warn!("Raw script by path request: {path} (cached, key={content_key})");
+            }
+            record_raw_script_cache("hit");
+            return Ok(cached_content);
+        }
+    }
+    if cache_path_base.is_some() {
+        record_raw_script_cache(if had_stale_hash { "expired" } else { "miss" });
+    }
+
+    if *DEBUG_RAW_SCRIPT_ENDPOINTS {
+        tracing::warn!("Raw script by path request: {} (not cached)", path);
+    }
 
     // folder cache is only useful for python given it needs to recuse over all intermediate folders to find the package.
     // When a script exists in a folder, we can cache the fact that the folder exists to avoid extra db calls.
@@ -2188,8 +2278,10 @@ async fn raw_script_by_path_internal(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    let content_o = sqlx::query_scalar!(
-        "SELECT content FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1",
+    // Fetch the latest non-archived row's hash AND content in one query: the hash
+    // keys the (immutable) content cache and refreshes RAW_SCRIPT_LATEST_HASH_CACHE.
+    let row_o = sqlx::query!(
+        "SELECT hash, content FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1",
         path,
         w_id
     )
@@ -2197,6 +2289,10 @@ async fn raw_script_by_path_internal(
     .warn_after_seconds(5)
     .await?;
     tx.commit().await?;
+    let (db_hash, content_o) = match row_o {
+        Some(r) => (Some(r.hash), Some(r.content)),
+        None => (None, None),
+    };
     if *DEBUG_RAW_SCRIPT_ENDPOINTS {
         tracing::warn!(
             "Raw script by path request: {} (content: {:?})",
@@ -2260,8 +2356,14 @@ async fn raw_script_by_path_internal(
         }
     }
 
-    if let Some(cache_path) = cache_path {
-        RAW_SCRIPT_CACHE.insert(cache_path, content.clone());
+    // content_o was Some, so db_hash is Some too (same row). Refresh the latest-hash
+    // cache and store the content under the hash-qualified key.
+    if let Some(db_hash) = db_hash {
+        RAW_SCRIPT_LATEST_HASH_CACHE
+            .insert(hash_cache_key, (db_hash, chrono::Utc::now().timestamp()));
+        if let Some(base) = cache_path_base {
+            RAW_SCRIPT_CACHE.insert(format!("{base}:{db_hash}"), content.clone());
+        }
     }
     if *DEBUG_RAW_SCRIPT_ENDPOINTS {
         tracing::warn!("Raw script by path request: {} (content response)", path);

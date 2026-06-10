@@ -29,7 +29,10 @@
 	import oauthConnectRegistry from '$oauth_connect_registry'
 
 	interface Props {
-		snowflakeAccountIdentifier?: string
+		// Per-instance OAuth providers (Snowflake, ServiceNow, …): instance name
+		// keyed by provider, used to build their per-instance connect_config URLs.
+		// Required (and always bound by InstanceSettings) so it is never undefined.
+		instanceInputs: Record<string, string>
 		oauths?: Record<string, any>
 		requirePreexistingUserForOauth?: boolean
 		baseUrl?: string
@@ -39,7 +42,7 @@
 	}
 
 	let {
-		snowflakeAccountIdentifier = $bindable(),
+		instanceInputs = $bindable(),
 		oauths = $bindable(),
 		requirePreexistingUserForOauth = $bindable(),
 		baseUrl,
@@ -49,9 +52,6 @@
 	}: Props = $props()
 
 	$effect(() => {
-		if (snowflakeAccountIdentifier == undefined) {
-			snowflakeAccountIdentifier = ''
-		}
 		if (oauths == undefined) {
 			oauths = {}
 		}
@@ -79,12 +79,12 @@
 		'visma',
 		'sage_intacct',
 		'spotify',
-		'snowflake_oauth',
 		'teams',
 		'zoho',
 		'xero',
 		'apify',
-		'docusign'
+		'docusign',
+		'salesforce'
 	]
 	// Providers whose registry entry (`backend/oauth_connect.json`) carries a
 	// `sandbox` URL block. Each one gets a sibling `<name>_sandbox` dropdown
@@ -95,9 +95,20 @@
 	const windmillBuiltinsWithSandbox = Object.entries(oauthConnectRegistry)
 		.filter(([, cfg]) => cfg && typeof cfg === 'object' && 'sandbox' in cfg)
 		.map(([name]) => name)
+	// Per-instance providers (Snowflake, ServiceNow, …): registry entries that
+	// carry a `connect_config_template`. Derived from the registry so adding a
+	// new one needs only a JSON entry — they get a builtin tile + the generic
+	// instance-name input below, with no frontend change.
+	const connectConfigTemplates: Record<string, any> = Object.fromEntries(
+		Object.entries(oauthConnectRegistry)
+			.filter(([, cfg]) => cfg && typeof cfg === 'object' && 'connect_config_template' in cfg)
+			.map(([name, cfg]) => [name, (cfg as any).connect_config_template])
+	)
+	const windmillBuiltinsTemplated = Object.keys(connectConfigTemplates)
 	const windmillBuiltins = [
 		...windmillBuiltinsBase,
-		...windmillBuiltinsWithSandbox.map((n) => `${n}_sandbox`)
+		...windmillBuiltinsWithSandbox.map((n) => `${n}_sandbox`),
+		...windmillBuiltinsTemplated
 	]
 
 	let showCustomOAuthForm = $state(false)
@@ -232,6 +243,20 @@
 				items.push({
 					displayName: `${capitalize(name)} (sandbox)`,
 					action: () => createOAuthClient(sandboxKey),
+					icon: icon
+				})
+			}
+		})
+
+		// Add per-instance providers (registry entries with a connect_config_template)
+		windmillBuiltinsTemplated.forEach((name) => {
+			if (!oauths || !oauths[name]) {
+				const icon = getOAuthProviderIcon(name)
+				items.push({
+					// Prefer the template's display_name (properly cased, e.g. "ServiceNow")
+					// over capitalize(name) which yields "Servicenow"/"Snowflake_oauth".
+					displayName: connectConfigTemplates[name]?.display_name ?? capitalize(name),
+					action: () => createOAuthClient(name),
 					icon: icon
 				})
 			}
@@ -485,19 +510,23 @@
 								{:else if !windmillBuiltins.includes(k) && k != 'slack'}
 									<CustomOauth bind:connect_config={oauths[k]['connect_config']} />
 								{/if}
-								{#if k == 'snowflake_oauth'}
+								{#if connectConfigTemplates[k]}
+									{@const tmpl = connectConfigTemplates[k]}
 									<label class="block pb-2">
-										<span class="text-primary font-semibold text-xs flex gap-2 items-center"
-											><a
-												href="https://docs.snowflake.com/en/user-guide/admin-account-identifier#using-an-account-name-as-an-identifier"
-												target="_blank">Snowflake Account Identifier</a
-											><ExternalLink size={12} /></span
-										>
+										<span class="text-primary font-semibold text-xs flex gap-2 items-center">
+											{#if tmpl.help_url}
+												<a href={tmpl.help_url} target="_blank">{tmpl.label}</a><ExternalLink
+													size={12}
+												/>
+											{:else}
+												{tmpl.label}
+											{/if}
+										</span>
 										<input
 											type="text"
-											placeholder="<orgname>-<account_name>"
+											placeholder={tmpl.placeholder}
 											required={true}
-											bind:value={snowflakeAccountIdentifier}
+											bind:value={instanceInputs[k]}
 										/>
 									</label>
 								{/if}

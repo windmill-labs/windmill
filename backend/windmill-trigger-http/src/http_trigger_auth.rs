@@ -337,6 +337,20 @@ mod zoom {
                 return Ok(None);
             }
 
+            // Prevent this challenge endpoint from being used as a signing oracle.
+            // Legitimate Zoom validation tokens are short random hex strings that
+            // never contain colons. The exploit requires crafting a plainToken in the
+            // `v0:{timestamp}:{body}` webhook-signing format (always containing colons)
+            // to obtain a valid signature for an arbitrary body. Reject any token that
+            // does not look like a legitimate Zoom validation token.
+            if zoom_request_body.payload.plain_token.contains(':')
+                || zoom_request_body.payload.plain_token.len() > 128
+            {
+                return Err(AuthenticationError::InvalidChallengeResponse(
+                    "Zoom: invalid plainToken format".to_string(),
+                ));
+            }
+
             let hmac_signature = calculate_hmac_signature(
                 HmacAlgorithm::Sha256,
                 &signature_config_data.secret_key,
@@ -1538,6 +1552,52 @@ mod tests {
             .handle_challenge_request(&HeaderMap::new(), &config_data, payload)
             .unwrap();
         assert!(response.is_none());
+    }
+
+    #[test]
+    fn test_zoom_challenge_normal_token_succeeds() {
+        // A legitimate Zoom validation token is a short random alphanumeric string.
+        let payload = r#"{"event":"endpoint.url_validation","event_ts":1234567890,"payload":{"plainToken":"qgg8vlvZRS6UYooatFL8Aw"}}"#;
+
+        let handler = WebhookType::Zoom.get_webhook_handler().unwrap();
+        let config_data = SignatureConfigData { secret_key: "zoom_secret" };
+        let response = handler
+            .handle_challenge_request(&HeaderMap::new(), &config_data, payload)
+            .unwrap();
+        assert!(response.is_some());
+    }
+
+    #[test]
+    fn test_zoom_challenge_token_with_colons_rejected() {
+        // Exploit attempt: a plainToken crafted in the `v0:{ts}:{body}` signing format
+        // would let an attacker obtain a valid webhook signature for an arbitrary body.
+        let payload = r#"{"event":"endpoint.url_validation","event_ts":1234567890,"payload":{"plainToken":"v0:1234567890:{\"forged\":\"body\"}"}}"#;
+
+        let handler = WebhookType::Zoom.get_webhook_handler().unwrap();
+        let config_data = SignatureConfigData { secret_key: "zoom_secret" };
+        let result = handler.handle_challenge_request(&HeaderMap::new(), &config_data, payload);
+        assert!(matches!(
+            result,
+            Err(AuthenticationError::InvalidChallengeResponse(_))
+        ));
+    }
+
+    #[test]
+    fn test_zoom_challenge_token_too_long_rejected() {
+        // A plainToken exceeding 128 chars cannot be a legitimate Zoom validation token.
+        let long_token = "a".repeat(129);
+        let payload = format!(
+            r#"{{"event":"endpoint.url_validation","event_ts":1234567890,"payload":{{"plainToken":"{}"}}}}"#,
+            long_token
+        );
+
+        let handler = WebhookType::Zoom.get_webhook_handler().unwrap();
+        let config_data = SignatureConfigData { secret_key: "zoom_secret" };
+        let result = handler.handle_challenge_request(&HeaderMap::new(), &config_data, &payload);
+        assert!(matches!(
+            result,
+            Err(AuthenticationError::InvalidChallengeResponse(_))
+        ));
     }
 
     // --- Custom webhook end-to-end ---

@@ -4,6 +4,7 @@
 	import Popover from './Popover.svelte'
 	import { copyToClipboard } from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
+	import { appendViewToken } from '$lib/viewToken'
 	import type { DisplayResultUi } from './custom_ui'
 	import { createEventDispatcher } from 'svelte'
 
@@ -41,9 +42,11 @@
 
 	let resultApiPath = $derived(
 		workspaceId && jobId
-			? nodeId
-				? `/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
-				: `/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+			? appendViewToken(
+					nodeId
+						? `/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+						: `/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+				)
 			: undefined
 	)
 	let downloadName = $derived(`${filename ?? 'result'}.json`)

@@ -340,6 +340,8 @@ pub struct InstanceAISummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_model: Option<InstanceAIModelSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata_model: Option<InstanceAIModelSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub code_completion_model: Option<InstanceAIModelSummary>,
 }
 
@@ -825,6 +827,7 @@ pub fn build_instance_ai_summary(config: Option<&serde_json::Value>) -> Option<I
     Some(InstanceAISummary {
         providers: provider_summaries,
         default_model: extract_instance_ai_model_summary(config, "default_model"),
+        metadata_model: extract_instance_ai_model_summary(config, "metadata_model"),
         code_completion_model: extract_instance_ai_model_summary(config, "code_completion_model"),
     })
 }
@@ -6287,13 +6290,67 @@ async fn compare_workspaces(
     .fetch_all(&db)
     .await?;
 
+    // A cached `has_changes = true` row is trusted without re-running the
+    // per-kind comparison, but that verdict can go stale: an item archived or
+    // deleted after it was cached still carries `exists_in_*=true` here. The
+    // common offender is the old path after a rename — for lock-gen languages
+    // (Python/TS/…) the `has_changes=NULL` reset is deferred to the dependency
+    // job, so until that runs (or if it fails) the archived old path looks like
+    // a live ahead change. Treat archived as non-existent: re-validate such rows
+    // against the live tables and, if the item no longer exists on a side the
+    // cache claims, re-evaluate it below so it gets corrected or removed.
+    //
+    // Only scripts/flows can hit this (they have `archived`; other kinds reset
+    // synchronously on delete). Probe both sides in one batched query per kind
+    // (mirroring `query_visible_items`) rather than per row, to keep the hot
+    // compare path off an O(number of cached diffs) sequence of round trips.
+    let (live_source, live_fork) = {
+        let mut cached_source: HashMap<&str, Vec<&str>> = HashMap::new();
+        let mut cached_fork: HashMap<&str, Vec<&str>> = HashMap::new();
+        for item in &diff_items {
+            if item.has_changes == Some(true) && (item.kind == "script" || item.kind == "flow") {
+                if item.exists_in_source.unwrap_or(false) {
+                    cached_source
+                        .entry(item.kind.as_str())
+                        .or_default()
+                        .push(item.path.as_str());
+                }
+                if item.exists_in_fork.unwrap_or(false) {
+                    cached_fork
+                        .entry(item.kind.as_str())
+                        .or_default()
+                        .push(item.path.as_str());
+                }
+            }
+        }
+        (
+            existing_runnables(&db, &source_workspace_id, &cached_source).await?,
+            existing_runnables(&db, &fork_workspace_id, &cached_fork).await?,
+        )
+    };
+
     let mut confirmed_diffs = vec![];
     for item in diff_items {
         if let Some(has_changes) = item.has_changes {
-            if has_changes {
-                confirmed_diffs.push(item);
+            if !has_changes {
+                // Defensive: rows that compared equal are normally deleted, so
+                // this is rarely hit. Not a diff — skip.
+                continue;
             }
-            continue;
+            // Stale only applies to script/flow (others aren't in the probed
+            // sets); a row whose claimed-existing side has no live version is
+            // stale and falls through to re-evaluation.
+            let key = (item.kind.clone(), item.path.clone());
+            let fork_stale = item.exists_in_fork.unwrap_or(false) && !live_fork.contains(&key);
+            let source_stale =
+                item.exists_in_source.unwrap_or(false) && !live_source.contains(&key);
+            let probed = item.kind == "script" || item.kind == "flow";
+            if !(probed && (fork_stale || source_stale)) {
+                // Cache is still valid (or not a probed kind) — trust it.
+                confirmed_diffs.push(item);
+                continue;
+            }
+            // Stale cache: fall through to re-evaluate (and correct/delete) below.
         }
 
         let item_comparison = match item.kind.as_str() {
@@ -6716,6 +6773,50 @@ async fn query_visible_items<'c>(
     }
 
     Ok(visible)
+}
+
+/// Batched existence probe used to detect stale `workspace_diff` cache rows.
+///
+/// Given candidate paths grouped by kind, returns the set of `(kind, path)`
+/// that currently have a *deployable* (non-archived) version in the workspace,
+/// mirroring the existence semantics of `compare_two_scripts` /
+/// `compare_two_flows`. Only scripts and flows are probed — they're the only
+/// kinds with `archived`, and the only ones whose diff-row reset can lag behind
+/// the actual change (deferred dependency job for lock-gen languages); other
+/// kinds reset synchronously on delete, so their cache is trusted (and they're
+/// never passed in). One query per kind keeps the compare path off a per-row
+/// sequence of round trips. Runs on `&db` (no RLS) — this is a pure existence
+/// check; authorization stays in `filter_visible_diffs` / `query_visible_items`.
+async fn existing_runnables(
+    db: &DB,
+    workspace_id: &str,
+    items_by_kind: &HashMap<&str, Vec<&str>>,
+) -> Result<HashSet<(String, String)>> {
+    let mut existing = HashSet::new();
+    for (kind, paths) in items_by_kind {
+        let paths_vec: Vec<String> = paths.iter().map(|s| s.to_string()).collect();
+        let found: Vec<String> = match *kind {
+            "script" => sqlx::query_scalar!(
+                "SELECT DISTINCT path FROM script WHERE workspace_id = $1 AND path = ANY($2) AND archived = false",
+                workspace_id,
+                &paths_vec
+            )
+            .fetch_all(db)
+            .await?,
+            "flow" => sqlx::query_scalar!(
+                "SELECT path FROM flow WHERE workspace_id = $1 AND path = ANY($2) AND archived = false",
+                workspace_id,
+                &paths_vec
+            )
+            .fetch_all(db)
+            .await?,
+            _ => vec![],
+        };
+        for path in found {
+            existing.insert((kind.to_string(), path));
+        }
+    }
+    Ok(existing)
 }
 
 #[derive(Debug)]

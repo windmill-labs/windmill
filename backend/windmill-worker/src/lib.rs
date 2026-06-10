@@ -31,6 +31,7 @@ mod csharp_executor;
 mod dedicated_worker_ee;
 mod dedicated_worker_oss;
 mod deno_executor;
+mod docker_v2;
 #[cfg(feature = "duckdb")]
 mod duckdb_executor;
 mod global_cache;

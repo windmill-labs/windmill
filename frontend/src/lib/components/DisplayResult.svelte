@@ -6,6 +6,7 @@
 	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
+	import { appendViewToken } from '$lib/viewToken'
 	import { Button, Drawer, DrawerContent } from './common'
 	import {
 		ClipboardCopy,
@@ -176,9 +177,11 @@
 
 	let resultApiPath = $derived(
 		workspaceId && jobId
-			? nodeId
-				? `/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
-				: `/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+			? appendViewToken(
+					nodeId
+						? `/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+						: `/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+				)
 			: undefined
 	)
 	let resultDownloadHref = $derived(
@@ -405,6 +408,23 @@
 		}
 
 		return json
+	}
+
+	// The explicit column order from a leading header row (see
+	// handleArrayOfObjectsHeaders). Returned as an array so the order survives:
+	// baking it into object keys loses integer-like names like "1234", which JS
+	// enumerates first in ascending numeric order.
+	function getForcedColumnOrder(json: any): string[] | undefined {
+		if (
+			Array.isArray(json) &&
+			json.length > 0 &&
+			Array.isArray(json[0]) &&
+			json[0].length > 0 &&
+			json[0].every((item) => typeof item === 'string')
+		) {
+			return json[0]
+		}
+		return undefined
 	}
 
 	type InputObject = { [key: string]: number[] }
@@ -640,6 +660,7 @@
 							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
 							: ''}
 						objects={handleArrayOfObjectsHeaders(data)}
+						headerOrder={getForcedColumnOrder(data)}
 					/>
 				{:else if !forceJson && resultKind === 'html'}
 					<div class="h-full">
@@ -1016,9 +1037,7 @@
 						{#if largeObject}
 							<div class="text-xs text-emphasis"
 								>{#if resultApiPath && shouldDownloadViaClient()}
-									<button
-										onclick={() => downloadViaClient(resultApiPath!, resultDownloadName)}
-									>
+									<button onclick={() => downloadViaClient(resultApiPath!, resultDownloadName)}>
 										Download {filename ? '' : 'as JSON'}
 									</button>
 								{:else}

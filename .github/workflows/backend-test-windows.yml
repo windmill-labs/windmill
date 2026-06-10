@@ -74,7 +74,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6.2.1
         with:
-          version: "0.9.24"
+          version: "0.9.25"
 
       - uses: shivammathur/setup-php@v2
         with:

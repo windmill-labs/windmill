@@ -23,6 +23,7 @@ import type {
 	CreateVariable,
 	Flow,
 	FlowValue,
+	Job,
 	ListableApp,
 	ListableResource,
 	ListableVariable,
@@ -48,7 +49,13 @@ import {
 	validateEditableFlowJson
 } from '../flow/editableFlowJson'
 import { createInlineScriptSession } from '../flow/inlineScriptsUtils'
-import { getFlowPrompt, getRawAppPrompt, getResourcePrompt, getScriptPrompt } from '$system_prompts'
+import {
+	getDatatableSdkReference,
+	getFlowPrompt,
+	getRawAppPrompt,
+	getResourcePrompt,
+	getScriptPrompt
+} from '$system_prompts'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
@@ -66,6 +73,7 @@ import {
 	type ToolDisplayAction
 } from '../shared'
 import type { ContextElement } from '../context'
+import { getDatatableTools } from '../datatableTools'
 import { UserDraft, type UserDraftMeta } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
 import { inferArgs } from '$lib/infer'
@@ -118,6 +126,13 @@ const INSTRUCTION_SUBJECTS = [
 	'resource',
 	'app'
 ] as const satisfies readonly WorkspaceItemType[]
+// `datatable` is not a workspace item type, but the model can request the
+// datatable SDK reference (the wmill.datatable() runnable API) the same way.
+const INSTRUCTION_SUBJECTS_EXTRA = ['datatable'] as const
+const ALL_INSTRUCTION_SUBJECTS = [
+	...INSTRUCTION_SUBJECTS,
+	...INSTRUCTION_SUBJECTS_EXTRA
+] as const
 const MAX_LIST_LIMIT = 100
 type ActiveGlobalEditorType = Extract<WorkspaceItemType, 'script' | 'flow' | 'app'>
 type LiveEditorDraftKind = Parameters<typeof UserDraft.getLiveEditorDraft>[0]
@@ -126,10 +141,10 @@ const ACTIVE_GLOBAL_EDITOR_DRAFTS: readonly {
 	itemKind: LiveEditorDraftKind
 	type: ActiveGlobalEditorType
 }[] = [
-	{ itemKind: 'script', type: 'script' },
-	{ itemKind: 'flow', type: 'flow' },
-	{ itemKind: 'raw_app', type: 'app' }
-]
+		{ itemKind: 'script', type: 'script' },
+		{ itemKind: 'flow', type: 'flow' },
+		{ itemKind: 'raw_app', type: 'app' }
+	]
 
 export type GlobalActiveEditorContext = {
 	type: ActiveGlobalEditorType
@@ -143,18 +158,18 @@ export type GlobalUserMessageOptions = {
 }
 
 const itemTypeSchema = z.enum(ITEM_TYPES)
-const instructionSubjectSchema = z.enum(INSTRUCTION_SUBJECTS)
+const instructionSubjectSchema = z.enum(ALL_INSTRUCTION_SUBJECTS)
 const triggerKindSchema = z.enum(TRIGGER_KINDS)
 const scriptLangSchema = z.enum($ScriptLang.enum)
 
 const getInstructionsSchema = z.object({
 	subject: instructionSubjectSchema.describe(
-		"The workspace item type to get authoring instructions for (script, flow, resource, app). Schedules, triggers, and variables don't need instructions — their tool schemas describe everything."
+		"What to get authoring instructions for: a workspace item type (script, flow, resource, app) or \"datatable\" for the wmill.datatable() SQL SDK used inside runnables. Schedules, triggers, and variables don't need instructions — their tool schemas describe everything."
 	),
 	language: scriptLangSchema
 		.optional()
 		.describe(
-			'Required when subject is script. Use the existing script language when modifying, or the requested target language when creating.'
+			'The target language. Required when subject is script. For subject "datatable" it selects which SDK to return (e.g. "bun" for TypeScript, "python3" for Python) and defaults to TypeScript if omitted. Use the existing language when modifying, or the requested target language when creating. Other subjects ignore it.'
 		)
 })
 
@@ -332,6 +347,34 @@ const searchResourceTypesSchema = z.object({
 		.max(20)
 		.optional()
 		.describe('Max number of resource types to return. Defaults to 5.')
+})
+
+const getJobLogsSchema = z.object({
+	id: z.string().describe('The UUID of the job to fetch logs for.')
+})
+
+const listRunsSchema = z.object({
+	path: z
+		.string()
+		.optional()
+		.describe('Filter to runs of this exact script or flow path.'),
+	created_by: z
+		.string()
+		.optional()
+		.describe('Filter by the username that started the run.'),
+	label: z.string().optional().describe('Filter by job label.'),
+	success: z
+		.boolean()
+		.optional()
+		.describe('Only completed runs with this outcome (true = succeeded, false = failed).'),
+	running: z.boolean().optional().describe('Only currently running runs.'),
+	limit: z
+		.number()
+		.int()
+		.min(1)
+		.max(100)
+		.optional()
+		.describe('Max number of runs to return, most recent first. Defaults to 30.')
 })
 
 const deleteWorkspaceItemSchema = z.object({
@@ -558,20 +601,7 @@ const initAppSchema = z.object({
 		.enum(FRAMEWORK_KEYS)
 		.describe(
 			'Frontend framework template. Confirm with the user before calling — never default silently. react19 is recommended for new apps.'
-		),
-	data: z
-		.object({
-			datatable: z.string().optional().describe('Default datatable name (e.g. "main").'),
-			schema: z.string().optional().describe('Default schema (PostgreSQL schema, optional).'),
-			tables: z
-				.array(z.string())
-				.optional()
-				.describe(
-					'Initially-whitelisted tables, in the format "<datatable>/<table>" or "<datatable>/<schema>:<table>".'
-				)
-		})
-		.optional()
-		.describe('Optional datatable configuration. Omit unless the user asked to wire one up.')
+		)
 })
 
 const buildGlobalSystemPrompt = (
@@ -601,13 +631,13 @@ Rules:
 - Use search_resource_types before write_resource.
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer local drafts, so testing does not require deployment.
+- Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
-- Keep context targeted.${
-	previewTools
+- Keep context targeted.${previewTools
 		? `
 - After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.`
 		: ''
-}
+	}
 
 Flows:
 - read_workspace_item returns compact flow JSON. Inline script bodies appear as "inline_script.<moduleId>".
@@ -619,7 +649,14 @@ Raw apps:
 - Use write_app_file, patch_app_file, and delete_app_file for frontend files.
 - Use write_app_runnable and delete_app_runnable for backend runnables.
 - Use init_app only after confirming framework, path, and summary with the user.
-- Use deploy_workspace_item after explicit user deploy intent; raw app deploy bundles JS/CSS before saving.`
+- Use deploy_workspace_item after explicit user deploy intent; raw app deploy bundles JS/CSS before saving.
+
+Data Tables:
+- Datatables are workspace-scoped managed PostgreSQL databases, shared across the workspace (not owned by any single app). They must be configured by the user in their workspace settings (Workspace settings → Data Tables); they cannot be created via SQL.
+- Use list_datatables to discover the available datatables and their tables. Reuse an existing table rather than creating a duplicate. If list_datatables reports none, this is a blocking prerequisite — tell the user to set up a datatable in their workspace settings and stop; do not assume a "main" datatable exists or call exec_datatable_sql.
+- Use get_datatable_table_schema only when you need a table's column names/types; list_datatables is enough for table-list or availability summaries.
+- Use exec_datatable_sql to explore data, run queries, mutate rows, or change schema (CREATE/ALTER/DROP). Creating a table is a normal CREATE TABLE statement — it appears in list_datatables afterward, with no registration step.
+- When writing runnable code (inline app runnables, scripts, flow modules) that reads or writes datatable data at runtime, it accesses a datatable via wmill.datatable(). Default to TypeScript (bun) unless the user asked for another language. Call get_instructions with subject "datatable" and language "bun" for the TypeScript SQL SDK reference (or language "python3" for Python) — it returns only that language so you get just what you need.`
 
 const DEFAULT_LIST_TYPES = ['script', 'flow'] as const satisfies readonly WorkspaceItemType[]
 
@@ -639,7 +676,7 @@ function itemMatches(
 	)
 }
 
-function scriptToItem(script: Script, includeValue: boolean): WorkspaceItem {
+function scriptToItem(script: Script | NewScript, includeValue: boolean): WorkspaceItem {
 	return {
 		type: 'script',
 		path: script.path,
@@ -737,6 +774,36 @@ function variableToItem(variable: ListableVariable): WorkspaceItem {
 	}
 }
 
+// Compact metadata for one run. The raw Job carries args/result/logs/raw_code
+// which can be huge — list_runs returns only what's needed to identify a run.
+function summarizeRun(job: Job): Record<string, unknown> {
+	const base = {
+		id: job.id,
+		job_kind: job.job_kind,
+		path: job.script_path,
+		created_by: job.created_by,
+		created_at: job.created_at,
+		started_at: job.started_at,
+		schedule_path: job.schedule_path,
+		is_flow_step: job.is_flow_step,
+		tag: job.tag,
+		worker: job.worker
+	}
+	if ('success' in job) {
+		// CompletedJob
+		return {
+			...base,
+			status: job.canceled ? 'canceled' : job.success ? 'success' : 'failure',
+			duration_ms: job.duration_ms
+		}
+	}
+	// QueuedJob (running or still waiting in the queue)
+	return {
+		...base,
+		status: job.running ? 'running' : 'queued'
+	}
+}
+
 // ============= App helpers =============
 
 type BackendRunnableInput = z.infer<typeof backendRunnableSchema>
@@ -799,11 +866,11 @@ function buildPersistedRunnable(
 ): PersistedRunnable {
 	const fields = input.staticInputs
 		? Object.fromEntries(
-				Object.entries(input.staticInputs).map(([k, v]) => [
-					k,
-					{ type: 'static', value: v, fieldType: 'object' }
-				])
-			)
+			Object.entries(input.staticInputs).map(([k, v]) => [
+				k,
+				{ type: 'static', value: v, fieldType: 'object' }
+			])
+		)
 		: (existing?.fields ?? {})
 
 	if (input.type === 'inline') {
@@ -1145,10 +1212,16 @@ async function readWorkspaceItem(
 	triggerKind?: TriggerKind
 ): Promise<WorkspaceItem> {
 	switch (type) {
-		case 'script':
-			return scriptToItem(await ScriptService.getScriptByPath({ workspace, path }), true)
-		case 'flow':
-			return flowToItem(await FlowService.getFlowByPath({ workspace, path }), true)
+		case 'script': {
+			// Prefer the DB draft (newer than the deployed version) when one exists.
+			const script = await ScriptService.getScriptByPathWithDraft({ workspace, path })
+			return scriptToItem(script.draft ?? script, true)
+		}
+		case 'flow': {
+			// Prefer the DB draft (newer than the deployed version) when one exists.
+			const flow = await FlowService.getFlowByPathWithDraft({ workspace, path })
+			return flowToItem(flow.draft ?? flow, true)
+		}
 		case 'schedule':
 			return scheduleToItem(await ScheduleService.getSchedule({ workspace, path }), true)
 		case 'trigger':
@@ -1311,7 +1384,7 @@ function getFlowInstructions(): string {
 ${getFlowPrompt()}`
 }
 
-type InstructionSubject = (typeof INSTRUCTION_SUBJECTS)[number]
+type InstructionSubject = (typeof ALL_INSTRUCTION_SUBJECTS)[number]
 
 function getAppInstructions(): string {
 	return `# Global draft app instructions
@@ -1350,6 +1423,19 @@ function getResourceInstructions(): string {
 ${getResourcePrompt()}`
 }
 
+function getDatatableInstructions(language?: ScriptLang): string {
+	// Default to the TypeScript SDK so we return only what's needed, not both.
+	const lang = language ?? 'bun'
+	return `# Datatable SQL SDK reference
+
+Datatables are workspace-scoped managed PostgreSQL databases. In chat, explore and shape them with the \`list_datatables\`, \`get_datatable_table_schema\`, and \`exec_datatable_sql\` tools. The reference below is for code you author inside runnables (inline app runnables, scripts, or flow rawscript modules) that reads or writes datatable data at runtime.
+
+- A runnable accesses a datatable via \`wmill.datatable()\` (the default "main") or \`wmill.datatable('<name>')\`, referencing tables as \`schema.table\`.
+- Use parameterized queries (the tagged template in TypeScript, \`$1\`/\`$2\` placeholders in Python) — never interpolate untrusted values into SQL strings.
+
+${getDatatableSdkReference(lang)}`
+}
+
 function getInstructions(subject: InstructionSubject, language?: ScriptLang): string {
 	switch (subject) {
 		case 'script':
@@ -1360,6 +1446,8 @@ function getInstructions(subject: InstructionSubject, language?: ScriptLang): st
 			return getResourceInstructions()
 		case 'app':
 			return getAppInstructions()
+		case 'datatable':
+			return getDatatableInstructions(language)
 	}
 }
 
@@ -1368,7 +1456,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			getInstructionsSchema,
 			'get_instructions',
-			'Get authoring guidance for scripts, flows, resources, or apps.'
+			'Get authoring guidance for scripts, flows, resources, apps, or the datatable SQL SDK (wmill.datatable()) used inside runnables.'
 		),
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsed = getInstructionsSchema.parse(args)
@@ -1640,6 +1728,65 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
+			listRunsSchema,
+			'list_runs',
+			"List recent runs (jobs), most recent first. Optionally filter by path, creator, label, or status. Returns compact metadata only — use get_job_logs with a returned id to read a run's logs."
+		),
+		showDetails: true,
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			const parsed = listRunsSchema.parse(args)
+			toolCallbacks.setToolStatus(toolId, { content: 'Listing runs...' })
+			const jobs = await JobService.listJobs({
+				workspace,
+				scriptPathExact: parsed.path,
+				createdBy: parsed.created_by,
+				label: parsed.label,
+				success: parsed.success,
+				running: parsed.running,
+				perPage: parsed.limit ?? 30
+			})
+			const runs = jobs.map(summarizeRun)
+			const result = JSON.stringify(runs, null, 2)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Listed ${runs.length} run(s)`,
+				result
+			})
+			return result
+		}
+	},
+	{
+		def: createToolDef(
+			getJobLogsSchema,
+			'get_job_logs',
+			'Fetch the logs of a job by its id. Use this to inspect the output of an existing run.'
+		),
+		showDetails: true,
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			const parsed = getJobLogsSchema.parse(args)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Fetching logs for job ${parsed.id}...`
+			})
+			const logs = await JobService.getJobLogs({
+				workspace,
+				id: parsed.id,
+				// Always suppress the "to remove ansi colors, use: sed ..." hint the
+				// backend otherwise prepends — it is noise for the model and is not
+				// actual ANSI stripping (the raw logs are returned either way).
+				removeAnsiWarnings: true
+			})
+			const hasLogs = typeof logs === 'string' && logs.trim().length > 0
+			const result = hasLogs ? logs : 'No logs available for this job.'
+			toolCallbacks.setToolStatus(toolId, {
+				content: hasLogs
+					? `Fetched logs for job ${parsed.id}`
+					: `No logs available for job ${parsed.id}`,
+				result
+			})
+			return result
+		}
+	},
+	{
+		def: createToolDef(
 			deployWorkspaceItemSchema,
 			'deploy_workspace_item',
 			'Deploy a local draft to the workspace. Mutates the workspace.',
@@ -1876,7 +2023,9 @@ export const globalTools: Tool<{}>[] = [
 			'Check whether the side-panel preview is open in this AI session and which item (kind + path) it is showing. Call this before offering or calling open_preview so you do not re-open a preview that is already showing the item you just edited. Only meaningful inside a session.'
 		),
 		fn: async (ctx) => getSessionPreviewStatus(sessionIdFromCtx(ctx))
-	}
+	},
+	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
+	...getDatatableTools()
 ]
 
 // Tools that only make sense inside an AI session (they drive the session's
@@ -2295,9 +2444,9 @@ async function writeScheduleDraft(args: NewSchedule, ctx: WriteDraftCtx): Promis
 		? existingDraft
 		: backendExists
 			? ((await ScheduleService.getSchedule({
-					workspace,
-					path: args.path
-				})) as ScheduleDraftConfig)
+				workspace,
+				path: args.path
+			})) as ScheduleDraftConfig)
 			: undefined
 	const draft = mergeDraftConfig<ScheduleDraftConfig>(base, args as DraftConfig, args.path)
 
@@ -2708,12 +2857,11 @@ async function initApp(
 		path: string
 		summary?: string
 		framework: FrameworkKey
-		data?: { datatable?: string; schema?: string; tables?: string[] }
 	},
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
-	const { path, summary, framework, data } = args
+	const { path, summary, framework } = args
 
 	if (getGlobalDraft(workspace, 'app', path)) {
 		throw new Error(
@@ -2734,14 +2882,7 @@ async function initApp(
 	const value: AppDraftValue = {
 		summary,
 		files: { ...template },
-		runnables: { [STARTER_RUNNABLE_KEY]: { ...STARTER_RUNNABLE } },
-		...(data && {
-			data: {
-				tables: data.tables ?? [],
-				datatable: data.datatable,
-				schema: data.schema
-			}
-		})
+		runnables: { [STARTER_RUNNABLE_KEY]: { ...STARTER_RUNNABLE } }
 	}
 	await recomputeAppPolicy(value)
 	const stored = saveAppDraft(workspace, path, value)

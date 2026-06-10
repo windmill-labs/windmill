@@ -618,3 +618,255 @@
     - creates a Slack resource draft that references the secret variable instead of embedding the token
     - keeps both drafts under a sensible eval/global Slack-related path
     - does not create schedules, triggers, or deployed workspace changes
+
+- id: global-test19-datatable-not-configured-asks-to-set-up
+  prompt: |-
+    Here are two newsletter signups: alice@example.com and bob@example.com.
+    Save them into a workspace data table for me.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_datatables
+    forbiddenToolsUsed:
+      - exec_datatable_sql
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - checks which data tables exist in the workspace before acting
+    - recognizes that no data table is configured in this workspace
+    - explains that a data table must first be set up by the user in the workspace settings (Data Tables) and is not created via SQL
+    - does not run SQL, write a script, or invent a data table to work around the missing configuration
+    - tells the user to configure a data table and then try again
+
+- id: global-test20-datatable-no-hallucinated-main
+  prompt: |-
+    Pull the latest rows from the orders table in our data table so I can see recent orders.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_datatables
+    forbiddenToolsUsed:
+      - exec_datatable_sql
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - checks which data tables exist in the workspace before querying
+    - recognizes that no data table is configured in this workspace
+    - does not assume a data table named "main" (or any other name) exists
+    - does not run SQL against a guessed data table or fabricate order rows
+    - tells the user they need to set up a data table in the workspace settings first
+
+- id: global-test21-datatable-list-summarize
+  prompt: |-
+    What tables do we have in our workspace data table? Just give me the list.
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_datatables
+    forbiddenToolsUsed:
+      - get_datatable_table_schema
+      - exec_datatable_sql
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - lists the tables available in the workspace data table (orders and customers)
+    - answers from the data table listing rather than fabricating table names
+    - does not fetch column details or run SQL just to produce a table list
+
+- id: global-test22-datatable-inspect-columns
+  prompt: |-
+    What columns does the orders table have in our workspace data table?
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - get_datatable_table_schema
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - inspects the orders table schema in the workspace data table
+    - reports the orders columns (such as id, customer_id, total, status, created_at)
+    - answers from the retrieved schema rather than guessing the columns
+
+- id: global-test23-datatable-query-select
+  prompt: |-
+    Show me the orders in our workspace data table, including their status and total.
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - exec_datatable_sql
+    forbiddenToolsUsed:
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: exec_datatable_sql
+        field: sql
+        stringIncludesAnyOf:
+          - select
+  skipJudge: true
+  judgeChecklist:
+    - runs a SELECT query against the orders table in the workspace data table
+    - reports the orders returned by the query back to the user instead of fabricating data
+    - does not tell the user to set up a data table, since one already exists
+
+- id: global-test24-datatable-create-table
+  prompt: |-
+    Add a new table called refunds to our workspace data table, with an order id and a refund amount.
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - exec_datatable_sql
+    forbiddenToolsUsed:
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: exec_datatable_sql
+        field: sql
+        stringIncludesAnyOf:
+          - create table
+  skipJudge: true
+  judgeChecklist:
+    - creates the refunds table with a plain CREATE TABLE statement on the data table
+    - includes an order id and a refund amount column
+    - treats creating the table as a normal SQL statement and does not claim a separate registration step is needed
+    - does not write a script to create the table
+
+- id: global-test25-datatable-mutate-rows
+  prompt: |-
+    Mark order number 2 as shipped in our workspace data table.
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
+  runtime:
+    # Headroom for inspect-schema -> UPDATE -> verify; the in-memory engine now
+    # persists the write, so verification confirms on the first try (no loop).
+    maxTurns: 12
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - exec_datatable_sql
+    forbiddenToolsUsed:
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: exec_datatable_sql
+        field: sql
+        stringIncludesAnyOf:
+          - update
+          - insert into
+  skipJudge: true
+  judgeChecklist:
+    - runs an UPDATE on the orders table setting the status of order id 2 to shipped
+    - targets only order number 2 rather than rewriting the whole table
+    - confirms the change back to the user
+
+- id: global-test26-datatable-script-sdk
+  prompt: |-
+    Write a script that reads our workspace data table and returns the total revenue across all orders.
+    Leave it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        valueIncludes:
+          - wmill.datatable(
+  toolExpect:
+    requiredToolsUsed:
+      - get_instructions
+      - write_script
+    forbiddenToolsUsed:
+      - exec_datatable_sql
+      - deploy_workspace_item
+      - delete_workspace_item
+  # The judge has no datatable SDK reference and wrongly penalizes correct
+  # wmill.datatable() tagged-template usage, so rely on the deterministic checks:
+  # required get_instructions + write_script, forbidden exec_datatable_sql, and a
+  # draft that contains wmill.datatable(.
+  skipJudge: true
+  judgeChecklist:
+    - writes a script (not a chat-time SQL execution) that reads the workspace data table at runtime
+    - uses the wmill.datatable() SDK to query the orders table and sum the order totals
+    - returns the total revenue from the script
+    - leaves the result as an AI draft and does not deploy or save it
+
+- id: global-test27-list-recent-runs
+  prompt: |-
+    What are the most recent runs in this workspace? Give me a quick rundown of what ran and whether it succeeded.
+  initial: ai_evals/fixtures/frontend/global/initial/jobs_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_runs
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+      - write_script
+  # Read-only job inspection produces no draft, so the global judge (which only
+  # sees the drafts artifact) would score it empty — validate via tool use.
+  skipJudge: true
+  judgeChecklist:
+    - lists the recent runs from the workspace rather than fabricating them
+    - summarizes each run's path and success/failure from the returned data
+
+- id: global-test28-fetch-failed-run-logs
+  prompt: |-
+    The run with id 01920000-0000-7000-8000-0000000000f1 failed. Pull its logs and tell me what went wrong.
+  initial: ai_evals/fixtures/frontend/global/initial/jobs_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - get_job_logs
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+      - write_script
+    toolCallArgs:
+      - tool: get_job_logs
+        field: id
+        stringIncludesAnyOf:
+          - 01920000-0000-7000-8000-0000000000f1
+  # Same as above — no draft is produced, so rely on the deterministic tool-use
+  # and argument checks rather than the judge.
+  skipJudge: true
+  judgeChecklist:
+    - fetches the logs for the requested job id
+    - explains the failure from the returned logs (connection refused to the upstream API)

@@ -22,6 +22,7 @@ import {
 	ensureChatIdsSeeded,
 	materializeTransient,
 	sessionState,
+	setGeneratedSessionSummary,
 	setSessionChatId,
 	setSessionTarget,
 	type Session,
@@ -34,24 +35,38 @@ import {
 	setGetPreviewStatusHandler,
 	setOpenPreviewHandler
 } from '$lib/components/copilot/chat/global/core'
+import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
+import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
+import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
+
+// Per-kind load state for a session's editor target. Pure state container the
+// load methods write into; the editor-target gate reads it to decide between
+// the loading overlay, the not-found state, and a remount of the heavy editor.
+// `loadedPath` flips to the requested path only once the load settles (data
+// ready), which is what lets the gate remount on data-ready rather than on the
+// (synchronous) target swap.
+export interface LoadSlot {
+	loadedPath: string | undefined
+	loading: boolean
+	notFound: boolean
+}
+
+export type SessionTargetKind = 'flow' | 'script' | 'raw_app'
 
 export interface SessionRuntime {
 	readonly sessionId: string
 	readonly manager: AIChatManager
+	// Kind-agnostic accessor over the per-kind load slots, for consumers (the
+	// editor-target gate) that only need load state and not the typed store.
+	slot(kind: SessionTargetKind): LoadSlot
 	// Flow target state
 	readonly flowStore: StateStore<Flow>
 	readonly flowStateStore: { val: Record<string, any> }
 	readonly savedFlow: { val: (Flow & { draft?: Flow | undefined }) | undefined }
-	readonly loadingFlow: boolean
-	readonly notFound: boolean
-	readonly loadedPath: string | undefined
 	loadFlow(workspace: string, path: string, force?: boolean): Promise<void>
 	// Script target state (parallel to flow, populated only for script-targeted sessions)
 	readonly scriptStore: { val: NewScript | undefined }
 	readonly savedScript: { val: NewScriptWithDraft | undefined }
-	readonly loadingScript: boolean
-	readonly notFoundScript: boolean
-	readonly loadedScriptPath: string | undefined
 	loadScript(workspace: string, path: string, force?: boolean): Promise<void>
 	// Note: legacy drag-and-drop apps are intentionally NOT hosted in the
 	// session preview pane (only code-based raw apps are), so there's no
@@ -86,9 +101,6 @@ export interface SessionRuntime {
 			  }
 			| undefined
 	}
-	readonly loadingRawApp: boolean
-	readonly notFoundRawApp: boolean
-	readonly loadedRawAppPath: string | undefined
 	loadRawApp(workspace: string, path: string, force?: boolean): Promise<void>
 	// Discard the local draft + refresh the fork diff + force-reload the editor,
 	// so the preview matches the deployed version. Used by editor onDeploy + the
@@ -138,6 +150,74 @@ function emptyFlow(): Flow {
 	}
 }
 
+const GENERATED_SUMMARY_TIMEOUT_MS = 15000
+const GENERATED_SUMMARY_MAX_TRANSCRIPT_CHARS = 4000
+const GENERATED_SUMMARY_MAX_LENGTH = 60
+
+function buildSummaryTranscript(displayMessages: DisplayMessage[]): string {
+	return displayMessages
+		.filter((message) => message.role === 'user' || message.role === 'assistant')
+		.slice(0, 6)
+		.map((message) => `${message.role}: ${message.content}`)
+		.join('\n\n')
+		.slice(0, GENERATED_SUMMARY_MAX_TRANSCRIPT_CHARS)
+}
+
+function normalizeGeneratedSummary(summary: string | undefined): string | undefined {
+	const firstLine = summary
+		?.split('\n')
+		.map((line) => line.trim())
+		.find((line) => line.length > 0)
+	if (!firstLine) return undefined
+	const title = firstLine
+		.replace(/^title:\s*/i, '')
+		.replace(/^[-*]\s*/, '')
+		.replace(/^["'`]+|["'`]+$/g, '')
+		.replace(/[.!?]+$/g, '')
+		.replace(/\s+/g, ' ')
+		.trim()
+	if (!/[A-Za-z0-9]/.test(title)) return undefined
+	if (title.length <= GENERATED_SUMMARY_MAX_LENGTH) return title
+	return title.slice(0, GENERATED_SUMMARY_MAX_LENGTH).trim()
+}
+
+async function generateSessionSummary(
+	displayMessages: DisplayMessage[]
+): Promise<string | undefined> {
+	const transcript = buildSummaryTranscript(displayMessages)
+	if (!transcript) return undefined
+	const abortController = new AbortController()
+	const timeout = setTimeout(() => abortController.abort(), GENERATED_SUMMARY_TIMEOUT_MS)
+	const messages: ChatCompletionMessageParam[] = [
+		{
+			role: 'system',
+			content:
+				'Name this AI chat session. Return only a concise title, 2 to 6 words, no quotes, no period.'
+		},
+		{
+			role: 'user',
+			content: `Conversation:\n${transcript}`
+		}
+	]
+	try {
+		return normalizeGeneratedSummary(
+			await getNonStreamingMetadataCompletion(messages, abortController)
+		)
+	} finally {
+		clearTimeout(timeout)
+	}
+}
+
+async function generateAndApplySessionSummary(sessionId: string, manager: AIChatManager) {
+	const session = sessionState.sessions.find((s) => s.id === sessionId)
+	if (!session || session.summarySource !== 'placeholder') return
+	const chatId = session.chatId
+	if (!chatId) return
+	const title = await generateSessionSummary([...manager.displayMessages])
+	if (!title) return
+	setGeneratedSessionSummary(sessionId, title, chatId)
+}
+
 function createRuntime(session: Session): SessionRuntime {
 	const manager = new AIChatManager()
 	manager.disabledModes = { navigator: true }
@@ -173,6 +253,7 @@ function createRuntime(session: Session): SessionRuntime {
 			)
 		}
 	}
+	manager.afterFirstTurnSaved = () => generateAndApplySessionSummary(session.id, manager)
 
 	const flowStore: StateStore<Flow> = $state({ val: emptyFlow() })
 	const flowStateStore: { val: Record<string, any> } = $state({ val: {} })
@@ -180,21 +261,15 @@ function createRuntime(session: Session): SessionRuntime {
 		val: undefined
 	})
 
-	let loadingFlow = $state(false)
-	let notFound = $state(false)
-	let loadedPath = $state<string | undefined>(undefined)
+	const flowSlot: LoadSlot = $state({ loadedPath: undefined, loading: false, notFound: false })
 
 	const scriptStore: { val: NewScript | undefined } = $state({ val: undefined })
 	const savedScript: { val: NewScriptWithDraft | undefined } = $state({ val: undefined })
-	let loadingScript = $state(false)
-	let notFoundScript = $state(false)
-	let loadedScriptPath = $state<string | undefined>(undefined)
+	const scriptSlot: LoadSlot = $state({ loadedPath: undefined, loading: false, notFound: false })
 
 	const rawApp: { val: SessionRuntime['rawApp']['val'] } = $state({ val: undefined })
 	const savedRawApp: { val: SessionRuntime['savedRawApp']['val'] } = $state({ val: undefined })
-	let loadingRawApp = $state(false)
-	let notFoundRawApp = $state(false)
-	let loadedRawAppPath = $state<string | undefined>(undefined)
+	const rawAppSlot: LoadSlot = $state({ loadedPath: undefined, loading: false, notFound: false })
 
 	const forkComparison: { val: WorkspaceComparison | undefined } = $state({ val: undefined })
 	let loadingForkComparison = $state(false)
@@ -227,25 +302,19 @@ function createRuntime(session: Session): SessionRuntime {
 	return {
 		sessionId: session.id,
 		manager,
+		slot(kind: SessionTargetKind): LoadSlot {
+			return kind === 'flow' ? flowSlot : kind === 'script' ? scriptSlot : rawAppSlot
+		},
 		flowStore,
 		flowStateStore,
 		savedFlow,
-		get loadingFlow() {
-			return loadingFlow
-		},
-		get notFound() {
-			return notFound
-		},
-		get loadedPath() {
-			return loadedPath
-		},
 
 		async loadFlow(workspace: string, path: string, force = false) {
-			if (loadedPath === path && !force) return
+			if (flowSlot.loadedPath === path && !force) return
 			// See loadScript: forced reload remounts via the render gate.
-			if (force) loadedPath = undefined
-			loadingFlow = true
-			notFound = false
+			if (force) flowSlot.loadedPath = undefined
+			flowSlot.loading = true
+			flowSlot.notFound = false
 			try {
 				// Draft first. UserDraft is the shared authoritative content
 				// source — the chat (write_flow / patch_flow_json /
@@ -277,7 +346,7 @@ function createRuntime(session: Session): SessionRuntime {
 					await initFlow(aiDraft, flowStore, flowStateStore)
 					if (deployedVersionId != null && flowStore.val)
 						flowStore.val.version_id = deployedVersionId
-					loadedPath = path
+					flowSlot.loadedPath = path
 					return
 				}
 
@@ -289,35 +358,27 @@ function createRuntime(session: Session): SessionRuntime {
 				UserDraft.save('flow', path, flow, { workspace })
 				await initFlow(flow, flowStore, flowStateStore)
 				if (deployedVersionId != null && flowStore.val) flowStore.val.version_id = deployedVersionId
-				loadedPath = path
+				flowSlot.loadedPath = path
 			} catch (err) {
 				console.error('Failed to load flow', err)
-				notFound = true
+				flowSlot.notFound = true
 			} finally {
-				loadingFlow = false
+				flowSlot.loading = false
 			}
 		},
 
 		scriptStore,
 		savedScript,
-		get loadingScript() {
-			return loadingScript
-		},
-		get notFoundScript() {
-			return notFoundScript
-		},
-		get loadedScriptPath() {
-			return loadedScriptPath
-		},
 
 		async loadScript(workspace: string, path: string, force = false) {
-			if (loadedScriptPath === path && !force) return
-			// Forced reload: clearing loadedScriptPath drops us into the
-			// `{#if loading && !loadedScriptPath}` gate, which unmounts then remounts
-			// the editor — avoids the Monaco init race a synchronous {#key} would hit.
-			if (force) loadedScriptPath = undefined
-			loadingScript = true
-			notFoundScript = false
+			if (scriptSlot.loadedPath === path && !force) return
+			// Forced reload: clearing the slot's loadedPath drops us into
+			// SessionEditorTarget's `{:else if slot.loadedPath === undefined}` gate,
+			// which unmounts then remounts the editor — avoids the Monaco init race a
+			// synchronous {#key} would hit.
+			if (force) scriptSlot.loadedPath = undefined
+			scriptSlot.loading = true
+			scriptSlot.notFound = false
 			try {
 				// Draft first. UserDraft is the shared authoritative content
 				// source — the chat (write_script / edit_script) and the
@@ -362,7 +423,7 @@ function createRuntime(session: Session): SessionRuntime {
 					if (aiDraft.language) baseline.language = aiDraft.language
 					if (aiDraft.summary !== undefined) baseline.summary = aiDraft.summary
 					scriptStore.val = baseline
-					loadedScriptPath = path
+					scriptSlot.loadedPath = path
 					return
 				}
 
@@ -378,33 +439,24 @@ function createRuntime(session: Session): SessionRuntime {
 				baseline.parent_hash = result.hash
 				UserDraft.save<NewScript>('script', path, baseline, { workspace })
 				scriptStore.val = baseline
-				loadedScriptPath = path
+				scriptSlot.loadedPath = path
 			} catch (err) {
 				console.error('Failed to load script', err)
-				notFoundScript = true
+				scriptSlot.notFound = true
 			} finally {
-				loadingScript = false
+				scriptSlot.loading = false
 			}
 		},
 
 		rawApp,
 		savedRawApp,
-		get loadingRawApp() {
-			return loadingRawApp
-		},
-		get notFoundRawApp() {
-			return notFoundRawApp
-		},
-		get loadedRawAppPath() {
-			return loadedRawAppPath
-		},
 
 		async loadRawApp(workspace: string, path: string, force = false) {
-			if (loadedRawAppPath === path && !force) return
+			if (rawAppSlot.loadedPath === path && !force) return
 			// See loadScript: forced reload remounts via the render gate.
-			if (force) loadedRawAppPath = undefined
-			loadingRawApp = true
-			notFoundRawApp = false
+			if (force) rawAppSlot.loadedPath = undefined
+			rawAppSlot.loading = true
+			rawAppSlot.notFound = false
 			try {
 				// Draft first. UserDraft is the shared authoritative content
 				// source — the chat (init_app / write_app_file / ...) and the
@@ -442,7 +494,7 @@ function createRuntime(session: Session): SessionRuntime {
 						},
 						aiDraft
 					)
-					loadedRawAppPath = path
+					rawAppSlot.loadedPath = path
 					return
 				}
 
@@ -487,12 +539,12 @@ function createRuntime(session: Session): SessionRuntime {
 				}
 				UserDraft.save('raw_app', path, runtimeRawAppToDraft(runtimeValue), { workspace })
 				rawApp.val = runtimeValue
-				loadedRawAppPath = path
+				rawAppSlot.loadedPath = path
 			} catch (err) {
 				console.error('Failed to load raw app', err)
-				notFoundRawApp = true
+				rawAppSlot.notFound = true
 			} finally {
-				loadingRawApp = false
+				rawAppSlot.loading = false
 			}
 		},
 
@@ -680,11 +732,7 @@ setDeployedInSessionHandler(({ sessionId: callerSessionId, kind, path }) => {
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
 	const runtime = runtimes.get(sessionId)
 	if (!session?.workspace_id || !runtime) return
-	const open =
-		(kind === 'script' && runtime.loadedScriptPath === path) ||
-		(kind === 'flow' && runtime.loadedPath === path) ||
-		(kind === 'raw_app' && runtime.loadedRawAppPath === path)
-	if (!open) return
+	if (runtime.slot(kind).loadedPath !== path) return
 	runtime.syncPreviewWithDeployed(session.workspace_id, kind, path)
 })
 

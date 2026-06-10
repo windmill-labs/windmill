@@ -136,6 +136,9 @@
 		liveEditorDraftStoragePath?: string
 		// Fired after a successful deploy; lets the session preview reload.
 		onDeploy?: (e: { path: string }) => void
+		// Fired after a successful server-draft save; lets the session refresh the
+		// draft-bar count (the script/flow editors do the same on save-draft).
+		onSaveDraft?: (e: { path: string }) => void
 	}
 
 	let {
@@ -162,7 +165,8 @@
 		onToggleSidebar = undefined,
 		onNavigate = undefined,
 		liveEditorDraftStoragePath = undefined,
-		onDeploy = undefined
+		onDeploy = undefined,
+		onSaveDraft = undefined
 	}: Props = $props()
 
 	let newEditedPath = $state(
@@ -364,6 +368,29 @@
 		})
 	}
 
+	async function openDiffDrawer() {
+		if (!savedApp) {
+			return
+		}
+
+		// deployedValue should be syncronized when we open Diff
+		await syncWithDeployed()
+
+		diffDrawer?.openDrawer()
+		diffDrawer?.setDiff({
+			mode: 'normal',
+			deployed: deployedValue ?? savedApp,
+			draft: savedApp.draft,
+			current: {
+				summary: summary,
+				value: app,
+				path: newEditedPath || savedApp.draft?.path || savedApp.path,
+				policy,
+				custom_path: customPath
+			}
+		})
+	}
+
 	async function updateApp(npath: string) {
 		if (!app) {
 			sendUserToast(`App hasn't been loaded yet`, true)
@@ -494,6 +521,8 @@
 			// a future "+ App" click opens on a clean slate.
 			if (!inSessionPane) UserDraft.remove('raw_app', appPath)
 			dispatch('savedNewAppPath', newEditedPath)
+			sendUserToast('Draft saved')
+			onSaveDraft?.({ path: newEditedPath })
 		} catch (e) {
 			sendUserToast(`Error saving initial draft: ${e.body ?? e.message}`, true)
 		}
@@ -506,8 +535,15 @@
 			return
 		}
 		if (newApp) {
-			// initial draft
-			draftDrawerOpen = true
+			if (appPath === '') {
+				// Standalone "+ App" with no path chosen yet — pick one via the drawer.
+				draftDrawerOpen = true
+				return
+			}
+			// Path already known (e.g. an AI-created raw app in the session preview).
+			// The path-picker drawer is gated on `appPath == ''`, so opening it here
+			// renders nothing — save the initial draft directly instead.
+			await saveInitialDraft()
 			return
 		}
 		if (!savedApp) {
@@ -598,6 +634,7 @@
 			if (newApp || savedApp.draft_only) {
 				dispatch('savedNewAppPath', newEditedPath || path)
 			}
+			onSaveDraft?.({ path: newEditedPath || path })
 		} catch (e) {
 			loading.saveDraft = false
 			throw e
@@ -682,33 +719,6 @@
 			action: () => {
 				publishToHubDrawerOpen = true
 			}
-		},
-		{
-			displayName: 'Diff',
-			icon: DiffIcon,
-			action: async () => {
-				if (!savedApp) {
-					return
-				}
-
-				// deployedValue should be syncronized when we open Diff
-				await syncWithDeployed()
-
-				diffDrawer?.openDrawer()
-				diffDrawer?.setDiff({
-					mode: 'normal',
-					deployed: deployedValue ?? savedApp,
-					draft: savedApp.draft,
-					current: {
-						summary: summary,
-						value: app,
-						path: newEditedPath || savedApp.draft?.path || savedApp.path,
-						policy,
-						custom_path: customPath
-					}
-				})
-			},
-			disabled: !savedApp
 		}
 	])
 
@@ -964,6 +974,18 @@
 				></Button>
 			{/snippet}
 		</DropdownV2>
+
+		<Button
+			variant="default"
+			unifiedSize="md"
+			on:click={() => openDiffDrawer()}
+			disabled={!savedApp}
+			iconOnly={compactTopbar}
+			title="Diff"
+			startIcon={{ icon: DiffIcon }}
+		>
+			Diff
+		</Button>
 
 		<div class="{compactTopbar ? 'hidden' : 'hidden md:inline'} relative overflow-visible">
 			<Button

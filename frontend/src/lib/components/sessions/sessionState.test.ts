@@ -4,11 +4,18 @@ import {
 	commitSessionWorkspace,
 	deriveForkStatus,
 	isForkSession,
+	renameSession,
+	setGeneratedSessionSummary,
 	sessionState,
 	type Session
 } from './sessionState.svelte'
-import { workspaceStore, type UserWorkspace } from '$lib/stores'
-import type { WorkspaceComparison } from '$lib/gen'
+import {
+	enterpriseLicense,
+	usersWorkspaceStore,
+	workspaceStore,
+	type UserWorkspace
+} from '$lib/stores'
+import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
 
 // Force createWorkspaceFork to fail so we can pin commitSessionWorkspace's
 // failure contract (the invariant the beforeSend abort fix relies on).
@@ -121,6 +128,10 @@ describe('deriveForkStatus', () => {
 describe('commitSessionWorkspace — fork-creation failure', () => {
 	it('returns undefined and drops pending_fork (so beforeSend aborts the send)', async () => {
 		const id = 'test-commit-fork-fail'
+		// Forking is licensed here so the commit reaches materializeFork (which is
+		// mocked to fail); the unlicensed path is covered separately below.
+		const prevLicense = get(enterpriseLicense)
+		enterpriseLicense.set('test-license')
 		sessionState.sessions.push({
 			id,
 			name: 'fork-fail',
@@ -138,6 +149,78 @@ describe('commitSessionWorkspace — fork-creation failure', () => {
 		} finally {
 			const i = sessionState.sessions.findIndex((x) => x.id === id)
 			if (i >= 0) sessionState.sessions.splice(i, 1)
+			enterpriseLicense.set(prevLicense)
+		}
+	})
+})
+
+// Set the workspace list to a given number of non-'admins' workspaces so the
+// commit-path's CE workspace-cap check (mirror of backend _check_nb_of_workspaces)
+// can be exercised. Returns a restore fn.
+function withNonAdminWorkspaces(count: number): () => void {
+	const prev = get(usersWorkspaceStore)
+	const workspaces = Array.from({ length: count }, (_, i) => ws(`ws_${i}`))
+	usersWorkspaceStore.set({ email: 't@t', workspaces } as never)
+	return () => usersWorkspaceStore.set(prev)
+}
+
+describe('commitSessionWorkspace — CE workspace-cap fork guard', () => {
+	it('throws and never calls createWorkspaceFork when the CE workspace cap is reached', async () => {
+		const id = 'test-commit-fork-capped'
+		const prevLicense = get(enterpriseLicense)
+		enterpriseLicense.set(undefined)
+		// At/above the cap (2 non-'admins' workspaces) the backend would reject, so
+		// the client guard blocks the commit before materializeFork.
+		const restoreWs = withNonAdminWorkspaces(2)
+		vi.mocked(WorkspaceService.createWorkspaceFork).mockClear()
+		sessionState.sessions.push({
+			id,
+			name: 'fork-capped',
+			createdAt: 0,
+			pending_fork: { parent_workspace_id: 'parent_ws', id: 'wm-fork-capped', name: 'capped' }
+		} as Session)
+		try {
+			await expect(commitSessionWorkspace(id, 'parent_ws')).rejects.toThrow(/limited to/)
+			expect(WorkspaceService.createWorkspaceFork).not.toHaveBeenCalled()
+			// pending_fork is preserved so the block persists until the user picks a
+			// non-fork workspace (which clears it via setSessionPendingWorkspace).
+			const s = sessionState.sessions.find((x) => x.id === id)
+			expect(s?.pending_fork).toBeDefined()
+			expect(s?.workspace_id).toBeUndefined()
+		} finally {
+			const i = sessionState.sessions.findIndex((x) => x.id === id)
+			if (i >= 0) sessionState.sessions.splice(i, 1)
+			restoreWs()
+			enterpriseLicense.set(prevLicense)
+		}
+	})
+
+	it('lets an unlicensed user under the cap proceed to createWorkspaceFork', async () => {
+		const id = 'test-commit-fork-under-cap'
+		const prevLicense = get(enterpriseLicense)
+		enterpriseLicense.set(undefined)
+		// Below the cap (1 non-'admins' workspace) CE still allows a fork — the
+		// guard must NOT fire. createWorkspaceFork is mocked to reject, so the
+		// commit falls through to the failure contract (undefined, pending dropped).
+		const restoreWs = withNonAdminWorkspaces(1)
+		vi.mocked(WorkspaceService.createWorkspaceFork).mockClear()
+		sessionState.sessions.push({
+			id,
+			name: 'fork-under-cap',
+			createdAt: 0,
+			pending_fork: { parent_workspace_id: 'parent_ws', id: 'wm-fork-ok', name: 'ok' }
+		} as Session)
+		try {
+			const committed = await commitSessionWorkspace(id, 'parent_ws')
+			expect(committed).toBeUndefined()
+			expect(WorkspaceService.createWorkspaceFork).toHaveBeenCalled()
+			const s = sessionState.sessions.find((x) => x.id === id)
+			expect(s?.pending_fork).toBeUndefined()
+		} finally {
+			const i = sessionState.sessions.findIndex((x) => x.id === id)
+			if (i >= 0) sessionState.sessions.splice(i, 1)
+			restoreWs()
+			enterpriseLicense.set(prevLicense)
 		}
 	})
 })
@@ -191,6 +274,52 @@ describe('commitSessionWorkspace — workspaceStore sync (non-fork branch)', () 
 			const i = sessionState.sessions.findIndex((x) => x.id === id)
 			if (i >= 0) sessionState.sessions.splice(i, 1)
 			workspaceStore.set(prev)
+		}
+	})
+})
+
+describe('session summary generation guards', () => {
+	it('applies a generated summary only while the placeholder is still untouched', () => {
+		const id = 'test-generated-summary'
+		sessionState.sessions.push({
+			id,
+			name: 'generated-summary',
+			createdAt: 0,
+			chatId: 'chat-1',
+			summary: 'Bright session',
+			summarySource: 'placeholder'
+		} as Session)
+		try {
+			expect(setGeneratedSessionSummary(id, 'Build invoice workflow', 'chat-1')).toBe(true)
+			const s = sessionState.sessions.find((x) => x.id === id)
+			expect(s?.summary).toBe('Build invoice workflow')
+			expect(s?.summarySource).toBe('generated')
+		} finally {
+			const i = sessionState.sessions.findIndex((x) => x.id === id)
+			if (i >= 0) sessionState.sessions.splice(i, 1)
+		}
+	})
+
+	it('does not overwrite a manual rename or a different chat id', () => {
+		const id = 'test-generated-summary-manual'
+		sessionState.sessions.push({
+			id,
+			name: 'generated-summary-manual',
+			createdAt: 0,
+			chatId: 'chat-1',
+			summary: 'Bright session',
+			summarySource: 'placeholder'
+		} as Session)
+		try {
+			expect(setGeneratedSessionSummary(id, 'Wrong chat title', 'chat-2')).toBe(false)
+			renameSession(id, 'My chosen title')
+			expect(setGeneratedSessionSummary(id, 'Generated title', 'chat-1')).toBe(false)
+			const s = sessionState.sessions.find((x) => x.id === id)
+			expect(s?.summary).toBe('My chosen title')
+			expect(s?.summarySource).toBe('manual')
+		} finally {
+			const i = sessionState.sessions.findIndex((x) => x.id === id)
+			if (i >= 0) sessionState.sessions.splice(i, 1)
 		}
 	})
 })
