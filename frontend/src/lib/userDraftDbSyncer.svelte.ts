@@ -403,9 +403,27 @@ export const UserDraftDbSyncer = {
 			await runner.submitAndWait(key, () => postSave(opts))
 			return
 		}
-		debouncer.schedule(key, () => {
-			runner.submit(key, () => postSave(opts))
-		})
+		debouncer.schedule(
+			key,
+			() => {
+				runner.submit(key, () => postSave(opts))
+			},
+			{
+				// Raw-app file changes reach us already coalesced: the UI
+				// Builder iframe holds a ~1s trailing debounce on its
+				// rebuild and only posts `setFiles` when it fires. Stacking
+				// our 1.5s trailing window on top is a double debounce —
+				// the first burst's save lands ~2.5s after the user stops
+				// typing. Leading edge mirrors the classic editor's
+				// "first keystroke materializes immediately" behavior:
+				// the first (already-debounced) change POSTs right away,
+				// follow-ups inside the window still coalesce trailing
+				// with the max-wait ceiling. The app build itself keeps
+				// its own classic trailing debounce inside the iframe —
+				// this only affects draft persistence.
+				leading: opts.itemKind === 'raw_app'
+			}
+		)
 	},
 
 	/**

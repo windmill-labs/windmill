@@ -21,8 +21,15 @@ export type DebouncedTask = () => unknown | Promise<unknown>
 
 export type DebouncerByKey = {
 	/** Replace any pending task under `key` with `fn`, set/extend the
-	 * timer to `min(now + debounceMs, chainStart + maxDebounceMs)`. */
-	schedule(key: string, fn: DebouncedTask): void
+	 * timer to `min(now + debounceMs, chainStart + maxDebounceMs)`.
+	 *
+	 * `leading: true` adds a leading edge: when the key has no pending
+	 * chain AND the last fire was more than `debounceMs` ago, `fn` runs
+	 * immediately instead of waiting out a trailing window. Subsequent
+	 * schedules inside the window debounce as usual (with the max-wait
+	 * ceiling). Use for sources whose bursts are already coalesced
+	 * upstream — re-debouncing them only adds latency. */
+	schedule(key: string, fn: DebouncedTask, opts?: { leading?: boolean }): void
 	/** Clear the timer and drop the pending task for `key` without
 	 * running it. Returns true if there was something to cancel. Use
 	 * to hand control of a key over to an imperative path (e.g. an
@@ -53,17 +60,15 @@ export function createDebouncerByKey(opts: {
 	// `SvelteSet` (not a plain `$state` field) gives per-key subscriptions
 	// — readers only re-run when their own key flips.
 	const pendingKeys = new SvelteSet<string>()
+	// Wall-clock ms of the last task run per key (leading OR trailing).
+	// Gates the leading edge: a second `leading` schedule right after a
+	// fire would otherwise bypass the debounce entirely.
+	const lastFireAt = new Map<string, number>()
 
-	function fire(key: string): void {
-		const entry = entries.get(key)
-		if (!entry) return
-		entries.delete(key)
-		// Drop from `pendingKeys` before running the task: the task hands
-		// off to the coalescing runner, which flips the key to "running" in
-		// the same synchronous tick, so there's no observable gap to "none".
-		pendingKeys.delete(key)
+	function runTask(key: string, task: DebouncedTask): void {
+		lastFireAt.set(key, Date.now())
 		try {
-			const result = entry.task()
+			const result = task()
 			if (result && typeof (result as Promise<unknown>).then === 'function') {
 				;(result as Promise<unknown>).catch((e) =>
 					console.error('debouncerByKey: task rejected', e)
@@ -74,9 +79,29 @@ export function createDebouncerByKey(opts: {
 		}
 	}
 
-	function schedule(key: string, fn: DebouncedTask): void {
+	function fire(key: string): void {
+		const entry = entries.get(key)
+		if (!entry) return
+		entries.delete(key)
+		// Drop from `pendingKeys` before running the task: the task hands
+		// off to the coalescing runner, which flips the key to "running" in
+		// the same synchronous tick, so there's no observable gap to "none".
+		pendingKeys.delete(key)
+		runTask(key, entry.task)
+	}
+
+	function schedule(key: string, fn: DebouncedTask, schedOpts?: { leading?: boolean }): void {
 		const now = Date.now()
 		const existing = entries.get(key)
+
+		// Leading edge: idle key (no pending chain) + cooled down since the
+		// last fire → run now, no timer. The next schedule inside the
+		// window takes the trailing path below.
+		if (schedOpts?.leading && !existing && now - (lastFireAt.get(key) ?? 0) >= debounceMs) {
+			runTask(key, fn)
+			return
+		}
+
 		const chainStart = existing?.chainStart ?? now
 		const fireAt = Math.min(now + debounceMs, chainStart + maxDebounceMs)
 		const delay = Math.max(0, fireAt - now)
