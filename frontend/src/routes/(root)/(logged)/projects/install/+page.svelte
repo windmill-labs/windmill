@@ -140,7 +140,7 @@
 					r.path,
 					ResourceService.createResource({
 						workspace,
-						updateIfExists: true,
+						updateIfExists: false,
 						requestBody: {
 							path: r.path,
 							resource_type: r.resource_type,
@@ -152,7 +152,20 @@
 			}
 			for (const a of proj.apps) {
 				if (a.app_type === 'raw') {
-					const parsed = JSON.parse(a.value?.raw ?? '{}')
+					let parsed: any
+					try {
+						parsed = JSON.parse(a.value?.raw ?? '{}')
+					} catch (e: any) {
+						results = [
+							...results,
+							{
+								path: a.path,
+								ok: false,
+								error: `invalid raw app bundle: ${e?.message ?? String(e)}`
+							}
+						]
+						continue
+					}
 					const files = { ...(parsed.files ?? {}) }
 					const js = files['/bundle.js'] ?? ''
 					const css = files['/bundle.css'] ?? ''
