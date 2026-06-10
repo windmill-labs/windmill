@@ -107,6 +107,21 @@ describe('buildPathMap', () => {
 		expect(m.get('u/alice/db')).toBe('f/proj/db_2')
 		expect(m.get('u/bob/db')).toBe('f/proj/db_3')
 	})
+	it('maps internal paths to themselves, preserving subfolder depth', () => {
+		const m = buildPathMap(['f/proj/api', 'f/proj/sub/deep/script'], 'proj')
+		expect(m.get('f/proj/api')).toBe('f/proj/api')
+		expect(m.get('f/proj/sub/deep/script')).toBe('f/proj/sub/deep/script')
+	})
+	it('does not flatten two internal items sharing a leaf name', () => {
+		const m = buildPathMap(['f/proj/a/x', 'f/proj/b/x'], 'proj')
+		expect(m.get('f/proj/a/x')).toBe('f/proj/a/x')
+		expect(m.get('f/proj/b/x')).toBe('f/proj/b/x')
+	})
+	it('relocates an external onto a suffix when its leaf collides with an internal path', () => {
+		const m = buildPathMap(['f/proj/db', 'u/admin/db'], 'proj')
+		expect(m.get('f/proj/db')).toBe('f/proj/db')
+		expect(m.get('u/admin/db')).toBe('f/proj/db_2')
+	})
 })
 
 describe('rewriteContent', () => {

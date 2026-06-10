@@ -99,16 +99,26 @@ export function extractAppRefs(value: any): Ref[] {
 }
 
 /**
- * Build the relocation map for external paths. Each `u/<user>/<name>` or
- * `f/<other>/<name>` maps to `f/<slug>/<name>`; on collision the later entry
- * gets a `_2`, `_3`… suffix. Input is sorted first so the suffix assignment is
+ * Build the relocation map. Paths already inside the project folder
+ * (`f/<slug>/...`) map to themselves — their structure and subfolder depth are
+ * preserved. Only external paths (`u/<user>/<name>` or `f/<other>/<name>`) are
+ * relocated to `f/<slug>/<name>`; on collision the later entry gets a `_2`,
+ * `_3`… suffix. Internal paths are reserved first so an external one can never
+ * land on an occupied internal path. Input is sorted so suffix assignment is
  * deterministic regardless of discovery order.
  */
-export function buildPathMap(externalPaths: Iterable<string>, slug: string): Map<string, string> {
+export function buildPathMap(paths: Iterable<string>, slug: string): Map<string, string> {
 	const map = new Map<string, string>()
 	const used = new Set<string>()
-	const sorted = [...new Set(externalPaths)].sort()
+	const sorted = [...new Set(paths)].sort()
+	for (const p of sorted) {
+		if (classifyPath(p, slug) === 'internal') {
+			map.set(p, p)
+			used.add(p)
+		}
+	}
 	for (const old of sorted) {
+		if (map.has(old)) continue
 		const name = old.split('/').filter(Boolean).pop() ?? old
 		let candidate = `f/${slug}/${name}`
 		let n = 2
