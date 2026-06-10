@@ -12,7 +12,7 @@
 	interface Props {
 		open?: boolean
 		customPrompts: Record<string, string>
-		onSave?: () => void
+		onSave?: () => void | Promise<void>
 		onReset: () => void
 		hasChanges: boolean
 		scope?: 'user' | 'workspace' | 'instance'
@@ -76,9 +76,22 @@
 	// A single prompt (e.g. the global-chat quick settings) doesn't need per-mode framing
 	let singleMode = $derived(displayModes.length === 1)
 
-	function handleSave() {
-		onSave?.()
-		open = false
+	let saving = $state(false)
+
+	async function handleSave() {
+		if (saving) return
+		saving = true
+		try {
+			// onSave may be async (e.g. the workspace round-trip); await it so the modal stays
+			// open while the save is in flight and only closes on success. A failing onSave is
+			// expected to surface its own toast and throw, leaving the modal open.
+			await onSave?.()
+			open = false
+		} catch {
+			// keep the modal open; onSave already reported the error
+		} finally {
+			saving = false
+		}
 	}
 
 	function handleReset() {
@@ -179,11 +192,22 @@
 					{/if}
 				</div>
 				<div class="flex gap-2">
-					<Button size="sm" variant="default" disabled={!hasChanges} onclick={handleReset}>
+					<Button
+						size="sm"
+						variant="default"
+						disabled={!hasChanges || saving}
+						onclick={handleReset}
+					>
 						Reset
 					</Button>
 					{#if onSave}
-						<Button size="sm" variant="accent" disabled={!hasChanges} onclick={handleSave}>
+						<Button
+							size="sm"
+							variant="accent"
+							disabled={!hasChanges}
+							loading={saving}
+							onclick={handleSave}
+						>
 							Save Prompts
 						</Button>
 					{/if}

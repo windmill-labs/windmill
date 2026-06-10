@@ -131,6 +131,8 @@
 			sendUserToast('Workspace AI prompt saved')
 		} catch (err) {
 			sendUserToast(`Failed to save workspace AI prompt: ${err}`, true)
+			// Re-throw so AIPromptsModal keeps the modal open on a failed save.
+			throw err
 		}
 	}
 
