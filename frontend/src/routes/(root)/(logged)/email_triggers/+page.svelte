@@ -328,7 +328,7 @@
 				<div class="text-center text-sm text-primary mt-2"> No email triggers </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_local_part, path, edited_by, edited_at, script_path, is_flow, extra_perms, canWrite, marked, local_part, mode, retry, error_handler_path, error_handler_args, labels, draft_only } (path)}
+					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_local_part, path, edited_by, edited_at, script_path, is_flow, extra_perms, canWrite, marked, local_part, mode, retry, error_handler_path, error_handler_args, labels, draft_only, is_draft } (path)}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 						{@const emailAddress = getEmailAddress(
 							local_part,
@@ -361,7 +361,7 @@
 										{/if}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-light">
-										{path}
+										{path}{is_draft ? '*' : ''}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-light">
 										runnable: {script_path}

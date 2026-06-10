@@ -352,7 +352,7 @@
 							</tr>
 						</Head>
 						<tbody class="divide-y">
-							{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, labels, ws_specific, draft_only }}
+							{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, labels, ws_specific, draft_only, is_draft }}
 								<Row>
 									<Cell class="!px-0 text-center w-12" first>
 										<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -365,7 +365,7 @@
 												onclick={() => variableEditor?.editVariable(path)}
 												href="#{path}"
 											>
-												{path}
+												{path}{is_draft ? '*' : ''}
 											</a>
 											{#if draft_only}
 												<DraftBadge draft_only is_draft={false} />

@@ -64,6 +64,40 @@ pub enum UserDraftItemKind {
     TriggerGithub,
 }
 
+impl UserDraftItemKind {
+    /// The snake_case wire/DB string — same encoding serde and sqlx use.
+    /// For interpolating into dynamically-built SQL (`?::DRAFT_KIND`
+    /// binds want a string); keep in lockstep with the variants above.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            UserDraftItemKind::Script => "script",
+            UserDraftItemKind::Flow => "flow",
+            UserDraftItemKind::App => "app",
+            UserDraftItemKind::RawApp => "raw_app",
+            UserDraftItemKind::Resource => "resource",
+            UserDraftItemKind::Variable => "variable",
+            UserDraftItemKind::TriggerSchedule => "trigger_schedule",
+            UserDraftItemKind::TriggerWebhook => "trigger_webhook",
+            UserDraftItemKind::TriggerDefaultEmail => "trigger_default_email",
+            UserDraftItemKind::TriggerEmail => "trigger_email",
+            UserDraftItemKind::TriggerHttp => "trigger_http",
+            UserDraftItemKind::TriggerWebsocket => "trigger_websocket",
+            UserDraftItemKind::TriggerPostgres => "trigger_postgres",
+            UserDraftItemKind::TriggerKafka => "trigger_kafka",
+            UserDraftItemKind::TriggerNats => "trigger_nats",
+            UserDraftItemKind::TriggerMqtt => "trigger_mqtt",
+            UserDraftItemKind::TriggerSqs => "trigger_sqs",
+            UserDraftItemKind::TriggerGcp => "trigger_gcp",
+            UserDraftItemKind::TriggerAzure => "trigger_azure",
+            UserDraftItemKind::TriggerPoll => "trigger_poll",
+            UserDraftItemKind::TriggerCli => "trigger_cli",
+            UserDraftItemKind::TriggerNextcloud => "trigger_nextcloud",
+            UserDraftItemKind::TriggerGoogle => "trigger_google",
+            UserDraftItemKind::TriggerGithub => "trigger_github",
+        }
+    }
+}
+
 /// Query-string flag accepted by every "get by path" route that supports
 /// the draft overlay. Compose into a route-specific query struct via
 /// `#[serde(flatten)]` when the route already has other query fields.

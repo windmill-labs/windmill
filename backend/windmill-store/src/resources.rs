@@ -160,6 +160,12 @@ pub struct ListableResource {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub draft_only: Option<bool>,
+    /// True when the authed user has a per-user draft at this path —
+    /// layered over a deployed resource or a synthesized draft-only row.
+    /// Drives the `*` suffix on the resources page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub is_draft: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -288,6 +294,14 @@ async fn list_resources(
             "resource.labels",
             "ws_specific.path IS NOT NULL as ws_specific",
         ])
+        // Scalar EXISTS — flags rows the authed user has a per-user
+        // draft on, without fanning rows out the way a join could.
+        .field(
+            &"EXISTS(SELECT 1 FROM draft WHERE draft.workspace_id = resource.workspace_id \
+              AND draft.path = resource.path AND draft.typ = 'resource' \
+              AND draft.email = ?) as is_draft"
+                .bind(&authed.email),
+        )
         .left()
         .join("variable")
         .on("variable.path = resource.path AND variable.workspace_id = resource.workspace_id")
@@ -374,6 +388,13 @@ async fn list_resources(
     // on `include_draft_only`, skipped past page 0 and under any
     // narrowing filter so the deployed-only picker callers (resource
     // selectors in script inputs) keep their lean shape.
+    //
+    // `resource_type` / `resource_type_exclude` are NOT in the bail-out
+    // list — the resources page always lists with
+    // `resource_type_exclude=cache,state,app_theme` (its tab split), so
+    // bailing on them meant draft-only rows never showed there at all.
+    // They're applied per-row below against the draft JSON's
+    // `resource_type` instead.
     if lq.include_draft_only.unwrap_or(false)
         && !authed.is_operator
         && offset == 0
@@ -383,9 +404,15 @@ async fn list_resources(
         && lq.value.is_none()
         && lq.broad_filter.is_none()
         && lq.label.is_none()
-        && lq.resource_type.is_none()
-        && lq.resource_type_exclude.is_none()
     {
+        let rt_filter: Option<Vec<&str>> = lq
+            .resource_type
+            .as_deref()
+            .map(|s| s.split(',').map(str::trim).collect());
+        let rt_exclude: Option<Vec<&str>> = lq
+            .resource_type_exclude
+            .as_deref()
+            .map(|s| s.split(',').map(str::trim).collect());
         let draft_only_rows = sqlx::query!(
             r#"SELECT path,
                       value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
@@ -429,6 +456,18 @@ async fn list_resources(
                 .and_then(|x| x.as_str())
                 .unwrap_or("")
                 .to_string();
+            // Mirror the deployed query's resource_type narrowing for the
+            // synthesized rows (see the gate comment above).
+            if let Some(ref rts) = rt_filter {
+                if !rts.contains(&resource_type.as_str()) {
+                    continue;
+                }
+            }
+            if let Some(ref excl) = rt_exclude {
+                if excl.contains(&resource_type.as_str()) {
+                    continue;
+                }
+            }
             let labels = v.get("labels").and_then(|x| {
                 x.as_array().map(|arr| {
                     arr.iter()
@@ -456,6 +495,8 @@ async fn list_resources(
                 labels,
                 ws_specific,
                 draft_only: Some(true),
+                // Synthesized rows ARE the authed user's draft.
+                is_draft: Some(true),
             });
         }
     }
@@ -487,7 +528,8 @@ async fn get_resource(
         variable.is_oauth as \"is_oauth?\",
         variable.account,
         ws_specific.path IS NOT NULL as ws_specific,
-        null::bool as draft_only
+        null::bool as draft_only,
+        null::bool as is_draft
         FROM resource
         LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = $2
         LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2

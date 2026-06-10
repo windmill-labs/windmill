@@ -349,7 +349,7 @@
 				<div class="text-center text-sm text-primary mt-2"> No Kafka triggers </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, is_flow, kafka_resource_path, topics, extra_perms, canWrite, marked, server_id, error, last_server_ping, mode, retry, error_handler_path, error_handler_args, labels, draft_only } (path)}
+					{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, is_flow, kafka_resource_path, topics, extra_perms, canWrite, marked, server_id, error, last_server_ping, mode, retry, error_handler_path, error_handler_args, labels, draft_only, is_draft } (path)}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 						{@const ping = last_server_ping ? new Date(last_server_ping) : undefined}
 						{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
@@ -379,7 +379,7 @@
 										{/if}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-light">
-										{path}
+										{path}{is_draft ? '*' : ''}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-light">
 										runnable: {script_path}

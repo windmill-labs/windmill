@@ -376,11 +376,16 @@ pub trait TriggerCrud: Send + Sync + 'static {
         count
     }
 
+    /// `authed_email`: when `Some`, each row's `is_draft` reflects whether
+    /// that user has a per-user draft at the row's path (EXISTS subquery —
+    /// scalar, so it can't fan rows out). `None` (e.g. workspace export)
+    /// leaves `is_draft` NULL/omitted.
     async fn list_triggers(
         &self,
         tx: &mut PgConnection,
         workspace_id: &str,
         query: Option<&StandardTriggerQuery>,
+        authed_email: Option<&str>,
     ) -> Result<Vec<Self::Trigger>> {
         let mut fields = vec![
             "workspace_id",
@@ -407,6 +412,20 @@ pub trait TriggerCrud: Send + Sync + 'static {
         sqlb.fields(&fields)
             .order_by("edited_at", true)
             .and_where("workspace_id = ?".bind(&workspace_id));
+
+        if let Some(email) = authed_email {
+            // SAFETY: TABLE_NAME and the draft kind are compile-time
+            // constants; the email is bound.
+            sqlb.field(
+                &format!(
+                    "EXISTS(SELECT 1 FROM draft WHERE draft.workspace_id = {t}.workspace_id \
+                     AND draft.path = {t}.path AND draft.typ = '{k}' AND draft.email = ?) as is_draft",
+                    t = Self::TABLE_NAME,
+                    k = Self::user_draft_item_kind().as_str(),
+                )
+                .bind(&email),
+            );
+        }
 
         if let Some(query) = query {
             let (per_page, offset) =
@@ -596,7 +615,7 @@ async fn list_triggers<T: TriggerCrud>(
 ) -> JsonResult<Vec<T::Trigger>> {
     let mut tx = user_db.begin(&authed).await?;
     let mut triggers = handler
-        .list_triggers(&mut *tx, &workspace_id, Some(&query))
+        .list_triggers(&mut *tx, &workspace_id, Some(&query), Some(&authed.email))
         .await?;
     tx.commit().await?;
 
@@ -671,6 +690,8 @@ async fn list_triggers<T: TriggerCrud>(
                 );
             }
             map.insert("draft_only".into(), serde_json::Value::Bool(true));
+            // Synthesized rows ARE the authed user's draft.
+            map.insert("is_draft".into(), serde_json::Value::Bool(true));
             match serde_json::from_value::<T::Trigger>(serde_json::Value::Object(map)) {
                 Ok(t) => triggers.push(t),
                 Err(_) => continue,

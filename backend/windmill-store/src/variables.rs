@@ -152,6 +152,14 @@ async fn list_variables(
             "variable.edited_at",
             "variable.edited_by",
         ])
+        // Scalar EXISTS — flags rows the authed user has a per-user
+        // draft on, without fanning rows out the way a join could.
+        .field(
+            &"EXISTS(SELECT 1 FROM draft WHERE draft.workspace_id = variable.workspace_id \
+              AND draft.path = variable.path AND draft.typ = 'variable' \
+              AND draft.email = ?) as is_draft"
+                .bind(&authed.email),
+        )
         .left()
         .join("account")
         .on("variable.account = account.id AND account.workspace_id = ?".bind(&w_id))
@@ -313,6 +321,8 @@ async fn list_variables(
                 edited_at: Some(row.created_at),
                 edited_by: None,
                 draft_only: Some(true),
+                // Synthesized rows ARE the authed user's draft.
+                is_draft: Some(true),
             });
         }
     }

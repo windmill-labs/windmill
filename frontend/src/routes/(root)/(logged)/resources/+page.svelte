@@ -995,7 +995,7 @@
 						</Head>
 						<tbody class="divide-y bg-surface">
 							{#if filteredItems}
-								{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, labels, ws_specific, draft_only }}
+								{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, labels, ws_specific, draft_only, is_draft }}
 									<Row>
 										<Cell first>
 											<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -1006,7 +1006,7 @@
 													class="break-all"
 													href="#/resource/{path}"
 													onclick={() => resourceEditor?.initEdit?.(path)}
-													>{#if marked}{@html marked}{:else}{path}{/if}</a
+													>{#if marked}{@html marked}{:else}{path}{/if}{is_draft ? '*' : ''}</a
 												>
 												{#if draft_only}
 													<DraftBadge draft_only is_draft={false} />

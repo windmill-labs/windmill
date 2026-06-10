@@ -54,6 +54,14 @@ pub struct BaseTrigger {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub draft_only: Option<bool>,
+    /// True when the authed user has a per-user draft at this path —
+    /// either layered over a deployed trigger (EXISTS subquery in the
+    /// list SQL) or a synthesized draft-only row. Drives the `*` suffix
+    /// on the trigger list pages. `None`/omitted for callers that list
+    /// without an authed context (e.g. workspace export).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub is_draft: Option<bool>,
 }
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize)]

@@ -915,7 +915,7 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::http::HttpTrigger;
             let handler = HttpTrigger;
-            let http_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let http_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
             let parent_modes = fork_parent_trigger_modes(
                 &db,
                 <HttpTrigger as TriggerCrud>::TABLE_NAME,
@@ -945,7 +945,7 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::websocket::WebsocketTrigger;
             let handler = WebsocketTrigger;
-            let websocket_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let websocket_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
             let parent_modes = fork_parent_trigger_modes(
                 &db,
                 <WebsocketTrigger as TriggerCrud>::TABLE_NAME,
@@ -975,7 +975,7 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::kafka::KafkaTrigger;
             let handler = KafkaTrigger;
-            let kafka_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let kafka_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
             let parent_modes = fork_parent_trigger_modes(
                 &db,
                 <KafkaTrigger as TriggerCrud>::TABLE_NAME,
@@ -1005,7 +1005,7 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::sqs::SqsTrigger;
             let handler = SqsTrigger;
-            let sqs_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let sqs_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
             let parent_modes = fork_parent_trigger_modes(
                 &db,
                 <SqsTrigger as TriggerCrud>::TABLE_NAME,
@@ -1035,7 +1035,7 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::gcp::GcpTrigger;
             let handler = GcpTrigger;
-            let gcp_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let gcp_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
             let parent_modes = fork_parent_trigger_modes(
                 &db,
                 <GcpTrigger as TriggerCrud>::TABLE_NAME,
@@ -1065,7 +1065,7 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::azure::AzureTrigger;
             let handler = AzureTrigger;
-            let azure_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let azure_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
             let parent_modes = fork_parent_trigger_modes(
                 &db,
                 <AzureTrigger as TriggerCrud>::TABLE_NAME,
@@ -1095,7 +1095,7 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::nats::NatsTrigger;
             let handler = NatsTrigger;
-            let nats_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let nats_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
             let parent_modes = fork_parent_trigger_modes(
                 &db,
                 <NatsTrigger as TriggerCrud>::TABLE_NAME,
@@ -1125,7 +1125,7 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::postgres::PostgresTrigger;
             let handler = PostgresTrigger;
-            let postgres_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let postgres_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
             let parent_modes = fork_parent_trigger_modes(
                 &db,
                 <PostgresTrigger as TriggerCrud>::TABLE_NAME,
@@ -1155,7 +1155,7 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::mqtt::MqttTrigger;
             let handler = MqttTrigger;
-            let mqtt_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let mqtt_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
             let parent_modes = fork_parent_trigger_modes(
                 &db,
                 <MqttTrigger as TriggerCrud>::TABLE_NAME,
@@ -1185,7 +1185,7 @@ pub(crate) async fn tarball_workspace(
         {
             use crate::triggers::email::EmailTrigger;
             let handler = EmailTrigger;
-            let email_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+            let email_triggers = handler.list_triggers(&mut *tx, &w_id, None, None).await?;
             let parent_modes = fork_parent_trigger_modes(
                 &db,
                 <EmailTrigger as TriggerCrud>::TABLE_NAME,

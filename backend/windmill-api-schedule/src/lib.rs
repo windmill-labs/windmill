@@ -710,6 +710,12 @@ pub struct ScheduleLight {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub draft_only: Option<bool>,
+    /// True when the authed user has a per-user draft at this path —
+    /// layered over a deployed schedule or a synthesized draft-only row.
+    /// Drives the `*` suffix on the schedules page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub is_draft: Option<bool>,
 }
 async fn list_schedule(
     authed: ApiAuthed,
@@ -735,6 +741,14 @@ async fn list_schedule(
             "extra_perms",
             "labels",
         ])
+        // Scalar EXISTS — flags rows the authed user has a per-user
+        // draft on, without fanning rows out the way a join could.
+        .field(
+            &"EXISTS(SELECT 1 FROM draft WHERE draft.workspace_id = schedule.workspace_id \
+              AND draft.path = schedule.path AND draft.typ = 'trigger_schedule' \
+              AND draft.email = ?) as is_draft"
+                .bind(&authed.email),
+        )
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))
         .offset(offset)
@@ -876,6 +890,8 @@ async fn list_schedule(
                 extra_perms: serde_json::Value::Object(serde_json::Map::new()),
                 labels,
                 draft_only: Some(true),
+                // Synthesized rows ARE the authed user's draft.
+                is_draft: Some(true),
             });
         }
     }

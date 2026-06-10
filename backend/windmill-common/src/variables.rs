@@ -62,6 +62,12 @@ pub struct ListableVariable {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub draft_only: Option<bool>,
+    /// True when the authed user has a per-user draft at this path —
+    /// layered over a deployed variable or a synthesized draft-only row.
+    /// Drives the `*` suffix on the variables page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub is_draft: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]

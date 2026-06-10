@@ -23300,6 +23300,12 @@ components:
             True when this row is a per-user draft with no deployed
             variable at the same path. Frontend renders a "Draft" badge.
           type: boolean
+        is_draft:
+          description: |
+            True when the authed user has a per-user draft at this path
+            (over a deployed row or a synthesized draft-only row).
+            Frontend appends a `*` to the displayed name.
+          type: boolean
       required:
         - workspace_id
         - path
@@ -23888,6 +23894,12 @@ components:
             True when this row is a per-user draft with no deployed
             resource at the same path. Frontend renders a "Draft" badge.
           type: boolean
+        is_draft:
+          description: |
+            True when the authed user has a per-user draft at this path
+            (over a deployed row or a synthesized draft-only row).
+            Frontend appends a `*` to the displayed name.
+          type: boolean
       required:
         - path
         - resource_type
@@ -24048,6 +24060,12 @@ components:
           description: |
             True when this row is a per-user draft with no deployed
             schedule at the same path. Frontend renders a "Draft" badge.
+          type: boolean
+        is_draft:
+          description: |
+            True when the authed user has a per-user draft at this path
+            (over a deployed row or a synthesized draft-only row).
+            Frontend appends a `*` to the displayed name.
           type: boolean
       required:
         - path
@@ -24369,6 +24387,12 @@ components:
             trigger at the same path. Set by list endpoints when
             `include_draft_only=true` synthesizes the row from the
             draft. Frontend renders a "Draft" badge.
+          type: boolean
+        is_draft:
+          description: |
+            True when the authed user has a per-user draft at this path
+            (over a deployed row or a synthesized draft-only row).
+            Frontend appends a `*` to the displayed name.
           type: boolean
       required:
         - path
