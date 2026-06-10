@@ -9,8 +9,8 @@ use sqlparser::{
     parser::Parser,
 };
 use windmill_parser::asset_parser::{
-    asset_was_used, merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType,
-    ParseAssetsOutput, ParseAssetsResult,
+    asset_was_used, merge_assets, parse_asset_syntax, parse_pipeline_annotations, AssetKind,
+    AssetUsageAccessType, ParseAssetsOutput, ParseAssetsResult,
 };
 use AssetUsageAccessType::*;
 
@@ -33,7 +33,12 @@ pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
         }
     }
 
-    Ok(ParseAssetsOutput { assets: merge_assets(collector.assets), ..Default::default() })
+    let pipeline = parse_pipeline_annotations(input);
+    Ok(ParseAssetsOutput::new(
+        merge_assets(collector.assets),
+        Vec::new(),
+        pipeline,
+    ))
 }
 
 /// Visitor that collects S3 asset literals from SQL statements
@@ -653,6 +658,26 @@ impl Visitor for AssetCollector {
                 self.track_table_definition(name);
             }
 
+            // DROP TABLE/VIEW is a write to the dropped object — the
+            // canonical idempotent-refresh pattern (`DROP TABLE IF EXISTS x;
+            // CREATE TABLE x AS …`) must resolve to a table-level write.
+            // Without this arm, a tagged-template snippet containing only the
+            // DROP yields no table-level asset and the TS/Python SDK parsers
+            // fall back to a db-level `datatable://<db>` reference, putting a
+            // stray database node on the pipeline canvas.
+            sqlparser::ast::Statement::Drop { object_type, names, .. } => {
+                if matches!(
+                    object_type,
+                    sqlparser::ast::ObjectType::Table
+                        | sqlparser::ast::ObjectType::View
+                        | sqlparser::ast::ObjectType::MaterializedView
+                ) {
+                    for name in names {
+                        self.track_table_definition(name);
+                    }
+                }
+            }
+
             sqlparser::ast::Statement::Copy { target: CopyTarget::File { filename }, .. } => {
                 self.current_access_type_stack.push(W);
                 self.handle_string_literal(filename);
@@ -921,6 +946,54 @@ mod tests {
                 kind: AssetKind::Ducklake,
                 path: "main/friends".to_string(),
                 access_type: Some(RW),
+                columns: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_drop_table_is_write() {
+        // A lone DROP (e.g. one SDK tagged-template snippet of an
+        // idempotent-refresh script) must resolve to a table-level write,
+        // not fall through to nothing.
+        let input = r#"
+            ATTACH 'datatable://main' AS dt; USE dt;
+            DROP TABLE IF EXISTS orders_raw;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::DataTable,
+                path: "main/orders_raw".to_string(),
+                access_type: Some(W),
+                columns: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_drop_then_create_qualified() {
+        // Canonical refresh pattern over an attached catalog: DROP + CREATE
+        // AS on the output, SELECT on the input.
+        let input = r#"
+            ATTACH 'datatable://main' AS pg;
+            DROP TABLE IF EXISTS pg.daily_revenue;
+            CREATE TABLE pg.daily_revenue AS SELECT * FROM pg.orders_clean;
+        "#;
+        let s = parse_assets(input).map(|mut s| {
+            s.assets.sort_by(|a, b| a.path.cmp(&b.path));
+            s.assets
+        });
+        // NB: the SELECT inside CREATE TABLE … AS is not walked for reads
+        // (pre-existing behavior — CreateTable only tracks the definition
+        // name); this test pins the DROP+CTAS combo to a single clean write.
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::DataTable,
+                path: "main/daily_revenue".to_string(),
+                access_type: Some(W),
                 columns: None
             },])
         );

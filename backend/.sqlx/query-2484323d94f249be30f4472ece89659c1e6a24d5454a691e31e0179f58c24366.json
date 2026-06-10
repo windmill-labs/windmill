@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT kind, path, script_path, is_flow FROM (\n            SELECT 'schedule' AS kind, path, script_path, is_flow FROM schedule\n                WHERE workspace_id = $1\n                  AND script_path IS NOT NULL\n            UNION ALL\n            SELECT 'email', path, script_path, is_flow FROM email_trigger\n                WHERE workspace_id = $1\n            UNION ALL\n            SELECT 'kafka', path, script_path, is_flow FROM kafka_trigger\n                WHERE workspace_id = $1\n            UNION ALL\n            SELECT 'mqtt', path, script_path, is_flow FROM mqtt_trigger\n                WHERE workspace_id = $1\n            UNION ALL\n            SELECT 'nats', path, script_path, is_flow FROM nats_trigger\n                WHERE workspace_id = $1\n            UNION ALL\n            SELECT 'postgres', path, script_path, is_flow FROM postgres_trigger\n                WHERE workspace_id = $1\n            UNION ALL\n            SELECT 'sqs', path, script_path, is_flow FROM sqs_trigger\n                WHERE workspace_id = $1\n            UNION ALL\n            SELECT 'gcp', path, script_path, is_flow FROM gcp_trigger\n                WHERE workspace_id = $1\n        ) t\n        WHERE ($2::text IS NULL OR script_path LIKE $2)\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_flow",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "2484323d94f249be30f4472ece89659c1e6a24d5454a691e31e0179f58c24366"
+}

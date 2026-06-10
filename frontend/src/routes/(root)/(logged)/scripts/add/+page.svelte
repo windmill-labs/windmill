@@ -44,6 +44,14 @@
 	const collabLang = page.url.searchParams.get('lang') as ScriptLang | null
 	const wacParam = page.url.searchParams.get('wac')
 	const importParam = page.url.searchParams.get('import')
+	// Pipeline opt-in marker. Any truthy value prefills `<comment-prefix>
+	// pipeline` at the top of the new script so the bare marker fires on
+	// deploy. ScriptBuilder's initialCode path only runs when content is
+	// empty, so this survives.
+	const pipelineParam = page.url.searchParams.get('pipeline')
+	// Optional `// on <asset>` trigger. Value is the full asset-syntax string
+	// (e.g. s3://bucket/key) — written verbatim after the `pipeline` line.
+	const onAssetParam = page.url.searchParams.get('on_asset')
 
 	/** Some pages (run/[...run]'s "Fork" action, workspace_settings'
 	 * error/success-handler template buttons) base64-JSON-encode a NewScript
@@ -85,22 +93,61 @@
 
 	let scriptBuilder: ScriptBuilder | undefined = $state(undefined)
 
+	// Language → comment prefix recognized by the pipeline annotation
+	// parser. Any of //, #, -- is accepted.
+	function commentPrefix(lang: ScriptLang): string {
+		switch (lang) {
+			case 'python3':
+			case 'bash':
+			case 'powershell':
+			case 'nu':
+			case 'ansible':
+				return '#'
+			case 'postgresql':
+			case 'mysql':
+			case 'bigquery':
+			case 'snowflake':
+			case 'mssql':
+			case 'oracledb':
+			case 'duckdb':
+				return '--'
+			default:
+				return '//'
+		}
+	}
+
+	// Compose the prefix block for a new pipeline script: bare `// pipeline`
+	// marker plus optional `// on <ref>` trigger. Placed at the very top so
+	// comments precede any language-specific preamble the builder injects.
+	function pipelinePreamble(lang: ScriptLang): string {
+		const p = commentPrefix(lang)
+		const lines: string[] = []
+		if (pipelineParam) lines.push(`${p} pipeline`)
+		if (onAssetParam) lines.push(`${p} on ${onAssetParam}`)
+		return lines.length ? lines.join('\n') + '\n' : ''
+	}
+
 	function defaultScript(): Script {
+		const language = ((wacParam === 'python'
+			? 'python3'
+			: wacParam === 'typescript'
+				? 'bun'
+				: null) ??
+			collabLang ??
+			$defaultScripts?.order?.filter(
+				(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x)
+			)?.[0] ??
+			'bun') as ScriptLang
 		return {
 			hash: '',
 			path: path ?? '',
 			summary: '',
-			content: '',
+			content: pipelinePreamble(language),
 			description: '',
 			schema: schema,
 			is_template: false,
 			extra_perms: {},
-			language:
-				(wacParam === 'python' ? 'python3' : wacParam === 'typescript' ? 'bun' : null) ??
-				collabLang ??
-				(($defaultScripts?.order?.filter(
-					(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x)
-				)?.[0] ?? 'bun') as ScriptLang),
+			language,
 			kind: 'script'
 		}
 	}
@@ -160,7 +207,7 @@
 		urlConflictModalOpen = false
 	}
 
-	let _urlHashSyncTimeout: number | undefined
+	let _urlHashSyncTimeout: ReturnType<typeof setTimeout> | undefined
 	$effect(() => {
 		const draft = scriptHandle.draft
 		if (!draft) return

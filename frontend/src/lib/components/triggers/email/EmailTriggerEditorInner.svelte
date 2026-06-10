@@ -5,6 +5,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import PipelineLockedRunnableInfo from '$lib/components/triggers/PipelineLockedRunnableInfo.svelte'
 	import {
 		EmailTriggerService,
 		type ErrorHandler,
@@ -117,7 +118,8 @@
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
-		defaultConfig?: Partial<NewEmailTrigger>
+		defaultConfig?: Partial<NewEmailTrigger>,
+		fixedScriptPath_?: string
 	) {
 		drawerLoading = true
 		let loader = setTimeout(() => {
@@ -131,6 +133,7 @@
 			edit = true
 			dirtyPath = false
 			dirtyLocalPart = false
+			fixedScriptPath = fixedScriptPath_ ?? ''
 			await loadTrigger(defaultConfig)
 			if (!defaultConfig) {
 				// If the email trigger is loaded from the backend, we to set the initial config
@@ -365,34 +368,38 @@
 
 			{#if !hideTarget}
 				<Section label="Target">
-					<p class="text-xs mt-3 mb-1 text-primary">
-						Pick a script or flow to be triggered<Required required={true} />
-					</p>
-					<div class="flex flex-col gap-2">
-						<div class="flex flex-row mb-2">
-							<ScriptPicker
-								disabled={fixedScriptPath != '' || !can_write}
-								initialPath={fixedScriptPath || initialScriptPath}
-								kinds={['script']}
-								allowFlow={true}
-								bind:itemKind
-								bind:scriptPath={script_path}
-								allowRefresh={can_write}
-								allowEdit={!$userStore?.operator}
-								clearable
-							/>
+					{#if fixedScriptPath != ''}
+						<PipelineLockedRunnableInfo path={fixedScriptPath} />
+					{:else}
+						<p class="text-xs mt-3 mb-1 text-primary">
+							Pick a script or flow to be triggered<Required required={true} />
+						</p>
+						<div class="flex flex-col gap-2">
+							<div class="flex flex-row mb-2">
+								<ScriptPicker
+									disabled={!can_write}
+									initialPath={initialScriptPath}
+									kinds={['script']}
+									allowFlow={true}
+									bind:itemKind
+									bind:scriptPath={script_path}
+									allowRefresh={can_write}
+									allowEdit={!$userStore?.operator}
+									clearable
+								/>
 
-							{#if emptyString(script_path)}
-								<Button
-									btnClasses="ml-4"
-									variant="accent"
-									size="xs"
-									href={itemKind === 'flow' ? '/flows/add?hub=72' : '/scripts/add?hub=hub%2F19813'}
-									target="_blank">Create from template</Button
-								>
-							{/if}
+								{#if emptyString(script_path)}
+									<Button
+										btnClasses="ml-4"
+										variant="accent"
+										size="xs"
+										href={itemKind === 'flow' ? '/flows/add?hub=72' : '/scripts/add?hub=hub%2F19813'}
+										target="_blank">Create from template</Button
+									>
+								{/if}
+							</div>
 						</div>
-					</div>
+					{/if}
 				</Section>
 			{/if}
 

@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dispatch_event (\n             workspace_id, producer_job_id, subscriber_path,\n             asset_kind, asset_path, outcome,\n             child_job_id, partition,\n             received_inputs, required_inputs,\n             debounce_s, reason\n           ) VALUES ($1, $2, $3, $4::ASSET_KIND, $5, $6::DISPATCH_OUTCOME,\n                     $7, $8, $9, $10, $11, $12)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Uuid",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "asset_kind",
+            "kind": {
+              "Enum": [
+                "s3object",
+                "resource",
+                "variable",
+                "ducklake",
+                "datatable",
+                "volume"
+              ]
+            }
+          }
+        },
+        "Text",
+        {
+          "Custom": {
+            "name": "dispatch_outcome",
+            "kind": {
+              "Enum": [
+                "dispatched",
+                "join_pending",
+                "skipped"
+              ]
+            }
+          }
+        },
+        "Uuid",
+        "Text",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f7790aaa332e81046ececc71b728364a3489a3c9151ac153c419ddce51d0d891"
+}

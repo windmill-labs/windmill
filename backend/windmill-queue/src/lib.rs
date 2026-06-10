@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+pub mod asset_dispatch;
 pub mod jobs;
 #[cfg(feature = "private")]
 pub mod jobs_ee;

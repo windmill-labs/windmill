@@ -403,6 +403,7 @@ pub fn workspace_unauthed_service() -> Router {
             get(get_completed_job_result_maybe),
         )
         .route("/completed/get_timing/{id}", get(get_completed_job_timing))
+        .route("/dispatch_events/{id}", get(get_dispatch_events))
         .route("/getupdate/{id}", get(get_job_update))
         .route("/getupdate_sse/{id}", get(get_job_update_sse))
         .route("/get_log_file/{*file_path}", get(get_log_file))
@@ -9019,6 +9020,118 @@ struct JobTiming {
     created_at: chrono::DateTime<Utc>,
     started_at: Option<chrono::DateTime<Utc>>,
     duration_ms: Option<i64>,
+}
+
+/// One row of the producer's "Dispatch" panel — what the asset-trigger
+/// dispatcher decided for a single (subscriber, asset write) pair. See
+/// `windmill_queue::asset_dispatch` for the writer and the discriminants
+/// of the `outcome` / `reason` fields.
+#[derive(Serialize)]
+struct DispatchEvent {
+    subscriber_path: String,
+    asset_kind: windmill_common::assets::AssetKind,
+    asset_path: String,
+    outcome: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    child_job_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    partition: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    received_inputs: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    required_inputs: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    debounce_s: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    created_at: chrono::DateTime<Utc>,
+}
+
+async fn get_dispatch_events(
+    OptViewToken(view_token): OptViewToken,
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::JsonResult<Vec<DispatchEvent>> {
+    let tags = opt_authed
+        .as_ref()
+        .map(|authed| get_scope_tags(authed))
+        .flatten();
+
+    // Gate on the producer job's visibility, exactly like
+    // get_completed_job_timing on the same unauthed router: scope tags
+    // first, then per-job read access for authed users, anonymous-only
+    // jobs otherwise. The dispatch_event FK to v2_job(id) guarantees the
+    // producer row exists for any extant event.
+    let producer = sqlx::query!(
+        r#"SELECT created_by AS "created_by!"
+           FROM v2_job
+           WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))"#,
+        id,
+        &w_id,
+        tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
+    )
+    .fetch_optional(&db)
+    .await?;
+    let producer = not_found_if_none(producer, "Job", id.to_string())?;
+
+    if let Some(authed) = opt_authed.as_ref() {
+        require_job_read_access(
+            &db,
+            &user_db,
+            authed,
+            &w_id,
+            &id,
+            &producer.created_by,
+            view_token.as_deref(),
+        )
+        .await?;
+    } else if producer.created_by != "anonymous" {
+        return Err(Error::BadRequest(
+            "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+        ));
+    }
+
+    let rows = sqlx::query!(
+        r#"SELECT
+              subscriber_path AS "subscriber_path!",
+              asset_kind AS "asset_kind!: windmill_common::assets::AssetKind",
+              asset_path AS "asset_path!",
+              outcome::text AS "outcome!",
+              child_job_id,
+              partition,
+              received_inputs,
+              required_inputs,
+              debounce_s,
+              reason,
+              created_at AS "created_at!"
+           FROM dispatch_event
+           WHERE producer_job_id = $1 AND workspace_id = $2
+           ORDER BY id"#,
+        id,
+        &w_id,
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| DispatchEvent {
+                subscriber_path: r.subscriber_path,
+                asset_kind: r.asset_kind,
+                asset_path: r.asset_path,
+                outcome: r.outcome,
+                child_job_id: r.child_job_id,
+                partition: r.partition,
+                received_inputs: r.received_inputs,
+                required_inputs: r.required_inputs,
+                debounce_s: r.debounce_s,
+                reason: r.reason,
+                created_at: r.created_at,
+            })
+            .collect(),
+    ))
 }
 
 async fn get_completed_job_timing(

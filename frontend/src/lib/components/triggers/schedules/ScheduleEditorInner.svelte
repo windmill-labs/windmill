@@ -8,6 +8,7 @@
 	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import PipelineLockedRunnableInfo from '$lib/components/triggers/PipelineLockedRunnableInfo.svelte'
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -96,6 +97,10 @@
 	let dynamicSkipPath: string | undefined = $state(undefined)
 	let script_path = $state('')
 	let initialScriptPath = $state('')
+	// When non-empty, the drawer was opened from the pipeline editor for an
+	// already-bound script. We swap the runnable ScriptPicker for a read-only
+	// viewer so the trigger can't be silently reassigned off the pipeline.
+	let fixedScriptPath = $state('')
 	let runnable: Script | Flow | undefined = $state()
 	let args: Record<string, any> = $state({})
 	let loading = $state(false)
@@ -142,7 +147,12 @@
 		deployed: () => initialConfig
 	})
 
-	export async function openEdit(ePath: string, isFlow: boolean, defaultCfg?: Record<string, any>) {
+	export async function openEdit(
+		ePath: string,
+		isFlow: boolean,
+		defaultCfg?: Record<string, any>,
+		fixedScriptPath_?: string
+	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -152,6 +162,7 @@
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			path = defaultCfg?.path ?? ePath
+			fixedScriptPath = fixedScriptPath_ ?? ''
 			await loadSchedule(defaultCfg)
 			edit = true
 			if (!defaultCfg) {
@@ -277,7 +288,8 @@
 		nis_flow: boolean,
 		initial_script_path?: string,
 		defaultValues?: Schedule,
-		schedule_path?: string
+		schedule_path?: string,
+		fixedScriptPath_?: string
 	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
@@ -304,6 +316,7 @@
 			initialConfig = undefined
 			itemKind = (s?.is_flow ?? nis_flow) ? 'flow' : 'script'
 			initialScriptPath = initial_script_path ?? ''
+			fixedScriptPath = fixedScriptPath_ ?? ''
 			path = initNewPath
 				? ''
 				: (defaultValues?.path ?? (trigger?.isPrimary ? initialScriptPath : ''))
@@ -880,7 +893,9 @@
 
 			<Section label="Runnable">
 				{#if !hideTarget}
-					{#if !edit}
+					{#if fixedScriptPath != ''}
+						<PipelineLockedRunnableInfo path={fixedScriptPath} />
+					{:else if !edit}
 						<p class="text-xs mb-1 text-secondary">
 							Pick a script or flow to be triggered by the schedule<Required required={true} />
 						</p>
