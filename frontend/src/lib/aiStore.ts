@@ -2,7 +2,7 @@ import { writable, get } from 'svelte/store'
 import { workspaceAIClients } from './components/copilot/lib'
 import { type AIProviderModel, type AIProvider, WorkspaceService, type AIConfig } from './gen'
 import { COPILOT_SESSION_MODEL_SETTING_NAME, COPILOT_SESSION_PROVIDER_SETTING_NAME } from './stores'
-import { getLocalSetting } from './utils'
+import { getLocalSetting, storeLocalSetting } from './utils'
 
 const USER_CUSTOM_PROMPTS_KEY = 'userCustomAIPrompts'
 
@@ -120,6 +120,10 @@ export function getUserCustomPrompts(): Record<string, string> {
 		}
 	}
 	return {}
+}
+
+export function setUserCustomPrompts(prompts: Record<string, string>) {
+	storeLocalSetting(USER_CUSTOM_PROMPTS_KEY, JSON.stringify(prompts))
 }
 
 export function getCombinedCustomPrompt(mode: string): string | undefined {
