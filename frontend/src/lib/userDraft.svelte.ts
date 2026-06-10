@@ -82,6 +82,16 @@ type DraftEntry = {
 	 */
 	syncSuspended: boolean
 	/**
+	 * Single-shot flag: the next observable cell write is a programmatic
+	 * SEED — a deployed-baseline load or a new-draft template — not a user
+	 * edit. The sync effect advances its baseline to that value and skips
+	 * the POST. Same intent as `syncSuspended`, but scoped to exactly ONE
+	 * write, so there is no suspension to forget to resume (forgetting
+	 * `restartSync` silently disables autosave for the rest of the
+	 * session). Set via `UserDraft.seed`.
+	 */
+	seedNextWrite: boolean
+	/**
 	 * Tears down the `$effect.root` scope that owns the entry's sync
 	 * effect. Called when the refcount hits 0. `undefined` only when the
 	 * test runtime's broken `$effect.root` forced us through the
@@ -288,6 +298,33 @@ export const UserDraft = {
 		pendingSuspensions.delete(mk)
 		const entry = entries.get(mk)
 		if (entry) entry.syncSuspended = false
+	},
+
+	/**
+	 * Programmatically load `value` into the draft cell as a SEED — a
+	 * deployed-baseline reload or a new-draft template that must NOT be
+	 * POSTed as the user's edit. All reactive readers (the editor's
+	 * `bind:`, the "unsaved changes" diff) update immediately; the sync
+	 * effect adopts `value` as its new baseline and skips the POST.
+	 *
+	 * Prefer this over the `stopSync` / `restartSync` bracket for a single
+	 * programmatic write: it's scoped to exactly this write, so there's no
+	 * suspension to forget to resume — forgetting `restartSync` silently
+	 * turns off autosave for the rest of the session. (The bracket is
+	 * still needed when a programmatic write fans out across components,
+	 * e.g. an editor's `initContent` cascading into the bound value.)
+	 *
+	 * The entry must already be live (acquire the handle via
+	 * `use`/`useReactive`/`useMany` first) — seeding a not-yet-acquired
+	 * entry is a no-op.
+	 */
+	seed<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): void {
+		const ws = resolveWorkspace(opts)
+		const mk = mapKey(ws, itemKind, path)
+		const entry = entries.get(mk)
+		if (!entry) return
+		entry.seedNextWrite = true
+		entry.state.val = snapshotDraftValue(value)
 	},
 
 	/**
@@ -591,6 +628,13 @@ function acquireEntry(
 				return
 			}
 			const entry = entries.get(mk)
+			// A `UserDraft.seed(...)` write: adopt it as the new baseline
+			// (`lastSerialized` was advanced above) and don't POST it — it's
+			// a programmatic load, not the user's edit.
+			if (entry?.seedNextWrite) {
+				entry.seedNextWrite = false
+				return
+			}
 			if (entry?.skipNextSync) {
 				entry.skipNextSync = false
 				return
@@ -626,6 +670,7 @@ function acquireEntry(
 			state: stateRef,
 			skipNextSync: false,
 			syncSuspended: pendingSuspensions.delete(mk),
+			seedNextWrite: false,
 			destroyRoot
 		})
 		return
@@ -642,7 +687,8 @@ function acquireEntry(
 		path,
 		state: fallback as DraftState<unknown>,
 		skipNextSync: false,
-		syncSuspended: pendingSuspensions.delete(mk)
+		syncSuspended: pendingSuspensions.delete(mk),
+		seedNextWrite: false
 	})
 }
 
