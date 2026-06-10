@@ -1,4 +1,4 @@
-import type { AIProviderModel, ScriptLang } from '$lib/gen/types.gen'
+import type { ScriptLang } from '$lib/gen/types.gen'
 import { WorkspaceService } from '$lib/gen'
 import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
 import {
@@ -1195,11 +1195,7 @@ export class AIChatManager {
 		})
 	}
 
-	listenForContextChange = (
-		dbSchemas: DBSchemas,
-		workspaceStore: string | undefined,
-		copilotSessionModel: AIProviderModel | undefined
-	) => {
+	listenForContextChange = (dbSchemas: DBSchemas, workspaceStore: string | undefined) => {
 		if (this.mode === AIMode.SCRIPT && this.scriptEditorOptions) {
 			this.contextManager.updateAvailableContext(
 				this.scriptEditorOptions,

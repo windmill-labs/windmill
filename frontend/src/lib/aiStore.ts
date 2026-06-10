@@ -47,6 +47,11 @@ export const copilotInfo = writable<{
 	maxTokensPerModel: {}
 })
 
+/** Strip the deprecated /thinking suffix from a configured model slot, if present. */
+function stripModelSuffix(model: AIProviderModel | undefined): AIProviderModel | undefined {
+	return model ? { ...model, model: stripLegacyThinkingSuffix(model.model) } : model
+}
+
 /** Dedupe model entries by provider+model (legacy /thinking entries collapse onto the plain model). */
 function dedupeModels(models: AIProviderModel[]): AIProviderModel[] {
 	const seen = new Set<string>()
@@ -95,9 +100,11 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 
 		copilotInfo.set({
 			enabled: true,
-			codeCompletionModel: aiConfig.code_completion_model,
-			defaultModel: aiConfig.default_model,
-			metadataModel: aiConfig.metadata_model,
+			// Strip the deprecated /thinking suffix from the configured model slots too,
+			// otherwise a workspace whose default still carries it sends an invalid model id.
+			codeCompletionModel: stripModelSuffix(aiConfig.code_completion_model),
+			defaultModel: stripModelSuffix(aiConfig.default_model),
+			metadataModel: stripModelSuffix(aiConfig.metadata_model),
 			aiModels: aiModels,
 			customPrompts: aiConfig.custom_prompts ?? {},
 			maxTokensPerModel: aiConfig.max_tokens_per_model ?? {}
