@@ -118,9 +118,16 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 	)
 
 	function discard(path: string, fallback: Cfg | undefined): void {
+		const ws = opts.workspace()
 		UserDraft.discard(opts.itemKind, path, fallback, {
-			workspace: opts.workspace() ?? undefined
+			workspace: ws ?? undefined
 		})
+		// No draft anymore — clear the list page's `*` immediately. The
+		// hint effect below can't be relied on here: after a deploy the
+		// editor's `deployed()` baseline is stale (the form legitimately
+		// differs from the PREVIOUS deploy), so `hasDraft` would keep
+		// publishing true even though the draft row was just deleted.
+		if (ws && path) setLocalDraftHint(ws, opts.itemKind, path, false)
 	}
 
 	// apply-effect: external handle.draft → form.

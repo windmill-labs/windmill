@@ -36,6 +36,7 @@ import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import type { DeployResult } from '$lib/utils_workspace_deploy'
 import { deployRawAppDraft } from '$lib/rawAppDeploy'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
+import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 import { userStore } from '$lib/stores'
 import { deployTriggers, type Trigger } from '$lib/components/triggers/utils'
 import { saveScheduleFromCfg } from '$lib/components/flows/scheduleUtils'
@@ -148,7 +149,10 @@ export async function getDraftDiffValues(
 			...deployed
 		} = r
 		const draftValue = draft ?? deployed
-		return { deployed: draftOnly ? EMPTY_DEPLOYED.script!(draftValue) : deployed, draft: draftValue }
+		return {
+			deployed: draftOnly ? EMPTY_DEPLOYED.script!(draftValue) : deployed,
+			draft: draftValue
+		}
 	} else if (kind === 'flow') {
 		const r = (await FlowService.getFlowByPath({ workspace, path, getDraft: true })) as any
 		const {
@@ -382,6 +386,9 @@ export async function deployDraft(
 		}
 		// Mutated the workspace's Server Drafts — refresh every mounted reader.
 		invalidateWorkspaceDrafts(workspace)
+		// The draft is gone (deployed) — clear any `*` hint an editor
+		// published for this item on the list pages.
+		setLocalDraftHint(workspace, kind, path, false)
 		return { success: true }
 	} catch (e: any) {
 		return { success: false, error: e?.body ?? e?.message ?? String(e) }
@@ -442,6 +449,9 @@ export async function discardDraft(
 	try {
 		await UserDraftDbSyncer.save({ workspace, itemKind: kind, path, value: null })
 		invalidateWorkspaceDrafts(workspace)
+		// The draft is gone — clear any `*` hint an editor published for
+		// this item on the list pages.
+		setLocalDraftHint(workspace, kind, path, false)
 		return { success: true }
 	} catch (e: any) {
 		return { success: false, error: e?.body ?? e?.message ?? String(e) }

@@ -157,6 +157,31 @@ function snapshotDraftValue<V>(value: V | undefined): V | undefined {
 	}
 }
 
+/**
+ * JSON-normalized deep equality for draft values. Drafts round-trip
+ * through JSON (the server stores them as json), which strips
+ * `undefined`-valued keys — so a restored draft (`{}`) and a freshly
+ * built editor state (`{ labels: undefined }`) are the same value in
+ * different shapes, and a raw `deepEqual` reports a spurious diff.
+ * Normalize BOTH sides through the same round-trip before comparing.
+ *
+ * This is THE comparison for "does the form diverge from the deployed
+ * baseline": editors must use it both for their "unsaved changes"
+ * banner and for the `discardIf` predicate they pass to
+ * `UserDraft.useMany`, so the two can never disagree.
+ */
+export function draftValuesEqual(a: unknown, b: unknown): boolean {
+	if (a === undefined || b === undefined) return a === b
+	const normalize = (v: unknown) => {
+		try {
+			return JSON.parse(JSON.stringify(v))
+		} catch {
+			return v
+		}
+	}
+	return deepEqual(normalize(a), normalize(b))
+}
+
 export type UserDraftHandle<V> = {
 	get draft(): V | undefined
 	set draft(value: V | undefined)
@@ -404,17 +429,20 @@ export const UserDraft = {
 			 */
 			defaultValue?: V
 			/**
-			 * Reactive getter for the deployed baseline. When the cell's value
-			 * lands exactly on it, the autosave mirror POSTs a delete instead
-			 * of persisting a baseline-equal copy — a draft identical to the
-			 * deployed version is not a draft, and keeping it would leave the
-			 * server's `is_draft` flag (and the list pages' `*`) stuck on.
-			 * Return `undefined` while the baseline isn't known, or when no
-			 * deployed version exists (draft-only items: the draft is the only
-			 * copy, deleting it on equality would destroy the item).
+			 * Predicate deciding whether a value about to be autosaved is
+			 * "back at the deployed baseline". When it returns true, the
+			 * mirror POSTs a delete instead of persisting a baseline-equal
+			 * copy — a draft identical to the deployed version is not a
+			 * draft, and keeping it would leave the server's `is_draft` flag
+			 * (and the list pages' `*`) stuck on. Callers MUST use the same
+			 * comparison that drives their "unsaved changes" banner (see
+			 * `draftValuesEqual`), so the banner and the synced draft can
+			 * never disagree. Return false when no deployed version exists
+			 * (draft-only items: the draft is the only copy, deleting it on
+			 * equality would destroy the item).
 			 * Captured on first acquire, like `defaultValue`.
 			 */
-			discardIfEqualTo?: () => V | undefined
+			discardIf?: (val: V) => boolean
 		}[]
 	): UserDraftHandle<V>[] {
 		// Reactive handles array, reconciled against the latest
@@ -438,7 +466,13 @@ export const UserDraft = {
 				seen.add(mk)
 
 				if (!acquired.has(mk)) {
-					acquireEntry(ws, spec.itemKind, spec.path, spec.defaultValue, spec.discardIfEqualTo)
+					acquireEntry(
+						ws,
+						spec.itemKind,
+						spec.path,
+						spec.defaultValue,
+						spec.discardIf as ((val: unknown) => boolean) | undefined
+					)
 					acquired.add(mk)
 				}
 				let handle = handleCache.get(mk)
@@ -508,7 +542,7 @@ function acquireEntry(
 	itemKind: UserDraftItemKind,
 	path: string,
 	defaultValue?: unknown,
-	discardIfEqualTo?: () => unknown
+	discardIf?: (val: unknown) => boolean
 ): void {
 	const mk = mapKey(workspace, itemKind, path)
 	const existing = entries.get(mk)
@@ -568,15 +602,10 @@ function acquireEntry(
 			if (entry?.syncSuspended) return
 			// A value landing back exactly on the caller-declared deployed
 			// baseline is not a draft — sync the delete instead of a
-			// baseline-equal copy. `untrack` so baseline mutations alone
-			// (e.g. the editor refreshing it post-deploy) don't re-fire
-			// the mirror.
-			const atBaseline = untrack(() => {
-				console.log('COMPARING ', val, discardIfEqualTo?.())
-				if (val === undefined || discardIfEqualTo === undefined) return false
-				const baseline = discardIfEqualTo()
-				return baseline !== undefined && deepEqual(val, baseline)
-			})
+			// baseline-equal copy. `untrack` so reactive reads inside the
+			// predicate (e.g. the editor's baseline, refreshed post-deploy)
+			// don't re-fire the mirror.
+			const atBaseline = untrack(() => val !== undefined && (discardIf?.(val) ?? false))
 			void UserDraftDbSyncer.save({
 				workspace,
 				itemKind,

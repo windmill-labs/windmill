@@ -10,10 +10,9 @@
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { resource } from 'runed'
-	import { deepEqual } from 'fast-equals'
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
-	import { UserDraft, type UserDraftHandle } from '$lib/userDraft.svelte'
+	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 
 	interface Props {
@@ -87,10 +86,12 @@
 			path: initialPath ?? '',
 			workspace: s.ws,
 			defaultValue: s.defaultValue,
-			// Autosaves landing back on the deployed value become deletes —
-			// no baseline for draft-only/new items (the draft is the only
-			// copy; deleting it on equality would destroy the item).
-			discardIfEqualTo: () => (existedInitially[s.ws] ? initialStates[s.ws] : undefined)
+			// Autosaves landing back on the deployed value become deletes.
+			// Same comparison as `dirtyWorkspaces` (the banner), so the
+			// synced draft and the banner can never disagree. Never true
+			// for draft-only/new items (the draft is the only copy;
+			// deleting it on equality would destroy the item).
+			discardIf: (val) => !!existedInitially[s.ws] && draftValuesEqual(val, initialStates[s.ws])
 		}))
 	)
 	const states = $derived.by(() => {
@@ -164,7 +165,7 @@
 	)
 
 	const dirtyWorkspaces = $derived(
-		Object.keys(states).filter((ws) => !deepEqual(states[ws].draft, initialStates[ws]))
+		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
 	)
 	const anyDirty = $derived(dirtyWorkspaces.length > 0)
 
@@ -394,13 +395,15 @@
 						}
 					})
 				}
-				// Saved on the backend — drop the local autosave for this
-				// workspace and refresh the dirty baseline. `s` is the
-				// UserDraft handle's draft, a Svelte $state proxy;
-				// `structuredClone` can't clone a proxy, so snapshot it to a
-				// plain object first.
+				// Deployed — the just-saved state is the new deployed
+				// baseline. Refresh it and reset the handle to it (`discard`,
+				// not `remove`: blanking the cell to `undefined` would read
+				// as dirty, keeping the banner and the list asterisk on).
+				// The `value: null` POST inside also deletes the server
+				// draft row so `is_draft` clears on the next refetch.
 				initialStates[ws] = $state.snapshot(s) as ResourceState
-				UserDraft.remove('resource', initialPath ?? '', { workspace: ws })
+				existedInitially[ws] = true
+				UserDraft.discard('resource', initialPath ?? '', s, { workspace: ws })
 				// Path now exists server-side — drop the autocomplete cache so
 				// it shows up immediately instead of after the 60s TTL.
 				invalidateWorkspacePaths(ws)

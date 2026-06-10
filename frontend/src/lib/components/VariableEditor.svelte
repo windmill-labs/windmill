@@ -13,10 +13,9 @@
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import WsSpecificVersions from './WsSpecificVersions.svelte'
 	import { resource } from 'runed'
-	import { deepEqual } from 'fast-equals'
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
-	import { UserDraft, type UserDraftHandle } from '$lib/userDraft.svelte'
+	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
 	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
@@ -51,10 +50,12 @@
 			path: editPath ?? '',
 			workspace: s.ws,
 			defaultValue: s.defaultValue,
-			// Autosaves landing back on the deployed value become deletes —
-			// no baseline for draft-only/new items (the draft is the only
-			// copy; deleting it on equality would destroy the item).
-			discardIfEqualTo: () => (existedInitially[s.ws] ? initialStates[s.ws] : undefined)
+			// Autosaves landing back on the deployed value become deletes.
+			// Same comparison as `dirtyWorkspaces` (the banner), so the
+			// synced draft and the banner can never disagree. Never true
+			// for draft-only/new items (the draft is the only copy;
+			// deleting it on equality would destroy the item).
+			discardIf: (val) => !!existedInitially[s.ws] && draftValuesEqual(val, initialStates[s.ws])
 		}))
 	)
 	const states = $derived.by(() => {
@@ -95,7 +96,7 @@
 		return canWrite(editPath ?? '', perms, perWsUser[selected] ?? $userStore)
 	})
 	const dirtyWorkspaces = $derived(
-		Object.keys(states).filter((ws) => !deepEqual(states[ws].draft, initialStates[ws]))
+		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
 	)
 
 	// Publish the observed draft state as an optimistic hint so the
@@ -285,8 +286,15 @@
 						}
 					})
 				}
-				// Saved on the backend — drop the local autosave for this workspace.
-				UserDraft.remove('variable', editPath ?? '', { workspace: ws })
+				// Deployed — the just-saved state is the new deployed
+				// baseline. Refresh it and reset the handle to it (`discard`,
+				// not `remove`: blanking the cell to `undefined` would read
+				// as dirty, keeping the banner and the list asterisk on).
+				// The `value: null` POST inside also deletes the server
+				// draft row so `is_draft` clears on the next refetch.
+				initialStates[ws] = $state.snapshot(s) as VariableState
+				existedInitially[ws] = true
+				UserDraft.discard('variable', editPath ?? '', s, { workspace: ws })
 				// Path now exists server-side — drop the autocomplete cache so
 				// it shows up immediately instead of after the 60s TTL.
 				invalidateWorkspacePaths(ws)
