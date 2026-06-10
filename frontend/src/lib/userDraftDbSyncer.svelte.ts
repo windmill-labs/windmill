@@ -118,6 +118,12 @@ export type UserDraftStateHandle = {
 	 * error (server body / status text / Error.message, in that order).
 	 * `undefined` for every other state. */
 	readonly failureMessage: string | undefined
+	/** Reactive — bumped each time `flush()` completes for this draft,
+	 * INCLUDING the no-op path (nothing pending). Lets the indicator
+	 * flash "Saved" on an explicit Ctrl/Cmd+S even when the autosave
+	 * already landed — without it the shortcut is completely silent in
+	 * the everything-already-saved case. */
+	readonly flushCount: number
 }
 
 /**
@@ -177,6 +183,12 @@ const conflicts = new SvelteMap<string, DraftConflictInfo>()
  * this map.
  */
 const failures = new SvelteMap<string, string>()
+
+/**
+ * Reactive per-key counter bumped every time `flush()` completes — even
+ * when there was nothing to flush. See `UserDraftStateHandle.flushCount`.
+ */
+const flushes = new SvelteMap<string, number>()
 
 /**
  * Best-effort error → readable string. The generated client wraps HTTP
@@ -366,6 +378,9 @@ export const UserDraftDbSyncer = {
 				// previous failure that's already been superseded.
 				if (runner.isRunning(key) || debouncer.isPending(key)) return undefined
 				return failures.get(key)
+			},
+			get flushCount(): number {
+				return flushes.get(key) ?? 0
 			}
 		}
 	},
@@ -473,8 +488,15 @@ export const UserDraftDbSyncer = {
 	 */
 	async flush(query: UserDraftLastSyncQuery): Promise<void> {
 		const key = draftKey(query.workspace, query.itemKind, query.path)
-		const opts = pendingSaveOpts.get(key)
-		if (!opts) return
-		await this.save({ ...opts, immediate: true })
+		try {
+			const opts = pendingSaveOpts.get(key)
+			if (!opts) return
+			await this.save({ ...opts, immediate: true })
+		} finally {
+			// Signal the indicator even on the no-op path — an explicit
+			// Ctrl/Cmd+S deserves visible confirmation ("Saved") even
+			// when the autosave already landed everything.
+			flushes.set(key, (flushes.get(key) ?? 0) + 1)
+		}
 	}
 }

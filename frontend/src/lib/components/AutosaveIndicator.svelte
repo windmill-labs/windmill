@@ -105,6 +105,33 @@
 		}
 	})
 
+	// Explicit Ctrl/Cmd+S confirmation. `flushCount` bumps on every
+	// `UserDraftDbSyncer.flush()` completion — including the no-op path
+	// where the autosave had already landed everything. When the pipeline
+	// is idle and not failed at that moment, flash "Saved" so the
+	// shortcut always gives visible feedback (a real flush also flashes
+	// via the saving → none transition above; setting `savedVisible`
+	// twice is harmless). Seed from the handle's current count so a
+	// remount doesn't replay an old flush.
+	let prevFlushCount: number | undefined = undefined
+	$effect(() => {
+		const count = handle.flushCount
+		const s = syncState
+		untrack(() => {
+			const isFirstRead = prevFlushCount === undefined
+			const bumped = !isFirstRead && count > (prevFlushCount ?? 0)
+			prevFlushCount = count
+			if (!bumped) return
+			if (s === 'saving' || s === 'pending' || s === 'failed') return
+			savedVisible = true
+			if (timer) clearTimeout(timer)
+			timer = setTimeout(() => {
+				savedVisible = false
+				timer = undefined
+			}, SAVED_LABEL_MS)
+		})
+	})
+
 	// On-mount load hint — "Others are working..." or "Loaded from draft".
 	// Stays for HINT_LABEL_MS, and the wrapper gets a one-shot green-flash
 	// CSS animation that fades to transparent. Snapshot the props at mount
