@@ -105,19 +105,23 @@
 		}
 	})
 
-	// One-shot light-green → transparent backdrop behind the whole
-	// indicator. Shared by the on-mount load hints below and the
-	// Ctrl/Cmd+S confirmation — re-triggering replays the CSS animation
-	// (the keyed span remounts). `flashActive` keeps the span mounted
-	// just long enough for the animation to finish, then unmounts it so
-	// the DOM stays clean.
+	// One-shot tinted → transparent backdrop behind the whole indicator.
+	// Shared by the on-mount load hints below and the Ctrl/Cmd+S
+	// confirmation — re-triggering replays the CSS animation (the keyed
+	// span remounts). `flashActive` keeps the span mounted just long
+	// enough for the animation to finish, then unmounts it so the DOM
+	// stays clean. Color signals the meaning: green = "your save landed"
+	// (Ctrl/Cmd+S), blue = informational load hints ("Loaded from draft",
+	// "Others are working on this ...").
 	const FLASH_MS = 2000
 	let flashKey = $state(0)
 	let flashActive = $state(false)
+	let flashColor = $state<'green' | 'blue'>('green')
 	let flashTimer: ReturnType<typeof setTimeout> | undefined
 
-	function triggerFlash() {
+	function triggerFlash(color: 'green' | 'blue') {
 		flashKey++
+		flashColor = color
 		flashActive = true
 		if (flashTimer) clearTimeout(flashTimer)
 		flashTimer = setTimeout(() => {
@@ -151,7 +155,7 @@
 			if (!bumped) return
 			if (s === 'saving' || s === 'pending' || s === 'failed') return
 			savedVisible = true
-			triggerFlash()
+			triggerFlash('green')
 			if (timer) clearTimeout(timer)
 			timer = setTimeout(() => {
 				savedVisible = false
@@ -188,7 +192,7 @@
 			const loadedTransition = loadedNow && !prevLoaded
 			if (othersTransition || loadedTransition) {
 				hintLabel = othersNow ? `Others are working on this ${kindLabel}` : 'Loaded from draft'
-				triggerFlash()
+				triggerFlash('blue')
 				if (hintTimer) clearTimeout(hintTimer)
 				hintTimer = setTimeout(() => {
 					hintLabel = ''
@@ -248,13 +252,17 @@
 	aria-label="Autosave status"
 >
 	{#if flashActive}
-		<!-- One-shot green flash behind the indicator — load hints and
-		     Ctrl/Cmd+S confirmations both route through `triggerFlash`.
-		     Keyed on `flashKey` so re-triggering replays the animation
-		     (Svelte tears the keyed block down and remounts). -->
+		<!-- One-shot tinted flash behind the indicator — load hints (blue)
+		     and Ctrl/Cmd+S confirmations (green) both route through
+		     `triggerFlash`. Keyed on `flashKey` so re-triggering replays
+		     the animation (Svelte tears the keyed block down and
+		     remounts). -->
 		{#key flashKey}
 			<span
 				class="autosave-hint-flash absolute inset-0 rounded-md pointer-events-none"
+				style="--autosave-flash-color: {flashColor === 'green'
+					? 'rgba(34, 197, 94, 0.22)'
+					: 'rgba(59, 130, 246, 0.22)'}"
 				aria-hidden="true"
 			></span>
 		{/key}
@@ -333,12 +341,14 @@
 </div>
 
 <style>
-	/* Light-green fade behind the whole indicator when a load hint appears.
-	   `forwards` keeps the end state (transparent) so the backdrop disappears
-	   cleanly when the keyed wrapper unmounts. */
+	/* Tinted fade behind the whole indicator — green for save
+	   confirmations, blue for informational load hints. The animation
+	   fades a per-variant custom property to transparent; `forwards`
+	   keeps the end state so the backdrop disappears cleanly when the
+	   keyed wrapper unmounts. */
 	@keyframes autosave-hint-flash-anim {
 		0% {
-			background-color: rgba(34, 197, 94, 0.22);
+			background-color: var(--autosave-flash-color);
 		}
 		100% {
 			background-color: transparent;
