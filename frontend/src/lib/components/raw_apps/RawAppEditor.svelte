@@ -17,6 +17,7 @@
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import {
 		genWmillTs,
+		normalizeRawAppRuntimeLogs,
 		type Runnable,
 		type RawAppRuntimeLogEntry,
 		type RawAppRuntimeLogRequester,
@@ -50,7 +51,7 @@
 		type RawAppData,
 		DEFAULT_DATA
 	} from './dataTableRefUtils'
-	import { randomUUID } from '$lib/components/flows/conversations/FlowChatManager.svelte'
+	import { randomUUID } from '$lib/utils/uuid'
 
 	interface Props {
 		files?: Record<string, string>
@@ -1000,10 +1001,7 @@
 		}
 
 		if (fromPreview && e.data.type === 'runtimeLogsResponse') {
-			resolvePendingRuntimeLogRequest(
-				e.data.requestId,
-				Array.isArray(e.data.logs) ? e.data.logs : []
-			)
+			resolvePendingRuntimeLogRequest(e.data.requestId, normalizeRawAppRuntimeLogs(e.data.logs))
 			return
 		}
 
@@ -1098,16 +1096,16 @@
 		resolve: (entries: RawAppRuntimeLogEntry[] | undefined) => void
 		timer: ReturnType<typeof setTimeout>
 	}
-	const pendingRuntimeLogReqs: Record<string, PendingRuntimeLogRequest> = {}
+	const pendingRuntimeLogReqs = new Map<string, PendingRuntimeLogRequest>()
 
 	function resolvePendingRuntimeLogRequest(
 		requestId: string,
 		entries: RawAppRuntimeLogEntry[] | undefined
 	) {
-		const pending = pendingRuntimeLogReqs[requestId]
+		const pending = pendingRuntimeLogReqs.get(requestId)
 		if (!pending) return
 		clearTimeout(pending.timer)
-		delete pendingRuntimeLogReqs[requestId]
+		pendingRuntimeLogReqs.delete(requestId)
 		pending.resolve(entries)
 	}
 
@@ -1119,7 +1117,7 @@
 			const timer = setTimeout(() => {
 				resolvePendingRuntimeLogRequest(requestId, undefined)
 			}, RUNTIME_LOGS_TIMEOUT_MS)
-			pendingRuntimeLogReqs[requestId] = { resolve, timer }
+			pendingRuntimeLogReqs.set(requestId, { resolve, timer })
 			win.postMessage({ type: 'getRuntimeLogs', requestId, limit }, '*')
 		})
 	}
@@ -1148,7 +1146,7 @@
 		return () => {
 			onRuntimeLogRequester?.(undefined)
 			onRunsProvider?.(undefined)
-			for (const requestId of Object.keys(pendingRuntimeLogReqs))
+			for (const requestId of Array.from(pendingRuntimeLogReqs.keys()))
 				resolvePendingRuntimeLogRequest(requestId, undefined)
 		}
 	})

@@ -25,9 +25,41 @@ export type RawAppRuntimeLogRequester = (
 	limit: number
 ) => Promise<RawAppRuntimeLogEntry[] | undefined>
 
+const RAW_APP_RUNTIME_LOG_LEVELS = new Set<RawAppRuntimeLogLevel>([
+	'log',
+	'info',
+	'warn',
+	'error',
+	'debug'
+])
+
+function isRawAppRuntimeLogLevel(level: unknown): level is RawAppRuntimeLogLevel {
+	return typeof level === 'string' && RAW_APP_RUNTIME_LOG_LEVELS.has(level as RawAppRuntimeLogLevel)
+}
+
+function isValidRuntimeLogTimestamp(ts: unknown): ts is number {
+	return typeof ts === 'number' && Number.isFinite(ts) && !Number.isNaN(new Date(ts).getTime())
+}
+
+export function normalizeRawAppRuntimeLogs(logs: unknown): RawAppRuntimeLogEntry[] {
+	if (!Array.isArray(logs)) return []
+	return logs.flatMap((entry) => {
+		if (!entry || typeof entry !== 'object') return []
+		const { level, message, ts } = entry as Record<string, unknown>
+		if (
+			!isRawAppRuntimeLogLevel(level) ||
+			typeof message !== 'string' ||
+			!isValidRuntimeLogTimestamp(ts)
+		)
+			return []
+		return [{ level, message, ts }]
+	})
+}
+
 export function formatRuntimeLogsForChat(entries: RawAppRuntimeLogEntry[]): string {
 	const lines = entries.map((e) => {
-		const time = Number.isFinite(e.ts) ? new Date(e.ts).toISOString().slice(11, 23) : '--:--:--'
+		const date = new Date(e.ts)
+		const time = Number.isNaN(date.getTime()) ? '--:--:--' : date.toISOString().slice(11, 23)
 		return `[${time}] ${e.level.toUpperCase()}: ${e.message}`
 	})
 	return lines.join('\n')
@@ -155,14 +187,14 @@ export function genWmillTs(runnables: Record<string, Runnable>) {
 
 export declare const backend: {
 ${Object.entries(runnables)
-			.map(([k, v]) => `  ${k}: (args: ${hiddenRunnableToTsType(v)}) => Promise<any>;`)
-			.join('\n')}
+	.map(([k, v]) => `  ${k}: (args: ${hiddenRunnableToTsType(v)}) => Promise<any>;`)
+	.join('\n')}
 };
 
 export declare const backendAsync: {
 ${Object.entries(runnables)
-			.map(([k, v]) => `  ${k}: (args: ${hiddenRunnableToTsType(v)}) => Promise<string>;`)
-			.join('\n')}
+	.map(([k, v]) => `  ${k}: (args: ${hiddenRunnableToTsType(v)}) => Promise<string>;`)
+	.join('\n')}
 };
 
 export type Job = {
