@@ -89,8 +89,13 @@ application may prefer to remove the pods with lower utilization."
   Kubernetes **is the pod name** (`insert_ping(hostname, …)` at worker
   startup). This gives a direct worker → pod mapping with no new plumbing.
 - Native-mode pods run 8 worker processes (`NUM_WORKERS=8`), so multiple
-  `worker_ping` rows aggregate to one pod via `worker_instance` — the same
-  aggregation the autoscaler's pod-counting query already performs.
+  `worker_ping` rows must be grouped by `worker_instance` to get per-pod
+  busy-ness. Note the existing pod-counting query in `autoscaling_ee.rs`
+  deliberately avoids `worker_instance` because custom worker groups can
+  share a hostname across multiple worker processes — that collapses a
+  *count*, but it is harmless here: grouping by `worker_instance` for
+  busy-ness just means "any worker on this host is busy", which is exactly
+  the per-pod signal wanted (on Kubernetes, one hostname = one pod).
 
 ## Design options considered
 
