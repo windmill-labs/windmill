@@ -704,20 +704,20 @@
 	// the syncer to flush — otherwise we'd POST the pre-burst content.
 	// `tick()` lets the bind:code → script.content → UserDraft mirror
 	// chain settle before the flush call sees `pendingSaveOpts`.
+	//
+	// No toast — the AutosaveIndicator narrates the flush (Saving... →
+	// Saved / Save failed). A toast here would also lie on network
+	// failure: `flush` never rejects (postSave catches and routes errors
+	// to the failures map), so the success branch fired regardless.
 	async function saveDraft(): Promise<void> {
 		if (!$workspaceStore || !userDraftPath) return
 		editor?.flushPendingChanges()
 		await tick()
-		try {
-			await UserDraftDbSyncer.flush({
-				workspace: $workspaceStore,
-				itemKind: 'script',
-				path: userDraftPath
-			})
-			sendUserToast('Draft saved')
-		} catch (e: any) {
-			sendUserToast(`Could not save draft: ${e?.body ?? e?.message ?? e}`, true)
-		}
+		await UserDraftDbSyncer.flush({
+			workspace: $workspaceStore,
+			itemKind: 'script',
+			path: userDraftPath
+		})
 	}
 
 	// Inside an AI session pane (which injects an aiChatManager via context) the

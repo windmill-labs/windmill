@@ -264,18 +264,18 @@
 	// here picks up whatever's already in `pendingSaveOpts`. Worst case
 	// the user's very last keystroke (<1s ago) isn't in this POST and
 	// follows in the next autosave round.
+	//
+	// No toast — the AutosaveIndicator narrates the flush (Saving... →
+	// Saved / Save failed). A toast here would also lie on network
+	// failure: `flush` never rejects (postSave catches and routes errors
+	// to the failures map), so the success branch fired regardless.
 	export async function saveDraft(): Promise<void> {
 		if (!$workspaceStore || !liveEditorDraftStoragePath) return
-		try {
-			await UserDraftDbSyncer.flush({
-				workspace: $workspaceStore,
-				itemKind: 'flow',
-				path: liveEditorDraftStoragePath
-			})
-			sendUserToast('Draft saved')
-		} catch (e: any) {
-			sendUserToast(`Could not save draft: ${e?.body ?? e?.message ?? e}`, true)
-		}
+		await UserDraftDbSyncer.flush({
+			workspace: $workspaceStore,
+			itemKind: 'flow',
+			path: liveEditorDraftStoragePath
+		})
 	}
 
 	export function computeUnlockedSteps(flow: Flow) {

@@ -1340,6 +1340,11 @@
 		// autosave queue. Catch this BEFORE the input/Monaco guard
 		// below so the shortcut fires regardless of focus — saving
 		// while still in the editor is the common case.
+		//
+		// No toast — the AutosaveIndicator narrates the flush (Saving...
+		// → Saved / Save failed). A toast here would also lie on network
+		// failure: `flush` never rejects (postSave catches and routes
+		// errors to the failures map).
 		if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 's' || e.key === 'S')) {
 			e.preventDefault()
 			if (!$workspaceStore || !liveEditorDraftStoragePath) return
@@ -1348,10 +1353,6 @@
 				itemKind: 'raw_app',
 				path: liveEditorDraftStoragePath
 			})
-				.then(() => sendUserToast('Draft saved'))
-				.catch((err: any) =>
-					sendUserToast(`Could not save draft: ${err?.body ?? err?.message ?? err}`, true)
-				)
 			return
 		}
 
