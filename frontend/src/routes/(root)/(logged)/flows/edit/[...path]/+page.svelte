@@ -11,7 +11,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
-	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
 	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
@@ -60,12 +60,15 @@
 	 * deploy lands at this path. */
 	let isNewFlow = $state(false)
 
-	// Re-keys the handle on nav (the reactive `flowDraftPath` is read inside
-	// the reconcile) while keeping `flowStore` a stable ref.
-	const flowHandle = UserDraft.useReactive<Flow>(() => ({
+	// Single page-level draft orchestration (handle re-keyed on nav,
+	// recordRemoteSync, remove). `flowStore` reads/writes `draftSync.draft`.
+	// `effectivePath` is omitted: the live-editor-draft registry entry for
+	// flows is owned by FlowBuilder (via `liveEditorDraftStoragePath`).
+	const draftSync = usePageDraftSync<Flow>({
 		itemKind: 'flow',
-		path: flowDraftPath
-	}))
+		path: () => flowDraftPath,
+		workspace: () => $workspaceStore
+	})
 
 	function emptyFlow(): Flow {
 		return {
@@ -82,10 +85,10 @@
 
 	export const flowStore: StateStore<Flow> = {
 		get val() {
-			return flowHandle.draft ?? emptyFlow()
+			return draftSync.draft ?? emptyFlow()
 		},
 		set val(v: Flow) {
-			flowHandle.draft = v
+			draftSync.draft = v
 		}
 	}
 	const flowStateStore = $state({ val: {} })
@@ -170,7 +173,7 @@
 				edited_by: ''
 			} as unknown as Flow
 			savedFlow = structuredClone(empty)
-			flowHandle.draft = empty
+			draftSync.draft = empty
 			flow = empty
 			await initFlow(flow, flowStore, flowStateStore)
 			if (tok !== loadFlowToken) return
@@ -208,12 +211,7 @@
 		})
 		if (tok !== loadFlowToken) return
 		otherDraftsUsers = (backendFlow.other_drafts_users ?? []) as OtherDraftUser[]
-		if ($workspaceStore && flowDraftPath) {
-			UserDraftDbSyncer.recordRemoteSync(
-				{ workspace: $workspaceStore, itemKind: 'flow', path: flowDraftPath },
-				backendFlow.draft_saved_at
-			)
-		}
+		draftSync.recordRemoteSync(backendFlow.draft_saved_at as string | undefined)
 		// Re-evaluate the "new flow" signal on each load — flips to
 		// true for draft-only paths and back to false once a deploy
 		// lands at this URL path.
@@ -252,7 +250,7 @@
 		// after `acquireEntry` is swallowed by the syncer's seed guard,
 		// so this load doesn't POST.
 		flow = effectiveFlow
-		flowHandle.draft = effectiveFlow
+		draftSync.draft = effectiveFlow
 
 		flowBuilder?.setDraftTriggers(undefined)
 
@@ -298,8 +296,8 @@
 			return
 		}
 		diffDrawer?.closeDrawer()
-		UserDraft.remove('flow', flowDraftPath)
-		flowHandle.draft = undefined
+		draftSync.remove()
+		draftSync.draft = undefined
 		goto(`/flows/edit/${savedFlow.path}`)
 		loadFlow()
 	}
@@ -315,12 +313,12 @@
 	{otherDraftsUsers}
 	editPathFor={(forkedPath) => `/flows/edit/${forkedPath}`}
 	onLoadFromServer={() => loadFlow()}
-	getLocalDraft={() => flowHandle.draft}
+	getLocalDraft={() => draftSync.draft}
 	bind:othersModalOpen
 	{draftSavedAt}
 	{deployedAt}
 	onLoadLatestDeploy={async () => {
-		flowHandle.draft = undefined
+		draftSync.draft = undefined
 		await loadFlow({ getDraft: false })
 	}}
 />
@@ -332,7 +330,7 @@
 {:else if renderEditor}
 	<FlowBuilder
 		onDeploy={(e) => {
-			UserDraft.remove('flow', flowDraftPath)
+			draftSync.remove()
 			if ($workspaceStore) invalidate($workspaceStore, 'flow')
 			goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
 		}}
@@ -343,7 +341,7 @@
 			loadFlow()
 		}}
 		onResetToDeployed={async () => {
-			flowHandle.draft = undefined
+			draftSync.draft = undefined
 			await loadFlow({ getDraft: false })
 		}}
 		{loadedFromDraft}
