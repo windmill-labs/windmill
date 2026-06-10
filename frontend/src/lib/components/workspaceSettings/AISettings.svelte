@@ -202,11 +202,19 @@
 			)
 		)
 	)
+	// Keep model selections valid: when a selected model is no longer in the
+	// configured providers (provider disabled or model removed from the list),
+	// clear it. The default chat model then falls back to the first configured
+	// model rather than pointing at a model that no longer exists.
 	$effect(() => {
-		if (Object.keys(aiProviders).length < 1) {
-			codeCompletionModel = undefined
+		if (defaultModel && !selectedAiModels.includes(defaultModel)) {
 			defaultModel = undefined
+		}
+		if (metadataModel && !selectedAiModels.includes(metadataModel)) {
 			metadataModel = undefined
+		}
+		if (codeCompletionModel && !selectedAiModels.includes(codeCompletionModel)) {
+			codeCompletionModel = undefined
 		}
 	})
 
@@ -271,8 +279,7 @@
 		return (
 			!Object.values(aiProviders).every((p) => p.resource_path) ||
 			(metadataModel != undefined && metadataModel.length === 0) ||
-			(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
-			(Object.keys(aiProviders).length > 0 && !defaultModel)
+			(codeCompletionModel != undefined && codeCompletionModel.length === 0)
 		)
 	}
 
@@ -394,30 +401,7 @@
 										aiProviders = Object.fromEntries(
 											Object.entries(aiProviders).filter(([key]) => key !== provider)
 										)
-										if (defaultModel) {
-											const currentDefaultModel = Object.values(aiProviders).find(
-												(p) => defaultModel && p.models.includes(defaultModel)
-											)
-											if (!currentDefaultModel) {
-												defaultModel = undefined
-											}
-										}
-										if (codeCompletionModel) {
-											const currentCodeCompletionModel = Object.values(aiProviders).find(
-												(p) => codeCompletionModel && p.models.includes(codeCompletionModel)
-											)
-											if (!currentCodeCompletionModel) {
-												codeCompletionModel = undefined
-											}
-										}
-										if (metadataModel) {
-											const currentMetadataModel = Object.values(aiProviders).find(
-												(p) => metadataModel && p.models.includes(metadataModel)
-											)
-											if (!currentMetadataModel) {
-												metadataModel = undefined
-											}
-										}
+										// Stale model selections are cleared reactively (see the validity $effect above).
 									}
 								}}
 							/>
@@ -495,6 +479,7 @@
 					placeholder="Select a default model"
 					size="sm"
 					class="max-w-lg"
+					clearable
 				/>
 			{/key}
 		</SettingCard>
