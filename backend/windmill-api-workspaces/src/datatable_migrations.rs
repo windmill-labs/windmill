@@ -29,7 +29,9 @@ pub fn workspaced_service() -> Router {
 
 fn checksum(content: &str) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(content.as_bytes());
+    // Trailing whitespace is not significant (editors append final newlines);
+    // ignoring it avoids spurious drift detection on round-trips through files.
+    hasher.update(content.trim_end().as_bytes());
     hex::encode(hasher.finalize())
 }
 

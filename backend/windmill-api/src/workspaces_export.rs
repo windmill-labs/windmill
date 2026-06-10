@@ -881,6 +881,48 @@ pub(crate) async fn tarball_workspace(
         );
     }
 
+    {
+        // Datatable migrations are exported as plain SQL files so they can be
+        // versioned in git and pushed back / applied by the CLI.
+        let migrations = sqlx::query!(
+            "SELECT datatable, version, name, content FROM datatable_migration
+             WHERE workspace_id = $1 ORDER BY datatable, version",
+            &w_id,
+        )
+        .fetch_all(&db)
+        .await?;
+
+        let is_file_safe = |s: &str| {
+            !s.is_empty()
+                && s.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        };
+        for m in migrations {
+            // Skip entries whose identifiers can't round-trip through a file path
+            if !is_file_safe(&m.datatable)
+                || !m.version.chars().all(|c| c.is_ascii_digit())
+                || !(m.name.is_empty() || is_file_safe(&m.name))
+            {
+                tracing::warn!(
+                    "Skipping export of datatable migration {}/{} ({}): identifiers are not file-path safe",
+                    m.datatable,
+                    m.version,
+                    m.name
+                );
+                continue;
+            }
+            let filename = if m.name.is_empty() {
+                format!("_datatable_migrations/{}/{}.sql", m.datatable, m.version)
+            } else {
+                format!(
+                    "_datatable_migrations/{}/{}_{}.sql",
+                    m.datatable, m.version, m.name
+                )
+            };
+            archive.write_to_archive(&m.content, &filename).await?;
+        }
+    }
+
     if include_schedules.unwrap_or(false) {
         let schedules = sqlx::query_as::<_, Schedule>(
             "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels FROM schedule

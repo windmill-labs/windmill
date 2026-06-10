@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT datatable, version, name, content FROM datatable_migration\n             WHERE workspace_id = $1 ORDER BY datatable, version",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "datatable",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "content",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a1ffe5206eeaad7bb2a63e980d2154a0548f541fc2c8bcb2a4393c68a4a1eb1a"
+}

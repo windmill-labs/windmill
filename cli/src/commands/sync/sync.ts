@@ -27,6 +27,13 @@ import {
 import { downloadZip } from "./pull.ts";
 import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
 import { pullSharedUi, pushSharedUi } from "../shared_ui.ts";
+import {
+  DATATABLE_MIGRATIONS_FOLDER,
+  deleteDatatableMigration,
+  isDatatableMigrationPath,
+  parseDatatableMigrationPath,
+  runPendingDatatableMigrations,
+} from "../datatable/migrations.ts";
 
 import {
   exts,
@@ -2399,7 +2406,8 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
       !p.startsWith("g" + SEP) &&
       !p.startsWith("users" + SEP) &&
       !p.startsWith("groups" + SEP) &&
-      !p.startsWith("dependencies" + SEP)
+      !p.startsWith("dependencies" + SEP) &&
+      !p.startsWith(DATATABLE_MIGRATIONS_FOLDER + SEP)
     );
   }
 
@@ -2416,6 +2424,8 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
       typ == "encryption_key"
     ) {
       return p.includes(SEP);
+    } else if (typ == "datatable_migration") {
+      return false;
     } else {
       return (
         !p.startsWith("u" + SEP) &&
@@ -2441,7 +2451,8 @@ export const isWhitelisted = (p: string) => {
     p == "ui" ||
     p == "users" ||
     p == "groups" ||
-    p == "dependencies"
+    p == "dependencies" ||
+    p == DATATABLE_MIGRATIONS_FOLDER
   );
 };
 
@@ -2515,6 +2526,9 @@ export async function ignoreF(wmillconf: {
         ) {
           return false; // Don't ignore workspace dependencies (they are always included unless explicitly skipped)
         }
+        if (fileType === "datatable_migration") {
+          return false; // Datatable migrations are always included
+        }
       } catch {
         // If getTypeStrFromPath can't determine the type, fall through to normal logic
       }
@@ -2536,7 +2550,11 @@ interface ChangeTracker {
 }
 
 async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
-  const isScript = exts.some((e) => p.endsWith(e)) && !isFileResource(p) && !isFilesetResource(p);
+  const isScript =
+    exts.some((e) => p.endsWith(e)) &&
+    !isFileResource(p) &&
+    !isFilesetResource(p) &&
+    !isDatatableMigrationPath(p);
   if (isScript) {
     if (isFlowPath(p)) {
       const folder = extractFolderPath(p, "flow")!;
@@ -4777,6 +4795,9 @@ export async function push(
                   });
 
                   break;
+                case "datatable_migration":
+                  await deleteDatatableMigration(workspaceId, change.path);
+                  break;
                 default:
                   break;
               }
@@ -4827,6 +4848,24 @@ export async function push(
       await pushSharedUi(workspace.workspaceId);
     } catch (e) {
       log.warn(`Failed to push shared UI folder: ${e}`);
+    }
+    // Apply pending migrations for datatables whose migration files were added
+    // or edited by this push, so merging new migration files to a git-synced
+    // branch runs them on the target workspace.
+    const migratedDatatables = new Set<string>();
+    for (const change of changes) {
+      if (change.name === "added" || change.name === "edited") {
+        const parsed = parseDatatableMigrationPath(change.path);
+        if (parsed) {
+          migratedDatatables.add(parsed.datatable);
+        }
+      }
+    }
+    if (migratedDatatables.size > 0) {
+      await runPendingDatatableMigrations(
+        workspace.workspaceId,
+        migratedDatatables,
+      );
     }
     if (opts.jsonOutput) {
       const result = {
