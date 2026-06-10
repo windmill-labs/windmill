@@ -17447,6 +17447,10 @@ paths:
                     type: boolean
                 default_permissioned_as:
                   $ref: '#/components/schemas/FolderDefaultPermissionedAs'
+                labels:
+                  type: array
+                  items:
+                    type: string
               required:
                 - name
       responses:
@@ -17485,6 +17489,10 @@ paths:
                     type: boolean
                 default_permissioned_as:
                   $ref: '#/components/schemas/FolderDefaultPermissionedAs'
+                labels:
+                  type: array
+                  items:
+                    type: string
       responses:
         "200":
           description: folder updated
@@ -21874,6 +21882,13 @@ components:
           items:
             type: string
           default: []
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
 
       required:
         - hash
@@ -26457,6 +26472,14 @@ components:
           format: date-time
         default_permissioned_as:
           $ref: '#/components/schemas/FolderDefaultPermissionedAs'
+        labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels set on the folder. Items inside the folder inherit them,
+            exposed as `inherited_labels` on scripts and flows and stamped
+            into job labels at run time.
       required:
         - name
         - owners
@@ -26816,6 +26839,13 @@ components:
           items:
             type: string
           default: []
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
       required:
         - path
         - edited_by

@@ -154,7 +154,8 @@ async fn list_flows(
             "draft.path IS NOT NULL as has_draft",
             "draft_only",
             "ws_error_handler_muted",
-            "o.labels"
+            "o.labels",
+            "(SELECT fld.labels FROM folder fld WHERE o.path LIKE 'f/%' AND fld.name = split_part(o.path, '/', 2) AND fld.workspace_id = o.workspace_id) as inherited_labels"
         ])
         .left()
         .join("favorite")
@@ -202,7 +203,11 @@ async fn list_flows(
     }
     if let Some(label) = &lq.label {
         for l in label.split(',') {
-            sqlb.and_where("o.labels @> ARRAY[?]".bind(&l.trim()));
+            sqlb.and_where(
+                "(o.labels @> ARRAY[?] OR EXISTS (SELECT 1 FROM folder fld WHERE o.path LIKE 'f/%' AND fld.name = split_part(o.path, '/', 2) AND fld.workspace_id = o.workspace_id AND fld.labels @> ARRAY[?]))"
+                    .bind(&l.trim())
+                    .bind(&l.trim()),
+            );
         }
     }
 
@@ -1420,6 +1425,7 @@ async fn get_flow_by_path(
             flow.visible_to_runner_only, 
             flow.on_behalf_of_email,
             flow.labels,
+            (SELECT fld.labels FROM folder fld WHERE flow.path LIKE 'f/%' AND fld.name = split_part(flow.path, '/', 2) AND fld.workspace_id = flow.workspace_id) AS inherited_labels,
             flow_version.id AS version_id,
             flow_version.schema,
             flow_version.value,
@@ -1461,6 +1467,7 @@ async fn get_flow_by_path(
             flow.visible_to_runner_only, 
             flow.on_behalf_of_email,
             flow.labels,
+            (SELECT fld.labels FROM folder fld WHERE flow.path LIKE 'f/%' AND fld.name = split_part(flow.path, '/', 2) AND fld.workspace_id = flow.workspace_id) AS inherited_labels,
             flow_version.id AS version_id,
             flow_version.schema,
             flow_version.value,

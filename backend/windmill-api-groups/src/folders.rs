@@ -61,6 +61,7 @@ pub struct Folder {
     pub created_by: Option<String>,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub default_permissioned_as: serde_json::Value,
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -71,6 +72,7 @@ pub struct NewFolder {
     pub owners: Option<Vec<String>>,
     pub extra_perms: Option<serde_json::Value>,
     pub default_permissioned_as: Option<serde_json::Value>,
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -80,6 +82,7 @@ pub struct UpdateFolder {
     pub owners: Option<Vec<String>>,
     pub extra_perms: Option<serde_json::Value>,
     pub default_permissioned_as: Option<serde_json::Value>,
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -99,7 +102,7 @@ async fn list_folders(
 
     let rows = sqlx::query_as!(
         Folder,
-        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
+        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64
@@ -280,7 +283,7 @@ async fn create_folder(
     if let Err(e) =
     sqlx::query_as!(
         Folder,
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as) VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8)",
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels) VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9)",
         w_id,
         ng.name,
         ng.display_name.unwrap_or(ng.name.clone()),
@@ -288,7 +291,8 @@ async fn create_folder(
         extra_perms,
         ng.summary,
         authed.username,
-        default_permissioned_as
+        default_permissioned_as,
+        ng.labels.as_deref() as Option<&[String]>
     )
     .execute(&mut *tx)
     .await {
@@ -466,6 +470,20 @@ async fn update_folder(
         );
     }
 
+    if let Some(labels) = ng.labels.as_ref() {
+        sqlb.set(
+            "labels",
+            "?".bind(&format!(
+                "{{{}}}",
+                labels
+                    .iter()
+                    .map(|x| format!("\"{}\"", x.replace('\\', "\\\\").replace('"', "\\\"")))
+                    .collect::<Vec<_>>()
+                    .join(","),
+            )),
+        );
+    }
+
     sqlb.returning("*");
 
     let mut tx = user_db.begin(&authed).await?;
@@ -570,7 +588,7 @@ pub async fn get_folderopt<'c>(
 ) -> Result<Option<Folder>> {
     let folderopt = sqlx::query_as!(
         Folder,
-        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as FROM folder WHERE name = $1 AND workspace_id = $2",
+        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as, labels FROM folder WHERE name = $1 AND workspace_id = $2",
         name,
         w_id
     )
