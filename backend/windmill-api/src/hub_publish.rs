@@ -362,7 +362,12 @@ async fn submit_project(
 }
 
 fn hub_token() -> Result<String, Error> {
-    std::env::var("HUB_DEV_TOKEN").map_err(|_| Error::InternalErr("HUB_DEV_TOKEN not set".into()))
+    // Missing config, not a server fault: surface a clear 400 rather than a 500.
+    std::env::var("HUB_DEV_TOKEN").map_err(|_| {
+        Error::BadRequest(
+            "Hub publishing is not configured on this instance (HUB_DEV_TOKEN not set)".into(),
+        )
+    })
 }
 
 async fn get_from_hub(path: &str, source_id: &str) -> Result<(StatusCode, String), Error> {
