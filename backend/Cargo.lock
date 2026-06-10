@@ -14579,6 +14579,7 @@ dependencies = [
  "dashmap",
  "datafusion",
  "equivalent",
+ "erased-serde",
  "futures",
  "futures-core",
  "gethostname",

@@ -203,10 +203,13 @@ pub struct WithDraftQuery {
 /// can diverge from the deployed shape arbitrarily, so any per-kind
 /// translation lives in the frontend loader where the types are known.
 ///
-/// `inner` is held as `serde_json::Value` so the caller only needs
-/// `Serialize` on its response type — most read-only response shapes
-/// (e.g. `ScriptWithStarred`) only derive `Serialize`, and requiring
-/// `DeserializeOwned` would force derive cascades through many crates.
+/// `inner` is a boxed `erased_serde::Serialize` trait object so the
+/// deployed payload — a possibly MB-scale flow/app — is serialized
+/// straight to the response in ONE pass, instead of first being
+/// materialized into a `serde_json::Value` tree and then serialized
+/// again. The caller still only needs `Serialize` on its response type
+/// (no `DeserializeOwned` cascades), and the struct stays non-generic so
+/// every handler keeps `JsonResult<WithDraftOverlay>`.
 /// One row of `other_drafts_users` — represents a draft on the same path
 /// owned by someone other than the authed user. `username` is `None` for
 /// the legacy NULL-email row (workspace-scoped pre-migration draft), which
@@ -217,10 +220,12 @@ pub struct OtherDraftUser {
     pub username: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct WithDraftOverlay {
+    /// Deployed payload, flattened to the top level. Boxed-erased so a
+    /// large deployed entity is serialized once (see the type doc above).
     #[serde(flatten)]
-    pub inner: serde_json::Value,
+    pub inner: Box<dyn erased_serde::Serialize + Send>,
     pub is_draft: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_saved_at: Option<DateTime<Utc>>,
@@ -296,17 +301,15 @@ pub async fn maybe_overlay_draft<T>(
     deployed: T,
 ) -> Result<WithDraftOverlay>
 where
-    T: serde::Serialize,
+    T: serde::Serialize + Send + 'static,
 {
-    let inner = serde_json::to_value(&deployed)?;
-
     // Non-editor callers (worker/CLI reads of possibly MB-scale flows &
     // apps) pass `get_draft = false` and never render the draft overlay or
     // the "others editing" surfaces — so skip the extra `usr` join entirely
     // for them. Only editor reads (`get_draft = true`) pay for it.
     if !get_draft {
         return Ok(WithDraftOverlay {
-            inner,
+            inner: Box::new(deployed),
             is_draft: false,
             draft_saved_at: None,
             no_deployed: false,
@@ -345,7 +348,7 @@ where
 
     let Some(row) = row else {
         return Ok(WithDraftOverlay {
-            inner,
+            inner: Box::new(deployed),
             is_draft: false,
             draft_saved_at: None,
             no_deployed: false,
@@ -357,7 +360,7 @@ where
     let draft_json: serde_json::Value = serde_json::from_str(row.value.0.get())?;
 
     Ok(WithDraftOverlay {
-        inner,
+        inner: Box::new(deployed),
         is_draft: true,
         draft_saved_at: Some(row.created_at),
         no_deployed: false,
@@ -378,7 +381,7 @@ where
 /// `not_found` is only invoked on the 404 paths, so each route keeps its
 /// own message. Promoted from the per-handler copies, which had drifted
 /// (different 404 text, some missing the draft-only fallback).
-pub async fn overlay_or_draft_only<T: serde::Serialize>(
+pub async fn overlay_or_draft_only<T: serde::Serialize + Send + 'static>(
     db: &DB,
     w_id: &str,
     email: &str,
@@ -503,7 +506,7 @@ pub async fn fetch_draft_only(
         // Best-effort stand-in for the missing deployed — same JSON as
         // `draft`. Frontend should read `.draft` for the editor state
         // and skip "diff vs deployed" UI when `no_deployed` is set.
-        inner: draft_json.clone(),
+        inner: Box::new(draft_json.clone()),
         is_draft: true,
         draft_saved_at: Some(row.created_at),
         no_deployed: true,

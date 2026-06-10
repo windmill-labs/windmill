@@ -64,7 +64,10 @@ pub trait TriggerCrud: Send + Sync + 'static {
         + for<'r> FromRow<'r, sqlx::postgres::PgRow>
         + Send
         + Sync
-        + Unpin;
+        + Unpin
+        // `'static` so the deployed trigger can be boxed into
+        // `WithDraftOverlay`'s erased-serde inner (it's an owned row).
+        + 'static;
 
     type TriggerConfig: Debug
         + DeserializeOwned
