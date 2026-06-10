@@ -4,7 +4,38 @@
  * Capability is feature-detected (never browser-sniffed): the day Firefox/Safari
  * ship the API, the handle path lights up automatically.
  */
-import { isIgnoredPath, MAX_FOLDER_FILES } from './folderDrop'
+const IGNORED_DIRS = new Set([
+	'node_modules',
+	'dist',
+	'build',
+	'out',
+	'target',
+	'vendor',
+	'coverage',
+	'__pycache__',
+	'.git',
+	'.svelte-kit',
+	'.next',
+	'.nuxt',
+	'.venv',
+	'venv',
+	'.idea',
+	'.vscode',
+	'.turbo',
+	'.cache'
+])
+
+/** Max files collected from a single folder, to avoid pathological directories. */
+export const MAX_FOLDER_FILES = 500
+
+function isIgnoredSegment(name: string): boolean {
+	return name.startsWith('.') || IGNORED_DIRS.has(name)
+}
+
+/** True if any segment of a relative path is a dotfile/dotdir or an ignored directory. */
+export function isIgnoredPath(path: string): boolean {
+	return path.split('/').some(isIgnoredSegment)
+}
 
 type FSWindow = Window & {
 	showDirectoryPicker?: (opts?: {

@@ -4,51 +4,39 @@
 	import { getAiChatManager } from '../aiChatManagerContext'
 	import AttachedFileChip from './AttachedFileChip.svelte'
 	import AttachedFolderChip from './AttachedFolderChip.svelte'
-	import type { AttachedFile } from './attachedFiles.svelte'
+	import type { AttachedFile, AttachedFolder } from './attachedFiles.svelte'
 
 	const aiChatManager = getAiChatManager()
-	const files = $derived(aiChatManager.attachedFiles.list())
 	const lockedCount = $derived(aiChatManager.attachedFiles.lockedCount)
 
 	const MAX_VISIBLE = 3
 
 	type Card =
-		| { kind: 'folder'; key: string; name: string; files: AttachedFile[] }
+		| { kind: 'folder'; key: string; folder: AttachedFolder }
 		| { kind: 'file'; key: string; file: AttachedFile }
 
-	// Folders collapse into one card each; standalone files get their own card.
-	const cards = $derived.by<Card[]>(() => {
-		const folderMap = new Map<string, AttachedFile[]>()
-		const standalone: AttachedFile[] = []
-		for (const f of files) {
-			if (f.folder) {
-				const g = folderMap.get(f.folder)
-				if (g) g.push(f)
-				else folderMap.set(f.folder, [f])
-			} else {
-				standalone.push(f)
-			}
-		}
-		return [
-			...[...folderMap.entries()].map(
-				([name, gf]): Card => ({ kind: 'folder', key: 'd:' + name, name, files: gf })
-			),
-			...standalone.map((f): Card => ({ kind: 'file', key: 'f:' + f.name, file: f }))
-		]
-	})
+	// One card per linked folder, one per standalone file.
+	const cards = $derived.by<Card[]>(() => [
+		...aiChatManager.attachedFiles.folders.map(
+			(folder): Card => ({ kind: 'folder', key: 'd:' + folder.name, folder })
+		),
+		...aiChatManager.attachedFiles.standalone.map(
+			(file): Card => ({ kind: 'file', key: 'f:' + file.name, file })
+		)
+	])
 
 	const visible = $derived(cards.slice(0, MAX_VISIBLE))
 	const overflow = $derived(cards.slice(MAX_VISIBLE))
 
 	function removeCard(card: Card) {
-		if (card.kind === 'folder') aiChatManager.attachedFiles.removeFolder(card.name)
+		if (card.kind === 'folder') aiChatManager.attachedFiles.removeFolder(card.folder.name)
 		else aiChatManager.attachedFiles.removeFile(card.file.name)
 	}
 </script>
 
 {#snippet chip(card: Card)}
 	{#if card.kind === 'folder'}
-		<AttachedFolderChip folder={card.name} files={card.files} onRemove={() => removeCard(card)} />
+		<AttachedFolderChip folder={card.folder} onRemove={() => removeCard(card)} />
 	{:else}
 		<AttachedFileChip file={card.file} onRemove={() => removeCard(card)} />
 	{/if}

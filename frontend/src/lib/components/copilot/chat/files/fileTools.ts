@@ -152,15 +152,26 @@ function rosterLine(f: AttachedFile): string {
 }
 
 /** Build the `## Attached files` system-prompt section (metadata only, never content). */
-export function buildAttachedFilesRoster(files: AttachedFile[]): string {
-	if (files.length === 0) return ''
-	const lines = files.map(rosterLine).join('\n')
+export function buildAttachedFilesRoster(store: AttachedFilesStore): string {
+	const lines: string[] = []
+	for (const folder of store.folders) {
+		// A locked/unavailable folder has no readable children — one line for the whole folder.
+		if (folder.status === 'locked') {
+			lines.push(`- ${folder.name} (locked — needs the user to restore access)`)
+		} else if (folder.status === 'unavailable') {
+			lines.push(`- ${folder.name} (unavailable)`)
+		} else {
+			lines.push(...folder.files.map(rosterLine))
+		}
+	}
+	lines.push(...store.standalone.map(rosterLine))
+	if (lines.length === 0) return ''
 	return [
 		'## Attached files',
 		'The user has attached the following files to this conversation. Their contents are NOT included here.',
 		'Use the `search_files` tool to find content with a regex, and `read_file` to read a bounded window of lines.',
 		'',
-		lines
+		lines.join('\n')
 	].join('\n')
 }
 
@@ -170,9 +181,9 @@ export function buildAttachedFilesRoster(files: AttachedFile[]): string {
  */
 export function appendAttachedFilesRoster(
 	base: ChatCompletionSystemMessageParam,
-	files: AttachedFile[]
+	store: AttachedFilesStore
 ): ChatCompletionSystemMessageParam {
-	const roster = buildAttachedFilesRoster(files)
+	const roster = buildAttachedFilesRoster(store)
 	if (!roster || typeof base.content !== 'string') return base
 	return { ...base, content: `${base.content}\n\n${roster}` }
 }

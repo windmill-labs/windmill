@@ -57,21 +57,24 @@ describe('AttachedFilesStore', () => {
 		expect(store.count).toBe(0)
 	})
 
-	it('links a folder via a directory handle', async () => {
-		await store.addFolder(dir, [
+	it('links a folder via a directory handle (enumerating it internally)', async () => {
+		enumerateDirMock.mockResolvedValue([
 			{ file: file('app.ts', 'x\n'), path: 'proj/app.ts' },
 			{ file: file('old.ts', 'y\n'), path: 'proj/old.ts' }
 		])
+		await store.addFolder(dir)
 		await settle(store)
+		expect(enumerateDirMock).toHaveBeenCalledWith(dir)
 		expect(names(store)).toEqual(['proj/app.ts', 'proj/old.ts'])
 		expect(store.get('proj/app.ts')?.folder).toBe('proj')
 	})
 
 	it('refreshFolders detects rename, add, edit, and delete', async () => {
-		await store.addFolder(dir, [
+		enumerateDirMock.mockResolvedValue([
 			{ file: file('app.ts', 'x\n', 1), path: 'proj/app.ts' },
 			{ file: file('old.ts', 'y\n', 1), path: 'proj/old.ts' }
 		])
+		await store.addFolder(dir)
 		await settle(store)
 
 		// On disk: app.ts edited (mtime bumped), old.ts renamed → new.ts, readme.md added.
@@ -90,11 +93,55 @@ describe('AttachedFilesStore', () => {
 		expect(store.get('proj/app.ts')?.lineCount).toBe(2)
 	})
 
+	it('exposes folders and standalone as structured views', async () => {
+		enumerateDirMock.mockResolvedValue([
+			{ file: file('app.ts', 'x\n'), path: 'proj/app.ts' },
+			{ file: file('b.ts', 'y\n'), path: 'proj/sub/b.ts' }
+		])
+		await store.addFolder(dir)
+		await store.addFiles([file('solo.txt', 'one\n')])
+		await settle(store)
+
+		expect(store.folders.map((f) => f.name)).toEqual(['proj'])
+		expect(store.folders[0].status).toBe('ready')
+		expect(store.folders[0].files.map((f) => f.relPath).sort()).toEqual([
+			'proj/app.ts',
+			'proj/sub/b.ts'
+		])
+		expect(store.standalone.map((f) => f.name)).toEqual(['solo.txt'])
+		expect(store.lockedCount).toBe(0)
+	})
+
+	it('a locked folder surfaces as one folder with no files', async () => {
+		const { getItemsForSession } = await import('./attachedFilesDB')
+		;(getItemsForSession as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+			{
+				id: 'src1',
+				sessionId: 's1',
+				kind: 'dir-handle',
+				name: 'proj',
+				folder: 'proj',
+				handle: dir,
+				addedAt: 0
+			}
+		])
+		const { queryReadPermission } = await import('./fsAccess')
+		;(queryReadPermission as ReturnType<typeof vi.fn>).mockResolvedValueOnce('prompt')
+
+		const s2 = new AttachedFilesStore()
+		await s2.restore('s1', true)
+
+		expect(s2.folders).toEqual([{ name: 'proj', status: 'locked', files: [] }])
+		expect(s2.standalone).toEqual([])
+		expect(s2.lockedCount).toBe(1)
+	})
+
 	it('removeFolder drops all of a folder’s files', async () => {
-		await store.addFolder(dir, [
+		enumerateDirMock.mockResolvedValue([
 			{ file: file('app.ts', 'x\n'), path: 'proj/app.ts' },
 			{ file: file('b.ts', 'y\n'), path: 'proj/b.ts' }
 		])
+		await store.addFolder(dir)
 		store.removeFolder('proj')
 		expect(store.count).toBe(0)
 	})
