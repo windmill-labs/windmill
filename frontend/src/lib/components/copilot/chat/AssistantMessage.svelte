@@ -24,15 +24,12 @@
 	const reasoning = $derived(
 		message.role === 'assistant' ? message.reasoning?.trim() || undefined : undefined
 	)
-	// Some reasoning models (e.g. OpenAI) return no summary text — show a live indicator.
-	const reasoningActive = $derived(message.role === 'assistant' && !!message.reasoningActive)
-	// Show the block when there's thinking text, or while a textless model reasons pre-answer.
-	const showThinking = $derived(!!reasoning || (reasoningActive && !message.content))
-	// Spinner while reasoning hasn't produced the answer yet.
-	const thinkingInProgress = $derived(!message.content && (reasoningActive || !!reasoning))
+	// Spinner while the reasoning text streams before the answer. Textless reasoning
+	// (e.g. OpenAI) is surfaced on the typing indicator instead of a card.
+	const reasoningStreaming = $derived(!!reasoning && !message.content)
 	// Expand while still thinking, collapse once the answer begins — unless toggled.
 	let reasoningToggled = $state<boolean | undefined>(undefined)
-	const reasoningExpanded = $derived(reasoningToggled ?? thinkingInProgress)
+	const reasoningExpanded = $derived(reasoningToggled ?? reasoningStreaming)
 
 	const candidatePaths = $derived(extractCandidatePaths(message.content))
 	const rendererPlugin = {
@@ -73,26 +70,23 @@
 	})
 </script>
 
-{#if showThinking}
+{#if reasoning}
 	<div
 		class="mb-2 bg-surface border border-border-light rounded-md overflow-hidden font-mono text-xs"
 	>
 		<button
 			class={twMerge(
 				'w-full p-2 bg-surface-secondary/30 hover:bg-surface-hover transition-colors flex items-center gap-2 text-left',
-				reasoningExpanded && reasoning ? 'border-b border-border-light' : ''
+				reasoningExpanded ? 'border-b border-border-light' : ''
 			)}
-			onclick={() => reasoning && (reasoningToggled = !reasoningExpanded)}
-			disabled={!reasoning}
+			onclick={() => (reasoningToggled = !reasoningExpanded)}
 		>
-			{#if reasoning}
-				{#if reasoningExpanded}
-					<ChevronDown class="w-3 h-3 text-secondary" />
-				{:else}
-					<ChevronRight class="w-3 h-3 text-secondary" />
-				{/if}
+			{#if reasoningExpanded}
+				<ChevronDown class="w-3 h-3 text-secondary" />
+			{:else}
+				<ChevronRight class="w-3 h-3 text-secondary" />
 			{/if}
-			{#if thinkingInProgress}
+			{#if reasoningStreaming}
 				<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
 			{:else}
 				<Brain class="w-3.5 h-3.5 text-secondary" />
@@ -100,7 +94,7 @@
 			<span class="text-primary font-medium text-2xs">Thinking</span>
 		</button>
 
-		{#if reasoningExpanded && reasoning}
+		{#if reasoningExpanded}
 			<div class="p-2 bg-surface text-2xs text-secondary whitespace-pre-wrap break-words">
 				{reasoning}
 			</div>

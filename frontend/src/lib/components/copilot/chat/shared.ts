@@ -512,8 +512,6 @@ export type AssistantDisplayMessage = BaseDisplayMessage & {
 	role: 'assistant'
 	/** Summarized reasoning/thinking text streamed before the answer (Anthropic + compat providers). */
 	reasoning?: string
-	/** True while the model is reasoning but returns no summary text (e.g. OpenAI) — shows a live indicator. */
-	reasoningActive?: boolean
 }
 
 export type DisplayMessage = UserDisplayMessage | ToolDisplayMessage | AssistantDisplayMessage
