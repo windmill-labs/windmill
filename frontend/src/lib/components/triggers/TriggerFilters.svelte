@@ -11,7 +11,7 @@
 		filterLogic: 'and' | 'or'
 		disabled?: boolean
 		// Set when the runnable receives the payload base64-encoded (e.g. Kafka).
-		// Filters are always evaluated on the decoded JSON, so we clarify the distinction.
+		// Filters always run on the message parsed as JSON, so we clarify the distinction.
 		payloadBase64Encoded?: boolean
 	}
 
@@ -35,9 +35,9 @@
 
 	let filterHelp = $derived(
 		'The JSON filter checks if the value at the key is equal or a superset of the filter value. ' +
-			'Filters are evaluated on the decoded JSON payload, so filter keys reference the original JSON structure (e.g. type, data.status).' +
+			"Filters match against the message parsed as JSON, so filter keys reference the message's own structure (e.g. type, data.status)." +
 			(payloadBase64Encoded
-				? ' The runnable still receives the payload as a base64-encoded string.'
+				? ' The runnable still receives the payload base64-encoded; filters run on the message before that encoding.'
 				: '')
 	)
 </script>
