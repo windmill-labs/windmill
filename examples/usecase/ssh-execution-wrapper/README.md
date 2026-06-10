@@ -97,12 +97,6 @@ The userland wrapper
 The wrapper takes an `ssh_target` resource, a `script_content` string, and a
 `language`, then:
 
-How it works
-------------
-
-The wrapper takes an `ssh_target` resource, a `script_content` string, and a
-`language`, then:
-
 1. writes the private key to a `0600` temp file (and a job-local `known_hosts`),
 2. opens a single SSH connection (no TTY),
 3. streams the script body to the remote host's stdin, where a small bootstrap
@@ -197,6 +191,10 @@ These are deliberate and worth preserving if you adapt the wrapper:
   `$?`, `$TMPDIR` are evaluated *remotely*, not expanded on the worker.
 - **Body via stdin.** The script body is streamed over stdin, never written to a
   local temp file or interpolated into the command line.
+- **`--` before the destination.** OpenSSH parses a destination starting with
+  `-` as an option, so without the separator a crafted `user` like
+  `-oProxyCommand=...` in the resource would execute a local command on the
+  worker before host-key validation. Keep the `--` if you adapt the wrapper.
 - **Multiple round-trips?** This wrapper makes a single SSH connection. If you
   extend it to several `ssh` calls, add
   `-o ControlMaster=auto -o ControlPersist=60 -o ControlPath=<job-local>` to

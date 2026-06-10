@@ -94,7 +94,9 @@ def main(ssh_target: dict, script_content: str, language: str = "bash"):
 
         remote = REMOTE_BOOTSTRAP.replace("@@INTERP@@", interp)
         # no -t/-tt: stdout and stderr stay separate for clean log capture.
-        cmd = ["ssh", *ssh_opts, f"{user}@{host}", remote]
+        # `--` so a crafted user/host (e.g. "-oProxyCommand=...") can never be
+        # parsed as an ssh option
+        cmd = ["ssh", *ssh_opts, "--", f"{user}@{host}", remote]
 
         # stdout/stderr are inherited from this process so they stream live to
         # the Windmill job log; only stdin is a pipe for the script body.

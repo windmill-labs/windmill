@@ -108,6 +108,6 @@ remote_bootstrap=${remote_bootstrap//@@INTERP@@/$interp}
 # - body is streamed via stdin so it never touches a local temp file
 # - PIPESTATUS[1] is ssh's exit code == the remote script's exit code
 set +e
-printf '%s\n' "$script_content" | ssh "${ssh_opts[@]}" "$user@$host" "$remote_bootstrap"
+printf '%s\n' "$script_content" | ssh "${ssh_opts[@]}" -- "$user@$host" "$remote_bootstrap"
 rc=${PIPESTATUS[1]}
 exit "$rc"

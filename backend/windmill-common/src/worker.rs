@@ -898,9 +898,11 @@ impl BashAnnotations {
     ///
     /// Mirrors `sandbox_image`: only leading comment lines are scanned, stopping
     /// at the first non-comment line. A bare `#ssh` with no path returns `None`.
-    /// The token must look like a target — a resource path (contains `/`) or a
-    /// `$arg` reference — so prose comments like `# ssh into the box` never
-    /// trigger the reroute.
+    /// Only an exact `#ssh <target>` line triggers the reroute — the target must
+    /// be a resource path (`u/...`/`f/...`) or a `$arg` reference (a valid
+    /// identifier), with nothing else on the line — so prose comments like
+    /// `# ssh into the box`, `# ssh tunnel/proxy setup is below` or
+    /// `# ssh $HOST manually first` never match.
     pub fn ssh_target(code: &str) -> Option<String> {
         for line in code.lines() {
             let line = line.trim();
@@ -913,7 +915,13 @@ impl BashAnnotations {
             let mut tokens = line[1..].split_whitespace();
             if tokens.next() == Some("ssh") {
                 if let Some(path) = tokens.next() {
-                    if path.contains('/') || path.starts_with('$') {
+                    let is_path = path.starts_with("u/") || path.starts_with("f/");
+                    let is_arg = path.strip_prefix('$').is_some_and(|a| {
+                        !a.is_empty()
+                            && !a.starts_with(|c: char| c.is_ascii_digit())
+                            && a.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                    });
+                    if (is_path || is_arg) && tokens.next().is_none() {
                         return Some(path.to_string());
                     }
                 }
@@ -2337,10 +2345,23 @@ mod tests {
         assert_eq!(BashAnnotations::ssh_target("#ssh\necho hi"), None);
         // `ssh` must be its own token, not a prefix.
         assert_eq!(BashAnnotations::ssh_target("# sshd restart"), None);
-        // Prose comments mentioning ssh must not trigger the reroute: the token
-        // after `ssh` has to look like a target (path with `/` or `$arg`).
+        // Prose comments mentioning ssh must not trigger the reroute: the line
+        // must be exactly `#ssh <target>` with a `u/`/`f/` path or `$identifier`.
         assert_eq!(
             BashAnnotations::ssh_target("# ssh into the box and restart nginx\necho hi"),
+            None
+        );
+        assert_eq!(
+            BashAnnotations::ssh_target("# ssh tunnel/proxy setup is below\necho hi"),
+            None
+        );
+        assert_eq!(
+            BashAnnotations::ssh_target("# ssh $HOST manually first\necho hi"),
+            None
+        );
+        // Trailing tokens after a real-looking target also disqualify the line.
+        assert_eq!(
+            BashAnnotations::ssh_target("#ssh f/infra/box then reboot\necho hi"),
             None
         );
         // ...but a real directive on a later comment line is still found.
