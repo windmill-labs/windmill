@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
 	type PasteAttachment,
+	countLines,
 	expandPasteTokens,
 	lineCountLabel,
 	makePasteToken,
@@ -23,10 +24,26 @@ describe('lineCountLabel', () => {
 	})
 })
 
+describe('countLines', () => {
+	it('counts display lines', () => {
+		expect(countLines('a')).toBe(1)
+		expect(countLines('a\nb\nc')).toBe(3)
+	})
+	it('ignores a single trailing newline', () => {
+		expect(countLines('a\nb\n')).toBe(2)
+		expect(countLines('a\n')).toBe(1)
+	})
+})
+
 describe('shouldCollapsePaste', () => {
 	it('collapses past the line threshold', () => {
 		expect(shouldCollapsePaste('a\n'.repeat(11))).toBe(true)
 		expect(shouldCollapsePaste('a\n'.repeat(9))).toBe(false)
+	})
+	it('does not collapse a 10-line paste with a trailing newline', () => {
+		// 10 lines + trailing newline must not read as 11 (the off-by-one).
+		expect(shouldCollapsePaste(Array(10).fill('x').join('\n') + '\n')).toBe(false)
+		expect(shouldCollapsePaste(Array(11).fill('x').join('\n') + '\n')).toBe(true)
 	})
 	it('collapses very long single-line blobs', () => {
 		expect(shouldCollapsePaste('x'.repeat(1001))).toBe(true)

@@ -42,8 +42,6 @@ export const autosize = (node: TextArea, params?: AutosizeParams) => {
 		node.style.height = 'auto'
 		let height = Math.max(node.scrollHeight, MIN_HEIGHT) + EXTRA
 
-		// Only touch overflow-y when a cap is configured, so uncapped callers
-		// keep their existing behaviour untouched.
 		const maxPx = resolveMaxHeight(maxHeight)
 		if (maxPx != null) {
 			if (height > maxPx) {
@@ -52,6 +50,11 @@ export const autosize = (node: TextArea, params?: AutosizeParams) => {
 			} else {
 				node.style.overflowY = 'hidden'
 			}
+		} else {
+			// Uncapped — including after a capped→uncapped toggle: drop any inline
+			// overflow we set while capped so the textarea returns to its default
+			// (class-driven) behaviour rather than keeping a stale `auto`/`hidden`.
+			node.style.overflowY = ''
 		}
 
 		node.style.height = `${height}px`

@@ -28,8 +28,15 @@ export const PASTE_LINE_THRESHOLD = 10
 /** …or more than this many characters (catches giant single-line blobs). */
 export const PASTE_CHAR_THRESHOLD = 1000
 
+/** Number of display lines, ignoring a single trailing newline — line-based
+ *  copies usually include one, which would otherwise inflate the count by one
+ *  (e.g. a 10-line selection counting as 11). */
+export function countLines(text: string): number {
+	return (text.endsWith('\n') ? text.slice(0, -1) : text).split('\n').length
+}
+
 export function shouldCollapsePaste(text: string): boolean {
-	return text.split('\n').length > PASTE_LINE_THRESHOLD || text.length > PASTE_CHAR_THRESHOLD
+	return countLines(text) > PASTE_LINE_THRESHOLD || text.length > PASTE_CHAR_THRESHOLD
 }
 
 /** "1 line" / "N lines" — the single source of line-count pluralization. */

@@ -11,6 +11,7 @@
 	import { flip, offset, shift } from 'svelte-floating-ui/dom'
 	import {
 		type PasteAttachment,
+		countLines,
 		expandPasteTokens,
 		makePasteToken,
 		nextPasteId,
@@ -279,7 +280,7 @@
 		)
 		const att: PasteAttachment = {
 			id: nextPasteId(pastes ?? []),
-			lines: text.split('\n').length,
+			lines: countLines(text),
 			content: text
 		}
 		const token = makePasteToken(att)
@@ -356,13 +357,40 @@
 		return false
 	}
 
+	// The content-mutating inputTypes we know how to reproduce. We intercept ONLY
+	// these — never history (historyUndo/Redo, which we'd turn into a deletion)
+	// nor composition (insertCompositionText is non-cancelable, so preventDefault
+	// is a no-op while we'd still rewrite value mid-IME).
+	const HANDLED_INPUT_TYPES = new Set([
+		'insertText',
+		'insertReplacementText',
+		'insertFromYank',
+		'insertFromPaste',
+		'insertFromDrop',
+		'insertLineBreak',
+		'insertParagraph',
+		'deleteContentBackward',
+		'deleteContentForward',
+		'deleteContent',
+		'deleteByCut',
+		'deleteByDrag',
+		'deleteWordBackward',
+		'deleteWordForward',
+		'deleteSoftLineBackward',
+		'deleteSoftLineForward',
+		'deleteHardLineBackward',
+		'deleteHardLineForward'
+	])
+
 	// Any selection-spanning input (typing over a selection, paste, cut,
 	// drag-and-drop, Backspace/Delete over a selection) that overlaps a chip is
 	// taken over and applied to the whole token(s), so a partial edit can never
 	// leave an orphaned zero-width run or a dangling pastes entry. Backspace/
 	// Delete at a collapsed boundary is handled earlier in keydown.
 	function handlePasteBeforeInput(e: InputEvent) {
-		if (!textarea) return
+		// Skip non-cancelable events (e.g. IME composition) — we can't suppress
+		// them, and unknown inputTypes (history) we mustn't reinterpret as a delete.
+		if (!textarea || !e.cancelable || !HANDLED_INPUT_TYPES.has(e.inputType)) return
 		const start = textarea.selectionStart
 		const end = textarea.selectionEnd
 		if (start === null || end === null || start === end) return
@@ -372,9 +400,9 @@
 		replacePasteRange(from, to, ids, insertedText(e))
 	}
 
-	// The text a beforeinput event will insert, by inputType. Deletions insert
-	// nothing; line breaks insert a newline; paste/drop/replacement carry their
-	// payload on dataTransfer, plain typing on `data`.
+	// The text a (whitelisted) beforeinput event will insert, by inputType.
+	// Deletions insert nothing; line breaks insert a newline; paste/drop/yank/
+	// replacement carry their payload on dataTransfer, plain typing on `data`.
 	function insertedText(e: InputEvent): string {
 		const t = e.inputType
 		if (t.startsWith('delete')) return ''
@@ -388,6 +416,20 @@
 			return e.dataTransfer?.getData('text/plain') ?? e.data ?? ''
 		}
 		return e.data ?? ''
+	}
+
+	// Dragging a selection that contains a chip carries the *expanded* content on
+	// the drag payload (mirroring copy/cut), so dropping it — inside the input or
+	// onto an external target — yields the real text, never the chip label + its
+	// zero-width id run (which, once its registry entry is gone, can't resolve).
+	function handlePasteDragStart(e: DragEvent) {
+		if (!textarea || !e.dataTransfer) return
+		const start = textarea.selectionStart
+		const end = textarea.selectionEnd
+		if (start === null || end === null || start === end) return
+		const { from, to, ids } = tokensOverlapping(start, end)
+		if (ids.length === 0) return
+		e.dataTransfer.setData('text/plain', expandPasteTokens(value.slice(from, to), pastes ?? []))
 	}
 
 	// Copy/cut of a selection containing a chip puts the *expanded* content on the
@@ -478,7 +520,15 @@
 			const atIndex = value.length - contextTooltipWord.length
 			const coords = getCaretCoordinates(textarea, atIndex)
 			const rect = textarea.getBoundingClientRect()
-			anchorRect = new DOMRect(rect.left + coords.left, rect.top + coords.top, 1, coords.height)
+			// getCaretCoordinates returns content-relative coords; subtract the
+			// textarea's own scroll so the anchor tracks the `@` once the input is
+			// capped (max-height) and scrolls internally.
+			anchorRect = new DOMRect(
+				rect.left + coords.left - textarea.scrollLeft,
+				rect.top + coords.top - textarea.scrollTop,
+				1,
+				coords.height
+			)
 			// Re-prime the virtual ref then kick floating-ui (autoUpdate only fires
 			// on scroll/resize, not on text changes inside the textarea).
 			anchorRef.update({ getBoundingClientRect: anchorRect })
@@ -631,7 +681,13 @@
 		onbeforeinput={handlePasteBeforeInput}
 		oncopy={handlePasteCopyCut}
 		oncut={handlePasteCopyCut}
-		onscroll={(e) => (scrollTop = e.currentTarget.scrollTop)}
+		ondragstart={handlePasteDragStart}
+		onscroll={(e) => {
+			scrollTop = e.currentTarget.scrollTop
+			// Keep the `@` picker pinned to its anchor while the input scrolls
+			// internally (autoUpdate can't observe a virtual ref's scroll).
+			if (showContextTooltip) updateAnchorRect()
+		}}
 		onblur={() => {
 			setTimeout(() => {
 				// Don't close if focus moved to inside the tooltip (e.g., search input)
