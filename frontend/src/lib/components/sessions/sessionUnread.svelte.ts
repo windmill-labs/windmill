@@ -1,31 +1,47 @@
 import type { SessionRuntime } from './sessionRuntime.svelte'
+import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
 
 // Per-user, per-session "last seen" marker — count of displayMessages the
 // last time the user was actually on that session's page. Compared against
 // the runtime's current message count to derive an unread badge.
 //
-// Stored as a single localStorage entry holding Record<sessionId, count>.
-// Module-level $state for cross-session reactivity; can't use
-// `useLocalStorageValue` here because its internal $effect requires a
-// component-initialization context (we run at import time).
+// Stored as a single localStorage entry holding Record<sessionId, count>,
+// namespaced by the logged-in user's email (scopedKey) so unread badges are
+// never shared across users on a shared browser. The bare key is also the
+// legacy (pre-namespacing) key, claimed once on first login.
 const LS_KEY = 'windmill_sessions_last_seen_counts'
 
-function readInitial(): Record<string, number> {
-	if (typeof window === 'undefined') return {}
+function readScoped(): Record<string, number> {
+	const key = scopedKey(LS_KEY)
+	if (typeof window === 'undefined' || !key) return {}
 	try {
-		const raw = localStorage.getItem(LS_KEY)
+		const raw = localStorage.getItem(key)
 		return raw ? JSON.parse(raw) : {}
 	} catch {
 		return {}
 	}
 }
 
-const lastSeen = $state<{ val: Record<string, number> }>({ val: readInitial() })
+// Starts empty: hydrated from the user-scoped key by the onUserChange handler
+// below once the logged-in email resolves (async, after layout load).
+const lastSeen = $state<{ val: Record<string, number> }>({ val: {} })
+
+onUserChange((email, prevEmail) => {
+	if (typeof window === 'undefined') return
+	const key = scopedKey(LS_KEY)
+	if (!key) {
+		if (prevEmail !== undefined) lastSeen.val = {}
+		return
+	}
+	migrateLegacyLocalStorage(LS_KEY, key)
+	lastSeen.val = readScoped()
+})
 
 function persist(): void {
-	if (typeof window === 'undefined') return
+	const key = scopedKey(LS_KEY)
+	if (typeof window === 'undefined' || !key) return
 	try {
-		localStorage.setItem(LS_KEY, JSON.stringify(lastSeen.val))
+		localStorage.setItem(key, JSON.stringify(lastSeen.val))
 	} catch (e) {
 		console.error('sessionUnread: localStorage write failed', e)
 	}

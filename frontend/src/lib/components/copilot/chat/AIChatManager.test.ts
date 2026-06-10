@@ -15,11 +15,15 @@ vi.mock('$lib/gen', () => ({
 	JobService: {}
 }))
 
+// Autonomy mode is now namespaced by the logged-in user's email (see
+// userScopedStorage); the mock emits one so scopedKey() resolves.
+const TEST_EMAIL = 'admin@test'
+
 vi.mock('$lib/stores', () => ({
 	workspaceStore: { subscribe: () => () => undefined },
 	userStore: {
-		subscribe: (run: (value: { username: string }) => void) => {
-			run({ username: 'admin' })
+		subscribe: (run: (value: { username: string; email: string }) => void) => {
+			run({ username: 'admin', email: 'admin@test' })
 			return () => undefined
 		}
 	}
@@ -92,7 +96,7 @@ describe('AIChatManager autonomy mode', () => {
 		localStorage.clear()
 		// These tests exercise the transition into auto-accept, so start from the
 		// ask-permission baseline rather than the new auto-accept-edits default.
-		localStorage.setItem('ai-chat-autonomy-mode', AIAutonomyMode.DEFAULT)
+		localStorage.setItem(`ai-chat-autonomy-mode::${TEST_EMAIL}`, AIAutonomyMode.DEFAULT)
 		vi.clearAllMocks()
 	})
 
@@ -194,9 +198,10 @@ describe('AIChatManager autonomy mode', () => {
 })
 
 describe('AIChatManager persisted autonomy default', () => {
-	// Mirrors the private storage keys in AIChatManager.svelte.ts.
-	const AUTONOMY_KEY = 'ai-chat-autonomy-mode'
-	const LEGACY_YOLO_KEY = 'ai-chat-yolo-mode'
+	// Mirrors the private storage keys in AIChatManager.svelte.ts, namespaced by
+	// the logged-in user's email (see userScopedStorage).
+	const AUTONOMY_KEY = `ai-chat-autonomy-mode::${TEST_EMAIL}`
+	const LEGACY_YOLO_KEY = `ai-chat-yolo-mode::${TEST_EMAIL}`
 
 	beforeEach(() => {
 		localStorage.clear()
