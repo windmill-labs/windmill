@@ -1348,6 +1348,9 @@ async fn create_app_internal<'a>(
             ));
         }
     }
+    if matches!(app.policy.execution_mode, ExecutionMode::Anonymous) {
+        require_admin(authed.is_admin, &authed.username)?;
+    }
     // CLI / git-sync deploys ask us to preserve any existing user draft at this
     // path instead of wiping it as part of the deploy.
     if !app.skip_draft_deletion.unwrap_or(false) {
@@ -1866,6 +1869,22 @@ async fn update_app_internal<'a>(
         }
 
         if let Some(mut npolicy) = ns.policy {
+            if matches!(npolicy.execution_mode, ExecutionMode::Anonymous) && !authed.is_admin {
+                // Non-admins may keep deploying an app that is already public,
+                // but only admins can flip an app to anonymous (public) access.
+                let already_anonymous = sqlx::query_scalar!(
+                    "SELECT policy->>'execution_mode' = 'anonymous' FROM app WHERE path = $1 AND workspace_id = $2",
+                    path,
+                    w_id
+                )
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten()
+                .unwrap_or(false);
+                if !already_anonymous {
+                    require_admin(authed.is_admin, &authed.username)?;
+                }
+            }
             let should_preserve = ns.preserve_on_behalf_of.unwrap_or(false)
                 && windmill_common::can_preserve_on_behalf_of(&authed)
                 && npolicy.on_behalf_of.is_some();

@@ -253,6 +253,12 @@
 	<h2>Public URL</h2>
 
 	<div class="my-6">
+		{#if !($userStore?.is_admin || $userStore?.is_super_admin)}
+			<Alert type="warning" title="Admin only" size="xs">
+				Public app access can only be configured by workspace admins
+			</Alert>
+			<div class="mb-2"></div>
+		{/if}
 		<div class="flex gap-2 items-center mb-2">
 			<Toggle
 				options={{
@@ -264,7 +270,7 @@
 					policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
 					setPublishState()
 				}}
-				disabled={!savedApp}
+				disabled={!savedApp || !($userStore?.is_admin || $userStore?.is_super_admin)}
 			/>
 		</div>
 		{#if !savedApp}
