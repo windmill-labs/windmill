@@ -152,34 +152,25 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 		})
 	})
 
-	// Publish the dirty state as an optimistic hint so the list page behind
-	// the drawer shows the `*` suffix on the edited row immediately — the
-	// server's `is_draft` flag only catches up on the next list refetch.
-	// Track the published key so a path/workspace change (or teardown)
-	// clears the previous hint instead of leaking it.
-	let publishedHint: { ws: string; path: string } | undefined = undefined
+	// Publish the observed draft state as an optimistic hint so the list
+	// page behind the drawer shows the `*` suffix on the edited row
+	// immediately — the server's `is_draft` flag only catches up on the
+	// next list refetch. Only while the drawer is settled (not loading):
+	// the hint then mirrors the truth the editor can see, in BOTH
+	// directions — divergence sets it, and an open editor sitting at the
+	// deployed baseline clears it (covers a draft discarded from another
+	// tab: reopening re-syncs and the stale asterisk disappears).
+	// Deliberately NOT cleared on teardown — the divergence is autosaved
+	// server-side, so the draft (and the asterisk) outlives the drawer.
 	$effect(() => {
 		const ws = opts.workspace()
 		const p = opts.path()
+		const loading = opts.drawerLoading()
 		const dirty = hasDraft
 		untrack(() => {
-			if (publishedHint && (publishedHint.ws !== ws || publishedHint.path !== p || !dirty)) {
-				setLocalDraftHint(publishedHint.ws, opts.itemKind, publishedHint.path, false)
-				publishedHint = undefined
-			}
-			if (dirty && ws && p) {
-				setLocalDraftHint(ws, opts.itemKind, p, true)
-				publishedHint = { ws, path: p }
-			}
+			if (!ws || !p || loading) return
+			setLocalDraftHint(ws, opts.itemKind, p, dirty)
 		})
-	})
-	$effect(() => {
-		return () => {
-			if (publishedHint) {
-				setLocalDraftHint(publishedHint.ws, opts.itemKind, publishedHint.path, false)
-				publishedHint = undefined
-			}
-		}
 	})
 
 	return {

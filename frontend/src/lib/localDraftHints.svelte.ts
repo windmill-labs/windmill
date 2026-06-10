@@ -10,9 +10,13 @@
  *
  * Backed by a `SvelteSet`, so a page template reading
  * `hasLocalDraftHint(...)` re-renders when the editor flips the hint.
- * Hints are transient: cleared when the editor reports clean (discard /
- * deploy) and on editor teardown; after that the server flag (refreshed
- * by the page's own reload-on-change paths) takes back over.
+ *
+ * Lifetime: hints PERSIST past editor teardown — the divergence the
+ * editor observed is autosaved server-side, so the draft outlives the
+ * drawer and the asterisk should too. They are corrected, not expired:
+ * the next time an editor settles on the same item it re-publishes the
+ * observed truth, so a draft discarded from another tab clears the
+ * stale hint on reopen.
  */
 import { SvelteSet } from 'svelte/reactivity'
 import type { UserDraftItemKind } from '$lib/gen'

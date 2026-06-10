@@ -159,33 +159,25 @@
 	)
 	const anyDirty = $derived(dirtyWorkspaces.length > 0)
 
-	// Publish the dirty state as an optimistic hint so the resources list
-	// behind the drawer shows the `*` suffix on the edited row immediately
-	// (the server's `is_draft` only catches up on the next refetch). Track
-	// published keys so path/workspace changes and teardown clear them.
-	let publishedHints: { ws: string; path: string }[] = []
+	// Publish the observed draft state as an optimistic hint so the
+	// resources list behind the drawer shows the `*` suffix on the edited
+	// row immediately (the server's `is_draft` only catches up on the next
+	// refetch). For every workspace the editor has LOADED, the hint mirrors
+	// what the editor sees — divergence sets it, sitting at the deployed
+	// baseline clears it (covers a draft discarded from another tab:
+	// reopening re-syncs and the stale asterisk disappears). Deliberately
+	// NOT cleared on teardown — the divergence is autosaved server-side, so
+	// the draft (and the asterisk) outlives the drawer.
 	$effect(() => {
 		const p = initialPath
+		const loadedWs = Object.keys(states)
 		const dirty = dirtyWorkspaces
 		untrack(() => {
-			for (const h of publishedHints) {
-				setLocalDraftHint(h.ws, 'resource', h.path, false)
-			}
-			publishedHints = []
 			if (!p) return
-			for (const ws of dirty) {
-				setLocalDraftHint(ws, 'resource', p, true)
-				publishedHints.push({ ws, path: p })
+			for (const ws of loadedWs) {
+				setLocalDraftHint(ws, 'resource', p, dirty.includes(ws))
 			}
 		})
-	})
-	$effect(() => {
-		return () => {
-			for (const h of publishedHints) {
-				setLocalDraftHint(h.ws, 'resource', h.path, false)
-			}
-			publishedHints = []
-		}
 	})
 	// Banner is scoped to the selected workspace — the diff/discard only
 	// operate on it, so showing it for an unrelated dirty workspace would be
