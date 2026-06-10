@@ -586,6 +586,7 @@ const getPreviewStatusSchema = z.object({})
 type SessionToolResult = {
 	aiResult: string
 	uiMessage: string
+	toolResult: string
 }
 
 const getRuntimeLogsSchema = z.object({
@@ -2058,13 +2059,14 @@ export const globalTools: Tool<{}>[] = [
 			'Fetch the most recent browser console logs (and uncaught errors) from the raw app preview currently open in this AI session.'
 		),
 		showDetails: true,
+		autoCollapseDetails: false,
 		fn: async (ctx) => {
 			const parsed = getRuntimeLogsSchema.parse(ctx.args)
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Reading app runtime logs...' })
 			const result = await getSessionRuntimeLogs(parsed.limit ?? 10, sessionIdFromCtx(ctx))
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 				content: result.uiMessage,
-				autoCollapseDetails: true
+				result: result.toolResult,
 			})
 			return result.aiResult
 		}
@@ -2082,6 +2084,7 @@ export const globalTools: Tool<{}>[] = [
 			const result = await getSessionAppRuns(parsed.limit ?? 20, sessionIdFromCtx(ctx))
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 				content: result.uiMessage,
+				result: result.toolResult,
 				autoCollapseDetails: true
 			})
 			return result.aiResult
@@ -2212,7 +2215,8 @@ function getSessionRuntimeLogs(
 		return Promise.resolve({
 			aiResult:
 				'Error: get_app_runtime_logs is only available inside an AI session. Tell the user runtime logs can only be read from a session preview, or switch to a session and open the raw app preview.',
-			uiMessage: 'Runtime logs unavailable'
+			uiMessage: 'Runtime logs unavailable',
+			toolResult: 'Runtime logs unavailable'
 		})
 	}
 	return getRuntimeLogsHandler({ sessionId, limit })
@@ -2237,7 +2241,8 @@ function getSessionAppRuns(
 		return Promise.resolve({
 			aiResult:
 				'Error: list_app_runs is only available inside an AI session. Tell the user app runs can only be read from a session preview, or switch to a session and open the raw app preview.',
-			uiMessage: 'App runs unavailable'
+			uiMessage: 'App runs unavailable',
+			toolResult: 'App runs unavailable'
 		})
 	}
 	return Promise.resolve(listAppRunsHandler({ sessionId, limit }))

@@ -2011,7 +2011,8 @@ describe('prepareGlobalSystemMessage', () => {
 			const callbacks: ToolCallbacks = { setToolStatus: vi.fn(), removeToolStatus: vi.fn() }
 			const handler = vi.fn(async () => ({
 				aiResult: 'logs output. Next step: inspect the browser error.',
-				uiMessage: 'Read 1 runtime log'
+				uiMessage: 'Read 1 runtime log',
+				toolResult: '[{"level":"log","message":"log message","ts":1718000000000}]'
 			}))
 			setGetRuntimeLogsHandler(handler)
 			const result = await callGlobalTool('get_app_runtime_logs', {}, callbacks, {
@@ -2028,7 +2029,8 @@ describe('prepareGlobalSystemMessage', () => {
 		it('passes an explicit limit through to the handler', async () => {
 			const handler = vi.fn(async () => ({
 				aiResult: 'logs output',
-				uiMessage: 'Read runtime logs'
+				uiMessage: 'Read runtime logs',
+				toolResult: '[{"level":"log","message":"log message","ts":1718000000000}]'
 			}))
 			setGetRuntimeLogsHandler(handler)
 			await callGlobalTool('get_app_runtime_logs', { limit: 3 }, toolCallbacks, {
@@ -2054,7 +2056,8 @@ describe('prepareGlobalSystemMessage', () => {
 			const callbacks: ToolCallbacks = { setToolStatus: vi.fn(), removeToolStatus: vi.fn() }
 			const handler = vi.fn(() => ({
 				aiResult: 'runs output. Next step: call get_job_logs.',
-				uiMessage: 'Listed 1 app run'
+				uiMessage: 'Listed 1 app run',
+				toolResult: '[{"job_id":"job-1","component":"backend.1","status":"completed","created_at":1718000000000,"started_at":1718000000000,"duration_ms":1000}]'
 			}))
 			setListAppRunsHandler(handler)
 			const result = await callGlobalTool('list_app_runs', {}, callbacks, {
@@ -2071,7 +2074,8 @@ describe('prepareGlobalSystemMessage', () => {
 		it('passes an explicit limit through to the handler', async () => {
 			const handler = vi.fn(() => ({
 				aiResult: 'runs output',
-				uiMessage: 'Listed app runs'
+				uiMessage: 'Listed app runs',
+				toolResult: '[{"job_id":"job-1","component":"backend.1","status":"completed","created_at":1718000000000,"started_at":1718000000000,"duration_ms":1000}]'
 			}))
 			setListAppRunsHandler(handler)
 			await callGlobalTool('list_app_runs', { limit: 5 }, toolCallbacks, {

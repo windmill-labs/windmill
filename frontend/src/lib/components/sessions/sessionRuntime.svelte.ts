@@ -772,7 +772,8 @@ setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit }) => {
 		return {
 			aiResult:
 				'Error: get_app_runtime_logs is only available inside an AI session. Tell the user runtime logs can only be read from a session preview, or switch to a session and open the raw app preview.',
-			uiMessage: 'Runtime logs unavailable'
+			uiMessage: 'Runtime logs unavailable',
+			toolResult: 'Runtime logs unavailable'
 		}
 	}
 	const entries = await runtime.requestRuntimeLogs(limit)
@@ -780,19 +781,22 @@ setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit }) => {
 		return {
 			aiResult:
 				'No runtime logs are available because no raw app preview is running for this session. Next step: call open_preview with kind="raw_app" and the app path, wait for it to load, then call get_app_runtime_logs again. Runtime logs are read live from the running preview and are not persisted.',
-			uiMessage: 'Runtime logs unavailable'
+			uiMessage: 'Runtime logs unavailable',
+			toolResult: 'Runtime logs unavailable'
 		}
 	}
 	if (entries.length === 0) {
 		return {
 			aiResult:
 				'The raw app preview is running, but it has not emitted console logs, uncaught errors, or unhandled rejections yet. If the user reported a failure, reproduce the interaction in the preview, then call get_app_runtime_logs again. For backend.<id>() failures, call list_app_runs and then get_job_logs for the relevant job_id.',
-			uiMessage: 'No runtime logs'
+			uiMessage: 'No runtime logs',
+			toolResult: 'No runtime logs'
 		}
 	}
 	return {
 		aiResult: formatRuntimeLogsForChat(entries),
-		uiMessage: `Read runtime logs`
+		uiMessage: `Read runtime logs`,
+		toolResult: formatRuntimeLogsForChat(entries)
 	}
 })
 
@@ -803,7 +807,8 @@ setListAppRunsHandler(({ sessionId: callerSessionId, limit }) => {
 		return {
 			aiResult:
 				'Error: list_app_runs is only available inside an AI session. Tell the user app runs can only be read from a session preview.',
-			uiMessage: 'App runs unavailable'
+			uiMessage: 'App runs unavailable',
+			toolResult: 'App runs unavailable'
 		}
 	}
 	const runs = runtime.getAppRuns()
@@ -811,20 +816,23 @@ setListAppRunsHandler(({ sessionId: callerSessionId, limit }) => {
 		return {
 			aiResult:
 				'No raw app preview is open for this session, so no backend runs can be listed. Next step: call open_preview with kind="raw_app" and the app path, let the preview load, then call list_app_runs again.',
-			uiMessage: 'App runs unavailable'
+			uiMessage: 'App runs unavailable',
+			toolResult: 'App runs unavailable'
 		}
 	}
 	if (runs.length === 0) {
 		return {
 			aiResult:
 				'No backend runnable executions are tracked for this raw app preview yet.',
-			uiMessage: 'No app runs'
+			uiMessage: 'No app runs',
+			toolResult: 'No app runs'
 		}
 	}
 	const limited = limit > 0 ? runs.slice(0, limit) : runs
 	return {
 		aiResult: formatAppRunsForChat(limited),
-		uiMessage: `Fetched app runs`
+		uiMessage: `Fetched app runs`,
+		toolResult: formatAppRunsForChat(limited)
 	}
 })
 
