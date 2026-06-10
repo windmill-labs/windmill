@@ -59,7 +59,7 @@
 	}
 </script>
 
-<Modal2 bind:isOpen title="Your draft is out of date" fixedWidth="sm" fixedHeight="xs">
+<Modal2 bind:isOpen title="Your draft is out of date" fixedWidth="sm" fixedHeight="adaptive">
 	<div class="flex flex-col w-full gap-4">
 		<div class="flex gap-3 items-start">
 			<AlertTriangle size={20} class="text-amber-500 shrink-0 mt-0.5" />

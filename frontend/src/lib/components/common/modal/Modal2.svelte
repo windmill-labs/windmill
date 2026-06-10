@@ -15,7 +15,9 @@
 		target?: string
 		isOpen?: boolean
 		fixedWidth?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
-		fixedHeight?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
+		/** `adaptive` sizes the modal to its content (no fixed height,
+		 * still capped by max-h-screen-80). */
+		fixedHeight?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' | 'adaptive'
 		contentClasses?: string
 		/** Close when the user clicks outside the modal body. Default
 		 * true. Set false when the caller stacks a child modal on top
@@ -58,7 +60,9 @@
 		md: '500px',
 		lg: '720px',
 		xl: '800px',
-		xxl: '1000px'
+		xxl: '1000px',
+		// Content-driven height — emit no `height:` rule at all.
+		adaptive: undefined
 	}
 
 	export function close() {
@@ -93,9 +97,9 @@
 		>
 			<div class="flex min-h-full items-center justify-center p-8">
 				<div
-					style={`width: ${widthMap[fixedWidth]}; height: ${heightMap[fixedHeight]}; ${
-						css?.popup?.style || ''
-					}`}
+					style={`width: ${widthMap[fixedWidth]}; ${
+						heightMap[fixedHeight] ? `height: ${heightMap[fixedHeight]}; ` : ''
+					}${css?.popup?.style || ''}`}
 					class={twMerge(
 						'max-h-screen-80 max-w-screen-80 rounded-lg relative bg-surface p-4',
 						css?.popup?.class,
