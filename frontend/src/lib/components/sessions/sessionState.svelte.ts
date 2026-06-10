@@ -10,6 +10,7 @@ import {
 	type UserWorkspace
 } from '$lib/stores'
 import { switchWorkspace } from '$lib/storeUtils'
+import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 
 // Switch the global workspace iff the target differs from the active one
 // and is non-empty. Centralises the "session needs its workspace in focus"
@@ -499,6 +500,8 @@ export function deleteSession(id: string) {
 	if (sessionState.currentSessionId === id) {
 		sessionState.currentSessionId = sessionState.sessions[0]?.id
 	}
+	// GC any linked files persisted for this session.
+	void deleteItemsForSession(id)
 	persistSessions()
 }
 

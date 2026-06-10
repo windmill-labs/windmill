@@ -861,6 +861,13 @@ export class AIChatManager {
 		if (!this.instructions.trim()) {
 			return
 		}
+		// Re-grant any locked File System Access handles within this send gesture, so the
+		// file tools can read the live files. requestPermission() needs a user gesture, and
+		// this runs before the first await/network call while the Send click is still active.
+		await this.attachedFiles.regrantLocked()
+		// Re-enumerate linked folders so on-disk changes (renamed/added/removed/edited files)
+		// are reflected in the roster + indexes before this turn runs.
+		await this.attachedFiles.refreshFolders()
 		if (this.beforeSend) {
 			try {
 				await this.beforeSend()
@@ -1166,7 +1173,8 @@ export class AIChatManager {
 		await this.historyManager.save(this.displayMessages, this.messages)
 		this.displayMessages = []
 		this.messages = []
-		this.attachedFiles.clear()
+		// Linked files are session-scoped: they persist across conversations within the
+		// session (and across reloads), and are cleared only when the session is deleted.
 	}
 
 	loadPastChat = async (id: string) => {

@@ -109,6 +109,12 @@ export const readFileTool: Tool<{}> = {
 			if (entry?.status === 'indexing') {
 				return `File "${parsed.file}" is still being indexed. Try again shortly.`
 			}
+			if (entry?.status === 'locked') {
+				return `File "${parsed.file}" is locked after a reload. Ask the user to restore access (send a message, or click "Restore access").`
+			}
+			if (entry?.status === 'unavailable') {
+				return `File "${parsed.file}" is no longer available (moved, deleted, or its local copy was evicted). Ask the user to re-link it.`
+			}
 			if (entry?.status === 'error') {
 				return `File "${parsed.file}" failed to load: ${entry.error ?? 'unknown error'}.`
 			}
@@ -139,6 +145,8 @@ export const fileTools: Tool<{}>[] = [searchFilesTool, readFileTool]
 
 function rosterLine(f: AttachedFile): string {
 	if (f.status === 'indexing') return `- ${f.name} (indexing…)`
+	if (f.status === 'locked') return `- ${f.name} (locked — needs the user to restore access)`
+	if (f.status === 'unavailable') return `- ${f.name} (unavailable)`
 	if (f.status === 'error') return `- ${f.name} (failed to load)`
 	return `- ${f.name} — ${f.lineCount} lines, ${humanSize(f.size)}`
 }

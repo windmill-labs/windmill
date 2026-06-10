@@ -38,11 +38,17 @@
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatTypingIndicator from './ChatTypingIndicator.svelte'
 	import AIChatInput from './AIChatInput.svelte'
+	import ContextElementBadge from './ContextElementBadge.svelte'
 	import { getModifierKey } from '$lib/utils'
 	import type { SelectedContext } from './app/core'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import { MAX_ATTACHED_FILES, type FileToAttach } from './files/attachedFiles.svelte'
-	import { collectDroppedEntries, filterFolderPickerFiles } from './files/folderDrop'
+	import {
+		hasFileSystemAccess,
+		pickDirectory,
+		handlesFromDataTransfer,
+		enumerateDir
+	} from './files/fsAccess'
 	import { sendUserToast } from '$lib/toast'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
@@ -240,14 +246,14 @@
 	const TEXT_FILE_ACCEPT =
 		'text/*,.txt,.csv,.tsv,.json,.jsonl,.ndjson,.md,.markdown,.log,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.xml,.html,.htm,.css,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.rs,.go,.java,.kt,.c,.h,.cpp,.cc,.cs,.php,.sh,.bash,.zsh,.sql,.svelte,.vue,.dockerfile'
 	let fileInputEl = $state<HTMLInputElement | null>(null)
-	let folderInputEl = $state<HTMLInputElement | null>(null)
 	let dragDepth = $state(0)
 	const isDraggingFiles = $derived(dragDepth > 0)
+	// File System Access API → live re-grantable handles (files + folders). Otherwise the
+	// fallback path links individual files as snapshots (folders disabled).
+	const canUseFsAccess = hasFileSystemAccess()
 
-	async function handleAddFiles(files: FileList | FileToAttach[]) {
-		const { added, rejected } = await aiChatManager.attachedFiles.addFiles(files)
+	function reportAddResult(added: string[], rejected: { name: string; reason: string }[]) {
 		if (rejected.length === 0) return
-
 		// Single rejected file (e.g. one dropped image): show the precise reason.
 		if (added.length === 0 && rejected.length === 1) {
 			sendUserToast(`Could not attach "${rejected[0].name}": ${rejected[0].reason}`, true)
@@ -263,6 +269,34 @@
 			? `Attached ${added.length}, skipped ${rejected.length}`
 			: `Skipped ${rejected.length} file${rejected.length === 1 ? '' : 's'}`
 		sendUserToast(`${lead} (${parts.join(', ')}).`, added.length === 0)
+	}
+
+	async function handleAddFiles(files: FileList | FileToAttach[]) {
+		const { added, rejected } = await aiChatManager.attachedFiles.addFiles(files)
+		reportAddResult(added, rejected)
+	}
+
+	async function addDirHandle(dir: FileSystemDirectoryHandle) {
+		const files = await enumerateDir(dir)
+		const { added, rejected } = await aiChatManager.attachedFiles.addFolder(dir, files)
+		reportAddResult(added, rejected)
+	}
+
+	function linkFiles() {
+		// Files are always snapshotted (every browser), so the universal picker is fine.
+		fileInputEl?.click()
+	}
+
+	async function linkFolder() {
+		if (!canUseFsAccess) {
+			sendUserToast(
+				"Folder linking isn't supported in this browser — try Chrome or Edge. You can still attach individual files.",
+				true
+			)
+			return
+		}
+		const dir = await pickDirectory()
+		if (dir) await addDirHandle(dir)
 	}
 
 	function dragHasFiles(e: DragEvent): boolean {
@@ -283,25 +317,31 @@
 		if (!canAttachFiles) return
 		dragDepth = Math.max(0, dragDepth - 1)
 	}
-	function onPanelDrop(e: DragEvent) {
+	async function onPanelDrop(e: DragEvent) {
 		dragDepth = 0
 		if (!canAttachFiles || !dragHasFiles(e)) return
 		e.preventDefault()
 		const dt = e.dataTransfer
 		if (!dt) return
-		// Capture filesystem entries synchronously (they're only valid during this event),
-		// then recurse folders asynchronously.
-		const entries = dt.items
-			? Array.from(dt.items)
-					.map((it) => it.webkitGetAsEntry?.())
-					.filter((entry): entry is FileSystemEntry => !!entry)
-			: []
-		if (entries.length > 0) {
-			void collectDroppedEntries(entries).then((items) => {
-				if (items.length > 0) void handleAddFiles(items)
-			})
-		} else if (dt.files.length > 0) {
-			void handleAddFiles(dt.files)
+		if (canUseFsAccess) {
+			// getAsFileSystemHandle calls are kicked off synchronously inside this call.
+			const handles = await handlesFromDataTransfer(dt)
+			for (const h of handles) {
+				if (h.kind === 'directory') {
+					// Folders link as a live handle.
+					await addDirHandle(h as FileSystemDirectoryHandle)
+				} else {
+					// Files are always snapshotted (handle discarded).
+					await handleAddFiles([{ file: await (h as FileSystemFileHandle).getFile() }])
+				}
+			}
+		} else {
+			// Fallback: snapshot individual files; folders aren't supported here.
+			const hasFolder = dt.items
+				? Array.from(dt.items).some((it) => it.webkitGetAsEntry?.()?.isDirectory)
+				: false
+			if (hasFolder) sendUserToast("Folder linking isn't supported in this browser", true)
+			if (dt.files.length > 0) await handleAddFiles(dt.files)
 		}
 	}
 
@@ -309,14 +349,6 @@
 		const input = e.currentTarget as HTMLInputElement
 		if (input.files && input.files.length > 0) void handleAddFiles(input.files)
 		input.value = '' // allow re-selecting the same file
-	}
-
-	function onFolderInputChange(e: Event) {
-		const input = e.currentTarget as HTMLInputElement
-		if (input.files && input.files.length > 0) {
-			void handleAddFiles(filterFolderPickerFiles(input.files))
-		}
-		input.value = ''
 	}
 	const availableAutonomyModeOptions = $derived.by(() =>
 		autonomyModeOptions.filter((option) =>
@@ -610,16 +642,34 @@
 			</div>
 		{/if}
 		<div>
+			{#if aiChatManager.mode === AIMode.GLOBAL}
+				<!-- In sessions, file/context badges sit above the fork/draft bar (inputPreface);
+				     the in-input context row is suppressed via showContext={false} below. -->
+				<AttachedFilesBar />
+				{#if selectedContext.length > 0}
+					<div class="flex flex-row flex-wrap items-center gap-1 mb-1">
+						{#each selectedContext as element (element.type + '-' + element.title)}
+							<ContextElementBadge
+								contextElement={element}
+								deletable
+								onDelete={() => {
+									selectedContext = selectedContext?.filter(
+										(c) => c.type !== element.type || c.title !== element.title
+									)
+								}}
+							/>
+						{/each}
+					</div>
+				{/if}
+			{/if}
 			{#if inputPreface}
 				{@render inputPreface()}
-			{/if}
-			{#if aiChatManager.mode === AIMode.GLOBAL}
-				<AttachedFilesBar />
 			{/if}
 			<AIChatInput
 				bind:this={aiChatInput}
 				bind:selectedContext
 				{availableContext}
+				showContext={aiChatManager.mode !== AIMode.GLOBAL}
 				disabled={disabled || hasActiveUserQuestion}
 				isFirstMessage={messages.length === 0}
 			/>
@@ -671,6 +721,10 @@
 											setShowing={(showing) => {
 												if (!showing) close()
 											}}
+											onSelectFile={(name) => {
+												aiChatInput?.insertFileMention(name)
+												close()
+											}}
 										/>
 									{/if}
 								{/snippet}
@@ -679,8 +733,16 @@
 						{#if canAttachFiles}
 							<DropdownV2
 								items={() => [
-									{ displayName: 'Link file', icon: FileText, action: () => fileInputEl?.click() },
-									{ displayName: 'Link folder', icon: Folder, action: () => folderInputEl?.click() }
+									{ displayName: 'Attach file', icon: FileText, action: () => linkFiles() },
+									{
+										displayName: 'Link folder',
+										icon: Folder,
+										disabled: !canUseFsAccess,
+										tooltip: canUseFsAccess
+											? 'Linked live — the assistant reads the folder’s current files from disk and refreshes each turn.'
+											: 'Folder linking needs the File System Access API, unavailable in this browser. Use a Chromium-based browser (Chrome, Edge, Arc), or attach individual files instead.',
+										action: () => linkFolder()
+									}
 								]}
 								placement="bottom-start"
 								fixedHeight={false}
@@ -696,19 +758,19 @@
 										/>
 										{#snippet text()}
 											<div class="max-w-64 text-xs">
-												<p class="font-semibold">Link files or a folder</p>
+												<p class="font-semibold">Attach files or link a folder</p>
 												<p class="mt-1">
-													Nothing is uploaded — files stay on your machine and the chat just points
-													to them. The assistant can list, search, and read them on demand; their
-													contents aren't sent unless it reads them.
+													Nothing is uploaded. Files are kept locally in your browser; a folder is
+													linked live from disk. The assistant lists, searches, and reads them on
+													demand — their contents aren't sent unless it reads them.
 												</p>
 											</div>
 										{/snippet}
 									</Tooltip>
 								{/snippet}
 							</DropdownV2>
-							<!-- `accept` only steers the picker toward text; the authoritative guard is
-							     the content sniff in addFiles() (also covers drag-drop and odd extensions). -->
+							<!-- Fallback file picker (used when the File System Access API is unavailable).
+							     `accept` only steers toward text; the content sniff in addFiles() is authoritative. -->
 							<input
 								bind:this={fileInputEl}
 								type="file"
@@ -716,13 +778,6 @@
 								accept={TEXT_FILE_ACCEPT}
 								class="hidden no-default-style"
 								onchange={onFileInputChange}
-							/>
-							<input
-								bind:this={folderInputEl}
-								type="file"
-								{...{ webkitdirectory: true }}
-								class="hidden no-default-style"
-								onchange={onFolderInputChange}
 							/>
 						{/if}
 						{#if showAutonomyModeSelector}

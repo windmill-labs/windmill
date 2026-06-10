@@ -239,6 +239,8 @@ function createRuntime(session: Session): SessionRuntime {
 	// session targeting the right workspace. Both calls are idempotent.
 	manager.beforeSend = async () => {
 		materializeTransient(session.id)
+		// Session is now persisted → flush any linked files buffered while it was transient.
+		await manager.attachedFiles.flushPending()
 		const committed = await commitSessionWorkspace(session.id, get(workspaceStore) ?? undefined)
 		// commitSessionWorkspace returns undefined only when the session did NOT
 		// commit to a workspace — most importantly when a staged fork failed to
@@ -619,6 +621,9 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	const { manager } = runtime
 	await manager.historyManager.init()
 	manager.historyManager.setSessionId(session.id)
+	// Restore linked files persisted for this session (live handles re-grant on send;
+	// snapshots restore directly). Non-transient sessions persist immediately.
+	await manager.attachedFiles.restore(session.id, !session.transient)
 	await ensureChatIdsSeeded(manager.historyManager)
 
 	if (session.chatId) {
