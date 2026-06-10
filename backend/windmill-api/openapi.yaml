@@ -23104,6 +23104,13 @@ components:
           type: array
           items:
             type: string
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
         ws_specific:
           type: boolean
         edited_at:
@@ -23648,6 +23655,13 @@ components:
           type: array
           items:
             type: string
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
         ws_specific:
           type: boolean
       required:
@@ -23692,6 +23706,13 @@ components:
           type: array
           items:
             type: string
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
         ws_specific:
           type: boolean
       required:
@@ -23850,6 +23871,13 @@ components:
           items:
             type: string
           default: []
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
       required:
         - path
         - edited_by
@@ -27000,6 +27028,13 @@ components:
           items:
             type: string
           default: []
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
       required:
         - id
         - workspace_id
@@ -27069,6 +27104,13 @@ components:
           items:
             type: string
           default: []
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
       required:
         - workspace_id
         - path
