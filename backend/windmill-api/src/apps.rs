@@ -1886,8 +1886,11 @@ async fn update_app_internal<'a>(
                 // Restricted users may keep deploying an app that is already
                 // public, but flipping an app to anonymous (public) access is
                 // gated by the RestrictAnonymousAppDeployment protection rule.
+                // FOR UPDATE locks the row until this transaction's policy
+                // UPDATE commits, so a concurrent admin downgrade cannot be
+                // silently overwritten by a stale redeploy keeping anonymous.
                 let already_anonymous = sqlx::query_scalar!(
-                    "SELECT policy->>'execution_mode' = 'anonymous' FROM app WHERE path = $1 AND workspace_id = $2",
+                    "SELECT policy->>'execution_mode' = 'anonymous' FROM app WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
                     path,
                     w_id
                 )
