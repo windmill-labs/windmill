@@ -396,7 +396,7 @@ async fn list_apps(
             "favorite.path IS NOT NULL as starred",
             "app_version.raw_app",
             "app.labels",
-            "draft.email IS NOT NULL as is_draft",
+            "draft.path IS NOT NULL as is_draft",
             // All workspace users with a per-user draft at this path,
             // aggregated as a JSON array. Same shape & decoding as the
             // scripts/flows list — see scripts.rs for the rationale.
@@ -412,14 +412,17 @@ async fn list_apps(
                 .bind(&authed.username),
         )
         .left()
-        .join("draft")
-        .on(
-            // `app` and `raw_app` are stored as separate draft kinds but
-            // share the `app` table — match either kind for the per-user
-            // flag.
-            "draft.path = app.path AND draft.workspace_id = app.workspace_id AND draft.typ IN ('app', 'raw_app') AND draft.email = ?"
+        // `app` and `raw_app` are stored as separate draft kinds but share
+        // the `app` table — match either kind for the per-user `is_draft`
+        // flag. DISTINCT inside the join subquery: a path holding BOTH
+        // kinds of draft for the same user would otherwise fan the
+        // deployed row out into two identical list entries
+        // (each_key_duplicate on the home page's keyed list).
+        .join(
+            "(SELECT DISTINCT path, workspace_id FROM draft WHERE typ IN ('app', 'raw_app') AND email = ?) draft"
                 .bind(&authed.email),
         )
+        .on("draft.path = app.path AND draft.workspace_id = app.workspace_id")
         .left()
         .join("app_version")
         .on(
@@ -482,8 +485,13 @@ async fn list_apps(
         && lq.label.is_none()
         && !lq.starred_only.unwrap_or(false)
     {
+        // DISTINCT ON (path), newest first — a path holding BOTH an `app`
+        // and a `raw_app` draft for this user must yield ONE list row
+        // (the home list is keyed by `type/path`; two rows crash it with
+        // each_key_duplicate). Keep the most recently saved kind.
         let draft_only_rows = sqlx::query!(
-            r#"SELECT path,
+            r#"SELECT DISTINCT ON (path)
+                      path,
                       value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
                       created_at,
                       typ::text as "typ!"
@@ -495,7 +503,8 @@ async fn list_apps(
                      SELECT 1 FROM app a
                      WHERE a.workspace_id = draft.workspace_id
                        AND a.path = draft.path
-                 )"#,
+                 )
+               ORDER BY path, created_at DESC"#,
             &w_id,
             &authed.email,
         )
