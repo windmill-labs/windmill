@@ -18,6 +18,7 @@
 	import OnBehalfOfSelector, {
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
+	import { canUserBypassRuleKind } from '$lib/workspaceProtectionRules.svelte'
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 
@@ -60,6 +61,10 @@
 	} = $props()
 
 	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
+	let canSetAnonymous = $derived(
+		!!$userStore?.is_super_admin ||
+			canUserBypassRuleKind('RestrictAnonymousAppDeployment', $userStore ?? undefined)
+	)
 	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
 	let savedOnBehalfOfEmail = $derived(savedApp?.policy?.on_behalf_of_email)
 	let savedOnBehalfOf = $derived(savedApp?.policy?.on_behalf_of)
@@ -253,9 +258,10 @@
 	<h2>Public URL</h2>
 
 	<div class="my-6">
-		{#if !($userStore?.is_admin || $userStore?.is_super_admin)}
-			<Alert type="warning" title="Admin only" size="xs">
-				Public app access can only be configured by workspace admins
+		{#if !canSetAnonymous}
+			<Alert type="warning" title="Restricted by a workspace protection rule" size="xs">
+				Making this app publicly accessible without login is restricted to workspace admins and
+				bypass users by a workspace protection rule
 			</Alert>
 			<div class="mb-2"></div>
 		{/if}
@@ -270,7 +276,7 @@
 					policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
 					setPublishState()
 				}}
-				disabled={!savedApp || !($userStore?.is_admin || $userStore?.is_super_admin)}
+				disabled={!savedApp || (!canSetAnonymous && policy.execution_mode != 'anonymous')}
 			/>
 		</div>
 		{#if !savedApp}

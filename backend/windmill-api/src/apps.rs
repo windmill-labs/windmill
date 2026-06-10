@@ -65,7 +65,9 @@ use windmill_common::{
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},
-    workspaces::{check_deploy_rules, RuleCheckResult},
+    workspaces::{
+        check_deploy_rules, check_user_against_rule, ProtectionRuleKind, RuleCheckResult,
+    },
     HUB_BASE_URL,
 };
 #[cfg(feature = "parquet")]
@@ -1349,7 +1351,18 @@ async fn create_app_internal<'a>(
         }
     }
     if matches!(app.policy.execution_mode, ExecutionMode::Anonymous) {
-        require_admin(authed.is_admin, &authed.username)?;
+        if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+            w_id,
+            &ProtectionRuleKind::RestrictAnonymousAppDeployment,
+            &authed.username,
+            &authed.groups,
+            authed.is_admin,
+            &db,
+        )
+        .await?
+        {
+            return Err(Error::PermissionDenied(msg));
+        }
     }
     // CLI / git-sync deploys ask us to preserve any existing user draft at this
     // path instead of wiping it as part of the deploy.
@@ -1870,8 +1883,9 @@ async fn update_app_internal<'a>(
 
         if let Some(mut npolicy) = ns.policy {
             if matches!(npolicy.execution_mode, ExecutionMode::Anonymous) && !authed.is_admin {
-                // Non-admins may keep deploying an app that is already public,
-                // but only admins can flip an app to anonymous (public) access.
+                // Restricted users may keep deploying an app that is already
+                // public, but flipping an app to anonymous (public) access is
+                // gated by the RestrictAnonymousAppDeployment protection rule.
                 let already_anonymous = sqlx::query_scalar!(
                     "SELECT policy->>'execution_mode' = 'anonymous' FROM app WHERE path = $1 AND workspace_id = $2",
                     path,
@@ -1882,7 +1896,18 @@ async fn update_app_internal<'a>(
                 .flatten()
                 .unwrap_or(false);
                 if !already_anonymous {
-                    require_admin(authed.is_admin, &authed.username)?;
+                    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+                        w_id,
+                        &ProtectionRuleKind::RestrictAnonymousAppDeployment,
+                        &authed.username,
+                        &authed.groups,
+                        authed.is_admin,
+                        &db,
+                    )
+                    .await?
+                    {
+                        return Err(Error::PermissionDenied(msg));
+                    }
                 }
             }
             let should_preserve = ns.preserve_on_behalf_of.unwrap_or(false)
