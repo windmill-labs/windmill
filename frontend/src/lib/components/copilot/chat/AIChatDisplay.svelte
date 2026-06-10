@@ -10,6 +10,8 @@
 		ChevronDown,
 		ChevronsRight,
 		CheckIcon,
+		FileText,
+		Folder,
 		Hand,
 		HistoryIcon,
 		Hourglass,
@@ -39,6 +41,8 @@
 	import { getModifierKey } from '$lib/utils'
 	import type { SelectedContext } from './app/core'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
+	import { MAX_ATTACHED_FILES, type FileToAttach } from './files/attachedFiles.svelte'
+	import { collectDroppedEntries, filterFolderPickerFiles } from './files/folderDrop'
 	import { sendUserToast } from '$lib/toast'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
@@ -232,15 +236,33 @@
 
 	// File attachment is GLOBAL-mode only.
 	const canAttachFiles = $derived(aiChatManager.mode === AIMode.GLOBAL && !disabled)
+	// Steers the OS file picker toward text formats (soft hint; content sniff is authoritative).
+	const TEXT_FILE_ACCEPT =
+		'text/*,.txt,.csv,.tsv,.json,.jsonl,.ndjson,.md,.markdown,.log,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.xml,.html,.htm,.css,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.rs,.go,.java,.kt,.c,.h,.cpp,.cc,.cs,.php,.sh,.bash,.zsh,.sql,.svelte,.vue,.dockerfile'
 	let fileInputEl = $state<HTMLInputElement | null>(null)
+	let folderInputEl = $state<HTMLInputElement | null>(null)
 	let dragDepth = $state(0)
 	const isDraggingFiles = $derived(dragDepth > 0)
 
-	async function handleAddFiles(files: FileList | File[]) {
-		const { rejected } = await aiChatManager.attachedFiles.addFiles(files)
-		for (const r of rejected) {
-			sendUserToast(`Could not attach "${r.name}": ${r.reason}`, true)
+	async function handleAddFiles(files: FileList | FileToAttach[]) {
+		const { added, rejected } = await aiChatManager.attachedFiles.addFiles(files)
+		if (rejected.length === 0) return
+
+		// Single rejected file (e.g. one dropped image): show the precise reason.
+		if (added.length === 0 && rejected.length === 1) {
+			sendUserToast(`Could not attach "${rejected[0].name}": ${rejected[0].reason}`, true)
+			return
 		}
+		// Otherwise (folders / multi-select): summarize to avoid a flood of toasts.
+		const overCap = rejected.filter((r) => r.reason.includes('limit')).length
+		const nonText = rejected.length - overCap
+		const parts: string[] = []
+		if (nonText) parts.push(`${nonText} non-text`)
+		if (overCap) parts.push(`${overCap} over the ${MAX_ATTACHED_FILES}-file limit`)
+		const lead = added.length
+			? `Attached ${added.length}, skipped ${rejected.length}`
+			: `Skipped ${rejected.length} file${rejected.length === 1 ? '' : 's'}`
+		sendUserToast(`${lead} (${parts.join(', ')}).`, added.length === 0)
 	}
 
 	function dragHasFiles(e: DragEvent): boolean {
@@ -257,7 +279,7 @@
 		e.preventDefault()
 		if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
 	}
-	function onPanelDragLeave(e: DragEvent) {
+	function onPanelDragLeave(_e: DragEvent) {
 		if (!canAttachFiles) return
 		dragDepth = Math.max(0, dragDepth - 1)
 	}
@@ -265,14 +287,36 @@
 		dragDepth = 0
 		if (!canAttachFiles || !dragHasFiles(e)) return
 		e.preventDefault()
-		const files = e.dataTransfer?.files
-		if (files && files.length > 0) void handleAddFiles(files)
+		const dt = e.dataTransfer
+		if (!dt) return
+		// Capture filesystem entries synchronously (they're only valid during this event),
+		// then recurse folders asynchronously.
+		const entries = dt.items
+			? Array.from(dt.items)
+					.map((it) => it.webkitGetAsEntry?.())
+					.filter((entry): entry is FileSystemEntry => !!entry)
+			: []
+		if (entries.length > 0) {
+			void collectDroppedEntries(entries).then((items) => {
+				if (items.length > 0) void handleAddFiles(items)
+			})
+		} else if (dt.files.length > 0) {
+			void handleAddFiles(dt.files)
+		}
 	}
 
 	function onFileInputChange(e: Event) {
 		const input = e.currentTarget as HTMLInputElement
 		if (input.files && input.files.length > 0) void handleAddFiles(input.files)
 		input.value = '' // allow re-selecting the same file
+	}
+
+	function onFolderInputChange(e: Event) {
+		const input = e.currentTarget as HTMLInputElement
+		if (input.files && input.files.length > 0) {
+			void handleAddFiles(filterFolderPickerFiles(input.files))
+		}
+		input.value = ''
 	}
 	const availableAutonomyModeOptions = $derived.by(() =>
 		autonomyModeOptions.filter((option) =>
@@ -633,21 +677,52 @@
 							</Popover>
 						{/if}
 						{#if canAttachFiles}
-							<Button
-								nonCaptureEvent
-								unifiedSize="2xs"
-								variant="default"
-								title="Attach files"
-								iconOnly
-								startIcon={{ icon: Plus }}
-								onclick={() => fileInputEl?.click()}
-							/>
+							<DropdownV2
+								items={() => [
+									{ displayName: 'Link file', icon: FileText, action: () => fileInputEl?.click() },
+									{ displayName: 'Link folder', icon: Folder, action: () => folderInputEl?.click() }
+								]}
+								placement="bottom-start"
+								fixedHeight={false}
+							>
+								{#snippet buttonReplacement()}
+									<Tooltip small placement="top">
+										<Button
+											nonCaptureEvent
+											unifiedSize="2xs"
+											variant="default"
+											iconOnly
+											startIcon={{ icon: Plus }}
+										/>
+										{#snippet text()}
+											<div class="max-w-64 text-xs">
+												<p class="font-semibold">Link files or a folder</p>
+												<p class="mt-1">
+													Nothing is uploaded — files stay on your machine and the chat just points
+													to them. The assistant can list, search, and read them on demand; their
+													contents aren't sent unless it reads them.
+												</p>
+											</div>
+										{/snippet}
+									</Tooltip>
+								{/snippet}
+							</DropdownV2>
+							<!-- `accept` only steers the picker toward text; the authoritative guard is
+							     the content sniff in addFiles() (also covers drag-drop and odd extensions). -->
 							<input
 								bind:this={fileInputEl}
 								type="file"
 								multiple
+								accept={TEXT_FILE_ACCEPT}
 								class="hidden no-default-style"
 								onchange={onFileInputChange}
+							/>
+							<input
+								bind:this={folderInputEl}
+								type="file"
+								{...{ webkitdirectory: true }}
+								class="hidden no-default-style"
+								onchange={onFolderInputChange}
 							/>
 						{/if}
 						{#if showAutonomyModeSelector}
