@@ -5,7 +5,6 @@
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import Select from '$lib/components/select/Select.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import {
 		AppService,
@@ -137,6 +136,9 @@
 		return typeof v === 'string' && v !== '' ? v : undefined
 	}
 
+	// Folder name (no `f/`) this project is scoped to; provided by the /folders launcher.
+	let { folder: folderProp }: { folder: string } = $props()
+
 	let phase = $state<Phase>('predeploy')
 	let workspaceItems = $state<DeployItem[]>([])
 	let draftItems = $state<DeployItem[]>([])
@@ -150,16 +152,11 @@
 		timeStyle: 'short'
 	})
 
-	let selectedFolder = $state<string | undefined>(undefined)
-	let availableFolders = $derived(
-		Array.from(
-			new Set(
-				workspaceItems
-					.map((i) => i.path.split('/').slice(0, 2).join('/'))
-					.filter((p) => p.startsWith('f/'))
-			)
-		).sort()
-	)
+	// Project is always scoped to folderProp; selectedFolder is its `f/`-prefixed path.
+	let selectedFolder = $derived(`f/${folderProp}`)
+	function folderQs(folder: string = folderProp): string {
+		return `?folder=${encodeURIComponent(folder)}`
+	}
 	let filteredWorkspaceItems = $derived(
 		selectedFolder ? workspaceItems.filter((i) => i.path.startsWith(selectedFolder + '/')) : []
 	)
@@ -399,14 +396,14 @@
 		}
 	}
 
-	async function rehydrateFromHub(workspace: string, seq: number) {
+	async function rehydrateFromHub(workspace: string, folder: string, seq: number) {
 		try {
-			const res = await fetch(`/api/w/${workspace}/hub/project`, {
+			const res = await fetch(`/api/w/${workspace}/hub/project${folderQs(folder)}`, {
 				credentials: 'include',
 				headers: { accept: 'application/json' }
 			})
 			if (seq !== workspaceLoadSeq) return
-			if (!res.ok) return // 404 = no project published for this workspace yet
+			if (!res.ok) return // 404 = no project published for this folder yet
 			const p = JSON.parse(await res.text())
 			if (seq !== workspaceLoadSeq || !p?.slug) return
 			effectiveSlug = p.slug
@@ -438,7 +435,6 @@
 			workspaceItems = []
 			workspaceTriggers = []
 			schedulePreviews = {}
-			selectedFolder = undefined
 			manualDeselected = new Set()
 			phase = 'predeploy'
 			draftItems = []
@@ -454,7 +450,8 @@
 			bundleReadme = ''
 			loadWorkspace($workspaceStore, seq)
 			loadTriggers($workspaceStore, seq)
-			rehydrateFromHub($workspaceStore, seq)
+			// Resume the folder's project if one exists.
+			rehydrateFromHub($workspaceStore, folderProp, seq)
 		}
 	})
 
@@ -637,7 +634,7 @@
 		const workspace = $workspaceStore
 		if (!workspace) return
 		try {
-			const res = await fetch(`/api/w/${workspace}/hub/publish_draft`, {
+			const res = await fetch(`/api/w/${workspace}/hub/publish_draft${folderQs()}`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				credentials: 'include',
@@ -898,7 +895,7 @@
 		path: string,
 		body: unknown
 	): Promise<Record<string, any> | undefined> {
-		const res = await fetch(`/api/w/${workspace}${path}`, {
+		const res = await fetch(`/api/w/${workspace}${path}${folderQs()}`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			credentials: 'include',
@@ -1185,7 +1182,7 @@
 		submitting = true
 		try {
 			const res = await fetch(
-				`/api/w/${workspace}/hub/projects/${encodeURIComponent(slug)}/submit`,
+				`/api/w/${workspace}/hub/projects/${encodeURIComponent(slug)}/submit${folderQs()}`,
 				{
 					method: 'POST',
 					credentials: 'include',
@@ -1219,7 +1216,7 @@
 				// under_review / live: re-fetch the Hub project to pick up an
 				// admin status change (under_review -> live).
 				const before = phase
-				await rehydrateFromHub(workspace, workspaceLoadSeq)
+				await rehydrateFromHub(workspace, folderProp, workspaceLoadSeq)
 				sendUserToast(
 					phase === before
 						? 'Still waiting for review.'
@@ -1235,12 +1232,6 @@
 		}
 	}
 	function startNewDraft() {
-		const folders = new Set(
-			draftItems
-				.map((i) => i.path.split('/').slice(0, 2).join('/'))
-				.filter((p) => p.startsWith('f/'))
-		)
-		selectedFolder = folders.size === 1 ? [...folders][0] : undefined
 		draftItems = []
 		recordings = {}
 		phase = 'predeploy'
@@ -1547,8 +1538,8 @@
 					</span>
 					<li class={stepNum === 1 ? 'text-primary' : stepNum > 1 ? 'opacity-60' : ''}>
 						<span class="font-mono text-emphasis">{stepNum > 1 ? '✓' : '1.'}</span>
-						<span class="font-semibold text-primary">Bundle your project</span> — pack every script,
-						flow, app and resource into a single draft.
+						<span class="font-semibold text-primary">Bundle your project</span> — creates a draft on
+						the Hub with every selected script, flow, app and resource from this folder.
 					</li>
 					<li class={stepNum === 2 ? 'text-primary' : stepNum > 2 ? 'opacity-60' : 'opacity-40'}>
 						<span class="font-mono text-emphasis">{stepNum > 2 ? '✓' : '2.'}</span>
@@ -1589,32 +1580,20 @@
 					{/if}
 				</div>
 				{#if phase === 'predeploy'}
-					<div class="flex flex-col gap-1 text-xs">
-						<span class="font-semibold text-primary">Folder (required)</span>
-						{#if availableFolders.length === 0}
-							<span
-								class="rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
-							>
-								This workspace has no <span class="font-mono">f/&lt;folder&gt;/</span> items.
-								Personal paths (<span class="font-mono">u/&lt;user&gt;/</span>) cannot be bundled —
-								move the items you want to publish into a shared folder first.
-							</span>
-						{:else}
-							<Select
-								bind:value={selectedFolder}
-								items={availableFolders.map((f) => ({ value: f, label: f }))}
-								placeholder="Pick a folder"
-								class="w-full"
-							/>
-						{/if}
-						<span class="text-[11px] text-hint">
-							{#if selectedFolder}
-								{selectedItems.length} of {filteredWorkspaceItems.length} items selected in
-								<span class="font-mono">{selectedFolder}/</span>.
-							{:else if availableFolders.length > 0}
-								Pick a folder to bundle items from. Personal paths and multi-folder bundles are not
-								allowed — keeps relocated paths predictable on the Hub.
-							{/if}
+					<div class="flex flex-col gap-1 pb-3">
+						<span class="text-xs text-secondary">
+							Bundling creates a draft project on the Hub from the selected scripts, flows and apps
+							of <span class="font-mono">{selectedFolder}/</span>.
+							{selectedItems.length} of {filteredWorkspaceItems.length} items selected.
+						</span>
+					</div>
+				{/if}
+				{#if phase === 'draft'}
+					<div class="flex flex-col gap-1 pb-3">
+						<span class="text-xs text-secondary">
+							A recording captures one real run of a script or flow — inputs, logs, step outputs and
+							result — replayable on the Hub so visitors see it work before forking. Public apps can
+							also be shared as live iframes. Optional, but recommended.
 						</span>
 					</div>
 				{/if}
@@ -1709,33 +1688,15 @@
 					{@const pct = recordableItems.length
 						? Math.round((recordedCount / recordableItems.length) * 100)
 						: 0}
-					<div
-						class="flex items-center gap-3 rounded-md border {allRecorded
-							? 'border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950/40'
-							: 'border-yellow-300 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/40'} p-3 text-xs"
-					>
-						<span
-							class="font-mono text-sm {allRecorded
-								? 'text-green-900 dark:text-green-100'
-								: 'text-yellow-900 dark:text-yellow-100'}"
-						>
-							{recordedCount}/{recordableItems.length}
-						</span>
-						<div
-							class="h-1.5 flex-1 overflow-hidden rounded {allRecorded
-								? 'bg-green-200 dark:bg-green-900/60'
-								: 'bg-yellow-200 dark:bg-yellow-900/60'}"
-						>
+					<div class="flex items-center gap-2 self-end text-[11px] text-tertiary">
+						<span class="font-mono">{recordedCount}/{recordableItems.length}</span>
+						<div class="h-1 w-24 overflow-hidden rounded bg-surface-tertiary">
 							<div
-								class="h-full {allRecorded ? 'bg-green-500' : 'bg-yellow-500'} transition-all"
+								class="h-full {allRecorded ? 'bg-green-500' : 'bg-hint'} transition-all"
 								style="width: {pct}%"
 							></div>
 						</div>
-						<span
-							class="font-semibold {allRecorded
-								? 'text-green-900 dark:text-green-100'
-								: 'text-yellow-900 dark:text-yellow-100'}"
-						>
+						<span class={allRecorded ? 'text-green-700 dark:text-green-400' : 'text-hint'}>
 							{allRecorded ? 'Full recordings' : 'Recordings recommended'}
 						</span>
 					</div>
@@ -1842,7 +1803,7 @@
 						startIcon={{ icon: Cloud }}
 						onclick={openBundle}
 					>
-						Bundle to Hub ({selectedItems.length})
+						Create Hub draft ({selectedItems.length})
 					</Button>
 				{:else if phase === 'draft'}
 					<span class="text-[11px] text-hint">
