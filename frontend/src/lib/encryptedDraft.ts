@@ -1,10 +1,13 @@
-/** Marker prefix for draft secret values the backend encrypted at rest
- * with the workspace key (mirrors `ENCRYPTED_DRAFT_PREFIX` in
- * `backend/windmill-common/src/user_drafts.rs`). The plaintext cannot be
- * recovered client-side — deploying sends the marker as-is and the
- * deploy endpoints decrypt it server-side. */
-export const ENCRYPTED_DRAFT_PREFIX = '$encrypted:'
+/** Opaque placeholder the server sends in place of a draft secret's
+ * value (mirrors `DRAFT_SECRET_SENTINEL` in
+ * `backend/windmill-common/src/user_drafts.rs`). The real secret —
+ * encrypted at rest with the workspace key — NEVER leaves the server:
+ * `get_variable` swaps the ciphertext for this sentinel. Deploying sends
+ * the sentinel back and the server rehydrates the plaintext from the
+ * caller's own draft row. A field holding this value is "secret set,
+ * hidden, unchanged" — masked in the UI, not editable in place. */
+export const DRAFT_SECRET_SENTINEL = '$draft_secret'
 
 export function isEncryptedDraftValue(v: unknown): boolean {
-	return typeof v === 'string' && v.startsWith(ENCRYPTED_DRAFT_PREFIX)
+	return v === DRAFT_SECRET_SENTINEL
 }
