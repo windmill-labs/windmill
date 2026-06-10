@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { hasLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
@@ -365,7 +366,7 @@
 												onclick={() => variableEditor?.editVariable(path)}
 												href="#{path}"
 											>
-												{path}{is_draft ? '*' : ''}
+												{path}{is_draft || hasLocalDraftHint($workspaceStore, 'variable', path) ? '*' : ''}
 											</a>
 											{#if draft_only}
 												<DraftBadge draft_only is_draft={false} />

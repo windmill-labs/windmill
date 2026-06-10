@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { hasLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import {
 		ScheduleService,
 		type ScheduleWJobs,
@@ -383,7 +384,7 @@
 									<div
 										class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate"
 									>
-										{summary || script_path}{is_draft ? '*' : ''}
+										{summary || script_path}{is_draft || hasLocalDraftHint($workspaceStore, 'trigger_schedule', path) ? '*' : ''}
 									</div>
 									<div class="text-secondary text-xs truncate text-left">
 										schedule: {path}

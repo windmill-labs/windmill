@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { hasLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { run } from 'svelte/legacy'
 
 	import {
@@ -403,7 +404,7 @@
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
 								<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
-									{path}{is_draft ? '*' : ''} - {topic_id}
+									{path}{is_draft || hasLocalDraftHint($workspaceStore, 'trigger_gcp', path) ? '*' : ''} - {topic_id}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
 									runnable: {script_path}

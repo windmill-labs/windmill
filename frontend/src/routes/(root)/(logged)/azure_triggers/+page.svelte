@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { hasLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { run } from 'svelte/legacy'
 
 	import {
@@ -428,7 +429,7 @@
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
 								<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
-									{path}{is_draft ? '*' : ''} - {topic_label} ({azure_mode}, {subscription_name})
+									{path}{is_draft || hasLocalDraftHint($workspaceStore, 'trigger_azure', path) ? '*' : ''} - {topic_label} ({azure_mode}, {subscription_name})
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
 									runnable: {script_path}

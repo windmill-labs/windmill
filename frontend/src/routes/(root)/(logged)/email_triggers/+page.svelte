@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { hasLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { run } from 'svelte/legacy'
 
 	import {
@@ -361,7 +362,7 @@
 										{/if}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-light">
-										{path}{is_draft ? '*' : ''}
+										{path}{is_draft || hasLocalDraftHint($workspaceStore, 'trigger_email', path) ? '*' : ''}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-light">
 										runnable: {script_path}

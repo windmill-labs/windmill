@@ -1,6 +1,7 @@
 import { untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
 import { UserDraft, type UserDraftItemKind } from '$lib/userDraft.svelte'
+import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 
 type Cfg = Record<string, any>
 
@@ -149,6 +150,36 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 				discard(opts.path(), deployed)
 			}
 		})
+	})
+
+	// Publish the dirty state as an optimistic hint so the list page behind
+	// the drawer shows the `*` suffix on the edited row immediately — the
+	// server's `is_draft` flag only catches up on the next list refetch.
+	// Track the published key so a path/workspace change (or teardown)
+	// clears the previous hint instead of leaking it.
+	let publishedHint: { ws: string; path: string } | undefined = undefined
+	$effect(() => {
+		const ws = opts.workspace()
+		const p = opts.path()
+		const dirty = hasDraft
+		untrack(() => {
+			if (publishedHint && (publishedHint.ws !== ws || publishedHint.path !== p || !dirty)) {
+				setLocalDraftHint(publishedHint.ws, opts.itemKind, publishedHint.path, false)
+				publishedHint = undefined
+			}
+			if (dirty && ws && p) {
+				setLocalDraftHint(ws, opts.itemKind, p, true)
+				publishedHint = { ws, path: p }
+			}
+		})
+	})
+	$effect(() => {
+		return () => {
+			if (publishedHint) {
+				setLocalDraftHint(publishedHint.ws, opts.itemKind, publishedHint.path, false)
+				publishedHint = undefined
+			}
+		}
 	})
 
 	return {

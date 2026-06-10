@@ -14,6 +14,7 @@
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
 	import { UserDraft, type UserDraftHandle } from '$lib/userDraft.svelte'
+	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 
 	interface Props {
 		canSave?: boolean
@@ -157,6 +158,35 @@
 		Object.keys(states).filter((ws) => !deepEqual(states[ws].draft, initialStates[ws]))
 	)
 	const anyDirty = $derived(dirtyWorkspaces.length > 0)
+
+	// Publish the dirty state as an optimistic hint so the resources list
+	// behind the drawer shows the `*` suffix on the edited row immediately
+	// (the server's `is_draft` only catches up on the next refetch). Track
+	// published keys so path/workspace changes and teardown clear them.
+	let publishedHints: { ws: string; path: string }[] = []
+	$effect(() => {
+		const p = initialPath
+		const dirty = dirtyWorkspaces
+		untrack(() => {
+			for (const h of publishedHints) {
+				setLocalDraftHint(h.ws, 'resource', h.path, false)
+			}
+			publishedHints = []
+			if (!p) return
+			for (const ws of dirty) {
+				setLocalDraftHint(ws, 'resource', p, true)
+				publishedHints.push({ ws, path: p })
+			}
+		})
+	})
+	$effect(() => {
+		return () => {
+			for (const h of publishedHints) {
+				setLocalDraftHint(h.ws, 'resource', h.path, false)
+			}
+			publishedHints = []
+		}
+	})
 	// Banner is scoped to the selected workspace — the diff/discard only
 	// operate on it, so showing it for an unrelated dirty workspace would be
 	// misleading. The cross-workspace `otherDirty` alert below still covers

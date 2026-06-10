@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { hasLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { run } from 'svelte/legacy'
 
 	import {
@@ -434,7 +435,7 @@
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
 								<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
-									{path}{is_draft ? '*' : ''}
+									{path}{is_draft || hasLocalDraftHint($workspaceStore, 'trigger_postgres', path) ? '*' : ''}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
 									{postgres_resource_path}

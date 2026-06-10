@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { hasLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { page } from '$app/state'
 	import AppConnect from '$lib/components/AppConnectDrawer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -1006,7 +1007,7 @@
 													class="break-all"
 													href="#/resource/{path}"
 													onclick={() => resourceEditor?.initEdit?.(path)}
-													>{#if marked}{@html marked}{:else}{path}{/if}{is_draft ? '*' : ''}</a
+													>{#if marked}{@html marked}{:else}{path}{/if}{is_draft || hasLocalDraftHint($workspaceStore, 'resource', path) ? '*' : ''}</a
 												>
 												{#if draft_only}
 													<DraftBadge draft_only is_draft={false} />
