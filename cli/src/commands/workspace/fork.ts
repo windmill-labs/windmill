@@ -100,7 +100,10 @@ async function createWorkspaceFork(
   }
 
   if (alreadyExists) {
-    throw new Error(`This forked workspace '${workspaceId}' (${workspaceName}) already exists. Choose a different id`);
+    throw new Error(
+      `This forked workspace '${workspaceId}' (${workspaceName}) already exists, possibly archived (archiving keeps the id reserved). ` +
+      `Permanently delete it with \`wmill workspace delete-fork ${workspaceId}\` to reuse the id, or choose a different id`,
+    );
   }
 
   // --- Datatable cloning (matches ForkDatatableSection.svelte) ---
