@@ -412,7 +412,7 @@ async fn execute_windmill_tool(
                 on_behalf_of: None,
             }
         }
-        FlowModuleValue::AIAgent { tools: sub_tools, tag, .. } => {
+        FlowModuleValue::AIAgent { tools: sub_tools, .. } => {
             let has_nested_agent_tools = sub_tools.iter().any(|t| {
                 matches!(
                     t.value,
@@ -426,9 +426,11 @@ async fn execute_windmill_tool(
                 ));
             }
             let path = format!("{}/tools/{}", ctx.job.runnable_path(), tool_module.id);
+            // tool jobs are pushed with the parent agent job's tag and executed inline on the
+            // same worker, so a tag override on a nested agent tool does not apply here
             JobPayloadWithTag {
                 payload: JobPayload::AIAgent { path },
-                tag: tag.filter(|t| !t.trim().is_empty()),
+                tag: None,
                 delete_after_use: tool_module.delete_after_use.unwrap_or(false),
                 delete_after_secs: None,
                 timeout: None,
