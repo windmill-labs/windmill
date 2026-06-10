@@ -69,16 +69,27 @@ tests, build config) — and say so in the body.
 
    ```bash
    REPO=windmill-labs/agent-screenshots-internal
-   DEST="shots/$(git branch --show-current)/$(date +%s)-screenshot.png"
-   base64 -w0 screenshot.png | jq -Rs --arg m "add $DEST" '{message:$m, content:.}' \
+   IMG=screenshot.png                                          # repeat per page
+   DEST="shots/$(git branch --show-current)/$(date +%s)-$(basename "$IMG")"
+   base64 -w0 "$IMG" | jq -Rs --arg m "add $DEST" '{message:$m, content:.}' \
      | gh api -X PUT "repos/$REPO/contents/$DEST" --input - >/dev/null
-   echo "![screenshot](https://raw.githubusercontent.com/$REPO/main/$DEST)"
+   echo "![$(basename "$IMG" .png)](https://raw.githubusercontent.com/$REPO/main/$DEST)"
    ```
+   Derive `$DEST` from the file name (as above) so distinct pages never collide — a
+   fixed name would make same-second uploads reuse one path, and the second `PUT`
+   then 422s (the Contents API needs the existing file's `sha` to overwrite).
 4. Put the printed `![…](…)` lines under a `## Screenshots` heading in the PR body.
 
 Requires `gh` (`repo` scope), `jq`, `base64` — all in the devShell. The host repo is
-public so the URLs render for reviewers without a token. (GitHub's drag-and-drop
-uploader needs a browser session and can't be driven from a token.)
+public (so the raw URLs render for reviewers without a token) and its history is
+permanent — **never screenshot pages that show secrets or sensitive values** (workspace
+variables, resource values, instance settings, OAuth/SMTP config); deleting the file
+can't undo an accidental capture. (GitHub's drag-and-drop uploader needs a browser
+session and can't be driven from a token.)
+
+If `gh` can't push to the host repo (e.g. a CI token scoped only to `windmill`), do
+**not** fail the PR or skip silently — hand the upload to the user, who has push access,
+and continue once they confirm it's done.
 
 ## Execution Steps
 
