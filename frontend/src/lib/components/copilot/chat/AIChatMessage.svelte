@@ -41,6 +41,7 @@
 <div
 	class={twMerge(
 		'mb-2 min-w-0',
+		message.role === 'tool' && 'mb-1',
 		message.role === 'user' && messageIndex > 0 && 'mt-4 mb-6',
 		isLast && '!mb-12',
 		message.role !== 'user' ? 'cursor-default' : 'cursor-pointer'
@@ -74,7 +75,7 @@
 			/>
 		</div>
 	{:else}
-		<div class={twMerge('text-sm py-1 px-2', message.role === 'tool' && 'text-primary')}>
+		<div class={twMerge('text-sm py-1 px-2', message.role === 'tool' && 'text-primary py-0')}>
 			{#if message.role === 'assistant'}
 				<div class="px-[1px]"><AssistantMessage {message} /></div>
 			{:else if message.role === 'tool'}

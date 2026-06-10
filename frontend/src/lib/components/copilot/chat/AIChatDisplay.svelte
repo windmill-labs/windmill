@@ -422,13 +422,13 @@
 					{#if showTypingIndicator}
 						<div
 							class={twMerge(
-								'sticky z-10 mt-0.5 ml-2 self-start pointer-events-none',
+								'sticky z-10 -mt-10 ml-2 self-start pointer-events-none',
 								showFlowPendingActionControls ? 'bottom-14' : 'bottom-2'
 							)}
 						>
 							{#if waitingForUserAction}
 								<span
-									class="inline-flex items-center gap-1.5 text-2xs text-accent"
+									class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface/80 backdrop-blur text-2xs text-accent"
 									aria-label="Waiting for your input"
 								>
 									<Hourglass class="w-3 h-3 hourglass-flip" />
