@@ -1578,6 +1578,42 @@
 							<ExternalLink size={12} /> Open in Hub
 						</a>
 					{/if}
+					<div class="ml-auto flex items-center gap-2">
+						{#if phase === 'predeploy'}
+							<Button
+								variant="accent"
+								loading={deploying}
+								disabled={!selectedFolder || selectedItems.length === 0}
+								startIcon={{ icon: Cloud }}
+								onclick={openBundle}
+							>
+								Create Hub draft ({selectedItems.length})
+							</Button>
+						{:else if phase === 'draft'}
+							<Button
+								variant="accent"
+								loading={submitting}
+								startIcon={{ icon: Check }}
+								onclick={submitForReview}
+							>
+								Submit for review
+							</Button>
+						{:else if phase === 'under_review'}
+							<Button
+								size="xs"
+								variant="subtle"
+								loading={syncing}
+								startIcon={{ icon: RotateCcw }}
+								iconOnly
+								title="Refresh review status"
+								onclick={syncWithHub}
+							/>
+						{:else}
+							<Button variant="accent" startIcon={{ icon: RotateCcw }} onclick={startNewDraft}>
+								New draft
+							</Button>
+						{/if}
+					</div>
 				</div>
 				{#if phase === 'predeploy'}
 					<div class="flex flex-col gap-1 pb-3">
@@ -1796,15 +1832,6 @@
 					<span class="text-[11px] text-hint">
 						Select the items to include — all selected by default.
 					</span>
-					<Button
-						variant="accent"
-						loading={deploying}
-						disabled={!selectedFolder || selectedItems.length === 0}
-						startIcon={{ icon: Cloud }}
-						onclick={openBundle}
-					>
-						Create Hub draft ({selectedItems.length})
-					</Button>
 				{:else if phase === 'draft'}
 					<span class="text-[11px] text-hint">
 						{#if allRecorded}
@@ -1814,32 +1841,12 @@
 							recorded. Bundles with full recordings get approved faster and featured on the public Hub.
 						{/if}
 					</span>
-					<Button
-						variant="accent"
-						loading={submitting}
-						startIcon={{ icon: Check }}
-						onclick={submitForReview}
-					>
-						Submit for review
-					</Button>
 				{:else if phase === 'under_review'}
 					<span class="text-[11px] text-hint">
 						Waiting for the Windmill team to review the submission.
 					</span>
-					<Button
-						size="xs"
-						variant="subtle"
-						loading={syncing}
-						startIcon={{ icon: RotateCcw }}
-						iconOnly
-						title="Refresh review status"
-						onclick={syncWithHub}
-					/>
 				{:else}
 					<span class="text-[11px] text-hint"> Iterate further by starting a new draft. </span>
-					<Button variant="accent" startIcon={{ icon: RotateCcw }} onclick={startNewDraft}>
-						New draft
-					</Button>
 				{/if}
 			</div>
 		{/snippet}
