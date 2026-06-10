@@ -1,5 +1,10 @@
 ALTER TABLE draft DROP COLUMN id;
 
+-- The secret-draft scrub in the .up.sql is intentionally irreversible —
+-- the plaintext values it blanked were deliberately destroyed and cannot
+-- be recovered here.
+
+DROP INDEX IF EXISTS draft_workspace_path_typ_idx;
 DROP INDEX IF EXISTS draft_user_sync_idx;
 DROP INDEX IF EXISTS draft_pkey_legacy;
 DROP INDEX IF EXISTS draft_pkey_with_user;

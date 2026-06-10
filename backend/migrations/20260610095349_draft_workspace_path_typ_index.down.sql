@@ -1,1 +1,0 @@
-DROP INDEX draft_workspace_path_typ_idx;

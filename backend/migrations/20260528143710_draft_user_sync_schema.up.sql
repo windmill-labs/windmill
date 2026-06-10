@@ -71,3 +71,27 @@ CREATE INDEX draft_user_sync_idx
     WHERE email IS NOT NULL;
 
 ALTER TABLE draft ADD COLUMN id BIGSERIAL PRIMARY KEY;
+
+-- Hot path: `fetch_other_drafts_users` runs on EVERY get-by-path request
+-- (scripts, flows, apps, variables, resources, schedules, triggers) with
+-- `WHERE workspace_id = ? AND path = ? AND typ = ?` and no email
+-- predicate. Neither partial unique index (`draft_pkey_with_user` /
+-- `draft_pkey_legacy`) can serve it — their `email IS [NOT] NULL`
+-- predicates aren't implied by the query — and `draft_user_sync_idx` is
+-- partial too, so the planner fell back to a sequential scan over a
+-- table that accumulates per-user autosaves across all workspaces.
+-- A plain btree over the three columns also covers `get_draft_for_user`
+-- (same three + `email IS NOT DISTINCT FROM ?` as a filter).
+CREATE INDEX draft_workspace_path_typ_idx ON draft (workspace_id, path, typ);
+
+-- Secret variable values must never sit in `draft.value` in plaintext
+-- (deployed secrets are encrypted with the workspace crypt key precisely
+-- so DB dumps don't leak them). `save_draft` encrypts `variable.value`
+-- for `is_secret: true` drafts at write time; this scrubs any rows that
+-- were persisted before that guard existed (irreversible — the plaintext
+-- is deliberately destroyed, see the .down.sql note).
+UPDATE draft
+SET value = jsonb_set(value::jsonb, '{variable,value}', '""'::jsonb)::json
+WHERE typ = 'variable'
+  AND (value::jsonb -> 'variable' ->> 'is_secret')::boolean IS TRUE
+  AND value::jsonb -> 'variable' ? 'value';
