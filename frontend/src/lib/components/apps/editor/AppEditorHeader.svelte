@@ -265,7 +265,12 @@
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
-			if (!inSessionPane) UserDraft.remove('app', path)
+			// Remove the autosave at its CANONICAL key (the URL draft path
+			// AppEditor keyed the handle on), NOT the just-typed deploy
+			// `path` — for a new app they differ (`u/{user}/draft_{uuid}` vs
+			// the user's chosen path), so removing at `path` would orphan the
+			// real draft row.
+			if (!inSessionPane) UserDraft.remove('app', userDraftPath)
 			onSavedNewAppPath?.(path)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
@@ -365,7 +370,10 @@
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
-		if (!inSessionPane) UserDraft.remove('app', $appPath)
+		// Canonical autosave key (the URL draft path), not `$appPath` — a
+		// rename leaves the autosave at the original key, so removing at
+		// `$appPath` would miss it.
+		if (!inSessionPane) UserDraft.remove('app', userDraftPath)
 		if ($appPath !== npath) {
 			onSavedNewAppPath?.(npath)
 		}
