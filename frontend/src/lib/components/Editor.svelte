@@ -1529,6 +1529,12 @@
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
 				updateCode()
 				shouldBindKey && format && format()
+				// Monaco swallows the keydown (addCommand prevents default and
+				// stops propagation), so page-level Ctrl/Cmd+S handlers never
+				// see it. Re-broadcast as a window event so editors that flush
+				// a draft on the shortcut (raw apps) can react regardless of
+				// which Monaco has focus.
+				window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut'))
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {

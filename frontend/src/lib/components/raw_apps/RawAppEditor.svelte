@@ -1335,24 +1335,59 @@
 		return () => window.removeEventListener('keydown', onEscapeCapture, true)
 	})
 
+	// Force an immediate flush of the page-level autosave queue.
+	//
+	// No toast — the AutosaveIndicator narrates the flush (Saving... →
+	// Saved / Save failed + green flash). A toast here would also lie on
+	// network failure: `flush` never rejects (postSave catches and
+	// routes errors to the failures map).
+	function flushDraft() {
+		if (!$workspaceStore || !liveEditorDraftStoragePath) return
+		void UserDraftDbSyncer.flush({
+			workspace: $workspaceStore,
+			itemKind: 'raw_app',
+			path: liveEditorDraftStoragePath
+		})
+	}
+
+	// The VS Code workbench (file editing) lives in a same-origin iframe —
+	// its keydowns never bubble to this document, so the window handler
+	// below can't see Ctrl/Cmd+S while the user is typing code (the common
+	// case). Attach a capture-phase listener inside the iframe document on
+	// each load. No preventDefault: VS Code's own save still runs (it
+	// materializes the file → `setFiles` → autosave), we just flush what's
+	// already pending alongside it. The listener dies with the iframe's
+	// window on unload, so re-attaching per load is leak-free.
+	function attachIframeSaveShortcut() {
+		const win = iframe?.contentWindow
+		if (!win) return
+		win.addEventListener(
+			'keydown',
+			(e: KeyboardEvent) => {
+				if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 's' || e.key === 'S')) {
+					flushDraft()
+				}
+			},
+			true
+		)
+	}
+
+	// `wm-monaco-save-shortcut`: Monaco's addCommand swallows Ctrl/Cmd+S
+	// inside the inline-script / YAML editors; Editor.svelte and
+	// SimpleEditor.svelte re-broadcast it as this window event. (Custom
+	// event names aren't typed on <svelte:window>, hence the manual
+	// listener.)
+	$effect(() => {
+		window.addEventListener('wm-monaco-save-shortcut', flushDraft)
+		return () => window.removeEventListener('wm-monaco-save-shortcut', flushDraft)
+	})
+
 	function handleKeydown(e: KeyboardEvent) {
-		// Ctrl/Cmd + S forces an immediate flush of the page-level
-		// autosave queue. Catch this BEFORE the input/Monaco guard
-		// below so the shortcut fires regardless of focus — saving
-		// while still in the editor is the common case.
-		//
-		// No toast — the AutosaveIndicator narrates the flush (Saving...
-		// → Saved / Save failed). A toast here would also lie on network
-		// failure: `flush` never rejects (postSave catches and routes
-		// errors to the failures map).
+		// Ctrl/Cmd + S — catch this BEFORE the input/Monaco guard below so
+		// the shortcut fires regardless of focus.
 		if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 's' || e.key === 'S')) {
 			e.preventDefault()
-			if (!$workspaceStore || !liveEditorDraftStoragePath) return
-			void UserDraftDbSyncer.flush({
-				workspace: $workspaceStore,
-				itemKind: 'raw_app',
-				path: liveEditorDraftStoragePath
-			})
+			flushDraft()
 			return
 		}
 
@@ -1555,6 +1590,7 @@
 												title="UI builder"
 												src="/ui_builder/index.html"
 												class="w-full h-full block"
+												onload={attachIframeSaveShortcut}
 											></iframe>
 										{/if}
 									</div>
