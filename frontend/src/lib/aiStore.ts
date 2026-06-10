@@ -6,7 +6,7 @@ import {
 	COPILOT_SESSION_PROVIDER_SETTING_NAME,
 	COPILOT_SESSION_REASONING_SETTING_NAME
 } from './stores'
-import { getLocalSetting } from './utils'
+import { getLocalSetting, storeLocalSetting } from './utils'
 import {
 	type ReasoningProviderModel,
 	stripLegacyThinkingSuffix
@@ -157,6 +157,10 @@ export function getUserCustomPrompts(): Record<string, string> {
 		}
 	}
 	return {}
+}
+
+export function setUserCustomPrompts(prompts: Record<string, string>) {
+	storeLocalSetting(USER_CUSTOM_PROMPTS_KEY, JSON.stringify(prompts))
 }
 
 export function getCombinedCustomPrompt(mode: string): string | undefined {

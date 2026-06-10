@@ -39,6 +39,8 @@ import { sendUserToast } from '$lib/toast'
 import { getModelContextWindow, workspaceAIClients } from '../lib'
 import { dfs } from '$lib/components/flows/previousResults'
 import { getStringError } from './utils'
+import { type PasteAttachment } from './pasteTokens'
+import { chatDraft, expanded } from './chatDraft'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
@@ -832,6 +834,7 @@ export class AIChatManager {
 			removeDiff?: boolean
 			addBackCode?: boolean
 			instructions?: string
+			pastes?: PasteAttachment[]
 			mode?: AIMode
 			lang?: ScriptLang | 'bunnative'
 			isPreprocessor?: boolean
@@ -907,6 +910,7 @@ export class AIChatManager {
 				snapshot = { type: 'app', value: this.appAiChatHelpers!.snapshot() }
 			}
 
+			const pastes = options.pastes ?? []
 			this.displayMessages = [
 				...this.displayMessages,
 				{
@@ -916,11 +920,14 @@ export class AIChatManager {
 						this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW || this.mode === AIMode.GLOBAL
 							? oldSelectedContext
 							: undefined,
+					pastes: pastes.length > 0 ? pastes : undefined,
 					snapshot,
 					index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 				}
 			]
-			const oldInstructions = this.instructions
+			// The LLM gets the full pasted content; the display message above keeps
+			// the compact tokens + registry so the bubble can render/expand chips.
+			const oldInstructions = expanded(chatDraft(this.instructions, pastes))
 			this.instructions = ''
 
 			if (this.mode === AIMode.SCRIPT && !this.scriptEditorOptions && !options.lang) {
@@ -1108,7 +1115,11 @@ export class AIChatManager {
 		this.inlineAbortController?.abort(cancelReason)
 	}
 
-	restartGeneration = (displayMessageIndex: number, newContent?: string) => {
+	restartGeneration = (
+		displayMessageIndex: number,
+		newContent?: string,
+		pastes?: PasteAttachment[]
+	) => {
 		const userMessage = this.displayMessages[displayMessageIndex]
 
 		if (!userMessage || userMessage.role !== 'user') {
@@ -1129,7 +1140,7 @@ export class AIChatManager {
 
 		// Resend the request with the same instructions
 		this.instructions = newContent ?? userMessage.content
-		this.sendRequest()
+		this.sendRequest({ pastes: pastes ?? userMessage.pastes })
 	}
 
 	fix = () => {

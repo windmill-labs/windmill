@@ -7,6 +7,7 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import SessionEditorTarget from './SessionEditorTarget.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 
 	let {
 		runtime,
@@ -45,6 +46,9 @@
 			try {
 				await DraftService.deleteDraft({ workspace: workspaceId, kind: 'script', path: saved.path })
 				saved.draft = undefined
+				// Server draft gone — refresh the session draft-bar count immediately
+				// instead of waiting for an AI turn-end / tab-refocus signal.
+				invalidateWorkspaceDrafts(workspaceId)
 			} catch (e: any) {
 				sendUserToast(`Could not delete draft: ${e?.body ?? e}`, true)
 				return
@@ -103,6 +107,8 @@
 				{initialTestPanelCollapsed}
 				onSaveDraft={async (e) => {
 					runtime.scheduleForkComparisonRefresh()
+					// Saving a draft adds/keeps a pending draft — refresh the Draft Count.
+					invalidateWorkspaceDrafts(workspaceId)
 					// Re-pin parent_hash to the latest version so the next Deploy's conflict
 					// check (which runs before deploy, while the session stays mounted)
 					// doesn't misfire.
@@ -123,6 +129,9 @@
 					// preview to the deployed version.
 					sendUserToast('Deployed')
 					runtime.syncPreviewWithDeployed(workspaceId, 'script', e.path)
+					// Deploying clears the item's pending draft — refresh the workspace
+					// Draft Count so the session bar / compare page drop it immediately.
+					invalidateWorkspaceDrafts(workspaceId)
 				}}
 			/>
 		{/if}

@@ -41,14 +41,21 @@
 
 	function onKeyDown(event: KeyboardEvent) {
 		if (open && keyListen) {
-			event.stopPropagation()
-			event.preventDefault()
+			// Only intercept Enter/Escape (without modifiers) so shortcuts like
+			// Cmd/Ctrl+C and Cmd/Ctrl+V keep working inside the modal.
+			if (event.metaKey || event.ctrlKey || event.altKey) {
+				return
+			}
 			switch (event.key) {
 				case 'Enter':
+					event.stopPropagation()
+					event.preventDefault()
 					dispatch('confirmed')
 					onConfirmed?.()
 					break
 				case 'Escape':
+					event.stopPropagation()
+					event.preventDefault()
 					dispatch('canceled')
 					onCanceled?.()
 					break
