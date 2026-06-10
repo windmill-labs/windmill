@@ -114,6 +114,10 @@ export type UserDraftStateHandle = {
 	/** Reactive — read it inside a `$derived`/`$effect` and it re-runs as
 	 * the draft moves through the pipeline. */
 	readonly state: UserDraftSyncState
+	/** When `state === 'failed'`, the message extracted from the thrown
+	 * error (server body / status text / Error.message, in that order).
+	 * `undefined` for every other state. */
+	readonly failureMessage: string | undefined
 }
 
 /**
@@ -162,16 +166,38 @@ const pendingSaveOpts = new Map<string, UserDraftDbSyncerSaveOpts>()
 const conflicts = new SvelteMap<string, DraftConflictInfo>()
 
 /**
- * Reactive set of draft keys whose last save attempt threw (network
- * error, 5xx, anything `DraftService.saveDraft` rejects with). Cleared
- * on the next successful save for that key. Drives the
- * AutosaveIndicator's "Save failed" label so a silent failure doesn't
- * masquerade as "Saved" — the previous behaviour was to console.error
- * and let the runner finish, which the indicator read as success.
- * Conflicts are tracked separately (DraftSyncConflictModal handles
- * those) and don't populate this map.
+ * Reactive map of draft keys whose last save attempt threw (network
+ * error, 5xx, anything `DraftService.saveDraft` rejects with) → the
+ * error message extracted from the thrown value. Cleared on the next
+ * successful save for that key. Drives the AutosaveIndicator's
+ * "Save failed" label so a silent failure doesn't masquerade as "Saved"
+ * — the previous behaviour was to console.error and let the runner
+ * finish, which the indicator read as success. Conflicts are tracked
+ * separately (DraftSyncConflictModal handles those) and don't populate
+ * this map.
  */
-const failures = new SvelteMap<string, true>()
+const failures = new SvelteMap<string, string>()
+
+/**
+ * Best-effort error → readable string. The generated client wraps HTTP
+ * failures as `ApiError` with `body` / `statusText`; raw fetch errors
+ * surface a plain `Error`. Falls back to `String(e)` so we never end up
+ * with a useless `[object Object]`.
+ */
+function formatSaveError(e: unknown): string {
+	if (e == null) return 'Unknown error'
+	if (typeof e === 'string') return e
+	const obj = e as Record<string, any>
+	const body = obj.body
+	if (typeof body === 'string' && body) return body
+	if (body && typeof body === 'object') {
+		const inner = body.error?.message ?? body.message ?? body.error
+		if (typeof inner === 'string' && inner) return inner
+	}
+	if (typeof obj.message === 'string' && obj.message) return obj.message
+	if (typeof obj.statusText === 'string' && obj.statusText) return obj.statusText
+	return String(e)
+}
 
 async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 	const key = draftKey(opts.workspace, opts.itemKind, opts.path)
@@ -221,11 +247,12 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		if (pendingSaveOpts.get(key) === opts) pendingSaveOpts.delete(key)
 	} catch (e) {
 		console.error('UserDraftDbSyncer.save failed', e)
-		// Surface the failure to the indicator. Leave the pending opts
-		// in place so the next flush / next save attempt retries the
-		// same payload — clearing only on success means we don't
-		// pretend the user's pending edit landed when it didn't.
-		failures.set(key, true)
+		// Surface the failure (with its message) to the indicator.
+		// Leave the pending opts in place so the next flush / next save
+		// attempt retries the same payload — clearing only on success
+		// means we don't pretend the user's pending edit landed when
+		// it didn't.
+		failures.set(key, formatSaveError(e))
 	}
 }
 
@@ -332,6 +359,13 @@ export const UserDraftDbSyncer = {
 				if (debouncer.isPending(key)) return 'pending'
 				if (failures.has(key)) return 'failed'
 				return 'none'
+			},
+			get failureMessage(): string | undefined {
+				// Only meaningful when state === 'failed'; reading it for
+				// other states would surface a stale message from a
+				// previous failure that's already been superseded.
+				if (runner.isRunning(key) || debouncer.isPending(key)) return undefined
+				return failures.get(key)
 			}
 		}
 	},

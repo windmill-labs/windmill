@@ -58,6 +58,7 @@
 	// is itself reactive to the autosave pipeline, so `syncState` tracks both.
 	const handle = $derived(UserDraftDbSyncer.getState({ workspace, itemKind, path }))
 	const syncState: UserDraftSyncState = $derived(handle.state)
+	const failureMessage = $derived(handle.failureMessage)
 
 	// The "Saved" label is shown only for a few seconds after a save actually
 	// completes (saving → none). A transition straight to `failed` skips the
@@ -224,10 +225,15 @@
 		{#snippet content()}
 			<div class="flex flex-col gap-3 text-sm w-72 p-3">
 				{#if syncState === 'failed'}
-					<p class="text-red-500 font-semibold text-xs">
-						Save failed — your latest changes did not reach the server. Editing again will retry the
-						save.
-					</p>
+					<div class="flex flex-col gap-1">
+						<p class="text-red-500 font-semibold text-xs">Save failed</p>
+						{#if failureMessage}
+							<pre
+								class="text-red-500 text-xs whitespace-pre-wrap break-words font-mono max-h-40 overflow-y-auto"
+								>{failureMessage}</pre
+							>
+						{/if}
+					</div>
 				{/if}
 				<p class="text-primary text-xs">
 					All changes are saved as a draft on the server. The draft is per-user — your teammates'
