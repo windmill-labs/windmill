@@ -7,6 +7,7 @@ import InfiniteList from '$lib/components/InfiniteList.svelte'
 import { workspaceStore, userStore } from '$lib/stores'
 import { get } from 'svelte/store'
 import { parseStreamDeltas } from '$lib/components/chat/utils'
+import { randomUUID } from '$lib/utils/uuid'
 
 export interface ChatMessage extends FlowConversationMessage {
 	loading?: boolean
@@ -15,15 +16,6 @@ export interface ChatMessage extends FlowConversationMessage {
 
 export interface ConversationWithDraft extends FlowConversation {
 	isDraft?: boolean
-}
-
-export function randomUUID() {
-	// Pure JS (RFC4122 v4) UUID implementation (no external dependencies)
-	return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-		const r = (Math.random() * 16) | 0
-		const v = c === 'x' ? r : (r & 0x3) | 0x8
-		return v.toString(16)
-	})
 }
 
 export class FlowChatManager {

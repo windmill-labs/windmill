@@ -11,16 +11,13 @@ import * as log from "../../core/log.ts";
 import { readConfigFile } from "../../core/conf.ts";
 
 /**
- * Local-friendly aliases for the absolute workspace import paths `/f/...` and
- * `/u/...`. Unlike the `/`-prefixed form (which every local tool treats as a
- * filesystem-root path), `$f/`/`$u/` are bare specifiers that can be remapped to
- * the on-disk `f/`/`u/` folders via tsconfig `paths` and Deno import maps, so the
- * same import resolves both on the Windmill worker and in a local editor.
+ * The on-disk folders (`f/`, `u/`) that the absolute workspace import paths
+ * `/f/...` and `/u/...` map to. tsconfig `paths` and Deno import maps remap the
+ * `/f/`,`/u/` prefixes to these local folders, so the same workspace import
+ * resolves both on the Windmill worker and in a local editor (tsc/Bun/Deno all
+ * honor the `/`-prefixed key).
  */
-const WORKSPACE_IMPORT_ALIASES: Record<string, string> = {
-  $f: "f",
-  $u: "u",
-};
+const WORKSPACE_IMPORT_DIRS = ["f", "u"];
 
 // wmill-managed files holding the recommended config. They are always
 // (re)written so we can ship updated recommendations over time; users keep
@@ -51,25 +48,25 @@ function buildManagedTsconfig(): {
   compilerOptions: Record<string, unknown>;
   include: string[];
 } {
-  // Map "$f/*" -> ["./f/*"], "$u/*" -> ["./u/*"] so the editor resolves
+  // Map "/f/*" -> ["./f/*"], "/u/*" -> ["./u/*"] so the editor resolves
   // workspace imports against the local script folders.
   //
   // Known limitation: this resolves imports written with a plain `.ts` extension
   // (the canonical form). Scripts stored with a flavor-specific extension —
   // `.bun.ts`/`.deno.ts`/`.fetch.ts` for languages other than the project default
-  // (see filePathExtensionFromContentType) — won't resolve via these aliases in a
+  // (see filePathExtensionFromContentType) — won't resolve via these `paths` in a
   // local editor. The worker (extension-agnostic API) and the in-app editor (ATA
   // normalizes to `.ts`) handle those fine; only local tsc / VS Code is affected.
   const paths: Record<string, string[]> = {};
-  for (const [alias, dir] of Object.entries(WORKSPACE_IMPORT_ALIASES)) {
-    paths[`${alias}/*`] = [`./${dir}/*`];
+  for (const dir of WORKSPACE_IMPORT_DIRS) {
+    paths[`/${dir}/*`] = [`./${dir}/*`];
   }
   return {
     compilerOptions: {
       target: "ESNext",
       module: "ESNext",
       moduleResolution: "bundler",
-      // Workspace imports carry an explicit `.ts` extension (e.g. "$f/foo/bar.ts");
+      // Workspace imports carry an explicit `.ts` extension (e.g. "/f/foo/bar.ts");
       // allow it so the editor doesn't flag every cross-script import.
       allowImportingTsExtensions: true,
       noEmit: true,
@@ -147,7 +144,7 @@ type WireMode = { interactive: boolean; assumeYes: boolean };
 
 /**
  * (Re)generate the wmill-managed TypeScript/Deno IDE config so the editor
- * resolves `$f/`/`$u/` workspace imports against the local script folders.
+ * resolves `/f/`/`/u/` workspace imports against the local script folders.
  *
  * Split into a managed base file (always refreshed) and a user-owned file that
  * references it. We only ever touch files that are ours: the managed file is
@@ -211,8 +208,8 @@ async function refreshManagedTsconfig(defaultTs: "bun" | "deno", mode: WireMode)
     wire: (parsed) => {
       // TypeScript does NOT merge `compilerOptions.paths` across `extends` — the
       // nearest config that defines `paths` wins wholesale. So a config with its
-      // own `paths` would shadow the managed `$f/`/`$u/` mappings and the aliases
-      // would silently fail to resolve. We don't touch the user's paths — warn
+      // own `paths` would shadow the managed `/f/`/`/u/` mappings and they would
+      // silently fail to resolve. We don't touch the user's paths — warn
       // and leave it for them to wire manually.
       const co = parsed.compilerOptions;
       const paths =
@@ -227,7 +224,7 @@ async function refreshManagedTsconfig(defaultTs: "bun" | "deno", mode: WireMode)
       ) {
         return (
           "defines its own `compilerOptions.paths` (TS won't merge ours in via " +
-          '`extends`); add "$f/*": ["./f/*"] and "$u/*": ["./u/*"] to it'
+          '`extends`); add "/f/*": ["./f/*"] and "/u/*": ["./u/*"] to it'
         );
       }
       const ext = parsed.extends;
@@ -252,10 +249,10 @@ async function refreshManagedTsconfig(defaultTs: "bun" | "deno", mode: WireMode)
 }
 
 async function refreshManagedDenoImportMap(mode: WireMode) {
-  // Import-map prefix keys must end with "/": "$f/" -> "./f/", "$u/" -> "./u/".
+  // Import-map prefix keys must end with "/": "/f/" -> "./f/", "/u/" -> "./u/".
   const imports: Record<string, string> = {};
-  for (const [alias, dir] of Object.entries(WORKSPACE_IMPORT_ALIASES)) {
-    imports[`${alias}/`] = `./${dir}/`;
+  for (const dir of WORKSPACE_IMPORT_DIRS) {
+    imports[`/${dir}/`] = `./${dir}/`;
   }
 
   // Deno import maps only allow `imports`/`scopes`, so no comment header here.
@@ -354,7 +351,7 @@ async function ensureUserReferencesManaged(opts: {
   } catch {
     log.warn(
       `${existingName} couldn't be auto-edited (it may contain comments). Add ${opts.hint} ` +
-        `to pick up wmill's recommended settings (incl. $f//$u/ import aliases).`
+        `to pick up wmill's recommended settings (incl. workspace /f/, /u/ import resolution).`
     );
     return;
   }
@@ -379,7 +376,7 @@ async function ensureUserReferencesManaged(opts: {
   if (wired !== true) {
     log.warn(
       `${existingName}: ${wired}. Add ${opts.hint} manually to pick up wmill's ` +
-        `recommended settings (incl. $f//$u/ import aliases).`
+        `recommended settings (incl. workspace /f/, /u/ import resolution).`
     );
     return;
   }
@@ -399,7 +396,7 @@ async function ensureUserReferencesManaged(opts: {
     log.info(
       colors.gray(
         `Left ${existingName} unchanged — add ${opts.hint} when ready to enable ` +
-          `$f//$u/ import aliases (or re-run \`wmill refresh tsconfig\`).`
+          `workspace /f/, /u/ import resolution (or re-run \`wmill refresh tsconfig\`).`
       )
     );
     return;

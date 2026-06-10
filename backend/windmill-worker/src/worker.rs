@@ -694,6 +694,27 @@ lazy_static::lazy_static! {
     /// RAM-backed tmpfs sized by `nsjail_tmpfs_size_mb`.
     pub static ref NSJAIL_TMP_BACKING: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
+    /// Reject a `# sandbox <image>` whose compressed download size exceeds this many
+    /// MB, before download. `None`/non-positive = no limit. (`sandbox_image_max_size_mb`.)
+    pub static ref SANDBOX_IMAGE_MAX_SIZE_MB: Arc<RwLock<Option<i64>>> = Arc::new(RwLock::new(None));
+
+    /// Best-effort cap (MB) on the worker's cached rootfs tars; oldest evicted after a
+    /// run when exceeded. `None`/non-positive = unbounded. (`sandbox_image_cache_max_mb`.)
+    pub static ref SANDBOX_IMAGE_CACHE_MAX_MB: Arc<RwLock<Option<i64>>> = Arc::new(RwLock::new(None));
+
+    /// Sandbox image pull policy (`missing`/`newer`/`always`/`never`). `None`/unrecognized
+    /// falls back to `newer`. (`sandbox_image_pull_policy`.)
+    pub static ref SANDBOX_IMAGE_PULL_POLICY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+
+    /// If set, unqualified sandbox image refs (e.g. `alpine`) are pulled from this
+    /// registry instead of docker.io. Fully-qualified refs are unaffected.
+    /// (`sandbox_image_default_registry`.)
+    pub static ref SANDBOX_IMAGE_DEFAULT_REGISTRY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+
+    /// Optional docker `auth.json` blob for private registries, written to a per-job
+    /// `DOCKER_CONFIG` dir for crane. (`sandbox_registry_auth`.)
+    pub static ref SANDBOX_REGISTRY_AUTH: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+
     /// Optional mirror URL for `uv python install`. Wires to the `UV_PYTHON_INSTALL_MIRROR`
     /// env var when forwarded to uv. Can be set via the `UV_PYTHON_INSTALL_MIRROR` env var
     /// or the `uv_python_install_mirror` instance setting.
@@ -919,14 +940,50 @@ pub async fn is_otel_tracing_proxy_enabled_for_lang(lang: &ScriptLang) -> bool {
     }
 }
 
+/// Strict check that a string is a well-formed W3C `traceparent`
+/// (`version-traceid-spanid-flags`, lowercase hex, non-zero ids, version != ff).
+/// Used before forwarding an inbound header value verbatim to a job subprocess,
+/// so we don't hand downstream OTel parsers something they'll reject.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+fn valid_w3c_traceparent(tp: &str) -> bool {
+    let p: Vec<&str> = tp.split('-').collect();
+    p.len() == 4
+        && p[0].len() == 2
+        && p[1].len() == 32
+        && p[2].len() == 16
+        && p[3].len() == 2
+        // version "ff" is reserved/invalid per the W3C spec
+        && p[0] != "ff"
+        && p[1] != "00000000000000000000000000000000"
+        && p[2] != "0000000000000000"
+        // W3C mandates lowercase hex
+        && p
+            .iter()
+            .all(|s| s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+}
+
 /// Get OTEL trace context environment variables for a job (TRACEPARENT, OTEL_TRACE_ID, OTEL_SPAN_ID).
 /// Returns an empty vec when OTEL tracing is not enabled or on non-enterprise builds.
+///
+/// When the request that enqueued the job carried a valid inbound `traceparent`
+/// (propagated via the job's [`LogContext`](windmill_common::log_context::LogContext)),
+/// it is forwarded verbatim so the script's spans join the originating
+/// distributed trace. Otherwise the trace context is derived from the job UUID.
 pub fn get_otel_context_envs(job_id: &uuid::Uuid) -> Vec<(&'static str, String)> {
     #[cfg(all(feature = "private", feature = "enterprise"))]
     if windmill_common::OTEL_TRACING_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-        let trace_id = format!("{:032x}", job_id.as_u128());
-        let span_id = format!("{:016x}", job_id.as_u64_pair().1);
-        let traceparent = format!("00-{}-{}-01", trace_id, span_id);
+        let inbound = windmill_common::log_context::current_log_context()
+            .and_then(|c| c.inbound_traceparent.clone())
+            .filter(|tp| valid_w3c_traceparent(tp));
+        let (traceparent, trace_id, span_id) = if let Some(tp) = inbound {
+            let trace_id = tp[3..35].to_string();
+            let span_id = tp[36..52].to_string();
+            (tp, trace_id, span_id)
+        } else {
+            let trace_id = format!("{:032x}", job_id.as_u128());
+            let span_id = format!("{:016x}", job_id.as_u64_pair().1);
+            (format!("00-{}-{}-01", trace_id, span_id), trace_id, span_id)
+        };
         return vec![
             ("TRACEPARENT", traceparent),
             ("OTEL_TRACE_ID", trace_id),
@@ -1020,6 +1077,15 @@ async fn get_otel_tracing_proxy_envs(
 /// through the proxy without TLS interception, so clients that pin their own CA (kubectl,
 /// helm, terraform, etc.) keep working. Empty when unset, matching the prior behavior of
 /// intercepting all destinations including loopback.
+///
+/// The worker's own `NO_PROXY` env is merged in so that enabling HTTP request tracing never
+/// silently narrows exclusions an operator already configured at the container level: hosts
+/// reachable directly before tracing was turned on stay reachable directly afterwards. The
+/// upstream-relay side (`build_no_proxy_intercept`) already honors the container `NO_PROXY`;
+/// this keeps the injected-into-jobs side symmetric. Note that job runtimes match `NO_PROXY`
+/// by hostname/suffix, not by resolving against CIDR ranges, so CIDR-only entries (e.g.
+/// `10.0.0.0/8`) carry over but won't match a hostname target — operators still need an
+/// explicit host/suffix entry for those.
 #[cfg(all(feature = "private", feature = "enterprise"))]
 async fn build_tracing_proxy_no_proxy() -> String {
     let configured = OTEL_TRACING_PROXY_SETTINGS
@@ -1027,22 +1093,23 @@ async fn build_tracing_proxy_no_proxy() -> String {
         .await
         .no_proxy_hosts
         .clone();
-    normalize_no_proxy_hosts(configured.as_deref())
+    normalize_no_proxy_hosts([configured.as_deref(), NO_PROXY.as_deref()])
 }
 
-/// Split a comma-separated NO_PROXY value, trim whitespace, drop empty entries, and
-/// deduplicate while preserving order. `None` returns an empty string.
+/// Split comma-separated NO_PROXY sources, trim whitespace, drop empty entries, and
+/// deduplicate while preserving first-occurrence order. Sources are concatenated in the
+/// order given (earlier sources win on ordering). Returns an empty string when all sources
+/// are `None`/empty.
 #[cfg(all(feature = "private", feature = "enterprise"))]
-fn normalize_no_proxy_hosts(configured: Option<&str>) -> String {
-    let Some(configured) = configured else {
-        return String::new();
-    };
+fn normalize_no_proxy_hosts<'a>(sources: impl IntoIterator<Item = Option<&'a str>>) -> String {
     let mut seen = std::collections::HashSet::new();
     let mut out: Vec<&str> = Vec::new();
-    for entry in configured.split(',') {
-        let trimmed = entry.trim();
-        if !trimmed.is_empty() && seen.insert(trimmed) {
-            out.push(trimmed);
+    for source in sources.into_iter().flatten() {
+        for entry in source.split(',') {
+            let trimmed = entry.trim();
+            if !trimmed.is_empty() && seen.insert(trimmed) {
+                out.push(trimmed);
+            }
         }
     }
     out.join(",")
@@ -1054,26 +1121,58 @@ mod no_proxy_tests {
 
     #[test]
     fn unset_returns_empty() {
-        assert_eq!(normalize_no_proxy_hosts(None), "");
+        assert_eq!(normalize_no_proxy_hosts([None]), "");
+        assert_eq!(normalize_no_proxy_hosts([None, None]), "");
     }
 
     #[test]
     fn empty_and_whitespace_only_returns_empty() {
-        assert_eq!(normalize_no_proxy_hosts(Some("")), "");
-        assert_eq!(normalize_no_proxy_hosts(Some("  ,  ,\t")), "");
+        assert_eq!(normalize_no_proxy_hosts([Some("")]), "");
+        assert_eq!(normalize_no_proxy_hosts([Some("  ,  ,\t")]), "");
     }
 
     #[test]
     fn trims_and_skips_empties() {
         assert_eq!(
-            normalize_no_proxy_hosts(Some("  *.eks.amazonaws.com  ,, *.internal ")),
+            normalize_no_proxy_hosts([Some("  *.eks.amazonaws.com  ,, *.internal ")]),
             "*.eks.amazonaws.com,*.internal"
         );
     }
 
     #[test]
     fn dedupes_preserving_first_occurrence_order() {
-        assert_eq!(normalize_no_proxy_hosts(Some("a,b,a,c,b,d")), "a,b,c,d");
+        assert_eq!(normalize_no_proxy_hosts([Some("a,b,a,c,b,d")]), "a,b,c,d");
+    }
+
+    #[test]
+    fn merges_configured_with_container_no_proxy() {
+        // Configured tracing hosts come first, then the container NO_PROXY is appended.
+        assert_eq!(
+            normalize_no_proxy_hosts([
+                Some("gitlab.internal"),
+                Some("localhost,127.0.0.1,10.0.0.0/8,.cluster.local")
+            ]),
+            "gitlab.internal,localhost,127.0.0.1,10.0.0.0/8,.cluster.local"
+        );
+    }
+
+    #[test]
+    fn merges_dedupe_across_sources() {
+        // Entries present in both sources are not duplicated.
+        assert_eq!(
+            normalize_no_proxy_hosts([Some("localhost,gitlab.internal"), Some("localhost,.svc")]),
+            "localhost,gitlab.internal,.svc"
+        );
+    }
+
+    #[test]
+    fn container_no_proxy_carries_over_when_unconfigured() {
+        // Tracing setting unset but container NO_PROXY present: exclusions still carry over,
+        // so enabling tracing does not silently drop them.
+        assert_eq!(
+            normalize_no_proxy_hosts([None, Some(".cluster.local,gitlab.internal")]),
+            ".cluster.local,gitlab.internal"
+        );
     }
 }
 
@@ -1466,7 +1565,10 @@ pub fn create_span_with_name(
         span.record("script_hash", script_hash.to_string().as_str());
     }
 
-    windmill_common::otel_oss::set_span_parent(&span, &rj);
+    // Parent the job span on the inbound distributed trace when the request that
+    // enqueued it (or its flow root) carried a W3C `traceparent`; otherwise on
+    // the UUID-derived context. See `otel_ee::set_job_span_parent`.
+    crate::otel_oss::set_job_span_parent(&span, arc_job, &rj);
     span
 }
 
@@ -1567,8 +1669,19 @@ pub fn log_context_for_job(
         trigger_kind: arc_job.trigger_kind.as_ref().map(|k| k.to_string()),
         trigger: arc_job.trigger.clone(),
         hostname: hostname.map(|h| h.to_string()),
+        inbound_traceparent: job_inbound_traceparent(arc_job),
         ..existing
     }
+}
+
+/// Extract the inbound W3C `traceparent` captured at enqueue from a job's args
+/// (reserved `_wm_traceparent` key). Present only on directly-triggered jobs
+/// (and flow steps that inherited it).
+pub(crate) fn job_inbound_traceparent(job: &MiniPulledJob) -> Option<String> {
+    job.args
+        .as_ref()
+        .and_then(|a| a.get(windmill_common::jobs::WM_TRACEPARENT))
+        .and_then(|raw| serde_json::from_str::<String>(raw.get()).ok())
 }
 
 pub async fn handle_all_job_kind_error(

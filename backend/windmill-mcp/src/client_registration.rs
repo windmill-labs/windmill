@@ -17,7 +17,7 @@ use windmill_common::db::DB;
 use windmill_common::error;
 use windmill_common::variables::{build_crypt, decrypt, encrypt};
 
-use crate::oauth::AuthorizationManager;
+use crate::oauth::{no_redirect_http_client, AuthorizationManager};
 
 /// MCP client credentials returned by [`get_or_refresh_mcp_client`].
 pub struct McpClientCredentials {
@@ -77,7 +77,14 @@ async fn register_client(
     redirect_uri: &str,
     client_name: &str,
 ) -> Result<DcrResponse, error::Error> {
-    let client = reqwest::Client::new();
+    windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
+        registration_endpoint,
+        "MCP server registration endpoint URL",
+    )
+    .await?;
+
+    let client = no_redirect_http_client()
+        .map_err(|e| error::Error::BadRequest(format!("Failed to build DCR client: {e}")))?;
     let request = DcrRequest {
         client_name: client_name.to_string(),
         redirect_uris: vec![redirect_uri.to_string()],
@@ -121,6 +128,12 @@ pub async fn get_or_refresh_mcp_client(
     let base_url = (**windmill_common::BASE_URL.load()).clone();
     let redirect_uri = format!("{}/api/mcp/oauth/callback", base_url);
 
+    windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
+        mcp_server_url,
+        "MCP server URL",
+    )
+    .await?;
+
     let cached_client: Option<McpOAuthClient> =
         sqlx::query_as("SELECT mcp_server_url, client_id, client_secret, client_secret_expires_at, token_endpoint FROM mcp_oauth_client WHERE mcp_server_url = $1")
             .bind(mcp_server_url)
@@ -131,6 +144,11 @@ pub async fn get_or_refresh_mcp_client(
     if let Some(client) = cached_client {
         if !client.is_expired() {
             tracing::debug!("Using cached MCP client for {}", mcp_server_url);
+            windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
+                &client.token_endpoint,
+                "MCP server token endpoint URL",
+            )
+            .await?;
             let decrypted_secret = if let Some(ref encrypted_secret) = client.client_secret {
                 Some(decrypt_client_secret(db, encrypted_secret).await?)
             } else {
@@ -145,16 +163,26 @@ pub async fn get_or_refresh_mcp_client(
         tracing::debug!("Cached MCP client expired, re-registering");
     }
 
-    windmill_common::ssrf::validate_url_for_ssrf(mcp_server_url).await?;
-
-    let manager = AuthorizationManager::new(mcp_server_url)
+    let mut manager = AuthorizationManager::new(mcp_server_url)
         .await
         .map_err(|e| error::Error::BadRequest(format!("Failed to create auth manager: {e}")))?;
+    let discovery_client = no_redirect_http_client().map_err(|e| {
+        error::Error::BadRequest(format!("Failed to build MCP OAuth discovery client: {e}"))
+    })?;
+    manager
+        .with_client(discovery_client)
+        .map_err(|e| error::Error::BadRequest(format!("Failed to configure auth manager: {e}")))?;
 
     let metadata = manager
         .discover_metadata()
         .await
         .map_err(|e| error::Error::BadRequest(format!("OAuth discovery failed: {e}")))?;
+
+    windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
+        &metadata.token_endpoint,
+        "MCP server token endpoint URL",
+    )
+    .await?;
 
     let supports_dynamic_registration = metadata.registration_endpoint.is_some();
 

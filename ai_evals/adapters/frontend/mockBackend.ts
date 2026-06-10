@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { CompletedJob, Flow, Script } from '../../../frontend/src/lib/gen'
+import type { CompletedJob, Flow, Job, Script } from '../../../frontend/src/lib/gen'
 import type {
 	DataTableTables,
 	DataTableTableSchema,
@@ -29,17 +29,35 @@ export interface BenchmarkWorkspaceFlow {
 	value: Flow['value']
 }
 
+export interface BenchmarkWorkspaceJob {
+	/** Stable id so a case prompt can reference a specific run (e.g. for get_job_logs). */
+	id?: string
+	jobKind?: CompletedJob['job_kind']
+	scriptPath?: string
+	createdBy?: string
+	label?: string
+	success?: boolean
+	logs?: string
+}
+
 export interface BenchmarkWorkspaceRunnables {
 	scripts?: BenchmarkWorkspaceScript[]
 	flows?: BenchmarkWorkspaceFlow[]
 	datatables?: BenchmarkDatatableSeed[]
+	jobs?: BenchmarkWorkspaceJob[]
 }
 
 type BenchmarkCompletedJob = CompletedJob & { type: 'CompletedJob' }
 
 const benchmarkWorkspaces = new Set<string>()
 const benchmarkWorkspaceRunnables = new Map<string, BenchmarkWorkspaceRunnables>()
+// Keyed by `${workspace}::${jobId}` so concurrent attempts (or distinct cases)
+// can seed the same fixed job id without clobbering each other's entry.
 const benchmarkJobs = new Map<string, { workspace: string; job: BenchmarkCompletedJob }>()
+
+function benchmarkJobKey(workspace: string, jobId: string): string {
+	return `${workspace}::${jobId}`
+}
 
 export function resetBenchmarkMockBackend(): void {
 	benchmarkWorkspaces.clear()
@@ -62,6 +80,19 @@ export function registerBenchmarkWorkspaceRunnables(
 		...runnables,
 		datatables: runnables.datatables ? structuredClone(runnables.datatables) : undefined
 	})
+	// Seed any fixture jobs so list_runs / get_job_logs have data to return.
+	for (const seed of runnables.jobs ?? []) {
+		createBenchmarkCompletedJob({
+			workspace,
+			id: seed.id,
+			jobKind: seed.jobKind ?? 'script',
+			success: seed.success,
+			scriptPath: seed.scriptPath,
+			createdBy: seed.createdBy,
+			label: seed.label,
+			logs: seed.logs
+		})
+	}
 }
 
 export function unregisterBenchmarkWorkspace(workspace: string): void {
@@ -131,14 +162,17 @@ export function createBenchmarkCompletedJob(input: {
 	scriptPath?: string
 	scriptHash?: string
 	args?: Record<string, unknown>
+	id?: string
+	createdBy?: string
+	label?: string
 }): string {
-	const jobId = `benchmark-job-${randomUUID()}`
+	const jobId = input.id ?? `benchmark-job-${randomUUID()}`
 	const now = new Date().toISOString()
 	const job: BenchmarkCompletedJob = {
 		type: 'CompletedJob',
 		id: jobId,
 		workspace_id: input.workspace,
-		created_by: 'ai-evals',
+		created_by: input.createdBy ?? 'ai-evals',
 		created_at: now,
 		started_at: now,
 		completed_at: now,
@@ -156,10 +190,11 @@ export function createBenchmarkCompletedJob(input: {
 		is_skipped: false,
 		email: 'ai-evals@local',
 		visible_to_owner: true,
-		tag: 'benchmark'
+		tag: 'benchmark',
+		labels: input.label ? [input.label] : undefined
 	}
 
-	benchmarkJobs.set(jobId, { workspace: input.workspace, job })
+	benchmarkJobs.set(benchmarkJobKey(input.workspace, jobId), { workspace: input.workspace, job })
 	return jobId
 }
 
@@ -167,11 +202,40 @@ export function getBenchmarkCompletedJob(
 	workspace: string,
 	jobId: string
 ): BenchmarkCompletedJob | null {
-	const entry = benchmarkJobs.get(jobId)
-	if (!entry || entry.workspace !== workspace) {
+	const entry = benchmarkJobs.get(benchmarkJobKey(workspace, jobId))
+	if (!entry) {
 		return null
 	}
 	return structuredClone(entry.job)
+}
+
+/**
+ * List seeded/recorded jobs for a benchmark workspace, most recent first —
+ * the shape `JobService.listJobs` returns. Returns `null` for a non-benchmark
+ * workspace so the caller can fall through to the real backend. Server-side
+ * filters (path/creator/status/limit) are intentionally not applied: global
+ * eval cases assert on the recorded `list_runs` tool call, not on filtering.
+ */
+export function listBenchmarkJobs(workspace: string): Job[] | null {
+	if (!hasBenchmarkWorkspace(workspace)) {
+		return null
+	}
+	return [...benchmarkJobs.values()]
+		.filter((entry) => entry.workspace === workspace)
+		.map((entry) => structuredClone(entry.job) as Job)
+		.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
+}
+
+/**
+ * Mirror `JobService.getJobLogs` (response is the raw log string). Throws a
+ * "not found" error for an unknown id, matching the backend 404.
+ */
+export function getBenchmarkJobLogs(workspace: string, jobId: string): string {
+	const job = getBenchmarkCompletedJob(workspace, jobId)
+	if (!job) {
+		throw new Error(`Job Logs not found for "${jobId}"`)
+	}
+	return job.logs ?? ''
 }
 
 // ============= Datatables (best-effort in-memory SQL) =============

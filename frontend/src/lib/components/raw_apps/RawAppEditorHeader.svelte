@@ -136,6 +136,9 @@
 		liveEditorDraftStoragePath?: string
 		// Fired after a successful deploy; lets the session preview reload.
 		onDeploy?: (e: { path: string }) => void
+		// Fired after a successful server-draft save; lets the session refresh the
+		// draft-bar count (the script/flow editors do the same on save-draft).
+		onSaveDraft?: (e: { path: string }) => void
 	}
 
 	let {
@@ -162,7 +165,8 @@
 		onToggleSidebar = undefined,
 		onNavigate = undefined,
 		liveEditorDraftStoragePath = undefined,
-		onDeploy = undefined
+		onDeploy = undefined,
+		onSaveDraft = undefined
 	}: Props = $props()
 
 	let newEditedPath = $state(
@@ -517,6 +521,8 @@
 			// a future "+ App" click opens on a clean slate.
 			if (!inSessionPane) UserDraft.remove('raw_app', appPath)
 			dispatch('savedNewAppPath', newEditedPath)
+			sendUserToast('Draft saved')
+			onSaveDraft?.({ path: newEditedPath })
 		} catch (e) {
 			sendUserToast(`Error saving initial draft: ${e.body ?? e.message}`, true)
 		}
@@ -529,8 +535,15 @@
 			return
 		}
 		if (newApp) {
-			// initial draft
-			draftDrawerOpen = true
+			if (appPath === '') {
+				// Standalone "+ App" with no path chosen yet — pick one via the drawer.
+				draftDrawerOpen = true
+				return
+			}
+			// Path already known (e.g. an AI-created raw app in the session preview).
+			// The path-picker drawer is gated on `appPath == ''`, so opening it here
+			// renders nothing — save the initial draft directly instead.
+			await saveInitialDraft()
 			return
 		}
 		if (!savedApp) {
@@ -621,6 +634,7 @@
 			if (newApp || savedApp.draft_only) {
 				dispatch('savedNewAppPath', newEditedPath || path)
 			}
+			onSaveDraft?.({ path: newEditedPath || path })
 		} catch (e) {
 			loading.saveDraft = false
 			throw e

@@ -597,11 +597,57 @@ async fn postinstall(
     Ok(())
 }
 
+/// Python hard keywords cannot be used as a bare name in `import <name>` /
+/// `from <pkg> import <name>`. A flow inline step whose id (or a folder on its
+/// path) is such a keyword — e.g. a step id `in` — otherwise generates
+/// `from pkg import in as inner_script`, a SyntaxError. Prefix these with `_`,
+/// mirroring the existing digit-leading guard.
+fn is_python_keyword(s: &str) -> bool {
+    matches!(
+        s,
+        "False"
+            | "None"
+            | "True"
+            | "and"
+            | "as"
+            | "assert"
+            | "async"
+            | "await"
+            | "break"
+            | "class"
+            | "continue"
+            | "def"
+            | "del"
+            | "elif"
+            | "else"
+            | "except"
+            | "finally"
+            | "for"
+            | "from"
+            | "global"
+            | "if"
+            | "import"
+            | "in"
+            | "is"
+            | "lambda"
+            | "nonlocal"
+            | "not"
+            | "or"
+            | "pass"
+            | "raise"
+            | "return"
+            | "try"
+            | "while"
+            | "with"
+            | "yield"
+    )
+}
+
 /// Compute the directory (relative to job_dir) where Python writes the main script.
 /// Module files must be placed in this same directory for relative imports to work.
 pub fn compute_python_module_dir(script_path: &str) -> String {
     let script_path_splitted = script_path.split("/").map(|x| {
-        if x.starts_with(|x: char| x.is_ascii_digit()) {
+        if x.starts_with(|x: char| x.is_ascii_digit()) || is_python_keyword(x) {
             format!("_{}", x)
         } else {
             x.to_string()
@@ -1236,6 +1282,12 @@ pub fn compute_py_codegen(content: &str, script_path: &str) -> PyScriptCodegen {
         .replace("-", "_")
         .replace(" ", "_")
         .to_lowercase();
+    // `last` is lowercased above, so this catches a keyword id in any case.
+    let last = if is_python_keyword(&last) {
+        format!("_{last}")
+    } else {
+        last
+    };
 
     let sig = windmill_parser_py::parse_python_signature(content, None, false).unwrap_or_default();
     let pre_sig = windmill_parser_py::parse_python_signature(
@@ -1605,6 +1657,12 @@ async fn prepare_wrapper(
         .replace("-", "_")
         .replace(" ", "_")
         .to_lowercase();
+    // `last` is lowercased above, so this catches a keyword id in any case.
+    let last = if is_python_keyword(&last) {
+        format!("_{last}")
+    } else {
+        last
+    };
     let module_dir = format!("{}/{}", job_dir, dirs);
     tokio::fs::create_dir_all(format!("{module_dir}/")).await?;
 
@@ -3287,6 +3345,13 @@ mod tests {
     }
 
     #[test]
+    fn test_compute_python_module_dir_keyword_segment() {
+        // A folder whose name is a Python keyword would otherwise produce an
+        // invalid `from f.in.x import ...`; it is underscore-prefixed.
+        assert_eq!(compute_python_module_dir("f/in/script"), "f/_in");
+    }
+
+    #[test]
     fn test_compute_py_codegen_basic_args() {
         let code = "def main(x: str, y: int):\n    return x\n";
         let cg = compute_py_codegen(code, "f/test/script");
@@ -3295,6 +3360,22 @@ mod tests {
         assert!(cg.transforms.is_empty());
         assert!(cg.pre_spread.is_none());
         assert_eq!(cg.module_name, "script");
+    }
+
+    #[test]
+    fn test_compute_py_codegen_keyword_step_id() {
+        // Regression for a flow inline step whose auto-assigned id is a Python
+        // keyword (e.g. `in`): the generated wrapper must not emit
+        // `from pkg import in as inner_script` (SyntaxError). The module name is
+        // underscore-prefixed, matching the digit-leading guard.
+        let code = "def main():\n    return 1\n";
+        let cg = compute_py_codegen(code, "u/admin/myflow/in");
+        assert_eq!(cg.module_name, "_in");
+        assert_eq!(cg.module_dir_dot, "u.admin.myflow");
+
+        // Non-keyword ids are unaffected.
+        let cg2 = compute_py_codegen(code, "u/admin/myflow/step");
+        assert_eq!(cg2.module_name, "step");
     }
 
     #[test]

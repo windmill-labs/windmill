@@ -557,6 +557,13 @@ pub struct OnBehalfOf {
 
 pub const ENTRYPOINT_OVERRIDE: &str = "_ENTRYPOINT_OVERRIDE";
 
+/// Reserved job-arg key holding the inbound W3C `traceparent` captured from the
+/// request that enqueued the job (run endpoints). It rides the `args` jsonb like
+/// [`ENTRYPOINT_OVERRIDE`]; normal scripts never see it because args are bound by
+/// declared parameter name. Read back at root-job completion to link the job's
+/// OTLP span to the originating distributed trace (EE/OTel only).
+pub const WM_TRACEPARENT: &str = "_wm_traceparent";
+
 /// The entrypoint override (`_ENTRYPOINT_OVERRIDE` job arg ->
 /// `v2_job.script_entrypoint_override`) is interpolated verbatim into
 /// generated worker wrappers in a code position (e.g. the NativeTS

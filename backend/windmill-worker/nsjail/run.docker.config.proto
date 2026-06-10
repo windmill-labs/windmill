@@ -1,0 +1,103 @@
+name: "docker v2 run"
+
+mode: ONCE
+hostname: "container"
+log_level: ERROR
+time_limit: {TIMEOUT}
+
+disable_rl: true
+
+cwd: {WORKDIR}
+
+clone_newnet: false
+clone_newuser: {CLONE_NEWUSER}
+
+skip_setsid: true
+keep_caps: false
+# keep_env forwards nsjail's OWN process env (only windmill-trusted keys: reserved
+# vars + proxy) to the child. The image's attacker-controlled Env is delivered via
+# the envar directives below — NEVER nsjail's process env, so a hostile image cannot
+# set LD_PRELOAD/LD_LIBRARY_PATH/LD_AUDIT on the nsjail binary itself.
+keep_env: true
+mount_proc: true
+
+# Image Env (+ PATH/HOME fallbacks), proto-escaped. Applied to the child only.
+{ENVARS}
+
+# Map uid/gid 0 inside the jail to the (single) worker user outside. The image's
+# rootfs is extracted as the worker user, so a root process inside the container
+# owns the rootfs and runs like a normal "root in container" — without any subuid
+# range. Multi-uid images are a later enhancement (newuidmap range).
+uidmap {
+    inside_id: "0"
+    outside_id: ""
+    count: 1
+}
+gidmap {
+    inside_id: "0"
+    outside_id: ""
+    count: 1
+}
+
+# The image's root filesystem, bound one top-level entry at a time. Binding the
+# whole rootfs at "/" trips nsjail's read-only remount of its base root in a
+# rootless userns ("mount(... MS_REMOUNT|MS_BIND|MS_RDONLY): Operation not
+# permitted"); per-entry binds sit as rw submounts under nsjail's own tmpfs root
+# and avoid it. Generated from the extracted rootfs.
+{ROOTFS_MOUNTS}
+
+# Pseudo-filesystems the image expects. /tmp honors the same instance settings as
+# every other nsjail job (nsjail_tmp_backing tmpfs/disk, nsjail_tmpfs_size_mb);
+# /dev gets the standard nodes; /proc comes from mount_proc (the jail's own pid ns).
+{TMP_MOUNT_BLOCK}
+
+mount {
+    src: "/dev/null"
+    dst: "/dev/null"
+    is_bind: true
+    rw: true
+}
+
+mount {
+    src: "/dev/zero"
+    dst: "/dev/zero"
+    is_bind: true
+    rw: true
+}
+
+mount {
+    src: "/dev/random"
+    dst: "/dev/random"
+    is_bind: true
+}
+
+mount {
+    src: "/dev/urandom"
+    dst: "/dev/urandom"
+    is_bind: true
+}
+
+# Host DNS config layered over the image's /etc so name resolution works on the
+# job's network (mandatory:false: some minimal images have no /etc files to shadow).
+mount {
+    src: "/etc/resolv.conf"
+    dst: "/etc/resolv.conf"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/etc/hosts"
+    dst: "/etc/hosts"
+    is_bind: true
+    mandatory: false
+}
+
+# `# volume` mounts (and the same-worker /tmp/shared folder). Placed after the
+# rootfs binds and the tmpfs /tmp so a volume target overrides any colliding image
+# path and isn't shadowed by the tmpfs. Empty when there are no volumes.
+{SHARED_MOUNT}
+
+iface_no_lo: true
+
+#{DEV}

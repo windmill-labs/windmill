@@ -149,9 +149,17 @@ export default class ContextManager {
 
 			let newSelectedContext: ContextElement[] = [...currentlySelectedContext]
 
-			// Filter selected context to only include available items
+			// Filter selected context to only include available items. Workspace
+			// references (workspace_script / workspace_flow) are user-picked via
+			// the @-mention picker and intentionally aren't in availableContext —
+			// preserve them unconditionally so the badge survives editor refreshes.
 			newSelectedContext = newSelectedContext
-				.filter((c) => newAvailableContext.some((ac) => ac.type === c.type && ac.title === c.title))
+				.filter(
+					(c) =>
+						c.type === 'workspace_script' ||
+						c.type === 'workspace_flow' ||
+						newAvailableContext.some((ac) => ac.type === c.type && ac.title === c.title)
+				)
 				.map((c) =>
 					c.type === 'db' && dbSchemas[c.title]
 						? {
@@ -232,16 +240,22 @@ export default class ContextManager {
 				]
 			}
 
-			let newSelectedContext: ContextElement[] = [...currentlySelectedContext]
-
-			newSelectedContext = [
+			// Seed with the (refreshed) code block + everything else previously
+			// selected. The filter further down validates each entry against
+			// newAvailableContext (and the per-type allowlist for code_piece /
+			// workspace_*); types that are auto-derived (diff/error/db) survive
+			// when they're still in availableContext, user-picked workspace refs
+			// survive unconditionally, and `code` is excluded from the carryover
+			// because we just rebuilt it.
+			let newSelectedContext: ContextElement[] = [
 				{
 					type: 'code',
 					title: this.getContextCodePath(scriptOptions) ?? '',
 					content: scriptOptions.code,
 					lang: scriptOptions.lang,
 					deletable: false
-				}
+				},
+				...currentlySelectedContext.filter((c) => c.type !== 'code')
 			]
 
 			const db = this.getSelectedDBSchema(scriptOptions, dbSchemas)
@@ -265,22 +279,33 @@ export default class ContextManager {
 					(c) =>
 						(c.type === 'code_piece' && scriptOptions.code.includes(c.content)) ||
 						c.type === 'code' ||
+						// Workspace references are user-picked via @-mention and not in
+						// availableContext; preserve so badges survive editor refreshes.
+						c.type === 'workspace_script' ||
+						c.type === 'workspace_flow' ||
 						newAvailableContext.some((ac) => ac.type === c.type && ac.title === c.title)
 				)
-				.map((c) =>
-					c.type === 'code'
-						? {
-								...c,
-								content: scriptOptions.code,
-								title: this.getContextCodePath(scriptOptions)
-							}
-						: c.type === 'db' && dbSchemas[c.title]
-							? {
-									...c,
-									schema: dbSchemas[c.title]
-								}
-							: c
-				)
+				.map((c) => {
+					if (c.type === 'code') {
+						return {
+							...c,
+							content: scriptOptions.code,
+							title: this.getContextCodePath(scriptOptions)
+						}
+					}
+					if (c.type === 'db' && dbSchemas[c.title]) {
+						return { ...c, schema: dbSchemas[c.title] }
+					}
+					// For other auto-derived types (diff, error), rehydrate from the
+					// freshly-built newAvailableContext so the carryover doesn't keep
+					// stale `content` / `diff` payloads — preserve the user-set
+					// `deletable` flag on top of the fresh entry.
+					const fresh = newAvailableContext.find((ac) => ac.type === c.type && ac.title === c.title)
+					if (fresh && 'deletable' in c) {
+						return { ...fresh, deletable: c.deletable } as ContextElement
+					}
+					return fresh ?? c
+				})
 
 			this.availableContext = newAvailableContext
 			this.selectedContext = newSelectedContext

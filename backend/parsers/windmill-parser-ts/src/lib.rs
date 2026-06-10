@@ -197,10 +197,8 @@ pub fn parse_relative_imports(code: &str, path: &str) -> anyhow::Result<Vec<Stri
             // Remove .ts extension if present
             let imp = imp.strip_suffix(".ts").unwrap_or(&imp);
 
-            if imp.starts_with("/") || imp.starts_with("$f/") || imp.starts_with("$u/") {
-                // Absolute path (e.g., /f/folder/script) or its local-friendly alias
-                // (e.g., $f/folder/script) - strip the leading `/` or `$` to get the
-                // workspace-rooted path.
+            if imp.starts_with("/") {
+                // Absolute path (e.g., /f/folder/script) - remove leading slash
                 imp[1..].to_string()
             } else {
                 // Relative path (e.g., ./script or ../folder/script)
@@ -215,14 +213,9 @@ pub fn parse_relative_imports(code: &str, path: &str) -> anyhow::Result<Vec<Stri
     Ok(resolved)
 }
 
-/// Check if an import path is a relative import (starts with `./`, `../`, `/`, or the
-/// local-friendly workspace aliases `$f/`/`$u/`)
+/// Check if an import path is a relative import (starts with `./`, `../`, or `/`)
 fn is_relative_import(import_path: &str) -> bool {
-    import_path.starts_with("./")
-        || import_path.starts_with("../")
-        || import_path.starts_with("/")
-        || import_path.starts_with("$f/")
-        || import_path.starts_with("$u/")
+    import_path.starts_with("./") || import_path.starts_with("../") || import_path.starts_with("/")
 }
 
 /// Normalize a path by resolving `.` and `..` components

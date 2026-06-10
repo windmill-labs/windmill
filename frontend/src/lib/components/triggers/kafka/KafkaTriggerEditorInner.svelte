@@ -616,7 +616,12 @@
 						</Label>
 					{/if}
 
-					<TriggerFilters bind:filters bind:filterLogic disabled={!can_write} />
+					<TriggerFilters
+						bind:filters
+						bind:filterLogic
+						disabled={!can_write}
+						payloadBase64Encoded
+					/>
 
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>

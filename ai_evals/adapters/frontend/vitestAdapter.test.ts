@@ -37,11 +37,13 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkCompletedJobResultMaybe,
 		getBenchmarkDatatableSchema,
 		getBenchmarkFlowByPath,
+		getBenchmarkJobLogs,
 		getBenchmarkScriptByHash,
 		getBenchmarkScriptByPath,
 		hasBenchmarkWorkspace,
 		listBenchmarkDatatables,
 		listBenchmarkFlows,
+		listBenchmarkJobs,
 		listBenchmarkScripts,
 		createBenchmarkHttpTrigger,
 		createBenchmarkSchedule,
@@ -199,7 +201,15 @@ vi.mock('$lib/gen', async () => {
 			getCompletedJobResultMaybe: async (data: { workspace: string; id: string }) =>
 				hasBenchmarkWorkspace(data.workspace)
 					? getBenchmarkCompletedJobResultMaybe({ workspace: data.workspace, id: data.id })
-					: actual.JobService.getCompletedJobResultMaybe(data)
+					: actual.JobService.getCompletedJobResultMaybe(data),
+			listJobs: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? (listBenchmarkJobs(data.workspace) ?? [])
+					: actual.JobService.listJobs(data),
+			getJobLogs: async (data: { workspace: string; id: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkJobLogs(data.workspace, data.id)
+					: actual.JobService.getJobLogs(data)
 		}),
 		WorkspaceService: wrapService(actual.WorkspaceService, {
 			listDataTableTables: async (data: { workspace: string }) =>
