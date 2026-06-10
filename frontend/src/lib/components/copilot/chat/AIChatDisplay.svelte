@@ -27,6 +27,7 @@
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
+	import AIChatSettingsMenu from './AIChatSettingsMenu.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
@@ -642,6 +643,7 @@
 							<DatatableCreationPolicy />
 						{/if}
 						<ProviderModelSelector />
+						<AIChatSettingsMenu />
 
 						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
 							{#if appContext.inspectorElement}

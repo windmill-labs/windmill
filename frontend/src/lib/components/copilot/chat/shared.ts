@@ -16,6 +16,7 @@ export const SPECIAL_MODULE_IDS = {
 	FAILURE: 'failure'
 } as const
 import { get } from 'svelte/store'
+import type { PasteAttachment } from './pasteTokens'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -456,6 +457,9 @@ export type UserDisplayMessage = BaseDisplayMessage & {
 	role: 'user'
 	index: number // Used to match index with actual chat messages
 	error?: boolean
+	// Collapsed big-paste blobs referenced by tokens in `content`. Lets the
+	// bubble render/expand chips; the LLM message stores the expanded text.
+	pastes?: PasteAttachment[]
 }
 
 export type CreatedResourceTriggerKind =

@@ -37,6 +37,7 @@
 	let disableDirectDeployment = $state(hasRule('DisableDirectDeployment'))
 	let disableFork = $state(hasRule('DisableWorkspaceForking'))
 	let restrictDeployToDeployers = $state(hasRule('RestrictDeployToDeployers'))
+	let restrictAnonymousAppDeployment = $state(hasRule('RestrictAnonymousAppDeployment'))
 	let selectedGroups = $state<string[]>(
 		untrack(() => rule)?.bypass_groups?.map((g) => g.replace('g/', '')) ?? []
 	)
@@ -49,6 +50,7 @@
 	let initialDisableDirectDeployment = $state(hasRule('DisableDirectDeployment'))
 	let initialDisableFork = $state(hasRule('DisableWorkspaceForking'))
 	let initialRestrictDeployToDeployers = $state(hasRule('RestrictDeployToDeployers'))
+	let initialRestrictAnonymousAppDeployment = $state(hasRule('RestrictAnonymousAppDeployment'))
 	let initialSelectedGroups = $state<string[]>(
 		untrack(() => rule)?.bypass_groups
 			? untrack(() => rule)!.bypass_groups.map((g) => g.replace('g/', ''))
@@ -115,12 +117,14 @@
 					disableDirectDeployment ||
 					disableFork ||
 					restrictDeployToDeployers ||
+					restrictAnonymousAppDeployment ||
 					selectedGroups.length > 0 ||
 					selectedUsers.length > 0
 			: name !== initialName ||
 					disableDirectDeployment !== initialDisableDirectDeployment ||
 					disableFork !== initialDisableFork ||
 					restrictDeployToDeployers !== initialRestrictDeployToDeployers ||
+					restrictAnonymousAppDeployment !== initialRestrictAnonymousAppDeployment ||
 					JSON.stringify([...selectedGroups].sort()) !==
 						JSON.stringify([...initialSelectedGroups].sort()) ||
 					JSON.stringify([...selectedUsers].sort()) !==
@@ -160,6 +164,9 @@
 						...(disableFork ? ['DisableWorkspaceForking' as ProtectionRuleKind] : []),
 						...(restrictDeployToDeployers
 							? ['RestrictDeployToDeployers' as ProtectionRuleKind]
+							: []),
+						...(restrictAnonymousAppDeployment
+							? ['RestrictAnonymousAppDeployment' as ProtectionRuleKind]
 							: [])
 					],
 					bypass_groups: selectedGroups,
@@ -188,6 +195,9 @@
 						...(disableFork ? ['DisableWorkspaceForking' as ProtectionRuleKind] : []),
 						...(restrictDeployToDeployers
 							? ['RestrictDeployToDeployers' as ProtectionRuleKind]
+							: []),
+						...(restrictAnonymousAppDeployment
+							? ['RestrictAnonymousAppDeployment' as ProtectionRuleKind]
 							: [])
 					],
 					bypass_groups: selectedGroups,
@@ -202,6 +212,7 @@
 			initialDisableDirectDeployment = disableDirectDeployment
 			initialDisableFork = disableFork
 			initialRestrictDeployToDeployers = restrictDeployToDeployers
+			initialRestrictAnonymousAppDeployment = restrictAnonymousAppDeployment
 			initialSelectedGroups = clone(selectedGroups)
 			initialSelectedUsers = clone(selectedUsers)
 
@@ -333,6 +344,20 @@
 				<div class="text-xs text-secondary ml-6">
 					Only workspace admins and members of <code>wm_deployers</code> can deploy to this workspace.
 					Non-deployers can still fork, browse, and request a review.
+				</div>
+			</div>
+
+			<!-- Restrict anonymous app deployment -->
+			<div class="flex flex-col gap-2">
+				<Toggle
+					bind:checked={restrictAnonymousAppDeployment}
+					options={{
+						right: 'Restrict public app access'
+					}}
+				/>
+				<div class="text-xs text-secondary ml-6">
+					Only workspace admins and bypass users can make an app publicly accessible without login
+					(anonymous execution mode). Apps that are already public can still be redeployed.
 				</div>
 			</div>
 		</div>
