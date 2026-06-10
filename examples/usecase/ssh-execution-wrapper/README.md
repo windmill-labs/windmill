@@ -57,6 +57,26 @@ arguments come from the run form, the result is collected the same way
 (`result.json` > `result.out` > last stdout line), logs stream live, and a
 non-zero remote exit fails the job. Only the *execution location* changes.
 
+**Dynamic target (`#ssh $<arg_name>`):** instead of hardcoding a path, the
+directive can name a job argument that supplies the target at call time — for
+picking the host from the run form, or fanning out over hosts in a flow forloop:
+
+```bash
+#ssh $jump_host
+
+target="$1"           # jump_host's position: always received as an empty string
+df -h
+```
+
+The argument can be an `ssh_target` resource (resource-typed args arrive fully
+resolved) or a resource path string (with or without the `$res:` prefix). Two
+things to note: the target argument itself is forwarded to the remote script as
+an **empty string** (its resolved value embeds the private key, which must never
+reach the remote command line — its position is kept so the other `$1..$n` stay
+aligned), and with a dynamic target the *runner* chooses where the code executes
+(bounded by workspace resource permissions), whereas a hardcoded path lets the
+script author pin it.
+
 **Host-key pinning** is enforced (`StrictHostKeyChecking=yes`) whenever the
 resource's `host_pubkey` is set. An empty `host_pubkey` refuses to run unless the
 resource explicitly sets `accept_unknown_host: true`, which falls back to weaker

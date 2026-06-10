@@ -893,6 +893,8 @@ impl BashAnnotations {
     /// ssh annotation), returns that path. This reroutes execution to a remote
     /// host over SSH (enterprise feature): the script runs on the host described
     /// by the `ssh_target` resource at `<resource_path>` instead of on the worker.
+    /// The `#ssh $<arg_name>` form returns the `$`-prefixed token verbatim; the
+    /// executor resolves it from the job argument of that name at run time.
     ///
     /// Mirrors `sandbox_image`: only leading comment lines are scanned, stopping
     /// at the first non-comment line. A bare `#ssh` with no path returns `None`.
@@ -2320,6 +2322,11 @@ mod tests {
         assert_eq!(
             BashAnnotations::ssh_target("# ssh u/me/box\n"),
             Some("u/me/box".to_string())
+        );
+        // `#ssh $arg` (dynamic target from a job argument) is returned verbatim.
+        assert_eq!(
+            BashAnnotations::ssh_target("#ssh $jump_host\necho hi"),
+            Some("$jump_host".to_string())
         );
         // A bare `#ssh` with no path -> None.
         assert_eq!(BashAnnotations::ssh_target("#ssh\necho hi"), None);
