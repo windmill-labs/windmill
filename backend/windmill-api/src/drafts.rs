@@ -316,6 +316,16 @@ async fn get_draft_for_user(
     axum::extract::Query(query): axum::extract::Query<GetDraftQuery>,
 ) -> Result<Json<DraftForUser>> {
     let path = path.to_path();
+    // Cross-user draft viewing (View JSON / Fork) is disabled for the
+    // drawer kinds (resource/variable/triggers): their drafts stay private
+    // to their owner. For secret variables this is also what prevents a
+    // viewer from reading another user's `$encrypted:` ciphertext and
+    // laundering it into plaintext via deploy.
+    if !kind.shares_drafts_across_users() {
+        return Err(Error::NotFound(
+            "drafts for this item kind are private to their owner".to_string(),
+        ));
+    }
     require_can_read_path(&authed, &user_db, &w_id, kind, path).await?;
 
     // Username -> email lookup, scoped to the workspace. None signals

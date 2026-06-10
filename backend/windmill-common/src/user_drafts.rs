@@ -161,6 +161,23 @@ impl UserDraftItemKind {
             | TriggerGithub => None,
         }
     }
+
+    /// Whether OTHER users' drafts at a path are visible to a viewer — the
+    /// "others are editing" list, the draft-owner circles, and the
+    /// `get_draft_for_user` (View JSON / Fork) endpoint.
+    ///
+    /// Enabled only for the full-page editor items (script / flow / app),
+    /// which have the cross-user draft UI. Disabled for the drawer items
+    /// (resource / variable / triggers): they have no such UI, and for
+    /// secret variables, exposing another user's draft would hand out the
+    /// `$encrypted:` ciphertext — which the deploy endpoints decrypt with
+    /// the workspace key, so a viewer could launder it into plaintext.
+    /// Keeping cross-user drafts private to their owner for these kinds
+    /// closes that vector.
+    pub fn shares_drafts_across_users(&self) -> bool {
+        use UserDraftItemKind::*;
+        matches!(self, Script | Flow | App | RawApp)
+    }
 }
 
 /// Query-string flag accepted by every "get by path" route that supports
@@ -301,7 +318,14 @@ where
     // `other_drafts_users` is independent of the authed user's OWN draft —
     // drop-from-draft editor reloads (reset-to-deployed) still need to know
     // who else is editing this path, and they pass `get_draft = true`.
-    let other_drafts_users = fetch_other_drafts_users(db, w_id, email, kind, path).await?;
+    // Only the cross-user-visible kinds (script/flow/app) surface it; the
+    // drawer kinds (resource/variable/triggers) keep drafts private to
+    // their owner.
+    let other_drafts_users = if kind.shares_drafts_across_users() {
+        fetch_other_drafts_users(db, w_id, email, kind, path).await?
+    } else {
+        Vec::new()
+    };
 
     let row = sqlx::query!(
         r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
