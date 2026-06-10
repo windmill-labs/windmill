@@ -81,9 +81,6 @@
 				savedVisible = false
 			} else if (s === 'none' && prev === 'saving') {
 				// A save just landed: flash "Saved" for SAVED_LABEL_MS.
-				// `discarding → none` deliberately falls through — wiping
-				// a draft isn't a save and "Saved" would read as "your
-				// draft just landed", the opposite of what happened.
 				savedVisible = true
 				if (timer) clearTimeout(timer)
 				timer = setTimeout(() => {
@@ -92,15 +89,6 @@
 				}, SAVED_LABEL_MS)
 			} else if (s === 'failed') {
 				// Failure replaces any in-flight "Saved" promise.
-				if (timer) {
-					clearTimeout(timer)
-					timer = undefined
-				}
-				savedVisible = false
-			} else if (s === 'discarding') {
-				// Reset-to-deployed in flight — squash any stale "Saved"
-				// flash so the UI doesn't briefly claim success while we
-				// wipe the draft.
 				if (timer) {
 					clearTimeout(timer)
 					timer = undefined

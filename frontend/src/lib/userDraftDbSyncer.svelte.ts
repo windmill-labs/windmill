@@ -1,4 +1,4 @@
-import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+import { SvelteMap } from 'svelte/reactivity'
 import { DraftService, type UserDraftItemKind } from './gen'
 import { OpenAPI } from './gen/core/OpenAPI'
 import { createCoalescingKeyedRunner } from './coalescingRunner.svelte'
@@ -96,20 +96,19 @@ export type UserDraftLastSyncQuery = {
 /**
  * Autosave lifecycle for a single draft, derived from the two-stage
  * pipeline:
- *   - `saving`:     a regular save POST is in flight (coalescing runner busy).
- *   - `discarding`: a delete POST (value: null) is in flight — semantically a
- *                   "reset to deployed", not a save. The indicator suppresses
- *                   its spinner / "Saving..." / "Saved" UI for this state so
- *                   the user isn't misled into thinking a draft is landing.
- *   - `pending`:    a change is queued in the debouncer but not yet fired.
- *   - `failed`:     the last POST threw (network / 5xx / etc.) and no later
- *                   attempt has succeeded. Conflicts use the conflict modal
- *                   path and don't surface here.
- *   - `none`:       none of the above — the draft is in sync (or nothing
- *                   happened).
- * Priority on render: `saving` > `discarding` > `pending` > `failed` > `none`.
+ *   - `saving`:  a POST is currently in flight (coalescing runner busy).
+ *   - `pending`: a change is queued in the debouncer but not yet fired.
+ *   - `failed`:  the last POST threw (network / 5xx / etc.) and no later
+ *                attempt has succeeded. Conflicts use the conflict modal
+ *                path and don't surface here.
+ *   - `none`:    none of the above — the draft is in sync (or nothing
+ *                happened).
+ * Priority on render: `saving` > `pending` > `failed` > `none`. An active
+ * save attempt outranks the prior failure so the indicator shows the
+ * retry as in-flight; once it settles, either success clears `failed` or
+ * a fresh throw sets it again.
  */
-export type UserDraftSyncState = 'none' | 'pending' | 'saving' | 'discarding' | 'failed'
+export type UserDraftSyncState = 'none' | 'pending' | 'saving' | 'failed'
 
 export type UserDraftStateHandle = {
 	/** Reactive — read it inside a `$derived`/`$effect` and it re-runs as
@@ -180,16 +179,6 @@ const conflicts = new SvelteMap<string, DraftConflictInfo>()
 const failures = new SvelteMap<string, string>()
 
 /**
- * Reactive set of draft keys whose currently in-flight POST is a discard
- * (a `value: null` "reset to deployed" delete) rather than a regular
- * save. Populated by `postSave` for the lifetime of the request so
- * `getState` can return `'discarding'` instead of `'saving'`, and the
- * indicator can stay quiet — Saving... → Saved would otherwise read as
- * "your draft was just saved" while the user was actually wiping it.
- */
-const discarding = new SvelteSet<string>()
-
-/**
  * Best-effort error → readable string. The generated client wraps HTTP
  * failures as `ApiError` with `body` / `statusText`; raw fetch errors
  * surface a plain `Error`. Falls back to `String(e)` so we never end up
@@ -212,8 +201,6 @@ function formatSaveError(e: unknown): string {
 
 async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 	const key = draftKey(opts.workspace, opts.itemKind, opts.path)
-	const isDiscard = opts.value === null
-	if (isDiscard) discarding.add(key)
 	const lastSync = getLastSyncEntry(key)?.lastSync
 	try {
 		const resp = await DraftService.saveDraft({
@@ -266,8 +253,6 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		// means we don't pretend the user's pending edit landed when
 		// it didn't.
 		failures.set(key, formatSaveError(e))
-	} finally {
-		if (isDiscard) discarding.delete(key)
 	}
 }
 
@@ -370,9 +355,7 @@ export const UserDraftDbSyncer = {
 		const key = draftKey(query.workspace, query.itemKind, query.path)
 		return {
 			get state(): UserDraftSyncState {
-				if (runner.isRunning(key)) {
-					return discarding.has(key) ? 'discarding' : 'saving'
-				}
+				if (runner.isRunning(key)) return 'saving'
 				if (debouncer.isPending(key)) return 'pending'
 				if (failures.has(key)) return 'failed'
 				return 'none'
