@@ -35,7 +35,7 @@
 
 	let filterHelp = $derived(
 		'The JSON filter checks if the value at the key is equal or a superset of the filter value. ' +
-			"Filters match against the message parsed as JSON, so filter keys reference the message's own structure (e.g. type, data.status)." +
+			'Keys match top-level fields of the message (parsed as JSON); to match a nested field, set an object value (e.g. key data, value {"status": "active"}).' +
 			(payloadBase64Encoded
 				? ' The runnable still receives the payload base64-encoded; filters run on the message before that encoding.'
 				: '')
