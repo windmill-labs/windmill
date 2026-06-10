@@ -510,6 +510,8 @@ export type ToolDisplayMessage = {
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
 	role: 'assistant'
+	/** Summarized reasoning/thinking text streamed before the answer (Anthropic + compat providers). */
+	reasoning?: string
 }
 
 export type DisplayMessage = UserDisplayMessage | ToolDisplayMessage | AssistantDisplayMessage
@@ -715,6 +717,8 @@ export interface Tool<T> {
 export interface ToolCallbacks {
 	setToolStatus: (id: string, metadata?: Partial<ToolDisplayMessage>) => void
 	removeToolStatus: (id: string) => void
+	/** Streamed reasoning/thinking deltas, rendered as a collapsible block in the chat. */
+	onReasoningDelta?: (token: string) => void
 	requestConfirmation?: (toolId: string) => Promise<boolean>
 	shouldAutoAcceptToolConfirmations?: () => boolean
 	requestUserQuestion?: (

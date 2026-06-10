@@ -136,12 +136,13 @@
 	availableContext={aiChatManager.mode === AIMode.APP
 		? aiChatManager.getAppAvailableContext()
 		: aiChatManager.contextManager.getAvailableContext()}
-	messages={aiChatManager.currentReply
+	messages={aiChatManager.currentReply || aiChatManager.currentReasoning
 		? [
 				...aiChatManager.displayMessages,
 				{
 					role: 'assistant',
 					content: aiChatManager.currentReply,
+					...(aiChatManager.currentReasoning ? { reasoning: aiChatManager.currentReasoning } : {}),
 					contextElements: aiChatManager.contextManager
 						.getSelectedContext()
 						.filter((c) => c.type === 'code')

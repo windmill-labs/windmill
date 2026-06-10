@@ -11,6 +11,7 @@ import {
 	getProviderAndCompletionConfig,
 	workspaceAIClients
 } from '../lib'
+import { applyReasoningToConfig } from '../reasoningRegistry'
 import { processToolCall, type Tool, type ToolCallbacks } from './shared'
 import type { ResponseStream } from 'openai/lib/responses/ResponseStream.mjs'
 import type { AIProviderModel } from '$lib/gen'
@@ -135,6 +136,7 @@ export async function getOpenAIResponsesCompletion(
 	options?: {
 		forceModelProvider?: AIProviderModel
 		openaiClient?: OpenAI
+		reasoningEffort?: string
 	}
 ) {
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -144,7 +146,11 @@ export async function getOpenAIResponsesCompletion(
 		forceModelProvider: options?.forceModelProvider
 	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
-	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
+	const responsesConfig = applyReasoningToConfig(
+		convertCompletionConfigToResponsesConfig(config),
+		'responses',
+		options?.reasoningEffort
+	)
 
 	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
 
@@ -173,6 +179,7 @@ export async function* getOpenAIResponsesCompletionStream(
 	options?: {
 		forceModelProvider?: AIProviderModel
 		openaiClient?: OpenAI
+		reasoningEffort?: string
 	}
 ): AsyncGenerator<OpenAI.Chat.Completions.ChatCompletionChunk> {
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -182,7 +189,11 @@ export async function* getOpenAIResponsesCompletionStream(
 		forceModelProvider: options?.forceModelProvider
 	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
-	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
+	const responsesConfig = applyReasoningToConfig(
+		convertCompletionConfigToResponsesConfig(config),
+		'responses',
+		options?.reasoningEffort
+	)
 
 	const openaiClient = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
 
@@ -250,6 +261,11 @@ export async function parseOpenAIResponsesCompletion(
 	runner.on('response.output_text.delta', (event) => {
 		callbacks.onNewToken(event.delta)
 		textContent += event.delta
+	})
+
+	// Stream reasoning summaries (GPT/o-series) into the collapsible Thinking block.
+	runner.on('response.reasoning_summary_text.delta', (event) => {
+		callbacks.onReasoningDelta?.(event.delta)
 	})
 
 	// Handle new output items (including function calls)
