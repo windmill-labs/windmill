@@ -105,14 +105,41 @@
 		}
 	})
 
+	// One-shot light-green → transparent backdrop behind the whole
+	// indicator. Shared by the on-mount load hints below and the
+	// Ctrl/Cmd+S confirmation — re-triggering replays the CSS animation
+	// (the keyed span remounts). `flashActive` keeps the span mounted
+	// just long enough for the animation to finish, then unmounts it so
+	// the DOM stays clean.
+	const FLASH_MS = 2000
+	let flashKey = $state(0)
+	let flashActive = $state(false)
+	let flashTimer: ReturnType<typeof setTimeout> | undefined
+
+	function triggerFlash() {
+		flashKey++
+		flashActive = true
+		if (flashTimer) clearTimeout(flashTimer)
+		flashTimer = setTimeout(() => {
+			flashActive = false
+			flashTimer = undefined
+		}, FLASH_MS)
+	}
+
+	$effect(() => {
+		return () => {
+			if (flashTimer) clearTimeout(flashTimer)
+		}
+	})
+
 	// Explicit Ctrl/Cmd+S confirmation. `flushCount` bumps on every
 	// `UserDraftDbSyncer.flush()` completion — including the no-op path
 	// where the autosave had already landed everything. When the pipeline
-	// is idle and not failed at that moment, flash "Saved" so the
-	// shortcut always gives visible feedback (a real flush also flashes
-	// via the saving → none transition above; setting `savedVisible`
-	// twice is harmless). Seed from the handle's current count so a
-	// remount doesn't replay an old flush.
+	// is idle and not failed at that moment, flash "Saved" + the green
+	// backdrop so the shortcut always gives visible feedback (a real
+	// flush also flashes the label via the saving → none transition
+	// above; setting `savedVisible` twice is harmless). Seed from the
+	// handle's current count so a remount doesn't replay an old flush.
 	let prevFlushCount: number | undefined = undefined
 	$effect(() => {
 		const count = handle.flushCount
@@ -124,6 +151,7 @@
 			if (!bumped) return
 			if (s === 'saving' || s === 'pending' || s === 'failed') return
 			savedVisible = true
+			triggerFlash()
 			if (timer) clearTimeout(timer)
 			timer = setTimeout(() => {
 				savedVisible = false
@@ -133,12 +161,11 @@
 	})
 
 	// On-mount load hint — "Others are working..." or "Loaded from draft".
-	// Stays for HINT_LABEL_MS, and the wrapper gets a one-shot green-flash
-	// CSS animation that fades to transparent. Snapshot the props at mount
-	// so we don't re-fire the hint as the route re-renders the indicator.
+	// Stays for HINT_LABEL_MS, paired with the shared green flash above.
+	// Snapshot the props at mount so we don't re-fire the hint as the
+	// route re-renders the indicator.
 	const HINT_LABEL_MS = 7000
 	let hintLabel = $state('')
-	let hintFlashKey = $state(0)
 	let hintTimer: ReturnType<typeof setTimeout> | undefined
 
 	const kindLabel = $derived(
@@ -161,7 +188,7 @@
 			const loadedTransition = loadedNow && !prevLoaded
 			if (othersTransition || loadedTransition) {
 				hintLabel = othersNow ? `Others are working on this ${kindLabel}` : 'Loaded from draft'
-				hintFlashKey++
+				triggerFlash()
 				if (hintTimer) clearTimeout(hintTimer)
 				hintTimer = setTimeout(() => {
 					hintLabel = ''
@@ -220,11 +247,12 @@
 	class="autosave-indicator-wrap relative flex items-center gap-1.5 text-primary min-w-[5.2rem] rounded-md"
 	aria-label="Autosave status"
 >
-	{#if hintLabel}
-		<!-- One-shot green flash behind the indicator when a load hint appears.
-		     Keyed on `hintFlashKey` so re-triggering the hint replays the
-		     animation (Svelte tears the keyed block down and remounts). -->
-		{#key hintFlashKey}
+	{#if flashActive}
+		<!-- One-shot green flash behind the indicator — load hints and
+		     Ctrl/Cmd+S confirmations both route through `triggerFlash`.
+		     Keyed on `flashKey` so re-triggering replays the animation
+		     (Svelte tears the keyed block down and remounts). -->
+		{#key flashKey}
 			<span
 				class="autosave-hint-flash absolute inset-0 rounded-md pointer-events-none"
 				aria-hidden="true"
