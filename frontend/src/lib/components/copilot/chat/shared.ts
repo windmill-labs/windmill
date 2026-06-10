@@ -512,6 +512,8 @@ export type AssistantDisplayMessage = BaseDisplayMessage & {
 	role: 'assistant'
 	/** Summarized reasoning/thinking text streamed before the answer (Anthropic + compat providers). */
 	reasoning?: string
+	/** True while the model is reasoning but returns no summary text (e.g. OpenAI) — shows a live indicator. */
+	reasoningActive?: boolean
 }
 
 export type DisplayMessage = UserDisplayMessage | ToolDisplayMessage | AssistantDisplayMessage
@@ -719,6 +721,9 @@ export interface ToolCallbacks {
 	removeToolStatus: (id: string) => void
 	/** Streamed reasoning/thinking deltas, rendered as a collapsible block in the chat. */
 	onReasoningDelta?: (token: string) => void
+	/** Fired when the model starts reasoning — drives a "Thinking" indicator even when
+	 * no summary text is returned (e.g. OpenAI reasoning models). */
+	onReasoningStart?: () => void
 	requestConfirmation?: (toolId: string) => Promise<boolean>
 	shouldAutoAcceptToolConfirmations?: () => boolean
 	requestUserQuestion?: (

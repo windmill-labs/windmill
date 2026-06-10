@@ -4,7 +4,6 @@ import {
 	getReasoningCapability,
 	REASONING_OFF,
 	resolveEffectiveReasoning,
-	setDynamicReasoningCapability,
 	stripLegacyThinkingSuffix,
 	supportsReasoning
 } from './reasoningRegistry'
@@ -55,19 +54,6 @@ describe('supportsReasoning (static registry)', () => {
 		expect(getReasoningCapability('mistral', 'codestral-latest')).toEqual({
 			supported: false,
 			levels: []
-		})
-	})
-})
-
-describe('dynamic capability overlay', () => {
-	it('overrides the static registry for a specific model', () => {
-		setDynamicReasoningCapability('openrouter', 'some/custom-model', {
-			supported: true,
-			levels: ['low', 'high']
-		})
-		expect(getReasoningCapability('openrouter', 'some/custom-model')).toEqual({
-			supported: true,
-			levels: ['low', 'high']
 		})
 	})
 })

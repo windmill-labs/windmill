@@ -263,15 +263,14 @@ export async function parseOpenAIResponsesCompletion(
 		textContent += event.delta
 	})
 
-	// Stream reasoning summaries (GPT/o-series) into the collapsible Thinking block.
-	runner.on('response.reasoning_summary_text.delta', (event) => {
-		callbacks.onReasoningDelta?.(event.delta)
-	})
-
 	// Handle new output items (including function calls)
 	runner.on('response.output_item.added', (event) => {
 		const item = event.item
-		if (item.type === 'function_call' && item.id) {
+		if (item.type === 'reasoning') {
+			// Reasoning models (GPT/o-series) emit a reasoning item but no chain-of-thought
+			// text; surface a live "Thinking" indicator so the user can see it reason.
+			callbacks.onReasoningStart?.()
+		} else if (item.type === 'function_call' && item.id) {
 			const tool = tools.find((t) => t.def.function.name === item.name)
 			const shouldStream = tool?.streamArguments ?? false
 

@@ -168,6 +168,7 @@ export class AIChatManager {
 	loading = $state<boolean>(false)
 	currentReply = $state<string>('')
 	currentReasoning = $state<string>('')
+	currentReasoningActive = $state<boolean>(false)
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
 	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
@@ -970,6 +971,7 @@ export class AIChatManager {
 
 			this.currentReply = ''
 			this.currentReasoning = ''
+			this.currentReasoningActive = false
 
 			let trimmedMessages = [...this.messages]
 			if (this.checkTokenUsageOverLimit(trimmedMessages)) {
@@ -989,6 +991,7 @@ export class AIChatManager {
 				callbacks: {
 					onNewToken: (token) => (this.currentReply += token),
 					onReasoningDelta: (token) => (this.currentReasoning += token),
+					onReasoningStart: () => (this.currentReasoningActive = true),
 					onMessageEnd: () => {
 						if (this.currentReply || this.currentReasoning) {
 							this.displayMessages = [
@@ -1006,6 +1009,7 @@ export class AIChatManager {
 						}
 						this.currentReply = ''
 						this.currentReasoning = ''
+						this.currentReasoningActive = false
 					},
 					setToolStatus: (id, metadata) => {
 						const existingIdx = this.displayMessages.findIndex(

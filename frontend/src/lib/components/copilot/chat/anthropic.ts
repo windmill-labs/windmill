@@ -123,7 +123,12 @@ export async function parseAnthropicCompletion(
 
 	// Stream summarized thinking deltas to the chat's collapsible reasoning block.
 	completion.on('streamEvent', (event: RawMessageStreamEvent) => {
-		if (event.type === 'content_block_delta') {
+		if (event.type === 'content_block_start') {
+			const block = event.content_block as any
+			if (block?.type === 'thinking' || block?.type === 'redacted_thinking') {
+				callbacks.onReasoningStart?.()
+			}
+		} else if (event.type === 'content_block_delta') {
 			const delta = event.delta as any
 			if (delta?.type === 'thinking_delta' && typeof delta.thinking === 'string') {
 				callbacks.onReasoningDelta?.(delta.thinking)

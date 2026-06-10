@@ -33,9 +33,8 @@
 	)
 	// Effective effort accounts for the default-on level on capable models.
 	let currentEffort = $derived(resolveEffectiveReasoning(providerModel))
-	let effortLabel = $derived(
-		currentEffort ? currentEffort.charAt(0).toUpperCase() + currentEffort.slice(1) : 'Off'
-	)
+	// Effort tokens are shown verbatim (lowercase), matching the provider-native values.
+	let effortLabel = $derived(currentEffort ?? REASONING_OFF)
 
 	function selectReasoning(value: string) {
 		const reasoning = value === REASONING_OFF ? REASONING_OFF : value
@@ -58,13 +57,16 @@
 				displayName: m.model,
 				selected: m.model === providerModel.model,
 				action: () => {
-					// Carry the current effort onto the newly selected model (sticky).
-					$copilotSessionModel = {
-						...m,
-						...(providerModel.reasoning ? { reasoning: providerModel.reasoning } : {})
-					}
+					// Carry the effort onto the new model only if it supports that level
+					// ('off' is always valid); otherwise drop it so the model's default applies.
+					const carried = providerModel.reasoning
+					const cap = getReasoningCapability(m.provider, m.model)
+					const keep =
+						carried === REASONING_OFF || (carried !== undefined && cap.levels.includes(carried))
+					$copilotSessionModel = { ...m, ...(keep ? { reasoning: carried } : {}) }
 					storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, m.model)
 					storeLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME, m.provider)
+					storeLocalSetting(COPILOT_SESSION_REASONING_SETTING_NAME, keep ? carried : undefined)
 				}
 			}))}
 		placement="bottom-end"
@@ -92,8 +94,7 @@
 	<DropdownV2
 		items={() =>
 			[REASONING_OFF, ...capability.levels].map((level) => ({
-				displayName:
-					level === REASONING_OFF ? 'Off' : level.charAt(0).toUpperCase() + level.slice(1),
+				displayName: level,
 				selected:
 					level === REASONING_OFF
 						? providerModel.reasoning === REASONING_OFF

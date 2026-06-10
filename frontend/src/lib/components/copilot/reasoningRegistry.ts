@@ -101,32 +101,8 @@ export type ReasoningCapability = {
 	levels: ReasoningEffort[]
 }
 
-/**
- * Dynamic capability overlay, populated from provider model APIs that expose
- * reasoning support (Anthropic capability tree, OpenRouter supported_parameters).
- * Keyed by `${provider}:${bareModelId}`. Overrides the static registry.
- */
-const dynamicCapabilities = new Map<string, ReasoningCapability>()
-
-function capabilityKey(provider: AIProvider, model: string): string {
-	return `${provider}:${baseModelId(stripLegacyThinkingSuffix(model))}`
-}
-
-/** Record reasoning capability learned dynamically from a provider's model API. */
-export function setDynamicReasoningCapability(
-	provider: AIProvider,
-	model: string,
-	capability: ReasoningCapability
-) {
-	dynamicCapabilities.set(capabilityKey(provider, model), capability)
-}
-
-/** Resolve the reasoning capability of a model: dynamic overlay first, then static registry. */
+/** Resolve the reasoning capability of a model from the static registry. */
 export function getReasoningCapability(provider: AIProvider, model: string): ReasoningCapability {
-	const dynamic = dynamicCapabilities.get(capabilityKey(provider, model))
-	if (dynamic) {
-		return dynamic
-	}
 	const bareModel = stripLegacyThinkingSuffix(model)
 	const supported = supportsReasoningStatic(provider, bareModel)
 	if (!supported) {
@@ -200,11 +176,9 @@ export function applyReasoningToConfig<T extends Record<string, any>>(
 			} as unknown as T
 		}
 		case 'responses':
-			// `summary: 'auto'` opts into reasoning summaries so GPT's thinking is
-			// renderable in the chat (raw chain-of-thought is never returned).
 			return {
 				...config,
-				reasoning: { ...((config as any).reasoning ?? {}), effort, summary: 'auto' }
+				reasoning: { ...((config as any).reasoning ?? {}), effort }
 			} as unknown as T
 		case 'completions':
 			return {
