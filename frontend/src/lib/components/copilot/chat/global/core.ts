@@ -554,6 +554,16 @@ const openPreviewSchema = z.object({
 
 const getPreviewStatusSchema = z.object({})
 
+const getRuntimeLogsSchema = z.object({
+	limit: z
+		.number()
+		.int()
+		.min(1)
+		.max(100)
+		.optional()
+		.describe('How many of the most recent runtime log lines to return. Defaults to 10.')
+})
+
 const FRAMEWORK_KEYS = [
 	'react19',
 	'react18',
@@ -606,7 +616,8 @@ Rules:
 - Keep context targeted.${
 	previewTools
 		? `
-- After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.`
+- After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
+- When debugging a running raw app (blank screen, broken UI, an error the user reports), call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app"); the logs come from the running app, not from a stored history.`
 		: ''
 }
 
@@ -1906,6 +1917,33 @@ export const globalTools: Tool<{}>[] = [
 		),
 		fn: async (ctx) => getSessionPreviewStatus(sessionIdFromCtx(ctx))
 	},
+	{
+		def: createToolDef(
+			getRuntimeLogsSchema,
+			'get_app_runtime_logs',
+			'Fetch the most recent browser console logs (and uncaught errors) from the raw app preview currently open in this AI session. Use it to debug a running app — e.g. when the user reports a blank screen, a broken interaction, or a runtime error. ONLY works inside a session with a raw app preview open; call open_preview(kind="raw_app") first if needed. Returns the last `limit` lines (default 10), oldest first. Logs are read live from the running preview, not persisted, so older lines may have scrolled out.'
+		),
+		showDetails: true,
+		showFade: true,
+		fn: async (ctx) => {
+			const parsed = getRuntimeLogsSchema.parse(ctx.args)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Reading app runtime logs…' })
+			const result = await getSessionRuntimeLogs(parsed.limit ?? 10, sessionIdFromCtx(ctx))
+			// First line is the summary (e.g. "Last 3 runtime log line(s)…"); show it
+			// as the collapsed header and the actual lines as the expandable result.
+			// Single-line outcomes (no preview / no logs) keep just the header and
+			// auto-collapse so there's no empty result box.
+			const nl = result.indexOf('\n')
+			const header = nl === -1 ? result : result.slice(0, nl)
+			const body = nl === -1 ? undefined : result.slice(nl + 1)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+				content: header,
+				result: body,
+				autoCollapseDetails: body === undefined
+			})
+			return result
+		}
+	},
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
 	...getDatatableTools()
 ]
@@ -1913,7 +1951,11 @@ export const globalTools: Tool<{}>[] = [
 // Tools that only make sense inside an AI session (they drive the session's
 // side-panel preview). The regular global side-panel chat shouldn't even be
 // offered them — see `globalToolsFor`.
-export const SESSION_PREVIEW_TOOL_NAMES = new Set(['open_preview', 'get_preview_status'])
+export const SESSION_PREVIEW_TOOL_NAMES = new Set([
+	'open_preview',
+	'get_preview_status',
+	'get_app_runtime_logs'
+])
 
 /**
  * The global tool set for a given chat: the full `globalTools` for a session
@@ -2005,6 +2047,28 @@ function getSessionPreviewStatus(sessionId: string | undefined): string {
 		return 'Error: get_preview_status is only available inside an AI session.'
 	}
 	return getPreviewStatusHandler(sessionId)
+}
+
+// Registered by the session runtime to answer get_app_runtime_logs: pulls the
+// last `limit` console log lines from the calling session's live raw-app
+// preview. Async because it round-trips a postMessage to the preview iframe.
+// Undefined outside a session.
+export type GetRuntimeLogsHandler = (req: {
+	sessionId: string | undefined
+	limit: number
+}) => Promise<string>
+
+let getRuntimeLogsHandler: GetRuntimeLogsHandler | undefined
+
+export function setGetRuntimeLogsHandler(handler: GetRuntimeLogsHandler | undefined): void {
+	getRuntimeLogsHandler = handler
+}
+
+function getSessionRuntimeLogs(limit: number, sessionId: string | undefined): Promise<string> {
+	if (!getRuntimeLogsHandler) {
+		return Promise.resolve('Error: get_app_runtime_logs is only available inside an AI session.')
+	}
+	return getRuntimeLogsHandler({ sessionId, limit })
 }
 
 // Registered by the session runtime to reload the open preview after a chat

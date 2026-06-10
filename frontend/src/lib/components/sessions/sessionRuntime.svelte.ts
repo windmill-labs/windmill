@@ -33,8 +33,14 @@ import { applyDraftToRuntimeRawApp, runtimeRawAppToDraft, type RawAppDraft } fro
 import {
 	setDeployedInSessionHandler,
 	setGetPreviewStatusHandler,
+	setGetRuntimeLogsHandler,
 	setOpenPreviewHandler
 } from '$lib/components/copilot/chat/global/core'
+import {
+	formatRuntimeLogsForChat,
+	type RawAppRuntimeLogEntry,
+	type RawAppRuntimeLogRequester
+} from '$lib/components/raw_apps/utils'
 import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
 import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
@@ -94,6 +100,13 @@ export interface SessionRuntime {
 	readonly notFoundRawApp: boolean
 	readonly loadedRawAppPath: string | undefined
 	loadRawApp(workspace: string, path: string, force?: boolean): Promise<void>
+	// Runtime-log bridge for the raw-app preview. RawAppEditorView registers the
+	// preview's requester while a raw app is mounted (undefined otherwise); the
+	// chat's get_app_runtime_logs tool calls requestRuntimeLogs, which pulls the
+	// last `limit` console entries from THIS session's live preview. Resolves
+	// undefined when no preview is mounted/running to answer.
+	setRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined): void
+	requestRuntimeLogs(limit: number): Promise<RawAppRuntimeLogEntry[] | undefined>
 	// Discard the local draft + refresh the fork diff + force-reload the editor,
 	// so the preview matches the deployed version. Used by editor onDeploy + the
 	// chat deploy handler.
@@ -266,6 +279,10 @@ function createRuntime(session: Session): SessionRuntime {
 	let loadingRawApp = $state(false)
 	let notFoundRawApp = $state(false)
 	let loadedRawAppPath = $state<string | undefined>(undefined)
+	// Set by the mounted raw-app preview (RawAppEditorView). Plain let, not
+	// $state — it's an imperative bridge read on demand by the chat tool, not a
+	// render input.
+	let runtimeLogRequester: RawAppRuntimeLogRequester | undefined = undefined
 
 	const forkComparison: { val: WorkspaceComparison | undefined } = $state({ val: undefined })
 	let loadingForkComparison = $state(false)
@@ -575,6 +592,13 @@ function createRuntime(session: Session): SessionRuntime {
 			else void this.loadRawApp(workspace, path, true)
 		},
 
+		setRuntimeLogRequester(requester) {
+			runtimeLogRequester = requester
+		},
+		async requestRuntimeLogs(limit) {
+			return runtimeLogRequester ? runtimeLogRequester(limit) : undefined
+		},
+
 		forkComparison,
 		get loadingForkComparison() {
 			return loadingForkComparison
@@ -757,6 +781,26 @@ setDeployedInSessionHandler(({ sessionId: callerSessionId, kind, path }) => {
 		(kind === 'raw_app' && runtime.loadedRawAppPath === path)
 	if (!open) return
 	runtime.syncPreviewWithDeployed(session.workspace_id, kind, path)
+})
+
+// Pull runtime console logs from the calling session's live raw-app preview.
+// Dispatches to the *calling* session (sessionId threaded from the tool ctx),
+// falling back to the UI-active session only when none was passed — same
+// discipline as the open_preview handlers above.
+setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	const runtime = sessionId ? runtimes.get(sessionId) : undefined
+	if (!runtime) {
+		return 'Error: get_app_runtime_logs is only available inside an AI session.'
+	}
+	const entries = await runtime.requestRuntimeLogs(limit)
+	if (entries === undefined) {
+		return 'No raw app preview is running in the side panel. Open it with open_preview(kind="raw_app") and let it load — runtime logs are read live from the running preview, not stored.'
+	}
+	if (entries.length === 0) {
+		return 'The app preview is running but has not emitted any console logs yet.'
+	}
+	return formatRuntimeLogsForChat(entries)
 })
 
 export function getSessionChatStatus(runtime: SessionRuntime): SessionChatStatus {

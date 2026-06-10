@@ -15,6 +15,37 @@ export type RawApp = {
 	files: string[]
 }
 
+// Runtime console logs captured from a running raw app's preview iframe.
+// The preview shell (ui_builder `app-preview.html`) keeps its own bounded
+// ring buffer of `console.*` calls plus uncaught errors / rejections, and
+// answers `getRuntimeLogs` request messages with the last N entries — see
+// `requestRuntimeLogs` in RawAppEditor.svelte for the request/response shape.
+export type RawAppRuntimeLogLevel = 'log' | 'info' | 'warn' | 'error' | 'debug'
+export type RawAppRuntimeLogEntry = {
+	level: RawAppRuntimeLogLevel
+	message: string
+	/** Epoch milliseconds when the log was emitted inside the iframe. */
+	ts: number
+}
+/**
+ * Pull the last `limit` runtime log entries from the live preview. Resolves
+ * `undefined` when there is no running preview to ask (or it didn't answer);
+ * resolves `[]` when the preview answered but has emitted nothing yet.
+ */
+export type RawAppRuntimeLogRequester = (
+	limit: number
+) => Promise<RawAppRuntimeLogEntry[] | undefined>
+
+/** Render captured runtime log entries (oldest first) as compact text for the
+ * chat tool result. Each line is `[HH:MM:SS.mmm] LEVEL: message`. */
+export function formatRuntimeLogsForChat(entries: RawAppRuntimeLogEntry[]): string {
+	const lines = entries.map((e) => {
+		const time = Number.isFinite(e.ts) ? new Date(e.ts).toISOString().slice(11, 23) : '--:--:--'
+		return `[${time}] ${e.level.toUpperCase()}: ${e.message}`
+	})
+	return `Last ${entries.length} runtime log line(s) from the app preview (oldest first):\n${lines.join('\n')}`
+}
+
 export function htmlContent(
 	workspace: string,
 	secret: string | undefined,

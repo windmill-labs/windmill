@@ -15,7 +15,12 @@
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
-	import { genWmillTs, type Runnable } from './utils'
+	import {
+		genWmillTs,
+		type Runnable,
+		type RawAppRuntimeLogEntry,
+		type RawAppRuntimeLogRequester
+	} from './utils'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import RawAppSidebar from './RawAppSidebar.svelte'
 	import type { Modules } from './RawAppModules.svelte'
@@ -86,6 +91,12 @@
 		 * still toggle the mode after mount; this prop only seeds the
 		 * initial state. */
 		defaultSplitWithPreview?: boolean
+		/** Session host hook. Receives this editor's runtime-log requester so
+		 * the global chat's `get_app_runtime_logs` tool can pull console logs
+		 * from the live preview iframe on demand. Called with the requester on
+		 * mount and with `undefined` on teardown. Only the session preview wires
+		 * this; the standalone editor leaves it unset. */
+		onRuntimeLogRequester?: (requester: RawAppRuntimeLogRequester | undefined) => void
 	}
 
 	let {
@@ -104,7 +115,8 @@
 		defaultSidebarCollapsed = false,
 		sidebarStorageKey = 'raw-app-sidebar-collapsed',
 		liveEditorDraftStoragePath = undefined,
-		defaultSplitWithPreview = true
+		defaultSplitWithPreview = true,
+		onRuntimeLogRequester = undefined
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
@@ -983,6 +995,18 @@
 			return
 		}
 
+		// Reply to a `getRuntimeLogs` request: resolve the matching pending
+		// promise with the buffered console entries from the running app.
+		if (fromPreview && e.data.type === 'runtimeLogsResponse') {
+			const pending = pendingRuntimeLogReqs.get(e.data.requestId)
+			if (pending) {
+				clearTimeout(pending.timer)
+				pendingRuntimeLogReqs.delete(e.data.requestId)
+				pending.resolve(Array.isArray(e.data.logs) ? e.data.logs : [])
+			}
+			return
+		}
+
 		// Inspector events come exclusively from the preview iframe.
 		if (fromPreview && e.data.type === 'inspectorSelect') {
 			inspectorElement = e.data.element as InspectorElementInfo
@@ -1068,6 +1092,44 @@
 			)
 		})
 	}
+
+	// Pull-based runtime-log retrieval. The running app lives in the *preview*
+	// iframe (the ui_builder `app-preview.html` shell), which keeps its own
+	// bounded buffer of console.* / error output. We don't stream it; instead we
+	// ask on demand: post `getRuntimeLogs` and resolve when the matching
+	// `runtimeLogsResponse` arrives (handled in `listener`). A timeout guards
+	// against an old shell that doesn't answer or an unmounted preview. Keyed by
+	// requestId so overlapping calls (and stale late replies) can't cross.
+	const RUNTIME_LOGS_TIMEOUT_MS = 2000
+	let pendingRuntimeLogReqs = new Map<
+		string,
+		{ resolve: (entries: RawAppRuntimeLogEntry[] | undefined) => void; timer: ReturnType<typeof setTimeout> }
+	>()
+
+	const requestRuntimeLogs: RawAppRuntimeLogRequester = (limit) => {
+		const win = previewIframe?.contentWindow
+		if (!win || !previewIframeLoaded) return Promise.resolve(undefined)
+		const requestId = crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)
+		return new Promise<RawAppRuntimeLogEntry[] | undefined>((resolve) => {
+			const timer = setTimeout(() => {
+				pendingRuntimeLogReqs.delete(requestId)
+				resolve(undefined)
+			}, RUNTIME_LOGS_TIMEOUT_MS)
+			pendingRuntimeLogReqs.set(requestId, { resolve, timer })
+			win.postMessage({ type: 'getRuntimeLogs', requestId, limit }, '*')
+		})
+	}
+
+	// Hand the requester up to the session host on mount; clear it on teardown
+	// so a torn-down editor can't be queried.
+	$effect(() => {
+		onRuntimeLogRequester?.(requestRuntimeLogs)
+		return () => {
+			onRuntimeLogRequester?.(undefined)
+			for (const { timer } of pendingRuntimeLogReqs.values()) clearTimeout(timer)
+			pendingRuntimeLogReqs.clear()
+		}
+	})
 
 	let darkMode: boolean = $state(false)
 	// Host's computed `text-xs` size in px. Windmill bumps :root to 18px at

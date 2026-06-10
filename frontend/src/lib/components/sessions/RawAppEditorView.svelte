@@ -8,6 +8,7 @@
 	import type { RawAppDraft } from './appDraftCodec'
 	import { applyDraftToRuntimeRawApp, runtimeRawAppToDraft } from './appDraftCodec'
 	import SessionItemNotFound from './SessionItemNotFound.svelte'
+	import type { RawAppRuntimeLogRequester } from '$lib/components/raw_apps/utils'
 
 	let {
 		runtime,
@@ -41,6 +42,15 @@
 	async function restoreFromCurrentTarget() {
 		diffDrawer?.closeDrawer()
 		await runtime.loadRawApp(workspaceId, path)
+	}
+
+	// Expose this preview's runtime-log requester on the session runtime so the
+	// chat's `get_app_runtime_logs` tool (dispatched by sessionId) can pull
+	// console logs from this app's live preview. Stable identity so the editor's
+	// registration effect doesn't churn; the editor passes `undefined` on
+	// teardown, which clears it.
+	function registerRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined) {
+		runtime.setRuntimeLogRequester(requester)
 	}
 
 	// Mark this editor as the live editor draft for the session's workspace
@@ -154,5 +164,6 @@
 		defaultSidebarCollapsed
 		sidebarStorageKey="raw-app-sidebar-collapsed-preview"
 		defaultSplitWithPreview={false}
+		onRuntimeLogRequester={registerRuntimeLogRequester}
 	/>
 {/if}
