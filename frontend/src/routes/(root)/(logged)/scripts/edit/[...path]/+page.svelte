@@ -16,7 +16,7 @@
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
 	import { UserDraft } from '$lib/userDraft.svelte'
-	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
 
 	type EditableScript = NewScript & { draft_triggers?: Trigger[] }
 
@@ -34,27 +34,19 @@
 	// local draft — that view is read-only relative to drafts.
 	let draftPath = $derived(hash ? '' : (page.params.path ?? ''))
 
-	// Re-keys the handle on nav (the reactive `draftPath` is read inside
-	// the reconcile) while keeping `bind:script` a stable lvalue.
-	const scriptHandle = UserDraft.useReactive<EditableScript>(() => ({
+	// Single page-level draft orchestration: the autosave handle (re-keyed
+	// on nav via the reactive `draftPath`), the live-editor-draft registry
+	// entry, `recordRemoteSync`, and draft removal. `draftSync.draft` stays
+	// a stable lvalue for `bind:script`.
+	const draftSync = usePageDraftSync<EditableScript>({
 		itemKind: 'script',
-		path: draftPath
-	}))
-
-	$effect(() => {
-		if (hash || !$workspaceStore) return
-		const workspace = $workspaceStore
-		UserDraft.setLiveEditorDraft({
-			workspace,
-			itemKind: 'script',
-			storagePath: draftPath,
-			effectivePath: scriptHandle.draft?.path ?? draftPath
-		})
-		return () => UserDraft.clearLiveEditorDraft('script', { workspace, storagePath: draftPath })
+		path: () => draftPath,
+		workspace: () => $workspaceStore,
+		effectivePath: () => draftSync.draft?.path ?? draftPath
 	})
 
 	// Seed from the URL so ScriptBuilder mounts with a populated `initialPath`
-	// even when `scriptHandle.draft` is already defined synchronously from a
+	// even when `draftSync.draft` is already defined synchronously from a
 	// local autosave. An empty initialPath flips ScriptBuilder's
 	// `metadataOpen` heuristic (intended for /scripts/add) into "true" and
 	// pops the settings drawer open on /edit.
@@ -142,7 +134,7 @@
 			} as unknown as EditableScript
 			initialPath = ''
 			savedScript = structuredClone(empty)
-			scriptHandle.draft = empty
+			draftSync.draft = empty
 			fullyLoaded = true
 			renderEditor = true
 			return
@@ -154,7 +146,7 @@
 			})
 			if (tok !== loadScriptToken) return
 			savedScript = structuredClone($state.snapshot(scriptByHash))
-			scriptHandle.draft = { ...scriptByHash, parent_hash: hash, lock: undefined }
+			draftSync.draft = { ...scriptByHash, parent_hash: hash, lock: undefined }
 		} else {
 			const backendScript = await ScriptService.getScriptByPath({
 				workspace: $workspaceStore!,
@@ -168,12 +160,7 @@
 			// `last_sync` and the backend can reject stale writes.
 			// `undefined` (no draft existed) clears the entry — the
 			// next save then takes the "first push" branch on the server.
-			if ($workspaceStore && page.params.path) {
-				UserDraftDbSyncer.recordRemoteSync(
-					{ workspace: $workspaceStore, itemKind: 'script', path: page.params.path },
-					backendScript.draft_saved_at
-				)
-			}
+			draftSync.recordRemoteSync(backendScript.draft_saved_at as string | undefined)
 			if (backendScript.is_draft) {
 				loadedFromDraft = true
 			}
@@ -198,16 +185,16 @@
 			// reuses the deployed lock. The first cell write after
 			// `acquireEntry` is swallowed by the syncer's seed guard, so
 			// this load doesn't POST.
-			scriptHandle.draft = {
+			draftSync.draft = {
 				...effectiveScript,
 				parent_hash: topHash ?? backendScript.hash
 			}
 		}
 
-		if (scriptHandle.draft) {
-			initialPath = scriptHandle.draft.path
-			scriptBuilder?.setDraftTriggers(scriptHandle.draft.draft_triggers)
-			scriptBuilder?.setCode(scriptHandle.draft.content)
+		if (draftSync.draft) {
+			initialPath = draftSync.draft.path
+			scriptBuilder?.setDraftTriggers(draftSync.draft.draft_triggers)
+			scriptBuilder?.setCode(draftSync.draft.content)
 		}
 		fullyLoaded = true
 		renderEditor = true
@@ -240,8 +227,8 @@
 			return
 		}
 		diffDrawer?.closeDrawer()
-		UserDraft.remove('script', draftPath)
-		scriptHandle.draft = undefined
+		draftSync.remove()
+		draftSync.draft = undefined
 		goto(`/scripts/edit/${savedScript.path}`)
 		loadScript()
 	}
@@ -256,21 +243,21 @@
 	{otherDraftsUsers}
 	editPathFor={(forkedPath) => `/scripts/edit/${forkedPath}`}
 	onLoadFromServer={() => loadScript()}
-	getLocalDraft={() => scriptHandle.draft}
+	getLocalDraft={() => draftSync.draft}
 	bind:othersModalOpen
 	{draftSavedAt}
 	{deployedAt}
 	onLoadLatestDeploy={async () => {
-		scriptHandle.draft = undefined
+		draftSync.draft = undefined
 		await loadScript({ getDraft: false })
 	}}
 />
-{#if scriptHandle.draft && renderEditor}
+{#if draftSync.draft && renderEditor}
 	<ScriptBuilder
 		bind:this={scriptBuilder}
 		{initialPath}
 		userDraftPath={draftPath}
-		bind:script={scriptHandle.draft}
+		bind:script={draftSync.draft}
 		{fullyLoaded}
 		bind:savedScript
 		{initialArgs}
@@ -281,7 +268,7 @@
 		othersDraftsCount={otherDraftsUsers.length}
 		onOpenOthersDrafts={() => (othersModalOpen = true)}
 		onResetToDeployed={async () => {
-			scriptHandle.draft = undefined
+			draftSync.draft = undefined
 			await loadScript({ getDraft: false })
 		}}
 		onDeploy={(e) => {
@@ -290,7 +277,7 @@
 				sendUserToast('Deployed')
 				return
 			}
-			UserDraft.remove('script', draftPath)
+			draftSync.remove()
 			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 		}}
