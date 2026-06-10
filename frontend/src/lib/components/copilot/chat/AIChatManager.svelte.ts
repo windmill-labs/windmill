@@ -414,7 +414,18 @@ export class AIChatManager {
 			return
 		}
 		this.queuedMessages = this.queuedMessages.filter((_, i) => i !== index)
-		this.aiChatInput?.prependText(message)
+		this.restoreToInput(message)
+	}
+
+	/** Put text the user typed back where they can see it: into the input
+	 * when it's mounted, otherwise back into the queue so it reappears with
+	 * the chat panel instead of being silently dropped. */
+	private restoreToInput(text: string) {
+		if (this.aiChatInput) {
+			this.aiChatInput.prependText(text)
+		} else {
+			this.queuedMessages = [text, ...this.queuedMessages]
+		}
 	}
 
 	focusInput() {
@@ -859,9 +870,12 @@ export class AIChatManager {
 			isPreprocessor?: boolean
 		} = {}
 	) => {
+		// Returns whether the message was actually turned into a chat turn —
+		// the queue flush uses this to restore messages dropped by an early
+		// return instead of silently losing them.
 		const requestedMode = options.mode ?? this.mode
 		if (!isAIModeVisible(requestedMode)) {
-			return
+			return false
 		}
 		this.changeMode(requestedMode, undefined, {
 			lang: options.lang,
@@ -871,7 +885,7 @@ export class AIChatManager {
 			this.instructions = options.instructions
 		}
 		if (!this.instructions.trim()) {
-			return
+			return false
 		}
 		if (this.beforeSend) {
 			try {
@@ -888,7 +902,7 @@ export class AIChatManager {
 					}. Your message was not sent — please try again.`,
 					true
 				)
-				return
+				return false
 			}
 		}
 		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
@@ -1106,13 +1120,17 @@ export class AIChatManager {
 			if (!sendError && !this.abortController?.signal.aborted) {
 				const [next, ...rest] = this.queuedMessages
 				this.queuedMessages = rest
-				await this.sendRequest({ instructions: next })
+				const accepted = await this.sendRequest({ instructions: next })
+				if (accepted === false) {
+					this.restoreToInput(next)
+				}
 			} else {
 				const restored = this.queuedMessages.join('\n\n')
 				this.queuedMessages = []
-				this.aiChatInput?.prependText(restored)
+				this.restoreToInput(restored)
 			}
 		}
+		return true
 	}
 
 	cancel = (reason?: string) => {
