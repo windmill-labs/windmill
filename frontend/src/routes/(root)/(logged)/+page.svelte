@@ -17,6 +17,7 @@
 	import {
 		Building,
 		ExternalLink,
+		FlaskConical,
 		GitFork,
 		Globe2,
 		Loader2,
@@ -37,6 +38,9 @@
 	import { page } from '$app/state'
 	import { goto, replaceState } from '$app/navigation'
 	import ForkWorkspaceBanner from '$lib/components/ForkWorkspaceBanner.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import type { UserDraftItemKind } from '$lib/gen'
+	import { sendUserToast } from '$lib/toast'
 	import WorkspaceDraftsBanner from '$lib/components/WorkspaceDraftsBanner.svelte'
 	import WorkspaceTutorials from '$lib/components/WorkspaceTutorials.svelte'
 	import { onMount, setContext } from 'svelte'
@@ -106,6 +110,139 @@
 
 	let workspaceTutorials: WorkspaceTutorials | undefined = $state(undefined)
 	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
+
+	// Dev/QA helper: seed one draft per item kind so every draft surface
+	// (home badges, editors, stale-draft modal, others' drafts modal) can
+	// be exercised without hand-creating items. Paths are fixed
+	// (`u/{me}/draft_<kind>`) so re-clicking overwrites rather than piles
+	// up. Value shapes mirror what each editor's autosave writes — see
+	// the backend list synthesizers (scripts.rs / flows.rs / apps.rs /
+	// windmill-store / windmill-api-schedule) which parse these back.
+	let creatingTestDrafts = $state(false)
+	async function createTestDrafts() {
+		const ws = $workspaceStore
+		const me = $userStore?.username ?? 'admin'
+		if (!ws || creatingTestDrafts) return
+		creatingTestDrafts = true
+		const prefix = `u/${me}`
+		try {
+			const saves: { itemKind: UserDraftItemKind; path: string; value: unknown }[] = [
+				{
+					itemKind: 'script',
+					path: `${prefix}/draft_script`,
+					value: {
+						path: `${prefix}/draft_script`,
+						summary: 'Test draft script',
+						description: '',
+						content: 'export async function main() {\n  return "draft"\n}',
+						language: 'bun',
+						kind: 'script',
+						schema: {
+							$schema: 'https://json-schema.org/draft/2020-12/schema',
+							properties: {},
+							required: [],
+							type: 'object'
+						},
+						draft_triggers: []
+					}
+				},
+				{
+					itemKind: 'flow',
+					path: `${prefix}/draft_flow`,
+					value: {
+						path: `${prefix}/draft_flow`,
+						summary: 'Test draft flow',
+						description: '',
+						value: { modules: [] },
+						schema: {
+							$schema: 'https://json-schema.org/draft/2020-12/schema',
+							properties: {},
+							required: [],
+							type: 'object'
+						},
+						draft_triggers: []
+					}
+				},
+				{
+					itemKind: 'app',
+					path: `${prefix}/draft_app`,
+					value: {
+						grid: [],
+						fullscreen: false,
+						unusedInlineScripts: [],
+						hiddenInlineScripts: [],
+						theme: { type: 'path', path: 'f/app_themes/theme_0' }
+					}
+				},
+				{
+					itemKind: 'raw_app',
+					path: `${prefix}/draft_raw_app`,
+					value: {
+						files: {
+							'index.html': '<html><body><h1>Draft raw app</h1></body></html>'
+						},
+						runnables: {},
+						data: { tables: [] },
+						summary: 'Test draft raw app',
+						policy: { execution_mode: 'publisher' }
+					}
+				},
+				{
+					itemKind: 'trigger_schedule',
+					path: `${prefix}/draft_schedule_trigger`,
+					value: {
+						path: `${prefix}/draft_schedule_trigger`,
+						schedule: '0 0 12 * * *',
+						timezone: 'UTC',
+						script_path: '',
+						is_flow: false,
+						enabled: false,
+						summary: 'Test draft schedule'
+					}
+				},
+				{
+					itemKind: 'resource',
+					path: `${prefix}/draft_resource`,
+					value: {
+						path: `${prefix}/draft_resource`,
+						description: 'Test draft resource',
+						args: { host: 'localhost' },
+						resource_type: 'postgresql',
+						wsSpecific: false
+					}
+				},
+				{
+					itemKind: 'variable',
+					path: `${prefix}/draft_variable`,
+					value: {
+						path: `${prefix}/draft_variable`,
+						variable: {
+							value: 'draft value',
+							is_secret: false,
+							description: 'Test draft variable'
+						},
+						wsSpecific: false
+					}
+				}
+			]
+			await Promise.all(
+				saves.map((s) =>
+					UserDraftDbSyncer.save({
+						workspace: ws,
+						itemKind: s.itemKind,
+						path: s.path,
+						value: s.value,
+						immediate: true
+					})
+				)
+			)
+			sendUserToast(`Created ${saves.length} test drafts under ${prefix}/draft_*`)
+		} catch (e: any) {
+			sendUserToast(`Could not create test drafts: ${e?.body ?? e?.message ?? e}`, true)
+		} finally {
+			creatingTestDrafts = false
+		}
+	}
 
 	// Provide workspaceTutorials to child components via a reactive wrapper
 	let workspaceTutorialsContext = $derived(workspaceTutorials)
@@ -305,6 +442,16 @@
 				</Button>
 			{/if}
 			{#if !$userStore?.operator && showCreateButtons}
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					startIcon={{ icon: FlaskConical }}
+					btnClasses="whitespace-nowrap"
+					loading={creatingTestDrafts}
+					onClick={createTestDrafts}
+				>
+					Create test drafts
+				</Button>
 				<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
 				{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
 				{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
