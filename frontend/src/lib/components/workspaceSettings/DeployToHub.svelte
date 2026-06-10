@@ -27,7 +27,7 @@
 		EmailTriggerService,
 		ScheduleService
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { workspaceStore, hubBaseUrlStore } from '$lib/stores'
 	import { goto } from '$app/navigation'
 	import { computeSecretUrl } from '$lib/components/apps/editor/appDeploy.svelte'
 	import {
@@ -238,7 +238,7 @@
 	let effectiveSlug = $state('')
 
 	let hubSlug = $derived(effectiveSlug || sanitizeSlug(hubName))
-	let hubUrl = $derived(`https://hub.windmill.dev/projects/${hubSlug}`)
+	let hubUrl = $derived(`${$hubBaseUrlStore.replace(/\/+$/, '')}/projects/${hubSlug}`)
 
 	const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -1209,12 +1209,24 @@
 		if (!workspace) return
 		syncing = true
 		try {
-			await loadWorkspace(workspace, workspaceLoadSeq)
 			if (phase === 'draft') {
+				await loadWorkspace(workspace, workspaceLoadSeq)
 				const prev = new Map(draftItems.map((i) => [i.key, { rec: i.rec }]))
 				draftItems = workspaceItems
 					.filter((i) => prev.has(i.key))
 					.map((i) => ({ ...i, rec: prev.get(i.key)?.rec ?? 'none' }))
+			} else {
+				// under_review / live: re-fetch the Hub project to pick up an
+				// admin status change (under_review -> live).
+				const before = phase
+				await rehydrateFromHub(workspace, workspaceLoadSeq)
+				sendUserToast(
+					phase === before
+						? 'Still waiting for review.'
+						: phase === 'live'
+							? 'Approved — your project is now live.'
+							: `Status updated: ${phase}.`
+				)
 			}
 		} catch (e: any) {
 			sendUserToast(`Sync failed: ${e?.message ?? e}`, true)
