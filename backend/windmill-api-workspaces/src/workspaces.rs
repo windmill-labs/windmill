@@ -3872,6 +3872,31 @@ async fn clone_workspace_data(
 
     // Clone workspace dependencies
     clone_workspace_dependencies(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone datatable migrations. Their applied state is tracked inside the
+    // datatable database itself, so a fork that copies the database sees the
+    // same migrations as applied; new parent migrations later reach the fork
+    // via sync and are applied by the migration runner.
+    clone_datatable_migrations(tx, source_workspace_id, target_workspace_id).await?;
+    Ok(())
+}
+
+async fn clone_datatable_migrations(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO datatable_migration (workspace_id, datatable, version, name, content, checksum, created_at, created_by)
+         SELECT $1, datatable, version, name, content, checksum, created_at, created_by
+         FROM datatable_migration
+         WHERE workspace_id = $2",
+        target_workspace_id,
+        source_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
     Ok(())
 }
 
