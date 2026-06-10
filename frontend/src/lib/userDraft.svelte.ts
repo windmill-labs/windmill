@@ -572,6 +572,7 @@ function acquireEntry(
 			// (e.g. the editor refreshing it post-deploy) don't re-fire
 			// the mirror.
 			const atBaseline = untrack(() => {
+				console.log('COMPARING ', val, discardIfEqualTo?.())
 				if (val === undefined || discardIfEqualTo === undefined) return false
 				const baseline = discardIfEqualTo()
 				return baseline !== undefined && deepEqual(val, baseline)

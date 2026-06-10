@@ -29,6 +29,8 @@
 	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
 	import PasswordArgInput from './PasswordArgInput.svelte'
 	import Password from './Password.svelte'
+	import EncryptedDraftField from './EncryptedDraftField.svelte'
+	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
@@ -1449,7 +1451,11 @@
 			<div class="flex flex-col w-full">
 				<div class="flex flex-row w-full items-center justify-between relative">
 					{#if password || extra?.['password'] == true}
-						{#if onlyMaskPassword}
+						{#if isEncryptedDraftValue(value)}
+							<!-- Draft-encrypted secret ($encrypted: marker) — can't be
+							displayed; deploys as-is, Reset clears it for re-entry. -->
+							<EncryptedDraftField {disabled} onReset={() => (value = '')} />
+						{:else if onlyMaskPassword}
 							{#if value && typeof value == 'string' && value?.startsWith('$var:')}
 								<input type="text" bind:value />
 							{:else}

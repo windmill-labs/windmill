@@ -359,3 +359,66 @@ pub async fn fetch_draft_only(
         other_drafts_users,
     }))
 }
+
+/// Marker prefix for draft secret values encrypted at rest with the
+/// workspace crypt key (`build_crypt`, no key suffix — distinct from the
+/// per-root-job `$encrypted:` ciphertexts workers resolve in job args,
+/// which never share a table with drafts). Written by `save_draft` for
+/// secret variables and password-marked resource fields; resolved back to
+/// plaintext by the variable/resource deploy endpoints.
+pub const ENCRYPTED_DRAFT_PREFIX: &str = "$encrypted:";
+
+fn draft_decrypt_error() -> crate::error::Error {
+    crate::error::Error::BadRequest(
+        "An encrypted draft secret could not be decrypted (the workspace encryption key may \
+         have changed since the draft was saved). Reset the field and re-enter the secret."
+            .to_string(),
+    )
+}
+
+/// Decrypt a single `$encrypted:`-marked draft value back to plaintext
+/// with the workspace crypt key. Fails with a user-facing 400 when the
+/// payload doesn't decrypt (e.g. the workspace key was rotated after the
+/// draft save).
+pub async fn decrypt_draft_secret_value(db: &DB, w_id: &str, value: &str) -> Result<String> {
+    let encrypted = value.strip_prefix(ENCRYPTED_DRAFT_PREFIX).unwrap_or(value);
+    let mc = crate::variables::build_crypt(db, w_id).await?;
+    crate::variables::decrypt(&mc, encrypted.to_string()).map_err(|_| draft_decrypt_error())
+}
+
+/// Recursively resolve every `$encrypted:`-marked string inside a resource
+/// value back to plaintext, in place. No-op (and no cipher built) when the
+/// value carries no marker. Fails with a user-facing 400 on the first
+/// field that doesn't decrypt.
+pub async fn decrypt_draft_secret_fields(
+    db: &DB,
+    w_id: &str,
+    value: &mut serde_json::Value,
+) -> Result<()> {
+    fn has_marker(v: &serde_json::Value) -> bool {
+        match v {
+            serde_json::Value::String(s) => s.starts_with(ENCRYPTED_DRAFT_PREFIX),
+            serde_json::Value::Object(m) => m.values().any(has_marker),
+            serde_json::Value::Array(a) => a.iter().any(has_marker),
+            _ => false,
+        }
+    }
+    if !has_marker(value) {
+        return Ok(());
+    }
+    let mc = crate::variables::build_crypt(db, w_id).await?;
+    let mut stack: Vec<&mut serde_json::Value> = vec![value];
+    while let Some(v) = stack.pop() {
+        match v {
+            serde_json::Value::String(s) if s.starts_with(ENCRYPTED_DRAFT_PREFIX) => {
+                let encrypted = s.strip_prefix(ENCRYPTED_DRAFT_PREFIX).unwrap();
+                *s = crate::variables::decrypt(&mc, encrypted.to_string())
+                    .map_err(|_| draft_decrypt_error())?;
+            }
+            serde_json::Value::Object(m) => stack.extend(m.values_mut()),
+            serde_json::Value::Array(a) => stack.extend(a.iter_mut()),
+            _ => {}
+        }
+    }
+    Ok(())
+}

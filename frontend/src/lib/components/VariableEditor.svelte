@@ -18,6 +18,7 @@
 	import type { UserExt } from '$lib/stores'
 	import { UserDraft, type UserDraftHandle } from '$lib/userDraft.svelte'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
+	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 
 	const dispatch = createEventDispatcher()
@@ -131,7 +132,13 @@
 	const dirtyValid = $derived(
 		dirtyWorkspaces.every((ws) => {
 			const v = states[ws].draft
-			return !!v && v.variable.value.length <= MAX_VARIABLE_LENGTH
+			// `$encrypted:` markers are ciphertext (longer than the plaintext
+			// the user typed) — the backend re-derives the real value on save,
+			// so the length cap doesn't apply to them.
+			return (
+				!!v &&
+				(isEncryptedDraftValue(v.variable.value) || v.variable.value.length <= MAX_VARIABLE_LENGTH)
+			)
 		})
 	)
 	const dirtyCanWrite = $derived(

@@ -17,7 +17,8 @@ use serde::{Deserialize, Serialize};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
-    user_drafts::UserDraftItemKind,
+    user_drafts::{UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX},
+    variables::{build_crypt, encrypt},
 };
 
 pub fn workspaced_service() -> Router {
@@ -147,16 +148,19 @@ async fn save_draft(
     require_can_write_path(&authed, &db, &w_id, path).await?;
 
     let applied_at = if let Some(value) = &req.value {
-        // Secret variable values must never sit in the draft table in
-        // plaintext — deployed secrets are encrypted with the workspace
-        // crypt key precisely so DB dumps don't leak them, and the
-        // variable editor never round-trips secret values back anyway
-        // (it fetches with decrypt_secret=false; the field starts empty
-        // on every edit). Strip the typed value before persisting.
-        let serialized = if kind == UserDraftItemKind::Variable {
-            scrub_secret_variable_value(value.0.get())
-        } else {
-            serde_json::to_string(value).unwrap()
+        // Secret values must never sit in the draft table in plaintext —
+        // deployed secrets are encrypted with the workspace crypt key
+        // precisely so DB dumps don't leak them. Encrypt them with the
+        // same key, marked with the `$encrypted:` prefix; the deploy
+        // endpoints decrypt the marker back before persisting for real.
+        let serialized = match kind {
+            UserDraftItemKind::Variable => {
+                encrypt_secret_variable_value(&db, &w_id, value.0.get()).await?
+            }
+            UserDraftItemKind::Resource => {
+                encrypt_secret_resource_fields(&db, &w_id, path, value.0.get()).await?
+            }
+            _ => serde_json::to_string(value).unwrap(),
         };
         // Upsert branch. Conflict check rides on a WHERE clause attached
         // to DO UPDATE — when the existing row is newer than `last_sync`,
@@ -245,13 +249,15 @@ async fn save_draft(
 }
 
 /// For variable-kind drafts: when the JSON says `variable.is_secret ==
-/// true`, blank `variable.value` so the typed secret never persists in
-/// plaintext at rest. Unexpected shapes pass through unchanged — the
-/// draft store is schema-less by design and a malformed draft is the
-/// editor's problem, not a save error.
-fn scrub_secret_variable_value(raw: &str) -> String {
+/// true`, encrypt `variable.value` with the workspace crypt key and mark
+/// it `$encrypted:<base64>` so the typed secret never persists in
+/// plaintext at rest. Already-marked values (a restored draft echoed back
+/// by autosave) pass through untouched. Unexpected shapes pass through
+/// unchanged — the draft store is schema-less by design and a malformed
+/// draft is the editor's problem, not a save error.
+async fn encrypt_secret_variable_value(db: &DB, w_id: &str, raw: &str) -> Result<String> {
     let Ok(mut v) = serde_json::from_str::<serde_json::Value>(raw) else {
-        return raw.to_string();
+        return Ok(raw.to_string());
     };
     let is_secret = v
         .get("variable")
@@ -259,11 +265,105 @@ fn scrub_secret_variable_value(raw: &str) -> String {
         .and_then(|x| x.as_bool())
         .unwrap_or(false);
     if is_secret {
-        if let Some(val) = v.get_mut("variable").and_then(|x| x.get_mut("value")) {
-            *val = serde_json::Value::String(String::new());
+        if let Some(serde_json::Value::String(s)) =
+            v.get_mut("variable").and_then(|x| x.get_mut("value"))
+        {
+            if !s.is_empty() && !s.starts_with(ENCRYPTED_DRAFT_PREFIX) {
+                let mc = build_crypt(db, w_id).await?;
+                *s = format!("{ENCRYPTED_DRAFT_PREFIX}{}", encrypt(&mc, s));
+            }
         }
     }
-    v.to_string()
+    Ok(v.to_string())
+}
+
+/// For resource-kind drafts: encrypt the values of password-marked fields
+/// (resource-type schema properties carrying `"password": true`) with the
+/// workspace crypt key, marked `$encrypted:<base64>`, so typed secrets
+/// never persist in plaintext at rest. The resource type comes from the
+/// draft's own `resource_type` field, falling back to the deployed
+/// resource at the path. `$var:`/`$res:` references and already-marked
+/// values pass through untouched, as does anything whose type can't be
+/// resolved (schema-less store: best-effort, never a save error).
+async fn encrypt_secret_resource_fields(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    raw: &str,
+) -> Result<String> {
+    let Ok(mut v) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return Ok(raw.to_string());
+    };
+    if !v
+        .get("args")
+        .and_then(|a| a.as_object())
+        .is_some_and(|args| {
+            args.values()
+                .any(|x| x.as_str().is_some_and(|s| !s.is_empty()))
+        })
+    {
+        return Ok(v.to_string());
+    }
+    let resource_type = match v.get("resource_type").and_then(|x| x.as_str()) {
+        Some(rt) => Some(rt.to_string()),
+        None => {
+            sqlx::query_scalar!(
+                "SELECT resource_type FROM resource WHERE workspace_id = $1 AND path = $2",
+                w_id,
+                path,
+            )
+            .fetch_optional(db)
+            .await?
+        }
+    };
+    let Some(resource_type) = resource_type else {
+        return Ok(v.to_string());
+    };
+    let schema = sqlx::query_scalar!(
+        r#"SELECT schema as "schema!: sqlx::types::Json<serde_json::Value>"
+           FROM resource_type
+           WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'admins')
+           ORDER BY (workspace_id = $2) DESC
+           LIMIT 1"#,
+        &resource_type,
+        w_id,
+    )
+    .fetch_optional(db)
+    .await?;
+    let password_fields: Vec<String> = schema
+        .as_ref()
+        .and_then(|s| s.0.get("properties"))
+        .and_then(|p| p.as_object())
+        .map(|props| {
+            props
+                .iter()
+                .filter(|(_, prop)| {
+                    prop.get("password")
+                        .and_then(|b| b.as_bool())
+                        .unwrap_or(false)
+                })
+                .map(|(k, _)| k.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    if password_fields.is_empty() {
+        return Ok(v.to_string());
+    }
+    let mc = build_crypt(db, w_id).await?;
+    if let Some(args) = v.get_mut("args").and_then(|a| a.as_object_mut()) {
+        for field in password_fields {
+            if let Some(serde_json::Value::String(s)) = args.get_mut(&field) {
+                if !s.is_empty()
+                    && !s.starts_with(ENCRYPTED_DRAFT_PREFIX)
+                    && !s.starts_with("$var:")
+                    && !s.starts_with("$res:")
+                {
+                    *s = format!("{ENCRYPTED_DRAFT_PREFIX}{}", encrypt(&mc, s));
+                }
+            }
+        }
+    }
+    Ok(v.to_string())
 }
 
 #[derive(Deserialize, Debug)]

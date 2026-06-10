@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT schema as \"schema!: sqlx::types::Json<serde_json::Value>\"\n           FROM resource_type\n           WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'admins')\n           ORDER BY (workspace_id = $2) DESC\n           LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "schema!: sqlx::types::Json<serde_json::Value>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "0b18e0fcce232b6ebe49da71a725048c525798c3feb359daefd1d627b40f074b"
+}

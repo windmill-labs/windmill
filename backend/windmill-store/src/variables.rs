@@ -36,8 +36,8 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     scripts::ScriptHash,
     user_drafts::{
-        delete_user_draft, fetch_draft_only, maybe_overlay_draft, UserDraftItemKind,
-        WithDraftOverlay,
+        decrypt_draft_secret_value, delete_user_draft, fetch_draft_only, maybe_overlay_draft,
+        UserDraftItemKind, WithDraftOverlay, ENCRYPTED_DRAFT_PREFIX,
     },
     utils::{not_found_if_none, paginate, Pagination, StripPath, WarnAfterExt},
     variables::{
@@ -596,8 +596,16 @@ async fn create_variable(
 
     check_path_conflict(&db, &w_id, &variable.path).await?;
     let value = if variable.is_secret && !already_encrypted.unwrap_or(false) {
+        // Deploying a restored draft sends the draft's `$encrypted:` marker
+        // as-is — decrypt it back (validating it against the workspace key)
+        // so it goes through the secret backend like any typed plaintext.
+        let plain = if variable.value.starts_with(ENCRYPTED_DRAFT_PREFIX) {
+            decrypt_draft_secret_value(&db, &w_id, &variable.value).await?
+        } else {
+            variable.value.clone()
+        };
         // Use secret backend for encryption (supports both DB and Vault)
-        store_secret_value(&db, &w_id, &variable.path, &variable.value).await?
+        store_secret_value(&db, &w_id, &variable.path, &plain).await?
     } else {
         variable.value
     };
@@ -1074,9 +1082,17 @@ async fn update_variable(
         };
 
         let value = if is_secret && !already_encrypted.unwrap_or(false) {
+            // Deploying a restored draft sends the draft's `$encrypted:`
+            // marker as-is — decrypt it back (validating it against the
+            // workspace key) before re-storing through the secret backend.
+            let plain = if nvalue.starts_with(ENCRYPTED_DRAFT_PREFIX) {
+                decrypt_draft_secret_value(&db, &w_id, &nvalue).await?
+            } else {
+                nvalue
+            };
             // Use secret backend for encryption (supports both DB and Vault)
             // Store at target_path (new path if renaming, otherwise current path)
-            store_secret_value(&db, &w_id, target_path, &nvalue).await?
+            store_secret_value(&db, &w_id, target_path, &plain).await?
         } else {
             nvalue
         };
