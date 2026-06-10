@@ -26,6 +26,7 @@
 
 import { DraftService } from './gen'
 import type { UserDraftItemKind } from './gen'
+import { sendUserToast } from './toast'
 
 // Mirror of `USER_DRAFT_ITEM_KINDS` from `userDraft.svelte.ts`. Inlined
 // here so the migration module can be imported without pulling in the
@@ -139,6 +140,9 @@ export async function migrateUserDraftsToDb(): Promise<void> {
 	const keys = collectKeys()
 	if (keys.length === 0) return
 
+	// Parse up front so we only announce the migration when there's a real
+	// `userdraft/...` entry to upload (and can drop unparseable junk first).
+	const toMigrate: { key: string; parsed: ParsedKey; value: unknown }[] = []
 	for (const key of keys) {
 		const parsed = parseKey(key)
 		if (!parsed) continue
@@ -152,6 +156,14 @@ export async function migrateUserDraftsToDb(): Promise<void> {
 			}
 			continue
 		}
+		toMigrate.push({ key, parsed, value })
+	}
+	if (toMigrate.length === 0) return
+
+	// Legacy drafts detected — tell the user the one-off upload is running.
+	sendUserToast('Migrating local storage drafts ...', 'info')
+
+	for (const { key, parsed, value } of toMigrate) {
 		try {
 			await DraftService.saveDraft({
 				workspace: parsed.workspace,
@@ -166,8 +178,26 @@ export async function migrateUserDraftsToDb(): Promise<void> {
 				// the save (force: true is idempotent).
 			}
 		} catch (e) {
-			// Leave the LS entry in place — the next mount tries again.
+			// Leave the LS entry in place — the next mount tries again — but
+			// surface it so the user isn't silently stuck, with an escape
+			// hatch to drop the un-migratable draft.
 			console.error('UserDraft LS→DB migration: failed for', key, e)
+			sendUserToast(
+				`Could not migrate draft ${parsed.path} in workspace ${parsed.workspace}`,
+				'error',
+				[
+					{
+						label: 'Delete draft',
+						callback: () => {
+							try {
+								localStorage.removeItem(key)
+							} catch {
+								// ignore
+							}
+						}
+					}
+				]
+			)
 		}
 	}
 }
