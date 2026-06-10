@@ -223,9 +223,15 @@ export async function deployDraft(
 	rawApp = false
 ): Promise<DeployResult> {
 	try {
-		if (kind === 'app' && rawApp) {
+		if (kind === 'raw_app' || (kind === 'app' && rawApp)) {
 			// Raw apps bundle their source files to js/css and deploy via the
-			// raw-app endpoints — same as the global AI chat's deploy.
+			// raw-app endpoints — same as the global AI chat's deploy. The
+			// Review & Deploy page passes `kind === 'raw_app'` (raw apps are
+			// their own DRAFT_KIND); the editor path passes `kind === 'app'`
+			// + `rawApp`. Either MUST route here — falling into the visual-app
+			// branch below would do a partial `updateApp` with no `value`
+			// (a RawAppDraft has no `value` field), silently discarding the
+			// draft's files without ever bundling/deploying them.
 			await deployRawAppDraft(workspace, path)
 		} else if (kind === 'script') {
 			const r = (await ScriptService.getScriptByPath({ workspace, path, getDraft: true })) as any
@@ -268,7 +274,8 @@ export async function deployDraft(
 			}
 			// Then deploy any draft trigger edits, so they aren't dropped with the draft.
 			await deployDraftTriggers(d.draft_triggers, workspace, d.path ?? path, draftOnly)
-		} else if (kind === 'app' || kind === 'raw_app') {
+		} else if (kind === 'app') {
+			// `raw_app` is handled above; only visual apps reach here.
 			const r = (await AppService.getAppByPath({ workspace, path, getDraft: true })) as any
 			const d = r.draft ?? {
 				value: r.value,
