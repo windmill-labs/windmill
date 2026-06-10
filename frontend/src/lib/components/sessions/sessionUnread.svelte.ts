@@ -1,3 +1,5 @@
+import { BROWSER } from 'esm-env'
+import { getLocalSetting } from '$lib/utils'
 import type { SessionRuntime } from './sessionRuntime.svelte'
 import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
 
@@ -13,9 +15,9 @@ const LS_KEY = 'windmill_sessions_last_seen_counts'
 
 function readScoped(): Record<string, number> {
 	const key = scopedKey(LS_KEY)
-	if (typeof window === 'undefined' || !key) return {}
+	if (!BROWSER || !key) return {}
 	try {
-		const raw = localStorage.getItem(key)
+		const raw = getLocalSetting(key)
 		return raw ? JSON.parse(raw) : {}
 	} catch {
 		return {}
@@ -27,7 +29,7 @@ function readScoped(): Record<string, number> {
 const lastSeen = $state<{ val: Record<string, number> }>({ val: {} })
 
 onUserChange((email, prevEmail) => {
-	if (typeof window === 'undefined') return
+	if (!BROWSER) return
 	const key = scopedKey(LS_KEY)
 	if (!key) {
 		if (prevEmail !== undefined) lastSeen.val = {}
@@ -39,7 +41,7 @@ onUserChange((email, prevEmail) => {
 
 function persist(): void {
 	const key = scopedKey(LS_KEY)
-	if (typeof window === 'undefined' || !key) return
+	if (!BROWSER || !key) return
 	try {
 		localStorage.setItem(key, JSON.stringify(lastSeen.val))
 	} catch (e) {

@@ -69,6 +69,7 @@ import {
 } from './global/core'
 import { isGlobalAiEnabled } from './global/gate'
 import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
+import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -138,10 +139,10 @@ function isWorkspacePath(path: string | undefined): path is string {
 // re-reads via onUserChange once it does.
 function getPersistedAutonomyMode(): AIAutonomyMode {
 	const key = scopedKey(AI_AUTONOMY_MODE_STORAGE_KEY)
-	if (!BROWSER || typeof localStorage === 'undefined' || !key) {
+	if (!BROWSER || !key) {
 		return AIAutonomyMode.ACCEPT_EDIT
 	}
-	const persistedMode = localStorage.getItem(key)
+	const persistedMode = getLocalSetting(key)
 	if (isAIAutonomyMode(persistedMode)) {
 		return persistedMode
 	}
@@ -149,17 +150,17 @@ function getPersistedAutonomyMode(): AIAutonomyMode {
 	// require confirmation; only YOLO bypasses those). Note this means users who
 	// never opened the autonomy picker now start with edit auto-accept on.
 	const legacyKey = scopedKey(LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY)
-	return legacyKey && localStorage.getItem(legacyKey) === 'true'
+	return legacyKey && getLocalSetting(legacyKey) === 'true'
 		? AIAutonomyMode.YOLO
 		: AIAutonomyMode.ACCEPT_EDIT
 }
 
 function persistAutonomyMode(mode: AIAutonomyMode) {
 	const key = scopedKey(AI_AUTONOMY_MODE_STORAGE_KEY)
-	if (!BROWSER || typeof localStorage === 'undefined' || !key) {
+	if (!BROWSER || !key) {
 		return
 	}
-	localStorage.setItem(key, mode)
+	storeLocalSetting(key, mode)
 }
 
 // Claim the pre-namespacing autonomy keys for the first user to log in on a

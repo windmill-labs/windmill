@@ -10,6 +10,7 @@ import {
 	type UserWorkspace
 } from '$lib/stores'
 import { switchWorkspace } from '$lib/storeUtils'
+import { getLocalSetting } from '$lib/utils'
 
 // Switch the global workspace iff the target differs from the active one
 // and is non-empty. Centralises the "session needs its workspace in focus"
@@ -146,7 +147,7 @@ const defaultSessions: Session[] = []
 function loadSessions(key: string | undefined): Session[] {
 	if (!BROWSER || !key) return defaultSessions
 	try {
-		const raw = localStorage.getItem(key)
+		const raw = getLocalSetting(key)
 		if (raw) {
 			const parsed = JSON.parse(raw)
 			if (Array.isArray(parsed) && parsed.length > 0) {

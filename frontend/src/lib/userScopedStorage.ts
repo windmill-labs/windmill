@@ -1,5 +1,6 @@
 import { BROWSER } from 'esm-env'
 import { userStore } from '$lib/stores'
+import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 
 // Browser-persisted AI-session state (the `/sessions` list, unread markers,
 // chat-history IndexedDB, autonomy mode) must be scoped to the logged-in
@@ -71,13 +72,13 @@ export function onUserChange(cb: UserChangeCallback): void {
 // legacy copy. The first user to log in on a previously single-user browser
 // keeps their data; subsequent users start clean.
 export function migrateLegacyLocalStorage(legacyKey: string, targetKey: string | undefined): void {
-	if (!BROWSER || typeof localStorage === 'undefined' || !targetKey) return
+	if (!BROWSER || !targetKey) return
 	try {
-		if (localStorage.getItem(targetKey) !== null) return
-		const legacy = localStorage.getItem(legacyKey)
-		if (legacy === null) return
-		localStorage.setItem(targetKey, legacy)
-		localStorage.removeItem(legacyKey)
+		if (getLocalSetting(targetKey) != null) return
+		const legacy = getLocalSetting(legacyKey)
+		if (legacy == null) return
+		storeLocalSetting(targetKey, legacy)
+		storeLocalSetting(legacyKey, undefined)
 	} catch (e) {
 		console.error('userScopedStorage: legacy localStorage migration failed', e)
 	}
