@@ -13,6 +13,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { getDraftDiffValues, deployDraft, discardDraft } from '$lib/utils_draft_deploy'
 	import { type DraftItem } from '$lib/workspaceDrafts.svelte'
+	import type { Kind as LayoutKind } from '$lib/utils_deployable'
 
 	interface Props {
 		currentWorkspaceId: string
@@ -52,7 +53,11 @@
 	}: Props = $props()
 
 	type Row = {
-		kind: DraftItem['kind']
+		/** The deploy layout's `Kind` naming (`http_trigger`, `schedule`,
+		 * ...) — the layout reads `item.kind` for the row icon. Our
+		 * `UserDraftItemKind` naming lives in `draftKind`. */
+		kind: LayoutKind
+		draftKind: DraftItem['kind']
 		path: string
 		summary?: string
 		draft_only: boolean
@@ -63,11 +68,43 @@
 		return `${kind}:${path}`
 	}
 
+	// UserDraftItemKind → the deploy layout's Kind union (drives row icons).
+	// Trigger kinds swap the prefix to a suffix; kinds the layout doesn't
+	// know (webhook, native triggers) borrow the generic 'trigger' icon.
+	function toLayoutKind(kind: DraftItem['kind']): LayoutKind {
+		if (kind === 'trigger_schedule') return 'schedule'
+		if (kind === 'trigger_default_email') return 'email_trigger'
+		if (kind.startsWith('trigger_')) {
+			const candidate = `${kind.slice('trigger_'.length)}_trigger`
+			const known = [
+				'http_trigger',
+				'websocket_trigger',
+				'kafka_trigger',
+				'nats_trigger',
+				'postgres_trigger',
+				'mqtt_trigger',
+				'sqs_trigger',
+				'gcp_trigger',
+				'azure_trigger',
+				'email_trigger'
+			]
+			return (known.includes(candidate) ? candidate : 'trigger') as LayoutKind
+		}
+		return kind as LayoutKind
+	}
+
 	// The list (and the Draft Count) come from the shared Workspace Drafts module,
 	// owned by the page and passed in via `draftItems`; deploy/discard invalidate
 	// that resource, so the list refetches and deployed items drop off without a
 	// manual reload here.
-	const items: Row[] = $derived(draftItems.map((d) => ({ ...d, key: getItemKey(d.kind, d.path) })))
+	const items: Row[] = $derived(
+		draftItems.map((d) => ({
+			...d,
+			key: getItemKey(d.kind, d.path),
+			kind: toLayoutKind(d.kind),
+			draftKind: d.kind
+		}))
+	)
 
 	// The Draft Items list only carries the *deployed* summary, so the draft's
 	// (new) display name isn't known yet. Fetch each item's draft blob once and
@@ -84,13 +121,13 @@
 		if (summaryCache[item.key]) return
 		summaryCache[item.key] = { loading: true }
 		try {
-			const r = (await (item.kind === 'script'
+			const r = (await (item.draftKind === 'script'
 				? ScriptService.getScriptByPath({
 						workspace: currentWorkspaceId,
 						path: item.path,
 						getDraft: true
 					})
-				: item.kind === 'flow'
+				: item.draftKind === 'flow'
 					? FlowService.getFlowByPath({
 							workspace: currentWorkspaceId,
 							path: item.path,
@@ -116,7 +153,12 @@
 		const current = items
 		untrack(() => {
 			for (const item of current) {
-				if (!item.draft_only && !item.raw_app && !summaryCache[item.key]) {
+				if (
+					!item.draft_only &&
+					!item.raw_app &&
+					['script', 'flow', 'app'].includes(item.draftKind) &&
+					!summaryCache[item.key]
+				) {
 					void fetchDraftSummary(item)
 				}
 			}
@@ -201,10 +243,10 @@
 	async function showDiff(item: Row) {
 		if (!diffDrawer) return
 		const reqId = ++diffRequestId
-		isFlow = item.kind === 'flow'
+		isFlow = item.draftKind === 'flow'
 		diffDrawer.openDrawer()
 		const { deployed, draft } = await getDraftDiffValues(
-			item.kind,
+			item.draftKind,
 			item.path,
 			currentWorkspaceId,
 			item.draft_only
@@ -229,7 +271,7 @@
 		for (const item of toDeploy) {
 			deploymentStatus[item.key] = { status: 'loading' }
 			const res = await deployDraft(
-				item.kind,
+				item.draftKind,
 				item.path,
 				currentWorkspaceId,
 				item.draft_only,
@@ -258,7 +300,7 @@
 		const item = discardTarget
 		discardTarget = undefined
 		if (!item) return
-		const res = await discardDraft(item.kind, item.path, currentWorkspaceId, item.draft_only)
+		const res = await discardDraft(item.draftKind, item.path, currentWorkspaceId, item.draft_only)
 		if (res.success) {
 			sendUserToast(item.draft_only ? `Deleted ${item.path}` : `Discarded draft of ${item.path}`)
 			// discardDraft invalidated the Draft list; refresh the fork comparison.
@@ -269,12 +311,42 @@
 	}
 
 	// Editor URL for a draft item, scoped to the current workspace. Raw apps live
-	// under a different editor route, so map their kind accordingly.
+	// under a different editor route, so map their kind accordingly. Kinds whose
+	// editor is a drawer on a list page (variables, resources, schedules,
+	// triggers) link to that page with the item path as the hash anchor.
+	const LIST_PAGE_FOR_KIND: Partial<Record<Row['draftKind'], string>> = {
+		variable: '/variables',
+		resource: '/resources',
+		trigger_schedule: '/schedules',
+		trigger_http: '/routes',
+		trigger_websocket: '/websocket_triggers',
+		trigger_postgres: '/postgres_triggers',
+		trigger_kafka: '/kafka_triggers',
+		trigger_nats: '/nats_triggers',
+		trigger_mqtt: '/mqtt_triggers',
+		trigger_sqs: '/sqs_triggers',
+		trigger_gcp: '/gcp_triggers',
+		trigger_azure: '/azure_triggers',
+		trigger_email: '/email_triggers'
+	}
 	function draftEditUrl(d: Row): string | undefined {
+		const listPage = LIST_PAGE_FOR_KIND[d.draftKind]
+		if (listPage) {
+			return `${listPage}?workspace=${encodeURIComponent(currentWorkspaceId)}#${d.path}`
+		}
 		return editUrlFor(
-			{ kind: d.raw_app ? 'raw_app' : d.kind, path: d.path } as unknown as WorkspaceItemDiff,
+			{ kind: d.raw_app ? 'raw_app' : d.draftKind, path: d.path } as unknown as WorkspaceItemDiff,
 			currentWorkspaceId
 		)
+	}
+
+	// Human label for the kind badge on each row — without it a variable
+	// draft and a script draft at the same path are indistinguishable.
+	function kindLabel(kind: Row['draftKind']): string {
+		if (kind === 'raw_app') return 'app'
+		if (kind === 'trigger_schedule') return 'schedule'
+		if (kind.startsWith('trigger_')) return `${kind.slice('trigger_'.length)} trigger`
+		return kind
 	}
 </script>
 
@@ -344,6 +416,7 @@
 
 			{#snippet itemActions(item)}
 				{@const draftItem = item as unknown as Row}
+				<Badge color="gray" size="xs">{kindLabel(draftItem.draftKind)}</Badge>
 				{#if draftItem.draft_only}
 					<Badge color="indigo" size="xs">New</Badge>
 				{/if}

@@ -22,8 +22,77 @@ use windmill_common::{
 
 pub fn workspaced_service() -> Router {
     Router::new()
+        .route("/list", get(list_drafts))
         .route("/get/{kind}/{*path}", get(get_draft_for_user))
         .route("/save_draft/{kind}/{*path}", post(save_draft))
+}
+
+#[derive(Serialize)]
+pub struct DraftListItem {
+    pub kind: UserDraftItemKind,
+    pub path: String,
+    /// Best-effort, read from the draft JSON's `summary` field when the
+    /// editor shape carries one (scripts, flows, schedules, ...).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    /// No deployed counterpart exists at this path — the draft is the
+    /// whole item. Kinds without a per-path backing table (webhook,
+    /// native triggers) report `true`.
+    pub draft_only: bool,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Every draft the authed user has in this workspace, across all kinds —
+/// the single source for the "Review & deploy drafts" page and the
+/// home-page draft-count banner. One query over the `draft` table; the
+/// `draft_only` flag is computed per kind against the deployed table so
+/// the frontend doesn't fan out a dozen list calls just to find drafts.
+async fn list_drafts(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> Result<Json<Vec<DraftListItem>>> {
+    // Operators can't create drafts (see `require_can_write_path`) and
+    // are excluded from every other draft surface.
+    if authed.is_operator {
+        return Ok(Json(vec![]));
+    }
+    let rows = sqlx::query_as!(
+        DraftListItem,
+        r#"SELECT d.path,
+                  d.typ AS "kind!: UserDraftItemKind",
+                  d.created_at,
+                  d.value ->> 'summary' AS summary,
+                  CASE d.typ::text
+                    WHEN 'script' THEN NOT EXISTS(SELECT 1 FROM script s WHERE s.workspace_id = d.workspace_id AND s.path = d.path AND s.deleted = false)
+                    WHEN 'flow' THEN NOT EXISTS(SELECT 1 FROM flow f WHERE f.workspace_id = d.workspace_id AND f.path = d.path)
+                    WHEN 'app' THEN NOT EXISTS(SELECT 1 FROM app a WHERE a.workspace_id = d.workspace_id AND a.path = d.path)
+                    WHEN 'raw_app' THEN NOT EXISTS(SELECT 1 FROM app a WHERE a.workspace_id = d.workspace_id AND a.path = d.path)
+                    WHEN 'resource' THEN NOT EXISTS(SELECT 1 FROM resource r WHERE r.workspace_id = d.workspace_id AND r.path = d.path)
+                    WHEN 'variable' THEN NOT EXISTS(SELECT 1 FROM variable v WHERE v.workspace_id = d.workspace_id AND v.path = d.path)
+                    WHEN 'trigger_schedule' THEN NOT EXISTS(SELECT 1 FROM schedule t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
+                    WHEN 'trigger_http' THEN NOT EXISTS(SELECT 1 FROM http_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
+                    WHEN 'trigger_websocket' THEN NOT EXISTS(SELECT 1 FROM websocket_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
+                    WHEN 'trigger_postgres' THEN NOT EXISTS(SELECT 1 FROM postgres_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
+                    WHEN 'trigger_kafka' THEN NOT EXISTS(SELECT 1 FROM kafka_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
+                    WHEN 'trigger_nats' THEN NOT EXISTS(SELECT 1 FROM nats_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
+                    WHEN 'trigger_mqtt' THEN NOT EXISTS(SELECT 1 FROM mqtt_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
+                    WHEN 'trigger_sqs' THEN NOT EXISTS(SELECT 1 FROM sqs_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
+                    WHEN 'trigger_gcp' THEN NOT EXISTS(SELECT 1 FROM gcp_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
+                    WHEN 'trigger_azure' THEN NOT EXISTS(SELECT 1 FROM azure_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
+                    WHEN 'trigger_email' THEN NOT EXISTS(SELECT 1 FROM email_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
+                    WHEN 'trigger_default_email' THEN NOT EXISTS(SELECT 1 FROM email_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
+                    ELSE true
+                  END AS "draft_only!"
+           FROM draft d
+           WHERE d.workspace_id = $1 AND d.email = $2
+           ORDER BY d.path"#,
+        &w_id,
+        &authed.email,
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(Json(rows))
 }
 
 #[derive(Deserialize, Debug)]

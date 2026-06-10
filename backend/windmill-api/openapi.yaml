@@ -7890,6 +7890,39 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/drafts/list:
+    get:
+      summary: list every draft the current user has in this workspace, across all kinds
+      operationId: listDrafts
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: the user's drafts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    kind:
+                      $ref: "#/components/schemas/UserDraftItemKind"
+                    path:
+                      type: string
+                    summary:
+                      type: string
+                      description: Best-effort, read from the draft JSON's `summary` field when the editor shape carries one.
+                    draft_only:
+                      type: boolean
+                      description: No deployed counterpart exists at this path — the draft is the whole item.
+                    created_at:
+                      type: string
+                      format: date-time
+                  required: [kind, path, draft_only, created_at]
+
   /w/{workspace}/drafts/get/{kind}/{path}:
     get:
       summary: fetch a single draft's content by workspace username (or the legacy workspace-level row)
