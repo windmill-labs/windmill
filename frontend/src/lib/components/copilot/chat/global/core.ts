@@ -661,7 +661,7 @@ Rules:
 - Keep context targeted.${previewTools
 		? `
 - After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
-- When debugging a running raw app (blank screen, broken UI, an error the user reports), call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app"); the logs come from the running app, not from a stored history.
+- When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
 - get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.`
 		: ''
 	}
@@ -2055,8 +2055,9 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			getRuntimeLogsSchema,
 			'get_app_runtime_logs',
-			'Fetch the most recent browser console logs (and uncaught errors) from the raw app preview currently open in this AI session. Use it to debug a running app — e.g. when the user reports a blank screen, a broken interaction, or a runtime error. ONLY works inside a session with a raw app preview open; call open_preview(kind="raw_app") first if needed. Returns the last `limit` lines (default 10), oldest first. Logs are read live from the running preview, not persisted, so older lines may have scrolled out.'
+			'Fetch the most recent browser console logs (and uncaught errors) from the raw app preview currently open in this AI session.'
 		),
+		showDetails: true,
 		fn: async (ctx) => {
 			const parsed = getRuntimeLogsSchema.parse(ctx.args)
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Reading app runtime logs...' })
@@ -2072,8 +2073,9 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			listAppRunsSchema,
 			'list_app_runs',
-			"List the backend runnable executions (jobs) the raw app preview currently open in this AI session has triggered, newest first. Use this to find the job id of a run the app just made — then call get_job_logs with that id to read its server-side logs. ONLY works inside a session with a raw app preview open; call open_preview(kind=\"raw_app\") first if needed. Returns up to `limit` runs (default 20), each with job_id, component, status and timings. Runs are tracked live from the running preview, not persisted."
+			"List the backend runnable executions (jobs) the raw app preview currently open in this AI session has triggered, newest first."
 		),
+		showDetails: true,
 		fn: async (ctx) => {
 			const parsed = listAppRunsSchema.parse(ctx.args)
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Listing app runs...' })

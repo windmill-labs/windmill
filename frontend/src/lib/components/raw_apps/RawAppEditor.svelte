@@ -50,6 +50,7 @@
 		type RawAppData,
 		DEFAULT_DATA
 	} from './dataTableRefUtils'
+	import { randomUUID } from '$lib/components/flows/conversations/FlowChatManager.svelte'
 
 	interface Props {
 		files?: Record<string, string>
@@ -1104,7 +1105,7 @@
 	const requestRuntimeLogs: RawAppRuntimeLogRequester = (limit) => {
 		const win = previewIframe?.contentWindow
 		if (!win || !previewIframeLoaded) return Promise.resolve(undefined)
-		const requestId = crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)
+		const requestId = randomUUID()
 		return new Promise<RawAppRuntimeLogEntry[] | undefined>((resolve) => {
 			const timer = setTimeout(() => {
 				delete pendingRuntimeLogReqs[requestId]
