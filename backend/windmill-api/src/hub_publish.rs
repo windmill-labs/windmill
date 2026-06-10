@@ -363,7 +363,7 @@ async fn submit_project(
 
 async fn get_from_hub(path: &str, source_id: &str) -> Result<(StatusCode, String), Error> {
     let hub_token = std::env::var("HUB_DEV_TOKEN")
-        .map_err(|_| Error::BadRequest("HUB_DEV_TOKEN not set".into()))?;
+        .map_err(|_| Error::InternalErr("HUB_DEV_TOKEN not set".into()))?;
 
     let url = format!("{}{}", **HUB_BASE_URL.load(), path);
 
@@ -390,7 +390,7 @@ async fn forward_to_hub<T: Serialize>(
     body: &T,
 ) -> Result<(StatusCode, String), Error> {
     let hub_token = std::env::var("HUB_DEV_TOKEN")
-        .map_err(|_| Error::BadRequest("HUB_DEV_TOKEN not set".into()))?;
+        .map_err(|_| Error::InternalErr("HUB_DEV_TOKEN not set".into()))?;
 
     let url = format!("{}{}", **HUB_BASE_URL.load(), path);
 
