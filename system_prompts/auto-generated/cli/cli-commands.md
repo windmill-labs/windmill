@@ -407,6 +407,17 @@ Validate Windmill flow, schedule, and trigger YAML files in a directory
   - `--csv-separator <csvSeparator:string>` - CSV column separator (default ,)
   - `--csv-header` - Treat the first CSV row as a header
 
+### pipeline
+
+inspect asset-driven pipelines (scripts marked `// pipeline`, wired by `// on <spec>` annotations)
+
+**Subcommands:**
+
+- `pipeline list` - list pipeline folders in the workspace
+  - `--json` - Output as JSON (for piping to jq)
+- `pipeline show <folder:string>` - render a pipeline folder's DAG (sources, lineage, subscriptions) in the terminal
+  - `--json` - Output the raw asset graph as JSON
+
 ### protection-rules
 
 **Subcommands:**
