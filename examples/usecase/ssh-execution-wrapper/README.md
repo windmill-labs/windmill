@@ -68,14 +68,16 @@ target="$1"           # jump_host's position: always received as an empty string
 df -h
 ```
 
-The argument can be an `ssh_target` resource (resource-typed args arrive fully
-resolved) or a resource path string (with or without the `$res:` prefix). Two
-things to note: the target argument itself is forwarded to the remote script as
-an **empty string** (its resolved value embeds the private key, which must never
-reach the remote command line — its position is kept so the other `$1..$n` stay
-aligned), and with a dynamic target the *runner* chooses where the code executes
-(bounded by workspace resource permissions), whereas a hardcoded path lets the
-script author pin it.
+The argument must be an `ssh_target` resource **path string** (with or without
+the `$res:` prefix) — inline `ssh_target` objects are rejected, so the target is
+always resolved through the runner's resource permissions and a caller can only
+route execution to hosts whose resource they can read. Two things to note: the
+target argument itself is forwarded to the remote script as an **empty string**
+(its resolved value embeds the private key, which must never reach the remote
+command line — its position is kept so the other `$1..$n` stay aligned), and
+with a dynamic target the *runner* chooses where the code executes (bounded by
+those resource permissions), whereas a hardcoded path lets the script author
+pin it.
 
 **Host-key pinning** is enforced (`StrictHostKeyChecking=yes`) whenever the
 resource's `host_pubkey` is set. An empty `host_pubkey` refuses to run unless the

@@ -97,7 +97,9 @@ cat >"$f"                       # read the streamed script body from stdin
 exit $?                         # propagate the remote exit code
 REMOTE
 )
-# `interp` comes from our controlled dispatch table, so substitution is safe.
+# NOTE: `interp` is only controlled for the known dispatch keys above — the
+# `*)` case passes `language` through verbatim into the remote bootstrap, so
+# keep `language` author-controlled, never end-user input (see README).
 remote_bootstrap=${remote_bootstrap//@@INTERP@@/$interp}
 
 # --- execute ---------------------------------------------------------------

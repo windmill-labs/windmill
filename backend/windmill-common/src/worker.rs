@@ -898,6 +898,9 @@ impl BashAnnotations {
     ///
     /// Mirrors `sandbox_image`: only leading comment lines are scanned, stopping
     /// at the first non-comment line. A bare `#ssh` with no path returns `None`.
+    /// The token must look like a target — a resource path (contains `/`) or a
+    /// `$arg` reference — so prose comments like `# ssh into the box` never
+    /// trigger the reroute.
     pub fn ssh_target(code: &str) -> Option<String> {
         for line in code.lines() {
             let line = line.trim();
@@ -910,7 +913,9 @@ impl BashAnnotations {
             let mut tokens = line[1..].split_whitespace();
             if tokens.next() == Some("ssh") {
                 if let Some(path) = tokens.next() {
-                    return Some(path.to_string());
+                    if path.contains('/') || path.starts_with('$') {
+                        return Some(path.to_string());
+                    }
                 }
             }
         }
@@ -2332,6 +2337,17 @@ mod tests {
         assert_eq!(BashAnnotations::ssh_target("#ssh\necho hi"), None);
         // `ssh` must be its own token, not a prefix.
         assert_eq!(BashAnnotations::ssh_target("# sshd restart"), None);
+        // Prose comments mentioning ssh must not trigger the reroute: the token
+        // after `ssh` has to look like a target (path with `/` or `$arg`).
+        assert_eq!(
+            BashAnnotations::ssh_target("# ssh into the box and restart nginx\necho hi"),
+            None
+        );
+        // ...but a real directive on a later comment line is still found.
+        assert_eq!(
+            BashAnnotations::ssh_target("# ssh into the box\n#ssh f/infra/box\necho hi"),
+            Some("f/infra/box".to_string())
+        );
         // Stops at the first non-comment line (declared too late is ignored).
         assert_eq!(
             BashAnnotations::ssh_target("echo hi\n#ssh f/infra/box"),
