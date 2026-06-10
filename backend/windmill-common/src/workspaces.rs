@@ -524,7 +524,9 @@ pub struct DataTable {
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct DataTableForkedFrom {
-    /// Schema snapshot at fork time
+    /// Legacy schema snapshot taken at fork time. No longer written: schema
+    /// changes are tracked as datatable migrations instead. Kept so existing
+    /// settings JSON still round-trips.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<serde_json::Value>,
 }

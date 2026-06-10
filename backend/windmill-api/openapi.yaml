@@ -5736,6 +5736,201 @@ paths:
         "404":
           description: protection rule not found
 
+  /w/{workspace}/datatable_migrations/{datatable}/list:
+    get:
+      summary: list migrations of a datatable with applied/drifted status
+      operationId: listDatatableMigrations
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: migrations and their applied state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [migrations]
+                properties:
+                  migrations:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        [
+                          version,
+                          name,
+                          checksum,
+                          content,
+                          created_at,
+                          created_by,
+                          applied,
+                          drifted,
+                        ]
+                      properties:
+                        version:
+                          type: string
+                        name:
+                          type: string
+                        checksum:
+                          type: string
+                        content:
+                          type: string
+                        created_at:
+                          type: string
+                          format: date-time
+                        created_by:
+                          type: string
+                        applied:
+                          type: boolean
+                          description: applied to the datatable's backing database
+                        drifted:
+                          type: boolean
+                          description: applied but edited since (checksum mismatch)
+                  applied_state_error:
+                    type: string
+                    nullable: true
+                    description: set when the applied state could not be read from the datatable database
+
+  /w/{workspace}/datatable_migrations/{datatable}/create:
+    post:
+      summary: create a new datatable migration
+      operationId: createDatatableMigration
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                name:
+                  type: string
+                content:
+                  type: string
+                version:
+                  type: string
+                  description: explicit version; generated from the current time if omitted
+      responses:
+        "200":
+          description: created migration version
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version]
+                properties:
+                  version:
+                    type: string
+
+  /w/{workspace}/datatable_migrations/{datatable}/upsert:
+    post:
+      summary: create or update a datatable migration by version
+      operationId: upsertDatatableMigration
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version, content]
+              properties:
+                version:
+                  type: string
+                name:
+                  type: string
+                content:
+                  type: string
+      responses:
+        "200":
+          description: upsert confirmation
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/datatable_migrations/{datatable}/delete:
+    post:
+      summary: delete a datatable migration
+      operationId: deleteDatatableMigration
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version:
+                  type: string
+      responses:
+        "200":
+          description: delete confirmation
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/datatable_migrations/{datatable}/run:
+    post:
+      summary: apply all pending migrations to the datatable database
+      operationId: runDatatableMigrations
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: versions newly applied by this call
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [applied]
+                properties:
+                  applied:
+                    type: array
+                    items:
+                      type: string
+
   /w/{workspace}/deployment_request/eligible_deployers:
     get:
       summary: list users eligible to be deployment request assignees

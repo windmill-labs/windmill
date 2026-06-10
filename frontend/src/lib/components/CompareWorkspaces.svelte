@@ -56,7 +56,7 @@
 	import { base } from '$lib/base'
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import { editUrlFor } from './sessions/forkEditUrl'
-	import DatatableSchemaDiff from './DatatableSchemaDiff.svelte'
+	import DatatableMigrations from './DatatableMigrations.svelte'
 
 	interface Props {
 		currentWorkspaceId: string
@@ -1095,7 +1095,7 @@
 		</div>
 
 		<div class="bg-surface-tertiary p-4 rounded-md border">
-			<DatatableSchemaDiff {currentWorkspaceId} {parentWorkspaceId} />
+			<DatatableMigrations workspaceId={currentWorkspaceId} />
 		</div>
 	</div>
 
