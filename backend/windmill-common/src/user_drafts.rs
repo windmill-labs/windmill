@@ -463,17 +463,6 @@ pub async fn fetch_draft_only(
 /// endpoints.
 pub const ENCRYPTED_DRAFT_PREFIX: &str = "$encrypted:";
 
-/// Placeholder the client receives in place of a draft secret's
-/// `$encrypted:` ciphertext. The ciphertext NEVER leaves the server —
-/// `get_variable` swaps it for this sentinel before responding. On deploy
-/// the client sends the sentinel back, and the server rehydrates the real
-/// secret from the caller's OWN draft row (see
-/// `rehydrate_secret_from_own_draft`). This is what closes the
-/// ciphertext-laundering oracle: the server only ever decrypts a
-/// ciphertext it produced for this exact (workspace, path, email), never
-/// one a client hands it.
-pub const DRAFT_SECRET_SENTINEL: &str = "$draft_secret";
-
 fn draft_decrypt_error() -> crate::error::Error {
     crate::error::Error::BadRequest(
         "An encrypted draft secret could not be decrypted (the workspace encryption key may \

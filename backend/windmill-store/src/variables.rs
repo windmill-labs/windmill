@@ -37,8 +37,7 @@ use windmill_common::{
     scripts::ScriptHash,
     user_drafts::{
         decrypt_draft_secret_value, delete_all_drafts_for_path, fetch_draft_only,
-        maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, DRAFT_SECRET_SENTINEL,
-        ENCRYPTED_DRAFT_PREFIX,
+        maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, ENCRYPTED_DRAFT_PREFIX,
     },
     utils::{not_found_if_none, paginate, Pagination, StripPath, WarnAfterExt},
     variables::{
@@ -343,110 +342,6 @@ struct GetVariableQuery {
     get_draft: bool,
 }
 
-/// Replace a draft secret's `$encrypted:` ciphertext with the opaque
-/// `DRAFT_SECRET_SENTINEL` in a draft JSON value (the editor's
-/// `VariableState` shape: `{ variable: { value, is_secret, .. }, .. }`),
-/// so the ciphertext never reaches the client. No-op for non-secret or
-/// non-encrypted values. Operates in place.
-fn scrub_secret_draft_value(v: &mut serde_json::Value) {
-    let Some(var) = v.get_mut("variable") else {
-        return;
-    };
-    let is_secret = var
-        .get("is_secret")
-        .and_then(|x| x.as_bool())
-        .unwrap_or(false);
-    if !is_secret {
-        return;
-    }
-    if let Some(serde_json::Value::String(s)) = var.get_mut("value") {
-        if s.starts_with(ENCRYPTED_DRAFT_PREFIX) {
-            *s = DRAFT_SECRET_SENTINEL.to_string();
-        }
-    }
-}
-
-/// Scrub draft secret ciphertext out of a variable get-by-path overlay
-/// before it goes on the wire — both the `draft` field and, for
-/// draft-only variables, the `inner` stand-in (which `fetch_draft_only`
-/// fills from the same draft JSON).
-fn scrub_secret_overlay(overlay: &mut WithDraftOverlay) {
-    if let Some(draft) = overlay.draft.as_mut() {
-        scrub_secret_draft_value(draft);
-    }
-    if overlay.no_deployed {
-        scrub_secret_draft_value(&mut overlay.inner);
-    }
-}
-
-/// Rehydrate a secret variable's plaintext for deploy from the CALLER'S
-/// OWN draft row — the only place a `$encrypted:` ciphertext is ever
-/// decrypted. Invoked when the client deploys with the
-/// `DRAFT_SECRET_SENTINEL` placeholder (it never holds the ciphertext).
-/// The server thus only decrypts ciphertext it produced for this exact
-/// `(workspace, path, email)`, so a stolen ciphertext can't be laundered
-/// into plaintext by submitting it at a writable path.
-async fn rehydrate_secret_from_own_draft(
-    db: &DB,
-    w_id: &str,
-    email: &str,
-    path: &str,
-) -> Result<String> {
-    let row = sqlx::query_scalar!(
-        r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>"
-           FROM draft
-           WHERE workspace_id = $1 AND email = $2 AND path = $3
-             AND typ = $4"#,
-        w_id,
-        email,
-        path,
-        UserDraftItemKind::Variable as UserDraftItemKind,
-    )
-    .fetch_optional(db)
-    .await?;
-    let Some(row) = row else {
-        return Err(Error::BadRequest(
-            "No saved draft secret to deploy at this path. Re-enter the secret value.".to_string(),
-        ));
-    };
-    let v: serde_json::Value = serde_json::from_str(row.0.get())?;
-    let value = v
-        .get("variable")
-        .and_then(|x| x.get("value"))
-        .and_then(|x| x.as_str())
-        .unwrap_or("");
-    if value.starts_with(ENCRYPTED_DRAFT_PREFIX) {
-        decrypt_draft_secret_value(db, w_id, value).await
-    } else {
-        // The draft already holds plaintext (e.g. a value typed but not
-        // yet round-tripped through encryption) — use it as-is.
-        Ok(value.to_string())
-    }
-}
-
-/// Resolve the deploy-time secret value for a variable, closing the
-/// laundering oracle. The client may send the `DRAFT_SECRET_SENTINEL`
-/// (rehydrate from its own draft) or fresh plaintext — but NEVER a
-/// `$encrypted:` ciphertext, which is rejected outright.
-async fn resolve_secret_for_deploy(
-    db: &DB,
-    w_id: &str,
-    email: &str,
-    draft_path: &str,
-    submitted: &str,
-) -> Result<String> {
-    if submitted == DRAFT_SECRET_SENTINEL {
-        rehydrate_secret_from_own_draft(db, w_id, email, draft_path).await
-    } else if submitted.starts_with(ENCRYPTED_DRAFT_PREFIX) {
-        Err(Error::BadRequest(
-            "A draft secret must be deployed via its placeholder, not a raw ciphertext."
-                .to_string(),
-        ))
-    } else {
-        Ok(submitted.to_string())
-    }
-}
-
 async fn get_variable(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -552,7 +447,7 @@ async fn get_variable(
         variable
     };
 
-    let mut overlay = maybe_overlay_draft(
+    let overlay = maybe_overlay_draft(
         &db,
         &w_id,
         &authed.email,
@@ -562,9 +457,6 @@ async fn get_variable(
         r,
     )
     .await?;
-    // Never ship a draft secret's ciphertext to the client — replace it
-    // with the opaque sentinel. Deploy rehydrates from the draft row.
-    scrub_secret_overlay(&mut overlay);
     Ok(Json(overlay))
 }
 
@@ -704,13 +596,14 @@ async fn create_variable(
 
     check_path_conflict(&db, &w_id, &variable.path).await?;
     let value = if variable.is_secret && !already_encrypted.unwrap_or(false) {
-        // A restored draft deploys via the `$draft_secret` sentinel —
-        // rehydrate the plaintext from the caller's own draft row. A raw
-        // `$encrypted:` ciphertext from the client is rejected (laundering
-        // oracle). Fresh plaintext passes through.
-        let plain =
-            resolve_secret_for_deploy(&db, &w_id, &authed.email, &variable.path, &variable.value)
-                .await?;
+        // Deploying a restored draft sends the draft's `$encrypted:` marker
+        // as-is — decrypt it back (validating it against the workspace key)
+        // so it goes through the secret backend like any typed plaintext.
+        let plain = if variable.value.starts_with(ENCRYPTED_DRAFT_PREFIX) {
+            decrypt_draft_secret_value(&db, &w_id, &variable.value).await?
+        } else {
+            variable.value.clone()
+        };
         // Use secret backend for encryption (supports both DB and Vault)
         store_secret_value(&db, &w_id, &variable.path, &plain).await?
     } else {
@@ -1189,12 +1082,14 @@ async fn update_variable(
         };
 
         let value = if is_secret && !already_encrypted.unwrap_or(false) {
-            // A restored draft deploys via the `$draft_secret` sentinel —
-            // rehydrate from the caller's own draft row (keyed by the
-            // CURRENT `path`, where the draft was saved, not the renamed
-            // `target_path`). A raw `$encrypted:` ciphertext is rejected
-            // (laundering oracle); fresh plaintext passes through.
-            let plain = resolve_secret_for_deploy(&db, &w_id, &authed.email, path, &nvalue).await?;
+            // Deploying a restored draft sends the draft's `$encrypted:`
+            // marker as-is — decrypt it back (validating it against the
+            // workspace key) before re-storing through the secret backend.
+            let plain = if nvalue.starts_with(ENCRYPTED_DRAFT_PREFIX) {
+                decrypt_draft_secret_value(&db, &w_id, &nvalue).await?
+            } else {
+                nvalue
+            };
             // Use secret backend for encryption (supports both DB and Vault)
             // Store at target_path (new path if renaming, otherwise current path)
             store_secret_value(&db, &w_id, target_path, &plain).await?

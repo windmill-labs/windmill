@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
-    user_drafts::{UserDraftItemKind, DRAFT_SECRET_SENTINEL, ENCRYPTED_DRAFT_PREFIX},
+    user_drafts::{UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX},
     variables::{build_crypt, encrypt},
 };
 
@@ -169,7 +169,7 @@ async fn save_draft(
         // variable deploy endpoints decrypt the marker back before
         // persisting for real.
         let serialized = if kind == UserDraftItemKind::Variable {
-            encrypt_secret_variable_value(&db, &w_id, email, path, value.0.get()).await?
+            encrypt_secret_variable_value(&db, &w_id, value.0.get()).await?
         } else {
             serde_json::to_string(value).unwrap()
         };
@@ -266,20 +266,7 @@ async fn save_draft(
 /// by autosave) pass through untouched. Unexpected shapes pass through
 /// unchanged — the draft store is schema-less by design and a malformed
 /// draft is the editor's problem, not a save error.
-///
-/// The client never holds the ciphertext — on reload it gets the
-/// `$draft_secret` sentinel. So an autosave triggered by editing some
-/// OTHER field (description, labels) carries `value == "$draft_secret"`,
-/// meaning "secret unchanged". We must NOT encrypt that literal (it would
-/// clobber the real ciphertext); instead restore the ciphertext already
-/// stored in this user's draft row.
-async fn encrypt_secret_variable_value(
-    db: &DB,
-    w_id: &str,
-    email: &str,
-    path: &str,
-    raw: &str,
-) -> Result<String> {
+async fn encrypt_secret_variable_value(db: &DB, w_id: &str, raw: &str) -> Result<String> {
     let Ok(mut v) = serde_json::from_str::<serde_json::Value>(raw) else {
         return Ok(raw.to_string());
     };
@@ -292,57 +279,13 @@ async fn encrypt_secret_variable_value(
         if let Some(serde_json::Value::String(s)) =
             v.get_mut("variable").and_then(|x| x.get_mut("value"))
         {
-            if s == DRAFT_SECRET_SENTINEL {
-                // "Secret unchanged" — restore the ciphertext from the
-                // existing draft row rather than encrypting the sentinel.
-                // If somehow no prior ciphertext exists, fall back to empty
-                // (there was no real secret to preserve).
-                *s = existing_draft_secret_ciphertext(db, w_id, email, path)
-                    .await?
-                    .unwrap_or_default();
-            } else if !s.is_empty() && !s.starts_with(ENCRYPTED_DRAFT_PREFIX) {
+            if !s.is_empty() && !s.starts_with(ENCRYPTED_DRAFT_PREFIX) {
                 let mc = build_crypt(db, w_id).await?;
                 *s = format!("{ENCRYPTED_DRAFT_PREFIX}{}", encrypt(&mc, s));
             }
         }
     }
     Ok(v.to_string())
-}
-
-/// The `$encrypted:` ciphertext currently stored in this user's variable
-/// draft row at `path` (if any). Used to preserve an unchanged secret
-/// when an autosave carries the `$draft_secret` sentinel. Returns `None`
-/// when there's no draft row or its stored value isn't an `$encrypted:`
-/// marker.
-async fn existing_draft_secret_ciphertext(
-    db: &DB,
-    w_id: &str,
-    email: &str,
-    path: &str,
-) -> Result<Option<String>> {
-    let row = sqlx::query_scalar!(
-        r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>"
-           FROM draft
-           WHERE workspace_id = $1 AND email = $2 AND path = $3
-             AND typ = $4"#,
-        w_id,
-        email,
-        path,
-        UserDraftItemKind::Variable as UserDraftItemKind,
-    )
-    .fetch_optional(db)
-    .await?;
-    let Some(row) = row else {
-        return Ok(None);
-    };
-    let v: serde_json::Value = serde_json::from_str(row.0.get())?;
-    let existing = v
-        .get("variable")
-        .and_then(|x| x.get("value"))
-        .and_then(|x| x.as_str())
-        .filter(|x| x.starts_with(ENCRYPTED_DRAFT_PREFIX))
-        .map(|x| x.to_string());
-    Ok(existing)
 }
 
 #[derive(Deserialize, Debug)]
