@@ -36,6 +36,7 @@
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatTypingIndicator from './ChatTypingIndicator.svelte'
 	import AIChatInput from './AIChatInput.svelte'
+	import QueuedMessageChip from './QueuedMessageChip.svelte'
 	import { getModifierKey } from '$lib/utils'
 	import type { SelectedContext } from './app/core'
 
@@ -500,6 +501,7 @@
 			</div>
 		{/if}
 		<div>
+			<QueuedMessageChip />
 			{#if inputPreface}
 				{@render inputPreface()}
 			{/if}

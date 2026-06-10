@@ -173,6 +173,14 @@
 		}
 	}
 
+	/** Put text back into the textarea (queued-message delete, or restore
+	 * after a cancelled/errored turn), prepended to any draft so nothing
+	 * the user typed is lost. */
+	export function prependText(text: string) {
+		instructions = instructions.trim() ? `${text}\n\n${instructions}` : text
+		focusInput()
+	}
+
 	function clickOutside(node: HTMLElement) {
 		function handleClick(event: MouseEvent) {
 			if (node && !node.contains(event.target as Node)) {
@@ -255,6 +263,14 @@
 
 	function sendRequest() {
 		if (aiChatManager.loading) {
+			// Queue the message instead of silently discarding it — it is
+			// auto-sent when the streaming turn completes successfully.
+			// Editing-while-loading keeps the old discard behavior.
+			if (editingMessageIndex === null && instructions.trim()) {
+				aiChatManager.queueMessage(instructions)
+				contextTextareaComponent?.clearForSend()
+				instructions = ''
+			}
 			return
 		}
 		if (editingMessageIndex !== null) {

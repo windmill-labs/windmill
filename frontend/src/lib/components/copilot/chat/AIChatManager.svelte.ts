@@ -165,6 +165,10 @@ export class AIChatManager {
 	savedSize = $state<number>(0)
 	instructions = $state<string>('')
 	pendingPrompt = $state<string>('')
+	// Messages typed while a turn is streaming: auto-sent one per turn (in
+	// order) as turns complete successfully, all restored to the input on
+	// cancel/error. Ephemeral — never saved to displayMessages or history.
+	queuedMessages = $state<string[]>([])
 	loading = $state<boolean>(false)
 	currentReply = $state<string>('')
 	displayMessages = $state<DisplayMessage[]>([])
@@ -393,6 +397,26 @@ export class AIChatManager {
 		this.aiChatInput = aiChatInput
 	}
 
+	/** Queue a message typed while a turn is streaming. Each call adds a
+	 * distinct message, sent one per turn in FIFO order. */
+	queueMessage(text: string) {
+		const trimmed = text.trim()
+		if (!trimmed) {
+			return
+		}
+		this.queuedMessages = [...this.queuedMessages, trimmed]
+	}
+
+	/** Remove one queued message and put its text back into the input. */
+	dequeueMessage(index: number) {
+		const message = this.queuedMessages[index]
+		if (message === undefined) {
+			return
+		}
+		this.queuedMessages = this.queuedMessages.filter((_, i) => i !== index)
+		this.aiChatInput?.prependText(message)
+	}
+
 	focusInput() {
 		if (this.aiChatInput) {
 			this.aiChatInput.focusInput()
@@ -519,8 +543,7 @@ export class AIChatManager {
 			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
 			this.helpers = {
 				...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
-				testActiveFlow: async (args?: Record<string, any>) =>
-					this.flowAiChatHelpers?.testFlow(args)
+				testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args)
 			} satisfies GlobalToolHelpers
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
@@ -869,6 +892,7 @@ export class AIChatManager {
 			}
 		}
 		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
+		let sendError = false
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
 			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
@@ -1061,6 +1085,7 @@ export class AIChatManager {
 				})
 			}
 		} catch (err) {
+			sendError = true
 			console.error(err)
 			this.flagLastMessageAsError()
 			if (err instanceof Error) {
@@ -1070,6 +1095,23 @@ export class AIChatManager {
 			}
 		} finally {
 			this.loading = false
+		}
+		// Flush the queue. Auto-send only on a successful completion — after
+		// a cancel (signal aborted; chatRequest swallows the abort) or an
+		// error, firing into a half-finished turn is wrong, so restore the
+		// text to the input instead. Only the first queued message is sent
+		// here: its own flush sends the next one when its turn completes,
+		// so messages go out one per turn in FIFO order.
+		if (this.queuedMessages.length > 0) {
+			if (!sendError && !this.abortController?.signal.aborted) {
+				const [next, ...rest] = this.queuedMessages
+				this.queuedMessages = rest
+				await this.sendRequest({ instructions: next })
+			} else {
+				const restored = this.queuedMessages.join('\n\n')
+				this.queuedMessages = []
+				this.aiChatInput?.prependText(restored)
+			}
 		}
 	}
 
