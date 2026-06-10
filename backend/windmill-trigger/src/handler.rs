@@ -17,7 +17,7 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     user_drafts::{
-        delete_user_draft, fetch_draft_only, maybe_overlay_draft, UserDraftItemKind,
+        delete_all_drafts_for_path, fetch_draft_only, maybe_overlay_draft, UserDraftItemKind,
         WithDraftOverlay, WithDraftQuery,
     },
     utils::{paginate, Pagination, StripPath},
@@ -935,18 +935,12 @@ async fn delete_trigger<T: TriggerCrud>(
 
     tx.commit().await?;
 
-    // Clean up the authed user's per-user draft for this trigger path.
-    // The draft kind is derived from the impl via TriggerCrud, mirroring
-    // the lookup `maybe_overlay_draft` uses on get-by-path. Idempotent on
+    // The trigger is gone for everyone — wipe ALL users' drafts for this
+    // path, not just the caller's, so teammates' drafts don't orphan. The
+    // draft kind is derived from the impl via TriggerCrud, mirroring the
+    // lookup `maybe_overlay_draft` uses on get-by-path. Idempotent on
     // no-draft.
-    delete_user_draft(
-        &db,
-        &workspace_id,
-        &authed.email,
-        T::user_draft_item_kind(),
-        path,
-    )
-    .await?;
+    delete_all_drafts_for_path(&db, &workspace_id, T::user_draft_item_kind(), path).await?;
 
     Ok(format!("Trigger '{}' deleted", path))
 }

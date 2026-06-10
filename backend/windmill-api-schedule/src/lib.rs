@@ -26,7 +26,7 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     schedule::Schedule,
     user_drafts::{
-        delete_user_draft, fetch_draft_only, maybe_overlay_draft, UserDraftItemKind,
+        delete_all_drafts_for_path, fetch_draft_only, maybe_overlay_draft, UserDraftItemKind,
         WithDraftOverlay, WithDraftQuery,
     },
     utils::{
@@ -1281,16 +1281,10 @@ async fn delete_schedule(
 
     tx.commit().await?;
 
-    // Clean up the authed user's per-user draft for this schedule path.
+    // The schedule is gone for everyone — wipe ALL users' drafts for this
+    // path, not just the caller's, so teammates' drafts don't orphan.
     // Idempotent on no-draft.
-    delete_user_draft(
-        &db,
-        &w_id,
-        &authed.email,
-        UserDraftItemKind::TriggerSchedule,
-        path,
-    )
-    .await?;
+    delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::TriggerSchedule, path).await?;
 
     handle_deployment_metadata(
         &authed.email,

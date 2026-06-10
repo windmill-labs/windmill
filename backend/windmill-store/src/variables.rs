@@ -36,8 +36,8 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     scripts::ScriptHash,
     user_drafts::{
-        decrypt_draft_secret_value, delete_user_draft, fetch_draft_only, maybe_overlay_draft,
-        UserDraftItemKind, WithDraftOverlay, ENCRYPTED_DRAFT_PREFIX,
+        decrypt_draft_secret_value, delete_all_drafts_for_path, fetch_draft_only,
+        maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, ENCRYPTED_DRAFT_PREFIX,
     },
     utils::{not_found_if_none, paginate, Pagination, StripPath, WarnAfterExt},
     variables::{
@@ -802,13 +802,13 @@ async fn delete_variable(
 
     tx.commit().await?;
 
-    // Clean up the authed user's per-user drafts for this path so they
-    // aren't left dangling after the underlying item is gone. Idempotent
-    // on the no-draft case. Resource is included because variables
+    // The variable is gone for everyone — wipe ALL users' drafts for this
+    // path, not just the caller's, so teammates' drafts don't orphan.
+    // Idempotent on no-draft. Resource is included because variables
     // cascade-delete linked resource rows at the same path.
-    delete_user_draft(&db, &w_id, &authed.email, UserDraftItemKind::Variable, path).await?;
+    delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Variable, path).await?;
     if deleted_linked_resource.is_some() {
-        delete_user_draft(&db, &w_id, &authed.email, UserDraftItemKind::Resource, path).await?;
+        delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Resource, path).await?;
     }
 
     // If variable was a secret, also delete from Vault backend (if configured)

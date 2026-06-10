@@ -304,6 +304,33 @@ pub async fn delete_user_draft(
     Ok(())
 }
 
+/// Delete EVERY user's draft (and the legacy NULL-email row) at a
+/// path+kind. Use when the underlying item is being DELETED outright:
+/// the item is gone for everyone, so leaving teammates' drafts behind
+/// would orphan them forever — they'd keep surfacing through
+/// `fetch_other_drafts_users` with no item to deploy onto. Contrast with
+/// `delete_user_draft` (caller-scoped), which is for discarding one's own
+/// draft while the item lives on. Idempotent on the no-draft case.
+pub async fn delete_all_drafts_for_path(
+    db: &DB,
+    w_id: &str,
+    kind: UserDraftItemKind,
+    path: &str,
+) -> Result<()> {
+    sqlx::query!(
+        r#"DELETE FROM draft
+           WHERE workspace_id = $1
+             AND path = $2
+             AND typ = $3"#,
+        w_id,
+        path,
+        kind as UserDraftItemKind,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 /// Fetch the authed user's draft as a standalone payload, used by
 /// "get by path" routes when no deployed row exists at the path but a
 /// draft might. Returns the draft as `WithDraftOverlay` with both

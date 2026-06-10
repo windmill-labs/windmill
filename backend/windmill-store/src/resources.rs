@@ -44,7 +44,7 @@ use windmill_common::{
     error::{self, Error, JsonResult, Result},
     get_database_url,
     user_drafts::{
-        delete_user_draft, fetch_draft_only, maybe_overlay_draft, UserDraftItemKind,
+        delete_all_drafts_for_path, fetch_draft_only, maybe_overlay_draft, UserDraftItemKind,
         WithDraftOverlay, WithDraftQuery,
     },
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
@@ -1333,18 +1333,12 @@ async fn delete_resource(
     .await?;
     tx.commit().await?;
 
-    // Clean up the authed user's per-user drafts for this resource path
-    // and any linked variables we cascaded into. Idempotent on no-draft.
-    delete_user_draft(&db, &w_id, &authed.email, UserDraftItemKind::Resource, path).await?;
+    // The resource is gone for everyone — wipe ALL users' drafts for this
+    // path (and any linked variables we cascaded into), not just the
+    // caller's, so teammates' drafts don't orphan. Idempotent on no-draft.
+    delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Resource, path).await?;
     for var_path in &deleted_linked_variables {
-        delete_user_draft(
-            &db,
-            &w_id,
-            &authed.email,
-            UserDraftItemKind::Variable,
-            var_path,
-        )
-        .await?;
+        delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Variable, var_path).await?;
     }
 
     handle_deployment_metadata(
