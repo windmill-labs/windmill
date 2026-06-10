@@ -63,12 +63,12 @@
 	<div class="flex flex-col w-full gap-4">
 		<div class="flex gap-3 items-start">
 			<AlertTriangle size={20} class="text-amber-500 shrink-0 mt-0.5" />
-			<div class="flex flex-col gap-1 text-sm text-secondary">
+			<div class="flex flex-col gap-1 text-sm text-primary">
 				<p>
 					A newer version was deployed after you started editing. Your draft is based on the older
 					deploy.
 				</p>
-				<p class="text-xs text-tertiary">
+				<p class="text-xs text-secondary">
 					Draft saved {formatTs(draftSavedAt)} · Deployed {formatTs(deployedAt)}
 				</p>
 			</div>
