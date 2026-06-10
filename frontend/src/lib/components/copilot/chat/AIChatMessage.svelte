@@ -10,6 +10,7 @@
 	import type { ContextElement } from './context'
 	import ToolExecutionDisplay from './ToolExecutionDisplay.svelte'
 	import { messageDraft, segments } from './chatDraft'
+	import { lineCount } from './pasteTokens'
 
 	const aiChatManager = getAiChatManager()
 
@@ -101,12 +102,12 @@
 								type="button"
 								class="my-0.5 px-1.5 py-0.5 rounded bg-surface-secondary text-secondary text-2xs"
 								onclick={(e) => togglePaste(e, seg.att.id)}
-								>{seg.att.lines} lines · click to collapse</button
+								>{lineCount(seg.att.lines)} · click to collapse</button
 							><span class="block whitespace-pre-wrap mt-1">{seg.att.content}</span>{:else}<button
 								type="button"
 								class="px-1.5 py-0.5 rounded bg-surface-secondary text-secondary text-2xs"
 								onclick={(e) => togglePaste(e, seg.att.id)}
-								>Pasted {seg.att.lines} lines · click to expand</button
+								>Pasted {lineCount(seg.att.lines)} · click to expand</button
 							>{/if}{/each}
 				</div>
 			{/if}

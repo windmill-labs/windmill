@@ -32,8 +32,13 @@ export function shouldCollapsePaste(text: string): boolean {
 	return text.split('\n').length > PASTE_LINE_THRESHOLD || text.length > PASTE_CHAR_THRESHOLD
 }
 
+/** "1 line" / "N lines" — the single source of line-count pluralization. */
+export function lineCount(lines: number): string {
+	return `${lines} ${lines === 1 ? 'line' : 'lines'}`
+}
+
 export function pasteLabel(lines: number): string {
-	return `Pasted ${lines} ${lines === 1 ? 'line' : 'lines'} · click to expand`
+	return `Pasted ${lineCount(lines)} · click to expand`
 }
 
 /** The text inserted into the input for a collapsed paste. */

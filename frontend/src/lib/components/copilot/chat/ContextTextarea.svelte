@@ -296,27 +296,59 @@
 		}
 	}
 
-	// Backspace/Delete at a token boundary removes the whole chip + its blob.
+	// Delete the [from, to) range, drop the given paste ids, and collapse the
+	// caret to the deletion point — keeping value, the pastes registry, and the
+	// caret consistent.
+	function removePasteRange(from: number, to: number, ids: number[]) {
+		value = value.slice(0, from) + value.slice(to)
+		pastes = (pastes ?? []).filter((p) => !ids.includes(p.id))
+		tick().then(() => textarea?.setSelectionRange(from, from))
+	}
+
+	// Keep chip deletion atomic. A collapsed caret at a token boundary removes
+	// the whole chip + its blob; a selection that overlaps any token is widened
+	// to cover each overlapped token whole, so a partial deletion can never
+	// leave an orphaned zero-width run or a dangling pastes entry.
 	function handlePasteDeletion(e: KeyboardEvent): boolean {
 		if ((e.key !== 'Backspace' && e.key !== 'Delete') || !textarea) return false
 		const start = textarea.selectionStart
 		const end = textarea.selectionEnd
-		if (start === null || start !== end) return false
+		if (start === null || end === null) return false
+
+		if (start === end) {
+			for (const m of value.matchAll(pasteTokenRegex())) {
+				if (m.index === undefined) continue
+				const tokenStart = m.index
+				const tokenEnd = m.index + m[0].length
+				const atEnd = e.key === 'Backspace' && start === tokenEnd
+				const atStart = e.key === 'Delete' && start === tokenStart
+				if (atEnd || atStart) {
+					e.preventDefault()
+					removePasteRange(tokenStart, tokenEnd, [m[1].length])
+					return true
+				}
+			}
+			return false
+		}
+
+		let delStart = start
+		let delEnd = end
+		const removedIds: number[] = []
 		for (const m of value.matchAll(pasteTokenRegex())) {
 			if (m.index === undefined) continue
 			const tokenStart = m.index
 			const tokenEnd = m.index + m[0].length
-			const atEnd = e.key === 'Backspace' && start === tokenEnd
-			const atStart = e.key === 'Delete' && start === tokenStart
-			if (atEnd || atStart) {
-				e.preventDefault()
-				value = value.slice(0, tokenStart) + value.slice(tokenEnd)
-				pastes = (pastes ?? []).filter((p) => p.id !== m[1].length)
-				tick().then(() => textarea?.setSelectionRange(tokenStart, tokenStart))
-				return true
+			// Strict overlap — abutting an edge doesn't pull the chip in.
+			if (tokenStart < end && tokenEnd > start) {
+				delStart = Math.min(delStart, tokenStart)
+				delEnd = Math.max(delEnd, tokenEnd)
+				removedIds.push(m[1].length)
 			}
 		}
-		return false
+		if (removedIds.length === 0) return false
+		e.preventDefault()
+		removePasteRange(delStart, delEnd, removedIds)
+		return true
 	}
 
 	// Arrow-Left/Right step over a paste chip as one unit, so the caret jumps

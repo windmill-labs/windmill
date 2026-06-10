@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	type PasteAttachment,
 	expandPasteTokens,
+	lineCount,
 	makePasteToken,
 	nextPasteId,
 	shouldCollapsePaste,
@@ -12,6 +13,14 @@ const att = (id: number, lines: number, content: string): PasteAttachment => ({
 	id,
 	lines,
 	content
+})
+
+describe('lineCount', () => {
+	it('pluralizes by count', () => {
+		expect(lineCount(1)).toBe('1 line')
+		expect(lineCount(0)).toBe('0 lines')
+		expect(lineCount(13)).toBe('13 lines')
+	})
 })
 
 describe('shouldCollapsePaste', () => {
