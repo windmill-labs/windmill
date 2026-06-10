@@ -1,19 +1,45 @@
 /**
- * Conversation-scoped store of files the user has attached to the GLOBAL AI chat.
+ * Session-scoped store of files/folders the user has linked to the GLOBAL AI chat.
  *
- * Files are held as `File` handles (lazy disk references) plus a line-offset index
- * built lazily on attach. Content is never decoded wholesale — the read/search tools
- * stream slices on demand (see ./fileEngine). The store lives on AIChatManager and is
- * cleared when a new conversation starts; a page reload wipes it (handles die).
+ * Persistence model (survives reload, keyed by session in ./attachedFilesDB):
+ *  - FILES are always stored as a full-byte Blob snapshot — same on every browser,
+ *    no permission re-grant, never "locked".
+ *  - FOLDERS are linked via a live File System Access directory handle (one record),
+ *    re-enumerated live on restore; available only where the API exists. Folder files
+ *    are read through the handle (not copied), so they don't consume snapshot storage.
+ *
+ * Storage is bounded by the real browser quota (writes that exceed it are caught and
+ * the item simply isn't persisted — it stays usable for the session). Persistence is
+ * gated on the session being persisted (non-transient); links in a transient session
+ * are buffered and flushed on the first send.
  */
+import { createLongHash } from '$lib/editorLangUtils'
 import { buildLineIndex, isTextFile, type FileEntry } from './fileEngine'
+import {
+	putItem,
+	deleteItem,
+	getItemsForSession,
+	ensurePersistentStorage,
+	type PersistedAttachedItem
+} from './attachedFilesDB'
+import { enumerateDir, queryReadPermission, requestReadPermission } from './fsAccess'
+
+export type AttachedFileStatus = 'indexing' | 'ready' | 'error' | 'locked' | 'unavailable'
 
 export interface AttachedFile extends FileEntry {
 	size: number
-	status: 'indexing' | 'ready' | 'error'
+	status: AttachedFileStatus
 	error?: string
-	/** Top-level folder this file came from (first path segment), if added as part of a folder. */
+	/** Top-level folder this file came from (first path segment), if part of a folder. */
 	folder?: string
+	/** Persisted source-record id. Folder children share the folder's record id. */
+	sourceId: string
+	/** Parent directory handle (folder children only) — used to re-grant / re-enumerate. */
+	handle?: FileSystemDirectoryHandle
+	/** Relative path within the folder (folder children only) — stable key for refresh diffing. */
+	relPath?: string
+	/** A single placeholder standing in for a not-yet-expanded folder (locked/unavailable). */
+	isFolderRoot?: boolean
 }
 
 export interface AddFilesResult {
@@ -21,53 +47,60 @@ export interface AddFilesResult {
 	rejected: { name: string; reason: string }[]
 }
 
-/** A file to attach, optionally with a relative path to use as its display name (folder adds). */
+/** A file to link: a raw File, or `{ file, path? }` (path = relative display name). */
 export type FileToAttach = File | { file: File; path?: string }
 
-/** Cap on the number of attached files, to keep the roster (and RAM) sane. */
 export const MAX_ATTACHED_FILES = 100
+
+const EMPTY = new Blob([])
 
 export class AttachedFilesStore {
 	files = $state<AttachedFile[]>([])
 
+	/** Session context, set by the runtime; persistence writes are gated on `#persisted`. */
+	sessionId: string | undefined = undefined
+	#persisted = false
+	/** Records buffered while the session is transient (flushed on first send). */
+	#pending: PersistedAttachedItem[] = []
+
 	list(): AttachedFile[] {
 		return this.files
 	}
-
 	get(name: string): AttachedFile | undefined {
 		return this.files.find((f) => f.name === name)
 	}
-
-	/** Files that have finished indexing and are usable by the tools. */
 	readyFiles(): AttachedFile[] {
 		return this.files.filter((f) => f.status === 'ready')
 	}
-
 	get count(): number {
 		return this.files.length
+	}
+	/** Number of distinct locked sources (folders) needing a re-grant. */
+	get lockedCount(): number {
+		return new Set(this.files.filter((f) => f.status === 'locked').map((f) => f.sourceId)).size
 	}
 
 	clear(): void {
 		this.files = []
+		this.#pending = []
 	}
 
 	removeFile(name: string): void {
-		this.files = this.files.filter((f) => f.name !== name)
+		const f = this.files.find((x) => x.name === name)
+		this.files = this.files.filter((x) => x.name !== name)
+		if (f) void this.#deleteRecord(f.sourceId)
 	}
 
-	/** Remove every file that was attached as part of the given folder. */
+	/** Remove every file linked as part of the given folder (and its persisted record). */
 	removeFolder(folder: string): void {
+		const ids = new Set(this.files.filter((f) => f.folder === folder).map((f) => f.sourceId))
 		this.files = this.files.filter((f) => f.folder !== folder)
+		for (const id of ids) void this.#deleteRecord(id)
 	}
 
-	/**
-	 * Attach files. Each item is either a raw File (named by its filename, or by
-	 * `webkitRelativePath` when it came from a folder picker) or `{ file, path }`
-	 * where `path` is the relative path to use as the display name (folder drops).
-	 * Rejects binaries and over-cap files (reported in the result so the caller can
-	 * toast). Identical re-attachments are no-ops. Names are made unique. Indexing
-	 * runs async.
-	 */
+	// ---------------------------------------------------------------- linking
+
+	/** Link individual files — always stored as a Blob snapshot. */
 	async addFiles(input: FileList | FileToAttach[]): Promise<AddFilesResult> {
 		const result: AddFilesResult = { added: [], rejected: [] }
 
@@ -79,66 +112,347 @@ export class AttachedFilesStore {
 				file.name ||
 				'file'
 
-			if (this.files.length >= MAX_ATTACHED_FILES) {
-				result.rejected.push({
-					name: desired,
-					reason: `Attached-file limit (${MAX_ATTACHED_FILES}) reached`
-				})
-				continue
-			}
+			if (this.#isDuplicate(desired, file)) continue // silent no-op on re-link
 
-			// Re-attachment of an already-present path or identical file → no-op.
-			if (
-				this.files.some(
-					(f) =>
-						f.name === desired ||
-						(f.file.name === file.name &&
-							f.size === file.size &&
-							f.file.lastModified === file.lastModified)
-				)
-			) {
-				continue
-			}
-
-			let textual: boolean
-			try {
-				textual = await isTextFile(file)
-			} catch {
-				textual = false
-			}
-			if (!textual) {
-				result.rejected.push({ name: desired, reason: 'Not a text file' })
+			const reason = await this.#preflight(file)
+			if (reason) {
+				result.rejected.push({ name: desired, reason })
 				continue
 			}
 
 			const name = this.#uniqueName(desired)
 			const folder = desired.includes('/') ? desired.split('/')[0] : undefined
-			this.files = [
-				...this.files,
-				{ name, file, size: file.size, lineIndex: [], lineCount: 0, status: 'indexing', folder }
-			]
+			const sourceId = createLongHash()
+
+			this.#pushIndexing({ name, file, folder, sourceId })
 			result.added.push(name)
-			void this.#indexFile(name, file)
+			void this.#persist({
+				id: sourceId,
+				sessionId: this.sessionId ?? '',
+				kind: 'snapshot',
+				name,
+				blob: file,
+				size: file.size,
+				lastModified: file.lastModified,
+				addedAt: Date.now()
+			})
 		}
 
 		return result
 	}
 
-	async #indexFile(name: string, file: File): Promise<void> {
+	/** Link a folder via a live directory handle (File System Access path only). */
+	async addFolder(
+		dirHandle: FileSystemDirectoryHandle,
+		files: { file: File; path: string }[]
+	): Promise<AddFilesResult> {
+		const result: AddFilesResult = { added: [], rejected: [] }
+		const folder = dirHandle.name
+		if (this.files.some((f) => f.folder === folder)) return result // already linked → no-op
+
+		const sourceId = createLongHash()
+		let addedAny = false
+		for (const { file, path } of files) {
+			if (this.files.length >= MAX_ATTACHED_FILES) {
+				result.rejected.push({
+					name: path,
+					reason: `Attached-file limit (${MAX_ATTACHED_FILES}) reached`
+				})
+				continue
+			}
+			if (!(await this.#sniffText(file))) {
+				result.rejected.push({ name: path, reason: 'Not a text file' })
+				continue
+			}
+			const name = this.#uniqueName(path)
+			this.#pushIndexing({ name, file, folder, sourceId, handle: dirHandle, relPath: path })
+			result.added.push(name)
+			addedAny = true
+		}
+		if (addedAny) {
+			void this.#persist({
+				id: sourceId,
+				sessionId: this.sessionId ?? '',
+				kind: 'dir-handle',
+				name: folder,
+				folder,
+				handle: dirHandle,
+				addedAt: Date.now()
+			})
+		}
+		return result
+	}
+
+	// ------------------------------------------------------------- persistence
+
+	/** Set session context and load any persisted items for it (called on activation). */
+	async restore(sessionId: string, persisted: boolean): Promise<void> {
+		this.sessionId = sessionId
+		this.#persisted = persisted
+		this.files = []
+		this.#pending = []
+
+		const items = await getItemsForSession(sessionId)
+		for (const item of items) {
+			try {
+				if (item.kind === 'snapshot') {
+					if (!item.blob) {
+						this.#pushPlaceholder(item, 'unavailable')
+						continue
+					}
+					this.#pushIndexing({
+						name: item.name,
+						file: item.blob,
+						folder: item.folder,
+						sourceId: item.id
+					})
+				} else {
+					// dir-handle (folder)
+					const handle = item.handle as FileSystemDirectoryHandle
+					if ((await queryReadPermission(handle)) === 'granted') {
+						await this.#expandFolder(handle, item.id)
+					} else {
+						this.#pushPlaceholder(item, 'locked', true)
+					}
+				}
+			} catch {
+				this.#pushPlaceholder(item, 'unavailable', item.kind === 'dir-handle')
+			}
+		}
+	}
+
+	/** Re-grant any locked folder handles. MUST be called within a user gesture (e.g. on send). */
+	async regrantLocked(): Promise<void> {
+		const sources = new Map<string, AttachedFile>()
+		for (const f of this.files) {
+			if (f.status === 'locked' && f.handle) sources.set(f.sourceId, f)
+		}
+		if (sources.size === 0) return
+
+		// Kick off all permission requests within the gesture, then process.
+		const decided = await Promise.all(
+			[...sources.values()].map((f) =>
+				requestReadPermission(f.handle!).then((perm) => ({ f, perm }))
+			)
+		)
+		for (const { f, perm } of decided) {
+			if (perm !== 'granted') continue
+			try {
+				this.files = this.files.filter((x) => x.sourceId !== f.sourceId)
+				await this.#expandFolder(f.handle as FileSystemDirectoryHandle, f.sourceId)
+			} catch {
+				this.#patchSource(f.sourceId, { status: 'unavailable' })
+			}
+		}
+	}
+
+	/** Flush buffered links once the session becomes persistent (first send). */
+	async flushPending(): Promise<void> {
+		this.#persisted = true
+		if (!this.sessionId) return
+		const pending = this.#pending
+		this.#pending = []
+		if (pending.length === 0) return
+		void ensurePersistentStorage()
+		for (const item of pending) {
+			try {
+				await putItem({ ...item, sessionId: this.sessionId })
+			} catch (e) {
+				console.error('Could not persist linked file', e)
+			}
+		}
+	}
+
+	async #persist(item: PersistedAttachedItem): Promise<void> {
+		if (this.#persisted && this.sessionId) {
+			void ensurePersistentStorage()
+			try {
+				// A QuotaExceededError just means it won't survive a reload — the item
+				// stays usable for this session. Swallow + log rather than fail the link.
+				await putItem({ ...item, sessionId: this.sessionId })
+			} catch (e) {
+				console.error('Could not persist linked file (kept for this session)', e)
+			}
+		} else {
+			this.#pending.push(item)
+		}
+	}
+
+	async #deleteRecord(sourceId: string): Promise<void> {
+		this.#pending = this.#pending.filter((p) => p.id !== sourceId)
+		if (this.#persisted) {
+			try {
+				await deleteItem(sourceId)
+			} catch {
+				/* ignore */
+			}
+		}
+	}
+
+	// ------------------------------------------------------------- internals
+
+	/** Identical re-link (same name, or same File identity) → silent no-op. */
+	#isDuplicate(desired: string, file: File): boolean {
+		return this.files.some(
+			(f) =>
+				f.name === desired ||
+				(f.file instanceof File &&
+					f.file.name === file.name &&
+					f.size === file.size &&
+					f.file.lastModified === file.lastModified)
+		)
+	}
+
+	/** Returns a rejection reason, or undefined if the file may be linked. */
+	async #preflight(file: File): Promise<string | undefined> {
+		if (this.files.length >= MAX_ATTACHED_FILES) {
+			return `Attached-file limit (${MAX_ATTACHED_FILES}) reached`
+		}
+		if (!(await this.#sniffText(file))) return 'Not a text file'
+		return undefined
+	}
+
+	async #sniffText(file: Blob): Promise<boolean> {
+		try {
+			return await isTextFile(file)
+		} catch {
+			return false
+		}
+	}
+
+	#pushIndexing(p: {
+		name: string
+		file: File | Blob
+		folder?: string
+		sourceId: string
+		handle?: FileSystemDirectoryHandle
+		relPath?: string
+	}): void {
+		this.files = [
+			...this.files,
+			{
+				name: p.name,
+				file: p.file,
+				size: p.file.size,
+				lineIndex: [],
+				lineCount: 0,
+				status: 'indexing',
+				folder: p.folder,
+				sourceId: p.sourceId,
+				handle: p.handle,
+				relPath: p.relPath
+			}
+		]
+		void this.#indexFile(p.name, p.file)
+	}
+
+	#pushPlaceholder(
+		item: PersistedAttachedItem,
+		status: AttachedFileStatus,
+		isFolderRoot = false
+	): void {
+		this.files = [
+			...this.files,
+			{
+				name: item.name,
+				file: EMPTY,
+				size: item.size ?? 0,
+				lineIndex: [],
+				lineCount: 0,
+				status,
+				folder: item.folder,
+				sourceId: item.id,
+				handle: item.handle as FileSystemDirectoryHandle | undefined,
+				isFolderRoot
+			}
+		]
+	}
+
+	async #expandFolder(dirHandle: FileSystemDirectoryHandle, sourceId: string): Promise<void> {
+		const folder = dirHandle.name
+		const children = await enumerateDir(dirHandle)
+		for (const { file, path } of children) {
+			if (this.files.length >= MAX_ATTACHED_FILES) break
+			if (!(await this.#sniffText(file))) continue
+			const name = this.#uniqueName(path)
+			this.#pushIndexing({ name, file, folder, sourceId, handle: dirHandle, relPath: path })
+		}
+	}
+
+	/**
+	 * Re-enumerate granted folder handles to reflect on-disk changes since they were
+	 * linked/last refreshed: added/removed/renamed files and content edits. Called on
+	 * each send so the AI sees the folder's current state. Unchanged files are left as-is
+	 * (diffed by relative path + lastModified); only changed files are re-indexed.
+	 */
+	async refreshFolders(): Promise<void> {
+		const sources = new Map<string, { handle: FileSystemDirectoryHandle; folder: string }>()
+		for (const f of this.files) {
+			if (f.folder && f.handle && !f.isFolderRoot) {
+				sources.set(f.sourceId, { handle: f.handle, folder: f.folder })
+			}
+		}
+		for (const [sourceId, { handle, folder }] of sources) {
+			try {
+				if ((await queryReadPermission(handle)) !== 'granted') continue
+				const children = await enumerateDir(handle)
+				await this.#reconcileFolder(sourceId, folder, handle, children)
+			} catch {
+				this.#patchSource(sourceId, { status: 'unavailable' })
+			}
+		}
+	}
+
+	async #reconcileFolder(
+		sourceId: string,
+		folder: string,
+		handle: FileSystemDirectoryHandle,
+		children: { file: File; path: string }[]
+	): Promise<void> {
+		const existing = new Map<string, AttachedFile>()
+		for (const f of this.files) if (f.sourceId === sourceId && f.relPath) existing.set(f.relPath, f)
+		const seen = new Set<string>()
+
+		for (const { file, path } of children) {
+			seen.add(path)
+			const cur = existing.get(path)
+			if (!cur) {
+				// newly added on disk
+				if (this.files.length >= MAX_ATTACHED_FILES) break
+				if (!(await this.#sniffText(file))) continue
+				const name = this.#uniqueName(path)
+				this.#pushIndexing({ name, file, folder, sourceId, handle, relPath: path })
+			} else {
+				const curMod = cur.file instanceof File ? cur.file.lastModified : undefined
+				if (file.size !== cur.size || file.lastModified !== curMod) {
+					// content changed → re-read + re-index
+					this.#patch(cur.name, { file, size: file.size, status: 'indexing' })
+					void this.#indexFile(cur.name, file)
+				}
+			}
+		}
+		// removed/renamed-away on disk → drop from memory
+		const removed = [...existing.values()].filter((f) => f.relPath && !seen.has(f.relPath))
+		if (removed.length > 0) {
+			const names = new Set(removed.map((f) => f.name))
+			this.files = this.files.filter((f) => !names.has(f.name))
+		}
+	}
+
+	async #indexFile(name: string, file: File | Blob): Promise<void> {
 		try {
 			const { lineIndex, lineCount } = await buildLineIndex(file)
 			this.#patch(name, { lineIndex, lineCount, status: 'ready' })
 		} catch (e) {
-			this.#patch(name, {
-				status: 'error',
-				error: e instanceof Error ? e.message : String(e)
-			})
+			this.#patch(name, { status: 'error', error: e instanceof Error ? e.message : String(e) })
 		}
 	}
 
-	/** Reassign the array so reactivity fires regardless of proxy identity. */
 	#patch(name: string, changes: Partial<AttachedFile>): void {
 		this.files = this.files.map((f) => (f.name === name ? { ...f, ...changes } : f))
+	}
+	#patchSource(sourceId: string, changes: Partial<AttachedFile>): void {
+		this.files = this.files.map((f) => (f.sourceId === sourceId ? { ...f, ...changes } : f))
 	}
 
 	#uniqueName(original: string): string {

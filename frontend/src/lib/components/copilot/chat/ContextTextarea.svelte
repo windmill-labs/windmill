@@ -6,7 +6,7 @@
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import { twMerge } from 'tailwind-merge'
-	import { CHAT_INPUT_PADDING } from './aiChatManagerContext'
+	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
 	import { createFloatingActions, createVirtualElement } from 'svelte-floating-ui'
 	import { flip, offset, shift } from 'svelte-floating-ui/dom'
 	import {
@@ -49,6 +49,8 @@
 		className = '',
 		onKeyDown = undefined
 	}: Props = $props()
+
+	const aiChatManager = getAiChatManager()
 
 	const MENTION_RE = /@[\w/.\-\[\]]+/g
 	function extractMentions(text: string): Set<string> {
@@ -235,7 +237,9 @@
 			const title = match.slice(1)
 			const inContext =
 				availableContext.find((c) => c.title === title) ||
-				selectedContext.find((c) => c.title === title)
+				selectedContext.find((c) => c.title === title) ||
+				// Attached-file mentions (`@filename`) highlight just like context.
+				aiChatManager.attachedFiles.get(title)
 			if (inContext) {
 				return `<span class="bg-surface-accent-selected text-primary rounded box-decoration-clone z-10">${match}</span>`
 			}
@@ -733,6 +737,13 @@
 				autoFocus={false}
 				setShowing={(showing) => {
 					showContextTooltip = showing
+				}}
+				onSelectFile={(name) => {
+					// Replace the in-progress `@word` with the chosen `@filename`.
+					const index = value.lastIndexOf('@')
+					value = (index !== -1 ? value.substring(0, index) : value) + `@${name} `
+					showContextTooltip = false
+					setTimeout(() => textarea?.focus(), 0)
 				}}
 			/>
 		</div>

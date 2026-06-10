@@ -14,7 +14,8 @@
 /** Minimal shape the engine needs. The attached-files store extends this with reactive status. */
 export interface FileEntry {
 	name: string
-	file: File
+	/** A File (live link) or a Blob (restored snapshot) — both stream/slice identically. */
+	file: File | Blob
 	lineIndex: number[]
 	lineCount: number
 }
@@ -34,7 +35,7 @@ export const DEFAULT_SEARCH_LINE_ECHO_CAP = 500
  * Scans raw bytes for '\n' (no decode needed — 0x0A is unambiguous in UTF-8).
  */
 export async function buildLineIndex(
-	file: File
+	file: Blob
 ): Promise<{ lineIndex: number[]; lineCount: number }> {
 	const fileSize = file.size
 	if (fileSize === 0) {
@@ -247,7 +248,7 @@ export class FileReadError extends Error {
  * A trailing '\r' (CRLF) is stripped before the callback.
  */
 async function streamLines(
-	file: File,
+	file: Blob,
 	onLine: (line: string, lineNo: number) => boolean
 ): Promise<void> {
 	const reader = file.stream().getReader()
@@ -288,7 +289,7 @@ async function streamLines(
  * Sniff the first bytes of a file to decide whether it is text (UTF-8 decodable,
  * no NUL bytes). Used to reject binary files at attach time.
  */
-export async function isTextFile(file: File, sampleBytes = 8192): Promise<boolean> {
+export async function isTextFile(file: Blob, sampleBytes = 8192): Promise<boolean> {
 	if (file.size === 0) return true
 	const slice = file.slice(0, Math.min(sampleBytes, file.size))
 	const buf = new Uint8Array(await slice.arrayBuffer())

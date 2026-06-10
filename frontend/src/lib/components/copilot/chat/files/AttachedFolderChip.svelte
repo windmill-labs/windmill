@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Folder, X, Loader2, AlertTriangle } from 'lucide-svelte'
+	import { Folder, X, Loader2, AlertTriangle, Lock } from 'lucide-svelte'
 	import type { AttachedFile } from './attachedFiles.svelte'
 
 	let { folder, files, onRemove }: { folder: string; files: AttachedFile[]; onRemove: () => void } =
@@ -7,20 +7,11 @@
 
 	let showDelete = $state(false)
 
-	function humanSize(bytes: number): string {
-		if (bytes < 1024) return `${bytes} B`
-		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-	}
-
+	// A not-yet-expanded folder (after reload) is a single placeholder entry.
+	let locked = $derived(files.some((f) => f.status === 'locked'))
+	let unavailable = $derived(files.some((f) => f.status === 'unavailable'))
 	let indexing = $derived(files.some((f) => f.status === 'indexing'))
 	let hasError = $derived(files.some((f) => f.status === 'error'))
-	let totalSize = $derived(files.reduce((acc, f) => acc + f.size, 0))
-	let detail = $derived(
-		indexing
-			? 'indexing…'
-			: `${files.length} file${files.length === 1 ? '' : 's'} · ${humanSize(totalSize)}`
-	)
 
 	// Native tooltip listing the contained files (capped).
 	let hoverList = $derived.by(() => {
@@ -32,30 +23,31 @@
 </script>
 
 <div
-	class="border rounded-md px-1 py-0.5 flex flex-row items-center gap-1 text-primary text-xs cursor-default hover:bg-surface-hover max-w-64 bg-surface"
+	class="border rounded-md px-1 py-0.5 flex flex-row items-center gap-1 text-primary text-xs font-normal cursor-default hover:bg-surface-hover hover:cursor-pointer max-w-48 bg-surface"
 	onmouseenter={() => (showDelete = true)}
 	onmouseleave={() => (showDelete = false)}
 	role="listitem"
 	title={hoverList}
 >
-	{#if indexing}
-		<Loader2 size={14} class="animate-spin shrink-0 text-tertiary" />
-	{:else if hasError}
-		<AlertTriangle size={14} class="shrink-0 text-red-500" />
-	{:else}
-		<Folder size={14} class="shrink-0 text-tertiary" />
-	{/if}
-	<span class="truncate">{folder}</span>
-	<span class="text-tertiary shrink-0">{detail}</span>
 	<button
-		class="shrink-0 rounded-sm hover:bg-surface-hover-2 {showDelete ? 'opacity-100' : 'opacity-0'}"
-		title="Remove folder"
+		class="shrink-0"
 		aria-label={`Remove folder ${folder}`}
 		onclick={(e) => {
 			e.stopPropagation()
 			onRemove()
 		}}
 	>
-		<X size={14} />
+		{#if showDelete}
+			<X size={16} />
+		{:else if indexing}
+			<Loader2 size={16} class="animate-spin text-tertiary" />
+		{:else if hasError || unavailable}
+			<AlertTriangle size={16} class="text-red-500" />
+		{:else if locked}
+			<Lock size={16} class="text-amber-500" />
+		{:else}
+			<Folder size={16} class="text-tertiary" />
+		{/if}
 	</button>
+	<span class="truncate" title={folder}>{folder}</span>
 </div>
