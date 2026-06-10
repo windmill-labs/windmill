@@ -156,7 +156,11 @@
 				const s: VariableState = savedDraftState ?? deployedState
 				ensureHandle(ws, s)
 				initialStates[ws] = structuredClone(deployedState)
-				existedInitially[ws] = true
+				// Draft-only paths (`no_deployed`) have no variable row —
+				// saving must CREATE, not update (update 404s). The flag
+				// also keeps the editor semantically in "new item
+				// prefilled from draft" mode.
+				existedInitially[ws] = !(v as any).no_deployed
 				extraPerms[ws] = v.extra_perms ?? {}
 				perWsUser[ws] = user
 			})

@@ -143,7 +143,11 @@
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
-			const draftOverlay = await loadTrigger(defaultConfig)
+			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultConfig)
+			// Draft-only triggers open as "new trigger prefilled from the
+			// draft" — no deployed row exists, so saving must CREATE (the
+			// update endpoint 404s).
+			edit = !noDeployed
 			// At this point the form holds the DEPLOYED config (or
 			// `defaultConfig` for new triggers). Capture `originalConfig`
 			// here so `hasChanged` (= `current != originalConfig`) compares
@@ -245,10 +249,10 @@
 	 */
 	async function loadTrigger(
 		defaultConfig?: Record<string, any>
-	): Promise<Record<string, any> | undefined> {
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
-			return undefined
+			return { overlay: undefined, noDeployed: false }
 		}
 		const s = await NatsTriggerService.getNatsTrigger({
 			workspace: $workspaceStore!,
@@ -257,9 +261,12 @@
 		})
 		const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
 		loadTriggerConfig(deployedTrigger)
-		return draftFromBackend
+		return {
+			noDeployed: !!(s as any)?.no_deployed,
+			overlay: draftFromBackend
 			? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
 			: undefined
+		}
 	}
 
 	function getSaveCfg() {

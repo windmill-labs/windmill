@@ -135,7 +135,11 @@
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
-			const draftOverlay = await loadTrigger(defaultValues)
+			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultValues)
+			// Draft-only triggers open as "new trigger prefilled from the
+			// draft" — no deployed row exists, so saving must CREATE (the
+			// update endpoint 404s).
+			edit = !noDeployed
 			originalConfig = structuredClone($state.snapshot(getAzureConfig()))
 			if (draftOverlay) loadTriggerConfig(draftOverlay)
 			if (!defaultValues) {
@@ -188,10 +192,10 @@
 	/** See `NatsTriggerEditorInner.loadTrigger` for the rationale. */
 	async function loadTrigger(
 		defaultConfig?: Record<string, any>
-	): Promise<Record<string, any> | undefined> {
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
-			return undefined
+			return { overlay: undefined, noDeployed: false }
 		}
 		try {
 			const s = await AzureTriggerService.getAzureTrigger({
@@ -201,12 +205,15 @@
 			})
 			const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
 			loadTriggerConfig(deployedTrigger)
-			return draftFromBackend
+			return {
+			noDeployed: !!(s as any)?.no_deployed,
+			overlay: draftFromBackend
 				? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
 				: undefined
+		}
 		} catch (error) {
 			sendUserToast(`Could not load Azure trigger: ${error.body}`, true)
-			return undefined
+			return { overlay: undefined, noDeployed: false }
 		}
 	}
 

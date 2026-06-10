@@ -159,7 +159,11 @@
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
-			const draftOverlay = await loadTrigger(defaultConfig)
+			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultConfig)
+			// Draft-only triggers open as "new trigger prefilled from the
+			// draft" — no deployed row exists, so saving must CREATE (the
+			// update endpoint 404s).
+			edit = !noDeployed
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			if (draftOverlay) loadTriggerConfig(draftOverlay)
 			if (!defaultConfig) {
@@ -249,10 +253,10 @@
 	/** See `NatsTriggerEditorInner.loadTrigger` for the rationale. */
 	async function loadTrigger(
 		defaultConfig?: Record<string, any>
-	): Promise<Record<string, any> | undefined> {
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
-			return undefined
+			return { overlay: undefined, noDeployed: false }
 		}
 		const s = await KafkaTriggerService.getKafkaTrigger({
 			workspace: $workspaceStore!,
@@ -261,9 +265,12 @@
 		})
 		const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
 		loadTriggerConfig(deployedTrigger)
-		return draftFromBackend
+		return {
+			noDeployed: !!(s as any)?.no_deployed,
+			overlay: draftFromBackend
 			? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
 			: undefined
+		}
 	}
 
 	function getSaveCfg(): Record<string, any> {

@@ -152,8 +152,11 @@
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			path = defaultCfg?.path ?? ePath
-			const draftOverlay = await loadSchedule(defaultCfg)
-			edit = true
+			const { overlay: draftOverlay, noDeployed } = await loadSchedule(defaultCfg)
+			// Draft-only schedules open as "new schedule prefilled from the
+			// draft" — there's no deployed row, so the save must go through
+			// the create branch (update 404s).
+			edit = !noDeployed
 			if (!defaultCfg) {
 				// Form holds DEPLOYED here. Capture `initialConfig` as the
 				// deployed baseline so the dirty check / unsaved banner
@@ -478,10 +481,10 @@
 	 */
 	async function loadSchedule(
 		defaultCfg?: Record<string, any>
-	): Promise<Record<string, any> | undefined> {
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
 		if (defaultCfg) {
 			await loadScheduleCfg(defaultCfg)
-			return undefined
+			return { overlay: undefined, noDeployed: false }
 		}
 		try {
 			const s = await ScheduleService.getSchedule({
@@ -491,12 +494,18 @@
 			})
 			const { draft: draftFromBackend, ...deployedSchedule } = s as any
 			await loadScheduleCfg(deployedSchedule)
-			return draftFromBackend
-				? ({ ...deployedSchedule, ...draftFromBackend } as Record<string, any>)
-				: undefined
+			return {
+				overlay: draftFromBackend
+					? ({ ...deployedSchedule, ...draftFromBackend } as Record<string, any>)
+					: undefined,
+				// Draft-only path: the response is a stand-in synthesized from
+				// the draft (`fetch_draft_only`); no schedule row exists, so
+				// saving must CREATE, not update.
+				noDeployed: !!(s as any).no_deployed
+			}
 		} catch (err) {
 			sendUserToast(`Could not load schedule: ${err}`, true)
-			return undefined
+			return { overlay: undefined, noDeployed: false }
 		}
 	}
 

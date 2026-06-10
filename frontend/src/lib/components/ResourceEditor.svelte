@@ -236,7 +236,10 @@
 				const s: ResourceState = savedDraftState ?? deployedState
 				ensureHandle(ws, s)
 				initialStates[ws] = structuredClone(deployedState)
-				existedInitially[ws] = true
+				// Draft-only paths (`no_deployed`) have no resource row —
+				// saving must CREATE, not update (update 404s with
+				// "Resource not found at name ...").
+				existedInitially[ws] = !(r as any).no_deployed
 				perWsUser[ws] = user
 				// Keep resource_type in sync for the base workspace (controls the schema)
 				if (ws === effectiveWorkspace) {

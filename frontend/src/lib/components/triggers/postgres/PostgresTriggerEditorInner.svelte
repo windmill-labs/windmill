@@ -250,7 +250,11 @@
 			relations = []
 			transaction_to_track = []
 			tab = 'basic'
-			const draftOverlay = await loadTrigger(defaultConfig)
+			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultConfig)
+			// Draft-only triggers open as "new trigger prefilled from the
+			// draft" — no deployed row exists, so saving must CREATE (the
+			// update endpoint 404s).
+			edit = !noDeployed
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			if (draftOverlay) loadTriggerConfig(draftOverlay)
 			if (!defaultConfig) {
@@ -383,14 +387,14 @@
 	 */
 	async function loadTrigger(
 		defaultConfig?: Record<string, any>
-	): Promise<Record<string, any> | undefined> {
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
 			if (defaultConfig?.publication) {
 				transaction_to_track = [...defaultConfig.publication.transaction_to_track]
 				relations = defaultConfig.publication.table_to_track ?? []
 			}
-			return undefined
+			return { overlay: undefined, noDeployed: false }
 		}
 		const s = await PostgresTriggerService.getPostgresTrigger({
 			workspace: $workspaceStore!,
@@ -398,6 +402,10 @@
 			getDraft: true
 		})
 		const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+		// Draft-only path: the response is a stand-in synthesized from the
+		// draft (`fetch_draft_only`); no trigger row exists, so saving must
+		// CREATE, not update.
+		const noDeployed = !!(s as any)?.no_deployed
 
 		// Fetch deployed publication and apply deployed config — this
 		// becomes the `originalConfig` baseline for the dirty check.
@@ -408,7 +416,7 @@
 		})
 		loadTriggerConfig({ ...deployedTrigger, publication: deployedPublication })
 
-		if (!draftFromBackend) return undefined
+		if (!draftFromBackend) return { overlay: undefined, noDeployed }
 
 		// Draft may have changed the resource/publication keys; fetch
 		// the publication that matches the effective values so the
@@ -423,7 +431,7 @@
 						workspace: $workspaceStore!,
 						publication: effective.publication_name
 					})
-		return { ...effective, publication: effectivePublication }
+		return { overlay: { ...effective, publication: effectivePublication }, noDeployed }
 	}
 
 	function getCaptureConfig() {
