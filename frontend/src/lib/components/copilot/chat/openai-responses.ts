@@ -12,6 +12,7 @@ import {
 	providerSupportsWebSearch,
 	workspaceAIClients
 } from '../lib'
+import { applyReasoningToConfig } from '../reasoningRegistry'
 import { processToolCall, type Tool, type ToolCallbacks } from './shared'
 import type { ResponseStream } from 'openai/lib/responses/ResponseStream.mjs'
 import type { AIProviderModel } from '$lib/gen'
@@ -161,6 +162,7 @@ export async function getOpenAIResponsesCompletion(
 		forceModelProvider?: AIProviderModel
 		openaiClient?: OpenAI
 		webSearch?: boolean
+		reasoningEffort?: string
 	}
 ) {
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -170,7 +172,11 @@ export async function getOpenAIResponsesCompletion(
 		forceModelProvider: options?.forceModelProvider
 	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
-	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
+	const responsesConfig = applyReasoningToConfig(
+		convertCompletionConfigToResponsesConfig(config),
+		'responses',
+		options?.reasoningEffort
+	)
 
 	// Enable OpenAI's built-in web search tool. The proxy forwards the body
 	// verbatim, so this reaches OpenAI as a native server-side tool.
@@ -205,6 +211,7 @@ export async function* getOpenAIResponsesCompletionStream(
 	options?: {
 		forceModelProvider?: AIProviderModel
 		openaiClient?: OpenAI
+		reasoningEffort?: string
 	}
 ): AsyncGenerator<OpenAI.Chat.Completions.ChatCompletionChunk> {
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -214,7 +221,11 @@ export async function* getOpenAIResponsesCompletionStream(
 		forceModelProvider: options?.forceModelProvider
 	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
-	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
+	const responsesConfig = applyReasoningToConfig(
+		convertCompletionConfigToResponsesConfig(config),
+		'responses',
+		options?.reasoningEffort
+	)
 
 	const openaiClient = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
 
@@ -287,7 +298,11 @@ export async function parseOpenAIResponsesCompletion(
 	// Handle new output items (including function calls)
 	runner.on('response.output_item.added', (event) => {
 		const item = event.item
-		if (item.type === 'function_call' && item.id) {
+		if (item.type === 'reasoning') {
+			// Reasoning models (GPT/o-series) emit a reasoning item but no chain-of-thought
+			// text; surface a live "Thinking" indicator so the user can see it reason.
+			callbacks.onReasoningStart?.()
+		} else if (item.type === 'function_call' && item.id) {
 			const tool = tools.find((t) => t.def.function.name === item.name)
 			const shouldStream = tool?.streamArguments ?? false
 

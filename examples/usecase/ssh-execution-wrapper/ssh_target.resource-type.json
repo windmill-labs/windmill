@@ -1,0 +1,38 @@
+{
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "host": {
+        "type": "string",
+        "description": "Hostname or IP of the SSH jump/utility node to execute on."
+      },
+      "port": {
+        "type": "integer",
+        "description": "SSH port.",
+        "default": 22
+      },
+      "user": {
+        "type": "string",
+        "description": "SSH login user."
+      },
+      "private_key": {
+        "type": "string",
+        "description": "PEM-encoded private key used for authentication. Stored as a secret.",
+        "password": true
+      },
+      "host_pubkey": {
+        "type": "string",
+        "description": "Server host public key line for known_hosts pinning, e.g. 'ssh-ed25519 AAAAC3Nz...' (get it with `ssh-keyscan -t ed25519 <host>`). When set, the wrapper enforces StrictHostKeyChecking=yes. When empty, execution is refused unless accept_unknown_host is true.",
+        "default": ""
+      },
+      "accept_unknown_host": {
+        "type": "boolean",
+        "description": "Allow connecting without a pinned host_pubkey by trusting the host key on first use (StrictHostKeyChecking=accept-new). Insecure against MITM — development only.",
+        "default": false
+      }
+    },
+    "required": ["host", "user", "private_key"]
+  },
+  "description": "Target host reachable over SSH for the lightweight SSH execution wrapper. See examples/usecase/ssh-execution-wrapper/README.md."
+}

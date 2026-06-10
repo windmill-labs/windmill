@@ -28245,6 +28245,7 @@ components:
         - DisableDirectDeployment
         - DisableWorkspaceForking
         - RestrictDeployToDeployers
+        - RestrictAnonymousAppDeployment
     RuleBypasserGroups:
       type: array
       description: Groups that can bypass this ruleset
