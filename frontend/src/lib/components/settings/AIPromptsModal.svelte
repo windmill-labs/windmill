@@ -20,6 +20,8 @@
 		modes?: AIMode[]
 		// Render the prompts read-only: inputs disabled, no Save/Reset, empty modes hidden
 		readOnly?: boolean
+		// Custom explanation shown in the read-only Alert (overrides the default text)
+		readOnlyReason?: string
 		title?: string
 		// Portal target for the modal (defaults to #content, present on settings pages)
 		target?: string
@@ -37,6 +39,7 @@
 		scope = 'user',
 		modes = undefined,
 		readOnly = false,
+		readOnlyReason = undefined,
 		title = 'Customize AI System Prompts',
 		target = '#content',
 		settingsHref = undefined,
@@ -89,7 +92,9 @@
 			{#if readOnly}
 				<div class="mb-6">
 					<Alert type="info" title="Read-only" size="xs">
-						{#if scope === 'workspace'}
+						{#if readOnlyReason}
+							{readOnlyReason}
+						{:else if scope === 'workspace'}
 							Only workspace admins can edit the workspace AI prompt. It applies to all workspace
 							members.
 						{:else}
