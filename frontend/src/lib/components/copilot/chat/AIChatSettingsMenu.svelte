@@ -14,6 +14,9 @@
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import type { Item } from '$lib/utils'
+	import { base } from '$lib/base'
+
+	const AI_SETTINGS_HREF = `${base}/workspace_settings?tab=ai`
 
 	// Quick access to the AI prompt preferences (user + workspace) for the
 	// current chat mode, surfaced next to the model selector in the AI chat.
@@ -83,6 +86,8 @@
 			}
 			setUserCustomPrompts(prompts)
 			initialPrompt = value
+			// Sync the editor to the trimmed value so hasChanges resets to false.
+			customPrompts = { [activeMode]: value }
 			sendUserToast('User AI prompt saved')
 			return
 		}
@@ -110,6 +115,8 @@
 			// reflect the saved workspace prompt without requiring a reload.
 			setCopilotInfo({ ...response.effective_ai_config, custom_prompts })
 			initialPrompt = value
+			// Sync the editor to the trimmed value so hasChanges resets to false.
+			customPrompts = { [activeMode]: value }
 			sendUserToast('Workspace AI prompt saved')
 		} catch (err) {
 			sendUserToast(`Failed to save workspace AI prompt: ${err}`, true)
@@ -122,7 +129,7 @@
 		{
 			displayName: 'AI settings',
 			icon: Settings,
-			href: '/workspace_settings?tab=ai',
+			href: AI_SETTINGS_HREF,
 			hrefTarget: '_blank',
 			separatorTop: true,
 			hide: !isAdmin,
@@ -161,5 +168,5 @@
 	title={modalScope === 'user' ? 'User AI prompt' : 'Workspace AI prompt'}
 	target="body"
 	fixedHeight="sm"
-	settingsHref={isAdmin ? '/workspace_settings?tab=ai' : undefined}
+	settingsHref={isAdmin ? AI_SETTINGS_HREF : undefined}
 />
