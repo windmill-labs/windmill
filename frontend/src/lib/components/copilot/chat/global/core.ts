@@ -583,6 +583,11 @@ const openPreviewSchema = z.object({
 
 const getPreviewStatusSchema = z.object({})
 
+type SessionToolResult = {
+	aiResult: string
+	uiMessage: string
+}
+
 const getRuntimeLogsSchema = z.object({
 	limit: z
 		.number()
@@ -2052,25 +2057,15 @@ export const globalTools: Tool<{}>[] = [
 			'get_app_runtime_logs',
 			'Fetch the most recent browser console logs (and uncaught errors) from the raw app preview currently open in this AI session. Use it to debug a running app — e.g. when the user reports a blank screen, a broken interaction, or a runtime error. ONLY works inside a session with a raw app preview open; call open_preview(kind="raw_app") first if needed. Returns the last `limit` lines (default 10), oldest first. Logs are read live from the running preview, not persisted, so older lines may have scrolled out.'
 		),
-		showDetails: true,
-		showFade: true,
 		fn: async (ctx) => {
 			const parsed = getRuntimeLogsSchema.parse(ctx.args)
-			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Reading app runtime logs…' })
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Reading app runtime logs...' })
 			const result = await getSessionRuntimeLogs(parsed.limit ?? 10, sessionIdFromCtx(ctx))
-			// First line is the summary (e.g. "Last 3 runtime log line(s)…"); show it
-			// as the collapsed header and the actual lines as the expandable result.
-			// Single-line outcomes (no preview / no logs) keep just the header and
-			// auto-collapse so there's no empty result box.
-			const nl = result.indexOf('\n')
-			const header = nl === -1 ? result : result.slice(0, nl)
-			const body = nl === -1 ? undefined : result.slice(nl + 1)
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
-				content: header,
-				result: body,
-				autoCollapseDetails: body === undefined
+				content: result.uiMessage,
+				autoCollapseDetails: true
 			})
-			return result
+			return result.aiResult
 		}
 	},
 	{
@@ -2079,25 +2074,15 @@ export const globalTools: Tool<{}>[] = [
 			'list_app_runs',
 			"List the backend runnable executions (jobs) the raw app preview currently open in this AI session has triggered, newest first. Use this to find the job id of a run the app just made — then call get_job_logs with that id to read its server-side logs. ONLY works inside a session with a raw app preview open; call open_preview(kind=\"raw_app\") first if needed. Returns up to `limit` runs (default 20), each with job_id, component, status and timings. Runs are tracked live from the running preview, not persisted."
 		),
-		showDetails: true,
-		showFade: true,
 		fn: async (ctx) => {
 			const parsed = listAppRunsSchema.parse(ctx.args)
-			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Listing app runs…' })
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Listing app runs...' })
 			const result = await getSessionAppRuns(parsed.limit ?? 20, sessionIdFromCtx(ctx))
-			// UI vs AI (see ListAppRunsHandler): first line → collapsed header shown
-			// to the user, the rest → expandable details; the whole string is the
-			// return value read by the model. Single-line outcomes (no preview / no
-			// runs) keep just the header and auto-collapse.
-			const nl = result.indexOf('\n')
-			const header = nl === -1 ? result : result.slice(0, nl)
-			const body = nl === -1 ? undefined : result.slice(nl + 1)
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
-				content: header,
-				result: body,
-				autoCollapseDetails: body === undefined
+				content: result.uiMessage,
+				autoCollapseDetails: true
 			})
-			return result
+			return result.aiResult
 		}
 	},
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
@@ -2206,14 +2191,10 @@ function getSessionPreviewStatus(sessionId: string | undefined): string {
 	return getPreviewStatusHandler(sessionId)
 }
 
-// Registered by the session runtime to answer get_app_runtime_logs: pulls the
-// last `limit` console log lines from the calling session's live raw-app
-// preview. Async because it round-trips a postMessage to the preview iframe.
-// Undefined outside a session.
 export type GetRuntimeLogsHandler = (req: {
 	sessionId: string | undefined
 	limit: number
-}) => Promise<string>
+}) => Promise<SessionToolResult>
 
 let getRuntimeLogsHandler: GetRuntimeLogsHandler | undefined
 
@@ -2221,28 +2202,24 @@ export function setGetRuntimeLogsHandler(handler: GetRuntimeLogsHandler | undefi
 	getRuntimeLogsHandler = handler
 }
 
-function getSessionRuntimeLogs(limit: number, sessionId: string | undefined): Promise<string> {
+function getSessionRuntimeLogs(
+	limit: number,
+	sessionId: string | undefined
+): Promise<SessionToolResult> {
 	if (!getRuntimeLogsHandler) {
-		return Promise.resolve('Error: get_app_runtime_logs is only available inside an AI session.')
+		return Promise.resolve({
+			aiResult:
+				'Error: get_app_runtime_logs is only available inside an AI session. Tell the user runtime logs can only be read from a session preview, or switch to a session and open the raw app preview.',
+			uiMessage: 'Runtime logs unavailable'
+		})
 	}
 	return getRuntimeLogsHandler({ sessionId, limit })
 }
 
-// Registered by the session runtime to answer list_app_runs: snapshots the
-// backend runs the calling session's live raw-app preview has executed, newest
-// first. Synchronous — the runs are tracked in the host, not the iframe.
-// Undefined outside a session.
-//
-// UI-vs-AI convention (same as get_app_runtime_logs): the returned string's
-// FIRST LINE is the user-facing status shown as the collapsed tool header; any
-// lines after it are the expandable details; the WHOLE string is the tool's
-// return value to the model. So keep the first line a clean user-facing summary
-// (no instructions) — model-only guidance belongs in the tool description and
-// system prompt, not in the per-call result.
 export type ListAppRunsHandler = (req: {
 	sessionId: string | undefined
 	limit: number
-}) => string
+}) => SessionToolResult
 
 let listAppRunsHandler: ListAppRunsHandler | undefined
 
@@ -2250,9 +2227,16 @@ export function setListAppRunsHandler(handler: ListAppRunsHandler | undefined): 
 	listAppRunsHandler = handler
 }
 
-function getSessionAppRuns(limit: number, sessionId: string | undefined): Promise<string> {
+function getSessionAppRuns(
+	limit: number,
+	sessionId: string | undefined
+): Promise<SessionToolResult> {
 	if (!listAppRunsHandler) {
-		return Promise.resolve('Error: list_app_runs is only available inside an AI session.')
+		return Promise.resolve({
+			aiResult:
+				'Error: list_app_runs is only available inside an AI session. Tell the user app runs can only be read from a session preview, or switch to a session and open the raw app preview.',
+			uiMessage: 'App runs unavailable'
+		})
 	}
 	return Promise.resolve(listAppRunsHandler({ sessionId, limit }))
 }

@@ -96,17 +96,7 @@
 		 * still toggle the mode after mount; this prop only seeds the
 		 * initial state. */
 		defaultSplitWithPreview?: boolean
-		/** Session host hook. Receives this editor's runtime-log requester so
-		 * the global chat's `get_app_runtime_logs` tool can pull console logs
-		 * from the live preview iframe on demand. Called with the requester on
-		 * mount and with `undefined` on teardown. Only the session preview wires
-		 * this; the standalone editor leaves it unset. */
 		onRuntimeLogRequester?: (requester: RawAppRuntimeLogRequester | undefined) => void
-		/** Session host hook. Receives a provider that snapshots the backend runs
-		 * this editor's runner has executed, so the global chat's `list_app_runs`
-		 * tool can surface their job ids (paired with `get_job_logs`). Called with
-		 * the provider on mount and `undefined` on teardown. Only the session
-		 * preview wires this. */
 		onRunsProvider?: (provider: RawAppRunsProvider | undefined) => void
 	}
 
@@ -1008,13 +998,11 @@
 			return
 		}
 
-		// Reply to a `getRuntimeLogs` request: resolve the matching pending
-		// promise with the buffered console entries from the running app.
 		if (fromPreview && e.data.type === 'runtimeLogsResponse') {
-			const pending = pendingRuntimeLogReqs.get(e.data.requestId)
+			const pending = pendingRuntimeLogReqs[e.data.requestId]
 			if (pending) {
 				clearTimeout(pending.timer)
-				pendingRuntimeLogReqs.delete(e.data.requestId)
+				delete pendingRuntimeLogReqs[e.data.requestId]
 				pending.resolve(Array.isArray(e.data.logs) ? e.data.logs : [])
 			}
 			return
@@ -1106,18 +1094,12 @@
 		})
 	}
 
-	// Pull-based runtime-log retrieval. The running app lives in the *preview*
-	// iframe (the ui_builder `app-preview.html` shell), which keeps its own
-	// bounded buffer of console.* / error output. We don't stream it; instead we
-	// ask on demand: post `getRuntimeLogs` and resolve when the matching
-	// `runtimeLogsResponse` arrives (handled in `listener`). A timeout guards
-	// against an old shell that doesn't answer or an unmounted preview. Keyed by
-	// requestId so overlapping calls (and stale late replies) can't cross.
 	const RUNTIME_LOGS_TIMEOUT_MS = 2000
-	let pendingRuntimeLogReqs = new Map<
-		string,
-		{ resolve: (entries: RawAppRuntimeLogEntry[] | undefined) => void; timer: ReturnType<typeof setTimeout> }
-	>()
+	type PendingRuntimeLogRequest = {
+		resolve: (entries: RawAppRuntimeLogEntry[] | undefined) => void
+		timer: ReturnType<typeof setTimeout>
+	}
+	const pendingRuntimeLogReqs: Record<string, PendingRuntimeLogRequest> = {}
 
 	const requestRuntimeLogs: RawAppRuntimeLogRequester = (limit) => {
 		const win = previewIframe?.contentWindow
@@ -1125,52 +1107,42 @@
 		const requestId = crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)
 		return new Promise<RawAppRuntimeLogEntry[] | undefined>((resolve) => {
 			const timer = setTimeout(() => {
-				pendingRuntimeLogReqs.delete(requestId)
+				delete pendingRuntimeLogReqs[requestId]
 				resolve(undefined)
 			}, RUNTIME_LOGS_TIMEOUT_MS)
-			pendingRuntimeLogReqs.set(requestId, { resolve, timer })
+			pendingRuntimeLogReqs[requestId] = { resolve, timer }
 			win.postMessage({ type: 'getRuntimeLogs', requestId, limit }, '*')
 		})
 	}
 
-	// Hand the requester up to the session host on mount; clear it on teardown
-	// so a torn-down editor can't be queried.
-	$effect(() => {
-		onRuntimeLogRequester?.(requestRuntimeLogs)
-		return () => {
-			onRuntimeLogRequester?.(undefined)
-			for (const { timer } of pendingRuntimeLogReqs.values()) clearTimeout(timer)
-			pendingRuntimeLogReqs.clear()
-		}
-	})
-
-	// Snapshot the runner's tracked backend runs, newest first. `jobs` is the
-	// uuid list in execution order (oldest first); `jobsById` carries the
-	// component, timings and result. Read on demand by the chat's list_app_runs
-	// tool — no iframe round-trip needed since the runner lives in this host.
 	const getRuns: RawAppRunsProvider = () => {
 		const out: RawAppRunSummary[] = []
 		for (const id of jobs) {
 			const j = jobsById[id]
 			if (!j) continue
-			out.push({
+			const run: RawAppRunSummary = {
 				job_id: j.job ?? id,
 				component: j.component,
-				// jobsById gets created_at immediately and result/duration once the
-				// job settles; treat either as "completed".
-				status: j.result !== undefined || j.duration_ms !== undefined ? 'completed' : 'running',
-				created_at: j.created_at,
-				started_at: j.started_at,
-				duration_ms: j.duration_ms
-			})
+				status: j.result !== undefined || j.duration_ms !== undefined ? 'completed' : 'running'
+			}
+			if (j.created_at !== undefined) run.created_at = j.created_at
+			if (j.started_at !== undefined) run.started_at = j.started_at
+			if (j.duration_ms !== undefined) run.duration_ms = j.duration_ms
+			out.push(run)
 		}
-		out.reverse()
-		return out
+		return out.reverse()
 	}
 
-	$effect(() => {
+	onMount(() => {
+		onRuntimeLogRequester?.(requestRuntimeLogs)
 		onRunsProvider?.(getRuns)
-		return () => onRunsProvider?.(undefined)
+		return () => {
+			onRuntimeLogRequester?.(undefined)
+			onRunsProvider?.(undefined)
+			for (const { timer } of Object.values(pendingRuntimeLogReqs)) clearTimeout(timer)
+			for (const requestId of Object.keys(pendingRuntimeLogReqs))
+				delete pendingRuntimeLogReqs[requestId]
+		}
 	})
 
 	let darkMode: boolean = $state(false)

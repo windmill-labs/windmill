@@ -28,16 +28,6 @@
 	}: Props = $props()
 
 	let listener = async (event) => {
-		// Only handle requests coming from THIS runner's own app iframe. The
-		// window message bus is shared by every mounted runner (warm-kept session
-		// previews, the editor preview, …), so without this guard more than one
-		// runner answers the same backend/backendAsync/waitJob/getJob/streamJob
-		// call — executing the runnable multiple times and posting duplicate
-		// responses. The app's wmill client settles+deletes the request on the
-		// first response, so the extra ones surface as orphan
-		// "No job found for <reqId>" console errors. `parent.postMessage` from the
-		// app sets event.source to the iframe's contentWindow, so this matches
-		// exactly the requests meant for this runner.
 		if (!iframe || event.source !== iframe.contentWindow) return
 
 		const data = event.data

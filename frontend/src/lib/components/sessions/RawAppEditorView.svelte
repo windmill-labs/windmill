@@ -33,17 +33,10 @@
 		await runtime.loadRawApp(workspaceId, path)
 	}
 
-	// Expose this preview's runtime-log requester on the session runtime so the
-	// chat's `get_app_runtime_logs` tool (dispatched by sessionId) can pull
-	// console logs from this app's live preview. Stable identity so the editor's
-	// registration effect doesn't churn; the editor passes `undefined` on
-	// teardown, which clears it.
 	function registerRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined) {
 		runtime.setRuntimeLogRequester(requester)
 	}
 
-	// Same bridge for the chat's `list_app_runs` tool: expose this preview's
-	// backend-run snapshot provider on the session runtime.
 	function registerRunsProvider(provider: RawAppRunsProvider | undefined) {
 		runtime.setAppRunsProvider(provider)
 	}

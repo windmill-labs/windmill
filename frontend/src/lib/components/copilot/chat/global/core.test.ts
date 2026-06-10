@@ -2001,21 +2001,35 @@ describe('prepareGlobalSystemMessage', () => {
 		it('returns the session-only error when no handler is registered', async () => {
 			setGetRuntimeLogsHandler(undefined)
 			const result = await callGlobalTool('get_app_runtime_logs', {})
-			expect(result).toBe('Error: get_app_runtime_logs is only available inside an AI session.')
+			expect(result).toContain(
+				'Error: get_app_runtime_logs is only available inside an AI session.'
+			)
+			expect(result).toContain('open the raw app preview')
 		})
 
 		it('dispatches to the registered handler with the session id and default limit of 10', async () => {
-			const handler = vi.fn(async () => 'logs output')
+			const callbacks: ToolCallbacks = { setToolStatus: vi.fn(), removeToolStatus: vi.fn() }
+			const handler = vi.fn(async () => ({
+				aiResult: 'logs output. Next step: inspect the browser error.',
+				uiMessage: 'Read 1 runtime log'
+			}))
 			setGetRuntimeLogsHandler(handler)
-			const result = await callGlobalTool('get_app_runtime_logs', {}, toolCallbacks, {
+			const result = await callGlobalTool('get_app_runtime_logs', {}, callbacks, {
 				sessionId: 'sess-logs'
 			})
-			expect(result).toBe('logs output')
+			expect(result).toBe('logs output. Next step: inspect the browser error.')
 			expect(handler).toHaveBeenCalledWith({ sessionId: 'sess-logs', limit: 10 })
+			expect(callbacks.setToolStatus).toHaveBeenLastCalledWith('test-get_app_runtime_logs', {
+				content: 'Read 1 runtime log',
+				autoCollapseDetails: true
+			})
 		})
 
 		it('passes an explicit limit through to the handler', async () => {
-			const handler = vi.fn(async () => 'logs output')
+			const handler = vi.fn(async () => ({
+				aiResult: 'logs output',
+				uiMessage: 'Read runtime logs'
+			}))
 			setGetRuntimeLogsHandler(handler)
 			await callGlobalTool('get_app_runtime_logs', { limit: 3 }, toolCallbacks, {
 				sessionId: 'sess-logs'
@@ -2032,21 +2046,33 @@ describe('prepareGlobalSystemMessage', () => {
 		it('returns the session-only error when no handler is registered', async () => {
 			setListAppRunsHandler(undefined)
 			const result = await callGlobalTool('list_app_runs', {})
-			expect(result).toBe('Error: list_app_runs is only available inside an AI session.')
+			expect(result).toContain('Error: list_app_runs is only available inside an AI session.')
+			expect(result).toContain('open the raw app preview')
 		})
 
 		it('dispatches to the registered handler with the session id and default limit of 20', async () => {
-			const handler = vi.fn(() => 'runs output')
+			const callbacks: ToolCallbacks = { setToolStatus: vi.fn(), removeToolStatus: vi.fn() }
+			const handler = vi.fn(() => ({
+				aiResult: 'runs output. Next step: call get_job_logs.',
+				uiMessage: 'Listed 1 app run'
+			}))
 			setListAppRunsHandler(handler)
-			const result = await callGlobalTool('list_app_runs', {}, toolCallbacks, {
+			const result = await callGlobalTool('list_app_runs', {}, callbacks, {
 				sessionId: 'sess-runs'
 			})
-			expect(result).toBe('runs output')
+			expect(result).toBe('runs output. Next step: call get_job_logs.')
 			expect(handler).toHaveBeenCalledWith({ sessionId: 'sess-runs', limit: 20 })
+			expect(callbacks.setToolStatus).toHaveBeenLastCalledWith('test-list_app_runs', {
+				content: 'Listed 1 app run',
+				autoCollapseDetails: true
+			})
 		})
 
 		it('passes an explicit limit through to the handler', async () => {
-			const handler = vi.fn(() => 'runs output')
+			const handler = vi.fn(() => ({
+				aiResult: 'runs output',
+				uiMessage: 'Listed app runs'
+			}))
 			setListAppRunsHandler(handler)
 			await callGlobalTool('list_app_runs', { limit: 5 }, toolCallbacks, {
 				sessionId: 'sess-runs'

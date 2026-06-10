@@ -112,17 +112,8 @@ export interface SessionRuntime {
 			| undefined
 	}
 	loadRawApp(workspace: string, path: string, force?: boolean): Promise<void>
-	// Runtime-log bridge for the raw-app preview. RawAppEditorView registers the
-	// preview's requester while a raw app is mounted (undefined otherwise); the
-	// chat's get_app_runtime_logs tool calls requestRuntimeLogs, which pulls the
-	// last `limit` console entries from THIS session's live preview. Resolves
-	// undefined when no preview is mounted/running to answer.
 	setRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined): void
 	requestRuntimeLogs(limit: number): Promise<RawAppRuntimeLogEntry[] | undefined>
-	// Backend-run bridge for the raw-app preview. RawAppEditorView registers the
-	// preview's runs provider while a raw app is mounted (undefined otherwise);
-	// the chat's list_app_runs tool calls getAppRuns to snapshot the runner's
-	// tracked job ids. Returns undefined when no preview is mounted to answer.
 	setAppRunsProvider(provider: RawAppRunsProvider | undefined): void
 	getAppRuns(): RawAppRunSummary[] | undefined
 	// Discard the local draft + refresh the fork diff + force-reload the editor,
@@ -293,9 +284,6 @@ function createRuntime(session: Session): SessionRuntime {
 	const rawApp: { val: SessionRuntime['rawApp']['val'] } = $state({ val: undefined })
 	const savedRawApp: { val: SessionRuntime['savedRawApp']['val'] } = $state({ val: undefined })
 	const rawAppSlot: LoadSlot = $state({ loadedPath: undefined, loading: false, notFound: false })
-	// Set by the mounted raw-app preview (RawAppEditorView). Plain let, not
-	// $state — it's an imperative bridge read on demand by the chat tool, not a
-	// render input.
 	let runtimeLogRequester: RawAppRuntimeLogRequester | undefined = undefined
 	let appRunsProvider: RawAppRunsProvider | undefined = undefined
 
@@ -777,50 +765,67 @@ setDeployedInSessionHandler(({ sessionId: callerSessionId, kind, path }) => {
 	runtime.syncPreviewWithDeployed(session.workspace_id, kind, path)
 })
 
-// Pull runtime console logs from the calling session's live raw-app preview.
-// Dispatches to the *calling* session (sessionId threaded from the tool ctx),
-// falling back to the UI-active session only when none was passed — same
-// discipline as the open_preview handlers above.
 setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit }) => {
 	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	const runtime = sessionId ? runtimes.get(sessionId) : undefined
 	if (!runtime) {
-		return 'Error: get_app_runtime_logs is only available inside an AI session.'
+		return {
+			aiResult:
+				'Error: get_app_runtime_logs is only available inside an AI session. Tell the user runtime logs can only be read from a session preview, or switch to a session and open the raw app preview.',
+			uiMessage: 'Runtime logs unavailable'
+		}
 	}
 	const entries = await runtime.requestRuntimeLogs(limit)
 	if (entries === undefined) {
-		return 'No raw app preview is running in the side panel. Open it with open_preview(kind="raw_app") and let it load — runtime logs are read live from the running preview, not stored.'
+		return {
+			aiResult:
+				'No runtime logs are available because no raw app preview is running for this session. Next step: call open_preview with kind="raw_app" and the app path, wait for it to load, then call get_app_runtime_logs again. Runtime logs are read live from the running preview and are not persisted.',
+			uiMessage: 'Runtime logs unavailable'
+		}
 	}
 	if (entries.length === 0) {
-		return 'The app preview is running but has not emitted any console logs yet.'
+		return {
+			aiResult:
+				'The raw app preview is running, but it has not emitted console logs, uncaught errors, or unhandled rejections yet. If the user reported a failure, reproduce the interaction in the preview, then call get_app_runtime_logs again. For backend.<id>() failures, call list_app_runs and then get_job_logs for the relevant job_id.',
+			uiMessage: 'No runtime logs'
+		}
 	}
-	return formatRuntimeLogsForChat(entries)
+	return {
+		aiResult: formatRuntimeLogsForChat(entries),
+		uiMessage: `Read ${entries.length} runtime log${entries.length === 1 ? '' : 's'}`
+	}
 })
 
-// Answers list_app_runs: snapshots the backend runs the calling session's live
-// raw-app preview has executed (newest first). Same sessionId dispatch as the
-// runtime-logs handler. Synchronous — the runs live in the host, not the iframe.
-//
-// UI vs AI (see ListAppRunsHandler): the returned string's first line is shown
-// to the user as the collapsed tool header, so keep it a clean status with no
-// instructions; the rest (the runs JSON) is expandable detail; the whole string
-// is the model's tool result. Next-step guidance (open_preview, get_job_logs)
-// lives in the tool description + system prompt, not here.
 setListAppRunsHandler(({ sessionId: callerSessionId, limit }) => {
 	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	const runtime = sessionId ? runtimes.get(sessionId) : undefined
 	if (!runtime) {
-		return 'Error: list_app_runs is only available inside an AI session.'
+		return {
+			aiResult:
+				'Error: list_app_runs is only available inside an AI session. Tell the user app runs can only be read from a session preview, or switch to a session and open the raw app preview.',
+			uiMessage: 'App runs unavailable'
+		}
 	}
 	const runs = runtime.getAppRuns()
 	if (runs === undefined) {
-		return 'No raw app preview is open in the side panel.'
+		return {
+			aiResult:
+				'No raw app preview is open for this session, so no backend runs can be listed. Next step: call open_preview with kind="raw_app" and the app path, let the preview load, reproduce the action that calls backend.<id>(), then call list_app_runs again.',
+			uiMessage: 'App runs unavailable'
+		}
 	}
 	if (runs.length === 0) {
-		return 'No backend runnables have run in the app preview yet.'
+		return {
+			aiResult:
+				'No backend runnable executions are tracked for this raw app preview yet. Reproduce the UI action that calls backend.<id>(), then call list_app_runs again. If the problem is purely browser-side, use get_app_runtime_logs instead.',
+			uiMessage: 'No app runs'
+		}
 	}
 	const limited = limit > 0 ? runs.slice(0, limit) : runs
-	return formatAppRunsForChat(limited)
+	return {
+		aiResult: formatAppRunsForChat(limited),
+		uiMessage: `Listed ${limited.length} app run${limited.length === 1 ? '' : 's'}`
+	}
 })
 
 export function getSessionChatStatus(runtime: SessionRuntime): SessionChatStatus {
