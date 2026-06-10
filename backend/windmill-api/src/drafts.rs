@@ -75,8 +75,20 @@ async fn save_draft(
 ) -> Result<Json<SaveDraftResponse>> {
     let email = &authed.email;
     let path = path.to_path();
+    require_can_write_path(&authed, &db, &w_id, path).await?;
 
     let applied_at = if let Some(value) = &req.value {
+        // Secret variable values must never sit in the draft table in
+        // plaintext — deployed secrets are encrypted with the workspace
+        // crypt key precisely so DB dumps don't leak them, and the
+        // variable editor never round-trips secret values back anyway
+        // (it fetches with decrypt_secret=false; the field starts empty
+        // on every edit). Strip the typed value before persisting.
+        let serialized = if kind == UserDraftItemKind::Variable {
+            scrub_secret_variable_value(value.0.get())
+        } else {
+            serde_json::to_string(value).unwrap()
+        };
         // Upsert branch. Conflict check rides on a WHERE clause attached
         // to DO UPDATE — when the existing row is newer than `last_sync`,
         // the statement is a no-op and RETURNING yields nothing.
@@ -93,7 +105,7 @@ async fn save_draft(
             email,
             path,
             kind as UserDraftItemKind,
-            serde_json::to_string(value).unwrap(),
+            serialized,
             req.last_sync,
             req.force,
         )
@@ -161,6 +173,28 @@ async fn save_draft(
             }))
         }
     }
+}
+
+/// For variable-kind drafts: when the JSON says `variable.is_secret ==
+/// true`, blank `variable.value` so the typed secret never persists in
+/// plaintext at rest. Unexpected shapes pass through unchanged — the
+/// draft store is schema-less by design and a malformed draft is the
+/// editor's problem, not a save error.
+fn scrub_secret_variable_value(raw: &str) -> String {
+    let Ok(mut v) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return raw.to_string();
+    };
+    let is_secret = v
+        .get("variable")
+        .and_then(|x| x.get("is_secret"))
+        .and_then(|x| x.as_bool())
+        .unwrap_or(false);
+    if is_secret {
+        if let Some(val) = v.get_mut("variable").and_then(|x| x.get_mut("value")) {
+            *val = serde_json::Value::String(String::new());
+        }
+    }
+    v.to_string()
 }
 
 #[derive(Deserialize, Debug)]
@@ -269,6 +303,61 @@ fn table_for_kind(kind: UserDraftItemKind) -> Option<&'static str> {
         // trigger_webhook is a property of script/flow rows, not its own row.
         TriggerWebhook => None,
     }
+}
+
+/// Resolves to `Ok(())` if `authed` may SAVE a draft at `path`:
+///   - admins always
+///   - the user's own namespace (`u/{username}`)
+///   - group namespace (`g/{group}`) when the user is in the group
+///   - folders (`f/{folder}`) when the user has WRITE (or owns) the folder
+///
+/// Drafts can exist at paths with no deployed item (draft-only), so there
+/// is no row to lean on for item-level extra_perms — the namespace rules
+/// are the whole check. Without this, any workspace member could plant
+/// drafts in another user's `u/` namespace or in folders they can't
+/// write, and those drafts get surfaced to every reader of the path
+/// (home-page circles, others'-drafts modal, View JSON / Fork).
+///
+/// JWT folder claims can lag behind fresh grants — refresh them the same
+/// way the deploy endpoints do before concluding "no write".
+async fn require_can_write_path(authed: &ApiAuthed, db: &DB, w_id: &str, path: &str) -> Result<()> {
+    if authed.is_admin {
+        return Ok(());
+    }
+    // Operators are read-only users — they're excluded from every draft
+    // surface (list synthesis, badges) and must not write drafts either.
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "operators cannot save drafts".to_string(),
+        ));
+    }
+    let parts: Vec<&str> = path.splitn(3, '/').collect();
+    if parts.len() >= 3 {
+        match parts[0] {
+            "u" if parts[1] == authed.username => return Ok(()),
+            "g" if authed.groups.iter().any(|g| g == parts[1]) => return Ok(()),
+            "f" => {
+                let folder = parts[1];
+                let has_write = |a: &ApiAuthed| {
+                    a.folders
+                        .iter()
+                        .any(|(name, write, owner)| name == folder && (*write || *owner))
+                };
+                if has_write(authed) {
+                    return Ok(());
+                }
+                let refreshed =
+                    windmill_api_auth::maybe_refresh_folders(path, w_id, authed.clone(), db).await;
+                if has_write(&refreshed) {
+                    return Ok(());
+                }
+            }
+            _ => {}
+        }
+    }
+    Err(Error::NotAuthorized(format!(
+        "you don't have write permission on {path}"
+    )))
 }
 
 /// Resolves to `Ok(())` if `authed` can read at `path`. Three layers, in
