@@ -606,9 +606,11 @@
 				? 'scripts/get'
 				: kind === 'flow'
 					? 'flows/get'
-					: kind === 'app' || kind === 'raw_app'
-						? 'apps/get'
-						: undefined
+					: kind === 'raw_app'
+						? 'apps_raw/get'
+						: kind === 'app'
+							? 'apps/get'
+							: undefined
 		if (!segment) return undefined
 		return `${base}/${segment}/${path}?workspace=${ws}`
 	}
@@ -1233,7 +1235,7 @@
 	}
 
 	async function openRecord(it: DeployItem) {
-		recordRunSeq++
+		const seq = ++recordRunSeq
 		recordTarget = it
 		recordArgs = {}
 		recordValid = true
@@ -1252,15 +1254,18 @@
 		try {
 			if (it.kind === 'script') {
 				const s = await ScriptService.getScriptByPath({ workspace, path: it.path })
+				if (seq !== recordRunSeq) return
 				recordSchema = (s.schema as Record<string, any>) ?? EMPTY_SCHEMA
 			} else if (it.kind === 'flow') {
 				const f = await FlowService.getFlowByPath({ workspace, path: it.path })
+				if (seq !== recordRunSeq) return
 				recordSchema = (f.schema as Record<string, any>) ?? EMPTY_SCHEMA
 			}
 		} catch (e: any) {
+			if (seq !== recordRunSeq) return
 			sendUserToast(`Failed to load schema: ${e?.message ?? e}`, true)
 		} finally {
-			recordSchemaLoading = false
+			if (seq === recordRunSeq) recordSchemaLoading = false
 		}
 	}
 	async function runJob() {
