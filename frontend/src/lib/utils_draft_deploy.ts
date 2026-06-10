@@ -166,7 +166,14 @@ export async function getDraftDiffValues(
 		const draftValue = draft ?? deployed
 		return { deployed: draftOnly ? EMPTY_DEPLOYED.flow!(draftValue) : deployed, draft: draftValue }
 	} else if (kind === 'app' || kind === 'raw_app') {
-		const r = (await AppService.getAppByPath({ workspace, path, getDraft: true })) as any
+		// A never-deployed raw app has no `app` row; the backend resolves the
+		// draft kind from `rawApp`, so it MUST be set or the lookup 404s.
+		const r = (await AppService.getAppByPath({
+			workspace,
+			path,
+			getDraft: true,
+			rawApp: kind === 'raw_app'
+		})) as any
 		const deployed = {
 			summary: r.summary,
 			value: r.value,
