@@ -1,7 +1,7 @@
 use crate::db::ApiAuthed;
 use crate::HTTP_CLIENT;
 use axum::{
-    extract::{Json, Path},
+    extract::{Json, Path, Query},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -33,6 +33,40 @@ pub fn workspaced_service() -> Router {
         .route("/projects/{slug}/export", get(get_project_export))
         .route("/projects/{slug}/submit", post(submit_project))
         .route("/project", get(get_project_by_source))
+}
+
+// A workspace can publish one Hub project per folder. The stable, never-mutated
+// link key is `workspace_id:folder_name` (folder name is the path segment and is
+// never renamed — only display_name changes). `:` is safe: neither workspace ids
+// nor folder names (alphanumeric + underscore) contain it.
+#[derive(Deserialize)]
+struct HubScope {
+    folder: String,
+}
+
+// Export is owner-scoped only when re-exporting your own draft; approved projects
+// are public, so folder is optional there.
+#[derive(Deserialize)]
+struct HubScopeOpt {
+    folder: Option<String>,
+}
+
+fn validate_folder(folder: &str) -> Result<(), Error> {
+    let ok = !folder.is_empty()
+        && folder.len() <= 255
+        && folder
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_');
+    if ok {
+        Ok(())
+    } else {
+        Err(Error::BadRequest(format!("invalid folder: {folder}")))
+    }
+}
+
+fn source_key(workspace: &str, folder: &str) -> Result<String, Error> {
+    validate_folder(folder)?;
+    Ok(format!("{workspace}:{folder}"))
 }
 
 fn validate_project_slug(slug: &str) -> Result<(), Error> {
@@ -71,12 +105,13 @@ struct HubProjectBody {
 async fn publish_draft(
     authed: ApiAuthed,
     Path(workspace): Path<String>,
+    Query(scope): Query<HubScope>,
     Json(body): Json<PublishDraftBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
     forward_to_hub(
         "/projects",
-        &workspace,
+        &source_key(&workspace, &scope.folder)?,
         &HubProjectBody {
             slug: body.slug,
             name: body.name,
@@ -111,10 +146,16 @@ struct PublishScriptBody {
 async fn publish_script(
     authed: ApiAuthed,
     Path(workspace): Path<String>,
+    Query(scope): Query<HubScope>,
     Json(body): Json<PublishScriptBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub("/scripts/add", &workspace, &body).await
+    forward_to_hub(
+        "/scripts/add",
+        &source_key(&workspace, &scope.folder)?,
+        &body,
+    )
+    .await
 }
 
 #[derive(Deserialize, Serialize)]
@@ -143,10 +184,11 @@ struct PublishFlowBody {
 async fn publish_flow(
     authed: ApiAuthed,
     Path(workspace): Path<String>,
+    Query(scope): Query<HubScope>,
     Json(body): Json<PublishFlowBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub("/flows", &workspace, &body).await
+    forward_to_hub("/flows", &source_key(&workspace, &scope.folder)?, &body).await
 }
 
 #[derive(Deserialize, Serialize)]
@@ -166,10 +208,11 @@ struct PublishAppBody {
 async fn publish_app(
     authed: ApiAuthed,
     Path(workspace): Path<String>,
+    Query(scope): Query<HubScope>,
     Json(body): Json<PublishAppBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub("/apps", &workspace, &body).await
+    forward_to_hub("/apps", &source_key(&workspace, &scope.folder)?, &body).await
 }
 
 #[derive(Deserialize, Serialize)]
@@ -191,10 +234,11 @@ struct PublishRawAppBody {
 async fn publish_raw_app(
     authed: ApiAuthed,
     Path(workspace): Path<String>,
+    Query(scope): Query<HubScope>,
     Json(body): Json<PublishRawAppBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub("/raw_apps", &workspace, &body).await
+    forward_to_hub("/raw_apps", &source_key(&workspace, &scope.folder)?, &body).await
 }
 
 #[derive(Deserialize, Serialize)]
@@ -207,10 +251,16 @@ struct RawAppEmbedBody {
 async fn publish_raw_app_embed(
     authed: ApiAuthed,
     Path((workspace, id)): Path<(String, i64)>,
+    Query(scope): Query<HubScope>,
     Json(body): Json<RawAppEmbedBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub(&format!("/raw_apps/{}/embed", id), &workspace, &body).await
+    forward_to_hub(
+        &format!("/raw_apps/{}/embed", id),
+        &source_key(&workspace, &scope.folder)?,
+        &body,
+    )
+    .await
 }
 
 #[derive(Deserialize, Serialize)]
@@ -223,19 +273,31 @@ struct RecordingBody {
 async fn publish_script_recording(
     authed: ApiAuthed,
     Path((workspace, ask_id)): Path<(String, i64)>,
+    Query(scope): Query<HubScope>,
     Json(body): Json<RecordingBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub(&format!("/scripts/{}/recording", ask_id), &workspace, &body).await
+    forward_to_hub(
+        &format!("/scripts/{}/recording", ask_id),
+        &source_key(&workspace, &scope.folder)?,
+        &body,
+    )
+    .await
 }
 
 async fn publish_flow_recording(
     authed: ApiAuthed,
     Path((workspace, flow_id)): Path<(String, i64)>,
+    Query(scope): Query<HubScope>,
     Json(body): Json<RecordingBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub(&format!("/flows/{}/recording", flow_id), &workspace, &body).await
+    forward_to_hub(
+        &format!("/flows/{}/recording", flow_id),
+        &source_key(&workspace, &scope.folder)?,
+        &body,
+    )
+    .await
 }
 
 #[derive(Deserialize, Serialize)]
@@ -253,13 +315,14 @@ struct PublishResourceTypeBody {
 async fn publish_resource_type(
     authed: ApiAuthed,
     Path(workspace): Path<String>,
+    Query(scope): Query<HubScope>,
     Json(body): Json<PublishResourceTypeBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
     validate_project_slug(&body.project_slug)?;
     forward_to_hub(
         &format!("/projects/{}/resource_types", body.project_slug),
-        &workspace,
+        &source_key(&workspace, &scope.folder)?,
         &body,
     )
     .await
@@ -282,13 +345,14 @@ struct PublishResourcesBody {
 async fn publish_resources(
     authed: ApiAuthed,
     Path(workspace): Path<String>,
+    Query(scope): Query<HubScope>,
     Json(body): Json<PublishResourcesBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
     validate_project_slug(&body.project_slug)?;
     forward_to_hub(
         &format!("/projects/{}/resources", body.project_slug),
-        &workspace,
+        &source_key(&workspace, &scope.folder)?,
         &body,
     )
     .await
@@ -318,13 +382,14 @@ struct PublishTriggersBody {
 async fn publish_triggers(
     authed: ApiAuthed,
     Path(workspace): Path<String>,
+    Query(scope): Query<HubScope>,
     Json(body): Json<PublishTriggersBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
     validate_project_slug(&body.project_slug)?;
     forward_to_hub(
         &format!("/projects/{}/triggers", body.project_slug),
-        &workspace,
+        &source_key(&workspace, &scope.folder)?,
         &body,
     )
     .await
@@ -333,29 +398,40 @@ async fn publish_triggers(
 async fn get_project_export(
     authed: ApiAuthed,
     Path((workspace, slug)): Path<(String, String)>,
+    Query(scope): Query<HubScopeOpt>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
     validate_project_slug(&slug)?;
-    get_from_hub(&format!("/projects/{}/export", slug), &workspace).await
+    let source = match scope.folder {
+        Some(folder) => source_key(&workspace, &folder)?,
+        None => String::new(),
+    };
+    get_from_hub(&format!("/projects/{}/export", slug), &source).await
 }
 
 async fn get_project_by_source(
     authed: ApiAuthed,
     Path(workspace): Path<String>,
+    Query(scope): Query<HubScope>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    get_from_hub("/projects/by_source", &workspace).await
+    get_from_hub(
+        "/projects/by_source",
+        &source_key(&workspace, &scope.folder)?,
+    )
+    .await
 }
 
 async fn submit_project(
     authed: ApiAuthed,
     Path((workspace, slug)): Path<(String, String)>,
+    Query(scope): Query<HubScope>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
     validate_project_slug(&slug)?;
     forward_to_hub(
         &format!("/projects/{}/submit", slug),
-        &workspace,
+        &source_key(&workspace, &scope.folder)?,
         &serde_json::json!({}),
     )
     .await
