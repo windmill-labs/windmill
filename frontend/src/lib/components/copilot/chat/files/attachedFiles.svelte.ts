@@ -12,6 +12,8 @@ export interface AttachedFile extends FileEntry {
 	size: number
 	status: 'indexing' | 'ready' | 'error'
 	error?: string
+	/** Top-level folder this file came from (first path segment), if added as part of a folder. */
+	folder?: string
 }
 
 export interface AddFilesResult {
@@ -19,8 +21,11 @@ export interface AddFilesResult {
 	rejected: { name: string; reason: string }[]
 }
 
+/** A file to attach, optionally with a relative path to use as its display name (folder adds). */
+export type FileToAttach = File | { file: File; path?: string }
+
 /** Cap on the number of attached files, to keep the roster (and RAM) sane. */
-export const MAX_ATTACHED_FILES = 25
+export const MAX_ATTACHED_FILES = 100
 
 export class AttachedFilesStore {
 	files = $state<AttachedFile[]>([])
@@ -50,30 +55,46 @@ export class AttachedFilesStore {
 		this.files = this.files.filter((f) => f.name !== name)
 	}
 
+	/** Remove every file that was attached as part of the given folder. */
+	removeFolder(folder: string): void {
+		this.files = this.files.filter((f) => f.folder !== folder)
+	}
+
 	/**
-	 * Attach files. Rejects binaries and over-cap files (reported in the result so
-	 * the caller can toast). Identical re-drops are no-ops. Names are made unique
-	 * (auto-suffixed) since the tools address files by name. Indexing runs async.
+	 * Attach files. Each item is either a raw File (named by its filename, or by
+	 * `webkitRelativePath` when it came from a folder picker) or `{ file, path }`
+	 * where `path` is the relative path to use as the display name (folder drops).
+	 * Rejects binaries and over-cap files (reported in the result so the caller can
+	 * toast). Identical re-attachments are no-ops. Names are made unique. Indexing
+	 * runs async.
 	 */
-	async addFiles(input: FileList | File[]): Promise<AddFilesResult> {
+	async addFiles(input: FileList | FileToAttach[]): Promise<AddFilesResult> {
 		const result: AddFilesResult = { added: [], rejected: [] }
 
-		for (const file of Array.from(input)) {
+		for (const item of Array.from(input as ArrayLike<FileToAttach>)) {
+			const file = item instanceof File ? item : item.file
+			const desired =
+				(item instanceof File ? '' : (item.path ?? '')) ||
+				(file as File & { webkitRelativePath?: string }).webkitRelativePath ||
+				file.name ||
+				'file'
+
 			if (this.files.length >= MAX_ATTACHED_FILES) {
 				result.rejected.push({
-					name: file.name,
-					reason: `Limit of ${MAX_ATTACHED_FILES} attached files reached`
+					name: desired,
+					reason: `Attached-file limit (${MAX_ATTACHED_FILES}) reached`
 				})
 				continue
 			}
 
-			// Identical re-drop of an already-attached file → no-op.
+			// Re-attachment of an already-present path or identical file → no-op.
 			if (
 				this.files.some(
 					(f) =>
-						f.file.name === file.name &&
-						f.size === file.size &&
-						f.file.lastModified === file.lastModified
+						f.name === desired ||
+						(f.file.name === file.name &&
+							f.size === file.size &&
+							f.file.lastModified === file.lastModified)
 				)
 			) {
 				continue
@@ -86,14 +107,15 @@ export class AttachedFilesStore {
 				textual = false
 			}
 			if (!textual) {
-				result.rejected.push({ name: file.name, reason: 'Not a text file' })
+				result.rejected.push({ name: desired, reason: 'Not a text file' })
 				continue
 			}
 
-			const name = this.#uniqueName(file.name || 'file')
+			const name = this.#uniqueName(desired)
+			const folder = desired.includes('/') ? desired.split('/')[0] : undefined
 			this.files = [
 				...this.files,
-				{ name, file, size: file.size, lineIndex: [], lineCount: 0, status: 'indexing' }
+				{ name, file, size: file.size, lineIndex: [], lineCount: 0, status: 'indexing', folder }
 			]
 			result.added.push(name)
 			void this.#indexFile(name, file)

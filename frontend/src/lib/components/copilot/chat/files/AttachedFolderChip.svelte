@@ -1,12 +1,11 @@
 <script lang="ts">
-	import { X, Loader2, AlertTriangle } from 'lucide-svelte'
+	import { Folder, X, Loader2, AlertTriangle } from 'lucide-svelte'
 	import type { AttachedFile } from './attachedFiles.svelte'
-	import { getFileIcon } from '$lib/components/icons/fileIcon'
 
-	let { file, onRemove }: { file: AttachedFile; onRemove: () => void } = $props()
+	let { folder, files, onRemove }: { folder: string; files: AttachedFile[]; onRemove: () => void } =
+		$props()
 
 	let showDelete = $state(false)
-	let fileIcon = $derived(getFileIcon(file.name))
 
 	function humanSize(bytes: number): string {
 		if (bytes < 1024) return `${bytes} B`
@@ -14,13 +13,22 @@
 		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 	}
 
+	let indexing = $derived(files.some((f) => f.status === 'indexing'))
+	let hasError = $derived(files.some((f) => f.status === 'error'))
+	let totalSize = $derived(files.reduce((acc, f) => acc + f.size, 0))
 	let detail = $derived(
-		file.status === 'indexing'
+		indexing
 			? 'indexing…'
-			: file.status === 'error'
-				? 'failed'
-				: `${file.lineCount} lines · ${humanSize(file.size)}`
+			: `${files.length} file${files.length === 1 ? '' : 's'} · ${humanSize(totalSize)}`
 	)
+
+	// Native tooltip listing the contained files (capped).
+	let hoverList = $derived.by(() => {
+		const max = 20
+		const shown = files.slice(0, max).map((f) => f.name)
+		if (files.length > max) shown.push(`… +${files.length - max} more`)
+		return `${folder}/\n${shown.join('\n')}`
+	})
 </script>
 
 <div
@@ -28,22 +36,21 @@
 	onmouseenter={() => (showDelete = true)}
 	onmouseleave={() => (showDelete = false)}
 	role="listitem"
-	title={`${file.name} — ${detail}`}
+	title={hoverList}
 >
-	{#if file.status === 'indexing'}
+	{#if indexing}
 		<Loader2 size={14} class="animate-spin shrink-0 text-tertiary" />
-	{:else if file.status === 'error'}
+	{:else if hasError}
 		<AlertTriangle size={14} class="shrink-0 text-red-500" />
 	{:else}
-		{@const Icon = fileIcon.icon}
-		<Icon size={14} class="shrink-0 {fileIcon.className ?? 'text-tertiary'}" />
+		<Folder size={14} class="shrink-0 text-tertiary" />
 	{/if}
-	<span class="truncate">{file.name}</span>
+	<span class="truncate">{folder}</span>
 	<span class="text-tertiary shrink-0">{detail}</span>
 	<button
 		class="shrink-0 rounded-sm hover:bg-surface-hover-2 {showDelete ? 'opacity-100' : 'opacity-0'}"
-		title="Remove file"
-		aria-label={`Remove ${file.name}`}
+		title="Remove folder"
+		aria-label={`Remove folder ${folder}`}
 		onclick={(e) => {
 			e.stopPropagation()
 			onRemove()
