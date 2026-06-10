@@ -1000,12 +1000,10 @@
 		}
 
 		if (fromPreview && e.data.type === 'runtimeLogsResponse') {
-			const pending = pendingRuntimeLogReqs[e.data.requestId]
-			if (pending) {
-				clearTimeout(pending.timer)
-				delete pendingRuntimeLogReqs[e.data.requestId]
-				pending.resolve(Array.isArray(e.data.logs) ? e.data.logs : [])
-			}
+			resolvePendingRuntimeLogRequest(
+				e.data.requestId,
+				Array.isArray(e.data.logs) ? e.data.logs : []
+			)
 			return
 		}
 
@@ -1102,14 +1100,24 @@
 	}
 	const pendingRuntimeLogReqs: Record<string, PendingRuntimeLogRequest> = {}
 
+	function resolvePendingRuntimeLogRequest(
+		requestId: string,
+		entries: RawAppRuntimeLogEntry[] | undefined
+	) {
+		const pending = pendingRuntimeLogReqs[requestId]
+		if (!pending) return
+		clearTimeout(pending.timer)
+		delete pendingRuntimeLogReqs[requestId]
+		pending.resolve(entries)
+	}
+
 	const requestRuntimeLogs: RawAppRuntimeLogRequester = (limit) => {
 		const win = previewIframe?.contentWindow
 		if (!win || !previewIframeLoaded) return Promise.resolve(undefined)
 		const requestId = randomUUID()
 		return new Promise<RawAppRuntimeLogEntry[] | undefined>((resolve) => {
 			const timer = setTimeout(() => {
-				delete pendingRuntimeLogReqs[requestId]
-				resolve(undefined)
+				resolvePendingRuntimeLogRequest(requestId, undefined)
 			}, RUNTIME_LOGS_TIMEOUT_MS)
 			pendingRuntimeLogReqs[requestId] = { resolve, timer }
 			win.postMessage({ type: 'getRuntimeLogs', requestId, limit }, '*')
@@ -1140,9 +1148,8 @@
 		return () => {
 			onRuntimeLogRequester?.(undefined)
 			onRunsProvider?.(undefined)
-			for (const { timer } of Object.values(pendingRuntimeLogReqs)) clearTimeout(timer)
 			for (const requestId of Object.keys(pendingRuntimeLogReqs))
-				delete pendingRuntimeLogReqs[requestId]
+				resolvePendingRuntimeLogRequest(requestId, undefined)
 		}
 	})
 
