@@ -30,13 +30,7 @@ export function formatRuntimeLogsForChat(entries: RawAppRuntimeLogEntry[]): stri
 		const time = Number.isFinite(e.ts) ? new Date(e.ts).toISOString().slice(11, 23) : '--:--:--'
 		return `[${time}] ${e.level.toUpperCase()}: ${e.message}`
 	})
-	return [
-		`Runtime logs from the raw app preview (${entries.length}, oldest first).`,
-		'Use these browser-side logs to diagnose frontend runtime errors.',
-		'If a backend.<id>() call failed or returned unexpected data, call list_app_runs, pick the relevant job_id, then call get_job_logs with id=job_id.',
-		'',
-		lines.join('\n')
-	].join('\n')
+	return lines.join('\n')
 }
 
 export type RawAppRunSummary = {
@@ -50,13 +44,7 @@ export type RawAppRunSummary = {
 export type RawAppRunsProvider = () => RawAppRunSummary[] | undefined
 
 export function formatAppRunsForChat(runs: RawAppRunSummary[]): string {
-	return [
-		`Backend runs triggered by the raw app preview (${runs.length}, newest first).`,
-		'Use the component field to match a frontend backend.<component>() call.',
-		'Next step: choose the relevant job_id and call get_job_logs with id=job_id to inspect server-side logs.',
-		'',
-		JSON.stringify(runs, null, 2)
-	].join('\n')
+	return JSON.stringify(runs, null, 2)
 }
 
 export function htmlContent(
@@ -167,14 +155,14 @@ export function genWmillTs(runnables: Record<string, Runnable>) {
 
 export declare const backend: {
 ${Object.entries(runnables)
-	.map(([k, v]) => `  ${k}: (args: ${hiddenRunnableToTsType(v)}) => Promise<any>;`)
-	.join('\n')}
+			.map(([k, v]) => `  ${k}: (args: ${hiddenRunnableToTsType(v)}) => Promise<any>;`)
+			.join('\n')}
 };
 
 export declare const backendAsync: {
 ${Object.entries(runnables)
-	.map(([k, v]) => `  ${k}: (args: ${hiddenRunnableToTsType(v)}) => Promise<string>;`)
-	.join('\n')}
+			.map(([k, v]) => `  ${k}: (args: ${hiddenRunnableToTsType(v)}) => Promise<string>;`)
+			.join('\n')}
 };
 
 export type Job = {

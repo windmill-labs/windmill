@@ -84,32 +84,32 @@ export interface SessionRuntime {
 	// Raw App (HTML-based) target state
 	readonly rawApp: {
 		val:
-			| {
-					files: Record<string, string>
-					runnables: Record<string, any>
-					data: RawAppData
-					policy: any
-					summary: string
-					path: string
-					custom_path?: string
-			  }
-			| undefined
+		| {
+			files: Record<string, string>
+			runnables: Record<string, any>
+			data: RawAppData
+			policy: any
+			summary: string
+			path: string
+			custom_path?: string
+		}
+		| undefined
 	}
 	readonly savedRawApp: {
 		val:
-			| {
-					value: {
-						files: Record<string, { code: string }>
-						runnables: Record<string, HiddenRunnable>
-					}
-					draft?: any
-					path: string
-					summary: string
-					policy: any
-					draft_only?: boolean
-					custom_path?: string
-			  }
-			| undefined
+		| {
+			value: {
+				files: Record<string, { code: string }>
+				runnables: Record<string, HiddenRunnable>
+			}
+			draft?: any
+			path: string
+			summary: string
+			policy: any
+			draft_only?: boolean
+			custom_path?: string
+		}
+		| undefined
 	}
 	loadRawApp(workspace: string, path: string, force?: boolean): Promise<void>
 	setRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined): void
@@ -420,18 +420,18 @@ function createRuntime(session: Session): SessionRuntime {
 					// against.
 					const baseline: NewScript = savedScript.val
 						? (structuredClone(
-								$state.snapshot(
-									(savedScript.val.draft as NewScript | undefined) ?? (savedScript.val as NewScript)
-								)
-							) as NewScript)
+							$state.snapshot(
+								(savedScript.val.draft as NewScript | undefined) ?? (savedScript.val as NewScript)
+							)
+						) as NewScript)
 						: {
-								path,
-								summary: aiDraft.summary ?? '',
-								content: '',
-								description: '',
-								schema: emptySchema(),
-								language: (aiDraft.language ?? 'bun') as any
-							}
+							path,
+							summary: aiDraft.summary ?? '',
+							content: '',
+							description: '',
+							schema: emptySchema(),
+							language: (aiDraft.language ?? 'bun') as any
+						}
 					if (savedScript.val?.hash) {
 						baseline.parent_hash = savedScript.val.hash
 					}
@@ -792,7 +792,7 @@ setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit }) => {
 	}
 	return {
 		aiResult: formatRuntimeLogsForChat(entries),
-		uiMessage: `Read ${entries.length} runtime log${entries.length === 1 ? '' : 's'}`
+		uiMessage: `Read runtime logs`
 	}
 })
 
@@ -802,7 +802,7 @@ setListAppRunsHandler(({ sessionId: callerSessionId, limit }) => {
 	if (!runtime) {
 		return {
 			aiResult:
-				'Error: list_app_runs is only available inside an AI session. Tell the user app runs can only be read from a session preview, or switch to a session and open the raw app preview.',
+				'Error: list_app_runs is only available inside an AI session. Tell the user app runs can only be read from a session preview.',
 			uiMessage: 'App runs unavailable'
 		}
 	}
@@ -810,21 +810,21 @@ setListAppRunsHandler(({ sessionId: callerSessionId, limit }) => {
 	if (runs === undefined) {
 		return {
 			aiResult:
-				'No raw app preview is open for this session, so no backend runs can be listed. Next step: call open_preview with kind="raw_app" and the app path, let the preview load, reproduce the action that calls backend.<id>(), then call list_app_runs again.',
+				'No raw app preview is open for this session, so no backend runs can be listed. Next step: call open_preview with kind="raw_app" and the app path, let the preview load, then call list_app_runs again.',
 			uiMessage: 'App runs unavailable'
 		}
 	}
 	if (runs.length === 0) {
 		return {
 			aiResult:
-				'No backend runnable executions are tracked for this raw app preview yet. Reproduce the UI action that calls backend.<id>(), then call list_app_runs again. If the problem is purely browser-side, use get_app_runtime_logs instead.',
+				'No backend runnable executions are tracked for this raw app preview yet.',
 			uiMessage: 'No app runs'
 		}
 	}
 	const limited = limit > 0 ? runs.slice(0, limit) : runs
 	return {
 		aiResult: formatAppRunsForChat(limited),
-		uiMessage: `Listed ${limited.length} app run${limited.length === 1 ? '' : 's'}`
+		uiMessage: `Fetched app runs`
 	}
 })
 
