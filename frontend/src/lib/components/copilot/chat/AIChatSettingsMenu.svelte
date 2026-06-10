@@ -24,24 +24,29 @@
 	let modalScope = $state<'user' | 'workspace'>('user')
 	let customPrompts = $state<Record<string, string>>({})
 	let initialPrompt = $state('')
+	// Snapshot of the mode the modal was opened for. The live chat mode can change
+	// while the modal is open (mode selector sits behind it), so all edit/save/reset
+	// operations must key off this snapshot, not the reactive `mode`.
+	let activeMode = $state(aiChatManager.mode)
 
 	let isAdmin = $derived(Boolean($userStore?.is_admin || $userStore?.is_super_admin))
 	// Workspace prompts are admin-only to edit; non-admins get a read-only view.
 	let modalReadOnly = $derived(modalScope === 'workspace' && !isAdmin)
-	let hasChanges = $derived((customPrompts[mode] ?? '') !== initialPrompt)
+	let hasChanges = $derived((customPrompts[activeMode] ?? '') !== initialPrompt)
 
 	function openUserPrompt() {
-		initialPrompt = getUserCustomPrompts()[mode] ?? ''
-		customPrompts = { [mode]: initialPrompt }
+		activeMode = mode
+		initialPrompt = getUserCustomPrompts()[activeMode] ?? ''
+		customPrompts = { [activeMode]: initialPrompt }
 		modalScope = 'user'
 		modalOpen = true
 	}
 
 	async function openWorkspacePrompt() {
-		const m = mode
+		activeMode = mode
 		modalScope = 'workspace'
-		initialPrompt = await loadWorkspacePrompt(m)
-		customPrompts = { [m]: initialPrompt }
+		initialPrompt = await loadWorkspacePrompt(activeMode)
+		customPrompts = { [activeMode]: initialPrompt }
 		modalOpen = true
 	}
 
@@ -64,17 +69,17 @@
 	}
 
 	function reset() {
-		customPrompts = { [mode]: initialPrompt }
+		customPrompts = { [activeMode]: initialPrompt }
 	}
 
 	async function save() {
-		const value = (customPrompts[mode] ?? '').trim()
+		const value = (customPrompts[activeMode] ?? '').trim()
 		if (modalScope === 'user') {
 			const prompts = getUserCustomPrompts()
 			if (value) {
-				prompts[mode] = value
+				prompts[activeMode] = value
 			} else {
-				delete prompts[mode]
+				delete prompts[activeMode]
 			}
 			setUserCustomPrompts(prompts)
 			initialPrompt = value
@@ -91,9 +96,9 @@
 			const config = settings.ai_config ?? {}
 			const custom_prompts = { ...(config.custom_prompts ?? {}) }
 			if (value) {
-				custom_prompts[mode] = value
+				custom_prompts[activeMode] = value
 			} else {
-				delete custom_prompts[mode]
+				delete custom_prompts[activeMode]
 			}
 			const response = await WorkspaceService.editCopilotConfig({
 				workspace,
@@ -148,7 +153,7 @@
 	bind:open={modalOpen}
 	bind:customPrompts
 	scope={modalScope}
-	modes={[mode]}
+	modes={[activeMode]}
 	readOnly={modalReadOnly}
 	onSave={modalReadOnly ? undefined : save}
 	onReset={reset}
