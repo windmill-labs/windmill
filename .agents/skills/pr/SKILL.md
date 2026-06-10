@@ -55,18 +55,44 @@ The body MUST be explicit about what changed. Structure:
 
 The harness/tooling that invoked the skill may add its own attribution trailer; the skill itself does not prescribe one.
 
+## Screenshots (required for frontend changes)
+
+If `git diff main...HEAD --name-only` matches `^frontend/`, the PR body **must** include
+screenshots of the affected UI. Skip only when there is no visible UI effect (types,
+tests, build config) — and say so in the body.
+
+1. Verify the change in the browser (AGENTS.md → "Verifying Frontend Changes").
+2. Screenshot each affected page with `mcp__playwright__browser_take_screenshot` (save to a file).
+3. Host each image and get its Markdown embed by pushing to the public
+   `windmill-labs/agent-screenshots-internal` repo. **Pipe base64 through stdin** —
+   passing it as `-f content=…` fails with `argument list too long` on real images:
+
+   ```bash
+   REPO=windmill-labs/agent-screenshots-internal
+   DEST="shots/$(git branch --show-current)/$(date +%s)-screenshot.png"
+   base64 -w0 screenshot.png | jq -Rs --arg m "add $DEST" '{message:$m, content:.}' \
+     | gh api -X PUT "repos/$REPO/contents/$DEST" --input - >/dev/null
+   echo "![screenshot](https://raw.githubusercontent.com/$REPO/main/$DEST)"
+   ```
+4. Put the printed `![…](…)` lines under a `## Screenshots` heading in the PR body.
+
+Requires `gh` (`repo` scope), `jq`, `base64` — all in the devShell. The host repo is
+public so the URLs render for reviewers without a token. (GitHub's drag-and-drop
+uploader needs a browser session and can't be driven from a token.)
+
 ## Execution Steps
 
 1. Run `git status` to check for uncommitted changes
 2. Run `git log main..HEAD --oneline` to see all commits in this branch
 3. Run `git diff main...HEAD` to see the full diff against main
 4. **Invoke the `local-review` skill** before creating the PR (`/local-review` in Claude Code, `$local-review` in Codex, `pi --skill local-review` / `/skill:local-review` in Pi). If issues are found, fix them and commit before proceeding. Do not skip this step.
-5. Check if remote branch exists and is up to date:
+5. **Screenshots for frontend changes**: if `git diff main...HEAD --name-only` matches `^frontend/`, capture and embed screenshots of the affected UI per "Screenshots" above before writing the PR body (skip only if there is no visible UI effect).
+6. Check if remote branch exists and is up to date:
    ```bash
    git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo "no upstream"
    ```
-6. Push to remote if needed: `git push -u origin HEAD`
-7. Create draft PR using gh CLI:
+7. Push to remote if needed: `git push -u origin HEAD`
+8. Create draft PR using gh CLI:
    ```bash
    gh pr create --draft --title "<type>: <description>" --body "$(cat <<'EOF'
    ## Summary
@@ -82,7 +108,7 @@ The harness/tooling that invoked the skill may add its own attribution trailer; 
    EOF
    )"
    ```
-8. Return the PR URL to the user
+9. Return the PR URL to the user
 
 ## EE Companion PR (when `*_ee.rs` files were modified)
 
