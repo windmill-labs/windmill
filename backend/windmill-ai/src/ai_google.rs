@@ -307,6 +307,7 @@ impl GeminiToolCallEvent {
     pub fn to_extra_content(&self) -> Option<ExtraContent> {
         self.thought_signature.as_ref().map(|sig| ExtraContent {
             google: Some(GoogleExtraContent { thought_signature: Some(sig.clone()) }),
+            bedrock: None,
         })
     }
 }

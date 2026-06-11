@@ -73,6 +73,9 @@ function supportsReasoningStatic(provider: AIProvider, model: string): boolean {
 	const base = baseModelId(model)
 	switch (provider) {
 		case 'anthropic':
+		// Bedrock serves the same Claude models under prefixed ids
+		// (e.g. `us.anthropic.claude-opus-4-6-v1`), so match on the full string.
+		case 'aws_bedrock':
 			return /claude-opus-4-(5|6|7|8)/.test(m) || /claude-sonnet-4-6/.test(m) || m.includes('fable')
 		case 'openai':
 		case 'azure_openai':
@@ -109,7 +112,7 @@ export function getReasoningCapability(provider: AIProvider, model: string): Rea
 		return { supported: false, levels: [] }
 	}
 	const levels =
-		provider === 'anthropic'
+		provider === 'anthropic' || provider === 'aws_bedrock'
 			? anthropicReasoningLevels(bareModel)
 			: (PROVIDER_REASONING_LEVELS[provider] ?? ['low', 'medium', 'high'])
 	return { supported, levels }

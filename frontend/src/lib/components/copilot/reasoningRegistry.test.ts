@@ -46,6 +46,14 @@ describe('supportsReasoning (static registry)', () => {
 			'max'
 		])
 	})
+	it('flags Claude models served through Bedrock, with the Anthropic ladder', () => {
+		expect(supportsReasoning('aws_bedrock', 'us.anthropic.claude-opus-4-6-v1')).toBe(true)
+		expect(supportsReasoning('aws_bedrock', 'anthropic.claude-sonnet-4-6-v1:0')).toBe(true)
+		expect(supportsReasoning('aws_bedrock', 'amazon.nova-pro-v1:0')).toBe(false)
+		expect(getReasoningCapability('aws_bedrock', 'us.anthropic.claude-opus-4-8-v1').levels).toEqual(
+			['low', 'medium', 'high', 'xhigh', 'max']
+		)
+	})
 	it('flags OpenAI reasoning families, not gpt-4o', () => {
 		expect(supportsReasoning('openai', 'gpt-5')).toBe(true)
 		expect(supportsReasoning('openai', 'o3')).toBe(true)
