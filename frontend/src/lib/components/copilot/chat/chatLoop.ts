@@ -131,6 +131,7 @@ function hasWebSearchUnavailableSignal(err: unknown): boolean {
 	const patterns = [
 		new RegExp(`${webSearchTerm}.*${unavailableTerm}`),
 		new RegExp(`${unavailableTerm}.*${webSearchTerm}`),
+		/\bmust\s+enable\s+web[_ -]?search\b/,
 		/\bweb search options\b.*\bnot supported\b/,
 		/\bhosted tools?\b.*\b(?:not supported|unsupported)\b/,
 		/\bhosted tool ['"]web_search(?:_preview)?['"].*\b(?:not supported|unsupported)\b/
