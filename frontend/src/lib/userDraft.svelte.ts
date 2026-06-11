@@ -690,10 +690,27 @@ function acquireEntry(
 			const val = cell.val
 			if (val !== undefined) readFieldsRecursively(val)
 			const next = val === undefined ? undefined : JSON.stringify(val)
-			if (next === lastSerialized) return
+			if (next === lastSerialized) {
+				// A no-op write (same serialization). If it was a
+				// `UserDraft.seed` re-seeding the value already in the cell,
+				// its one-shot flag consumed nothing — defuse it here or it
+				// lingers and swallows the user's NEXT real edit.
+				// (`skipNextWrite` deliberately stays armed: the initial
+				// effect run of an undefined-seeded cell lands here, and the
+				// page editors rely on it to swallow their load write.)
+				const e = entries.get(mk)
+				if (e?.seedNextWrite) e.seedNextWrite = false
+				return
+			}
 			lastSerialized = next
 			if (skipNextWrite) {
 				skipNextWrite = false
+				// One programmatic write consumes BOTH one-shot guards: a
+				// `UserDraft.seed` on a fresh entry (still carrying its
+				// armed first-write skip) must not leave `seedNextWrite`
+				// behind to swallow the user's actual first edit.
+				const fresh = entries.get(mk)
+				if (fresh?.seedNextWrite) fresh.seedNextWrite = false
 				return
 			}
 			const entry = entries.get(mk)

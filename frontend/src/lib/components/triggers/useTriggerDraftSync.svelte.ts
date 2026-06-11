@@ -134,6 +134,32 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 		})
 	})
 
+	/** Deferred + revalidated auto-discard. The at-baseline-with-a-draft
+	 * state pattern also occurs TRANSIENTLY during programmatic churn: the
+	 * trigger list pages fire `openEdit` twice per row click (onclick +
+	 * `#path` hash listener), and the second load resets the form to the
+	 * deployed payload after the first already cleared `drawerLoading` and
+	 * seeded the cell — an immediate discard there deletes the server
+	 * draft the user never touched. Re-checking after a settle window
+	 * keeps the legit case (user reverts the form back to baseline) while
+	 * the churn case re-applies the overlay / re-seeds before the timer
+	 * fires and the recheck sees a consistent state again. */
+	let discardTimer: ReturnType<typeof setTimeout> | undefined
+	function scheduleAutoDiscard() {
+		if (discardTimer) return
+		discardTimer = setTimeout(() => {
+			discardTimer = undefined
+			if (opts.drawerLoading()) return
+			const cfg = opts.getCfg()
+			const deployed = opts.deployed()
+			const h = handle
+			if (!h || cfg == null) return
+			if (!cfgDiffers(cfg, deployed) && cfgDiffers(h.draft, deployed)) {
+				discard(opts.path(), deployed, true)
+			}
+		}, 600)
+	}
+
 	// persist-effect: form edits → handle; drop the draft when back at the
 	// deployed baseline.
 	$effect(() => {
@@ -147,11 +173,11 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 			if (cfgDiffers(cfg, deployed)) {
 				if (cfgDiffers(cfg, h.draft)) h.draft = cfg
 			} else if (cfgDiffers(h.draft, deployed)) {
-				// Only when there's actually a draft to drop: `h.draft` is
-				// undefined on a fresh open (no spurious `value: null` POST
-				// per drawer open) and equals `deployed` right after a
-				// discard (no repeat POST per cfg recompute at baseline).
-				discard(opts.path(), deployed, true)
+				// Only when there's actually a draft to drop: `h.draft`
+				// equals `deployed` right after a discard (no repeat POST
+				// per cfg recompute at baseline) and right after the
+				// post-load baseline seed (no spurious POST per open).
+				scheduleAutoDiscard()
 			}
 		})
 	})
@@ -188,9 +214,26 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 		},
 		async maybeRestore() {
 			const d = handle?.draft
-			if (!cfgDiffers(d, opts.getCfg() as Cfg)) return
-			// Overlay the local autosave on the just-loaded backend config.
-			await opts.applyCfg(d)
+			if (cfgDiffers(d, opts.getCfg() as Cfg)) {
+				// Overlay the local autosave on the just-loaded backend config.
+				await opts.applyCfg(d)
+			}
+			// Adopt the post-load form state (server draft overlay if one
+			// existed, deployed otherwise) as the cell's baseline WITHOUT
+			// POSTing. This is what consumes the entry's one-shot
+			// first-write seed guard: trigger drawers never write the cell
+			// programmatically on open (the form holds the state), so
+			// without this seed the guard stayed armed and silently
+			// swallowed the user's FIRST edit — banner on, no asterisk, no
+			// save until a second change.
+			const ws = opts.workspace()
+			const p = opts.path()
+			const cfg = opts.getCfg()
+			if (ws && p && cfg != null) {
+				UserDraft.seed(opts.itemKind, p, structuredClone($state.snapshot(cfg)) as Cfg, {
+					workspace: ws
+				})
+			}
 		},
 		async resetToDeployed(path: string) {
 			const deployedCfg = structuredClone($state.snapshot(opts.deployed())) as Cfg
