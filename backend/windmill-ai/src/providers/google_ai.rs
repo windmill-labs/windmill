@@ -224,6 +224,9 @@ fn gemini_thinking_config(model: &str, effort: &str) -> GeminiThinkingConfig {
     let model = model.to_lowercase();
     let is_flash = model.contains("flash");
     let is_gemini_2_5 = model.contains("gemini-2.5");
+    // Thought summaries are free to return (thinking tokens are billed either
+    // way); skip them only when the user explicitly turned reasoning off.
+    let include_thoughts = (effort != "none").then_some(true);
 
     if is_gemini_2_5 {
         let budget = match effort {
@@ -234,14 +237,22 @@ fn gemini_thinking_config(model: &str, effort: &str) -> GeminiThinkingConfig {
             "high" => 24576,
             _ => -1,
         };
-        GeminiThinkingConfig { thinking_level: None, thinking_budget: Some(budget) }
+        GeminiThinkingConfig {
+            thinking_level: None,
+            thinking_budget: Some(budget),
+            include_thoughts,
+        }
     } else {
         let level = match effort {
             "none" if is_flash => "minimal".to_string(),
             "none" => "low".to_string(),
             other => other.to_string(),
         };
-        GeminiThinkingConfig { thinking_level: Some(level), thinking_budget: None }
+        GeminiThinkingConfig {
+            thinking_level: Some(level),
+            thinking_budget: None,
+            include_thoughts,
+        }
     }
 }
 
@@ -848,6 +859,16 @@ mod tests {
             body["generationConfig"]["thinkingConfig"]["thinkingLevel"],
             "low"
         );
+        // Thought summaries are requested whenever reasoning is on...
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["includeThoughts"],
+            true
+        );
+        // ...but not when the user explicitly turned it off.
+        let body = proxy_body_for("gemini-3-pro-preview", "none");
+        assert!(body["generationConfig"]["thinkingConfig"]
+            .get("includeThoughts")
+            .is_none());
         assert!(body["generationConfig"]["thinkingConfig"]
             .get("thinkingBudget")
             .is_none());

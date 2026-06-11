@@ -54,6 +54,32 @@ describe('supportsReasoning (static registry)', () => {
 			['low', 'medium', 'high', 'xhigh', 'max']
 		)
 	})
+	it('exposes the model-specific Gemini ladder', () => {
+		// Gemini 3+ Flash / Flash-Lite accept minimal; Pro does not.
+		expect(getReasoningCapability('googleai', 'gemini-3-flash-preview').levels).toEqual([
+			'minimal',
+			'low',
+			'medium',
+			'high'
+		])
+		expect(getReasoningCapability('googleai', 'gemini-3.1-flash-lite').levels).toEqual([
+			'minimal',
+			'low',
+			'medium',
+			'high'
+		])
+		expect(getReasoningCapability('googleai', 'gemini-3.1-pro-preview').levels).toEqual([
+			'low',
+			'medium',
+			'high'
+		])
+		// 2.5 uses budget tiers — no minimal, even on flash.
+		expect(getReasoningCapability('googleai', 'gemini-2.5-flash').levels).toEqual([
+			'low',
+			'medium',
+			'high'
+		])
+	})
 	it('flags OpenAI reasoning families, not gpt-4o', () => {
 		expect(supportsReasoning('openai', 'gpt-5')).toBe(true)
 		expect(supportsReasoning('openai', 'o3')).toBe(true)

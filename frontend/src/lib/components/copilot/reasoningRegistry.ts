@@ -46,8 +46,22 @@ function baseModelId(model: string): string {
 const PROVIDER_REASONING_LEVELS: Partial<Record<AIProvider, ReasoningEffort[]>> = {
 	openai: ['minimal', 'low', 'medium', 'high'],
 	azure_openai: ['minimal', 'low', 'medium', 'high'],
-	openrouter: ['low', 'medium', 'high'],
-	googleai: ['low', 'medium', 'high']
+	openrouter: ['low', 'medium', 'high']
+}
+
+/**
+ * Gemini's level ladder is model-dependent: Gemini 3+ Flash / Flash-Lite accept
+ * `minimal`, while 3.x Pro does not (and cannot disable thinking). Gemini 2.5
+ * uses numeric budgets — the proxy maps the three tiers to budget values, so
+ * `minimal` is not offered there.
+ */
+function geminiReasoningLevels(model: string): ReasoningEffort[] {
+	const m = model.toLowerCase()
+	const isGemini3Plus = !m.includes('gemini-2.5')
+	if (isGemini3Plus && (m.includes('flash') || m.includes('lite'))) {
+		return ['minimal', 'low', 'medium', 'high']
+	}
+	return ['low', 'medium', 'high']
 }
 
 /**
@@ -114,7 +128,9 @@ export function getReasoningCapability(provider: AIProvider, model: string): Rea
 	const levels =
 		provider === 'anthropic' || provider === 'aws_bedrock'
 			? anthropicReasoningLevels(bareModel)
-			: (PROVIDER_REASONING_LEVELS[provider] ?? ['low', 'medium', 'high'])
+			: provider === 'googleai'
+				? geminiReasoningLevels(bareModel)
+				: (PROVIDER_REASONING_LEVELS[provider] ?? ['low', 'medium', 'high'])
 	return { supported, levels }
 }
 
