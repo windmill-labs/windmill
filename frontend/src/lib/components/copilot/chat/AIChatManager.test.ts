@@ -4,6 +4,7 @@ import type { CurrentEditor } from '$lib/components/flows/types'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
 import { runChatLoop } from './chatLoop'
+import { emptyChatTokenUsage } from './tokenUsage'
 
 vi.mock('monaco-editor', () => ({
 	Selection: class Selection {}
@@ -276,7 +277,11 @@ describe('AIChatManager queued messages', () => {
 
 	it('auto-sends queued messages one per turn in FIFO order on success', async () => {
 		const manager = createManager(createInputMock())
-		vi.mocked(runChatLoop).mockResolvedValue({ addedMessages: [] })
+		vi.mocked(runChatLoop).mockResolvedValue({
+			addedMessages: [],
+			tokenUsage: emptyChatTokenUsage(),
+			hitMaxIterations: false
+		})
 
 		manager.queuedMessages = ['second', 'third']
 		await manager.sendRequest({ instructions: 'first' })
@@ -320,7 +325,11 @@ describe('AIChatManager queued messages', () => {
 	it('restores a queued message whose auto-send is rejected by beforeSend', async () => {
 		const input = createInputMock()
 		const manager = createManager(input)
-		vi.mocked(runChatLoop).mockResolvedValue({ addedMessages: [] })
+		vi.mocked(runChatLoop).mockResolvedValue({
+			addedMessages: [],
+			tokenUsage: emptyChatTokenUsage(),
+			hitMaxIterations: false
+		})
 		// first turn goes through, the queued auto-send is rejected
 		manager.beforeSend = vi
 			.fn()
