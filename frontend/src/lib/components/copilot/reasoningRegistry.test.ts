@@ -4,6 +4,7 @@ import {
 	getReasoningCapability,
 	REASONING_OFF,
 	resolveEffectiveReasoning,
+	resolveRequestReasoning,
 	stripLegacyThinkingSuffix,
 	supportsReasoning
 } from './reasoningRegistry'
@@ -83,6 +84,42 @@ describe('resolveEffectiveReasoning', () => {
 			resolveEffectiveReasoning({
 				provider: 'anthropic',
 				model: 'claude-sonnet-4-6',
+				reasoning: REASONING_OFF
+			})
+		).toBeUndefined()
+	})
+})
+
+describe('resolveRequestReasoning', () => {
+	it('matches resolveEffectiveReasoning for levels and defaults', () => {
+		expect(resolveRequestReasoning({ provider: 'googleai', model: 'gemini-2.5-pro' })).toBe('high')
+		expect(resolveRequestReasoning({ provider: 'openai', model: 'o3', reasoning: 'low' })).toBe(
+			'low'
+		)
+	})
+	it('forwards an explicit off as the provider disable token on reasoning-by-default providers', () => {
+		expect(
+			resolveRequestReasoning({
+				provider: 'googleai',
+				model: 'gemini-2.5-pro',
+				reasoning: REASONING_OFF
+			})
+		).toBe('none')
+	})
+	it('keeps off as undefined for providers without default-on reasoning', () => {
+		expect(
+			resolveRequestReasoning({
+				provider: 'anthropic',
+				model: 'claude-sonnet-4-6',
+				reasoning: REASONING_OFF
+			})
+		).toBeUndefined()
+	})
+	it('never sends a disable token for non-capable models', () => {
+		expect(
+			resolveRequestReasoning({
+				provider: 'googleai',
+				model: 'gemini-2.0-flash',
 				reasoning: REASONING_OFF
 			})
 		).toBeUndefined()

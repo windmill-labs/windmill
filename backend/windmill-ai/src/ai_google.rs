@@ -139,6 +139,20 @@ pub struct GeminiGenerationConfig {
     pub response_mime_type: Option<String>,
     #[serde(rename = "responseSchema", skip_serializing_if = "Option::is_none")]
     pub response_schema: Option<serde_json::Value>,
+    #[serde(rename = "thinkingConfig", skip_serializing_if = "Option::is_none")]
+    pub thinking_config: Option<GeminiThinkingConfig>,
+}
+
+/// Thinking controls. Gemini 3+ models take a level token (`thinkingLevel`);
+/// Gemini 2.5 models take a token budget (`thinkingBudget`, `-1` = dynamic).
+/// Thought summaries (`includeThoughts`) are intentionally not requested — the
+/// chat UI does not display them.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct GeminiThinkingConfig {
+    #[serde(rename = "thinkingLevel", skip_serializing_if = "Option::is_none")]
+    pub thinking_level: Option<String>,
+    #[serde(rename = "thinkingBudget", skip_serializing_if = "Option::is_none")]
+    pub thinking_budget: Option<i32>,
 }
 
 // ============================================================================

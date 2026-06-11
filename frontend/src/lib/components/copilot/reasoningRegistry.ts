@@ -141,6 +141,40 @@ export function resolveEffectiveReasoning(
 		: undefined
 }
 
+/**
+ * Providers whose models reason *by default*, so turning reasoning off must be
+ * forwarded as an explicit provider-native token rather than by omitting the
+ * field. Maps the provider to its disable token.
+ */
+const EXPLICIT_OFF_TOKENS: Partial<Record<AIProvider, ReasoningEffort>> = {
+	// Gemini 2.5/3 think by default (dynamic budget / level). The backend proxy
+	// maps 'none' to the lowest supported level/budget per model.
+	googleai: 'none'
+}
+
+/**
+ * The effort to put on the wire for a given model selection. Same as
+ * `resolveEffectiveReasoning`, plus: an explicit user "off" on a
+ * reasoning-by-default provider resolves to that provider's disable token
+ * instead of undefined — omitting the field would silently keep the provider's
+ * default-on behavior, making the off switch a no-op.
+ */
+export function resolveRequestReasoning(
+	modelProvider: ReasoningProviderModel
+): ReasoningEffort | undefined {
+	const effective = resolveEffectiveReasoning(modelProvider)
+	if (effective !== undefined) {
+		return effective
+	}
+	if (
+		modelProvider.reasoning === REASONING_OFF &&
+		supportsReasoning(modelProvider.provider, modelProvider.model)
+	) {
+		return EXPLICIT_OFF_TOKENS[modelProvider.provider]
+	}
+	return undefined
+}
+
 export type ReasoningApiKind = 'anthropic' | 'responses' | 'completions'
 
 /**
