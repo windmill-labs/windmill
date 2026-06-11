@@ -1,28 +1,26 @@
 <script lang="ts">
 	/*
-	 * WIN-2006: published apps and raw apps render arbitrary user-authored
-	 * markup/JS. That code is untrusted (a malicious author, or an XSS bug in the
-	 * app itself) and must not run with the viewer's session. So the app is always
-	 * rendered inside an **opaque-origin** (sandboxed, no `allow-same-origin`)
-	 * iframe and handed a **narrowly-scoped embed token** — never the session
-	 * cookie.
+	 * WIN-2006: published apps render arbitrary user-authored markup/JS. That code
+	 * is untrusted (a malicious author, or an XSS bug in the app) and must not run
+	 * with the viewer's session. How it's contained depends on the app:
 	 *
-	 * This component plays two roles, selected by the `wm_embed=1` query param +
-	 * whether the window is framed:
+	 *  - Low-code (default): rendered in an **opaque-origin** (sandboxed, no
+	 *    `allow-same-origin`) iframe and handed a **narrowly-scoped embed token** —
+	 *    never the session cookie. This component is the embedder (top window:
+	 *    authenticates the viewer, mints the token, renders the opaque iframe) and,
+	 *    inside that iframe (`wm_embed=1`), the viewer (uses the token as its only
+	 *    credential, then renders the app).
+	 *  - Raw (default): rendered directly here as a **single** opaque bundle iframe
+	 *    (the author bundle is already isolated in its own opaque iframe); no opaque
+	 *    viewer / embed token needed.
+	 *  - Unsandboxed (same-origin): grandfathered "legacy" apps, an anonymous viewer
+	 *    of a publisher `disable_sandbox` app, or an authenticated viewer who has
+	 *    consented (per app version). Rendered directly with full session access.
 	 *
-	 *  - Embedder (top-level window): authenticates the viewer (using the main
-	 *    session cookie or a shared JWT), mints a scoped embed token, renders an
-	 *    opaque iframe pointing at the same route, and hands it the token via
-	 *    postMessage. The cookie never crosses to the iframe.
-	 *  - Viewer (framed, opaque origin): receives the token and uses it as the
-	 *    *only* credential for API calls, then renders the actual app.
-	 *
-	 * Unlike a separate-domain setup, no `PUBLIC_APP_DOMAIN` is required: the
-	 * opaque origin is, for same-origin-policy purposes, as foreign to the main
-	 * app as a different domain would be. The iframe's API calls are therefore
-	 * cross-origin and rely on `Access-Control-Allow-Origin: *` + the bearer
-	 * token (no cookie), and the served document carries `CSP: sandbox` so direct
-	 * navigation to it is opaque too.
+	 * No `PUBLIC_APP_DOMAIN` is required: the opaque origin is, for same-origin-policy
+	 * purposes, as foreign to the main app as a different domain. The opaque viewer's
+	 * API calls are cross-origin and rely on `Access-Control-Allow-Origin: *` + the
+	 * bearer token (no cookie); the raw wrapper document always carries `CSP: sandbox`.
 	 */
 	import { BROWSER } from 'esm-env'
 	import { OpenAPI } from '$lib/gen'
@@ -38,6 +36,8 @@
 		disable_sandbox?: boolean
 		version?: number | null
 		raw_app?: boolean
+		legacy_unsandboxed?: boolean
+		authed?: boolean
 	}
 
 	let {
@@ -152,6 +152,14 @@
 	let disableSandbox = $state(false)
 	let appVersion: number | undefined = $state(undefined)
 	let consented = $state(false)
+	// WIN-2006: whether the viewer is authenticated (has a session). The
+	// disable_sandbox consent prompt is only shown to authenticated viewers — an
+	// anonymous viewer has no session to expose, so the prompt is meaningless.
+	let authed = $state(false)
+	// WIN-2006: grandfathered app (existed before sandboxing shipped) — runs
+	// same-origin with NO consent prompt, to avoid breaking the installed base on
+	// upgrade. Distinct from disable_sandbox, which is a deliberate publisher opt-out.
+	let legacyUnsandboxed = $state(false)
 
 	// WIN-2006 Variant A: raw apps render single-iframe. The author's bundle is
 	// already isolated in its own opaque iframe (served + CSP-sandboxed by the
@@ -161,11 +169,19 @@
 	// matching the logged-in raw viewer. Low-code keeps the opaque viewer + token.
 	let isRaw = $state(false)
 
+	// Effective same-origin (unsandboxed) execution: legacy apps always; a
+	// publisher disable_sandbox app when the viewer is anonymous (no session at
+	// risk) or an authenticated viewer has consented.
+	let unsandboxed = $derived(legacyUnsandboxed || (disableSandbox && (!authed || consented)))
+	// Consent is required only for an authenticated viewer of a non-legacy
+	// disable_sandbox app that hasn't consented yet.
+	let needsConsent = $derived(disableSandbox && authed && !legacyUnsandboxed && !consented)
+
 	// Read by RawAppPreview (and any app component) to render same-origin (full
 	// access) instead of the sandboxed bundle iframe.
 	setContext('IS_APP_UNSANDBOXED', {
 		get value() {
-			return disableSandbox && consented
+			return unsandboxed
 		}
 	})
 
@@ -201,20 +217,29 @@
 			const resp = await fetchEmbedToken()
 			embedToken = resp.token ?? null
 			disableSandbox = resp.disable_sandbox ?? false
+			legacyUnsandboxed = resp.legacy_unsandboxed ?? false
+			authed = resp.authed ?? false
 			appVersion = resp.version ?? undefined
 			isRaw = resp.raw_app ?? false
-			status = 'ready'
-			if (disableSandbox) {
-				// Same-origin (full-session) mode behind a per-version consent prompt
-				// (covers both raw and low-code).
+			// Only an authenticated viewer of a non-legacy disable_sandbox app must
+			// consent (once per version) before it runs with their session.
+			if (disableSandbox && authed && !legacyUnsandboxed) {
 				consented = hasConsent()
-				if (consented) onViewerReady?.(undefined, requestTokenRefresh)
-			} else if (isRaw) {
-				// Variant A: render the raw app directly on this origin (no opaque
-				// viewer, no token). The bundle stays isolated in its own opaque iframe.
+			}
+			status = 'ready'
+
+			const needConsentNow = disableSandbox && authed && !legacyUnsandboxed && !consented
+			const unsandboxedNow = legacyUnsandboxed || (disableSandbox && (!authed || consented))
+
+			if (needConsentNow) {
+				// Wait for the viewer to accept (consent modal → acceptConsent).
+			} else if (unsandboxedNow || isRaw) {
+				// Render the app directly on this origin: same-origin when unsandboxed
+				// (legacy / consented / anonymous opt-out), or a single opaque bundle
+				// iframe when it's a sandboxed raw app.
 				onViewerReady?.(undefined, requestTokenRefresh)
 			} else {
-				// Low-code: if the iframe already loaded (re-mint case), push the fresh token.
+				// Sandboxed low-code: hand the scoped token to the opaque viewer iframe.
 				postTokenToIframe()
 			}
 		} catch (e: any) {
@@ -324,35 +349,38 @@
 			rd={page.url.pathname + page.url.search + page.url.hash}
 		/>
 	</div>
-{:else if disableSandbox}
-	<!-- Publisher disabled sandbox isolation: run same-origin (full session) only
-	     after explicit, per-version viewer consent. -->
-	{#if consented}
-		{@render viewer()}
-	{:else}
-		<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-			<div class="bg-surface max-w-lg w-full rounded-lg shadow-lg p-6 space-y-4">
-				<div class="flex items-center gap-2 text-orange-600">
-					<TriangleAlert size={22} />
-					<h2 class="text-lg font-semibold">Run this app without isolation?</h2>
-				</div>
-				<p class="text-sm text-secondary">
-					The publisher of <span class="font-mono">{page.url.pathname}</span> has disabled sandbox isolation.
-					This app will run with access to your Windmill session and can act on your behalf. Only continue
-					if you trust the publisher.
-				</p>
-				<p class="text-xs text-tertiary">You'll be asked again when the app is updated.</p>
-				<div class="flex justify-end gap-2">
-					<Button variant="default" color="light" href={base}>Cancel</Button>
-					<Button variant="contained" color="red" onclick={acceptConsent}>Run app</Button>
-				</div>
+{:else if needsConsent}
+	<!-- Publisher disabled sandbox isolation and the viewer is authenticated: run
+	     same-origin (full session) only after explicit, per-version consent.
+	     Anonymous viewers and grandfathered (legacy) apps skip this. -->
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+		<div class="bg-surface max-w-lg w-full rounded-lg shadow-lg p-6 space-y-4">
+			<div class="flex items-center gap-2 text-orange-600">
+				<TriangleAlert size={22} />
+				<h2 class="text-lg font-semibold">Run this app without isolation?</h2>
+			</div>
+			<p class="text-sm text-secondary">
+				The publisher of <span class="font-mono">{page.url.pathname}</span> has disabled sandbox isolation.
+				This app will run with access to your Windmill session and can act on your behalf. Only continue
+				if you trust the publisher.
+			</p>
+			<p class="text-xs text-tertiary">You'll be asked again when the app is updated.</p>
+			<div class="flex justify-end gap-2">
+				<Button variant="default" color="light" href={base}>Cancel</Button>
+				<Button variant="contained" color="red" onclick={acceptConsent}>Run app</Button>
 			</div>
 		</div>
-	{/if}
+	</div>
+{:else if unsandboxed}
+	<!-- Same-origin (full session): a grandfathered legacy app, an anonymous viewer
+	     of a disable_sandbox app, or an authenticated viewer who consented. Rendered
+	     directly here; RawAppPreview reads IS_APP_UNSANDBOXED to drop the bundle's
+	     opaque sandbox. -->
+	{@render viewer()}
 {:else if isRaw}
-	<!-- Variant A: raw app rendered directly on the real origin. The untrusted
-	     author bundle stays isolated in its own opaque iframe (inside RawAppPreview);
-	     no opaque viewer and no embed token are needed. -->
+	<!-- Variant A: sandboxed raw app rendered directly on the real origin. The
+	     untrusted author bundle stays isolated in its own opaque iframe (inside
+	     RawAppPreview); no opaque viewer and no embed token are needed. -->
 	{@render viewer()}
 {:else}
 	<iframe

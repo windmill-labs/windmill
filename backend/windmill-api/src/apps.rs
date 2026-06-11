@@ -305,6 +305,13 @@ pub struct Policy {
     // gated by a per-version consent prompt on the viewer. Default false.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disable_sandbox: Option<bool>,
+    // WIN-2006: apps that existed before sandbox isolation shipped are stamped
+    // (by migration) so they keep running same-origin — without a consent prompt —
+    // to avoid breaking the installed base on upgrade. New apps are sandboxed by
+    // default; a re-deploy clears this. Distinct from `disable_sandbox`, which is
+    // a deliberate publisher opt-out and DOES prompt the viewer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub legacy_unsandboxed: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -1087,6 +1094,15 @@ pub struct EmbedTokenResponse {
     /// and the embed token entirely — it loads the app with the page credential.
     #[serde(default)]
     pub raw_app: bool,
+    /// WIN-2006: grandfathered app (existed before sandboxing) — runs same-origin
+    /// without a consent prompt to avoid breaking the installed base on upgrade.
+    #[serde(default)]
+    pub legacy_unsandboxed: bool,
+    /// Whether the viewer is authenticated. The `disable_sandbox` consent prompt is
+    /// only shown to authenticated viewers — an anonymous viewer has no session to
+    /// expose, so the prompt would be meaningless friction.
+    #[serde(default)]
+    pub authed: bool,
 }
 
 /// Mint a short-lived, narrowly-scoped embed token for `app_path` when a caller
@@ -1127,6 +1143,8 @@ pub async fn mint_app_embed_token(
         disable_sandbox: false,
         version: None,
         raw_app: false,
+        legacy_unsandboxed: false,
+        authed: opt_authed.is_some(),
     })
 }
 
@@ -1194,6 +1212,8 @@ async fn get_app_embed_token(
             disable_sandbox: false,
             version: None,
             raw_app: true,
+            legacy_unsandboxed: false,
+            authed: false,
         }
     } else {
         mint_app_embed_token(&db, &w_id, &app.path, authed_for_token.as_ref()).await?
@@ -1201,6 +1221,8 @@ async fn get_app_embed_token(
     resp.disable_sandbox = policy.disable_sandbox.unwrap_or(false);
     resp.version = app.version;
     resp.raw_app = raw_app;
+    resp.legacy_unsandboxed = policy.legacy_unsandboxed.unwrap_or(false);
+    resp.authed = authed_for_token.is_some();
     Ok(Json(resp))
 }
 
@@ -3008,6 +3030,7 @@ async fn upload_s3_file_from_app(
             }]),
             allowed_s3_keys: None,
             disable_sandbox: None,
+            legacy_unsandboxed: None,
         })
     } else {
         let policy_o = sqlx::query_scalar!(
@@ -3368,6 +3391,7 @@ async fn get_on_behalf_authed_from_app(
             s3_inputs: None,
             allowed_s3_keys: Some(force_allowed_s3_keys),
             disable_sandbox: None,
+            legacy_unsandboxed: None,
         }
     } else {
         // TODO: improve db query to not return uneeded fields
@@ -3391,6 +3415,7 @@ async fn get_on_behalf_authed_from_app(
                 s3_inputs: None,
                 allowed_s3_keys: None,
                 disable_sandbox: None,
+                legacy_unsandboxed: None,
             })
     };
 
