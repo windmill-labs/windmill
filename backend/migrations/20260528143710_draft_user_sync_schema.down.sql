@@ -5,7 +5,7 @@ ALTER TABLE draft DROP COLUMN id;
 -- be recovered here.
 
 DROP INDEX IF EXISTS draft_workspace_path_typ_idx;
-DROP INDEX IF EXISTS draft_user_sync_idx;
+DROP INDEX IF EXISTS draft_user_listing_idx;
 DROP INDEX IF EXISTS draft_pkey_legacy;
 DROP INDEX IF EXISTS draft_pkey_with_user;
 

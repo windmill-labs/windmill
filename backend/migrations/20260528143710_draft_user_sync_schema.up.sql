@@ -61,13 +61,12 @@ CREATE UNIQUE INDEX draft_pkey_legacy
     ON draft (workspace_id, path, typ)
     WHERE email IS NULL;
 
--- Hot path for `sync_drafts`: each active editor polls
--- `WHERE workspace_id = ? AND email = ? [AND created_at > ?]` every 2-10s.
--- Neither partial unique index above helps (both lead with `path, typ`);
--- this covers the initial sync (leading two columns) and the incremental
--- missed-drafts query (range scan on `created_at`).
-CREATE INDEX draft_user_sync_idx
-    ON draft (workspace_id, email, created_at)
+-- Serves the per-user draft listing (`GET /drafts/list`:
+-- `WHERE workspace_id = ? AND email = ? ORDER BY path`). Neither partial
+-- unique index above helps — both lead with `path, typ` — and the
+-- trailing `path` lets the planner read rows already in output order.
+CREATE INDEX draft_user_listing_idx
+    ON draft (workspace_id, email, path)
     WHERE email IS NOT NULL;
 
 ALTER TABLE draft ADD COLUMN id BIGSERIAL PRIMARY KEY;
