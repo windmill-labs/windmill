@@ -222,6 +222,27 @@ async fn test_save_draft_extra_perms_writer(db: Pool<Postgres>) -> anyhow::Resul
         .await?;
     assert_eq!(r.status(), 401, "no grant → rejected");
 
+    // A READ-ONLY grant (`extra_perms` value false) must not allow draft
+    // saves: the write check defers to RLS via `SELECT ... FOR UPDATE`,
+    // and locking applies the UPDATE policies — visibility under the
+    // SELECT policy alone isn't enough. Pins the FOR UPDATE semantics the
+    // probe relies on.
+    sqlx::query(
+        "INSERT INTO script (workspace_id, hash, path, summary, description, content, \
+            language, schema, extra_perms, created_by) \
+         VALUES ($1, 3, 'u/test-user/readonly', '', '', 'x', 'deno', '{}'::jsonb, \
+            '{\"u/test-user-2\": false}'::jsonb, 'test-user')",
+    )
+    .bind(WS)
+    .execute(&db)
+    .await?;
+    let r = user2
+        .post(save_url(port, "script", "u/test-user/readonly"))
+        .json(&json!({ "value": { "a": 1 } }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 401, "read-only grant → rejected");
+
     Ok(())
 }
 

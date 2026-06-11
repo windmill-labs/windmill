@@ -154,12 +154,13 @@ pub struct SaveDraftResponse {
 async fn save_draft(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, kind, path)): Path<(String, UserDraftItemKind, windmill_common::utils::StripPath)>,
     Json(req): Json<SaveDraftRequest>,
 ) -> Result<Json<SaveDraftResponse>> {
     let email = &authed.email;
     let path = path.to_path();
-    require_can_write_path(&authed, &db, &w_id, kind, path).await?;
+    require_can_write_path(&authed, &db, &user_db, &w_id, kind, path).await?;
 
     let applied_at = if let Some(value) = &req.value {
         // Secret variable values must never sit in the draft table in
@@ -385,24 +386,20 @@ fn table_for_kind(kind: UserDraftItemKind) -> Option<&'static str> {
     kind.deployed_table()
 }
 
-/// Resolves to `Ok(())` if `authed` may SAVE a draft at `path`:
-///   - admins always
-///   - the user's own namespace (`u/{username}`)
-///   - group namespace (`g/{group}`) when the user is in the group
-///   - folders (`f/{folder}`) when the user has WRITE (or owns) the folder
-///
-/// Drafts can exist at paths with no deployed item (draft-only), so there
-/// is no row to lean on for item-level extra_perms — the namespace rules
-/// are the whole check. Without this, any workspace member could plant
-/// drafts in another user's `u/` namespace or in folders they can't
-/// write, and those drafts get surfaced to every reader of the path
-/// (home-page circles, others'-drafts modal, View JSON / Fork).
-///
-/// JWT folder claims can lag behind fresh grants — refresh them the same
-/// way the deploy endpoints do before concluding "no write".
+/// Resolves to `Ok(())` if `authed` may SAVE a draft at `path`. Two
+/// layers (operators are rejected outright):
+///   1. Claim-based namespace rules — admin, own `u/`, member `g/`,
+///      writable `f/` — which mirror what RLS evaluates from the same
+///      JWT claims, and are the ENTIRE check for draft-only paths
+///      (no deployed row exists for RLS to evaluate).
+///   2. An RLS write-probe on the deployed row (`SELECT ... FOR UPDATE`
+///      through UserDB) for everything the path string can't answer —
+///      above all item-level extra_perms grants. The canonical policies
+///      decide; no write rule is re-implemented here.
 async fn require_can_write_path(
     authed: &ApiAuthed,
     db: &DB,
+    user_db: &UserDB,
     w_id: &str,
     kind: UserDraftItemKind,
     path: &str,
@@ -417,10 +414,26 @@ async fn require_can_write_path(
             "operators cannot save drafts".to_string(),
         ));
     }
+    // Cheap claim-based namespace checks first — these evaluate the SAME
+    // JWT claims RLS reads from the session context (`session.user`,
+    // `session.groups`, `session.folders_write`), so the outcome matches
+    // the policies' `see_own` / `see_member` / folder-write lanes; doing
+    // them as string checks just spares the autosave hot path (a POST
+    // every debounce tick) a DB round-trip for the common cases. They are
+    // also the ENTIRE check for draft-only paths, where no deployed row
+    // exists for RLS to evaluate — without them, any workspace member
+    // could plant drafts in another user's `u/` namespace, surfaced to
+    // every reader of the path (home-page circles, others'-drafts modal).
+    // `require_owner_of_path` is the shared helper (admin / `u/{own}` /
+    // folder owner); group membership and the folder WRITE bit (with the
+    // same JWT-claim refresh the deploy endpoints use for fresh grants)
+    // are layered on top.
+    if windmill_api_auth::require_owner_of_path(authed, path).is_ok() {
+        return Ok(());
+    }
     let parts: Vec<&str> = path.splitn(3, '/').collect();
     if parts.len() >= 3 {
         match parts[0] {
-            "u" if parts[1] == authed.username => return Ok(()),
             "g" if authed.groups.iter().any(|g| g == parts[1]) => return Ok(()),
             "f" => {
                 let folder = parts[1];
@@ -441,28 +454,29 @@ async fn require_can_write_path(
             _ => {}
         }
     }
-    // Item-level extra_perms fallback: a user granted write on a specific
-    // deployed item (e.g. `u/alice/script` shared via the Share dialog with
-    // a write grant) can deploy it through RLS, so they must be able to
-    // save a draft on it too. Mirrors what `require_can_read_path` does for
-    // reads. Only applies when a deployed row exists at the path — draft-
-    // only items have no row to carry extra_perms, so they're governed by
-    // the namespace rules above.
+    // Defer to RLS for everything the path string can't answer — above
+    // all item-level extra_perms grants (the Share dialog). Lock-probe
+    // the deployed row through UserDB: Postgres applies UPDATE policies
+    // to rows locked via `SELECT ... FOR UPDATE`, so a returned row
+    // means the CANONICAL write policies would let this user UPDATE it —
+    // nothing re-implemented here, no rule drift possible. The row lock
+    // is released by the immediate commit. Draft-only paths have no row,
+    // so the probe finds nothing and the namespace rules above were the
+    // whole check.
     if let Some(table) = kind.deployed_table() {
         // `table` is from the closed `deployed_table()` enum, never user
-        // input. Every deployed table has an `extra_perms` column.
+        // input.
         let query =
-            format!("SELECT extra_perms FROM {table} WHERE path = $1 AND workspace_id = $2");
-        let extra_perms: Option<serde_json::Value> = sqlx::query_scalar(&query)
+            format!("SELECT 1 FROM {table} WHERE path = $1 AND workspace_id = $2 FOR UPDATE");
+        let mut tx = user_db.clone().begin(authed).await?;
+        let row = sqlx::query_scalar::<_, i32>(&query)
             .bind(path)
             .bind(w_id)
-            .fetch_optional(db)
+            .fetch_optional(&mut *tx)
             .await?;
-        if let Some(perms) = extra_perms {
-            if windmill_api_auth::get_perm_in_extra_perms_for_authed(perms, authed).unwrap_or(false)
-            {
-                return Ok(());
-            }
+        tx.commit().await?;
+        if row.is_some() {
+            return Ok(());
         }
     }
     Err(Error::NotAuthorized(format!(
