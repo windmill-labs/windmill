@@ -793,10 +793,11 @@ setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit }) => {
 			toolResult: 'No runtime logs'
 		}
 	}
+	const limited = entries.slice(-limit)
 	return {
-		aiResult: formatRuntimeLogsForChat(entries),
+		aiResult: formatRuntimeLogsForChat(limited),
 		uiMessage: `Read runtime logs`,
-		toolResult: formatRuntimeLogsForChat(entries)
+		toolResult: formatRuntimeLogsForChat(limited)
 	}
 })
 

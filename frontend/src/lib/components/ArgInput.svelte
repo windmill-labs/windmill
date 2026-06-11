@@ -46,7 +46,7 @@
 	import AIProviderPicker from './AIProviderPicker.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import FileInput from './common/fileInput/FileInput.svelte'
-	import { randomUUID } from './flows/conversations/FlowChatManager.svelte'
+	import { randomUUID } from '$lib/utils/uuid'
 
 	interface Props {
 		label?: string
