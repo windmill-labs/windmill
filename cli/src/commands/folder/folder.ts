@@ -20,6 +20,7 @@ export interface FolderFile {
   owners: Array<string> | undefined;
   extra_perms: { [record: string]: boolean } | undefined;
   default_permissioned_as?: Array<{ path_glob: string; permissioned_as: string }>;
+  labels?: Array<string>;
 }
 
 async function list(opts: GlobalOptions & { json?: boolean }) {

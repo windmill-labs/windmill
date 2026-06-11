@@ -45,6 +45,10 @@ pub struct Flow {
     pub on_behalf_of_email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Labels inherited from the parent folder, computed at read time. Not stored on the flow row.
+    #[sqlx(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inherited_labels: Option<Vec<String>>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -89,6 +93,10 @@ pub struct ListableFlow {
     pub deployment_msg: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Labels inherited from the parent folder, computed at read time.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inherited_labels: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
