@@ -119,14 +119,27 @@ export async function enumerateDir(
 	return out
 }
 
-/** queryPermission without a user gesture; 'granted' | 'prompt' | 'denied'. */
+/** queryPermission without a user gesture; 'granted' | 'prompt' | 'denied'. Never rejects. */
 export async function queryReadPermission(handle: FileSystemHandle): Promise<PermissionState> {
-	// @ts-ignore - queryPermission is part of the File System Access API
-	return (await handle.queryPermission?.({ mode: 'read' })) ?? 'prompt'
+	try {
+		// @ts-ignore - queryPermission is part of the File System Access API
+		return (await handle.queryPermission?.({ mode: 'read' })) ?? 'prompt'
+	} catch {
+		return 'prompt'
+	}
 }
 
-/** requestPermission — MUST be called within a user gesture. */
+/**
+ * requestPermission — MUST be called within a user gesture. Never rejects: the spec
+ * rejects with SecurityError when user activation is missing (e.g. a second prompt
+ * after the first consumed the gesture) — that maps to 'denied' here so callers can
+ * treat it as "still locked" instead of blowing up the send path.
+ */
 export async function requestReadPermission(handle: FileSystemHandle): Promise<PermissionState> {
-	// @ts-ignore - requestPermission is part of the File System Access API
-	return (await handle.requestPermission?.({ mode: 'read' })) ?? 'denied'
+	try {
+		// @ts-ignore - requestPermission is part of the File System Access API
+		return (await handle.requestPermission?.({ mode: 'read' })) ?? 'denied'
+	} catch {
+		return 'denied'
+	}
 }

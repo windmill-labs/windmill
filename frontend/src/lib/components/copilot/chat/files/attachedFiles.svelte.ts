@@ -189,7 +189,20 @@ export class AttachedFilesStore {
 	async addFolder(dirHandle: FileSystemDirectoryHandle): Promise<AddFilesResult> {
 		const result: AddFilesResult = { added: [], rejected: [] }
 		const folder = dirHandle.name
-		if (this.files.some((f) => f.folder === folder)) return result // already linked → no-op
+		const existing = this.files.filter((f) => f.folder === folder)
+		if (existing.length > 0) {
+			const placeholder = existing.length === 1 ? existing.find((f) => f.isFolderRoot) : undefined
+			if (placeholder) {
+				// Re-picking a folder that sits locked/unavailable after a reload is a natural
+				// recovery gesture — replace the stale link with the freshly-granted handle.
+				this.files = this.files.filter((f) => f.sourceId !== placeholder.sourceId)
+				void this.#deleteRecord(placeholder.sourceId)
+			} else {
+				// Same basename, possibly a different directory — surface it instead of a silent no-op.
+				result.rejected.push({ name: folder, reason: 'A folder with this name is already linked' })
+				return result
+			}
+		}
 
 		const files = await enumerateDir(dirHandle)
 		const sourceId = createLongHash()
@@ -271,18 +284,26 @@ export class AttachedFilesStore {
 		}
 		if (sources.size === 0) return
 
-		// Kick off all permission requests within the gesture, then process.
+		// Kick off all permission requests within the gesture, then process. A rejected
+		// request (requestReadPermission never rejects, but stay defensive) counts as denied.
 		const decided = await Promise.all(
 			[...sources.values()].map((f) =>
-				requestReadPermission(f.handle!).then((perm) => ({ f, perm }))
+				requestReadPermission(f.handle!).then(
+					(perm) => ({ f, perm }),
+					() => ({ f, perm: 'denied' as PermissionState })
+				)
 			)
 		)
 		for (const { f, perm } of decided) {
 			if (perm !== 'granted') continue
 			try {
-				this.files = this.files.filter((x) => x.sourceId !== f.sourceId)
 				await this.#expandFolder(f.handle as FileSystemDirectoryHandle, f.sourceId)
+				// Children are in — drop the locked placeholder row.
+				this.files = this.files.filter((x) => !(x.sourceId === f.sourceId && x.isFolderRoot))
 			} catch {
+				// Enumeration failed (folder moved/deleted on disk): drop any partially-added
+				// children and keep the placeholder so the chip shows "unavailable".
+				this.files = this.files.filter((x) => x.sourceId !== f.sourceId || x.isFolderRoot)
 				this.#patchSource(f.sourceId, { status: 'unavailable' })
 			}
 		}
