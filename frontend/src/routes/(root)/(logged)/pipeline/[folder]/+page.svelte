@@ -974,6 +974,12 @@
 	// template can gate them per-mode with simple ternaries — the canvas
 	// hides each affordance when its callback is undefined.
 	function handleCanvasSelect(s: AssetGraphSelection | undefined) {
+		// Clicking a node while the pane is explicitly hidden is a request
+		// to see that node — unhide. Background clicks (s == undefined)
+		// keep the hidden state.
+		if (s != undefined) {
+			panelHidden = false
+		}
 		// Clicking a draft runnable node re-opens it in the pane; clicking
 		// anything else selects it normally and detaches from any active
 		// draft (drafts stay overlaid until saved or discarded). In view
