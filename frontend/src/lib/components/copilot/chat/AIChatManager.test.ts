@@ -4,12 +4,25 @@ import type { CurrentEditor } from '$lib/components/flows/types'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
 
+const mocks = vi.hoisted(() => ({
+	getCurrentModel: vi.fn(),
+	tryGetCurrentModel: vi.fn(),
+	isWebSearchEnabledForProvider: vi.fn(),
+	logAiChat: vi.fn(),
+	sendUserToast: vi.fn(),
+	getOpenaiClient: vi.fn(),
+	getAnthropicClient: vi.fn(),
+	runChatLoop: vi.fn()
+}))
+
 vi.mock('monaco-editor', () => ({
 	Selection: class Selection {}
 }))
 
 vi.mock('$lib/gen', () => ({
-	WorkspaceService: {},
+	WorkspaceService: {
+		logAiChat: mocks.logAiChat
+	},
 	ScriptService: {},
 	FlowService: {},
 	JobService: {}
@@ -26,19 +39,25 @@ vi.mock('$lib/stores', () => ({
 }))
 
 vi.mock('$lib/toast', () => ({
-	sendUserToast: vi.fn()
+	sendUserToast: mocks.sendUserToast
 }))
 
 vi.mock('$lib/aiStore', () => ({
-	getCurrentModel: () => undefined,
-	tryGetCurrentModel: () => undefined,
+	getCurrentModel: mocks.getCurrentModel,
+	tryGetCurrentModel: mocks.tryGetCurrentModel,
 	getCombinedCustomPrompt: () => '',
-	isWebSearchEnabledForProvider: () => true
+	isWebSearchEnabledForProvider: mocks.isWebSearchEnabledForProvider
 }))
 
 vi.mock('../lib', () => ({
 	getModelContextWindow: () => 128000,
-	workspaceAIClients: { subscribe: () => () => undefined }
+	providerSupportsWebSearch: (provider: string | undefined) =>
+		provider === 'openai' || provider === 'anthropic',
+	workspaceAIClients: {
+		subscribe: () => () => undefined,
+		getOpenaiClient: mocks.getOpenaiClient,
+		getAnthropicClient: mocks.getAnthropicClient
+	}
 }))
 
 vi.mock('./api/apiTools', () => ({
@@ -46,7 +65,7 @@ vi.mock('./api/apiTools', () => ({
 }))
 
 vi.mock('./chatLoop', () => ({
-	runChatLoop: vi.fn()
+	runChatLoop: mocks.runChatLoop
 }))
 
 vi.mock('./global/gate', () => ({
@@ -59,6 +78,21 @@ vi.mock('esm-env', async (importOriginal) => ({
 	...(await importOriginal<typeof import('esm-env')>()),
 	BROWSER: true
 }))
+
+beforeEach(() => {
+	vi.clearAllMocks()
+	mocks.getCurrentModel.mockReturnValue(undefined)
+	mocks.tryGetCurrentModel.mockReturnValue(undefined)
+	mocks.isWebSearchEnabledForProvider.mockReturnValue(true)
+	mocks.logAiChat.mockResolvedValue(undefined)
+	mocks.getOpenaiClient.mockReturnValue({})
+	mocks.getAnthropicClient.mockReturnValue({})
+	mocks.runChatLoop.mockResolvedValue({
+		addedMessages: [],
+		tokenUsage: { prompt: 0, completion: 0, total: 0 },
+		hitMaxIterations: false
+	})
+})
 
 function createFlowHelpers({
 	hasPendingChanges,
@@ -87,6 +121,44 @@ function createFlowHelpers({
 		getLintErrors: vi.fn()
 	} as unknown as FlowAIChatHelpers
 }
+
+describe('AIChatManager request errors', () => {
+	const openaiModel = { provider: 'openai', model: 'gpt-4o' }
+
+	beforeEach(() => {
+		localStorage.clear()
+		mocks.getCurrentModel.mockReturnValue(openaiModel)
+		mocks.tryGetCurrentModel.mockReturnValue(openaiModel)
+	})
+
+	it('adds the web search settings hint to request errors when web search is enabled', async () => {
+		const manager = new AIChatManager()
+		manager.instructions = 'Search for recent docs'
+		mocks.isWebSearchEnabledForProvider.mockReturnValue(true)
+		mocks.runChatLoop.mockRejectedValueOnce(new Error('provider quota exceeded'))
+
+		await manager.sendRequest()
+
+		expect(mocks.sendUserToast).toHaveBeenLastCalledWith(
+			'Failed to send request: provider quota exceeded. Try disabling web search in workspace settings.',
+			true
+		)
+	})
+
+	it('does not add the web search settings hint when web search is disabled', async () => {
+		const manager = new AIChatManager()
+		manager.instructions = 'Search for recent docs'
+		mocks.isWebSearchEnabledForProvider.mockReturnValue(false)
+		mocks.runChatLoop.mockRejectedValueOnce(new Error('provider quota exceeded'))
+
+		await manager.sendRequest()
+
+		expect(mocks.sendUserToast).toHaveBeenLastCalledWith(
+			'Failed to send request: provider quota exceeded',
+			true
+		)
+	})
+})
 
 describe('AIChatManager autonomy mode', () => {
 	beforeEach(() => {

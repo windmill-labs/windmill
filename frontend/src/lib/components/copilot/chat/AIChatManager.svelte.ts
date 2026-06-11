@@ -36,7 +36,7 @@ import { loadApiTools } from './api/apiTools'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
-import { getModelContextWindow, workspaceAIClients } from '../lib'
+import { getModelContextWindow, providerSupportsWebSearch, workspaceAIClients } from '../lib'
 import { dfs } from '$lib/components/flows/previousResults'
 import { getStringError } from './utils'
 import { type PasteAttachment } from './pasteTokens'
@@ -81,6 +81,7 @@ const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
 const MAX_TOKENS_HARD_LIMIT = 5000
 const AI_AUTONOMY_MODE_STORAGE_KEY = 'ai-chat-autonomy-mode'
 const LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
+const WEB_SEARCH_ERROR_HINT = 'Try disabling web search in workspace settings.'
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -157,6 +158,25 @@ function persistAutonomyMode(mode: AIAutonomyMode) {
 		return
 	}
 	localStorage.setItem(AI_AUTONOMY_MODE_STORAGE_KEY, mode)
+}
+
+function appendWebSearchErrorHint(message: string, shouldAppend: boolean): string {
+	if (!shouldAppend) {
+		return message
+	}
+	const separator = /[.!?]$/.test(message.trim()) ? ' ' : '. '
+	return `${message}${separator}${WEB_SEARCH_ERROR_HINT}`
+}
+
+function shouldSuggestDisablingWebSearch(): boolean {
+	const model = tryGetCurrentModel()
+	return providerSupportsWebSearch(model?.provider) && isWebSearchEnabledForProvider(model?.provider)
+}
+
+function getSendRequestErrorMessage(err: unknown): string {
+	const errorMessage = err instanceof Error ? err.message : typeof err === 'string' ? err : undefined
+	const message = errorMessage ? `Failed to send request: ${errorMessage}` : 'Failed to send request'
+	return appendWebSearchErrorHint(message, shouldSuggestDisablingWebSearch())
 }
 
 export class AIChatManager {
@@ -1086,11 +1106,7 @@ export class AIChatManager {
 		} catch (err) {
 			console.error(err)
 			this.flagLastMessageAsError()
-			if (err instanceof Error) {
-				sendUserToast('Failed to send request: ' + err.message, true)
-			} else {
-				sendUserToast('Failed to send request', true)
-			}
+			sendUserToast(getSendRequestErrorMessage(err), true)
 		} finally {
 			this.loading = false
 		}
