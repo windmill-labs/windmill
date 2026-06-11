@@ -516,7 +516,15 @@ pub async fn fetch_draft_only(
     };
 
     let draft_json: serde_json::Value = serde_json::from_str(row.value.0.get())?;
-    let other_drafts_users = fetch_other_drafts_users(db, w_id, email, kind, path).await?;
+    // Same kind gate as the deployed-overlay path above: only the
+    // cross-user-visible kinds (script/flow/app) surface who else is
+    // editing; the drawer kinds (resource/variable/triggers) keep drafts
+    // private to their owner.
+    let other_drafts_users = if kind.shares_drafts_across_users() {
+        fetch_other_drafts_users(db, w_id, email, kind, path).await?
+    } else {
+        Vec::new()
+    };
     Ok(Some(WithDraftOverlay {
         // Best-effort stand-in for the missing deployed — same JSON as
         // `draft`. Frontend should read `.draft` for the editor state
