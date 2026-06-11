@@ -1739,7 +1739,7 @@ struct PrimaryKeyConstraintPayload {
 fn db_supports_schemas(db_type: DbType) -> bool {
     matches!(
         db_type,
-        DbType::Postgresql | DbType::Snowflake | DbType::Bigquery
+        DbType::Postgresql | DbType::Snowflake | DbType::Bigquery | DbType::Duckdb
     )
 }
 
@@ -2434,7 +2434,7 @@ fn make_load_table_metadata_query(
                     "table_schema = current_schema()".to_string()
                 };
                 Ok(format!(
-                    "{}\nFROM information_schema.columns c\nWHERE {} AND TABLE_NAME = '{}'",
+                    "{}\nFROM information_schema.columns c\nWHERE table_catalog = current_database() AND {} AND TABLE_NAME = '{}'",
                     select_cols,
                     schema_filter,
                     escape_sql_literal(tname)
@@ -3748,7 +3748,7 @@ mod tests {
         );
         assert_eq!(
             table_ref("users", Some("myschema"), DbType::Duckdb),
-            r#""users""#
+            r#""myschema"."users""#
         );
     }
 
@@ -3870,6 +3870,13 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_DROP_TABLE {"table":"users","schema":"myschema"}"#;
         let sql = expand_code(marker, &ScriptLang::Mysql);
         assert_eq!(sql, "DROP TABLE `users`;");
+    }
+
+    #[test]
+    fn test_expand_drop_table_duckdb_with_schema() {
+        let marker = r#"-- WM_INTERNAL_DB_DROP_TABLE {"table":"users","schema":"myschema"}"#;
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
+        assert_eq!(sql, "DROP TABLE \"myschema\".\"users\";");
     }
 
     #[test]
