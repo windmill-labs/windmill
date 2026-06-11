@@ -58,7 +58,7 @@ export interface ChatLoopResult {
 }
 
 const WEB_SEARCH_UNAVAILABLE_MESSAGE =
-	'You can disable websearch in your workspace settings.'
+	'Native web search is not supported by this model; continuing without it. You can disable web search in workspace settings.'
 const unsupportedWebSearchCache = new Set<string>()
 
 function getWebSearchCacheKey(workspace: string, modelProvider: ReasoningProviderModel): string {
@@ -84,12 +84,7 @@ function shouldRetryWithoutWebSearch(err: unknown): boolean {
 	return (
 		message.includes('web_search') ||
 		message.includes('web search') ||
-		(message.includes('tool') &&
-			(message.includes('unsupported') ||
-				message.includes('not supported') ||
-				message.includes('not enabled') ||
-				message.includes('disabled') ||
-				message.includes('unknown')))
+		message.includes('web-search')
 	)
 }
 

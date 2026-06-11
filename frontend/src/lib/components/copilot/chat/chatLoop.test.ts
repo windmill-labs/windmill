@@ -36,6 +36,8 @@ vi.mock('./anthropic', () => ({
 }))
 
 const tokenUsage = { prompt: 0, completion: 0, total: 0 }
+const webSearchUnavailableMessage =
+	'Native web search is not supported by this model; continuing without it. You can disable web search in workspace settings.'
 
 function createCallbacks(): ChatLoopConfig['callbacks'] {
 	return {
@@ -76,12 +78,20 @@ function createConfig({
 
 describe('runChatLoop web search fallback', () => {
 	beforeEach(() => {
-		vi.clearAllMocks()
+		vi.resetAllMocks()
 		mocks.providerSupportsWebSearch.mockImplementation(
 			(provider) => provider === 'openai' || provider === 'anthropic'
 		)
 		mocks.resolveEffectiveReasoning.mockReturnValue(undefined)
+		mocks.parseOpenAICompletion.mockResolvedValue({
+			shouldContinue: false,
+			tokenUsage
+		})
 		mocks.parseOpenAIResponsesCompletion.mockResolvedValue({
+			shouldContinue: false,
+			tokenUsage
+		})
+		mocks.parseAnthropicCompletion.mockResolvedValue({
 			shouldContinue: false,
 			tokenUsage
 		})
@@ -107,8 +117,8 @@ describe('runChatLoop web search fallback', () => {
 		expect(callbacks.setToolStatus).toHaveBeenCalledWith(
 			expect.stringContaining('web_search_unavailable:'),
 			expect.objectContaining({
-				content: 'You can disable websearch in your workspace settings.',
-				error: 'You can disable websearch in your workspace settings.',
+				content: webSearchUnavailableMessage,
+				error: webSearchUnavailableMessage,
 				toolName: 'web_search'
 			})
 		)
@@ -118,6 +128,63 @@ describe('runChatLoop web search fallback', () => {
 		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(3)
 		expect(mocks.getOpenAIResponsesCompletion.mock.calls[2][3]).toEqual(
 			expect.objectContaining({ webSearch: false })
+		)
+	})
+
+	it('does not treat unrelated OpenAI tool errors as web search failures', async () => {
+		const callbacks = createCallbacks()
+		const workspace = `workspace-${randomUUID()}`
+
+		mocks.getOpenAIResponsesCompletion.mockRejectedValueOnce(
+			new Error('Unknown tool call: lookup_customer')
+		)
+		mocks.getCompletion.mockResolvedValue({})
+
+		await runChatLoop(createConfig({ workspace, callbacks }))
+
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(1)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[0][3]).toEqual(
+			expect.objectContaining({ webSearch: true })
+		)
+		expect(mocks.getCompletion).toHaveBeenCalledTimes(1)
+		expect(callbacks.setToolStatus).not.toHaveBeenCalled()
+
+		await runChatLoop(createConfig({ workspace }))
+
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(2)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[1][3]).toEqual(
+			expect.objectContaining({ webSearch: true })
+		)
+	})
+
+	it('retries once without Anthropic web search when the model rejects it', async () => {
+		const callbacks = createCallbacks()
+		const workspace = `workspace-${randomUUID()}`
+		const modelProvider: ReasoningProviderModel = {
+			provider: 'anthropic',
+			model: 'claude-3-5-sonnet-latest'
+		}
+
+		mocks.getAnthropicCompletion
+			.mockRejectedValueOnce(new Error('web search is not supported for this model'))
+			.mockResolvedValue({})
+
+		await runChatLoop(createConfig({ workspace, callbacks, modelProvider }))
+
+		expect(mocks.getAnthropicCompletion).toHaveBeenCalledTimes(2)
+		expect(mocks.getAnthropicCompletion.mock.calls[0][3]).toEqual(
+			expect.objectContaining({ webSearch: true })
+		)
+		expect(mocks.getAnthropicCompletion.mock.calls[1][3]).toEqual(
+			expect.objectContaining({ webSearch: false })
+		)
+		expect(callbacks.setToolStatus).toHaveBeenCalledWith(
+			expect.stringContaining('web_search_unavailable:'),
+			expect.objectContaining({
+				content: webSearchUnavailableMessage,
+				error: webSearchUnavailableMessage,
+				toolName: 'web_search'
+			})
 		)
 	})
 })
