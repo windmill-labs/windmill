@@ -14,12 +14,12 @@ import {
 	type WorkspaceComparison
 } from '$lib/gen'
 
-// Carry the legacy `.draft` field through to consumers so this file
-// doesn't need a deeper rewrite. The new `get_draft=true` overlay never
-// populates it (the overlay already merges draft into the top-level
-// fields), so `draft` is always `undefined` here — the
-// `(saved.draft ?? saved)` fall-throughs downstream simply use the
-// overlayed response, which is the right behavior. The overlay's
+// Carry the `.draft` field through to consumers. The `get_draft=true`
+// overlay does NOT merge the draft into the top-level fields — the
+// deployed payload stays untouched and the user's saved draft rides in
+// the sibling `.draft` pocket. The `(saved.draft ?? saved)`
+// fall-throughs downstream therefore prefer the draft when one exists
+// and fall back to the deployed payload otherwise. The overlay's
 // `is_draft` / `draft_saved_at` ride alongside so downstream "is there
 // a draft to delete?" checks have a typed handle on them.
 // The generated `UserDraftOverlay` types `draft` as a permissive
@@ -48,6 +48,7 @@ import {
 	type SessionTarget
 } from './sessionState.svelte'
 import { UserDraft } from '$lib/userDraft.svelte'
+import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { applyDraftToRuntimeRawApp, runtimeRawAppToDraft, type RawAppDraft } from './appDraftCodec'
 import {
 	setDeployedInSessionHandler,
@@ -501,12 +502,11 @@ function createRuntime(session: Session): SessionRuntime {
 							getDraft: true,
 							rawApp: true
 						})
-						// `get_draft=true` overlays the user's draft into the
-						// top-level fields, so there's no separate `.draft`
-						// pocket on the response anymore. Leave `draft` /
-						// `draft_only` `undefined` here — the consumer fall-
-						// throughs (`saved.draft ?? saved`) just use the
-						// already-overlayed response.
+						// The top-level fields are the DEPLOYED payload (the
+						// overlay never merges; the user's draft sits in the
+						// `.draft` pocket) — exactly what the diff baseline
+						// wants here, since the session already has its own
+						// in-memory draft (`aiDraft`).
 						savedRawApp.val = {
 							summary: result.summary,
 							value: result.value as any,
@@ -542,8 +542,8 @@ function createRuntime(session: Session): SessionRuntime {
 					getDraft: true,
 					rawApp: true
 				})
-				// See above: no separate `.draft` field on the new overlay
-				// response. The merged value lives directly under `.value`.
+				// Deployed baseline for the diff drawer — the overlay never
+				// merges, so the top-level fields are the deployed payload.
 				savedRawApp.val = {
 					summary: result.summary,
 					value: result.value as any,
@@ -551,7 +551,16 @@ function createRuntime(session: Session): SessionRuntime {
 					policy: result.policy,
 					custom_path: result.custom_path
 				}
-				const sourceValue: any = result.value
+				// Prefer the user's server-side draft (the `.draft` pocket —
+				// their "Save draft" content from the standalone editor)
+				// over the deployed value, mirroring the flow/script
+				// branches' `result.draft ?? result`. A raw-app draft is
+				// already editor-shaped ({files, runnables, data, summary,
+				// policy}), same keys the extraction below reads. Seeding
+				// from `result.value` here used to overwrite the user's
+				// draft with deployed content via the save below.
+				const draftValue: any = (result as any).draft
+				const sourceValue: any = draftValue ?? result.value
 				let data: RawAppData = { ...DEFAULT_DATA }
 				if (sourceValue?.data) {
 					const d = sourceValue.data
@@ -571,11 +580,21 @@ function createRuntime(session: Session): SessionRuntime {
 					files: (sourceValue?.files ?? {}) as Record<string, string>,
 					runnables: (sourceValue?.runnables ?? {}) as Record<string, any>,
 					data,
-					policy: result.policy,
-					summary: result.summary ?? '',
+					policy: draftValue?.policy ?? result.policy,
+					summary: draftValue?.summary ?? result.summary ?? '',
 					path: result.path,
-					custom_path: result.custom_path
+					custom_path: draftValue?.custom_path ?? result.custom_path
 				}
+				// Seed the per-tab last_sync from the server draft's
+				// timestamp so the session's subsequent saves attach a
+				// matching last_sync and the server can reject stale writes
+				// instead of unconditionally overwriting (a fresh tab has no
+				// last_sync, and the first POST takes the server's
+				// "treat as fresh" branch).
+				UserDraftDbSyncer.recordRemoteSync(
+					{ workspace, itemKind: 'raw_app', path },
+					(result as any).draft_saved_at as string | undefined
+				)
 				UserDraft.save('raw_app', path, runtimeRawAppToDraft(runtimeValue), { workspace })
 				rawApp.val = runtimeValue
 				rawAppSlot.loadedPath = path
