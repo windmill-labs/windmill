@@ -7781,6 +7781,14 @@ properties:
     type: array
     items:
       type: string
+  inherited_labels:
+    type: array
+    items:
+      type: string
+    description: 'Labels inherited from the parent folder, computed at read time.
+      Read-only — edit them on the folder.
+
+      '
 required:
 - schedule
 - script_path
