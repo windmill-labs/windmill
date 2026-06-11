@@ -42,9 +42,8 @@ export interface ChatLoopConfig {
 	/** Return a pending user message to inject between iterations, or undefined. */
 	getPendingUserMessage?: () => ChatCompletionUserMessageParam | undefined
 	/**
-	 * Optional caller-owned accumulator for the assistant/tool messages produced
-	 * this run. Passing it lets the caller recover partial output if the loop
-	 * throws or is aborted mid-iteration (the array holds the same reference).
+	 * Optional caller-owned accumulator for the messages produced this run —
+	 * lets the caller recover partial output if the loop throws or is aborted.
 	 */
 	addedMessages?: ChatCompletionMessageParam[]
 	/** Called before each iteration (e.g. to refresh tool schemas). */
@@ -108,8 +107,6 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 	} = config
 	let skipResponsesApi = config.skipResponsesApi ?? false
 
-	// Caller may supply the accumulator so partial output survives a throw/abort
-	// (it holds the same reference). Otherwise we own it.
 	const addedMessages: ChatCompletionMessageParam[] = config.addedMessages ?? []
 	let tokenUsage = emptyChatTokenUsage()
 	let iterations = 0

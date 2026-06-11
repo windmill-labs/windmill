@@ -648,25 +648,19 @@ export class AIChatManager {
 		}
 	}
 
-	// Commit what an interrupted (cancelled/failed) turn produced so a follow-up
-	// message continues from it instead of starting blind (#3):
-	//  - the tool-paired prefix of fully-completed steps (drops a dangling tool
-	//    call that would otherwise invalidate the next request),
-	//  - the partial answer text the model was mid-way through writing, as a
-	//    plain assistant message (raw reasoning isn't replayed as model context).
-	// If the turn was interrupted while only thinking (no answer text), the
-	// leftover reasoning-only bubble is dropped so it doesn't sit stuck-open and
-	// out of sync with the context.
+	// Commit an interrupted (cancelled/failed) turn's usable output as context
+	// for a follow-up: the tool-paired prefix of completed steps (a dangling
+	// tool call would make providers reject the next request) plus the partial
+	// answer text. A turn interrupted while only thinking instead drops its
+	// reasoning-only bubble (raw reasoning isn't replayed as model context).
 	private commitInterruptedTurn = (
 		collectedMessages: ChatCompletionMessageParam[],
 		partialReply: string
 	) => {
 		const prefix = truncateToToolPairedPrefix(collectedMessages)
 		this.messages = [...this.messages, ...prefix]
-		// `partialReply` is captured at every onMessageEnd, so when the interrupt
-		// lands after a fully-completed step it can hold text that's already
-		// inside the prefix as a structured assistant message — only append it
-		// when it's genuinely new (avoids sending the same answer twice).
+		// partialReply can be stale — equal to text already committed inside the
+		// prefix (see its capture in onMessageEnd) — so only append when new.
 		const lastCommittedText = [...prefix]
 			.reverse()
 			.find(
@@ -683,10 +677,8 @@ export class AIChatManager {
 		}
 	}
 
-	// Roll a turn that produced nothing usable back out of the transcript (user
-	// message + any partial reasoning bubble) and hand its text back to the
-	// composer, so it can be edited and resent rather than lost. Used when the
-	// model returns no output (#2) or the user cancels before any answer (#3).
+	// Roll a turn that produced nothing usable back out of the transcript and
+	// hand its text back to the composer for editing/resending.
 	private restoreUnsentTurn = (
 		displayLenAfterUser: number,
 		modelLenAfterUser: number,
@@ -927,16 +919,13 @@ export class AIChatManager {
 			}
 		}
 		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
-		// Caller-owned accumulator (declared outside `try` so the catch can recover
-		// partial output committed before a failure — see #3 below).
+		// Declared outside `try` so the catch can recover what the loop produced
+		// before a failure: the structured messages and the latest streamed text
+		// that never became one.
 		const collectedMessages: ChatCompletionMessageParam[] = []
-		// The most recent message's streamed text, captured in onMessageEnd. On an
-		// interrupted turn this holds the partial answer that never became a
-		// structured message, so it can be carried as context (#3).
 		let partialReply = ''
-		// Set once the request finished and an outcome branch (commit/restore) took
-		// over — a later throw (e.g. from saveChat) must not make the catch commit
-		// the turn a second time.
+		// Once an outcome branch (commit/restore) took over, a later throw (e.g.
+		// from saveChat) must not make the catch commit the turn a second time.
 		let turnOutcomeHandled = false
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
@@ -990,13 +979,10 @@ export class AIChatManager {
 					index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 				}
 			]
-			// Snapshot the sent text so it can be restored to the composer if the
-			// model returns nothing (#2). `sentInstructions` is the compact form
-			// (with paste tokens) the composer shows, not the expanded LLM text.
+			// For restoreUnsentTurn: the compact composer form (with paste tokens),
+			// not the expanded LLM text, plus the rollback anchor after the user turn.
 			const sentInstructions = this.instructions
 			const sentPastes = pastes
-			// Transcript length right after appending the user turn — used to detect
-			// a no-output turn and to roll it back if the model returns nothing (#2).
 			const displayLenAfterUser = this.displayMessages.length
 			// The LLM gets the full pasted content; the display message above keeps
 			// the compact tokens + registry so the bubble can render/expand chips.
@@ -1074,19 +1060,12 @@ export class AIChatManager {
 					onReasoningDelta: (token) => (this.currentReasoning += token),
 					onReasoningStart: () => (this.currentReasoningActive = true),
 					onMessageEnd: () => {
-						// Capture the text streamed for this message before it's reset, so an
-						// interrupted/failed turn can carry the partial answer as context (#3).
-						// On a clean turn the structured message is already in collectedMessages,
-						// so this is only consumed on the abort/error paths. Only overwrite on
-						// non-empty: the parsers flush onMessageEnd early when a tool call
-						// starts streaming after answer text (capturing the text, resetting
-						// currentReply), while the structured message carrying that text is
-						// only pushed at clean stream end — if the user cancels during the
-						// tool call, chatRequest's error path calls onMessageEnd again with
-						// the already-reset (empty) currentReply, and an unconditional
-						// overwrite would wipe the captured text. The case where the kept
-						// value is stale (text already committed in a structured message) is
-						// deduped in commitInterruptedTurn.
+						// Keep the streamed text for the abort/error paths. Only overwrite
+						// on non-empty: parsers flush onMessageEnd (resetting currentReply)
+						// when a tool call starts after answer text, and a cancel during
+						// that tool call triggers a second, empty call from chatRequest's
+						// catch — an unconditional overwrite would wipe the text. The
+						// kept-stale case is deduped in commitInterruptedTurn.
 						if (this.currentReply) {
 							partialReply = this.currentReply
 						}
@@ -1157,41 +1136,35 @@ export class AIChatManager {
 				addedMessages: collectedMessages
 			})
 			const wasAborted = this.abortController?.signal.aborted ?? false
-			// "Usable output" = a completed step or partial answer text worth keeping.
-			// Pure reasoning doesn't count (it's not replayed as context).
+			// Pure reasoning doesn't count as usable: it's not replayed as context.
 			const hasUsableOutput =
 				truncateToToolPairedPrefix(collectedMessages).length > 0 || !!partialReply.trim()
 			const producedDisplayOutput = this.displayMessages.length > displayLenAfterUser
 			turnOutcomeHandled = true
 
 			if (wasAborted && hasUsableOutput) {
-				// Interrupted (Escape/stop) after some output: keep the completed steps
-				// + the partial answer being written, so a follow-up like "continue"
-				// picks up from there (#3).
+				// Interrupted after some output: keep it so a follow-up like
+				// "continue" picks up from there.
 				this.commitInterruptedTurn(collectedMessages, partialReply)
 				if (this.autoAcceptEditsActive) {
 					this.acceptPendingFlowEdits()
 				}
 				await this.historyManager.saveChat(this.displayMessages, this.messages)
-				// The turn is kept, so this still counts as the saved first turn —
-				// without this, a cancelled first turn would permanently skip the hook
-				// (e.g. session title generation) since the next turn isn't "first".
+				// Still counts as the saved first turn — skipping the hook here would
+				// permanently miss it (the next turn isn't "first" anymore).
 				if (isFirstUserTurn && this.afterFirstTurnSaved) {
 					void Promise.resolve(this.afterFirstTurnSaved()).catch((e) => {
 						console.error('AIChatManager afterFirstTurnSaved hook failed', e)
 					})
 				}
 			} else if (wasAborted || !producedDisplayOutput) {
-				// Either cancelled before producing anything usable, or the model
-				// returned no output at all — treat the turn as unsent: roll it back
-				// out of the transcript (also clearing any partial reasoning bubble)
-				// and hand the text back to the composer (matches Claude Code).
+				// Cancelled before anything usable, or the model returned nothing —
+				// treat the turn as unsent (matches Claude Code).
 				this.restoreUnsentTurn(displayLenAfterUser, modelLenAfterUser, sentInstructions, sentPastes)
 				if (this.displayMessages.length === 0) {
-					// A rolled-back first turn empties the transcript, and saveChat
-					// no-ops on an empty one — the chat persisted earlier this turn
-					// (still holding the restored user message) would linger in history
-					// and resurface the message on reload. Remove it instead.
+					// saveChat no-ops on an empty transcript; the chat persisted earlier
+					// this turn would linger in history and resurface the rolled-back
+					// user message on reload. Remove it instead.
 					this.historyManager.deletePastChat(this.historyManager.getCurrentChatId())
 				} else {
 					await this.historyManager.saveChat(this.displayMessages, this.messages)
@@ -1214,10 +1187,9 @@ export class AIChatManager {
 			}
 		} catch (err) {
 			console.error(err)
-			// #3: a genuine request failure — keep the completed steps + the partial
-			// answer so a follow-up message continues with that context. Skipped when
-			// the outcome was already handled (the throw came from post-commit code
-			// like saveChat): re-committing would duplicate the turn's messages.
+			// Request failure: keep the usable output as context for a follow-up.
+			// Skipped when the throw came from post-outcome code (e.g. saveChat) —
+			// re-committing would duplicate the turn's messages.
 			if (!turnOutcomeHandled) {
 				this.commitInterruptedTurn(collectedMessages, partialReply)
 				try {

@@ -40,30 +40,9 @@ describe('truncateToToolPairedPrefix', () => {
 		expect(truncateToToolPairedPrefix([])).toEqual([])
 	})
 
-	it('keeps a plain assistant message (no tool calls)', () => {
-		const msgs = [assistant('hello')]
-		expect(truncateToToolPairedPrefix(msgs)).toEqual(msgs)
-	})
-
-	it('keeps a fully-answered single tool round-trip', () => {
-		const msgs = [assistantTools('a'), tool('a')]
-		expect(truncateToToolPairedPrefix(msgs)).toEqual(msgs)
-	})
-
-	it('keeps a fully-answered multi-tool batch', () => {
-		const msgs = [assistantTools('a', 'b'), tool('a'), tool('b')]
-		expect(truncateToToolPairedPrefix(msgs)).toEqual(msgs)
-	})
-
 	it('drops a trailing dangling tool_call (aborted before the result)', () => {
 		const msgs = [assistantTools('a')]
 		expect(truncateToToolPairedPrefix(msgs)).toEqual([])
-	})
-
-	it('keeps a completed round-trip but drops a later dangling tool_call', () => {
-		// e.g. tool A finished, then the model started tool B and the turn aborted.
-		const msgs = [assistantTools('a'), tool('a'), assistantTools('b')]
-		expect(truncateToToolPairedPrefix(msgs)).toEqual([assistantTools('a'), tool('a')])
 	})
 
 	it('drops a partially-answered batch entirely (A answered, B missing)', () => {

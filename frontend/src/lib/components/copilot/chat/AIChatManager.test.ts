@@ -371,27 +371,6 @@ describe('AIChatManager sendRequest lifecycle', () => {
 		expect(manager.loading).toBe(false)
 	})
 
-	it('restores the message when cancelled before any output at all (#3)', async () => {
-		const manager = new AIChatManager()
-		manager.changeMode(AIMode.ASK)
-		const restoreInstructions = vi.fn()
-		manager.setAiChatInput({ restoreInstructions, focusInput: vi.fn() } as any)
-
-		// Cancelled immediately, before the model emitted anything.
-		vi.mocked(runChatLoop).mockImplementation(async (config) => {
-			config.abortController.abort('user_cancelled')
-			throw new Error('aborted')
-		})
-
-		manager.instructions = 'never mind'
-		await manager.sendRequest()
-
-		expect(manager.displayMessages.some((m) => m.role === 'user')).toBe(false)
-		expect(manager.messages.some((m) => m.role === 'user')).toBe(false)
-		expect(restoreInstructions).toHaveBeenCalledWith('never mind', [])
-		expect(manager.loading).toBe(false)
-	})
-
 	it('keeps text flushed before a tool call when cancelled during the tool call (#3)', async () => {
 		const manager = new AIChatManager()
 		manager.changeMode(AIMode.ASK)

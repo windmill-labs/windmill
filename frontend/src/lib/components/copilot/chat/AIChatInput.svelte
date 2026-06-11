@@ -179,10 +179,8 @@
 		}
 	}
 
-	// Restore composer contents — used when a turn produced no output and its
-	// text is handed back to the user (see AIChatManager.sendRequest, #2).
-	// Skipped when the user already typed a new draft while the request was
-	// in flight: restoring would clobber it.
+	// Restore composer contents after a rolled-back turn. No-op when the user
+	// already typed a new draft — restoring would clobber it.
 	export function restoreInstructions(value: string, restoredPastes: PasteAttachment[] = []) {
 		if (instructions.trim()) return
 		instructions = value
