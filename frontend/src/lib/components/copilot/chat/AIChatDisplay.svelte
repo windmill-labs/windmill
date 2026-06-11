@@ -136,12 +136,9 @@
 	let editingMessageIndex = $state<number | null>(null)
 
 	// Escape stops the generation when focus is on the chat (or parked on
-	// body), but stays with other widgets (e.g. the session's Monaco editor)
-	// when they hold focus. Capture phase is required: Monaco and
-	// mounted-but-closed Modal2 instances consume window Escapes before they
-	// bubble. stopImmediatePropagation (not plain stop) so other mounted chat
-	// panels' identical listeners don't also cancel on body focus, and the
-	// press doesn't additionally close a surrounding drawer/modal.
+	// body), but stays with other widgets (e.g. the session's Monaco editor).
+	// Capture phase is required: Monaco and mounted-but-closed Modal2
+	// instances consume window Escapes before they bubble.
 	let panelEl: HTMLDivElement | undefined = $state()
 	$effect(() => {
 		function onWindowKeydownCapture(e: KeyboardEvent) {
@@ -151,6 +148,8 @@
 				!active || active === document.body || (panelEl?.contains(active) ?? false)
 			if (!focusOnChat) return
 			e.preventDefault()
+			// Immediate form: other chat panels' identical listeners must not
+			// also cancel on body focus, nor a drawer/modal close on this press.
 			e.stopImmediatePropagation()
 			aiChatManager.cancel()
 		}

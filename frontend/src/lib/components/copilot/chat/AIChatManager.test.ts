@@ -354,6 +354,30 @@ describe('AIChatManager sendRequest lifecycle', () => {
 		expect(manager.loading).toBe(false)
 	})
 
+	it('restores the message when a completed turn produced only reasoning (#2)', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		const restoreInstructions = vi.fn()
+		manager.setAiChatInput({ restoreInstructions, focusInput: vi.fn() } as any)
+
+		// The model finishes (no abort, no error) having emitted only reasoning —
+		// nothing replayable as context, so the turn is as unsent as an empty one.
+		vi.mocked(runChatLoop).mockImplementation(async (config) => {
+			config.callbacks.onReasoningStart?.()
+			config.callbacks.onReasoningDelta?.('hmm...')
+			config.callbacks.onMessageEnd()
+			return { addedMessages: [], tokenUsage: {} as any, hitMaxIterations: false }
+		})
+
+		manager.instructions = 'do a thing'
+		await manager.sendRequest()
+
+		expect(manager.displayMessages).toHaveLength(0)
+		expect(manager.messages.some((m) => m.role === 'user')).toBe(false)
+		expect(restoreInstructions).toHaveBeenCalledWith('do a thing', [])
+		expect(manager.loading).toBe(false)
+	})
+
 	it('does NOT restore on a normal turn that produced output', async () => {
 		const manager = new AIChatManager()
 		manager.changeMode(AIMode.ASK)

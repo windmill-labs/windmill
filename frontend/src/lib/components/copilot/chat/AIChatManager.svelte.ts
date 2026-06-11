@@ -672,11 +672,10 @@ export class AIChatManager {
 		}
 	}
 
-	// Commit an interrupted (cancelled/failed) turn's usable output as context
-	// for a follow-up: the tool-paired prefix of completed steps (a dangling
-	// tool call would make providers reject the next request) plus the partial
-	// answer text. A turn interrupted while only thinking instead drops its
-	// reasoning-only bubble (raw reasoning isn't replayed as model context).
+	// Commit an interrupted turn's usable output as context for a follow-up:
+	// the tool-paired prefix of completed steps (a dangling tool call would
+	// make providers reject the next request) plus the partial answer text.
+	// A reasoning-only interrupt instead drops its stuck-open bubble.
 	private commitInterruptedTurn = (
 		collectedMessages: ChatCompletionMessageParam[],
 		partialReply: string
@@ -1091,12 +1090,10 @@ export class AIChatManager {
 					onReasoningDelta: (token) => (this.currentReasoning += token),
 					onReasoningStart: () => (this.currentReasoningActive = true),
 					onMessageEnd: () => {
-						// Keep the streamed text for the abort/error paths. Only overwrite
-						// on non-empty: parsers flush onMessageEnd (resetting currentReply)
-						// when a tool call starts after answer text, and a cancel during
-						// that tool call triggers a second, empty call from chatRequest's
-						// catch — an unconditional overwrite would wipe the text. The
-						// kept-stale case is deduped in commitInterruptedTurn.
+						// Keep the streamed text for the abort/error paths. Non-empty only:
+						// parsers flush (and reset) when a tool call starts after text, and
+						// the catch's later empty call would wipe it — stale keeps are
+						// deduped in commitInterruptedTurn.
 						if (this.currentReply) {
 							partialReply = this.currentReply
 						}
@@ -1170,10 +1167,10 @@ export class AIChatManager {
 				}
 			})
 			const wasAborted = this.abortController?.signal.aborted ?? false
-			// Pure reasoning doesn't count as usable: it's not replayed as context.
+			// Pure reasoning doesn't count as usable: it's not replayed as context,
+			// so a reasoning-only turn is as unsent as a literally empty one.
 			const hasUsableOutput =
 				truncateToToolPairedPrefix(collectedMessages).length > 0 || !!partialReply.trim()
-			const producedDisplayOutput = this.displayMessages.length > displayLenAfterUser
 			turnOutcomeHandled = true
 
 			if (wasAborted && hasUsableOutput) {
@@ -1191,9 +1188,9 @@ export class AIChatManager {
 						console.error('AIChatManager afterFirstTurnSaved hook failed', e)
 					})
 				}
-			} else if (wasAborted || !producedDisplayOutput) {
-				// Cancelled before anything usable, or the model returned nothing —
-				// treat the turn as unsent (matches Claude Code).
+			} else if (wasAborted || !hasUsableOutput) {
+				// Cancelled before anything usable, or the model returned nothing
+				// (or only reasoning) — treat the turn as unsent (matches Claude Code).
 				this.restoreUnsentTurn(displayLenAfterUser, modelLenAfterUser, sentInstructions, sentPastes)
 				if (this.displayMessages.length === 0) {
 					// saveChat no-ops on an empty transcript; the chat persisted earlier
