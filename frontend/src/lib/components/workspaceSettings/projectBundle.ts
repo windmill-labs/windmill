@@ -14,6 +14,8 @@
 // This module is intentionally free of API/Svelte deps so it can be unit-tested.
 // The async closure orchestrator that fetches items lives in the component.
 
+import { getAllModules } from '$lib/components/flows/flowExplorer'
+
 export type RefKind = 'resource' | 'script' | 'flow'
 
 export interface Ref {
@@ -64,13 +66,11 @@ export function extractFlowRefs(value: any): Ref[] {
 			out.push({ kind, path })
 		}
 	}
-	const visitModules = (modules: any[]) => {
-		if (!Array.isArray(modules)) return
-		for (const mod of modules) visitModule(mod)
-	}
-	const visitModule = (mod: any) => {
-		const v = mod?.value
-		if (!v || typeof v !== 'object') return
+	// getAllModules flattens the whole tree (loops, branches, aiagent tools,
+	// failure module) so each module only needs local inspection.
+	for (const mod of getAllModules(value?.modules ?? [], value?.failure_module)) {
+		const v: any = (mod as any)?.value
+		if (!v || typeof v !== 'object') continue
 		if (v.type === 'script' && typeof v.path === 'string') add('script', v.path)
 		if (v.type === 'flow' && typeof v.path === 'string') add('flow', v.path)
 		if (typeof v.content === 'string') {
@@ -86,11 +86,7 @@ export function extractFlowRefs(value: any): Ref[] {
 				}
 			}
 		}
-		if (Array.isArray(v.modules)) visitModules(v.modules)
-		if (Array.isArray(v.branches)) for (const b of v.branches) visitModules(b?.modules)
-		if (Array.isArray(v.default)) visitModules(v.default)
 	}
-	visitModules(value?.modules)
 	return out
 }
 
@@ -139,13 +135,9 @@ export function rewriteContent(content: string, map: Map<string, string>): strin
 
 export function rewriteFlowValue(value: any, map: Map<string, string>): any {
 	const cloned = JSON.parse(JSON.stringify(value ?? {}))
-	const visitModules = (modules: any[]) => {
-		if (!Array.isArray(modules)) return
-		for (const mod of modules) visitModule(mod)
-	}
-	const visitModule = (mod: any) => {
-		const v = mod?.value
-		if (!v || typeof v !== 'object') return
+	for (const mod of getAllModules(cloned?.modules ?? [], cloned?.failure_module)) {
+		const v: any = (mod as any)?.value
+		if (!v || typeof v !== 'object') continue
 		if (
 			(v.type === 'script' || v.type === 'flow') &&
 			typeof v.path === 'string' &&
@@ -164,16 +156,12 @@ export function rewriteFlowValue(value: any, map: Map<string, string>): any {
 				}
 			}
 		}
-		if (Array.isArray(v.modules)) visitModules(v.modules)
-		if (Array.isArray(v.branches)) for (const b of v.branches) visitModules(b?.modules)
-		if (Array.isArray(v.default)) visitModules(v.default)
 	}
-	visitModules(cloned?.modules)
 	return cloned
 }
 
 // Round-trips through JSON since app values are opaque.
-export function rewriteAppValue(value: any, map: Map<string, string>): any {
+function rewriteAppValue(value: any, map: Map<string, string>): any {
 	if (value == null) return value
 	const json = JSON.stringify(value)
 	return JSON.parse(rewriteContent(json, map))
@@ -246,8 +234,7 @@ export async function buildProjectBundle(
 	extraResourcePaths: string[] = []
 ): Promise<ProjectBundle> {
 	const fetched = new Map<string, FetchedItem>()
-	const queued = new Set<string>(seed.map((s) => s.path))
-	const queue: ItemRef[] = [...seed]
+	const queued = new Set<string>()
 	const resourcePaths = new Set<string>()
 	const unresolved: string[] = []
 
@@ -256,26 +243,38 @@ export async function buildProjectBundle(
 		if (classifyPath(p, slug) !== 'hub') resourcePaths.add(p)
 	}
 
-	while (queue.length > 0) {
-		const ref = queue.shift()!
-		if (fetched.has(ref.path)) continue
-		const item = await deps.fetchItem(ref)
-		if (!item) {
-			unresolved.push(ref.path)
-			continue
+	// Refs at the same BFS depth are independent: fetch each level concurrently.
+	let level: ItemRef[] = []
+	for (const s of seed) {
+		if (!queued.has(s.path)) {
+			queued.add(s.path)
+			level.push(s)
 		}
-		fetched.set(ref.path, item)
-		for (const r of refsForFetched(item)) {
-			if (classifyPath(r.path, slug) === 'hub') continue
-			if (r.kind === 'resource') {
-				resourcePaths.add(r.path)
-			} else if (r.kind === 'script' || r.kind === 'flow') {
-				if (!fetched.has(r.path) && !queued.has(r.path)) {
-					queued.add(r.path)
-					queue.push({ kind: r.kind, path: r.path })
+	}
+	while (level.length > 0) {
+		const results = await Promise.all(
+			level.map(async (ref) => ({ ref, item: await deps.fetchItem(ref) }))
+		)
+		const next: ItemRef[] = []
+		for (const { ref, item } of results) {
+			if (!item) {
+				unresolved.push(ref.path)
+				continue
+			}
+			fetched.set(ref.path, item)
+			for (const r of refsForFetched(item)) {
+				if (classifyPath(r.path, slug) === 'hub') continue
+				if (r.kind === 'resource') {
+					resourcePaths.add(r.path)
+				} else if (r.kind === 'script' || r.kind === 'flow') {
+					if (!queued.has(r.path)) {
+						queued.add(r.path)
+						next.push({ kind: r.kind, path: r.path })
+					}
 				}
 			}
 		}
+		level = next
 	}
 
 	const itemPaths = [...fetched.keys()]
@@ -295,8 +294,10 @@ export async function buildProjectBundle(
 	})
 
 	const resourceStubs: ResourceStub[] = []
-	for (const path of resourcePaths) {
-		const type = await deps.resolveResourceType(path)
+	const resolved = await Promise.all(
+		[...resourcePaths].map(async (path) => ({ path, type: await deps.resolveResourceType(path) }))
+	)
+	for (const { path, type } of resolved) {
 		if (!type) {
 			unresolved.push(path)
 			continue

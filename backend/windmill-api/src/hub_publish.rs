@@ -177,8 +177,6 @@ struct PublishFlowBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     source_path: Option<String>,
     project_slug: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    recording: Option<serde_json::Value>,
 }
 
 async fn publish_flow(
@@ -222,8 +220,6 @@ struct PublishRawAppBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
     summary: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    external_embed_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -307,8 +303,6 @@ struct PublishResourceTypeBody {
     schema: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    app: Option<String>,
     project_slug: String,
 }
 
@@ -332,8 +326,6 @@ async fn publish_resource_type(
 struct PublishResourceBody {
     path: String,
     resource_type: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
