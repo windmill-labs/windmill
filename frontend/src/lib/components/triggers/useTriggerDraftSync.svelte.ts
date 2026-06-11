@@ -107,12 +107,19 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 			cfgDiffers(opts.getCfg() as Cfg, opts.deployed() as Cfg)
 	)
 
-	function discard(path: string, fallback: Cfg | undefined): void {
+	/** `auto: true` marks the discard as coming from the reactive
+	 * persist-effect (form drifted back to the deployed baseline) rather
+	 * than an explicit user action (banner Discard, post-deploy cleanup)
+	 * — reactive discards must respect the "Enable auto-save" toggle the
+	 * same way reactive value-saves do, otherwise with autosave off the
+	 * editor would still DELETE server drafts while never writing any. */
+	function discard(path: string, fallback: Cfg | undefined, auto = false): void {
 		// `UserDraft.discard` POSTs `value: null`, which routes through
 		// `UserDraftDbSyncer.postSave` and clears the list-page `*` hint
 		// (the syncer owns the hint). No explicit clear needed here.
 		UserDraft.discard(opts.itemKind, path, fallback, {
-			workspace: opts.workspace() ?? undefined
+			workspace: opts.workspace() ?? undefined,
+			auto
 		})
 	}
 
@@ -139,8 +146,12 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 			const deployed = opts.deployed()
 			if (cfgDiffers(cfg, deployed)) {
 				if (cfgDiffers(cfg, h.draft)) h.draft = cfg
-			} else {
-				discard(opts.path(), deployed)
+			} else if (cfgDiffers(h.draft, deployed)) {
+				// Only when there's actually a draft to drop: `h.draft` is
+				// undefined on a fresh open (no spurious `value: null` POST
+				// per drawer open) and equals `deployed` right after a
+				// discard (no repeat POST per cfg recompute at baseline).
+				discard(opts.path(), deployed, true)
 			}
 		})
 	})

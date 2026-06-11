@@ -176,7 +176,11 @@ function snapshotDraftValue<V>(value: V | undefined): V | undefined {
  * rebuilt as `!!cfg.permissioned_as` on load but `|| undefined` on
  * build), so keeping them in the diff produces a phantom banner.
  */
-const DRAFT_COMPARE_IGNORED_FIELDS = ['permissioned_as', 'preserve_permissioned_as', 'extra_perms'] as const
+const DRAFT_COMPARE_IGNORED_FIELDS = [
+	'permissioned_as',
+	'preserve_permissioned_as',
+	'extra_perms'
+] as const
 
 /**
  * Normalize one side of a draft-vs-baseline comparison: JSON round-trip
@@ -412,7 +416,14 @@ export const UserDraft = {
 		itemKind: UserDraftItemKind,
 		path: string,
 		fallback: V | undefined,
-		opts?: UserDraftOptions
+		opts?: UserDraftOptions & {
+			/** Mark the `value: null` POST as a reactive autosave (subject
+			 * to the "Enable auto-save" toggle — parked for Ctrl/Cmd+S when
+			 * off) instead of an explicit user action. Set by the trigger
+			 * persist-effect's at-baseline discard; explicit discards
+			 * (banner button, post-deploy cleanup) leave it unset. */
+			auto?: boolean
+		}
 	): void {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
@@ -422,7 +433,7 @@ export const UserDraft = {
 			entry.skipNextSync = true
 			entry.state.val = safeFallback
 		}
-		void UserDraftDbSyncer.save({ workspace: ws, itemKind, path, value: null })
+		void UserDraftDbSyncer.save({ workspace: ws, itemKind, path, value: null, auto: opts?.auto })
 	},
 
 	use<V = unknown>(
