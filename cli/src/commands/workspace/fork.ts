@@ -72,6 +72,14 @@ async function createWorkspaceFork(
         `Check out the disposable working branch you want to convert first.`,
       );
     }
+    if (getOriginalBranchForWorkspaceForks(currentBranch)) {
+      // Current branch is itself a fork branch (wm-fork/<base>/<old-id>).
+      // Renaming it onto the new fork branch would detach the existing fork.
+      throw new Error(
+        `Refusing to rename your current branch \`${currentBranch}\` — it is already a fork branch. ` +
+        `To fork a fork, omit --from-branch: \`wmill workspace fork\` bases the new fork on this fork's original branch and creates a fresh fork branch without renaming.`,
+      );
+    }
     if (!findWorkspaceByGitBranch(config.workspaces, opts.fromBranch)) {
       throw new Error(
         `Could not find a workspace mapped to branch \`${opts.fromBranch}\` in wmill.yaml's workspaces section. ` +
@@ -144,13 +152,16 @@ async function createWorkspaceFork(
   }
 
   if (!workspaceId) {
+    // The id (unlike the display name) must be a valid slug — derive it from
+    // the name rather than using the free-form name verbatim.
+    const idDefault = branchToForkId(workspaceName);
     if (branchDefaultId && !interactive) {
-      workspaceId = workspaceName;
+      workspaceId = idDefault;
     } else {
       workspaceId = await Input.prompt({
         message: `Enter the ID of this forked workspace, it will then be prefixed by ${WM_FORK_PREFIX}. It will also determine the branch name`,
-        default: workspaceName,
-        suggestions: [workspaceName],
+        default: idDefault,
+        suggestions: [idDefault],
       });
     }
   }
@@ -170,6 +181,11 @@ async function createWorkspaceFork(
   log.info(colors.blue(`Creating forked workspace: ${workspaceName}...`));
 
   const trueWorkspaceId = `${WM_FORK_PREFIX}-${workspaceId}`;
+  // Fail fast on an invalid id (e.g. an explicit positional id, or a long
+  // branch name under --yes) before existsWorkspace, datatable cloning, and
+  // branch creation — a late backend rejection would leave cloned databases
+  // behind.
+  validateForkWorkspaceId(trueWorkspaceId);
   let alreadyExists = false;
   try {
     alreadyExists = await wmill.existsWorkspace({
@@ -423,17 +439,55 @@ async function resolveWorkingBranchBase(
   });
 }
 
+// The backend caps a fork workspace id (`wm-fork-<slug>`) at 50 chars total
+// (validate_fork_workspace_id in windmill-common), so the slug is at most
+// 50 - "wm-fork-".length (8) = 42.
+const MAX_FORK_ID_SLUG = 42;
+
 /**
  * Derive a workspace-id-safe slug from a git branch name. Branch names can
  * contain `/` and other characters that aren't valid in a workspace id and
  * would break the `wm-fork/<base>/<id>` branch-name parsing, so collapse any
- * invalid run to a single dash and trim.
+ * invalid run to a single dash, trim, and cap to the backend length limit.
  */
 function branchToForkId(branch: string): string {
   const slug = branch
     .replace(/[^a-zA-Z0-9_-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replace(/^-+|-+$/g, "")
+    .slice(0, MAX_FORK_ID_SLUG)
+    .replace(/-+$/g, ""); // re-trim if the cut landed on a dash
   return slug || "fork";
+}
+
+/**
+ * Mirror the backend `validate_fork_workspace_id` so an invalid id fails fast
+ * — before `existsWorkspace`, datatable cloning (which creates real per-fork
+ * Postgres databases), and branch creation, none of which get cleaned up on a
+ * late backend rejection. `id` is the full `wm-fork-<slug>` workspace id.
+ */
+function validateForkWorkspaceId(id: string): void {
+  const reject = (reason: string): never => {
+    throw new Error(
+      `Fork workspace id \`${id}\` is invalid: ${reason}. Choose a shorter or simpler name/id.`,
+    );
+  };
+  if (id.length > 50) {
+    reject(`too long (${id.length} chars; max 50 including the \`${WM_FORK_PREFIX}-\` prefix)`);
+  }
+  if (id.endsWith(".")) reject("cannot end with '.'");
+  if (id.endsWith(".lock")) reject("cannot end with '.lock'");
+  if (id.includes("..")) reject("cannot contain '..'");
+  if (id.includes("@{")) reject("cannot contain '@{'");
+  if (id.includes("//")) reject("cannot contain '//'");
+  for (const ch of id) {
+    if (":~^?*[\\ ".includes(ch)) reject(`contains forbidden character '${ch}'`);
+    const code = ch.charCodeAt(0);
+    if (code < 0x20 || code === 0x7f) reject("contains a control character");
+  }
+  for (const component of id.split("/")) {
+    if (component.startsWith(".")) reject("a path component cannot start with '.'");
+    if (component.endsWith(".lock")) reject("a path component cannot end with '.lock'");
+  }
 }
 
 /**
@@ -523,4 +577,9 @@ async function deleteWorkspaceFork(
   }
 }
 
-export { branchToForkId, createWorkspaceFork, deleteWorkspaceFork };
+export {
+  branchToForkId,
+  createWorkspaceFork,
+  deleteWorkspaceFork,
+  validateForkWorkspaceId,
+};
