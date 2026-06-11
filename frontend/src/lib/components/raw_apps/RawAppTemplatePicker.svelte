@@ -36,10 +36,10 @@
 	}
 
 	let {
-		open = $bindable(false),
+		open = $bindable(),
 		onStart
 	}: {
-		open?: boolean
+		open: boolean
 		onStart: (result: RawAppTemplatePickerResult, withPrompt: boolean) => void
 	} = $props()
 
