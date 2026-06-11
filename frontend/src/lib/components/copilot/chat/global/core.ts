@@ -2276,24 +2276,16 @@ function getRequiredGlobalDraft(
 
 function finishDraftWrite(stored: WorkspaceItem, existed: boolean, ctx: WriteDraftCtx): string {
 	const verb = existed ? 'Updated' : 'Created'
-	const serializedItem =
-		stored.type === 'variable' || stored.type === 'flow'
-			? serializeWorkspaceItemForRead(stored)
-			: stored
 
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 		content: `${verb} ${stored.type} "${stored.path}" in local storage`,
 		result: `Saved to local storage`
 	})
-	return JSON.stringify(
-		{
-			success: true,
-			message: `${verb} ${stored.type} "${stored.path}" in local storage (a browser-only local draft, not a workspace draft). It was not deployed.`,
-			item: serializedItem
-		},
-		null,
-		2
-	)
+	const message = `${verb} ${stored.type} "${stored.path}" in local storage (a browser-only local draft, not a workspace draft). It was not deployed.`
+	// Don't echo the stored value back to the model — it just wrote that content,
+	// and echoing it doubles token usage on every edit. Use read_workspace_item to
+	// inspect the stored draft (e.g. after a merge with an existing base).
+	return JSON.stringify({ success: true, message }, null, 2)
 }
 
 async function writeScriptDraft(
@@ -2885,7 +2877,7 @@ async function initApp(
 		runnables: { [STARTER_RUNNABLE_KEY]: { ...STARTER_RUNNABLE } }
 	}
 	await recomputeAppPolicy(value)
-	const stored = saveAppDraft(workspace, path, value)
+	saveAppDraft(workspace, path, value)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Saved app "${path}" to local storage (${framework})`,
@@ -2894,8 +2886,7 @@ async function initApp(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Initialized app "${path}" in local storage from the ${framework} template with a starter runnable "${STARTER_RUNNABLE_KEY}" (a browser-only local draft, not a workspace draft). Use write_app_file / write_app_runnable to evolve it.`,
-			item: stored
+			message: `Initialized app "${path}" in local storage from the ${framework} template with files ${Object.keys(template).join(', ')} and a starter runnable "${STARTER_RUNNABLE_KEY}" (a browser-only local draft, not a workspace draft). Use write_app_file / write_app_runnable to evolve it.`
 		},
 		null,
 		2
@@ -2947,7 +2938,7 @@ async function writeAppFile(
 
 	const { value, meta } = await loadAppDraftValue(args.path, workspace)
 	value.files = { ...value.files, [target.filePath]: args.content }
-	const stored = saveAppDraft(workspace, args.path, value, meta)
+	saveAppDraft(workspace, args.path, value, meta)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Updated ${target.filePath} in app "${args.path}"`,
@@ -2956,8 +2947,7 @@ async function writeAppFile(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Updated app "${args.path}" in local storage with frontend file "${target.filePath}".`,
-			item: stored
+			message: `Updated app "${args.path}" in local storage with frontend file "${target.filePath}".`
 		},
 		null,
 		2
@@ -2987,7 +2977,7 @@ async function deleteAppFile(
 	}
 	const { [target.filePath]: _removed, ...remaining } = value.files
 	value.files = remaining
-	const stored = saveAppDraft(workspace, args.path, value, meta)
+	saveAppDraft(workspace, args.path, value, meta)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Removed ${target.filePath} from app "${args.path}"`,
@@ -2996,8 +2986,7 @@ async function deleteAppFile(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Removed "${target.filePath}" from app "${args.path}" in local storage.`,
-			item: stored
+			message: `Removed "${target.filePath}" from app "${args.path}" in local storage.`
 		},
 		null,
 		2
@@ -3071,7 +3060,7 @@ async function patchAppFile(
 		}
 	}
 
-	const stored = saveAppDraft(workspace, path, value, meta)
+	saveAppDraft(workspace, path, value, meta)
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Patched ${target.filePath} in app "${path}"`,
 		result: 'Saved to local storage'
@@ -3079,8 +3068,7 @@ async function patchAppFile(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Patched "${target.filePath}" in app "${path}" in local storage.`,
-			item: stored
+			message: `Patched "${target.filePath}" in app "${path}" in local storage.`
 		},
 		null,
 		2
@@ -3113,7 +3101,7 @@ async function writeAppRunnable(
 	const persisted = buildPersistedRunnable(input, existing)
 	value.runnables = { ...value.runnables, [key]: persisted }
 	await recomputeAppPolicy(value)
-	const stored = saveAppDraft(workspace, path, value, meta)
+	saveAppDraft(workspace, path, value, meta)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Updated runnable "${key}" in app "${path}"`,
@@ -3122,8 +3110,7 @@ async function writeAppRunnable(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Updated app "${path}" in local storage with runnable "${key}".`,
-			item: stored
+			message: `Updated app "${path}" in local storage with runnable "${key}".`
 		},
 		null,
 		2
@@ -3147,7 +3134,7 @@ async function deleteAppRunnable(
 	const { [key]: _removed, ...remaining } = value.runnables
 	value.runnables = remaining
 	await recomputeAppPolicy(value)
-	const stored = saveAppDraft(workspace, path, value, meta)
+	saveAppDraft(workspace, path, value, meta)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Removed runnable "${key}" from app "${path}"`,
@@ -3156,8 +3143,7 @@ async function deleteAppRunnable(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Removed runnable "${key}" from app "${path}" in local storage.`,
-			item: stored
+			message: `Removed runnable "${key}" from app "${path}" in local storage.`
 		},
 		null,
 		2

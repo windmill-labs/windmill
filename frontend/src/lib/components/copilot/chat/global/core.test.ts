@@ -1429,7 +1429,9 @@ describe('global AI tools', () => {
 			})
 		)
 
-		expect(writeResult.item.value.value).toBeUndefined()
+		expect(writeResult.success).toBe(true)
+		// Write results must not echo the flow value back to the model.
+		expect(writeResult.item).toBeUndefined()
 
 		const raw = await callGlobalTool('read_workspace_item', {
 			type: 'flow',
