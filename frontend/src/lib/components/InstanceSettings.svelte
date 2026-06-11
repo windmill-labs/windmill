@@ -308,7 +308,7 @@
 			instanceInputs[name] = v
 			if (oauths[name].connect_config?.extra_params?.[key] === v) continue
 			oauths[name].connect_config = {
-				scopes: [],
+				scopes: tmpl.scopes ?? [],
 				auth_url: tmpl.auth_url.replaceAll('{instance}', v),
 				token_url: tmpl.token_url.replaceAll('{instance}', v),
 				req_body_auth: tmpl.req_body_auth ?? false,
