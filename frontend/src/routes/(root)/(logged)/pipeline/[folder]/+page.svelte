@@ -53,6 +53,7 @@
 		ChevronDown,
 		Folder,
 		FolderSearch,
+		History,
 		Loader2,
 		NetworkIcon,
 		RefreshCw,
@@ -1561,6 +1562,9 @@
 	// form renders the S3 picker) lets the user upload a file and run the
 	// pipeline. Drafts open in-place too so the user can fill the body first.
 	function openDataUploadRun(scriptPath: string) {
+		// Opening the run form is meaningless while the pane is hidden —
+		// unhide first, same as a plain node click.
+		panelHidden = false
 		if (drafts.has(scriptPath)) {
 			activeDraftPath = scriptPath
 			selection = undefined
