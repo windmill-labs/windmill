@@ -4504,7 +4504,7 @@ Once the flow has real content, **offer** to open the visual preview as a one-se
 
 ## CLI Commands — running, previewing, deploying
 
-After writing, act on the user's intent instead of just listing commands. Run the safe, non-deploying command yourself when it fits (\`wmill flow preview\` — see "After writing — offer to run, don't wait passively" below). You run the deploy/file-rewriting commands (\`wmill sync push\`, \`wmill generate-metadata\`) yourself too — but only when the user's intent calls for it (an explicit deploy request for \`sync push\`). That explicit-intent rule is the safeguard; don't hand the command to the user to type. The options:
+After writing, act on the user's intent instead of just listing commands. Run the safe, non-deploying command yourself when it fits (\`wmill flow preview\` — see "After writing — offer to run, don't wait passively" below); only *name* the commands that deploy or rewrite files (\`wmill sync push\`, \`wmill generate-metadata\`) so the user can approve them. The options:
 
 - \`wmill flow preview <flow_path>\` — **default when iterating on a local flow.** Runs the local \`flow.yaml\` against local inline scripts without deploying. Add \`--remote\` to use deployed workspace scripts for PathScript steps instead of local files. Add \`--step <step_id>\` to run only one module in isolation (see "Single-step vs whole-flow preview" below).
 - \`wmill flow run <path>\` — runs the flow **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
@@ -4537,7 +4537,7 @@ If the user hasn't already told you to run/test the flow, offer it as a one-sent
 
 If the user already asked to test/run/try the flow in their original request, skip the offer and just execute \`wmill flow preview <path> -d '<args>'\` directly — pick plausible args from the flow's input schema.
 
-\`wmill flow preview\` is safe to run yourself (it does not deploy). You run \`wmill sync push\` and \`wmill generate-metadata\` yourself too — they modify workspace state or local files, so run them only when the user's intent calls for it (an explicit deploy request for \`sync push\`). That explicit-intent rule is the safeguard; don't hand these to the user to run.
+\`wmill flow preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
 
 ### Visual preview
 
@@ -5061,16 +5061,18 @@ data:
 
 ## CLI Commands
 
-You run these yourself — don't hand them to the user to type. What differs is the gate: run the consequential ones (\`sync push\`, \`sync pull\`) only when the user's intent calls for it — that explicit-intent rule is the safeguard, not an assumed approval prompt.
+Two commands you run yourself, not the user:
+- \`wmill app new\` — run it with flags, per the "Creating a Raw App" section above.
+- \`wmill generate-metadata\` — generates local lock files; offer it and run it on consent, per "After creating a runnable" above (it writes local lock files, not a deploy).
 
-| Command | When you run it |
-|---------|-----------------|
-| \`wmill app new\` | Yourself, with flags, per "Creating a Raw App" above. |
-| \`wmill generate-metadata\` | Offer it and run it on consent, per "After creating a runnable" above (local lock files, not a deploy). |
-| \`wmill app generate-agents\` | When the app's AGENTS.md / DATATABLES.md need refreshing. |
-| \`wmill sync pull\` | Pulls from Windmill; overwrites local files, so confirm intent first (\`--dry-run\` to preview). |
-| \`wmill sync push\` | Deploys to Windmill; run it only when the user explicitly asks to deploy/publish/push. |
-| \`wmill app dev\` | Long-running dev server — launch it via the \`preview\` skill rather than blocking on it. |
+For the rest, tell the user which command fits their intent and let them run it — these deploy to the workspace, overwrite local files, or launch a long-running server, so the user should consent each time:
+
+| Command | Description |
+|---------|-------------|
+| \`wmill app dev\` | Start dev server with live reload (see the \`preview\` skill for the full open-the-app-in-the-IDE-pane procedure). |
+| \`wmill app generate-agents\` | Refresh AGENTS.md and DATATABLES.md |
+| \`wmill sync push\` | Deploy app to Windmill |
+| \`wmill sync pull\` | Pull latest from Windmill |
 
 
 

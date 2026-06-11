@@ -217,16 +217,18 @@ data:
 
 ## CLI Commands
 
-You run these yourself — don't hand them to the user to type. What differs is the gate: run the consequential ones (`sync push`, `sync pull`) only when the user's intent calls for it — that explicit-intent rule is the safeguard, not an assumed approval prompt.
+Two commands you run yourself, not the user:
+- `wmill app new` — run it with flags, per the "Creating a Raw App" section above.
+- `wmill generate-metadata` — generates local lock files; offer it and run it on consent, per "After creating a runnable" above (it writes local lock files, not a deploy).
 
-| Command | When you run it |
-|---------|-----------------|
-| `wmill app new` | Yourself, with flags, per "Creating a Raw App" above. |
-| `wmill generate-metadata` | Offer it and run it on consent, per "After creating a runnable" above (local lock files, not a deploy). |
-| `wmill app generate-agents` | When the app's AGENTS.md / DATATABLES.md need refreshing. |
-| `wmill sync pull` | Pulls from Windmill; overwrites local files, so confirm intent first (`--dry-run` to preview). |
-| `wmill sync push` | Deploys to Windmill; run it only when the user explicitly asks to deploy/publish/push. |
-| `wmill app dev` | Long-running dev server — launch it via the `preview` skill rather than blocking on it. |
+For the rest, tell the user which command fits their intent and let them run it — these deploy to the workspace, overwrite local files, or launch a long-running server, so the user should consent each time:
+
+| Command | Description |
+|---------|-------------|
+| `wmill app dev` | Start dev server with live reload (see the `preview` skill for the full open-the-app-in-the-IDE-pane procedure). |
+| `wmill app generate-agents` | Refresh AGENTS.md and DATATABLES.md |
+| `wmill sync push` | Deploy app to Windmill |
+| `wmill sync pull` | Pull latest from Windmill |
 
 
 

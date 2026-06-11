@@ -107,15 +107,6 @@ You MUST use the \`preview\` skill any time the user wants to see/open/visualize
 
 You MUST use the \`cli-commands\` skill to use the CLI.
 
-## You run the commands, not the user
-
-Run \`wmill\` commands yourself — don't hand a command to the user to type. The gate in this guidance is **intent** (what the user asked for), not **who runs it**:
-
-- Read-only / local commands (previews, \`list\`, \`get\`, \`sync pull --dry-run\`) — just run them.
-- Consequential commands (deploys via \`wmill sync push\`, lock/metadata regeneration) — you run these too, but only when the user's intent calls for it: an explicit deploy/publish/push request for \`sync push\`, not a "run"/"try"/"test". **That explicit-intent rule is the safeguard** — don't off-load the command to the user to type. (Your harness may *also* gate command execution behind an approval prompt, but don't rely on one being there: in auto-approve / headless runs there isn't, so the intent rule is what protects against an unwanted deploy.)
-
-The exception is a long-running server like \`wmill app dev\`: launch it via the \`preview\` skill rather than blocking on it.
-
 ## Running and previewing local changes
 
 Local previews exist for every entity type and don't deploy:
