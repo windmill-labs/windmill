@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { randomUUID } from '$lib/utils/uuid'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
 import { runChatLoop, type ChatLoopConfig } from './chatLoop'
 import type { ReasoningProviderModel } from '../reasoningRegistry'
@@ -88,7 +89,7 @@ describe('runChatLoop web search fallback', () => {
 
 	it('retries once without OpenAI web search and caches unsupported provider models', async () => {
 		const callbacks = createCallbacks()
-		const workspace = `workspace-${crypto.randomUUID()}`
+		const workspace = `workspace-${randomUUID()}`
 
 		mocks.getOpenAIResponsesCompletion
 			.mockRejectedValueOnce(new Error('web_search is not supported for this model'))
