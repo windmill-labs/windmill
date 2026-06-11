@@ -26,6 +26,7 @@ import SendflakeIcon from './SendflakeIcon.svelte'
 import QRCodeIcon from './QRCodeIcon.svelte'
 import LinkedinIcon from './LinkedinIcon.svelte'
 import HubspotIcon from './HubspotIcon.svelte'
+import CoupaIcon from './CoupaIcon.svelte'
 import DatadogIcon from './DatadogIcon.svelte'
 import DatabricksIcon from './DatabricksIcon.svelte'
 import AdobeAcrobatSignIcon from './AdobeAcrobatSignIcon.svelte'
@@ -248,6 +249,7 @@ export const APP_TO_ICON_COMPONENT = {
 	hubspot: HubspotIcon,
 	datadog: DatadogIcon,
 	databricks: DatabricksIcon,
+	coupa: CoupaIcon,
 	adobe_acrobat_sign: AdobeAcrobatSignIcon,
 	stripe: StripeIcon,
 	telegram: TelegramIcon,
