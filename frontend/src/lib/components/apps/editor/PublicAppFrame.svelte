@@ -33,7 +33,12 @@
 	import Login from '$lib/components/Login.svelte'
 	import { TriangleAlert } from 'lucide-svelte'
 
-	type EmbedToken = { token?: string | null; disable_sandbox?: boolean; version?: number | null }
+	type EmbedToken = {
+		token?: string | null
+		disable_sandbox?: boolean
+		version?: number | null
+		raw_app?: boolean
+	}
 
 	let {
 		fetchEmbedToken,
@@ -90,6 +95,12 @@
 	/** Passed to the viewer: when the rendered app gets a 401 (e.g. the embed
 	 * token expired) it calls this to ask the embedder for a fresh token. */
 	function requestTokenRefresh() {
+		if (!isViewer) {
+			// Embedder-side direct render (raw app, or consented disable-sandbox): there
+			// is no opaque viewer to message — just re-run the access check / app load.
+			initEmbedder()
+			return
+		}
 		viewerReady = false
 		window.parent.postMessage({ type: 'wm_embed_unauthorized' }, expectedEmbedderOrigin ?? '*')
 	}
@@ -142,6 +153,14 @@
 	let appVersion: number | undefined = $state(undefined)
 	let consented = $state(false)
 
+	// WIN-2006 Variant A: raw apps render single-iframe. The author's bundle is
+	// already isolated in its own opaque iframe (served + CSP-sandboxed by the
+	// backend), so the viewer skips the opaque-viewer indirection and the embed
+	// token entirely — it renders the app directly on this (real) origin and the
+	// bridge calls the backend with the page credential (cookie / JWT / anonymous),
+	// matching the logged-in raw viewer. Low-code keeps the opaque viewer + token.
+	let isRaw = $state(false)
+
 	// Read by RawAppPreview (and any app component) to render same-origin (full
 	// access) instead of the sandboxed bundle iframe.
 	setContext('IS_APP_UNSANDBOXED', {
@@ -183,13 +202,19 @@
 			embedToken = resp.token ?? null
 			disableSandbox = resp.disable_sandbox ?? false
 			appVersion = resp.version ?? undefined
+			isRaw = resp.raw_app ?? false
 			status = 'ready'
 			if (disableSandbox) {
-				// Same-origin (full-session) mode behind a per-version consent prompt.
+				// Same-origin (full-session) mode behind a per-version consent prompt
+				// (covers both raw and low-code).
 				consented = hasConsent()
 				if (consented) onViewerReady?.(undefined, requestTokenRefresh)
+			} else if (isRaw) {
+				// Variant A: render the raw app directly on this origin (no opaque
+				// viewer, no token). The bundle stays isolated in its own opaque iframe.
+				onViewerReady?.(undefined, requestTokenRefresh)
 			} else {
-				// If the iframe already loaded (re-mint case), push the fresh token.
+				// Low-code: if the iframe already loaded (re-mint case), push the fresh token.
 				postTokenToIframe()
 			}
 		} catch (e: any) {
@@ -324,6 +349,11 @@
 			</div>
 		</div>
 	{/if}
+{:else if isRaw}
+	<!-- Variant A: raw app rendered directly on the real origin. The untrusted
+	     author bundle stays isolated in its own opaque iframe (inside RawAppPreview);
+	     no opaque viewer and no embed token are needed. -->
+	{@render viewer()}
 {:else}
 	<iframe
 		bind:this={iframeEl}

@@ -1073,6 +1073,11 @@ pub struct EmbedTokenResponse {
     /// Latest app version id — the consent prompt is keyed on it so a new version
     /// re-prompts.
     pub version: Option<i64>,
+    /// WIN-2006: raw apps render single-iframe (the bundle is already isolated in
+    /// its own opaque iframe), so the viewer skips the opaque-viewer indirection
+    /// and the embed token entirely — it loads the app with the page credential.
+    #[serde(default)]
+    pub raw_app: bool,
 }
 
 /// Mint a short-lived, narrowly-scoped embed token for `app_path` when a caller
@@ -1112,6 +1117,7 @@ pub async fn mint_app_embed_token(
         expiration: token_and_exp.map(|(_, e)| e),
         disable_sandbox: false,
         version: None,
+        raw_app: false,
     })
 }
 
@@ -1128,13 +1134,16 @@ async fn get_app_embed_token(
     let id = get_id_from_secret(&db, &w_id, secret, None).await?;
 
     let app = sqlx::query!(
-        "SELECT path, policy::text as policy, versions[array_upper(versions, 1)] as version FROM app WHERE id = $1 AND workspace_id = $2",
+        "SELECT a.path, a.policy::text as policy, a.versions[array_upper(a.versions, 1)] as version, av.raw_app as raw_app
+         FROM app a JOIN app_version av ON av.id = a.versions[array_upper(a.versions, 1)]
+         WHERE a.id = $1 AND a.workspace_id = $2",
         id,
         &w_id
     )
     .fetch_optional(&db)
     .await?;
     let app = not_found_if_none(app, "App", id.to_string())?;
+    let raw_app = app.raw_app;
     let policy_str = app
         .policy
         .ok_or_else(|| Error::internal_err("App policy missing".to_string()))?;
@@ -1167,9 +1176,22 @@ async fn get_app_embed_token(
         Some(authed)
     };
 
-    let mut resp = mint_app_embed_token(&db, &w_id, &app.path, authed_for_token.as_ref()).await?;
+    // Raw apps render single-iframe with the page credential (WIN-2006 Variant A),
+    // so no embed token is minted; the access check above still gates visibility.
+    let mut resp = if raw_app {
+        EmbedTokenResponse {
+            token: None,
+            expiration: None,
+            disable_sandbox: false,
+            version: None,
+            raw_app: true,
+        }
+    } else {
+        mint_app_embed_token(&db, &w_id, &app.path, authed_for_token.as_ref()).await?
+    };
     resp.disable_sandbox = policy.disable_sandbox.unwrap_or(false);
     resp.version = app.version;
+    resp.raw_app = raw_app;
     Ok(Json(resp))
 }
 
@@ -2976,6 +2998,7 @@ async fn upload_s3_file_from_app(
                     .unwrap_or_default(),
             }]),
             allowed_s3_keys: None,
+            disable_sandbox: None,
         })
     } else {
         let policy_o = sqlx::query_scalar!(
@@ -3335,6 +3358,7 @@ async fn get_on_behalf_authed_from_app(
             on_behalf_of_email: None,
             s3_inputs: None,
             allowed_s3_keys: Some(force_allowed_s3_keys),
+            disable_sandbox: None,
         }
     } else {
         // TODO: improve db query to not return uneeded fields
@@ -3357,6 +3381,7 @@ async fn get_on_behalf_authed_from_app(
                 on_behalf_of_email: None,
                 s3_inputs: None,
                 allowed_s3_keys: None,
+                disable_sandbox: None,
             })
     };
 
