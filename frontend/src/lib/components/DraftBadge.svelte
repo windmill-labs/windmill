@@ -24,7 +24,7 @@
 	 * is non-empty — the list endpoint omits `draft_users` for paths
 	 * with no drafts, so a falsy/empty array is the no-draft signal.
 	 */
-	import Popover from './Popover.svelte'
+	import Popover from './meltComponents/Popover.svelte'
 	import { Badge } from './common'
 	import Button from './common/button/Button.svelte'
 	import Modal2 from './common/modal/Modal2.svelte'
@@ -184,13 +184,13 @@
 	}
 
 	async function fork(owner: DraftUser) {
-		if (!workspace || !itemKind) return
+		if (!workspace || !itemKind || !path) return
 		busyFor = ownerKey(owner)
 		try {
 			const value = await fetchDraft(owner)
 			// Import-style handoff: seed a brand-new own item from the
 			// fetched value (no immediate server save, fresh owned path).
-			forkDraftToImport(itemKind, value)
+			forkDraftToImport(itemKind, value, path)
 		} catch (e: any) {
 			sendUserToast(`Could not fork draft: ${e.body ?? e.message}`, true)
 		} finally {
@@ -200,8 +200,41 @@
 </script>
 
 {#if showBadge}
-	<Popover notClickable>
-		{#snippet text()}
+	<Popover openOnHover={true} debounceDelay={100}>
+		{#snippet trigger()}
+			<Badge small color="indigo">
+				{#if orderedUsers.length > 0}
+					<!-- Circles sit inside the Badge, before the label. `-space-x-1`
+					     overlaps them slightly; each circle's ring uses the badge's
+					     indigo tint instead of plain white so the overlap reads as
+					     intentional rather than a stack-of-floating-dots. The
+					     authed user is pinned to the first slot when present (see
+					     `orderedUsers`). -->
+					<span class="flex -space-x-1">
+						{#each visibleUsers as u, i (i)}
+							<span
+								class="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] font-semibold text-white ring-1 ring-indigo-100 dark:ring-indigo-700/40 {colorFor(
+									u
+								)}"
+								title={u.username === currentUsername ? `${fullLabel(u)} (you)` : fullLabel(u)}
+							>
+								{initials(u)}
+							</span>
+						{/each}
+						{#if overflowCount > 0}
+							<span
+								class="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-gray-500 text-[8px] font-semibold text-white ring-1 ring-indigo-100 dark:ring-indigo-700/40"
+								title="{overflowCount} more"
+							>
+								+{overflowCount}
+							</span>
+						{/if}
+					</span>
+				{/if}
+				{draft_only ? 'Draft only' : 'Draft'}
+			</Badge>
+		{/snippet}
+		{#snippet content()}
 			<div class="flex flex-col gap-2 min-w-[16rem]">
 				<p class="text-primary">
 					{#if draft_users.length > 0}
@@ -236,8 +269,8 @@
 								</span>
 								{#if actionsEnabled && !isSelf}
 									<Button
-										variant="default"
-										size="xs"
+										variant="subtle"
+										size="xs3"
 										startIcon={{ icon: Braces }}
 										disabled={busyFor !== null && busyFor !== ownerKey(u)}
 										loading={busyFor === ownerKey(u)}
@@ -246,8 +279,8 @@
 										View JSON
 									</Button>
 									<Button
-										variant="default"
-										size="xs"
+										variant="subtle"
+										size="xs3"
 										startIcon={{ icon: GitFork }}
 										disabled={busyFor !== null && busyFor !== ownerKey(u)}
 										loading={busyFor === ownerKey(u)}
@@ -265,37 +298,6 @@
 				{/if}
 			</div>
 		{/snippet}
-		<Badge small color="indigo">
-			{#if orderedUsers.length > 0}
-				<!-- Circles sit inside the Badge, before the label. `-space-x-1`
-				     overlaps them slightly; each circle's ring uses the badge's
-				     indigo tint instead of plain white so the overlap reads as
-				     intentional rather than a stack-of-floating-dots. The
-				     authed user is pinned to the first slot when present (see
-				     `orderedUsers`). -->
-				<span class="flex -space-x-1">
-					{#each visibleUsers as u}
-						<span
-							class="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] font-semibold text-white ring-1 ring-indigo-100 dark:ring-indigo-700/40 {colorFor(
-								u
-							)}"
-							title={u.username === currentUsername ? `${fullLabel(u)} (you)` : fullLabel(u)}
-						>
-							{initials(u)}
-						</span>
-					{/each}
-					{#if overflowCount > 0}
-						<span
-							class="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-gray-500 text-[8px] font-semibold text-white ring-1 ring-indigo-100 dark:ring-indigo-700/40"
-							title="{overflowCount} more"
-						>
-							+{overflowCount}
-						</span>
-					{/if}
-				</span>
-			{/if}
-			{draft_only ? 'Draft only' : 'Draft'}
-		</Badge>
 	</Popover>
 {/if}
 
