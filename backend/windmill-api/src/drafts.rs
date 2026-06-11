@@ -465,9 +465,12 @@ async fn require_can_write_path(
     // whole check.
     if let Some(table) = kind.deployed_table() {
         // `table` is from the closed `deployed_table()` enum, never user
-        // input.
-        let query =
-            format!("SELECT 1 FROM {table} WHERE path = $1 AND workspace_id = $2 FOR UPDATE");
+        // input. LIMIT 1 keeps the probe to a single row lock — `script`
+        // has one row per version at the same path, and locking the whole
+        // version history would serialize against deploys for no gain.
+        let query = format!(
+            "SELECT 1 FROM {table} WHERE path = $1 AND workspace_id = $2 LIMIT 1 FOR UPDATE"
+        );
         let mut tx = user_db.clone().begin(authed).await?;
         let row = sqlx::query_scalar::<_, i32>(&query)
             .bind(path)
