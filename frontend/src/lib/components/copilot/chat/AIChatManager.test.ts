@@ -143,6 +143,23 @@ describe('AIChatManager request errors', () => {
 		)
 	})
 
+	it('adds the web-search hint when fallback happened and the request still fails', async () => {
+		const manager = new AIChatManager()
+		manager.instructions = 'Search for recent docs'
+		mocks.isWebSearchEnabledForProvider.mockReturnValue(true)
+		mocks.runChatLoop.mockImplementationOnce(async (config) => {
+			config.onWebSearchUnavailable?.()
+			throw new Error('provider quota exceeded')
+		})
+
+		await manager.sendRequest()
+
+		expect(mocks.sendUserToast).toHaveBeenLastCalledWith(
+			'Failed to send request: provider quota exceeded. Web search is unavailable for this provider/model/key. Disable web search in workspace settings and try again.',
+			true
+		)
+	})
+
 	it('does not add the web search settings hint when web search is disabled', async () => {
 		const manager = new AIChatManager()
 		manager.instructions = 'Search for recent docs'

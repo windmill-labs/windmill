@@ -36,8 +36,6 @@ vi.mock('./anthropic', () => ({
 }))
 
 const tokenUsage = { prompt: 0, completion: 0, total: 0 }
-const webSearchUnavailableMessage =
-	'Native web search is unavailable for this provider/model/key; continuing without it. You can disable web search in workspace settings.'
 
 function createCallbacks(): ChatLoopConfig['callbacks'] {
 	return {
@@ -51,11 +49,13 @@ function createCallbacks(): ChatLoopConfig['callbacks'] {
 function createConfig({
 	workspace,
 	modelProvider = { provider: 'openai', model: 'gpt-4.1' },
-	callbacks = createCallbacks()
+	callbacks = createCallbacks(),
+	onWebSearchUnavailable
 }: {
 	workspace: string
 	modelProvider?: ReasoningProviderModel
 	callbacks?: ChatLoopConfig['callbacks']
+	onWebSearchUnavailable?: ChatLoopConfig['onWebSearchUnavailable']
 }): ChatLoopConfig {
 	const messages: ChatCompletionMessageParam[] = [{ role: 'user', content: 'search this' }]
 
@@ -72,7 +72,8 @@ function createConfig({
 			anthropic: {} as ChatLoopConfig['clients']['anthropic']
 		},
 		workspace,
-		maxIterations: 1
+		maxIterations: 1,
+		onWebSearchUnavailable
 	}
 }
 
@@ -99,6 +100,7 @@ describe('runChatLoop web search fallback', () => {
 
 	it('retries once without OpenAI web search and caches unsupported provider models', async () => {
 		const callbacks = createCallbacks()
+		const onWebSearchUnavailable = vi.fn()
 		const workspace = `workspace-${randomUUID()}`
 
 		mocks.getOpenAIResponsesCompletion
@@ -110,7 +112,7 @@ describe('runChatLoop web search fallback', () => {
 			)
 			.mockResolvedValue({})
 
-		await runChatLoop(createConfig({ workspace, callbacks }))
+		await runChatLoop(createConfig({ workspace, callbacks, onWebSearchUnavailable }))
 
 		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(2)
 		expect(mocks.getOpenAIResponsesCompletion.mock.calls[0][3]).toEqual(
@@ -119,14 +121,8 @@ describe('runChatLoop web search fallback', () => {
 		expect(mocks.getOpenAIResponsesCompletion.mock.calls[1][3]).toEqual(
 			expect.objectContaining({ webSearch: false })
 		)
-		expect(callbacks.setToolStatus).toHaveBeenCalledWith(
-			expect.stringContaining('web_search_unavailable:'),
-			expect.objectContaining({
-				content: webSearchUnavailableMessage,
-				error: webSearchUnavailableMessage,
-				toolName: 'web_search'
-			})
-		)
+		expect(onWebSearchUnavailable).toHaveBeenCalledTimes(1)
+		expect(callbacks.setToolStatus).not.toHaveBeenCalled()
 
 		await runChatLoop(createConfig({ workspace }))
 
@@ -164,6 +160,7 @@ describe('runChatLoop web search fallback', () => {
 
 	it('treats OpenAI hosted-tool incompatibility as web search unavailable', async () => {
 		const callbacks = createCallbacks()
+		const onWebSearchUnavailable = vi.fn()
 		const workspace = `workspace-${randomUUID()}`
 
 		mocks.getOpenAIResponsesCompletion
@@ -175,7 +172,7 @@ describe('runChatLoop web search fallback', () => {
 			)
 			.mockResolvedValue({})
 
-		await runChatLoop(createConfig({ workspace, callbacks }))
+		await runChatLoop(createConfig({ workspace, callbacks, onWebSearchUnavailable }))
 
 		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(2)
 		expect(mocks.getOpenAIResponsesCompletion.mock.calls[0][3]).toEqual(
@@ -184,14 +181,8 @@ describe('runChatLoop web search fallback', () => {
 		expect(mocks.getOpenAIResponsesCompletion.mock.calls[1][3]).toEqual(
 			expect.objectContaining({ webSearch: false })
 		)
-		expect(callbacks.setToolStatus).toHaveBeenCalledWith(
-			expect.stringContaining('web_search_unavailable:'),
-			expect.objectContaining({
-				content: webSearchUnavailableMessage,
-				error: webSearchUnavailableMessage,
-				toolName: 'web_search'
-			})
-		)
+		expect(onWebSearchUnavailable).toHaveBeenCalledTimes(1)
+		expect(callbacks.setToolStatus).not.toHaveBeenCalled()
 	})
 
 	it('does not cache malformed web search requests as unavailable', async () => {
@@ -248,6 +239,7 @@ describe('runChatLoop web search fallback', () => {
 
 	it('retries once without Anthropic web search when the model rejects it', async () => {
 		const callbacks = createCallbacks()
+		const onWebSearchUnavailable = vi.fn()
 		const workspace = `workspace-${randomUUID()}`
 		const modelProvider: ReasoningProviderModel = {
 			provider: 'anthropic',
@@ -263,7 +255,9 @@ describe('runChatLoop web search fallback', () => {
 			)
 			.mockResolvedValue({})
 
-		await runChatLoop(createConfig({ workspace, callbacks, modelProvider }))
+		await runChatLoop(
+			createConfig({ workspace, callbacks, modelProvider, onWebSearchUnavailable })
+		)
 
 		expect(mocks.getAnthropicCompletion).toHaveBeenCalledTimes(2)
 		expect(mocks.getAnthropicCompletion.mock.calls[0][3]).toEqual(
@@ -272,14 +266,8 @@ describe('runChatLoop web search fallback', () => {
 		expect(mocks.getAnthropicCompletion.mock.calls[1][3]).toEqual(
 			expect.objectContaining({ webSearch: false })
 		)
-		expect(callbacks.setToolStatus).toHaveBeenCalledWith(
-			expect.stringContaining('web_search_unavailable:'),
-			expect.objectContaining({
-				content: webSearchUnavailableMessage,
-				error: webSearchUnavailableMessage,
-				toolName: 'web_search'
-			})
-		)
+		expect(onWebSearchUnavailable).toHaveBeenCalledTimes(1)
+		expect(callbacks.setToolStatus).not.toHaveBeenCalled()
 	})
 
 	it('does not retry Anthropic request errors that only mention web search input', async () => {

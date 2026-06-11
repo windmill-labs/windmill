@@ -45,6 +45,7 @@ export interface ChatLoopConfig {
 	maxIterations?: number
 	skipResponsesApi?: boolean
 	onSkipResponsesApi?: () => void
+	onWebSearchUnavailable?: () => void
 	/** Return a pending user message to inject between iterations, or undefined. */
 	getPendingUserMessage?: () => ChatCompletionUserMessageParam | undefined
 	/** Called before each iteration (e.g. to refresh tool schemas). */
@@ -57,8 +58,6 @@ export interface ChatLoopResult {
 	hitMaxIterations: boolean
 }
 
-const WEB_SEARCH_UNAVAILABLE_MESSAGE =
-	'Native web search is unavailable for this provider/model/key; continuing without it. You can disable web search in workspace settings.'
 const unsupportedWebSearchCache = new Set<string>()
 const WEB_SEARCH_UNAVAILABLE_STATUS_CODES = new Set([400, 403, 404])
 
@@ -147,24 +146,10 @@ function shouldRetryWithoutWebSearch(err: unknown): boolean {
 	return status === undefined || WEB_SEARCH_UNAVAILABLE_STATUS_CODES.has(status)
 }
 
-function markWebSearchUnsupported(
-	callbacks: ToolCallbacks & { onMessageEnd: () => void },
-	cacheKey: string,
-	err: unknown
-) {
+function markWebSearchUnsupported(cacheKey: string, err: unknown, onWebSearchUnavailable?: () => void) {
 	unsupportedWebSearchCache.add(cacheKey)
 	console.warn('Native web search unavailable; retrying without web search:', err)
-	callbacks.onMessageEnd()
-	callbacks.setToolStatus(`web_search_unavailable:${cacheKey}`, {
-		content: WEB_SEARCH_UNAVAILABLE_MESSAGE,
-		error: WEB_SEARCH_UNAVAILABLE_MESSAGE,
-		isLoading: false,
-		isStreamingArguments: false,
-		needsConfirmation: false,
-		toolName: 'web_search',
-		showDetails: false,
-		autoCollapseDetails: true
-	})
+	onWebSearchUnavailable?.()
 }
 
 export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResult> {
@@ -263,7 +248,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 				} catch (err) {
 					let fallbackError = err
 					if (webSearch && shouldRetryWithoutWebSearch(err)) {
-						markWebSearchUnsupported(callbacks, webSearchCacheKey, err)
+						markWebSearchUnsupported(webSearchCacheKey, err, config.onWebSearchUnavailable)
 						try {
 							if (!(await runOpenAIResponses(false))) {
 								break
@@ -350,7 +335,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 				}
 			} catch (err) {
 				if (webSearch && shouldRetryWithoutWebSearch(err)) {
-					markWebSearchUnsupported(callbacks, webSearchCacheKey, err)
+					markWebSearchUnsupported(webSearchCacheKey, err, config.onWebSearchUnavailable)
 					if (!(await runAnthropic(false))) {
 						break
 					}
