@@ -141,8 +141,8 @@
 		<div class="flex gap-3 items-start">
 			<Users size={20} class="text-blue-500 shrink-0 mt-0.5" />
 			<p class="text-sm text-secondary">
-				Their drafts are independent of yours. Open one as JSON to inspect it, or fork it into your
-				own namespace to continue editing.
+				Their drafts are independent of yours.
+				For advanced collaboration, consider using <a target='_blank' href="https://www.windmill.dev/docs/advanced/workspace_forks">workspace forks (EE)</a>
 			</p>
 		</div>
 
