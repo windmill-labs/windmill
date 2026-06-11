@@ -6,6 +6,7 @@
 	import { AppService, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { enterpriseLicense, tutorialsToDo, userStore, workspaceStore } from '$lib/stores'
 	import { isMac, type Item, userPathPrefix } from '$lib/utils'
 	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
@@ -447,6 +448,19 @@
 			case 's':
 				if (event.ctrlKey || event.metaKey) {
 					event.preventDefault()
+					// Flush the pending draft autosave like the other page
+					// editors (Script/Flow/RawApp builders) — the
+					// AutosaveIndicator narrates the result (Saving... →
+					// Saved / Save failed), and the flush also covers the
+					// autosave-toggle-off case where edits are parked. No-op
+					// in the AI session pane (no UserDraft handle there).
+					if (!inSessionPane && $workspaceStore && userDraftPath) {
+						void UserDraftDbSyncer.flush({
+							workspace: $workspaceStore,
+							itemKind: 'app',
+							path: userDraftPath
+						})
+					}
 				}
 				break
 			// case 'ArrowDown': {
