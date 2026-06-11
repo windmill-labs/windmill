@@ -398,12 +398,31 @@ export async function deployDraft(
 		} else {
 			return { success: false, error: `Deploy not supported for draft kind ${kind}` }
 		}
+		// The script/flow/app deploy endpoints delete the deployer's draft
+		// server-side, but the drawer kinds' create/update endpoints never
+		// touch the draft table — their editors discard client-side after a
+		// save. Replay that half too, or the just-deployed draft survives
+		// the deploy and keeps listing.
+		if (
+			kind === 'variable' ||
+			kind === 'resource' ||
+			kind === 'trigger_schedule' ||
+			kind in TRIGGER_SAVERS
+		) {
+			await UserDraftDbSyncer.save({
+				workspace,
+				itemKind: kind,
+				path,
+				value: null,
+				immediate: true
+			})
+		}
 		// Mutated the workspace's Server Drafts — refresh every mounted reader.
 		invalidateWorkspaceDrafts(workspace)
 		// Deploy deletes the draft server-side (for script/flow/app) without
 		// going through UserDraftDbSyncer, so the syncer-owned hint won't
-		// auto-clear here — clear it explicitly. (The drawer kinds reload
-		// their own hint state when reopened.)
+		// auto-clear here — clear it explicitly. (For the drawer kinds the
+		// syncer delete above already clears it; this is idempotent.)
 		setLocalDraftHint(workspace, kind, path, false)
 		return { success: true }
 	} catch (e: any) {
