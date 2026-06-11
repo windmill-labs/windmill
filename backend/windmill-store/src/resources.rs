@@ -147,6 +147,10 @@ pub struct ListableResource {
     pub account: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Labels inherited from the parent folder, computed at read time.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inherited_labels: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_specific: Option<bool>,
 }
@@ -269,6 +273,7 @@ async fn list_resources(
             "resource.created_by",
             "resource.edited_at",
             "resource.labels",
+            "folder_labels(resource.workspace_id, resource.path) as inherited_labels",
             "ws_specific.path IS NOT NULL as ws_specific",
         ])
         .left()
@@ -336,7 +341,11 @@ async fn list_resources(
 
     if let Some(label) = &lq.label {
         for l in label.split(',') {
-            sqlb.and_where("resource.labels @> ARRAY[?]".bind(&l.trim()));
+            sqlb.and_where(
+                "(resource.labels @> ARRAY[?] OR folder_labels(resource.workspace_id, resource.path) @> ARRAY[?])"
+                    .bind(&l.trim())
+                    .bind(&l.trim()),
+            );
         }
     }
 
@@ -370,6 +379,7 @@ async fn get_resource(
         "SELECT resource.workspace_id, resource.path, resource.value, resource.description,
         resource.resource_type, resource.extra_perms, resource.created_by, resource.edited_at,
         resource.labels,
+        folder_labels(resource.workspace_id, resource.path) as \"inherited_labels?\",
         (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,
         account.refresh_error,
         variable.path IS NOT NULL as is_linked,

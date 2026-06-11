@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT resource.workspace_id, resource.path, resource.value, resource.description,\n        resource.resource_type, resource.extra_perms, resource.created_by, resource.edited_at,\n        resource.labels,\n        (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,\n        account.refresh_error,\n        variable.path IS NOT NULL as is_linked,\n        variable.is_oauth as \"is_oauth?\",\n        variable.account,\n        ws_specific.path IS NOT NULL as ws_specific\n        FROM resource\n        LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = $2\n        LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2\n        LEFT JOIN ws_specific ON ws_specific.path = resource.path AND ws_specific.workspace_id = $2 AND ws_specific.item_kind = 'resource'\n        WHERE resource.path = $1 AND resource.workspace_id = $2",
+  "query": "SELECT resource.workspace_id, resource.path, resource.value, resource.description,\n        resource.resource_type, resource.extra_perms, resource.created_by, resource.edited_at,\n        resource.labels,\n        folder_labels(resource.workspace_id, resource.path) as \"inherited_labels?\",\n        (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,\n        account.refresh_error,\n        variable.path IS NOT NULL as is_linked,\n        variable.is_oauth as \"is_oauth?\",\n        variable.account,\n        ws_specific.path IS NOT NULL as ws_specific\n        FROM resource\n        LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = $2\n        LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2\n        LEFT JOIN ws_specific ON ws_specific.path = resource.path AND ws_specific.workspace_id = $2 AND ws_specific.item_kind = 'resource'\n        WHERE resource.path = $1 AND resource.workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -50,36 +50,41 @@
       },
       {
         "ordinal": 9,
+        "name": "inherited_labels?",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 10,
         "name": "is_expired",
         "type_info": "Bool"
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "is_refreshed",
         "type_info": "Bool"
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "refresh_error",
         "type_info": "Text"
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "is_linked",
         "type_info": "Bool"
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "is_oauth?",
         "type_info": "Bool"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "account",
         "type_info": "Int4"
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "ws_specific",
         "type_info": "Bool"
       }
@@ -102,6 +107,7 @@
       true,
       null,
       null,
+      null,
       true,
       null,
       false,
@@ -109,5 +115,5 @@
       null
     ]
   },
-  "hash": "9254e2a0e1be830fa4cab660c69a659e2eb3f3d912e1c062bb8000a2e0a653e8"
+  "hash": "52b07f3ef0aa3ac4f6d6be0db60c732e396a79458489c564bbf2e4a28de06f1f"
 }

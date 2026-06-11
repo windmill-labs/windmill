@@ -695,6 +695,10 @@ pub struct ScheduleLight {
     pub extra_perms: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Labels inherited from the parent folder, computed at read time.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inherited_labels: Option<Vec<String>>,
 }
 async fn list_schedule(
     authed: ApiAuthed,
@@ -718,6 +722,7 @@ async fn list_schedule(
             "summary",
             "extra_perms",
             "labels",
+            "folder_labels(workspace_id, path) as inherited_labels",
         ])
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))
@@ -760,7 +765,11 @@ async fn list_schedule(
     }
     if let Some(label) = &lsq.label {
         for l in label.split(',') {
-            sqlb.and_where("labels @> ARRAY[?]".bind(&l.trim()));
+            sqlb.and_where(
+                "(labels @> ARRAY[?] OR folder_labels(workspace_id, path) @> ARRAY[?])"
+                    .bind(&l.trim())
+                    .bind(&l.trim()),
+            );
         }
     }
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;

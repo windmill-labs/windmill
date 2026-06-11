@@ -116,6 +116,7 @@ pub async fn prefetch_cached_script(
         assets: script.assets,
         modules: script.modules,
         labels: script.labels,
+        inherited_labels: script.inherited_labels,
         runnable_settings: ScriptRunnableSettingsInline {
             concurrency_settings: concurrency_settings.maybe_fallback(
                 script.runnable_settings.concurrency_key,
