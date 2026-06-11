@@ -6,12 +6,25 @@ import type { ChatCompletionMessageParam } from 'openai/resources/chat/completio
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
 import { runChatLoop } from './chatLoop'
 
+const mocks = vi.hoisted(() => ({
+	getCurrentModel: vi.fn(),
+	tryGetCurrentModel: vi.fn(),
+	isWebSearchEnabledForProvider: vi.fn(),
+	logAiChat: vi.fn(),
+	sendUserToast: vi.fn(),
+	getOpenaiClient: vi.fn(),
+	getAnthropicClient: vi.fn(),
+	runChatLoop: vi.fn()
+}))
+
 vi.mock('monaco-editor', () => ({
 	Selection: class Selection {}
 }))
 
 vi.mock('$lib/gen', () => ({
-	WorkspaceService: {},
+	WorkspaceService: {
+		logAiChat: mocks.logAiChat
+	},
 	ScriptService: {},
 	FlowService: {},
 	JobService: {}
@@ -28,26 +41,22 @@ vi.mock('$lib/stores', () => ({
 }))
 
 vi.mock('$lib/toast', () => ({
-	sendUserToast: vi.fn()
+	sendUserToast: mocks.sendUserToast
 }))
 
 vi.mock('$lib/aiStore', () => ({
-	// checkTokenUsageOverLimit reads getCurrentModel().model, so it must be a
-	// real object. tryGetCurrentModel stays undefined so sendRequest skips the
-	// logAiChat call (which would hit the empty WorkspaceService mock).
-	getCurrentModel: () => ({ model: 'test-model', provider: 'openai' }),
-	tryGetCurrentModel: () => undefined,
-	getCombinedCustomPrompt: () => ''
+	getCurrentModel: mocks.getCurrentModel,
+	tryGetCurrentModel: mocks.tryGetCurrentModel,
+	getCombinedCustomPrompt: () => '',
+	isWebSearchEnabledForProvider: mocks.isWebSearchEnabledForProvider
 }))
 
 vi.mock('../lib', () => ({
 	getModelContextWindow: () => 128000,
-	// chatRequest builds the client config eagerly; the mocked runChatLoop never
-	// uses these, so stub clients are enough.
 	workspaceAIClients: {
 		subscribe: () => () => undefined,
-		getOpenaiClient: () => ({}),
-		getAnthropicClient: () => ({})
+		getOpenaiClient: mocks.getOpenaiClient,
+		getAnthropicClient: mocks.getAnthropicClient
 	}
 }))
 
@@ -56,11 +65,10 @@ vi.mock('./api/apiTools', () => ({
 }))
 
 // Mock only runChatLoop; keep the real truncateToToolPairedPrefix (pure) that
-// the manager uses to commit partial output. importOriginal is safe here because
-// chatLoop's heavy transitive deps (monaco via ../lib) are mocked above/below.
+// the manager uses to commit partial output.
 vi.mock('./chatLoop', async (importOriginal) => ({
 	...(await importOriginal<typeof import('./chatLoop')>()),
-	runChatLoop: vi.fn()
+	runChatLoop: mocks.runChatLoop
 }))
 
 vi.mock('./global/gate', () => ({
@@ -73,6 +81,21 @@ vi.mock('esm-env', async (importOriginal) => ({
 	...(await importOriginal<typeof import('esm-env')>()),
 	BROWSER: true
 }))
+
+beforeEach(() => {
+	vi.clearAllMocks()
+	mocks.getCurrentModel.mockReturnValue(undefined)
+	mocks.tryGetCurrentModel.mockReturnValue(undefined)
+	mocks.isWebSearchEnabledForProvider.mockReturnValue(true)
+	mocks.logAiChat.mockResolvedValue(undefined)
+	mocks.getOpenaiClient.mockReturnValue({})
+	mocks.getAnthropicClient.mockReturnValue({})
+	mocks.runChatLoop.mockResolvedValue({
+		addedMessages: [],
+		tokenUsage: { prompt: 0, completion: 0, total: 0 },
+		hitMaxIterations: false
+	})
+})
 
 function createFlowHelpers({
 	hasPendingChanges,
@@ -101,6 +124,61 @@ function createFlowHelpers({
 		getLintErrors: vi.fn()
 	} as unknown as FlowAIChatHelpers
 }
+
+describe('AIChatManager request errors', () => {
+	const openaiModel = { provider: 'openai', model: 'gpt-4o' }
+
+	beforeEach(() => {
+		localStorage.clear()
+		mocks.getCurrentModel.mockReturnValue(openaiModel)
+		mocks.tryGetCurrentModel.mockReturnValue(openaiModel)
+	})
+
+	it('does not add a web-search hint to generic request errors', async () => {
+		const manager = new AIChatManager()
+		manager.instructions = 'Search for recent docs'
+		mocks.isWebSearchEnabledForProvider.mockReturnValue(true)
+		mocks.runChatLoop.mockRejectedValueOnce(new Error('provider quota exceeded'))
+
+		await manager.sendRequest()
+
+		expect(mocks.sendUserToast).toHaveBeenLastCalledWith(
+			'Failed to send request: provider quota exceeded',
+			true
+		)
+	})
+
+	it('adds the web-search hint when fallback happened and the request still fails', async () => {
+		const manager = new AIChatManager()
+		manager.instructions = 'Search for recent docs'
+		mocks.isWebSearchEnabledForProvider.mockReturnValue(true)
+		mocks.runChatLoop.mockImplementationOnce(async (config) => {
+			config.onWebSearchUnavailable?.()
+			throw new Error('provider quota exceeded')
+		})
+
+		await manager.sendRequest()
+
+		expect(mocks.sendUserToast).toHaveBeenLastCalledWith(
+			'Failed to send request: provider quota exceeded. Web search is unavailable for this provider/model/key. Disable web search in workspace settings and try again.',
+			true
+		)
+	})
+
+	it('does not add the web search settings hint when web search is disabled', async () => {
+		const manager = new AIChatManager()
+		manager.instructions = 'Search for recent docs'
+		mocks.isWebSearchEnabledForProvider.mockReturnValue(false)
+		mocks.runChatLoop.mockRejectedValueOnce(new Error('provider quota exceeded'))
+
+		await manager.sendRequest()
+
+		expect(mocks.sendUserToast).toHaveBeenLastCalledWith(
+			'Failed to send request: provider quota exceeded',
+			true
+		)
+	})
+})
 
 describe('AIChatManager autonomy mode', () => {
 	beforeEach(() => {
@@ -247,7 +325,9 @@ const toolResult = (id: string): ChatCompletionMessageParam => ({
 describe('AIChatManager sendRequest lifecycle', () => {
 	beforeEach(() => {
 		localStorage.clear()
-		vi.clearAllMocks()
+		// checkTokenUsageOverLimit reads getCurrentModel().model, so it must be a
+		// real object (the file-level beforeEach defaults it to undefined).
+		mocks.getCurrentModel.mockReturnValue({ model: 'test-model', provider: 'openai' })
 	})
 
 	it('restores the message to the composer when the model returns no output (#2)', async () => {

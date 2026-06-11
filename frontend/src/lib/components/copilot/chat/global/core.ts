@@ -583,6 +583,32 @@ const openPreviewSchema = z.object({
 
 const getPreviewStatusSchema = z.object({})
 
+type SessionToolResult = {
+	aiResult: string
+	uiMessage: string
+	toolResult: string
+}
+
+const getRuntimeLogsSchema = z.object({
+	limit: z
+		.number()
+		.int()
+		.min(1)
+		.max(100)
+		.optional()
+		.describe('How many of the most recent runtime log lines to return. Defaults to 10.')
+})
+
+const listAppRunsSchema = z.object({
+	limit: z
+		.number()
+		.int()
+		.min(1)
+		.max(100)
+		.optional()
+		.describe('How many of the most recent backend runs to return, newest first. Defaults to 20.')
+})
+
 const FRAMEWORK_KEYS = [
 	'react19',
 	'react18',
@@ -635,7 +661,9 @@ Rules:
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
 - Keep context targeted.${previewTools
 		? `
-- After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.`
+- After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
+- When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
+- get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.`
 		: ''
 	}
 
@@ -2024,6 +2052,43 @@ export const globalTools: Tool<{}>[] = [
 		),
 		fn: async (ctx) => getSessionPreviewStatus(sessionIdFromCtx(ctx))
 	},
+	{
+		def: createToolDef(
+			getRuntimeLogsSchema,
+			'get_app_runtime_logs',
+			'Fetch the most recent browser console logs (and uncaught errors) from the raw app preview currently open in this AI session.'
+		),
+		showDetails: true,
+		autoCollapseDetails: false,
+		fn: async (ctx) => {
+			const parsed = getRuntimeLogsSchema.parse(ctx.args)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Reading app runtime logs...' })
+			const result = await getSessionRuntimeLogs(parsed.limit ?? 10, sessionIdFromCtx(ctx))
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+				content: result.uiMessage,
+				result: result.toolResult,
+			})
+			return result.aiResult
+		}
+	},
+	{
+		def: createToolDef(
+			listAppRunsSchema,
+			'list_app_runs',
+			"List the backend runnable executions (jobs) the raw app preview currently open in this AI session has triggered, newest first."
+		),
+		showDetails: true,
+		fn: async (ctx) => {
+			const parsed = listAppRunsSchema.parse(ctx.args)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Listing app runs...' })
+			const result = await getSessionAppRuns(parsed.limit ?? 20, sessionIdFromCtx(ctx))
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+				content: result.uiMessage,
+				result: result.toolResult
+			})
+			return result.aiResult
+		}
+	},
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
 	...getDatatableTools()
 ]
@@ -2031,7 +2096,12 @@ export const globalTools: Tool<{}>[] = [
 // Tools that only make sense inside an AI session (they drive the session's
 // side-panel preview). The regular global side-panel chat shouldn't even be
 // offered them — see `globalToolsFor`.
-export const SESSION_PREVIEW_TOOL_NAMES = new Set(['open_preview', 'get_preview_status'])
+export const SESSION_PREVIEW_TOOL_NAMES = new Set([
+	'open_preview',
+	'get_preview_status',
+	'get_app_runtime_logs',
+	'list_app_runs'
+])
 
 /**
  * The global tool set for a given chat: the full `globalTools` for a session
@@ -2123,6 +2193,58 @@ function getSessionPreviewStatus(sessionId: string | undefined): string {
 		return 'Error: get_preview_status is only available inside an AI session.'
 	}
 	return getPreviewStatusHandler(sessionId)
+}
+
+export type GetRuntimeLogsHandler = (req: {
+	sessionId: string | undefined
+	limit: number
+}) => Promise<SessionToolResult>
+
+let getRuntimeLogsHandler: GetRuntimeLogsHandler | undefined
+
+export function setGetRuntimeLogsHandler(handler: GetRuntimeLogsHandler | undefined): void {
+	getRuntimeLogsHandler = handler
+}
+
+function getSessionRuntimeLogs(
+	limit: number,
+	sessionId: string | undefined
+): Promise<SessionToolResult> {
+	if (!getRuntimeLogsHandler) {
+		return Promise.resolve({
+			aiResult:
+				'Error: get_app_runtime_logs is only available inside an AI session. Tell the user runtime logs can only be read from a session preview, or switch to a session and open the raw app preview.',
+			uiMessage: 'Runtime logs unavailable',
+			toolResult: 'Runtime logs unavailable'
+		})
+	}
+	return getRuntimeLogsHandler({ sessionId, limit })
+}
+
+export type ListAppRunsHandler = (req: {
+	sessionId: string | undefined
+	limit: number
+}) => SessionToolResult
+
+let listAppRunsHandler: ListAppRunsHandler | undefined
+
+export function setListAppRunsHandler(handler: ListAppRunsHandler | undefined): void {
+	listAppRunsHandler = handler
+}
+
+function getSessionAppRuns(
+	limit: number,
+	sessionId: string | undefined
+): Promise<SessionToolResult> {
+	if (!listAppRunsHandler) {
+		return Promise.resolve({
+			aiResult:
+				'Error: list_app_runs is only available inside an AI session. Tell the user app runs can only be read from a session preview, or switch to a session and open the raw app preview.',
+			uiMessage: 'App runs unavailable',
+			toolResult: 'App runs unavailable'
+		})
+	}
+	return Promise.resolve(listAppRunsHandler({ sessionId, limit }))
 }
 
 // Registered by the session runtime to reload the open preview after a chat

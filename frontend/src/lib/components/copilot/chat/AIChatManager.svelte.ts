@@ -61,7 +61,12 @@ import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
 import type { ReviewChangesOpts } from './monaco-adapter'
-import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
+import {
+	getCurrentModel,
+	tryGetCurrentModel,
+	getCombinedCustomPrompt,
+	isWebSearchEnabledForProvider
+} from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
 import {
 	globalToolsFor,
@@ -76,6 +81,8 @@ const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
 const MAX_TOKENS_HARD_LIMIT = 5000
 const AI_AUTONOMY_MODE_STORAGE_KEY = 'ai-chat-autonomy-mode'
 const LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
+const WEB_SEARCH_ERROR_HINT =
+	'Web search is unavailable for this provider/model/key. Disable web search in workspace settings and try again.'
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -152,6 +159,23 @@ function persistAutonomyMode(mode: AIAutonomyMode) {
 		return
 	}
 	localStorage.setItem(AI_AUTONOMY_MODE_STORAGE_KEY, mode)
+}
+
+function appendWebSearchErrorHint(message: string, shouldAppend: boolean): string {
+	if (!shouldAppend) {
+		return message
+	}
+	const separator = /[.!?]$/.test(message.trim()) ? ' ' : '. '
+	return `${message}${separator}${WEB_SEARCH_ERROR_HINT}`
+}
+
+function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean): string {
+	const errorMessage =
+		err instanceof Error ? err.message : typeof err === 'string' ? err : undefined
+	const message = errorMessage
+		? `Failed to send request: ${errorMessage}`
+		: 'Failed to send request'
+	return appendWebSearchErrorHint(message, webSearchUnavailable)
 }
 
 export class AIChatManager {
@@ -695,7 +719,8 @@ export class AIChatManager {
 		abortController,
 		callbacks,
 		addedMessages,
-		systemMessage: systemMessageOverride
+		systemMessage: systemMessageOverride,
+		onWebSearchUnavailable
 	}: {
 		messages: ChatCompletionMessageParam[]
 		abortController: AbortController
@@ -706,6 +731,7 @@ export class AIChatManager {
 		// Caller-owned accumulator so partial output survives an abort/throw.
 		addedMessages?: ChatCompletionMessageParam[]
 		systemMessage?: ChatCompletionSystemMessageParam
+		onWebSearchUnavailable?: () => void
 	}) => {
 		try {
 			// Use JS getters so runChatLoop re-reads tools/helpers/systemMessage/modelProvider
@@ -729,6 +755,9 @@ export class AIChatManager {
 				get modelProvider() {
 					return getCurrentModel()
 				},
+				get webSearch() {
+					return isWebSearchEnabledForProvider(getCurrentModel().provider)
+				},
 				clients: {
 					openai: workspaceAIClients.getOpenaiClient(),
 					anthropic: workspaceAIClients.getAnthropicClient()
@@ -738,6 +767,7 @@ export class AIChatManager {
 				onSkipResponsesApi: () => {
 					this.skipResponsesApi = true
 				},
+				onWebSearchUnavailable,
 				getPendingUserMessage: () => {
 					const pendingPrompt = this.pendingPrompt
 					if (!pendingPrompt) return undefined
@@ -927,6 +957,7 @@ export class AIChatManager {
 		// Once an outcome branch (commit/restore) took over, a later throw (e.g.
 		// from saveChat) must not make the catch commit the turn a second time.
 		let turnOutcomeHandled = false
+		let webSearchUnavailable = false
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
 			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
@@ -1133,7 +1164,10 @@ export class AIChatManager {
 
 			await this.chatRequest({
 				...params,
-				addedMessages: collectedMessages
+				addedMessages: collectedMessages,
+				onWebSearchUnavailable: () => {
+					webSearchUnavailable = true
+				}
 			})
 			const wasAborted = this.abortController?.signal.aborted ?? false
 			// Pure reasoning doesn't count as usable: it's not replayed as context.
@@ -1199,11 +1233,7 @@ export class AIChatManager {
 				}
 				this.flagLastMessageAsError()
 			}
-			if (err instanceof Error) {
-				sendUserToast('Failed to send request: ' + err.message, true)
-			} else {
-				sendUserToast('Failed to send request', true)
-			}
+			sendUserToast(getSendRequestErrorMessage(err, webSearchUnavailable), true)
 		} finally {
 			this.loading = false
 		}
