@@ -143,6 +143,7 @@
 					role: 'assistant',
 					content: aiChatManager.currentReply,
 					...(aiChatManager.currentReasoning ? { reasoning: aiChatManager.currentReasoning } : {}),
+					streaming: true,
 					contextElements: aiChatManager.contextManager
 						.getSelectedContext()
 						.filter((c) => c.type === 'code')
