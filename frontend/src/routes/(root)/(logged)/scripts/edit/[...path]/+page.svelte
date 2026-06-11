@@ -17,6 +17,7 @@
 	import { page } from '$app/state'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
+	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
 
 	type EditableScript = NewScript & { draft_triggers?: Trigger[] }
 
@@ -113,6 +114,16 @@
 			const url = new URL(window.location.href)
 			url.searchParams.delete('new_draft')
 			window.history.replaceState(window.history.state, '', url.toString())
+			// One-shot import handoff: "Import workflows-as-code from
+			// YAML/JSON" (CreateActionsFlow) writes $importScriptStore and
+			// routes to /scripts/add, which redirects here. Consume + clear;
+			// imported content is non-empty, so ScriptBuilder's
+			// template-seeding bootstrap (guarded on `content == ''`)
+			// leaves it untouched.
+			const imported = $importScriptStore
+			if (imported) {
+				$importScriptStore = undefined
+			}
 			const empty: EditableScript = {
 				path: '',
 				summary: '',
@@ -132,9 +143,26 @@
 				// diff that has no baseline to compare against.
 				no_deployed: true
 			} as unknown as EditableScript
+			// Imported fields layer over the empty template; `path` stays
+			// '' so the Path widget still generates the friendly name, and
+			// the editor-only/deployed-only keys are pinned to new-draft
+			// values.
+			const seed: EditableScript = imported
+				? ({
+						...empty,
+						...imported,
+						path: '',
+						hash: '',
+						extra_perms: {},
+						no_deployed: true
+					} as unknown as EditableScript)
+				: empty
+			if (imported) {
+				sendUserToast('Script loaded from YAML/JSON')
+			}
 			initialPath = ''
 			savedScript = structuredClone(empty)
-			draftSync.draft = empty
+			draftSync.draft = seed
 			fullyLoaded = true
 			renderEditor = true
 			return

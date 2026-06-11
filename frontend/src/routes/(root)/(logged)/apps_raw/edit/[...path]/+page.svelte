@@ -12,6 +12,7 @@
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
 	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
+	import { importStore } from '$lib/components/apps/store'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
 	import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
@@ -187,6 +188,50 @@
 				on_behalf_of_email: $userStore?.email,
 				execution_mode: 'publisher'
 			} as any
+			// One-shot import handoff: "Import from YAML/JSON" for full-code
+			// apps (CreateActionsApp) stashes the parsed payload — via
+			// $importStore in-memory, or sessionStorage when the /apps_raw
+			// route's full page reload (cross-origin isolation) would drop
+			// in-memory state — then routes to /apps_raw/add, which
+			// redirects here. Wrapped exports carry { summary, value,
+			// policy }; bare ones are the value itself.
+			let importRaw: any = $importStore
+			if ($importStore) {
+				$importStore = undefined
+			}
+			if (!importRaw) {
+				const sessionData = sessionStorage.getItem('rawAppImport')
+				if (sessionData) {
+					sessionStorage.removeItem('rawAppImport')
+					try {
+						importRaw = JSON.parse(sessionData)
+					} catch {
+						importRaw = undefined
+					}
+				}
+			}
+			const importedValue = importRaw && 'value' in importRaw ? importRaw.value : importRaw
+			// Rendering gates on `files` — only honor imports that carry
+			// them; otherwise fall through to the template seed.
+			if (importedValue?.files) {
+				sendUserToast('Loaded from YAML/JSON')
+				const importedSummary = ('value' in importRaw ? importRaw.summary : '') ?? ''
+				const importedPolicy =
+					('value' in importRaw ? importRaw.policy : undefined) ?? defaultPolicy
+				savedApp = {
+					summary: importedSummary,
+					value: importedValue,
+					path: '',
+					policy: importedPolicy,
+					custom_path: undefined
+				}
+				extractRawApp({ summary: importedSummary, value: importedValue, policy: importedPolicy })
+				newPath = ''
+				// Imported content IS the starting state — skip the
+				// framework picker.
+				templatePicker = false
+				return
+			}
 			// Seed the React 19 template up-front so the editor mounts with
 			// a usable starting state even if the user dismisses the picker
 			// modal without an explicit selection (matches main's /add).

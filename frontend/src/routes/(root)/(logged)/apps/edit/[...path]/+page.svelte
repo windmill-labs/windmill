@@ -12,6 +12,7 @@
 	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { emptyApp } from '$lib/components/apps/editor/appUtils'
+	import { importStore } from '$lib/components/apps/store'
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
 	import { UserDraft } from '$lib/userDraft.svelte'
@@ -69,18 +70,38 @@
 			const url = new URL(window.location.href)
 			url.searchParams.delete('new_draft')
 			window.history.replaceState(window.history.state, '', url.toString())
-			const emptyValue = emptyApp()
 			// Backend's `Policy` requires `execution_mode` — an empty
 			// object fails to deserialize on deploy. `publisher` is the
 			// default authoring mode (the only other authored option is
 			// `anonymous`, which the deploy header lets the user opt
 			// into).
 			const emptyPolicy = { execution_mode: 'publisher' } as any
+			// One-shot import handoff: "Import from YAML/JSON" / "Build
+			// app" from a script or flow writes $importStore and routes
+			// to /apps/add, which redirects here. Wrapped exports carry
+			// { summary, value, policy }; bare ones are the App value.
+			const importRaw = $importStore
+			if (importRaw) {
+				$importStore = undefined
+				sendUserToast('Loaded from YAML/JSON')
+			}
+			let seedSummary = ''
+			let seedValue = emptyApp() as any
+			let seedPolicy = emptyPolicy
+			if (importRaw) {
+				if ('value' in importRaw) {
+					seedSummary = importRaw.summary ?? ''
+					seedValue = importRaw.value
+					seedPolicy = importRaw.policy ?? emptyPolicy
+				} else {
+					seedValue = importRaw
+				}
+			}
 			app = {
-				summary: '',
-				value: emptyValue as any,
+				summary: seedSummary,
+				value: seedValue,
 				path: '',
-				policy: emptyPolicy,
+				policy: seedPolicy,
 				custom_path: undefined,
 				versions: [] as any,
 				id: 0 as any,
@@ -90,10 +111,10 @@
 				raw_app: false
 			} as unknown as AppWithLastVersion & { value: any }
 			savedApp = {
-				summary: '',
-				value: emptyValue as any,
+				summary: seedSummary,
+				value: seedValue,
 				path: '',
-				policy: emptyPolicy
+				policy: seedPolicy
 			}
 			return
 		}

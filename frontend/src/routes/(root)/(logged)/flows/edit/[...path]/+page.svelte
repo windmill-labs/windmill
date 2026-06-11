@@ -5,7 +5,7 @@
 	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import { decodeState, emptySchema, type StateStore } from '$lib/utils'
-	import { initFlow } from '$lib/components/flows/flowStore.svelte'
+	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore.svelte'
 	import { goto } from '$lib/navigation'
 
 	import { sendUserToast } from '$lib/toast'
@@ -172,9 +172,22 @@
 				edited_at: new Date().toISOString(),
 				edited_by: ''
 			} as unknown as Flow
+			// One-shot import handoff: "Import from YAML/JSON"
+			// (CreateActionsFlow) writes $importFlowStore and routes to
+			// /flows/add, which redirects here. Layer the imported flow
+			// over the empty template; `path` stays '' so the Path widget
+			// still generates the friendly name.
+			const imported = $importFlowStore
+			if (imported) {
+				$importFlowStore = undefined
+				sendUserToast('Flow loaded from YAML/JSON')
+			}
+			const seed: Flow = imported
+				? ({ ...empty, ...imported, path: '', extra_perms: {} } as unknown as Flow)
+				: empty
 			savedFlow = structuredClone(empty)
-			draftSync.draft = empty
-			flow = empty
+			draftSync.draft = seed
+			flow = seed
 			await initFlow(flow, flowStore, flowStateStore)
 			if (tok !== loadFlowToken) return
 			loading = false
