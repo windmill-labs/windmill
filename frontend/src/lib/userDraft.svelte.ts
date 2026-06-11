@@ -549,6 +549,24 @@ export const UserDraft = {
 			for (const spec of specs) {
 				const ws = spec.workspace ?? resolveWorkspace()
 				const mk = mapKey(ws, spec.itemKind, spec.path)
+
+				// An empty path means "no draftable item here" (e.g. the
+				// read-only historical-hash view, which still binds an
+				// editor value). Acquiring would key a live cell at
+				// `ws/kind/` and mirror every edit into an unroutable
+				// `POST /drafts/save_draft/kind/` — a permanent "Save
+				// failed" with a retry per debounce window. Hand out a
+				// detached, local-only handle instead: the `bind:` lvalue
+				// works, nothing ever syncs.
+				if (!spec.path) {
+					let handle = handleCache.get(mk)
+					if (!handle) {
+						handle = makeDetachedHandle<V>()
+						handleCache.set(mk, handle)
+					}
+					next.push(handle)
+					continue
+				}
 				seen.add(mk)
 
 				if (!acquired.has(mk)) {
@@ -753,6 +771,25 @@ function releaseEntry(mk: string): void {
 	if (entry.count <= 0) {
 		entry.destroyRoot?.()
 		entries.delete(mk)
+	}
+}
+
+/**
+ * Local-only handle for empty-path specs (`useMany` hands these out
+ * instead of acquiring an entry): a reactive cell that supports `bind:`
+ * like a real handle but is wired to nothing — no registry entry, no
+ * sync effect, no POSTs. Used by views that bind an editor value with
+ * no draftable item behind it (e.g. the read-only historical-hash view).
+ */
+function makeDetachedHandle<V>(): UserDraftHandle<V> {
+	let val = $state<V | undefined>(undefined)
+	return {
+		get draft(): V | undefined {
+			return val
+		},
+		set draft(value: V | undefined) {
+			val = value
+		}
 	}
 }
 
