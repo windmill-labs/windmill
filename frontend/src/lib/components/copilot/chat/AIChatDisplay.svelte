@@ -135,6 +135,37 @@
 	let aiChatInput: AIChatInput | undefined = $state()
 	let editingMessageIndex = $state<number | null>(null)
 
+	// Stop the in-flight generation on Escape while focus is on the chat (the
+	// composer, a message, anywhere inside the panel) or parked on body —
+	// but leave Escape to other widgets (e.g. the session's Monaco editor)
+	// when they hold focus. The panel root carries tabindex="-1" so clicking
+	// chat content actually moves focus into the panel; without it, clicks on
+	// non-focusable chat areas leave document.activeElement wherever it was
+	// (possibly the editor) and the focus check would wrongly reject.
+	//
+	// A capture-phase window listener is used on purpose: mounted-but-closed
+	// Modal2 instances preventDefault+stopPropagation every window Escape
+	// (Modal2.svelte handleKeyDown), and Monaco consumes Escape before it can
+	// bubble — capture runs first, ahead of both. When we do cancel we claim
+	// the key (preventDefault + stopPropagation) so the same press doesn't
+	// also close a surrounding drawer/modal; when idle or focused elsewhere
+	// we touch nothing, so Escape keeps its normal behaviour everywhere.
+	let panelEl: HTMLDivElement | undefined = $state()
+	$effect(() => {
+		function onWindowKeydownCapture(e: KeyboardEvent) {
+			if (e.key !== 'Escape' || !aiChatManager.loading) return
+			const active = document.activeElement
+			const focusOnChat =
+				!active || active === document.body || (panelEl?.contains(active) ?? false)
+			if (!focusOnChat) return
+			e.preventDefault()
+			e.stopPropagation()
+			aiChatManager.cancel()
+		}
+		window.addEventListener('keydown', onWindowKeydownCapture, true)
+		return () => window.removeEventListener('keydown', onWindowKeydownCapture, true)
+	})
+
 	let scrollEl: HTMLDivElement | undefined = $state()
 	// Programmatic-scroll guard. `scrollDown()` triggers an async `scroll`
 	// event; if a token-append between the scrollTo and the dispatch makes
@@ -313,7 +344,9 @@
 	)
 </script>
 
-<div class="flex flex-col h-full">
+<!-- tabindex="-1" so clicks anywhere on the chat move focus into the panel,
+which the Escape-to-stop handler above uses to scope itself to the chat. -->
+<div class="flex flex-col h-full outline-none" tabindex="-1" bind:this={panelEl}>
 	{#if !hideHeader}
 		<div
 			class="flex flex-row items-center justify-between gap-2 p-2 border-b border-gray-200 dark:border-gray-600"

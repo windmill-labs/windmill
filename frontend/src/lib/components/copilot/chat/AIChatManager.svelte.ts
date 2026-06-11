@@ -59,7 +59,7 @@ import {
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
-import { runChatLoop } from './chatLoop'
+import { runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
@@ -648,10 +648,61 @@ export class AIChatManager {
 		}
 	}
 
+	// Commit what an interrupted (cancelled/failed) turn produced so a follow-up
+	// message continues from it instead of starting blind (#3):
+	//  - the tool-paired prefix of fully-completed steps (drops a dangling tool
+	//    call that would otherwise invalidate the next request),
+	//  - the partial answer text the model was mid-way through writing, as a
+	//    plain assistant message (raw reasoning isn't replayed as model context).
+	// If the turn was interrupted while only thinking (no answer text), the
+	// leftover reasoning-only bubble is dropped so it doesn't sit stuck-open and
+	// out of sync with the context.
+	private commitInterruptedTurn = (
+		collectedMessages: ChatCompletionMessageParam[],
+		partialReply: string
+	) => {
+		const prefix = truncateToToolPairedPrefix(collectedMessages)
+		this.messages = [...this.messages, ...prefix]
+		// `partialReply` is captured at every onMessageEnd, so when the interrupt
+		// lands after a fully-completed step it can hold text that's already
+		// inside the prefix as a structured assistant message — only append it
+		// when it's genuinely new (avoids sending the same answer twice).
+		const lastCommittedText = [...prefix]
+			.reverse()
+			.find(
+				(m): m is ChatCompletionMessageParam & { content: string } =>
+					m.role === 'assistant' && typeof m.content === 'string' && !!m.content.trim()
+			)?.content
+		if (partialReply.trim() && partialReply !== lastCommittedText) {
+			this.messages = [...this.messages, { role: 'assistant', content: partialReply }]
+		} else {
+			const last = this.displayMessages[this.displayMessages.length - 1]
+			if (last?.role === 'assistant' && !last.content.trim() && !!last.reasoning) {
+				this.displayMessages = this.displayMessages.slice(0, -1)
+			}
+		}
+	}
+
+	// Roll a turn that produced nothing usable back out of the transcript (user
+	// message + any partial reasoning bubble) and hand its text back to the
+	// composer, so it can be edited and resent rather than lost. Used when the
+	// model returns no output (#2) or the user cancels before any answer (#3).
+	private restoreUnsentTurn = (
+		displayLenAfterUser: number,
+		modelLenAfterUser: number,
+		instructions: string,
+		pastes: PasteAttachment[]
+	) => {
+		this.displayMessages = this.displayMessages.slice(0, displayLenAfterUser - 1)
+		this.messages = this.messages.slice(0, modelLenAfterUser - 1)
+		this.aiChatInput?.setInstructions(instructions, pastes)
+	}
+
 	private chatRequest = async ({
 		messages,
 		abortController,
 		callbacks,
+		addedMessages,
 		systemMessage: systemMessageOverride
 	}: {
 		messages: ChatCompletionMessageParam[]
@@ -660,6 +711,8 @@ export class AIChatManager {
 			onNewToken: (token: string) => void
 			onMessageEnd: () => void
 		}
+		// Caller-owned accumulator so partial output survives an abort/throw.
+		addedMessages?: ChatCompletionMessageParam[]
 		systemMessage?: ChatCompletionSystemMessageParam
 	}) => {
 		try {
@@ -669,6 +722,7 @@ export class AIChatManager {
 			const self = this
 			const result = await runChatLoop({
 				messages,
+				addedMessages,
 				get systemMessage() {
 					return systemMessageOverride ?? self.systemMessage
 				},
@@ -873,6 +927,13 @@ export class AIChatManager {
 			}
 		}
 		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
+		// Caller-owned accumulator (declared outside `try` so the catch can recover
+		// partial output committed before a failure — see #3 below).
+		const collectedMessages: ChatCompletionMessageParam[] = []
+		// The most recent message's streamed text, captured in onMessageEnd. On an
+		// interrupted turn this holds the partial answer that never became a
+		// structured message, so it can be carried as context (#3).
+		let partialReply = ''
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
 			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
@@ -925,6 +986,14 @@ export class AIChatManager {
 					index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 				}
 			]
+			// Snapshot the sent text so it can be restored to the composer if the
+			// model returns nothing (#2). `sentInstructions` is the compact form
+			// (with paste tokens) the composer shows, not the expanded LLM text.
+			const sentInstructions = this.instructions
+			const sentPastes = pastes
+			// Transcript length right after appending the user turn — used to detect
+			// a no-output turn and to roll it back if the model returns nothing (#2).
+			const displayLenAfterUser = this.displayMessages.length
 			// The LLM gets the full pasted content; the display message above keeps
 			// the compact tokens + registry so the bubble can render/expand chips.
 			const oldInstructions = expanded(chatDraft(this.instructions, pastes))
@@ -974,6 +1043,7 @@ export class AIChatManager {
 			}
 
 			this.messages.push(userMessage)
+			const modelLenAfterUser = this.messages.length
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
 
 			this.currentReply = ''
@@ -1000,6 +1070,22 @@ export class AIChatManager {
 					onReasoningDelta: (token) => (this.currentReasoning += token),
 					onReasoningStart: () => (this.currentReasoningActive = true),
 					onMessageEnd: () => {
+						// Capture the text streamed for this message before it's reset, so an
+						// interrupted/failed turn can carry the partial answer as context (#3).
+						// On a clean turn the structured message is already in collectedMessages,
+						// so this is only consumed on the abort/error paths. Only overwrite on
+						// non-empty: the parsers flush onMessageEnd early when a tool call
+						// starts streaming after answer text (capturing the text, resetting
+						// currentReply), while the structured message carrying that text is
+						// only pushed at clean stream end — if the user cancels during the
+						// tool call, chatRequest's error path calls onMessageEnd again with
+						// the already-reset (empty) currentReply, and an unconditional
+						// overwrite would wipe the captured text. The case where the kept
+						// value is stale (text already committed in a structured message) is
+						// deduped in commitInterruptedTurn.
+						if (this.currentReply) {
+							partialReply = this.currentReply
+						}
 						if (this.currentReply || this.currentReasoning) {
 							this.displayMessages = [
 								...this.displayMessages,
@@ -1062,21 +1148,67 @@ export class AIChatManager {
 				await this.loadApiTools()
 			}
 
-			const addedMessages = await this.chatRequest({
-				...params
+			await this.chatRequest({
+				...params,
+				addedMessages: collectedMessages
 			})
-			this.messages = [...this.messages, ...(addedMessages ?? [])]
-			if (this.autoAcceptEditsActive) {
-				this.acceptPendingFlowEdits()
-			}
-			await this.historyManager.saveChat(this.displayMessages, this.messages)
-			if (isFirstUserTurn && this.afterFirstTurnSaved) {
-				void Promise.resolve(this.afterFirstTurnSaved()).catch((e) => {
-					console.error('AIChatManager afterFirstTurnSaved hook failed', e)
-				})
+			const wasAborted = this.abortController?.signal.aborted ?? false
+			// "Usable output" = a completed step or partial answer text worth keeping.
+			// Pure reasoning doesn't count (it's not replayed as context).
+			const hasUsableOutput =
+				truncateToToolPairedPrefix(collectedMessages).length > 0 || !!partialReply.trim()
+			const producedDisplayOutput = this.displayMessages.length > displayLenAfterUser
+
+			if (wasAborted && hasUsableOutput) {
+				// Interrupted (Escape/stop) after some output: keep the completed steps
+				// + the partial answer being written, so a follow-up like "continue"
+				// picks up from there (#3).
+				this.commitInterruptedTurn(collectedMessages, partialReply)
+				if (this.autoAcceptEditsActive) {
+					this.acceptPendingFlowEdits()
+				}
+				await this.historyManager.saveChat(this.displayMessages, this.messages)
+				// The turn is kept, so this still counts as the saved first turn —
+				// without this, a cancelled first turn would permanently skip the hook
+				// (e.g. session title generation) since the next turn isn't "first".
+				if (isFirstUserTurn && this.afterFirstTurnSaved) {
+					void Promise.resolve(this.afterFirstTurnSaved()).catch((e) => {
+						console.error('AIChatManager afterFirstTurnSaved hook failed', e)
+					})
+				}
+			} else if (wasAborted || !producedDisplayOutput) {
+				// Either cancelled before producing anything usable, or the model
+				// returned no output at all — treat the turn as unsent: roll it back
+				// out of the transcript (also clearing any partial reasoning bubble)
+				// and hand the text back to the composer (matches Claude Code).
+				this.restoreUnsentTurn(displayLenAfterUser, modelLenAfterUser, sentInstructions, sentPastes)
+				await this.historyManager.saveChat(this.displayMessages, this.messages)
+				if (!wasAborted) {
+					sendUserToast('The model returned no response — your message was restored to the input.')
+				}
+			} else {
+				// Clean turn with output → commit as-is (unchanged behavior).
+				this.messages = [...this.messages, ...collectedMessages]
+				if (this.autoAcceptEditsActive) {
+					this.acceptPendingFlowEdits()
+				}
+				await this.historyManager.saveChat(this.displayMessages, this.messages)
+				if (isFirstUserTurn && this.afterFirstTurnSaved) {
+					void Promise.resolve(this.afterFirstTurnSaved()).catch((e) => {
+						console.error('AIChatManager afterFirstTurnSaved hook failed', e)
+					})
+				}
 			}
 		} catch (err) {
 			console.error(err)
+			// #3: a genuine failure — keep the completed steps + the partial answer
+			// so a follow-up message continues with that context.
+			this.commitInterruptedTurn(collectedMessages, partialReply)
+			try {
+				await this.historyManager.saveChat(this.displayMessages, this.messages)
+			} catch (saveErr) {
+				console.error('Failed to persist partial chat after error', saveErr)
+			}
 			this.flagLastMessageAsError()
 			if (err instanceof Error) {
 				sendUserToast('Failed to send request: ' + err.message, true)

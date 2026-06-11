@@ -179,6 +179,14 @@
 		}
 	}
 
+	// Restore composer contents — used when a turn produced no output and its
+	// text is handed back to the user (see AIChatManager.sendRequest, #2).
+	export function setInstructions(value: string, restoredPastes: PasteAttachment[] = []) {
+		instructions = value
+		pastes = restoredPastes
+		focusInput()
+	}
+
 	function clickOutside(node: HTMLElement) {
 		function handleClick(event: MouseEvent) {
 			if (node && !node.contains(event.target as Node)) {

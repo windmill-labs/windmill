@@ -3,6 +3,7 @@
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import { twMerge } from 'tailwind-merge'
 	import { Brain, ChevronDown, ChevronRight, Loader2 } from 'lucide-svelte'
+	import { slide } from 'svelte/transition'
 	import type { DisplayMessage } from './shared'
 	import CodeDisplay from './script/CodeDisplay.svelte'
 	import LinkRenderer from './LinkRenderer.svelte'
@@ -95,7 +96,10 @@
 		</button>
 
 		{#if reasoningExpanded}
-			<div class="p-2 bg-surface text-2xs text-secondary whitespace-pre-wrap break-words">
+			<div
+				transition:slide={{ duration: 150 }}
+				class="p-2 bg-surface text-2xs text-secondary whitespace-pre-wrap break-words"
+			>
 				{reasoning}
 			</div>
 		{/if}
