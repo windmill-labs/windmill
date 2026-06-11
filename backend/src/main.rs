@@ -1499,6 +1499,11 @@ Windmill Community Edition {GIT_VERSION}
                                     ee_oss::verify_license_key(conn.as_sql()).await;
                                 }
 
+                                // self-throttled; picks up a key fixed on the server without
+                                // waiting for the 12h reload
+                                #[cfg(feature = "enterprise")]
+                                crate::monitor::refetch_license_key_if_invalid(conn).await;
+
                                 // update min version explicitly.
                                 // for sql connection it is the part of monitor_db.
                                 // TODO: pass worker names for min keep-alive alerts (for HTTP connection)

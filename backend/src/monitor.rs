@@ -2145,7 +2145,7 @@ pub async fn reload_request_size(conn: &Connection) {
     }
 }
 
-pub async fn reload_license_key(conn: &Connection) -> anyhow::Result<()> {
+async fn resolve_license_key_value(conn: &Connection, quiet: bool) -> anyhow::Result<String> {
     let q = load_value_from_global_settings_with_conn(conn, LICENSE_KEY_SETTING, true)
         .await
         .map_err(|err| anyhow::anyhow!("Error reloading license key: {}", err.to_string()))?;
@@ -2157,17 +2157,81 @@ pub async fn reload_license_key(conn: &Connection) -> anyhow::Result<()> {
 
     if let Some(q) = q {
         if let Ok(v) = serde_json::from_value::<String>(q.clone()) {
-            tracing::info!(
-                "Loaded setting LICENSE_KEY from db config: {}",
-                truncate_token(&v)
-            );
+            if !quiet {
+                tracing::info!(
+                    "Loaded setting LICENSE_KEY from db config: {}",
+                    truncate_token(&v)
+                );
+            }
             value = v;
         } else {
             tracing::error!("Could not parse LICENSE_KEY found: {:#?}", &q);
         }
     };
+    Ok(value)
+}
+
+pub async fn reload_license_key(conn: &Connection) -> anyhow::Result<()> {
+    let value = resolve_license_key_value(conn, false).await?;
+    #[cfg(feature = "enterprise")]
+    record_attempted_license_key(&value);
     set_license_key(value, conn.as_sql()).await;
     Ok(())
+}
+
+#[cfg(feature = "enterprise")]
+lazy_static::lazy_static! {
+    static ref LAST_INVALID_KEY_REFETCH_AT: std::sync::Mutex<Option<Instant>> =
+        std::sync::Mutex::new(None);
+    static ref LAST_ATTEMPTED_LICENSE_KEY: std::sync::Mutex<Option<String>> =
+        std::sync::Mutex::new(None);
+}
+
+#[cfg(feature = "enterprise")]
+const INVALID_LICENSE_KEY_REFETCH_INTERVAL: Duration = Duration::from_secs(60);
+
+#[cfg(feature = "enterprise")]
+fn record_attempted_license_key(value: &str) {
+    *LAST_ATTEMPTED_LICENSE_KEY.lock().unwrap() = Some(value.to_string());
+}
+
+/// When the in-memory license key is invalid, the key in settings may have moved on
+/// (failed initial load, missed `license_key` notification, or renewed/fixed by
+/// another instance) — without this, the stale in-memory key would keep being
+/// flagged invalid until the next full settings reload (12h by default). Refetch
+/// the latest key at most once per `INVALID_LICENSE_KEY_REFETCH_INTERVAL` and
+/// re-apply it only when it differs from the last attempted value, so an unchanged
+/// invalid key is not re-validated (and re-logged) in a loop.
+#[cfg(feature = "enterprise")]
+pub async fn refetch_license_key_if_invalid(conn: &Connection) {
+    use windmill_common::ee_oss::LICENSE_KEY_VALID;
+
+    if LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    {
+        let mut last = LAST_INVALID_KEY_REFETCH_AT.lock().unwrap();
+        if last.is_some_and(|t| t.elapsed() < INVALID_LICENSE_KEY_REFETCH_INTERVAL) {
+            return;
+        }
+        *last = Some(Instant::now());
+    }
+    let value = match resolve_license_key_value(conn, true).await {
+        Ok(v) => v,
+        Err(err) => {
+            tracing::error!("Failed to refetch license key while invalid: {err:#}");
+            return;
+        }
+    };
+    let changed = LAST_ATTEMPTED_LICENSE_KEY.lock().unwrap().as_deref() != Some(value.as_str());
+    if changed {
+        tracing::info!(
+            "License key is invalid but a different key was found in settings, applying it: {}",
+            truncate_token(&value)
+        );
+        record_attempted_license_key(&value);
+        set_license_key(value, conn.as_sql()).await;
+    }
 }
 
 pub async fn reload_option_setting_with_tracing<T: FromStr + DeserializeOwned>(
@@ -2623,6 +2687,7 @@ pub async fn monitor_db(
         #[cfg(feature = "enterprise")]
         if !initial_load {
             verify_license_key(conn.as_sql()).await;
+            refetch_license_key_if_invalid(conn).await;
         }
     };
 
