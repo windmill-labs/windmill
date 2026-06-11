@@ -779,7 +779,7 @@
 								]
 							: []),
 						...(!inSessionPane &&
-						!script.draft_only &&
+						(savedScript as any)?.no_deployed !== true &&
 						script.kind === 'script' &&
 						!script.auto_kind
 							? [
@@ -1851,7 +1851,7 @@
 									{hasPreprocessor}
 									canHavePreprocessor={canHavePreprocessor(script.language)}
 									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
-									isDeployed={savedScript && !savedScript?.draft_only}
+									isDeployed={savedScript && (savedScript as any)?.no_deployed !== true}
 									schema={script.schema}
 									runnableVersion={script.parent_hash}
 									onDeployTrigger={handleDeployTrigger}

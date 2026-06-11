@@ -294,7 +294,7 @@
 
 	async function handleSaveFlowInternal(deploymentMsg?: string) {
 		await compareVersions()
-		if (onLatest || initialPath == '' || savedFlow?.draft_only) {
+		if (onLatest || initialPath == '' || newFlow) {
 			// Handle directly
 			await saveFlow(deploymentMsg)
 		} else {
@@ -701,7 +701,7 @@
 	}> = []
 
 	if (untrack(() => customUi).topBar?.extraDeployOptions != false) {
-		if (savedFlow?.draft_only === false || savedFlow?.draft_only === undefined) {
+		if (!newFlow) {
 			dropdownItems.push({
 				label: 'Exit & see details',
 				// Use the deployed path, not the live `$pathStore` — the latter
