@@ -56,9 +56,12 @@
 	// Editor-template seeding state, populated in the `new_draft` branch:
 	// `builderTemplate` puts ScriptBuilder in WAC mode for `?wac=` /
 	// imported workflows-as-code; `lockedLanguage` pins the language picker
-	// for hub/template forks (their content is language-specific).
+	// for hub/template forks (their content is language-specific);
+	// `pathChosen` marks seeds carrying an explicit path so ScriptBuilder's
+	// summary→path auto-slug doesn't overwrite it.
 	let builderTemplate: 'script' | 'wac_python' | 'wac_typescript' = $state('script')
 	let lockedLanguage = $state(false)
+	let pathChosen = $state(false)
 
 	// Derived so client-side nav (breadcrumb) re-reads the URL, not mount-time values.
 	let topHash = $derived(page.url.searchParams.get('topHash') ?? undefined)
@@ -160,6 +163,9 @@
 			const hubPath = page.url.searchParams.get('hub')
 			const collabLang = page.url.searchParams.get('lang') as ScriptLang | null
 			const wacParam = page.url.searchParams.get('wac')
+			// Explicit path seed — the fork-a-draft handoff re-homes the
+			// source path into the forker's namespace and passes it here.
+			const pathParam = page.url.searchParams.get('seed_path')
 			const urlScript = decodeUrlScript()
 			const url = new URL(window.location.href)
 			url.searchParams.delete('new_draft')
@@ -275,6 +281,13 @@
 			} else if (wacParam === 'python' || wacParam === 'typescript') {
 				builderTemplate = wacParam === 'python' ? 'wac_python' : 'wac_typescript'
 			}
+			if (pathParam) {
+				seed = { ...seed, path: pathParam }
+			}
+			// A seeded path (?path=, hub/template forks, URL payloads) is an
+			// explicit choice — the Path widget parses it verbatim and the
+			// summary auto-slug must leave it alone.
+			pathChosen = seed.path !== ''
 			initialPath = ''
 			savedScript = structuredClone(empty)
 			draftSync.draft = seed
@@ -402,6 +415,7 @@
 		bind:script={draftSync.draft}
 		template={builderTemplate}
 		{lockedLanguage}
+		initialPathChosen={pathChosen}
 		{fullyLoaded}
 		bind:savedScript
 		{initialArgs}

@@ -86,6 +86,9 @@
 			const templatePath = page.url.searchParams.get('template')
 			const templateId = page.url.searchParams.get('template_id')
 			const hubId = page.url.searchParams.get('hub')
+			// Explicit path seed — the fork-a-draft handoff re-homes the
+			// source path into the forker's namespace and passes it here.
+			const pathParam = page.url.searchParams.get('seed_path')
 			const url = new URL(window.location.href)
 			url.searchParams.delete('new_draft')
 			window.history.replaceState(window.history.state, '', url.toString())
@@ -168,7 +171,7 @@
 			app = {
 				summary: seedSummary,
 				value: seedValue,
-				path: '',
+				path: pathParam ?? '',
 				policy: seedPolicy,
 				custom_path: undefined,
 				versions: [] as any,
@@ -181,7 +184,7 @@
 			savedApp = {
 				summary: seedSummary,
 				value: seedValue,
-				path: '',
+				path: pathParam ?? '',
 				policy: seedPolicy
 			}
 			// Tutorial links ("/apps/add?tutorial=...") land here via the

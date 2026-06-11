@@ -175,6 +175,9 @@
 			const templatePath = page.url.searchParams.get('template')
 			const templateId = page.url.searchParams.get('template_id')
 			const isFork = page.url.searchParams.get('fork')
+			// Explicit path seed — the fork-a-draft handoff re-homes the
+			// source path into the forker's namespace and passes it here.
+			const pathParam = page.url.searchParams.get('seed_path')
 			// Fork-preview handoff (run page's "Fork" on a flow preview):
 			// the state rides in localStorage, or on the opener window when
 			// the flow was too large for localStorage. The URL hash carries
@@ -289,6 +292,9 @@
 					console.error('Error loading hub flow', err)
 					sendUserToast('Error loading hub flow: ' + (err.body ?? err.message), true)
 				}
+			}
+			if (pathParam) {
+				seed = { ...seed, path: pathParam } as Flow
 			}
 			savedFlow = structuredClone(empty)
 			draftSync.draft = seed

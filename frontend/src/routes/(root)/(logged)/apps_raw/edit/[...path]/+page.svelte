@@ -196,6 +196,9 @@
 				on_behalf_of_email: $userStore?.email,
 				execution_mode: 'publisher'
 			} as any
+			// Explicit path seed — the fork-a-draft handoff re-homes the
+			// source path into the forker's namespace and passes it here.
+			const pathParam = page.url.searchParams.get('seed_path')
 			// One-shot import handoff: "Import from YAML/JSON" for full-code
 			// apps (CreateActionsApp) stashes the parsed payload — via
 			// $importStore in-memory, or sessionStorage when the /apps_raw
@@ -234,7 +237,7 @@
 					custom_path: undefined
 				}
 				extractRawApp({ summary: importedSummary, value: importedValue, policy: importedPolicy })
-				newPath = ''
+				newPath = pathParam ?? ''
 				// Imported content IS the starting state — skip the
 				// framework picker.
 				templatePicker = false

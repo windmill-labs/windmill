@@ -84,7 +84,7 @@
 			isOpen = false
 			// Import-style handoff: seed a brand-new own item from the
 			// fetched value (no immediate server save, fresh owned path).
-			forkDraftToImport(itemKind, value)
+			forkDraftToImport(itemKind, value, path)
 		} catch (e) {
 			sendUserToast(`Could not fork draft: ${e.body ?? e.message}`, true)
 		} finally {

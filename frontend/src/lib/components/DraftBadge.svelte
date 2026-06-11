@@ -200,7 +200,7 @@
 </script>
 
 {#if showBadge}
-	<Popover openOnHover={true} debounceDelay={100}>
+	<Popover openOnHover={true} debounceDelay={50} enableFlyTransition>
 		{#snippet trigger()}
 			<Badge small color="indigo">
 				{#if orderedUsers.length > 0}
@@ -235,7 +235,7 @@
 			</Badge>
 		{/snippet}
 		{#snippet content()}
-			<div class="flex flex-col gap-2 min-w-[16rem]">
+			<div class="flex flex-col gap-2 min-w-[16rem] text-xs p-4 pb-1">
 				<p class="text-primary">
 					{#if draft_users.length > 0}
 						{draft_only ? 'Never deployed — only a draft exists.' : 'Deployed with drafts pending.'}
@@ -244,16 +244,14 @@
 					{:else}
 						Is deployed and has a draft
 					{/if}
+
+					{#if onlyOwnDraft}
+						<br />
+						<span class="text-tertiary italic">Only you can see this {kindLabel}.</span>
+					{/if}
 				</p>
 				{#if draft_users.length > 0}
-					<ul class="flex flex-col divide-y border-y">
-						<!-- Key on the array index, NOT the username. The list is
-						     short-lived (the popover lifetime) so we don't need
-						     stable reordering, and multiple legacy NULL-email rows
-						     could otherwise collide on the same key and crash the
-						     page (the `draft_users` aggregate LEFT-JOINs `usr`, so
-						     drafts owned by users absent from the workspace surface
-						     as `username: null` too — not just the legacy row). -->
+					<ul class="flex flex-col divide-y border-t">
 						{#each orderedUsers as u, i (i)}
 							{@const isSelf = !!currentUsername && u.username === currentUsername}
 							<li class="flex items-center gap-2 py-1.5">
@@ -292,9 +290,6 @@
 							</li>
 						{/each}
 					</ul>
-				{/if}
-				{#if onlyOwnDraft}
-					<p class="text-tertiary italic">Only you can see this {kindLabel}.</p>
 				{/if}
 			</div>
 		{/snippet}
