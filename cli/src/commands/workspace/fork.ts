@@ -123,18 +123,36 @@ async function createWorkspaceFork(
     return;
   }
 
-  while (workspaceName === undefined) {
-    if (!workspaceName) {
-      workspaceName = await Input.prompt("Name this forked workspace:");
+  // When we're converting the current branch into the fork branch, default
+  // the fork's name/id to that branch — almost always what you want, and it
+  // keeps the fork branch named after the work you already have
+  // (wm-fork/<base>/<branch>). Interactive: pre-fill the prompt (press enter
+  // to accept). Non-interactive (`--yes`): use it automatically.
+  const branchDefaultId = renameCurrent ? branchToForkId(currentBranch) : undefined;
+  const interactive = process.stdin.isTTY && opts.yes !== true;
+
+  if (workspaceName === undefined) {
+    if (branchDefaultId && !interactive) {
+      workspaceName = branchDefaultId;
+      log.info(`Naming the fork after the current branch: \`${workspaceName}\``);
+    } else {
+      workspaceName = await Input.prompt({
+        message: "Name this forked workspace:",
+        default: branchDefaultId,
+      });
     }
   }
 
   if (!workspaceId) {
-    workspaceId = await Input.prompt({
-      message: `Enter the ID of this forked workspace, it will then be prefixed by ${WM_FORK_PREFIX}. It will also determine the branch name`,
-      default: workspaceName,
-      suggestions: [workspaceName],
-    });
+    if (branchDefaultId && !interactive) {
+      workspaceId = workspaceName;
+    } else {
+      workspaceId = await Input.prompt({
+        message: `Enter the ID of this forked workspace, it will then be prefixed by ${WM_FORK_PREFIX}. It will also determine the branch name`,
+        default: workspaceName,
+        suggestions: [workspaceName],
+      });
+    }
   }
 
   const token = workspace.token;
@@ -406,6 +424,19 @@ async function resolveWorkingBranchBase(
 }
 
 /**
+ * Derive a workspace-id-safe slug from a git branch name. Branch names can
+ * contain `/` and other characters that aren't valid in a workspace id and
+ * would break the `wm-fork/<base>/<id>` branch-name parsing, so collapse any
+ * invalid run to a single dash and trim.
+ */
+function branchToForkId(branch: string): string {
+  const slug = branch
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "fork";
+}
+
+/**
  * Base branches configured in wmill.yaml, mirroring how `findWorkspaceByGitBranch`
  * keys them (effective git branch = `gitBranch ?? workspaceName`, reserved keys
  * excluded) so the chosen base resolves to a workspace afterwards.
@@ -492,4 +523,4 @@ async function deleteWorkspaceFork(
   }
 }
 
-export { createWorkspaceFork, deleteWorkspaceFork };
+export { branchToForkId, createWorkspaceFork, deleteWorkspaceFork };
