@@ -167,6 +167,10 @@ export class AIChatManager {
 	savedSize = $state<number>(0)
 	instructions = $state<string>('')
 	pendingPrompt = $state<string>('')
+	// Messages typed while a turn is streaming: auto-sent one per turn (in
+	// order) as turns complete successfully, all restored to the input on
+	// cancel/error. Ephemeral — never saved to displayMessages or history.
+	queuedMessages = $state<string[]>([])
 	loading = $state<boolean>(false)
 	currentReply = $state<string>('')
 	currentReasoning = $state<string>('')
@@ -395,6 +399,37 @@ export class AIChatManager {
 
 	setAiChatInput(aiChatInput: AIChatInput | null) {
 		this.aiChatInput = aiChatInput
+	}
+
+	/** Queue a message typed while a turn is streaming. Each call adds a
+	 * distinct message, sent one per turn in FIFO order. */
+	queueMessage(text: string) {
+		const trimmed = text.trim()
+		if (!trimmed) {
+			return
+		}
+		this.queuedMessages = [...this.queuedMessages, trimmed]
+	}
+
+	/** Remove one queued message and put its text back into the input. */
+	dequeueMessage(index: number) {
+		const message = this.queuedMessages[index]
+		if (message === undefined) {
+			return
+		}
+		this.queuedMessages = this.queuedMessages.filter((_, i) => i !== index)
+		this.restoreToInput(message)
+	}
+
+	/** Put text the user typed back where they can see it: into the input
+	 * when it's mounted, otherwise back into the queue so it reappears with
+	 * the chat panel instead of being silently dropped. */
+	private restoreToInput(text: string) {
+		if (this.aiChatInput) {
+			this.aiChatInput.prependText(text)
+		} else {
+			this.queuedMessages = [text, ...this.queuedMessages]
+		}
 	}
 
 	focusInput() {
@@ -840,9 +875,12 @@ export class AIChatManager {
 			isPreprocessor?: boolean
 		} = {}
 	) => {
+		// Returns whether the message was actually turned into a chat turn —
+		// the queue flush uses this to restore messages dropped by an early
+		// return instead of silently losing them.
 		const requestedMode = options.mode ?? this.mode
 		if (!isAIModeVisible(requestedMode)) {
-			return
+			return false
 		}
 		this.changeMode(requestedMode, undefined, {
 			lang: options.lang,
@@ -852,7 +890,7 @@ export class AIChatManager {
 			this.instructions = options.instructions
 		}
 		if (!this.instructions.trim()) {
-			return
+			return false
 		}
 		if (this.beforeSend) {
 			try {
@@ -869,10 +907,11 @@ export class AIChatManager {
 					}. Your message was not sent — please try again.`,
 					true
 				)
-				return
+				return false
 			}
 		}
 		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
+		let sendError = false
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
 			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
@@ -1076,6 +1115,7 @@ export class AIChatManager {
 				})
 			}
 		} catch (err) {
+			sendError = true
 			console.error(err)
 			this.flagLastMessageAsError()
 			if (err instanceof Error) {
@@ -1086,6 +1126,27 @@ export class AIChatManager {
 		} finally {
 			this.loading = false
 		}
+		// Flush the queue. Auto-send only on a successful completion — after
+		// a cancel (signal aborted; chatRequest swallows the abort) or an
+		// error, firing into a half-finished turn is wrong, so restore the
+		// text to the input instead. Only the first queued message is sent
+		// here: its own flush sends the next one when its turn completes,
+		// so messages go out one per turn in FIFO order.
+		if (this.queuedMessages.length > 0) {
+			if (!sendError && !this.abortController?.signal.aborted) {
+				const [next, ...rest] = this.queuedMessages
+				this.queuedMessages = rest
+				const accepted = await this.sendRequest({ instructions: next })
+				if (accepted === false) {
+					this.restoreToInput(next)
+				}
+			} else {
+				const restored = this.queuedMessages.join('\n\n')
+				this.queuedMessages = []
+				this.restoreToInput(restored)
+			}
+		}
+		return true
 	}
 
 	cancel = (reason?: string) => {
