@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { genWmillTs, type Runnable } from './utils'
+import {
+	formatRuntimeLogsForChat,
+	genWmillTs,
+	normalizeRawAppRuntimeLogs,
+	type Runnable
+} from './utils'
 
 const flowSchema = {
 	$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -38,8 +43,21 @@ describe('genWmillTs', () => {
 
 		const dts = genWmillTs(runnables)
 
-		expect(dts).toContain(
-			'myflow: (args: { string_input: string }) => Promise<any>;'
-		)
+		expect(dts).toContain('myflow: (args: { string_input: string }) => Promise<any>;')
+	})
+})
+
+describe('normalizeRawAppRuntimeLogs', () => {
+	it('keeps only well-formed runtime log entries', () => {
+		const entries = normalizeRawAppRuntimeLogs([
+			{ level: 'log', message: 'ready', ts: 1718000000000 },
+			{ level: 'trace', message: 'unsupported level', ts: 1718000000000 },
+			{ level: 'error', message: 'bad date', ts: Number.MAX_VALUE },
+			{ level: 'warn', message: 123, ts: 1718000000000 },
+			'not an entry'
+		])
+
+		expect(entries).toEqual([{ level: 'log', message: 'ready', ts: 1718000000000 }])
+		expect(formatRuntimeLogsForChat(entries)).toBe('[06:13:20.000] LOG: ready')
 	})
 })
