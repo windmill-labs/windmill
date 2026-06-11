@@ -11,7 +11,7 @@
 		XCircle
 	} from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { PipelineEvent } from './activeRunnables.svelte'
+	import { isActiveEvent, type PipelineEvent } from './activeRunnables.svelte'
 
 	let {
 		events
@@ -24,9 +24,9 @@
 	// the log is already populated when expanded and badges show while collapsed.
 	let open = $state(false)
 
-	let runningCount = $derived(
-		events.filter((e) => e.status === 'running' || e.status === 'queued').length
-	)
+	// Excludes future-scheduled queued jobs (a schedule's next planned run
+	// is not activity) — see isActiveEvent.
+	let runningCount = $derived(events.filter((e) => isActiveEvent(e)).length)
 
 	function ago(iso: string): string {
 		const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000))

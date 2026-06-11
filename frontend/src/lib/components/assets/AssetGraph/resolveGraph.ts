@@ -231,11 +231,25 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 			const hasTriggerAsset = assets.some((x) => x.kind === a.kind && x.path === a.path)
 			if (!hasTriggerAsset) assets.push({ kind: a.kind, path: a.path })
 		}
-		// Native trigger annotations on a draft are always "missing" until
-		// the user creates the matching trigger row — drafts can't carry a
-		// real trigger row since the script isn't deployed yet. Surface a
-		// red placeholder so the user knows to wire it up.
+		// Native trigger annotations on a draft are "missing" until a
+		// matching trigger row exists. A brand-new draft never has one (the
+		// script isn't deployed yet), but a draft promoted from unsaved
+		// edits to a *deployed* script keeps its persisted trigger rows —
+		// they bind by path and are not dropped above. Dedup against those
+		// so the canvas doesn't show the real schedule node next to a red
+		// "missing" placeholder for the same kind.
+		const persistedNativeKinds = new Set(
+			base.triggers
+				.filter(
+					(t) =>
+						t.trigger_kind !== 'asset' &&
+						t.runnable_kind === 'script' &&
+						t.runnable_path === path
+				)
+				.map((t) => t.trigger_kind)
+		)
 		for (const n of parsed.nativeTriggers) {
+			if (persistedNativeKinds.has(n.kind)) continue
 			extraTriggers.push({
 				trigger_kind: n.kind,
 				runnable_kind: 'script',

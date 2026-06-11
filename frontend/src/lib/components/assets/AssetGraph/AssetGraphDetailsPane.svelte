@@ -76,11 +76,17 @@
 		// content + write outputs into its drafts Map. Without this,
 		// re-cloning from the unchanged Map discards local edits, and the
 		// draft's overlay nodes (write edges) revert to the seeded values.
+		// Also fires for a *deployed* script left with unsaved body edits
+		// (snapshot.script carries the full edited copy, hash included) so
+		// the parent can promote it to a draft instead of dropping the work.
 		onDraftPersist?: (
 			path: string,
 			snapshot: {
 				content: string
 				writes: { kind: AssetWithAltAccessType['kind']; path: string }[]
+				// Full edited script — set when the source is a persisted
+				// script (needed to seed a brand-new draft entry).
+				script?: Script
 			}
 		) => void
 		// Called after the user moves/renames a persisted script via the
@@ -393,9 +399,29 @@
 		// Read-only modes never mutate the draft (no editor mounted), so
 		// there's nothing to persist back — and emitting here would clash
 		// with the page's mode-switch overlay reset.
-		if (!draftScript || !script || readOnly) return
+		if (!script || readOnly) return
+		// Persisted scripts persist-back too — unsaved edits get promoted
+		// to a draft by the parent rather than silently dropped (e.g. on a
+		// switch to view mode). Wait for the pristine copy so the cleanup
+		// can tell edits from no-ops.
+		const isDraftRun = draftScript != undefined
+		const origAtRegister = isDraftRun ? undefined : scriptRes.current
+		if (!isDraftRun && !origAtRegister) return
 		const captured = script
 		return () => {
+			if (!isDraftRun) {
+				// Prefer the freshest fetch when it's still this script
+				// (cleanup reads are untracked): after the pane's own Save +
+				// refetch the buffer matches the new deployed content and
+				// nothing is emitted. On a selection switch the resource may
+				// already be loading the next script — fall back to the
+				// pristine copy captured at registration.
+				const latest = scriptRes.current
+				const orig =
+					latest && latest.path === captured.path ? latest : origAtRegister
+				if (!orig || orig.path !== captured.path) return
+				if ((captured.content ?? '') === (orig.content ?? '')) return
+			}
 			const writes = (liveBodyAssets ?? [])
 				.filter((a) => {
 					const t = a.access_type ?? a.alt_access_type
@@ -404,7 +430,10 @@
 				.map((a) => ({ kind: a.kind, path: a.path }))
 			onDraftPersist?.(captured.path, {
 				content: captured.content ?? '',
-				writes
+				writes,
+				script: isDraftRun
+					? undefined
+					: (structuredClone($state.snapshot(captured)) as Script)
 			})
 		}
 	})
@@ -529,8 +558,10 @@
 					...script,
 					language: script.language,
 					description: script.description ?? '',
-					// Drafts have no prior hash; workspace scripts chain off their last hash.
-					parent_hash: isDraft || script.hash == undefined ? undefined : String(script.hash),
+					// Brand-new drafts have no prior hash; anything carrying one
+					// (a deployed script, or a draft promoted from unsaved edits
+					// to a deployed script) chains off it.
+					parent_hash: script.hash == undefined ? undefined : String(script.hash),
 					is_template: false,
 					tag: script.tag,
 					kind: script.kind as Script['kind'] | undefined,
@@ -825,7 +856,7 @@
 					onclick={save}
 					disabled={saving}
 				>
-					{saving ? 'Saving…' : isDraft ? 'Create' : 'Save'}
+					{saving ? 'Saving…' : isDraft && script?.hash == undefined ? 'Create' : 'Save'}
 				</Button>
 			{/if}
 			{#if onHide}

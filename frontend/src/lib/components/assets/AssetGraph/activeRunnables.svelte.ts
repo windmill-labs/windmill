@@ -14,6 +14,22 @@ export type PipelineEvent = {
 	/** What started it, as far as the job listing reveals. */
 	source: 'schedule' | 'run'
 	at: string
+	/**
+	 * Queued jobs: when the job is due to start. A future value means a
+	 * scheduled run waiting for its cron tick, not pipeline activity.
+	 */
+	scheduledFor?: string
+}
+
+/**
+ * Whether an event counts toward the "N running" badges: running, or queued
+ * and already due. A queued job whose `scheduled_for` is in the future is the
+ * schedule's next planned run — nothing is executing.
+ */
+export function isActiveEvent(e: PipelineEvent, now = Date.now()): boolean {
+	if (e.status === 'running') return true
+	if (e.status !== 'queued') return false
+	return !e.scheduledFor || new Date(e.scheduledFor).getTime() <= now
 }
 const MAX_EVENTS = 50
 
@@ -250,7 +266,8 @@ export function useActiveRunnableIds(
 								? 'success'
 								: 'failure',
 						source: (j as any).schedule_path ? 'schedule' : 'run',
-						at: startedTs ?? new Date(pollStartedMs).toISOString()
+						at: startedTs ?? new Date(pollStartedMs).toISOString(),
+						scheduledFor: isQueued ? ((j as any).scheduled_for as string | undefined) : undefined
 					})
 				}
 			}

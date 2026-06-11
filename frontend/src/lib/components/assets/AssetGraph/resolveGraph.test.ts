@@ -428,4 +428,40 @@ describe('resolveGraph', () => {
 		expect(forDraft).toHaveLength(1)
 		expect(forDraft[0]).toMatchObject({ trigger_kind: 'asset', unsaved: true })
 	})
+
+	it('draft of a deployed script: no missing placeholder for a native kind with a persisted row', () => {
+		// Promoted draft (unsaved edits to a deployed script) — the schedule
+		// row still points at the path, so the seeded `// on schedule`
+		// annotation must NOT add a red "missing" node next to the real one.
+		const base = baseGraph({
+			runnables: [{ path: 'f/x/prod', usage_kind: 'script' }],
+			triggers: [
+				{
+					trigger_kind: 'schedule',
+					path: 'f/x/sched',
+					runnable_kind: 'script',
+					runnable_path: 'f/x/prod'
+				} as any
+			]
+		})
+		const drafts = new Map([['f/x/prod', { script: { content: '// on schedule' } }]])
+		const r = resolveGraph(input({ base, drafts }))
+		const scheduleTriggers = r.triggers.filter(
+			(t) => t.trigger_kind === 'schedule' && t.runnable_path === 'f/x/prod'
+		)
+		expect(scheduleTriggers).toHaveLength(1)
+		expect((scheduleTriggers[0] as any).missing).toBeUndefined()
+	})
+
+	it('brand-new draft: native annotation without a persisted row still surfaces as missing', () => {
+		const drafts = new Map([['f/x/new', { script: { content: '// on schedule' } }]])
+		const r = resolveGraph(input({ drafts }))
+		expect(r.triggers).toContainEqual({
+			trigger_kind: 'schedule',
+			runnable_kind: 'script',
+			runnable_path: 'f/x/new',
+			unsaved: true,
+			missing: true
+		})
+	})
 })

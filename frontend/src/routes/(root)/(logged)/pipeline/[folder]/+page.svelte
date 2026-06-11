@@ -653,8 +653,11 @@
 				...script,
 				language: script.language,
 				description: script.description ?? '',
-				// Drafts have no parent — they're brand new at this path.
-				parent_hash: undefined,
+				// Brand-new drafts have no parent; a draft promoted from
+				// unsaved edits to a deployed script carries that script's
+				// hash and must chain off it (createScript rejects a
+				// parentless deploy to an occupied path).
+				parent_hash: script.hash == undefined ? undefined : String(script.hash),
 				is_template: false,
 				tag: script.tag,
 				kind: script.kind as Script['kind'] | undefined,
@@ -941,6 +944,34 @@
 	// Currently-open draft shape (if any) — fed into the details pane.
 	let activeDraft = $derived(activeDraftPath ? drafts.get(activeDraftPath) : undefined)
 
+	// Entering edit mode with a selection whose path has a draft (e.g. a
+	// deployed script whose unsaved edits were promoted on the switch to
+	// view) re-opens the draft, not the stale deployed version — same
+	// routing a node click gets in handleCanvasSelect.
+	$effect(() => {
+		if (mode !== 'edit') return
+		if (
+			selection?.kind === 'runnable' &&
+			selection.runnable_kind === 'script' &&
+			drafts.has(selection.path)
+		) {
+			activeDraftPath = selection.path
+			selection = undefined
+		}
+	})
+	// Symmetric demotion: view mode shows the deployed truth, so an open
+	// promoted draft (it has a deployed version — hash set) hands the pane
+	// to its persisted script on the switch to view. Brand-new drafts have
+	// nothing deployed to show and stay open read-only.
+	$effect(() => {
+		if (mode !== 'view') return
+		const d = activeDraft
+		if (d && d.script.hash != undefined) {
+			selection = { kind: 'runnable', runnable_kind: 'script', path: d.script.path }
+			activeDraftPath = undefined
+		}
+	})
+
 	// Named handlers for the details pane's live callbacks. Inline arrows
 	// would be rebuilt on every parent re-render, and the pane's $effects
 	// track those refs as deps — combined with the drafts mutation in
@@ -968,6 +999,7 @@
 		snapshot: {
 			content: string
 			writes: { kind: AssetKind; path: string }[]
+			script?: Script
 		}
 	) {
 		// Persist body edits + inferred outputs back into the drafts Map so
@@ -977,7 +1009,23 @@
 		// was opened — leaving a stale write edge on the canvas after the
 		// user has renamed a CREATE TABLE / writeS3File target).
 		const d = drafts.get(p)
-		if (!d) return
+		if (!d) {
+			// Unsaved edits to a *deployed* script (the pane only emits these
+			// when the buffer differs from the deployed content): promote to
+			// a draft so the work survives mode switches / selection changes,
+			// shows in the drafts chip, and deploys via Save all. The script
+			// snapshot carries the deployed hash, so saving chains a new
+			// version off it.
+			if (!snapshot.script) return
+			const next = new Map(drafts)
+			next.set(p, {
+				localId: newDraftLocalId(),
+				script: snapshot.script,
+				outputAssets: snapshot.writes.length > 0 ? snapshot.writes : undefined
+			})
+			drafts = next
+			return
+		}
 		const writesEqual =
 			d.outputAssets?.length === snapshot.writes.length &&
 			(d.outputAssets ?? []).every(
@@ -1004,11 +1052,19 @@
 		if (s != undefined) {
 			panelHidden = false
 		}
-		// Clicking a draft runnable node re-opens it in the pane; clicking
-		// anything else selects it normally and detaches from any active
-		// draft (drafts stay overlaid until saved or discarded). In view
-		// mode drafts aren't on the graph, so the first branch never fires.
-		if (s && s.kind === 'runnable' && s.runnable_kind === 'script' && drafts.has(s.path)) {
+		// In edit mode, clicking a draft runnable node re-opens it in the
+		// pane; clicking anything else selects it normally and detaches from
+		// any active draft (drafts stay overlaid until saved or discarded).
+		// View mode never routes to drafts — a deployed script with a
+		// promoted draft is on the view graph too, and view shows the
+		// deployed truth (the pane has no editor to show a draft with).
+		if (
+			mode === 'edit' &&
+			s &&
+			s.kind === 'runnable' &&
+			s.runnable_kind === 'script' &&
+			drafts.has(s.path)
+		) {
 			activeDraftPath = s.path
 			selection = undefined
 		} else {
@@ -1588,7 +1644,10 @@
 		// Opening the run form is meaningless while the pane is hidden —
 		// unhide first, same as a plain node click.
 		panelHidden = false
-		if (drafts.has(scriptPath)) {
+		// Same mode gate as handleCanvasSelect: view mode targets the
+		// deployed script (its run form runs the deployed version), even
+		// when unsaved edits were promoted to a draft.
+		if (mode === 'edit' && drafts.has(scriptPath)) {
 			activeDraftPath = scriptPath
 			selection = undefined
 		} else {

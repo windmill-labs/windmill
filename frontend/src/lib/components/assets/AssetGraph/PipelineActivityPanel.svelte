@@ -20,7 +20,7 @@
 	} from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { untrack } from 'svelte'
-	import type { PipelineEvent } from './activeRunnables.svelte'
+	import { isActiveEvent, type PipelineEvent } from './activeRunnables.svelte'
 
 	interface Props {
 		// Merged history + live events, newest-first (page owns the merge —
@@ -42,9 +42,9 @@
 		{ label: 'Last 90 days', value: 90 }
 	]
 
-	let runningCount = $derived(
-		events.filter((e) => e.status === 'running' || e.status === 'queued').length
-	)
+	// Excludes future-scheduled queued jobs (a schedule's next planned run
+	// is not activity) — see isActiveEvent.
+	let runningCount = $derived(events.filter((e) => isActiveEvent(e)).length)
 
 	// Accordion: one expanded run at a time, streamed via JobLoader (live
 	// logs while running, terminal result when done) — same pattern as
@@ -107,6 +107,20 @@
 		if (s < 3600) return `${Math.floor(s / 60)}m ago`
 		if (s < 86400) return `${Math.floor(s / 3600)}h ago`
 		return `${Math.floor(s / 86400)}d ago`
+	}
+
+	// A schedule's next planned run sits in the queue with a future
+	// scheduled_for — show when it's due instead of a misleading "ago"
+	// (its `at` is the enqueue time).
+	function isFutureScheduled(e: PipelineEvent): boolean {
+		return e.status === 'queued' && !isActiveEvent(e)
+	}
+	function inTxt(iso: string): string {
+		const s = Math.max(0, Math.floor((new Date(iso).getTime() - Date.now()) / 1000))
+		if (s < 60) return `in ${s}s`
+		if (s < 3600) return `in ${Math.floor(s / 60)}m`
+		if (s < 86400) return `in ${Math.floor(s / 3600)}h`
+		return `in ${Math.floor(s / 86400)}d`
 	}
 </script>
 
@@ -202,7 +216,7 @@
 						{e.source}
 					</span>
 					<span class="shrink-0 text-3xs text-tertiary tabular-nums w-14 text-right">
-						{ago(e.at)}
+						{isFutureScheduled(e) && e.scheduledFor ? inTxt(e.scheduledFor) : ago(e.at)}
 					</span>
 				</button>
 				{#if expanded}
