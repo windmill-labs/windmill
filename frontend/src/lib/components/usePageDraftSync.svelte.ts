@@ -54,10 +54,14 @@ export interface PageDraftSync<V> {
 export function usePageDraftSync<V = unknown>(opts: PageDraftSyncOptions): PageDraftSync<V> {
 	// One handle, re-keyed on (workspace, path) navigation — the single
 	// ownership model. `''` path yields no spec, so the handle releases.
+	// `canBeDisabled`: the page editors (script / flow / raw app) are
+	// exactly the surfaces whose AutosaveIndicator carries the "Enable
+	// auto-save" toggle, so their reactive saves honor it.
 	const handle = UserDraft.useReactive<V>(() => ({
 		itemKind: opts.itemKind,
 		path: opts.path(),
-		workspace: opts.workspace()
+		workspace: opts.workspace(),
+		canBeDisabled: true
 	}))
 
 	// Live-editor-draft registry: lets the home-page "edit draft" deep

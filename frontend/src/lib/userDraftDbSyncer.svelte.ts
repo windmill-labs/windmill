@@ -77,11 +77,17 @@ export type UserDraftDbSyncerSaveOpts = {
 	force?: boolean
 	/** Marks this save as coming from the reactive autosave mirror (the
 	 * editor's keystroke-driven pipeline) rather than an explicit user
-	 * action (Ctrl/Cmd+S flush, discard, fork, overwrite). Auto saves are
-	 * suppressed while the "Enable auto-save" toggle is off — the latest
-	 * opts still land in `pendingSaveOpts` so an explicit flush sends
-	 * exactly what the user sees. Explicit saves always go through. */
+	 * action (Ctrl/Cmd+S flush, discard, fork, overwrite). */
 	auto?: boolean
+	/** Whether this save's source handle opts into the "Enable auto-save"
+	 * toggle. Only the full-page editors (script / flow / app / raw app)
+	 * set it — their `auto` saves are suppressed while the toggle is off
+	 * (the latest opts still land in `pendingSaveOpts` so an explicit
+	 * Ctrl/Cmd+S flush sends exactly what the user sees). The drawer
+	 * editors (variables / resources / triggers) leave it unset, so their
+	 * autosaves always sync regardless of the toggle. Explicit saves
+	 * always go through. */
+	canBeDisabled?: boolean
 }
 
 /**
@@ -325,11 +331,13 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
  *     server state before any user edit can fire a save.
  */
 function flushOnPageHide(): void {
-	// Auto-save off = nothing leaves the tab except explicit Ctrl/Cmd+S.
-	// The parked pendingSaveOpts are deliberately dropped with the page.
-	if (!autosaveEnabledState) return
 	if (pendingSaveOpts.size === 0) return
 	for (const [key, opts] of pendingSaveOpts) {
+		// Auto-save off = nothing leaves the tab except explicit
+		// Ctrl/Cmd+S for the page editors that opted into the toggle —
+		// their parked opts are deliberately dropped with the page.
+		// Drawer-kind pendings (mid-debounce at unload) still flush.
+		if (!autosaveEnabledState && opts.auto && opts.canBeDisabled) continue
 		debouncer.cancel(key)
 		try {
 			// Path encoding mirrors the generated client (`encodeURI`,
@@ -441,8 +449,10 @@ export const UserDraftDbSyncer = {
 			return
 		}
 		// Auto-save off: park the opts (done above) so an explicit flush
-		// sends the latest content, but never schedule the POST.
-		if (opts.auto && !autosaveEnabledState) return
+		// sends the latest content, but never schedule the POST. Only
+		// applies to handles that opted into the toggle (the page editors)
+		// — drawer-kind autosaves always sync.
+		if (opts.auto && opts.canBeDisabled && !autosaveEnabledState) return
 		// Optimistically light up the list-page `*` the moment a real save
 		// is scheduled, so the asterisk tracks the editor's unsaved-changes
 		// banner without waiting ~1.5s for the debounced POST. postSave

@@ -102,7 +102,11 @@
 	// the same path, and the listing's draft-only branch (which scans the
 	// `draft` table by exact path) picks it up.
 	const appDraftPath = path ?? ''
-	const appDraftHandle = inSessionPane ? undefined : UserDraft.use<App>('app', appDraftPath)
+	const appDraftHandle = inSessionPane
+		? undefined
+		: // `canBeDisabled`: page editor — its AutosaveIndicator carries the
+			// "Enable auto-save" toggle, so its reactive saves honor it.
+			UserDraft.use<App>('app', appDraftPath, { canBeDisabled: true })
 	// Suspend autosave around mount — the route may have seeded `app`
 	// from an empty template (e.g. `/apps/add` redirect with
 	// `new_draft=true`), and the `firstMirror` effect below writes that

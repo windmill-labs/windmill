@@ -439,7 +439,12 @@ export const UserDraft = {
 	use<V = unknown>(
 		itemKind: UserDraftItemKind,
 		path: string,
-		opts?: UserDraftOptions
+		opts?: UserDraftOptions & {
+			/** Subject this handle's reactive autosaves to the global
+			 * "Enable auto-save" toggle — see the `useMany` spec field.
+			 * Default `false`. */
+			canBeDisabled?: boolean
+		}
 	): UserDraftHandle<V> {
 		// `use()` is a single-spec wrapper around `useMany`. We untrack
 		// the getter so reactive opts (e.g. `$workspaceStore`) are
@@ -447,7 +452,9 @@ export const UserDraft = {
 		// handle stays bound to this workspace until the component
 		// unmounts." For reactive `(kind, path)` use `useReactive`.
 		const handles = UserDraft.useMany<V>(() =>
-			untrack(() => [{ itemKind, path, workspace: opts?.workspace }])
+			untrack(() => [
+				{ itemKind, path, workspace: opts?.workspace, canBeDisabled: opts?.canBeDisabled }
+			])
 		)
 		return handles[0]
 	},
@@ -465,7 +472,12 @@ export const UserDraft = {
 	 * non-reactive path, `use()` is simpler.
 	 */
 	useReactive<V = unknown>(
-		getSpec: () => { itemKind: UserDraftItemKind; path: string; workspace?: string }
+		getSpec: () => {
+			itemKind: UserDraftItemKind
+			path: string
+			workspace?: string
+			canBeDisabled?: boolean
+		}
 	): UserDraftHandle<V> {
 		const handles = UserDraft.useMany<V>(() => [getSpec()])
 		return {
@@ -507,6 +519,16 @@ export const UserDraft = {
 			 * Captured on first acquire, like `defaultValue`.
 			 */
 			discardIf?: (val: V) => boolean
+			/**
+			 * Subject this handle's reactive autosaves to the global
+			 * "Enable auto-save" toggle (AutosaveIndicator popover). Only
+			 * the full-page editors (script / flow / app / raw app) opt in
+			 * — while the toggle is off their keystroke saves are parked
+			 * for Ctrl/Cmd+S instead of POSTed. Default `false`: drawer
+			 * editors (variables / resources / triggers) always sync.
+			 * Captured on first acquire, like `defaultValue`.
+			 */
+			canBeDisabled?: boolean
 		}[]
 	): UserDraftHandle<V>[] {
 		// Reactive handles array, reconciled against the latest
@@ -535,7 +557,8 @@ export const UserDraft = {
 						spec.itemKind,
 						spec.path,
 						spec.defaultValue,
-						spec.discardIf as ((val: unknown) => boolean) | undefined
+						spec.discardIf as ((val: unknown) => boolean) | undefined,
+						spec.canBeDisabled ?? false
 					)
 					acquired.add(mk)
 				}
@@ -606,7 +629,8 @@ function acquireEntry(
 	itemKind: UserDraftItemKind,
 	path: string,
 	defaultValue?: unknown,
-	discardIf?: (val: unknown) => boolean
+	discardIf?: (val: unknown) => boolean,
+	canBeDisabled = false
 ): void {
 	const mk = mapKey(workspace, itemKind, path)
 	const existing = entries.get(mk)
@@ -682,9 +706,12 @@ function acquireEntry(
 				itemKind,
 				path,
 				value: val === undefined || atBaseline ? null : val,
-				// Reactive keystroke mirror — suppressed (but parked for
-				// Ctrl/Cmd+S) while the "Enable auto-save" toggle is off.
-				auto: true
+				// Reactive keystroke mirror. For handles that opted into
+				// the "Enable auto-save" toggle (`canBeDisabled`, the page
+				// editors), these saves are suppressed (but parked for
+				// Ctrl/Cmd+S) while the toggle is off.
+				auto: true,
+				canBeDisabled
 			})
 		})
 	})
