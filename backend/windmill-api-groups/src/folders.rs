@@ -293,7 +293,7 @@ async fn create_folder(
         ng.summary,
         authed.username,
         default_permissioned_as,
-        ng.labels.as_deref() as Option<&[String]>
+        ng.labels.as_deref().filter(|l| !l.is_empty()) as Option<&[String]>
     )
     .execute(&mut *tx)
     .await {
@@ -472,17 +472,22 @@ async fn update_folder(
     }
 
     if let Some(labels) = ng.labels.as_ref() {
-        sqlb.set(
-            "labels",
-            "?".bind(&format!(
-                "{{{}}}",
-                labels
-                    .iter()
-                    .map(|x| format!("\"{}\"", x.replace('\\', "\\\\").replace('"', "\\\"")))
-                    .collect::<Vec<_>>()
-                    .join(","),
-            )),
-        );
+        if labels.is_empty() {
+            // normalize cleared labels to NULL so the field stays out of API/tarball output
+            sqlb.set("labels", "NULL");
+        } else {
+            sqlb.set(
+                "labels",
+                "?".bind(&format!(
+                    "{{{}}}",
+                    labels
+                        .iter()
+                        .map(|x| format!("\"{}\"", x.replace('\\', "\\\\").replace('"', "\\\"")))
+                        .collect::<Vec<_>>()
+                        .join(","),
+                )),
+            );
+        }
     }
 
     sqlb.returning("*");

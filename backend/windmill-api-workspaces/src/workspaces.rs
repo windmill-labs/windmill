@@ -4254,8 +4254,8 @@ async fn clone_folders(
     target_workspace_id: &str,
 ) -> Result<()> {
     sqlx::query!(
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as)
-         SELECT $2, name, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels)
+         SELECT $2, name, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels
          FROM folder
          WHERE workspace_id = $1",
         source_workspace_id,
