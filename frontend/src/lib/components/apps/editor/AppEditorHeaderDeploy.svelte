@@ -294,6 +294,7 @@
 					policy.disable_sandbox = e.detail
 					setPublishState()
 				}}
+				disabled={!savedApp}
 			/>
 			<Tooltip>
 				Apps run in a sandboxed iframe isolated from the viewer's Windmill session. Disable this
