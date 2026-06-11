@@ -180,12 +180,18 @@ export async function updatePolicy(app: App, currentPolicy: Policy | undefined):
 		})
 		.filter(Boolean) as { s3_path: string; storage?: string | undefined }[]
 
-	return {
+	const next = {
 		...(currentPolicy ?? {}),
 		allowed_s3_keys: s3FileKeys,
 		s3_inputs,
 		triggerables_v2: ntriggerables
 	}
+	// WIN-2006: `legacy_unsandboxed` is a migration-only, backend-set flag that
+	// grandfathers pre-sandbox apps. A (re)deploy resolves the grandfathered app
+	// into an explicit choice (sandboxed, or `disable_sandbox`) via the deploy-time
+	// modal, so the flag is never carried forward by a deploy.
+	delete (next as any).legacy_unsandboxed
+	return next
 }
 
 export async function processRunnable(
