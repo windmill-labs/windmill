@@ -43,7 +43,8 @@
 	let {
 		fetchEmbedToken,
 		onViewerReady,
-		viewer
+		viewer,
+		viewerUrl
 	}: {
 		/** Embedder-side: validate access + mint the scoped token. Throws with a
 		 * `.status` of 401 (login required) or 404 (not found). */
@@ -54,6 +55,12 @@
 		onViewerReady?: (token: string | undefined, requestTokenRefresh: () => void) => void
 		/** Viewer-side: renders the actual app once the embed token is available. */
 		viewer: Snippet
+		/** Embedder-side: override the opaque iframe src (the route that renders the
+		 * viewer). Defaults to the current route + `wm_embed=1` (public routes embed
+		 * themselves). The in-workspace viewer sets this because its embedder route
+		 * (`/apps/get`, auth-gated, with chrome) differs from the cookieless,
+		 * chrome-less viewer route (`/app_embed`). */
+		viewerUrl?: string
 	} = $props()
 
 	const EMBED_PARAM = 'wm_embed'
@@ -204,7 +211,9 @@
 	}
 
 	function buildViewerUrl(): string {
-		const url = new URL(window.location.href)
+		// Default: embed the current route. The in-workspace viewer overrides this
+		// with a dedicated cookieless, chrome-less viewer route (`/app_embed`).
+		const url = new URL(viewerUrl ?? window.location.href, window.location.origin)
 		url.searchParams.set(EMBED_PARAM, '1')
 		url.searchParams.set(ORIGIN_PARAM, window.location.origin)
 		// Same origin (no separate domain); the sandbox makes it opaque.

@@ -90,6 +90,7 @@ pub fn workspaced_service(raw_app_body_limit: usize) -> Router {
         .route("/list", get(list_apps))
         .route("/list_search", get(list_search_apps))
         .route("/get/p/{*path}", get(get_app))
+        .route("/embed_token/p/{*path}", get(get_app_embed_token_for_path))
         .route("/get/lite/{*path}", get(get_app_lite))
         .route("/get/draft/{*path}", get(get_app_w_draft))
         .route("/secret_of/{*path}", get(get_secret_id))
@@ -1118,7 +1119,11 @@ pub async fn mint_app_embed_token(
     let token_and_exp = if let Some(authed) = opt_authed {
         let expiration =
             chrono::Utc::now() + chrono::Duration::hours(APP_EMBED_TOKEN_VALIDITY_HOURS);
-        let scopes = APP_EMBED_SCOPES.iter().map(|s| s.to_string()).collect();
+        let mut scopes: Vec<String> = APP_EMBED_SCOPES.iter().map(|s| s.to_string()).collect();
+        // Path-scoped read so the app can fetch its OWN definition (apps/get/p,
+        // which the in-workspace sandboxed viewer uses) — but no other app's. The
+        // public viewer fetches via apps_u/public_app and doesn't rely on this.
+        scopes.push(format!("apps:read:{app_path}"));
         let token_config = NewToken::new(
             Some(format!("embed_app:{app_path}")),
             Some(expiration),
@@ -1223,6 +1228,59 @@ async fn get_app_embed_token(
     resp.raw_app = raw_app;
     resp.legacy_unsandboxed = policy.legacy_unsandboxed.unwrap_or(false);
     resp.authed = authed_for_token.is_some();
+    Ok(Json(resp))
+}
+
+/// Authenticated, path-based embed token for the in-workspace app viewer
+/// (WIN-2006). Mirrors [`get_app_embed_token`] but keyed by app path and gated by
+/// the caller's read access (RLS), so the logged-in `/apps/get` viewer can render
+/// the app sandboxed — isolated from the member's full session — using the same
+/// scoped token. Raw apps get no token (single-iframe with the page credential).
+async fn get_app_embed_token_for_path(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<EmbedTokenResponse> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", path))?;
+    // RLS: the caller must have read access to this app, otherwise it's not found.
+    let mut tx = user_db.begin(&authed).await?;
+    let app = sqlx::query!(
+        "SELECT a.policy::text as policy, a.versions[array_upper(a.versions, 1)] as version, av.raw_app as raw_app
+         FROM app a JOIN app_version av ON av.id = a.versions[array_upper(a.versions, 1)]
+         WHERE a.path = $1 AND a.workspace_id = $2",
+        path,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    let app = not_found_if_none(app, "App", path)?;
+    let raw_app = app.raw_app;
+    let policy_str = app
+        .policy
+        .ok_or_else(|| Error::internal_err("App policy missing".to_string()))?;
+    let policy = serde_json::from_str::<Policy>(&policy_str).map_err(to_anyhow)?;
+
+    let mut resp = if raw_app {
+        EmbedTokenResponse {
+            token: None,
+            expiration: None,
+            disable_sandbox: false,
+            version: None,
+            raw_app: true,
+            legacy_unsandboxed: false,
+            authed: true,
+        }
+    } else {
+        mint_app_embed_token(&db, &w_id, path, Some(&authed)).await?
+    };
+    resp.disable_sandbox = policy.disable_sandbox.unwrap_or(false);
+    resp.version = app.version;
+    resp.raw_app = raw_app;
+    resp.legacy_unsandboxed = policy.legacy_unsandboxed.unwrap_or(false);
+    resp.authed = true;
     Ok(Json(resp))
 }
 

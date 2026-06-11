@@ -545,7 +545,15 @@ pub async fn run_server(
                     Router::new()
                         // Reordered alphabetically
                         .nest("/acls", granular_acls::workspaced_service())
-                        .nest("/apps", apps::workspaced_service(request_size_limit * 5))
+                        // CORS so the opaque-origin in-workspace app viewer (WIN-2006,
+                        // sandboxed /apps/get) can read the app definition by path
+                        // (apps/get/p, apps/embed_token/p) with a scoped embed token.
+                        // Bearer-token-only (no cookies), consistent with the other
+                        // workspaced services the iframe calls.
+                        .nest(
+                            "/apps",
+                            apps::workspaced_service(request_size_limit * 5).layer(cors.clone()),
+                        )
                         .nest("/assets", windmill_api_assets::workspaced_service())
                         .nest("/audit", audit::workspaced_service())
                         .nest("/capture", capture::workspaced_service())

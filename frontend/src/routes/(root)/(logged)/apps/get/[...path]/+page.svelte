@@ -1,92 +1,120 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
+	/*
+	 * WIN-2006: in-workspace app viewer. The app is untrusted markup/JS, so it must
+	 * not run with the member's full session. This page is the embedder (keeps the
+	 * workspace chrome + Edit button) and renders the app inside an opaque, scoped
+	 * iframe pointing at the cookieless `/app_embed` viewer route — the same
+	 * PublicAppFrame machinery the public viewer uses, by path instead of by secret.
+	 */
 	import { base } from '$lib/base'
-	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
-	import type { EditorBreakpoint } from '$lib/components/apps/types'
-
+	import PublicApp from '$lib/components/apps/editor/PublicApp.svelte'
+	import PublicAppFrame from '$lib/components/apps/editor/PublicAppFrame.svelte'
 	import { Button, Skeleton } from '$lib/components/common'
-	import { AppService, type AppWithLastVersion } from '$lib/gen'
+	import { AppService, OpenAPI } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, urlParamsToObject } from '$lib/utils'
+	import { canWrite } from '$lib/utils'
+	import { getUserExt } from '$lib/user'
 	import { Pen } from 'lucide-svelte'
-	import { writable } from 'svelte/store'
-	import { twMerge } from 'tailwind-merge'
 	import { page } from '$app/state'
 
-	let app: (AppWithLastVersion & { value: any }) | undefined = $state(undefined)
-	let can_write = $state(false)
+	let app: any = $state(undefined)
+	let notExists = $state(false)
+	let noPermission = $state(false)
+	let canWriteApp = $state(false)
+	let refresh: (() => void) | undefined
 
-	async function loadApp() {
-		app = await AppService.getAppLiteByPath({
-			workspace: $workspaceStore!,
-			path: page.params.path ?? ''
+	let workspace = $derived($workspaceStore ?? '')
+	let path = $derived(page.params.path ?? '')
+	// The opaque iframe loads the dedicated cookieless, chrome-less viewer route.
+	let viewerUrl = $derived(`${base}/app_embed/${workspace}/${path}`)
+
+	const hideEditBtn = page.url.searchParams.get('hideEditBtn') === 'true'
+
+	// Embedder side: mint a scoped embed token (by path) from the member's session.
+	async function fetchEmbedToken(): Promise<{ token?: string }> {
+		const headers: Record<string, string> = {}
+		if (typeof OpenAPI.TOKEN === 'string' && OpenAPI.TOKEN) {
+			headers['Authorization'] = `Bearer ${OpenAPI.TOKEN}`
+		}
+		const res = await fetch(`${OpenAPI.BASE}/w/${workspace}/apps/embed_token/p/${path}`, {
+			headers
 		})
-		can_write = canWrite(app?.path, app?.extra_perms!, $userStore)
+		if (!res.ok) {
+			const err: any = new Error('Failed to fetch embed token')
+			err.status = res.status
+			throw err
+		}
+		return await res.json()
+	}
+
+	// Viewer side — only for the unsandboxed direct-render (legacy / consented
+	// disable-sandbox); the sandboxed case loads inside the opaque /app_embed iframe.
+	async function loadApp() {
+		try {
+			userStore.set(await getUserExt(workspace))
+		} catch (e) {
+			console.warn('Anonymous user')
+		}
+		try {
+			app = await AppService.getAppByPath({ workspace, path })
+			noPermission = false
+			notExists = false
+		} catch (e: any) {
+			if (e.status == 401) refresh?.()
+			else if (e.status == 403) noPermission = true
+			else notExists = true
+		}
+	}
+
+	// Edit button: determine write access on this real-origin page (cookie).
+	async function loadPerms() {
+		try {
+			const lite: any = await AppService.getAppLiteByPath({ workspace, path })
+			canWriteApp = canWrite(lite?.path, lite?.extra_perms ?? {}, $userStore)
+		} catch (_) {
+			canWriteApp = false
+		}
 	}
 
 	$effect(() => {
-		if ($workspaceStore && page.params.path) {
-			if (app && page.params.path === app.path) {
-				console.log('App already loaded')
-			} else {
-				loadApp()
-			}
-		}
+		if (workspace && path) loadPerms()
 	})
-
-	const breakpoint = writable<EditorBreakpoint>('lg')
-
-	const hideRefreshBar = page.url.searchParams.get('hideRefreshBar') === 'true'
-	const hideEditBtn = page.url.searchParams.get('hideEditBtn') === 'true'
 </script>
 
-{#if app}
-	{#key app}
-		<div
-			class={twMerge(
-				'min-h-screen h-full w-full flex flex-col',
-				app?.value.css?.['app']?.['viewer']?.class,
-				'wm-app-viewer'
-			)}
-			style={app?.value.css?.['app']?.['viewer']?.style}
-		>
-			<AppPreview
-				context={{
-					email: $userStore?.email,
-					name: $userStore?.name,
-					username: $userStore?.username,
-					groups: $userStore?.groups,
-					query: urlParamsToObject(page.url.searchParams, { stripReserved: true }),
-					hash: page.url.hash.substring(1)
-				}}
-				workspace={$workspaceStore ?? ''}
-				summary={app.summary}
-				app={app.value}
-				appPath={page.params.path}
-				{breakpoint}
-				policy={app.policy}
-				isEditor={false}
-				noBackend={false}
-				{hideRefreshBar}
-				replaceStateFn={(path) => {
-					goto(path)
-				}}
-				gotoFn={(path, opt) => {
-					goto(path, opt)
-				}}
-			/>
-			{#if can_write && !hideEditBtn}
-				<div id="app-edit-btn" class="absolute bottom-4 z-50 right-4">
-					<Button
-						size="sm"
-						startIcon={{ icon: Pen }}
-						variant="subtle"
-						href="{base}/apps/edit/{app.path}?nodraft=true">Edit</Button
-					>
-				</div>
-			{/if}
-		</div>
-	{/key}
+<!-- Wait for the active workspace before mounting the embedder: it's needed to
+     mint the token and to build the viewer iframe URL, and the store is set
+     asynchronously by the (logged) layout. -->
+{#if $workspaceStore && path}
+	<PublicAppFrame
+		{fetchEmbedToken}
+		{viewerUrl}
+		onViewerReady={(_token, requestTokenRefresh) => {
+			refresh = requestTokenRefresh
+			loadApp()
+		}}
+	>
+		{#snippet viewer()}
+			<PublicApp
+				{app}
+				{workspace}
+				{notExists}
+				{noPermission}
+				jwtError={false}
+				onLoginSuccess={() => loadApp()}
+			></PublicApp>
+		{/snippet}
+	</PublicAppFrame>
 {:else}
 	<Skeleton layout={[10]} />
+{/if}
+
+{#if canWriteApp && !hideEditBtn}
+	<div id="app-edit-btn" class="absolute bottom-4 z-50 right-4">
+		<Button
+			size="sm"
+			startIcon={{ icon: Pen }}
+			variant="subtle"
+			href="{base}/apps/edit/{path}?nodraft=true">Edit</Button
+		>
+	</div>
 {/if}
