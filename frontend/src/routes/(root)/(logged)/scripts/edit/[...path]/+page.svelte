@@ -18,7 +18,7 @@
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
 	import { UserDraft } from '$lib/userDraft.svelte'
-	import { runResetToDeployed } from '$lib/userDraftToast'
+	import { discardDraftAfterDeploy, runResetToDeployed } from '$lib/userDraftToast'
 	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
 
@@ -447,7 +447,15 @@
 				sendUserToast('Deployed')
 				return
 			}
-			draftSync.remove()
+			// stopSync-bracketed immediate delete — a bare remove() only
+			// queues the null and post-deploy mirror writes can displace it.
+			if ($workspaceStore) {
+				discardDraftAfterDeploy({
+					workspace: $workspaceStore,
+					itemKind: 'script',
+					path: draftPath
+				})
+			}
 			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 		}}

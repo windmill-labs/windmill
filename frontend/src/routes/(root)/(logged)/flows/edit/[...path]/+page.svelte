@@ -20,7 +20,11 @@
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 	import { page } from '$app/state'
 	import { UserDraft } from '$lib/userDraft.svelte'
-	import { armRestartOnFirstInteraction, runResetToDeployed } from '$lib/userDraftToast'
+	import {
+		armRestartOnFirstInteraction,
+		discardDraftAfterDeploy,
+		runResetToDeployed
+	} from '$lib/userDraftToast'
 
 	let version: undefined | number = $state(undefined)
 
@@ -478,7 +482,15 @@
 {:else if renderEditor}
 	<FlowBuilder
 		onDeploy={(e) => {
-			draftSync.remove()
+			// stopSync-bracketed immediate delete — a bare remove() only
+			// queues the null and post-deploy mirror writes can displace it.
+			if ($workspaceStore) {
+				discardDraftAfterDeploy({
+					workspace: $workspaceStore,
+					itemKind: 'flow',
+					path: flowDraftPath
+				})
+			}
 			if ($workspaceStore) invalidate($workspaceStore, 'flow')
 			goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
 		}}

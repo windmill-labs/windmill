@@ -49,6 +49,35 @@ export async function runResetToDeployed(opts: {
 }
 
 /**
+ * Post-deploy draft cleanup. Deletes the draft at its CANONICAL slot key
+ * (the URL path the editor's handle is keyed on — NOT the just-typed
+ * deploy path, which differs for draft-only items) and flushes the
+ * delete immediately, with the reactive mirror muted around it.
+ *
+ * The mute + flush combination matters: `UserDraft.remove` alone only
+ * QUEUES the `value: null` in the per-key debouncer, and editors that
+ * stay mounted through the post-deploy navigation (AppEditor,
+ * RawAppEditor) keep mirroring their working value — a single such
+ * write DISPLACES the queued delete and silently re-saves the draft the
+ * deploy was supposed to consume. Sync re-arms on the next interaction
+ * so deploy-and-stay flows keep autosaving.
+ */
+export function discardDraftAfterDeploy(opts: {
+	workspace: string
+	itemKind: UserDraftItemKind
+	path: string
+}): void {
+	UserDraft.stopSync(opts.itemKind, opts.path, { workspace: opts.workspace })
+	UserDraft.remove(opts.itemKind, opts.path, { workspace: opts.workspace })
+	void UserDraftDbSyncer.flush({
+		workspace: opts.workspace,
+		itemKind: opts.itemKind,
+		path: opts.path
+	})
+	armRestartOnFirstInteraction(opts.workspace, opts.itemKind, opts.path)
+}
+
+/**
  * Defer `UserDraft.restartSync(workspace, itemKind, path)` to the first
  * user interaction (keydown / input / pointerdown on document, capture
  * phase). Falls back to a 5s timer if no interaction fires — without

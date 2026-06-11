@@ -5,7 +5,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AppService, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history.svelte'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { enterpriseLicense, tutorialsToDo, userStore, workspaceStore } from '$lib/stores'
 	import { isMac, type Item, userPathPrefix } from '$lib/utils'
@@ -270,8 +270,16 @@
 			// AppEditor keyed the handle on), NOT the just-typed deploy
 			// `path` — for a new app they differ (`u/{user}/draft_{uuid}` vs
 			// the user's chosen path), so removing at `path` would orphan the
-			// real draft row.
-			if (!inSessionPane) UserDraft.remove('app', userDraftPath)
+			// real draft row. stopSync-bracketed + flushed: AppEditor stays
+			// mounted through the post-deploy navigation and its mirror
+			// would otherwise displace the queued delete with a fresh save.
+			if (!inSessionPane && $workspaceStore) {
+				discardDraftAfterDeploy({
+					workspace: $workspaceStore,
+					itemKind: 'app',
+					path: userDraftPath
+				})
+			}
 			onSavedNewAppPath?.(path)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
@@ -373,8 +381,14 @@
 		sendUserToast('App deployed successfully')
 		// Canonical autosave key (the URL draft path), not `$appPath` — a
 		// rename leaves the autosave at the original key, so removing at
-		// `$appPath` would miss it.
-		if (!inSessionPane) UserDraft.remove('app', userDraftPath)
+		// `$appPath` would miss it. Bracketed + flushed (see createApp).
+		if (!inSessionPane && $workspaceStore) {
+			discardDraftAfterDeploy({
+				workspace: $workspaceStore,
+				itemKind: 'app',
+				path: userDraftPath
+			})
+		}
 		if ($appPath !== npath) {
 			onSavedNewAppPath?.(npath)
 		}

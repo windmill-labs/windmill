@@ -7,6 +7,7 @@
 
 	import { AppService, type Policy } from '$lib/gen'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
 	import { rawAppToHubUrl } from '$lib/hub'
 	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 	import YAML from 'yaml'
@@ -309,7 +310,19 @@
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
-			if (!inSessionPane) UserDraft.remove('raw_app', path)
+			// Canonical autosave key (the URL slot `appPath`), NOT the
+			// just-typed deploy `path` — for a draft-only app they differ
+			// (`u/{user}/draft_{uuid}` vs the chosen path), so removing at
+			// `path` orphaned the real draft row. Bracketed + flushed:
+			// RawAppEditor stays mounted through the post-deploy navigation
+			// and its mirror would otherwise displace the queued delete.
+			if (!inSessionPane && $workspaceStore) {
+				discardDraftAfterDeploy({
+					workspace: $workspaceStore,
+					itemKind: 'raw_app',
+					path: appPath
+				})
+			}
 			dispatch('savedNewAppPath', path)
 			onDeploy?.({ path })
 		} catch (e) {
@@ -443,7 +456,14 @@
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
-		if (!inSessionPane) UserDraft.remove('raw_app', appPath)
+		// Bracketed + flushed (see createApp).
+		if (!inSessionPane && $workspaceStore) {
+			discardDraftAfterDeploy({
+				workspace: $workspaceStore,
+				itemKind: 'raw_app',
+				path: appPath
+			})
+		}
 		if (appPath !== npath) {
 			dispatch('savedNewAppPath', npath)
 		}
