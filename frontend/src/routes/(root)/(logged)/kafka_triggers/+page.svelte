@@ -377,10 +377,10 @@
 											</span>
 										{:else}
 											{kafka_resource_path} - {topics.join(', ')}
-										{/if}
+										{/if}{(getLocalDraftHint($workspaceStore, 'trigger_kafka', path) ?? is_draft) ? '*' : ''}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-light">
-										{path}{(getLocalDraftHint($workspaceStore, 'trigger_kafka', path) ?? is_draft) ? '*' : ''}
+										{path}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-light">
 										runnable: {script_path}

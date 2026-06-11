@@ -364,10 +364,10 @@
 											: url.startsWith('$flow:')
 												? 'URL: ' + url.replace('$flow:', 'result of flow ')
 												: url}
-									{/if}
+									{/if}{(getLocalDraftHint($workspaceStore, 'trigger_websocket', path) ?? is_draft) ? '*' : ''}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
-									{path}{(getLocalDraftHint($workspaceStore, 'trigger_websocket', path) ?? is_draft) ? '*' : ''}
+									{path}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
 									runnable: {script_path}

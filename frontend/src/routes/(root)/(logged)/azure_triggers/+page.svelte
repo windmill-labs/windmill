@@ -429,7 +429,7 @@
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
 								<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
-									{path}{(getLocalDraftHint($workspaceStore, 'trigger_azure', path) ?? is_draft) ? '*' : ''} - {topic_label} ({azure_mode}, {subscription_name})
+									{path} - {topic_label} ({azure_mode}, {subscription_name}){(getLocalDraftHint($workspaceStore, 'trigger_azure', path) ?? is_draft) ? '*' : ''}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
 									runnable: {script_path}

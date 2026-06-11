@@ -395,10 +395,10 @@
 											/{isCloudHosted() || workspaced_route || globalHttpWorkspacedRoute
 												? workspace_id + '/' + route_path
 												: route_path}
-										{/if}
+										{/if}{(getLocalDraftHint($workspaceStore, 'trigger_http', path) ?? is_draft) ? '*' : ''}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-normal">
-										{path}{(getLocalDraftHint($workspaceStore, 'trigger_http', path) ?? is_draft) ? '*' : ''}
+										{path}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-normal">
 										{#if static_asset_config}

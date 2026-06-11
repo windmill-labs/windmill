@@ -404,7 +404,7 @@
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
 								<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
-									{path}{(getLocalDraftHint($workspaceStore, 'trigger_gcp', path) ?? is_draft) ? '*' : ''} - {topic_id}
+									{path} - {topic_id}{(getLocalDraftHint($workspaceStore, 'trigger_gcp', path) ?? is_draft) ? '*' : ''}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
 									runnable: {script_path}

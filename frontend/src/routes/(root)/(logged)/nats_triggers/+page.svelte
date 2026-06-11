@@ -376,10 +376,10 @@
 											</span>
 										{:else}
 											{nats_resource_path} - {subjects.join(', ')}
-										{/if}
+										{/if}{(getLocalDraftHint($workspaceStore, 'trigger_nats', path) ?? is_draft) ? '*' : ''}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-light">
-										{path}{(getLocalDraftHint($workspaceStore, 'trigger_nats', path) ?? is_draft) ? '*' : ''}
+										{path}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-light">
 										runnable: {script_path}
