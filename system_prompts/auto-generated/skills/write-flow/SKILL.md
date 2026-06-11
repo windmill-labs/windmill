@@ -44,7 +44,7 @@ Once the flow has real content, **offer** to open the visual preview as a one-se
 
 ## CLI Commands — running, previewing, deploying
 
-After writing, tell the user which command fits what they want to do:
+After writing, act on the user's intent instead of just listing commands. Run the safe, non-deploying command yourself when it fits (`wmill flow preview` — see "After writing — offer to run, don't wait passively" below); only *name* the commands that deploy or rewrite files (`wmill sync push`, `wmill generate-metadata`) so the user can approve them. The options:
 
 - `wmill flow preview <flow_path>` — **default when iterating on a local flow.** Runs the local `flow.yaml` against local inline scripts without deploying. Add `--remote` to use deployed workspace scripts for PathScript steps instead of local files. Add `--step <step_id>` to run only one module in isolation (see "Single-step vs whole-flow preview" below).
 - `wmill flow run <path>` — runs the flow **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
