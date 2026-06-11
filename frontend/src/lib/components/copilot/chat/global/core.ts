@@ -2084,8 +2084,7 @@ export const globalTools: Tool<{}>[] = [
 			const result = await getSessionAppRuns(parsed.limit ?? 20, sessionIdFromCtx(ctx))
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 				content: result.uiMessage,
-				result: result.toolResult,
-				autoCollapseDetails: true
+				result: result.toolResult
 			})
 			return result.aiResult
 		}

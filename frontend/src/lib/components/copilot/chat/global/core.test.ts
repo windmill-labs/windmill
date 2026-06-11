@@ -2022,7 +2022,7 @@ describe('prepareGlobalSystemMessage', () => {
 			expect(handler).toHaveBeenCalledWith({ sessionId: 'sess-logs', limit: 10 })
 			expect(callbacks.setToolStatus).toHaveBeenLastCalledWith('test-get_app_runtime_logs', {
 				content: 'Read 1 runtime log',
-				autoCollapseDetails: true
+				result: '[{"level":"log","message":"log message","ts":1718000000000}]'
 			})
 		})
 
@@ -2067,7 +2067,8 @@ describe('prepareGlobalSystemMessage', () => {
 			expect(handler).toHaveBeenCalledWith({ sessionId: 'sess-runs', limit: 20 })
 			expect(callbacks.setToolStatus).toHaveBeenLastCalledWith('test-list_app_runs', {
 				content: 'Listed 1 app run',
-				autoCollapseDetails: true
+				result:
+					'[{"job_id":"job-1","component":"backend.1","status":"completed","created_at":1718000000000,"started_at":1718000000000,"duration_ms":1000}]'
 			})
 		})
 
