@@ -91,13 +91,13 @@ mod granular_acls;
 mod group_history;
 mod groups;
 mod health;
+mod hub_publish;
 #[cfg(feature = "private")]
 pub mod indexer_ee;
 mod indexer_oss;
 #[cfg(feature = "private")]
 mod inkeep_ee;
 mod inkeep_oss;
-mod hub_publish;
 mod integration;
 mod internal_db;
 mod live_migrations;
