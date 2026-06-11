@@ -147,9 +147,11 @@
 	// Modal2 instances preventDefault+stopPropagation every window Escape
 	// (Modal2.svelte handleKeyDown), and Monaco consumes Escape before it can
 	// bubble — capture runs first, ahead of both. When we do cancel we claim
-	// the key (preventDefault + stopPropagation) so the same press doesn't
-	// also close a surrounding drawer/modal; when idle or focused elsewhere
-	// we touch nothing, so Escape keeps its normal behaviour everywhere.
+	// the key (preventDefault + stopImmediatePropagation — the immediate form
+	// so other mounted chat panels' identical listeners don't also cancel
+	// their generations on body focus, and the press doesn't close a
+	// surrounding drawer/modal); when idle or focused elsewhere we touch
+	// nothing, so Escape keeps its normal behaviour everywhere.
 	let panelEl: HTMLDivElement | undefined = $state()
 	$effect(() => {
 		function onWindowKeydownCapture(e: KeyboardEvent) {
@@ -159,7 +161,7 @@
 				!active || active === document.body || (panelEl?.contains(active) ?? false)
 			if (!focusOnChat) return
 			e.preventDefault()
-			e.stopPropagation()
+			e.stopImmediatePropagation()
 			aiChatManager.cancel()
 		}
 		window.addEventListener('keydown', onWindowKeydownCapture, true)

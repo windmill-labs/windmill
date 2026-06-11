@@ -695,7 +695,7 @@ export class AIChatManager {
 	) => {
 		this.displayMessages = this.displayMessages.slice(0, displayLenAfterUser - 1)
 		this.messages = this.messages.slice(0, modelLenAfterUser - 1)
-		this.aiChatInput?.setInstructions(instructions, pastes)
+		this.aiChatInput?.restoreInstructions(instructions, pastes)
 	}
 
 	private chatRequest = async ({
@@ -934,6 +934,10 @@ export class AIChatManager {
 		// interrupted turn this holds the partial answer that never became a
 		// structured message, so it can be carried as context (#3).
 		let partialReply = ''
+		// Set once the request finished and an outcome branch (commit/restore) took
+		// over — a later throw (e.g. from saveChat) must not make the catch commit
+		// the turn a second time.
+		let turnOutcomeHandled = false
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
 			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
@@ -1158,6 +1162,7 @@ export class AIChatManager {
 			const hasUsableOutput =
 				truncateToToolPairedPrefix(collectedMessages).length > 0 || !!partialReply.trim()
 			const producedDisplayOutput = this.displayMessages.length > displayLenAfterUser
+			turnOutcomeHandled = true
 
 			if (wasAborted && hasUsableOutput) {
 				// Interrupted (Escape/stop) after some output: keep the completed steps
@@ -1182,7 +1187,15 @@ export class AIChatManager {
 				// out of the transcript (also clearing any partial reasoning bubble)
 				// and hand the text back to the composer (matches Claude Code).
 				this.restoreUnsentTurn(displayLenAfterUser, modelLenAfterUser, sentInstructions, sentPastes)
-				await this.historyManager.saveChat(this.displayMessages, this.messages)
+				if (this.displayMessages.length === 0) {
+					// A rolled-back first turn empties the transcript, and saveChat
+					// no-ops on an empty one — the chat persisted earlier this turn
+					// (still holding the restored user message) would linger in history
+					// and resurface the message on reload. Remove it instead.
+					this.historyManager.deletePastChat(this.historyManager.getCurrentChatId())
+				} else {
+					await this.historyManager.saveChat(this.displayMessages, this.messages)
+				}
 				if (!wasAborted) {
 					sendUserToast('The model returned no response — your message was restored to the input.')
 				}
@@ -1201,15 +1214,19 @@ export class AIChatManager {
 			}
 		} catch (err) {
 			console.error(err)
-			// #3: a genuine failure — keep the completed steps + the partial answer
-			// so a follow-up message continues with that context.
-			this.commitInterruptedTurn(collectedMessages, partialReply)
-			try {
-				await this.historyManager.saveChat(this.displayMessages, this.messages)
-			} catch (saveErr) {
-				console.error('Failed to persist partial chat after error', saveErr)
+			// #3: a genuine request failure — keep the completed steps + the partial
+			// answer so a follow-up message continues with that context. Skipped when
+			// the outcome was already handled (the throw came from post-commit code
+			// like saveChat): re-committing would duplicate the turn's messages.
+			if (!turnOutcomeHandled) {
+				this.commitInterruptedTurn(collectedMessages, partialReply)
+				try {
+					await this.historyManager.saveChat(this.displayMessages, this.messages)
+				} catch (saveErr) {
+					console.error('Failed to persist partial chat after error', saveErr)
+				}
+				this.flagLastMessageAsError()
 			}
-			this.flagLastMessageAsError()
 			if (err instanceof Error) {
 				sendUserToast('Failed to send request: ' + err.message, true)
 			} else {
