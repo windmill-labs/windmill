@@ -101,16 +101,22 @@ function parseKey(key: string): ParsedKey | undefined {
 /**
  * Extract the payload that was stored in localStorage. The LS schema
  * was `{ value: V, lastWrittenAt?: number, remoteRev?: ..., ... }`.
- * For the migration we only need `value`. Returns `undefined` when the
- * slot is empty / unparseable / wrong shape.
+ * The migration needs `value` plus `lastWrittenAt` (the LS copy's age,
+ * passed as `last_sync` so a fresher server draft wins the upload).
+ * Returns `undefined` when the slot is empty / unparseable / wrong
+ * shape.
  */
-function readPayload(key: string): unknown {
+function readPayload(key: string): { value: unknown; lastWrittenAt?: number } | undefined {
 	try {
 		const raw = localStorage.getItem(key)
 		if (raw == null || raw === 'undefined') return undefined
 		const parsed = JSON.parse(raw)
 		if (parsed == null || typeof parsed !== 'object' || !('value' in parsed)) return undefined
-		return (parsed as { value: unknown }).value
+		const lastWrittenAt = (parsed as { lastWrittenAt?: unknown }).lastWrittenAt
+		return {
+			value: (parsed as { value: unknown }).value,
+			lastWrittenAt: typeof lastWrittenAt === 'number' ? lastWrittenAt : undefined
+		}
 	} catch {
 		return undefined
 	}
@@ -127,10 +133,18 @@ function collectKeys(): string[] {
 
 /**
  * Walk every `userdraft/w/{ws}/{kind}/{path}` entry in localStorage,
- * push each to `POST /drafts/save_draft` with `force: true`, and remove
- * it from LS on a successful response. Entries that fail to migrate
- * (parse error, network error, unrecognized kind, ...) stay in LS and
- * are retried on the next mount.
+ * push each to `POST /drafts/save_draft`, and remove it from LS once
+ * settled. Entries that fail to migrate (parse error, network error,
+ * unrecognized kind, ...) stay in LS and are retried on the next mount.
+ *
+ * The LS copy's `lastWrittenAt` rides along as `last_sync`, so the
+ * server only accepts the upload when its own draft (if any) is not
+ * fresher — the user may have kept editing the same path from another
+ * browser after this one last wrote LS, and a blind overwrite would
+ * destroy that newer server draft. Entries without `lastWrittenAt`
+ * use epoch 0: insert when the slot is empty, yield to any existing
+ * server draft. A `conflict` response means the server copy won — the
+ * LS entry is dropped without uploading.
  *
  * Resolves only when every candidate has been attempted. Logs per-entry
  * errors but never throws — the caller is fire-and-forget.
@@ -142,12 +156,17 @@ export async function migrateUserDraftsToDb(): Promise<void> {
 
 	// Parse up front so we only announce the migration when there's a real
 	// `userdraft/...` entry to upload (and can drop unparseable junk first).
-	const toMigrate: { key: string; parsed: ParsedKey; value: unknown }[] = []
+	const toMigrate: {
+		key: string
+		parsed: ParsedKey
+		value: unknown
+		lastWrittenAt?: number
+	}[] = []
 	for (const key of keys) {
 		const parsed = parseKey(key)
 		if (!parsed) continue
-		const value = readPayload(key)
-		if (value === undefined) {
+		const payload = readPayload(key)
+		if (payload === undefined) {
 			// Unparseable or empty — clear so we don't keep retrying it.
 			try {
 				localStorage.removeItem(key)
@@ -156,26 +175,31 @@ export async function migrateUserDraftsToDb(): Promise<void> {
 			}
 			continue
 		}
-		toMigrate.push({ key, parsed, value })
+		toMigrate.push({ key, parsed, value: payload.value, lastWrittenAt: payload.lastWrittenAt })
 	}
 	if (toMigrate.length === 0) return
 
 	// Legacy drafts detected — tell the user the one-off upload is running.
 	sendUserToast('Migrating local storage drafts ...', 'info')
 
-	for (const { key, parsed, value } of toMigrate) {
+	for (const { key, parsed, value, lastWrittenAt } of toMigrate) {
 		try {
-			await DraftService.saveDraft({
+			const res = await DraftService.saveDraft({
 				workspace: parsed.workspace,
 				kind: parsed.itemKind,
 				path: parsed.path,
-				requestBody: { value, force: true }
+				requestBody: { value, last_sync: new Date(lastWrittenAt ?? 0).toISOString() }
 			})
+			if (res.status === 'conflict') {
+				console.info(
+					`UserDraft LS→DB migration: server draft for ${parsed.path} is fresher, dropping LS copy`
+				)
+			}
 			try {
 				localStorage.removeItem(key)
 			} catch {
 				// Best-effort. If LS removal fails the next mount retries
-				// the save (force: true is idempotent).
+				// the save (the conflict rule keeps it idempotent).
 			}
 		} catch (e) {
 			// Leave the LS entry in place — the next mount tries again — but
