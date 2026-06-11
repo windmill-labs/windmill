@@ -465,8 +465,11 @@ export async function discardDraft(
 	try {
 		// Routes through UserDraftDbSyncer.postSave, which clears the
 		// syncer-owned `*` hint on a `value: null` delete — no explicit
-		// clear needed here.
-		await UserDraftDbSyncer.save({ workspace, itemKind: kind, path, value: null })
+		// clear needed here. `immediate: true` so this await resolves only
+		// after the POST lands — without it the save resolves at enqueue
+		// time and the invalidate below refetches ~1.5s ahead of the
+		// delete, re-listing the just-discarded draft.
+		await UserDraftDbSyncer.save({ workspace, itemKind: kind, path, value: null, immediate: true })
 		invalidateWorkspaceDrafts(workspace)
 		return { success: true }
 	} catch (e: any) {
