@@ -9912,8 +9912,6 @@ paths:
                 - $ref: "#/components/schemas/OpenFlowWPath"
                 - type: object
                   properties:
-                    draft_only:
-                      type: boolean
                     deployment_message:
                       type: string
                     skip_draft_deletion:
@@ -10449,8 +10447,6 @@ paths:
                   type: string
                 policy:
                   $ref: "#/components/schemas/Policy"
-                draft_only:
-                  type: boolean
                 deployment_message:
                   type: string
                 custom_path:
@@ -10504,8 +10500,6 @@ paths:
                       type: string
                     policy:
                       $ref: "#/components/schemas/Policy"
-                    draft_only:
-                      type: boolean
                     deployment_message:
                       type: string
                     custom_path:
@@ -21213,12 +21207,11 @@ components:
             properties:
               username:
                 type: string
-              email:
-                type: string
-              draft_saved_at:
-                type: string
-                format: date-time
-            required: [draft_saved_at]
+                nullable: true
+                description: |
+                  Workspace username of the draft owner. `null` represents
+                  the legacy workspace-level (NULL-email) row. Emails never
+                  leave the server.
       required: [is_draft]
     UserDraftItemKind:
       type: string
@@ -22182,8 +22175,6 @@ components:
           enum: [script, failure, trigger, command, approval, preprocessor]
         tag:
           type: string
-        draft_only:
-          type: boolean
         envs:
           type: array
           items:
