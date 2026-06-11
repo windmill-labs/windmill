@@ -1173,7 +1173,7 @@ export class AIChatManager {
 					sendUserToast('The model returned no response — your message was restored to the input.')
 				}
 			} else {
-				// Clean turn with output → commit as-is (unchanged behavior).
+				// Clean turn with output → commit as-is.
 				this.messages = [...this.messages, ...collectedMessages]
 				if (this.autoAcceptEditsActive) {
 					this.acceptPendingFlowEdits()
