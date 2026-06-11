@@ -1082,10 +1082,16 @@ export class AIChatManager {
 		// Re-grant any locked File System Access handles within this send gesture, so the
 		// file tools can read the live files. requestPermission() needs a user gesture, and
 		// this runs before the first await/network call while the Send click is still active.
-		await this.attachedFiles.regrantLocked()
-		// Re-enumerate linked folders so on-disk changes (renamed/added/removed/edited files)
-		// are reflected in the roster + indexes before this turn runs.
-		await this.attachedFiles.refreshFolders()
+		// Attachment upkeep must never block the send — affected files just stay locked/stale
+		// and the tools report their status to the model.
+		try {
+			await this.attachedFiles.regrantLocked()
+			// Re-enumerate linked folders so on-disk changes (renamed/added/removed/edited
+			// files) are reflected in the roster + indexes before this turn runs.
+			await this.attachedFiles.refreshFolders()
+		} catch (e) {
+			console.error('Attached-files upkeep failed before send', e)
+		}
 		if (this.beforeSend) {
 			try {
 				await this.beforeSend()

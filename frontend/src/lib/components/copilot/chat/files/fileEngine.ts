@@ -25,7 +25,12 @@ const CHUNK_NEWLINE = 0x0a // '\n' — in UTF-8 this byte never appears inside a
 export const DEFAULT_READ_MAX_LINES = 200
 export const DEFAULT_READ_MAX_CHARS = 8000
 export const DEFAULT_SEARCH_MAX_HITS = 50
-/** Per-line cap when testing the regex, to bound catastrophic backtracking on degenerate long lines. */
+/**
+ * Per-line cap on how much of a degenerate long line the regex is tested against.
+ * This bounds work for linear-time patterns; it does NOT prevent catastrophic
+ * backtracking — a nested-quantifier pattern can still go exponential within the
+ * capped prefix (search runs on the main thread, so that is a self-DoS of the tab).
+ */
 export const DEFAULT_SEARCH_LINE_SCAN_CAP = 100_000
 /** How much of a matching line we echo back, to keep search results bounded. */
 export const DEFAULT_SEARCH_LINE_ECHO_CAP = 500
@@ -120,15 +125,20 @@ export async function readFile(
 
 	const byteStart = entry.lineIndex[start - 1]
 	const byteEnd = end < totalLines ? entry.lineIndex[end] : entry.file.size
+	// Bound the decode for newline-sparse files (minified JS, single-line JSONL): the
+	// window can span the whole file, but we only ever return maxChars characters, and
+	// a UTF-8 character is at most 4 bytes — so never materialize more than that.
+	const byteCap = byteStart + maxChars * 4
+	const byteCapped = byteCap < byteEnd
 
 	let text: string
 	try {
-		text = await entry.file.slice(byteStart, byteEnd).text()
+		text = await entry.file.slice(byteStart, byteCapped ? byteCap : byteEnd).text()
 	} catch (e) {
 		throw new FileReadError(entry.name, e instanceof Error ? e.message : String(e))
 	}
 
-	let cappedByChars = false
+	let cappedByChars = byteCapped
 	if (text.length > maxChars) {
 		text = text.slice(0, maxChars)
 		cappedByChars = true
@@ -243,9 +253,19 @@ export class FileReadError extends Error {
 }
 
 /**
+ * Max characters buffered for a single line while streaming. A newline-less file
+ * (e.g. minified JS) would otherwise accumulate wholesale in `buffer`; past this
+ * cap excess characters are dropped (the line's intact prefix is preserved) —
+ * harmless for search, which only tests/echoes a prefix far smaller than this.
+ */
+const MAX_LINE_BUFFER_CHARS = 1_000_000
+
+/**
  * Stream a file and invoke `onLine` for each line (1-based). A trailing newline
  * does not produce an empty final line. `onLine` returns false to stop early.
- * A trailing '\r' (CRLF) is stripped before the callback.
+ * A trailing '\r' (CRLF) is stripped before the callback. Overlong lines are
+ * passed with at least their first MAX_LINE_BUFFER_CHARS characters intact;
+ * content beyond the cap may be dropped.
  */
 async function streamLines(
 	file: Blob,
@@ -273,6 +293,12 @@ async function streamLines(
 				if (!onLine(line, lineNo)) return
 			}
 			buffer = buffer.slice(start)
+			// The remainder holds no newline — cap how much of an overlong line we keep.
+			// Dropped characters are line content only, so newline detection and line
+			// numbering in later chunks are unaffected.
+			if (buffer.length > MAX_LINE_BUFFER_CHARS) {
+				buffer = buffer.slice(0, MAX_LINE_BUFFER_CHARS)
+			}
 		}
 		if (buffer.length > 0) {
 			let line = buffer

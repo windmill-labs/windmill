@@ -78,6 +78,14 @@ describe('readFile', () => {
 		expect(res.note).toContain('8000 characters')
 	})
 
+	it('bounds the byte decode on a newline-sparse window (never reads past maxChars*4 bytes)', async () => {
+		// One 200k-char line; with maxChars=1000 only ≤4000 bytes are sliced before decode.
+		const entry = await makeEntry('y'.repeat(200_000))
+		const res = await readFile(entry, { maxChars: 1000 })
+		expect(res.text).toBe('y'.repeat(1000))
+		expect(res.truncated).toBe(true)
+	})
+
 	it('clamps a start line beyond the end', async () => {
 		const entry = await makeEntry('l1\nl2')
 		const res = await readFile(entry, { startLine: 99 })

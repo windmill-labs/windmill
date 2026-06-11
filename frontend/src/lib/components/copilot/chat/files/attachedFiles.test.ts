@@ -136,6 +136,68 @@ describe('AttachedFilesStore', () => {
 		expect(s2.lockedCount).toBe(1)
 	})
 
+	it('re-picking a locked folder relinks it instead of silently no-oping', async () => {
+		const { getItemsForSession } = await import('./attachedFilesDB')
+		;(getItemsForSession as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+			{
+				id: 'src1',
+				sessionId: 's1',
+				kind: 'dir-handle',
+				name: 'proj',
+				folder: 'proj',
+				handle: dir,
+				addedAt: 0
+			}
+		])
+		const { queryReadPermission } = await import('./fsAccess')
+		;(queryReadPermission as ReturnType<typeof vi.fn>).mockResolvedValueOnce('prompt')
+		const s2 = new AttachedFilesStore()
+		await s2.restore('s1', true)
+		expect(s2.folders[0]?.status).toBe('locked')
+
+		enumerateDirMock.mockResolvedValue([{ file: file('app.ts', 'x\n'), path: 'proj/app.ts' }])
+		const result = await s2.addFolder(dir)
+		await settle(s2)
+		expect(result.added).toEqual(['proj/app.ts'])
+		expect(s2.folders).toHaveLength(1)
+		expect(s2.folders[0].status).toBe('ready')
+	})
+
+	it('rejects linking a second folder with the same name (visible, not silent)', async () => {
+		enumerateDirMock.mockResolvedValue([{ file: file('app.ts', 'x\n'), path: 'proj/app.ts' }])
+		await store.addFolder(dir)
+		await settle(store)
+		const result = await store.addFolder(dir)
+		expect(result.added).toEqual([])
+		expect(result.rejected[0]?.reason).toMatch(/already linked/)
+		expect(store.folders).toHaveLength(1)
+	})
+
+	it('regrant keeps the folder visible as unavailable when enumeration fails', async () => {
+		const { getItemsForSession } = await import('./attachedFilesDB')
+		;(getItemsForSession as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+			{
+				id: 'src1',
+				sessionId: 's1',
+				kind: 'dir-handle',
+				name: 'proj',
+				folder: 'proj',
+				handle: dir,
+				addedAt: 0
+			}
+		])
+		const { queryReadPermission } = await import('./fsAccess')
+		;(queryReadPermission as ReturnType<typeof vi.fn>).mockResolvedValueOnce('prompt')
+		const s2 = new AttachedFilesStore()
+		await s2.restore('s1', true)
+		expect(s2.lockedCount).toBe(1)
+
+		// Permission re-granted, but the directory is gone from disk.
+		enumerateDirMock.mockRejectedValueOnce(new Error('directory removed'))
+		await s2.regrantLocked()
+		expect(s2.folders).toEqual([{ name: 'proj', status: 'unavailable', files: [] }])
+	})
+
 	it('removeFolder drops all of a folder’s files', async () => {
 		enumerateDirMock.mockResolvedValue([
 			{ file: file('app.ts', 'x\n'), path: 'proj/app.ts' },
