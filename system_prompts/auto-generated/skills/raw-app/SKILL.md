@@ -217,15 +217,16 @@ data:
 
 ## CLI Commands
 
-`wmill app new` is the exception: you run it yourself, with flags, per the "Creating a Raw App" section above.
+Two commands you run yourself, not the user:
+- `wmill app new` — run it with flags, per the "Creating a Raw App" section above.
+- `wmill generate-metadata` — generates local lock files; offer it and run it on consent, per "After creating a runnable" above (it writes local lock files, not a deploy).
 
-For everything else, tell the user which command fits their intent and let them run it — these touch the workspace or local lock files, and the user should consent each time:
+For the rest, tell the user which command fits their intent and let them run it — these deploy to the workspace, overwrite local files, or launch a long-running server, so the user should consent each time:
 
 | Command | Description |
 |---------|-------------|
 | `wmill app dev` | Start dev server with live reload (see the `preview` skill for the full open-the-app-in-the-IDE-pane procedure). |
 | `wmill app generate-agents` | Refresh AGENTS.md and DATATABLES.md |
-| `wmill generate-metadata` | Generate lock files for backend runnables |
 | `wmill sync push` | Deploy app to Windmill |
 | `wmill sync pull` | Pull latest from Windmill |
 
