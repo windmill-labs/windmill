@@ -330,6 +330,14 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
  *     `recordRemoteSync(draft_saved_at)` and reseeds from authoritative
  *     server state before any user edit can fire a save.
  */
+/** Keys whose `lastSync` was made stale by a `pagehide` keepalive flush
+ *  (the POST advances the server row's `created_at` but the response is
+ *  unreadable on that path). Consumed by the `pageshow` handler below:
+ *  on a bfcache restore the SAME document comes back alive, and a save
+ *  carrying the pre-flush `last_sync` would conflict against the user's
+ *  own keepalive write. */
+const staleSyncAfterHideFlush = new Set<string>()
+
 function flushOnPageHide(): void {
 	if (pendingSaveOpts.size === 0) return
 	for (const [key, opts] of pendingSaveOpts) {
@@ -365,6 +373,10 @@ function flushOnPageHide(): void {
 				// during unload anyway.
 				console.error('UserDraftDbSyncer: keepalive flush failed', e)
 			})
+			// The POST above moved the server row past our recorded
+			// `lastSync` and we can't read the response — mark the key so
+			// a bfcache restore can drop the stale entry (see `pageshow`).
+			staleSyncAfterHideFlush.add(key)
 		} catch (e) {
 			console.error('UserDraftDbSyncer: keepalive flush threw', e)
 		}
@@ -382,6 +394,20 @@ if (typeof document !== 'undefined') {
 	// `lastSync` — no flush needed, no spurious conflict modal on the
 	// user's own background-tab write.
 	window.addEventListener('pagehide', flushOnPageHide)
+	// bfcache restore: the SAME document comes back alive after a
+	// `pagehide` keepalive flush advanced the server rows past the
+	// in-memory `lastSync`. Drop the stale entries — the next save then
+	// omits `last_sync` (first-push semantics), which is safe here: the
+	// server copy it overwrites is this very document's own flush, same
+	// state lineage. Without this, that save is rejected as a conflict
+	// and the DraftSyncConflictModal opens against the user's own write.
+	window.addEventListener('pageshow', (e: PageTransitionEvent) => {
+		if (!e.persisted) return
+		for (const key of staleSyncAfterHideFlush) {
+			lastSyncMap.delete(key)
+		}
+		staleSyncAfterHideFlush.clear()
+	})
 }
 
 /**
