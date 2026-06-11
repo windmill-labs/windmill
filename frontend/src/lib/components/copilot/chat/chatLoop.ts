@@ -58,19 +58,50 @@ export interface ChatLoopResult {
 }
 
 const WEB_SEARCH_UNAVAILABLE_MESSAGE =
-	'Native web search is not supported by this model; continuing without it. You can disable web search in workspace settings.'
+	'Native web search is unavailable for this provider/model/key; continuing without it. You can disable web search in workspace settings.'
 const unsupportedWebSearchCache = new Set<string>()
+const WEB_SEARCH_UNAVAILABLE_STATUS_CODES = new Set([400, 403, 404])
 
 function getWebSearchCacheKey(workspace: string, modelProvider: ReasoningProviderModel): string {
 	return [workspace, modelProvider.provider, modelProvider.model].join(':')
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null
+}
+
+function appendTextPart(parts: string[], value: unknown) {
+	if (typeof value === 'string' && value.trim()) {
+		parts.push(value)
+	}
+}
+
 function getErrorText(err: unknown): string {
+	const parts: string[] = []
 	if (err instanceof Error) {
-		return err.message
+		appendTextPart(parts, err.message)
 	}
 	if (typeof err === 'string') {
-		return err
+		appendTextPart(parts, err)
+	}
+	if (isRecord(err)) {
+		appendTextPart(parts, err.message)
+		appendTextPart(parts, err.type)
+		appendTextPart(parts, err.code)
+		appendTextPart(parts, err.param)
+
+		const nested = err.error
+		if (isRecord(nested)) {
+			appendTextPart(parts, nested.message)
+			appendTextPart(parts, nested.type)
+			appendTextPart(parts, nested.code)
+			appendTextPart(parts, nested.param)
+		} else {
+			appendTextPart(parts, nested)
+		}
+	}
+	if (parts.length > 0) {
+		return parts.join(' ')
 	}
 	try {
 		return JSON.stringify(err)
@@ -79,13 +110,41 @@ function getErrorText(err: unknown): string {
 	}
 }
 
-function shouldRetryWithoutWebSearch(err: unknown): boolean {
+function getErrorStatus(err: unknown): number | undefined {
+	if (!isRecord(err)) {
+		return undefined
+	}
+	const candidates = [err.status]
+	if (isRecord(err.response)) {
+		candidates.push(err.response.status)
+	}
+	if (isRecord(err.error)) {
+		candidates.push(err.error.status)
+	}
+	return candidates.find((status): status is number => typeof status === 'number')
+}
+
+function hasWebSearchUnavailableSignal(err: unknown): boolean {
 	const message = getErrorText(err).toLowerCase()
-	return (
-		message.includes('web_search') ||
-		message.includes('web search') ||
-		message.includes('web-search')
-	)
+	const webSearchTerm = '(?:web[_ -]?search|web search|web-search)'
+	const unavailableTerm =
+		'(?:not supported|unsupported|not available|unavailable|disabled|not enabled|enable web search|forbidden|not permitted|permission|policy|blocked|access)'
+	const patterns = [
+		new RegExp(`${webSearchTerm}.*${unavailableTerm}`),
+		new RegExp(`${unavailableTerm}.*${webSearchTerm}`),
+		/\bweb search options\b.*\bnot supported\b/,
+		/\bhosted tools?\b.*\b(?:not supported|unsupported)\b/,
+		/\bhosted tool ['"]web_search(?:_preview)?['"].*\b(?:not supported|unsupported)\b/
+	]
+	return patterns.some((pattern) => pattern.test(message))
+}
+
+function shouldRetryWithoutWebSearch(err: unknown): boolean {
+	if (!hasWebSearchUnavailableSignal(err)) {
+		return false
+	}
+	const status = getErrorStatus(err)
+	return status === undefined || WEB_SEARCH_UNAVAILABLE_STATUS_CODES.has(status)
 }
 
 function markWebSearchUnsupported(

@@ -51,8 +51,6 @@ vi.mock('$lib/aiStore', () => ({
 
 vi.mock('../lib', () => ({
 	getModelContextWindow: () => 128000,
-	providerSupportsWebSearch: (provider: string | undefined) =>
-		provider === 'openai' || provider === 'anthropic',
 	workspaceAIClients: {
 		subscribe: () => () => undefined,
 		getOpenaiClient: mocks.getOpenaiClient,
@@ -131,7 +129,7 @@ describe('AIChatManager request errors', () => {
 		mocks.tryGetCurrentModel.mockReturnValue(openaiModel)
 	})
 
-	it('adds the web search settings hint to request errors when web search is enabled', async () => {
+	it('does not add a web-search hint to generic request errors', async () => {
 		const manager = new AIChatManager()
 		manager.instructions = 'Search for recent docs'
 		mocks.isWebSearchEnabledForProvider.mockReturnValue(true)
@@ -140,7 +138,7 @@ describe('AIChatManager request errors', () => {
 		await manager.sendRequest()
 
 		expect(mocks.sendUserToast).toHaveBeenLastCalledWith(
-			'Failed to send request: provider quota exceeded. Try disabling web search in workspace settings.',
+			'Failed to send request: provider quota exceeded',
 			true
 		)
 	})
