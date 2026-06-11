@@ -21,6 +21,13 @@ type AssistantMessageWithReasoning = ChatCompletionMessageParam & {
 }
 
 describe('modelConfig', () => {
+	it('flags Fable 5 model IDs via includes matching', () => {
+		expect(modelDisallowsSamplingParams('claude-fable-5')).toBe(true)
+		expect(modelDisallowsSamplingParams('claude-fable-5@20260611')).toBe(true)
+		expect(modelDisallowsSamplingParams('claude-fable-5/thinking')).toBe(true)
+		expect(modelDisallowsSamplingParams('anthropic/claude-fable-5')).toBe(true)
+	})
+
 	it('flags Opus 4.7 model IDs via includes matching', () => {
 		expect(modelDisallowsSamplingParams('claude-opus-4-7')).toBe(true)
 		expect(modelDisallowsSamplingParams('claude-opus-4-7@20260416')).toBe(true)
@@ -38,6 +45,12 @@ describe('modelConfig', () => {
 	it('omits deterministic temperature for Anthropic Opus 4.7 chat requests', () => {
 		expect(
 			getDefaultChatTemperature({ provider: 'anthropic', model: 'claude-opus-4-7' })
+		).toBeUndefined()
+	})
+
+	it('omits deterministic temperature for Anthropic Fable 5 chat requests', () => {
+		expect(
+			getDefaultChatTemperature({ provider: 'anthropic', model: 'claude-fable-5' })
 		).toBeUndefined()
 	})
 
