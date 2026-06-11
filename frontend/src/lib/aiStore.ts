@@ -37,6 +37,7 @@ export const copilotInfo = writable<{
 	aiModels: AIProviderModel[]
 	customPrompts?: Record<string, string>
 	maxTokensPerModel?: Record<string, number>
+	webSearchEnabledProviders?: Partial<Record<AIProvider, boolean>>
 }>({
 	enabled: false,
 	codeCompletionModel: undefined,
@@ -44,7 +45,8 @@ export const copilotInfo = writable<{
 	metadataModel: undefined,
 	aiModels: [],
 	customPrompts: {},
-	maxTokensPerModel: {}
+	maxTokensPerModel: {},
+	webSearchEnabledProviders: {}
 })
 
 /** Strip the deprecated /thinking suffix from a configured model slot, if present. */
@@ -87,6 +89,12 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 				}))
 			)
 		)
+		const webSearchEnabledProviders = Object.fromEntries(
+			Object.entries(aiConfig.providers ?? {}).map(([provider, providerConfig]) => [
+				provider,
+				providerConfig.web_search_enabled !== false
+			])
+		) as Partial<Record<AIProvider, boolean>>
 
 		copilotSessionModel.update((model) => {
 			if (
@@ -107,7 +115,8 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			metadataModel: stripModelSuffix(aiConfig.metadata_model),
 			aiModels: aiModels,
 			customPrompts: aiConfig.custom_prompts ?? {},
-			maxTokensPerModel: aiConfig.max_tokens_per_model ?? {}
+			maxTokensPerModel: aiConfig.max_tokens_per_model ?? {},
+			webSearchEnabledProviders
 		})
 	} else {
 		copilotSessionModel.set(undefined)
@@ -119,9 +128,17 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			metadataModel: undefined,
 			aiModels: [],
 			customPrompts: {},
-			maxTokensPerModel: {}
+			maxTokensPerModel: {},
+			webSearchEnabledProviders: {}
 		})
 	}
+}
+
+export function isWebSearchEnabledForProvider(provider: AIProvider | undefined): boolean {
+	if (!provider) {
+		return false
+	}
+	return get(copilotInfo).webSearchEnabledProviders?.[provider] ?? true
 }
 
 export function getCurrentModel(): ReasoningProviderModel {

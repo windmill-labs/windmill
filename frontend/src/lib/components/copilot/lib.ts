@@ -711,6 +711,18 @@ const PROMPTS_CONFIGS = {
 	gen: GEN_CONFIG
 }
 
+/**
+ * Whether a provider can use native web search automatically in the web chat.
+ * Azure OpenAI can expose Responses API `web_search` for some deployments, but
+ * it is subscription/admin controlled and routes data through Grounding with
+ * Bing, so do not silently enable it until there is explicit Azure-specific UI.
+ * Providers behind OpenAI-compatible/native-translation proxy paths have no
+ * forwardable native web-search tool.
+ */
+export function providerSupportsWebSearch(provider: AIProvider | undefined): boolean {
+	return provider === 'openai' || provider === 'anthropic'
+}
+
 export function getProviderAndCompletionConfig<K extends boolean>({
 	messages,
 	stream,

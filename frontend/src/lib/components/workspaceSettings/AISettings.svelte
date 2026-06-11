@@ -9,7 +9,7 @@
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { AI_PROVIDERS, fetchAvailableModels } from '../copilot/lib'
+	import { AI_PROVIDERS, fetchAvailableModels, providerSupportsWebSearch } from '../copilot/lib'
 	import { supportsAutocomplete } from '../copilot/utils'
 	import TestAiKey from '../copilot/TestAIKey.svelte'
 	import Label from '../Label.svelte'
@@ -88,8 +88,21 @@
 		return JSON.parse(JSON.stringify(v))
 	}
 
+	function normalizeProviderSettings(
+		providers: Exclude<AIConfig['providers'], undefined>
+	): Exclude<AIConfig['providers'], undefined> {
+		return Object.fromEntries(
+			Object.entries(providers).map(([provider, config]) => [
+				provider,
+				providerSupportsWebSearch(provider as AIProvider)
+					? { ...config, web_search_enabled: config.web_search_enabled ?? true }
+					: config
+			])
+		)
+	}
+
 	function applyConfig(config: AIConfig | undefined) {
-		aiProviders = clone(config?.providers ?? {})
+		aiProviders = normalizeProviderSettings(clone(config?.providers ?? {}))
 		defaultModel = config?.default_model?.model
 		metadataModel = config?.metadata_model?.model
 		codeCompletionModel = config?.code_completion_model?.model
@@ -390,7 +403,10 @@
 												models:
 													availableAiModels[provider].length > 0
 														? [availableAiModels[provider][0]]
-														: []
+														: [],
+												...(providerSupportsWebSearch(provider as AIProvider)
+													? { web_search_enabled: true }
+													: {})
 											}
 										}
 									} else {
@@ -459,6 +475,22 @@
 										If you don't see the model you want, you can type it manually in the selector.
 									</p>
 								</Label>
+
+								{#if providerSupportsWebSearch(provider as AIProvider)}
+									<Label label="Web search">
+										<Toggle
+											options={{
+												right: 'Enable native web search',
+												rightTooltip:
+													'Uses the provider-native web search tool automatically in chat.'
+											}}
+											checked={aiProviders[provider].web_search_enabled !== false}
+											on:change={(e) => {
+												aiProviders[provider].web_search_enabled = e.detail
+											}}
+										/>
+									</Label>
+								{/if}
 							</div>
 						{/if}
 					</div>
