@@ -301,10 +301,11 @@
 					a.starred != b.starred ? (a.starred ? -1 : 1) : a.time - b.time > 0 ? -1 : 1
 				)
 	)
+	function itemLabels(x: { labels?: string[]; inherited_labels?: string[] }): string[] {
+		return [...(x.labels ?? []), ...(x.inherited_labels ?? [])]
+	}
 	let allLabels = $derived(
-		Array.from(
-			new Set(combinedItems?.flatMap((x) => ('labels' in x && x.labels) || []) ?? [])
-		).sort()
+		Array.from(new Set(combinedItems?.flatMap((x) => itemLabels(x)) ?? [])).sort()
 	)
 	$effect(() => {
 		if ($workspaceStore) {
@@ -319,13 +320,13 @@
 						x.path.startsWith(ownerFilter + '/') &&
 						(x.type == itemKind || itemKind == 'all') &&
 						filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType) &&
-						(labelFilter == undefined || ('labels' in x && x.labels?.includes(labelFilter)))
+						(labelFilter == undefined || itemLabels(x).includes(labelFilter))
 				)
 			: combinedItems?.filter(
 					(x) =>
 						(x.type == itemKind || itemKind == 'all') &&
 						filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType) &&
-						(labelFilter == undefined || ('labels' in x && x.labels?.includes(labelFilter)))
+						(labelFilter == undefined || itemLabels(x).includes(labelFilter))
 				)
 	)
 	let items = $derived(filter !== '' ? filteredItems : preFilteredItems)

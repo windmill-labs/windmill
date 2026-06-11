@@ -198,6 +198,8 @@
 					priority_tags?: Record<string, number>
 					cache_clear?: number
 					init_bash?: string
+					env_vars_static?: Map<string, string>
+					env_vars_allowlist?: string[]
 					additional_python_paths?: string[]
 					pip_local_dependencies?: string[]
 					min_alive_workers_alert_threshold?: number
@@ -268,6 +270,25 @@
 			orderedJsonStringify(replaceFalseWithUndefined(cleaned1)) !==
 			orderedJsonStringify(replaceFalseWithUndefined(cleaned2))
 		)
+	})
+
+	// Env var edits only mutate the local `customEnvVars` array; they aren't synced back into
+	// `nconfig.env_vars_*` until the Apply handler runs, so `hasChanges` can't see them. Detect
+	// those edits separately by reconstructing the original env vars from `config`.
+	let hasEnvVarChanges = $derived.by(() => {
+		let originalEnvVars: typeof customEnvVars = []
+		if (config?.env_vars_allowlist) {
+			for (const key of config.env_vars_allowlist) {
+				originalEnvVars.push({ key, type: 'dynamic' as const, value: undefined })
+			}
+		}
+		if (config?.env_vars_static) {
+			for (const [key, value] of Object.entries(config.env_vars_static)) {
+				originalEnvVars.push({ key, type: 'static' as const, value })
+			}
+		}
+		originalEnvVars.sort((a, b) => (a.key < b.key ? -1 : 1))
+		return JSON.stringify(customEnvVars) !== JSON.stringify(originalEnvVars)
 	})
 	let openDelete = $state(false)
 	let openClean = $state(false)
@@ -1165,7 +1186,10 @@
 								sendUserToast('Configuration set')
 								dispatch('reload')
 							}}
-							disabled={(!hasChanges && nconfig?.dedicated_worker == undefined) || !canEditConfig}
+							disabled={(!hasChanges &&
+								!hasEnvVarChanges &&
+								nconfig?.dedicated_worker == undefined) ||
+								!canEditConfig}
 						>
 							Apply changes
 						</Button>

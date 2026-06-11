@@ -1,5 +1,6 @@
 import { openDB, type DBSchema as IDBSchema, type IDBPDatabase } from 'idb'
 import type { DisplayMessage } from './shared'
+import { expanded, messageDraft } from './chatDraft'
 import { createLongHash } from '$lib/editorLangUtils'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 interface ChatSchema extends IDBSchema {
@@ -106,6 +107,9 @@ export default class HistoryManager {
 
 	async saveChat(displayMessages: DisplayMessage[], messages: ChatCompletionMessageParam[]) {
 		if (displayMessages.length > 0) {
+			// Expand any collapsed-paste tokens so the title is readable text, not
+			// the chip label + its zero-width id chars.
+			const title = expanded(messageDraft(displayMessages[0])).slice(0, 50)
 			// we don't want to save the snapshot in the history
 			const updatedChat = {
 				actualMessages: $state.snapshot(messages),
@@ -113,7 +117,7 @@ export default class HistoryManager {
 					...m,
 					snapshot: undefined
 				})),
-				title: displayMessages[0].content.slice(0, 50),
+				title,
 				id: this.currentChatId,
 				lastModified: Date.now(),
 				...(this.sessionId ? { sessionId: this.sessionId } : {})

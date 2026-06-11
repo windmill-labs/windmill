@@ -5,19 +5,12 @@ import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
-import type { AIProviderModel } from '$lib/gen'
 import { getCompletion, parseOpenAICompletion } from '../lib'
+import { resolveEffectiveReasoning, type ReasoningProviderModel } from '../reasoningRegistry'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
-import {
-	getOpenAIResponsesCompletion,
-	parseOpenAIResponsesCompletion
-} from './openai-responses'
+import { getOpenAIResponsesCompletion, parseOpenAIResponsesCompletion } from './openai-responses'
 import type { Tool, ToolCallbacks } from './shared'
-import {
-	addChatTokenUsage,
-	emptyChatTokenUsage,
-	type ChatTokenUsage
-} from './tokenUsage'
+import { addChatTokenUsage, emptyChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
 
 export interface ChatClients {
 	openai: OpenAI
@@ -39,7 +32,7 @@ export interface ChatLoopConfig {
 		onNewToken: (token: string) => void
 		onMessageEnd: () => void
 	}
-	modelProvider: AIProviderModel
+	modelProvider: ReasoningProviderModel
 	clients: ChatClients
 	workspace: string
 	/** Maximum iterations for the loop. undefined = unlimited (production). */
@@ -101,6 +94,10 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		const isOpenAI =
 			modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai'
 		const isAnthropic = modelProvider.provider === 'anthropic'
+		// Resolve effort once in chat context (applies the default-on level for
+		// capable models); passed explicitly to each seam so background paths
+		// (metadata/autocomplete) never inherit it.
+		const reasoningEffort = resolveEffectiveReasoning(modelProvider)
 
 		const messageParams = [
 			systemMessage,
@@ -120,7 +117,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 						toolDefs,
 						{
 							forceModelProvider: modelProvider,
-							openaiClient: clients.openai
+							openaiClient: clients.openai,
+							reasoningEffort
 						}
 					)
 					const continueCompletion = await parseOpenAIResponsesCompletion(
@@ -137,10 +135,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 						break
 					}
 				} catch (err) {
-					console.warn(
-						'OpenAI Responses API failed, falling back to Completions API:',
-						err
-					)
+					console.warn('OpenAI Responses API failed, falling back to Completions API:', err)
 					const errorMessage = err instanceof Error ? err.message : String(err)
 					if (errorMessage.includes('Responses API is not enabled')) {
 						skipResponsesApi = true
@@ -154,7 +149,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 				const completion = await getCompletion(messageParams, abortController, toolDefs, {
 					forceCompletions: true,
 					forceModelProvider: modelProvider,
-					openaiClient: clients.openai
+					openaiClient: clients.openai,
+					reasoningEffort
 				})
 				const continueCompletion = await parseOpenAICompletion(
 					completion,
@@ -172,15 +168,11 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 				}
 			}
 		} else if (isAnthropic) {
-			const completion = await getAnthropicCompletion(
-				messageParams,
-				abortController,
-				toolDefs,
-				{
-					forceModelProvider: modelProvider,
-					anthropicClient: clients.anthropic
-				}
-			)
+			const completion = await getAnthropicCompletion(messageParams, abortController, toolDefs, {
+				forceModelProvider: modelProvider,
+				anthropicClient: clients.anthropic,
+				reasoningEffort
+			})
 			if (completion) {
 				const continueCompletion = await parseAnthropicCompletion(
 					completion,
@@ -200,7 +192,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		} else {
 			const completion = await getCompletion(messageParams, abortController, toolDefs, {
 				forceModelProvider: modelProvider,
-				openaiClient: clients.openai
+				openaiClient: clients.openai,
+				reasoningEffort
 			})
 			if (completion) {
 				const continueCompletion = await parseOpenAICompletion(

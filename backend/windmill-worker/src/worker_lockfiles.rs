@@ -1248,6 +1248,7 @@ async fn lock_modules(
                 FlowModuleValue::AIAgent {
                     input_transforms,
                     mut tools,
+                    tag,
                     omit_output_from_conversation,
                 } => {
                     // Extract FlowModules from tools and track their original indices
@@ -1299,6 +1300,7 @@ async fn lock_modules(
                     e.value = FlowModuleValue::AIAgent {
                         input_transforms,
                         tools,
+                        tag,
                         omit_output_from_conversation,
                     }
                     .into();

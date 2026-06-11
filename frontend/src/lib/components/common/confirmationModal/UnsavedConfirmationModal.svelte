@@ -34,6 +34,26 @@
 	let open = $state(false)
 	let goingTo: URL | undefined = $state(undefined)
 
+	// Mirrors the modal condition: dirty when values differ, or when either
+	// value is missing (e.g. a never-saved draft). Also refreshes
+	// savedValue/modifiedValue for the diff drawer.
+	function hasUnsavedChanges(): boolean {
+		const state = getInitialAndModifiedValues?.()
+		savedValue = state?.savedValue
+		modifiedValue = state?.modifiedValue
+
+		if (savedValue && modifiedValue) {
+			const draftOrDeployed = cleanValueProperties((savedValue.draft || savedValue) ?? {})
+			const current = cleanValueProperties(modifiedValue ?? {})
+
+			return (
+				orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) !==
+				orderedJsonStringify(replaceFalseWithUndefined(current))
+			)
+		}
+		return true
+	}
+
 	beforeNavigate(async (newNavigationState) => {
 		if (
 			!bypassBeforeNavigate &&
@@ -45,37 +65,31 @@
 		) {
 			goingTo = newNavigationState.to.url
 
-			const state = getInitialAndModifiedValues?.()
-			savedValue = state?.savedValue
-			modifiedValue = state?.modifiedValue
-
-			async function openModal() {
+			if (hasUnsavedChanges()) {
 				newNavigationState.cancel()
 				open = true
-			}
-			if (savedValue && modifiedValue) {
-				const draftOrDeployed = cleanValueProperties((savedValue.draft || savedValue) ?? {})
-				const current = cleanValueProperties(modifiedValue ?? {})
-
-				if (
-					orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) ===
-					orderedJsonStringify(replaceFalseWithUndefined(current))
-				) {
-					if (!tabMode) {
-						bypassBeforeNavigate = true
-					}
-					additionalExitAction?.()
-				} else {
-					await openModal()
-				}
 			} else {
-				await openModal()
+				if (!tabMode) {
+					bypassBeforeNavigate = true
+				}
+				additionalExitAction?.()
 			}
 		} else if (bypassBeforeNavigate) {
 			bypassBeforeNavigate = false
 		}
 	})
+
+	function onBeforeUnload(event: BeforeUnloadEvent) {
+		if (!bypassBeforeNavigate && getInitialAndModifiedValues && hasUnsavedChanges()) {
+			// Triggers the browser's native "leave site?" confirmation
+			event.preventDefault()
+			// Required by some browsers (legacy mechanism)
+			event.returnValue = true
+		}
+	}
 </script>
+
+<svelte:window onbeforeunload={onBeforeUnload} />
 
 {#if open}
 	<div

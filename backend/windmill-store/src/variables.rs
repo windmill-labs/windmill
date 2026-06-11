@@ -149,6 +149,7 @@ async fn list_variables(
             "account.refresh_token != '' as is_refreshed",
             "variable.expires_at",
             "variable.labels",
+            "folder_labels(variable.workspace_id, variable.path) as inherited_labels",
             "ws_specific.path IS NOT NULL as ws_specific",
             "variable.edited_at",
             "variable.edited_by",
@@ -206,7 +207,11 @@ async fn list_variables(
 
     if let Some(label) = &lq.label {
         for l in label.split(',') {
-            sqlb.and_where("variable.labels @> ARRAY[?]".bind(&l.trim()));
+            sqlb.and_where(
+                "(variable.labels @> ARRAY[?] OR folder_labels(variable.workspace_id, variable.path) @> ARRAY[?])"
+                    .bind(&l.trim())
+                    .bind(&l.trim()),
+            );
         }
     }
 
@@ -303,6 +308,9 @@ async fn list_variables(
                 is_linked: None,
                 expires_at: None,
                 labels,
+                // Synthesized draft-only rows have no deployed row to
+                // inherit folder labels from.
+                inherited_labels: None,
                 ws_specific,
                 edited_at: Some(row.created_at),
                 edited_by: None,
@@ -344,6 +352,7 @@ async fn get_variable(
         "SELECT variable.workspace_id, variable.path, variable.value, variable.is_secret,
         variable.description, variable.extra_perms, variable.account, variable.is_oauth,
         variable.expires_at, variable.labels,
+        folder_labels(variable.workspace_id, variable.path) as inherited_labels,
         variable.edited_at, variable.edited_by,
         (now() > account.expires_at) as is_expired, account.refresh_error,
         resource.path IS NOT NULL as is_linked,

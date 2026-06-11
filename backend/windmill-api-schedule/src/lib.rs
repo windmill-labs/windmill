@@ -716,6 +716,10 @@ pub struct ScheduleLight {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub is_draft: Option<bool>,
+    /// Labels inherited from the parent folder, computed at read time.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inherited_labels: Option<Vec<String>>,
 }
 async fn list_schedule(
     authed: ApiAuthed,
@@ -740,6 +744,7 @@ async fn list_schedule(
             "summary",
             "extra_perms",
             "labels",
+            "folder_labels(workspace_id, path) as inherited_labels",
         ])
         // Scalar EXISTS — flags rows the authed user has a per-user
         // draft on, without fanning rows out the way a join could.
@@ -790,7 +795,11 @@ async fn list_schedule(
     }
     if let Some(label) = &lsq.label {
         for l in label.split(',') {
-            sqlb.and_where("labels @> ARRAY[?]".bind(&l.trim()));
+            sqlb.and_where(
+                "(labels @> ARRAY[?] OR folder_labels(workspace_id, path) @> ARRAY[?])"
+                    .bind(&l.trim())
+                    .bind(&l.trim()),
+            );
         }
     }
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
@@ -878,6 +887,9 @@ async fn list_schedule(
                 summary,
                 extra_perms: serde_json::Value::Object(serde_json::Map::new()),
                 labels,
+                // Synthesized draft-only rows have no deployed row to
+                // inherit folder labels from.
+                inherited_labels: None,
                 draft_only: Some(true),
                 // Synthesized rows ARE the authed user's draft.
                 is_draft: Some(true),

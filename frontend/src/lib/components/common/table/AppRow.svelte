@@ -11,6 +11,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
+	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import Badge from '../badge/Badge.svelte'
 	import {
 		ExternalLink,
@@ -148,6 +149,7 @@
 				{/if}
 			</div>
 		{/if}
+		<InheritedLabels labels={app.inherited_labels} />
 		<div class="w-8 center-center"></div>
 	{/snippet}
 	{#snippet actions()}

@@ -15,6 +15,7 @@ import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import { getDefaultChatTemperature, modelDisallowsSamplingParams } from './modelConfig'
+import { applyReasoningToConfig } from './reasoningRegistry'
 import { formatResourceTypes } from './utils'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
 import {
@@ -66,7 +67,7 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	},
 	anthropic: {
 		label: 'Anthropic',
-		defaultModels: ['claude-sonnet-4-6', 'claude-sonnet-4-6/thinking', 'claude-3-5-haiku-latest']
+		defaultModels: ['claude-sonnet-4-6', 'claude-3-5-haiku-latest']
 	},
 	mistral: {
 		label: 'Mistral',
@@ -326,18 +327,8 @@ function getModelSpecificConfig(
 		}
 	} else {
 		return {
-			...(modelProvider.model.endsWith('/thinking')
-				? {
-						thinking: {
-							type: 'enabled',
-							budget_tokens: 1024
-						},
-						model: modelProvider.model.slice(0, -9)
-					}
-				: {
-						model: modelProvider.model,
-						...(defaultTemperature !== undefined ? { temperature: defaultTemperature } : {})
-					}),
+			model: modelProvider.model,
+			...(defaultTemperature !== undefined ? { temperature: defaultTemperature } : {}),
 			...(tools && tools.length > 0 ? { tools } : {}),
 			max_tokens: maxTokens
 		}
@@ -892,6 +883,7 @@ export async function getCompletion(
 		forceCompletions?: boolean
 		forceModelProvider?: AIProviderModel
 		openaiClient?: OpenAI
+		reasoningEffort?: string
 	}
 ): Promise<Stream<ChatCompletionChunk>> {
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -906,7 +898,8 @@ export async function getCompletion(
 		try {
 			const stream = getOpenAIResponsesCompletionStream(messages, abortController, tools, {
 				forceModelProvider: options?.forceModelProvider,
-				openaiClient: options?.openaiClient
+				openaiClient: options?.openaiClient,
+				reasoningEffort: options?.reasoningEffort
 			}) as any
 			return stream
 		} catch (error) {
@@ -916,9 +909,9 @@ export async function getCompletion(
 
 	// Use Completions API for other providers
 	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
-	const completionConfig =
+	const completionConfig = applyReasoningToConfig(
 		(provider === 'openai' || provider === 'azure_openai' || provider === 'googleai') &&
-		config.stream
+			config.stream
 			? {
 					...config,
 					stream_options: {
@@ -926,7 +919,10 @@ export async function getCompletion(
 						include_usage: true
 					}
 				}
-			: config
+			: config,
+		'completions',
+		options?.reasoningEffort
+	)
 	const completion = client.chat.completions.create(completionConfig, {
 		signal: abortController.signal,
 		headers: {
@@ -992,6 +988,7 @@ export async function parseOpenAICompletion(
 		if (typeof reasoningDelta === 'string') {
 			hasReasoningContent = true
 			reasoningContent += reasoningDelta
+			callbacks.onReasoningDelta?.(reasoningDelta)
 		}
 
 		const contentDelta = delta.content

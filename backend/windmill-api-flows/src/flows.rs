@@ -161,6 +161,7 @@ async fn list_flows(
               FROM draft d \
               LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
               WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'flow') as draft_users",
+            "folder_labels(o.workspace_id, o.path) as inherited_labels"
         ])
         .left()
         .join("favorite")
@@ -206,7 +207,11 @@ async fn list_flows(
     }
     if let Some(label) = &lq.label {
         for l in label.split(',') {
-            sqlb.and_where("o.labels @> ARRAY[?]".bind(&l.trim()));
+            sqlb.and_where(
+                "(o.labels @> ARRAY[?] OR folder_labels(o.workspace_id, o.path) @> ARRAY[?])"
+                    .bind(&l.trim())
+                    .bind(&l.trim()),
+            );
         }
     }
 
@@ -303,6 +308,9 @@ async fn list_flows(
                 ws_error_handler_muted: None,
                 deployment_msg: None,
                 labels: None,
+                // Synthesized draft-only rows have no deployed row to
+                // inherit folder labels from.
+                inherited_labels: None,
                 is_draft: true,
                 draft_path,
                 // Synthesized rows come from the authed user's own draft.
@@ -1515,6 +1523,7 @@ async fn get_flow_by_path(
             flow.visible_to_runner_only, 
             flow.on_behalf_of_email,
             flow.labels,
+            folder_labels(flow.workspace_id, flow.path) AS inherited_labels,
             flow_version.id AS version_id,
             flow_version.schema,
             flow_version.value,
@@ -1555,6 +1564,7 @@ async fn get_flow_by_path(
             flow.visible_to_runner_only, 
             flow.on_behalf_of_email,
             flow.labels,
+            folder_labels(flow.workspace_id, flow.path) AS inherited_labels,
             flow_version.id AS version_id,
             flow_version.schema,
             flow_version.value,

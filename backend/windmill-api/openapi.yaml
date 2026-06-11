@@ -17602,6 +17602,10 @@ paths:
                     type: boolean
                 default_permissioned_as:
                   $ref: '#/components/schemas/FolderDefaultPermissionedAs'
+                labels:
+                  type: array
+                  items:
+                    type: string
               required:
                 - name
       responses:
@@ -17640,6 +17644,10 @@ paths:
                     type: boolean
                 default_permissioned_as:
                   $ref: '#/components/schemas/FolderDefaultPermissionedAs'
+                labels:
+                  type: array
+                  items:
+                    type: string
       responses:
         "200":
           description: folder updated
@@ -22122,6 +22130,13 @@ components:
           items:
             type: string
           default: []
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
 
       required:
         - hash
@@ -23321,6 +23336,13 @@ components:
           type: array
           items:
             type: string
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
         ws_specific:
           type: boolean
         edited_at:
@@ -23876,6 +23898,13 @@ components:
           type: array
           items:
             type: string
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
         ws_specific:
           type: boolean
       required:
@@ -23920,6 +23949,13 @@ components:
           type: array
           items:
             type: string
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
         ws_specific:
           type: boolean
         draft_only:
@@ -24100,6 +24136,13 @@ components:
             (over a deployed row or a synthesized draft-only row).
             Frontend appends a `*` to the displayed name.
           type: boolean
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
       required:
         - path
         - edited_by
@@ -26735,6 +26778,14 @@ components:
           format: date-time
         default_permissioned_as:
           $ref: '#/components/schemas/FolderDefaultPermissionedAs'
+        labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels set on the folder. Items inside the folder inherit them,
+            exposed as `inherited_labels` on scripts and flows and stamped
+            into job labels at run time.
       required:
         - name
         - owners
@@ -27094,6 +27145,13 @@ components:
           items:
             type: string
           default: []
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
       required:
         - path
         - edited_by
@@ -27276,6 +27334,13 @@ components:
               username:
                 type: string
                 nullable: true
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
       required:
         - id
         - workspace_id
@@ -27345,6 +27410,13 @@ components:
           items:
             type: string
           default: []
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
       required:
         - workspace_id
         - path
@@ -28538,6 +28610,7 @@ components:
         - DisableDirectDeployment
         - DisableWorkspaceForking
         - RestrictDeployToDeployers
+        - RestrictAnonymousAppDeployment
     RuleBypasserGroups:
       type: array
       description: Groups that can bypass this ruleset

@@ -538,6 +538,7 @@
 			errorHandlerKind="flow"
 			tag={flow?.tag ?? ''}
 			labels={flow?.labels}
+			inheritedLabels={flow?.inherited_labels}
 			summary={flow?.summary}
 			path={flow?.path}
 			onSaved={can_write

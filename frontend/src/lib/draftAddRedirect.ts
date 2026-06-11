@@ -1,7 +1,7 @@
 import { redirect } from '@sveltejs/kit'
 import { base } from '$app/paths'
 import { getUsernameForNamespace } from '$lib/userNamespace'
-import { randomUUID } from '$lib/components/flows/conversations/FlowChatManager.svelte'
+import { randomUUID } from '$lib/utils/uuid'
 
 /**
  * Shared `load` for every `/{scripts,flows,apps,apps_raw}/add` route.
