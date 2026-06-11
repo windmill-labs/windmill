@@ -28,6 +28,11 @@ describe('supportsReasoning (static registry)', () => {
 	})
 	it('excludes non-reasoning Anthropic models', () => {
 		expect(supportsReasoning('anthropic', 'claude-3-5-haiku-latest')).toBe(false)
+		// Opus 4.5 predates adaptive thinking — offering effort would hard-400.
+		expect(supportsReasoning('anthropic', 'claude-opus-4-5')).toBe(false)
+		expect(supportsReasoning('aws_bedrock', 'eu.anthropic.claude-opus-4-5-20251101-v1:0')).toBe(
+			false
+		)
 	})
 	it('exposes the model-specific Anthropic effort ladder', () => {
 		// Sonnet 4.6 / Opus 4.6: max but no xhigh

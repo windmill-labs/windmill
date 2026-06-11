@@ -90,7 +90,9 @@ function supportsReasoningStatic(provider: AIProvider, model: string): boolean {
 		// Bedrock serves the same Claude models under prefixed ids
 		// (e.g. `us.anthropic.claude-opus-4-6-v1`), so match on the full string.
 		case 'aws_bedrock':
-			return /claude-opus-4-(5|6|7|8)/.test(m) || /claude-sonnet-4-6/.test(m) || m.includes('fable')
+			// 4.6+ only: Opus 4.5 rejects adaptive thinking (and, on Bedrock,
+			// the whole output_config surface) — live-verified hard 400.
+			return /claude-opus-4-(6|7|8)/.test(m) || /claude-sonnet-4-6/.test(m) || m.includes('fable')
 		case 'openai':
 		case 'azure_openai':
 			return base.startsWith('gpt-5') || /^o\d/.test(base)
