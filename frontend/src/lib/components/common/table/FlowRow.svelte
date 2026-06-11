@@ -150,7 +150,6 @@
 			workspace={$workspaceStore ?? undefined}
 			itemKind="flow"
 			path={flow.path}
-			editPathFor={(forkedPath) => `/flows/edit/${forkedPath}`}
 		/>
 		{#if flow.labels?.length}
 			<div class="flex items-center gap-0.5">

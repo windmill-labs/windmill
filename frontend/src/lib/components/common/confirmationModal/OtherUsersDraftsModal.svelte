@@ -13,12 +13,11 @@
 	 */
 	import { DraftService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { goto } from '$lib/navigation'
 	import { Users, GitFork, Braces } from 'lucide-svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { forkDraftToImport } from '$lib/components/forkDraftToImport'
 
 	export type OtherDraftUser = { username?: string | null }
 
@@ -26,30 +25,15 @@
 		workspace: string
 		itemKind: UserDraftItemKind
 		path: string
-		/** Workspace username of the authed user — used to namespace the
-		 *  fork path (`u/{currentUserUsername}/...`). */
-		currentUserUsername: string | undefined
 		/** Owners list from the deployed-overlay response. Each entry has a
 		 *  workspace `username` (or `null` for the legacy workspace-level
 		 *  row). The authed user is already filtered out server-side. */
 		otherDraftsUsers: OtherDraftUser[]
-		/** Route hook: build the per-editor edit URL for a forked draft path.
-		 *  Different editors live under different roots (`/scripts/edit/`,
-		 *  `/flows/edit/`, ...) so the route owns the URL shape. */
-		editPathFor: (forkedPath: string) => string
 		/** Controlled visibility — bind from the parent. */
 		isOpen: boolean
 	}
 
-	let {
-		workspace,
-		itemKind,
-		path,
-		currentUserUsername,
-		otherDraftsUsers,
-		editPathFor,
-		isOpen = $bindable()
-	}: Props = $props()
+	let { workspace, itemKind, path, otherDraftsUsers, isOpen = $bindable() }: Props = $props()
 	let busyFor = $state<string | null>(null)
 	let jsonOpen = $state(false)
 	let jsonOwnerLabel = $state('')
@@ -61,15 +45,6 @@
 
 	function ownerKey(owner: OtherDraftUser): string {
 		return owner.username ?? '__legacy__'
-	}
-
-	/** Derive the fork target path. `u/{currentUser}/{leaf}_{owner}_fork`
-	 *  where leaf = the last segment of the source path. For the legacy
-	 *  row we use `_legacy_fork` instead of an owner username. */
-	function forkPath(owner: OtherDraftUser): string {
-		const leaf = path.split('/').pop() ?? path
-		const ownerSuffix = owner.username ?? 'legacy'
-		return `u/${currentUserUsername ?? 'me'}/${leaf}_${ownerSuffix}_fork`
 	}
 
 	async function fetchDraft(owner: OtherDraftUser): Promise<unknown> {
@@ -100,20 +75,6 @@
 		busyFor = ownerKey(owner)
 		try {
 			const value = await fetchDraft(owner)
-			const target = forkPath(owner)
-			// Bypass the autosave debouncer so the fork lands on the
-			// server BEFORE we navigate. The destination route loads
-			// via `getDraft=true` and 404s if no draft yet exists at
-			// the fork path — `UserDraft.save` alone would have
-			// scheduled a debounced POST 1.5s out, so a fresh nav was
-			// always too early.
-			await UserDraftDbSyncer.save({
-				workspace,
-				itemKind,
-				path: target,
-				value,
-				immediate: true
-			})
 			// Close the banner BEFORE the navigation so the user sees the
 			// modal disappear on click. Without this the modal stays
 			// visible during the navigation tear-down — Svelte hasn't
@@ -121,7 +82,9 @@
 			// `goto` returns, so the banner lingers on top of the
 			// destination editor for a beat.
 			isOpen = false
-			goto(editPathFor(target))
+			// Import-style handoff: seed a brand-new own item from the
+			// fetched value (no immediate server save, fresh owned path).
+			forkDraftToImport(itemKind, value)
 		} catch (e) {
 			sendUserToast(`Could not fork draft: ${e.body ?? e.message}`, true)
 		} finally {
@@ -141,8 +104,10 @@
 		<div class="flex gap-3 items-start">
 			<Users size={20} class="text-blue-500 shrink-0 mt-0.5" />
 			<p class="text-sm text-secondary">
-				Their drafts are independent of yours.
-				For advanced collaboration, consider using <a target='_blank' href="https://www.windmill.dev/docs/advanced/workspace_forks">workspace forks (EE)</a>
+				Their drafts are independent of yours. For advanced collaboration, consider using <a
+					target="_blank"
+					href="https://www.windmill.dev/docs/advanced/workspace_forks">workspace forks (EE)</a
+				>
 			</p>
 		</div>
 

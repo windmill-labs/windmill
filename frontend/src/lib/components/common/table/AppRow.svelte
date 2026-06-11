@@ -128,8 +128,6 @@
 			workspace={$workspaceStore ?? undefined}
 			itemKind={app.raw_app ? 'raw_app' : 'app'}
 			path={app.path}
-			editPathFor={(forkedPath) =>
-				app.raw_app ? `/apps_raw/edit/${forkedPath}` : `/apps/edit/${forkedPath}`}
 		/>
 		{#if app.labels?.length}
 			<div class="flex items-center gap-0.5">

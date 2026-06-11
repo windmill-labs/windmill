@@ -72,6 +72,14 @@
 			// path — the editor's Deploy button must `createApp` at
 			// the user-typed path, not `updateApp` at the URL.
 			isNewApp = true
+			// The page component is reused across same-route navigation
+			// (e.g. forking from an editor with collaborators) — clear the
+			// previous path's draft-presence state so its hints and
+			// stale-draft timestamps don't bleed onto the fresh draft.
+			otherDraftsUsers = []
+			loadedFromDraft = false
+			draftSavedAt = undefined
+			deployedAt = undefined
 			// Capture every seeding intent BEFORE touching the URL — all of
 			// these used to be consumed by /apps/add and are preserved
 			// verbatim by its redirect.
@@ -321,7 +329,6 @@
 	itemKind="app"
 	{path}
 	{otherDraftsUsers}
-	editPathFor={(forkedPath) => `/apps/edit/${forkedPath}`}
 	onLoadFromServer={async () => {
 		// AppEditor's `stateApp` is captured once at mount and doesn't
 		// react to prop changes, so a plain loadApp() reload would update

@@ -165,6 +165,14 @@
 		// friendly `<random_adj>_raw_app` name. Strip the flag last.
 		if (page.url.searchParams.get('new_draft') === 'true') {
 			isNewApp = true
+			// The page component is reused across same-route navigation
+			// (e.g. forking from an editor with collaborators) — clear the
+			// previous path's draft-presence state so its hints and
+			// stale-draft timestamps don't bleed onto the fresh draft.
+			otherDraftsUsers = []
+			loadedFromDraft = false
+			draftSavedAt = undefined
+			deployedAt = undefined
 			// Suspend autosave around the new-draft bootstrap: the seed
 			// template + the framework picker's `onStart` are both
 			// programmatic writes that shouldn't POST as the user's
@@ -415,7 +423,6 @@
 	itemKind="raw_app"
 	{path}
 	{otherDraftsUsers}
-	editPathFor={(forkedPath) => `/apps_raw/edit/${forkedPath}`}
 	onLoadFromServer={() => loadApp()}
 	getLocalDraft={() => draftSync.draft}
 	bind:othersModalOpen

@@ -22,7 +22,6 @@
 	 * fork-target state with it) instead of trying to recompute its
 	 * `forkPath` derivation for a new path mid-flight.
 	 */
-	import { userStore } from '$lib/stores'
 	import type { UserDraftItemKind } from '$lib/gen'
 	import DraftSyncConflictModal from './DraftSyncConflictModal.svelte'
 	import OtherUsersDraftsModal, { type OtherDraftUser } from './OtherUsersDraftsModal.svelte'
@@ -34,7 +33,6 @@
 		itemKind: UserDraftItemKind
 		path: string
 		otherDraftsUsers: OtherDraftUser[]
-		editPathFor: (forkedPath: string) => string
 		onLoadFromServer: () => void | Promise<void>
 		getLocalDraft: () => unknown
 		/** Bindable open-flag for the OtherUsersDraftsModal. The route owns
@@ -60,7 +58,6 @@
 		itemKind,
 		path,
 		otherDraftsUsers,
-		editPathFor,
 		onLoadFromServer,
 		getLocalDraft,
 		othersModalOpen = $bindable(),
@@ -108,9 +105,7 @@
 				{workspace}
 				{itemKind}
 				{path}
-				currentUserUsername={$userStore?.username}
 				{otherDraftsUsers}
-				{editPathFor}
 				bind:isOpen={othersModalOpen}
 			/>
 		{/key}

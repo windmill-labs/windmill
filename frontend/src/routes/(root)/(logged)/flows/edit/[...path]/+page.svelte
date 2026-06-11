@@ -141,6 +141,14 @@
 			// path — FlowBuilder's Deploy button must `createFlow` at
 			// the user-typed path, not `updateFlow` at the URL.
 			isNewFlow = true
+			// The page component is reused across same-route navigation
+			// (e.g. forking from an editor with collaborators) — clear the
+			// previous path's draft-presence state so its hints and
+			// stale-draft timestamps don't bleed onto the fresh draft.
+			otherDraftsUsers = []
+			loadedFromDraft = false
+			draftSavedAt = undefined
+			deployedAt = undefined
 			// Suspend autosave around the bootstrap cascade: the Path
 			// widget's `$workspaceStore && $userStore`-gated `initPath →
 			// reset → onMetaChange → bind:path` chain seeds a friendly
@@ -435,7 +443,6 @@
 	itemKind="flow"
 	path={flowDraftPath}
 	{otherDraftsUsers}
-	editPathFor={(forkedPath) => `/flows/edit/${forkedPath}`}
 	onLoadFromServer={() => loadFlow()}
 	getLocalDraft={() => draftSync.draft}
 	bind:othersModalOpen

@@ -199,7 +199,6 @@
 			workspace={$workspaceStore ?? undefined}
 			itemKind="script"
 			path={script.path}
-			editPathFor={(forkedPath) => `/scripts/edit/${forkedPath}`}
 		/>
 		{#if script.labels?.length}
 			<div class="flex items-center gap-0.5">
