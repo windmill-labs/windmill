@@ -2237,7 +2237,7 @@ function buildVariableDeployRequestBody(
 
 function startDraftWrite(ctx: WriteDraftCtx, type: WorkspaceItemType, path: string): void {
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, {
-		content: `Saving ${type} "${path}" to local storage…`
+		content: `Saving ${type} "${path}" as a draft…`
 	})
 }
 
@@ -2262,13 +2262,13 @@ function finishDraftWrite(stored: WorkspaceItem, existed: boolean, ctx: WriteDra
 			: stored
 
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, {
-		content: `${verb} ${stored.type} "${stored.path}" in local storage`,
-		result: `Saved to local storage`
+		content: `${verb} ${stored.type} "${stored.path}" as a draft`,
+		result: `Saved as draft`
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `${verb} ${stored.type} "${stored.path}" in local storage (a browser-only local draft, not a workspace draft). It was not deployed.`,
+			message: `${verb} ${stored.type} "${stored.path}" as a per-user draft (saved server-side, visible only to this user — not a deployed workspace item). It was not deployed.`,
 			item: serializedItem
 		},
 		null,
@@ -2837,7 +2837,7 @@ async function initApp(
 	}
 
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Saving app "${path}" to local storage (${framework} template)…`
+		content: `Saving app "${path}" draft (${framework} template)…`
 	})
 
 	const template = FRAMEWORK_TEMPLATES[framework]
@@ -2850,13 +2850,13 @@ async function initApp(
 	const stored = saveAppDraft(workspace, path, value)
 
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Saved app "${path}" to local storage (${framework})`,
-		result: 'Saved to local storage'
+		content: `Saved app "${path}" draft (${framework})`,
+		result: 'Saved as draft'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Initialized app "${path}" in local storage from the ${framework} template with a starter runnable "${STARTER_RUNNABLE_KEY}" (a browser-only local draft, not a workspace draft). Use write_app_file / write_app_runnable to evolve it.`,
+			message: `Initialized a per-user draft app "${path}" from the ${framework} template with a starter runnable "${STARTER_RUNNABLE_KEY}" (saved server-side, not a deployed workspace item). Use write_app_file / write_app_runnable to evolve it.`,
 			item: stored
 		},
 		null,
@@ -2913,12 +2913,12 @@ async function writeAppFile(
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Updated ${target.filePath} in app "${args.path}"`,
-		result: 'Saved to local storage'
+		result: 'Saved as draft'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Updated app "${args.path}" in local storage with frontend file "${target.filePath}".`,
+			message: `Updated draft app "${args.path}" with frontend file "${target.filePath}".`,
 			item: stored
 		},
 		null,
@@ -2953,12 +2953,12 @@ async function deleteAppFile(
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Removed ${target.filePath} from app "${args.path}"`,
-		result: 'Saved to local storage'
+		result: 'Saved as draft'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Removed "${target.filePath}" from app "${args.path}" in local storage.`,
+			message: `Removed "${target.filePath}" from draft app "${args.path}".`,
 			item: stored
 		},
 		null,
@@ -3036,12 +3036,12 @@ async function patchAppFile(
 	const stored = saveAppDraft(workspace, path, value)
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Patched ${target.filePath} in app "${path}"`,
-		result: 'Saved to local storage'
+		result: 'Saved as draft'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Patched "${target.filePath}" in app "${path}" in local storage.`,
+			message: `Patched "${target.filePath}" in draft app "${path}".`,
 			item: stored
 		},
 		null,
@@ -3079,12 +3079,12 @@ async function writeAppRunnable(
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Updated runnable "${key}" in app "${path}"`,
-		result: 'Saved to local storage'
+		result: 'Saved as draft'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Updated app "${path}" in local storage with runnable "${key}".`,
+			message: `Updated draft app "${path}" with runnable "${key}".`,
 			item: stored
 		},
 		null,
@@ -3113,12 +3113,12 @@ async function deleteAppRunnable(
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Removed runnable "${key}" from app "${path}"`,
-		result: 'Saved to local storage'
+		result: 'Saved as draft'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Removed runnable "${key}" from app "${path}" in local storage.`,
+			message: `Removed runnable "${key}" from draft app "${path}".`,
 			item: stored
 		},
 		null,
@@ -3204,8 +3204,8 @@ async function discardLocalDraft(
 	deleteGlobalDraft(workspace, type, path, triggerKind)
 
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Discarded ${type} "${path}" from local storage`,
-		result: 'Discarded from local storage'
+		content: `Discarded ${type} "${path}" draft`,
+		result: 'Draft discarded'
 	})
 	return JSON.stringify(
 		{
