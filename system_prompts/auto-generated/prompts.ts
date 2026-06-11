@@ -2981,12 +2981,12 @@ List all queues with their metrics
 
 ### refresh
 
-Refresh wmill-managed project files (AGENTS.cli.md, skills, tsconfig.wmill.json)
+Refresh wmill-managed project files (AGENTS.wmill.md, skills, tsconfig.wmill.json)
 
 **Subcommands:**
 
-- \`refresh prompts\` - Refresh AGENTS.cli.md and managed skills. User-owned AGENTS.md and CLAUDE.md are never overwritten unless you opt in.
-  - \`--yes\` - Non-interactive: append the @AGENTS.cli.md include to an existing AGENTS.md / CLAUDE.md without prompting. Without it, a non-interactive run leaves an unlinked file untouched.
+- \`refresh prompts\` - Refresh AGENTS.wmill.md and managed skills. User-owned AGENTS.md and CLAUDE.md are never overwritten unless you opt in.
+  - \`--yes\` - Non-interactive: append the @AGENTS.wmill.md include to an existing AGENTS.md / CLAUDE.md without prompting. Without it, a non-interactive run leaves an unlinked file untouched.
 - \`refresh tsconfig\` - Refresh the wmill-managed tsconfig.wmill.json (and Deno import map for Deno projects)
   - \`--yes\` - Non-interactive: wire an existing custom tsconfig.json/deno.json to the managed file without prompting (a previously-generated config is always migrated automatically).
 
@@ -3277,7 +3277,8 @@ workspace related commands
   - \`--create-workspace-name <workspace_name:string>\` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
   - \`--color <color:string>\` - Workspace color (hex code, e.g. #ff0000)
   - \`--datatable-behavior <behavior:string>\` - How to handle datatables: skip, schema_only, or schema_and_data (default: interactive prompt)
-  - \`-y --yes\` - Skip interactive prompts (defaults datatable behavior to 'skip')
+  - \`--from-branch <branch:string>\` - Fork based on this base branch (its bound workspace is the parent) and rename your current working branch onto the fork branch wm-fork/<branch>/<id>. Use when you're already on a branch (e.g. with forked-datatable edits) you want to turn into the fork. Omit to base the fork on the current branch and check out a fresh fork branch instead.
+  - \`-y --yes\` - Skip interactive prompts (defaults datatable behavior to 'skip', and confirms the --from-branch rename)
 - \`workspace delete-fork <fork_name:string>\` - Delete a forked workspace and git branch
   - \`-y --yes\` - Skip confirmation prompt
 - \`workspace merge\` - Compare and deploy changes between a fork and its parent workspace
@@ -3451,6 +3452,10 @@ import Stripe from "stripe";
 import { someFunction } from "some-package";
 \`\`\`
 
+## Prefer \`//native\` when the runtime allows it
+
+If a script only needs \`fetch\` and the JavaScript standard library — including when it uses \`windmill-client\` — prefer making it a **native** script: add \`//native\` as the first line and write it with the \`write-script-bunnative\` skill. Native scripts run on a lightweight V8 isolate, start faster, and parallelize heavily. \`windmill-client\` works on the native worker (its calls go over \`fetch\`), so needing the Windmill client is **not** a reason to avoid \`//native\`. Use the regular \`bun\` language only when the code (or a dependency) needs Node/Bun runtime APIs — \`node:*\` modules, the filesystem, child processes, or native addons.
+
 ## Windmill Client
 
 Import the windmill client for platform interactions:
@@ -3459,7 +3464,9 @@ Import the windmill client for platform interactions:
 import * as wmill from "windmill-client";
 \`\`\`
 
-See the SDK documentation for available methods.
+**Prefer \`windmill-client\` over raw \`fetch\` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you, so you don't hand-roll URLs or tokens. Reserve \`fetch\` for calling *external* HTTP APIs that aren't Windmill.
+
+The full \`windmill-client\` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method to use instead of guessing or falling back to \`fetch\`.
 
 ## Preprocessor Scripts
 
@@ -3575,7 +3582,9 @@ export async function main(url: string) {
 
 ## Windmill Client
 
-\`windmill-client\` is available for Windmill-specific primitives such as the S3 helpers below (\`loadS3File\`, \`loadS3FileStream\`, \`writeS3File\`, \`S3Object\`). Use \`fetch\` for plain HTTP.
+\`windmill-client\` works on the native worker (its calls go over \`fetch\`), so use it as the **preferred way to talk to Windmill** — reading resources/variables/states, running scripts and flows, and the S3 helpers below (\`loadS3File\`, \`loadS3FileStream\`, \`writeS3File\`, \`S3Object\`). It handles auth, the workspace, and the base URL for you. Reserve raw \`fetch\` for calling *external* HTTP APIs that aren't Windmill.
+
+The full \`windmill-client\` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method instead of hand-rolling a \`fetch\` against the Windmill API.
 
 ## Preprocessor Scripts
 
@@ -3740,7 +3749,9 @@ Import the windmill client for platform interactions:
 import * as wmill from "windmill-client";
 \`\`\`
 
-See the SDK documentation for available methods.
+**Prefer \`windmill-client\` over raw \`fetch\` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you. Reserve \`fetch\` for calling *external* HTTP APIs that aren't Windmill.
+
+The full \`windmill-client\` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method instead of guessing or falling back to \`fetch\`.
 
 ## Preprocessor Scripts
 

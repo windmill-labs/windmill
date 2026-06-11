@@ -3,18 +3,28 @@
  *
  * `wmill` writes two files:
  *
- * - `AGENTS.cli.md` — managed CLI / workspace guidance, refreshed by
+ * - `AGENTS.wmill.md` — managed CLI / workspace guidance, refreshed by
  *   `wmill refresh prompts` (and the implicit refresh inside `wmill init`).
  * - `AGENTS.md` — user-owned project entry point. The default skeleton
- *   references `AGENTS.cli.md` via an `@`-include so the managed content is
+ *   references `AGENTS.wmill.md` via an `@`-include so the managed content is
  *   pulled in automatically.
+ *
+ * The managed file used to be named `AGENTS.cli.md`; `wmill init` /
+ * `wmill refresh prompts` migrate the old name to `AGENTS.wmill.md` (and
+ * rewrite the `@`-include) automatically. The legacy constants below exist
+ * solely for that migration.
  */
 
-export const AGENTS_CLI_INCLUDE_LINE = "@AGENTS.cli.md";
+export const AGENTS_WMILL_FILENAME = "AGENTS.wmill.md";
+export const AGENTS_WMILL_INCLUDE_LINE = "@AGENTS.wmill.md";
+
+/** Legacy managed filename / include line, migrated away from on init/refresh. */
+export const LEGACY_AGENTS_CLI_FILENAME = "AGENTS.cli.md";
+export const LEGACY_AGENTS_CLI_INCLUDE_LINE = "@AGENTS.cli.md";
 
 /**
  * Lightweight, user-owned AGENTS.md skeleton. Written only when no AGENTS.md
- * exists in the project. Everything below the `@AGENTS.cli.md` include is for
+ * exists in the project. Everything below the `@AGENTS.wmill.md` include is for
  * the user to edit; nothing in this file is refreshed by `wmill`.
  */
 export function generateAgentsMdSkeleton(): string {
@@ -28,7 +38,7 @@ The line below pulls in Windmill's managed CLI guidance (skills, deploy flow,
 debugging jobs, etc.). Refresh it with \`wmill refresh prompts\`. Remove the
 include line if you don't want the managed guidance in this project.
 
-${AGENTS_CLI_INCLUDE_LINE}
+${AGENTS_WMILL_INCLUDE_LINE}
 
 ## Project-specific instructions
 
@@ -41,8 +51,12 @@ ${AGENTS_CLI_INCLUDE_LINE}
 }
 
 /**
- * Managed AGENTS.cli.md content. Rewritten by `wmill init` and
+ * Managed AGENTS.wmill.md content. Rewritten by `wmill init` and
  * `wmill refresh prompts` every time.
+ *
+ * NOTE: `system_prompts/generate.py` extracts this template by anchoring on
+ * the function name `generateAgentsCliMdContent` — keep the name in sync if
+ * you rename it.
  */
 export function generateAgentsCliMdContent(skillsReference: string): string {
   return `# Windmill CLI Agent Instructions
@@ -112,9 +126,10 @@ There are two ways local changes reach the workspace. Pick based on how the repo
 Before deploying, check whether this repo has a **GitHub Actions (or other CI) workflow that runs \`wmill sync push\` on push**. That workflow is the signal that pushing a branch will deploy:
 
 - Look for \`.github/workflows/*.yml\` (or other CI configs) that invoke \`wmill sync push\`, \`wmill\` deployment commands, or similar.
-- Cache the result for the rest of the session — don't re-scan on every deploy.
 
 If such a workflow exists → **use \`git push\`** (Option A). Otherwise → **use \`wmill sync push\`** directly (Option B).
+
+**Save the preference so you don't re-detect it every session.** Once you've determined which option this repo uses (or the user tells you), record it in the **project-specific instructions** section of \`AGENTS.md\` (user-owned — never overwritten by \`wmill refresh prompts\`), e.g. a line like \`Deploy mode: git push (CI runs wmill sync push)\` or \`Deploy mode: wmill sync push (no CI wiring)\`. On later sessions, read that line first and skip the scan. Re-detect only if the CI wiring visibly changed.
 
 ### Option A — \`git push\` (CI is wired to sync)
 
@@ -136,6 +151,17 @@ No CI workflow runs \`wmill sync push\` automatically, so deploy directly from t
 ### In both cases
 
 Only deploy when the user explicitly asks to deploy, publish, push, or ship — not when they say "run", "try", or "test". For testing local edits use the per-entity \`preview\` commands (\`wmill script preview\`, \`wmill flow preview\`) — they don't deploy.
+
+## Workspace forks
+
+A **fork** is an isolated copy of a workspace for parallel or experimental work — make changes (including to datatables, which are cloned per fork) without touching the parent, then merge back after review. Each fork is paired with a git branch named \`wm-fork/<base>/<id>\`. Forks require a git repo.
+
+Create one with \`wmill workspace fork\`. There are two branch workflows — pick by where you are:
+
+- **Starting from the base branch** (no in-progress work to carry over): run \`wmill workspace fork\`. It bases the fork on your current branch and prints a \`git checkout -b wm-fork/<base>/<id>\` to start the fork branch.
+- **Already on a working branch you want to turn into the fork** (e.g. you've branched and already edited a forked datatable): run \`wmill workspace fork --from-branch <base>\`. It bases the fork on \`<base>\` (the parent's branch) and renames your current branch onto \`wm-fork/<base>/<id>\` in place, preserving its commits.
+
+Merge a fork back into its parent with \`wmill workspace merge\` (or the Merge UI on the fork's home page). Full reference: https://www.windmill.dev/docs/advanced/workspace_forks
 
 ## Debugging Jobs
 

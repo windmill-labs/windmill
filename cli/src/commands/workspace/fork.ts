@@ -5,15 +5,23 @@ import * as log from "../../core/log.ts";
 import { setClient } from "../../core/client.ts";
 import { allWorkspaces, list, removeWorkspace } from "./workspace.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-import { getCurrentGitBranch, getOriginalBranchForWorkspaceForks, isGitRepository } from "../../utils/git.ts";
+import {
+  getCurrentGitBranch,
+  getOriginalBranchForWorkspaceForks,
+  gitBranchExists,
+  isGitRepository,
+  renameCurrentGitBranch,
+} from "../../utils/git.ts";
 import { WM_FORK_PREFIX } from "../../core/constants.ts";
 import { tryResolveBranchWorkspace } from "../../core/context.ts";
+import { findWorkspaceByGitBranch, readConfigFile } from "../../core/conf.ts";
 
 async function createWorkspaceFork(
   opts: GlobalOptions & {
     createWorkspaceName: string | undefined;
     color: string | undefined;
     datatableBehavior: string | undefined;
+    fromBranch: string | undefined;
     yes: boolean | undefined;
   },
   workspaceName: string | undefined,
@@ -23,7 +31,37 @@ async function createWorkspaceFork(
     throw new Error("You can only create forks within a git repo. Forks are tracked with git and synced to your instance with the git sync workflow.");
   }
 
-  const workspace = await tryResolveBranchWorkspace(opts);
+  const currentBranch = getCurrentGitBranch()
+  if (!currentBranch) {
+    throw new Error("Could not get git branch name");
+  }
+
+  // `--from-branch` enables the "already on a working branch" workflow: the
+  // fork is based on <fromBranch> (the parent), and the current branch is
+  // later renamed onto the fork branch. Without it, the fork is based on the
+  // current branch and the user checks out a fresh fork branch.
+  const fromBranch = opts.fromBranch;
+
+  let workspace;
+  if (fromBranch) {
+    if (fromBranch === currentBranch) {
+      throw new Error(
+        `--from-branch is for converting a *different* working branch into the fork branch, but you are already on \`${currentBranch}\`. ` +
+        `Either omit --from-branch (a fresh fork branch is created with \`git checkout -b\`), or check out the working branch you want to convert first.`,
+      );
+    }
+    const config = await readConfigFile({ warnIfMissing: false });
+    const match = findWorkspaceByGitBranch(config.workspaces, fromBranch);
+    if (!match) {
+      throw new Error(
+        `Could not find a workspace mapped to branch \`${fromBranch}\` in wmill.yaml's workspaces section. ` +
+        `Pass the base branch your fork should be based on (e.g. the branch bound to the parent workspace).`,
+      );
+    }
+    workspace = await tryResolveBranchWorkspace(opts, match[0]);
+  } else {
+    workspace = await tryResolveBranchWorkspace(opts);
+  }
 
   if (!workspace) {
     throw new Error("Could not resolve workspace from branch name. Make sure you are in a git repo to use workspace forks");
@@ -31,14 +69,12 @@ async function createWorkspaceFork(
 
   log.info(`You are forking workspace (${workspace.workspaceId})`)
 
-  const currentBranch = getCurrentGitBranch()
-  if (!currentBranch) {
-    throw new Error("Could not get git branch name");
-  }
   const originalBranchIfForked = getOriginalBranchForWorkspaceForks(currentBranch);
 
   let clonedBranchName: string | null;
-  if (originalBranchIfForked) {
+  if (fromBranch) {
+    clonedBranchName = fromBranch;
+  } else if (originalBranchIfForked) {
     log.info(`You are creating a fork of a fork. The branch will be linked to the original branch this was forked from, i.e. \`${originalBranchIfForked}\`, for all settings and overrides.`);
     clonedBranchName = originalBranchIfForked;
   } else {
@@ -248,9 +284,51 @@ async function createWorkspaceFork(
 
   const newBranchName = `${WM_FORK_PREFIX}/${clonedBranchName}/${workspaceId}`
 
-  log.info(`Created forked workspace ${trueWorkspaceId}. To start contributing to your fork, create and push edits to the branch \`${newBranchName}\` by using the command:
+  // Workflow B (`--from-branch`): turn the current working branch into the
+  // fork branch in place so its commits become the fork's. Workflow A: leave
+  // the user on their base branch and have them check out a fresh fork branch.
+  let onForkBranch = false;
+  if (fromBranch) {
+    if (currentBranch === newBranchName) {
+      onForkBranch = true;
+      log.info(colors.green(`Your current branch is already \`${newBranchName}\`.`));
+    } else if (gitBranchExists(newBranchName)) {
+      log.warn(
+        `Branch \`${newBranchName}\` already exists locally, so the current branch \`${currentBranch}\` was not renamed. ` +
+        `Check out the fork branch yourself (e.g. \`git checkout ${newBranchName}\`).`,
+      );
+    } else {
+      let doRename = opts.yes === true;
+      if (!doRename) {
+        const { Select } = await import("@cliffy/prompt/select");
+        const choice = await Select.prompt({
+          message: `Rename your current branch \`${currentBranch}\` → \`${newBranchName}\` so its commits become the fork's branch?`,
+          options: [
+            { name: "Yes, rename it", value: "confirm" },
+            { name: "No, I'll switch branches myself", value: "cancel" },
+          ],
+        });
+        doRename = choice === "confirm";
+      }
+      if (doRename) {
+        renameCurrentGitBranch(newBranchName);
+        onForkBranch = true;
+        log.info(
+          colors.green(
+            `Renamed \`${currentBranch}\` → \`${newBranchName}\`. Your existing commits are now on the fork branch.`,
+          ),
+        );
+      }
+    }
+  }
 
-\t`+colors.white(`git checkout -b ${newBranchName}`) + `
+  const checkoutHint = onForkBranch
+    ? `Created forked workspace ${trueWorkspaceId}. You are on the fork branch \`${newBranchName}\` — push it to sync your fork.`
+    : `Created forked workspace ${trueWorkspaceId}. To start contributing to your fork, create and push edits to the branch \`${newBranchName}\` by using the command:
+
+\t` + colors.white(`git checkout -b ${newBranchName}`);
+
+  log.info(`${checkoutHint}
 
 When doing operations on the forked workspace, it will use the remote setup in the workspaces section for the branch it was forked from.
 

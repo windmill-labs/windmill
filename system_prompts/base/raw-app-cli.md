@@ -121,7 +121,7 @@ The runnable ID is the filename without extension. For example, `get_user.ts` cr
 | C#               | `.cs`        | `myFunc.cs`      |
 | Java             | `.java`      | `myFunc.java`    |
 
-After creating a runnable, tell the user they can generate lock files by running:
+After creating a runnable, offer to generate its lock files as a one-sentence next step (e.g. "Want me to generate the lock files?") and run it yourself once they agree — don't just name the command and wait. If the user already asked you to finish/lock the app, run it directly. It writes local lock files (not a deploy), so offer rather than running silently:
 ```bash
 wmill generate-metadata
 ```

@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import process from "node:process";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Select } from "@cliffy/prompt/select";
@@ -53,11 +56,19 @@ export async function refreshPrompts(opts: {
       },
     });
 
-    log.info(colors.green("Refreshed AGENTS.cli.md"));
+    log.info(colors.green("Refreshed AGENTS.wmill.md"));
+
+    if (result.legacyManagedRemoved) {
+      log.info(
+        colors.yellow(
+          "Migrated legacy AGENTS.cli.md → AGENTS.wmill.md (removed the old file and rewrote any @AGENTS.cli.md include)."
+        )
+      );
+    }
 
     reportReconciliation({
       file: "AGENTS.md",
-      includeLine: "@AGENTS.cli.md",
+      includeLine: "@AGENTS.wmill.md",
       created: result.agentsCreated,
       migration: result.agentsMigration,
     });
@@ -175,13 +186,44 @@ interface CommandOptions {
 
 async function promptsAction(opts: CommandOptions): Promise<void> {
   await refreshPrompts({ yes: opts.yes === true });
+  await refreshRtNamespaceIfPresent(opts);
+}
+
+/**
+ * Keep an existing `rt.d.ts` resource-type namespace in sync when the user
+ * runs `wmill refresh prompts`. `wmill init` already generates it on first
+ * bind; here we only refresh it when the file is already present (so we never
+ * introduce it into projects that don't use it). Best-effort: a missing
+ * workspace/login or offline run just skips with a warning rather than failing
+ * the whole refresh.
+ *
+ * Not wired into the shared `refreshPrompts` helper on purpose — `wmill init`
+ * regenerates the namespace itself, and `refreshPrompts` must stay
+ * network-free for its other callers.
+ */
+async function refreshRtNamespaceIfPresent(opts: CommandOptions): Promise<void> {
+  const rtPath = join(process.cwd(), "rt.d.ts");
+  if (!existsSync(rtPath)) return;
+
+  try {
+    const { generateRTNamespace } = await import(
+      "../resource-type/resource-type.ts"
+    );
+    await generateRTNamespace(opts as any);
+  } catch (error) {
+    log.warn(
+      `Could not refresh rt.d.ts resource type namespace: ${
+        error instanceof Error ? error.message : error
+      }`
+    );
+  }
 }
 
 const command = new Command()
-  .description("Refresh AGENTS.cli.md and managed skills. User-owned AGENTS.md and CLAUDE.md are never overwritten unless you opt in.")
+  .description("Refresh AGENTS.wmill.md and managed skills. User-owned AGENTS.md and CLAUDE.md are never overwritten unless you opt in.")
   .option(
     "--yes",
-    "Non-interactive: append the @AGENTS.cli.md include to an existing AGENTS.md / CLAUDE.md without prompting. Without it, a non-interactive run leaves an unlinked file untouched."
+    "Non-interactive: append the @AGENTS.wmill.md include to an existing AGENTS.md / CLAUDE.md without prompting. Without it, a non-interactive run leaves an unlinked file untouched."
   )
   .action(promptsAction as any);
 

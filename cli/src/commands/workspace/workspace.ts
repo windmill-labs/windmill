@@ -812,7 +812,11 @@ const command = new Command()
     "--datatable-behavior <behavior:string>",
     "How to handle datatables: skip, schema_only, or schema_and_data (default: interactive prompt)"
   )
-  .option("-y --yes", "Skip interactive prompts (defaults datatable behavior to 'skip')")
+  .option(
+    "--from-branch <branch:string>",
+    "Fork based on this base branch (its bound workspace is the parent) and rename your current working branch onto the fork branch wm-fork/<branch>/<id>. Use when you're already on a branch (e.g. with forked-datatable edits) you want to turn into the fork. Omit to base the fork on the current branch and check out a fresh fork branch instead."
+  )
+  .option("-y --yes", "Skip interactive prompts (defaults datatable behavior to 'skip', and confirms the --from-branch rename)")
   .action(createWorkspaceFork as any)
   .command("delete-fork")
   .description("Delete a forked workspace and git branch")

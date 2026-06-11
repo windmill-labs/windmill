@@ -430,12 +430,12 @@ List all queues with their metrics
 
 ### refresh
 
-Refresh wmill-managed project files (AGENTS.cli.md, skills, tsconfig.wmill.json)
+Refresh wmill-managed project files (AGENTS.wmill.md, skills, tsconfig.wmill.json)
 
 **Subcommands:**
 
-- `refresh prompts` - Refresh AGENTS.cli.md and managed skills. User-owned AGENTS.md and CLAUDE.md are never overwritten unless you opt in.
-  - `--yes` - Non-interactive: append the @AGENTS.cli.md include to an existing AGENTS.md / CLAUDE.md without prompting. Without it, a non-interactive run leaves an unlinked file untouched.
+- `refresh prompts` - Refresh AGENTS.wmill.md and managed skills. User-owned AGENTS.md and CLAUDE.md are never overwritten unless you opt in.
+  - `--yes` - Non-interactive: append the @AGENTS.wmill.md include to an existing AGENTS.md / CLAUDE.md without prompting. Without it, a non-interactive run leaves an unlinked file untouched.
 - `refresh tsconfig` - Refresh the wmill-managed tsconfig.wmill.json (and Deno import map for Deno projects)
   - `--yes` - Non-interactive: wire an existing custom tsconfig.json/deno.json to the managed file without prompting (a previously-generated config is always migrated automatically).
 
@@ -726,7 +726,8 @@ workspace related commands
   - `--create-workspace-name <workspace_name:string>` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
   - `--color <color:string>` - Workspace color (hex code, e.g. #ff0000)
   - `--datatable-behavior <behavior:string>` - How to handle datatables: skip, schema_only, or schema_and_data (default: interactive prompt)
-  - `-y --yes` - Skip interactive prompts (defaults datatable behavior to 'skip')
+  - `--from-branch <branch:string>` - Fork based on this base branch (its bound workspace is the parent) and rename your current working branch onto the fork branch wm-fork/<branch>/<id>. Use when you're already on a branch (e.g. with forked-datatable edits) you want to turn into the fork. Omit to base the fork on the current branch and check out a fresh fork branch instead.
+  - `-y --yes` - Skip interactive prompts (defaults datatable behavior to 'skip', and confirms the --from-branch rename)
 - `workspace delete-fork <fork_name:string>` - Delete a forked workspace and git branch
   - `-y --yes` - Skip confirmation prompt
 - `workspace merge` - Compare and deploy changes between a fork and its parent workspace
