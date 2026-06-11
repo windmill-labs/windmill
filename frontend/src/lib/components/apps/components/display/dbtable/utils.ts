@@ -235,6 +235,44 @@ return schema
 		},
 		argName: 'database'
 	},
+	duckdb: {
+		code: `SELECT table_schema, table_name, column_name, data_type as udt_name, column_default, is_nullable FROM information_schema.columns WHERE table_catalog = current_database() AND table_schema NOT IN ('information_schema', 'pg_catalog')`,
+		processingFn: (rows) => {
+			const schemas = rows.reduce((acc, a) => {
+				const table_schema = a.table_schema
+				delete a.table_schema
+				acc[table_schema] = acc[table_schema] || []
+				if (a.table_name || a.column_name) acc[table_schema].push(a)
+				return acc
+			}, {})
+
+			const data = {}
+			for (const key in schemas) {
+				data[key] = schemas[key].reduce((acc, a) => {
+					const table_name = a.table_name
+					delete a.table_name
+					acc[table_name] = acc[table_name] || {}
+					const p: {
+						type: string
+						required: boolean
+						default?: string
+					} = {
+						type: a.udt_name,
+						required: a.is_nullable === 'NO'
+					}
+					if (a.column_default) {
+						p.default = a.column_default
+					}
+					acc[table_name][a.column_name] = p
+					return acc
+				}, {})
+			}
+
+			return data
+		},
+		lang: 'duckdb',
+		argName: 'database'
+	},
 	mssql: {
 		argName: 'database',
 		code: `select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT from information_schema.columns where table_schema != 'sys'`,
@@ -381,7 +419,12 @@ export function getPrimaryKeys(tableMetadata?: TableMetadata): string[] {
 }
 
 export function dbSupportsSchemas(dbType: DbType): boolean {
-	return dbType === 'postgresql' || dbType === 'snowflake' || dbType === 'bigquery'
+	return (
+		dbType === 'postgresql' ||
+		dbType === 'snowflake' ||
+		dbType === 'bigquery' ||
+		dbType === 'duckdb'
+	)
 }
 
 export function datatypeHasLength(datatype: string): boolean {
