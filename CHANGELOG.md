@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.723.0](https://github.com/windmill-labs/windmill/compare/v1.722.0...v1.723.0) (2026-06-11)
+
+
+### Features
+
+* add get_app_runtime_logs tool to global chat ([#9502](https://github.com/windmill-labs/windmill/issues/9502)) ([f86d0d7](https://github.com/windmill-labs/windmill/commit/f86d0d79fc6aa23119fd59761330ab79592d0a2a))
+* **cli:** improve agent prompts/skills and workspace fork workflow ([#9531](https://github.com/windmill-labs/windmill/issues/9531)) ([5bdc4f8](https://github.com/windmill-labs/windmill/commit/5bdc4f83ce37302a2c375d0ff73763acfee2aadb))
+* enable native web search in copilot ([#9522](https://github.com/windmill-labs/windmill/issues/9522)) ([d3f5fe1](https://github.com/windmill-labs/windmill/commit/d3f5fe1c8c39ff07d05f0922b8f40aa95756a707))
+
+
+### Bug Fixes
+
+* **frontend:** stop live activity flickering when user has multiple tabs ([#9543](https://github.com/windmill-labs/windmill/issues/9543)) ([57e627e](https://github.com/windmill-labs/windmill/commit/57e627eabf7c4144ce1c07214ad44d026b82f0b4))
+* omit temperature for claude fable 5 ([#9540](https://github.com/windmill-labs/windmill/issues/9540)) ([bd00bee](https://github.com/windmill-labs/windmill/commit/bd00beeac54dbcfa9ab86fd336fca1a8fa289341))
+* refetch license key from settings when in-memory key is invalid ([#9534](https://github.com/windmill-labs/windmill/issues/9534)) ([38c0ccd](https://github.com/windmill-labs/windmill/commit/38c0ccdf563d3655a4cba390ce9372bc9f9c4a9b))
+
 ## [1.722.0](https://github.com/windmill-labs/windmill/compare/v1.721.0...v1.722.0) (2026-06-11)
 
 
