@@ -2173,35 +2173,43 @@ async fn resolve_license_key_value(conn: &Connection, quiet: bool) -> anyhow::Re
 
 pub async fn reload_license_key(conn: &Connection) -> anyhow::Result<()> {
     let value = resolve_license_key_value(conn, false).await?;
-    #[cfg(feature = "enterprise")]
-    record_attempted_license_key(&value);
-    set_license_key(value, conn.as_sql()).await;
+    apply_license_key(value, conn).await;
     Ok(())
+}
+
+/// Applies the key and records it as the last accepted value only when
+/// `set_license_key` actually stored it (validation passed, even if expired).
+/// A rejected key is deliberately not recorded: validation can fail transiently
+/// (DB error during the instance-hash check, offline key validated before
+/// base_url is configured), and recording it would stop
+/// `refetch_license_key_if_invalid` from ever retrying an unchanged key.
+async fn apply_license_key(value: String, conn: &Connection) {
+    set_license_key(value.clone(), conn.as_sql()).await;
+    #[cfg(feature = "enterprise")]
+    if (**windmill_common::ee_oss::LICENSE_KEY.load()).as_str() == value {
+        *LAST_ACCEPTED_LICENSE_KEY.lock().unwrap() = Some(value);
+    }
 }
 
 #[cfg(feature = "enterprise")]
 lazy_static::lazy_static! {
     static ref LAST_INVALID_KEY_REFETCH_AT: std::sync::Mutex<Option<Instant>> =
         std::sync::Mutex::new(None);
-    static ref LAST_ATTEMPTED_LICENSE_KEY: std::sync::Mutex<Option<String>> =
+    static ref LAST_ACCEPTED_LICENSE_KEY: std::sync::Mutex<Option<String>> =
         std::sync::Mutex::new(None);
 }
 
 #[cfg(feature = "enterprise")]
 const INVALID_LICENSE_KEY_REFETCH_INTERVAL: Duration = Duration::from_secs(60);
 
-#[cfg(feature = "enterprise")]
-fn record_attempted_license_key(value: &str) {
-    *LAST_ATTEMPTED_LICENSE_KEY.lock().unwrap() = Some(value.to_string());
-}
-
 /// When the in-memory license key is invalid, the key in settings may have moved on
 /// (failed initial load, missed `license_key` notification, or renewed/fixed by
 /// another instance) — without this, the stale in-memory key would keep being
 /// flagged invalid until the next full settings reload (12h by default). Refetch
 /// the latest key at most once per `INVALID_LICENSE_KEY_REFETCH_INTERVAL` and
-/// re-apply it only when it differs from the last attempted value, so an unchanged
-/// invalid key is not re-validated (and re-logged) in a loop.
+/// re-apply it unless it matches the last accepted value (an unchanged key that
+/// validated fine and is invalid for another reason — e.g. expired — is not
+/// re-validated in a loop).
 #[cfg(feature = "enterprise")]
 pub async fn refetch_license_key_if_invalid(conn: &Connection) {
     use windmill_common::ee_oss::LICENSE_KEY_VALID;
@@ -2223,14 +2231,13 @@ pub async fn refetch_license_key_if_invalid(conn: &Connection) {
             return;
         }
     };
-    let changed = LAST_ATTEMPTED_LICENSE_KEY.lock().unwrap().as_deref() != Some(value.as_str());
+    let changed = LAST_ACCEPTED_LICENSE_KEY.lock().unwrap().as_deref() != Some(value.as_str());
     if changed {
         tracing::info!(
-            "License key is invalid but a different key was found in settings, applying it: {}",
+            "In-memory license key is invalid, applying license key from settings: {}",
             truncate_token(&value)
         );
-        record_attempted_license_key(&value);
-        set_license_key(value, conn.as_sql()).await;
+        apply_license_key(value, conn).await;
     }
 }
 
