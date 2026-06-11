@@ -97,14 +97,14 @@ function makeFinding({ severity, kind, location, message, before, after }) {
   return { severity, kind, location, message, before, after };
 }
 
-function requestBodySchema(operation) {
+function requestBodySchemas(operation) {
   const body = operation?.requestBody;
   const content = body?.content ?? {};
-  return (
-    content["application/json"]?.schema ??
-    content["application/x-www-form-urlencoded"]?.schema ??
-    content["multipart/form-data"]?.schema
-  );
+  const schemas = [];
+  for (const [mediaType, media] of Object.entries(content)) {
+    if (media?.schema) schemas.push({ mediaType, schema: media.schema });
+  }
+  return schemas;
 }
 
 function responseSchemas(operation) {
@@ -114,6 +114,30 @@ function responseSchemas(operation) {
     if (schema) schemas.push({ status, schema });
   }
   return schemas;
+}
+
+function diffRequestBodySchemas({ beforeOperation, afterOperation, operationLocation, options }) {
+  const findings = [];
+  const beforeSchemas = new Map(requestBodySchemas(beforeOperation).map((entry) => [entry.mediaType, entry.schema]));
+  const afterSchemas = new Map(requestBodySchemas(afterOperation).map((entry) => [entry.mediaType, entry.schema]));
+
+  for (const [mediaType, beforeSchema] of beforeSchemas) {
+    const afterSchema = afterSchemas.get(mediaType);
+    if (!afterSchema) continue;
+    const location = `${operationLocation}/requestBody/content/${pointer([mediaType])}`;
+    findings.push(
+      ...diffRequiredProperties({
+        beforeSchema,
+        afterSchema,
+        location,
+        responseRequiredSeverity: options.responseRequiredSeverity,
+        schemaRequiredSeverity: options.schemaRequiredSeverity,
+      }),
+    );
+    findings.push(...diffEnums({ beforeSchema, afterSchema, location }));
+  }
+
+  return findings;
 }
 
 function diffRequiredProperties({ beforeSchema, afterSchema, location, responseRequiredSeverity, schemaRequiredSeverity }) {
@@ -242,19 +266,11 @@ function diffOperations(before, after, options) {
     }
 
     findings.push(
-      ...diffRequiredProperties({
-        beforeSchema: requestBodySchema(beforeEntry.operation),
-        afterSchema: requestBodySchema(afterEntry.operation),
-        location: `${operationLocation}/requestBody`,
-        responseRequiredSeverity: options.responseRequiredSeverity,
-        schemaRequiredSeverity: options.schemaRequiredSeverity,
-      }),
-    );
-    findings.push(
-      ...diffEnums({
-        beforeSchema: requestBodySchema(beforeEntry.operation),
-        afterSchema: requestBodySchema(afterEntry.operation),
-        location: `${operationLocation}/requestBody`,
+      ...diffRequestBodySchemas({
+        beforeOperation: beforeEntry.operation,
+        afterOperation: afterEntry.operation,
+        operationLocation,
+        options,
       }),
     );
 

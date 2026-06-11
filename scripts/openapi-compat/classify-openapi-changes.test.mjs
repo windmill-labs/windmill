@@ -88,6 +88,40 @@ test("detects newly required request body fields", () => {
   assert.match(result.findings[0].location, /args/);
 });
 
+test("checks every matching request body media type", () => {
+  const before = spec({
+    requestBody: {
+      content: {
+        "application/json": {
+          schema: {
+            type: "object",
+            required: ["path"],
+            properties: { path: { type: "string" }, token: { type: "string" } },
+          },
+        },
+        "application/x-www-form-urlencoded": {
+          schema: {
+            type: "object",
+            required: ["path"],
+            properties: { path: { type: "string" }, token: { type: "string" } },
+          },
+        },
+      },
+    },
+    responses: { 200: { description: "ok" } },
+  });
+  const after = structuredClone(before);
+  after.paths["/w/{workspace}/flow_conversations/{conversation_id}/messages"].get.requestBody.content[
+    "application/x-www-form-urlencoded"
+  ].schema.required.push("token");
+
+  const result = classifyOpenApiChanges(before, after);
+
+  assert.equal(result.breaking, 1);
+  assert.equal(result.findings[0].kind, "request_required_field_added");
+  assert.match(result.findings[0].location, /application~1x-www-form-urlencoded/);
+});
+
 test("classifies response required fields as warnings by default", () => {
   const before = spec({
     responses: {
