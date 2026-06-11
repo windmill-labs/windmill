@@ -203,6 +203,29 @@
 			? (selection != undefined || activeDraftPath != undefined) && !panelHidden
 			: !panelHidden
 	)
+	// View mode's idle pane is the activity feed; once a node is selected
+	// (or the pane hidden) the only ways back were the pane's X and the
+	// floating hide toggle — neither is named. The top-bar Activity toggle
+	// is the explicit affordance: shows the feed from any state, hides the
+	// pane when the feed is already showing.
+	let activityShowing = $derived(
+		mode === 'view' && !panelHidden && selection == undefined && activeDraftPath == undefined
+	)
+	function toggleActivity() {
+		if (activityShowing) {
+			panelHidden = true
+		} else {
+			selection = undefined
+			activeDraftPath = undefined
+			panelHidden = false
+			// Same reset as the pane's close button — clears the live
+			// annotation overlay of whichever script was open.
+			liveAnnotations = {
+				scriptPath: undefined,
+				annotations: { inPipeline: false, triggerAssets: [], nativeTriggers: [] }
+			}
+		}
+	}
 
 	$effect(() => {
 		if (detailsPaneOpen) {
@@ -1988,6 +2011,19 @@
 					title={savingAll ? 'Saving drafts…' : `Deploy all ${drafts.size} drafts`}
 				>
 					{savingAll ? 'Saving…' : `Save all (${drafts.size})`}
+				</Button>
+			{/if}
+			{#if mode === 'view'}
+				<Button
+					variant={activityShowing ? 'accent-secondary' : 'subtle'}
+					unifiedSize="sm"
+					startIcon={{ icon: History }}
+					onclick={toggleActivity}
+					title={activityShowing
+						? 'Hide the activity panel'
+						: 'Show the pipeline activity feed (recent and live runs)'}
+				>
+					Activity
 				</Button>
 			{/if}
 			<Button
