@@ -20,7 +20,7 @@
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 	import { page } from '$app/state'
 	import { UserDraft } from '$lib/userDraft.svelte'
-	import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
+	import { armRestartOnFirstInteraction, runResetToDeployed } from '$lib/userDraftToast'
 
 	let version: undefined | number = $state(undefined)
 
@@ -429,15 +429,26 @@
 	let diffDrawer: DiffDrawer | undefined = $state()
 
 	async function restoreDeployed() {
-		if (!savedFlow) {
+		if (!savedFlow || !$workspaceStore) {
 			sendUserToast('Could not restore to deployed', true)
 			return
 		}
 		diffDrawer?.closeDrawer()
-		draftSync.remove()
-		draftSync.draft = undefined
 		goto(`/flows/edit/${savedFlow.path}`)
-		loadFlow()
+		// stopSync-bracketed delete + getDraft:false reload — same dance as
+		// the AutosaveIndicator's reset. A bare `remove()` + `loadFlow()`
+		// would lose the race: the reload's draft write re-enters the
+		// autosave mirror and displaces the queued `value: null`, so the
+		// delete never lands and the editor re-renders the draft.
+		await runResetToDeployed({
+			workspace: $workspaceStore,
+			itemKind: 'flow',
+			path: flowDraftPath,
+			onResetToDeployed: async () => {
+				draftSync.draft = undefined
+				await loadFlow({ getDraft: false })
+			}
+		})
 	}
 </script>
 

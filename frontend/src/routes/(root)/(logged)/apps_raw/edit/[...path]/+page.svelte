@@ -15,7 +15,7 @@
 	import { importStore } from '$lib/components/apps/store'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
-	import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
+	import { armRestartOnFirstInteraction, runResetToDeployed } from '$lib/userDraftToast'
 	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
 	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import RawAppTemplatePicker, {
@@ -366,16 +366,27 @@
 	})
 
 	async function restoreDeployed() {
-		if (!savedApp) {
+		if (!savedApp || !$workspaceStore) {
 			sendUserToast('Could not restore to deployed', true)
 			return
 		}
 		diffDrawer?.closeDrawer()
-		draftSync.remove()
-		draftSync.draft = undefined
-		goto(`/apps/edit/${savedApp.path}`)
-		await loadApp()
-		redraw++
+		goto(`/apps_raw/edit/${savedApp.path}`)
+		// stopSync-bracketed delete + getDraft:false reload — same dance as
+		// the AutosaveIndicator's reset. A bare `remove()` + `loadApp()`
+		// would lose the race: the reload's draft write re-enters the
+		// autosave mirror and displaces the queued `value: null`, so the
+		// delete never lands and the editor re-renders the draft.
+		await runResetToDeployed({
+			workspace: $workspaceStore,
+			itemKind: 'raw_app',
+			path,
+			onResetToDeployed: async () => {
+				draftSync.draft = undefined
+				await loadApp({ getDraft: false })
+				redraw++
+			}
+		})
 	}
 
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)

@@ -16,6 +16,7 @@
 	import { tick, untrack } from 'svelte'
 	import { page } from '$app/state'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { runResetToDeployed } from '$lib/userDraftToast'
 
 	let app = $state(undefined as (AppWithLastVersion & { value: any }) | undefined)
 	let appEditor: AppEditor | undefined = $state(undefined)
@@ -298,15 +299,27 @@
 	})
 
 	async function restoreDeployed() {
-		if (!savedApp) {
+		if (!savedApp || !$workspaceStore) {
 			sendUserToast('Could not restore to deployed', true)
 			return
 		}
 		diffDrawer?.closeDrawer()
-		UserDraft.discard('app', path, undefined)
 		goto(`/apps/edit/${savedApp.path}`)
-		await loadApp()
-		redraw++
+		// stopSync-bracketed delete + getDraft:false reload — same dance as
+		// the AutosaveIndicator's reset. A bare discard + `loadApp()` would
+		// lose the race: the reload's draft write re-enters the autosave
+		// mirror and displaces the queued `value: null`, so the delete
+		// never lands and the editor re-renders the draft.
+		await runResetToDeployed({
+			workspace: $workspaceStore,
+			itemKind: 'app',
+			path,
+			onResetToDeployed: async () => {
+				UserDraft.remove('app', path)
+				await loadApp({ getDraft: false })
+				redraw++
+			}
+		})
 	}
 
 	let diffDrawer: DiffDrawer | undefined = $state()

@@ -18,6 +18,7 @@
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { runResetToDeployed } from '$lib/userDraftToast'
 	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
 
@@ -378,15 +379,26 @@
 	let diffDrawer: DiffDrawer | undefined = $state()
 
 	async function restoreDeployed() {
-		if (!savedScript) {
+		if (!savedScript || !$workspaceStore) {
 			sendUserToast('Could not restore to deployed', true)
 			return
 		}
 		diffDrawer?.closeDrawer()
-		draftSync.remove()
-		draftSync.draft = undefined
 		goto(`/scripts/edit/${savedScript.path}`)
-		loadScript()
+		// stopSync-bracketed delete + getDraft:false reload — same dance as
+		// the AutosaveIndicator's reset. A bare `remove()` + `loadScript()`
+		// would lose the race: the reload's draft write re-enters the
+		// autosave mirror and displaces the queued `value: null`, so the
+		// delete never lands and the editor re-renders the draft.
+		await runResetToDeployed({
+			workspace: $workspaceStore,
+			itemKind: 'script',
+			path: draftPath,
+			onResetToDeployed: async () => {
+				draftSync.draft = undefined
+				await loadScript({ getDraft: false })
+			}
+		})
 	}
 </script>
 
