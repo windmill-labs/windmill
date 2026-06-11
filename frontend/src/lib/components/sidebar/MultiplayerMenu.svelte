@@ -52,7 +52,7 @@
 				if (state.name === $userStore?.username) {
 					// For current user, always use this tab's URL to avoid multi-tab flickering
 					peerMap[state.name] = $page.url.pathname
-				} else if (!Object.hasOwn(peerMap, state.name)) {
+				} else if (!Object.prototype.hasOwnProperty.call(peerMap, state.name)) {
 					// For other users, keep first seen URL per username (stable dedup)
 					peerMap[state.name] = state.url
 				}
