@@ -1,35 +1,25 @@
 import { untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
-import { UserDraft, type UserDraftItemKind } from '$lib/userDraft.svelte'
+import { UserDraft, normalizeDraftForCompare, type UserDraftItemKind } from '$lib/userDraft.svelte'
 import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 
 type Cfg = Record<string, any>
 
 /**
- * JSON round-trip normalization. Freshly-built config objects (e.g. a
- * trigger editor's `getXConfig()`) keep `undefined`-valued keys, so a
- * raw `deepEqual` reports spurious differences (`{ a: undefined }` ≠
- * `{}`). Normalize BOTH sides through the same round-trip before
- * comparing. Returns the input unchanged if it can't be serialized.
- */
-function normalizeForCompare<V>(value: V | undefined): V | undefined {
-	if (value === undefined) return undefined
-	try {
-		return JSON.parse(JSON.stringify(value)) as V
-	} catch {
-		return value
-	}
-}
-
-/**
- * Whether `a` differs meaningfully from `b` after JSON-normalizing
- * both sides. Returns `false` when `a` is nullish (treats "no draft"
- * as "no divergence"). Typed as a guard: a `true` result narrows `a`
- * to non-nullish `V`.
+ * Whether `a` differs meaningfully from `b` after normalizing both
+ * sides through the shared draft comparator (`normalizeDraftForCompare`:
+ * JSON round-trip — freshly-built configs keep `undefined`-valued keys,
+ * so a raw `deepEqual` reports `{ a: undefined }` ≠ `{}` — plus the
+ * ignored deploy-directive fields like `permissioned_as`). Returns
+ * `false` when `a` is nullish (treats "no draft" as "no divergence").
+ * Typed as a guard: a `true` result narrows `a` to non-nullish `V`.
  */
 function cfgDiffers<V>(a: V | undefined | null, b: V | undefined): a is V {
 	if (a === undefined || a === null) return false
-	return !deepEqual(normalizeForCompare(a), normalizeForCompare(b))
+	return !deepEqual(
+		normalizeDraftForCompare(a),
+		b === undefined ? undefined : normalizeDraftForCompare(b)
+	)
 }
 
 export interface TriggerDraftSyncOptions {

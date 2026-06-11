@@ -168,28 +168,44 @@ function snapshotDraftValue<V>(value: V | undefined): V | undefined {
 }
 
 /**
- * JSON-normalized deep equality for draft values. Drafts round-trip
- * through JSON (the server stores them as json), which strips
- * `undefined`-valued keys — so a restored draft (`{}`) and a freshly
- * built editor state (`{ labels: undefined }`) are the same value in
- * different shapes, and a raw `deepEqual` reports a spurious diff.
- * Normalize BOTH sides through the same round-trip before comparing.
- *
- * This is THE comparison for "does the form diverge from the deployed
- * baseline": editors must use it both for their "unsaved changes"
- * banner and for the `discardIf` predicate they pass to
- * `UserDraft.useMany`, so the two can never disagree.
+ * Top-level fields IGNORED when comparing a draft against its deployed
+ * baseline (the "unsaved changes" banner, the at-baseline auto-discard).
+ * `permissioned_as` / `preserve_permissioned_as` are run-as directives
+ * the schedule cfg carries for deploy, not user-edited draft content —
+ * and the editor round-trips them asymmetrically (`preserve_…` is
+ * rebuilt as `!!cfg.permissioned_as` on load but `|| undefined` on
+ * build), so keeping them in the diff produces a phantom banner.
+ */
+const DRAFT_COMPARE_IGNORED_FIELDS = ['permissioned_as', 'preserve_permissioned_as'] as const
+
+/**
+ * Normalize one side of a draft-vs-baseline comparison: JSON round-trip
+ * (drafts are stored as json server-side, which strips
+ * `undefined`-valued keys — so `{ labels: undefined }` and `{}` are the
+ * same value in different shapes) and drop the ignored fields above.
+ * Returns the input unchanged when it can't be serialized.
+ */
+export function normalizeDraftForCompare<V>(value: V): V {
+	try {
+		const v = JSON.parse(JSON.stringify(value))
+		if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+			for (const f of DRAFT_COMPARE_IGNORED_FIELDS) delete v[f]
+		}
+		return v as V
+	} catch {
+		return value
+	}
+}
+
+/**
+ * Normalized deep equality for draft values — THE comparison for "does
+ * the form diverge from the deployed baseline": editors must use it both
+ * for their "unsaved changes" banner and for the `discardIf` predicate
+ * they pass to `UserDraft.useMany`, so the two can never disagree.
  */
 export function draftValuesEqual(a: unknown, b: unknown): boolean {
 	if (a === undefined || b === undefined) return a === b
-	const normalize = (v: unknown) => {
-		try {
-			return JSON.parse(JSON.stringify(v))
-		} catch {
-			return v
-		}
-	}
-	return deepEqual(normalize(a), normalize(b))
+	return deepEqual(normalizeDraftForCompare(a), normalizeDraftForCompare(b))
 }
 
 export type UserDraftHandle<V> = {
