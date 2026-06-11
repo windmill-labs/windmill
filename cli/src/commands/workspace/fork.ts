@@ -51,6 +51,23 @@ async function createWorkspaceFork(
       );
     }
     const config = await readConfigFile({ warnIfMissing: false });
+    // Protect base branches. This workflow renames the *current* branch onto
+    // the fork branch, so refuse when the current branch is itself a base
+    // branch — either mapped to a workspace in wmill.yaml, or a conventional
+    // default (main/master). Renaming one of those would clobber it; the user
+    // must check out a disposable working branch first. Fail fast, before any
+    // fork workspace or git branch is created.
+    const currentBranchIsBase =
+      currentBranch === "main" ||
+      currentBranch === "master" ||
+      findWorkspaceByGitBranch(config.workspaces, currentBranch) !== undefined;
+    if (currentBranchIsBase) {
+      throw new Error(
+        `Refusing to rename your current branch \`${currentBranch}\` — it looks like a base branch (mapped to a workspace in wmill.yaml, or main/master). ` +
+        `The --from-branch workflow turns a *disposable working branch* into the fork branch. ` +
+        `Check out the working branch you want to convert first, or omit --from-branch to create a fresh fork branch with \`git checkout -b\`.`,
+      );
+    }
     const match = findWorkspaceByGitBranch(config.workspaces, fromBranch);
     if (!match) {
       throw new Error(
