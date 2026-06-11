@@ -1,3 +1,4 @@
+use crate::auth::Tokened;
 use crate::db::ApiAuthed;
 use crate::HTTP_CLIENT;
 use axum::{
@@ -104,6 +105,7 @@ struct HubProjectBody {
 
 async fn publish_draft(
     authed: ApiAuthed,
+    tokened: Tokened,
     Path(workspace): Path<String>,
     Query(scope): Query<HubScope>,
     Json(body): Json<PublishDraftBody>,
@@ -112,6 +114,7 @@ async fn publish_draft(
     forward_to_hub(
         "/projects",
         &source_key(&workspace, &scope.folder)?,
+        &tokened.token,
         &HubProjectBody {
             slug: body.slug,
             name: body.name,
@@ -145,6 +148,7 @@ struct PublishScriptBody {
 
 async fn publish_script(
     authed: ApiAuthed,
+    tokened: Tokened,
     Path(workspace): Path<String>,
     Query(scope): Query<HubScope>,
     Json(body): Json<PublishScriptBody>,
@@ -153,6 +157,7 @@ async fn publish_script(
     forward_to_hub(
         "/scripts/add",
         &source_key(&workspace, &scope.folder)?,
+        &tokened.token,
         &body,
     )
     .await
@@ -181,12 +186,19 @@ struct PublishFlowBody {
 
 async fn publish_flow(
     authed: ApiAuthed,
+    tokened: Tokened,
     Path(workspace): Path<String>,
     Query(scope): Query<HubScope>,
     Json(body): Json<PublishFlowBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub("/flows", &source_key(&workspace, &scope.folder)?, &body).await
+    forward_to_hub(
+        "/flows",
+        &source_key(&workspace, &scope.folder)?,
+        &tokened.token,
+        &body,
+    )
+    .await
 }
 
 #[derive(Deserialize, Serialize)]
@@ -205,12 +217,19 @@ struct PublishAppBody {
 
 async fn publish_app(
     authed: ApiAuthed,
+    tokened: Tokened,
     Path(workspace): Path<String>,
     Query(scope): Query<HubScope>,
     Json(body): Json<PublishAppBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub("/apps", &source_key(&workspace, &scope.folder)?, &body).await
+    forward_to_hub(
+        "/apps",
+        &source_key(&workspace, &scope.folder)?,
+        &tokened.token,
+        &body,
+    )
+    .await
 }
 
 #[derive(Deserialize, Serialize)]
@@ -229,12 +248,19 @@ struct PublishRawAppBody {
 
 async fn publish_raw_app(
     authed: ApiAuthed,
+    tokened: Tokened,
     Path(workspace): Path<String>,
     Query(scope): Query<HubScope>,
     Json(body): Json<PublishRawAppBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub("/raw_apps", &source_key(&workspace, &scope.folder)?, &body).await
+    forward_to_hub(
+        "/raw_apps",
+        &source_key(&workspace, &scope.folder)?,
+        &tokened.token,
+        &body,
+    )
+    .await
 }
 
 #[derive(Deserialize, Serialize)]
@@ -246,6 +272,7 @@ struct RawAppEmbedBody {
 
 async fn publish_raw_app_embed(
     authed: ApiAuthed,
+    tokened: Tokened,
     Path((workspace, id)): Path<(String, i64)>,
     Query(scope): Query<HubScope>,
     Json(body): Json<RawAppEmbedBody>,
@@ -254,6 +281,7 @@ async fn publish_raw_app_embed(
     forward_to_hub(
         &format!("/raw_apps/{}/embed", id),
         &source_key(&workspace, &scope.folder)?,
+        &tokened.token,
         &body,
     )
     .await
@@ -268,6 +296,7 @@ struct RecordingBody {
 
 async fn publish_script_recording(
     authed: ApiAuthed,
+    tokened: Tokened,
     Path((workspace, ask_id)): Path<(String, i64)>,
     Query(scope): Query<HubScope>,
     Json(body): Json<RecordingBody>,
@@ -276,6 +305,7 @@ async fn publish_script_recording(
     forward_to_hub(
         &format!("/scripts/{}/recording", ask_id),
         &source_key(&workspace, &scope.folder)?,
+        &tokened.token,
         &body,
     )
     .await
@@ -283,6 +313,7 @@ async fn publish_script_recording(
 
 async fn publish_flow_recording(
     authed: ApiAuthed,
+    tokened: Tokened,
     Path((workspace, flow_id)): Path<(String, i64)>,
     Query(scope): Query<HubScope>,
     Json(body): Json<RecordingBody>,
@@ -291,6 +322,7 @@ async fn publish_flow_recording(
     forward_to_hub(
         &format!("/flows/{}/recording", flow_id),
         &source_key(&workspace, &scope.folder)?,
+        &tokened.token,
         &body,
     )
     .await
@@ -308,6 +340,7 @@ struct PublishResourceTypeBody {
 
 async fn publish_resource_type(
     authed: ApiAuthed,
+    tokened: Tokened,
     Path(workspace): Path<String>,
     Query(scope): Query<HubScope>,
     Json(body): Json<PublishResourceTypeBody>,
@@ -317,6 +350,7 @@ async fn publish_resource_type(
     forward_to_hub(
         &format!("/projects/{}/resource_types", body.project_slug),
         &source_key(&workspace, &scope.folder)?,
+        &tokened.token,
         &body,
     )
     .await
@@ -336,6 +370,7 @@ struct PublishResourcesBody {
 
 async fn publish_resources(
     authed: ApiAuthed,
+    tokened: Tokened,
     Path(workspace): Path<String>,
     Query(scope): Query<HubScope>,
     Json(body): Json<PublishResourcesBody>,
@@ -345,6 +380,7 @@ async fn publish_resources(
     forward_to_hub(
         &format!("/projects/{}/resources", body.project_slug),
         &source_key(&workspace, &scope.folder)?,
+        &tokened.token,
         &body,
     )
     .await
@@ -373,6 +409,7 @@ struct PublishTriggersBody {
 
 async fn publish_triggers(
     authed: ApiAuthed,
+    tokened: Tokened,
     Path(workspace): Path<String>,
     Query(scope): Query<HubScope>,
     Json(body): Json<PublishTriggersBody>,
@@ -382,6 +419,7 @@ async fn publish_triggers(
     forward_to_hub(
         &format!("/projects/{}/triggers", body.project_slug),
         &source_key(&workspace, &scope.folder)?,
+        &tokened.token,
         &body,
     )
     .await
@@ -389,6 +427,7 @@ async fn publish_triggers(
 
 async fn get_project_export(
     authed: ApiAuthed,
+    tokened: Tokened,
     Path((workspace, slug)): Path<(String, String)>,
     Query(scope): Query<HubScopeOpt>,
 ) -> Result<impl IntoResponse, Error> {
@@ -398,11 +437,17 @@ async fn get_project_export(
         Some(folder) => source_key(&workspace, &folder)?,
         None => String::new(),
     };
-    get_from_hub(&format!("/projects/{}/export", slug), &source).await
+    get_from_hub(
+        &format!("/projects/{}/export", slug),
+        &source,
+        &tokened.token,
+    )
+    .await
 }
 
 async fn get_project_by_source(
     authed: ApiAuthed,
+    tokened: Tokened,
     Path(workspace): Path<String>,
     Query(scope): Query<HubScope>,
 ) -> Result<impl IntoResponse, Error> {
@@ -410,12 +455,14 @@ async fn get_project_by_source(
     get_from_hub(
         "/projects/by_source",
         &source_key(&workspace, &scope.folder)?,
+        &tokened.token,
     )
     .await
 }
 
 async fn submit_project(
     authed: ApiAuthed,
+    tokened: Tokened,
     Path((workspace, slug)): Path<(String, String)>,
     Query(scope): Query<HubScope>,
 ) -> Result<impl IntoResponse, Error> {
@@ -424,29 +471,26 @@ async fn submit_project(
     forward_to_hub(
         &format!("/projects/{}/submit", slug),
         &source_key(&workspace, &scope.folder)?,
+        &tokened.token,
         &serde_json::json!({}),
     )
     .await
 }
 
-fn hub_token() -> Result<String, Error> {
-    // Missing config, not a server fault: surface a clear 400 rather than a 500.
-    std::env::var("HUB_DEV_TOKEN").map_err(|_| {
-        Error::BadRequest(
-            "Hub publishing is not configured on this instance (HUB_DEV_TOKEN not set)".into(),
-        )
-    })
-}
-
-async fn get_from_hub(path: &str, source_id: &str) -> Result<(StatusCode, String), Error> {
-    let hub_token = hub_token()?;
-
+// The Hub has no auth of its own: it validates bearer tokens by calling this
+// instance's /api/users/whoami. Forwarding the caller's own token logs them in
+// on the Hub as themselves (account auto-created on first use).
+async fn get_from_hub(
+    path: &str,
+    source_id: &str,
+    token: &str,
+) -> Result<(StatusCode, String), Error> {
     let url = format!("{}{}", **HUB_BASE_URL.load(), path);
 
     let res = HTTP_CLIENT
         .get(&url)
         .query(&[("source_id", source_id)])
-        .bearer_auth(&hub_token)
+        .bearer_auth(token)
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("hub request failed: {e}")))?;
@@ -463,10 +507,9 @@ async fn get_from_hub(path: &str, source_id: &str) -> Result<(StatusCode, String
 async fn forward_to_hub<T: Serialize>(
     path: &str,
     source_id: &str,
+    token: &str,
     body: &T,
 ) -> Result<(StatusCode, String), Error> {
-    let hub_token = hub_token()?;
-
     let url = format!("{}{}", **HUB_BASE_URL.load(), path);
 
     let mut payload = serde_json::to_value(body).map_err(to_anyhow)?;
@@ -480,7 +523,7 @@ async fn forward_to_hub<T: Serialize>(
 
     let res = HTTP_CLIENT
         .post(&url)
-        .bearer_auth(&hub_token)
+        .bearer_auth(token)
         .json(&payload)
         .send()
         .await
