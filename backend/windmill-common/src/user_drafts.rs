@@ -446,43 +446,14 @@ pub async fn overlay_or_draft_only<T: serde::Serialize + Send + 'static>(
     }
 }
 
-/// Delete the authed user's draft for `(workspace, kind, path)`.
-/// Idempotent — returns Ok even when no row exists. Scoped to a single
-/// email so other users' drafts at the same path are untouched.
-///
-/// Called from item delete handlers (`delete_script_by_path`,
-/// `delete_flow_by_path`, etc.) so the user can't be left with a stale
-/// per-user draft after the underlying item is gone.
-pub async fn delete_user_draft(
-    db: &DB,
-    w_id: &str,
-    email: &str,
-    kind: UserDraftItemKind,
-    path: &str,
-) -> Result<()> {
-    sqlx::query!(
-        r#"DELETE FROM draft
-           WHERE workspace_id = $1
-             AND email = $2
-             AND path = $3
-             AND typ = $4"#,
-        w_id,
-        email,
-        path,
-        kind as UserDraftItemKind,
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
 /// Delete EVERY user's draft (and the legacy NULL-email row) at a
 /// path+kind. Use when the underlying item is being DELETED outright:
 /// the item is gone for everyone, so leaving teammates' drafts behind
 /// would orphan them forever — they'd keep surfacing through
-/// `fetch_other_drafts_users` with no item to deploy onto. Contrast with
-/// `delete_user_draft` (caller-scoped), which is for discarding one's own
-/// draft while the item lives on. Idempotent on the no-draft case.
+/// `fetch_other_drafts_users` with no item to deploy onto. Discarding
+/// one's OWN draft while the item lives on goes through the
+/// `save_draft` route with `value: null` instead (caller-scoped).
+/// Idempotent on the no-draft case.
 pub async fn delete_all_drafts_for_path(
     db: &DB,
     w_id: &str,
