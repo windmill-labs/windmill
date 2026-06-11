@@ -470,8 +470,19 @@
 	{draftSavedAt}
 	{deployedAt}
 	onLoadLatestDeploy={async () => {
-		draftSync.draft = undefined
-		await loadFlow({ getDraft: false })
+		// Bracketed like the AutosaveIndicator reset — an unbracketed
+		// delete gets displaced by the reload's deployed-payload write,
+		// leaving a deployed-identical draft behind.
+		if (!$workspaceStore) return
+		await runResetToDeployed({
+			workspace: $workspaceStore,
+			itemKind: 'flow',
+			path: flowDraftPath,
+			onResetToDeployed: async () => {
+				draftSync.draft = undefined
+				await loadFlow({ getDraft: false })
+			}
+		})
 	}}
 />
 {#if notFound}

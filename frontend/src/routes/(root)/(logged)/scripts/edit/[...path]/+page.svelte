@@ -415,8 +415,19 @@
 	{draftSavedAt}
 	{deployedAt}
 	onLoadLatestDeploy={async () => {
-		draftSync.draft = undefined
-		await loadScript({ getDraft: false })
+		// Bracketed like the AutosaveIndicator reset — an unbracketed
+		// delete gets displaced by the reload's deployed-payload write,
+		// leaving a deployed-identical draft behind.
+		if (!$workspaceStore) return
+		await runResetToDeployed({
+			workspace: $workspaceStore,
+			itemKind: 'script',
+			path: draftPath,
+			onResetToDeployed: async () => {
+				draftSync.draft = undefined
+				await loadScript({ getDraft: false })
+			}
+		})
 	}}
 />
 {#if draftSync.draft && renderEditor}

@@ -358,9 +358,20 @@
 	{draftSavedAt}
 	{deployedAt}
 	onLoadLatestDeploy={async () => {
-		UserDraft.remove('app', path)
-		await loadApp({ getDraft: false })
-		redraw++
+		// Bracketed like the AutosaveIndicator reset — an unbracketed
+		// delete gets displaced by the reload's deployed-payload write,
+		// leaving a deployed-identical draft behind.
+		if (!$workspaceStore) return
+		await runResetToDeployed({
+			workspace: $workspaceStore,
+			itemKind: 'app',
+			path,
+			onResetToDeployed: async () => {
+				UserDraft.remove('app', path)
+				await loadApp({ getDraft: false })
+				redraw++
+			}
+		})
 	}}
 />
 
