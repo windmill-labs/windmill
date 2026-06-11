@@ -1,10 +1,12 @@
 <script lang="ts">
-	import { ScriptService, type NewScript, type Script } from '$lib/gen'
+	import { ScriptService, type NewScript, type Script, type ScriptLang } from '$lib/gen'
 
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
-	import { emptySchema } from '$lib/utils'
+	import { decodeState, emptySchema, emptyString } from '$lib/utils'
+	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
+	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
@@ -22,9 +24,41 @@
 	type EditableScript = NewScript & { draft_triggers?: Trigger[] }
 
 	// `initialArgs` is intentionally captured once at mount — it's the
-	// session's initial argument set, not per-script.
-	let initialArgs = get(initialArgsStore) ?? {}
+	// session's initial argument set, not per-script. The URL form
+	// (`?initial_args=<encoded>`, e.g. the run page's "Fork" action) wins
+	// over the store form.
+	const urlArgs = page.url.searchParams.get('initial_args')
+	let initialArgs = urlArgs ? decodeState(urlArgs) : (get(initialArgsStore) ?? {})
 	if (get(initialArgsStore)) $initialArgsStore = undefined
+
+	/** Some pages (run/[...run]'s "Fork" action, workspace_settings'
+	 * error/success-handler template buttons) base64-JSON-encode a NewScript
+	 * payload into the URL hash of a `/scripts/add` link; the redirect
+	 * preserves the hash. That value is an explicit "open this script"
+	 * intent and wins over templates, hubs, and YAML imports.
+	 *
+	 * We can't use `decodeState` from utils.ts directly — it fires its own
+	 * "Impossible to parse state" toast on failure, which would noise up the
+	 * UI when the hash isn't a script payload at all (e.g. a route anchor).
+	 */
+	function decodeUrlScript(): Partial<EditableScript> | undefined {
+		const fragment = page.url.hash.startsWith('#') ? page.url.hash.slice(1) : ''
+		if (!fragment) return undefined
+		try {
+			const decoded = JSON.parse(decodeURIComponent(atob(fragment)))
+			if (decoded && typeof decoded === 'object') return decoded as Partial<EditableScript>
+		} catch {
+			// Hash isn't a valid encoded script — ignore.
+		}
+		return undefined
+	}
+
+	// Editor-template seeding state, populated in the `new_draft` branch:
+	// `builderTemplate` puts ScriptBuilder in WAC mode for `?wac=` /
+	// imported workflows-as-code; `lockedLanguage` pins the language picker
+	// for hub/template forks (their content is language-specific).
+	let builderTemplate: 'script' | 'wac_python' | 'wac_typescript' = $state('script')
+	let lockedLanguage = $state(false)
 
 	// Derived so client-side nav (breadcrumb) re-reads the URL, not mount-time values.
 	let topHash = $derived(page.url.searchParams.get('topHash') ?? undefined)
@@ -111,6 +145,14 @@
 			// `initContent`'s `.finally`; this overlap is harmless (both
 			// calls set the same flag).
 			UserDraft.stopSync('script', draftPath)
+			// Capture every seeding intent BEFORE touching the URL — all of
+			// these used to be consumed by /scripts/add and are preserved
+			// verbatim by its redirect.
+			const templatePath = page.url.searchParams.get('template')
+			const hubPath = page.url.searchParams.get('hub')
+			const collabLang = page.url.searchParams.get('lang') as ScriptLang | null
+			const wacParam = page.url.searchParams.get('wac')
+			const urlScript = decodeUrlScript()
 			const url = new URL(window.location.href)
 			url.searchParams.delete('new_draft')
 			window.history.replaceState(window.history.state, '', url.toString())
@@ -129,7 +171,10 @@
 				summary: '',
 				description: '',
 				content: '',
-				language: 'bun',
+				language:
+					(wacParam === 'python' ? 'python3' : wacParam === 'typescript' ? 'bun' : null) ??
+					collabLang ??
+					'bun',
 				// MUST be `emptySchema()` (`{properties: {}, required: [],
 				// type: 'object'}`), NOT `{}`. `inferArgs` does
 				// `JSON.parse(JSON.stringify(schema.properties))` —
@@ -143,22 +188,84 @@
 				// diff that has no baseline to compare against.
 				no_deployed: true
 			} as unknown as EditableScript
-			// Imported fields layer over the empty template; `path` stays
-			// '' so the Path widget still generates the friendly name, and
-			// the editor-only/deployed-only keys are pinned to new-draft
-			// values.
-			const seed: EditableScript = imported
-				? ({
+			// Seed selection, in main's /scripts/add priority order:
+			// explicit URL-hash payload > YAML/JSON import > hub fork >
+			// template fork > wac/lang-flavored empty. Seeds with an empty
+			// `path` let the Path widget generate the friendly name; fork
+			// seeds carry an explicit `<source>_fork` suggestion instead.
+			let seed: EditableScript = empty
+			if (urlScript) {
+				seed = {
+					...empty,
+					...urlScript,
+					hash: '',
+					extra_perms: {},
+					no_deployed: true
+				} as unknown as EditableScript
+				sendUserToast('Loaded from URL')
+			} else if (imported) {
+				// Imported fields layer over the empty template; `path` stays
+				// '' so the Path widget still generates the friendly name, and
+				// the editor-only/deployed-only keys are pinned to new-draft
+				// values.
+				seed = {
+					...empty,
+					...imported,
+					path: '',
+					hash: '',
+					extra_perms: {},
+					no_deployed: true
+				} as unknown as EditableScript
+				if (isWorkflowAsCode(imported.content ?? '', imported.language ?? '')) {
+					builderTemplate = imported.language === 'python3' ? 'wac_python' : 'wac_typescript'
+					sendUserToast('WAC script loaded from YAML/JSON')
+				} else {
+					sendUserToast('Script loaded from YAML/JSON')
+				}
+			} else if (hubPath) {
+				try {
+					const { content, language, summary } = await ScriptService.getHubScriptByPath({
+						path: hubPath
+					})
+					if (tok !== loadScriptToken) return
+					seed = {
 						...empty,
-						...imported,
-						path: '',
-						hash: '',
-						extra_perms: {},
-						no_deployed: true
-					} as unknown as EditableScript)
-				: empty
-			if (imported) {
-				sendUserToast('Script loaded from YAML/JSON')
+						description: `Fork of ${hubPath}`,
+						content: replaceScriptPlaceholderWithItsValues(hubPath, content),
+						summary: summary ?? '',
+						language: language as EditableScript['language'],
+						path: hubPath + '_fork'
+					}
+					lockedLanguage = true
+				} catch (err: any) {
+					if (tok !== loadScriptToken) return
+					console.error('Error loading script from hub', err)
+					sendUserToast('Error loading script from hub: ' + err.message, true)
+				}
+			} else if (templatePath) {
+				try {
+					const template = await ScriptService.getScriptByPath({
+						workspace: $workspaceStore!,
+						path: templatePath
+					})
+					if (tok !== loadScriptToken) return
+					seed = {
+						...empty,
+						summary: !emptyString(template.summary) ? `Copy of ${template.summary}` : '',
+						description: template.description,
+						content: template.content,
+						schema: template.schema,
+						language: template.language,
+						path: template.path + '_fork'
+					}
+					lockedLanguage = true
+				} catch (err: any) {
+					if (tok !== loadScriptToken) return
+					console.error('Error loading template', err)
+					sendUserToast('Error loading template: ' + err.message, true)
+				}
+			} else if (wacParam === 'python' || wacParam === 'typescript') {
+				builderTemplate = wacParam === 'python' ? 'wac_python' : 'wac_typescript'
 			}
 			initialPath = ''
 			savedScript = structuredClone(empty)
@@ -286,6 +393,8 @@
 		{initialPath}
 		userDraftPath={draftPath}
 		bind:script={draftSync.draft}
+		template={builderTemplate}
+		{lockedLanguage}
 		{fullyLoaded}
 		bind:savedScript
 		{initialArgs}

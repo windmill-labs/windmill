@@ -3,7 +3,8 @@
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
-	import { initialArgsStore, workspaceStore } from '$lib/stores'
+	import { initialArgsStore, userStore, workspaceStore } from '$lib/stores'
+	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import { decodeState, emptySchema, type StateStore } from '$lib/utils'
 	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore.svelte'
 	import { goto } from '$lib/navigation'
@@ -159,6 +160,34 @@
 			// friendly auto-name (mirrors the script editor — without
 			// this the topbar would just show the raw `draft_{uuid}`).
 			flowInitialPath = ''
+			// Capture every seeding intent BEFORE touching the URL — all of
+			// these used to be consumed by /flows/add and are preserved
+			// verbatim by its redirect.
+			const hubId = page.url.searchParams.get('hub')
+			const templatePath = page.url.searchParams.get('template')
+			const templateId = page.url.searchParams.get('template_id')
+			const isFork = page.url.searchParams.get('fork')
+			// Fork-preview handoff (run page's "Fork" on a flow preview):
+			// the state rides in localStorage, or on the opener window when
+			// the flow was too large for localStorage. The URL hash carries
+			// the same `{flow, path, initialArgs, draft_triggers,
+			// selected_trigger, selectedId}` shape and wins when present.
+			let forkState: any = undefined
+			if (isFork) {
+				const forkJson = localStorage.getItem('fork_flow')
+				if (forkJson) {
+					try {
+						forkState = JSON.parse(forkJson)
+					} catch {}
+					localStorage.removeItem('fork_flow')
+				} else if ((window.opener as any)?.__forkPreviewData) {
+					forkState = (window.opener as any).__forkPreviewData
+					delete (window.opener as any).__forkPreviewData
+				}
+			}
+			if (page.url.hash != '') {
+				forkState = decodeState(page.url.hash.slice(1))
+			}
 			const url = new URL(window.location.href)
 			url.searchParams.delete('new_draft')
 			window.history.replaceState(window.history.state, '', url.toString())
@@ -182,17 +211,99 @@
 				$importFlowStore = undefined
 				sendUserToast('Flow loaded from YAML/JSON')
 			}
-			const seed: Flow = imported
-				? ({ ...empty, ...imported, path: '', extra_perms: {} } as unknown as Flow)
-				: empty
+			// Seed selection, in main's /flows/add priority order: YAML/JSON
+			// import > fork/URL-state > template fork > hub fork > empty.
+			// Fork seeds carry an explicit path suggestion (parsed verbatim
+			// by the Path widget); the others keep `path = ''` for the
+			// friendly auto-name.
+			const forkOwner = `u/${$userStore?.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')}`
+			let seed: Flow = empty
+			let seedSelectedId: string | undefined = undefined
+			if (imported) {
+				seed = { ...empty, ...imported, path: '', extra_perms: {} } as unknown as Flow
+			} else if (!templatePath && !hubId && forkState) {
+				seed = {
+					...empty,
+					...forkState.flow,
+					path: forkState.path ?? '',
+					extra_perms: {}
+				} as unknown as Flow
+				if (forkState.initialArgs) {
+					initialArgs = forkState.initialArgs
+				}
+				draftTriggersFromUrl = forkState.draft_triggers
+				selectedTriggerIndexFromUrl = forkState.selected_trigger
+				seedSelectedId = forkState.selectedId
+			} else if (templatePath) {
+				try {
+					const template = templateId
+						? await FlowService.getFlowVersion({
+								workspace: $workspaceStore!,
+								version: parseInt(templateId)
+							})
+						: await FlowService.getFlowByPath({
+								workspace: $workspaceStore!,
+								path: templatePath
+							})
+					if (tok !== loadFlowToken) return
+					const oldPath = templatePath.split('/')
+					seed = {
+						...empty,
+						...template,
+						path: `${forkOwner}/${oldPath[oldPath.length - 1]}_fork`,
+						extra_perms: {}
+					} as unknown as Flow
+				} catch (err: any) {
+					if (tok !== loadFlowToken) return
+					console.error('Error loading template', err)
+					sendUserToast('Error loading template: ' + (err.body ?? err.message), true)
+				}
+			} else if (hubId) {
+				try {
+					const hub = await FlowService.getHubFlowById({ id: Number(hubId) })
+					if (tok !== loadFlowToken) return
+					delete (hub as any)['comments']
+					seed = {
+						...empty,
+						...hub.flow,
+						path: `${forkOwner}/flow_${hubId}`,
+						extra_perms: {}
+					} as unknown as Flow
+					if (seed.value.preprocessor_module?.value.type === 'rawscript') {
+						seed.value.preprocessor_module.value.content = replaceScriptPlaceholderWithItsValues(
+							hubId,
+							seed.value.preprocessor_module.value.content
+						)
+					}
+					seedSelectedId = 'constants'
+				} catch (err: any) {
+					if (tok !== loadFlowToken) return
+					console.error('Error loading hub flow', err)
+					sendUserToast('Error loading hub flow: ' + (err.body ?? err.message), true)
+				}
+			}
 			savedFlow = structuredClone(empty)
 			draftSync.draft = seed
 			flow = seed
 			await initFlow(flow, flowStore, flowStateStore)
 			if (tok !== loadFlowToken) return
 			loading = false
-			selectedId = page.url.searchParams.get('selected') ?? 'settings-metadata'
+			selectedId = page.url.searchParams.get('selected') ?? seedSelectedId ?? 'settings-metadata'
 			renderEditor = true
+			// Tutorial links ("/flows/add?tutorial=...") land here via the
+			// redirect; fire once the builder has mounted and the flow input
+			// anchor the tour points at exists.
+			const tutorialParam = page.url.searchParams.get('tutorial')
+			if (tutorialParam) {
+				await tick()
+				let attempts = 0
+				while (attempts < 20 && !document.querySelector('#flow-editor-virtual-Input')) {
+					await new Promise((resolve) => setTimeout(resolve, 100))
+					attempts++
+				}
+				if (tok !== loadFlowToken) return
+				flowBuilder?.triggerTutorial()
+			}
 			return
 		}
 		// Currently there is no way to get version of flow with flow.

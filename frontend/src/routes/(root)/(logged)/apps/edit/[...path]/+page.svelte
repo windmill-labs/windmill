@@ -13,11 +13,16 @@
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { emptyApp } from '$lib/components/apps/editor/appUtils'
 	import { importStore } from '$lib/components/apps/store'
-	import { untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
 	import { page } from '$app/state'
 	import { UserDraft } from '$lib/userDraft.svelte'
 
 	let app = $state(undefined as (AppWithLastVersion & { value: any }) | undefined)
+	let appEditor: AppEditor | undefined = $state(undefined)
+	/** True when the editor was seeded from a hub app this load — passed
+	 * through to AppEditor, which relaxes a few authoring affordances for
+	 * hub content. */
+	let fromHub = $state(false)
 	let savedApp:
 		| {
 				value: App
@@ -67,6 +72,12 @@
 			// path — the editor's Deploy button must `createApp` at
 			// the user-typed path, not `updateApp` at the URL.
 			isNewApp = true
+			// Capture every seeding intent BEFORE touching the URL — all of
+			// these used to be consumed by /apps/add and are preserved
+			// verbatim by its redirect.
+			const templatePath = page.url.searchParams.get('template')
+			const templateId = page.url.searchParams.get('template_id')
+			const hubId = page.url.searchParams.get('hub')
 			const url = new URL(window.location.href)
 			url.searchParams.delete('new_draft')
 			window.history.replaceState(window.history.state, '', url.toString())
@@ -85,6 +96,9 @@
 				$importStore = undefined
 				sendUserToast('Loaded from YAML/JSON')
 			}
+			// Seed selection, in main's /apps/add priority order: YAML/JSON
+			// import > template fork > template-version fork > hub fork >
+			// empty app.
 			let seedSummary = ''
 			let seedValue = emptyApp() as any
 			let seedPolicy = emptyPolicy
@@ -95,6 +109,52 @@
 					seedPolicy = importRaw.policy ?? emptyPolicy
 				} else {
 					seedValue = importRaw
+				}
+			} else if (templatePath) {
+				try {
+					const template = await AppService.getAppByPath({
+						workspace: $workspaceStore!,
+						path: templatePath
+					})
+					if (tok !== loadAppToken) return
+					seedValue = template.value
+					sendUserToast('App loaded from template')
+				} catch (err: any) {
+					if (tok !== loadAppToken) return
+					console.error('Error loading template', err)
+					sendUserToast('Error loading template: ' + (err.body ?? err.message), true)
+				}
+			} else if (templateId) {
+				try {
+					const template = await AppService.getAppByVersion({
+						workspace: $workspaceStore!,
+						id: parseInt(templateId)
+					})
+					if (tok !== loadAppToken) return
+					seedValue = template.value
+					sendUserToast('App loaded from template')
+				} catch (err: any) {
+					if (tok !== loadAppToken) return
+					console.error('Error loading template', err)
+					sendUserToast('Error loading template: ' + (err.body ?? err.message), true)
+				}
+			} else if (hubId) {
+				try {
+					const hub = await AppService.getHubAppById({ id: Number(hubId) })
+					if (tok !== loadAppToken) return
+					seedValue = {
+						hiddenInlineScripts: [],
+						unusedInlineScripts: [],
+						fullscreen: false,
+						...((hub.app.value ?? {}) as any)
+					}
+					seedSummary = hub.app.summary
+					fromHub = true
+					sendUserToast('App loaded from Hub')
+				} catch (err: any) {
+					if (tok !== loadAppToken) return
+					console.error('Error loading hub app', err)
+					sendUserToast('Error loading hub app: ' + (err.body ?? err.message), true)
 				}
 			}
 			app = {
@@ -115,6 +175,20 @@
 				value: seedValue,
 				path: '',
 				policy: seedPolicy
+			}
+			// Tutorial links ("/apps/add?tutorial=...") land here via the
+			// redirect; fire once AppEditor has mounted and the runnable
+			// panel the tour points at exists.
+			const tutorialParam = page.url.searchParams.get('tutorial')
+			if (tutorialParam) {
+				await tick()
+				let attempts = 0
+				while (attempts < 20 && !document.querySelector('#app-editor-runnable-panel')) {
+					await new Promise((resolve) => setTimeout(resolve, 100))
+					attempts++
+				}
+				if (tok !== loadAppToken) return
+				appEditor?.triggerTutorial()
 			}
 			return
 		}
@@ -271,6 +345,8 @@
 	{#if app}
 		<div class="h-screen">
 			<AppEditor
+				bind:this={appEditor}
+				{fromHub}
 				onSavedNewAppPath={(url) => {
 					goto(`/apps/edit/${url}`)
 					if (app) {
