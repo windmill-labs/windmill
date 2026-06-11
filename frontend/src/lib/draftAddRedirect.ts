@@ -27,7 +27,10 @@ import { randomUUID } from '$lib/utils/uuid'
 export function makeDraftAddLoad(editPrefix: string) {
 	return ({ url }: { url: URL }) => {
 		const username = getUsernameForNamespace()
-		const uuid = randomUUID()
+		// Underscores, not dashes — path segments elsewhere in Windmill are
+		// `[a-zA-Z0-9_]` words, and downstream consumers (path validators,
+		// friendly-name slugs) treat `-` as a foreign character.
+		const uuid = randomUUID().replaceAll('-', '_')
 		const params = new URLSearchParams(url.searchParams)
 		params.set('new_draft', 'true')
 		// SvelteKit forbids `url.hash` inside `load` (loads also run where
