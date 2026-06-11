@@ -3,6 +3,7 @@ import type { FlowAIChatHelpers } from './flow/core'
 import type { CurrentEditor } from '$lib/components/flows/types'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
+import { runChatLoop } from './chatLoop'
 
 vi.mock('monaco-editor', () => ({
 	Selection: class Selection {}
@@ -30,14 +31,18 @@ vi.mock('$lib/toast', () => ({
 }))
 
 vi.mock('$lib/aiStore', () => ({
-	getCurrentModel: () => undefined,
+	getCurrentModel: () => ({ model: 'test-model', provider: 'openai' }),
 	tryGetCurrentModel: () => undefined,
 	getCombinedCustomPrompt: () => ''
 }))
 
 vi.mock('../lib', () => ({
 	getModelContextWindow: () => 128000,
-	workspaceAIClients: { subscribe: () => () => undefined }
+	workspaceAIClients: {
+		subscribe: () => () => undefined,
+		getOpenaiClient: () => ({}),
+		getAnthropicClient: () => ({})
+	}
 }))
 
 vi.mock('./api/apiTools', () => ({
@@ -215,5 +220,118 @@ describe('AIChatManager persisted autonomy default', () => {
 	it('restores an explicitly persisted autonomy mode', () => {
 		localStorage.setItem(AUTONOMY_KEY, AIAutonomyMode.DEFAULT)
 		expect(new AIChatManager().autonomyMode).toBe(AIAutonomyMode.DEFAULT)
+	})
+})
+
+describe('AIChatManager queued messages', () => {
+	beforeEach(() => {
+		localStorage.clear()
+		vi.clearAllMocks()
+	})
+
+	function createInputMock() {
+		return {
+			prependText: vi.fn(),
+			focusInput: vi.fn()
+		}
+	}
+
+	function createManager(input?: ReturnType<typeof createInputMock>) {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.NAVIGATOR
+		if (input) {
+			manager.setAiChatInput(input as unknown as Parameters<typeof manager.setAiChatInput>[0])
+		}
+		return manager
+	}
+
+	it('queues trimmed messages in order and ignores blank input', () => {
+		const manager = createManager()
+		manager.queueMessage('  first  ')
+		manager.queueMessage('   ')
+		manager.queueMessage('second')
+		expect(manager.queuedMessages).toEqual(['first', 'second'])
+	})
+
+	it('dequeues one message by index and restores it into the input', () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.queuedMessages = ['a', 'b', 'c']
+
+		manager.dequeueMessage(1)
+
+		expect(manager.queuedMessages).toEqual(['a', 'c'])
+		expect(input.prependText).toHaveBeenCalledWith('b')
+	})
+
+	it('re-queues instead of dropping when the input is unmounted', () => {
+		const manager = createManager()
+		manager.queuedMessages = ['a', 'b']
+
+		manager.dequeueMessage(1)
+
+		// no input to restore into → the message goes back to the queue front
+		expect(manager.queuedMessages).toEqual(['b', 'a'])
+	})
+
+	it('auto-sends queued messages one per turn in FIFO order on success', async () => {
+		const manager = createManager(createInputMock())
+		vi.mocked(runChatLoop).mockResolvedValue({ addedMessages: [] })
+
+		manager.queuedMessages = ['second', 'third']
+		await manager.sendRequest({ instructions: 'first' })
+
+		expect(vi.mocked(runChatLoop)).toHaveBeenCalledTimes(3)
+		expect(manager.queuedMessages).toEqual([])
+		const userMessages = manager.displayMessages
+			.filter((m) => m.role === 'user')
+			.map((m) => m.content)
+		expect(userMessages).toEqual(['first', 'second', 'third'])
+	})
+
+	it('restores all queued text to the input instead of sending when the turn errors', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		vi.mocked(runChatLoop).mockRejectedValue(new Error('provider down'))
+
+		manager.queuedMessages = ['second', 'third']
+		await manager.sendRequest({ instructions: 'first' })
+
+		expect(vi.mocked(runChatLoop)).toHaveBeenCalledTimes(1)
+		expect(manager.queuedMessages).toEqual([])
+		expect(input.prependText).toHaveBeenCalledWith('second\n\nthird')
+	})
+
+	it('restores all queued text to the input when the turn is cancelled', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		vi.mocked(runChatLoop).mockImplementation(async ({ abortController }) => {
+			abortController.abort()
+			throw new Error('aborted')
+		})
+
+		manager.queuedMessages = ['second']
+		await manager.sendRequest({ instructions: 'first' })
+
+		expect(manager.queuedMessages).toEqual([])
+		expect(input.prependText).toHaveBeenCalledWith('second')
+	})
+
+	it('restores a queued message whose auto-send is rejected by beforeSend', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		vi.mocked(runChatLoop).mockResolvedValue({ addedMessages: [] })
+		// first turn goes through, the queued auto-send is rejected
+		manager.beforeSend = vi
+			.fn()
+			.mockResolvedValueOnce(undefined)
+			.mockRejectedValueOnce(new Error('workspace commit failed'))
+
+		manager.queuedMessages = ['second']
+		await manager.sendRequest({ instructions: 'first' })
+
+		expect(vi.mocked(runChatLoop)).toHaveBeenCalledTimes(1)
+		expect(manager.queuedMessages).toEqual([])
+		expect(input.prependText).toHaveBeenCalledWith('second')
 	})
 })
