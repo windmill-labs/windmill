@@ -176,7 +176,7 @@ function snapshotDraftValue<V>(value: V | undefined): V | undefined {
  * rebuilt as `!!cfg.permissioned_as` on load but `|| undefined` on
  * build), so keeping them in the diff produces a phantom banner.
  */
-const DRAFT_COMPARE_IGNORED_FIELDS = ['permissioned_as', 'preserve_permissioned_as'] as const
+const DRAFT_COMPARE_IGNORED_FIELDS = ['permissioned_as', 'preserve_permissioned_as', 'extra_perms'] as const
 
 /**
  * Normalize one side of a draft-vs-baseline comparison: JSON round-trip
