@@ -814,9 +814,9 @@ const command = new Command()
   )
   .option(
     "--from-branch <branch:string>",
-    "Fork based on this base branch (its bound workspace is the parent) and rename your current working branch onto the fork branch wm-fork/<branch>/<id>. Use when you're already on a branch (e.g. with forked-datatable edits) you want to turn into the fork. Omit to base the fork on the current branch and check out a fresh fork branch instead."
+    "Non-interactive override for the 'turn my current working branch into the fork' workflow: base the fork on <branch> (its bound workspace is the parent) and rename the current branch onto wm-fork/<branch>/<id>. Usually unneeded — from a working branch `wmill workspace fork` offers this interactively; from a base branch it creates a fresh fork branch."
   )
-  .option("-y --yes", "Skip interactive prompts (defaults datatable behavior to 'skip', and confirms the --from-branch rename)")
+  .option("-y --yes", "Skip interactive prompts (defaults datatable behavior to 'skip'). On a non-base branch, requires --from-branch since the base branch can't be prompted for.")
   .action(createWorkspaceFork as any)
   .command("delete-fork")
   .description("Delete a forked workspace and git branch")

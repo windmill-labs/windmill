@@ -105,14 +105,16 @@ export function currentPromptsHash(nonDottedPaths: boolean): string {
 }
 
 /**
- * Read AGENTS.wmill.md in the current working directory, compare its embedded
- * hash to the current CLI's hash, and print a one-line warning if they
+ * Read the managed guidance file in the current working directory, compare its
+ * embedded hash to the current CLI's hash, and print a one-line warning if they
  * differ. Silent on every other code path (no managed file, no marker,
  * matching hash, IO error, …) so it never gets in the user's way.
  *
- * Back-compat: if only the legacy `AGENTS.cli.md` is present (no
- * `AGENTS.wmill.md` yet), warn that the managed file should be migrated —
- * `wmill refresh prompts` renames it and rewrites the include.
+ * Back-compat: prefers `AGENTS.wmill.md` but falls back to the legacy
+ * `AGENTS.cli.md` and runs the exact same staleness check on it. We do NOT
+ * warn merely because the old filename is in use — an up-to-date `AGENTS.cli.md`
+ * stays quiet; only a stale hash (which `wmill refresh prompts` fixes, and
+ * which also migrates the filename) trips the warning.
  */
 export async function warnIfPromptsStale(opts?: {
   cwd?: string;
@@ -122,18 +124,17 @@ export async function warnIfPromptsStale(opts?: {
   if (opts?.argv && !shouldRunFreshnessCheck(opts.argv)) return;
 
   const cwd = opts?.cwd ?? process.cwd();
-  const path = `${cwd}/${AGENTS_WMILL_FILENAME}`;
 
+  // Prefer the current filename; fall back to the legacy one for back-compat.
+  let fileName = AGENTS_WMILL_FILENAME;
+  let path = `${cwd}/${fileName}`;
   if (!(await stat(path).catch(() => null))) {
-    // No AGENTS.wmill.md. If the legacy AGENTS.cli.md is still around, nudge
-    // the user to migrate it; otherwise this project just isn't wmill-managed.
-    const legacyPath = `${cwd}/${LEGACY_AGENTS_CLI_FILENAME}`;
-    if (await stat(legacyPath).catch(() => null)) {
-      emitWarning(
-        "Your AGENTS.cli.md is using the old managed filename. Run `wmill refresh prompts` to migrate it to AGENTS.wmill.md."
-      );
+    fileName = LEGACY_AGENTS_CLI_FILENAME;
+    path = `${cwd}/${fileName}`;
+    if (!(await stat(path).catch(() => null))) {
+      // Neither file present — this project just isn't wmill-managed.
+      return;
     }
-    return;
   }
 
   let content: string;
@@ -145,10 +146,10 @@ export async function warnIfPromptsStale(opts?: {
 
   const stored = extractPromptsHash(content);
   if (!stored) {
-    // Older AGENTS.wmill.md without a marker. Warn so the user re-runs
-    // refresh and picks up the new format.
+    // Managed file without a marker. Warn so the user re-runs refresh and
+    // picks up the new format (and the new filename).
     emitWarning(
-      "Your AGENTS.wmill.md predates prompt versioning. Run `wmill refresh prompts` to refresh and add a version marker."
+      `Your ${fileName} predates prompt versioning. Run \`wmill refresh prompts\` to refresh and add a version marker.`
     );
     return;
   }
@@ -170,7 +171,7 @@ export async function warnIfPromptsStale(opts?: {
   const current = currentPromptsHash(nonDottedPaths);
   if (stored !== current) {
     emitWarning(
-      "Your AGENTS.wmill.md is out of date. Run `wmill refresh prompts` to refresh."
+      `Your ${fileName} is out of date. Run \`wmill refresh prompts\` to refresh.`
     );
   }
 }

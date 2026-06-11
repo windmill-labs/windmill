@@ -12,9 +12,15 @@ import {
   isGitRepository,
   renameCurrentGitBranch,
 } from "../../utils/git.ts";
+import process from "node:process";
 import { WM_FORK_PREFIX } from "../../core/constants.ts";
 import { tryResolveBranchWorkspace } from "../../core/context.ts";
-import { findWorkspaceByGitBranch, readConfigFile } from "../../core/conf.ts";
+import {
+  findWorkspaceByGitBranch,
+  getEffectiveGitBranch,
+  getWorkspaceNames,
+  readConfigFile,
+} from "../../core/conf.ts";
 
 async function createWorkspaceFork(
   opts: GlobalOptions & {
@@ -36,48 +42,70 @@ async function createWorkspaceFork(
     throw new Error("Could not get git branch name");
   }
 
-  // `--from-branch` enables the "already on a working branch" workflow: the
-  // fork is based on <fromBranch> (the parent), and the current branch is
-  // later renamed onto the fork branch. Without it, the fork is based on the
-  // current branch and the user checks out a fresh fork branch.
-  const fromBranch = opts.fromBranch;
+  const config = await readConfigFile({ warnIfMissing: false });
+  const originalBranchIfForked = getOriginalBranchForWorkspaceForks(currentBranch);
 
-  let workspace;
-  if (fromBranch) {
-    if (fromBranch === currentBranch) {
+  // A "base branch" is one we must not rename onto a fork branch: mapped to a
+  // workspace in wmill.yaml, or a conventional default (main/master).
+  const isBaseBranch = (branch: string): boolean =>
+    branch === "main" ||
+    branch === "master" ||
+    findWorkspaceByGitBranch(config.workspaces, branch) !== undefined;
+
+  // Decide the base branch the fork links to, and whether to rename the
+  // current working branch onto the fork branch. Auto-detected from where you
+  // are; `--from-branch` is the explicit/non-interactive override.
+  let clonedBranchName: string;
+  let renameCurrent: boolean;
+
+  if (opts.fromBranch) {
+    // Explicit override: base on <fromBranch>, rename the current branch.
+    if (opts.fromBranch === currentBranch) {
       throw new Error(
         `--from-branch is for converting a *different* working branch into the fork branch, but you are already on \`${currentBranch}\`. ` +
-        `Either omit --from-branch (a fresh fork branch is created with \`git checkout -b\`), or check out the working branch you want to convert first.`,
+        `Omit --from-branch to create a fresh fork branch with \`git checkout -b\`.`,
       );
     }
-    const config = await readConfigFile({ warnIfMissing: false });
-    // Protect base branches. This workflow renames the *current* branch onto
-    // the fork branch, so refuse when the current branch is itself a base
-    // branch — either mapped to a workspace in wmill.yaml, or a conventional
-    // default (main/master). Renaming one of those would clobber it; the user
-    // must check out a disposable working branch first. Fail fast, before any
-    // fork workspace or git branch is created.
-    const currentBranchIsBase =
-      currentBranch === "main" ||
-      currentBranch === "master" ||
-      findWorkspaceByGitBranch(config.workspaces, currentBranch) !== undefined;
-    if (currentBranchIsBase) {
+    if (isBaseBranch(currentBranch)) {
       throw new Error(
         `Refusing to rename your current branch \`${currentBranch}\` — it looks like a base branch (mapped to a workspace in wmill.yaml, or main/master). ` +
-        `The --from-branch workflow turns a *disposable working branch* into the fork branch. ` +
-        `Check out the working branch you want to convert first, or omit --from-branch to create a fresh fork branch with \`git checkout -b\`.`,
+        `Check out the disposable working branch you want to convert first.`,
       );
     }
-    const match = findWorkspaceByGitBranch(config.workspaces, fromBranch);
-    if (!match) {
+    if (!findWorkspaceByGitBranch(config.workspaces, opts.fromBranch)) {
       throw new Error(
-        `Could not find a workspace mapped to branch \`${fromBranch}\` in wmill.yaml's workspaces section. ` +
+        `Could not find a workspace mapped to branch \`${opts.fromBranch}\` in wmill.yaml's workspaces section. ` +
         `Pass the base branch your fork should be based on (e.g. the branch bound to the parent workspace).`,
       );
     }
-    workspace = await tryResolveBranchWorkspace(opts, match[0]);
+    clonedBranchName = opts.fromBranch;
+    renameCurrent = true;
+  } else if (originalBranchIfForked) {
+    // Fork of a fork: link to the original branch; user checks out a new branch.
+    log.info(`You are creating a fork of a fork. The branch will be linked to the original branch this was forked from, i.e. \`${originalBranchIfForked}\`, for all settings and overrides.`);
+    clonedBranchName = originalBranchIfForked;
+    renameCurrent = false;
+  } else if (isBaseBranch(currentBranch)) {
+    // On a base branch: base the fork on it; user checks out a fresh fork branch.
+    clonedBranchName = currentBranch;
+    renameCurrent = false;
   } else {
+    // On a non-base working branch: offer to base the fork on it and rename it.
+    clonedBranchName = await resolveWorkingBranchBase(config, opts, currentBranch);
+    renameCurrent = true;
+  }
+
+  // Resolve the parent workspace. When the base differs from the current
+  // branch (the rename workflows), resolve via the base branch's workspace;
+  // otherwise use plain branch resolution.
+  let workspace;
+  if (clonedBranchName === currentBranch) {
     workspace = await tryResolveBranchWorkspace(opts);
+  } else {
+    const baseMatch = findWorkspaceByGitBranch(config.workspaces, clonedBranchName);
+    workspace = baseMatch
+      ? await tryResolveBranchWorkspace(opts, baseMatch[0])
+      : await tryResolveBranchWorkspace(opts);
   }
 
   if (!workspace) {
@@ -85,22 +113,6 @@ async function createWorkspaceFork(
   }
 
   log.info(`You are forking workspace (${workspace.workspaceId})`)
-
-  const originalBranchIfForked = getOriginalBranchForWorkspaceForks(currentBranch);
-
-  let clonedBranchName: string | null;
-  if (fromBranch) {
-    clonedBranchName = fromBranch;
-  } else if (originalBranchIfForked) {
-    log.info(`You are creating a fork of a fork. The branch will be linked to the original branch this was forked from, i.e. \`${originalBranchIfForked}\`, for all settings and overrides.`);
-    clonedBranchName = originalBranchIfForked;
-  } else {
-    clonedBranchName = currentBranch;
-  }
-
-  if (!clonedBranchName) {
-    throw new Error("Failed to get current branch name, aborting operation");
-  }
 
   if (opts.workspace) {
     log.info(
@@ -301,11 +313,13 @@ async function createWorkspaceFork(
 
   const newBranchName = `${WM_FORK_PREFIX}/${clonedBranchName}/${workspaceId}`
 
-  // Workflow B (`--from-branch`): turn the current working branch into the
-  // fork branch in place so its commits become the fork's. Workflow A: leave
-  // the user on their base branch and have them check out a fresh fork branch.
+  // Rename workflow: turn the current working branch into the fork branch in
+  // place so its commits become the fork's. (Consent was already established —
+  // by `--from-branch`, or the interactive prompt for a non-base branch.)
+  // Otherwise: leave the user on their branch and have them check out a fresh
+  // fork branch.
   let onForkBranch = false;
-  if (fromBranch) {
+  if (renameCurrent) {
     if (currentBranch === newBranchName) {
       onForkBranch = true;
       log.info(colors.green(`Your current branch is already \`${newBranchName}\`.`));
@@ -315,27 +329,13 @@ async function createWorkspaceFork(
         `Check out the fork branch yourself (e.g. \`git checkout ${newBranchName}\`).`,
       );
     } else {
-      let doRename = opts.yes === true;
-      if (!doRename) {
-        const { Select } = await import("@cliffy/prompt/select");
-        const choice = await Select.prompt({
-          message: `Rename your current branch \`${currentBranch}\` → \`${newBranchName}\` so its commits become the fork's branch?`,
-          options: [
-            { name: "Yes, rename it", value: "confirm" },
-            { name: "No, I'll switch branches myself", value: "cancel" },
-          ],
-        });
-        doRename = choice === "confirm";
-      }
-      if (doRename) {
-        renameCurrentGitBranch(newBranchName);
-        onForkBranch = true;
-        log.info(
-          colors.green(
-            `Renamed \`${currentBranch}\` → \`${newBranchName}\`. Your existing commits are now on the fork branch.`,
-          ),
-        );
-      }
+      renameCurrentGitBranch(newBranchName);
+      onForkBranch = true;
+      log.info(
+        colors.green(
+          `Renamed \`${currentBranch}\` → \`${newBranchName}\`. Your existing commits are now on the fork branch.`,
+        ),
+      );
     }
   }
 
@@ -354,6 +354,71 @@ To merge changes back to the parent workspace, you can:
   - Use the Merge UI from the forked workspace home page
   - Use git: ` + colors.white(`git checkout ${clonedBranchName} && git merge ${newBranchName} && wmill sync push`) + `
   See: https://www.windmill.dev/docs/advanced/workspace_forks`);
+}
+
+/**
+ * When `wmill workspace fork` is run from a non-base working branch, confirm
+ * the user wants to turn it into a fork branch, and resolve which base branch
+ * the fork should be linked to. Throws in non-interactive mode (where the user
+ * must pass `--from-branch <base>` instead).
+ */
+async function resolveWorkingBranchBase(
+  config: Awaited<ReturnType<typeof readConfigFile>>,
+  opts: { yes?: boolean },
+  currentBranch: string,
+): Promise<string> {
+  const interactive = process.stdin.isTTY && opts.yes !== true;
+  if (!interactive) {
+    throw new Error(
+      `You are on working branch \`${currentBranch}\`, which is not a base branch. ` +
+      `Pass --from-branch <base> to base the fork on a base branch and rename this branch onto the fork branch, ` +
+      `or check out a base branch and run \`wmill workspace fork\` to create a fresh fork branch.`,
+    );
+  }
+
+  const { Select } = await import("@cliffy/prompt/select");
+  const proceed = await Select.prompt({
+    message: `You're on working branch \`${currentBranch}\`, not a base branch. Base a fork on it and rename it onto the fork branch?`,
+    options: [
+      { name: "Yes, base the fork on this branch and rename it", value: "yes" },
+      { name: "No, cancel", value: "no" },
+    ],
+  });
+  if (proceed !== "yes") {
+    throw new Error("Fork cancelled. Check out a base branch to create a fresh fork branch instead.");
+  }
+
+  const baseBranches = listConfiguredBaseBranches(config);
+  if (baseBranches.length === 0) {
+    throw new Error(
+      `No base branches are configured in wmill.yaml's workspaces section, so the fork can't be linked to a parent. ` +
+      `Add the parent workspace to wmill.yaml, or pass --from-branch <base>.`,
+    );
+  }
+  if (baseBranches.length === 1) {
+    log.info(`Basing the fork on \`${baseBranches[0]}\`.`);
+    return baseBranches[0];
+  }
+  return await Select.prompt({
+    message: "Which base branch is this fork based on (the parent)?",
+    options: baseBranches.map((b) => ({ name: b, value: b })),
+  });
+}
+
+/**
+ * Base branches configured in wmill.yaml, mirroring how `findWorkspaceByGitBranch`
+ * keys them (effective git branch = `gitBranch ?? workspaceName`, reserved keys
+ * excluded) so the chosen base resolves to a workspace afterwards.
+ */
+function listConfiguredBaseBranches(
+  config: Awaited<ReturnType<typeof readConfigFile>>,
+): string[] {
+  const workspaces = config.workspaces;
+  const branches = new Set<string>();
+  for (const name of getWorkspaceNames(workspaces)) {
+    branches.add(getEffectiveGitBranch(name, workspaces![name]));
+  }
+  return [...branches];
 }
 
 async function deleteWorkspaceFork(

@@ -156,10 +156,12 @@ Only deploy when the user explicitly asks to deploy, publish, push, or ship — 
 
 A **fork** is an isolated copy of a workspace for parallel or experimental work — make changes (including to datatables, which are cloned per fork) without touching the parent, then merge back after review. Each fork is paired with a git branch named \`wm-fork/<base>/<id>\`. Forks require a git repo.
 
-Create one with \`wmill workspace fork\`. There are two branch workflows — pick by where you are:
+Just run \`wmill workspace fork\` — it adapts to where you are:
 
-- **Starting from the base branch** (no in-progress work to carry over): run \`wmill workspace fork\`. It bases the fork on your current branch and prints a \`git checkout -b wm-fork/<base>/<id>\` to start the fork branch.
-- **Already on a working branch you want to turn into the fork** (e.g. you've branched and already edited a forked datatable): run \`wmill workspace fork --from-branch <base>\`. It bases the fork on \`<base>\` (the parent's branch) and renames your current branch onto \`wm-fork/<base>/<id>\` in place, preserving its commits.
+- **On a base branch** (e.g. \`main\`, or a branch bound to a workspace): it bases the fork on that branch and prints a \`git checkout -b wm-fork/<base>/<id>\` to start a fresh fork branch.
+- **On a working branch** (e.g. you've branched and already edited a forked datatable): it offers to base the fork on that branch and rename it onto \`wm-fork/<base>/<id>\` in place, preserving its commits — asking which base branch is the parent if there's more than one.
+
+For non-interactive runs from a working branch, pass \`--from-branch <base>\` to skip the prompts. The CLI refuses to rename a base branch.
 
 Merge a fork back into its parent with \`wmill workspace merge\` (or the Merge UI on the fork's home page). Full reference: https://www.windmill.dev/docs/advanced/workspace_forks
 

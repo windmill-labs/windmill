@@ -1,6 +1,3 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-import process from "node:process";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Select } from "@cliffy/prompt/select";
@@ -186,37 +183,6 @@ interface CommandOptions {
 
 async function promptsAction(opts: CommandOptions): Promise<void> {
   await refreshPrompts({ yes: opts.yes === true });
-  await refreshRtNamespaceIfPresent(opts);
-}
-
-/**
- * Keep an existing `rt.d.ts` resource-type namespace in sync when the user
- * runs `wmill refresh prompts`. `wmill init` already generates it on first
- * bind; here we only refresh it when the file is already present (so we never
- * introduce it into projects that don't use it). Best-effort: a missing
- * workspace/login or offline run just skips with a warning rather than failing
- * the whole refresh.
- *
- * Not wired into the shared `refreshPrompts` helper on purpose — `wmill init`
- * regenerates the namespace itself, and `refreshPrompts` must stay
- * network-free for its other callers.
- */
-async function refreshRtNamespaceIfPresent(opts: CommandOptions): Promise<void> {
-  const rtPath = join(process.cwd(), "rt.d.ts");
-  if (!existsSync(rtPath)) return;
-
-  try {
-    const { generateRTNamespace } = await import(
-      "../resource-type/resource-type.ts"
-    );
-    await generateRTNamespace(opts as any);
-  } catch (error) {
-    log.warn(
-      `Could not refresh rt.d.ts resource type namespace: ${
-        error instanceof Error ? error.message : error
-      }`
-    );
-  }
 }
 
 const command = new Command()

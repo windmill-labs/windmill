@@ -614,4 +614,64 @@ describe("prompts freshness — additional invariants", () => {
       expect(stdoutJoined).not.toContain("out of date");
     });
   });
+
+  // Back-compat: a legacy AGENTS.cli.md is still hash-checked, and we do NOT
+  // warn merely because of the old filename — only when it's actually stale.
+  test("warnIfPromptsStale stays silent for an up-to-date legacy AGENTS.cli.md", async () => {
+    await withTempDir(async (tempDir) => {
+      const content = injectPromptsHashMarker(
+        "# Windmill CLI Agent Instructions\nbody\n",
+        currentPromptsHash(false)
+      );
+      await writeFile(join(tempDir, "AGENTS.cli.md"), content, "utf8");
+
+      const stderrWrites: string[] = [];
+      const originalStderr = process.stderr.write.bind(process.stderr);
+      // @ts-expect-error — overriding write for the test
+      process.stderr.write = (chunk: any) => {
+        stderrWrites.push(String(chunk));
+        return true;
+      };
+      try {
+        await warnIfPromptsStale({
+          cwd: tempDir,
+          nonDottedPaths: false,
+          argv: ["node", "wmill", "sync", "push"],
+        });
+      } finally {
+        process.stderr.write = originalStderr;
+      }
+      expect(stderrWrites.join("")).toBe("");
+    });
+  });
+
+  test("warnIfPromptsStale warns (naming the legacy file) for a stale AGENTS.cli.md", async () => {
+    await withTempDir(async (tempDir) => {
+      await writeFile(
+        join(tempDir, "AGENTS.cli.md"),
+        "# Windmill CLI Agent Instructions\n<!-- wmill-prompts-hash: 000000000000 -->\nbody\n",
+        "utf8"
+      );
+
+      const stderrWrites: string[] = [];
+      const originalStderr = process.stderr.write.bind(process.stderr);
+      // @ts-expect-error — overriding write for the test
+      process.stderr.write = (chunk: any) => {
+        stderrWrites.push(String(chunk));
+        return true;
+      };
+      try {
+        await warnIfPromptsStale({
+          cwd: tempDir,
+          nonDottedPaths: false,
+          argv: ["node", "wmill", "sync", "push"],
+        });
+      } finally {
+        process.stderr.write = originalStderr;
+      }
+      const out = stderrWrites.join("");
+      expect(out).toContain("out of date");
+      expect(out).toContain("AGENTS.cli.md");
+    });
+  });
 });
