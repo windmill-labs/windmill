@@ -1016,6 +1016,7 @@ export class AIChatManager {
 			if (this.isOverContextLimit(this.estimatedContextTokens)) {
 				trimmedMessages = this.deleteOldestMessage(trimmedMessages)
 			}
+			const wasTrimmed = trimmedMessages.length !== this.messages.length
 
 			const params: {
 				messages: ChatCompletionMessageParam[]
@@ -1093,10 +1094,13 @@ export class AIChatManager {
 				...params
 			})
 			this.messages = [...this.messages, ...(result?.addedMessages ?? [])]
-			if (result?.lastIterationUsage) {
-				// The reported prompt covers what was actually sent (the possibly
-				// trimmed payload plus system prompt and tools), so this tracks the
-				// size of the next payload rather than of the full stored history.
+			if (result?.lastIterationUsage && !wasTrimmed) {
+				// Anchor only untrimmed sends: the reported usage then covers the
+				// whole stored history (plus system prompt and tools). After a
+				// trimmed send it would miss the dropped-but-still-stored head, so
+				// the next turn's estimate would undercount and could skip the trim;
+				// keeping the previous anchor (or the full fallback estimate)
+				// preserves full-history accounting instead.
 				this.contextUsage = {
 					tokens: result.lastIterationUsage.prompt + result.lastIterationUsage.completion,
 					atMessageIndex: this.messages.length

@@ -217,3 +217,50 @@ describe('AIChatManager persisted autonomy default', () => {
 		expect(new AIChatManager().autonomyMode).toBe(AIAutonomyMode.DEFAULT)
 	})
 })
+
+describe('AIChatManager context usage estimation', () => {
+	beforeEach(() => {
+		localStorage.clear()
+		vi.clearAllMocks()
+	})
+
+	it('estimates messages, system prompt and tool defs when no anchor exists', () => {
+		const manager = new AIChatManager()
+		manager.messages = [
+			{ role: 'user', content: 'a'.repeat(400) },
+			{ role: 'assistant', content: 'b'.repeat(200) }
+		]
+		manager.systemMessage = { role: 'system', content: 'c'.repeat(100) }
+		const def = { type: 'function' as const, function: { name: 'x' } }
+		manager.tools = [{ def }] as any
+		expect(manager.estimatedContextTokens).toBe(175 + JSON.stringify([def]).length / 4)
+	})
+
+	it('anchors on provider-reported usage and only estimates messages added since', () => {
+		const manager = new AIChatManager()
+		manager.messages = [
+			// covered by the anchor: must not be re-estimated
+			{ role: 'user', content: 'a'.repeat(99999) },
+			{ role: 'user', content: 'b'.repeat(400) }
+		]
+		// covered by the anchor too: must not be added on top
+		manager.systemMessage = { role: 'system', content: 'c'.repeat(100) }
+		manager.contextUsage = { tokens: 1000, atMessageIndex: 1 }
+		expect(manager.estimatedContextTokens).toBe(1100)
+	})
+
+	it('falls back to full estimation when the anchor points past the current history', () => {
+		const manager = new AIChatManager()
+		manager.messages = [{ role: 'user', content: 'a'.repeat(400) }]
+		manager.systemMessage = { role: 'system', content: '' }
+		manager.contextUsage = { tokens: 5000, atMessageIndex: 3 }
+		expect(manager.estimatedContextTokens).toBe(100)
+	})
+
+	it('clears the anchor when saveAndClear resets the conversation', async () => {
+		const manager = new AIChatManager()
+		manager.contextUsage = { tokens: 1000, atMessageIndex: 1 }
+		await manager.saveAndClear()
+		expect(manager.contextUsage).toBeUndefined()
+	})
+})
