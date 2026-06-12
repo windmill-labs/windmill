@@ -121,6 +121,31 @@
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
 
+	let schema = $derived(draftSchema ?? runnable?.schema)
+	let hasRenderableSchema = $derived(
+		!!schema?.properties && Object.keys(schema.properties).length > 0
+	)
+	let hasArgs = $derived(args != undefined && Object.keys(args).length > 0)
+	// When the runnable input schema cannot be rendered (unavailable, empty, or
+	// without properties) but the schedule already has stored args, fall back to a
+	// raw JSON editor so existing args remain visible instead of implying the
+	// runnable takes no argument. The editor's code is initialized once and the
+	// fallback stays visible until a renderable schema appears, so emptying the
+	// JSON while editing does not make the editor disappear from under the user.
+	let rawArgsEditorCode: string | undefined = $state(undefined)
+	let showRawArgsFallback = $derived(!hasRenderableSchema && rawArgsEditorCode !== undefined)
+	$effect(() => {
+		if (hasRenderableSchema) {
+			rawArgsEditorCode = undefined
+		} else if (hasArgs && rawArgsEditorCode === undefined) {
+			rawArgsEditorCode = JSON.stringify($state.snapshot(args), null, 2)
+		}
+	})
+
+	function updateRawArgs({ detail }: { detail: any }) {
+		args = detail ?? {}
+	}
+
 	const saveDisabled = $derived(
 		!allowSchedule ||
 			pathError != '' ||
@@ -738,6 +763,21 @@
 			}}
 		/>
 		<div class="flex flex-col gap-8">
+			{#snippet rawArgsFallback()}
+				<Alert type="warning" size="xs" title="Input schema unavailable" class="mb-2">
+					The {is_flow ? 'flow' : 'script'} input schema could not be rendered. The stored arguments
+					are shown below as raw JSON.
+				</Alert>
+				{#await import('$lib/components/JsonEditor.svelte')}
+					<Loader2 class="animate-spin" />
+				{:then Module}
+					<Module.default
+						code={rawArgsEditorCode}
+						disabled={!can_write}
+						on:changeValue={updateRawArgs}
+					/>
+				{/await}
+			{/snippet}
 			<Section label="Metadata">
 				<div class="flex flex-col gap-6">
 					<label class="flex flex-col gap-1">
@@ -932,8 +972,7 @@
 				<div class={!hideTarget ? 'mt-6' : ''}>
 					{#if !loading}
 						{#if runnable || draftSchema}
-							{@const schema = draftSchema ?? runnable?.schema}
-							{#if schema && schema.properties && Object.keys(schema.properties).length > 0}
+							{#if hasRenderableSchema}
 								{#await import('$lib/components/SchemaForm.svelte')}
 									<Loader2 class="animate-spin" />
 								{:then Module}
@@ -946,6 +985,8 @@
 										bind:args
 									/>
 								{/await}
+							{:else if showRawArgsFallback}
+								{@render rawArgsFallback()}
 							{:else}
 								<div class="text-xs text-secondary">
 									This {is_flow ? 'flow' : 'script'} takes no argument
@@ -956,6 +997,9 @@
 								You cannot see the the {is_flow ? 'flow' : 'script'} input form as you do not have access
 								to it.
 							</div>
+							{#if showRawArgsFallback}
+								{@render rawArgsFallback()}
+							{/if}
 						{:else}
 							<div class="text-xs text-secondary my-2">
 								Pick a {is_flow ? 'flow' : 'script'} and fill its argument here
