@@ -48,6 +48,11 @@ export interface ChatLoopConfig {
 	onWebSearchUnavailable?: () => void
 	/** Return a pending user message to inject between iterations, or undefined. */
 	getPendingUserMessage?: () => ChatCompletionUserMessageParam | undefined
+	/**
+	 * Optional caller-owned accumulator for the messages produced this run —
+	 * lets the caller recover partial output if the loop throws or is aborted.
+	 */
+	addedMessages?: ChatCompletionMessageParam[]
 	/** Called before each iteration (e.g. to refresh tool schemas). */
 	onBeforeIteration?: (tools: Tool<any>[], helpers: any) => Promise<void>
 }
@@ -56,6 +61,43 @@ export interface ChatLoopResult {
 	addedMessages: ChatCompletionMessageParam[]
 	tokenUsage: ChatTokenUsage
 	hitMaxIterations: boolean
+}
+
+/**
+ * Returns the longest prefix of `messages` that forms a valid request sequence:
+ * every assistant `tool_calls` batch must be fully answered by following tool
+ * messages before the next assistant turn. Used to commit the partial output of
+ * an aborted or failed turn as context for a follow-up, without leaving a
+ * dangling tool_call (which the provider APIs reject on the next request).
+ */
+export function truncateToToolPairedPrefix(
+	messages: ChatCompletionMessageParam[]
+): ChatCompletionMessageParam[] {
+	let lastValidLen = 0
+	let pending = new Set<string>()
+	for (let i = 0; i < messages.length; i++) {
+		const m = messages[i]
+		if (m.role === 'assistant') {
+			// A new assistant turn while the previous tool batch is unanswered would
+			// be invalid — stop at the last known-good boundary.
+			if (pending.size > 0) break
+			const toolCalls = m.tool_calls ?? []
+			if (toolCalls.length === 0) {
+				lastValidLen = i + 1
+			} else {
+				pending = new Set(toolCalls.map((c) => c.id))
+			}
+		} else if (m.role === 'tool') {
+			pending.delete(m.tool_call_id)
+			// Boundary is valid only once every tool_call in the batch is answered.
+			if (pending.size === 0) lastValidLen = i + 1
+		} else {
+			// user/system message: a valid boundary only if no tool calls are pending.
+			if (pending.size > 0) break
+			lastValidLen = i + 1
+		}
+	}
+	return messages.slice(0, lastValidLen)
 }
 
 const unsupportedWebSearchCache = new Set<string>()
@@ -171,7 +213,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 	} = config
 	let skipResponsesApi = config.skipResponsesApi ?? false
 
-	const addedMessages: ChatCompletionMessageParam[] = []
+	const addedMessages: ChatCompletionMessageParam[] = config.addedMessages ?? []
 	let tokenUsage = emptyChatTokenUsage()
 	let iterations = 0
 	let hitMaxIterations = false

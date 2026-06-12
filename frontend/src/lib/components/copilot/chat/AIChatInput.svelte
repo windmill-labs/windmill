@@ -179,6 +179,15 @@
 		}
 	}
 
+	// Restore composer contents after a rolled-back turn. No-op when the user
+	// already typed a new draft — restoring would clobber it.
+	export function restoreInstructions(value: string, restoredPastes: PasteAttachment[] = []) {
+		if (instructions.trim()) return
+		instructions = value
+		pastes = restoredPastes
+		focusInput()
+	}
+
 	function clickOutside(node: HTMLElement) {
 		function handleClick(event: MouseEvent) {
 			if (node && !node.contains(event.target as Node)) {

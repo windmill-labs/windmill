@@ -3,6 +3,7 @@
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import { twMerge } from 'tailwind-merge'
 	import { Brain, ChevronDown, ChevronRight, Loader2 } from 'lucide-svelte'
+	import { slide } from 'svelte/transition'
 	import type { DisplayMessage } from './shared'
 	import CodeDisplay from './script/CodeDisplay.svelte'
 	import LinkRenderer from './LinkRenderer.svelte'
