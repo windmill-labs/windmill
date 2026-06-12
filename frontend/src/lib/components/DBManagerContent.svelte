@@ -5,6 +5,7 @@
 	import { dbSupportsSchemas } from './apps/components/display/dbtable/utils'
 	import DbManager from './DBManager.svelte'
 	import {
+		dbIndexOpsWithPreviewScripts,
 		dbSchemaOpsWithPreviewScripts,
 		dbTableOpsWithPreviewScripts,
 		getDbType,
@@ -165,6 +166,9 @@
 					input: _input,
 					workspace: $workspaceStore
 				})}
+				dbIndexOps={getDbFeatures(_input).indexes
+					? dbIndexOpsWithPreviewScripts({ input: _input, workspace: $workspaceStore })
+					: undefined}
 				initialTableKey={input.specificTable}
 				initialSchemaKey={input.type == 'database' ? input.specificSchema : undefined}
 				asset={_input.type == 'ducklake'
