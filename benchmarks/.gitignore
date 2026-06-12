@@ -1,0 +1,7 @@
+# Sim run outputs land in dated subfolders here; never commit them.
+results/
+
+# Legacy single-file outputs (pre-dated-folders) if any leak.
+sim_results_*.json
+sim_results_*.md
+sim_results_*.svg

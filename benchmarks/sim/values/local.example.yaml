@@ -1,0 +1,32 @@
+# Local helm values overlay for wm_sim — secrets + per-developer tweaks.
+# Copy this file to `local.yaml` (gitignored) and fill in the values you want.
+#
+# Pass alongside smoke.yaml so it overrides:
+#   wm_sim up --topology <t>.json \
+#     --helm ~/Dev/windmill-helm-charts/charts/windmill \
+#     --helm-values benchmarks/sim/values/smoke.yaml \
+#     --helm-values benchmarks/sim/values/local.yaml
+#
+# Helm merges -f files in order; the later file wins on conflicts, so anything
+# you put here trumps the matching key in smoke.yaml.
+
+# Enterprise license — set to enable EE-gated features (autoscaling, distributed
+# workers, readiness probes, etc). With enterprise.enabled=true the chart also
+# automatically swaps to the EE image (`ghcr.io/windmill-labs/windmill-ee`) and
+# wires the license env var — no other changes needed.
+enterprise:
+  enabled: true
+  licenseKey: "PASTE_YOUR_EE_KEY_HERE"
+  # Or, to read from an existing Secret instead of inlining the key:
+  # licenseKeySecretName: windmill-ee-license
+  # licenseKeySecretKey:  license
+  # Autoscaling RBAC (Role + RoleBinding for `patch deployments`). Without
+  # this the EE health check fails with "Insufficient permissions to access
+  # verb `patch`" — see https://www.windmill.dev/docs/core_concepts/autoscaling#kubernetes
+  createKubernetesAutoscalingRolesAndBindings: true
+
+# Optional: pin a specific image/tag. With enterprise.enabled=true the default
+# repo is `ghcr.io/windmill-labs/windmill-ee`; uncomment to override.
+# windmill:
+#   image: ghcr.io/windmill-labs/windmill-ee
+#   tag:   "1.711.0"

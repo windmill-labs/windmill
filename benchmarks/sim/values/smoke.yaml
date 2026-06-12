@@ -1,0 +1,154 @@
+# Helm values for the k8s_4node bench topology (1 small CP + 3 × 4vCPU/20GiB workers).
+#
+# Critical-pod safety pattern:
+#   1. Chart creates a `wm-critical` PriorityClass (value 2_000_000_000) — this
+#      hits kubelet's IsCriticalPodBasedOnPriority special case, giving any pod
+#      assigned to it oom_score_adj=-997. Burstable QoS, but kernel-OOM-immune.
+#   2. App and PG both reference wm-critical via priorityClassName.
+#   3. App and PG have NO `limits.memory` — combined with the priority class,
+#      they cannot cgroup-OOM (no own ceiling) and the kernel won't pick them.
+#      Workers are the designated OOM victims (adj~984) under node pressure.
+#   4. App has a podAntiAffinity preference vs PG so they land on different
+#      worker nodes when capacity allows.
+#
+# Pass at the wm_sim invocation:
+#   wm_sim --topology benchmarks/sim/topologies/k8s-4node.json \
+#          --helm-values  benchmarks/sim/values/smoke.yaml
+
+# EE / enterprise settings live in `local.yaml` (gitignored). Layer that file
+# alongside smoke.yaml with `-f smoke.yaml -f local.yaml` to enable EE + the
+# license key. This file stays committable; license keys must never land here.
+
+windmill:
+  appReplicas: 1
+  extraReplicas: 0
+  indexer:
+    enabled: false
+
+  # Declare wm-critical, which is referenced by app.priorityClassName and
+  # postgresql.priorityClassName below.
+  #
+  # NOTE: k8s caps user-defined PriorityClass `value` at 1_000_000_000. The
+  # kubelet's IsCriticalPodBasedOnPriority shortcut (which would set
+  # oom_score_adj = -997) requires value >= 2_000_000_000, which is reserved
+  # for the built-in system-cluster-critical/system-node-critical classes
+  # (kube-system namespace only). So we use the max user-allowed value: that
+  # still gives us scheduling priority + eviction protection. For OOM ranking,
+  # we lean on big memory requests below to pull the Burstable-formula adj
+  # well below the workers'.
+  priorityClasses:
+    enabled: true
+    classes:
+      - name: wm-critical
+        value: 1000000000
+        description: "Windmill critical pods (app, PG) — scheduled/evicted last."
+
+  app:
+    priorityClassName: wm-critical
+    # postStart hook writes -999 to /proc/1/oom_score_adj — kernel cannot
+    # pick this pod for OOM. The k8s PriorityClass route to -997 is blocked
+    # for non-kube-system pods, so we do it directly inside the container.
+    oomImmune: true
+    resources:
+      requests:
+        cpu: 1                # 1024 CFS shares — ~20× any worker's 50m
+        # 1 GiB request leaves room for workers on the same node; oom_score_adj
+        # = -999 (via postStart hook) keeps app immune to OOM regardless of
+        # request size.
+        memory: 1Gi
+      limits: {}              # no cpu cap, no memory cap. App takes what it
+                              # needs; workers on the same node lose CFS share
+                              # → process fewer jobs → less load on app → balance.
+    # Spread app away from PG when possible. PG carries its PVC and stays
+    # pinned to its first-scheduled node; app should land elsewhere.
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - windmill-postgresql-demo-app
+
+  workerGroups:
+    - name: default
+      replicas: 200
+      mode: worker
+      # No priorityClassName — workers are intentionally the disposable
+      # layer that absorbs OOM pressure on a node where PG or app is heavy.
+      resources:
+        requests:
+          # Tiny CPU request — workers are mostly idle (poll PG, run sleep
+          # jobs) so 50m was over-reserving and starving m02 (where PG sits)
+          # of worker capacity. 5m means ~80 workers can fit anywhere CPU-
+          # budget-wise; the scheduler spreads them evenly across nodes.
+          # Actual CPU burst is bounded by the host's CFS rather than this
+          # floor.
+          cpu: 5m
+          memory: 128Mi
+        limits:
+          # No cpu limit — workers can burst into idle cores.
+          # Memory ceiling at 8 GiB (was 2 GiB): the ops_day etl_storm phase
+          # has lognormal ram_mb cap=4096 MiB, so individual deno subprocesses
+          # legitimately need >2 GiB and were being kernel-cgroup-OOM-killed
+          # (visible as L2 node-kernel "deno" entries via dmesg parsing).
+          # 8 GiB swallows the tail without over-committing 20 GiB nodes too
+          # aggressively — realistic concurrent peak is well under 3 workers.
+          memory: 8Gi
+      extraEnv:
+        - name: DATABASE_URL
+          value: postgres://postgres:windmill@toxiproxy.default.svc:15400/windmill?sslmode=disable
+        - name: DATABASE_CONNECTIONS
+          value: "1"
+    # Agent workers — connect to the app via HTTP+JWT instead of directly to
+    # PG. Useful for measuring how much of the throughput cap is PG contention
+    # vs. the app's HTTP-mediated path. Token lives in K8s Secret
+    # `windmill-agent-token` (not in this file), created via kubectl.
+    - name: agent
+      replicas: 5
+      mode: agent
+      resources:
+        requests:
+          cpu: 5m
+          memory: 128Mi
+        limits:
+          memory: 1Gi
+      extraEnv:
+        - name: MODE
+          value: agent
+        - name: BASE_INTERNAL_URL
+          value: http://windmill-app.default.svc:8000
+        - name: AGENT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: windmill-agent-token
+              key: token
+
+postgresql:
+  maxConnections: 2000
+  priorityClassName: wm-critical
+  # postStart hook → /proc/1/oom_score_adj = -999. See app.oomImmune note.
+  oomImmune: true
+  resources:
+    requests:
+      cpu: 3                  # 3 cores — fits on a worker node where ~33
+                              # workers reserve 1.65 cores leaving ~2.35
+                              # free (cpu=4 was Pending forever). PG still
+                              # bursts to all 4 cores when workers are idle
+                              # (limits empty). Under full contention CFS
+                              # gives PG 3072/(3072+1683) ≈ 65% of cores.
+      # No memory request/limit. PG is free to grow as large as the node
+      # has memory for. OOM-immunity comes from priorityClassName +
+      # postStart oom_score_adj=-999 (not from request-driven Burstable
+      # ranking). The previous 12Gi request was just a scheduling fence
+      # the cluster doesn't need — PG should land on whichever worker
+      # node has the most free RAM at deploy time.
+    limits: {}                # uncapped — PG takes whatever it needs; only
+                              # the node's physical memory ceiling applies.
+  persistence:
+    enabled: true
+    size: 10Gi

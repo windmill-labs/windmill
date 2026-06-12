@@ -34,3 +34,13 @@ backend/chrome_profiler.json
 __pycache__/
 .playwright-mcp/
 .codex
+
+# Local helm values overlay for wm_sim — holds secrets (EE license key,
+# instance auth, etc). Tracked example sits next to it as `local.example.yaml`.
+benchmarks/sim/values/local.yaml
+
+# Per-run bench output: dashboards, JSONL streams, kubectl-derived data,
+# huge pg.log / pgbadger.html. Regenerated on every bench fire; never checked
+# in.
+benchmarks/reports/
+benchmarks/sim/results/
