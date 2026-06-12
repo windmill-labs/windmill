@@ -1377,10 +1377,12 @@ export class AIChatManager {
 
 		this.messages = this.messages.slice(0, actualMessageIndex)
 
-		// The last usage report described the pre-rewind history; drop it so the
-		// trigger doesn't compact the now-shorter conversation. The next
-		// completion re-reports.
-		this.contextUsage = undefined
+		// The last value described the pre-rewind history; re-seed with a fresh
+		// estimate of what remains instead of clearing. Clearing would disarm
+		// the compaction trigger for the next send — fatal for Retry after a
+		// context-length error, which rewinds through here and needs the high
+		// seeded estimate to finally compact. The next report replaces it.
+		this.contextUsage = this.estimateWholeContextTokens()
 
 		// Resend the request with the same instructions
 		this.instructions = newContent ?? userMessage.content

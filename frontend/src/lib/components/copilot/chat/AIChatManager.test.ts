@@ -510,19 +510,28 @@ describe('AIChatManager context compaction', () => {
 		])
 	})
 
-	it('clears the reported usage when history is rewound', () => {
+	it('re-seeds the usage with a fresh estimate of the rewound history', () => {
 		const manager = new AIChatManager()
 		manager.messages = [
-			{ role: 'user', content: 'q1' },
-			{ role: 'assistant', content: 'a1' }
+			{ role: 'user', content: 'a'.repeat(400) }, // ~100 estimated tokens
+			{ role: 'assistant', content: 'b'.repeat(400) }, // ~100
+			{ role: 'user', content: 'q2' },
+			{ role: 'assistant', content: 'a2' }
 		]
 		manager.displayMessages = [
 			{ role: 'user', content: 'q1', index: 0 },
-			{ role: 'assistant', content: 'a1' }
+			{ role: 'assistant', content: 'a1' },
+			{ role: 'user', content: 'q2', index: 2 },
+			{ role: 'assistant', content: 'a2' }
 		]
-		manager.contextUsage = 5000
-		manager.restartGeneration(0)
-		expect(manager.contextUsage).toBeUndefined()
+		// Stale-high value, e.g. seeded by the catch path after a context-length
+		// error. Rewinding must keep a current estimate rather than clearing —
+		// clearing would disarm the compaction trigger for the retry send.
+		manager.contextUsage = 999_999
+		manager.restartGeneration(2)
+		// the two surviving messages at chars/4; the default system prompt and
+		// tools are empty in this setup
+		expect(manager.contextUsage).toBe(200)
 	})
 
 	it('clears the reported usage when saveAndClear resets the conversation', async () => {
