@@ -247,6 +247,14 @@ describe('model context windows', () => {
 		expect(getKnownModelContextWindow('claude-opus-4-1')).toBe(200000)
 	})
 
+	it('keeps base GPT-5 models at 400K while GPT-5.4+ get the 1M window', () => {
+		expect(getKnownModelContextWindow('gpt-5')).toBe(400000)
+		expect(getKnownModelContextWindow('gpt-5-mini')).toBe(400000)
+		expect(getKnownModelContextWindow('gpt-5.2')).toBe(400000)
+		expect(getKnownModelContextWindow('gpt-5.4')).toBe(1000000)
+		expect(getKnownModelContextWindow('gpt-5.5')).toBe(1000000)
+	})
+
 	it('returns undefined for unrecognized models, 128K via the defaulting wrapper', () => {
 		expect(getKnownModelContextWindow('some-custom-model')).toBeUndefined()
 		expect(getModelContextWindow('some-custom-model')).toBe(128000)

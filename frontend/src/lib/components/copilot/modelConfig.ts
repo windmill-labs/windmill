@@ -28,8 +28,16 @@ export function getDefaultChatTemperature(modelProvider: AIProviderModel): numbe
 }
 
 export function getKnownModelContextWindow(model: string): number | undefined {
-	if (model.includes('gpt-4.1') || model.includes('gpt-5') || model.includes('gemini')) {
+	if (model.includes('gpt-4.1') || model.includes('gemini')) {
 		return 1000000
+	} else if (model.includes('gpt-5')) {
+		// GPT-5.4+ ship a ~1M context window; gpt-5 / -mini / -nano and the
+		// 5.1/5.2 revisions remain at 400K (272K input + 128K output).
+		const version = model.match(/gpt-5\.(\d+)/)
+		if (version && Number(version[1]) >= 4) {
+			return 1000000
+		}
+		return 400000
 	} else if (model.includes('o4-mini') || model.includes('o3')) {
 		return 200000
 	} else if (model.includes('claude')) {
