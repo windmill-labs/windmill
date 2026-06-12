@@ -78,12 +78,13 @@ import {
 } from './global/core'
 import { isGlobalAiEnabled } from './global/gate'
 
-// Drop-oldest compaction of the stored history, triggered purely off the last
-// provider-reported usage: once (last report + the new user message estimate)
-// reaches the trigger ratio of the model's context window, head messages are
-// dropped until roughly the target ratio. The trigger headroom absorbs what
-// the report cannot see yet — the upcoming completion and tool results, and
-// system-prompt/tool-schema changes from mode switches.
+// Drop-oldest compaction of the stored history: once the projected request
+// size (contextTokens — the provider's report when current, a fresh chars/4
+// estimate otherwise — plus the new user message) reaches the trigger ratio
+// of the model's context window, head messages are dropped until roughly the
+// target ratio. The trigger headroom absorbs what the projection cannot see —
+// the upcoming completion and tool results, system-prompt/tool-schema changes
+// from mode switches, and the estimate's chars/4 error.
 const COMPACTION_TRIGGER_RATIO = 0.8
 const COMPACTION_TARGET_RATIO = 0.7
 const AI_AUTONOMY_MODE_STORAGE_KEY = 'ai-chat-autonomy-mode'
@@ -204,11 +205,11 @@ export class AIChatManager {
 	currentReasoningActive = $state<boolean>(false)
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
-	/** Context size as of the last committed turn, rewritten after every send.
-	 * Preferred source is the provider's usage report (prompt + completion of
-	 * the latest completion — exact, includes system prompt and tools); when a
-	 * provider doesn't report usage, a fresh chars/4 estimate of the stored
-	 * context stands in. Compaction triggers off this single number. */
+	/** Provider-reported context size of the last committed turn (prompt +
+	 * completion of its latest completion — exact, includes system prompt and
+	 * tools), or undefined whenever no report describes the current history
+	 * (provider never reported, turn failed, history rewound). Never holds a
+	 * guess: readers go through `contextTokens`, which estimates lazily. */
 	contextUsage = $state<number | undefined>(undefined)
 	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
@@ -314,12 +315,21 @@ export class AIChatManager {
 	/**
 	 * chars/4 estimate of the full context as currently stored: messages plus
 	 * the system prompt and tool definitions the next request would carry.
-	 * Fallback source for `contextUsage` on providers that don't report usage.
-	 * Recomputed from scratch at each write — never accumulated — so errors
-	 * don't compound, and the next real report replaces it wholesale.
+	 * Recomputed from scratch at each read — never accumulated — so errors
+	 * don't compound.
 	 */
 	private estimateWholeContextTokens = () =>
 		Math.round(this.estimateMessagesTokens(this.messages) + this.estimateOverheadTokens())
+
+	/**
+	 * How full the context is right now — the single fallback rule, shared by
+	 * the compaction trigger and the usage indicator: the provider's exact
+	 * report when one describes the current history, a fresh estimate
+	 * otherwise. Estimating at the read point (rather than writing estimates
+	 * into `contextUsage`) means no code path that mutates history can leave
+	 * a stale or missing value behind.
+	 */
+	contextTokens = $derived.by(() => this.contextUsage ?? this.estimateWholeContextTokens())
 
 	/**
 	 * Drop-oldest compaction. Deletes messages from the front of the STORED
@@ -1108,6 +1118,13 @@ export class AIChatManager {
 					break
 			}
 
+			// Size of the request about to go out: contextTokens (provider report
+			// when current, fresh chars/4 estimate otherwise) plus the message
+			// being added below. Must be read BEFORE the push — the estimate path
+			// covers the stored history, so pushing first would double-count the
+			// new message.
+			const projectedContextTokens = this.contextTokens + this.estimateMessagesTokens([userMessage])
+
 			this.messages.push(userMessage)
 			await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
 
@@ -1115,27 +1132,25 @@ export class AIChatManager {
 			this.currentReasoning = ''
 			this.currentReasoningActive = false
 
-			// Compaction trigger: the last provider-reported usage is the only fact
-			// tracked about context size, and the just-built user message is the
-			// only growth that report cannot include (usage is re-reported after
-			// every send). No report yet — first turn, or history just rewound —
-			// means nothing to compact: a lone oversized message has no head to
-			// drop anyway. Without a known context window there is no limit to
-			// enforce, so compaction stays off rather than guessing one.
+			// Compaction trigger. Without a known context window there is no limit
+			// to enforce, so compaction stays off rather than guessing one.
 			const contextWindow = model ? getKnownModelContextWindow(model.model) : undefined
-			if (contextWindow !== undefined && this.contextUsage !== undefined) {
-				const projected = this.contextUsage + this.estimateMessagesTokens([userMessage])
-				if (projected >= contextWindow * COMPACTION_TRIGGER_RATIO) {
-					const freed = this.compactOldestMessages(
-						projected - contextWindow * COMPACTION_TARGET_RATIO
-					)
-					// Keep the trigger fact consistent with the compacted history
-					// until the next report replaces it. chars/4 can underestimate
-					// the freed tokens, which errs toward compacting again — never
-					// toward overflowing.
+			if (
+				contextWindow !== undefined &&
+				projectedContextTokens >= contextWindow * COMPACTION_TRIGGER_RATIO
+			) {
+				const freed = this.compactOldestMessages(
+					projectedContextTokens - contextWindow * COMPACTION_TARGET_RATIO
+				)
+				// A report stays meaningful only debited by what was dropped; the
+				// estimate path needs no bookkeeping — the next read re-estimates
+				// the compacted history. chars/4 can underestimate the freed
+				// tokens, which errs toward compacting again — never toward
+				// overflowing.
+				if (this.contextUsage !== undefined) {
 					this.contextUsage = Math.max(0, this.contextUsage - freed)
-					await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
 				}
+				await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
 			}
 			// Rollback anchor for restoreUnsentTurn: captured after compaction so it
 			// indexes into the (possibly compacted) stored history.
@@ -1246,14 +1261,13 @@ export class AIChatManager {
 				if (this.autoAcceptEditsActive) {
 					this.acceptPendingFlowEdits()
 				}
-				// Prefer the report from the last completed iteration — it still
-				// describes the stored history it was sent with (the kept partial
-				// tail is a small undercount the trigger headroom absorbs). Without
-				// one (abort before any completion, usage-stripping provider), fall
-				// back to estimating the just-committed history.
+				// The report from the last completed iteration still describes the
+				// stored history it was sent with (the kept partial tail is a small
+				// undercount the trigger headroom absorbs). Without one, clear the
+				// stale value — readers estimate via contextTokens.
 				this.contextUsage = result?.lastIterationUsage
 					? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
-					: this.estimateWholeContextTokens()
+					: undefined
 				await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
 				// Still counts as the saved first turn — skipping the hook here would
 				// permanently miss it (the next turn isn't "first" anymore).
@@ -1282,16 +1296,14 @@ export class AIChatManager {
 			} else {
 				// Clean turn with output → commit as-is.
 				this.messages = [...this.messages, ...collectedMessages]
-				// Prefer the provider's report: compaction mutates the stored history
-				// before sending, so what was sent IS the stored history and the
-				// report describes it exactly — no anchoring or index bookkeeping
-				// needed. Providers that never report usage fall back to a chars/4
-				// estimate of the stored context, so compaction still triggers for
-				// them — less accurate, but the 20% trigger headroom is the margin
-				// for exactly this kind of error.
+				// The provider's report describes the stored history exactly:
+				// compaction mutates it before sending, so what was sent IS what is
+				// stored — no anchoring or index bookkeeping needed. Without a
+				// report, clear the now-stale value — readers estimate via
+				// contextTokens.
 				this.contextUsage = result?.lastIterationUsage
 					? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
-					: this.estimateWholeContextTokens()
+					: undefined
 				if (this.autoAcceptEditsActive) {
 					this.acceptPendingFlowEdits()
 				}
@@ -1309,11 +1321,11 @@ export class AIChatManager {
 			// re-committing would duplicate the turn's messages.
 			if (!turnOutcomeHandled) {
 				this.commitInterruptedTurn(collectedMessages, partialReply)
-				// No report after a failed turn; estimate the committed history so
-				// the trigger keeps working. Notably, when the failure WAS a
-				// context-length error, the high estimate forces compaction on the
-				// next send instead of failing the same way again.
-				this.contextUsage = this.estimateWholeContextTokens()
+				// Any prior report no longer describes the history (a partial turn
+				// was just committed); clear it so readers estimate instead. When
+				// the failure WAS a context-length error, that high estimate forces
+				// compaction on the next send instead of failing the same way again.
+				this.contextUsage = undefined
 				try {
 					await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
 				} catch (saveErr) {
@@ -1377,12 +1389,11 @@ export class AIChatManager {
 
 		this.messages = this.messages.slice(0, actualMessageIndex)
 
-		// The last value described the pre-rewind history; re-seed with a fresh
-		// estimate of what remains instead of clearing. Clearing would disarm
-		// the compaction trigger for the next send — fatal for Retry after a
-		// context-length error, which rewinds through here and needs the high
-		// seeded estimate to finally compact. The next report replaces it.
-		this.contextUsage = this.estimateWholeContextTokens()
+		// The last report described the pre-rewind history; clear it. Readers
+		// fall back to estimating the rewound history (contextTokens), so the
+		// compaction trigger stays armed — e.g. for Retry after a context-length
+		// error, which rewinds through here.
+		this.contextUsage = undefined
 
 		// Resend the request with the same instructions
 		this.instructions = newContent ?? userMessage.content

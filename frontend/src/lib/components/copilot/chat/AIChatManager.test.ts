@@ -365,13 +365,14 @@ describe('AIChatManager context compaction', () => {
 		// pair is gone for good and the turn's reply was committed on top
 		expect(manager.messages.length).toBe(4)
 		expect(manager.messages[0]).toMatchObject({ role: 'user', content: 'c'.repeat(400) })
-		// Mid-turn, the fact is debited by the freed estimate (visible in the
+		// Mid-turn, the report is debited by the freed estimate (visible in the
 		// compaction-time save) so a rolled-back turn keeps a consistent value
 		expect(saveChat).toHaveBeenCalledWith(expect.anything(), expect.anything(), 650_000)
-		// At commit, the no-usage turn rewrites it with a fresh estimate of the
-		// now-tiny compacted history instead of keeping the debited carry-over
-		expect(manager.contextUsage).toBeGreaterThan(0)
-		expect(manager.contextUsage).toBeLessThan(50_000)
+		// At commit, the no-report turn clears the stored value; the readable
+		// number falls back to estimating the now-tiny compacted history
+		expect(manager.contextUsage).toBeUndefined()
+		expect(manager.contextTokens).toBeGreaterThan(0)
+		expect(manager.contextTokens).toBeLessThan(50_000)
 		// The display message for the sent prompt re-bases onto the compacted history
 		const userDisplay = manager.displayMessages.find((m) => m.role === 'user')
 		expect(userDisplay && 'index' in userDisplay ? userDisplay.index : undefined).toBe(2)
@@ -395,23 +396,41 @@ describe('AIChatManager context compaction', () => {
 		expect(manager.contextUsage).toBe(721_000)
 	})
 
-	it('does not compact when no usage has been reported yet', async () => {
+	it('does not compact while the estimated context stays under the trigger', async () => {
 		const manager = new AIChatManager()
 		manager.messages = [
 			{ role: 'user', content: 'a'.repeat(400_000) },
 			{ role: 'assistant', content: 'b'.repeat(400_000) }
 		]
-		manager.contextUsage = undefined
+		// no report: the trigger runs off the ~200k estimate, well under 800k
 		manager.instructions = 'next question'
 
 		await manager.sendRequest()
 
-		// no fact at send time → no compaction; the fallback estimate written
-		// after the turn only seeds the NEXT turn's trigger
 		expect(mocks.runChatLoop.mock.calls[0][0].messages.length).toBe(3)
 	})
 
-	it('seeds the fact with a chars/4 estimate when the provider reports no usage', async () => {
+	it('compacts off the estimate alone when no report ever arrived', async () => {
+		const manager = new AIChatManager()
+		manager.messages = [
+			{ role: 'user', content: 'a'.repeat(1_600_000) }, // ~400k estimated tokens
+			{ role: 'assistant', content: 'b'.repeat(1_600_000) }, // ~400k
+			{ role: 'user', content: 'c'.repeat(400) },
+			{ role: 'assistant', content: 'd'.repeat(400) }
+		]
+		// ~800k estimated with no provider report ever seen (e.g. a gateway that
+		// strips usage): the lazily-estimated projection trips the 800k trigger
+		// and frees down to ~700k — the first user + assistant pair goes
+		manager.instructions = 'next question'
+
+		await manager.sendRequest()
+
+		const sent = mocks.runChatLoop.mock.calls[0][0].messages
+		expect(sent.length).toBe(3)
+		expect(sent[0]).toMatchObject({ role: 'user', content: 'c'.repeat(400) })
+	})
+
+	it('estimates lazily instead of storing a guess when the provider reports no usage', async () => {
 		const manager = new AIChatManager()
 		manager.messages = [
 			{ role: 'user', content: 'a'.repeat(400_000) },
@@ -421,24 +440,29 @@ describe('AIChatManager context compaction', () => {
 
 		await manager.sendRequest() // replyWith('done') reports no usage
 
-		// ~200k for the stored messages plus the real navigator system prompt,
-		// tool defs and the small new-turn messages; the prompt templates aren't
-		// pinned here, so assert the magnitude rather than the byte count
-		expect(manager.contextUsage).toBeGreaterThan(200_000)
-		expect(manager.contextUsage).toBeLessThan(250_000)
+		// the stored value stays a pure provider fact…
+		expect(manager.contextUsage).toBeUndefined()
+		// …while the readable number estimates the stored context: ~200k for the
+		// messages plus the real navigator system prompt, tool defs and the small
+		// new-turn messages; the prompt templates aren't pinned here, so assert
+		// the magnitude rather than the byte count
+		expect(manager.contextTokens).toBeGreaterThan(200_000)
+		expect(manager.contextTokens).toBeLessThan(250_000)
 	})
 
-	it('replaces the fallback estimate with the next real report', async () => {
+	it('prefers the provider report over the estimate once one arrives', async () => {
 		const manager = new AIChatManager()
 		manager.messages = [{ role: 'user', content: 'a'.repeat(400) }]
 		manager.instructions = 'first'
 		await manager.sendRequest()
-		expect(manager.contextUsage).toBeGreaterThan(0)
+		expect(manager.contextUsage).toBeUndefined()
+		expect(manager.contextTokens).toBeGreaterThan(0)
 
 		replyWith('done', { prompt: 1_234, completion: 56, total: 1_290 })
 		manager.instructions = 'second'
 		await manager.sendRequest()
 		expect(manager.contextUsage).toBe(1_290)
+		expect(manager.contextTokens).toBe(1_290)
 	})
 
 	it('does not compact when the model context window is unknown', async () => {
@@ -510,7 +534,7 @@ describe('AIChatManager context compaction', () => {
 		])
 	})
 
-	it('re-seeds the usage with a fresh estimate of the rewound history', () => {
+	it('falls back to estimating the rewound history after a rewind', () => {
 		const manager = new AIChatManager()
 		manager.messages = [
 			{ role: 'user', content: 'a'.repeat(400) }, // ~100 estimated tokens
@@ -524,14 +548,16 @@ describe('AIChatManager context compaction', () => {
 			{ role: 'user', content: 'q2', index: 2 },
 			{ role: 'assistant', content: 'a2' }
 		]
-		// Stale-high value, e.g. seeded by the catch path after a context-length
-		// error. Rewinding must keep a current estimate rather than clearing —
-		// clearing would disarm the compaction trigger for the retry send.
+		// A report that described the pre-rewind history must not survive the
+		// rewind as-is…
 		manager.contextUsage = 999_999
 		manager.restartGeneration(2)
-		// the two surviving messages at chars/4; the default system prompt and
-		// tools are empty in this setup
-		expect(manager.contextUsage).toBe(200)
+		expect(manager.contextUsage).toBeUndefined()
+		// …but the readable number stays armed by estimating what remains (the
+		// two surviving messages, plus the prompt/tools the resend installed),
+		// so e.g. Retry after a context-length error still compacts
+		expect(manager.contextTokens).toBeGreaterThanOrEqual(200)
+		expect(manager.contextTokens).toBeLessThan(50_000)
 	})
 
 	it('clears the reported usage when saveAndClear resets the conversation', async () => {

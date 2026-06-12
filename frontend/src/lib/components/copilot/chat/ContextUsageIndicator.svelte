@@ -11,10 +11,10 @@
 	let contextWindow = $derived(
 		providerModel ? getKnownModelContextWindow(providerModel.model) : undefined
 	)
-	// Last provider-reported usage — a fact, though one turn stale (it doesn't
-	// grow until the next completion reports). Nothing is shown before the
-	// first report.
-	let usedTokens = $derived(Math.round(aiChatManager.contextUsage ?? 0))
+	// The same number the compaction trigger uses: the provider's report when
+	// one describes the current history (one turn stale by nature), otherwise
+	// a live chars/4 estimate of the stored context.
+	let usedTokens = $derived(Math.round(aiChatManager.contextTokens))
 	// With a known window, only surface once the conversation actually fills it;
 	// without one there is no threshold to compare against, so always show.
 	let visible = $derived(
