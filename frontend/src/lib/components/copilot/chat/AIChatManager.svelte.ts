@@ -172,8 +172,11 @@ function appendWebSearchErrorHint(message: string, shouldAppend: boolean): strin
 }
 
 function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean): string {
-	const errorMessage = err instanceof Error ? err.message : typeof err === 'string' ? err : undefined
-	const message = errorMessage ? `Failed to send request: ${errorMessage}` : 'Failed to send request'
+	const errorMessage =
+		err instanceof Error ? err.message : typeof err === 'string' ? err : undefined
+	const message = errorMessage
+		? `Failed to send request: ${errorMessage}`
+		: 'Failed to send request'
 	return appendWebSearchErrorHint(message, webSearchUnavailable)
 }
 
@@ -201,8 +204,8 @@ export class AIChatManager {
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
 	autoAcceptEditsActive = $derived(
 		this.autoAcceptEditsAvailable &&
-		(this.autonomyMode === AIAutonomyMode.ACCEPT_EDIT ||
-			this.autonomyMode === AIAutonomyMode.YOLO)
+			(this.autonomyMode === AIAutonomyMode.ACCEPT_EDIT ||
+				this.autonomyMode === AIAutonomyMode.YOLO)
 	)
 	autoAcceptToolConfirmationsAvailable = $derived(supportsAutoAcceptToolConfirmations(this.mode))
 	autoAcceptToolConfirmationsActive = $derived(
@@ -318,7 +321,7 @@ export class AIChatManager {
 		return (
 			estimatedTokens >
 			modelContextWindow -
-			Math.max(modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE, MAX_TOKENS_HARD_LIMIT)
+				Math.max(modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE, MAX_TOKENS_HARD_LIMIT)
 		)
 	}
 
@@ -842,9 +845,9 @@ export class AIChatManager {
 					onNewToken: (token: string) => {
 						reply += token
 					},
-					onMessageEnd: () => { },
-					setToolStatus: () => { },
-					removeToolStatus: () => { }
+					onMessageEnd: () => {},
+					setToolStatus: () => {},
+					removeToolStatus: () => {}
 				},
 				systemMessage
 			}
@@ -930,7 +933,8 @@ export class AIChatManager {
 				// abort and tell the user — their message text stays in the input.
 				console.error('AIChatManager beforeSend hook failed', e)
 				sendUserToast(
-					`Could not prepare the session before sending: ${e instanceof Error ? e.message : String(e)
+					`Could not prepare the session before sending: ${
+						e instanceof Error ? e.message : String(e)
 					}. Your message was not sent — please try again.`,
 					true
 				)
@@ -958,7 +962,7 @@ export class AIChatManager {
 						model: model.model,
 						mode: this.mode
 					}
-				}).catch(() => { })
+				}).catch(() => {})
 			}
 
 			if (this.mode === AIMode.FLOW && !this.flowAiChatHelpers) {
@@ -1391,15 +1395,15 @@ export class AIChatManager {
 				const editorRelated =
 					currentEditor && currentEditor.type === 'script' && currentEditor.stepId === module.id
 						? {
-							diffMode: currentEditor.diffMode,
-							lastDeployedCode: currentEditor.lastDeployedCode,
-							lastSavedCode: undefined
-						}
+								diffMode: currentEditor.diffMode,
+								lastDeployedCode: currentEditor.lastDeployedCode,
+								lastSavedCode: undefined
+							}
 						: {
-							diffMode: false,
-							lastDeployedCode: undefined,
-							lastSavedCode: undefined
-						}
+								diffMode: false,
+								lastDeployedCode: undefined,
+								lastSavedCode: undefined
+							}
 
 				return {
 					args: moduleState?.previewArgs ?? {},

@@ -292,3 +292,43 @@ describe('runChatLoop web search fallback', () => {
 		expect(callbacks.setToolStatus).not.toHaveBeenCalled()
 	})
 })
+
+describe('runChatLoop lastIterationUsage', () => {
+	beforeEach(() => {
+		vi.resetAllMocks()
+		mocks.resolveEffectiveReasoning.mockReturnValue(undefined)
+	})
+
+	it('keeps the usage of the last completion that reported it', async () => {
+		const workspace = `workspace-${randomUUID()}`
+		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
+		mocks.parseOpenAIResponsesCompletion
+			.mockResolvedValueOnce({
+				shouldContinue: true,
+				tokenUsage: { prompt: 1000, completion: 50, total: 1050 }
+			})
+			.mockResolvedValueOnce({
+				shouldContinue: false,
+				tokenUsage: { prompt: 1200, completion: 80, total: 1280 }
+			})
+
+		const result = await runChatLoop({ ...createConfig({ workspace }), maxIterations: 2 })
+
+		expect(result.lastIterationUsage).toEqual({ prompt: 1200, completion: 80, total: 1280 })
+		// the aggregate keeps summing across iterations
+		expect(result.tokenUsage).toEqual({ prompt: 2200, completion: 130, total: 2330 })
+	})
+
+	it('ignores empty usage reports and returns null when none are real', async () => {
+		const workspace = `workspace-${randomUUID()}`
+		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
+		mocks.parseOpenAIResponsesCompletion.mockResolvedValue({
+			shouldContinue: false,
+			tokenUsage: { prompt: 0, completion: 0, total: 0 }
+		})
+
+		const result = await runChatLoop(createConfig({ workspace }))
+
+		expect(result.lastIterationUsage).toBeNull()
+	})
+})

@@ -44,8 +44,10 @@ export function getKnownModelContextWindow(model: string): number | undefined {
 		// Sonnet 4.6+ and Opus 4.6+ ship a 1M context window at standard pricing (GA).
 		// Haiku and older Claude models (3.x, 4.0, 4.1, 4.5) remain at 200K. The
 		// version sits between the family name and any date/revision suffix, also
-		// in Bedrock-style ids (e.g. anthropic.claude-sonnet-4-6-...-v1:0).
-		const version = model.match(/claude-(?:opus|sonnet)-(\d+)-(\d+)/)
+		// in Bedrock-style ids (e.g. anthropic.claude-sonnet-4-6-...-v1:0). The
+		// minor is capped at two digits so date-suffixed base ids without a minor
+		// (claude-sonnet-4-20250514) don't capture the date as the version.
+		const version = model.match(/claude-(?:opus|sonnet)-(\d+)-(\d{1,2})(?!\d)/)
 		if (
 			version &&
 			(Number(version[1]) > 4 || (Number(version[1]) === 4 && Number(version[2]) >= 6))

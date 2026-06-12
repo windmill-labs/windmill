@@ -245,6 +245,10 @@ describe('model context windows', () => {
 		expect(getKnownModelContextWindow('claude-3-5-sonnet-latest')).toBe(200000)
 		expect(getKnownModelContextWindow('claude-sonnet-4-5-20250929')).toBe(200000)
 		expect(getKnownModelContextWindow('claude-opus-4-1')).toBe(200000)
+		// date-suffixed base ids without a minor version: the date must not be
+		// captured as the version
+		expect(getKnownModelContextWindow('claude-sonnet-4-20250514')).toBe(200000)
+		expect(getKnownModelContextWindow('anthropic.claude-sonnet-4-20250514-v1:0')).toBe(200000)
 	})
 
 	it('keeps base GPT-5 models at 400K while GPT-5.4+ get the 1M window', () => {
