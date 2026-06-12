@@ -14,7 +14,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
-import { getDefaultChatTemperature, modelDisallowsSamplingParams } from './modelConfig'
+import { requiresMaxCompletionTokens } from './modelConfig'
 import { applyReasoningToConfig } from './reasoningRegistry'
 import { formatResourceTypes } from './utils'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
@@ -34,6 +34,7 @@ import {
 import {
 	buildAssistantTextMessage,
 	buildAssistantToolCallMessage,
+	splitContentDelta,
 	getReasoningContentDelta
 } from './chat/openaiReasoning'
 import { parseFimCompletionChoice } from './fim'
@@ -315,10 +316,9 @@ function getModelSpecificConfig(
 		// copilotInfo store may not be initialized in vitest
 	}
 	const maxTokens = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
-	const defaultTemperature = getDefaultChatTemperature(modelProvider)
 	if (
 		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
-		modelDisallowsSamplingParams(modelProvider.model)
+		requiresMaxCompletionTokens(modelProvider.model)
 	) {
 		return {
 			model: modelProvider.model,
@@ -328,7 +328,6 @@ function getModelSpecificConfig(
 	} else {
 		return {
 			model: modelProvider.model,
-			...(defaultTemperature !== undefined ? { temperature: defaultTemperature } : {}),
 			...(tools && tools.length > 0 ? { tools } : {}),
 			max_tokens: maxTokens
 		}
@@ -932,7 +931,7 @@ export async function getCompletion(
 					}
 				}
 			: config,
-		'completions',
+		provider === 'deepseek' ? 'deepseek' : provider === 'mistral' ? 'mistral' : 'completions',
 		options?.reasoningEffort
 	)
 	const completion = client.chat.completions.create(completionConfig, {
@@ -965,7 +964,7 @@ export async function parseOpenAICompletion(
 	tools: Tool<any>[],
 	helpers: any,
 	_abortController?: AbortController, // unused, for signature compatibility with parseAnthropicCompletion
-	options?: { workspace?: string }
+	options?: { workspace?: string; provider?: string }
 ): Promise<{ shouldContinue: boolean; tokenUsage: ChatTokenUsage }> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
 	let malformedFunctionCallError = false
@@ -996,14 +995,19 @@ export async function parseOpenAICompletion(
 			malformedFunctionCallError = true
 		}
 
+		// Mistral nests reasoning inside structured content parts; split them out
+		// so a content delta never leaks "[object Object]" into the answer.
+		const structured = splitContentDelta(delta.content)
 		const reasoningDelta = getReasoningContentDelta(delta)
-		if (typeof reasoningDelta === 'string') {
+		const reasoningText =
+			(typeof reasoningDelta === 'string' ? reasoningDelta : '') + structured.reasoning
+		if (typeof reasoningDelta === 'string' || structured.reasoning) {
 			hasReasoningContent = true
-			reasoningContent += reasoningDelta
-			callbacks.onReasoningDelta?.(reasoningDelta)
+			reasoningContent += reasoningText
+			callbacks.onReasoningDelta?.(reasoningText)
 		}
 
-		const contentDelta = delta.content
+		const contentDelta = structured.text
 		if (contentDelta) {
 			answer += contentDelta
 			assistantContent += contentDelta
@@ -1118,7 +1122,8 @@ export async function parseOpenAICompletion(
 				hasReasoningContent,
 				reasoningContent
 			},
-			toolCalls: normalizedToolCalls
+			toolCalls: normalizedToolCalls,
+			provider: options?.provider
 		})
 		messages.push(toAdd)
 		addedMessages.push(toAdd)
