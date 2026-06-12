@@ -10,11 +10,15 @@ export interface ChatTokenUsage {
  * (so it includes the system prompt and tool definitions, which client-side
  * estimation cannot see). `atMessageIndex` is the length of the messages
  * array when the snapshot was taken: tokens for messages added after that
- * index must be estimated on top.
+ * index must be estimated on top. `overheadEstimate` is the client-side
+ * estimate of the system prompt + tool definitions at anchor time, kept so
+ * the estimate can re-base when a mode switch swaps them (optional because
+ * anchors persisted before it existed don't carry it).
  */
 export interface ContextTokenSnapshot {
 	tokens: number
 	atMessageIndex: number
+	overheadEstimate?: number
 }
 
 export function emptyChatTokenUsage(): ChatTokenUsage {
@@ -36,12 +40,17 @@ export function addChatTokenUsage(
 	}
 }
 
-export function anthropicUsageToChatTokenUsage(usage: {
-	input_tokens?: number | null
-	output_tokens?: number | null
-	cache_creation_input_tokens?: number | null
-	cache_read_input_tokens?: number | null
-} | null | undefined): ChatTokenUsage {
+export function anthropicUsageToChatTokenUsage(
+	usage:
+		| {
+				input_tokens?: number | null
+				output_tokens?: number | null
+				cache_creation_input_tokens?: number | null
+				cache_read_input_tokens?: number | null
+		  }
+		| null
+		| undefined
+): ChatTokenUsage {
 	const prompt =
 		(usage?.input_tokens ?? 0) +
 		(usage?.cache_creation_input_tokens ?? 0) +
@@ -55,11 +64,16 @@ export function anthropicUsageToChatTokenUsage(usage: {
 	}
 }
 
-export function openAIResponsesUsageToChatTokenUsage(usage: {
-	input_tokens?: number | null
-	output_tokens?: number | null
-	total_tokens?: number | null
-} | null | undefined): ChatTokenUsage {
+export function openAIResponsesUsageToChatTokenUsage(
+	usage:
+		| {
+				input_tokens?: number | null
+				output_tokens?: number | null
+				total_tokens?: number | null
+		  }
+		| null
+		| undefined
+): ChatTokenUsage {
 	const prompt = usage?.input_tokens ?? 0
 	const completion = usage?.output_tokens ?? 0
 
@@ -70,11 +84,16 @@ export function openAIResponsesUsageToChatTokenUsage(usage: {
 	}
 }
 
-export function openAICompletionsUsageToChatTokenUsage(usage: {
-	prompt_tokens?: number | null
-	completion_tokens?: number | null
-	total_tokens?: number | null
-} | null | undefined): ChatTokenUsage {
+export function openAICompletionsUsageToChatTokenUsage(
+	usage:
+		| {
+				prompt_tokens?: number | null
+				completion_tokens?: number | null
+				total_tokens?: number | null
+		  }
+		| null
+		| undefined
+): ChatTokenUsage {
 	const prompt = usage?.prompt_tokens ?? 0
 	const completion = usage?.completion_tokens ?? 0
 

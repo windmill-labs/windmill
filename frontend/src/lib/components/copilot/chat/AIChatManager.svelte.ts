@@ -286,18 +286,9 @@ export class AIChatManager {
 		}, 0)
 	}
 
-	/**
-	 * Best-effort size of the context the next request will occupy. When the
-	 * provider has reported usage for a past turn, that exact count anchors the
-	 * estimate and only messages added since then are estimated. Otherwise
-	 * everything is estimated, including the system prompt and tool definitions
-	 * that the provider counts but the messages array doesn't carry.
-	 */
-	estimatedContextTokens = $derived.by(() => {
-		const usage = this.contextUsage
-		if (usage && usage.atMessageIndex <= this.messages.length) {
-			return usage.tokens + this.estimateMessagesTokens(this.messages.slice(usage.atMessageIndex))
-		}
+	/** Estimated tokens of the parts the messages array doesn't carry: the
+	 * current system prompt and tool definitions. */
+	private estimateOverheadTokens = () => {
 		const tokenPerCharacter = 4
 		const systemTokens =
 			typeof this.systemMessage.content === 'string'
@@ -307,7 +298,35 @@ export class AIChatManager {
 			this.tools.length > 0
 				? JSON.stringify(this.tools.map((t) => t.def)).length / tokenPerCharacter
 				: 0
-		return this.estimateMessagesTokens(this.messages) + systemTokens + toolTokens
+		return systemTokens + toolTokens
+	}
+
+	/**
+	 * Best-effort size of the context the next request will occupy. When the
+	 * provider has reported usage for a past turn, that exact count anchors the
+	 * estimate and only messages added since then are estimated. The anchor
+	 * remembers the system prompt + tools overhead it was taken with, so when a
+	 * mode switch swaps them the estimate re-bases on the current overhead
+	 * instead of silently reusing the old one. Without an anchor everything is
+	 * estimated, including the system prompt and tool definitions that the
+	 * provider counts but the messages array doesn't carry.
+	 */
+	estimatedContextTokens = $derived.by(() => {
+		const usage = this.contextUsage
+		if (usage && usage.atMessageIndex <= this.messages.length) {
+			// Legacy persisted anchors predate overheadEstimate; without it there
+			// is nothing to re-base against, so use the anchor as recorded.
+			const overheadAdjustment =
+				usage.overheadEstimate === undefined
+					? 0
+					: this.estimateOverheadTokens() - usage.overheadEstimate
+			return (
+				usage.tokens +
+				overheadAdjustment +
+				this.estimateMessagesTokens(this.messages.slice(usage.atMessageIndex))
+			)
+		}
+		return this.estimateMessagesTokens(this.messages) + this.estimateOverheadTokens()
 	})
 
 	private isOverContextLimit = (estimatedTokens: number) => {
@@ -1163,7 +1182,10 @@ export class AIChatManager {
 				// preserves full-history accounting instead.
 				this.contextUsage = {
 					tokens: result.lastIterationUsage.prompt + result.lastIterationUsage.completion,
-					atMessageIndex: this.messages.length
+					atMessageIndex: this.messages.length,
+					// chatLoop re-reads systemMessage/tools each iteration, so the
+					// current values are the ones the anchored request was sent with
+					overheadEstimate: this.estimateOverheadTokens()
 				}
 			}
 			if (this.autoAcceptEditsActive) {

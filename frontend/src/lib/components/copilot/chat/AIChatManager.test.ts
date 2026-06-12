@@ -336,6 +336,30 @@ describe('AIChatManager context usage estimation', () => {
 		expect(manager.estimatedContextTokens).toBe(1100)
 	})
 
+	it('re-bases the anchor when the system prompt or tools change after anchoring', () => {
+		const manager = new AIChatManager()
+		manager.messages = [{ role: 'user', content: 'a'.repeat(400) }]
+		// 100 estimated overhead tokens, same as recorded on the anchor → no change
+		manager.systemMessage = { role: 'system', content: 'c'.repeat(400) }
+		manager.contextUsage = { tokens: 1000, atMessageIndex: 1, overheadEstimate: 100 }
+		expect(manager.estimatedContextTokens).toBe(1000)
+		// mode switch swaps in a bigger system prompt (400 tokens): the estimate
+		// must include the +300 delta immediately, before any new completion
+		manager.systemMessage = { role: 'system', content: 'c'.repeat(1600) }
+		expect(manager.estimatedContextTokens).toBe(1300)
+		// and a lighter prompt lowers it
+		manager.systemMessage = { role: 'system', content: '' }
+		expect(manager.estimatedContextTokens).toBe(900)
+	})
+
+	it('uses legacy anchors without an overhead estimate as recorded', () => {
+		const manager = new AIChatManager()
+		manager.messages = [{ role: 'user', content: 'a'.repeat(400) }]
+		manager.systemMessage = { role: 'system', content: 'c'.repeat(1600) }
+		manager.contextUsage = { tokens: 1000, atMessageIndex: 1 }
+		expect(manager.estimatedContextTokens).toBe(1000)
+	})
+
 	it('falls back to full estimation when the anchor points past the current history', () => {
 		const manager = new AIChatManager()
 		manager.messages = [{ role: 'user', content: 'a'.repeat(400) }]
