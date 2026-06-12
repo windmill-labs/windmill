@@ -486,6 +486,7 @@ async fn list_apps(
 
 async fn get_raw_app_data(
     Path((w_id, secret_with_ext)): Path<(String, String)>,
+    Query(query): Query<std::collections::HashMap<String, String>>,
     Extension(db): Extension<DB>,
 ) -> Result<Response> {
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -526,7 +527,7 @@ async fn get_raw_app_data(
         // bypassing the consent prompt — so the standalone document stays
         // sandboxed no matter how it is reached.
         let html = raw_app_wrapper_html(secret_id);
-        let builder = Response::builder()
+        let mut builder = Response::builder()
             .header(http::header::CONTENT_TYPE, "text/html; charset=utf-8")
             .header("X-Content-Type-Options", "nosniff")
             .header("Cross-Origin-Resource-Policy", "cross-origin")
@@ -536,6 +537,15 @@ async fn get_raw_app_data(
                  allow-popups-to-escape-sandbox allow-downloads allow-modals \
                  allow-top-navigation",
             );
+        // When the public app page is embedded in a cross-origin-isolated page
+        // (`wm_coep` opt-in, COEP `require-corp`), this nested wrapper document
+        // must itself assert COEP to be allowed to load. Opt-in only — COEP
+        // restricts the bundle's own subresources to CORP'd/same-origin ones
+        // (e.g. external images would break), so it must not be always-on. The
+        // viewer propagates the flag from the page URL (see RawAppPreview).
+        if query.contains_key("wm_coep") {
+            builder = builder.header("Cross-Origin-Embedder-Policy", "require-corp");
+        }
         return Ok(builder.body(Body::from(html)).unwrap());
     }
 

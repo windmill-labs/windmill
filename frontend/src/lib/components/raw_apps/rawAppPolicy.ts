@@ -19,10 +19,15 @@ export async function updateRawAppPolicy(
 		)
 	).filter((entry): entry is [string, TriggerableV2] => entry != null)
 	const triggerables_v2 = Object.fromEntries(entries)
-	return {
+	const next: Policy = {
 		...currentPolicy,
 		triggerables_v2
 	}
+	// WIN-2006: `legacy_unsandboxed` is a migration-only, backend-set flag that
+	// must never be (re)submitted by a client deploy — the backend strips it too,
+	// but don't even send it (matches updatePolicy in apps/editor/appPolicy.ts).
+	delete (next as any).legacy_unsandboxed
+	return next
 }
 
 type RunnableWithInlineScript = RunnableWithFields & {

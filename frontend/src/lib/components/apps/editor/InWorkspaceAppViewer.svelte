@@ -113,6 +113,7 @@
 <PublicAppFrame
 	{fetchEmbedToken}
 	{viewerUrl}
+	appPath={path}
 	onViewerReady={(_token, requestTokenRefresh) => {
 		refresh = requestTokenRefresh
 		loadApp()

@@ -36,8 +36,7 @@
 		Undo,
 		Redo,
 		Zap,
-		Globe,
-		TriangleAlert
+		Globe
 	} from 'lucide-svelte'
 	import { getContext, untrack } from 'svelte'
 	import {
@@ -70,6 +69,7 @@
 	import { goto } from '$app/navigation'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
+	import LegacySandboxMigrationModal from './LegacySandboxMigrationModal.svelte'
 
 	import AppJobsDrawer from './AppJobsDrawer.svelte'
 	import LazyModePanel from './contextPanel/LazyModePanel.svelte'
@@ -196,9 +196,7 @@
 	let saveDrawerOpen = $state(false)
 	// WIN-2006: deploy-time migration prompt for grandfathered (legacy-unsandboxed)
 	// apps — the publisher makes an explicit sandbox choice on the first re-deploy.
-	let legacyMigrateOpen = $state(false)
-	let legacyMigrateResolve: ((choice: 'sandbox' | 'unsandboxed' | 'cancel') => void) | undefined =
-		$state(undefined)
+	let legacySandboxModal: LegacySandboxMigrationModal | undefined = $state(undefined)
 	let inputsDrawerOpen = $state(untrack(() => fromHub))
 	let historyBrowserDrawerOpen = $state(false)
 	let debugAppDrawerOpen = $state(false)
@@ -252,31 +250,8 @@
 		}
 	}
 
-	function ensureLegacyResolved(): Promise<boolean> {
-		// Grandfathered (legacy-unsandboxed) apps must make an explicit sandbox choice
-		// on their first re-deploy (WIN-2006). Other apps deploy unchanged.
-		// updatePolicy() drops the legacy flag, so the choice recorded here is what
-		// sticks: `disable_sandbox=true` to keep running same-origin (with consent), or
-		// left unset to become sandboxed.
-		if (!(policy as any)?.legacy_unsandboxed) return Promise.resolve(true)
-		return new Promise<boolean>((resolve) => {
-			legacyMigrateResolve = (choice) => {
-				legacyMigrateOpen = false
-				if (choice === 'cancel') {
-					resolve(false)
-					return
-				}
-				if (policy) {
-					;(policy as any).disable_sandbox = choice === 'unsandboxed' ? true : undefined
-				}
-				resolve(true)
-			}
-			legacyMigrateOpen = true
-		})
-	}
-
 	async function handleUpdateApp(npath: string) {
-		if (!(await ensureLegacyResolved())) return
+		if (legacySandboxModal && !(await legacySandboxModal.ensureLegacyResolved(policy))) return
 		// We have to make sure there is no updates when we clicked the button
 		await compareVersions()
 
@@ -375,14 +350,16 @@
 		}
 	}
 
-	async function setPublishState() {
+	async function setPublishState(message?: string) {
 		policy = await updatePolicy($app, policy)
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: $appPath,
 			requestBody: { policy }
 		})
-		if (policy.execution_mode == 'anonymous') {
+		if (message) {
+			sendUserToast(message)
+		} else if (policy.execution_mode == 'anonymous') {
 			sendUserToast('App require no login to be accessed')
 		} else {
 			sendUserToast('App require login and read-access')
@@ -886,48 +863,7 @@
 	}}
 />
 
-{#if legacyMigrateOpen}
-	<!-- WIN-2006: first re-deploy of a grandfathered (legacy-unsandboxed) app —
-	     force an explicit sandbox choice instead of silently changing behavior. -->
-	<div class="fixed inset-0 z-[5000] flex items-center justify-center bg-black/40 p-4">
-		<div class="bg-surface max-w-lg w-full rounded-lg shadow-lg p-6 space-y-4">
-			<div class="flex items-center gap-2 text-orange-600">
-				<TriangleAlert size={22} />
-				<h2 class="text-lg font-semibold">This app runs without sandbox isolation</h2>
-			</div>
-			<p class="text-sm text-secondary">
-				This app predates app sandbox isolation, so it currently runs with full access to each
-				viewer's Windmill session. Choose how it should run from now on:
-			</p>
-			<ul class="text-xs text-tertiary list-disc pl-5 space-y-1">
-				<li>
-					<span class="font-semibold">Enable sandbox isolation</span> — isolates the app from the viewer's
-					session (recommended). May break frontend scripts that call broad APIs, or features like IndexedDB
-					/ third-party SDKs.
-				</li>
-				<li>
-					<span class="font-semibold">Keep without isolation</span> — keeps full-session access; viewers
-					are asked to consent once per app version.
-				</li>
-			</ul>
-			<div class="flex justify-end gap-2 pt-2">
-				<Button variant="default" color="light" on:click={() => legacyMigrateResolve?.('cancel')}>
-					Cancel
-				</Button>
-				<Button
-					variant="default"
-					color="red"
-					on:click={() => legacyMigrateResolve?.('unsandboxed')}
-				>
-					Keep without isolation
-				</Button>
-				<Button variant="accent" on:click={() => legacyMigrateResolve?.('sandbox')}>
-					Enable sandbox isolation
-				</Button>
-			</div>
-		</div>
-	</div>
-{/if}
+<LegacySandboxMigrationModal bind:this={legacySandboxModal} />
 
 {#if $appPath == ''}
 	<Drawer bind:open={draftDrawerOpen} size="800px">

@@ -53,6 +53,7 @@
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import AppEditorHeaderDeployInitialDraft from '../apps/editor/AppEditorHeaderDeployInitialDraft.svelte'
 	import AppEditorHeaderDeploy from '../apps/editor/AppEditorHeaderDeploy.svelte'
+	import LegacySandboxMigrationModal from '../apps/editor/LegacySandboxMigrationModal.svelte'
 	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { updateRawAppPolicy } from './rawAppPolicy'
 	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
@@ -197,6 +198,9 @@
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
 	let open: boolean = $state(false) // Is confirmation modal open
+	// WIN-2006: deploy-time migration prompt for grandfathered (legacy-unsandboxed)
+	// apps — the publisher makes an explicit sandbox choice on the first re-deploy.
+	let legacySandboxModal: LegacySandboxMigrationModal | undefined = $state(undefined)
 
 	// const { app, summary, appPath, jobs, jobsById, staticExporter } = getContext('AppViewerContext')
 
@@ -310,6 +314,7 @@
 	}
 
 	async function handleUpdateApp(npath: string) {
+		if (legacySandboxModal && !(await legacySandboxModal.ensureLegacyResolved(policy))) return
 		// We have to make sure there is no updates when we clicked the button
 		await compareVersions()
 
@@ -443,14 +448,16 @@
 		onDeploy?.({ path: npath })
 	}
 
-	async function setPublishState() {
+	async function setPublishState(message?: string) {
 		await computeTriggerables()
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: appPath,
 			requestBody: { policy }
 		})
-		if (policy.execution_mode == 'anonymous') {
+		if (message) {
+			sendUserToast(message)
+		} else if (policy.execution_mode == 'anonymous') {
 			sendUserToast('App require no login to be accessed')
 		} else {
 			sendUserToast('App require login and read-access')
@@ -755,6 +762,8 @@
 {#if !inSessionPane}
 	<UnsavedConfirmationModal {diffDrawer} {getInitialAndModifiedValues} />
 {/if}
+
+<LegacySandboxMigrationModal bind:this={legacySandboxModal} />
 
 <DeployOverrideConfirmationModal
 	{deployedBy}

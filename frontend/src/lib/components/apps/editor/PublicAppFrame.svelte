@@ -26,10 +26,10 @@
 	import { OpenAPI } from '$lib/gen'
 	import { page } from '$app/state'
 	import { onDestroy, onMount, setContext, type Snippet } from 'svelte'
-	import { Alert, Button, Skeleton } from '$lib/components/common'
+	import { Alert, Skeleton } from '$lib/components/common'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { base } from '$app/paths'
 	import Login from '$lib/components/Login.svelte'
-	import { TriangleAlert } from 'lucide-svelte'
 
 	type EmbedToken = {
 		token?: string | null
@@ -44,7 +44,8 @@
 		fetchEmbedToken,
 		onViewerReady,
 		viewer,
-		viewerUrl
+		viewerUrl,
+		appPath
 	}: {
 		/** Embedder-side: validate access + mint the scoped token. Throws with a
 		 * `.status` of 401 (login required) or 404 (not found). */
@@ -61,6 +62,9 @@
 		 * (`/apps/get`, auth-gated, with chrome) differs from the cookieless,
 		 * chrome-less viewer route (`/app_embed`). */
 		viewerUrl?: string
+		/** App path, shown in the consent prompt when known (the public viewer may
+		 * not know it before the app loads — the prompt then says "this app"). */
+		appPath?: string
 	} = $props()
 
 	const EMBED_PARAM = 'wm_embed'
@@ -367,24 +371,22 @@
 	<!-- Publisher disabled sandbox isolation and the viewer is authenticated: run
 	     same-origin (full session) only after explicit, per-version consent.
 	     Anonymous viewers and grandfathered (legacy) apps skip this. -->
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-		<div class="bg-surface max-w-lg w-full rounded-lg shadow-lg p-6 space-y-4">
-			<div class="flex items-center gap-2 text-orange-600">
-				<TriangleAlert size={22} />
-				<h2 class="text-lg font-semibold">Run this app without isolation?</h2>
-			</div>
-			<p class="text-sm text-secondary">
-				The publisher of <span class="font-mono">{page.url.pathname}</span> has disabled sandbox isolation.
-				This app will run with access to your Windmill session and can act on your behalf. Only continue
-				if you trust the publisher.
-			</p>
-			<p class="text-xs text-tertiary">You'll be asked again when the app is updated.</p>
-			<div class="flex justify-end gap-2">
-				<Button variant="default" color="light" href={base}>Cancel</Button>
-				<Button variant="contained" color="red" onClick={acceptConsent}>Run app</Button>
-			</div>
-		</div>
-	</div>
+	<ConfirmationModal
+		open={needsConsent}
+		title="Run this app without isolation?"
+		confirmationText="Run app"
+		onConfirmed={acceptConsent}
+		onCanceled={() => {
+			window.location.href = base || '/'
+		}}
+	>
+		<p>
+			The publisher of {#if appPath}<span class="font-mono">{appPath}</span>{:else}this app{/if} has
+			disabled sandbox isolation. It will run with access to your Windmill session and can act on your
+			behalf. Only continue if you trust the publisher.
+		</p>
+		<p class="mt-2 text-xs text-tertiary">You'll be asked again when the app is updated.</p>
+	</ConfirmationModal>
 {:else if unsandboxed}
 	<!-- Same-origin (full session): a grandfathered legacy app, an anonymous viewer
 	     of a disable_sandbox app, or an authenticated viewer who consented. Rendered
