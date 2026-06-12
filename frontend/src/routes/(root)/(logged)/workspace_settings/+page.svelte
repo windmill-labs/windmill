@@ -1889,8 +1889,8 @@ export async function main(
 							<WorkspaceDependenciesSettings />
 						{:else if tab == 'default_app'}
 							<SettingsPageHeader
-								title="Workspace default app"
-								description="If configured, users who are operators in this workspace will be redirected to this app automatically when logging into this workspace. Make sure the default app is shared with all the operators of this workspace before turning this feature on."
+								title="Apps"
+								description="Workspace-level settings for apps: default app for operators, and rate limiting for public (anonymous) app executions."
 								link="https://www.windmill.dev/docs/apps/default_app"
 							/>
 							{#if !$enterpriseLicense}
@@ -1903,7 +1903,11 @@ export async function main(
 									before turning this feature on.
 								</Alert>
 							{/if}
-							<SettingCard label="App" class="mt-6">
+							<SettingCard
+								label="Default app"
+								description="If configured, users who are operators in this workspace will be redirected to this app automatically when logging into this workspace."
+								class="mt-6"
+							>
 								<ScriptPicker bind:scriptPath={workspaceDefaultAppPath} itemKind="app" clearable />
 							</SettingCard>
 
