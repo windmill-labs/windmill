@@ -48,8 +48,7 @@ export async function getAnthropicCompletion(
 		max_tokens: config.max_tokens as number,
 		messages: anthropicMessages,
 		...(system && { system }),
-		...(anthropicTools && { tools: anthropicTools }),
-		...(typeof config.temperature === 'number' && { temperature: config.temperature })
+		...(anthropicTools && { tools: anthropicTools })
 	}
 
 	const stream = client.messages.stream(anthropicParams, {

@@ -104,10 +104,6 @@ function convertCompletionConfigToResponsesConfig(
 		responsesConfig.max_output_tokens = config.max_tokens
 	}
 
-	// Keep other relevant fields
-	if (config.temperature !== undefined) {
-		responsesConfig.temperature = config.temperature
-	}
 	if ('tools' in config && config.tools && config.tools.length > 0) {
 		responsesConfig.tools = config.tools.map((tool) => {
 			if (tool.type === 'function' && 'function' in tool) {
