@@ -23,6 +23,7 @@ import type {
 	CreateVariable,
 	Flow,
 	FlowValue,
+	Job,
 	ListableApp,
 	ListableResource,
 	ListableVariable,
@@ -140,10 +141,10 @@ const ACTIVE_GLOBAL_EDITOR_DRAFTS: readonly {
 	itemKind: LiveEditorDraftKind
 	type: ActiveGlobalEditorType
 }[] = [
-	{ itemKind: 'script', type: 'script' },
-	{ itemKind: 'flow', type: 'flow' },
-	{ itemKind: 'raw_app', type: 'app' }
-]
+		{ itemKind: 'script', type: 'script' },
+		{ itemKind: 'flow', type: 'flow' },
+		{ itemKind: 'raw_app', type: 'app' }
+	]
 
 export type GlobalActiveEditorContext = {
 	type: ActiveGlobalEditorType
@@ -346,6 +347,34 @@ const searchResourceTypesSchema = z.object({
 		.max(20)
 		.optional()
 		.describe('Max number of resource types to return. Defaults to 5.')
+})
+
+const getJobLogsSchema = z.object({
+	id: z.string().describe('The UUID of the job to fetch logs for.')
+})
+
+const listRunsSchema = z.object({
+	path: z
+		.string()
+		.optional()
+		.describe('Filter to runs of this exact script or flow path.'),
+	created_by: z
+		.string()
+		.optional()
+		.describe('Filter by the username that started the run.'),
+	label: z.string().optional().describe('Filter by job label.'),
+	success: z
+		.boolean()
+		.optional()
+		.describe('Only completed runs with this outcome (true = succeeded, false = failed).'),
+	running: z.boolean().optional().describe('Only currently running runs.'),
+	limit: z
+		.number()
+		.int()
+		.min(1)
+		.max(100)
+		.optional()
+		.describe('Max number of runs to return, most recent first. Defaults to 30.')
 })
 
 const deleteWorkspaceItemSchema = z.object({
@@ -554,6 +583,32 @@ const openPreviewSchema = z.object({
 
 const getPreviewStatusSchema = z.object({})
 
+type SessionToolResult = {
+	aiResult: string
+	uiMessage: string
+	toolResult: string
+}
+
+const getRuntimeLogsSchema = z.object({
+	limit: z
+		.number()
+		.int()
+		.min(1)
+		.max(100)
+		.optional()
+		.describe('How many of the most recent runtime log lines to return. Defaults to 10.')
+})
+
+const listAppRunsSchema = z.object({
+	limit: z
+		.number()
+		.int()
+		.min(1)
+		.max(100)
+		.optional()
+		.describe('How many of the most recent backend runs to return, newest first. Defaults to 20.')
+})
+
 const FRAMEWORK_KEYS = [
 	'react19',
 	'react18',
@@ -602,13 +657,15 @@ Rules:
 - Use search_resource_types before write_resource.
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer local drafts, so testing does not require deployment.
+- Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
-- Keep context targeted.${
-	previewTools
+- Keep context targeted.${previewTools
 		? `
-- After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.`
+- After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
+- When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
+- get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.`
 		: ''
-}
+	}
 
 Flows:
 - read_workspace_item returns compact flow JSON. Inline script bodies appear as "inline_script.<moduleId>".
@@ -745,6 +802,36 @@ function variableToItem(variable: ListableVariable): WorkspaceItem {
 	}
 }
 
+// Compact metadata for one run. The raw Job carries args/result/logs/raw_code
+// which can be huge — list_runs returns only what's needed to identify a run.
+function summarizeRun(job: Job): Record<string, unknown> {
+	const base = {
+		id: job.id,
+		job_kind: job.job_kind,
+		path: job.script_path,
+		created_by: job.created_by,
+		created_at: job.created_at,
+		started_at: job.started_at,
+		schedule_path: job.schedule_path,
+		is_flow_step: job.is_flow_step,
+		tag: job.tag,
+		worker: job.worker
+	}
+	if ('success' in job) {
+		// CompletedJob
+		return {
+			...base,
+			status: job.canceled ? 'canceled' : job.success ? 'success' : 'failure',
+			duration_ms: job.duration_ms
+		}
+	}
+	// QueuedJob (running or still waiting in the queue)
+	return {
+		...base,
+		status: job.running ? 'running' : 'queued'
+	}
+}
+
 // ============= App helpers =============
 
 type BackendRunnableInput = z.infer<typeof backendRunnableSchema>
@@ -807,11 +894,11 @@ function buildPersistedRunnable(
 ): PersistedRunnable {
 	const fields = input.staticInputs
 		? Object.fromEntries(
-				Object.entries(input.staticInputs).map(([k, v]) => [
-					k,
-					{ type: 'static', value: v, fieldType: 'object' }
-				])
-			)
+			Object.entries(input.staticInputs).map(([k, v]) => [
+				k,
+				{ type: 'static', value: v, fieldType: 'object' }
+			])
+		)
 		: (existing?.fields ?? {})
 
 	if (input.type === 'inline') {
@@ -1669,6 +1756,65 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
+			listRunsSchema,
+			'list_runs',
+			"List recent runs (jobs), most recent first. Optionally filter by path, creator, label, or status. Returns compact metadata only — use get_job_logs with a returned id to read a run's logs."
+		),
+		showDetails: true,
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			const parsed = listRunsSchema.parse(args)
+			toolCallbacks.setToolStatus(toolId, { content: 'Listing runs...' })
+			const jobs = await JobService.listJobs({
+				workspace,
+				scriptPathExact: parsed.path,
+				createdBy: parsed.created_by,
+				label: parsed.label,
+				success: parsed.success,
+				running: parsed.running,
+				perPage: parsed.limit ?? 30
+			})
+			const runs = jobs.map(summarizeRun)
+			const result = JSON.stringify(runs, null, 2)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Listed ${runs.length} run(s)`,
+				result
+			})
+			return result
+		}
+	},
+	{
+		def: createToolDef(
+			getJobLogsSchema,
+			'get_job_logs',
+			'Fetch the logs of a job by its id. Use this to inspect the output of an existing run.'
+		),
+		showDetails: true,
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			const parsed = getJobLogsSchema.parse(args)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Fetching logs for job ${parsed.id}...`
+			})
+			const logs = await JobService.getJobLogs({
+				workspace,
+				id: parsed.id,
+				// Always suppress the "to remove ansi colors, use: sed ..." hint the
+				// backend otherwise prepends — it is noise for the model and is not
+				// actual ANSI stripping (the raw logs are returned either way).
+				removeAnsiWarnings: true
+			})
+			const hasLogs = typeof logs === 'string' && logs.trim().length > 0
+			const result = hasLogs ? logs : 'No logs available for this job.'
+			toolCallbacks.setToolStatus(toolId, {
+				content: hasLogs
+					? `Fetched logs for job ${parsed.id}`
+					: `No logs available for job ${parsed.id}`,
+				result
+			})
+			return result
+		}
+	},
+	{
+		def: createToolDef(
 			deployWorkspaceItemSchema,
 			'deploy_workspace_item',
 			'Deploy a local draft to the workspace. Mutates the workspace.',
@@ -1906,6 +2052,43 @@ export const globalTools: Tool<{}>[] = [
 		),
 		fn: async (ctx) => getSessionPreviewStatus(sessionIdFromCtx(ctx))
 	},
+	{
+		def: createToolDef(
+			getRuntimeLogsSchema,
+			'get_app_runtime_logs',
+			'Fetch the most recent browser console logs (and uncaught errors) from the raw app preview currently open in this AI session.'
+		),
+		showDetails: true,
+		autoCollapseDetails: false,
+		fn: async (ctx) => {
+			const parsed = getRuntimeLogsSchema.parse(ctx.args)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Reading app runtime logs...' })
+			const result = await getSessionRuntimeLogs(parsed.limit ?? 10, sessionIdFromCtx(ctx))
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+				content: result.uiMessage,
+				result: result.toolResult,
+			})
+			return result.aiResult
+		}
+	},
+	{
+		def: createToolDef(
+			listAppRunsSchema,
+			'list_app_runs',
+			"List the backend runnable executions (jobs) the raw app preview currently open in this AI session has triggered, newest first."
+		),
+		showDetails: true,
+		fn: async (ctx) => {
+			const parsed = listAppRunsSchema.parse(ctx.args)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Listing app runs...' })
+			const result = await getSessionAppRuns(parsed.limit ?? 20, sessionIdFromCtx(ctx))
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+				content: result.uiMessage,
+				result: result.toolResult
+			})
+			return result.aiResult
+		}
+	},
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
 	...getDatatableTools()
 ]
@@ -1913,7 +2096,12 @@ export const globalTools: Tool<{}>[] = [
 // Tools that only make sense inside an AI session (they drive the session's
 // side-panel preview). The regular global side-panel chat shouldn't even be
 // offered them — see `globalToolsFor`.
-export const SESSION_PREVIEW_TOOL_NAMES = new Set(['open_preview', 'get_preview_status'])
+export const SESSION_PREVIEW_TOOL_NAMES = new Set([
+	'open_preview',
+	'get_preview_status',
+	'get_app_runtime_logs',
+	'list_app_runs'
+])
 
 /**
  * The global tool set for a given chat: the full `globalTools` for a session
@@ -2005,6 +2193,58 @@ function getSessionPreviewStatus(sessionId: string | undefined): string {
 		return 'Error: get_preview_status is only available inside an AI session.'
 	}
 	return getPreviewStatusHandler(sessionId)
+}
+
+export type GetRuntimeLogsHandler = (req: {
+	sessionId: string | undefined
+	limit: number
+}) => Promise<SessionToolResult>
+
+let getRuntimeLogsHandler: GetRuntimeLogsHandler | undefined
+
+export function setGetRuntimeLogsHandler(handler: GetRuntimeLogsHandler | undefined): void {
+	getRuntimeLogsHandler = handler
+}
+
+function getSessionRuntimeLogs(
+	limit: number,
+	sessionId: string | undefined
+): Promise<SessionToolResult> {
+	if (!getRuntimeLogsHandler) {
+		return Promise.resolve({
+			aiResult:
+				'Error: get_app_runtime_logs is only available inside an AI session. Tell the user runtime logs can only be read from a session preview, or switch to a session and open the raw app preview.',
+			uiMessage: 'Runtime logs unavailable',
+			toolResult: 'Runtime logs unavailable'
+		})
+	}
+	return getRuntimeLogsHandler({ sessionId, limit })
+}
+
+export type ListAppRunsHandler = (req: {
+	sessionId: string | undefined
+	limit: number
+}) => SessionToolResult
+
+let listAppRunsHandler: ListAppRunsHandler | undefined
+
+export function setListAppRunsHandler(handler: ListAppRunsHandler | undefined): void {
+	listAppRunsHandler = handler
+}
+
+function getSessionAppRuns(
+	limit: number,
+	sessionId: string | undefined
+): Promise<SessionToolResult> {
+	if (!listAppRunsHandler) {
+		return Promise.resolve({
+			aiResult:
+				'Error: list_app_runs is only available inside an AI session. Tell the user app runs can only be read from a session preview, or switch to a session and open the raw app preview.',
+			uiMessage: 'App runs unavailable',
+			toolResult: 'App runs unavailable'
+		})
+	}
+	return Promise.resolve(listAppRunsHandler({ sessionId, limit }))
 }
 
 // Registered by the session runtime to reload the open preview after a chat
@@ -2158,24 +2398,16 @@ function getRequiredGlobalDraft(
 
 function finishDraftWrite(stored: WorkspaceItem, existed: boolean, ctx: WriteDraftCtx): string {
 	const verb = existed ? 'Updated' : 'Created'
-	const serializedItem =
-		stored.type === 'variable' || stored.type === 'flow'
-			? serializeWorkspaceItemForRead(stored)
-			: stored
 
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 		content: `${verb} ${stored.type} "${stored.path}" in local storage`,
 		result: `Saved to local storage`
 	})
-	return JSON.stringify(
-		{
-			success: true,
-			message: `${verb} ${stored.type} "${stored.path}" in local storage (a browser-only local draft, not a workspace draft). It was not deployed.`,
-			item: serializedItem
-		},
-		null,
-		2
-	)
+	const message = `${verb} ${stored.type} "${stored.path}" in local storage (a browser-only local draft, not a workspace draft). It was not deployed.`
+	// Don't echo the stored value back to the model — it just wrote that content,
+	// and echoing it doubles token usage on every edit. Use read_workspace_item to
+	// inspect the stored draft (e.g. after a merge with an existing base).
+	return JSON.stringify({ success: true, message }, null, 2)
 }
 
 async function writeScriptDraft(
@@ -2326,9 +2558,9 @@ async function writeScheduleDraft(args: NewSchedule, ctx: WriteDraftCtx): Promis
 		? existingDraft
 		: backendExists
 			? ((await ScheduleService.getSchedule({
-					workspace,
-					path: args.path
-				})) as ScheduleDraftConfig)
+				workspace,
+				path: args.path
+			})) as ScheduleDraftConfig)
 			: undefined
 	const draft = mergeDraftConfig<ScheduleDraftConfig>(base, args as DraftConfig, args.path)
 
@@ -2767,7 +2999,7 @@ async function initApp(
 		runnables: { [STARTER_RUNNABLE_KEY]: { ...STARTER_RUNNABLE } }
 	}
 	await recomputeAppPolicy(value)
-	const stored = saveAppDraft(workspace, path, value)
+	saveAppDraft(workspace, path, value)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Saved app "${path}" to local storage (${framework})`,
@@ -2776,8 +3008,7 @@ async function initApp(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Initialized app "${path}" in local storage from the ${framework} template with a starter runnable "${STARTER_RUNNABLE_KEY}" (a browser-only local draft, not a workspace draft). Use write_app_file / write_app_runnable to evolve it.`,
-			item: stored
+			message: `Initialized app "${path}" in local storage from the ${framework} template with files ${Object.keys(template).join(', ')} and a starter runnable "${STARTER_RUNNABLE_KEY}" (a browser-only local draft, not a workspace draft). Use write_app_file / write_app_runnable to evolve it.`
 		},
 		null,
 		2
@@ -2829,7 +3060,7 @@ async function writeAppFile(
 
 	const { value, meta } = await loadAppDraftValue(args.path, workspace)
 	value.files = { ...value.files, [target.filePath]: args.content }
-	const stored = saveAppDraft(workspace, args.path, value, meta)
+	saveAppDraft(workspace, args.path, value, meta)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Updated ${target.filePath} in app "${args.path}"`,
@@ -2838,8 +3069,7 @@ async function writeAppFile(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Updated app "${args.path}" in local storage with frontend file "${target.filePath}".`,
-			item: stored
+			message: `Updated app "${args.path}" in local storage with frontend file "${target.filePath}".`
 		},
 		null,
 		2
@@ -2869,7 +3099,7 @@ async function deleteAppFile(
 	}
 	const { [target.filePath]: _removed, ...remaining } = value.files
 	value.files = remaining
-	const stored = saveAppDraft(workspace, args.path, value, meta)
+	saveAppDraft(workspace, args.path, value, meta)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Removed ${target.filePath} from app "${args.path}"`,
@@ -2878,8 +3108,7 @@ async function deleteAppFile(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Removed "${target.filePath}" from app "${args.path}" in local storage.`,
-			item: stored
+			message: `Removed "${target.filePath}" from app "${args.path}" in local storage.`
 		},
 		null,
 		2
@@ -2953,7 +3182,7 @@ async function patchAppFile(
 		}
 	}
 
-	const stored = saveAppDraft(workspace, path, value, meta)
+	saveAppDraft(workspace, path, value, meta)
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Patched ${target.filePath} in app "${path}"`,
 		result: 'Saved to local storage'
@@ -2961,8 +3190,7 @@ async function patchAppFile(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Patched "${target.filePath}" in app "${path}" in local storage.`,
-			item: stored
+			message: `Patched "${target.filePath}" in app "${path}" in local storage.`
 		},
 		null,
 		2
@@ -2995,7 +3223,7 @@ async function writeAppRunnable(
 	const persisted = buildPersistedRunnable(input, existing)
 	value.runnables = { ...value.runnables, [key]: persisted }
 	await recomputeAppPolicy(value)
-	const stored = saveAppDraft(workspace, path, value, meta)
+	saveAppDraft(workspace, path, value, meta)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Updated runnable "${key}" in app "${path}"`,
@@ -3004,8 +3232,7 @@ async function writeAppRunnable(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Updated app "${path}" in local storage with runnable "${key}".`,
-			item: stored
+			message: `Updated app "${path}" in local storage with runnable "${key}".`
 		},
 		null,
 		2
@@ -3029,7 +3256,7 @@ async function deleteAppRunnable(
 	const { [key]: _removed, ...remaining } = value.runnables
 	value.runnables = remaining
 	await recomputeAppPolicy(value)
-	const stored = saveAppDraft(workspace, path, value, meta)
+	saveAppDraft(workspace, path, value, meta)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Removed runnable "${key}" from app "${path}"`,
@@ -3038,8 +3265,7 @@ async function deleteAppRunnable(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Removed runnable "${key}" from app "${path}" in local storage.`,
-			item: stored
+			message: `Removed runnable "${key}" from app "${path}" in local storage.`
 		},
 		null,
 		2

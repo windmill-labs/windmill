@@ -1164,6 +1164,7 @@ async fn list_workspace_labels(
             UNION ALL SELECT labels FROM variable WHERE workspace_id = $1 AND labels IS NOT NULL
             UNION ALL SELECT labels FROM schedule WHERE workspace_id = $1 AND labels IS NOT NULL
             UNION ALL SELECT labels FROM app WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM folder WHERE workspace_id = $1 AND labels IS NOT NULL
         ) t ORDER BY 1",
         &w_id
     )

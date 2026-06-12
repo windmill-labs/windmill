@@ -67,7 +67,40 @@ vi.mock('$lib/gen', async () => {
 				success: true,
 				result: { ok: true },
 				logs: 'test logs'
-			}))
+			})),
+			getJobLogs: vi.fn(async () => 'job log line 1\njob log line 2'),
+			listJobs: vi.fn(async () => [
+				{
+					type: 'CompletedJob',
+					id: 'completed-1',
+					job_kind: 'script',
+					script_path: 'f/team/runner',
+					created_by: 'alice',
+					created_at: '2026-06-09T10:00:00Z',
+					started_at: '2026-06-09T10:00:01Z',
+					duration_ms: 1200,
+					success: true,
+					canceled: false,
+					is_flow_step: false,
+					tag: 'default',
+					// fields that must be stripped from the summary
+					logs: 'verbose logs',
+					args: { secret: 'do-not-leak' },
+					result: { value: 42 }
+				},
+				{
+					type: 'QueuedJob',
+					id: 'queued-1',
+					job_kind: 'flow',
+					script_path: 'f/team/pipeline',
+					created_by: 'bob',
+					created_at: '2026-06-09T10:05:00Z',
+					running: true,
+					canceled: false,
+					is_flow_step: false,
+					tag: 'default'
+				}
+			])
 		}),
 		FlowService: wrapService(actual.FlowService, {
 			existsFlowByPath: vi.fn(async () => false),
@@ -134,6 +167,8 @@ import {
 	prepareGlobalUserMessage,
 	setDeployedInSessionHandler,
 	setGetPreviewStatusHandler,
+	setGetRuntimeLogsHandler,
+	setListAppRunsHandler,
 	setOpenPreviewHandler
 } from './core'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
@@ -238,6 +273,78 @@ describe('global AI tools', () => {
 		expect(names).toContain('test_run_script')
 		expect(names).toContain('test_run_flow')
 		expect(names).toContain('test_run_step')
+		expect(names).toContain('get_job_logs')
+		expect(names).toContain('list_runs')
+	})
+
+	it('lists recent runs with compact summaries and forwarded filters', async () => {
+		const result = await callGlobalTool('list_runs', {
+			path: 'f/team/runner',
+			created_by: 'alice',
+			success: true,
+			limit: 10
+		})
+
+		expect(JobService.listJobs).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			scriptPathExact: 'f/team/runner',
+			createdBy: 'alice',
+			label: undefined,
+			success: true,
+			running: undefined,
+			perPage: 10
+		})
+
+		const runs = JSON.parse(result)
+		expect(runs).toHaveLength(2)
+		expect(runs[0]).toMatchObject({
+			id: 'completed-1',
+			status: 'success',
+			path: 'f/team/runner',
+			duration_ms: 1200
+		})
+		expect(runs[1]).toMatchObject({ id: 'queued-1', status: 'running' })
+		// Heavy / sensitive fields must not leak into the summary.
+		expect(result).not.toContain('verbose logs')
+		expect(result).not.toContain('do-not-leak')
+		// The result must be surfaced to the tool display, otherwise the details
+		// panel shows "No result yet" even though the call succeeded.
+		expect(toolCallbacks.setToolStatus).toHaveBeenCalledWith(
+			'test-list_runs',
+			expect.objectContaining({ result })
+		)
+	})
+
+	it('defaults list_runs to 30 results when no limit is given', async () => {
+		await callGlobalTool('list_runs', {})
+		expect(JobService.listJobs).toHaveBeenCalledWith(
+			expect.objectContaining({ workspace: WORKSPACE, perPage: 30 })
+		)
+	})
+
+	it('fetches job logs by id and always suppresses the backend ansi hint line', async () => {
+		const result = await callGlobalTool('get_job_logs', { id: 'job-123' })
+
+		expect(JobService.getJobLogs).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			id: 'job-123',
+			removeAnsiWarnings: true
+		})
+		expect(result).toBe('job log line 1\njob log line 2')
+		// The logs must be surfaced as the tool result so the details panel shows
+		// them rather than "No result yet".
+		expect(toolCallbacks.setToolStatus).toHaveBeenCalledWith(
+			'test-get_job_logs',
+			expect.objectContaining({ result: 'job log line 1\njob log line 2' })
+		)
+	})
+
+	it('reports when a job has no logs', async () => {
+		vi.mocked(JobService.getJobLogs).mockResolvedValueOnce('   ')
+
+		const result = await callGlobalTool('get_job_logs', { id: 'job-empty' })
+
+		expect(result).toBe('No logs available for this job.')
 	})
 
 	it('searches hub scripts without fetching script contents', async () => {
@@ -1324,7 +1431,9 @@ describe('global AI tools', () => {
 			})
 		)
 
-		expect(writeResult.item.value.value).toBeUndefined()
+		expect(writeResult.success).toBe(true)
+		// Write results must not echo the flow value back to the model.
+		expect(writeResult.item).toBeUndefined()
 
 		const raw = await callGlobalTool('read_workspace_item', {
 			type: 'flow',
@@ -1885,33 +1994,134 @@ describe('prepareGlobalSystemMessage', () => {
 			expect(result).toBe('The preview is currently open showing script "u/me/foo".')
 		})
 	})
+
+	describe('get_app_runtime_logs', () => {
+		afterEach(() => {
+			setGetRuntimeLogsHandler(undefined)
+		})
+
+		it('returns the session-only error when no handler is registered', async () => {
+			setGetRuntimeLogsHandler(undefined)
+			const result = await callGlobalTool('get_app_runtime_logs', {})
+			expect(result).toContain(
+				'Error: get_app_runtime_logs is only available inside an AI session.'
+			)
+			expect(result).toContain('open the raw app preview')
+		})
+
+		it('dispatches to the registered handler with the session id and default limit of 10', async () => {
+			const callbacks: ToolCallbacks = { setToolStatus: vi.fn(), removeToolStatus: vi.fn() }
+			const handler = vi.fn(async () => ({
+				aiResult: 'logs output. Next step: inspect the browser error.',
+				uiMessage: 'Read 1 runtime log',
+				toolResult: '[{"level":"log","message":"log message","ts":1718000000000}]'
+			}))
+			setGetRuntimeLogsHandler(handler)
+			const result = await callGlobalTool('get_app_runtime_logs', {}, callbacks, {
+				sessionId: 'sess-logs'
+			})
+			expect(result).toBe('logs output. Next step: inspect the browser error.')
+			expect(handler).toHaveBeenCalledWith({ sessionId: 'sess-logs', limit: 10 })
+			expect(callbacks.setToolStatus).toHaveBeenLastCalledWith('test-get_app_runtime_logs', {
+				content: 'Read 1 runtime log',
+				result: '[{"level":"log","message":"log message","ts":1718000000000}]'
+			})
+		})
+
+		it('passes an explicit limit through to the handler', async () => {
+			const handler = vi.fn(async () => ({
+				aiResult: 'logs output',
+				uiMessage: 'Read runtime logs',
+				toolResult: '[{"level":"log","message":"log message","ts":1718000000000}]'
+			}))
+			setGetRuntimeLogsHandler(handler)
+			await callGlobalTool('get_app_runtime_logs', { limit: 3 }, toolCallbacks, {
+				sessionId: 'sess-logs'
+			})
+			expect(handler).toHaveBeenCalledWith({ sessionId: 'sess-logs', limit: 3 })
+		})
+	})
+
+	describe('list_app_runs', () => {
+		afterEach(() => {
+			setListAppRunsHandler(undefined)
+		})
+
+		it('returns the session-only error when no handler is registered', async () => {
+			setListAppRunsHandler(undefined)
+			const result = await callGlobalTool('list_app_runs', {})
+			expect(result).toContain('Error: list_app_runs is only available inside an AI session.')
+			expect(result).toContain('open the raw app preview')
+		})
+
+		it('dispatches to the registered handler with the session id and default limit of 20', async () => {
+			const callbacks: ToolCallbacks = { setToolStatus: vi.fn(), removeToolStatus: vi.fn() }
+			const handler = vi.fn(() => ({
+				aiResult: 'runs output. Next step: call get_job_logs.',
+				uiMessage: 'Listed 1 app run',
+				toolResult: '[{"job_id":"job-1","component":"backend.1","status":"completed","created_at":1718000000000,"started_at":1718000000000,"duration_ms":1000}]'
+			}))
+			setListAppRunsHandler(handler)
+			const result = await callGlobalTool('list_app_runs', {}, callbacks, {
+				sessionId: 'sess-runs'
+			})
+			expect(result).toBe('runs output. Next step: call get_job_logs.')
+			expect(handler).toHaveBeenCalledWith({ sessionId: 'sess-runs', limit: 20 })
+			expect(callbacks.setToolStatus).toHaveBeenLastCalledWith('test-list_app_runs', {
+				content: 'Listed 1 app run',
+				result:
+					'[{"job_id":"job-1","component":"backend.1","status":"completed","created_at":1718000000000,"started_at":1718000000000,"duration_ms":1000}]'
+			})
+		})
+
+		it('passes an explicit limit through to the handler', async () => {
+			const handler = vi.fn(() => ({
+				aiResult: 'runs output',
+				uiMessage: 'Listed app runs',
+				toolResult: '[{"job_id":"job-1","component":"backend.1","status":"completed","created_at":1718000000000,"started_at":1718000000000,"duration_ms":1000}]'
+			}))
+			setListAppRunsHandler(handler)
+			await callGlobalTool('list_app_runs', { limit: 5 }, toolCallbacks, {
+				sessionId: 'sess-runs'
+			})
+			expect(handler).toHaveBeenCalledWith({ sessionId: 'sess-runs', limit: 5 })
+		})
+	})
 })
 
 describe('session-only preview tools gating', () => {
 	const toolNames = (sessionPreview: boolean) =>
 		globalToolsFor({ sessionPreview }).map((t) => t.def.function.name)
 
-	it('excludes open_preview / get_preview_status outside a session', () => {
+	it('excludes open_preview / get_preview_status / get_app_runtime_logs / list_app_runs outside a session', () => {
 		const names = toolNames(false)
 		expect(names).not.toContain('open_preview')
 		expect(names).not.toContain('get_preview_status')
+		expect(names).not.toContain('get_app_runtime_logs')
+		expect(names).not.toContain('list_app_runs')
 		// other tools are still present
 		expect(names).toContain('write_script')
 	})
 
-	it('includes open_preview / get_preview_status inside a session', () => {
+	it('includes open_preview / get_preview_status / get_app_runtime_logs / list_app_runs inside a session', () => {
 		const names = toolNames(true)
 		expect(names).toContain('open_preview')
 		expect(names).toContain('get_preview_status')
+		expect(names).toContain('get_app_runtime_logs')
+		expect(names).toContain('list_app_runs')
 		// session set is the full globalTools
 		expect(names.length).toBe(globalTools.length)
 	})
 
-	it('mentions open_preview in the system prompt only when preview tools are enabled', () => {
+	it('mentions open_preview / get_app_runtime_logs / list_app_runs in the system prompt only when preview tools are enabled', () => {
 		const off = prepareGlobalSystemMessage(undefined, { previewTools: false }).content as string
 		const on = prepareGlobalSystemMessage(undefined, { previewTools: true }).content as string
 		expect(off).not.toContain('open_preview')
+		expect(off).not.toContain('get_app_runtime_logs')
+		expect(off).not.toContain('list_app_runs')
 		expect(on).toContain('open_preview')
+		expect(on).toContain('get_app_runtime_logs')
+		expect(on).toContain('list_app_runs')
 	})
 })
 

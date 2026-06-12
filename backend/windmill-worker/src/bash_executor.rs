@@ -98,6 +98,26 @@ pub async fn handle_bash_job(
         .await;
     }
 
+    // `#ssh <resource_path>` reroutes execution to a remote host over SSH
+    // (enterprise feature). The script runs on the host described by the
+    // `ssh_target` resource instead of on this worker. The OSS build returns a
+    // clear "enterprise feature" error from the stub.
+    if let Some(ssh_path) = windmill_common::worker::BashAnnotations::ssh_target(content) {
+        return crate::ssh_executor_oss::handle_ssh_bash_job(
+            &ssh_path,
+            mem_peak,
+            canceled_by,
+            job,
+            conn,
+            client,
+            content,
+            job_dir,
+            worker_name,
+            occupancy_metrics,
+        )
+        .await;
+    }
+
     // Check if sandbox annotation is used but nsjail is not available
     if annotation.sandbox && NSJAIL_AVAILABLE.is_none() {
         return Err(Error::ExecutionErr(

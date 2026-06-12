@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.719.0
+  version: 1.723.0
   title: Windmill API
 
   contact:
@@ -5115,6 +5115,37 @@ paths:
       responses:
         "200":
           description: scopes updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /users/tokens/update_label/{token_prefix}:
+    post:
+      summary: update label of an existing token (owner only)
+      operationId: updateTokenLabel
+      tags:
+        - user
+      parameters:
+        - name: token_prefix
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: new label (null or omitted = no label)
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: label updated
           content:
             text/plain:
               schema:
@@ -17416,6 +17447,10 @@ paths:
                     type: boolean
                 default_permissioned_as:
                   $ref: '#/components/schemas/FolderDefaultPermissionedAs'
+                labels:
+                  type: array
+                  items:
+                    type: string
               required:
                 - name
       responses:
@@ -17454,6 +17489,10 @@ paths:
                     type: boolean
                 default_permissioned_as:
                   $ref: '#/components/schemas/FolderDefaultPermissionedAs'
+                labels:
+                  type: array
+                  items:
+                    type: string
       responses:
         "200":
           description: folder updated
@@ -21596,6 +21635,8 @@ components:
           type: array
           items:
             type: string
+        web_search_enabled:
+          type: boolean
       required:
         - resource_path
         - models
@@ -21843,6 +21884,13 @@ components:
           items:
             type: string
           default: []
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
 
       required:
         - hash
@@ -23058,6 +23106,13 @@ components:
           type: array
           items:
             type: string
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
         ws_specific:
           type: boolean
         edited_at:
@@ -23602,6 +23657,13 @@ components:
           type: array
           items:
             type: string
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
         ws_specific:
           type: boolean
       required:
@@ -23646,6 +23708,13 @@ components:
           type: array
           items:
             type: string
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
         ws_specific:
           type: boolean
       required:
@@ -23804,6 +23873,13 @@ components:
           items:
             type: string
           default: []
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
       required:
         - path
         - edited_by
@@ -26426,6 +26502,14 @@ components:
           format: date-time
         default_permissioned_as:
           $ref: '#/components/schemas/FolderDefaultPermissionedAs'
+        labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels set on the folder. Items inside the folder inherit them,
+            exposed as `inherited_labels` on scripts and flows and stamped
+            into job labels at run time.
       required:
         - name
         - owners
@@ -26785,6 +26869,13 @@ components:
           items:
             type: string
           default: []
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
       required:
         - path
         - edited_by
@@ -26939,6 +27030,13 @@ components:
           items:
             type: string
           default: []
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
       required:
         - id
         - workspace_id
@@ -27008,6 +27106,13 @@ components:
           items:
             type: string
           default: []
+        inherited_labels:
+          type: array
+          items:
+            type: string
+          description: >
+            Labels inherited from the parent folder, computed at read time.
+            Read-only — edit them on the folder.
       required:
         - workspace_id
         - path
@@ -28214,6 +28319,7 @@ components:
         - DisableDirectDeployment
         - DisableWorkspaceForking
         - RestrictDeployToDeployers
+        - RestrictAnonymousAppDeployment
     RuleBypasserGroups:
       type: array
       description: Groups that can bypass this ruleset

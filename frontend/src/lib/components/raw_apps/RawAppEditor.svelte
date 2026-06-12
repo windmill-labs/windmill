@@ -15,7 +15,15 @@
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
-	import { genWmillTs, type Runnable } from './utils'
+	import {
+		genWmillTs,
+		normalizeRawAppRuntimeLogs,
+		type Runnable,
+		type RawAppRuntimeLogEntry,
+		type RawAppRuntimeLogRequester,
+		type RawAppRunSummary,
+		type RawAppRunsProvider
+	} from './utils'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import RawAppSidebar from './RawAppSidebar.svelte'
 	import type { Modules } from './RawAppModules.svelte'
@@ -43,6 +51,7 @@
 		type RawAppData,
 		DEFAULT_DATA
 	} from './dataTableRefUtils'
+	import { randomUUID } from '$lib/utils/uuid'
 
 	interface Props {
 		files?: Record<string, string>
@@ -69,6 +78,9 @@
 		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 		/** Fired after a successful deploy; the session preview reloads on it. */
 		onDeploy?: (e: { path: string }) => void
+		/** Fired after a successful server-draft save; the session refreshes its
+		 * draft-bar count on it (parity with the script/flow editors). */
+		onSaveDraft?: (e: { path: string }) => void
 		/** Initial collapsed state for the file/runnable sidebar. The user's
 		 * toggled preference is persisted under `sidebarStorageKey`; this prop
 		 * only seeds the very first open. */
@@ -86,6 +98,8 @@
 		 * still toggle the mode after mount; this prop only seeds the
 		 * initial state. */
 		defaultSplitWithPreview?: boolean
+		onRuntimeLogRequester?: (requester: RawAppRuntimeLogRequester | undefined) => void
+		onRunsProvider?: (provider: RawAppRunsProvider | undefined) => void
 	}
 
 	let {
@@ -101,10 +115,13 @@
 		diffDrawer = undefined,
 		onNavigate,
 		onDeploy = undefined,
+		onSaveDraft = undefined,
 		defaultSidebarCollapsed = false,
 		sidebarStorageKey = 'raw-app-sidebar-collapsed',
 		liveEditorDraftStoragePath = undefined,
-		defaultSplitWithPreview = true
+		defaultSplitWithPreview = true,
+		onRuntimeLogRequester = undefined,
+		onRunsProvider = undefined
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
@@ -983,6 +1000,11 @@
 			return
 		}
 
+		if (fromPreview && e.data.type === 'runtimeLogsResponse') {
+			resolvePendingRuntimeLogRequest(e.data.requestId, normalizeRawAppRuntimeLogs(e.data.logs))
+			return
+		}
+
 		// Inspector events come exclusively from the preview iframe.
 		if (fromPreview && e.data.type === 'inspectorSelect') {
 			inspectorElement = e.data.element as InspectorElementInfo
@@ -1068,6 +1090,66 @@
 			)
 		})
 	}
+
+	const RUNTIME_LOGS_TIMEOUT_MS = 2000
+	type PendingRuntimeLogRequest = {
+		resolve: (entries: RawAppRuntimeLogEntry[] | undefined) => void
+		timer: ReturnType<typeof setTimeout>
+	}
+	const pendingRuntimeLogReqs = new Map<string, PendingRuntimeLogRequest>()
+
+	function resolvePendingRuntimeLogRequest(
+		requestId: string,
+		entries: RawAppRuntimeLogEntry[] | undefined
+	) {
+		const pending = pendingRuntimeLogReqs.get(requestId)
+		if (!pending) return
+		clearTimeout(pending.timer)
+		pendingRuntimeLogReqs.delete(requestId)
+		pending.resolve(entries)
+	}
+
+	const requestRuntimeLogs: RawAppRuntimeLogRequester = (limit) => {
+		const win = previewIframe?.contentWindow
+		if (!win || !previewIframeLoaded) return Promise.resolve(undefined)
+		const requestId = randomUUID()
+		return new Promise<RawAppRuntimeLogEntry[] | undefined>((resolve) => {
+			const timer = setTimeout(() => {
+				resolvePendingRuntimeLogRequest(requestId, undefined)
+			}, RUNTIME_LOGS_TIMEOUT_MS)
+			pendingRuntimeLogReqs.set(requestId, { resolve, timer })
+			win.postMessage({ type: 'getRuntimeLogs', requestId, limit }, '*')
+		})
+	}
+
+	const getRuns: RawAppRunsProvider = () => {
+		const out: RawAppRunSummary[] = []
+		for (const id of jobs) {
+			const j = jobsById[id]
+			if (!j) continue
+			const run: RawAppRunSummary = {
+				job_id: j.job ?? id,
+				component: j.component,
+				status: j.result !== undefined || j.duration_ms !== undefined ? 'completed' : 'running'
+			}
+			if (j.created_at !== undefined) run.created_at = j.created_at
+			if (j.started_at !== undefined) run.started_at = j.started_at
+			if (j.duration_ms !== undefined) run.duration_ms = j.duration_ms
+			out.push(run)
+		}
+		return out.reverse()
+	}
+
+	onMount(() => {
+		onRuntimeLogRequester?.(requestRuntimeLogs)
+		onRunsProvider?.(getRuns)
+		return () => {
+			onRuntimeLogRequester?.(undefined)
+			onRunsProvider?.(undefined)
+			for (const requestId of Array.from(pendingRuntimeLogReqs.keys()))
+				resolvePendingRuntimeLogRequest(requestId, undefined)
+		}
+	})
 
 	let darkMode: boolean = $state(false)
 	// Host's computed `text-xs` size in px. Windmill bumps :root to 18px at
@@ -1371,6 +1453,7 @@
 		{getBundle}
 		{onNavigate}
 		{onDeploy}
+		{onSaveDraft}
 		canUndo={historyManager.canUndo}
 		canRedo={historyManager.canRedo}
 		onUndo={handleUndo}
@@ -1637,8 +1720,9 @@
 											title="Build failed"
 											class="relative before:absolute before:inset-0 before:-z-10 before:rounded-md before:bg-surface before:content-['']"
 										>
-											<pre
-												class="overflow-auto whitespace-pre-wrap text-xs max-h-60">{buildError}</pre>
+											<pre class="overflow-auto whitespace-pre-wrap text-xs max-h-60"
+												>{buildError}</pre
+											>
 										</Alert>
 									</div>
 								{/if}

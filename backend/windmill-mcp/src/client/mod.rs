@@ -43,9 +43,14 @@ impl McpClient {
         // The resource URL is author-controlled and we send a (potentially
         // secret) bearer token to it, so it must be validated against SSRF
         // before we connect (e.g. cloud metadata endpoints, internal services).
-        windmill_common::ssrf::validate_url_for_ssrf(&resource.url)
+        windmill_common::ssrf::validate_mcp_server_url(&resource.url)
             .await
-            .map_err(|e| anyhow::anyhow!("MCP server URL is not allowed: {}", e))?;
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "MCP server URL is not allowed: {}",
+                    windmill_common::ssrf::mcp_ssrf_error_message(&e)
+                )
+            })?;
 
         // Build custom reqwest client with headers if provided
         let mut headers = HeaderMap::new();
@@ -230,6 +235,33 @@ impl McpClient {
 mod tests {
     use super::*;
 
+    struct PrivateMcpServerUrlsEnvGuard {
+        previous: Option<String>,
+    }
+
+    impl PrivateMcpServerUrlsEnvGuard {
+        fn unset() -> Self {
+            let previous =
+                std::env::var(windmill_common::ssrf::ALLOW_PRIVATE_MCP_SERVER_URLS_ENV).ok();
+            std::env::remove_var(windmill_common::ssrf::ALLOW_PRIVATE_MCP_SERVER_URLS_ENV);
+            Self { previous }
+        }
+    }
+
+    impl Drop for PrivateMcpServerUrlsEnvGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => std::env::set_var(
+                    windmill_common::ssrf::ALLOW_PRIVATE_MCP_SERVER_URLS_ENV,
+                    value,
+                ),
+                None => {
+                    std::env::remove_var(windmill_common::ssrf::ALLOW_PRIVATE_MCP_SERVER_URLS_ENV)
+                }
+            }
+        }
+    }
+
     /// Regression test: `from_resource` must refuse to connect to a URL that
     /// targets a private/internal address (here the AWS
     /// instance-metadata endpoint), so a resource author cannot use the MCP
@@ -237,6 +269,8 @@ mod tests {
     /// before any connection attempt, so this fails fast without network access.
     #[tokio::test]
     async fn from_resource_rejects_ssrf_url() {
+        let _guard = PrivateMcpServerUrlsEnvGuard::unset();
+
         let resource = McpResource {
             name: "evil".to_string(),
             url: "http://169.254.169.254".to_string(),

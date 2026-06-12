@@ -2,10 +2,8 @@
 	import {
 		Archive,
 		ArrowRight,
-		Diff,
 		GitCompareArrows,
 		GitFork,
-		GitMerge,
 		GitPullRequestArrow,
 		GitPullRequestClosed,
 		MoveRight,
@@ -20,6 +18,7 @@
 	import { deriveForkStatus, sessionState, type Session } from './sessionState.svelte'
 	import { getRuntime } from './sessionRuntime.svelte'
 	import ForkDiffDrawer from './ForkDiffDrawer.svelte'
+	import SessionDiffButton from './SessionDiffButton.svelte'
 
 	let {
 		session,
@@ -189,24 +188,12 @@
 			</span>
 		</div>
 		<div class="flex items-center gap-1 shrink-0">
-			<Button
-				variant="default"
-				unifiedSize="xs"
-				startIcon={{ icon: Diff }}
+			<SessionDiffButton
+				count={totalDiffs}
 				disabled={totalDiffs === 0}
-				title="{totalDiffs} modified item{totalDiffs === 1 ? '' : 's'}"
 				onclick={() => diffDrawer?.open()}
-			>
-				{totalDiffs}
-			</Button>
-			<Button
-				variant="default"
-				unifiedSize="xs"
-				startIcon={{ icon: GitMerge }}
-				onclick={openReview}
-			>
-				Review
-			</Button>
+			/>
+			<Button variant="default" unifiedSize="xs" onclick={openReview}>Review</Button>
 		</div>
 	</div>
 

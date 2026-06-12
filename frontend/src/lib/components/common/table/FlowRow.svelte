@@ -33,6 +33,7 @@
 		HistoryIcon
 	} from 'lucide-svelte'
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
+	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
@@ -140,6 +141,7 @@
 				{/if}
 			</div>
 		{/if}
+		<InheritedLabels labels={flow.inherited_labels} />
 		<div class="w-8 center-center"></div>
 	{/snippet}
 	{#snippet actions()}

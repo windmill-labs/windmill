@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.719.0
+  version: 1.723.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -1078,6 +1078,9 @@ components:
           type: string
           enum:
             - aiagent
+        tag:
+          type: string
+          description: Worker group tag for execution routing. If not set, the AI agent step runs on the flow's tag (default `flow`)
         omit_output_from_conversation:
           type: boolean
           default: false

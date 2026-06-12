@@ -57,6 +57,12 @@
 
 	let selectableItems = $derived(items.filter(selectablePredicate))
 	let hasSelectableItems = $derived(selectableItems.length > 0)
+
+	// Plain row click and the checkbox both toggle this row in/out — multi-select
+	// is the default, no modifier needed.
+	function handleSelect(item: DeployableItem) {
+		onToggleItem?.(item)
+	}
 </script>
 
 <div class="flex flex-col h-full">
@@ -76,9 +82,10 @@
 		<!-- Select all row -->
 		{#if !hideSelection}
 			<div class="px-4 py-2 flex items-center justify-between">
-				<div
+				<label
 					class="flex items-center gap-2 text-secondary text-xs"
 					class:opacity-50={!hasSelectableItems}
+					class:cursor-pointer={hasSelectableItems}
 				>
 					<input
 						type="checkbox"
@@ -87,7 +94,7 @@
 						onchange={allSelected ? onDeselectAll : onSelectAll}
 						class="rounded max-w-4 w-full"
 					/> Select all
-				</div>
+				</label>
 			</div>
 		{/if}
 
@@ -102,10 +109,11 @@
 
 					<Row
 						isSelectable={!hideSelection && isSelectable && !isDeployed}
+						selectOnRowClick={!hideSelection}
 						alignWithSelectable={!hideSelection}
 						disabled={!hideSelection && !isSelectable}
 						selected={isSelected && !isDeployed}
-						onSelect={() => onToggleItem?.(item)}
+						onSelect={() => handleSelect(item)}
 						path={item.kind !== 'resource' &&
 						item.kind !== 'variable' &&
 						item.kind !== 'resource_type'
