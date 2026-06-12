@@ -359,7 +359,16 @@ pub async fn build_client_credentials_oauth_client(
     let instance_entry: Option<OAuthClient> = oauths
         .as_ref()
         .and_then(|o| o.get(client_name))
-        .and_then(|v| serde_json::from_value(v.clone()).ok());
+        .and_then(|v| match serde_json::from_value(v.clone()) {
+            Ok(entry) => Some(entry),
+            Err(e) => {
+                tracing::warn!(
+                    client = %client_name,
+                    "Invalid instance OAuth entry, falling back to static registry: {e}"
+                );
+                None
+            }
+        });
 
     let resolve_from_registry = |client_name: &str| -> error::Result<Option<OAuthConfig>> {
         let static_configs =

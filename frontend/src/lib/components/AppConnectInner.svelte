@@ -168,6 +168,15 @@
 		)
 	}
 
+	/** Clear CC inputs and scopes so a previous selection never leaks into a new one */
+	function resetClientCredentialsState() {
+		useClientCredentials = false
+		clientId = ''
+		clientSecret = ''
+		tokenUrl = ''
+		scopes = []
+	}
+
 	function enableClientCredentials() {
 		manual = false
 		useClientCredentials = true
@@ -195,11 +204,7 @@
 		resourceType = stripSandboxSuffix(rawRt)
 		valueToken = undefined
 
-		// Reset client credentials state
-		useClientCredentials = false
-		clientId = ''
-		clientSecret = ''
-		tokenUrl = ''
+		resetClientCredentialsState()
 
 		await loadConnects()
 		const inConnects = connects?.includes(connectClient) ?? false
@@ -766,6 +771,7 @@
 							manual = false
 							connectClient = key
 							resourceType = stripSandboxSuffix(key)
+							resetClientCredentialsState()
 							next()
 						}}
 					>
@@ -807,6 +813,7 @@
 								manual = true
 								connectClient = key
 								resourceType = key
+								resetClientCredentialsState()
 								next()
 							}}
 						>
@@ -830,6 +837,7 @@
 								manual = true
 								connectClient = key
 								resourceType = key
+								resetClientCredentialsState()
 								next()
 							}}
 						>
