@@ -71,14 +71,25 @@
 	})
 
 	// Persistence for the bundle's (opaque-origin) localStorage, backed by a single
-	// store shared across all apps. In the logged-in workspace viewer this runs on
-	// the real origin, so it reads/writes real localStorage directly. Inside the
-	// public embed viewer (opaque) there is no real storage, so it relays per-key
-	// ops up to the embedder, the persistence authority. `framed` distinguishes the
-	// two; the shared snapshot is handed to the bundle before it evaluates so its
-	// localStorage is hydrated synchronously.
-	const framed = typeof window !== 'undefined' && window.parent !== window
+	// store shared across all apps. On a real origin (workspace viewer, public
+	// page — even when that page sits inside someone else's iframe) it reads/writes
+	// real localStorage directly. Only inside an opaque frame (the Windmill embed
+	// viewer), where Web Storage throws, does it relay per-key ops up to the
+	// embedder, the persistence authority. `framed` therefore probes storage rather
+	// than just `window.parent`: an externally-embedded public page is framed too,
+	// but its parent is not the Windmill embedder and would never answer the relay
+	// (leaving the bundle without ctx). The shared snapshot is handed to the bundle
+	// before it evaluates so its localStorage is hydrated synchronously.
 	const SHARED_LS_KEY = 'wm_apps_localstorage'
+	function storageAccessible(): boolean {
+		try {
+			localStorage.getItem(SHARED_LS_KEY)
+			return true
+		} catch (_) {
+			return false
+		}
+	}
+	const framed = typeof window !== 'undefined' && window.parent !== window && !storageAccessible()
 	let bundleStorage: Record<string, string> | undefined = undefined
 	let pendingReady = false
 
@@ -119,6 +130,20 @@
 			try {
 				window.parent.postMessage({ type: 'wm_ls_req' }, '*')
 			} catch (_) {}
+			// If the parent never answers (it isn't the Windmill embedder, e.g. an
+			// opaque context created by a third party), don't hold the bundle's ctx
+			// hostage: proceed with empty storage. Must beat the backend wrapper's
+			// own 1.5s no-ctx fallback.
+			const fallback = setTimeout(() => {
+				if (bundleStorage === undefined) {
+					bundleStorage = {}
+					if (pendingReady) {
+						pendingReady = false
+						respondCtx()
+					}
+				}
+			}, 750)
+			return () => clearTimeout(fallback)
 		}
 	})
 

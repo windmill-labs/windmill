@@ -74,12 +74,17 @@
 	let viewerReady = $state(false)
 	const expectedEmbedderOrigin = BROWSER ? page.url.searchParams.get(ORIGIN_PARAM) : null
 
-	// Components that embed the token in a URL (images, PDFs, downloads) read it
-	// from the `AuthToken` context. In viewer mode that must be the embed token;
-	// the getter keeps it in sync once the token arrives.
+	// Components that embed the token in a URL (images, PDFs, downloads, SSE) read
+	// it from the `AuthToken` context. In viewer mode that must be the embed token;
+	// the getter keeps it in sync once the token arrives. In direct render (legacy /
+	// consented / raw — the viewer snippet runs on this page, not in the opaque
+	// iframe) expose the page's own bearer credential when there is one: JWT public
+	// URLs put it in `OpenAPI.TOKEN` (set before the app loads) and have no cookie
+	// to fall back on. Cookie sessions have no bearer here and keep using the cookie.
 	setContext<{ token?: string }>('AuthToken', {
 		get token() {
-			return viewerToken
+			if (isViewer) return viewerToken
+			return typeof OpenAPI.TOKEN === 'string' && OpenAPI.TOKEN ? OpenAPI.TOKEN : undefined
 		}
 	})
 
