@@ -27,41 +27,48 @@ export function getDefaultChatTemperature(modelProvider: AIProviderModel): numbe
 	return 0
 }
 
+// Context windows of the models we know, most specific entry first — the first
+// name included in the model id wins, so provider-prefixed and date-suffixed
+// ids (anthropic.claude-sonnet-4-6-...-v1:0, gpt-5.2-2026-01-01) still resolve.
+// Conservative family fallbacks sit below the explicit entries; models not
+// listed at all resolve to undefined, which disables auto-trimming and the
+// indicator denominator.
+const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
+	// Anthropic — Sonnet/Opus 4.6+ ship a 1M window at standard pricing (GA);
+	// Haiku, older Claude models (3.x, 4.0, 4.1, 4.5) and date-suffixed Claude 4
+	// base ids (claude-sonnet-4-20250514) fall through to 200K
+	['claude-fable-5', 1_000_000],
+	['claude-opus-4-8', 1_000_000],
+	['claude-opus-4-7', 1_000_000],
+	['claude-opus-4-6', 1_000_000],
+	['claude-sonnet-4-6', 1_000_000],
+	['claude', 200_000],
+	// OpenAI — gpt-5 covers the base family (-mini / -nano) and the 5.1/5.2
+	// revisions, all 400K; only 5.4+ moved to 1M
+	['gpt-5.5', 1_000_000],
+	['gpt-5.4', 1_000_000],
+	['gpt-5', 400_000],
+	['gpt-4.1', 1_000_000],
+	['gpt-4o', 128_000],
+	['o4-mini', 200_000],
+	['o3', 200_000],
+	// Google — the 2.5 / 3 / 3.1 Gemini families are all 1M
+	['gemini-3.1', 1_000_000],
+	['gemini-3', 1_000_000],
+	['gemini-2.5', 1_000_000],
+	// DeepSeek — the V4 family is 1M; deepseek-chat / deepseek-reasoner are
+	// aliases of V4-Flash since April 2026
+	['deepseek-v4', 1_000_000],
+	['deepseek-chat', 1_000_000],
+	['deepseek-reasoner', 1_000_000],
+	['deepseek', 128_000],
+	// Others
+	['llama', 128_000],
+	['codestral', 32_000]
+]
+
 export function getKnownModelContextWindow(model: string): number | undefined {
-	if (model.includes('gpt-4.1') || model.includes('gemini')) {
-		return 1000000
-	} else if (model.includes('gpt-5')) {
-		// GPT-5.4+ ship a ~1M context window; gpt-5 / -mini / -nano and the
-		// 5.1/5.2 revisions remain at 400K (272K input + 128K output).
-		const version = model.match(/gpt-5\.(\d+)/)
-		if (version && Number(version[1]) >= 4) {
-			return 1000000
-		}
-		return 400000
-	} else if (model.includes('o4-mini') || model.includes('o3')) {
-		return 200000
-	} else if (model.includes('claude')) {
-		// Sonnet 4.6+ and Opus 4.6+ ship a 1M context window at standard pricing (GA).
-		// Haiku and older Claude models (3.x, 4.0, 4.1, 4.5) remain at 200K. The
-		// version sits between the family name and any date/revision suffix, also
-		// in Bedrock-style ids (e.g. anthropic.claude-sonnet-4-6-...-v1:0). The
-		// minor is capped at two digits so date-suffixed base ids without a minor
-		// (claude-sonnet-4-20250514) don't capture the date as the version.
-		const version = model.match(/claude-(?:opus|sonnet)-(\d+)-(\d{1,2})(?!\d)/)
-		if (
-			version &&
-			(Number(version[1]) > 4 || (Number(version[1]) === 4 && Number(version[2]) >= 6))
-		) {
-			return 1000000
-		}
-		return 200000
-	} else if (model.includes('gpt-4o') || model.includes('llama') || model.includes('deepseek')) {
-		return 128000
-	} else if (model.includes('codestral')) {
-		return 32000
-	} else {
-		return undefined
-	}
+	return MODEL_CONTEXT_WINDOWS.find(([name]) => model.includes(name))?.[1]
 }
 
 export function getModelContextWindow(model: string) {

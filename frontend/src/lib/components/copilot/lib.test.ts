@@ -259,6 +259,15 @@ describe('model context windows', () => {
 		expect(getKnownModelContextWindow('gpt-5.5')).toBe(1000000)
 	})
 
+	it('maps recent Gemini and DeepSeek models to the 1M window', () => {
+		expect(getKnownModelContextWindow('gemini-3.1-pro')).toBe(1000000)
+		expect(getKnownModelContextWindow('gemini-3-flash')).toBe(1000000)
+		expect(getKnownModelContextWindow('gemini-2.5-flash')).toBe(1000000)
+		expect(getKnownModelContextWindow('deepseek-v4-pro')).toBe(1000000)
+		expect(getKnownModelContextWindow('deepseek-chat')).toBe(1000000)
+		expect(getKnownModelContextWindow('deepseek-reasoner')).toBe(1000000)
+	})
+
 	it('returns undefined for unrecognized models, 128K via the defaulting wrapper', () => {
 		expect(getKnownModelContextWindow('some-custom-model')).toBeUndefined()
 		expect(getModelContextWindow('some-custom-model')).toBe(128000)
