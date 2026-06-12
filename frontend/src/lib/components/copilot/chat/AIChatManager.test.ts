@@ -351,3 +351,35 @@ describe('AIChatManager context usage estimation', () => {
 		expect(manager.contextUsage).toBeUndefined()
 	})
 })
+
+describe('AIChatManager context trimming', () => {
+	beforeEach(() => {
+		localStorage.clear()
+		vi.clearAllMocks()
+		// claude-sonnet-4-6 resolves to a known 1M window (modelConfig is
+		// unmocked), so the trim limit is 1M - max(5%, 5000) = 950k tokens.
+		mocks.tryGetCurrentModel.mockReturnValue({ provider: 'anthropic', model: 'claude-sonnet-4-6' })
+	})
+
+	// five user messages of ~100k estimated tokens each (chars / 4)
+	const makeMessages = () =>
+		Array.from({ length: 5 }, () => ({
+			role: 'user' as const,
+			content: 'x'.repeat(400_000)
+		}))
+
+	it('keeps trimming when overhead pushes the total over while messages alone look safe', () => {
+		const manager = new AIChatManager()
+		// 500k of messages + 600k overhead = 1.1M > 950k. After one deletion the
+		// message-only estimate (400k) would look safe, but 400k + 600k is still
+		// over the budget — a second deletion is required (300k + 600k fits).
+		const trimmed = manager.deleteOldestMessage(makeMessages(), 600_000)
+		expect(trimmed.length).toBe(3)
+	})
+
+	it('stops as soon as the message estimate fits when there is no overhead', () => {
+		const manager = new AIChatManager()
+		const trimmed = manager.deleteOldestMessage(makeMessages(), 0)
+		expect(trimmed.length).toBe(4)
+	})
+})

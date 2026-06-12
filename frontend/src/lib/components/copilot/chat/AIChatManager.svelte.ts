@@ -325,11 +325,17 @@ export class AIChatManager {
 		)
 	}
 
-	checkTokenUsageOverLimit = (messages: ChatCompletionMessageParam[]) => {
-		return this.isOverContextLimit(this.estimateMessagesTokens(messages))
-	}
-
-	deleteOldestMessage = (messages: ChatCompletionMessageParam[], maxDepth: number = 10) => {
+	/**
+	 * Drops messages from the front until the estimated context fits the limit.
+	 * `overheadTokens` carries what the message-only estimate can't see — system
+	 * prompt, tool definitions and the provider-anchor correction — so the stop
+	 * condition tracks the same total-context budget as the trim trigger.
+	 */
+	deleteOldestMessage = (
+		messages: ChatCompletionMessageParam[],
+		overheadTokens: number = 0,
+		maxDepth: number = 10
+	) => {
 		if (maxDepth <= 0 || messages.length <= 1) {
 			return messages
 		}
@@ -343,8 +349,8 @@ export class AIChatManager {
 		}
 
 		// keep deleting messages until we are under the limit
-		if (this.checkTokenUsageOverLimit(messages)) {
-			return this.deleteOldestMessage(messages, maxDepth - 1)
+		if (this.isOverContextLimit(this.estimateMessagesTokens(messages) + overheadTokens)) {
+			return this.deleteOldestMessage(messages, overheadTokens, maxDepth - 1)
 		}
 		return messages
 	}
@@ -1051,11 +1057,16 @@ export class AIChatManager {
 			this.currentReasoningActive = false
 
 			let trimmedMessages = [...this.messages]
-			// Trigger on the anchored estimate (counts system prompt + tools);
-			// deleteOldestMessage internally re-checks with the message-only
-			// estimate, which is the best available for a partially trimmed copy.
-			if (this.isOverContextLimit(this.estimatedContextTokens)) {
-				trimmedMessages = this.deleteOldestMessage(trimmedMessages)
+			// Trigger on the anchored estimate (counts system prompt + tools). The
+			// part of it the message-only estimate can't see is held constant while
+			// trimming so the loop's stop condition tracks the same budget.
+			const estimatedTotalTokens = this.estimatedContextTokens
+			if (this.isOverContextLimit(estimatedTotalTokens)) {
+				const overheadTokens = Math.max(
+					0,
+					estimatedTotalTokens - this.estimateMessagesTokens(trimmedMessages)
+				)
+				trimmedMessages = this.deleteOldestMessage(trimmedMessages, overheadTokens)
 			}
 			const wasTrimmed = trimmedMessages.length !== this.messages.length
 
