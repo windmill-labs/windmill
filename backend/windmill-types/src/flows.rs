@@ -45,6 +45,10 @@ pub struct Flow {
     pub on_behalf_of_email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Labels inherited from the parent folder, computed at read time. Not stored on the flow row.
+    #[sqlx(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inherited_labels: Option<Vec<String>>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -89,6 +93,10 @@ pub struct ListableFlow {
     pub deployment_msg: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Labels inherited from the parent folder, computed at read time.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inherited_labels: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -942,6 +950,8 @@ pub enum FlowModuleValue {
     AIAgent {
         input_transforms: HashMap<String, InputTransform>,
         tools: Vec<AgentTool>,
+        #[serde(skip_serializing_if = "is_none_or_empty")]
+        tag: Option<String>,
         #[serde(default, skip_serializing_if = "is_false")]
         omit_output_from_conversation: bool,
     },
@@ -1080,6 +1090,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 tools: untagged
                     .tools
                     .ok_or_else(|| serde::de::Error::missing_field("tools"))?,
+                tag: untagged.tag,
                 omit_output_from_conversation: untagged
                     .omit_output_from_conversation
                     .unwrap_or(false),
@@ -1232,5 +1243,42 @@ mod tests {
         };
 
         assert!(omit_output_from_conversation);
+    }
+
+    #[test]
+    fn ai_agent_tag_round_trips() {
+        let input = json!({
+            "type": "aiagent",
+            "tools": [],
+            "input_transforms": {},
+            "tag": "bedrock"
+        });
+
+        let val: FlowModuleValue = serde_json::from_value(input).unwrap();
+        let FlowModuleValue::AIAgent { ref tag, .. } = val else {
+            panic!("expected aiagent module");
+        };
+        assert_eq!(tag.as_deref(), Some("bedrock"));
+
+        let output = serde_json::to_string(&val).unwrap();
+        assert!(output.contains("\"tag\":\"bedrock\""));
+    }
+
+    #[test]
+    fn ai_agent_tag_defaults_to_none_and_is_omitted_when_serializing() {
+        let input = json!({
+            "type": "aiagent",
+            "tools": [],
+            "input_transforms": {}
+        });
+
+        let val: FlowModuleValue = serde_json::from_value(input).unwrap();
+        let FlowModuleValue::AIAgent { ref tag, .. } = val else {
+            panic!("expected aiagent module");
+        };
+        assert!(tag.is_none());
+
+        let output = serde_json::to_string(&val).unwrap();
+        assert!(!output.contains("tag"));
     }
 }

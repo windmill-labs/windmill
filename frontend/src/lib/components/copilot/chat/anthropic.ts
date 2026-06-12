@@ -8,7 +8,6 @@ import type {
 	MessageParam,
 	TextBlockParam,
 	ToolUnion,
-	ToolUseBlockParam,
 	Tool as AnthropicTool,
 	Message,
 	RawMessageStreamEvent
@@ -16,12 +15,36 @@ import type {
 import type { MessageStream } from '@anthropic-ai/sdk/lib/MessageStream'
 import type { AIProviderModel } from '$lib/gen'
 import { getProviderAndCompletionConfig, workspaceAIClients } from '../lib'
+import { applyReasoningToConfig } from '../reasoningRegistry'
 import { processToolCall, type Tool, type ToolCallbacks } from './shared'
 import { anthropicUsageToChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
 
 interface ParsedCompletionResult {
 	shouldContinue: boolean
 	tokenUsage: ChatTokenUsage
+}
+
+type WebSearchStatus = 'searching' | 'completed' | 'failed'
+
+function setAnthropicWebSearchStatus(
+	callbacks: ToolCallbacks & { onMessageEnd: () => void },
+	toolId: string,
+	status: WebSearchStatus,
+	errorCode?: string
+) {
+	const isLoading = status === 'searching'
+	const failed = status === 'failed'
+	callbacks.onMessageEnd()
+	callbacks.setToolStatus(`anthropic_web_search:${toolId}`, {
+		content: failed ? 'Web search failed' : isLoading ? 'Searching the web...' : 'Searched the web',
+		error: failed ? `Web search failed${errorCode ? `: ${errorCode}` : ''}` : undefined,
+		isLoading,
+		isStreamingArguments: false,
+		needsConfirmation: false,
+		toolName: 'web_search',
+		showDetails: false,
+		autoCollapseDetails: true
+	})
 }
 
 export async function getAnthropicCompletion(
@@ -31,6 +54,8 @@ export async function getAnthropicCompletion(
 	options?: {
 		forceModelProvider?: AIProviderModel
 		anthropicClient?: Anthropic
+		webSearch?: boolean
+		reasoningEffort?: string
 	}
 ): Promise<MessageStream> {
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -39,17 +64,33 @@ export async function getAnthropicCompletion(
 		forceModelProvider: options?.forceModelProvider
 	})
 	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
-	const anthropicTools = convertOpenAIToolsToAnthropic(tools)
+	let anthropicTools = convertOpenAIToolsToAnthropic(tools)
+
+	// Enable Anthropic's server-side web search tool. The proxy forwards the body
+	// verbatim, so this reaches Anthropic as a native server tool that it executes
+	// itself (no client round-trip).
+	if (options?.webSearch) {
+		anthropicTools = [
+			...(anthropicTools ?? []),
+			{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }
+		]
+	}
 
 	const client = options?.anthropicClient ?? workspaceAIClients.getAnthropicClient()
 
-	const anthropicParams = {
-		model: config.model,
-		max_tokens: config.max_tokens as number,
-		messages: anthropicMessages,
-		...(system && { system }),
-		...(anthropicTools && { tools: anthropicTools })
-	}
+	// Adds output_config.effort + adaptive thinking when an effort is set;
+	// no-op otherwise. Returns the base shape unchanged when off.
+	const anthropicParams = applyReasoningToConfig(
+		{
+			model: config.model,
+			max_tokens: config.max_tokens as number,
+			messages: anthropicMessages,
+			...(system && { system }),
+			...(anthropicTools && { tools: anthropicTools })
+		},
+		'anthropic',
+		options?.reasoningEffort
+	)
 
 	const stream = client.messages.stream(anthropicParams, {
 		signal: abortController.signal,
@@ -109,6 +150,23 @@ export async function parseAnthropicCompletion(
 					showDetails: tool?.showDetails,
 					autoCollapseDetails: tool?.autoCollapseDetails
 				})
+			} else if (block.type === 'server_tool_use' && block.name === 'web_search') {
+				setAnthropicWebSearchStatus(callbacks, block.id, 'searching')
+			}
+		}
+	})
+
+	// Stream summarized thinking deltas to the chat's collapsible reasoning block.
+	completion.on('streamEvent', (event: RawMessageStreamEvent) => {
+		if (event.type === 'content_block_start') {
+			const block = event.content_block as any
+			if (block?.type === 'thinking' || block?.type === 'redacted_thinking') {
+				callbacks.onReasoningStart?.()
+			}
+		} else if (event.type === 'content_block_delta') {
+			const delta = event.delta as any
+			if (delta?.type === 'thinking_delta' && typeof delta.thinking === 'string') {
+				callbacks.onReasoningDelta?.(delta.thinking)
 			}
 		}
 	})
@@ -150,6 +208,14 @@ export async function parseAnthropicCompletion(
 				messages.push(assistantMessage)
 				addedMessages.push(assistantMessage)
 				callbacks.onMessageEnd()
+			} else if (block.type === 'web_search_tool_result') {
+				const errorCode = Array.isArray(block.content) ? undefined : block.content.error_code
+				setAnthropicWebSearchStatus(
+					callbacks,
+					block.tool_use_id,
+					errorCode ? 'failed' : 'completed',
+					errorCode
+				)
 			} else if (block.type === 'tool_use') {
 				// Convert Anthropic tool calls to OpenAI format for compatibility
 				toolCallsToProcess.push({
@@ -216,9 +282,18 @@ export async function parseAnthropicCompletion(
 
 	// Process tool calls if any
 	if (toolCallsToProcess.length > 0) {
-		const assistantWithTools = {
-			role: 'assistant' as const,
+		const assistantWithTools: ChatCompletionMessageParam = {
+			role: 'assistant',
 			tool_calls: toolCallsToProcess
+		}
+		// Preserve thinking blocks (with signatures) so the next request keeps the
+		// reasoning chain — Anthropic requires this when thinking is combined with tool
+		// use. They are re-injected by convertOpenAIToAnthropicMessages.
+		const thinkingBlocks = finalMessage.content.filter(
+			(b) => b.type === 'thinking' || b.type === 'redacted_thinking'
+		)
+		if (thinkingBlocks.length > 0) {
+			;(assistantWithTools as any)._anthropicThinkingBlocks = thinkingBlocks
 		}
 		messages.push(assistantWithTools)
 		addedMessages.push(assistantWithTools)
@@ -270,7 +345,14 @@ export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessage
 					typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
 			})
 		} else if (message.role === 'assistant') {
-			const content: (TextBlockParam | ToolUseBlockParam)[] = []
+			const content: any[] = []
+
+			// Re-inject preserved thinking blocks first (Anthropic requires thinking to
+			// precede tool_use in the same assistant turn when thinking is enabled).
+			const thinkingBlocks = (message as any)._anthropicThinkingBlocks
+			if (Array.isArray(thinkingBlocks) && thinkingBlocks.length > 0) {
+				content.push(...thinkingBlocks)
+			}
 
 			if (message.content) {
 				content.push({

@@ -21,6 +21,13 @@ type AssistantMessageWithReasoning = ChatCompletionMessageParam & {
 }
 
 describe('modelConfig', () => {
+	it('flags Fable 5 model IDs via includes matching', () => {
+		expect(requiresMaxCompletionTokens('claude-fable-5')).toBe(true)
+		expect(requiresMaxCompletionTokens('claude-fable-5@20260611')).toBe(true)
+		expect(requiresMaxCompletionTokens('claude-fable-5/thinking')).toBe(true)
+		expect(requiresMaxCompletionTokens('anthropic/claude-fable-5')).toBe(true)
+	})
+
 	it('flags Opus 4.7 model IDs via includes matching', () => {
 		expect(requiresMaxCompletionTokens('claude-opus-4-7')).toBe(true)
 		expect(requiresMaxCompletionTokens('claude-opus-4-7@20260416')).toBe(true)

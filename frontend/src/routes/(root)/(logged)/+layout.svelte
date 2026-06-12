@@ -602,6 +602,13 @@
 										/>
 									</div>
 
+									<!-- w-40 cap: the drawer is max-w-min, and long session titles
+									     (nowrap before truncation) would otherwise inflate its
+									     min-content width to the full text width. -->
+									<div class="w-40">
+										<SessionPicker isCollapsed={false} />
+									</div>
+
 									<SidebarContent
 										isCollapsed={false}
 										numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted

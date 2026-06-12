@@ -8,6 +8,7 @@ export function requiresMaxCompletionTokens(model: string) {
 	const normalizedModel = model.toLowerCase()
 	const baseModel = normalizedModel.split('/').pop() ?? normalizedModel
 	return (
+		normalizedModel.includes('claude-fable-5') ||
 		normalizedModel.includes('claude-opus-4-7') ||
 		normalizedModel.includes('claude-opus-4-8') ||
 		baseModel.startsWith('gpt-5') ||

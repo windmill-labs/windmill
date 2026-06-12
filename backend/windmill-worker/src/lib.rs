@@ -75,6 +75,9 @@ mod sanitized_sql_params;
 mod schema;
 mod sql_s3_input;
 pub mod sql_utils;
+#[cfg(feature = "private")]
+mod ssh_executor_ee;
+mod ssh_executor_oss;
 mod universal_pkg_installer;
 #[cfg(feature = "private")]
 mod volume_ee;

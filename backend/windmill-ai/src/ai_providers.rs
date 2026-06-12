@@ -177,6 +177,8 @@ impl TryFrom<&str> for AIProvider {
 pub struct ProviderConfig {
     pub resource_path: String,
     pub models: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub web_search_enabled: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
