@@ -653,11 +653,13 @@
 				...script,
 				language: script.language,
 				description: script.description ?? '',
-				// Brand-new drafts have no parent; a draft promoted from
-				// unsaved edits to a deployed script carries that script's
-				// hash and must chain off it (createScript rejects a
-				// parentless deploy to an occupied path).
-				parent_hash: script.hash == undefined ? undefined : String(script.hash),
+				// Brand-new drafts have no parent (buildDraft seeds hash as ''
+				// — treat any falsy hash as parentless, the backend rejects
+				// an empty hex string); a draft promoted from unsaved edits
+				// to a deployed script carries that script's hash and must
+				// chain off it (createScript rejects a parentless deploy to
+				// an occupied path).
+				parent_hash: script.hash ? String(script.hash) : undefined,
 				is_template: false,
 				tag: script.tag,
 				kind: script.kind as Script['kind'] | undefined,
@@ -960,13 +962,14 @@
 		}
 	})
 	// Symmetric demotion: view mode shows the deployed truth, so an open
-	// promoted draft (it has a deployed version — hash set) hands the pane
-	// to its persisted script on the switch to view. Brand-new drafts have
-	// nothing deployed to show and stay open read-only.
+	// promoted draft (it has a deployed version — non-empty hash; buildDraft
+	// seeds brand-new drafts with '') hands the pane to its persisted script
+	// on the switch to view. Brand-new drafts have nothing deployed to show
+	// and stay open read-only.
 	$effect(() => {
 		if (mode !== 'view') return
 		const d = activeDraft
-		if (d && d.script.hash != undefined) {
+		if (d && d.script.hash) {
 			selection = { kind: 'runnable', runnable_kind: 'script', path: d.script.path }
 			activeDraftPath = undefined
 		}
@@ -1008,37 +1011,46 @@
 		// would otherwise stay frozen at the value seeded when the draft
 		// was opened — leaving a stale write edge on the canvas after the
 		// user has renamed a CREATE TABLE / writeS3File target).
-		const d = drafts.get(p)
-		if (!d) {
-			// Unsaved edits to a *deployed* script (the pane only emits these
-			// when the buffer differs from the deployed content): promote to
-			// a draft so the work survives mode switches / selection changes,
-			// shows in the drafts chip, and deploys via Save all. The script
-			// snapshot carries the deployed hash, so saving chains a new
-			// version off it.
-			if (!snapshot.script) return
+		//
+		// Deferred a microtask: this is called from the pane's $effect
+		// teardown, which observes the *previous* batch values — after a
+		// discard, `drafts` still appears to contain the discarded entry,
+		// and writing a map cloned from that stale read would resurrect it
+		// (the "discard needs two clicks" bug). One microtask later the
+		// batch has committed and the reads are fresh.
+		queueMicrotask(() => {
+			const d = drafts.get(p)
+			if (!d) {
+				// Unsaved edits to a *deployed* script (the pane only emits
+				// these when the buffer differs from the deployed content):
+				// promote to a draft so the work survives mode switches /
+				// selection changes, shows in the drafts chip, and deploys
+				// via Save all. The script snapshot carries the deployed
+				// hash, so saving chains a new version off it.
+				if (!snapshot.script) return
+				const next = new Map(drafts)
+				next.set(p, {
+					localId: newDraftLocalId(),
+					script: snapshot.script,
+					outputAssets: snapshot.writes.length > 0 ? snapshot.writes : undefined
+				})
+				drafts = next
+				return
+			}
+			const writesEqual =
+				d.outputAssets?.length === snapshot.writes.length &&
+				(d.outputAssets ?? []).every(
+					(a, i) => a.kind === snapshot.writes[i]?.kind && a.path === snapshot.writes[i]?.path
+				)
+			if (d.script.content === snapshot.content && writesEqual) return
 			const next = new Map(drafts)
 			next.set(p, {
-				localId: newDraftLocalId(),
-				script: snapshot.script,
+				...d,
+				script: { ...d.script, content: snapshot.content },
 				outputAssets: snapshot.writes.length > 0 ? snapshot.writes : undefined
 			})
 			drafts = next
-			return
-		}
-		const writesEqual =
-			d.outputAssets?.length === snapshot.writes.length &&
-			(d.outputAssets ?? []).every(
-				(a, i) => a.kind === snapshot.writes[i]?.kind && a.path === snapshot.writes[i]?.path
-			)
-		if (d.script.content === snapshot.content && writesEqual) return
-		const next = new Map(drafts)
-		next.set(p, {
-			...d,
-			script: { ...d.script, content: snapshot.content },
-			outputAssets: snapshot.writes.length > 0 ? snapshot.writes : undefined
 		})
-		drafts = next
 	}
 
 	// Canvas callbacks, named so the prop refs stay stable across re-renders

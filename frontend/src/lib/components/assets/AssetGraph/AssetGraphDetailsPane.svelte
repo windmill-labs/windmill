@@ -558,10 +558,11 @@
 					...script,
 					language: script.language,
 					description: script.description ?? '',
-					// Brand-new drafts have no prior hash; anything carrying one
-					// (a deployed script, or a draft promoted from unsaved edits
+					// Brand-new drafts have no prior hash (buildDraft seeds ''
+					// — falsy counts as parentless); anything carrying one (a
+					// deployed script, or a draft promoted from unsaved edits
 					// to a deployed script) chains off it.
-					parent_hash: script.hash == undefined ? undefined : String(script.hash),
+					parent_hash: script.hash ? String(script.hash) : undefined,
 					is_template: false,
 					tag: script.tag,
 					kind: script.kind as Script['kind'] | undefined,
@@ -856,7 +857,7 @@
 					onclick={save}
 					disabled={saving}
 				>
-					{saving ? 'Saving…' : isDraft && script?.hash == undefined ? 'Create' : 'Save'}
+					{saving ? 'Saving…' : isDraft && !script?.hash ? 'Create' : 'Save'}
 				</Button>
 			{/if}
 			{#if onHide}
