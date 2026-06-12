@@ -185,7 +185,13 @@ async function push(
 }
 
 async function add(
-  opts: GlobalOptions & { public?: boolean; plainSecrets?: boolean },
+  opts: GlobalOptions & {
+    public?: boolean;
+    plainSecrets?: boolean;
+    yes?: boolean;
+    secret?: boolean;
+    description?: string;
+  },
   value: string,
   remotePath: string
 ) {
@@ -196,6 +202,10 @@ async function add(
     return;
   }
 
+  // --secret/--no-secret take precedence over the legacy --public flag;
+  // undefined means "secret on create, preserve current setting on update"
+  const isSecret = opts.secret ?? (opts.public ? false : undefined);
+
   if (
     await wmill.existsVariable({
       workspace: workspace.workspaceId,
@@ -203,6 +213,7 @@ async function add(
     })
   ) {
     if (
+      !opts.yes &&
       !(await Confirm.prompt({
         message: `Variable already exist, do you want to update its value?`,
         default: true,
@@ -210,22 +221,46 @@ async function add(
     ) {
       return;
     }
+    if (isSecret === false) {
+      const existing = await wmill.getVariable({
+        workspace: workspace.workspaceId,
+        path: remotePath,
+        decryptSecret: false,
+      });
+      if (existing.is_secret) {
+        log.warn(
+          colors.yellow(
+            `Variable ${remotePath} is currently secret and will be downgraded to non-secret: its value will be stored in plaintext`
+          )
+        );
+      }
+    }
     log.info(colors.bold.yellow("Updating variable..."));
+    await wmill.updateVariable({
+      workspace: workspace.workspaceId,
+      path: remotePath,
+      alreadyEncrypted: false, // value from CLI is always plaintext
+      requestBody: {
+        value,
+        ...(isSecret !== undefined ? { is_secret: isSecret } : {}),
+        ...(opts.description !== undefined
+          ? { description: opts.description }
+          : {}),
+      },
+    });
+  } else {
+    log.info(colors.bold.yellow("Creating variable..."));
+    await wmill.createVariable({
+      workspace: workspace.workspaceId,
+      alreadyEncrypted: false, // value from CLI is always plaintext
+      requestBody: {
+        path: remotePath,
+        value,
+        is_secret: isSecret ?? true,
+        description: opts.description ?? "",
+      },
+    });
   }
-
-  log.info(colors.bold.yellow("Pushing variable..."));
-
-  await pushVariable(
-    workspace.workspaceId,
-    remotePath + ".variable.yaml",
-    undefined,
-    {
-      value,
-      is_secret: !opts.public,
-      description: "",
-    },
-    true // value from CLI is always plaintext — tell API not to treat it as pre-encrypted
-  );
   log.info(colors.bold.underline.green(`Variable ${remotePath} pushed`));
 }
 
@@ -255,8 +290,24 @@ const command = new Command()
     "Create a new variable on the remote. This will update the variable if it already exists."
   )
   .arguments("<value:string> <remote_path:string>")
+  .option(
+    "--yes",
+    "Skip confirmation prompt when updating an existing variable"
+  )
+  .option(
+    "--secret",
+    "Mark the variable as secret (default when creating a new variable)"
+  )
+  .option(
+    "--no-secret",
+    "Mark the variable as non-secret (when updating, the existing setting is preserved if neither --secret nor --no-secret is passed)"
+  )
+  .option(
+    "--description <description:string>",
+    "Set the variable description (when updating, the existing description is preserved if not passed)"
+  )
   .option("--plain-secrets", "Push secrets as plain text")
-  .option("--public", "Legacy option, use --plain-secrets instead")
+  .option("--public", "Legacy option, use --no-secret instead")
 
   .action(add as any);
 

@@ -516,6 +516,13 @@ export type AssistantDisplayMessage = BaseDisplayMessage & {
 	role: 'assistant'
 	/** Summarized reasoning/thinking text streamed before the answer (Anthropic + compat providers). */
 	reasoning?: string
+	/**
+	 * True only on the synthetic live message appended while tokens stream
+	 * (see AIChat.svelte). Finalized messages never set it — without the flag,
+	 * a reasoning-only message (thinking that led straight to a tool call)
+	 * would look like it is still streaming forever.
+	 */
+	streaming?: boolean
 }
 
 export type DisplayMessage = UserDisplayMessage | ToolDisplayMessage | AssistantDisplayMessage

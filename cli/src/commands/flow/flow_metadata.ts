@@ -1,5 +1,7 @@
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
+import { existsSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import * as path from "node:path";
 import { sep as SEP } from "node:path";
 import { stringify as yamlStringify } from "yaml";
@@ -17,7 +19,7 @@ import {
   filterWorkspaceDependenciesForScripts,
 } from "../../utils/metadata.ts";
 import { ScriptLanguage } from "../../utils/script_common.ts";
-import { extractInlineScripts as extractInlineScriptsForFlows, extractCurrentMapping } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
+import { extractInlineScripts as extractInlineScriptsForFlows, extractCurrentMapping, legacyLockPathForContent } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { newPathAssigner } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 
 import { generateHash, getHeaders, readTextFile, writeIfChanged } from "../../utils/utils.ts";
@@ -338,6 +340,26 @@ export async function generateFlowLockInternal(
     inlineScripts.forEach((s) => {
       writeIfChanged(process.cwd() + SEP + folder + SEP + s.path, s.content);
     });
+
+    // CLI versions between #8561 and the canonical-lock-name fix named lock
+    // files after the content path minus only its last dot segment (e.g.
+    // "x.inline_script.deno.lock"). The canonical name strips the full
+    // language extension ("x.inline_script.lock"), so remove the legacy file
+    // once its replacement has been written above.
+    for (const s of inlineScripts) {
+      if (s.is_lock) continue;
+      const legacyRelPath = legacyLockPathForContent(s.path, s.language);
+      if (!legacyRelPath) continue;
+      const legacyAbsPath = process.cwd() + SEP + folder + SEP + legacyRelPath;
+      if (existsSync(legacyAbsPath)) {
+        try {
+          await rm(legacyAbsPath);
+          log.info(colors.gray(`Removed legacy lock file ${legacyRelPath} (renamed to canonical name)`));
+        } catch (e) {
+          log.info(colors.yellow(`Failed to remove legacy lock file ${legacyRelPath}: ${e}`));
+        }
+      }
+    }
 
     // Overwrite `flow.yaml` with the new lockfile references
     writeIfChanged(

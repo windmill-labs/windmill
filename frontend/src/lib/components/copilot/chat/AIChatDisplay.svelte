@@ -136,6 +136,28 @@
 	let aiChatInput: AIChatInput | undefined = $state()
 	let editingMessageIndex = $state<number | null>(null)
 
+	// Escape stops the generation when focus is on the chat (or parked on
+	// body), but stays with other widgets (e.g. the session's Monaco editor).
+	// Capture phase is required: Monaco and mounted-but-closed Modal2
+	// instances consume window Escapes before they bubble.
+	let panelEl: HTMLDivElement | undefined = $state()
+	$effect(() => {
+		function onWindowKeydownCapture(e: KeyboardEvent) {
+			if (e.key !== 'Escape' || !aiChatManager.loading) return
+			const active = document.activeElement
+			const focusOnChat =
+				!active || active === document.body || (panelEl?.contains(active) ?? false)
+			if (!focusOnChat) return
+			e.preventDefault()
+			// Immediate form: other chat panels' identical listeners must not
+			// also cancel on body focus, nor a drawer/modal close on this press.
+			e.stopImmediatePropagation()
+			aiChatManager.cancel()
+		}
+		window.addEventListener('keydown', onWindowKeydownCapture, true)
+		return () => window.removeEventListener('keydown', onWindowKeydownCapture, true)
+	})
+
 	let scrollEl: HTMLDivElement | undefined = $state()
 	// Programmatic-scroll guard. `scrollDown()` triggers an async `scroll`
 	// event; if a token-append between the scrollTo and the dispatch makes
@@ -314,7 +336,9 @@
 	)
 </script>
 
-<div class="flex flex-col h-full">
+<!-- tabindex="-1": clicks on non-focusable chat content must move focus into
+the panel, or the Escape-to-stop focus check would wrongly reject them. -->
+<div class="flex flex-col h-full outline-none" tabindex="-1" bind:this={panelEl}>
 	{#if !hideHeader}
 		<div
 			class="flex flex-row items-center justify-between gap-2 p-2 border-b border-gray-200 dark:border-gray-600"
