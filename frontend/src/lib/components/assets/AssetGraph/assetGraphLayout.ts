@@ -1,4 +1,3 @@
-import { dagStratify, sugiyama, coordCenter, decrossTwoLayer, decrossOpt } from 'd3-dag'
 import type { AssetGraphNodeData } from './types'
 import { NODE } from '$lib/components/graph/util'
 
@@ -16,6 +15,8 @@ const SIBLING_GAP = NODE.gap.horizontal
 // into each other's columns — but only ~2×, so they don't drift far apart.
 const COMPONENT_GAP = SIBLING_GAP * 2
 
+const LAYER_H = NODE_HEIGHT + LAYER_GAP
+
 interface GraphInput {
 	nodes: Array<{ id: string; data: AssetGraphNodeData }>
 	edges: Array<{ source: string; target: string }>
@@ -26,40 +27,170 @@ interface Positioned {
 	y: number
 }
 
-// Sugiyama a single connected component. Returns positions normalized so the
-// component's left/top edge sits at 0, so the caller can pack components
-// side-by-side by translating on x. Throws on cyclic input (caller falls back
-// to a grid for the whole graph).
+// Horizontal band reserved by a placed subtree, with its vertical (layer)
+// extent. Two bands may share x only when their layer ranges don't intersect.
+interface Band {
+	left: number
+	right: number
+	top: number
+	bottom: number
+}
+
+// Tidy-tree layout of a single connected component.
+//
+// Each node reserves a horizontal band at least as wide as the sum of its
+// children's bands (`W(n) = max(NODE_WIDTH, Σ W(children) + gaps)`), children
+// are packed side-by-side inside the parent's band, and the parent is centered
+// over it. Bands are exclusive, so two nodes with different parents can never
+// interleave horizontally — the failure mode of the previous Sugiyama layout.
+//
+// The band recursion stops at *join points*: a node with two or more parents
+// belongs to no single parent's band (it would be double-counted and would
+// force conflicting reservations). Joins instead root their own subtree,
+// placed after the source trees, centered under the mean x of their parents
+// and pushed right just enough to not overlap any band whose layer range
+// intersects theirs.
+//
+// y comes from longest-path layering (same top-down orientation as before:
+// producers above, assets in the middle, consumers below). Returns positions
+// (band centers) normalized so the component's min x,y = 0. Throws on cyclic
+// input (caller falls back to a grid for the whole graph).
 function layoutComponent(
 	nodes: GraphInput['nodes'],
 	edges: GraphInput['edges']
 ): Map<string, Positioned> {
 	const out = new Map<string, Positioned>()
+	const ids = new Set(nodes.map((n) => n.id))
 
-	const parentsByChild = new Map<string, string[]>()
-	for (const n of nodes) parentsByChild.set(n.id, [])
+	const parents = new Map<string, string[]>()
+	const children = new Map<string, string[]>()
+	for (const n of nodes) {
+		parents.set(n.id, [])
+		children.set(n.id, [])
+	}
 	for (const e of edges) {
-		const arr = parentsByChild.get(e.target)
-		if (arr && arr.indexOf(e.source) === -1) arr.push(e.source)
+		if (!ids.has(e.source) || !ids.has(e.target)) continue
+		// Dedup parallel edges (read+write pairs produce two edges between the
+		// same nodes) so they don't skew child ordering or join detection.
+		if (!children.get(e.source)!.includes(e.target)) children.get(e.source)!.push(e.target)
+		if (!parents.get(e.target)!.includes(e.source)) parents.get(e.target)!.push(e.source)
 	}
 
-	const dagNodes = nodes.map((n) => ({ id: n.id, parentIds: parentsByChild.get(n.id) ?? [] }))
-	const dag = dagStratify().id(({ id }: { id: string }) => id)(dagNodes)
-	const layout = sugiyama()
-		// decrossOpt is exponential — only safe on small components.
-		.decross(nodes.length > 30 ? decrossTwoLayer() : decrossOpt())
-		.coord(coordCenter())
-		.nodeSize(
-			() => [NODE_WIDTH + SIBLING_GAP, NODE_HEIGHT + LAYER_GAP] as readonly [number, number]
-		)
-	layout(dag as any)
-	for (const desc of dag.descendants()) {
-		const id = (desc as any).data.id as string
-		out.set(id, {
-			x: (desc as any).x ?? 0,
-			y: ((desc as any).y ?? 0) - (NODE_HEIGHT + LAYER_GAP) / 2
-		})
+	// Kahn topological order — also the cycle guard.
+	const indeg = new Map<string, number>()
+	for (const n of nodes) indeg.set(n.id, parents.get(n.id)!.length)
+	const queue = nodes.filter((n) => indeg.get(n.id) === 0).map((n) => n.id)
+	const topo: string[] = []
+	while (queue.length) {
+		const cur = queue.shift()!
+		topo.push(cur)
+		for (const c of children.get(cur)!) {
+			const d = indeg.get(c)! - 1
+			indeg.set(c, d)
+			if (d === 0) queue.push(c)
+		}
 	}
+	if (topo.length !== nodes.length) throw new Error('cyclic asset graph')
+
+	// Longest-path layering: a node sits one layer below its lowest parent.
+	const layer = new Map<string, number>()
+	for (const id of topo) {
+		const ps = parents.get(id)!
+		layer.set(id, ps.length === 0 ? 0 : Math.max(...ps.map((p) => layer.get(p)!)) + 1)
+	}
+
+	// Spanning forest: single-parent nodes hang under their parent; joins
+	// (≥ 2 parents) root their own tree. Child order follows edge input order
+	// for a stable, deterministic left-to-right.
+	const treeChildren = new Map<string, string[]>()
+	for (const n of nodes) treeChildren.set(n.id, [])
+	for (const n of nodes) {
+		const ps = parents.get(n.id)!
+		if (ps.length === 1) treeChildren.get(ps[0])!.push(n.id)
+	}
+
+	// Band widths, post-order (reverse topo visits children before parents).
+	const W = new Map<string, number>()
+	for (let i = topo.length - 1; i >= 0; i--) {
+		const id = topo[i]
+		const kids = treeChildren.get(id)!
+		const kidsW =
+			kids.reduce((acc, k) => acc + W.get(k)!, 0) + SIBLING_GAP * Math.max(0, kids.length - 1)
+		W.set(id, Math.max(NODE_WIDTH, kidsW))
+	}
+
+	// Vertical (pixel) extent of a subtree, for band collision checks.
+	function treeSpan(root: string): { top: number; bottom: number } {
+		let lo = layer.get(root)!
+		let hi = lo
+		const stack = [root]
+		while (stack.length) {
+			const cur = stack.pop()!
+			const l = layer.get(cur)!
+			if (l < lo) lo = l
+			if (l > hi) hi = l
+			for (const k of treeChildren.get(cur)!) stack.push(k)
+		}
+		return { top: lo * LAYER_H, bottom: hi * LAYER_H + NODE_HEIGHT }
+	}
+
+	// Recursive placement: node centered over its band, children packed
+	// side-by-side and centered within it.
+	function placeTree(id: string, left: number) {
+		const w = W.get(id)!
+		out.set(id, { x: left + w / 2, y: layer.get(id)! * LAYER_H })
+		const kids = treeChildren.get(id)!
+		if (kids.length === 0) return
+		const kidsW =
+			kids.reduce((acc, k) => acc + W.get(k)!, 0) + SIBLING_GAP * (kids.length - 1)
+		let cursor = left + (w - kidsW) / 2
+		for (const k of kids) {
+			placeTree(k, cursor)
+			cursor += W.get(k)! + SIBLING_GAP
+		}
+	}
+
+	const bands: Band[] = []
+	function placeAndRecord(id: string, left: number) {
+		placeTree(id, left)
+		const span = treeSpan(id)
+		bands.push({ left, right: left + W.get(id)!, top: span.top, bottom: span.bottom })
+	}
+
+	// 1. Source trees (true roots), packed left-to-right in input order.
+	let cursor = 0
+	for (const n of nodes) {
+		if (parents.get(n.id)!.length !== 0) continue
+		placeAndRecord(n.id, cursor)
+		cursor += W.get(n.id)! + SIBLING_GAP
+	}
+
+	// 2. Join trees, in topo order so every parent is already placed (it
+	// lives in a source tree or in an earlier join's tree). Centered under
+	// the mean of the parents, then pushed right past any band it would
+	// overlap (same-x is fine when the layer ranges are disjoint).
+	for (const id of topo) {
+		const ps = parents.get(id)!
+		if (ps.length < 2) continue
+		const w = W.get(id)!
+		const span = treeSpan(id)
+		let center = ps.reduce((acc, p) => acc + out.get(p)!.x, 0) / ps.length
+		let moved = true
+		while (moved) {
+			moved = false
+			for (const b of bands) {
+				if (span.top > b.bottom || span.bottom < b.top) continue
+				const left = center - w / 2
+				const right = center + w / 2
+				if (right > b.left - SIBLING_GAP && left < b.right + SIBLING_GAP) {
+					center = b.right + SIBLING_GAP + w / 2
+					moved = true
+				}
+			}
+		}
+		placeAndRecord(id, center - w / 2)
+	}
+
 	// Normalize so the component's min x,y = 0.
 	let minX = Infinity
 	let minY = Infinity
@@ -76,16 +207,13 @@ function layoutComponent(
 	return out
 }
 
-// Sugiyama layered layout (top-down, same orientation as the flow editor —
-// see compoundLayout.ts): producers above → assets in the middle → consumers
+// Top-down layered layout (same orientation as the flow editor — see
+// compoundLayout.ts): producers above → assets in the middle → consumers
 // below.
 //
 // Each weakly-connected component (treating edges as undirected) is laid out
-// independently, then the components are packed left-to-right with a wide
-// gutter between them. Running Sugiyama over the whole graph at once would
-// interleave disjoint subgraphs in shared layers, leaving nodes from unrelated
-// triggers horizontally adjacent; per-component layout makes each subgraph
-// occupy its own horizontal band whose width is its own max breadth, so they
+// independently with the tidy-tree algorithm above, then the components are
+// packed left-to-right with a wide gutter between them, so disjoint subgraphs
 // read as clearly separated boxes.
 //
 // `anchorId` is an optional UI affordance node (the pipeline `+` button) that
@@ -93,7 +221,7 @@ function layoutComponent(
 // disjoint components, so it's excluded from component detection and instead
 // re-placed centered one layer above the whole packed graph.
 //
-// Falls back to a stable grid if d3-dag throws (e.g., cyclic inputs).
+// Falls back to a stable grid if the component layout throws (cyclic inputs).
 export function layoutAssetGraph(graph: GraphInput, anchorId?: string): Map<string, Positioned> {
 	const byId = new Map<string, Positioned>()
 	if (graph.nodes.length === 0) return byId
@@ -147,7 +275,7 @@ export function layoutAssetGraph(graph: GraphInput, anchorId?: string): Map<stri
 	try {
 		// 3. Lay out each component and pack side-by-side. xOffset advances by
 		// the laid-out width of each component (max node center + a node width,
-		// since coordCenter positions are node centers) plus the gutter.
+		// since positions are node centers) plus the gutter.
 		let xOffset = 0
 		for (let c = 0; c < nComp; c++) {
 			const positions = layoutComponent(compNodes[c], compEdges[c])
@@ -175,7 +303,7 @@ export function layoutAssetGraph(graph: GraphInput, anchorId?: string): Map<stri
 					if (p.x > maxX) maxX = p.x
 					if (p.y < minY) minY = p.y
 				}
-				byId.set(anchorId, { x: (minX + maxX) / 2, y: minY - (NODE_HEIGHT + LAYER_GAP) })
+				byId.set(anchorId, { x: (minX + maxX) / 2, y: minY - LAYER_H })
 				let nMinY = Infinity
 				for (const p of byId.values()) if (p.y < nMinY) nMinY = p.y
 				for (const p of byId.values()) p.y -= nMinY
@@ -187,7 +315,7 @@ export function layoutAssetGraph(graph: GraphInput, anchorId?: string): Map<stri
 		graph.nodes.forEach((n, i) => {
 			byId.set(n.id, {
 				x: (i % cols) * (NODE_WIDTH + SIBLING_GAP),
-				y: Math.floor(i / cols) * (NODE_HEIGHT + LAYER_GAP)
+				y: Math.floor(i / cols) * LAYER_H
 			})
 		})
 		return byId
