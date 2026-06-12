@@ -6,7 +6,7 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import { getCompletion, parseOpenAICompletion, providerSupportsWebSearch } from '../lib'
-import { resolveEffectiveReasoning, type ReasoningProviderModel } from '../reasoningRegistry'
+import { resolveRequestReasoning, type ReasoningProviderModel } from '../reasoningRegistry'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
 import { getOpenAIResponsesCompletion, parseOpenAIResponsesCompletion } from './openai-responses'
 import type { Tool, ToolCallbacks } from './shared'
@@ -147,7 +147,11 @@ function shouldRetryWithoutWebSearch(err: unknown): boolean {
 	return status === undefined || WEB_SEARCH_UNAVAILABLE_STATUS_CODES.has(status)
 }
 
-function markWebSearchUnsupported(cacheKey: string, err: unknown, onWebSearchUnavailable?: () => void) {
+function markWebSearchUnsupported(
+	cacheKey: string,
+	err: unknown,
+	onWebSearchUnavailable?: () => void
+) {
 	unsupportedWebSearchCache.add(cacheKey)
 	console.warn('Native web search unavailable; retrying without web search:', err)
 	onWebSearchUnavailable?.()
@@ -202,9 +206,10 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai'
 		const isAnthropic = modelProvider.provider === 'anthropic'
 		// Resolve effort once in chat context (applies the default-on level for
-		// capable models); passed explicitly to each seam so background paths
-		// (metadata/autocomplete) never inherit it.
-		const reasoningEffort = resolveEffectiveReasoning(modelProvider)
+		// capable models, and the provider-native disable token for an explicit
+		// off on reasoning-by-default providers); passed explicitly to each seam
+		// so background paths (metadata/autocomplete) never inherit it.
+		const reasoningEffort = resolveRequestReasoning(modelProvider)
 
 		const messageParams = [
 			systemMessage,
@@ -212,7 +217,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			...(pendingUserMessage ? [pendingUserMessage] : [])
 		]
 		const toolDefs = tools.map((t) => t.def)
-		const parseOptions = { workspace }
+		const parseOptions = { workspace, provider: modelProvider.provider }
 
 		if (isOpenAI) {
 			const runOpenAIResponses = async (useWebSearch: boolean): Promise<boolean> => {
@@ -302,17 +307,12 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			}
 		} else if (isAnthropic) {
 			const runAnthropic = async (useWebSearch: boolean): Promise<boolean> => {
-				const completion = await getAnthropicCompletion(
-					messageParams,
-					abortController,
-					toolDefs,
-					{
-						forceModelProvider: modelProvider,
-						anthropicClient: clients.anthropic,
-						webSearch: useWebSearch,
-						reasoningEffort
-					}
-				)
+				const completion = await getAnthropicCompletion(messageParams, abortController, toolDefs, {
+					forceModelProvider: modelProvider,
+					anthropicClient: clients.anthropic,
+					webSearch: useWebSearch,
+					reasoningEffort
+				})
 				if (!completion) {
 					return true
 				}

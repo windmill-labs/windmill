@@ -7,7 +7,8 @@ import { describe, expect, it } from 'vitest'
 import {
 	buildAssistantTextMessage,
 	buildAssistantToolCallMessage,
-	getReasoningContentDelta
+	getReasoningContentDelta,
+	splitContentDelta
 } from './chat/openaiReasoning'
 import { parseFimCompletionChoice } from './fim'
 import { requiresMaxCompletionTokens } from './modelConfig'
@@ -161,6 +162,47 @@ describe('openaiReasoning', () => {
 			content: '',
 			reasoning_content: '',
 			tool_calls: []
+		})
+	})
+
+	it('omits reasoning_content for Mistral, which rejects it on input messages', () => {
+		const assistantMessage = buildAssistantToolCallMessage({
+			content: '',
+			reasoning: {
+				hasReasoningContent: true,
+				reasoningContent: 'thinking trace'
+			},
+			toolCalls: [],
+			provider: 'mistral'
+		}) as AssistantMessageWithReasoning
+
+		expect(assistantMessage.reasoning_content).toBeUndefined()
+		// The content key is still present so the message stays well-formed.
+		expect(assistantMessage).toMatchObject({ role: 'assistant', content: '', tool_calls: [] })
+	})
+})
+
+describe('splitContentDelta', () => {
+	it('passes plain string deltas through as answer text', () => {
+		expect(splitContentDelta('hello')).toEqual({ reasoning: '', text: 'hello' })
+		expect(splitContentDelta(null)).toEqual({ reasoning: '', text: '' })
+		expect(splitContentDelta(undefined)).toEqual({ reasoning: '', text: '' })
+	})
+
+	it('routes Mistral thinking parts to reasoning and text parts to the answer', () => {
+		expect(
+			splitContentDelta([
+				{ type: 'thinking', thinking: [{ type: 'text', text: 'step 1. ' }], closed: true },
+				{ type: 'thinking', thinking: [{ type: 'text', text: 'step 2.' }] },
+				{ type: 'text', text: '42' }
+			])
+		).toEqual({ reasoning: 'step 1. step 2.', text: '42' })
+	})
+
+	it('ignores malformed parts', () => {
+		expect(splitContentDelta([{ type: 'thinking' }, { type: 'text' }, 'junk', null])).toEqual({
+			reasoning: '',
+			text: ''
 		})
 	})
 })
