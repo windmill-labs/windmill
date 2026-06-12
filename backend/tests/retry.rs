@@ -262,6 +262,65 @@ def main(last, port):
         Ok(())
     }
 
+    /* `skip_if` evaluation goes through windmill-jseval and requires `quickjs` */
+    #[cfg(all(feature = "deno_core", feature = "quickjs"))]
+    #[sqlx::test(fixtures("base"))]
+    async fn test_skip_if_sees_previous_step_result_on_retry(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        initialize_tracing().await;
+
+        /* step `b` fails on its first attempt and succeeds on retry. Its `skip_if`
+         * references the previous step's result: when re-evaluated for the retry,
+         * `previous_result` must still be step `a`'s result, not the error of step
+         * `b`'s failed attempt (which would wrongly flip `skip_if` to true and skip
+         * the retry) */
+        let value = serde_json::from_value(json!({
+            "modules": [{
+                "id": "a",
+                "value": {
+                    "input_transforms": {},
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return \"ok\" }",
+                },
+            }, {
+                "id": "b",
+                "skip_if": { "expr": "results.a?.error !== undefined" },
+                "value": {
+                    "input_transforms": {
+                        "index": { "type": "static", "value": 1 },
+                        "port": { "type": "javascript", "expr": "flow_input.port" },
+                    },
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": inner_step(),
+                },
+                "retry": { "constant": { "attempts": 1, "seconds": 0 } },
+            }],
+        }))
+        .unwrap();
+
+        let (attempts, responses) = [
+            /* fail step `b` once, then pass on retry */
+            (1, None),
+            (1, Some(42)),
+        ]
+        .into_iter()
+        .unzip::<_, _, Vec<_>, Vec<_>>();
+        let server = Server::start(responses).await;
+        let result = RunJob::from(JobPayload::RawFlow { value, path: None, restarted_from: None })
+            .arg("port", json!(server.addr.port()))
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+
+        assert_eq!(server.close().await, attempts);
+        assert_eq!(json!(42), result);
+        Ok(())
+    }
+
     #[cfg(feature = "python")]
     #[sqlx::test(fixtures("base"))]
     async fn test_with_failure_module(db: Pool<Postgres>) -> anyhow::Result<()> {
