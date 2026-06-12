@@ -240,8 +240,12 @@ fn empty_string() -> String {
     "".to_string()
 }
 
+/// Placeholder authorize URL for providers that only support the
+/// client-credentials grant (the authorize endpoint is never used by it).
+pub const MISSING_AUTH_URL: &str = "https://missing-auth-url";
+
 fn empty_auth() -> String {
-    "https://missing-auth-url".to_string()
+    MISSING_AUTH_URL.to_string()
 }
 
 fn default_grant_types() -> Vec<String> {
@@ -391,10 +395,18 @@ pub async fn build_client_credentials_oauth_client(
         Ok(resolve_registry_config(&static_configs, client_name))
     };
 
+    // A token URL alone is enough for client credentials: providers that only
+    // support this grant have no authorize endpoint to configure.
     let instance_connect_config = instance_entry
         .as_ref()
         .and_then(|e| e.connect_config.clone())
-        .filter(|c| !c.auth_url.is_empty() && !c.token_url.is_empty());
+        .filter(|c| !c.token_url.is_empty())
+        .map(|mut c| {
+            if c.auth_url.is_empty() {
+                c.auth_url = empty_auth();
+            }
+            c
+        });
 
     let mut connect_config = match instance_connect_config {
         Some(config) => config,

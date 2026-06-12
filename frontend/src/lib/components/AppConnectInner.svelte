@@ -164,16 +164,23 @@
 		return registryEntry()?.grant_types?.includes('client_credentials') ?? false
 	}
 
-	/** Connectable via client credentials only — no instance OAuth client configured */
+	/** Instance entry declares client credentials but not authorization_code
+	 * (custom provider configured with only a token URL) */
+	let authCodeUnavailable = $state(false)
+
+	/** Connectable via client credentials only: registry-declared provider with
+	 * no instance OAuth client, or instance provider without an authorize URL */
 	let ccOnly = $derived.by(
 		() =>
-			registryCcCapable() && connectClient != '' && !(connects?.includes(connectClient) ?? false)
+			authCodeUnavailable ||
+			(registryCcCapable() && connectClient != '' && !(connects?.includes(connectClient) ?? false))
 	)
 
 	/** Clear CC inputs and scopes so a previous selection never leaks into a new one */
 	function resetClientCredentialsState() {
 		supportsClientCredentials = false
 		useClientCredentials = false
+		authCodeUnavailable = false
 		clientId = ''
 		clientSecret = ''
 		tokenUrl = ''
@@ -230,6 +237,11 @@
 		if (rt) {
 			if (!manual && express) {
 				await getScopesAndParams()
+				if (authCodeUnavailable) {
+					// No popup flow to drive express setup with
+					dispatch('error', 'Express OAuth setup is not available for client credentials providers')
+					return
+				}
 				step = 2
 			}
 			next()
@@ -410,6 +422,12 @@
 			registryCcCapable() || (connect.grant_types?.includes('client_credentials') ?? false)
 		if (!tokenUrl) {
 			tokenUrl = connect.token_url ?? registryEntry()?.token_url ?? ''
+		}
+		// Custom provider configured with only a token URL: no popup flow possible
+		authCodeUnavailable =
+			supportsClientCredentials && !(connect.grant_types?.includes('authorization_code') ?? true)
+		if (authCodeUnavailable) {
+			useClientCredentials = true
 		}
 	}
 
