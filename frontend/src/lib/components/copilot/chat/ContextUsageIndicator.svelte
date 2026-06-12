@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
-	import { getKnownModelContextWindow } from '../lib'
+	import { getKnownModelContextWindow } from '../modelConfig'
 	import { getAiChatManager } from './aiChatManagerContext'
 
 	const aiChatManager = getAiChatManager()

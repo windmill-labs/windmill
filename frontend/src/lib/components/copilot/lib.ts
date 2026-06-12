@@ -286,7 +286,6 @@ export function getModelMaxTokens(provider: AIProvider, model: string) {
 	return 8192
 }
 
-export { getKnownModelContextWindow, getModelContextWindow } from './modelConfig'
 
 function getModelSpecificConfig(
 	modelProvider: AIProviderModel,
