@@ -15,6 +15,7 @@
 	import { Badge } from '../common'
 	import { forLater } from '$lib/forLater'
 	import DurationMs from '../DurationMs.svelte'
+	import { jobDisplayDurationMs } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 
@@ -157,7 +158,7 @@
 				</Badge>
 				{#if job?.['duration_ms']}
 					<DurationMs
-						duration_ms={job?.['duration_ms']}
+						duration_ms={jobDisplayDurationMs(job) ?? job?.['duration_ms']}
 						self_wait_time_ms={job?.self_wait_time_ms}
 						aggregate_wait_time_ms={job?.aggregate_wait_time_ms}
 					/>
