@@ -164,12 +164,23 @@ describe('supportsReasoning (static registry)', () => {
 		expect(getReasoningCapability('openai', 'gpt-5.5').canDisable).toBe(true)
 		expect(getReasoningCapability('openai', 'gpt-5').canDisable).toBe(false)
 		expect(getReasoningCapability('openai', 'o3').canDisable).toBe(false)
-		// OpenRouter exposes an explicit 'none' effort that disables reasoning
-		// across underlying providers.
+		// OpenRouter's 'none' effort disables reasoning, but only where the
+		// underlying model can actually stop thinking — same family scoping
+		// as the levels.
 		expect(getReasoningCapability('openrouter', 'anthropic/claude-sonnet-4.6').canDisable).toBe(
 			true
 		)
 		expect(getReasoningCapability('openrouter', 'google/gemini-2.5-flash').canDisable).toBe(true)
+		expect(getReasoningCapability('openrouter', 'deepseek/deepseek-v4-flash').canDisable).toBe(true)
+		expect(getReasoningCapability('openrouter', 'openai/gpt-5.1').canDisable).toBe(true)
+		expect(getReasoningCapability('openrouter', 'google/gemini-2.5-pro').canDisable).toBe(false)
+		expect(getReasoningCapability('openrouter', 'google/gemini-3.1-pro-preview').canDisable).toBe(
+			false
+		)
+		expect(getReasoningCapability('openrouter', 'openai/o3').canDisable).toBe(false)
+		expect(getReasoningCapability('openrouter', 'openai/gpt-5-mini').canDisable).toBe(false)
+		expect(getReasoningCapability('openrouter', 'x-ai/grok-4').canDisable).toBe(false)
+		expect(getReasoningCapability('openrouter', 'deepseek/deepseek-r1').canDisable).toBe(false)
 	})
 	it('forwards an explicit off as effort none through OpenRouter', () => {
 		expect(

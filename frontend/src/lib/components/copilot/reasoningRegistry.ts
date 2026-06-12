@@ -239,6 +239,24 @@ function canDisableReasoning(provider: AIProvider, model: string): boolean {
 			// gpt-5.1+ accept effort 'none'; gpt-5 and o-series reject it and
 			// reason at `medium` by default, so omission isn't off either.
 			return /^gpt-5\./.test(base)
+		case 'openrouter':
+			// 'none' is in OpenRouter's vocabulary, but the gateway can't
+			// disable a model whose upstream can't — scope off per underlying
+			// family, like the levels.
+			if (/claude-(opus|sonnet)-4/.test(m)) {
+				return true
+			}
+			if (m.includes('gemini-')) {
+				return geminiCanDisable(m)
+			}
+			if (base.startsWith('gpt-5') || /^o\d/.test(base)) {
+				return /^gpt-5\./.test(base)
+			}
+			if (m.includes('deepseek-v4')) {
+				return true
+			}
+			// grok-4, deepseek-r1 and :thinking variants reason unconditionally.
+			return false
 		default:
 			return true
 	}
