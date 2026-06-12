@@ -273,6 +273,7 @@ describe('global AI tools', () => {
 		expect(names).toContain('test_run_script')
 		expect(names).toContain('test_run_flow')
 		expect(names).toContain('test_run_step')
+		expect(names).toContain('get_documentation')
 		expect(names).toContain('get_job_logs')
 		expect(names).toContain('list_runs')
 	})
