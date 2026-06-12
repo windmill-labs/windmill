@@ -12,6 +12,13 @@
 		providerModel ? getKnownModelContextWindow(providerModel.model) : undefined
 	)
 	let usedTokens = $derived(Math.round(aiChatManager.estimatedContextTokens))
+	// With a known window, only surface once the conversation actually fills it;
+	// without one there is no threshold to compare against, so always show.
+	let visible = $derived(
+		usedTokens > 0 &&
+			aiChatManager.messages.length > 0 &&
+			(contextWindow === undefined || usedTokens >= contextWindow * 0.5)
+	)
 
 	function formatTokenCount(tokens: number): string {
 		if (tokens >= 1_000_000) {
@@ -24,7 +31,7 @@
 	}
 </script>
 
-{#if usedTokens > 0 && aiChatManager.messages.length > 0}
+{#if visible}
 	<div class="flex justify-end px-1">
 		<span class="text-[0.6rem] text-tertiary tabular-nums" aria-label="Context window usage">
 			context window usage: ~{formatTokenCount(usedTokens)}{contextWindow
