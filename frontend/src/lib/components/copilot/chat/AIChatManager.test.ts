@@ -354,6 +354,7 @@ describe('AIChatManager context compaction', () => {
 		// assistant pair (~200k estimated).
 		manager.contextUsage = 850_000
 		manager.instructions = 'next question'
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat')
 
 		await manager.sendRequest()
 
@@ -364,8 +365,13 @@ describe('AIChatManager context compaction', () => {
 		// pair is gone for good and the turn's reply was committed on top
 		expect(manager.messages.length).toBe(4)
 		expect(manager.messages[0]).toMatchObject({ role: 'user', content: 'c'.repeat(400) })
-		// The trigger fact is debited by the freed estimate until the next report
-		expect(manager.contextUsage).toBe(650_000)
+		// Mid-turn, the fact is debited by the freed estimate (visible in the
+		// compaction-time save) so a rolled-back turn keeps a consistent value
+		expect(saveChat).toHaveBeenCalledWith(expect.anything(), expect.anything(), 650_000)
+		// At commit, the no-usage turn rewrites it with a fresh estimate of the
+		// now-tiny compacted history instead of keeping the debited carry-over
+		expect(manager.contextUsage).toBeGreaterThan(0)
+		expect(manager.contextUsage).toBeLessThan(50_000)
 		// The display message for the sent prompt re-bases onto the compacted history
 		const userDisplay = manager.displayMessages.find((m) => m.role === 'user')
 		expect(userDisplay && 'index' in userDisplay ? userDisplay.index : undefined).toBe(2)
@@ -400,9 +406,39 @@ describe('AIChatManager context compaction', () => {
 
 		await manager.sendRequest()
 
+		// no fact at send time → no compaction; the fallback estimate written
+		// after the turn only seeds the NEXT turn's trigger
 		expect(mocks.runChatLoop.mock.calls[0][0].messages.length).toBe(3)
-		// and no report from the loop leaves the fact unset
-		expect(manager.contextUsage).toBeUndefined()
+	})
+
+	it('seeds the fact with a chars/4 estimate when the provider reports no usage', async () => {
+		const manager = new AIChatManager()
+		manager.messages = [
+			{ role: 'user', content: 'a'.repeat(400_000) },
+			{ role: 'assistant', content: 'b'.repeat(400_000) }
+		]
+		manager.instructions = 'next question'
+
+		await manager.sendRequest() // replyWith('done') reports no usage
+
+		// ~200k for the stored messages plus the real navigator system prompt,
+		// tool defs and the small new-turn messages; the prompt templates aren't
+		// pinned here, so assert the magnitude rather than the byte count
+		expect(manager.contextUsage).toBeGreaterThan(200_000)
+		expect(manager.contextUsage).toBeLessThan(250_000)
+	})
+
+	it('replaces the fallback estimate with the next real report', async () => {
+		const manager = new AIChatManager()
+		manager.messages = [{ role: 'user', content: 'a'.repeat(400) }]
+		manager.instructions = 'first'
+		await manager.sendRequest()
+		expect(manager.contextUsage).toBeGreaterThan(0)
+
+		replyWith('done', { prompt: 1_234, completion: 56, total: 1_290 })
+		manager.instructions = 'second'
+		await manager.sendRequest()
+		expect(manager.contextUsage).toBe(1_290)
 	})
 
 	it('does not compact when the model context window is unknown', async () => {

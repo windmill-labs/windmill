@@ -204,10 +204,11 @@ export class AIChatManager {
 	currentReasoningActive = $state<boolean>(false)
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
-	/** Last provider-reported context size: prompt + completion of the latest
-	 * completion, so it includes the system prompt, tool definitions and the
-	 * full sent history. This is the only fact tracked about context usage —
-	 * compaction triggers off it, and it is re-reported after every send. */
+	/** Context size as of the last committed turn, rewritten after every send.
+	 * Preferred source is the provider's usage report (prompt + completion of
+	 * the latest completion — exact, includes system prompt and tools); when a
+	 * provider doesn't report usage, a fresh chars/4 estimate of the stored
+	 * context stands in. Compaction triggers off this single number. */
 	contextUsage = $state<number | undefined>(undefined)
 	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
@@ -294,6 +295,31 @@ export class AIChatManager {
 			return acc
 		}, 0)
 	}
+
+	/** Estimated tokens of the parts the messages array doesn't carry: the
+	 * current system prompt and tool definitions. */
+	private estimateOverheadTokens = () => {
+		const tokenPerCharacter = 4
+		const systemTokens =
+			typeof this.systemMessage.content === 'string'
+				? this.systemMessage.content.length / tokenPerCharacter
+				: 0
+		const toolTokens =
+			this.tools.length > 0
+				? JSON.stringify(this.tools.map((t) => t.def)).length / tokenPerCharacter
+				: 0
+		return systemTokens + toolTokens
+	}
+
+	/**
+	 * chars/4 estimate of the full context as currently stored: messages plus
+	 * the system prompt and tool definitions the next request would carry.
+	 * Fallback source for `contextUsage` on providers that don't report usage.
+	 * Recomputed from scratch at each write — never accumulated — so errors
+	 * don't compound, and the next real report replaces it wholesale.
+	 */
+	private estimateWholeContextTokens = () =>
+		Math.round(this.estimateMessagesTokens(this.messages) + this.estimateOverheadTokens())
 
 	/**
 	 * Drop-oldest compaction. Deletes messages from the front of the STORED
@@ -1220,13 +1246,14 @@ export class AIChatManager {
 				if (this.autoAcceptEditsActive) {
 					this.acceptPendingFlowEdits()
 				}
-				// The report from the last completed iteration still describes the
-				// stored history it was sent with; the kept partial tail is a small
-				// undercount the trigger headroom absorbs.
-				if (result?.lastIterationUsage) {
-					this.contextUsage =
-						result.lastIterationUsage.prompt + result.lastIterationUsage.completion
-				}
+				// Prefer the report from the last completed iteration — it still
+				// describes the stored history it was sent with (the kept partial
+				// tail is a small undercount the trigger headroom absorbs). Without
+				// one (abort before any completion, usage-stripping provider), fall
+				// back to estimating the just-committed history.
+				this.contextUsage = result?.lastIterationUsage
+					? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
+					: this.estimateWholeContextTokens()
 				await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
 				// Still counts as the saved first turn — skipping the hook here would
 				// permanently miss it (the next turn isn't "first" anymore).
@@ -1255,13 +1282,16 @@ export class AIChatManager {
 			} else {
 				// Clean turn with output → commit as-is.
 				this.messages = [...this.messages, ...collectedMessages]
-				if (result?.lastIterationUsage) {
-					// Compaction mutates the stored history before sending, so what
-					// was sent IS the stored history and the report describes it
-					// exactly — no anchoring or index bookkeeping needed.
-					this.contextUsage =
-						result.lastIterationUsage.prompt + result.lastIterationUsage.completion
-				}
+				// Prefer the provider's report: compaction mutates the stored history
+				// before sending, so what was sent IS the stored history and the
+				// report describes it exactly — no anchoring or index bookkeeping
+				// needed. Providers that never report usage fall back to a chars/4
+				// estimate of the stored context, so compaction still triggers for
+				// them — less accurate, but the 20% trigger headroom is the margin
+				// for exactly this kind of error.
+				this.contextUsage = result?.lastIterationUsage
+					? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
+					: this.estimateWholeContextTokens()
 				if (this.autoAcceptEditsActive) {
 					this.acceptPendingFlowEdits()
 				}
@@ -1279,6 +1309,11 @@ export class AIChatManager {
 			// re-committing would duplicate the turn's messages.
 			if (!turnOutcomeHandled) {
 				this.commitInterruptedTurn(collectedMessages, partialReply)
+				// No report after a failed turn; estimate the committed history so
+				// the trigger keeps working. Notably, when the failure WAS a
+				// context-length error, the high estimate forces compaction on the
+				// next send instead of failing the same way again.
+				this.contextUsage = this.estimateWholeContextTokens()
 				try {
 					await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
 				} catch (saveErr) {
