@@ -362,6 +362,12 @@ async fn list_search_apps(
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<Vec<SearchApp>> {
+    // Require domain-level read: this returns every visible app's full value (code).
+    // The route layer treats `apps:run` as satisfying read, so without this handler
+    // check a scoped embed token (apps:run + apps:read:<one path>) could read all
+    // apps' definitions. `check_scopes` uses ScopeDefinition::includes, where run
+    // does NOT include read, so it correctly denies such tokens.
+    check_scopes(&authed, || "apps:read".to_string())?;
     #[cfg(feature = "enterprise")]
     let n = 1000;
 
@@ -389,6 +395,9 @@ async fn list_apps(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListAppQuery>,
 ) -> JsonResult<Vec<ListableApp>> {
+    // Domain-level read (see list_search_apps): keeps a scoped embed token, whose
+    // `apps:run` only satisfies read at the route layer, from listing all apps.
+    check_scopes(&authed, || "apps:read".to_string())?;
     let (per_page, offset) = paginate(pagination);
 
     let mut sqlb = SqlBuilder::select_from("app")
@@ -1110,6 +1119,12 @@ pub struct EmbedTokenResponse {
 /// is authenticated. When `opt_authed` is `None` (anonymous access to an
 /// anonymous app) no token is minted and the iframe relies on the public
 /// endpoints.
+///
+/// The CALLER MUST verify the viewer's access to `app_path` before calling: this
+/// mints a token on behalf of `opt_authed` unconditionally (DB access remains
+/// gated by the viewer's own RLS, but the token's existence is not access-checked
+/// here). Both current call sites (`get_app_embed_token`,
+/// `get_app_embed_token_for_path`, and the EE custom-path variant) do this.
 pub async fn mint_app_embed_token(
     db: &DB,
     w_id: &str,
@@ -1771,6 +1786,10 @@ async fn create_app_internal<'a>(
         .execute(&mut *tx)
         .await?;
     }
+    // `legacy_unsandboxed` is backend-owned (set only by the grandfather migration)
+    // and grants consent-free same-origin execution. Never let a client set it via
+    // the policy payload, or it would bypass the sandbox.
+    app.policy.legacy_unsandboxed = None;
     let id = sqlx::query_scalar!(
         "INSERT INTO app
             (workspace_id, path, summary, policy, versions, draft_only, custom_path, labels)
@@ -2278,6 +2297,10 @@ async fn update_app_internal<'a>(
         }
 
         if let Some(mut npolicy) = ns.policy {
+            // `legacy_unsandboxed` is backend-owned (set only by the grandfather
+            // migration) and grants consent-free same-origin execution. Never let a
+            // client set it via the policy payload, or it would bypass the sandbox.
+            npolicy.legacy_unsandboxed = None;
             if matches!(npolicy.execution_mode, ExecutionMode::Anonymous) && !authed.is_admin {
                 // Restricted users may keep deploying an app that is already
                 // public, but flipping an app to anonymous (public) access is
@@ -3918,5 +3941,31 @@ mod embed_token_tests {
                 "embed token should deny {method} {path}"
             );
         }
+    }
+
+    /// `apps:run` satisfies read at the route layer, so `apps/list` / `apps/list_search`
+    /// pass the route check — that's why those handlers ALSO call
+    /// `check_scopes(apps:read)`, which uses `ScopeDefinition::includes` (where run
+    /// does NOT include read). Lock that: no embed scope, including the
+    /// dynamically-minted path-scoped read, satisfies a domain-level `apps:read`, so
+    /// the token cannot list all apps' definitions (their full `value`/code).
+    #[test]
+    fn embed_scopes_cannot_satisfy_domain_app_read() {
+        use windmill_api_auth::scopes::ScopeDefinition;
+        let mut scopes: Vec<String> = APP_EMBED_SCOPES.iter().map(|s| s.to_string()).collect();
+        // mint_app_embed_token also grants read scoped to the single app path:
+        scopes.push("apps:read:u/admin/app".to_string());
+        let required = ScopeDefinition::from_scope_string("apps:read").unwrap();
+        for s in &scopes {
+            let def = ScopeDefinition::from_scope_string(s).unwrap();
+            assert!(
+                !def.includes(&required),
+                "embed scope {s} must not satisfy domain-level apps:read (would leak apps/list[_search])"
+            );
+        }
+        // Sanity: a genuine domain-level apps:read token does satisfy it.
+        assert!(ScopeDefinition::from_scope_string("apps:read")
+            .unwrap()
+            .includes(&required));
     }
 }

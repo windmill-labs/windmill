@@ -376,7 +376,7 @@
 			<p class="text-xs text-tertiary">You'll be asked again when the app is updated.</p>
 			<div class="flex justify-end gap-2">
 				<Button variant="default" color="light" href={base}>Cancel</Button>
-				<Button variant="contained" color="red" onclick={acceptConsent}>Run app</Button>
+				<Button variant="contained" color="red" onClick={acceptConsent}>Run app</Button>
 			</div>
 		</div>
 	</div>
