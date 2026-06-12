@@ -61,7 +61,7 @@ import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { runChatLoop } from './chatLoop'
-import type { ContextTokenSnapshot } from './tokenUsage'
+import { normalizeContextUsage } from './tokenUsage'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import {
 	getCurrentModel,
@@ -78,9 +78,14 @@ import {
 } from './global/core'
 import { isGlobalAiEnabled } from './global/gate'
 
-// If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
-const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
-const MAX_TOKENS_HARD_LIMIT = 5000
+// Drop-oldest compaction of the stored history, triggered purely off the last
+// provider-reported usage: once (last report + the new user message estimate)
+// reaches the trigger ratio of the model's context window, head messages are
+// dropped until roughly the target ratio. The trigger headroom absorbs what
+// the report cannot see yet — the upcoming completion and tool results, and
+// system-prompt/tool-schema changes from mode switches.
+const COMPACTION_TRIGGER_RATIO = 0.8
+const COMPACTION_TARGET_RATIO = 0.7
 const AI_AUTONOMY_MODE_STORAGE_KEY = 'ai-chat-autonomy-mode'
 const LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
 const WEB_SEARCH_ERROR_HINT =
@@ -199,7 +204,11 @@ export class AIChatManager {
 	currentReasoningActive = $state<boolean>(false)
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
-	contextUsage = $state<ContextTokenSnapshot | undefined>(undefined)
+	/** Last provider-reported context size: prompt + completion of the latest
+	 * completion, so it includes the system prompt, tool definitions and the
+	 * full sent history. This is the only fact tracked about context usage —
+	 * compaction triggers off it, and it is re-reported after every send. */
+	contextUsage = $state<number | undefined>(undefined)
 	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
 	autoAcceptEditsActive = $derived(
@@ -286,92 +295,39 @@ export class AIChatManager {
 		}, 0)
 	}
 
-	/** Estimated tokens of the parts the messages array doesn't carry: the
-	 * current system prompt and tool definitions. */
-	private estimateOverheadTokens = () => {
-		const tokenPerCharacter = 4
-		const systemTokens =
-			typeof this.systemMessage.content === 'string'
-				? this.systemMessage.content.length / tokenPerCharacter
-				: 0
-		const toolTokens =
-			this.tools.length > 0
-				? JSON.stringify(this.tools.map((t) => t.def)).length / tokenPerCharacter
-				: 0
-		return systemTokens + toolTokens
-	}
-
 	/**
-	 * Best-effort size of the context the next request will occupy. When the
-	 * provider has reported usage for a past turn, that exact count anchors the
-	 * estimate and only messages added since then are estimated. The anchor
-	 * remembers the system prompt + tools overhead it was taken with, so when a
-	 * mode switch swaps them the estimate re-bases on the current overhead
-	 * instead of silently reusing the old one. Without an anchor everything is
-	 * estimated, including the system prompt and tool definitions that the
-	 * provider counts but the messages array doesn't carry.
+	 * Drop-oldest compaction. Deletes messages from the front of the STORED
+	 * history (the API messages — displayMessages keep the full conversation
+	 * for the user) until at least `tokensToFree` estimated tokens are freed
+	 * AND the remaining history starts on a user message: a leading tool
+	 * result or assistant turn would dangle without the messages that
+	 * introduced it. The most recent user message is never dropped. Returns
+	 * the estimated tokens freed.
 	 */
-	estimatedContextTokens = $derived.by(() => {
-		const usage = this.contextUsage
-		if (usage && usage.atMessageIndex <= this.messages.length) {
-			// Legacy persisted anchors predate overheadEstimate; without it there
-			// is nothing to re-base against, so use the anchor as recorded.
-			const overheadAdjustment =
-				usage.overheadEstimate === undefined
-					? 0
-					: this.estimateOverheadTokens() - usage.overheadEstimate
-			return (
-				usage.tokens +
-				overheadAdjustment +
-				this.estimateMessagesTokens(this.messages.slice(usage.atMessageIndex))
-			)
-		}
-		return this.estimateMessagesTokens(this.messages) + this.estimateOverheadTokens()
-	})
-
-	private isOverContextLimit = (estimatedTokens: number) => {
-		const model = tryGetCurrentModel()
-		const modelContextWindow = model ? getKnownModelContextWindow(model.model) : undefined
-		// Without a known context window there is no meaningful limit to enforce,
-		// so auto-trimming/compaction is disabled rather than guessing one.
-		if (modelContextWindow === undefined) {
-			return false
-		}
-		return (
-			estimatedTokens >
-			modelContextWindow -
-				Math.max(modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE, MAX_TOKENS_HARD_LIMIT)
-		)
-	}
-
-	/**
-	 * Drops messages from the front until the estimated context fits the limit.
-	 * `overheadTokens` carries what the message-only estimate can't see — system
-	 * prompt, tool definitions and the provider-anchor correction — so the stop
-	 * condition tracks the same total-context budget as the trim trigger.
-	 */
-	deleteOldestMessage = (
-		messages: ChatCompletionMessageParam[],
-		overheadTokens: number = 0,
-		maxDepth: number = 10
-	) => {
-		if (maxDepth <= 0 || messages.length <= 1) {
-			return messages
-		}
-		const removed = messages.shift()
-
-		// if the removed message is an assistant with tool calls, we need to delete correspding tool response.
-		if (removed?.role === 'assistant' && removed.tool_calls) {
-			if (messages.length > 0 && messages[0]?.role === 'tool') {
-				messages.shift()
+	compactOldestMessages = (tokensToFree: number): number => {
+		const last = this.messages.length - 1
+		let drop = 0
+		let freed = 0
+		while (drop < last) {
+			if (freed >= tokensToFree && this.messages[drop].role === 'user') {
+				break
 			}
+			freed += this.estimateMessagesTokens([this.messages[drop]])
+			drop++
 		}
-
-		// keep deleting messages until we are under the limit
-		if (this.isOverContextLimit(this.estimateMessagesTokens(messages) + overheadTokens)) {
-			return this.deleteOldestMessage(messages, overheadTokens, maxDepth - 1)
+		if (drop === 0) {
+			return 0
 		}
-		return messages
+		this.messages = this.messages.slice(drop)
+		// User display messages carry the index of their API message so restart
+		// can rewind to it; re-base them on the compacted history. A message
+		// whose API counterpart was dropped clamps to 0: everything before it
+		// was dropped too (compaction only removes prefixes), so restarting
+		// from it restarts from an empty history.
+		this.displayMessages = this.displayMessages.map((m) =>
+			m.role === 'user' ? { ...m, index: Math.max(0, m.index - drop) } : m
+		)
+		return freed
 	}
 
 	loadApiTools = async () => {
@@ -1075,19 +1031,28 @@ export class AIChatManager {
 			this.currentReasoning = ''
 			this.currentReasoningActive = false
 
-			let trimmedMessages = [...this.messages]
-			// Trigger on the anchored estimate (counts system prompt + tools). The
-			// part of it the message-only estimate can't see is held constant while
-			// trimming so the loop's stop condition tracks the same budget.
-			const estimatedTotalTokens = this.estimatedContextTokens
-			if (this.isOverContextLimit(estimatedTotalTokens)) {
-				const overheadTokens = Math.max(
-					0,
-					estimatedTotalTokens - this.estimateMessagesTokens(trimmedMessages)
-				)
-				trimmedMessages = this.deleteOldestMessage(trimmedMessages, overheadTokens)
+			// Compaction trigger: the last provider-reported usage is the only fact
+			// tracked about context size, and the just-built user message is the
+			// only growth that report cannot include (usage is re-reported after
+			// every send). No report yet — first turn, or history just rewound —
+			// means nothing to compact: a lone oversized message has no head to
+			// drop anyway. Without a known context window there is no limit to
+			// enforce, so compaction stays off rather than guessing one.
+			const contextWindow = model ? getKnownModelContextWindow(model.model) : undefined
+			if (contextWindow !== undefined && this.contextUsage !== undefined) {
+				const projected = this.contextUsage + this.estimateMessagesTokens([userMessage])
+				if (projected >= contextWindow * COMPACTION_TRIGGER_RATIO) {
+					const freed = this.compactOldestMessages(
+						projected - contextWindow * COMPACTION_TARGET_RATIO
+					)
+					// Keep the trigger fact consistent with the compacted history
+					// until the next report replaces it. chars/4 can underestimate
+					// the freed tokens, which errs toward compacting again — never
+					// toward overflowing.
+					this.contextUsage = Math.max(0, this.contextUsage - freed)
+					await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+				}
 			}
-			const wasTrimmed = trimmedMessages.length !== this.messages.length
 
 			const params: {
 				messages: ChatCompletionMessageParam[]
@@ -1097,7 +1062,7 @@ export class AIChatManager {
 					onMessageEnd: () => void
 				}
 			} = {
-				messages: trimmedMessages,
+				messages: [...this.messages],
 				abortController: this.abortController,
 				callbacks: {
 					onNewToken: (token) => (this.currentReply += token),
@@ -1173,20 +1138,11 @@ export class AIChatManager {
 				}
 			})
 			this.messages = [...this.messages, ...(result?.addedMessages ?? [])]
-			if (result?.lastIterationUsage && !wasTrimmed) {
-				// Anchor only untrimmed sends: the reported usage then covers the
-				// whole stored history (plus system prompt and tools). After a
-				// trimmed send it would miss the dropped-but-still-stored head, so
-				// the next turn's estimate would undercount and could skip the trim;
-				// keeping the previous anchor (or the full fallback estimate)
-				// preserves full-history accounting instead.
-				this.contextUsage = {
-					tokens: result.lastIterationUsage.prompt + result.lastIterationUsage.completion,
-					atMessageIndex: this.messages.length,
-					// chatLoop re-reads systemMessage/tools each iteration, so the
-					// current values are the ones the anchored request was sent with
-					overheadEstimate: this.estimateOverheadTokens()
-				}
+			if (result?.lastIterationUsage) {
+				// Compaction mutates the stored history before sending, so what was
+				// sent IS the stored history and the report describes it exactly —
+				// no anchoring or index bookkeeping needed.
+				this.contextUsage = result.lastIterationUsage.prompt + result.lastIterationUsage.completion
 			}
 			if (this.autoAcceptEditsActive) {
 				this.acceptPendingFlowEdits()
@@ -1256,10 +1212,10 @@ export class AIChatManager {
 
 		this.messages = this.messages.slice(0, actualMessageIndex)
 
-		// The known context size covered messages that no longer exist
-		if (this.contextUsage && this.contextUsage.atMessageIndex > this.messages.length) {
-			this.contextUsage = undefined
-		}
+		// The last usage report described the pre-rewind history; drop it so the
+		// trigger doesn't compact the now-shorter conversation. The next
+		// completion re-reports.
+		this.contextUsage = undefined
 
 		// Resend the request with the same instructions
 		this.instructions = newContent ?? userMessage.content
@@ -1305,7 +1261,7 @@ export class AIChatManager {
 		if (chat) {
 			this.displayMessages = chat.displayMessages
 			this.messages = chat.actualMessages
-			this.contextUsage = chat.contextUsage
+			this.contextUsage = normalizeContextUsage(chat.contextUsage)
 			this.#automaticScroll = true
 		}
 	}

@@ -5,20 +5,26 @@ export interface ChatTokenUsage {
 }
 
 /**
- * Provider-reported context size anchored to a position in the conversation.
- * `tokens` is the prompt + completion size of the last completion of a turn
- * (so it includes the system prompt and tool definitions, which client-side
- * estimation cannot see). `atMessageIndex` is the length of the messages
- * array when the snapshot was taken: tokens for messages added after that
- * index must be estimated on top. `overheadEstimate` is the client-side
- * estimate of the system prompt + tool definitions at anchor time, kept so
- * the estimate can re-base when a mode switch swaps them (optional because
- * anchors persisted before it existed don't carry it).
+ * Context usage persisted by earlier versions, which anchored the provider
+ * report to a message index and re-based it on system-prompt/tool changes.
+ * Usage is now a plain token count; old chats loaded from IndexedDB are
+ * collapsed to it via `normalizeContextUsage`.
  */
-export interface ContextTokenSnapshot {
+export interface LegacyContextTokenSnapshot {
 	tokens: number
 	atMessageIndex: number
 	overheadEstimate?: number
+}
+
+export type PersistedContextUsage = number | LegacyContextTokenSnapshot
+
+export function normalizeContextUsage(
+	value: PersistedContextUsage | undefined
+): number | undefined {
+	if (value === undefined) {
+		return undefined
+	}
+	return typeof value === 'number' ? value : value.tokens
 }
 
 export function emptyChatTokenUsage(): ChatTokenUsage {

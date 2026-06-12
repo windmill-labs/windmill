@@ -3,7 +3,7 @@ import type { DisplayMessage } from './shared'
 import { expanded, messageDraft } from './chatDraft'
 import { createLongHash } from '$lib/editorLangUtils'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
-import type { ContextTokenSnapshot } from './tokenUsage'
+import type { PersistedContextUsage } from './tokenUsage'
 interface ChatSchema extends IDBSchema {
 	chats: {
 		key: string
@@ -14,7 +14,9 @@ interface ChatSchema extends IDBSchema {
 			title: string
 			lastModified: number
 			sessionId?: string
-			contextUsage?: ContextTokenSnapshot
+			// New writes store the plain reported token count; chats persisted by
+			// earlier versions may still hold the legacy anchor object.
+			contextUsage?: PersistedContextUsage
 		}
 	}
 }
@@ -31,7 +33,7 @@ export default class HistoryManager {
 			id: string
 			lastModified: number
 			sessionId?: string
-			contextUsage?: ContextTokenSnapshot
+			contextUsage?: PersistedContextUsage
 		}
 	> = $state({})
 
@@ -111,7 +113,7 @@ export default class HistoryManager {
 	async saveChat(
 		displayMessages: DisplayMessage[],
 		messages: ChatCompletionMessageParam[],
-		contextUsage?: ContextTokenSnapshot
+		contextUsage?: number
 	) {
 		if (displayMessages.length > 0) {
 			// Expand any collapsed-paste tokens so the title is readable text, not
@@ -128,7 +130,7 @@ export default class HistoryManager {
 				id: this.currentChatId,
 				lastModified: Date.now(),
 				...(this.sessionId ? { sessionId: this.sessionId } : {}),
-				...(contextUsage ? { contextUsage: $state.snapshot(contextUsage) } : {})
+				...(contextUsage !== undefined ? { contextUsage } : {})
 			}
 			this.savedChats = {
 				...this.savedChats,
@@ -144,7 +146,7 @@ export default class HistoryManager {
 	async save(
 		displayMessages: DisplayMessage[],
 		messages: ChatCompletionMessageParam[],
-		contextUsage?: ContextTokenSnapshot
+		contextUsage?: number
 	) {
 		await this.saveChat(displayMessages, messages, contextUsage)
 		this.currentChatId = createLongHash()

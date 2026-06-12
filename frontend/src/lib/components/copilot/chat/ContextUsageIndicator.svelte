@@ -11,7 +11,10 @@
 	let contextWindow = $derived(
 		providerModel ? getKnownModelContextWindow(providerModel.model) : undefined
 	)
-	let usedTokens = $derived(Math.round(aiChatManager.estimatedContextTokens))
+	// Last provider-reported usage — a fact, though one turn stale (it doesn't
+	// grow until the next completion reports). Nothing is shown before the
+	// first report.
+	let usedTokens = $derived(Math.round(aiChatManager.contextUsage ?? 0))
 	// With a known window, only surface once the conversation actually fills it;
 	// without one there is no threshold to compare against, so always show.
 	let visible = $derived(

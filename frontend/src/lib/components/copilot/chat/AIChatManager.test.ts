@@ -305,105 +305,174 @@ describe('AIChatManager persisted autonomy default', () => {
 	})
 })
 
-describe('AIChatManager context usage estimation', () => {
+describe('AIChatManager context compaction', () => {
+	// claude-sonnet-4-6 resolves to a known 1M window (modelConfig is
+	// unmocked): compaction triggers at a projected 800k and drops head
+	// messages until ~700k.
+	const anthropicModel = { provider: 'anthropic', model: 'claude-sonnet-4-6' }
+
 	beforeEach(() => {
 		localStorage.clear()
 		vi.clearAllMocks()
+		mocks.getCurrentModel.mockReturnValue(anthropicModel)
+		mocks.tryGetCurrentModel.mockReturnValue(anthropicModel)
 	})
 
-	it('estimates messages, system prompt and tool defs when no anchor exists', () => {
+	it('compacts the stored history before sending once reported usage projects over the trigger', async () => {
 		const manager = new AIChatManager()
 		manager.messages = [
-			{ role: 'user', content: 'a'.repeat(400) },
-			{ role: 'assistant', content: 'b'.repeat(200) }
+			{ role: 'user', content: 'a'.repeat(400_000) }, // ~100k estimated tokens
+			{ role: 'assistant', content: 'b'.repeat(400_000) }, // ~100k
+			{ role: 'user', content: 'c'.repeat(400) },
+			{ role: 'assistant', content: 'd'.repeat(400) }
 		]
-		manager.systemMessage = { role: 'system', content: 'c'.repeat(100) }
-		const def = { type: 'function' as const, function: { name: 'x' } }
-		manager.tools = [{ def }] as any
-		expect(manager.estimatedContextTokens).toBe(175 + JSON.stringify([def]).length / 4)
+		// Provider fact: 850k used. Projected past the 800k trigger, so ~150k
+		// must be freed to come back to the 700k target — the first user +
+		// assistant pair (~200k estimated).
+		manager.contextUsage = 850_000
+		manager.instructions = 'next question'
+
+		await manager.sendRequest()
+
+		const sent = mocks.runChatLoop.mock.calls[0][0].messages
+		expect(sent.length).toBe(3)
+		expect(sent[0]).toMatchObject({ role: 'user', content: 'c'.repeat(400) })
+		// The mutation is on the stored history, not a per-send copy
+		expect(manager.messages.length).toBe(3)
+		// The trigger fact is debited by the freed estimate until the next report
+		expect(manager.contextUsage).toBe(650_000)
+		// The display message for the sent prompt re-bases onto the compacted history
+		const userDisplay = manager.displayMessages.find((m) => m.role === 'user')
+		expect(userDisplay && 'index' in userDisplay ? userDisplay.index : undefined).toBe(2)
 	})
 
-	it('anchors on provider-reported usage and only estimates messages added since', () => {
+	it('updates the reported usage after every send, including compacted ones', async () => {
 		const manager = new AIChatManager()
 		manager.messages = [
-			// covered by the anchor: must not be re-estimated
-			{ role: 'user', content: 'a'.repeat(99999) },
-			{ role: 'user', content: 'b'.repeat(400) }
+			{ role: 'user', content: 'a'.repeat(400_000) },
+			{ role: 'assistant', content: 'b'.repeat(400_000) },
+			{ role: 'user', content: 'c'.repeat(400) }
 		]
-		// covered by the anchor too: must not be added on top
-		manager.systemMessage = { role: 'system', content: 'c'.repeat(100) }
-		manager.contextUsage = { tokens: 1000, atMessageIndex: 1 }
-		expect(manager.estimatedContextTokens).toBe(1100)
+		manager.contextUsage = 850_000
+		manager.instructions = 'next question'
+		mocks.runChatLoop.mockResolvedValueOnce({
+			addedMessages: [],
+			tokenUsage: { prompt: 720_000, completion: 1_000, total: 721_000 },
+			lastIterationUsage: { prompt: 720_000, completion: 1_000, total: 721_000 },
+			hitMaxIterations: false
+		})
+
+		await manager.sendRequest()
+
+		// The report describes exactly what was sent (the compacted history), so
+		// it replaces the debited estimate wholesale.
+		expect(manager.contextUsage).toBe(721_000)
 	})
 
-	it('re-bases the anchor when the system prompt or tools change after anchoring', () => {
+	it('does not compact when no usage has been reported yet', async () => {
 		const manager = new AIChatManager()
-		manager.messages = [{ role: 'user', content: 'a'.repeat(400) }]
-		// 100 estimated overhead tokens, same as recorded on the anchor → no change
-		manager.systemMessage = { role: 'system', content: 'c'.repeat(400) }
-		manager.contextUsage = { tokens: 1000, atMessageIndex: 1, overheadEstimate: 100 }
-		expect(manager.estimatedContextTokens).toBe(1000)
-		// mode switch swaps in a bigger system prompt (400 tokens): the estimate
-		// must include the +300 delta immediately, before any new completion
-		manager.systemMessage = { role: 'system', content: 'c'.repeat(1600) }
-		expect(manager.estimatedContextTokens).toBe(1300)
-		// and a lighter prompt lowers it
-		manager.systemMessage = { role: 'system', content: '' }
-		expect(manager.estimatedContextTokens).toBe(900)
-	})
+		manager.messages = [
+			{ role: 'user', content: 'a'.repeat(400_000) },
+			{ role: 'assistant', content: 'b'.repeat(400_000) }
+		]
+		manager.contextUsage = undefined
+		manager.instructions = 'next question'
 
-	it('uses legacy anchors without an overhead estimate as recorded', () => {
-		const manager = new AIChatManager()
-		manager.messages = [{ role: 'user', content: 'a'.repeat(400) }]
-		manager.systemMessage = { role: 'system', content: 'c'.repeat(1600) }
-		manager.contextUsage = { tokens: 1000, atMessageIndex: 1 }
-		expect(manager.estimatedContextTokens).toBe(1000)
-	})
+		await manager.sendRequest()
 
-	it('falls back to full estimation when the anchor points past the current history', () => {
-		const manager = new AIChatManager()
-		manager.messages = [{ role: 'user', content: 'a'.repeat(400) }]
-		manager.systemMessage = { role: 'system', content: '' }
-		manager.contextUsage = { tokens: 5000, atMessageIndex: 3 }
-		expect(manager.estimatedContextTokens).toBe(100)
-	})
-
-	it('clears the anchor when saveAndClear resets the conversation', async () => {
-		const manager = new AIChatManager()
-		manager.contextUsage = { tokens: 1000, atMessageIndex: 1 }
-		await manager.saveAndClear()
+		expect(mocks.runChatLoop.mock.calls[0][0].messages.length).toBe(3)
+		// and no report from the loop leaves the fact unset
 		expect(manager.contextUsage).toBeUndefined()
 	})
-})
 
-describe('AIChatManager context trimming', () => {
-	beforeEach(() => {
-		localStorage.clear()
-		vi.clearAllMocks()
-		// claude-sonnet-4-6 resolves to a known 1M window (modelConfig is
-		// unmocked), so the trim limit is 1M - max(5%, 5000) = 950k tokens.
-		mocks.tryGetCurrentModel.mockReturnValue({ provider: 'anthropic', model: 'claude-sonnet-4-6' })
+	it('does not compact when the model context window is unknown', async () => {
+		mocks.getCurrentModel.mockReturnValue({ provider: 'custom', model: 'mystery-model-9000' })
+		mocks.tryGetCurrentModel.mockReturnValue({ provider: 'custom', model: 'mystery-model-9000' })
+		const manager = new AIChatManager()
+		manager.messages = [
+			{ role: 'user', content: 'a'.repeat(400_000) },
+			{ role: 'assistant', content: 'b'.repeat(400_000) }
+		]
+		manager.contextUsage = 10_000_000
+		manager.instructions = 'next question'
+
+		await manager.sendRequest()
+
+		expect(mocks.runChatLoop.mock.calls[0][0].messages.length).toBe(3)
 	})
 
-	// five user messages of ~100k estimated tokens each (chars / 4)
-	const makeMessages = () =>
-		Array.from({ length: 5 }, () => ({
-			role: 'user' as const,
-			content: 'x'.repeat(400_000)
-		}))
-
-	it('keeps trimming when overhead pushes the total over while messages alone look safe', () => {
+	it('never drops the most recent message', () => {
 		const manager = new AIChatManager()
-		// 500k of messages + 600k overhead = 1.1M > 950k. After one deletion the
-		// message-only estimate (400k) would look safe, but 400k + 600k is still
-		// over the budget — a second deletion is required (300k + 600k fits).
-		const trimmed = manager.deleteOldestMessage(makeMessages(), 600_000)
-		expect(trimmed.length).toBe(3)
+		manager.messages = [{ role: 'user', content: 'a'.repeat(400_000) }]
+		expect(manager.compactOldestMessages(Number.MAX_SAFE_INTEGER)).toBe(0)
+		expect(manager.messages.length).toBe(1)
 	})
 
-	it('stops as soon as the message estimate fits when there is no overhead', () => {
+	it('keeps dropping past dangling turns so the history restarts on a user message', () => {
 		const manager = new AIChatManager()
-		const trimmed = manager.deleteOldestMessage(makeMessages(), 0)
-		expect(trimmed.length).toBe(4)
+		manager.messages = [
+			{
+				role: 'assistant',
+				content: 'calling tools',
+				tool_calls: [
+					{ id: '1', type: 'function', function: { name: 'x', arguments: '{}' } },
+					{ id: '2', type: 'function', function: { name: 'y', arguments: '{}' } }
+				]
+			},
+			{ role: 'tool', content: 'result 1', tool_call_id: '1' },
+			{ role: 'tool', content: 'result 2', tool_call_id: '2' },
+			{ role: 'user', content: 'follow-up' },
+			{ role: 'user', content: 'latest' }
+		]
+		// Freeing 1 token is satisfied by the first drop alone, but the tool
+		// results would dangle without their assistant tool_calls message
+		manager.compactOldestMessages(1)
+		expect(manager.messages.map((m) => m.role)).toEqual(['user', 'user'])
+	})
+
+	it('re-bases display message indices and clamps fully-compacted ones to 0', () => {
+		const manager = new AIChatManager()
+		manager.messages = [
+			{ role: 'user', content: 'a'.repeat(400) }, // ~100 estimated tokens
+			{ role: 'assistant', content: 'b'.repeat(400) }, // ~100
+			{ role: 'user', content: 'c' },
+			{ role: 'user', content: 'd' }
+		]
+		manager.displayMessages = [
+			{ role: 'user', content: 'first', index: 0 },
+			{ role: 'assistant', content: 'answer' },
+			{ role: 'user', content: 'second', index: 2 },
+			{ role: 'user', content: 'third', index: 3 }
+		]
+		manager.compactOldestMessages(150)
+		expect(manager.messages.map((m) => m.content)).toEqual(['c', 'd'])
+		expect(manager.displayMessages.map((m) => ('index' in m ? m.index : undefined))).toEqual([
+			0,
+			undefined,
+			0,
+			1
+		])
+	})
+
+	it('clears the reported usage when history is rewound', () => {
+		const manager = new AIChatManager()
+		manager.messages = [
+			{ role: 'user', content: 'q1' },
+			{ role: 'assistant', content: 'a1' }
+		]
+		manager.displayMessages = [
+			{ role: 'user', content: 'q1', index: 0 },
+			{ role: 'assistant', content: 'a1' }
+		]
+		manager.contextUsage = 5000
+		manager.restartGeneration(0)
+		expect(manager.contextUsage).toBeUndefined()
+	})
+
+	it('clears the reported usage when saveAndClear resets the conversation', async () => {
+		const manager = new AIChatManager()
+		manager.contextUsage = 1000
+		await manager.saveAndClear()
+		expect(manager.contextUsage).toBeUndefined()
 	})
 })
