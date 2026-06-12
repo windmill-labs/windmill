@@ -1123,7 +1123,7 @@ pub struct EmbedTokenResponse {
 /// The CALLER MUST verify the viewer's access to `app_path` before calling: this
 /// mints a token on behalf of `opt_authed` unconditionally (DB access remains
 /// gated by the viewer's own RLS, but the token's existence is not access-checked
-/// here). Both current call sites (`get_app_embed_token`,
+/// here). All current call sites (`get_app_embed_token`,
 /// `get_app_embed_token_for_path`, and the EE custom-path variant) do this.
 pub async fn mint_app_embed_token(
     db: &DB,
