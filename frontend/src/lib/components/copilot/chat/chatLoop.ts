@@ -106,7 +106,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			...(pendingUserMessage ? [pendingUserMessage] : [])
 		]
 		const toolDefs = tools.map((t) => t.def)
-		const parseOptions = { workspace }
+		const parseOptions = { workspace, provider: modelProvider.provider }
 
 		if (isOpenAI) {
 			let useCompletionsApi = skipResponsesApi

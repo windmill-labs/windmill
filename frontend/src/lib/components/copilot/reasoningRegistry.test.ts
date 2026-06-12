@@ -85,16 +85,150 @@ describe('supportsReasoning (static registry)', () => {
 			'high'
 		])
 	})
+	it('flags DeepSeek models with the two effective levels, excluding the chat alias', () => {
+		expect(supportsReasoning('deepseek', 'deepseek-v4-flash')).toBe(true)
+		expect(supportsReasoning('deepseek', 'deepseek-v4-pro')).toBe(true)
+		expect(supportsReasoning('deepseek', 'deepseek-reasoner')).toBe(true)
+		// `deepseek-chat` is the documented non-thinking mode — no knob.
+		expect(supportsReasoning('deepseek', 'deepseek-chat')).toBe(false)
+		// Only high/max are real; low/medium/xhigh are server-side aliases.
+		expect(getReasoningCapability('deepseek', 'deepseek-v4-flash').levels).toEqual(['high', 'max'])
+	})
 	it('flags OpenAI reasoning families, not gpt-4o', () => {
 		expect(supportsReasoning('openai', 'gpt-5')).toBe(true)
 		expect(supportsReasoning('openai', 'o3')).toBe(true)
 		expect(supportsReasoning('openai', 'gpt-4o')).toBe(false)
 	})
+	it('exposes the model-specific OpenAI ladder', () => {
+		// gpt-5 has minimal; gpt-5.1+ dropped it; only gpt-5.5 adds xhigh.
+		expect(getReasoningCapability('openai', 'gpt-5').levels).toEqual([
+			'minimal',
+			'low',
+			'medium',
+			'high'
+		])
+		expect(getReasoningCapability('openai', 'gpt-5.1').levels).toEqual(['low', 'medium', 'high'])
+		expect(getReasoningCapability('openai', 'gpt-5.5').levels).toEqual([
+			'low',
+			'medium',
+			'high',
+			'xhigh'
+		])
+		expect(getReasoningCapability('openai', 'o3').levels).toEqual(['low', 'medium', 'high'])
+	})
+	it('flags Mistral models verified to accept reasoning_effort, with the on/off ladder', () => {
+		expect(supportsReasoning('mistral', 'mistral-medium-3-5')).toBe(true)
+		expect(supportsReasoning('mistral', 'mistral-medium-latest')).toBe(true)
+		expect(supportsReasoning('mistral', 'mistral-small-latest')).toBe(true)
+		// These reject the param ("reasoning_effort is not enabled for this model").
+		expect(supportsReasoning('mistral', 'mistral-large-latest')).toBe(false)
+		expect(supportsReasoning('mistral', 'magistral-medium-latest')).toBe(false)
+		expect(supportsReasoning('mistral', 'ministral-8b-latest')).toBe(false)
+		// 'high' is the only accepted effort token; off = omit the field.
+		expect(getReasoningCapability('mistral', 'mistral-medium-3-5').levels).toEqual(['high'])
+		expect(getReasoningCapability('mistral', 'mistral-medium-3-5').canDisable).toBe(true)
+	})
 	it('returns no levels for providers without a registry entry', () => {
 		expect(getReasoningCapability('mistral', 'codestral-latest')).toEqual({
 			supported: false,
-			levels: []
+			levels: [],
+			canDisable: false
 		})
+	})
+	it('only offers off where the model can truly disable thinking', () => {
+		// Gemini Pro enforces a thinking floor — no off option.
+		expect(getReasoningCapability('googleai', 'gemini-2.5-pro').canDisable).toBe(false)
+		expect(getReasoningCapability('googleai', 'gemini-3.1-pro-preview').canDisable).toBe(false)
+		// Flash / Flash-Lite can fully disable (budget 0 / minimal).
+		expect(getReasoningCapability('googleai', 'gemini-2.5-flash').canDisable).toBe(true)
+		expect(getReasoningCapability('googleai', 'gemini-3-flash-preview').canDisable).toBe(true)
+		// Claude doesn't think unless asked; DeepSeek has a disable param.
+		expect(getReasoningCapability('anthropic', 'claude-sonnet-4-6').canDisable).toBe(true)
+		expect(getReasoningCapability('deepseek', 'deepseek-v4-flash').canDisable).toBe(true)
+		// Fable thinking is always on — explicit disable 400s, omission is a no-op.
+		expect(getReasoningCapability('anthropic', 'claude-fable-5').canDisable).toBe(false)
+		expect(
+			getReasoningCapability('aws_bedrock', 'eu.anthropic.claude-fable-5-v1:0').canDisable
+		).toBe(false)
+		// ...but the effort ladder is fully available on Fable.
+		expect(getReasoningCapability('anthropic', 'claude-fable-5').levels).toEqual([
+			'low',
+			'medium',
+			'high',
+			'xhigh',
+			'max'
+		])
+		// gpt-5.1+ accept effort 'none'; gpt-5 and o-series reason at medium
+		// by default and reject 'none' — omission isn't off.
+		expect(getReasoningCapability('openai', 'gpt-5.1').canDisable).toBe(true)
+		expect(getReasoningCapability('openai', 'gpt-5.5').canDisable).toBe(true)
+		expect(getReasoningCapability('openai', 'gpt-5').canDisable).toBe(false)
+		expect(getReasoningCapability('openai', 'o3').canDisable).toBe(false)
+		// OpenRouter exposes an explicit 'none' effort that disables reasoning
+		// across underlying providers.
+		expect(getReasoningCapability('openrouter', 'anthropic/claude-sonnet-4.6').canDisable).toBe(
+			true
+		)
+		expect(getReasoningCapability('openrouter', 'google/gemini-2.5-flash').canDisable).toBe(true)
+	})
+	it('forwards an explicit off as effort none through OpenRouter', () => {
+		expect(
+			resolveRequestReasoning({
+				provider: 'openrouter',
+				model: 'google/gemini-2.5-flash',
+				reasoning: REASONING_OFF
+			})
+		).toBe('none')
+	})
+	it('flags deepseek v4 models served through OpenRouter', () => {
+		expect(supportsReasoning('openrouter', 'deepseek/deepseek-v4-flash')).toBe(true)
+		expect(supportsReasoning('openrouter', 'deepseek/deepseek-r1')).toBe(true)
+	})
+	it('scopes the OpenRouter ladder to the underlying model family', () => {
+		// Anthropic: all five levels are distinct budget ratios.
+		expect(getReasoningCapability('openrouter', 'anthropic/claude-sonnet-4.6').levels).toEqual([
+			'minimal',
+			'low',
+			'medium',
+			'high',
+			'xhigh'
+		])
+		// Gemini: thinkingLevel mapping; xhigh is clamped to high, so not offered.
+		expect(getReasoningCapability('openrouter', 'google/gemini-3-flash-preview').levels).toEqual([
+			'minimal',
+			'low',
+			'medium',
+			'high'
+		])
+		expect(getReasoningCapability('openrouter', 'google/gemini-2.5-flash').levels).toEqual([
+			'low',
+			'medium',
+			'high'
+		])
+		// OpenAI: passed through verbatim — same per-model scoping as direct.
+		expect(getReasoningCapability('openrouter', 'openai/gpt-5-mini').levels).toEqual([
+			'minimal',
+			'low',
+			'medium',
+			'high'
+		])
+		expect(getReasoningCapability('openrouter', 'openai/gpt-5.5').levels).toEqual([
+			'low',
+			'medium',
+			'high',
+			'xhigh'
+		])
+		// DeepSeek: low/medium alias high and xhigh aliases max server-side.
+		expect(getReasoningCapability('openrouter', 'deepseek/deepseek-v4-flash').levels).toEqual([
+			'high',
+			'xhigh'
+		])
+		// Unknown families keep the conservative common denominator.
+		expect(getReasoningCapability('openrouter', 'x-ai/grok-4').levels).toEqual([
+			'low',
+			'medium',
+			'high'
+		])
 	})
 })
 
@@ -145,6 +279,23 @@ describe('resolveRequestReasoning', () => {
 			})
 		).toBe('none')
 	})
+	it('forwards an explicit off for DeepSeek (thinks by default)', () => {
+		expect(
+			resolveRequestReasoning({
+				provider: 'deepseek',
+				model: 'deepseek-v4-flash',
+				reasoning: REASONING_OFF
+			})
+		).toBe('none')
+	})
+	it('forwards off as effort none on gpt-5.1+, but not on older OpenAI reasoning models', () => {
+		expect(
+			resolveRequestReasoning({ provider: 'openai', model: 'gpt-5.1', reasoning: REASONING_OFF })
+		).toBe('none')
+		expect(
+			resolveRequestReasoning({ provider: 'openai', model: 'o3', reasoning: REASONING_OFF })
+		).toBeUndefined()
+	})
 	it('keeps off as undefined for providers without default-on reasoning', () => {
 		expect(
 			resolveRequestReasoning({
@@ -180,6 +331,30 @@ describe('applyReasoningToConfig', () => {
 		expect(applyReasoningToConfig({ model: 'm' }, 'responses', 'medium')).toMatchObject({
 			reasoning: { effort: 'medium' }
 		})
+	})
+	it('adds reasoning_effort on the deepseek path for a level', () => {
+		expect(applyReasoningToConfig({ model: 'm' }, 'deepseek', 'max')).toMatchObject({
+			reasoning_effort: 'max'
+		})
+	})
+	it('translates the deepseek off sentinel to the thinking-disabled param', () => {
+		const out = applyReasoningToConfig({ model: 'm' }, 'deepseek', 'none') as Record<string, any>
+		expect(out.thinking).toEqual({ type: 'disabled' })
+		expect(out.reasoning_effort).toBeUndefined()
+	})
+	it('strips sampling params on the mistral path when reasoning is on', () => {
+		const out = applyReasoningToConfig(
+			{ model: 'm', temperature: 0, max_tokens: 10 },
+			'mistral',
+			'high'
+		) as Record<string, any>
+		expect(out.reasoning_effort).toBe('high')
+		expect(out.temperature).toBeUndefined()
+		expect(out.max_tokens).toBe(10)
+		// No effort -> config untouched, temperature kept.
+		expect(
+			applyReasoningToConfig({ model: 'm', temperature: 0 }, 'mistral', undefined)
+		).toMatchObject({ temperature: 0 })
 	})
 	it('adds adaptive thinking + output_config and strips sampling params for Anthropic', () => {
 		const out = applyReasoningToConfig(
