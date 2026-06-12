@@ -37,6 +37,7 @@ vi.mock('$lib/aiStore', () => ({
 
 vi.mock('../lib', () => ({
 	getModelContextWindow: () => 128000,
+	getKnownModelContextWindow: () => 128000,
 	workspaceAIClients: { subscribe: () => () => undefined }
 }))
 

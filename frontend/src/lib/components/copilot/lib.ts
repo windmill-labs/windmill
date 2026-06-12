@@ -285,7 +285,7 @@ export function getModelMaxTokens(provider: AIProvider, model: string) {
 	return 8192
 }
 
-export function getModelContextWindow(model: string) {
+export function getKnownModelContextWindow(model: string): number | undefined {
 	if (model.includes('gpt-4.1') || model.includes('gpt-5') || model.includes('gemini')) {
 		return 1000000
 	} else if (model.includes('o4-mini') || model.includes('o3')) {
@@ -302,8 +302,13 @@ export function getModelContextWindow(model: string) {
 	} else if (model.includes('codestral')) {
 		return 32000
 	} else {
-		return 128000
+		return undefined
 	}
+}
+
+export function getModelContextWindow(model: string) {
+	// Trim/compaction logic needs a number; assume a conservative window when unknown.
+	return getKnownModelContextWindow(model) ?? 128000
 }
 
 function getModelSpecificConfig(

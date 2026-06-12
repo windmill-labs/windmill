@@ -36,7 +36,7 @@ import { loadApiTools } from './api/apiTools'
 import { prepareScriptUserMessage } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
-import { getModelContextWindow, workspaceAIClients } from '../lib'
+import { getKnownModelContextWindow, workspaceAIClients } from '../lib'
 import { dfs } from '$lib/components/flows/previousResults'
 import { getStringError } from './utils'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
@@ -282,8 +282,13 @@ export class AIChatManager {
 	})
 
 	private isOverContextLimit = (estimatedTokens: number) => {
-		const model = getCurrentModel()
-		const modelContextWindow = getModelContextWindow(model.model)
+		const model = tryGetCurrentModel()
+		const modelContextWindow = model ? getKnownModelContextWindow(model.model) : undefined
+		// Without a known context window there is no meaningful limit to enforce,
+		// so auto-trimming/compaction is disabled rather than guessing one.
+		if (modelContextWindow === undefined) {
+			return false
+		}
 		return (
 			estimatedTokens >
 			modelContextWindow -

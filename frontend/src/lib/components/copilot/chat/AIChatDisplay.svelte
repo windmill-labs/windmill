@@ -504,6 +504,8 @@
 			{#if inputPreface}
 				{@render inputPreface()}
 			{/if}
+			<ContextUsageIndicator />
+
 			<AIChatInput
 				bind:this={aiChatInput}
 				bind:selectedContext
@@ -643,7 +645,6 @@
 							<DatatableCreationPolicy />
 						{/if}
 						<ProviderModelSelector />
-						<ContextUsageIndicator />
 
 						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
 							{#if appContext.inspectorElement}
