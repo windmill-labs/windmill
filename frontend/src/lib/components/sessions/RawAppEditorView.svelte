@@ -5,6 +5,10 @@
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import SessionEditorTarget from './SessionEditorTarget.svelte'
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
+	import type {
+		RawAppRuntimeLogRequester,
+		RawAppRunsProvider
+	} from '$lib/components/raw_apps/utils'
 
 	let {
 		runtime,
@@ -27,6 +31,14 @@
 	async function restoreFromCurrentTarget() {
 		diffDrawer?.closeDrawer()
 		await runtime.loadRawApp(workspaceId, path)
+	}
+
+	function registerRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined) {
+		runtime.setRuntimeLogRequester(requester)
+	}
+
+	function registerRunsProvider(provider: RawAppRunsProvider | undefined) {
+		runtime.setAppRunsProvider(provider)
 	}
 </script>
 
@@ -74,6 +86,8 @@
 				defaultSidebarCollapsed
 				sidebarStorageKey="raw-app-sidebar-collapsed-preview"
 				defaultSplitWithPreview={false}
+				onRuntimeLogRequester={registerRuntimeLogRequester}
+				onRunsProvider={registerRunsProvider}
 			/>
 		{/if}
 	{/snippet}
