@@ -133,10 +133,16 @@ export function autoOutputAsset(
 			return { kind: 'datatable', path: `main/${adj}_${pick(TABLE_NOUNS)}_${slug}` }
 		case 'ducklake':
 			return { kind: 'ducklake', path: `main/${adj}_${pick(TABLE_NOUNS)}_${slug}` }
+		// s3 paths carry the canonical leading slash of a default-storage
+		// object (`s3:///<key>` parses to path `/<key>`). The deploy-time
+		// parser stores writes in that form — a slashless seeded path would
+		// never match it, and the post-deploy drift check would report the
+		// output as lost (it isn't; the key differs by one '/'). Bodies that
+		// take a bare key (`{ s3: ... }`) strip the slash via `s3Key`.
 		case 's3_parquet':
 			return {
 				kind: 's3object',
-				path: `pipelines/${folder}/${adj}_${pick(DATASET_NOUNS)}_${slug}.parquet`
+				path: `/pipelines/${folder}/${adj}_${pick(DATASET_NOUNS)}_${slug}.parquet`
 			}
 		case 's3_object': {
 			// duckdb's natural output for a generic blob is CSV (one COPY TO
@@ -146,7 +152,7 @@ export function autoOutputAsset(
 			const ext = language === 'duckdb' ? 'csv' : 'json'
 			return {
 				kind: 's3object',
-				path: `pipelines/${folder}/${adj}_${pick(FILE_NOUNS)}_${slug}.${ext}`
+				path: `/pipelines/${folder}/${adj}_${pick(FILE_NOUNS)}_${slug}.${ext}`
 			}
 		}
 		case 'none':
@@ -167,6 +173,12 @@ const ASSET_URI_PREFIX: Record<AssetKind, string> = {
 
 export function assetUri(asset: { kind: AssetKind; path: string }): string {
 	return `${ASSET_URI_PREFIX[asset.kind]}${asset.path}`
+}
+
+// Bare object key for the SDK's `{ s3: <key> }` forms: the canonical asset
+// path of a default-storage object has a leading slash, the key must not.
+function s3Key(path: string): string {
+	return path.replace(/^\//, '')
 }
 
 // Splits a datatable asset path (`<db>/<table>` or `<db>/<schema>.<table>`)
@@ -323,7 +335,7 @@ function bodyTs(ctx: TemplateContext): string {
 			case 's3object':
 				return [
 					`  // Upstream: ${assetUri(input)}`,
-					`  const buf = await wmill.loadS3File({ s3: ${JSON.stringify(input.path)} })`,
+					`  const buf = await wmill.loadS3File({ s3: ${JSON.stringify(s3Key(input.path))} })`,
 					`  const rows = JSON.parse(new TextDecoder().decode(buf))`,
 					``
 				].join('\n')
@@ -353,7 +365,7 @@ function bodyTs(ctx: TemplateContext): string {
 			case 's3_object':
 				return [
 					`  const payload = new TextEncoder().encode(JSON.stringify(rows))`,
-					`  await wmill.writeS3File({ s3: ${JSON.stringify(output.path)} }, payload)`
+					`  await wmill.writeS3File({ s3: ${JSON.stringify(s3Key(output.path))} }, payload)`
 				].join('\n')
 			case 'datatable': {
 				const dbName = output.path.split('/')[0] ?? 'main'
@@ -409,7 +421,7 @@ function bodyPython(ctx: TemplateContext): string {
 			case 's3object':
 				return [
 					`    # Upstream: ${assetUri(input)}`,
-					`    buf = wmill.load_s3_file(${JSON.stringify(input.path)})`,
+					`    buf = wmill.load_s3_file(${JSON.stringify(s3Key(input.path))})`,
 					`    import json; rows = json.loads(buf.decode("utf-8"))`
 				].join('\n')
 			case 'datatable':
@@ -436,7 +448,7 @@ function bodyPython(ctx: TemplateContext): string {
 			case 's3_object':
 				return [
 					`    import json`,
-					`    wmill.write_s3_file(${JSON.stringify(output.path)}, json.dumps(rows).encode("utf-8"))`
+					`    wmill.write_s3_file(${JSON.stringify(s3Key(output.path))}, json.dumps(rows).encode("utf-8"))`
 				].join('\n')
 			case 'datatable': {
 				const dbName = output.path.split('/')[0] ?? 'main'
