@@ -56,12 +56,6 @@ export interface ChatLoopResult {
 	addedMessages: ChatCompletionMessageParam[]
 	/** Sum of usage across all loop iterations (suitable for cost accounting). */
 	tokenUsage: ChatTokenUsage
-	/**
-	 * Usage of the last completion that reported it. Its prompt count is the
-	 * provider-measured size of the full request context (system prompt, tools
-	 * and history included), so prompt + completion approximates how full the
-	 * context window is after the turn. Null if no completion reported usage.
-	 */
 	lastIterationUsage: ChatTokenUsage | null
 	hitMaxIterations: boolean
 }

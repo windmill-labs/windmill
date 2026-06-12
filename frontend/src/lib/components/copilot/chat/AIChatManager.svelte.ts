@@ -170,19 +170,13 @@ export class AIChatManager {
 	currentReply = $state<string>('')
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
-	/**
-	 * Context size reported by the provider at the end of the last turn,
-	 * anchored to the messages array length at that point. Undefined until a
-	 * completion reports usage, and invalidated whenever messages before the
-	 * anchor are rewritten (restart, clear, chat switch).
-	 */
 	contextUsage = $state<ContextTokenSnapshot | undefined>(undefined)
 	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
 	autoAcceptEditsActive = $derived(
 		this.autoAcceptEditsAvailable &&
-			(this.autonomyMode === AIAutonomyMode.ACCEPT_EDIT ||
-				this.autonomyMode === AIAutonomyMode.YOLO)
+		(this.autonomyMode === AIAutonomyMode.ACCEPT_EDIT ||
+			this.autonomyMode === AIAutonomyMode.YOLO)
 	)
 	autoAcceptToolConfirmationsAvailable = $derived(supportsAutoAcceptToolConfirmations(this.mode))
 	autoAcceptToolConfirmationsActive = $derived(
@@ -293,7 +287,7 @@ export class AIChatManager {
 		return (
 			estimatedTokens >
 			modelContextWindow -
-				Math.max(modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE, MAX_TOKENS_HARD_LIMIT)
+			Math.max(modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE, MAX_TOKENS_HARD_LIMIT)
 		)
 	}
 
@@ -812,9 +806,9 @@ export class AIChatManager {
 					onNewToken: (token: string) => {
 						reply += token
 					},
-					onMessageEnd: () => {},
-					setToolStatus: () => {},
-					removeToolStatus: () => {}
+					onMessageEnd: () => { },
+					setToolStatus: () => { },
+					removeToolStatus: () => { }
 				},
 				systemMessage
 			}
@@ -899,8 +893,7 @@ export class AIChatManager {
 				// abort and tell the user — their message text stays in the input.
 				console.error('AIChatManager beforeSend hook failed', e)
 				sendUserToast(
-					`Could not prepare the session before sending: ${
-						e instanceof Error ? e.message : String(e)
+					`Could not prepare the session before sending: ${e instanceof Error ? e.message : String(e)
 					}. Your message was not sent — please try again.`,
 					true
 				)
@@ -927,7 +920,7 @@ export class AIChatManager {
 						model: model.model,
 						mode: this.mode
 					}
-				}).catch(() => {})
+				}).catch(() => { })
 			}
 
 			if (this.mode === AIMode.FLOW && !this.flowAiChatHelpers) {
@@ -1350,15 +1343,15 @@ export class AIChatManager {
 				const editorRelated =
 					currentEditor && currentEditor.type === 'script' && currentEditor.stepId === module.id
 						? {
-								diffMode: currentEditor.diffMode,
-								lastDeployedCode: currentEditor.lastDeployedCode,
-								lastSavedCode: undefined
-							}
+							diffMode: currentEditor.diffMode,
+							lastDeployedCode: currentEditor.lastDeployedCode,
+							lastSavedCode: undefined
+						}
 						: {
-								diffMode: false,
-								lastDeployedCode: undefined,
-								lastSavedCode: undefined
-							}
+							diffMode: false,
+							lastDeployedCode: undefined,
+							lastSavedCode: undefined
+						}
 
 				return {
 					args: moduleState?.previewArgs ?? {},

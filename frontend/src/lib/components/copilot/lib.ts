@@ -286,14 +286,19 @@ export function getModelMaxTokens(provider: AIProvider, model: string) {
 }
 
 export function getModelContextWindow(model: string) {
-	if (model.includes('gpt-4.1') || model.includes('gemini')) {
+	if (model.includes('gpt-4.1') || model.includes('gpt-5') || model.includes('gemini')) {
 		return 1000000
-	} else if (model.includes('gpt-5')) {
-		return 400000
-	} else if (model.includes('gpt-4o') || model.includes('llama-3.3')) {
-		return 128000
-	} else if (model.includes('claude') || model.includes('o4-mini') || model.includes('o3')) {
+	} else if (model.includes('o4-mini') || model.includes('o3')) {
 		return 200000
+	} else if (model.includes('claude')) {
+		// Sonnet 4.6+ and Opus 4.6+ ship a 1M context window at standard pricing (GA).
+		// Haiku and older Claude models remain at 200K.
+		if (model.includes('haiku')) {
+			return 200000
+		}
+		return 1000000
+	} else if (model.includes('gpt-4o') || model.includes('llama') || model.includes('deepseek')) {
+		return 128000
 	} else if (model.includes('codestral')) {
 		return 32000
 	} else {
