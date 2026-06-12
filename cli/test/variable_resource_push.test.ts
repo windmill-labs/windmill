@@ -185,6 +185,37 @@ describe("variable", () => {
       varData = await apiResp.json();
       expect(varData.is_secret).toBe(false);
       expect(varData.value).toBe("v3");
+
+      // Update the non-secret variable with no secret flags: is_secret must
+      // stay false (preserved, not re-defaulted to secret)
+      const preserveResult = await backend.runCLICommand(
+        ["variable", "add", "v4", varPath, "--yes"],
+        tempDir
+      );
+      expect(preserveResult.code).toEqual(0);
+
+      apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${varPath}`
+      );
+      expect(apiResp.status).toEqual(200);
+      varData = await apiResp.json();
+      expect(varData.is_secret).toBe(false);
+      expect(varData.value).toBe("v4");
+
+      // Explicit --secret flips it back
+      const secretResult = await backend.runCLICommand(
+        ["variable", "add", "v5", varPath, "--yes", "--secret"],
+        tempDir
+      );
+      expect(secretResult.code).toEqual(0);
+
+      apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${varPath}`
+      );
+      expect(apiResp.status).toEqual(200);
+      varData = await apiResp.json();
+      expect(varData.is_secret).toBe(true);
+      expect(varData.value).toBe("v5");
     });
   });
 

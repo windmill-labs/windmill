@@ -221,6 +221,20 @@ async function add(
     ) {
       return;
     }
+    if (isSecret === false) {
+      const existing = await wmill.getVariable({
+        workspace: workspace.workspaceId,
+        path: remotePath,
+        decryptSecret: false,
+      });
+      if (existing.is_secret) {
+        log.warn(
+          colors.yellow(
+            `Variable ${remotePath} is currently secret and will be downgraded to non-secret: its value will be stored in plaintext`
+          )
+        );
+      }
+    }
     log.info(colors.bold.yellow("Updating variable..."));
     await wmill.updateVariable({
       workspace: workspace.workspaceId,
