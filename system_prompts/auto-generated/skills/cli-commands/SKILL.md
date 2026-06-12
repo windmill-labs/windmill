@@ -673,8 +673,12 @@ variable related commands
 - `variable push <file_path:string> <remote_path:string>` - Push a local variable spec. This overrides any remote versions.
   - `--plain-secrets` - Push secrets as plain text
 - `variable add <value:string> <remote_path:string>` - Create a new variable on the remote. This will update the variable if it already exists.
+  - `--yes` - Skip confirmation prompt when updating an existing variable
+  - `--secret` - Mark the variable as secret (default when creating a new variable)
+  - `--no-secret` - Mark the variable as non-secret (when updating, the existing setting is preserved if neither --secret nor --no-secret is passed)
+  - `--description <description:string>` - Set the variable description (when updating, the existing description is preserved if not passed)
   - `--plain-secrets` - Push secrets as plain text
-  - `--public` - Legacy option, use --plain-secrets instead
+  - `--public` - Legacy option, use --no-secret instead
 
 ### version
 
