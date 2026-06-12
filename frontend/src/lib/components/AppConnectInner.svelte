@@ -152,6 +152,46 @@
 	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
 	let resourceTypeNotFound = $state(false)
 
+	function registryEntry(): any {
+		return (
+			(oauthConnectRegistry as Record<string, any>)[connectClient] ??
+			(oauthConnectRegistry as Record<string, any>)[resourceType]
+		)
+	}
+
+	/** The static registry declares this provider supports client credentials */
+	function registryCcCapable(): boolean {
+		return registryEntry()?.grant_types?.includes('client_credentials') ?? false
+	}
+
+	/** Connectable via client credentials only — no instance OAuth client configured */
+	let ccOnly = $derived.by(
+		() =>
+			registryCcCapable() && connectClient != '' && !(connects?.includes(connectClient) ?? false)
+	)
+
+	/** Clear CC inputs and scopes so a previous selection never leaks into a new one */
+	function resetClientCredentialsState() {
+		supportsClientCredentials = false
+		useClientCredentials = false
+		clientId = ''
+		clientSecret = ''
+		tokenUrl = ''
+		scopes = []
+	}
+
+	function enableClientCredentials() {
+		manual = false
+		supportsClientCredentials = true
+		useClientCredentials = true
+		if (!tokenUrl) {
+			tokenUrl = registryEntry()?.token_url ?? ''
+		}
+		if (scopes.length === 0) {
+			scopes = registryEntry()?.scopes ?? []
+		}
+	}
+
 	let pathError = $state('')
 
 	export async function open(rt?: string) {
@@ -168,18 +208,24 @@
 		resourceType = stripSandboxSuffix(rawRt)
 		valueToken = undefined
 
-		// Reset client credentials state
-		supportsClientCredentials = false
-		useClientCredentials = false
-		clientId = ''
-		clientSecret = ''
-		tokenUrl = ''
+		resetClientCredentialsState()
 
 		await loadConnects()
-		manual = !connects?.includes(connectClient)
+		const inConnects = connects?.includes(connectClient) ?? false
+		// Registry-declared client-credentials providers are connectable even
+		// without an instance OAuth client
+		manual = !inConnects && !(rt && registryCcCapable())
 		if (manual && express) {
 			dispatch('error', 'Express OAuth setup is not available for non OAuth resource types')
 			return
+		}
+		if (!inConnects && !manual && express) {
+			// Client-credentials connections need interactive credential entry
+			dispatch('error', 'Express OAuth setup is not available for client credentials providers')
+			return
+		}
+		if (!inConnects && !manual) {
+			enableClientCredentials()
 		}
 		if (rt) {
 			if (!manual && express) {
@@ -227,7 +273,8 @@
 						args['api_key'] == '' &&
 						args['key'] == '' &&
 						linkedSecrets.length > 0
-					: false)) ||
+					: useClientCredentials &&
+						(clientId.trim() == '' || clientSecret.trim() == '' || tokenUrl.trim() == ''))) ||
 			step == 3 ||
 			(step == 4 && pathError != '') ||
 			!isValid
@@ -339,15 +386,31 @@
 	}
 
 	async function getScopesAndParams() {
+		if (!connects?.includes(connectClient)) {
+			// No instance OAuth client (registry-declared CC-only provider):
+			// defaults come from the static registry instead
+			scopes = registryEntry()?.scopes ?? []
+			extra_params = []
+			supportsClientCredentials = registryCcCapable()
+			if (!tokenUrl) {
+				tokenUrl = registryEntry()?.token_url ?? ''
+			}
+			return
+		}
 		const connect = await OauthService.getOauthConnect({ client: connectClient })
 		scopes = connect.scopes ?? []
 		extra_params = Object.entries(connect.extra_params ?? {}) as [string, string][]
 
 		/**
-		 * Check if the OAuth provider supports client_credentials grant type
-		 * This determines whether to show the OAuth flow selection UI
+		 * The CC flow is offered when the static registry declares it for the
+		 * provider, or the admin enabled it on the instance entry (custom
+		 * providers)
 		 */
-		supportsClientCredentials = connect.grant_types?.includes('client_credentials') ?? false
+		supportsClientCredentials =
+			registryCcCapable() || (connect.grant_types?.includes('client_credentials') ?? false)
+		if (!tokenUrl) {
+			tokenUrl = connect.token_url ?? registryEntry()?.token_url ?? ''
+		}
 	}
 
 	async function getResourceTypeInfo() {
@@ -386,37 +449,34 @@
 			if (useClientCredentials) {
 				/**
 				 * Client credentials flow: Direct API call to backend
-				 * No popup window or user interaction required
-				 * Uses instance-level OAuth credentials for server-to-server auth
+				 * No popup window or user interaction required — the resource-level
+				 * credentials are exchanged directly against the token URL
 				 */
 				try {
 					// Trim whitespace from credentials to avoid false negatives
 					const trimmedClientId = clientId.trim()
 					const trimmedClientSecret = clientSecret.trim()
+					const trimmedTokenUrl = tokenUrl.trim()
 
-					// Validate required fields
-					if (!trimmedClientId || !trimmedClientSecret) {
+					// Validate required fields. The token URL is persisted on the
+					// account so token refresh works without any instance-level config.
+					if (!trimmedClientId || !trimmedClientSecret || !trimmedTokenUrl) {
 						sendUserToast(
-							'Client ID and Client Secret are required for client credentials flow',
+							'Client ID, Client Secret and Token URL are required for client credentials flow',
 							true
 						)
 						return
 					}
 
-					const requestBody: any = {
-						scopes: scopes,
-						cc_client_id: trimmedClientId,
-						cc_client_secret: trimmedClientSecret
-					}
-
-					// Add token URL override if provided
-					if (tokenUrl.trim()) {
-						requestBody.cc_token_url = tokenUrl.trim()
-					}
-
 					const tokenResponse = await OauthService.connectClientCredentials({
+						workspace: effectiveWorkspace,
 						client: connectClient,
-						requestBody
+						requestBody: {
+							scopes: scopes,
+							cc_client_id: trimmedClientId,
+							cc_client_secret: trimmedClientSecret,
+							cc_token_url: trimmedTokenUrl
+						}
 					})
 
 					// Process the token response like in popup flow
@@ -526,14 +586,12 @@
 					accountData.scopes = scopes
 				}
 
-				// Add client credentials if using client_credentials flow
+				// Client-credentials accounts are self-contained: the refresh worker
+				// re-exchanges using only what is stored on the account row
 				if (useClientCredentials) {
 					accountData.cc_client_id = clientId.trim()
 					accountData.cc_client_secret = clientSecret.trim()
-					// Add token URL override if provided
-					if (tokenUrl.trim()) {
-						accountData.cc_token_url = tokenUrl.trim()
-					}
+					accountData.cc_token_url = tokenUrl.trim()
 				}
 
 				account = Number(
@@ -693,6 +751,7 @@
 							manual = false
 							connectClient = key
 							resourceType = stripSandboxSuffix(key)
+							resetClientCredentialsState()
 							next()
 						}}
 					>
@@ -734,6 +793,7 @@
 								manual = true
 								connectClient = key
 								resourceType = key
+								resetClientCredentialsState()
 								next()
 							}}
 						>
@@ -757,6 +817,7 @@
 								manual = true
 								connectClient = key
 								resourceType = key
+								resetClientCredentialsState()
 								next()
 							}}
 						>
@@ -867,6 +928,14 @@
 					<SyncResourceTypes onSynced={getResourceTypeInfo} />
 				</div>
 			{/if}
+			{#if registryCcCapable()}
+				<button
+					onclick={() => enableClientCredentials()}
+					class="text-xs font-normal text-accent w-fit -mt-4"
+				>
+					Acquire the token automatically via client credentials instead
+				</button>
+			{/if}
 			{#key resourceTypeInfo}
 				<ApiConnectForm
 					bind:linkedSecrets
@@ -890,7 +959,10 @@
 						external services and refreshed automatically if needed before expiration.</div
 					>
 					<button
-						onclick={() => (manual = true)}
+						onclick={() => {
+							manual = true
+							useClientCredentials = false
+						}}
 						class="text-xs font-normal text-accent w-fit mt-2"
 					>
 						Create resource manually instead
@@ -911,22 +983,37 @@
 				{#if supportsClientCredentials}
 					<div>
 						<h3 class="text-sm font-semibold text-emphasis mb-1">Authentication Method</h3>
-						<div class="flex items-center gap-2 mb-2">
-							<input
-								type="checkbox"
-								style="width: 16px; height: 16px; margin: 0;"
-								bind:checked={useClientCredentials}
-								id="useClienCrediential"
-							/>
-							<label for="useClienCrediential" class="text-xs font-semibold text-emphasis"
-								>Use Client Credentials Flow</label
-							>
-							<Tooltip>
-								Server-to-server authentication without user interaction.
-								<br /><br />
-								Provide your own OAuth client credentials for this resource.
-							</Tooltip>
-						</div>
+						{#if ccOnly}
+							<div class="text-xs text-primary font-normal mb-2">
+								Server-to-server authentication: the token is acquired with your client credentials
+								and refreshed automatically before expiration.
+							</div>
+						{:else}
+							<div class="flex items-center gap-2 mb-2">
+								<input
+									type="checkbox"
+									style="width: 16px; height: 16px; margin: 0;"
+									checked={useClientCredentials}
+									onchange={(e) => {
+										if (e.currentTarget.checked) {
+											enableClientCredentials()
+										} else {
+											useClientCredentials = false
+										}
+									}}
+									id="useClienCrediential"
+								/>
+								<label for="useClienCrediential" class="text-xs font-semibold text-emphasis"
+									>Use Client Credentials Flow</label
+								>
+								<Tooltip>
+									Server-to-server authentication without user interaction.
+									<br /><br />
+									Provide your own OAuth client credentials for this resource. The token is acquired
+									and refreshed automatically.
+								</Tooltip>
+							</div>
+						{/if}
 
 						{#if useClientCredentials}
 							<form class="flex flex-col gap-6">
@@ -949,17 +1036,16 @@
 									/>
 								</label>
 								<label class="flex flex-col gap-1">
-									<span class="text-xs font-semibold text-emphasis"
-										>Token URL Override (Optional)</span
-									>
+									<span class="text-xs font-semibold text-emphasis">Token URL</span>
 									<div class="text-xs text-primary font-normal">
-										Override the instance-level token URL for this resource
+										Token endpoint of the OAuth provider, stored with the connection and used for
+										automatic token refresh
 									</div>
 									<TextInput
 										inputProps={{
 											type: 'url',
-											placeholder: 'Custom token endpoint URL',
-											required: false
+											placeholder: 'https://provider.example.com/oauth/token',
+											required: true
 										}}
 										bind:value={tokenUrl}
 									/>

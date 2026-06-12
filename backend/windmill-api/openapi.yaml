@@ -6299,13 +6299,14 @@ paths:
               schema:
                 type: string
 
-  /oauth/connect_client_credentials/{client}:
+  /w/{workspace}/oauth/connect_client_credentials/{client}:
     post:
       summary: connect OAuth using client credentials
       operationId: connectClientCredentials
       tags:
         - oauth
       parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
         - name: client
           in: path
           description: OAuth client name
@@ -6332,7 +6333,7 @@ paths:
                   description: "OAuth client secret for resource-level authentication"
                 cc_token_url:
                   type: string
-                  description: "OAuth token URL override for resource-level authentication"
+                  description: "OAuth token URL for resource-level authentication (required unless the provider is in the static registry or instance settings)"
               required:
                 - cc_client_id
                 - cc_client_secret
@@ -6502,6 +6503,9 @@ paths:
                     type: array
                     items:
                       type: string
+                  token_url:
+                    type: string
+                    description: "Resolved token endpoint, used to prefill and persist the token URL on client-credentials accounts"
 
   /teams/activities:
     post:
