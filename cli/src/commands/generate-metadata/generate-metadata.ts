@@ -97,8 +97,10 @@ async function walkLocalAppItems(
  * or app), so a preview run resolves relative imports from not-yet-deployed
  * local content instead of the deployed scripts. Walks all local scripts so
  * transitive relative-import targets can be uploaded, then for flow/app adds
- * that item's node. Degrades gracefully (returns undefined) on older backends
- * without the /raw_temp endpoints.
+ * that item's node. The "all" target skips per-node filtering and returns refs
+ * for every uploaded script — used by `wmill dev`, where the previewed item
+ * changes at runtime. Degrades gracefully (returns undefined) on older
+ * backends without the /raw_temp endpoints.
  */
 export async function buildPreviewTempScriptRefs(
   workspace: Workspace,
@@ -107,7 +109,8 @@ export async function buildPreviewTempScriptRefs(
   target:
     | { kind: "script"; path: string }
     | { kind: "flow"; folder: string }
-    | { kind: "app"; folder: string; rawApp: boolean },
+    | { kind: "app"; folder: string; rawApp: boolean }
+    | { kind: "all" },
 ): Promise<Record<string, string> | undefined> {
   try {
     const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
@@ -129,8 +132,11 @@ export async function buildPreviewTempScriptRefs(
       );
     }
 
-    let nodePath: string;
-    if (target.kind === "script") {
+    let nodePath: string | undefined;
+    if (target.kind === "all") {
+      // No anchor node — refs are collected tree-wide below
+      nodePath = undefined;
+    } else if (target.kind === "script") {
       nodePath = scriptPathToRemotePath(target.path);
     } else if (target.kind === "flow") {
       const folder = target.folder.endsWith(SEP)
@@ -157,7 +163,9 @@ export async function buildPreviewTempScriptRefs(
 
     tree.propagateStaleness();
     await uploadScripts(tree, workspace);
-    const refs = tree.getTempScriptRefs(nodePath);
+    const refs = nodePath !== undefined
+      ? tree.getTempScriptRefs(nodePath)
+      : tree.getAllTempScriptRefs();
     return refs && Object.keys(refs).length > 0 ? refs : undefined;
   } catch (e) {
     // Degrade gracefully (preview still runs against deployed versions) but do
