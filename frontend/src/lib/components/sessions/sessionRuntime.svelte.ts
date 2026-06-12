@@ -33,8 +33,18 @@ import { applyDraftToRuntimeRawApp, runtimeRawAppToDraft, type RawAppDraft } fro
 import {
 	setDeployedInSessionHandler,
 	setGetPreviewStatusHandler,
+	setGetRuntimeLogsHandler,
+	setListAppRunsHandler,
 	setOpenPreviewHandler
 } from '$lib/components/copilot/chat/global/core'
+import {
+	formatRuntimeLogsForChat,
+	formatAppRunsForChat,
+	type RawAppRuntimeLogEntry,
+	type RawAppRuntimeLogRequester,
+	type RawAppRunSummary,
+	type RawAppRunsProvider
+} from '$lib/components/raw_apps/utils'
 import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
 import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
@@ -74,34 +84,38 @@ export interface SessionRuntime {
 	// Raw App (HTML-based) target state
 	readonly rawApp: {
 		val:
-			| {
-					files: Record<string, string>
-					runnables: Record<string, any>
-					data: RawAppData
-					policy: any
-					summary: string
-					path: string
-					custom_path?: string
-			  }
-			| undefined
+		| {
+			files: Record<string, string>
+			runnables: Record<string, any>
+			data: RawAppData
+			policy: any
+			summary: string
+			path: string
+			custom_path?: string
+		}
+		| undefined
 	}
 	readonly savedRawApp: {
 		val:
-			| {
-					value: {
-						files: Record<string, { code: string }>
-						runnables: Record<string, HiddenRunnable>
-					}
-					draft?: any
-					path: string
-					summary: string
-					policy: any
-					draft_only?: boolean
-					custom_path?: string
-			  }
-			| undefined
+		| {
+			value: {
+				files: Record<string, { code: string }>
+				runnables: Record<string, HiddenRunnable>
+			}
+			draft?: any
+			path: string
+			summary: string
+			policy: any
+			draft_only?: boolean
+			custom_path?: string
+		}
+		| undefined
 	}
 	loadRawApp(workspace: string, path: string, force?: boolean): Promise<void>
+	setRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined): void
+	requestRuntimeLogs(limit: number): Promise<RawAppRuntimeLogEntry[] | undefined>
+	setAppRunsProvider(provider: RawAppRunsProvider | undefined): void
+	getAppRuns(): RawAppRunSummary[] | undefined
 	// Discard the local draft + refresh the fork diff + force-reload the editor,
 	// so the preview matches the deployed version. Used by editor onDeploy + the
 	// chat deploy handler.
@@ -270,6 +284,8 @@ function createRuntime(session: Session): SessionRuntime {
 	const rawApp: { val: SessionRuntime['rawApp']['val'] } = $state({ val: undefined })
 	const savedRawApp: { val: SessionRuntime['savedRawApp']['val'] } = $state({ val: undefined })
 	const rawAppSlot: LoadSlot = $state({ loadedPath: undefined, loading: false, notFound: false })
+	let runtimeLogRequester: RawAppRuntimeLogRequester | undefined = undefined
+	let appRunsProvider: RawAppRunsProvider | undefined = undefined
 
 	const forkComparison: { val: WorkspaceComparison | undefined } = $state({ val: undefined })
 	let loadingForkComparison = $state(false)
@@ -404,18 +420,18 @@ function createRuntime(session: Session): SessionRuntime {
 					// against.
 					const baseline: NewScript = savedScript.val
 						? (structuredClone(
-								$state.snapshot(
-									(savedScript.val.draft as NewScript | undefined) ?? (savedScript.val as NewScript)
-								)
-							) as NewScript)
+							$state.snapshot(
+								(savedScript.val.draft as NewScript | undefined) ?? (savedScript.val as NewScript)
+							)
+						) as NewScript)
 						: {
-								path,
-								summary: aiDraft.summary ?? '',
-								content: '',
-								description: '',
-								schema: emptySchema(),
-								language: (aiDraft.language ?? 'bun') as any
-							}
+							path,
+							summary: aiDraft.summary ?? '',
+							content: '',
+							description: '',
+							schema: emptySchema(),
+							language: (aiDraft.language ?? 'bun') as any
+						}
 					if (savedScript.val?.hash) {
 						baseline.parent_hash = savedScript.val.hash
 					}
@@ -554,6 +570,19 @@ function createRuntime(session: Session): SessionRuntime {
 			if (kind === 'script') void this.loadScript(workspace, path, true)
 			else if (kind === 'flow') void this.loadFlow(workspace, path, true)
 			else void this.loadRawApp(workspace, path, true)
+		},
+
+		setRuntimeLogRequester(requester) {
+			runtimeLogRequester = requester
+		},
+		async requestRuntimeLogs(limit) {
+			return runtimeLogRequester ? runtimeLogRequester(limit) : undefined
+		},
+		setAppRunsProvider(provider) {
+			appRunsProvider = provider
+		},
+		getAppRuns() {
+			return appRunsProvider ? appRunsProvider() : undefined
 		},
 
 		forkComparison,
@@ -734,6 +763,78 @@ setDeployedInSessionHandler(({ sessionId: callerSessionId, kind, path }) => {
 	if (!session?.workspace_id || !runtime) return
 	if (runtime.slot(kind).loadedPath !== path) return
 	runtime.syncPreviewWithDeployed(session.workspace_id, kind, path)
+})
+
+setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	const runtime = sessionId ? runtimes.get(sessionId) : undefined
+	if (!runtime) {
+		return {
+			aiResult:
+				'Error: get_app_runtime_logs is only available inside an AI session. Tell the user runtime logs can only be read from a session preview, or switch to a session and open the raw app preview.',
+			uiMessage: 'Runtime logs unavailable',
+			toolResult: 'Runtime logs unavailable'
+		}
+	}
+	const entries = await runtime.requestRuntimeLogs(limit)
+	if (entries === undefined) {
+		return {
+			aiResult:
+				'No runtime logs are available because no raw app preview is running for this session. Next step: call open_preview with kind="raw_app" and the app path, wait for it to load, then call get_app_runtime_logs again. Runtime logs are read live from the running preview and are not persisted.',
+			uiMessage: 'Runtime logs unavailable',
+			toolResult: 'Runtime logs unavailable'
+		}
+	}
+	if (entries.length === 0) {
+		return {
+			aiResult:
+				'The raw app preview is running, but it has not emitted console logs, uncaught errors, or unhandled rejections yet. If the user reported a failure, reproduce the interaction in the preview, then call get_app_runtime_logs again. For backend.<id>() failures, call list_app_runs and then get_job_logs for the relevant job_id.',
+			uiMessage: 'No runtime logs',
+			toolResult: 'No runtime logs'
+		}
+	}
+	const limited = entries.slice(-limit)
+	return {
+		aiResult: formatRuntimeLogsForChat(limited),
+		uiMessage: `Read runtime logs`,
+		toolResult: formatRuntimeLogsForChat(limited)
+	}
+})
+
+setListAppRunsHandler(({ sessionId: callerSessionId, limit }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	const runtime = sessionId ? runtimes.get(sessionId) : undefined
+	if (!runtime) {
+		return {
+			aiResult:
+				'Error: list_app_runs is only available inside an AI session. Tell the user app runs can only be read from a session preview.',
+			uiMessage: 'App runs unavailable',
+			toolResult: 'App runs unavailable'
+		}
+	}
+	const runs = runtime.getAppRuns()
+	if (runs === undefined) {
+		return {
+			aiResult:
+				'No raw app preview is open for this session, so no backend runs can be listed. Next step: call open_preview with kind="raw_app" and the app path, let the preview load, then call list_app_runs again.',
+			uiMessage: 'App runs unavailable',
+			toolResult: 'App runs unavailable'
+		}
+	}
+	if (runs.length === 0) {
+		return {
+			aiResult:
+				'No backend runnable executions are tracked for this raw app preview yet.',
+			uiMessage: 'No app runs',
+			toolResult: 'No app runs'
+		}
+	}
+	const limited = limit > 0 ? runs.slice(0, limit) : runs
+	return {
+		aiResult: formatAppRunsForChat(limited),
+		uiMessage: `Fetched app runs`,
+		toolResult: formatAppRunsForChat(limited)
+	}
 })
 
 export function getSessionChatStatus(runtime: SessionRuntime): SessionChatStatus {

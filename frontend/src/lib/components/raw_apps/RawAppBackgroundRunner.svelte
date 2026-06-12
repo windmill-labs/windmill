@@ -37,6 +37,7 @@
 		// unconditionally until the iframe is bound — never process a message from
 		// an unknown source.
 		if (!iframe || event.source !== iframe.contentWindow) return
+
 		const data = event.data
 
 		function respond(o: object) {

@@ -26,6 +26,11 @@ would be surprising.
 
 	type Kind = WorkspaceItemKind
 	type ScopeKind = Kind | 'all'
+	type DrillPickerHandle = {
+		focus: () => void
+		handleKeydown: (e: KeyboardEvent) => void
+		pickHighlighted: () => void
+	}
 
 	export type Scope = { kind: ScopeKind; dir?: string } | undefined
 
@@ -51,7 +56,7 @@ would be surprising.
 		flush = false
 	}: Props = $props()
 
-	let inner = $state<DrillPicker<WorkspaceItem> | undefined>(undefined)
+	let inner = $state<DrillPickerHandle | undefined>(undefined)
 
 	export function focus() {
 		inner?.focus()
