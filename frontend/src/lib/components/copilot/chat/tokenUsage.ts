@@ -4,6 +4,19 @@ export interface ChatTokenUsage {
 	total: number
 }
 
+/**
+ * Provider-reported context size anchored to a position in the conversation.
+ * `tokens` is the prompt + completion size of the last completion of a turn
+ * (so it includes the system prompt and tool definitions, which client-side
+ * estimation cannot see). `atMessageIndex` is the length of the messages
+ * array when the snapshot was taken: tokens for messages added after that
+ * index must be estimated on top.
+ */
+export interface ContextTokenSnapshot {
+	tokens: number
+	atMessageIndex: number
+}
+
 export function emptyChatTokenUsage(): ChatTokenUsage {
 	return { prompt: 0, completion: 0, total: 0 }
 }

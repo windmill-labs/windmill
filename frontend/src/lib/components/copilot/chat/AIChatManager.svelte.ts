@@ -58,6 +58,7 @@ import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { runChatLoop } from './chatLoop'
+import type { ContextTokenSnapshot } from './tokenUsage'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
@@ -169,6 +170,13 @@ export class AIChatManager {
 	currentReply = $state<string>('')
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
+	/**
+	 * Context size reported by the provider at the end of the last turn,
+	 * anchored to the messages array length at that point. Undefined until a
+	 * completion reports usage, and invalidated whenever messages before the
+	 * anchor are rewritten (restart, clear, chat switch).
+	 */
+	contextUsage = $state<ContextTokenSnapshot | undefined>(undefined)
 	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
 	autoAcceptEditsActive = $derived(
@@ -239,20 +247,47 @@ export class AIChatManager {
 
 	open = $derived(chatState.size > 0)
 
-	checkTokenUsageOverLimit = (messages: ChatCompletionMessageParam[]) => {
-		const estimatedTokens = messages.reduce((acc, message) => {
-			// one token is ~ 4 characters
+	// one token is ~ 4 characters
+	private estimateMessagesTokens = (messages: ChatCompletionMessageParam[]) => {
+		return messages.reduce((acc, message) => {
 			const tokenPerCharacter = 4
-			// handle content
-			if (message.content) {
+			if (typeof message.content === 'string') {
 				acc += message.content.length / tokenPerCharacter
+			} else if (message.content) {
+				acc += JSON.stringify(message.content).length / tokenPerCharacter
 			}
-			// Handle tool calls
 			if (message.role === 'assistant' && message.tool_calls) {
 				acc += JSON.stringify(message.tool_calls).length / tokenPerCharacter
 			}
 			return acc
 		}, 0)
+	}
+
+	/**
+	 * Best-effort size of the context the next request will occupy. When the
+	 * provider has reported usage for a past turn, that exact count anchors the
+	 * estimate and only messages added since then are estimated. Otherwise
+	 * everything is estimated, including the system prompt and tool definitions
+	 * that the provider counts but the messages array doesn't carry.
+	 */
+	estimatedContextTokens = $derived.by(() => {
+		const usage = this.contextUsage
+		if (usage && usage.atMessageIndex <= this.messages.length) {
+			return usage.tokens + this.estimateMessagesTokens(this.messages.slice(usage.atMessageIndex))
+		}
+		const tokenPerCharacter = 4
+		const systemTokens =
+			typeof this.systemMessage.content === 'string'
+				? this.systemMessage.content.length / tokenPerCharacter
+				: 0
+		const toolTokens =
+			this.tools.length > 0
+				? JSON.stringify(this.tools.map((t) => t.def)).length / tokenPerCharacter
+				: 0
+		return this.estimateMessagesTokens(this.messages) + systemTokens + toolTokens
+	})
+
+	private isOverContextLimit = (estimatedTokens: number) => {
 		const model = getCurrentModel()
 		const modelContextWindow = getModelContextWindow(model.model)
 		return (
@@ -260,6 +295,10 @@ export class AIChatManager {
 			modelContextWindow -
 				Math.max(modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE, MAX_TOKENS_HARD_LIMIT)
 		)
+	}
+
+	checkTokenUsageOverLimit = (messages: ChatCompletionMessageParam[]) => {
+		return this.isOverContextLimit(this.estimateMessagesTokens(messages))
 	}
 
 	deleteOldestMessage = (messages: ChatCompletionMessageParam[], maxDepth: number = 10) => {
@@ -721,7 +760,7 @@ export class AIChatManager {
 					}
 				}
 			})
-			return result.addedMessages
+			return result
 		} catch (err) {
 			console.log('chatRequest error', err)
 			console.error('chatRequest error', err)
@@ -966,12 +1005,15 @@ export class AIChatManager {
 			}
 
 			this.messages.push(userMessage)
-			await this.historyManager.saveChat(this.displayMessages, this.messages)
+			await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
 
 			this.currentReply = ''
 
 			let trimmedMessages = [...this.messages]
-			if (this.checkTokenUsageOverLimit(trimmedMessages)) {
+			// Trigger on the anchored estimate (counts system prompt + tools);
+			// deleteOldestMessage internally re-checks with the message-only
+			// estimate, which is the best available for a partially trimmed copy.
+			if (this.isOverContextLimit(this.estimatedContextTokens)) {
 				trimmedMessages = this.deleteOldestMessage(trimmedMessages)
 			}
 
@@ -1047,14 +1089,23 @@ export class AIChatManager {
 				await this.loadApiTools()
 			}
 
-			const addedMessages = await this.chatRequest({
+			const result = await this.chatRequest({
 				...params
 			})
-			this.messages = [...this.messages, ...(addedMessages ?? [])]
+			this.messages = [...this.messages, ...(result?.addedMessages ?? [])]
+			if (result?.lastIterationUsage) {
+				// The reported prompt covers what was actually sent (the possibly
+				// trimmed payload plus system prompt and tools), so this tracks the
+				// size of the next payload rather than of the full stored history.
+				this.contextUsage = {
+					tokens: result.lastIterationUsage.prompt + result.lastIterationUsage.completion,
+					atMessageIndex: this.messages.length
+				}
+			}
 			if (this.autoAcceptEditsActive) {
 				this.acceptPendingFlowEdits()
 			}
-			await this.historyManager.saveChat(this.displayMessages, this.messages)
+			await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
 			if (isFirstUserTurn && this.afterFirstTurnSaved) {
 				void Promise.resolve(this.afterFirstTurnSaved()).catch((e) => {
 					console.error('AIChatManager afterFirstTurnSaved hook failed', e)
@@ -1119,6 +1170,11 @@ export class AIChatManager {
 
 		this.messages = this.messages.slice(0, actualMessageIndex)
 
+		// The known context size covered messages that no longer exist
+		if (this.contextUsage && this.contextUsage.atMessageIndex > this.messages.length) {
+			this.contextUsage = undefined
+		}
+
 		// Resend the request with the same instructions
 		this.instructions = newContent ?? userMessage.content
 		this.sendRequest()
@@ -1152,9 +1208,10 @@ export class AIChatManager {
 
 	saveAndClear = async () => {
 		this.cancel('saveAndClear')
-		await this.historyManager.save(this.displayMessages, this.messages)
+		await this.historyManager.save(this.displayMessages, this.messages, this.contextUsage)
 		this.displayMessages = []
 		this.messages = []
+		this.contextUsage = undefined
 	}
 
 	loadPastChat = async (id: string) => {
@@ -1162,6 +1219,7 @@ export class AIChatManager {
 		if (chat) {
 			this.displayMessages = chat.displayMessages
 			this.messages = chat.actualMessages
+			this.contextUsage = chat.contextUsage
 			this.#automaticScroll = true
 		}
 	}

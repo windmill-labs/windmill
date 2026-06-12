@@ -2,6 +2,7 @@ import { openDB, type DBSchema as IDBSchema, type IDBPDatabase } from 'idb'
 import type { DisplayMessage } from './shared'
 import { createLongHash } from '$lib/editorLangUtils'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
+import type { ContextTokenSnapshot } from './tokenUsage'
 interface ChatSchema extends IDBSchema {
 	chats: {
 		key: string
@@ -12,6 +13,7 @@ interface ChatSchema extends IDBSchema {
 			title: string
 			lastModified: number
 			sessionId?: string
+			contextUsage?: ContextTokenSnapshot
 		}
 	}
 }
@@ -28,6 +30,7 @@ export default class HistoryManager {
 			id: string
 			lastModified: number
 			sessionId?: string
+			contextUsage?: ContextTokenSnapshot
 		}
 	> = $state({})
 
@@ -104,7 +107,11 @@ export default class HistoryManager {
 		return Object.values(this.savedChats)
 	}
 
-	async saveChat(displayMessages: DisplayMessage[], messages: ChatCompletionMessageParam[]) {
+	async saveChat(
+		displayMessages: DisplayMessage[],
+		messages: ChatCompletionMessageParam[],
+		contextUsage?: ContextTokenSnapshot
+	) {
 		if (displayMessages.length > 0) {
 			// we don't want to save the snapshot in the history
 			const updatedChat = {
@@ -116,7 +123,8 @@ export default class HistoryManager {
 				title: displayMessages[0].content.slice(0, 50),
 				id: this.currentChatId,
 				lastModified: Date.now(),
-				...(this.sessionId ? { sessionId: this.sessionId } : {})
+				...(this.sessionId ? { sessionId: this.sessionId } : {}),
+				...(contextUsage ? { contextUsage: $state.snapshot(contextUsage) } : {})
 			}
 			this.savedChats = {
 				...this.savedChats,
@@ -129,8 +137,12 @@ export default class HistoryManager {
 		}
 	}
 
-	async save(displayMessages: DisplayMessage[], messages: ChatCompletionMessageParam[]) {
-		await this.saveChat(displayMessages, messages)
+	async save(
+		displayMessages: DisplayMessage[],
+		messages: ChatCompletionMessageParam[],
+		contextUsage?: ContextTokenSnapshot
+	) {
+		await this.saveChat(displayMessages, messages, contextUsage)
 		this.currentChatId = createLongHash()
 	}
 
