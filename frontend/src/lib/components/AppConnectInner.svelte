@@ -29,7 +29,12 @@
 	import Toggle from './Toggle.svelte'
 	import { Pen } from 'lucide-svelte'
 	import GfmMarkdown from './GfmMarkdown.svelte'
-	import { apiTokenApps, forceSecretValue, linkedSecretValue } from './app_connect'
+	import {
+		apiTokenApps,
+		detectClientCredentials,
+		forceSecretValue,
+		linkedSecretValue
+	} from './app_connect'
 	import type { SchemaProperty } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
 	import TextInput from './text_input/TextInput.svelte'
@@ -128,13 +133,6 @@
 	let deployTo: string | undefined = $state(undefined)
 
 	/**
-	 * Client credentials OAuth flow support
-	 * @description Determines if the selected OAuth provider supports client_credentials grant type
-	 * alongside the traditional authorization_code flow
-	 */
-	let supportsClientCredentials = $state(false)
-
-	/**
 	 * OAuth flow selection
 	 * @description Controls which OAuth flow to use:
 	 * - false: authorization_code flow (interactive, requires user consent)
@@ -151,6 +149,35 @@
 
 	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
 	let resourceTypeNotFound = $state(false)
+
+	/**
+	 * Client-credentials support is a property of the resource type: its schema
+	 * must carry unambiguous client-id/client-secret fields plus a token field.
+	 */
+	let ccFields = $derived.by(() => detectClientCredentials(resourceTypeInfo?.schema))
+	/** Connectable via client credentials only — no instance OAuth client configured. */
+	let ccOnly = $derived.by(
+		() =>
+			ccFields != undefined && connectClient != '' && !(connects?.includes(connectClient) ?? false)
+	)
+
+	function registryEntry(): any {
+		return (
+			(oauthConnectRegistry as Record<string, any>)[connectClient] ??
+			(oauthConnectRegistry as Record<string, any>)[resourceType]
+		)
+	}
+
+	function enableClientCredentials() {
+		manual = false
+		useClientCredentials = true
+		if (!tokenUrl) {
+			tokenUrl = registryEntry()?.token_url ?? ''
+		}
+		if (scopes.length === 0) {
+			scopes = registryEntry()?.scopes ?? []
+		}
+	}
 
 	let pathError = $state('')
 
@@ -169,17 +196,30 @@
 		valueToken = undefined
 
 		// Reset client credentials state
-		supportsClientCredentials = false
 		useClientCredentials = false
 		clientId = ''
 		clientSecret = ''
 		tokenUrl = ''
 
 		await loadConnects()
-		manual = !connects?.includes(connectClient)
+		const inConnects = connects?.includes(connectClient) ?? false
+		if (rt && !inConnects) {
+			// The resource type's schema decides whether the client-credentials
+			// flow is available even without an instance OAuth client.
+			await getResourceTypeInfo()
+		}
+		manual = !inConnects && !(rt && ccFields)
 		if (manual && express) {
 			dispatch('error', 'Express OAuth setup is not available for non OAuth resource types')
 			return
+		}
+		if (!inConnects && !manual && express) {
+			// Client-credentials connections need interactive credential entry
+			dispatch('error', 'Express OAuth setup is not available for client credentials providers')
+			return
+		}
+		if (!inConnects && !manual) {
+			enableClientCredentials()
 		}
 		if (rt) {
 			if (!manual && express) {
@@ -227,7 +267,8 @@
 						args['api_key'] == '' &&
 						args['key'] == '' &&
 						linkedSecrets.length > 0
-					: false)) ||
+					: useClientCredentials &&
+						(clientId.trim() == '' || clientSecret.trim() == '' || tokenUrl.trim() == ''))) ||
 			step == 3 ||
 			(step == 4 && pathError != '') ||
 			!isValid
@@ -339,15 +380,16 @@
 	}
 
 	async function getScopesAndParams() {
+		if (!connects?.includes(connectClient)) {
+			// No instance OAuth client (client-credentials-only provider):
+			// defaults come from the static registry instead
+			scopes = registryEntry()?.scopes ?? []
+			extra_params = []
+			return
+		}
 		const connect = await OauthService.getOauthConnect({ client: connectClient })
 		scopes = connect.scopes ?? []
 		extra_params = Object.entries(connect.extra_params ?? {}) as [string, string][]
-
-		/**
-		 * Check if the OAuth provider supports client_credentials grant type
-		 * This determines whether to show the OAuth flow selection UI
-		 */
-		supportsClientCredentials = connect.grant_types?.includes('client_credentials') ?? false
 	}
 
 	async function getResourceTypeInfo() {
@@ -386,37 +428,34 @@
 			if (useClientCredentials) {
 				/**
 				 * Client credentials flow: Direct API call to backend
-				 * No popup window or user interaction required
-				 * Uses instance-level OAuth credentials for server-to-server auth
+				 * No popup window or user interaction required — the resource-level
+				 * credentials are exchanged directly against the token URL
 				 */
 				try {
 					// Trim whitespace from credentials to avoid false negatives
 					const trimmedClientId = clientId.trim()
 					const trimmedClientSecret = clientSecret.trim()
+					const trimmedTokenUrl = tokenUrl.trim()
 
-					// Validate required fields
-					if (!trimmedClientId || !trimmedClientSecret) {
+					// Validate required fields. The token URL is persisted on the
+					// account so token refresh works without any instance-level config.
+					if (!trimmedClientId || !trimmedClientSecret || !trimmedTokenUrl) {
 						sendUserToast(
-							'Client ID and Client Secret are required for client credentials flow',
+							'Client ID, Client Secret and Token URL are required for client credentials flow',
 							true
 						)
 						return
 					}
 
-					const requestBody: any = {
-						scopes: scopes,
-						cc_client_id: trimmedClientId,
-						cc_client_secret: trimmedClientSecret
-					}
-
-					// Add token URL override if provided
-					if (tokenUrl.trim()) {
-						requestBody.cc_token_url = tokenUrl.trim()
-					}
-
 					const tokenResponse = await OauthService.connectClientCredentials({
+						workspace: effectiveWorkspace,
 						client: connectClient,
-						requestBody
+						requestBody: {
+							scopes: scopes,
+							cc_client_id: trimmedClientId,
+							cc_client_secret: trimmedClientSecret,
+							cc_token_url: trimmedTokenUrl
+						}
 					})
 
 					// Process the token response like in popup flow
@@ -466,6 +505,19 @@
 				})
 				if (exists) {
 					throw Error(`Variable at path ${path} already exists. Delete it or pick another path`)
+				}
+				if (!manual && useClientCredentials && ccFields) {
+					const secretVarPath = `${path}_${ccFields.clientSecretField}`
+					if (
+						await VariableService.existsVariable({
+							workspace: effectiveWorkspace,
+							path: secretVarPath
+						})
+					) {
+						throw Error(
+							`Variable at path ${secretVarPath} already exists. Delete it or pick another path`
+						)
+					}
 				}
 			} else {
 				for (const secretField of linkedSecrets) {
@@ -526,14 +578,12 @@
 					accountData.scopes = scopes
 				}
 
-				// Add client credentials if using client_credentials flow
+				// Client-credentials accounts are self-contained: the refresh worker
+				// re-exchanges using only what is stored on the account row
 				if (useClientCredentials) {
 					accountData.cc_client_id = clientId.trim()
 					accountData.cc_client_secret = clientSecret.trim()
-					// Add token URL override if provided
-					if (tokenUrl.trim()) {
-						accountData.cc_token_url = tokenUrl.trim()
-					}
+					accountData.cc_token_url = tokenUrl.trim()
 				}
 
 				account = Number(
@@ -565,7 +615,30 @@
 							ws_specific: wsSpecific
 						}
 					})
-					resourceValue['token'] = `$var:${path}`
+					const tokenField = (useClientCredentials && ccFields?.tokenField) || 'token'
+					resourceValue[tokenField] = `$var:${path}`
+				}
+				// Client credentials: the credentials are real fields of the resource
+				// (client secret stored as its own secret variable)
+				if (useClientCredentials && ccFields) {
+					resourceValue[ccFields.clientIdField] = clientId.trim()
+					if (ccFields.tokenUrlField && tokenUrl.trim()) {
+						resourceValue[ccFields.tokenUrlField] = tokenUrl.trim()
+					}
+					const secretVarPath = `${path}_${ccFields.clientSecretField}`
+					savedVariableCount++
+					await VariableService.createVariable({
+						workspace: effectiveWorkspace,
+						requestBody: {
+							path: secretVarPath,
+							value: clientSecret.trim(),
+							is_secret: true,
+							description: `${ccFields.clientSecretField} for ${resourceType}`,
+							is_oauth: false,
+							ws_specific: wsSpecific
+						}
+					})
+					resourceValue[ccFields.clientSecretField] = `$var:${secretVarPath}`
 				}
 			} else if (linkedSecrets.length === 1) {
 				// Single secret: use the resource path as variable name (original behavior)
@@ -867,6 +940,14 @@
 					<SyncResourceTypes onSynced={getResourceTypeInfo} />
 				</div>
 			{/if}
+			{#if ccFields}
+				<button
+					onclick={() => enableClientCredentials()}
+					class="text-xs font-normal text-accent w-fit -mt-4"
+				>
+					Acquire the token automatically via client credentials instead
+				</button>
+			{/if}
 			{#key resourceTypeInfo}
 				<ApiConnectForm
 					bind:linkedSecrets
@@ -890,7 +971,10 @@
 						external services and refreshed automatically if needed before expiration.</div
 					>
 					<button
-						onclick={() => (manual = true)}
+						onclick={() => {
+							manual = true
+							useClientCredentials = false
+						}}
 						class="text-xs font-normal text-accent w-fit mt-2"
 					>
 						Create resource manually instead
@@ -908,25 +992,40 @@
 
 				<LabelsInput bind:labels class="-mt-5" />
 
-				{#if supportsClientCredentials}
+				{#if ccFields}
 					<div>
 						<h3 class="text-sm font-semibold text-emphasis mb-1">Authentication Method</h3>
-						<div class="flex items-center gap-2 mb-2">
-							<input
-								type="checkbox"
-								style="width: 16px; height: 16px; margin: 0;"
-								bind:checked={useClientCredentials}
-								id="useClienCrediential"
-							/>
-							<label for="useClienCrediential" class="text-xs font-semibold text-emphasis"
-								>Use Client Credentials Flow</label
-							>
-							<Tooltip>
-								Server-to-server authentication without user interaction.
-								<br /><br />
-								Provide your own OAuth client credentials for this resource.
-							</Tooltip>
-						</div>
+						{#if ccOnly}
+							<div class="text-xs text-primary font-normal mb-2">
+								Server-to-server authentication: the token is acquired with your client credentials
+								and refreshed automatically before expiration.
+							</div>
+						{:else}
+							<div class="flex items-center gap-2 mb-2">
+								<input
+									type="checkbox"
+									style="width: 16px; height: 16px; margin: 0;"
+									checked={useClientCredentials}
+									onchange={(e) => {
+										if (e.currentTarget.checked) {
+											enableClientCredentials()
+										} else {
+											useClientCredentials = false
+										}
+									}}
+									id="useClienCrediential"
+								/>
+								<label for="useClienCrediential" class="text-xs font-semibold text-emphasis"
+									>Use Client Credentials Flow</label
+								>
+								<Tooltip>
+									Server-to-server authentication without user interaction.
+									<br /><br />
+									Provide your own OAuth client credentials for this resource. The token is acquired
+									and refreshed automatically.
+								</Tooltip>
+							</div>
+						{/if}
 
 						{#if useClientCredentials}
 							<form class="flex flex-col gap-6">
@@ -949,17 +1048,16 @@
 									/>
 								</label>
 								<label class="flex flex-col gap-1">
-									<span class="text-xs font-semibold text-emphasis"
-										>Token URL Override (Optional)</span
-									>
+									<span class="text-xs font-semibold text-emphasis">Token URL</span>
 									<div class="text-xs text-primary font-normal">
-										Override the instance-level token URL for this resource
+										Token endpoint of the OAuth provider, stored with the connection and used for
+										automatic token refresh
 									</div>
 									<TextInput
 										inputProps={{
 											type: 'url',
-											placeholder: 'Custom token endpoint URL',
-											required: false
+											placeholder: 'https://provider.example.com/oauth/token',
+											required: true
 										}}
 										bind:value={tokenUrl}
 									/>

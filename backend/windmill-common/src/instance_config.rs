@@ -560,8 +560,6 @@ pub struct OAuthClient {
     pub tenant: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub share_with_workspaces: Option<bool>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub grant_types: Vec<String>,
 
     /// Catch-all for provider-specific fields (e.g. Keycloak `org`, Okta `domain`/`custom`).
     #[serde(flatten)]
@@ -584,8 +582,6 @@ pub struct OAuthConfig {
     pub extra_params_callback: Option<BTreeMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub req_body_auth: Option<bool>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub grant_types: Vec<String>,
     /// Optional URL overrides for the provider's sandbox environment.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox: Option<OAuthSandboxOverride>,
@@ -2687,7 +2683,6 @@ mod tests {
                         login_config: None,
                         tenant: None,
                         share_with_workspaces: None,
-                        grant_types: vec![],
                         extra: BTreeMap::new(),
                     }),
                 );

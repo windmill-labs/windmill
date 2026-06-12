@@ -66,7 +66,6 @@ pub struct ClientWithScopes {
     pub extra_params_callback: Option<HashMap<String, String>>,
     pub allowed_domains: Option<Vec<String>>,
     pub userinfo_url: Option<String>,
-    pub grant_types: Vec<String>,
 }
 
 /// Map of OAuth client names to their configurations
@@ -84,8 +83,6 @@ pub struct OAuthConfig {
     pub extra_params: Option<HashMap<String, String>>,
     pub extra_params_callback: Option<HashMap<String, String>>,
     pub req_body_auth: Option<bool>,
-    #[serde(default = "default_grant_types")]
-    pub grant_types: Vec<String>,
     /// Optional URL overrides for the provider's sandbox environment. When
     /// present and the admin has configured a `<name>_sandbox` credentials
     /// entry, `build_oauth_clients` registers a second client under that key.
@@ -214,8 +211,6 @@ pub struct OAuthClient {
     pub connect_config: Option<OAuthConfig>,
     pub login_config: Option<OAuthConfig>,
     pub tenant: Option<String>,
-    #[serde(default = "default_grant_types")]
-    pub grant_types: Vec<String>,
 }
 
 impl std::fmt::Debug for OAuthClient {
@@ -228,7 +223,6 @@ impl std::fmt::Debug for OAuthClient {
             .field("connect_config", &self.connect_config)
             .field("login_config", &self.login_config)
             .field("tenant", &self.tenant)
-            .field("grant_types", &self.grant_types)
             .finish()
     }
 }
@@ -239,10 +233,6 @@ fn empty_string() -> String {
 
 fn empty_auth() -> String {
     "https://missing-auth-url".to_string()
-}
-
-fn default_grant_types() -> Vec<String> {
-    vec!["authorization_code".to_string()]
 }
 
 /// Container for all OAuth clients (login, connect, and slack)
@@ -348,7 +338,13 @@ pub async fn build_slack_client(
     Ok(client)
 }
 
-/// Build OAuth client for client credentials flow with resource-level credentials
+/// Build OAuth client for client credentials flow with resource-level credentials.
+///
+/// No instance-level configuration is required: the provider endpoint config is
+/// resolved from the instance `oauths` entry when one exists (legacy setups),
+/// else from the static registry, else synthesized from the token URL override
+/// alone. Returns the built client together with the resolved [`OAuthConfig`]
+/// so callers can reuse its scopes / `extra_params_callback`.
 pub async fn build_client_credentials_oauth_client(
     db: &DB,
     client_name: &str,
@@ -356,41 +352,53 @@ pub async fn build_client_credentials_oauth_client(
     client_secret: &str,
     cc_token_url_override: Option<&str>,
     connect_configs_json: &str,
-) -> error::Result<(OClient, OAuthClient)> {
+) -> error::Result<(OClient, OAuthConfig)> {
     use windmill_common::global_settings::{load_value_from_global_settings, OAUTH_SETTING};
 
     let oauths = load_value_from_global_settings(db, OAUTH_SETTING).await?;
-    let oauths = oauths.unwrap_or_default();
-    let oauth_config = oauths
-        .get(client_name)
-        .ok_or_else(|| error::Error::BadRequest("OAuth configuration not found".to_string()))?;
+    let instance_entry: Option<OAuthClient> = oauths
+        .as_ref()
+        .and_then(|o| o.get(client_name))
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
 
-    let oauth_client_config: OAuthClient = serde_json::from_value(oauth_config.clone())
-        .map_err(|e| error::Error::BadRequest(format!("Invalid OAuth config: {}", e)))?;
-
-    let parse_static_configs = || {
-        serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json).map_err(|e| {
-            error::Error::InternalErr(format!("Failed to parse oauth_connect.json: {}", e))
-        })
-    };
-    let resolve_from_registry = |client_name: &str| -> error::Result<OAuthConfig> {
-        let static_configs = parse_static_configs()?;
-        resolve_registry_config(&static_configs, client_name).ok_or_else(|| {
-            error::Error::BadRequest(format!(
-                "OAuth configuration not found for '{}' in either global settings or static config",
-                client_name
-            ))
-        })
+    let resolve_from_registry = |client_name: &str| -> error::Result<Option<OAuthConfig>> {
+        let static_configs =
+            serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json).map_err(
+                |e| error::Error::InternalErr(format!("Failed to parse oauth_connect.json: {}", e)),
+            )?;
+        Ok(resolve_registry_config(&static_configs, client_name))
     };
 
-    let mut connect_config = if let Some(ref config) = oauth_client_config.connect_config {
-        if !config.auth_url.is_empty() && !config.token_url.is_empty() {
-            config.clone()
-        } else {
-            resolve_from_registry(client_name)?
-        }
-    } else {
-        resolve_from_registry(client_name)?
+    let instance_connect_config = instance_entry
+        .as_ref()
+        .and_then(|e| e.connect_config.clone())
+        .filter(|c| !c.auth_url.is_empty() && !c.token_url.is_empty());
+
+    let mut connect_config = match instance_connect_config {
+        Some(config) => config,
+        None => match resolve_from_registry(client_name)? {
+            Some(config) => config,
+            // Unknown provider: a token URL override is enough for client
+            // credentials (the auth URL is never used by this grant).
+            None if cc_token_url_override.is_some() => OAuthConfig {
+                auth_url: empty_auth(),
+                token_url: String::new(),
+                userinfo_url: None,
+                scopes: None,
+                extra_params: None,
+                extra_params_callback: None,
+                req_body_auth: None,
+                sandbox: None,
+                connect_config_template: None,
+            },
+            None => {
+                return Err(error::Error::BadRequest(format!(
+                    "No token URL available for '{}': not found in instance OAuth settings or \
+                     static config, and no token URL was provided",
+                    client_name
+                )))
+            }
+        },
     };
 
     if let Some(override_url) = cc_token_url_override {
@@ -400,25 +408,26 @@ pub async fn build_client_credentials_oauth_client(
     let resource_oauth_client = OAuthClient {
         id: client_id.to_string(),
         secret: client_secret.to_string(),
-        allowed_domains: oauth_client_config.allowed_domains.clone(),
+        allowed_domains: instance_entry
+            .as_ref()
+            .and_then(|e| e.allowed_domains.clone()),
         connect_config: Some(connect_config.clone()),
-        login_config: oauth_client_config.login_config.clone(),
-        display_name: oauth_client_config.display_name.clone(),
-        grant_types: oauth_client_config.grant_types.clone(),
-        tenant: oauth_client_config.tenant.clone(),
+        login_config: instance_entry.as_ref().and_then(|e| e.login_config.clone()),
+        display_name: instance_entry.as_ref().and_then(|e| e.display_name.clone()),
+        tenant: instance_entry.as_ref().and_then(|e| e.tenant.clone()),
     };
 
     let base_url = (**BASE_URL.load()).clone();
     let (_, client) = build_basic_client(
         client_name.to_string(),
-        connect_config,
+        connect_config.clone(),
         resource_oauth_client,
         false,
         &base_url,
         None,
     )?;
 
-    Ok((client, oauth_client_config))
+    Ok((client, connect_config))
 }
 
 /// Exchange authorization code for tokens
@@ -462,7 +471,7 @@ pub async fn exchange_token(
     client: OClient,
     refresh_token: &str,
     grant_type: &str,
-    oauth_client_info: Option<&ClientWithScopes>,
+    extra_params_callback: Option<&HashMap<String, String>>,
     http_client: &reqwest::Client,
     scopes: Option<&[String]>,
 ) -> Result<TokenResponse, Error> {
@@ -483,11 +492,9 @@ pub async fn exchange_token(
         "client_credentials" => {
             let mut token_request = client.exchange_client_credentials();
 
-            if let Some(oauth_info) = oauth_client_info {
-                if let Some(extra_params) = oauth_info.extra_params_callback.as_ref() {
-                    for (key, value) in extra_params.iter() {
-                        token_request = token_request.param(key.clone(), value.clone());
-                    }
+            if let Some(extra_params) = extra_params_callback {
+                for (key, value) in extra_params.iter() {
+                    token_request = token_request.param(key.clone(), value.clone());
                 }
             }
 
@@ -579,16 +586,17 @@ pub async fn refresh_token_for_account<'c>(
     http_client: &reqwest::Client,
     connect_configs_json: &str,
 ) -> error::Result<String> {
-    let oauth_client_info = oauth_clients
-        .connects
-        .get(&account.client)
-        .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?
-        .clone();
+    // Instance-configured client: required for authorization_code (the refresh
+    // token exchange uses the instance app's credentials), optional for
+    // client_credentials (the account row is self-contained).
+    let oauth_client_info = oauth_clients.connects.get(&account.client).cloned();
 
-    let mut client = if account.grant_type == "client_credentials" {
+    let is_client_credentials = account.grant_type == "client_credentials";
+
+    let (mut client, cc_config) = if is_client_credentials {
         match (&account.cc_client_id, &account.cc_client_secret) {
             (Some(client_id), Some(client_secret)) => {
-                let (client, _) = build_client_credentials_oauth_client(
+                let (client, config) = build_client_credentials_oauth_client(
                     db,
                     &account.client,
                     client_id,
@@ -597,7 +605,7 @@ pub async fn refresh_token_for_account<'c>(
                     connect_configs_json,
                 )
                 .await?;
-                client
+                (client, Some(config))
             }
             _ => {
                 return Err(error::Error::BadRequest(
@@ -606,21 +614,38 @@ pub async fn refresh_token_for_account<'c>(
             }
         }
     } else {
-        oauth_client_info.client.to_owned()
+        let info = oauth_client_info
+            .as_ref()
+            .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?;
+        (info.client.to_owned(), None)
     };
 
-    // Account-level scopes override instance-level scopes
+    // Account-level scopes override instance/registry-level scopes
+    let fallback_scopes = oauth_client_info
+        .as_ref()
+        .map(|i| i.scopes.clone())
+        .or_else(|| cc_config.as_ref().and_then(|c| c.scopes.clone()))
+        .unwrap_or_default();
     let effective_scopes = account
         .scopes
         .as_deref()
         .filter(|s| !s.is_empty())
-        .unwrap_or(&oauth_client_info.scopes);
+        .unwrap_or(&fallback_scopes);
 
-    if account.grant_type == "client_credentials" {
+    if is_client_credentials {
         for scope in effective_scopes.iter() {
             client.add_scope(scope);
         }
     }
+
+    let extra_params_callback = oauth_client_info
+        .as_ref()
+        .and_then(|i| i.extra_params_callback.clone())
+        .or_else(|| {
+            cc_config
+                .as_ref()
+                .and_then(|c| c.extra_params_callback.clone())
+        });
 
     tracing::info!(
         grant_type = %account.grant_type,
@@ -634,7 +659,7 @@ pub async fn refresh_token_for_account<'c>(
         client,
         &account.refresh_token,
         &account.grant_type,
-        Some(&oauth_client_info),
+        extra_params_callback.as_ref(),
         http_client,
         Some(effective_scopes),
     )
@@ -849,7 +874,6 @@ mod tests {
             extra_params: None,
             extra_params_callback: None,
             req_body_auth: None,
-            grant_types: default_grant_types(),
             sandbox: with_sandbox.then(|| OAuthSandboxOverride {
                 auth_url: Some("https://account-d.example.com/oauth/auth".to_string()),
                 token_url: Some("https://account-d.example.com/oauth/token".to_string()),
@@ -881,9 +905,8 @@ mod tests {
             resolved.userinfo_url,
             Some("https://account.example.com/userinfo".to_string())
         );
-        // Scopes/grant_types inherited from parent
+        // Scopes inherited from parent
         assert_eq!(resolved.scopes, Some(vec!["signature".to_string()]));
-        assert_eq!(resolved.grant_types, default_grant_types());
         // Nested sandbox field cleared on the resolved config
         assert!(resolved.sandbox.is_none());
     }

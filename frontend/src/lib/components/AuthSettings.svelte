@@ -22,7 +22,6 @@
 	import { APP_TO_ICON_COMPONENT } from './icons'
 	import { ExternalLink, Plus, Circle, X } from 'lucide-svelte'
 	import AzureOauthSettings from './AzureOauthSettings.svelte'
-	import Tooltip from './Tooltip.svelte'
 	import { tick } from 'svelte'
 	import { Popover } from './meltComponents'
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
@@ -124,7 +123,7 @@
 		if (oauths && name) {
 			// Create a new object to ensure the new item is added at the end
 			const newOauths = { ...oauths }
-			newOauths[name] = { id: '', secret: '', grant_types: ['authorization_code'] }
+			newOauths[name] = { id: '', secret: '' }
 			oauths = newOauths
 			dropdownOpen = false
 		}
@@ -462,49 +461,6 @@
 										bind:password={oauths[k]['secret']}
 									/>
 								</label>
-								{#if k === 'visma' || !windmillBuiltins.includes(k)}
-									<div class="mb-8">
-										<div style="display: flex; align-items: center; gap: 8px;">
-											<input
-												type="checkbox"
-												style="width: 16px; height: 16px; margin: 0;"
-												checked={oauths?.[k]?.['grant_types']?.includes('client_credentials') ??
-													false}
-												onchange={(e) => {
-													const target = e.target as HTMLInputElement
-													if (oauths && oauths[k]) {
-														if (!oauths[k]['grant_types']) {
-															oauths[k]['grant_types'] = ['authorization_code']
-														}
-														if (target.checked) {
-															if (!oauths[k]['grant_types'].includes('client_credentials')) {
-																oauths[k]['grant_types'] = [
-																	...oauths[k]['grant_types'],
-																	'client_credentials'
-																]
-															}
-														} else {
-															oauths[k]['grant_types'] = oauths[k]['grant_types'].filter(
-																(gt: string) => gt !== 'client_credentials'
-															)
-														}
-													}
-												}}
-											/>
-											<span class="text-xs font-semibold text-emphasis"
-												>Support Client Credentials Flow</span
-											>
-											<Tooltip>
-												Enables server-to-server authentication without user interaction. Use for
-												automated scripts and background jobs.
-												<br /><br />
-												When enabled, users can provide their own client credentials at the resource
-												level. The Client ID and Secret configured above are only used for the traditional
-												OAuth flow (popup window).
-											</Tooltip>
-										</div>
-									</div>
-								{/if}
 								{#if k === 'azure_oauth'}
 									<AzureOauthSettings bind:connect_config={oauths[k]['connect_config']} />
 								{:else if !windmillBuiltins.includes(k) && k != 'slack'}

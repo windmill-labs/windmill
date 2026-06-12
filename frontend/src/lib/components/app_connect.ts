@@ -82,3 +82,47 @@ export function forceSecretValue(resourceType: string): string | undefined {
 		return 'url'
 	}
 }
+
+export interface ClientCredentialsFields {
+	clientIdField: string
+	clientSecretField: string
+	tokenField: string
+	tokenUrlField?: string
+}
+
+/**
+ * Detect whether a resource type supports the OAuth client-credentials flow,
+ * based on its schema carrying real credential fields.
+ *
+ * Property names are matched after normalization (lowercased, `_`/`-`
+ * stripped) so `client_id`, `clientId` and `azureClientId` all qualify. The
+ * flow is offered only when the match is unambiguous: exactly one
+ * client-id-ish field, exactly one client-secret-ish field and a `token`
+ * field (home of the platform-managed access token). An optional unique
+ * token-URL-ish field is used to store the token endpoint on the resource.
+ */
+export function detectClientCredentials(
+	schema: any
+): ClientCredentialsFields | undefined {
+	const props = schema?.properties
+	if (!props || typeof props !== 'object') {
+		return undefined
+	}
+	const normalize = (s: string) => s.toLowerCase().replace(/[_-]/g, '')
+	const stringKeys = Object.keys(props).filter((k) => props[k]?.type === 'string')
+
+	const clientIds = stringKeys.filter((k) => normalize(k).endsWith('clientid'))
+	const clientSecrets = stringKeys.filter((k) => normalize(k).endsWith('clientsecret'))
+	const tokens = stringKeys.filter((k) => normalize(k) === 'token')
+	const tokenUrls = stringKeys.filter((k) => normalize(k).endsWith('tokenurl'))
+
+	if (clientIds.length !== 1 || clientSecrets.length !== 1 || tokens.length !== 1) {
+		return undefined
+	}
+	return {
+		clientIdField: clientIds[0],
+		clientSecretField: clientSecrets[0],
+		tokenField: tokens[0],
+		tokenUrlField: tokenUrls.length === 1 ? tokenUrls[0] : undefined
+	}
+}
