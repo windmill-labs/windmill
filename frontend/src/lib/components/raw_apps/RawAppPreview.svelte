@@ -25,9 +25,15 @@
 	// access; otherwise the default opaque-origin sandbox.
 	const unsandboxedCtx = getContext<{ value: boolean }>('IS_APP_UNSANDBOXED')
 	let unsandboxed = $derived(unsandboxedCtx?.value ?? false)
+	// Unsandboxed (grandfathered legacy / consented opt-out) must match the
+	// pre-isolation viewer exactly: NO sandbox attribute (a same-origin blob with
+	// full session — an attribute would only break leftover features like
+	// unsandboxed popups for OAuth flows, while adding no isolation). The default
+	// keeps the restrictive attribute; the wrapper document's `CSP: sandbox`
+	// response header enforces the opaque origin regardless.
 	let sandboxAttr = $derived(
 		unsandboxed
-			? 'allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals allow-top-navigation'
+			? undefined
 			: 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-top-navigation'
 	)
 

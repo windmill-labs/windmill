@@ -29,7 +29,10 @@
 	import { Alert, Skeleton } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { base } from '$app/paths'
+	import { goto } from '$app/navigation'
 	import Login from '$lib/components/Login.svelte'
+	import { WINDMILL_RESERVED_QUERY_PARAMS } from '$lib/utils'
+	import { EMBED_NAV_CONTEXT_KEY, type EmbedNav } from '../types'
 
 	type EmbedToken = {
 		token?: string | null
@@ -123,19 +126,48 @@
 
 	// WIN-2006: the app runs inside the (opaque) viewer iframe, so its in-app URL
 	// changes never reach the top address bar — breaking shareable deep links. Relay
-	// the hash up to the embedder, which mirrors it onto its own URL. Hash only: it
-	// can't spoof the path (the embedder keeps its own pathname), so a hostile app
-	// can't rewrite the address bar to an unrelated route.
+	// the hash + query up to the embedder, which mirrors them onto its own URL
+	// (e.g. the navbar component's same-app links set ?query and #hash). Never the
+	// path: the embedder keeps its own pathname, so a hostile app can't rewrite the
+	// address bar to an unrelated route. Transport params (wm_embed, …) are
+	// stripped before relaying.
 	let origPushState: typeof history.pushState | undefined
 	let origReplaceState: typeof history.replaceState | undefined
 	function relayHash() {
 		try {
+			const params = new URLSearchParams(window.location.search)
+			const reserved: string[] = []
+			params.forEach((_v, k) => {
+				if (WINDMILL_RESERVED_QUERY_PARAMS.has(k)) reserved.push(k)
+			})
+			reserved.forEach((k) => params.delete(k))
+			const qs = params.toString()
+			const search = qs ? `?${qs}` : ''
 			window.parent.postMessage(
-				{ type: 'wm_embed_hash', hash: window.location.hash },
+				{ type: 'wm_embed_hash', hash: window.location.hash, search },
 				expectedEmbedderOrigin ?? '*'
 			)
 		} catch (_) {}
 	}
+
+	// Top-level navigation relay (WIN-2006): in-app links to other apps (navbar
+	// "app" items) must navigate the top page — navigating inside the opaque
+	// iframe would load the SPA cookieless. Consumed by PublicApp via gotoFn.
+	setContext<EmbedNav | undefined>(
+		EMBED_NAV_CONTEXT_KEY,
+		isViewer
+			? {
+					navigateTop: (href: string) => {
+						try {
+							window.parent.postMessage(
+								{ type: 'wm_embed_navigate', href },
+								expectedEmbedderOrigin ?? '*'
+							)
+						} catch (_) {}
+					}
+				}
+			: undefined
+	)
 	function installHashRelay() {
 		origPushState = history.pushState
 		origReplaceState = history.replaceState
@@ -312,11 +344,35 @@
 		} else if (e.data?.type === 'wm_ls_op') {
 			applyLsOp(e.data)
 		} else if (e.data?.type === 'wm_embed_hash') {
-			// Mirror the viewer's in-app hash onto our own URL (shareable deep links).
-			// Keep our pathname/search; only adopt the hash.
+			// Mirror the viewer's in-app hash + query onto our own URL (shareable
+			// deep links). Keep our pathname (an app can't rewrite the address bar
+			// to another route) and our own transport params (e.g. wm_coep).
 			const hash = typeof e.data.hash === 'string' ? e.data.hash : ''
-			if (window.location.hash !== hash) {
-				history.replaceState(null, '', window.location.pathname + window.location.search + hash)
+			const relayed = new URLSearchParams(
+				typeof e.data.search === 'string' ? e.data.search : window.location.search
+			)
+			for (const k of WINDMILL_RESERVED_QUERY_PARAMS) {
+				relayed.delete(k)
+				const own = new URLSearchParams(window.location.search).get(k)
+				if (own !== null) relayed.set(k, own)
+			}
+			const qs = relayed.toString()
+			const search = qs ? `?${qs}` : ''
+			if (window.location.hash !== hash || window.location.search !== search) {
+				history.replaceState(null, '', window.location.pathname + search + hash)
+			}
+		} else if (e.data?.type === 'wm_embed_navigate') {
+			// App-initiated same-window navigation (navbar app items, frontend-script
+			// `goto`, button `gotoUrl`): this page navigates itself, exactly like when
+			// the app ran on it pre-sandbox. Same-origin paths use SPA navigation;
+			// full http(s) URLs do a real load (pre-sandbox apps could already do
+			// this via window.location, so it grants nothing new). Everything else —
+			// javascript:, data:, protocol-relative `//host` — is rejected.
+			const href = typeof e.data.href === 'string' ? e.data.href : ''
+			if (href.startsWith('/') && !href.startsWith('//')) {
+				goto(href)
+			} else if (/^https?:\/\//i.test(href)) {
+				window.location.href = href
 			}
 		}
 	}

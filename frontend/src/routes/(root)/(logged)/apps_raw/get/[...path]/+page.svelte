@@ -17,7 +17,11 @@
 </script>
 
 {#if workspace && path}
-	<InWorkspaceAppViewer {workspace} {path} editHref="{base}/apps_raw/edit/{path}?nodraft=true" />
+	<!-- Key by target: SvelteKit reuses this page component on in-route
+	     navigation, so the viewer must fully remount (see /apps/get). -->
+	{#key `${workspace}/${path}`}
+		<InWorkspaceAppViewer {workspace} {path} editHref="{base}/apps_raw/edit/{path}?nodraft=true" />
+	{/key}
 {:else}
 	<Skeleton layout={[10]} />
 {/if}

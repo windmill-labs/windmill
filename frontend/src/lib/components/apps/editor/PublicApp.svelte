@@ -7,8 +7,13 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { Alert, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
-	import { onMount, setContext } from 'svelte'
-	import { IS_APP_PUBLIC_CONTEXT_KEY, type EditorBreakpoint } from '../types'
+	import { getContext, onMount, setContext } from 'svelte'
+	import {
+		EMBED_NAV_CONTEXT_KEY,
+		IS_APP_PUBLIC_CONTEXT_KEY,
+		type EditorBreakpoint,
+		type EmbedNav
+	} from '../types'
 	import { UserService, type AppWithLastVersion, type GlobalWhoamiResponse } from '$lib/gen'
 	import { urlParamsToObject } from '$lib/utils'
 	import { goto } from '$app/navigation'
@@ -38,6 +43,12 @@
 	let effectiveWorkspace = $derived(workspace ?? app?.workspace_id)
 
 	setContext(IS_APP_PUBLIC_CONTEXT_KEY, true)
+
+	// WIN-2006: inside the opaque viewer iframe, navigations to other routes
+	// (navbar "app" items) must happen on the TOP page — the iframe is cookieless,
+	// so navigating it would just show a login screen. PublicAppFrame provides the
+	// relay; outside the opaque viewer this is undefined and goto works directly.
+	const embedNav = getContext<EmbedNav | undefined>(EMBED_NAV_CONTEXT_KEY)
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
 
@@ -156,7 +167,7 @@
 					policy={app.policy}
 					isEditor={false}
 					replaceStateFn={(path) => goto(path)}
-					gotoFn={(path, opt) => goto(path, opt)}
+					gotoFn={(path, opt) => (embedNav ? embedNav.navigateTop(path) : goto(path, opt))}
 				/>
 			</div>
 		{/if}

@@ -352,6 +352,12 @@ export type EditorBreakpoint = 'sm' | 'lg'
 
 export const IS_APP_PUBLIC_CONTEXT_KEY = 'isAppPublicContext' as const
 
+// Set by PublicAppFrame in opaque-viewer mode (WIN-2006). Lets the app relay
+// top-level navigations (e.g. navbar links to another app) to the embedder,
+// since navigating inside the opaque iframe would load the SPA cookieless.
+export const EMBED_NAV_CONTEXT_KEY = 'appEmbedNav' as const
+export type EmbedNav = { navigateTop: (href: string) => void }
+
 type ComponentID = string
 
 export type ContextPanelContext = {

@@ -19,7 +19,13 @@
      mint the token and to build the viewer iframe URL, and the store is set
      asynchronously by the (logged) layout. -->
 {#if workspace && path}
-	<InWorkspaceAppViewer {workspace} {path} editHref="{base}/apps/edit/{path}?nodraft=true" />
+	<!-- Key by target: SvelteKit reuses this page component on in-route
+	     navigation (e.g. a navbar item linking to another app), so the viewer
+	     must fully remount — otherwise the previous app (and in sandbox mode its
+	     path-scoped token) sticks around. -->
+	{#key `${workspace}/${path}`}
+		<InWorkspaceAppViewer {workspace} {path} editHref="{base}/apps/edit/{path}?nodraft=true" />
+	{/key}
 {:else}
 	<Skeleton layout={[10]} />
 {/if}
