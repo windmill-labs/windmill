@@ -74,7 +74,7 @@ use windmill_common::{
 use windmill_object_store::object_store_reexports::{Attribute, Attributes};
 use windmill_store::resources::get_resource_value_interpolated_internal;
 
-use windmill_api_auth::{create_token_internal, NewToken};
+use windmill_api_auth::{create_token_internal, ensure_scopes_within_caller, NewToken};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
 
@@ -1125,6 +1125,12 @@ pub struct EmbedTokenResponse {
 /// gated by the viewer's own RLS, but the token's existence is not access-checked
 /// here). All current call sites (`get_app_embed_token`,
 /// `get_app_embed_token_for_path`, and the EE custom-path variant) do this.
+///
+/// Scope confinement IS enforced here: the minted scopes must be within the
+/// caller's own (`ensure_scopes_within_caller`), so a scope-restricted bearer
+/// token cannot bootstrap a broader-scoped embed token. For the normal caller —
+/// an unscoped browser session — this is a no-op and the mint is purely
+/// narrowing.
 pub async fn mint_app_embed_token(
     db: &DB,
     w_id: &str,
@@ -1139,6 +1145,10 @@ pub async fn mint_app_embed_token(
         // which the in-workspace sandboxed viewer uses) — but no other app's. The
         // public viewer fetches via apps_u/public_app and doesn't rely on this.
         scopes.push(format!("apps:read:{app_path}"));
+        // A scope-restricted caller token must not bootstrap a broader-scoped
+        // embed token (`create_token_internal` deliberately does not check this
+        // itself). No-op for unscoped sessions — the normal embed flow.
+        ensure_scopes_within_caller(authed, Some(&scopes))?;
         let token_config = NewToken::new(
             Some(format!("embed_app:{app_path}")),
             Some(expiration),
@@ -3967,5 +3977,35 @@ mod embed_token_tests {
         assert!(ScopeDefinition::from_scope_string("apps:read")
             .unwrap()
             .includes(&required));
+    }
+
+    /// `mint_app_embed_token` guards its `create_token_internal` call with
+    /// `ensure_scopes_within_caller`, so a scope-restricted bearer token cannot
+    /// bootstrap the broader embed-scope set. Lock that boundary on the exact
+    /// scope vec the mint builds: rejected for a path-scoped caller, no-op for
+    /// the unscoped browser session that is the normal embed flow.
+    #[test]
+    fn embed_token_mint_is_scope_bounded() {
+        use windmill_api_auth::{ensure_scopes_within_caller, ApiAuthed};
+
+        // Same scope set mint_app_embed_token assembles for an app.
+        let mut minted: Vec<String> = APP_EMBED_SCOPES.iter().map(|s| s.to_string()).collect();
+        minted.push("apps:read:u/admin/app".to_string());
+
+        // A caller restricted to a single app read must not widen to the full
+        // embed set (apps:run, jobs:read, resources:read, ...).
+        let restricted = ApiAuthed {
+            scopes: Some(vec!["apps:read:u/admin/app".to_string()]),
+            ..Default::default()
+        };
+        assert!(
+            ensure_scopes_within_caller(&restricted, Some(&minted)).is_err(),
+            "a path-scoped caller must not mint the broader embed-scope set"
+        );
+
+        // An unscoped session (the normal embed flow) passes — the mint only
+        // narrows.
+        let unscoped = ApiAuthed { scopes: None, ..Default::default() };
+        assert!(ensure_scopes_within_caller(&unscoped, Some(&minted)).is_ok());
     }
 }
