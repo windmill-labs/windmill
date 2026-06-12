@@ -79,65 +79,51 @@ export function formatAppRunsForChat(runs: RawAppRunSummary[]): string {
 	return JSON.stringify(runs, null, 2)
 }
 
-export function htmlContent(
+// The DEFAULT (isolated) raw-app wrapper is generated server-side and served as
+// a sandboxed, opaque-origin document (see `get_raw_app_data` in the backend
+// `apps.rs`, WIN-2006) — a blob: URL cannot carry the `CSP: sandbox` response
+// header that enforces isolation, so the wrapper must come from the backend.
+//
+// The function below is used ONLY for the opt-out path: a publisher who disabled
+// sandbox isolation AND a viewer who consented (per app version, upstream in
+// PublicAppFrame). It is loaded as a blob: URL — same-origin with the SPA — so,
+// with `allow-same-origin`, the bundle runs with the viewer's full session (the
+// publisher's explicit, consented choice). Crucially this is an in-memory blob,
+// not a real-origin endpoint, so it is not a URL an attacker can navigate a
+// logged-in victim to in order to bypass the consent prompt — the backend
+// `.html` document stays sandboxed in all cases.
+export function unsandboxedRawAppHtml(
 	workspace: string,
-	secret: string | undefined,
+	secret: string,
 	ctx: any,
-	baseUrl: string = '',
-	initialHash: string = ''
+	baseUrl: string,
+	initialHash: string
 ) {
 	return `<!DOCTYPE html>
 <html>
 <head>
 	<meta charset="UTF-8" />
-	<title>App Preview</title>
+	<title>App</title>
 	<link rel="stylesheet" href="${baseUrl}/api/w/${workspace}/apps_u/get_data/v/${secret}.css" />
 	<script>
 		window.ctx = ${ctx ? JSON.stringify(ctx) : 'undefined'};
-
-		// Sync hash with parent window for shareable URLs
-		(function() {
-			// Set initial hash from parent URL
+		(function () {
+			// Keep the parent URL hash in sync for shareable URLs.
+			function notifyParent() {
+				try {
+					if (window.parent !== window) {
+						window.parent.postMessage({ type: 'windmill:hashchange', hash: window.location.hash }, '*');
+					}
+				} catch (_) {}
+			}
 			var initialHash = ${JSON.stringify(initialHash)};
 			if (initialHash && initialHash !== '#' && !window.location.hash) {
-				history.replaceState(null, '', initialHash);
+				try { history.replaceState(null, '', initialHash); } catch (_) {}
 			}
-
-			// Notify parent when hash changes
-			function notifyParent() {
-				var hash = window.location.hash;
-				console.log('[HashSync] notifyParent called, hash:', hash);
-				if (window.parent !== window) {
-					window.parent.postMessage({
-						type: 'windmill:hashchange',
-						hash: hash
-					}, '*');
-				}
-			}
-
-			// Listen for hash changes
-			window.addEventListener('hashchange', function() {
-				console.log('[HashSync] hashchange event');
-				notifyParent();
-			});
-
-			// Also notify on pushState/replaceState
-			var originalPushState = history.pushState;
-			var originalReplaceState = history.replaceState;
-
-			history.pushState = function() {
-				console.log('[HashSync] pushState called with:', arguments[2]);
-				originalPushState.apply(this, arguments);
-				notifyParent();
-			};
-
-			history.replaceState = function() {
-				console.log('[HashSync] replaceState called with:', arguments[2]);
-				originalReplaceState.apply(this, arguments);
-				notifyParent();
-			};
-
-			// Notify parent of initial hash after load
+			window.addEventListener('hashchange', notifyParent);
+			var _ps = history.pushState, _rs = history.replaceState;
+			history.pushState = function () { _ps.apply(this, arguments); notifyParent(); };
+			history.replaceState = function () { _rs.apply(this, arguments); notifyParent(); };
 			setTimeout(notifyParent, 0);
 		})();
 	</script>

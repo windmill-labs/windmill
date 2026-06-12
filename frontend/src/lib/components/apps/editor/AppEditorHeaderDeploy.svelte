@@ -40,7 +40,7 @@
 		rawApp = false
 	}: {
 		policy: any
-		setPublishState: () => void
+		setPublishState: (message?: string) => void
 		appPath: string
 		customPath: string | undefined
 		onLatest: boolean
@@ -259,6 +259,45 @@
 </Alert>
 
 <div class="mt-10"></div>
+
+<h2>Sandbox isolation</h2>
+<div class="my-6">
+	<Toggle
+		options={{ right: 'Run the app in an isolated sandbox' }}
+		checked={policy.disable_sandbox != true}
+		on:change={(e) => {
+			policy.disable_sandbox = !e.detail
+			// Toggling is an explicit publisher choice: clear the grandfathering
+			// flag (the backend preserves it across updates unless told `false`).
+			policy.legacy_unsandboxed = false
+			setPublishState(e.detail ? 'Sandbox isolation enabled' : 'Sandbox isolation disabled')
+		}}
+		disabled={!savedApp}
+	/>
+	<div class="text-xs text-secondary mt-1">
+		Isolates the app from each viewer's Windmill session, on every surface the app is viewed from
+		(public URL and within the workspace). Disable it only if the app needs full browser features
+		(IndexedDB, third-party auth/SDKs, OAuth redirects).
+	</div>
+	{#if !savedApp}
+		<div class="text-xs text-tertiary mt-1">Save the app once to change this setting.</div>
+	{/if}
+	{#if policy.disable_sandbox == true}
+		<div class="mt-2">
+			<Alert type="warning" title="Runs with the viewer's session" size="xs">
+				Without isolation the app runs with each viewer's full Windmill session and can act on their
+				behalf. Logged-in viewers are asked to consent once per app version.
+			</Alert>
+		</div>
+	{:else if policy.legacy_unsandboxed}
+		<div class="mt-2">
+			<Alert type="info" title="Currently runs without isolation" size="xs">
+				This app predates sandbox isolation and still runs with full session access. On the next
+				deploy you will be asked whether to enable isolation.
+			</Alert>
+		</div>
+	{/if}
+</div>
 
 {#if !hideSecretUrl}
 	<h2>Public URL</h2>

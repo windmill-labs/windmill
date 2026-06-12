@@ -2,7 +2,14 @@ import type { Schema } from '$lib/common'
 
 import { twMerge } from 'tailwind-merge'
 import { type AppComponent } from './editor/component'
-import { isRunnableByName, isRunnableByPath, type AppInput, type InputType, type ResultAppInput, type StaticAppInput } from './inputType'
+import {
+	isRunnableByName,
+	isRunnableByPath,
+	type AppInput,
+	type InputType,
+	type ResultAppInput,
+	type StaticAppInput
+} from './inputType'
 import type { Output } from './rx'
 import type {
 	App,
@@ -13,6 +20,31 @@ import type {
 } from './types'
 import { gridColumns } from './gridUtils'
 import { allItems, BG_PREFIX } from './editor/appUtilsCore'
+
+/**
+ * Same-window navigation for app code (frontend-script `goto`, button
+ * `onSuccess: gotoUrl`). Inside the opaque viewer iframe (WIN-2006,
+ * `wm_embed=1`), navigating the current window would load the target inside
+ * the cookieless frame — so the navigation is relayed to the embedder page,
+ * which navigates itself (`wm_embed_navigate` in PublicAppFrame). That matches
+ * the pre-sandbox behavior exactly: the app used to run ON the embedder page,
+ * including when that page is itself inside a third-party iframe (where the
+ * embedder — not the third party's top — was what `window.location` changed).
+ * Outside the opaque viewer it keeps navigating the current window as before.
+ */
+export function appNavigateSameWindow(url: string) {
+	try {
+		const params = new URLSearchParams(window.location.search)
+		if (window.parent !== window && params.get('wm_embed') === '1') {
+			window.parent.postMessage(
+				{ type: 'wm_embed_navigate', href: url },
+				params.get('wm_embedder_origin') ?? '*'
+			)
+			return
+		}
+	} catch (_) {}
+	window.location.href = url
+}
 
 export function migrateApp(app: App) {
 	;(app?.hiddenInlineScripts ?? []).forEach((x) => {
@@ -133,7 +165,7 @@ export function isScriptByNameDefined(appInput: AppInput | undefined): boolean {
 		return false
 	}
 
-	if (appInput.type === 'runnable' &&  isRunnableByName(appInput.runnable)) {
+	if (appInput.type === 'runnable' && isRunnableByName(appInput.runnable)) {
 		return appInput.runnable?.name != undefined
 	}
 
@@ -402,10 +434,7 @@ export function getAllScriptNames(app: App): string[] {
 	const names = (allItems(app.grid, app?.subgrids) ?? []).reduce((acc, gridItem: GridItem) => {
 		const { componentInput } = gridItem.data
 
-		if (
-			componentInput?.type === 'runnable' &&
-			isRunnableByName(componentInput.runnable)
-		) {
+		if (componentInput?.type === 'runnable' && isRunnableByName(componentInput.runnable)) {
 			acc.push(componentInput.runnable.name)
 		}
 

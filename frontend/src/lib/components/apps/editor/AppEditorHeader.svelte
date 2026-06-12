@@ -69,6 +69,7 @@
 	import { goto } from '$app/navigation'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
+	import LegacySandboxMigrationModal from './LegacySandboxMigrationModal.svelte'
 
 	import AppJobsDrawer from './AppJobsDrawer.svelte'
 	import LazyModePanel from './contextPanel/LazyModePanel.svelte'
@@ -193,6 +194,9 @@
 
 	let draftDrawerOpen = $state(false)
 	let saveDrawerOpen = $state(false)
+	// WIN-2006: deploy-time migration prompt for grandfathered (legacy-unsandboxed)
+	// apps — the publisher makes an explicit sandbox choice on the first re-deploy.
+	let legacySandboxModal: LegacySandboxMigrationModal | undefined = $state(undefined)
 	let inputsDrawerOpen = $state(untrack(() => fromHub))
 	let historyBrowserDrawerOpen = $state(false)
 	let debugAppDrawerOpen = $state(false)
@@ -247,6 +251,7 @@
 	}
 
 	async function handleUpdateApp(npath: string) {
+		if (legacySandboxModal && !(await legacySandboxModal.ensureLegacyResolved(policy))) return
 		// We have to make sure there is no updates when we clicked the button
 		await compareVersions()
 
@@ -345,14 +350,16 @@
 		}
 	}
 
-	async function setPublishState() {
+	async function setPublishState(message?: string) {
 		policy = await updatePolicy($app, policy)
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: $appPath,
 			requestBody: { policy }
 		})
-		if (policy.execution_mode == 'anonymous') {
+		if (message) {
+			sendUserToast(message)
+		} else if (policy.execution_mode == 'anonymous') {
 			sendUserToast('App require no login to be accessed')
 		} else {
 			sendUserToast('App require login and read-access')
@@ -855,6 +862,8 @@
 		custom_path: customPath
 	}}
 />
+
+<LegacySandboxMigrationModal bind:this={legacySandboxModal} />
 
 {#if $appPath == ''}
 	<Drawer bind:open={draftDrawerOpen} size="800px">

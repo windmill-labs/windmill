@@ -180,12 +180,21 @@ export async function updatePolicy(app: App, currentPolicy: Policy | undefined):
 		})
 		.filter(Boolean) as { s3_path: string; storage?: string | undefined }[]
 
-	return {
+	const next = {
 		...(currentPolicy ?? {}),
 		allowed_s3_keys: s3FileKeys,
 		s3_inputs,
 		triggerables_v2: ntriggerables
 	}
+	// WIN-2006: `legacy_unsandboxed` is a migration-only, backend-set flag. The
+	// backend preserves the stored value when the payload omits the field (so an
+	// unrelated update never silently drops the grandfathering) and only an
+	// explicit `false` — set by the deploy-time migration modal once the publisher
+	// made a sandbox choice — clears it. Strip anything else.
+	if ((next as any).legacy_unsandboxed !== false) {
+		delete (next as any).legacy_unsandboxed
+	}
+	return next
 }
 
 export async function processRunnable(

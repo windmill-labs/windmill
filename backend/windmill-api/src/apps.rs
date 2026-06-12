@@ -74,6 +74,7 @@ use windmill_common::{
 use windmill_object_store::object_store_reexports::{Attribute, Attributes};
 use windmill_store::resources::get_resource_value_interpolated_internal;
 
+use windmill_api_auth::{create_token_internal, ensure_scopes_within_caller, NewToken};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
 
@@ -89,6 +90,7 @@ pub fn workspaced_service(raw_app_body_limit: usize) -> Router {
         .route("/list", get(list_apps))
         .route("/list_search", get(list_search_apps))
         .route("/get/p/{*path}", get(get_app))
+        .route("/embed_token/p/{*path}", get(get_app_embed_token_for_path))
         .route("/get/lite/{*path}", get(get_app_lite))
         .route("/get/draft/{*path}", get(get_app_w_draft))
         .route("/secret_of/{*path}", get(get_secret_id))
@@ -134,6 +136,7 @@ pub fn unauthed_service() -> Router {
         .route("/delete_s3_file", delete(delete_s3_file_from_app))
         .route("/download_s3_file/{*path}", get(download_s3_file_from_app))
         .route("/public_app/{secret}", get(get_public_app_by_secret))
+        .route("/embed_token/{secret}", get(get_app_embed_token))
         .route("/public_resource/{*path}", get(get_public_resource))
         .route("/get_data/v/{*id}", get(get_raw_app_data))
 }
@@ -298,6 +301,18 @@ pub struct Policy {
     pub execution_mode: ExecutionMode,
     pub s3_inputs: Option<Vec<S3Input>>,
     pub allowed_s3_keys: Option<Vec<S3Key>>,
+    // WIN-2006: publisher opt-out of iframe sandbox isolation. When true the app
+    // runs same-origin with the viewer's full session (full browser features),
+    // gated by a per-version consent prompt on the viewer. Default false.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disable_sandbox: Option<bool>,
+    // WIN-2006: apps that existed before sandbox isolation shipped are stamped
+    // (by migration) so they keep running same-origin — without a consent prompt —
+    // to avoid breaking the installed base on upgrade. New apps are sandboxed by
+    // default; a re-deploy clears this. Distinct from `disable_sandbox`, which is
+    // a deliberate publisher opt-out and DOES prompt the viewer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub legacy_unsandboxed: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -347,6 +362,12 @@ async fn list_search_apps(
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<Vec<SearchApp>> {
+    // Require domain-level read: this returns every visible app's full value (code).
+    // The route layer treats `apps:run` as satisfying read, so without this handler
+    // check a scoped embed token (apps:run + apps:read:<one path>) could read all
+    // apps' definitions. `check_scopes` uses ScopeDefinition::includes, where run
+    // does NOT include read, so it correctly denies such tokens.
+    check_scopes(&authed, || "apps:read".to_string())?;
     #[cfg(feature = "enterprise")]
     let n = 1000;
 
@@ -374,6 +395,9 @@ async fn list_apps(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListAppQuery>,
 ) -> JsonResult<Vec<ListableApp>> {
+    // Domain-level read (see list_search_apps): keeps a scoped embed token, whose
+    // `apps:run` only satisfies read at the route layer, from listing all apps.
+    check_scopes(&authed, || "apps:read".to_string())?;
     let (per_page, offset) = paginate(pagination);
 
     let mut sqlb = SqlBuilder::select_from("app")
@@ -462,6 +486,7 @@ async fn list_apps(
 
 async fn get_raw_app_data(
     Path((w_id, secret_with_ext)): Path<(String, String)>,
+    Query(query): Query<std::collections::HashMap<String, String>>,
     Extension(db): Extension<DB>,
 ) -> Result<Response> {
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -484,13 +509,53 @@ async fn get_raw_app_data(
     .await?;
 
     let file_type = splitted.next().unwrap_or("");
+
+    // Sandboxed wrapper document that hosts the bundle. Served from a real URL
+    // (not blob:/srcdoc) so we can attach `CSP: sandbox` as a response header,
+    // which forces an opaque origin even on direct navigation — a raw-app
+    // bundle can then never reach the authenticated Windmill origin (WIN-2006).
+    // The `.js`/`.css` are loaded as same-path subresources by this document.
+    if file_type == "html" {
+        // ALWAYS served with `CSP: sandbox`, which forces an opaque origin even on
+        // direct top-level navigation — so this real-origin URL can never be used
+        // to run a raw-app bundle with the viewer's session (WIN-2006). The
+        // publisher "disable sandbox isolation" opt-out is NOT applied here: it is
+        // handled entirely on the viewer side, which (after a per-version consent
+        // prompt) builds its own same-origin wrapper. Relaxing this header from a
+        // policy flag would let anyone with the share secret hand a logged-in
+        // victim a same-origin URL that runs the bundle with their session,
+        // bypassing the consent prompt — so the standalone document stays
+        // sandboxed no matter how it is reached.
+        let html = raw_app_wrapper_html(secret_id);
+        let mut builder = Response::builder()
+            .header(http::header::CONTENT_TYPE, "text/html; charset=utf-8")
+            .header("X-Content-Type-Options", "nosniff")
+            .header("Cross-Origin-Resource-Policy", "cross-origin")
+            .header(
+                http::header::CONTENT_SECURITY_POLICY,
+                "sandbox allow-scripts allow-forms allow-popups \
+                 allow-popups-to-escape-sandbox allow-downloads allow-modals \
+                 allow-top-navigation",
+            );
+        // When the public app page is embedded in a cross-origin-isolated page
+        // (`wm_coep` opt-in, COEP `require-corp`), this nested wrapper document
+        // must itself assert COEP to be allowed to load. Opt-in only — COEP
+        // restricts the bundle's own subresources to CORP'd/same-origin ones
+        // (e.g. external images would break), so it must not be always-on. The
+        // viewer propagates the flag from the page URL (see RawAppPreview).
+        if query.contains_key("wm_coep") {
+            builder = builder.header("Cross-Origin-Embedder-Policy", "require-corp");
+        }
+        return Ok(builder.body(Body::from(html)).unwrap());
+    }
+
     let file_type = if file_type == "css" {
         "css"
     } else if file_type == "js" {
         "js"
     } else {
         return Err(Error::BadRequest(
-            "Invalid file type, only .css and .js are supported".to_string(),
+            "Invalid file type, only .css, .js and .html are supported".to_string(),
         ));
     };
     // tracing::info!("file_type: {}", file_type);
@@ -541,18 +606,126 @@ async fn get_raw_app_data(
 
     if let Some(body) = body {
         // let stream = tokio_util::io::ReaderStream::new(file);
-        let res = Response::builder().header(
-            http::header::CONTENT_TYPE,
-            if file_type == "css" {
-                "text/css"
-            } else {
-                "text/javascript"
-            },
-        );
+        let res = Response::builder()
+            .header(
+                http::header::CONTENT_TYPE,
+                if file_type == "css" {
+                    "text/css"
+                } else {
+                    "text/javascript"
+                },
+            )
+            // nosniff + CORP so the bundle loads correctly as a subresource of
+            // the opaque, sandboxed wrapper (incl. under a cross-origin-isolated
+            // / COEP `require-corp` embedder).
+            .header("X-Content-Type-Options", "nosniff")
+            .header("Cross-Origin-Resource-Policy", "cross-origin");
         Ok(res.body(body).unwrap())
     } else {
         return Err(Error::NotFound("File not found".to_string()));
     }
+}
+
+/// HTML wrapper that hosts a raw-app bundle inside a sandboxed, opaque-origin
+/// iframe. Served by [`get_raw_app_data`] for the `.html` "file type". It loads
+/// the bundle `.js`/`.css` as same-path subresources, shims web storage (which
+/// an opaque origin disallows), and waits for the embedder to hand it the user
+/// context via `postMessage` before evaluating the bundle — so the bundle never
+/// receives a credential and `window.ctx` is set synchronously when it runs.
+fn raw_app_wrapper_html(secret: &str) -> String {
+    const TEMPLATE: &str = r##"<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<title>App</title>
+<link rel="stylesheet" href="./__SECRET__.css" />
+<script>
+(function () {
+  // Storage shim: an opaque-origin (sandboxed) document has no localStorage and
+  // accessing it throws. Provide an in-memory implementation so apps that use
+  // web storage keep working within the session.
+  try {
+    window.localStorage.getItem('__wm_probe__');
+  } catch (e) {
+    function makeShim(onOp) {
+      var mem = {};
+      return {
+        getItem: function (k) { k = String(k); return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; },
+        setItem: function (k, v) { mem[String(k)] = String(v); if (onOp) onOp({ op: 'set', key: String(k), value: String(v) }); },
+        removeItem: function (k) { delete mem[String(k)]; if (onOp) onOp({ op: 'remove', key: String(k) }); },
+        clear: function () { for (var k in mem) { delete mem[k]; } if (onOp) onOp({ op: 'clear' }); },
+        key: function (i) { var ks = Object.keys(mem); return i < ks.length ? ks[i] : null; },
+        get length() { return Object.keys(mem).length; },
+        __hydrate: function (obj) { if (obj) { for (var k in obj) { mem[k] = String(obj[k]); } } }
+      };
+    }
+    // localStorage relays each mutation up to the parent (RawAppPreview), which
+    // backs a single store shared across all apps; sessionStorage stays session-only.
+    function relayOp(o) { try { window.parent.postMessage({ type: 'wm_ls_op', op: o.op, key: o.key, value: o.value }, '*'); } catch (_) {} }
+    var ls = makeShim(relayOp);
+    var ss = makeShim(null);
+    try { Object.defineProperty(window, 'localStorage', { value: ls, configurable: true }); } catch (_) {}
+    try { Object.defineProperty(window, 'sessionStorage', { value: ss, configurable: true }); } catch (_) {}
+    window.__wmStorageShim = { local: ls, session: ss };
+    // document.cookie also throws in an opaque origin; back it with an in-memory
+    // jar so reads don't crash apps. This is NOT the real session cookie (which
+    // is unreachable here) — just an isolated client-side store.
+    try {
+      var jar = {};
+      Object.defineProperty(Document.prototype, 'cookie', {
+        configurable: true,
+        get: function () { return Object.keys(jar).map(function (k) { return k + '=' + jar[k]; }).join('; '); },
+        set: function (v) { var p = String(v).split(';')[0]; var i = p.indexOf('='); if (i > -1) { jar[p.slice(0, i).trim()] = p.slice(i + 1).trim(); } }
+      });
+    } catch (_) {}
+  }
+
+  // Keep the iframe hash in sync with the parent so app URLs stay shareable.
+  function notifyParent() {
+    try { if (window.parent !== window) { window.parent.postMessage({ type: 'windmill:hashchange', hash: window.location.hash }, '*'); } } catch (_) {}
+  }
+  window.addEventListener('hashchange', notifyParent);
+  var _ps = history.pushState, _rs = history.replaceState;
+  history.pushState = function () { _ps.apply(this, arguments); notifyParent(); };
+  history.replaceState = function () { _rs.apply(this, arguments); notifyParent(); };
+
+  // ctx handshake: the embedding parent hands us the user context (and any
+  // persisted storage) before we evaluate the bundle, so `window.ctx` is set
+  // synchronously when the bundle runs. The bundle <script> is injected only
+  // after this, never inline, so it always observes a ready context.
+  var loaded = false;
+  function loadBundle() {
+    if (loaded) return; loaded = true;
+    var s = document.createElement('script');
+    s.src = './__SECRET__.js';
+    document.body.appendChild(s);
+  }
+  window.addEventListener('message', function (e) {
+    var d = e.data || {};
+    if (d.type === 'windmill:ctx') {
+      window.ctx = d.ctx;
+      if (window.__wmStorageShim && d.storage) {
+        window.__wmStorageShim.local.__hydrate(d.storage.local);
+        window.__wmStorageShim.session.__hydrate(d.storage.session);
+      }
+      if (d.initialHash && d.initialHash !== '#' && !window.location.hash) {
+        try { history.replaceState(null, '', d.initialHash); } catch (_) {}
+      }
+      loadBundle();
+    }
+  });
+  try { window.parent.postMessage({ type: 'windmill:ready' }, '*'); } catch (_) {}
+  // Fallback for contexts that never send ctx (e.g. ctx-less rendering).
+  setTimeout(loadBundle, 1500);
+})();
+</script>
+</head>
+<body>
+<div id="root"></div>
+</body>
+</html>
+"##;
+    TEMPLATE.replace("__SECRET__", secret)
 }
 
 // async fn get_app_version(
@@ -895,6 +1068,293 @@ async fn get_public_app_by_secret(
     }
 
     Ok(Json(app))
+}
+
+/// Scopes granted to a short-lived "app embed token". This is the token the
+/// app-embedder page hands the (opaque-origin) app iframe at startup so the app
+/// never receives the viewer's session cookie. Instead of restricting which
+/// routes a *domain* may hit, we restrict which routes the *token* may hit, so
+/// that even a malicious or compromised app document can only reach the
+/// endpoints an app legitimately needs:
+/// - `apps:run`      → `apps_u/public_app`, `get_data`, `public_resource` (read)
+///                      and `execute_component` (run). Run/Read only — it does
+///                      NOT grant `apps:write`, so the token cannot reach
+///                      app-management routes (`apps/update`, `apps/delete`, ...).
+/// - `jobs:read`     → `jobs_u/getupdate_sse`, completed-job results.
+/// - `resources:read`→ `resources/list`, `resources/type/*`, `resources/exists`.
+/// - `users:read`    → `users/whoami`.
+/// - `folders:read`  → `folders/listnames`.
+pub const APP_EMBED_SCOPES: [&str; 5] = [
+    "apps:run",
+    "jobs:read",
+    "resources:read",
+    "users:read",
+    "folders:read",
+];
+
+/// How long an app embed token stays valid. The embedder re-mints on demand
+/// (e.g. after a `401` from the iframe) so this can stay short.
+const APP_EMBED_TOKEN_VALIDITY_HOURS: i64 = 12;
+
+#[derive(Serialize)]
+pub struct EmbedTokenResponse {
+    /// Narrowly-scoped token for the iframe. `None` for fully anonymous access
+    /// (the iframe then calls the public endpoints anonymously).
+    pub token: Option<String>,
+    pub expiration: Option<chrono::DateTime<chrono::Utc>>,
+    /// WIN-2006: publisher disabled sandbox isolation — the viewer must run the
+    /// app same-origin (full session) behind a per-version consent prompt.
+    #[serde(default)]
+    pub disable_sandbox: bool,
+    /// Latest app version id — the consent prompt is keyed on it so a new version
+    /// re-prompts.
+    pub version: Option<i64>,
+    /// WIN-2006: raw apps render single-iframe (the bundle is already isolated in
+    /// its own opaque iframe), so the viewer skips the opaque-viewer indirection
+    /// and the embed token entirely — it loads the app with the page credential.
+    #[serde(default)]
+    pub raw_app: bool,
+    /// WIN-2006: grandfathered app (existed before sandboxing) — runs same-origin
+    /// without a consent prompt to avoid breaking the installed base on upgrade.
+    #[serde(default)]
+    pub legacy_unsandboxed: bool,
+    /// Whether the viewer is authenticated. The `disable_sandbox` consent prompt is
+    /// only shown to authenticated viewers — an anonymous viewer has no session to
+    /// expose, so the prompt would be meaningless friction.
+    #[serde(default)]
+    pub authed: bool,
+}
+
+/// Mint a short-lived, narrowly-scoped embed token for `app_path` when a caller
+/// is authenticated. When `opt_authed` is `None` (anonymous access to an
+/// anonymous app) no token is minted and the iframe relies on the public
+/// endpoints.
+///
+/// The CALLER MUST verify the viewer's access to `app_path` before calling: this
+/// mints a token on behalf of `opt_authed` unconditionally (DB access remains
+/// gated by the viewer's own RLS, but the token's existence is not access-checked
+/// here). All current call sites (`get_app_embed_token`,
+/// `get_app_embed_token_for_path`, and the EE custom-path variant) do this.
+///
+/// Scope confinement IS enforced here: the minted scopes must be within the
+/// caller's own (`ensure_scopes_within_caller`), so a scope-restricted bearer
+/// token cannot bootstrap a broader-scoped embed token. For the normal caller —
+/// an unscoped browser session — this is a no-op and the mint is purely
+/// narrowing.
+pub async fn mint_app_embed_token(
+    db: &DB,
+    w_id: &str,
+    app_path: &str,
+    opt_authed: Option<&ApiAuthed>,
+) -> Result<EmbedTokenResponse> {
+    let token_and_exp = if let Some(authed) = opt_authed {
+        let expiration =
+            chrono::Utc::now() + chrono::Duration::hours(APP_EMBED_TOKEN_VALIDITY_HOURS);
+        let mut scopes: Vec<String> = APP_EMBED_SCOPES.iter().map(|s| s.to_string()).collect();
+        // Path-scoped read so the app can fetch its OWN definition (apps/get/p,
+        // which the in-workspace sandboxed viewer uses) — but no other app's. The
+        // public viewer fetches via apps_u/public_app and doesn't rely on this.
+        scopes.push(format!("apps:read:{app_path}"));
+        // A scope-restricted caller token must not bootstrap a broader-scoped
+        // embed token (`create_token_internal` deliberately does not check this
+        // itself). No-op for unscoped sessions — the normal embed flow.
+        ensure_scopes_within_caller(authed, Some(&scopes))?;
+        let token_config = NewToken::new(
+            Some(format!("embed_app:{app_path}")),
+            Some(expiration),
+            None,
+            Some(scopes),
+            Some(w_id.to_string()),
+            // Never let an embed token gain write capability the caller's own
+            // session lacks.
+            Some(authed.read_only),
+        );
+        let mut tx = db.begin().await?;
+        let token = create_token_internal(&mut *tx, db, authed, token_config).await?;
+        tx.commit().await?;
+        Some((token, expiration))
+    } else {
+        None
+    };
+
+    Ok(EmbedTokenResponse {
+        token: token_and_exp.as_ref().map(|(t, _)| t.clone()),
+        expiration: token_and_exp.map(|(_, e)| e),
+        disable_sandbox: false,
+        version: None,
+        raw_app: false,
+        legacy_unsandboxed: false,
+        authed: opt_authed.is_some(),
+    })
+}
+
+/// Issue an embed token for a public app addressed by its (secret) share id.
+/// Mirrors the access check in [`get_public_app_by_secret`]: anonymous apps are
+/// reachable without auth, otherwise the caller must be logged in and have read
+/// access to the app.
+async fn get_app_embed_token(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((w_id, secret)): Path<(String, String)>,
+) -> JsonResult<EmbedTokenResponse> {
+    let id = get_id_from_secret(&db, &w_id, secret, None).await?;
+
+    let app = sqlx::query!(
+        "SELECT a.path, a.policy::text as policy, a.versions[array_upper(a.versions, 1)] as version, av.raw_app as raw_app
+         FROM app a JOIN app_version av ON av.id = a.versions[array_upper(a.versions, 1)]
+         WHERE a.id = $1 AND a.workspace_id = $2",
+        id,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+    let app = not_found_if_none(app, "App", id.to_string())?;
+    let raw_app = app.raw_app;
+    let policy_str = app
+        .policy
+        .ok_or_else(|| Error::internal_err("App policy missing".to_string()))?;
+    // Lenient field-level read instead of a strict `Policy` parse: a legacy app
+    // whose stored policy predates newer required fields must still resolve to
+    // its (unsandboxed) render here rather than erroring out of the viewer.
+    let policy = parse_embed_policy(&policy_str)?;
+
+    let authed_for_token = if policy.anonymous_execution {
+        // Anonymous app: still mint a scoped token if the viewer happens to be
+        // logged in (so the app sees their identity), otherwise stay anonymous.
+        opt_authed
+    } else {
+        let authed = opt_authed.ok_or_else(|| {
+            Error::NotAuthorized(
+                "App visibility does not allow public access and you are not logged in".to_string(),
+            )
+        })?;
+        let mut tx = user_db.begin(&authed).await?;
+        let is_visible = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM app WHERE id = $1 AND workspace_id = $2)",
+            id,
+            &w_id
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        if !is_visible.unwrap_or(false) {
+            return Err(Error::NotAuthorized(
+                "App visibility does not allow public access and you are logged in but you have no read-access to that app".to_string(),
+            ));
+        }
+        Some(authed)
+    };
+
+    // The token is only consumed by the sandboxed low-code render. Raw apps
+    // render single-iframe with the page credential (WIN-2006 Variant A), and
+    // legacy/disable_sandbox apps render same-origin with the viewer's own
+    // session — minting for those would write a useless token row per view and,
+    // worse, could fail the whole render for a scope-restricted caller
+    // (`ensure_scopes_within_caller`) even though no token is needed. The access
+    // check above still gates visibility in every case.
+    let mut resp = if raw_app || policy.legacy_unsandboxed || policy.disable_sandbox {
+        EmbedTokenResponse {
+            token: None,
+            expiration: None,
+            disable_sandbox: false,
+            version: None,
+            raw_app,
+            legacy_unsandboxed: false,
+            authed: false,
+        }
+    } else {
+        mint_app_embed_token(&db, &w_id, &app.path, authed_for_token.as_ref()).await?
+    };
+    resp.disable_sandbox = policy.disable_sandbox;
+    resp.version = app.version;
+    resp.raw_app = raw_app;
+    resp.legacy_unsandboxed = policy.legacy_unsandboxed;
+    resp.authed = authed_for_token.is_some();
+    Ok(Json(resp))
+}
+
+/// Minimal, lenient view of an app policy for the embed-token endpoints
+/// (WIN-2006). Reads only the fields the sandbox decision needs, via
+/// `serde_json::Value`, so a legacy policy that no longer satisfies the strict
+/// [`Policy`] struct (e.g. `triggerables_v2` entries predating now-required
+/// fields) still renders instead of failing the viewer with "Not found".
+/// A missing/unknown `execution_mode` is treated as NOT anonymous — the
+/// strictest access interpretation.
+pub struct EmbedPolicyView {
+    pub anonymous_execution: bool,
+    pub disable_sandbox: bool,
+    pub legacy_unsandboxed: bool,
+}
+
+pub fn parse_embed_policy(policy_str: &str) -> Result<EmbedPolicyView> {
+    let v: serde_json::Value = serde_json::from_str(policy_str).map_err(to_anyhow)?;
+    Ok(EmbedPolicyView {
+        anonymous_execution: v.get("execution_mode").and_then(|m| m.as_str()) == Some("anonymous"),
+        disable_sandbox: v
+            .get("disable_sandbox")
+            .and_then(|b| b.as_bool())
+            .unwrap_or(false),
+        legacy_unsandboxed: v
+            .get("legacy_unsandboxed")
+            .and_then(|b| b.as_bool())
+            .unwrap_or(false),
+    })
+}
+
+/// Authenticated, path-based embed token for the in-workspace app viewer
+/// (WIN-2006). Mirrors [`get_app_embed_token`] but keyed by app path and gated by
+/// the caller's read access (RLS), so the logged-in `/apps/get` viewer can render
+/// the app sandboxed — isolated from the member's full session — using the same
+/// scoped token. Raw apps get no token (single-iframe with the page credential).
+async fn get_app_embed_token_for_path(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<EmbedTokenResponse> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", path))?;
+    // RLS: the caller must have read access to this app, otherwise it's not found.
+    let mut tx = user_db.begin(&authed).await?;
+    let app = sqlx::query!(
+        "SELECT a.policy::text as policy, a.versions[array_upper(a.versions, 1)] as version, av.raw_app as raw_app
+         FROM app a JOIN app_version av ON av.id = a.versions[array_upper(a.versions, 1)]
+         WHERE a.path = $1 AND a.workspace_id = $2",
+        path,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    let app = not_found_if_none(app, "App", path)?;
+    let raw_app = app.raw_app;
+    let policy_str = app
+        .policy
+        .ok_or_else(|| Error::internal_err("App policy missing".to_string()))?;
+    // Lenient parse + mint only for the sandboxed low-code render — see
+    // [`get_app_embed_token`] for the rationale (identical here).
+    let policy = parse_embed_policy(&policy_str)?;
+
+    let mut resp = if raw_app || policy.legacy_unsandboxed || policy.disable_sandbox {
+        EmbedTokenResponse {
+            token: None,
+            expiration: None,
+            disable_sandbox: false,
+            version: None,
+            raw_app,
+            legacy_unsandboxed: false,
+            authed: true,
+        }
+    } else {
+        mint_app_embed_token(&db, &w_id, path, Some(&authed)).await?
+    };
+    resp.disable_sandbox = policy.disable_sandbox;
+    resp.version = app.version;
+    resp.raw_app = raw_app;
+    resp.legacy_unsandboxed = policy.legacy_unsandboxed;
+    resp.authed = true;
+    Ok(Json(resp))
 }
 
 async fn get_id_from_secret(
@@ -1384,6 +1844,10 @@ async fn create_app_internal<'a>(
         .execute(&mut *tx)
         .await?;
     }
+    // `legacy_unsandboxed` is backend-owned (set only by the grandfather migration)
+    // and grants consent-free same-origin execution. Never let a client set it via
+    // the policy payload, or it would bypass the sandbox.
+    app.policy.legacy_unsandboxed = None;
     let id = sqlx::query_scalar!(
         "INSERT INTO app
             (workspace_id, path, summary, policy, versions, draft_only, custom_path, labels)
@@ -1891,6 +2355,29 @@ async fn update_app_internal<'a>(
         }
 
         if let Some(mut npolicy) = ns.policy {
+            // `legacy_unsandboxed` is backend-owned (set only by the grandfather
+            // migration) and grants consent-free same-origin execution. Clients may
+            // CLEAR it (explicit `false`, sent by the editor's migration prompt once
+            // the publisher makes a sandbox choice) but never set it — otherwise it
+            // would bypass the sandbox. When the payload leaves it unset, the stored
+            // value is carried forward: an unrelated update (CLI / git-sync redeploy,
+            // publish-mode toggle, cross-workspace promotion) must not silently drop
+            // the grandfathering and change how the app runs for its viewers.
+            let legacy_explicitly_cleared = npolicy.legacy_unsandboxed == Some(false);
+            npolicy.legacy_unsandboxed = None;
+            if !legacy_explicitly_cleared {
+                let existing_legacy = sqlx::query_scalar!(
+                    "SELECT (policy->>'legacy_unsandboxed')::bool FROM app WHERE path = $1 AND workspace_id = $2",
+                    path,
+                    w_id
+                )
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten();
+                if existing_legacy == Some(true) {
+                    npolicy.legacy_unsandboxed = Some(true);
+                }
+            }
             if matches!(npolicy.execution_mode, ExecutionMode::Anonymous) && !authed.is_admin {
                 // Restricted users may keep deploying an app that is already
                 // public, but flipping an app to anonymous (public) access is
@@ -2700,6 +3187,8 @@ async fn upload_s3_file_from_app(
                     .unwrap_or_default(),
             }]),
             allowed_s3_keys: None,
+            disable_sandbox: None,
+            legacy_unsandboxed: None,
         })
     } else {
         let policy_o = sqlx::query_scalar!(
@@ -3059,6 +3548,8 @@ async fn get_on_behalf_authed_from_app(
             on_behalf_of_email: None,
             s3_inputs: None,
             allowed_s3_keys: Some(force_allowed_s3_keys),
+            disable_sandbox: None,
+            legacy_unsandboxed: None,
         }
     } else {
         // TODO: improve db query to not return uneeded fields
@@ -3081,6 +3572,8 @@ async fn get_on_behalf_authed_from_app(
                 on_behalf_of_email: None,
                 s3_inputs: None,
                 allowed_s3_keys: None,
+                disable_sandbox: None,
+                legacy_unsandboxed: None,
             })
     };
 
@@ -3477,4 +3970,144 @@ async fn build_args(
         PushArgsOwned { extra: Some(extra), args: safe_args },
         job_id,
     ))
+}
+
+#[cfg(test)]
+mod embed_token_tests {
+    use super::APP_EMBED_SCOPES;
+    use windmill_api_auth::scopes::check_scopes_for_route;
+
+    /// The embed token must reach exactly the endpoints an app needs and nothing
+    /// else. This locks the allow/deny matrix that confines a malicious or
+    /// compromised app to app-only routes (WIN-2006).
+    #[test]
+    fn embed_scopes_allow_app_routes_and_deny_the_rest() {
+        let scopes: Vec<String> = APP_EMBED_SCOPES.iter().map(|s| s.to_string()).collect();
+        let scopes = Some(scopes.as_slice());
+
+        // Allowed: the routes a running app legitimately calls.
+        let allowed = [
+            ("/api/w/test/apps_u/public_app/secret", "GET"),
+            ("/api/w/test/apps_u/get_data/v/secret.js", "GET"),
+            ("/api/w/test/apps_u/public_resource/f/app_themes/t", "GET"),
+            ("/api/w/test/apps_u/execute_component/u/admin/app", "POST"),
+            ("/api/w/test/jobs_u/getupdate_sse/some-uuid", "GET"),
+            ("/api/w/test/users/whoami", "GET"),
+            ("/api/w/test/resources/list", "GET"),
+            ("/api/w/test/folders/listnames", "GET"),
+        ];
+        for (path, method) in allowed {
+            assert!(
+                check_scopes_for_route(scopes, path, method).is_ok(),
+                "embed token should allow {method} {path}"
+            );
+        }
+
+        // Denied: anything outside what an app needs, including app management
+        // (apps:write is intentionally withheld) and other workspace domains.
+        let denied = [
+            ("/api/w/test/apps/update/u/admin/app", "POST"),
+            ("/api/w/test/apps/delete/u/admin/app", "DELETE"),
+            ("/api/w/test/scripts/list", "GET"),
+            ("/api/w/test/variables/list", "GET"),
+            ("/api/w/test/resources/update/u/admin/r", "POST"),
+        ];
+        for (path, method) in denied {
+            assert!(
+                check_scopes_for_route(scopes, path, method).is_err(),
+                "embed token should deny {method} {path}"
+            );
+        }
+    }
+
+    /// `apps:run` satisfies read at the route layer, so `apps/list` / `apps/list_search`
+    /// pass the route check — that's why those handlers ALSO call
+    /// `check_scopes(apps:read)`, which uses `ScopeDefinition::includes` (where run
+    /// does NOT include read). Lock that: no embed scope, including the
+    /// dynamically-minted path-scoped read, satisfies a domain-level `apps:read`, so
+    /// the token cannot list all apps' definitions (their full `value`/code).
+    #[test]
+    fn embed_scopes_cannot_satisfy_domain_app_read() {
+        use windmill_api_auth::scopes::ScopeDefinition;
+        let mut scopes: Vec<String> = APP_EMBED_SCOPES.iter().map(|s| s.to_string()).collect();
+        // mint_app_embed_token also grants read scoped to the single app path:
+        scopes.push("apps:read:u/admin/app".to_string());
+        let required = ScopeDefinition::from_scope_string("apps:read").unwrap();
+        for s in &scopes {
+            let def = ScopeDefinition::from_scope_string(s).unwrap();
+            assert!(
+                !def.includes(&required),
+                "embed scope {s} must not satisfy domain-level apps:read (would leak apps/list[_search])"
+            );
+        }
+        // Sanity: a genuine domain-level apps:read token does satisfy it.
+        assert!(ScopeDefinition::from_scope_string("apps:read")
+            .unwrap()
+            .includes(&required));
+    }
+
+    /// `mint_app_embed_token` guards its `create_token_internal` call with
+    /// `ensure_scopes_within_caller`, so a scope-restricted bearer token cannot
+    /// bootstrap the broader embed-scope set. Lock that boundary on the exact
+    /// scope vec the mint builds: rejected for a path-scoped caller, no-op for
+    /// the unscoped browser session that is the normal embed flow.
+    #[test]
+    fn embed_token_mint_is_scope_bounded() {
+        use windmill_api_auth::{ensure_scopes_within_caller, ApiAuthed};
+
+        // Same scope set mint_app_embed_token assembles for an app.
+        let mut minted: Vec<String> = APP_EMBED_SCOPES.iter().map(|s| s.to_string()).collect();
+        minted.push("apps:read:u/admin/app".to_string());
+
+        // A caller restricted to a single app read must not widen to the full
+        // embed set (apps:run, jobs:read, resources:read, ...).
+        let restricted = ApiAuthed {
+            scopes: Some(vec!["apps:read:u/admin/app".to_string()]),
+            ..Default::default()
+        };
+        assert!(
+            ensure_scopes_within_caller(&restricted, Some(&minted)).is_err(),
+            "a path-scoped caller must not mint the broader embed-scope set"
+        );
+
+        // An unscoped session (the normal embed flow) passes — the mint only
+        // narrows.
+        let unscoped = ApiAuthed { scopes: None, ..Default::default() };
+        assert!(ensure_scopes_within_caller(&unscoped, Some(&minted)).is_ok());
+    }
+
+    /// The embed-token endpoints must keep working for legacy apps whose stored
+    /// policy no longer satisfies the strict `Policy` struct (pre-dating
+    /// now-required fields): `parse_embed_policy` reads only the sandbox-decision
+    /// fields, leniently, and treats a missing/unknown `execution_mode` as NOT
+    /// anonymous (the strictest access interpretation).
+    #[test]
+    fn embed_policy_parse_is_lenient() {
+        use super::parse_embed_policy;
+
+        // Quirky legacy policy: triggerables_v2 entry missing required fields,
+        // no execution_mode at all — must still parse.
+        let p = parse_embed_policy(r#"{"triggerables_v2": {"x": {}}, "legacy_unsandboxed": true}"#)
+            .unwrap();
+        assert!(p.legacy_unsandboxed);
+        assert!(!p.disable_sandbox);
+        assert!(
+            !p.anonymous_execution,
+            "missing execution_mode must not grant anonymous access"
+        );
+
+        // Normal policies map field-for-field.
+        let p = parse_embed_policy(r#"{"execution_mode": "anonymous", "disable_sandbox": true}"#)
+            .unwrap();
+        assert!(p.anonymous_execution);
+        assert!(p.disable_sandbox);
+        assert!(!p.legacy_unsandboxed);
+
+        // Unknown execution_mode value: lenient parse, but not anonymous.
+        let p = parse_embed_policy(r#"{"execution_mode": "weird"}"#).unwrap();
+        assert!(!p.anonymous_execution);
+
+        // Invalid JSON still errors.
+        assert!(parse_embed_policy("not json").is_err());
+    }
 }

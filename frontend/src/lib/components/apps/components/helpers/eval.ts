@@ -2,6 +2,7 @@ import type { World } from '../../rx'
 import { sendUserToast } from '$lib/toast'
 import { waitJob } from '$lib/components/waitJob'
 import { base } from '$lib/base'
+import { appNavigateSameWindow } from '../../utils'
 
 export function computeGlobalContext(
 	world: World | undefined,
@@ -200,7 +201,9 @@ export async function eval_like(
 				}
 				window.open(x, '_blank')
 			} else {
-				window.location.href = x
+				// Top-level load; inside the opaque viewer iframe this targets the
+				// top page (pre-sandbox behavior) instead of the cookieless frame.
+				appNavigateSameWindow(x)
 			}
 		},
 		(id, index) => {
