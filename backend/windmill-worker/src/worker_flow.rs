@@ -3701,10 +3701,12 @@ async fn push_next_flow_job(
                 status_module = FlowStatusModule::WaitingForPriorSteps { id: status_module.id() };
 
                 // The failed attempt's error has already been consumed by `evaluate_retry`
-                // above. Restore `previous_result` to what the original attempt saw (the
-                // preceding step's result, or the flow args for the first step) so that
-                // predicates re-evaluated for the retry (skip_if, loop iterator
-                // expressions, ...) don't see the failed attempt's error instead.
+                // above. Restore `previous_result` to the preceding step's result (or the
+                // flow args for the first step) so that predicates re-evaluated for the
+                // retry (skip_if, loop iterator expressions, ...) don't see the failed
+                // attempt's error instead. Like the suspend/restart path above, this
+                // falls back to `"{}"` when the preceding step has no Success status
+                // (e.g. it failed with continue_on_error).
                 if !matches!(step, Step::FailureStep) {
                     arc_last_job_result = if matches!(step, Step::Step { idx: 0, .. })
                         || step.is_preprocessor_step()
