@@ -455,6 +455,9 @@
 	     RawAppPreview); no opaque viewer and no embed token are needed. -->
 	{@render viewer()}
 {:else}
+	<!-- referrerpolicy: the embedder page URL can carry a viewer credential (the
+	     JWT path segment of share links); without this, the same-origin iframe
+	     navigation would expose it to app-authored code via document.referrer. -->
 	<iframe
 		bind:this={iframeEl}
 		src={buildViewerUrl()}
@@ -462,5 +465,6 @@
 		class="w-full h-screen border-0 block"
 		sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-top-navigation"
 		allow="clipboard-read; clipboard-write; fullscreen"
+		referrerpolicy="no-referrer"
 	></iframe>
 {/if}

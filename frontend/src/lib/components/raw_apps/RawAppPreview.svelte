@@ -226,11 +226,15 @@
 	     allow-same-origin and loads a same-origin blob: wrapper, so the bundle runs
 	     with full access. The default path loads the always-CSP-sandboxed backend
 	     wrapper, which stays opaque even on direct navigation. -->
+	<!-- referrerpolicy (sandboxed only, for exact legacy parity): the hosting page
+	     URL can carry a viewer credential (the JWT path segment of share links);
+	     without this, the bundle document would see it via document.referrer. -->
 	<iframe
 		bind:this={iframe}
 		title="raw-app"
 		src={iframeSrc}
 		sandbox={sandboxAttr}
+		referrerpolicy={unsandboxed ? undefined : 'no-referrer'}
 		class="w-full h-full min-h-screen bg-white border-none"
 	></iframe>
 {/if}

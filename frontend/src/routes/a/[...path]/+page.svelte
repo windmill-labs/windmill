@@ -8,6 +8,7 @@
 
 	import { getUserExt } from '$lib/user'
 	import { page } from '$app/state'
+	import { base } from '$lib/base'
 	import PublicApp from '$lib/components/apps/editor/PublicApp.svelte'
 	import PublicAppFrame from '$lib/components/apps/editor/PublicAppFrame.svelte'
 
@@ -44,6 +45,15 @@
 	}
 
 	const parsedCustomPath = parseCustomPath(page.params.path ?? '')
+
+	// URL for the opaque viewer iframe: the custom-path URL WITHOUT the trailing
+	// JWT segment. The JWT is a viewer credential (broader and longer-lived than
+	// the scoped embed token) consumed here on the embedder side only — it must
+	// never appear in the iframe's own location, where app-authored code could
+	// read it. Captured once (not reactively): the embedder mirrors the app's
+	// hash/query back onto this page's URL, and re-deriving the src from it would
+	// reload the app on its every navigation.
+	const viewerUrl = `${base}/a/${parsedCustomPath.path}${page.url.search}${page.url.hash}`
 
 	let workspace: string | undefined = $state(undefined)
 	let refresh: (() => void) | undefined
@@ -103,6 +113,7 @@
 
 <PublicAppFrame
 	{fetchEmbedToken}
+	{viewerUrl}
 	onViewerReady={(_token, requestTokenRefresh) => {
 		refresh = requestTokenRefresh
 		loadApp()
