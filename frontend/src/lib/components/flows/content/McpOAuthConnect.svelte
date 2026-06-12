@@ -12,14 +12,25 @@
 	import Path from '$lib/components/Path.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { sameTopDomainOrigin } from '$lib/cookies'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, onMount } from 'svelte'
 
 	interface Props {
 		onConnected: (resourcePath: string, resourceName: string) => void
-		onCancel: () => void
+		onCancel?: () => void
+		initialServerUrl?: string
+		initialResourceName?: string
+		initialResourcePath?: string
+		updateExistingResource?: boolean
 	}
 
-	let { onConnected, onCancel }: Props = $props()
+	let {
+		onConnected,
+		onCancel,
+		initialServerUrl = '',
+		initialResourceName = '',
+		initialResourcePath = '',
+		updateExistingResource = false
+	}: Props = $props()
 
 	let serverUrl = $state('')
 	let discoveryResult = $state<DiscoverMcpOauthResponse | null>(null)
@@ -27,8 +38,44 @@
 	let resourceName = $state('')
 	let resourcePath = $state('')
 	let pathError = $state('')
-	let status = $state<'idle' | 'discovering' | 'discovered' | 'connecting'>('idle')
+	let status = $state<'idle' | 'discovering' | 'discovered' | 'unsupported' | 'connecting'>(
+		'idle'
+	)
 	let error = $state<string | null>(null)
+
+	let connectDisabled = $derived(
+		!resourcePath || (!updateExistingResource && pathError !== '')
+	)
+
+	initializeFromProps()
+
+	function initializeFromProps() {
+		serverUrl = initialServerUrl
+		resourceName = initialResourceName
+		resourcePath = initialResourcePath
+		if (initialServerUrl) {
+			status = 'discovering'
+		}
+	}
+
+	onMount(() => {
+		if (initialServerUrl) {
+			void discoverOAuth()
+		}
+	})
+
+	function resetDiscovery() {
+		discoveryResult = null
+		selectedScopes = []
+		error = null
+		status = 'idle'
+	}
+
+	function handleServerUrlInput() {
+		if (status === 'unsupported' || status === 'discovered') {
+			resetDiscovery()
+		}
+	}
 
 	async function discoverOAuth() {
 		status = 'discovering'
@@ -38,18 +85,20 @@
 				requestBody: { mcp_server_url: serverUrl }
 			})
 			selectedScopes = discoveryResult?.scopes_supported ?? []
-			try {
-				const urlObj = new URL(serverUrl)
-				resourceName = urlObj.hostname.replace(/\./g, '_')
-			} catch {
-				resourceName = 'mcp_server'
+			if (!resourceName.trim()) {
+				try {
+					const urlObj = new URL(serverUrl)
+					resourceName = urlObj.hostname.replace(/\./g, '_')
+				} catch {
+					resourceName = 'mcp_server'
+				}
 			}
 			status = 'discovered'
-		} catch (e) {
+		} catch (e: any) {
 			console.error('Error discovering OAuth settings', e)
 			const errorMessage = e.body?.message || e.body || e.message || 'Unknown error'
 			error = `Failed to discover OAuth settings: ${errorMessage}`
-			status = 'idle'
+			status = 'unsupported'
 		}
 	}
 
@@ -102,6 +151,38 @@
 		window.removeEventListener('storage', handleStorageEvent)
 	}
 
+	function getVariablePathFromTokenRef(token: unknown): string | undefined {
+		if (typeof token !== 'string') {
+			return undefined
+		}
+
+		const variablePath = token.trim().startsWith('$var:')
+			? token.trim().slice('$var:'.length).trim()
+			: ''
+
+		return variablePath.length > 0 ? variablePath : undefined
+	}
+
+	async function getTokenVariablePath(existingTokenPath?: string): Promise<string> {
+		if (existingTokenPath) {
+			return existingTokenPath
+		}
+
+		const basePath = `${resourcePath}_token`
+		for (let index = 0; index < 20; index += 1) {
+			const candidatePath = index === 0 ? basePath : `${basePath}_${index + 1}`
+			const exists = await VariableService.existsVariable({
+				workspace: $workspaceStore!,
+				path: candidatePath
+			})
+			if (!exists) {
+				return candidatePath
+			}
+		}
+
+		throw new Error('Could not find an available variable path for the MCP OAuth token')
+	}
+
 	async function createMcpResource(data: {
 		access_token: string
 		refresh_token?: string
@@ -123,31 +204,80 @@
 				accountId = Number(accountIdStr)
 			}
 
-			await VariableService.createVariable({
+			let existingValue: Record<string, unknown> = {}
+			if (updateExistingResource) {
+				const existingResource = await ResourceService.getResource({
+					workspace: $workspaceStore!,
+					path: resourcePath
+				})
+				existingValue =
+					existingResource.value && typeof existingResource.value === 'object'
+						? (existingResource.value as Record<string, unknown>)
+						: {}
+			}
+
+			const existingTokenPath = getVariablePathFromTokenRef(existingValue.token)
+			const tokenVariablePath = await getTokenVariablePath(existingTokenPath)
+			const variableDescription = `MCP OAuth token for ${data.mcp_server_url}`
+			const variableExists = await VariableService.existsVariable({
 				workspace: $workspaceStore!,
-				requestBody: {
-					path: resourcePath,
-					value: data.access_token,
-					is_secret: true,
-					is_oauth: true,
-					account: accountId,
-					description: `MCP OAuth token for ${data.mcp_server_url}`
-				}
+				path: tokenVariablePath
 			})
 
-			await ResourceService.createResource({
-				workspace: $workspaceStore!,
-				requestBody: {
-					resource_type: 'mcp',
+			if (variableExists) {
+				await VariableService.updateVariable({
+					workspace: $workspaceStore!,
+					path: tokenVariablePath,
+					requestBody: {
+						path: tokenVariablePath,
+						value: data.access_token,
+						is_secret: true,
+						account: accountId,
+						description: variableDescription
+					}
+				})
+			} else {
+				await VariableService.createVariable({
+					workspace: $workspaceStore!,
+					requestBody: {
+						path: tokenVariablePath,
+						value: data.access_token,
+						is_secret: true,
+						is_oauth: true,
+						account: accountId,
+						description: variableDescription
+					}
+				})
+			}
+
+			const updatedResourceValue = {
+				name: resourceName,
+				url: data.mcp_server_url,
+				token: `$var:${tokenVariablePath}`
+			}
+
+			if (updateExistingResource) {
+				await ResourceService.updateResourceValue({
+					workspace: $workspaceStore!,
 					path: resourcePath,
-					value: {
-						name: resourceName,
-						url: data.mcp_server_url,
-						token: `$var:${resourcePath}`
-					},
-					description: `MCP server connected via OAuth`
-				}
-			})
+					requestBody: {
+						value: {
+							...existingValue,
+							...updatedResourceValue
+						}
+					}
+				})
+			} else {
+				await ResourceService.createResource({
+					workspace: $workspaceStore!,
+					requestBody: {
+						resource_type: 'mcp',
+						path: resourcePath,
+						value: updatedResourceValue,
+						description: `MCP server connected via OAuth`
+					}
+				})
+			}
 
 			sendUserToast('Connected to MCP server')
 			onConnected(resourcePath, resourceName)
@@ -162,8 +292,14 @@
 
 <div class="border rounded p-4 bg-surface-secondary flex flex-col gap-4">
 	<div class="flex justify-between items-center">
-		<span class="font-semibold text-sm">Connect MCP Server with OAuth</span>
-		<Button size="xs" color="light" onClick={onCancel}>Cancel</Button>
+		<span class="font-semibold text-sm">
+			{updateExistingResource
+				? 'Connect selected MCP resource with OAuth'
+				: 'Connect MCP Server with OAuth'}
+		</span>
+		{#if onCancel}
+			<Button size="xs" color="light" onClick={onCancel}>Cancel</Button>
+		{/if}
 	</div>
 
 	<Label label="MCP Server URL">
@@ -173,6 +309,7 @@
 			placeholder="https://mcp.example.com"
 			class="text-sm w-full"
 			disabled={status === 'connecting'}
+			oninput={handleServerUrlInput}
 		/>
 	</Label>
 
@@ -180,6 +317,16 @@
 		<Button size="sm" onClick={discoverOAuth} disabled={!serverUrl}>Discover OAuth Settings</Button>
 	{:else if status === 'discovering'}
 		<div class="text-sm text-secondary">Discovering OAuth settings...</div>
+	{:else if status === 'unsupported'}
+		<div class="flex flex-col gap-1 text-xs text-red-600 dark:text-red-400">
+			<div>OAuth is not available for this MCP server.</div>
+			{#if error}
+				<div>{error}</div>
+			{/if}
+			<Button size="sm" color="light" onClick={discoverOAuth} disabled={!serverUrl}>
+				Retry Discovery
+			</Button>
+		</div>
 	{:else if status === 'discovered' && discoveryResult}
 		<div class="text-xs text-green-600 dark:text-green-400">
 			&#10003; OAuth supported
@@ -191,7 +338,7 @@
 		{#if discoveryResult.scopes_supported && discoveryResult.scopes_supported.length > 0}
 			<Label label="Select Scopes">
 				<div class="flex flex-col flex-wrap gap-2">
-					{#each discoveryResult.scopes_supported as scope}
+					{#each discoveryResult.scopes_supported as scope (scope)}
 						<label class="flex flex-row items-center gap-2 text-xs cursor-pointer">
 							<input
 								type="checkbox"
@@ -222,22 +369,28 @@
 			/>
 		</Label>
 
-		<Path
-			bind:path={resourcePath}
-			bind:error={pathError}
-			initialPath=""
-			namePlaceholder={resourceName}
-			kind="resource"
-		/>
+		{#if updateExistingResource}
+			<Label label="Resource Path">
+				<div class="text-sm w-full rounded border bg-surface px-2 py-1">{resourcePath}</div>
+			</Label>
+		{:else}
+			<Path
+				bind:path={resourcePath}
+				bind:error={pathError}
+				initialPath=""
+				namePlaceholder={resourceName}
+				kind="resource"
+			/>
+		{/if}
 
-		<Button size="sm" onClick={startOAuth} disabled={!resourcePath || pathError !== ''}>
+		<Button size="sm" onClick={startOAuth} disabled={connectDisabled}>
 			Connect with OAuth
 		</Button>
 	{:else if status === 'connecting'}
 		<div class="text-sm text-secondary">Complete authentication in popup window...</div>
 	{/if}
 
-	{#if error}
+	{#if error && status !== 'unsupported'}
 		<div class="text-xs text-red-600 dark:text-red-400">{error}</div>
 	{/if}
 </div>

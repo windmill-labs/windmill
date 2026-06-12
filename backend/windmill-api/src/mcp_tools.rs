@@ -101,9 +101,21 @@ pub(crate) async fn get_mcp_tools(
         None
     };
 
-    let client = windmill_mcp::McpClient::from_resource(mcp_resource, token)
-        .await
-        .map_err(|e| Error::ExecutionErr(format!("Failed to connect to MCP server: {}", e)))?;
+    let client = match windmill_mcp::McpClient::from_resource(mcp_resource, token).await {
+        Ok(client) => client,
+        Err(e) if windmill_mcp::is_auth_required_error(&e) => {
+            return Err(Error::NotAuthorized(format!(
+                "MCP server requires authentication: {}",
+                e
+            )));
+        }
+        Err(e) => {
+            return Err(Error::ExecutionErr(format!(
+                "Failed to connect to MCP server: {}",
+                e
+            )));
+        }
+    };
 
     let tools: Vec<serde_json::Value> = client
         .available_tools()

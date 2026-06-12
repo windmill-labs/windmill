@@ -7461,6 +7461,9 @@ paths:
                 description:
                   type: string
                   description: The new description of the variable
+                account:
+                  type: integer
+                  description: The new OAuth account id linked to the variable
                 labels:
                   type: array
                   items:

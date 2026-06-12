@@ -27,11 +27,32 @@
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { untrack } from 'svelte'
-	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import McpOAuthConnect from './McpOAuthConnect.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 
 	interface Props {
 		tool: McpTool
+	}
+
+	function getFallbackMcpResourceName(path: string, url?: string): string {
+		if (path) {
+			const parts = path.split('/')
+			return parts[parts.length - 1] || path
+		}
+
+		if (url) {
+			try {
+				return new URL(url).hostname.replace(/\./g, '_')
+			} catch {
+				return 'mcp_server'
+			}
+		}
+
+		return 'mcp_server'
+	}
+
+	function getErrorMessage(error: any): string | undefined {
+		return error?.body?.message || error?.body || error?.message
 	}
 
 	let { tool = $bindable() }: Props = $props()
@@ -40,19 +61,37 @@
 	let refreshCount = $state(0)
 	let resourcePicker: ResourcePicker | undefined = $state()
 
+	let resourcePath = $derived(tool.value.resource_path)
+
 	let tools = usePromise(
 		async () =>
 			await loadToolsCached({
 				workspace: $workspaceStore!,
-				path: tool.value.resource_path,
+				path: resourcePath,
 				refreshCount
 			}),
-		{ loadInit: false, clearValueOnRefresh: false }
+		{ loadInit: false }
+	)
+
+	let selectedResource = usePromise(
+		async () =>
+			resourcePath && $workspaceStore
+				? await ResourceService.getResource({
+						workspace: $workspaceStore,
+						path: resourcePath
+					})
+				: undefined,
+		{ loadInit: false }
 	)
 
 	let toolOptions = $derived(safeSelectItems((tools.value ?? []).map((t) => t.name)))
-	let resourcePath = $derived(tool.value.resource_path)
-	let error = $derived(tools.error?.body?.message || tools.error?.message)
+	let error = $derived(getErrorMessage(tools.error))
+	// The backend returns 401 (NotAuthorized) when the MCP server requires authentication.
+	let unauthorized = $derived(tools.error?.status === 401)
+
+	let resourceValue = $derived(selectedResource.value?.value as { url?: string; name?: string } | undefined)
+	let serverUrl = $derived(resourceValue?.url)
+	let resourceName = $derived(resourceValue?.name || getFallbackMcpResourceName(resourcePath, serverUrl))
 
 	$effect(() => {
 		resourcePath
@@ -61,6 +100,18 @@
 		untrack(() => {
 			if (resourcePath?.length > 0) {
 				tools.refresh()
+			}
+		})
+	})
+
+	$effect(() => {
+		resourcePath
+		$workspaceStore
+		untrack(() => {
+			if (resourcePath?.length > 0 && $workspaceStore) {
+				selectedResource.refresh()
+			} else {
+				selectedResource.clear()
 			}
 		})
 	})
@@ -80,11 +131,13 @@
 		}
 	})
 
-	async function handleOAuthConnected(resourcePath: string, resourceName: string) {
+	async function handleOAuthConnected(connectedResourcePath: string, connectedResourceName: string) {
 		await resourcePicker?.refreshResources()
-		tool.value.resource_path = resourcePath
-		tool.summary = `MCP: ${resourceName}`
+		tool.value.resource_path = connectedResourcePath
+		tool.summary = `MCP: ${connectedResourceName}`
 		showOAuthForm = false
+		selectedResource.refresh()
+		refreshCount += 1
 	}
 </script>
 
@@ -123,84 +176,87 @@
 	{/if}
 
 	{#if resourcePath?.length > 0}
-		<div class="w-full">
-			<Label label="Summary">
-				<input
-					type="text"
-					bind:value={tool.summary}
-					placeholder="e.g., GitHub MCP"
-					class="text-sm w-full"
+		{#if tools.status === 'loading' || selectedResource.status === 'loading'}
+			<div class="text-xs text-secondary italic">connecting to mcp server...</div>
+		{:else if unauthorized}
+			{#key `${resourcePath}:${serverUrl ?? ''}`}
+				<McpOAuthConnect
+					onConnected={handleOAuthConnected}
+					initialServerUrl={serverUrl}
+					initialResourceName={resourceName}
+					initialResourcePath={resourcePath}
+					updateExistingResource={true}
 				/>
-			</Label>
-		</div>
-
-		<Section label="Available Tools">
-			{#snippet action()}
-				<Button
-					size="xs"
-					color="light"
-					onClick={() => (refreshCount += 1)}
-					startIcon={{ icon: RefreshCw }}
-					disabled={tools.status === 'loading'}
-				>
-					{tools.status === 'loading' ? 'Loading...' : 'Refresh Tools'}
-				</Button>
-			{/snippet}
-			<div class="w-full flex flex-col gap-2">
-				{#if error}
-					<div class="text-xs text-red-600 dark:text-red-400 mb-4"
-						>{`Failed to load tools from MCP server: ${error}`}</div
-					>
-				{:else if tools.status === 'loading'}
-					<div class="max-h-48 overflow-y-auto border rounded p-2 bg-surface-secondary">
-						<div class="text-xs text-secondary italic">Loading tools...</div>
-					</div>
-				{:else if (tools.value ?? []).length === 0 && !error}
-					<div class="max-h-48 overflow-y-auto border rounded p-2 bg-surface-secondary">
-						<div class="text-xs text-secondary italic">
-							No tools loaded yet. Click "Refresh Tools" to fetch tools from the MCP server.
-						</div>
-					</div>
-				{:else if (tools.value ?? []).length > 0}
-					<div class="max-h-48 overflow-y-auto border rounded p-2 bg-surface-secondary">
-						<div class="flex flex-col gap-1">
-							{#each tools.value ?? [] as mcpTool}
-								<div class="text-xs">
-									<span class="font-semibold">{mcpTool.name}</span>
-									{#if mcpTool.description}
-										<span class="text-secondary">— {mcpTool.description}</span>
-									{/if}
-								</div>
-							{/each}
-						</div>
-					</div>
-				{/if}
+			{/key}
+		{:else if error}
+			<div class="text-xs text-red-600 dark:text-red-400">{`Failed to connect to MCP server: ${error}`}</div>
+		{:else if tools.status === 'ok'}
+			<div class="w-full">
+				<Label label="Summary">
+					<input
+						type="text"
+						bind:value={tool.summary}
+						placeholder="e.g., GitHub MCP"
+						class="text-sm w-full"
+					/>
+				</Label>
 			</div>
-		</Section>
 
-		{#if tool.value.include_tools && tool.value.exclude_tools}
-			<Section label="Tool Filtering">
-				<div class="w-full flex flex-col gap-3">
-					<div class="flex flex-col gap-2">
-						<Label label="Only include specified tools">
-							<MultiSelect
-								bind:value={tool.value.include_tools}
-								items={toolOptions}
-								placeholder="Choose tools to include..."
-							/>
-						</Label>
-					</div>
-					<div class="flex flex-col gap-2">
-						<Label label="Exclude specified tools">
-							<MultiSelect
-								bind:value={tool.value.exclude_tools}
-								items={toolOptions}
-								placeholder="Choose tools to exclude..."
-							/>
-						</Label>
+			<Section label="Available Tools">
+				{#snippet action()}
+					<Button
+						size="xs"
+						color="light"
+						onClick={() => (refreshCount += 1)}
+						startIcon={{ icon: RefreshCw }}
+					>
+						Refresh Tools
+					</Button>
+				{/snippet}
+				<div class="w-full flex flex-col gap-2">
+					<div class="max-h-48 overflow-y-auto border rounded p-2 bg-surface-secondary">
+						{#if (tools.value ?? []).length === 0}
+							<div class="text-xs text-secondary italic">No tools returned by this MCP server.</div>
+						{:else}
+							<div class="flex flex-col gap-1">
+								{#each tools.value ?? [] as mcpTool (mcpTool.name)}
+									<div class="text-xs">
+										<span class="font-semibold">{mcpTool.name}</span>
+										{#if mcpTool.description}
+											<span class="text-secondary">— {mcpTool.description}</span>
+										{/if}
+									</div>
+								{/each}
+							</div>
+						{/if}
 					</div>
 				</div>
 			</Section>
+
+			{#if tool.value.include_tools && tool.value.exclude_tools}
+				<Section label="Tool Filtering">
+					<div class="w-full flex flex-col gap-3">
+						<div class="flex flex-col gap-2">
+							<Label label="Only include specified tools">
+								<MultiSelect
+									bind:value={tool.value.include_tools}
+									items={toolOptions}
+									placeholder="Choose tools to include..."
+								/>
+							</Label>
+						</div>
+						<div class="flex flex-col gap-2">
+							<Label label="Exclude specified tools">
+								<MultiSelect
+									bind:value={tool.value.exclude_tools}
+									items={toolOptions}
+									placeholder="Choose tools to exclude..."
+								/>
+							</Label>
+						</div>
+					</div>
+				</Section>
+			{/if}
 		{/if}
 	{/if}
 </div>
