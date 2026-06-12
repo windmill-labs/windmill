@@ -75,6 +75,8 @@ import {
 	type GlobalToolHelpers
 } from './global/core'
 import { isGlobalAiEnabled } from './global/gate'
+import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
+import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -138,27 +140,46 @@ function isWorkspacePath(path: string | undefined): path is string {
 	return path?.startsWith('f/') === true || path?.startsWith('u/') === true
 }
 
+// The autonomy mode is namespaced by the logged-in user's email (scopedKey).
+// It controls whether tool calls auto-execute, so leaking it across users on a
+// shared browser is a safety concern (user B inheriting user A's YOLO mode).
+// Returns the safe ACCEPT_EDIT default when no user is known yet — the
+// module-level singleton (constructed at import, before the email resolves)
+// re-reads via onUserChange once it does.
 function getPersistedAutonomyMode(): AIAutonomyMode {
-	if (!BROWSER || typeof localStorage === 'undefined') {
+	const key = scopedKey(AI_AUTONOMY_MODE_STORAGE_KEY)
+	if (!BROWSER || !key) {
 		return AIAutonomyMode.ACCEPT_EDIT
 	}
-	const persistedMode = localStorage.getItem(AI_AUTONOMY_MODE_STORAGE_KEY)
+	const persistedMode = getLocalSetting(key)
 	if (isAIAutonomyMode(persistedMode)) {
 		return persistedMode
 	}
 	// No stored preference: default to auto-accepting edits (tool calls still
 	// require confirmation; only YOLO bypasses those). Note this means users who
 	// never opened the autonomy picker now start with edit auto-accept on.
-	return localStorage.getItem(LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY) === 'true'
+	const legacyKey = scopedKey(LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY)
+	return legacyKey && getLocalSetting(legacyKey) === 'true'
 		? AIAutonomyMode.YOLO
 		: AIAutonomyMode.ACCEPT_EDIT
 }
 
 function persistAutonomyMode(mode: AIAutonomyMode) {
-	if (!BROWSER || typeof localStorage === 'undefined') {
+	const key = scopedKey(AI_AUTONOMY_MODE_STORAGE_KEY)
+	if (!BROWSER || !key) {
 		return
 	}
-	localStorage.setItem(AI_AUTONOMY_MODE_STORAGE_KEY, mode)
+	storeLocalSetting(key, mode)
+}
+
+// Claim the pre-namespacing autonomy keys for the first user to log in on a
+// previously single-user browser.
+function migrateLegacyAutonomyKeys() {
+	migrateLegacyLocalStorage(AI_AUTONOMY_MODE_STORAGE_KEY, scopedKey(AI_AUTONOMY_MODE_STORAGE_KEY))
+	migrateLegacyLocalStorage(
+		LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY,
+		scopedKey(LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY)
+	)
 }
 
 function appendWebSearchErrorHint(message: string, shouldAppend: boolean): string {
@@ -369,6 +390,17 @@ export class AIChatManager {
 
 	setAutoAcceptToolConfirmations = (enabled: boolean) => {
 		this.setAutonomyMode(enabled ? AIAutonomyMode.YOLO : AIAutonomyMode.DEFAULT)
+	}
+
+	// Re-read the autonomy mode from the user-scoped key when the logged-in
+	// email resolves or changes. Claims legacy un-namespaced keys on first
+	// login; falls back to the safe default when logged out so we never leave a
+	// prior user's YOLO mode active. Registered only for the module-level
+	// singleton (constructed before the email is known) — per-session managers
+	// are constructed post-login and read the scoped value directly.
+	hydrateUserScopedAutonomy = () => {
+		migrateLegacyAutonomyKeys()
+		this.autonomyMode = getPersistedAutonomyMode()
 	}
 
 	applyScriptEditorCode = async (code: string, opts?: ReviewChangesOpts) => {
@@ -1609,3 +1641,17 @@ export class AIChatManager {
 }
 
 export const aiChatManager = new AIChatManager()
+
+// The singleton is constructed at import — before the logged-in email resolves
+// — so it starts at the safe autonomy default and an unopened chat-history DB.
+// Hydrate both from user-scoped storage once the email is known, and on any
+// later user change. Registered only here (not in the constructor) so
+// per-session managers don't accumulate never-removed callbacks.
+//
+// init() is email-gated and idempotent, so re-opening the scoped DB here
+// (alongside AiChatLayout's mount-time init()) is harmless and lets the
+// singleton self-heal on email change like the other user-scoped surfaces.
+onUserChange(() => {
+	aiChatManager.hydrateUserScopedAutonomy()
+	void aiChatManager.historyManager.init()
+})

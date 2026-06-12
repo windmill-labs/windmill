@@ -10,6 +10,7 @@ import {
 	type UserWorkspace
 } from '$lib/stores'
 import { switchWorkspace } from '$lib/storeUtils'
+import { getLocalSetting } from '$lib/utils'
 
 // Switch the global workspace iff the target differs from the active one
 // and is non-empty. Centralises the "session needs its workspace in focus"
@@ -23,6 +24,7 @@ export function syncWorkspaceTo(workspaceId: string | undefined): void {
 import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import type HistoryManager from '$lib/components/copilot/chat/HistoryManager.svelte'
+import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
 
 // Kinds the in-session editor pane can host. Legacy drag-and-drop apps are
 // intentionally not previewable — only code-based 'raw_app' apps are.
@@ -129,6 +131,10 @@ export type Session = {
 	transient?: boolean
 }
 
+// Base key; the effective localStorage key is namespaced by the logged-in
+// user's email via scopedKey() so sessions are never shared across users on a
+// shared browser. The bare key is also the legacy (pre-namespacing) key,
+// claimed once on first login.
 const STORAGE_KEY = 'windmill_sessions'
 
 // New users (empty/cleared/private-browsing localStorage) start with no
@@ -138,10 +144,10 @@ const STORAGE_KEY = 'windmill_sessions'
 // "session not found".
 const defaultSessions: Session[] = []
 
-function loadSessions(): Session[] {
-	if (!BROWSER) return defaultSessions
+function loadSessions(key: string | undefined): Session[] {
+	if (!BROWSER || !key) return defaultSessions
 	try {
-		const raw = localStorage.getItem(STORAGE_KEY)
+		const raw = getLocalSetting(key)
 		if (raw) {
 			const parsed = JSON.parse(raw)
 			if (Array.isArray(parsed) && parsed.length > 0) {
@@ -171,7 +177,7 @@ function loadSessions(): Session[] {
 				}
 				if (mutated) {
 					try {
-						localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed))
+						localStorage.setItem(key, JSON.stringify(parsed))
 					} catch (e) {
 						console.error('Failed to persist normalised sessions', e)
 					}
@@ -185,26 +191,54 @@ function loadSessions(): Session[] {
 	return defaultSessions
 }
 
+// Starts empty: the session list is hydrated from the user-scoped key by the
+// onUserChange handler below once the logged-in email resolves (async, after
+// layout load). Reading eagerly here would touch a browser-global key before
+// we know who is logged in.
 export const sessionState = $state<{
 	sessions: Session[]
 	currentSessionId: string | undefined
 }>({
-	sessions: loadSessions(),
+	sessions: [],
 	currentSessionId: undefined
 })
 
 export function persistSessions() {
-	if (!BROWSER) return
+	const key = scopedKey(STORAGE_KEY)
+	if (!BROWSER || !key) return
 	try {
 		// Transient (unsent) sessions stay in memory only. They get
 		// materialised — and from then on written to storage — when the
 		// user sends their first message.
 		const toPersist = $state.snapshot(sessionState.sessions).filter((s) => !s.transient)
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(toPersist))
+		localStorage.setItem(key, JSON.stringify(toPersist))
 	} catch (e) {
 		console.error('Failed to persist sessions', e)
 	}
 }
+
+// Hydrate the in-memory session list from the user-scoped key whenever the
+// logged-in email resolves or changes. On first login for a previously
+// single-user browser, the legacy un-namespaced key is claimed into the
+// user's namespace. On logout (email → undefined) or a genuine user switch
+// (X → Y) the in-memory list and active-session pointer are reset so one
+// user's sessions never bleed into another's view.
+onUserChange((email, prevEmail) => {
+	if (!BROWSER) return
+	const key = scopedKey(STORAGE_KEY)
+	if (!key) {
+		if (prevEmail !== undefined) {
+			sessionState.sessions = []
+			sessionState.currentSessionId = undefined
+		}
+		return
+	}
+	migrateLegacyLocalStorage(STORAGE_KEY, key)
+	sessionState.sessions = loadSessions(key)
+	if (prevEmail !== undefined && prevEmail !== email) {
+		sessionState.currentSessionId = undefined
+	}
+})
 
 export function findSessionByName(name: string): Session | undefined {
 	return sessionState.sessions.find((s) => s.name === name)
