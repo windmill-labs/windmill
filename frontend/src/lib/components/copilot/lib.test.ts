@@ -10,7 +10,12 @@ import {
 	getReasoningContentDelta
 } from './chat/openaiReasoning'
 import { parseFimCompletionChoice } from './fim'
-import { getDefaultChatTemperature, modelDisallowsSamplingParams } from './modelConfig'
+import {
+	getDefaultChatTemperature,
+	getKnownModelContextWindow,
+	getModelContextWindow,
+	modelDisallowsSamplingParams
+} from './modelConfig'
 import { supportsAutocomplete } from './utils'
 
 type AssistantMessageWithReasoning = ChatCompletionMessageParam & {
@@ -221,5 +226,29 @@ describe('openaiReasoning', () => {
 			reasoning_content: '',
 			tool_calls: []
 		})
+	})
+})
+
+describe('model context windows', () => {
+	it('maps Sonnet/Opus 4.6+ Claude models to the 1M window', () => {
+		expect(getKnownModelContextWindow('claude-sonnet-4-6')).toBe(1000000)
+		expect(getKnownModelContextWindow('claude-opus-4-6')).toBe(1000000)
+		expect(getKnownModelContextWindow('claude-opus-4-8')).toBe(1000000)
+		expect(getKnownModelContextWindow('anthropic.claude-sonnet-4-6-v1:0')).toBe(1000000)
+	})
+
+	it('keeps Haiku and older Claude models at 200K', () => {
+		expect(getKnownModelContextWindow('claude-haiku-4-5')).toBe(200000)
+		expect(getKnownModelContextWindow('global.anthropic.claude-haiku-4-5-20251001-v1:0')).toBe(
+			200000
+		)
+		expect(getKnownModelContextWindow('claude-3-5-sonnet-latest')).toBe(200000)
+		expect(getKnownModelContextWindow('claude-sonnet-4-5-20250929')).toBe(200000)
+		expect(getKnownModelContextWindow('claude-opus-4-1')).toBe(200000)
+	})
+
+	it('returns undefined for unrecognized models, 128K via the defaulting wrapper', () => {
+		expect(getKnownModelContextWindow('some-custom-model')).toBeUndefined()
+		expect(getModelContextWindow('some-custom-model')).toBe(128000)
 	})
 })
