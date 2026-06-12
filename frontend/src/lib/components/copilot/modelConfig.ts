@@ -11,6 +11,7 @@ export function modelDisallowsSamplingParams(model: string) {
 	// The o-series match requires a digit after the "o" (o1/o3/o4-mini) so it
 	// does not catch unrelated ids like Mistral's "open-mistral-*" or "optimus-*".
 	return (
+		normalizedModel.includes('claude-fable-5') ||
 		normalizedModel.includes('claude-opus-4-7') ||
 		normalizedModel.includes('claude-opus-4-8') ||
 		baseModel.startsWith('gpt-5') ||

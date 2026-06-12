@@ -15,6 +15,70 @@ export type RawApp = {
 	files: string[]
 }
 
+export type RawAppRuntimeLogLevel = 'log' | 'info' | 'warn' | 'error' | 'debug'
+export type RawAppRuntimeLogEntry = {
+	level: RawAppRuntimeLogLevel
+	message: string
+	ts: number
+}
+export type RawAppRuntimeLogRequester = (
+	limit: number
+) => Promise<RawAppRuntimeLogEntry[] | undefined>
+
+const RAW_APP_RUNTIME_LOG_LEVELS = new Set<RawAppRuntimeLogLevel>([
+	'log',
+	'info',
+	'warn',
+	'error',
+	'debug'
+])
+
+function isRawAppRuntimeLogLevel(level: unknown): level is RawAppRuntimeLogLevel {
+	return typeof level === 'string' && RAW_APP_RUNTIME_LOG_LEVELS.has(level as RawAppRuntimeLogLevel)
+}
+
+function isValidRuntimeLogTimestamp(ts: unknown): ts is number {
+	return typeof ts === 'number' && Number.isFinite(ts) && !Number.isNaN(new Date(ts).getTime())
+}
+
+export function normalizeRawAppRuntimeLogs(logs: unknown): RawAppRuntimeLogEntry[] {
+	if (!Array.isArray(logs)) return []
+	return logs.flatMap((entry) => {
+		if (!entry || typeof entry !== 'object') return []
+		const { level, message, ts } = entry as Record<string, unknown>
+		if (
+			!isRawAppRuntimeLogLevel(level) ||
+			typeof message !== 'string' ||
+			!isValidRuntimeLogTimestamp(ts)
+		)
+			return []
+		return [{ level, message, ts }]
+	})
+}
+
+export function formatRuntimeLogsForChat(entries: RawAppRuntimeLogEntry[]): string {
+	const lines = entries.map((e) => {
+		const date = new Date(e.ts)
+		const time = Number.isNaN(date.getTime()) ? '--:--:--' : date.toISOString().slice(11, 23)
+		return `[${time}] ${e.level.toUpperCase()}: ${e.message}`
+	})
+	return lines.join('\n')
+}
+
+export type RawAppRunSummary = {
+	job_id: string
+	component: string
+	status: 'running' | 'completed'
+	created_at?: number
+	started_at?: number
+	duration_ms?: number
+}
+export type RawAppRunsProvider = () => RawAppRunSummary[] | undefined
+
+export function formatAppRunsForChat(runs: RawAppRunSummary[]): string {
+	return JSON.stringify(runs, null, 2)
+}
+
 export function htmlContent(
 	workspace: string,
 	secret: string | undefined,

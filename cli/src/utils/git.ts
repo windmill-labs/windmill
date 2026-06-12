@@ -20,6 +20,33 @@ export function getCurrentGitBranch(): string | null {
   }
 }
 
+/** Whether a local branch with this exact name exists. */
+export function gitBranchExists(branchName: string): boolean {
+  const r = spawnSync(
+    "git",
+    ["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`],
+    { stdio: "pipe" },
+  );
+  return r.status === 0;
+}
+
+/**
+ * Rename the currently checked-out branch (`git branch -m <newName>`). Used by
+ * `wmill workspace fork --from-branch` to turn an existing working branch into
+ * the `wm-fork/<base>/<id>` fork branch in place, preserving its commits.
+ */
+export function renameCurrentGitBranch(newName: string): void {
+  const r = spawnSync("git", ["branch", "-m", newName], {
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+  if ((r.status ?? 1) !== 0) {
+    throw new Error(
+      `git branch -m ${newName} failed (exit ${r.status}): ${r.stderr ?? ""}`,
+    );
+  }
+}
+
 export function getOriginalBranchForWorkspaceForks(branchName: string | null): string | null {
   if (!branchName || !branchName.startsWith(WM_FORK_PREFIX)) {
     return null

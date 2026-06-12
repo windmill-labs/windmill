@@ -1,8 +1,11 @@
-import { cp, mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { readTextFile } from "../utils/utils.ts";
 import { join } from "node:path";
 import {
-  AGENTS_CLI_INCLUDE_LINE,
+  AGENTS_WMILL_FILENAME,
+  AGENTS_WMILL_INCLUDE_LINE,
+  LEGACY_AGENTS_CLI_FILENAME,
+  LEGACY_AGENTS_CLI_INCLUDE_LINE,
   generateAgentsCliMdContent,
   generateAgentsMdSkeleton,
 } from "./core.ts";
@@ -25,7 +28,7 @@ type ResolvedSkillMetadata = SkillMetadata & {
 /**
  * How to reconcile an existing user-owned guidance file (AGENTS.md or
  * CLAUDE.md) that doesn't reference the managed file below it
- * (`@AGENTS.cli.md` for AGENTS.md, `@AGENTS.md` for CLAUDE.md).
+ * (`@AGENTS.wmill.md` for AGENTS.md, `@AGENTS.md` for CLAUDE.md).
  *
  * - `append`: leave the file as-is and append the include line.
  * - `overwrite`: replace the file with the managed skeleton.
@@ -45,13 +48,13 @@ export interface WriteAiGuidanceOptions {
   nonDottedPaths?: boolean;
   /** Skill source override (testing / source-of-truth bundling). */
   skillsSourcePath?: string;
-  /** AGENTS.cli.md source override (testing). */
+  /** AGENTS.wmill.md source override (testing). */
   agentsSourcePath?: string;
   /** CLAUDE.md source override (testing). */
   claudeSourcePath?: string;
   /**
    * Optional resolver invoked when an existing AGENTS.md lacks an
-   * `@AGENTS.cli.md` reference. Callers are expected to prompt the user; if
+   * `@AGENTS.wmill.md` reference. Callers are expected to prompt the user; if
    * omitted, the writer defaults to `append` (non-destructive).
    */
   resolveAgentsMdMigration?: () => Promise<AgentsMdMigration>;
@@ -64,6 +67,12 @@ export interface WriteAiGuidanceResult {
   claudeCreated: boolean;
   claudeMigration: ReconcileOutcome;
   skillCount: number;
+  /**
+   * True when a legacy `AGENTS.cli.md` was found and removed (its content is
+   * superseded by `AGENTS.wmill.md`, and any `@AGENTS.cli.md` includes were
+   * rewritten to `@AGENTS.wmill.md`).
+   */
+  legacyManagedRemoved: boolean;
 }
 
 export const WMILL_INIT_AI_SKILLS_SOURCE_ENV = "WMILL_INIT_AI_SKILLS_SOURCE";
@@ -94,7 +103,7 @@ export async function writeAiGuidanceFiles(
     ? await readSkillMetadataFromDirectory(options.skillsSourcePath)
     : getGeneratedSkillMetadata();
 
-  // AGENTS.cli.md — always (re)written, this is the managed file.
+  // AGENTS.wmill.md — always (re)written, this is the managed file.
   // We embed a content-hash marker so other `wmill` commands can detect a
   // stale bundle and prompt the user to `wmill refresh prompts`.
   const rawAgentsCliContent =
@@ -105,9 +114,15 @@ export async function writeAiGuidanceFiles(
     rawAgentsCliContent,
     currentPromptsHash(nonDottedPaths)
   );
-  const agentsCliPath = join(options.targetDir, "AGENTS.cli.md");
+  const agentsCliPath = join(options.targetDir, AGENTS_WMILL_FILENAME);
   await writeFile(agentsCliPath, agentsCliContent, "utf8");
   const agentsCliWritten = true;
+
+  // Migrate the legacy `AGENTS.cli.md`: rewrite `@AGENTS.cli.md` includes in
+  // user-owned files to `@AGENTS.wmill.md`, then remove the stale managed
+  // file. Done before reconciliation so the rewritten include reads as
+  // "already-linked" rather than triggering a duplicate append.
+  const legacyManagedRemoved = await migrateLegacyManagedFile(options.targetDir);
 
   // Cache the user's first migration answer and reuse it for every file
   // that needs reconciling in this run — there's never a good reason to ask
@@ -115,13 +130,13 @@ export async function writeAiGuidanceFiles(
   const resolveMigration = cacheOnce(options.resolveAgentsMdMigration);
 
   // AGENTS.md — user-owned. Three paths:
-  //   1. doesn't exist → create skeleton (which already includes @AGENTS.cli.md).
-  //   2. exists and already references @AGENTS.cli.md → leave alone.
-  //   3. exists but doesn't reference @AGENTS.cli.md → ask caller via
+  //   1. doesn't exist → create skeleton (which already includes @AGENTS.wmill.md).
+  //   2. exists and already references @AGENTS.wmill.md → leave alone.
+  //   3. exists but doesn't reference @AGENTS.wmill.md → ask caller via
   //      resolveMigration (defaults to append).
   const agentsMdResult = await reconcileIncludingFile({
     path: join(options.targetDir, "AGENTS.md"),
-    includeLine: AGENTS_CLI_INCLUDE_LINE,
+    includeLine: AGENTS_WMILL_INCLUDE_LINE,
     skeleton: generateAgentsMdSkeleton(),
     resolveMigration,
   });
@@ -153,7 +168,58 @@ export async function writeAiGuidanceFiles(
     claudeCreated: claudeMdResult.created,
     claudeMigration: claudeMdResult.migration,
     skillCount: skillMetadata.length,
+    legacyManagedRemoved,
   };
+}
+
+/**
+ * One-time migration from the old managed filename (`AGENTS.cli.md`) to
+ * `AGENTS.wmill.md`:
+ *
+ *   1. Rewrite the `@AGENTS.cli.md` include token → `@AGENTS.wmill.md` in
+ *      AGENTS.md and CLAUDE.md (only when it appears as a standalone
+ *      whitespace-delimited token, so lookalikes like `@AGENTS.cli.md.backup`
+ *      are left intact).
+ *   2. Delete the stale `AGENTS.cli.md` — its content is fully superseded by
+ *      the freshly written `AGENTS.wmill.md`.
+ *
+ * Returns true when a legacy `AGENTS.cli.md` was present and removed.
+ */
+async function migrateLegacyManagedFile(targetDir: string): Promise<boolean> {
+  for (const fileName of ["AGENTS.md", "CLAUDE.md"]) {
+    const filePath = join(targetDir, fileName);
+    const existing = await readTextFile(filePath).catch(() => null);
+    if (existing == null) continue;
+    const rewritten = rewriteIncludeToken(
+      existing,
+      LEGACY_AGENTS_CLI_INCLUDE_LINE,
+      AGENTS_WMILL_INCLUDE_LINE
+    );
+    if (rewritten !== existing) {
+      await writeFile(filePath, rewritten, "utf8");
+    }
+  }
+
+  const legacyPath = join(targetDir, LEGACY_AGENTS_CLI_FILENAME);
+  const legacyExists = (await stat(legacyPath).catch(() => null)) != null;
+  if (legacyExists) {
+    await rm(legacyPath, { force: true });
+  }
+  return legacyExists;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Replace `from` with `to` only where `from` appears as a standalone
+ * whitespace-delimited token. Line endings and surrounding content are
+ * preserved (`\s` in the lookahead matches `\r`), so a CRLF file stays CRLF.
+ */
+function rewriteIncludeToken(content: string, from: string, to: string): string {
+  const re = new RegExp(`(?<=^|\\s)${escapeRegExp(from)}(?=\\s|$)`, "gm");
+  return content.replace(re, to);
 }
 
 function cacheOnce(
@@ -212,7 +278,7 @@ function referencesIncludeLine(content: string, includeLine: string): boolean {
   // line by itself: our own CLAUDE.md default is `Instructions are in
   // @AGENTS.md` (one sentence), and a strict equality check made `wmill
   // refresh prompts` re-prompt every run on files wmill itself wrote.
-  // Skipping comment-bearing lines keeps `<!-- @AGENTS.cli.md -->` from
+  // Skipping comment-bearing lines keeps `<!-- @AGENTS.wmill.md -->` from
   // false-positiving.
   for (const line of content.split(/\r?\n/)) {
     const trimmed = line.trim();
