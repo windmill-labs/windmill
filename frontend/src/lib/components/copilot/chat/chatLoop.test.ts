@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 	parseOpenAIResponsesCompletion: vi.fn(),
 	getAnthropicCompletion: vi.fn(),
 	parseAnthropicCompletion: vi.fn(),
-	resolveEffectiveReasoning: vi.fn()
+	resolveRequestReasoning: vi.fn()
 }))
 
 vi.mock('../lib', () => ({
@@ -22,7 +22,7 @@ vi.mock('../lib', () => ({
 }))
 
 vi.mock('../reasoningRegistry', () => ({
-	resolveEffectiveReasoning: mocks.resolveEffectiveReasoning
+	resolveRequestReasoning: mocks.resolveRequestReasoning
 }))
 
 vi.mock('./openai-responses', () => ({
@@ -83,7 +83,7 @@ describe('runChatLoop web search fallback', () => {
 		mocks.providerSupportsWebSearch.mockImplementation(
 			(provider) => provider === 'openai' || provider === 'anthropic'
 		)
-		mocks.resolveEffectiveReasoning.mockReturnValue(undefined)
+		mocks.resolveRequestReasoning.mockReturnValue(undefined)
 		mocks.parseOpenAICompletion.mockResolvedValue({
 			shouldContinue: false,
 			tokenUsage
@@ -294,7 +294,7 @@ describe('runChatLoop web search fallback', () => {
 describe('runChatLoop lastIterationUsage', () => {
 	beforeEach(() => {
 		vi.resetAllMocks()
-		mocks.resolveEffectiveReasoning.mockReturnValue(undefined)
+		mocks.resolveRequestReasoning.mockReturnValue(undefined)
 	})
 
 	it('keeps the usage of the last completion that reported it', async () => {
