@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FlowAIChatHelpers } from './flow/core'
 import type { CurrentEditor } from '$lib/components/flows/types'
 import type { ReviewChangesOpts } from './monaco-adapter'
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
+import { runChatLoop } from './chatLoop'
 
 const mocks = vi.hoisted(() => ({
 	getCurrentModel: vi.fn(),
@@ -62,7 +64,10 @@ vi.mock('./api/apiTools', () => ({
 	loadApiTools: vi.fn()
 }))
 
-vi.mock('./chatLoop', () => ({
+// Mock only runChatLoop; keep the real truncateToToolPairedPrefix (pure) that
+// the manager uses to commit partial output.
+vi.mock('./chatLoop', async (importOriginal) => ({
+	...(await importOriginal<typeof import('./chatLoop')>()),
 	runChatLoop: mocks.runChatLoop
 }))
 
@@ -303,5 +308,280 @@ describe('AIChatManager persisted autonomy default', () => {
 	it('restores an explicitly persisted autonomy mode', () => {
 		localStorage.setItem(AUTONOMY_KEY, AIAutonomyMode.DEFAULT)
 		expect(new AIChatManager().autonomyMode).toBe(AIAutonomyMode.DEFAULT)
+	})
+})
+
+const assistantToolCall = (id: string): ChatCompletionMessageParam => ({
+	role: 'assistant',
+	content: '',
+	tool_calls: [{ id, type: 'function', function: { name: 'do_thing', arguments: '{}' } }]
+})
+const toolResult = (id: string): ChatCompletionMessageParam => ({
+	role: 'tool',
+	tool_call_id: id,
+	content: 'ok'
+})
+
+describe('AIChatManager sendRequest lifecycle', () => {
+	beforeEach(() => {
+		localStorage.clear()
+		// checkTokenUsageOverLimit reads getCurrentModel().model, so it must be a
+		// real object (the file-level beforeEach defaults it to undefined).
+		mocks.getCurrentModel.mockReturnValue({ model: 'test-model', provider: 'openai' })
+	})
+
+	it('restores the message to the composer when the model returns no output (#2)', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		const restoreInstructions = vi.fn()
+		manager.setAiChatInput({ restoreInstructions, focusInput: vi.fn() } as any)
+
+		// Empty turn: the loop produces no messages and no display output.
+		vi.mocked(runChatLoop).mockResolvedValue({
+			addedMessages: [],
+			tokenUsage: {} as any,
+			hitMaxIterations: false
+		})
+
+		manager.instructions = 'do a thing'
+		await manager.sendRequest()
+
+		// The empty user turn is rolled back out of the transcript...
+		expect(manager.displayMessages.some((m) => m.role === 'user')).toBe(false)
+		expect(manager.messages.some((m) => m.role === 'user')).toBe(false)
+		// ...and its text is handed back to the composer.
+		expect(restoreInstructions).toHaveBeenCalledWith('do a thing', [])
+		expect(manager.loading).toBe(false)
+	})
+
+	it('restores the message when a completed turn produced only reasoning (#2)', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		const restoreInstructions = vi.fn()
+		manager.setAiChatInput({ restoreInstructions, focusInput: vi.fn() } as any)
+
+		// The model finishes (no abort, no error) having emitted only reasoning —
+		// nothing replayable as context, so the turn is as unsent as an empty one.
+		vi.mocked(runChatLoop).mockImplementation(async (config) => {
+			config.callbacks.onReasoningStart?.()
+			config.callbacks.onReasoningDelta?.('hmm...')
+			config.callbacks.onMessageEnd()
+			return { addedMessages: [], tokenUsage: {} as any, hitMaxIterations: false }
+		})
+
+		manager.instructions = 'do a thing'
+		await manager.sendRequest()
+
+		expect(manager.displayMessages).toHaveLength(0)
+		expect(manager.messages.some((m) => m.role === 'user')).toBe(false)
+		expect(restoreInstructions).toHaveBeenCalledWith('do a thing', [])
+		expect(manager.loading).toBe(false)
+	})
+
+	it('does NOT restore on a normal turn that produced output', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		const restoreInstructions = vi.fn()
+		manager.setAiChatInput({ restoreInstructions, focusInput: vi.fn() } as any)
+
+		vi.mocked(runChatLoop).mockImplementation(async (config) => {
+			config.callbacks.onNewToken('hello')
+			config.callbacks.onMessageEnd()
+			return { addedMessages: [], tokenUsage: {} as any, hitMaxIterations: false }
+		})
+
+		manager.instructions = 'do a thing'
+		await manager.sendRequest()
+
+		expect(restoreInstructions).not.toHaveBeenCalled()
+		expect(manager.displayMessages.some((m) => m.role === 'user')).toBe(true)
+		expect(manager.displayMessages.some((m) => m.role === 'assistant')).toBe(true)
+	})
+
+	it('keeps the tool-paired prefix of a failed turn as context, dropping the dangling call (#3)', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		manager.setAiChatInput({ restoreInstructions: vi.fn(), focusInput: vi.fn() } as any)
+
+		// Completed round-trip for 'a', then started 'b' and failed before its result.
+		vi.mocked(runChatLoop).mockImplementation(async (config) => {
+			config.addedMessages!.push(assistantToolCall('a'), toolResult('a'), assistantToolCall('b'))
+			throw new Error('boom')
+		})
+
+		manager.instructions = 'do a thing'
+		await manager.sendRequest()
+
+		// 'a' round-trip retained as context; dangling 'b' dropped.
+		const toolMsgs = manager.messages.filter((m) => m.role === 'tool')
+		expect(toolMsgs).toHaveLength(1)
+		const hasDanglingB = manager.messages.some(
+			(m) => m.role === 'assistant' && (m as any).tool_calls?.some((c: any) => c.id === 'b')
+		)
+		expect(hasDanglingB).toBe(false)
+		// The user message is flagged so the Retry affordance shows.
+		const lastUser = [...manager.displayMessages].reverse().find((m) => m.role === 'user')
+		expect((lastUser as any)?.error).toBe(true)
+		expect(manager.loading).toBe(false)
+	})
+
+	it('retains the partial answer text when cancelled mid-response, so a follow-up continues (#3)', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		manager.setAiChatInput({ restoreInstructions: vi.fn(), focusInput: vi.fn() } as any)
+
+		// Model wrote part of an answer, then the user hit Stop (abort).
+		vi.mocked(runChatLoop).mockImplementation(async (config) => {
+			config.callbacks.onNewToken('Here is the partial ')
+			config.callbacks.onNewToken('answer')
+			config.abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		manager.instructions = 'write a long thing'
+		await manager.sendRequest()
+
+		// The partial answer is carried as context for the next message.
+		const assistant = manager.messages.find((m) => m.role === 'assistant')
+		expect(assistant?.content).toBe('Here is the partial answer')
+		// And it stays visible in the transcript.
+		expect(manager.displayMessages.some((m) => m.role === 'assistant')).toBe(true)
+		expect(manager.loading).toBe(false)
+	})
+
+	it('restores the message and clears the reasoning bubble when cancelled while only thinking (#3)', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		const restoreInstructions = vi.fn()
+		manager.setAiChatInput({ restoreInstructions, focusInput: vi.fn() } as any)
+
+		// Model was still thinking (no answer text) when the user hit Stop.
+		vi.mocked(runChatLoop).mockImplementation(async (config) => {
+			config.callbacks.onReasoningStart?.()
+			config.callbacks.onReasoningDelta?.('still thinking...')
+			config.abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		manager.instructions = 'think hard'
+		await manager.sendRequest()
+
+		// Nothing usable was produced → treat as unsent: roll the turn back out
+		// (user message + stuck-open reasoning bubble) and restore the composer.
+		expect(manager.messages.some((m) => m.role === 'assistant')).toBe(false)
+		expect(manager.displayMessages.some((m) => m.role === 'assistant')).toBe(false)
+		expect(manager.displayMessages.some((m) => m.role === 'user')).toBe(false)
+		expect(restoreInstructions).toHaveBeenCalledWith('think hard', [])
+		expect(manager.loading).toBe(false)
+	})
+
+	it('keeps text flushed before a tool call when cancelled during the tool call (#3)', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		const restoreInstructions = vi.fn()
+		manager.setAiChatInput({ restoreInstructions, focusInput: vi.fn() } as any)
+
+		// When a tool call starts streaming after some answer text, the parsers
+		// flush onMessageEnd early (capturing the text and resetting currentReply)
+		// while the structured message carrying that text is only pushed at clean
+		// stream end. If the user cancels during the tool call, chatRequest's
+		// catch calls onMessageEnd again with an empty currentReply — the captured
+		// text must survive that second call.
+		vi.mocked(runChatLoop).mockImplementation(async (config) => {
+			config.callbacks.onNewToken('Partial from Claude')
+			config.callbacks.onMessageEnd()
+			config.abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		manager.instructions = 'write a long thing'
+		await manager.sendRequest()
+
+		const assistant = manager.messages.find((m) => m.role === 'assistant')
+		expect(assistant?.content).toBe('Partial from Claude')
+		expect(restoreInstructions).not.toHaveBeenCalled()
+		expect(manager.loading).toBe(false)
+	})
+
+	it('does not duplicate an already-committed answer when cancelled right after a completed message', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		manager.setAiChatInput({ restoreInstructions: vi.fn(), focusInput: vi.fn() } as any)
+
+		// A message completed cleanly (structured message in addedMessages,
+		// partialReply captured at its onMessageEnd), then the abort lands before
+		// the next iteration produced anything — the stale partialReply must not
+		// be committed a second time.
+		vi.mocked(runChatLoop).mockImplementation(async (config) => {
+			config.callbacks.onNewToken('The full answer')
+			config.addedMessages!.push({ role: 'assistant', content: 'The full answer' })
+			config.callbacks.onMessageEnd()
+			config.abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		manager.instructions = 'do a thing'
+		await manager.sendRequest()
+
+		const assistants = manager.messages.filter((m) => m.role === 'assistant')
+		expect(assistants).toHaveLength(1)
+		expect(assistants[0]?.content).toBe('The full answer')
+		expect(manager.loading).toBe(false)
+	})
+
+	it('does not re-commit the turn when a post-commit save throws', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		manager.setAiChatInput({ restoreInstructions: vi.fn(), focusInput: vi.fn() } as any)
+
+		// Clean turn, but persisting it fails — the catch must not treat that as a
+		// failed request and commit the collected messages a second time.
+		vi.mocked(runChatLoop).mockImplementation(async (config) => {
+			config.callbacks.onNewToken('hello')
+			config.addedMessages!.push({ role: 'assistant', content: 'hello' })
+			config.callbacks.onMessageEnd()
+			return {
+				addedMessages: config.addedMessages!,
+				tokenUsage: {} as any,
+				hitMaxIterations: false
+			}
+		})
+		const saveChat = vi
+			.spyOn(manager.historyManager, 'saveChat')
+			.mockResolvedValueOnce(undefined) // save right after the user message
+			.mockRejectedValueOnce(new Error('persist failed')) // post-commit save
+
+		manager.instructions = 'do a thing'
+		await manager.sendRequest()
+
+		expect(saveChat).toHaveBeenCalledTimes(2)
+		const assistants = manager.messages.filter((m) => m.role === 'assistant')
+		expect(assistants).toHaveLength(1)
+		// The request itself succeeded, so the user message is not flagged.
+		const lastUser = [...manager.displayMessages].reverse().find((m) => m.role === 'user')
+		expect((lastUser as any)?.error).toBeUndefined()
+		expect(manager.loading).toBe(false)
+	})
+
+	it('removes the persisted chat when a rolled-back first turn empties the transcript', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		manager.setAiChatInput({ restoreInstructions: vi.fn(), focusInput: vi.fn() } as any)
+
+		// saveChat no-ops on an empty transcript, so rolling back the only turn
+		// must delete the chat entry persisted earlier in the turn instead.
+		vi.mocked(runChatLoop).mockResolvedValue({
+			addedMessages: [],
+			tokenUsage: {} as any,
+			hitMaxIterations: false
+		})
+		const deletePastChat = vi.spyOn(manager.historyManager, 'deletePastChat')
+
+		manager.instructions = 'do a thing'
+		await manager.sendRequest()
+
+		expect(manager.displayMessages).toHaveLength(0)
+		expect(deletePastChat).toHaveBeenCalledWith(manager.historyManager.getCurrentChatId())
+		expect(manager.loading).toBe(false)
 	})
 })

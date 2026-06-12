@@ -58,11 +58,14 @@
 				selected: m.model === providerModel.model,
 				action: () => {
 					// Carry the effort onto the new model only if it supports that level
-					// ('off' is always valid); otherwise drop it so the model's default applies.
+					// ('off' only where the model can truly disable); otherwise drop it so
+					// the model's default applies.
 					const carried = providerModel.reasoning
 					const cap = getReasoningCapability(m.provider, m.model)
 					const keep =
-						carried === REASONING_OFF || (carried !== undefined && cap.levels.includes(carried))
+						carried === REASONING_OFF
+							? cap.canDisable
+							: carried !== undefined && cap.levels.includes(carried)
 					$copilotSessionModel = { ...m, ...(keep ? { reasoning: carried } : {}) }
 					storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, m.model)
 					storeLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME, m.provider)
@@ -93,7 +96,7 @@
 {#if capability.supported}
 	<DropdownV2
 		items={() =>
-			[REASONING_OFF, ...capability.levels].map((level) => ({
+			[...(capability.canDisable ? [REASONING_OFF] : []), ...capability.levels].map((level) => ({
 				displayName: level,
 				selected:
 					level === REASONING_OFF
