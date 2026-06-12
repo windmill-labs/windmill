@@ -267,6 +267,9 @@
 		checked={policy.disable_sandbox != true}
 		on:change={(e) => {
 			policy.disable_sandbox = !e.detail
+			// Toggling is an explicit publisher choice: clear the grandfathering
+			// flag (the backend preserves it across updates unless told `false`).
+			policy.legacy_unsandboxed = false
 			setPublishState(e.detail ? 'Sandbox isolation enabled' : 'Sandbox isolation disabled')
 		}}
 		disabled={!savedApp}

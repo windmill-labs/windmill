@@ -15,6 +15,16 @@
 		jobsById?: Record<string, JobById>
 		editor: boolean
 		workspace: string
+		/**
+		 * Restrict waitJob/getJob/streamJob to job ids launched by this app
+		 * instance (WIN-2006): a SANDBOXED bundle must not read arbitrary
+		 * workspace jobs through the credentialed bridge. Off for unsandboxed
+		 * renders (legacy / consented / editor preview) — there the bundle holds
+		 * the same credential as the bridge, so gating adds nothing and would
+		 * only break pre-sandbox apps that poll persisted or runnable-returned
+		 * job ids.
+		 */
+		gateJobIds?: boolean
 	}
 
 	let {
@@ -24,11 +34,11 @@
 		jobs = $bindable([]),
 		jobsById = $bindable({}),
 		editor,
-		workspace
+		workspace,
+		gateJobIds = true
 	}: Props = $props()
 
-	// Job ids launched by this app instance. waitJob/getJob/streamJob are scoped
-	// to these so a bundle can't read arbitrary workspace jobs by id (WIN-2006).
+	// Job ids launched by this app instance — see `gateJobIds`.
 	const launchedJobs = new Set<string>()
 
 	let listener = async (event) => {
@@ -143,13 +153,13 @@
 				console.error('No runnable found for', runnable_id)
 			}
 		} else if (event.data.type == 'waitJob') {
-			if (!launchedJobs.has(data.jobId)) {
+			if (gateJobIds && !launchedJobs.has(data.jobId)) {
 				respond({ result: { message: 'Unknown job' }, error: true })
 				return
 			}
 			await respondWithResult(data.jobId)
 		} else if (event.data.type == 'getJob') {
-			if (!launchedJobs.has(data.jobId)) {
+			if (gateJobIds && !launchedJobs.has(data.jobId)) {
 				respond({ result: { message: 'Unknown job' }, error: true })
 				return
 			}
@@ -159,7 +169,7 @@
 			// Stream job results using SSE
 			const jobId = data.jobId
 			const reqId = data.reqId
-			if (!launchedJobs.has(jobId)) {
+			if (gateJobIds && !launchedJobs.has(jobId)) {
 				iframe?.contentWindow?.postMessage(
 					{ type: 'streamJobRes', reqId, error: true, result: { message: 'Unknown job' } },
 					'*'

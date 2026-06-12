@@ -15,10 +15,13 @@
 
 	/**
 	 * Resolve the sandbox choice for a pending deploy. Non-legacy apps resolve
-	 * `true` immediately; legacy apps prompt the publisher. Deploying drops the
-	 * backend-owned legacy flag, so the choice recorded here is what sticks:
-	 * `disable_sandbox=true` to keep running same-origin (with viewer consent), or
-	 * left unset to become sandboxed. Resolves `false` when the publisher cancels.
+	 * `true` immediately; legacy apps prompt the publisher. The choice recorded
+	 * here is what sticks: `disable_sandbox=true` to keep running same-origin
+	 * (with viewer consent), or left unset to become sandboxed — and in both
+	 * cases `legacy_unsandboxed=false` so the backend (which otherwise preserves
+	 * the stored flag across updates) clears the grandfathering now that the
+	 * publisher made an explicit choice. Resolves `false` when the publisher
+	 * cancels.
 	 */
 	export function ensureLegacyResolved(policy: any): Promise<boolean> {
 		if (!policy?.legacy_unsandboxed) return Promise.resolve(true)
@@ -33,6 +36,7 @@
 					return
 				}
 				policy.disable_sandbox = choice === 'unsandboxed' ? true : undefined
+				policy.legacy_unsandboxed = false
 				resolve(true)
 			}
 			open = true

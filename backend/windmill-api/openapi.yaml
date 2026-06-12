@@ -27061,6 +27061,19 @@ components:
           type: string
         on_behalf_of_email:
           type: string
+        disable_sandbox:
+          type: boolean
+          description: >
+            Publisher opt-out of app sandbox isolation. When true the app runs
+            same-origin with each viewer's session (full browser features),
+            gated by a per-version viewer consent prompt.
+        legacy_unsandboxed:
+          type: boolean
+          description: >
+            Server-managed grandfathering flag for apps that predate sandbox
+            isolation. It cannot be set through the API; sending `false`
+            clears it (the publisher made an explicit sandbox choice), and
+            omitting it preserves the stored value across updates.
 
     ListableApp:
       type: object

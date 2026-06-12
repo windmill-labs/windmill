@@ -1214,9 +1214,12 @@ async fn get_app_embed_token(
     let policy_str = app
         .policy
         .ok_or_else(|| Error::internal_err("App policy missing".to_string()))?;
-    let policy = serde_json::from_str::<Policy>(&policy_str).map_err(to_anyhow)?;
+    // Lenient field-level read instead of a strict `Policy` parse: a legacy app
+    // whose stored policy predates newer required fields must still resolve to
+    // its (unsandboxed) render here rather than erroring out of the viewer.
+    let policy = parse_embed_policy(&policy_str)?;
 
-    let authed_for_token = if matches!(policy.execution_mode, ExecutionMode::Anonymous) {
+    let authed_for_token = if policy.anonymous_execution {
         // Anonymous app: still mint a scoped token if the viewer happens to be
         // logged in (so the app sees their identity), otherwise stay anonymous.
         opt_authed
@@ -1243,27 +1246,60 @@ async fn get_app_embed_token(
         Some(authed)
     };
 
-    // Raw apps render single-iframe with the page credential (WIN-2006 Variant A),
-    // so no embed token is minted; the access check above still gates visibility.
-    let mut resp = if raw_app {
+    // The token is only consumed by the sandboxed low-code render. Raw apps
+    // render single-iframe with the page credential (WIN-2006 Variant A), and
+    // legacy/disable_sandbox apps render same-origin with the viewer's own
+    // session — minting for those would write a useless token row per view and,
+    // worse, could fail the whole render for a scope-restricted caller
+    // (`ensure_scopes_within_caller`) even though no token is needed. The access
+    // check above still gates visibility in every case.
+    let mut resp = if raw_app || policy.legacy_unsandboxed || policy.disable_sandbox {
         EmbedTokenResponse {
             token: None,
             expiration: None,
             disable_sandbox: false,
             version: None,
-            raw_app: true,
+            raw_app,
             legacy_unsandboxed: false,
             authed: false,
         }
     } else {
         mint_app_embed_token(&db, &w_id, &app.path, authed_for_token.as_ref()).await?
     };
-    resp.disable_sandbox = policy.disable_sandbox.unwrap_or(false);
+    resp.disable_sandbox = policy.disable_sandbox;
     resp.version = app.version;
     resp.raw_app = raw_app;
-    resp.legacy_unsandboxed = policy.legacy_unsandboxed.unwrap_or(false);
+    resp.legacy_unsandboxed = policy.legacy_unsandboxed;
     resp.authed = authed_for_token.is_some();
     Ok(Json(resp))
+}
+
+/// Minimal, lenient view of an app policy for the embed-token endpoints
+/// (WIN-2006). Reads only the fields the sandbox decision needs, via
+/// `serde_json::Value`, so a legacy policy that no longer satisfies the strict
+/// [`Policy`] struct (e.g. `triggerables_v2` entries predating now-required
+/// fields) still renders instead of failing the viewer with "Not found".
+/// A missing/unknown `execution_mode` is treated as NOT anonymous — the
+/// strictest access interpretation.
+pub struct EmbedPolicyView {
+    pub anonymous_execution: bool,
+    pub disable_sandbox: bool,
+    pub legacy_unsandboxed: bool,
+}
+
+pub fn parse_embed_policy(policy_str: &str) -> Result<EmbedPolicyView> {
+    let v: serde_json::Value = serde_json::from_str(policy_str).map_err(to_anyhow)?;
+    Ok(EmbedPolicyView {
+        anonymous_execution: v.get("execution_mode").and_then(|m| m.as_str()) == Some("anonymous"),
+        disable_sandbox: v
+            .get("disable_sandbox")
+            .and_then(|b| b.as_bool())
+            .unwrap_or(false),
+        legacy_unsandboxed: v
+            .get("legacy_unsandboxed")
+            .and_then(|b| b.as_bool())
+            .unwrap_or(false),
+    })
 }
 
 /// Authenticated, path-based embed token for the in-workspace app viewer
@@ -1296,25 +1332,27 @@ async fn get_app_embed_token_for_path(
     let policy_str = app
         .policy
         .ok_or_else(|| Error::internal_err("App policy missing".to_string()))?;
-    let policy = serde_json::from_str::<Policy>(&policy_str).map_err(to_anyhow)?;
+    // Lenient parse + mint only for the sandboxed low-code render — see
+    // [`get_app_embed_token`] for the rationale (identical here).
+    let policy = parse_embed_policy(&policy_str)?;
 
-    let mut resp = if raw_app {
+    let mut resp = if raw_app || policy.legacy_unsandboxed || policy.disable_sandbox {
         EmbedTokenResponse {
             token: None,
             expiration: None,
             disable_sandbox: false,
             version: None,
-            raw_app: true,
+            raw_app,
             legacy_unsandboxed: false,
             authed: true,
         }
     } else {
         mint_app_embed_token(&db, &w_id, path, Some(&authed)).await?
     };
-    resp.disable_sandbox = policy.disable_sandbox.unwrap_or(false);
+    resp.disable_sandbox = policy.disable_sandbox;
     resp.version = app.version;
     resp.raw_app = raw_app;
-    resp.legacy_unsandboxed = policy.legacy_unsandboxed.unwrap_or(false);
+    resp.legacy_unsandboxed = policy.legacy_unsandboxed;
     resp.authed = true;
     Ok(Json(resp))
 }
@@ -2318,9 +2356,28 @@ async fn update_app_internal<'a>(
 
         if let Some(mut npolicy) = ns.policy {
             // `legacy_unsandboxed` is backend-owned (set only by the grandfather
-            // migration) and grants consent-free same-origin execution. Never let a
-            // client set it via the policy payload, or it would bypass the sandbox.
+            // migration) and grants consent-free same-origin execution. Clients may
+            // CLEAR it (explicit `false`, sent by the editor's migration prompt once
+            // the publisher makes a sandbox choice) but never set it — otherwise it
+            // would bypass the sandbox. When the payload leaves it unset, the stored
+            // value is carried forward: an unrelated update (CLI / git-sync redeploy,
+            // publish-mode toggle, cross-workspace promotion) must not silently drop
+            // the grandfathering and change how the app runs for its viewers.
+            let legacy_explicitly_cleared = npolicy.legacy_unsandboxed == Some(false);
             npolicy.legacy_unsandboxed = None;
+            if !legacy_explicitly_cleared {
+                let existing_legacy = sqlx::query_scalar!(
+                    "SELECT (policy->>'legacy_unsandboxed')::bool FROM app WHERE path = $1 AND workspace_id = $2",
+                    path,
+                    w_id
+                )
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten();
+                if existing_legacy == Some(true) {
+                    npolicy.legacy_unsandboxed = Some(true);
+                }
+            }
             if matches!(npolicy.execution_mode, ExecutionMode::Anonymous) && !authed.is_admin {
                 // Restricted users may keep deploying an app that is already
                 // public, but flipping an app to anonymous (public) access is
@@ -4017,5 +4074,40 @@ mod embed_token_tests {
         // narrows.
         let unscoped = ApiAuthed { scopes: None, ..Default::default() };
         assert!(ensure_scopes_within_caller(&unscoped, Some(&minted)).is_ok());
+    }
+
+    /// The embed-token endpoints must keep working for legacy apps whose stored
+    /// policy no longer satisfies the strict `Policy` struct (pre-dating
+    /// now-required fields): `parse_embed_policy` reads only the sandbox-decision
+    /// fields, leniently, and treats a missing/unknown `execution_mode` as NOT
+    /// anonymous (the strictest access interpretation).
+    #[test]
+    fn embed_policy_parse_is_lenient() {
+        use super::parse_embed_policy;
+
+        // Quirky legacy policy: triggerables_v2 entry missing required fields,
+        // no execution_mode at all — must still parse.
+        let p = parse_embed_policy(r#"{"triggerables_v2": {"x": {}}, "legacy_unsandboxed": true}"#)
+            .unwrap();
+        assert!(p.legacy_unsandboxed);
+        assert!(!p.disable_sandbox);
+        assert!(
+            !p.anonymous_execution,
+            "missing execution_mode must not grant anonymous access"
+        );
+
+        // Normal policies map field-for-field.
+        let p = parse_embed_policy(r#"{"execution_mode": "anonymous", "disable_sandbox": true}"#)
+            .unwrap();
+        assert!(p.anonymous_execution);
+        assert!(p.disable_sandbox);
+        assert!(!p.legacy_unsandboxed);
+
+        // Unknown execution_mode value: lenient parse, but not anonymous.
+        let p = parse_embed_policy(r#"{"execution_mode": "weird"}"#).unwrap();
+        assert!(!p.anonymous_execution);
+
+        // Invalid JSON still errors.
+        assert!(parse_embed_policy("not json").is_err());
     }
 }

@@ -38,9 +38,16 @@
 	let refresh: (() => void) | undefined
 
 	// The opaque iframe loads the dedicated cookieless, chrome-less viewer route.
-	let viewerUrl = $derived(`${base}/app_embed/${workspace}/${path}`)
+	// The page's query/hash are forwarded so the app sees the same `ctx.query` /
+	// `ctx.hash` as the pre-sandbox viewer did. Captured ONCE (not reactively):
+	// the embedder later mirrors the app's own hash/query changes back onto this
+	// page's URL (wm_embed_hash relay), and re-deriving the iframe src from them
+	// would reload the app on its every navigation.
+	const initialSearchHash = page.url.search + page.url.hash
+	let viewerUrl = $derived(`${base}/app_embed/${workspace}/${path}${initialSearchHash}`)
 
 	const hideEditBtn = page.url.searchParams.get('hideEditBtn') === 'true'
+	const hideRefreshBar = page.url.searchParams.get('hideRefreshBar') === 'true'
 
 	// Embedder side: mint a scoped embed token (by path) from the member's session.
 	async function fetchEmbedToken(): Promise<{ token?: string }> {
@@ -126,6 +133,8 @@
 			{notExists}
 			{noPermission}
 			jwtError={false}
+			inWorkspace
+			{hideRefreshBar}
 			onLoginSuccess={() => loadApp()}
 		></PublicApp>
 	{/snippet}

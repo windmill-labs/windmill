@@ -55,11 +55,13 @@
 		if (unsandboxed) {
 			// untrack(user) so userStore refreshes don't regenerate the blob URL and
 			// reload the iframe (losing state); ctx is only needed for initial render.
+			// Always pass the wrapper object — pre-sandbox bundles rely on
+			// `window.ctx.workspace` even for anonymous viewers (ctx.ctx undefined).
 			const u = untrack(() => user)
 			const html = unsandboxedRawAppHtml(
 				workspace,
 				secret,
-				u ? { ctx: u, workspace } : undefined,
+				{ ctx: u, workspace },
 				window.location.origin,
 				window.location.hash || ''
 			)
@@ -126,7 +128,9 @@
 		iframe?.contentWindow?.postMessage(
 			{
 				type: 'windmill:ctx',
-				ctx: user ? { ctx: user, workspace } : undefined,
+				// Same shape as the unsandboxed wrapper: always the object, so
+				// `window.ctx.workspace` works for anonymous viewers too.
+				ctx: { ctx: user, workspace },
 				initialHash,
 				storage: { local: bundleStorage ?? {}, session: {} }
 			},
@@ -208,7 +212,14 @@
 	})
 </script>
 
-<RawAppBackgroundRunner {workspace} editor={false} {iframe} {runnables} {path} />
+<RawAppBackgroundRunner
+	{workspace}
+	editor={false}
+	{iframe}
+	{runnables}
+	{path}
+	gateJobIds={!unsandboxed}
+/>
 
 {#if iframeSrc}
 	<!-- `unsandboxed` (publisher disabled isolation + viewer consented) adds

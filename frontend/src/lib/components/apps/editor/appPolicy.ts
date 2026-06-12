@@ -186,11 +186,14 @@ export async function updatePolicy(app: App, currentPolicy: Policy | undefined):
 		s3_inputs,
 		triggerables_v2: ntriggerables
 	}
-	// WIN-2006: `legacy_unsandboxed` is a migration-only, backend-set flag that
-	// grandfathers pre-sandbox apps. A (re)deploy resolves the grandfathered app
-	// into an explicit choice (sandboxed, or `disable_sandbox`) via the deploy-time
-	// modal, so the flag is never carried forward by a deploy.
-	delete (next as any).legacy_unsandboxed
+	// WIN-2006: `legacy_unsandboxed` is a migration-only, backend-set flag. The
+	// backend preserves the stored value when the payload omits the field (so an
+	// unrelated update never silently drops the grandfathering) and only an
+	// explicit `false` — set by the deploy-time migration modal once the publisher
+	// made a sandbox choice — clears it. Strip anything else.
+	if ((next as any).legacy_unsandboxed !== false) {
+		delete (next as any).legacy_unsandboxed
+	}
 	return next
 }
 

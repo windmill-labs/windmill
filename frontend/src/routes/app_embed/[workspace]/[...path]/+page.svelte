@@ -23,6 +23,8 @@
 
 	const workspace = page.params.workspace ?? ''
 	const path = page.params.path ?? ''
+	// Forwarded by InWorkspaceAppViewer from the member-facing page's query.
+	const hideRefreshBar = page.url.searchParams.get('hideRefreshBar') === 'true'
 	let refresh: (() => void) | undefined
 
 	// Embedder side: the logged-in member's session mints a scoped embed token for
@@ -85,6 +87,8 @@
 			{notExists}
 			{noPermission}
 			jwtError={false}
+			inWorkspace
+			{hideRefreshBar}
 			onLoginSuccess={() => loadApp()}
 		></PublicApp>
 	{/snippet}

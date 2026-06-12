@@ -23,10 +23,14 @@ export async function updateRawAppPolicy(
 		...currentPolicy,
 		triggerables_v2
 	}
-	// WIN-2006: `legacy_unsandboxed` is a migration-only, backend-set flag that
-	// must never be (re)submitted by a client deploy — the backend strips it too,
-	// but don't even send it (matches updatePolicy in apps/editor/appPolicy.ts).
-	delete (next as any).legacy_unsandboxed
+	// WIN-2006: `legacy_unsandboxed` is a migration-only, backend-set flag. The
+	// backend preserves the stored value when the payload omits the field (so an
+	// unrelated update never silently drops the grandfathering) and only an
+	// explicit `false` — set by the deploy-time migration modal once the publisher
+	// made a sandbox choice — clears it. Strip anything else.
+	if ((next as any).legacy_unsandboxed !== false) {
+		delete (next as any).legacy_unsandboxed
+	}
 	return next
 }
 
