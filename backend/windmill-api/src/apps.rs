@@ -65,7 +65,9 @@ use windmill_common::{
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},
-    workspaces::{check_deploy_rules, RuleCheckResult},
+    workspaces::{
+        check_deploy_rules, check_user_against_rule, ProtectionRuleKind, RuleCheckResult,
+    },
     HUB_BASE_URL,
 };
 #[cfg(feature = "parquet")]
@@ -163,6 +165,10 @@ pub struct ListableApp {
     pub raw_app: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Labels inherited from the parent folder, computed at read time.
+    #[sqlx(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inherited_labels: Option<Vec<String>>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -385,6 +391,7 @@ async fn list_apps(
             "draft_only",
             "app_version.raw_app",
             "app.labels",
+            "folder_labels(app.workspace_id, app.path) as inherited_labels",
         ])
         .left()
         .join("favorite")
@@ -427,7 +434,11 @@ async fn list_apps(
 
     if let Some(label) = &lq.label {
         for l in label.split(',') {
-            sqlb.and_where("app.labels @> ARRAY[?]".bind(&l.trim()));
+            sqlb.and_where(
+                "(app.labels @> ARRAY[?] OR folder_labels(app.workspace_id, app.path) @> ARRAY[?])"
+                    .bind(&l.trim())
+                    .bind(&l.trim()),
+            );
         }
     }
 
@@ -1348,6 +1359,20 @@ async fn create_app_internal<'a>(
             ));
         }
     }
+    if matches!(app.policy.execution_mode, ExecutionMode::Anonymous) {
+        if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+            w_id,
+            &ProtectionRuleKind::RestrictAnonymousAppDeployment,
+            &authed.username,
+            &authed.groups,
+            authed.is_admin,
+            &db,
+        )
+        .await?
+        {
+            return Err(Error::PermissionDenied(msg));
+        }
+    }
     // CLI / git-sync deploys ask us to preserve any existing user draft at this
     // path instead of wiping it as part of the deploy.
     if !app.skip_draft_deletion.unwrap_or(false) {
@@ -1866,6 +1891,37 @@ async fn update_app_internal<'a>(
         }
 
         if let Some(mut npolicy) = ns.policy {
+            if matches!(npolicy.execution_mode, ExecutionMode::Anonymous) && !authed.is_admin {
+                // Restricted users may keep deploying an app that is already
+                // public, but flipping an app to anonymous (public) access is
+                // gated by the RestrictAnonymousAppDeployment protection rule.
+                // FOR UPDATE locks the row until this transaction's policy
+                // UPDATE commits, so a concurrent admin downgrade cannot be
+                // silently overwritten by a stale redeploy keeping anonymous.
+                let already_anonymous = sqlx::query_scalar!(
+                    "SELECT policy->>'execution_mode' = 'anonymous' FROM app WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
+                    path,
+                    w_id
+                )
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten()
+                .unwrap_or(false);
+                if !already_anonymous {
+                    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+                        w_id,
+                        &ProtectionRuleKind::RestrictAnonymousAppDeployment,
+                        &authed.username,
+                        &authed.groups,
+                        authed.is_admin,
+                        &db,
+                    )
+                    .await?
+                    {
+                        return Err(Error::PermissionDenied(msg));
+                    }
+                }
+            }
             let should_preserve = ns.preserve_on_behalf_of.unwrap_or(false)
                 && windmill_common::can_preserve_on_behalf_of(&authed)
                 && npolicy.on_behalf_of.is_some();

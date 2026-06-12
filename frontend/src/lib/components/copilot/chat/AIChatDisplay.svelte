@@ -28,6 +28,7 @@
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
+	import AIChatSettingsMenu from './AIChatSettingsMenu.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
@@ -423,20 +424,27 @@
 					{#if showTypingIndicator}
 						<div
 							class={twMerge(
-								'sticky z-10 mt-0.5 ml-2 self-start pointer-events-none',
+								'sticky z-10 -mt-10 ml-2 self-start pointer-events-none',
 								showFlowPendingActionControls ? 'bottom-14' : 'bottom-2'
 							)}
 						>
 							{#if waitingForUserAction}
 								<span
-									class="inline-flex items-center gap-1.5 text-2xs text-accent"
+									class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface/80 backdrop-blur text-2xs text-accent"
 									aria-label="Waiting for your input"
 								>
 									<Hourglass class="w-3 h-3 hourglass-flip" />
 									Waiting for your input
 								</span>
 							{:else}
-								<ChatTypingIndicator loading={aiChatManager.loading} />
+								<ChatTypingIndicator
+									loading={aiChatManager.loading}
+									label={aiChatManager.currentReasoningActive &&
+									!aiChatManager.currentReply &&
+									!aiChatManager.currentReasoning
+										? 'Thinking'
+										: undefined}
+								/>
 							{/if}
 						</div>
 					{/if}
@@ -645,6 +653,7 @@
 							<DatatableCreationPolicy />
 						{/if}
 						<ProviderModelSelector />
+						<AIChatSettingsMenu />
 
 						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
 							{#if appContext.inspectorElement}

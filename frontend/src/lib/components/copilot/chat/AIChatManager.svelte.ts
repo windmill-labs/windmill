@@ -1,4 +1,4 @@
-import type { AIProviderModel, ScriptLang } from '$lib/gen/types.gen'
+import type { ScriptLang } from '$lib/gen/types.gen'
 import { WorkspaceService } from '$lib/gen'
 import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
 import {
@@ -39,6 +39,8 @@ import { sendUserToast } from '$lib/toast'
 import { getKnownModelContextWindow, workspaceAIClients } from '../lib'
 import { dfs } from '$lib/components/flows/previousResults'
 import { getStringError } from './utils'
+import { type PasteAttachment } from './pasteTokens'
+import { chatDraft, expanded } from './chatDraft'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
@@ -60,7 +62,12 @@ import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { runChatLoop } from './chatLoop'
 import type { ContextTokenSnapshot } from './tokenUsage'
 import type { ReviewChangesOpts } from './monaco-adapter'
-import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
+import {
+	getCurrentModel,
+	tryGetCurrentModel,
+	getCombinedCustomPrompt,
+	isWebSearchEnabledForProvider
+} from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
 import {
 	globalToolsFor,
@@ -75,6 +82,8 @@ const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
 const MAX_TOKENS_HARD_LIMIT = 5000
 const AI_AUTONOMY_MODE_STORAGE_KEY = 'ai-chat-autonomy-mode'
 const LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
+const WEB_SEARCH_ERROR_HINT =
+	'Web search is unavailable for this provider/model/key. Disable web search in workspace settings and try again.'
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -153,6 +162,20 @@ function persistAutonomyMode(mode: AIAutonomyMode) {
 	localStorage.setItem(AI_AUTONOMY_MODE_STORAGE_KEY, mode)
 }
 
+function appendWebSearchErrorHint(message: string, shouldAppend: boolean): string {
+	if (!shouldAppend) {
+		return message
+	}
+	const separator = /[.!?]$/.test(message.trim()) ? ' ' : '. '
+	return `${message}${separator}${WEB_SEARCH_ERROR_HINT}`
+}
+
+function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean): string {
+	const errorMessage = err instanceof Error ? err.message : typeof err === 'string' ? err : undefined
+	const message = errorMessage ? `Failed to send request: ${errorMessage}` : 'Failed to send request'
+	return appendWebSearchErrorHint(message, webSearchUnavailable)
+}
+
 export class AIChatManager {
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
@@ -168,6 +191,8 @@ export class AIChatManager {
 	pendingPrompt = $state<string>('')
 	loading = $state<boolean>(false)
 	currentReply = $state<string>('')
+	currentReasoning = $state<string>('')
+	currentReasoningActive = $state<boolean>(false)
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
 	contextUsage = $state<ContextTokenSnapshot | undefined>(undefined)
@@ -557,8 +582,7 @@ export class AIChatManager {
 			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
 			this.helpers = {
 				...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
-				testActiveFlow: async (args?: Record<string, any>) =>
-					this.flowAiChatHelpers?.testFlow(args)
+				testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args)
 			} satisfies GlobalToolHelpers
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
@@ -687,7 +711,8 @@ export class AIChatManager {
 		messages,
 		abortController,
 		callbacks,
-		systemMessage: systemMessageOverride
+		systemMessage: systemMessageOverride,
+		onWebSearchUnavailable
 	}: {
 		messages: ChatCompletionMessageParam[]
 		abortController: AbortController
@@ -696,6 +721,7 @@ export class AIChatManager {
 			onMessageEnd: () => void
 		}
 		systemMessage?: ChatCompletionSystemMessageParam
+		onWebSearchUnavailable?: () => void
 	}) => {
 		try {
 			// Use JS getters so runChatLoop re-reads tools/helpers/systemMessage/modelProvider
@@ -718,6 +744,9 @@ export class AIChatManager {
 				get modelProvider() {
 					return getCurrentModel()
 				},
+				get webSearch() {
+					return isWebSearchEnabledForProvider(getCurrentModel().provider)
+				},
 				clients: {
 					openai: workspaceAIClients.getOpenaiClient(),
 					anthropic: workspaceAIClients.getAnthropicClient()
@@ -727,6 +756,7 @@ export class AIChatManager {
 				onSkipResponsesApi: () => {
 					this.skipResponsesApi = true
 				},
+				onWebSearchUnavailable,
 				getPendingUserMessage: () => {
 					const pendingPrompt = this.pendingPrompt
 					if (!pendingPrompt) return undefined
@@ -869,6 +899,7 @@ export class AIChatManager {
 			removeDiff?: boolean
 			addBackCode?: boolean
 			instructions?: string
+			pastes?: PasteAttachment[]
 			mode?: AIMode
 			lang?: ScriptLang | 'bunnative'
 			isPreprocessor?: boolean
@@ -906,6 +937,7 @@ export class AIChatManager {
 			}
 		}
 		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
+		let webSearchUnavailable = false
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
 			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
@@ -943,6 +975,7 @@ export class AIChatManager {
 				snapshot = { type: 'app', value: this.appAiChatHelpers!.snapshot() }
 			}
 
+			const pastes = options.pastes ?? []
 			this.displayMessages = [
 				...this.displayMessages,
 				{
@@ -952,11 +985,14 @@ export class AIChatManager {
 						this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW || this.mode === AIMode.GLOBAL
 							? oldSelectedContext
 							: undefined,
+					pastes: pastes.length > 0 ? pastes : undefined,
 					snapshot,
 					index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 				}
 			]
-			const oldInstructions = this.instructions
+			// The LLM gets the full pasted content; the display message above keeps
+			// the compact tokens + registry so the bubble can render/expand chips.
+			const oldInstructions = expanded(chatDraft(this.instructions, pastes))
 			this.instructions = ''
 
 			if (this.mode === AIMode.SCRIPT && !this.scriptEditorOptions && !options.lang) {
@@ -1006,6 +1042,8 @@ export class AIChatManager {
 			await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
 
 			this.currentReply = ''
+			this.currentReasoning = ''
+			this.currentReasoningActive = false
 
 			let trimmedMessages = [...this.messages]
 			// Trigger on the anchored estimate (counts system prompt + tools);
@@ -1028,13 +1066,16 @@ export class AIChatManager {
 				abortController: this.abortController,
 				callbacks: {
 					onNewToken: (token) => (this.currentReply += token),
+					onReasoningDelta: (token) => (this.currentReasoning += token),
+					onReasoningStart: () => (this.currentReasoningActive = true),
 					onMessageEnd: () => {
-						if (this.currentReply) {
+						if (this.currentReply || this.currentReasoning) {
 							this.displayMessages = [
 								...this.displayMessages,
 								{
 									role: 'assistant',
 									content: this.currentReply,
+									...(this.currentReasoning ? { reasoning: this.currentReasoning } : {}),
 									contextElements:
 										this.mode === AIMode.SCRIPT
 											? oldSelectedContext.filter((c) => c.type === 'code')
@@ -1043,6 +1084,8 @@ export class AIChatManager {
 							]
 						}
 						this.currentReply = ''
+						this.currentReasoning = ''
+						this.currentReasoningActive = false
 					},
 					setToolStatus: (id, metadata) => {
 						const existingIdx = this.displayMessages.findIndex(
@@ -1089,7 +1132,10 @@ export class AIChatManager {
 			}
 
 			const result = await this.chatRequest({
-				...params
+				...params,
+				onWebSearchUnavailable: () => {
+					webSearchUnavailable = true
+				}
 			})
 			this.messages = [...this.messages, ...(result?.addedMessages ?? [])]
 			if (result?.lastIterationUsage && !wasTrimmed) {
@@ -1116,11 +1162,7 @@ export class AIChatManager {
 		} catch (err) {
 			console.error(err)
 			this.flagLastMessageAsError()
-			if (err instanceof Error) {
-				sendUserToast('Failed to send request: ' + err.message, true)
-			} else {
-				sendUserToast('Failed to send request', true)
-			}
+			sendUserToast(getSendRequestErrorMessage(err, webSearchUnavailable), true)
 		} finally {
 			this.loading = false
 		}
@@ -1153,7 +1195,11 @@ export class AIChatManager {
 		this.inlineAbortController?.abort(cancelReason)
 	}
 
-	restartGeneration = (displayMessageIndex: number, newContent?: string) => {
+	restartGeneration = (
+		displayMessageIndex: number,
+		newContent?: string,
+		pastes?: PasteAttachment[]
+	) => {
 		const userMessage = this.displayMessages[displayMessageIndex]
 
 		if (!userMessage || userMessage.role !== 'user') {
@@ -1179,7 +1225,7 @@ export class AIChatManager {
 
 		// Resend the request with the same instructions
 		this.instructions = newContent ?? userMessage.content
-		this.sendRequest()
+		this.sendRequest({ pastes: pastes ?? userMessage.pastes })
 	}
 
 	fix = () => {
@@ -1251,17 +1297,13 @@ export class AIChatManager {
 		})
 	}
 
-	listenForContextChange = (
-		dbSchemas: DBSchemas,
-		workspaceStore: string | undefined,
-		copilotSessionModel: AIProviderModel | undefined
-	) => {
+	listenForContextChange = (dbSchemas: DBSchemas, workspaceStore: string | undefined) => {
 		if (this.mode === AIMode.SCRIPT && this.scriptEditorOptions) {
 			this.contextManager.updateAvailableContext(
 				this.scriptEditorOptions,
 				dbSchemas,
 				workspaceStore ?? '',
-				!copilotSessionModel?.model.endsWith('/thinking'),
+				true, // toolSupport: reasoning no longer disables DB/tool context
 				untrack(() => this.contextManager.getSelectedContext())
 			)
 		} else if (this.mode === AIMode.FLOW && this.flowOptions) {
@@ -1269,7 +1311,7 @@ export class AIChatManager {
 				this.flowOptions,
 				dbSchemas,
 				workspaceStore ?? '',
-				!copilotSessionModel?.model.endsWith('/thinking'),
+				true, // toolSupport: reasoning no longer disables DB/tool context
 				untrack(() => this.contextManager.getSelectedContext())
 			)
 		} else if (this.mode === AIMode.GLOBAL) {

@@ -50,7 +50,9 @@ Import the windmill client for platform interactions:
 import * as wmill from "windmill-client";
 ```
 
-See the SDK documentation for available methods.
+**Prefer `windmill-client` over raw `fetch` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you. Reserve `fetch` for calling *external* HTTP APIs that aren't Windmill.
+
+The full `windmill-client` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method instead of guessing or falling back to `fetch`.
 
 ## Preprocessor Scripts
 

@@ -28,7 +28,8 @@
 	}
 
 	let { module, tag }: Props = $props()
-	const { scriptEditorDrawer, flowEditorDrawer } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { scriptEditorDrawer, flowEditorDrawer } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
@@ -173,6 +174,17 @@
 				icon: RefreshCcw
 			}}
 			iconOnly={true}
+		/>
+	{/if}
+
+	{#if module.value.type === 'aiagent' && customUi?.tagEdit != false}
+		<FlowModuleWorkerTagSelect
+			isPreprocessor={false}
+			placeholder={customUi?.tagSelectPlaceholder}
+			noLabel={customUi?.tagSelectNoLabel}
+			nullTag={tag}
+			tag={module.value.tag}
+			on:change={(e) => dispatch('tagChange', e.detail)}
 		/>
 	{/if}
 

@@ -3640,6 +3640,27 @@ pub async fn check_w_id_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &
     return Ok(());
 }
 
+/// Reject fork creation when the target workspace id is already taken,
+/// distinguishing archived workspaces: archiving is a soft delete that keeps
+/// the id reserved, which users frequently mistake for a permanent delete.
+async fn check_fork_w_id_conflict(db: &DB, w_id: &str) -> Result<()> {
+    let deleted = sqlx::query_scalar!("SELECT deleted FROM workspace WHERE id = $1", w_id)
+        .fetch_optional(db)
+        .await?;
+    match deleted {
+        Some(true) => Err(Error::BadRequest(format!(
+            "Workspace '{w_id}' already exists but is archived (archiving does not free up the workspace id). \
+             To reuse this id, permanently delete the archived workspace first — its owner or a superadmin \
+             can do so from the fork creation dialog, the superadmin workspaces page, or the CLI \
+             (`wmill workspace delete-fork`) — or choose a different fork id."
+        ))),
+        Some(false) => Err(Error::BadRequest(format!(
+            "Workspace '{w_id}' already exists. Delete the existing fork first or choose a different fork id."
+        ))),
+        None => Ok(()),
+    }
+}
+
 lazy_static::lazy_static! {
 
     pub static ref CREATE_WORKSPACE_REQUIRE_SUPERADMIN: bool = {
@@ -4233,8 +4254,8 @@ async fn clone_folders(
     target_workspace_id: &str,
 ) -> Result<()> {
     sqlx::query!(
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as)
-         SELECT $2, name, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels)
+         SELECT $2, name, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels
          FROM folder
          WHERE workspace_id = $1",
         source_workspace_id,
@@ -4795,6 +4816,10 @@ async fn create_workspace_fork_branch(
 
     validate_fork_workspace_id(&nw.id)?;
 
+    // Fail before creating any git branch so a name conflict doesn't leave a
+    // dangling branch on the synced repos.
+    check_fork_w_id_conflict(&db, &nw.id).await?;
+
     Ok(Json(
         handle_fork_branch_creation(&authed.email, &authed.username, &db, &w_id, &nw.id).await?,
     ))
@@ -4933,6 +4958,12 @@ async fn create_workspace_fork(
         )));
     }
 
+    validate_fork_workspace_id(&nw.id)?;
+    // Check the id conflict before the CE workspace-count limit so that
+    // re-using a taken (possibly archived) fork id reports the actual
+    // conflict instead of a misleading "maximum number of workspaces" error.
+    check_fork_w_id_conflict(&db, &nw.id).await?;
+
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
 
@@ -4953,8 +4984,6 @@ async fn create_workspace_fork(
     }
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
-
-    validate_fork_workspace_id(&nw.id)?;
 
     let forked_id = nw.id;
 

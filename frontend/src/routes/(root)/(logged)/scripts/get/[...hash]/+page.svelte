@@ -666,6 +666,7 @@
 				scriptOrFlowPath={script?.path ?? ''}
 				tag={script?.tag ?? ''}
 				labels={script?.labels}
+				inheritedLabels={script?.inherited_labels}
 				on:seeTriggers={() => {
 					rightPaneSelected = 'triggers'
 				}}

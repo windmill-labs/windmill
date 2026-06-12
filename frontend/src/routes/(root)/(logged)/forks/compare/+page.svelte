@@ -264,7 +264,8 @@
 		Archive forked workspace <span class="font-mono font-medium text-primary"
 			>{currentWorkspaceId}</span
 		>? It will be hidden from the workspace picker; a superadmin can restore it from instance
-		settings later.
+		settings later. Its content is kept and its workspace id stays reserved — use Delete fork
+		instead if you want to reuse the id for a new fork.
 	</p>
 </ConfirmationModal>
 

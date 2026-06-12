@@ -42,6 +42,7 @@
 	import WacExportDrawer from '$lib/components/scripts/WacExportDrawer.svelte'
 	import { Drawer, DrawerContent } from '..'
 	import NoMainFuncBadge from '$lib/components/NoMainFuncBadge.svelte'
+	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
@@ -187,6 +188,7 @@
 				{/if}
 			</div>
 		{/if}
+		<InheritedLabels labels={script.inherited_labels} />
 		<div class="w-8 center-center">
 			<LanguageIcon lang={script.language} width={16} height={16} />
 		</div>

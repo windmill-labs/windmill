@@ -25,6 +25,8 @@
 	import { Minimatch } from 'minimatch'
 	import Tooltip from './Tooltip.svelte'
 	import CollapseLink from './CollapseLink.svelte'
+	import LabelsInput from './LabelsInput.svelte'
+	import Badge from './common/badge/Badge.svelte'
 
 	interface Props {
 		name: string
@@ -76,6 +78,7 @@
 		try {
 			folder = await FolderService.getFolder({ workspace: $workspaceStore!, name })
 			summary = folder.summary ?? ''
+			labels = [...(folder.labels ?? [])]
 			defaultPermissionedAs = (folder.default_permissioned_as ?? []).map((r) => ({ ...r }))
 			can_write =
 				$userStore != undefined &&
@@ -198,6 +201,22 @@
 	let groupCreated: string | undefined = $state(undefined)
 	let newGroupName: string = $state('')
 	let summary: string = $state('')
+	let labels: string[] | undefined = $state(undefined)
+
+	async function saveLabels() {
+		try {
+			await FolderService.updateFolder({
+				workspace: $workspaceStore ?? '',
+				name,
+				requestBody: { labels: labels ?? [] }
+			})
+			sendUserToast('Folder labels updated')
+			dispatch('update')
+		} catch (e) {
+			sendUserToast(e.body ?? String(e), true)
+			loadFolder()
+		}
+	}
 
 	async function addGroup() {
 		await GroupService.createGroup({
@@ -271,6 +290,26 @@
 			<Button variant="accent" unifiedSize="md" on:click={updateFolder} disabled={!can_write}
 				>Save</Button
 			>
+		</div>
+	</Label>
+
+	<Label label="Labels">
+		<div class="flex flex-col gap-1">
+			<div class="text-xs text-tertiary">
+				Scripts and flows inside this folder inherit these labels, and runs of items in this folder
+				are labeled with them.
+			</div>
+			{#if can_write}
+				<LabelsInput bind:labels onchange={saveLabels} />
+			{:else}
+				<div class="inline-flex items-center gap-1 h-5">
+					{#each labels ?? [] as label (label)}
+						<Badge color="blue" small>{label}</Badge>
+					{:else}
+						<span class="text-xs text-tertiary">No labels</span>
+					{/each}
+				</div>
+			{/if}
 		</div>
 	</Label>
 

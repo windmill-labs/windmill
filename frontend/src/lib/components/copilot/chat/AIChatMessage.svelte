@@ -9,8 +9,20 @@
 	import AIChatInput from './AIChatInput.svelte'
 	import type { ContextElement } from './context'
 	import ToolExecutionDisplay from './ToolExecutionDisplay.svelte'
+	import { messageDraft, segments } from './chatDraft'
+	import { lineCountLabel } from './pasteTokens'
 
 	const aiChatManager = getAiChatManager()
+
+	// Per-message expand/collapse state for paste chips shown in the bubble.
+	let expandedPastes = $state<Set<number>>(new Set())
+
+	function togglePaste(e: MouseEvent, id: number) {
+		e.stopPropagation() // don't trigger edit-message on the bubble
+		const next = new Set(expandedPastes)
+		next.has(id) ? next.delete(id) : next.add(id)
+		expandedPastes = next
+	}
 
 	interface Props {
 		availableContext: ContextElement[]
@@ -41,6 +53,7 @@
 <div
 	class={twMerge(
 		'mb-2 min-w-0',
+		message.role === 'tool' && 'mb-1',
 		message.role === 'user' && messageIndex > 0 && 'mt-4 mb-6',
 		isLast && '!mb-12',
 		message.role !== 'user' ? 'cursor-default' : 'cursor-pointer'
@@ -63,6 +76,7 @@
 				{availableContext}
 				bind:selectedContext
 				initialInstructions={message.content}
+				initialPastes={message.pastes}
 				{editingMessageIndex}
 				onClickOutside={() => (editingMessageIndex = null)}
 				onKeyDown={(e) => {
@@ -74,7 +88,7 @@
 			/>
 		</div>
 	{:else}
-		<div class={twMerge('text-sm py-1 px-2', message.role === 'tool' && 'text-primary')}>
+		<div class={twMerge('text-sm py-1 px-2', message.role === 'tool' && 'text-primary py-0')}>
 			{#if message.role === 'assistant'}
 				<div class="px-[1px]"><AssistantMessage {message} /></div>
 			{:else if message.role === 'tool'}
@@ -83,7 +97,19 @@
 				<div
 					class="text-xs px-3 py-2 w-fit max-w-[min(32rem,100%)] bg-surface-accent-selected text-accent rounded-lg relative group break-words"
 				>
-					<span class="whitespace-pre-wrap">{message.content}</span>
+					{#each segments(messageDraft(message)) as seg}{#if seg.type === 'text'}<span
+								class="whitespace-pre-wrap">{seg.value}</span
+							>{:else if expandedPastes.has(seg.att.id)}<button
+								type="button"
+								class="my-0.5 px-1.5 py-0.5 rounded bg-surface-secondary text-secondary text-2xs"
+								onclick={(e) => togglePaste(e, seg.att.id)}
+								>{lineCountLabel(seg.att.lines)} · click to collapse</button
+							><span class="block whitespace-pre-wrap mt-1">{seg.att.content}</span>{:else}<button
+								type="button"
+								class="px-1.5 py-0.5 rounded bg-surface-secondary text-secondary text-2xs"
+								onclick={(e) => togglePaste(e, seg.att.id)}
+								>Pasted {lineCountLabel(seg.att.lines)} · click to expand</button
+							>{/if}{/each}
 				</div>
 			{/if}
 		</div>
