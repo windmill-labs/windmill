@@ -78,16 +78,15 @@ export async function getAnthropicCompletion(
 
 	const client = options?.anthropicClient ?? workspaceAIClients.getAnthropicClient()
 
-	// Adds output_config.effort + adaptive thinking (and strips temperature) when an
-	// effort is set; no-op otherwise. Returns the base shape unchanged when off.
+	// Adds output_config.effort + adaptive thinking when an effort is set;
+	// no-op otherwise. Returns the base shape unchanged when off.
 	const anthropicParams = applyReasoningToConfig(
 		{
 			model: config.model,
 			max_tokens: config.max_tokens as number,
 			messages: anthropicMessages,
 			...(system && { system }),
-			...(anthropicTools && { tools: anthropicTools }),
-			...(typeof config.temperature === 'number' && { temperature: config.temperature })
+			...(anthropicTools && { tools: anthropicTools })
 		},
 		'anthropic',
 		options?.reasoningEffort

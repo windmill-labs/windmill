@@ -14,7 +14,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
-import { getDefaultChatTemperature, modelDisallowsSamplingParams } from './modelConfig'
+import { requiresMaxCompletionTokens } from './modelConfig'
 import { applyReasoningToConfig } from './reasoningRegistry'
 import { formatResourceTypes } from './utils'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
@@ -315,10 +315,9 @@ function getModelSpecificConfig(
 		// copilotInfo store may not be initialized in vitest
 	}
 	const maxTokens = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
-	const defaultTemperature = getDefaultChatTemperature(modelProvider)
 	if (
 		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
-		modelDisallowsSamplingParams(modelProvider.model)
+		requiresMaxCompletionTokens(modelProvider.model)
 	) {
 		return {
 			model: modelProvider.model,
@@ -328,7 +327,6 @@ function getModelSpecificConfig(
 	} else {
 		return {
 			model: modelProvider.model,
-			...(defaultTemperature !== undefined ? { temperature: defaultTemperature } : {}),
 			...(tools && tools.length > 0 ? { tools } : {}),
 			max_tokens: maxTokens
 		}
