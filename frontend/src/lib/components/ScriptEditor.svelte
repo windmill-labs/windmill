@@ -28,6 +28,7 @@
 	import JobLoader from './JobLoader.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
+	import { beforeNavigate } from '$app/navigation'
 	import { Button } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
@@ -86,6 +87,7 @@
 	import { getStringError } from './copilot/chat/utils'
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
+	import { navStaysInEditor } from './copilot/chat/editorNav'
 
 	// Forward-looking hook for the upcoming session-pane feature: that PR will
 	// `setContext('aiChatManager', ...)` from the session wrapper so this editor
@@ -1210,6 +1212,26 @@
 		}
 	})
 
+	// Clear the chat only when the user actually LEAVES this script's editor (a
+	// real navigation to a different script or out of the editor). Default false
+	// so non-navigation unmount/remounts — e.g. the edit page reloading after the
+	// /scripts/add → /scripts/edit/{path} promotion — preserve the SCRIPT-mode
+	// conversation. Those remounts fire no beforeNavigate, so leaveOnDestroy stays
+	// false and the chat survives; the fresh onMount then sees mode is still
+	// SCRIPT and skips its clearing saveAndClear.
+	let leaveOnDestroy = $state(false)
+	beforeNavigate(({ from, to }) => {
+		// Recompute on every navigation (both branches) so a stale decision never
+		// lingers. Decided from the route pathnames so a new/draft script (whose
+		// scriptEditorOptions.path is undefined) still clears when navigating away.
+		leaveOnDestroy = !navStaysInEditor(
+			from?.url.pathname ?? '',
+			to?.url.pathname ?? '',
+			'/scripts/add',
+			'/scripts/edit/'
+		)
+	})
+
 	onMount(async () => {
 		await inferSchema(code, { applyInitialArgs: true })
 		// Retry once if the initial inference failed silently (e.g. transient WASM
@@ -1218,7 +1240,12 @@
 		if (!validCode && code && lang) {
 			await inferSchema(code, { applyInitialArgs: true })
 		}
-		aiChatManager.saveAndClear()
+		// The previous instance's onDestroy may have preserved the chat for
+		// intra-script-editor nav; in that case mode is still SCRIPT and the
+		// conversation is intact. Skip saveAndClear so we don't blow it away.
+		if (aiChatManager.mode !== AIMode.SCRIPT) {
+			aiChatManager.saveAndClear()
+		}
 		aiChatManager.changeMode(AIMode.SCRIPT)
 	})
 
@@ -1305,8 +1332,10 @@
 		aiChatManager.scriptEditorShowDiffMode = undefined
 		aiChatManager.scriptEditorGetLintErrors = undefined
 		aiChatManager.scriptEditorOptions = undefined
-		aiChatManager.saveAndClear()
-		aiChatManager.changeMode(AIMode.NAVIGATOR)
+		if (leaveOnDestroy) {
+			aiChatManager.saveAndClear()
+			aiChatManager.changeMode(AIMode.NAVIGATOR)
+		}
 		// Clean up debug mode
 		if (debugMode) {
 			stopDebugging()

@@ -5,6 +5,7 @@
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
 	import { Skeleton } from '../common'
 	import { getContext, onDestroy, onMount, setContext } from 'svelte'
+	import { beforeNavigate } from '$app/navigation'
 	import type { FlowEditorContext } from './types'
 
 	import { writable } from 'svelte/store'
@@ -18,6 +19,7 @@
 		aiChatManager as singletonAiChatManager,
 		AIMode
 	} from '../copilot/chat/AIChatManager.svelte'
+	import { navStaysInEditor } from '../copilot/chat/editorNav'
 	import type { GraphModuleState } from '../graph'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
@@ -137,16 +139,40 @@
 		aiChatManager.flowOptions = options
 	})
 
+	// Clear the chat only when the user actually LEAVES this flow's editor (a real
+	// navigation to a different flow or out of the editor). Default false so
+	// non-navigation unmount/remounts — e.g. the edit page reloading after the
+	// /flows/add → /flows/edit/{path} promotion, or a selected-step query change —
+	// preserve the FLOW-mode conversation. Those remounts fire no beforeNavigate,
+	// so leaveOnDestroy stays false and the chat survives; the fresh onMount then
+	// sees mode is still FLOW and skips its clearing saveAndClear.
+	let leaveOnDestroy = $state(false)
+	beforeNavigate(({ from, to }) => {
+		// Recompute on every navigation (both branches) so a stale decision never
+		// lingers. Decided from the route pathnames so a new/draft flow (whose
+		// flowOptions.path is undefined) still clears when navigating cross-flow.
+		leaveOnDestroy = !navStaysInEditor(
+			from?.url.pathname ?? '',
+			to?.url.pathname ?? '',
+			'/flows/add',
+			'/flows/edit/'
+		)
+	})
+
 	onMount(() => {
 		if (!sessionScopedManager) {
-			aiChatManager.saveAndClear()
+			// A preserved intra-editor remount leaves mode === FLOW with the
+			// conversation intact; skip saveAndClear so we don't blow it away.
+			if (aiChatManager.mode !== AIMode.FLOW) {
+				aiChatManager.saveAndClear()
+			}
 			aiChatManager.changeMode(AIMode.FLOW)
 		}
 	})
 
 	onDestroy(() => {
 		aiChatManager.flowOptions = undefined
-		if (!sessionScopedManager) {
+		if (!sessionScopedManager && leaveOnDestroy) {
 			aiChatManager.saveAndClear()
 			aiChatManager.changeMode(AIMode.NAVIGATOR)
 		}
