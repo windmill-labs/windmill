@@ -1,5 +1,5 @@
 <script>
-	import { FileText, FolderOpen } from 'lucide-svelte'
+	import { Boxes, FileText, FolderOpen } from 'lucide-svelte'
 	import { APP_TO_ICON_COMPONENT } from './icons'
 	/**
 	 * @typedef {Object} Props
@@ -56,7 +56,9 @@
 			<FileText {height} {width} />
 		</span>
 	{:else}
-		<span style="width: {width}; height: {height}" class="bg-gray-100 rounded-full"></span>
+		<span class="text-hint">
+			<Boxes size={widthInPixels} />
+		</span>
 	{/if}
 	{#if !silent && after}
 		{name}
