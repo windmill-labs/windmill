@@ -748,17 +748,20 @@ lazy_static! {
 const MEMORY_LIMIT_1CU: usize = 2 * 1024 * 1024 * 1024;
 
 /// Wrapper that holds a Windows Job Object handle alongside the child process.
-/// The job object enforces memory limits and is closed when the child is dropped.
+/// The job object is set to KILL_ON_JOB_CLOSE (and optionally a memory limit), so
+/// when the worker process dies the handle closes and the OS reaps the whole child
+/// tree — preventing orphans when the worker is force-killed (e.g. a second
+/// CTRL_BREAK_EVENT or Nomad's kill_timeout) before a job has drained.
 #[cfg(windows)]
-struct MemoryLimitedChild {
+struct WindowsJobChild {
     inner: Box<dyn TokioChildWrapper>,
     _job_handle: Win32JobHandle,
 }
 
 #[cfg(windows)]
-impl std::fmt::Debug for MemoryLimitedChild {
+impl std::fmt::Debug for WindowsJobChild {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MemoryLimitedChild").finish()
+        f.debug_struct("WindowsJobChild").finish()
     }
 }
 
@@ -781,7 +784,7 @@ impl Drop for Win32JobHandle {
 }
 
 #[cfg(windows)]
-impl process_wrap::tokio::TokioChildWrapper for MemoryLimitedChild {
+impl process_wrap::tokio::TokioChildWrapper for WindowsJobChild {
     fn inner(&self) -> &tokio::process::Child {
         self.inner.inner()
     }
@@ -789,7 +792,11 @@ impl process_wrap::tokio::TokioChildWrapper for MemoryLimitedChild {
         self.inner.inner_mut()
     }
     fn into_inner(self: Box<Self>) -> tokio::process::Child {
-        self.inner.into_inner()
+        // Leak the job handle: with KILL_ON_JOB_CLOSE, closing the last handle reaps
+        // the (still-running) child, so extracting the inner Child must not close it.
+        let WindowsJobChild { inner, _job_handle } = *self;
+        std::mem::forget(_job_handle);
+        inner.into_inner()
     }
     fn start_kill(&mut self) -> std::io::Result<()> {
         self.inner.start_kill()
@@ -805,9 +812,15 @@ impl process_wrap::tokio::TokioChildWrapper for MemoryLimitedChild {
     }
 }
 
-/// Create a Windows Job Object with a memory limit and assign the process to it.
+/// Create a Windows Job Object set to KILL_ON_JOB_CLOSE (so the child tree is reaped
+/// when the worker drops the handle / dies), optionally with a memory limit, and
+/// assign the process to it. Assigning post-spawn (rather than via process-wrap's
+/// suspend/resume JobObject wrap) keeps the dotnet-safe behavior that csharp relies on.
 #[cfg(windows)]
-fn apply_job_memory_limit(pid: u32, memory_limit: usize) -> Result<Win32JobHandle, std::io::Error> {
+fn assign_reaping_job_object(
+    pid: u32,
+    memory_limit: Option<usize>,
+) -> Result<Win32JobHandle, std::io::Error> {
     use windows::Win32::System::JobObjects::*;
     use windows::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
 
@@ -817,8 +830,11 @@ fn apply_job_memory_limit(pid: u32, memory_limit: usize) -> Result<Win32JobHandl
         })?;
 
         let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_JOB_MEMORY;
-        info.JobMemoryLimit = memory_limit;
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if let Some(memory_limit) = memory_limit {
+            info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_JOB_MEMORY;
+            info.JobMemoryLimit = memory_limit;
+        }
 
         SetInformationJobObject(
             job,
@@ -909,15 +925,19 @@ pub async fn start_child_process(
     use process_wrap::tokio::*;
     let mut cmd = TokioCommandWrap::from(cmd);
 
-    // On Windows, always put the child in its own console process group so a
-    // CTRL_BREAK_EVENT sent to the worker's group (e.g. by Nomad on scale-in) is not
-    // delivered to it. Otherwise the whole child tree dies instantly with
-    // STATUS_CONTROL_C_EXIT (0xC000013A) before the worker can drain running jobs.
-    // This is independent of the JobObject grouping below, which dotnet opts out of
-    // (disable_process_group) but still needs console-signal isolation. process-wrap
-    // requires CreationFlags to be wrapped before JobObject.
+    // On Windows, put the child in its own console process group so a CTRL_BREAK_EVENT
+    // sent to the worker's group (e.g. by Nomad on scale-in) is not delivered to it.
+    // Otherwise the whole child tree dies instantly with STATUS_CONTROL_C_EXIT
+    // (0xC000013A) before the worker can drain running jobs.
+    //
+    // This deliberately does NOT use process-wrap's JobObject wrap: its pre_spawn calls
+    // command.creation_flags(CREATE_SUSPENDED | get_wrap::<CreationFlags>()), but
+    // get_wrap returns None mid-spawn (process-wrap 8.2.1 takes the wrappers out of
+    // `self` before running pre_spawn), so it silently overwrites and drops
+    // CREATE_NEW_PROCESS_GROUP. Job-object grouping is done post-spawn below instead,
+    // which also matches the dotnet-safe assignment csharp already relies on.
     #[cfg(windows)]
-    {
+    if !*DISABLE_PROCESS_GROUP {
         use process_wrap::tokio::CreationFlags;
         use windows::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP;
         cmd.wrap(CreationFlags(CREATE_NEW_PROCESS_GROUP));
@@ -930,31 +950,37 @@ pub async fn start_child_process(
 
             cmd.wrap(ProcessGroup::leader());
         }
-        #[cfg(windows)]
-        {
-            cmd.wrap(JobObject);
-        }
     }
 
     let child: Box<dyn TokioChildWrapper> = cmd
         .spawn()
         .map_err(|err| tentatively_improve_error(err.into(), executable))?;
 
+    // On Windows, assign the child to a KILL_ON_JOB_CLOSE job object (folding in the
+    // LIMIT_WINDOWS_TO_1CU memory cap when set). When the worker drops the handle or
+    // dies, the OS reaps the whole child tree, so jobs aren't orphaned if the worker is
+    // force-killed (second CTRL_BREAK_EVENT, or Nomad exceeding kill_timeout) before they
+    // drain. Assigning post-spawn does not touch the creation flags (so it composes with
+    // CREATE_NEW_PROCESS_GROUP above) and is the dotnet-safe path csharp already uses.
     #[cfg(windows)]
-    if *windmill_common::worker::LIMIT_WINDOWS_TO_1CU {
+    if !*DISABLE_PROCESS_GROUP {
         if let Some(pid) = child.inner().id() {
-            match apply_job_memory_limit(pid, MEMORY_LIMIT_1CU) {
+            let memory_limit =
+                (*windmill_common::worker::LIMIT_WINDOWS_TO_1CU).then_some(MEMORY_LIMIT_1CU);
+            match assign_reaping_job_object(pid, memory_limit) {
                 Ok(job_handle) => {
-                    tracing::info!(
-                        "Applied 2GB memory limit (LIMIT_WINDOWS_TO_1CU) to child process {pid}"
-                    );
-                    return Ok(Box::new(MemoryLimitedChild {
+                    if memory_limit.is_some() {
+                        tracing::info!(
+                            "Applied 2GB memory limit (LIMIT_WINDOWS_TO_1CU) to child process {pid}"
+                        );
+                    }
+                    return Ok(Box::new(WindowsJobChild {
                         inner: child,
                         _job_handle: job_handle,
                     }));
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to apply memory limit to child process {pid}: {e}");
+                    tracing::warn!("Failed to assign child process {pid} to job object: {e}");
                 }
             }
         }
