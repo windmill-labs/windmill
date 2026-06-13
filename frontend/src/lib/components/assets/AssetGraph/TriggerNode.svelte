@@ -31,87 +31,28 @@
 		iconText: string
 	}
 
+	// One muted treatment for every source kind — colors are meaningful, not
+	// decorative (brand guidelines), so the kind is carried by the icon and
+	// label while bg/border stay on the surface/gray scale like the flow
+	// editor's nodes. Red stays reserved for the missing-trigger state.
+	const MUTED = {
+		bg: 'bg-surface-secondary',
+		border: 'outline-gray-400 dark:outline-gray-600',
+		borderUnsaved: 'outline-dashed outline-gray-400 dark:outline-gray-500',
+		iconText: 'text-secondary'
+	}
+
 	export const TRIGGER_NODE_STYLE: Record<TriggerNodeKind, Presentation> = {
-		schedule: {
-			icon: Clock,
-			label: 'schedule',
-			bg: 'bg-amber-50 dark:bg-amber-900/30',
-			border: 'outline-amber-300 dark:outline-amber-600/60',
-			borderUnsaved: 'outline-dashed outline-amber-400',
-			iconText: 'text-amber-700 dark:text-amber-400'
-		},
-		webhook: {
-			icon: Webhook,
-			label: 'webhook',
-			bg: 'bg-sky-50 dark:bg-sky-900/30',
-			border: 'outline-sky-300 dark:outline-sky-600/60',
-			borderUnsaved: 'outline-dashed outline-sky-400',
-			iconText: 'text-sky-700 dark:text-sky-400'
-		},
-		email: {
-			icon: Mail,
-			label: 'email',
-			bg: 'bg-violet-50 dark:bg-violet-900/30',
-			border: 'outline-violet-300 dark:outline-violet-600/60',
-			borderUnsaved: 'outline-dashed outline-violet-400',
-			iconText: 'text-violet-700 dark:text-violet-400'
-		},
-		kafka: {
-			icon: Zap,
-			label: 'kafka',
-			bg: 'bg-rose-50 dark:bg-rose-900/30',
-			border: 'outline-rose-300 dark:outline-rose-600/60',
-			borderUnsaved: 'outline-dashed outline-rose-400',
-			iconText: 'text-rose-700 dark:text-rose-400'
-		},
-		mqtt: {
-			icon: Radio,
-			label: 'mqtt',
-			bg: 'bg-teal-50 dark:bg-teal-900/30',
-			border: 'outline-teal-300 dark:outline-teal-600/60',
-			borderUnsaved: 'outline-dashed outline-teal-400',
-			iconText: 'text-teal-700 dark:text-teal-400'
-		},
-		nats: {
-			icon: MessageSquare,
-			label: 'nats',
-			bg: 'bg-cyan-50 dark:bg-cyan-900/30',
-			border: 'outline-cyan-300 dark:outline-cyan-600/60',
-			borderUnsaved: 'outline-dashed outline-cyan-400',
-			iconText: 'text-cyan-700 dark:text-cyan-400'
-		},
-		postgres: {
-			icon: Database,
-			label: 'postgres',
-			bg: 'bg-indigo-50 dark:bg-indigo-900/30',
-			border: 'outline-indigo-300 dark:outline-indigo-600/60',
-			borderUnsaved: 'outline-dashed outline-indigo-400',
-			iconText: 'text-indigo-700 dark:text-indigo-400'
-		},
-		sqs: {
-			icon: Send,
-			label: 'sqs',
-			bg: 'bg-orange-50 dark:bg-orange-900/30',
-			border: 'outline-orange-300 dark:outline-orange-600/60',
-			borderUnsaved: 'outline-dashed outline-orange-400',
-			iconText: 'text-orange-700 dark:text-orange-400'
-		},
-		gcp: {
-			icon: CloudCog,
-			label: 'gcp',
-			bg: 'bg-emerald-50 dark:bg-emerald-900/30',
-			border: 'outline-emerald-300 dark:outline-emerald-600/60',
-			borderUnsaved: 'outline-dashed outline-emerald-400',
-			iconText: 'text-emerald-700 dark:text-emerald-400'
-		},
-		data_upload: {
-			icon: Upload,
-			label: 'data upload',
-			bg: 'bg-fuchsia-50 dark:bg-fuchsia-900/30',
-			border: 'outline-fuchsia-300 dark:outline-fuchsia-600/60',
-			borderUnsaved: 'outline-dashed outline-fuchsia-400',
-			iconText: 'text-fuchsia-700 dark:text-fuchsia-400'
-		}
+		schedule: { icon: Clock, label: 'schedule', ...MUTED },
+		webhook: { icon: Webhook, label: 'webhook', ...MUTED },
+		email: { icon: Mail, label: 'email', ...MUTED },
+		kafka: { icon: Zap, label: 'kafka', ...MUTED },
+		mqtt: { icon: Radio, label: 'mqtt', ...MUTED },
+		nats: { icon: MessageSquare, label: 'nats', ...MUTED },
+		postgres: { icon: Database, label: 'postgres', ...MUTED },
+		sqs: { icon: Send, label: 'sqs', ...MUTED },
+		gcp: { icon: CloudCog, label: 'gcp', ...MUTED },
+		data_upload: { icon: Upload, label: 'data upload', ...MUTED }
 	}
 </script>
 

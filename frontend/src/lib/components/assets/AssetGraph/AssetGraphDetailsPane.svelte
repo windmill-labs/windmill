@@ -665,7 +665,7 @@
 		<div class="flex items-center gap-2 min-w-0">
 			{#if isDraft && script}
 				{@const draftScriptPath = script.path}
-				<Code2 size={16} class="shrink-0 text-emerald-700 dark:text-emerald-400" />
+				<Code2 size={16} class="shrink-0 text-tertiary" />
 				{#if onDraftPathChange && !readOnly}
 					<!-- Inline rename popover for drafts. The persisted-script
 					     branch uses SummaryPathDisplay which round-trips through
@@ -686,7 +686,7 @@
 								title="Edit draft path"
 							>
 								<span
-									class="text-3xs uppercase tracking-wide text-emerald-600 dark:text-emerald-400 flex items-center gap-1"
+									class="text-3xs uppercase tracking-wide text-tertiary flex items-center gap-1"
 								>
 									Draft pipeline script
 									<Pencil size={9} class="opacity-0 group-hover:opacity-60 transition-opacity" />
@@ -700,7 +700,7 @@
 							<div class="flex flex-col gap-2 w-[420px]">
 								<span class="text-2xs font-normal text-secondary">Path</span>
 								<div
-									class="flex items-stretch border rounded-md bg-surface overflow-hidden focus-within:ring-2 focus-within:ring-emerald-400"
+									class="flex items-stretch border rounded-md bg-surface overflow-hidden focus-within:ring-2 focus-within:ring-blue-400"
 								>
 									{#if pathPrefix}
 										<span
@@ -743,7 +743,7 @@
 					</Popover>
 				{:else}
 					<div class="flex flex-col min-w-0">
-						<span class="text-3xs uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+						<span class="text-3xs uppercase tracking-wide text-tertiary">
 							Draft pipeline script
 						</span>
 						<span class="text-xs font-mono truncate" title={script.path}>{script.path}</span>
@@ -762,7 +762,7 @@
 					<span class="text-xs font-mono truncate" title={selection.path}>{selection.path}</span>
 				</div>
 			{:else if selection?.kind === 'runnable' && selection.runnable_kind === 'script'}
-				<Code2 size={16} class="shrink-0 text-emerald-700 dark:text-emerald-400" />
+				<Code2 size={16} class="shrink-0 text-tertiary" />
 				{#if readOnly}
 					<div class="flex flex-col min-w-0">
 						<span class="text-3xs uppercase tracking-wide text-tertiary">
@@ -792,7 +792,7 @@
 					/>
 				{/if}
 			{:else if selection?.kind === 'runnable' && selection.runnable_kind === 'flow'}
-				<GitBranch size={16} class="shrink-0 text-emerald-700 dark:text-emerald-400" />
+				<GitBranch size={16} class="shrink-0 text-tertiary" />
 				<div class="flex flex-col min-w-0">
 					<span class="text-3xs uppercase tracking-wide text-tertiary">Flow</span>
 					<span class="text-xs font-mono truncate" title={selection.path}>{selection.path}</span>

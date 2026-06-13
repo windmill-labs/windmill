@@ -1986,7 +1986,7 @@
 					class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-surface hover:bg-surface-hover transition-colors"
 					title="Switch pipeline folder"
 				>
-					<Folder size={14} class="text-emerald-600 dark:text-emerald-400 shrink-0" />
+					<Folder size={14} class="text-tertiary shrink-0" />
 					<span class="text-sm font-mono font-medium text-emphasis">f/{folder}</span>
 					<ChevronDown size={12} class="text-tertiary" />
 				</button>
@@ -1997,7 +1997,7 @@
 							class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-surface hover:bg-surface-hover transition-colors"
 							title="Switch pipeline folder"
 						>
-							<Folder size={14} class="text-emerald-600 dark:text-emerald-400 shrink-0" />
+							<Folder size={14} class="text-tertiary shrink-0" />
 							<span class="text-sm font-mono font-medium text-emphasis">f/{folder}</span>
 							<ChevronDown size={12} class="text-tertiary" />
 						</span>

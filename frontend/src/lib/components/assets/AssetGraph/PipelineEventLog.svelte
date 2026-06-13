@@ -92,9 +92,9 @@
 							{/if}
 						</span>
 						{#if e.kind === 'flow'}
-							<GitBranch size={12} class="shrink-0 text-emerald-700 dark:text-emerald-400" />
+							<GitBranch size={12} class="shrink-0 text-tertiary" />
 						{:else}
-							<Code2 size={12} class="shrink-0 text-emerald-700 dark:text-emerald-400" />
+							<Code2 size={12} class="shrink-0 text-tertiary" />
 						{/if}
 						<span class="flex-1 min-w-0 truncate font-mono text-2xs" title={e.path}>
 							{e.path}

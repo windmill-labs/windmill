@@ -125,12 +125,15 @@
 	onPick={handlePick}
 >
 	{#snippet trigger()}
+		<!-- Quiet insert affordance, mirroring the flow editor's inline +
+		     buttons (bg-surface + gray border + secondary text) — a filled
+		     accent circle outweighed every real node on the canvas. -->
 		<button
 			type="button"
-			class="w-10 h-10 rounded-full flex items-center justify-center bg-surface-accent-primary text-white shadow-md transition-colors cursor-pointer"
+			class="w-8 h-8 rounded-full flex items-center justify-center bg-surface border border-gray-400 dark:border-gray-600 text-secondary shadow-sm hover:bg-surface-hover transition-colors cursor-pointer"
 			title="Add to pipeline"
 		>
-			<Plus size={20} />
+			<Plus size={16} />
 		</button>
 	{/snippet}
 </PipelineInsertMenu>

@@ -75,9 +75,9 @@
 	}
 	let { data, selected = false }: Props = $props()
 
-	// Icon + emerald accent already convey "pipeline script" vs "flow"; the
-	// uppercase kind label was visually noisy and redundant. Tooltip on hover
-	// surfaces the path in full when truncated.
+	// The icon alone conveys "script" vs "flow"; the uppercase kind label was
+	// visually noisy and redundant. Tooltip on hover surfaces the path in
+	// full when truncated.
 	let Icon = $derived(data.runnable_kind === 'flow' ? GitBranch : Code2)
 	let nodeTooltip = $derived(
 		data.unsaved
@@ -133,34 +133,33 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
 	<!--
-		Three visual states that compose:
-		  - persisted, non-pipeline:  solid 1px gray border, surface-tertiary fill
-		  - persisted, pipeline:      solid 1px emerald border, surface-tertiary fill
-		  - unsaved draft:            DASHED 2px emerald border, surface-tertiary fill.
-		                              The 2px stroke is necessary for the dash gaps
-		                              to be readable; 1px disappears into the fill.
-		                              Same tertiary surface as persisted nodes —
-		                              the dash + thicker stroke alone carry the
-		                              "unsaved" cue without an attention-grabbing
-		                              tinted fill.
+		Mirrors the flow editor's step styling (getNodeColorClasses): muted
+		surface-tertiary fill with a quiet gray border, accent only for the
+		selected state, dashes for unsaved drafts. The 2px dashed stroke is
+		necessary for the dash gaps to be readable; 1px disappears into the
+		fill.
 	-->
 	<div
 		class={twMerge(
 			'flex items-center rounded-md drop-shadow-sm overflow-hidden border transition-colors',
-			'bg-surface-tertiary border-gray-300 dark:border-gray-600 hover:border-emerald-500',
-			data.in_pipeline && !data.unsaved && 'border-emerald-400/60',
-			data.unsaved && 'border-2 border-dashed border-emerald-400/70 dark:border-emerald-500/70'
+			'bg-surface border-gray-400 dark:border-gray-600 hover:border-gray-500 dark:hover:border-gray-500',
+			selected && 'bg-surface-accent-selected border-border-selected',
+			data.unsaved && 'border-2 border-dashed border-gray-400 dark:border-gray-500'
 		)}
 		style="width: {NODE.width}px; min-height: {NODE.height}px;"
 		title={nodeTooltip}
 	>
-		<Icon size={14} class="shrink-0 ml-2 mr-2 text-emerald-700 dark:text-emerald-400" />
+		<Icon size={14} class={`shrink-0 ml-2 mr-2 ${selected ? 'text-accent' : 'text-secondary'}`} />
 		<span class="flex-1 min-w-0 pr-1 py-0.5 text-2xs font-mono text-emphasis truncate">
 			{data.path}
 		</span>
+		<!-- Annotation chips share one neutral treatment — the icon carries
+		     the meaning (colors are reserved for feedback, per the brand
+		     guidelines). Only the run-state chip below keeps semantic
+		     colors. -->
 		{#if data.partition_kind}
 			<div
-				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300"
+				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
 				title={`// partitioned ${data.partition_kind}`}
 			>
 				<Layers size={10} />
@@ -169,7 +168,7 @@
 		{/if}
 		{#if data.freshness}
 			<div
-				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
+				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
 				title={`// freshness ${data.freshness}`}
 			>
 				<Timer size={10} />
@@ -178,7 +177,7 @@
 		{/if}
 		{#if data.tag}
 			<div
-				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300"
+				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
 				title={`// tag ${data.tag}`}
 			>
 				<Tag size={10} />
@@ -188,7 +187,7 @@
 		{#if data.retry}
 			{@const r = data.retry}
 			<div
-				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300"
+				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
 				title={`// retry ${r.count}${r.delay ? ` ${r.delay}` : ''}`}
 			>
 				<RotateCw size={10} />
@@ -280,7 +279,7 @@
 									void runSelf(e, false)
 								}}
 							>
-								<Play size={14} class="mt-0.5 shrink-0 text-emerald-700 dark:text-emerald-400" />
+								<Play size={14} class="mt-0.5 shrink-0 text-secondary" />
 								<div class="flex flex-col min-w-0">
 									<span class="font-medium">Run</span>
 									<span class="text-2xs text-secondary">
@@ -296,7 +295,7 @@
 									void runSelf(e, true)
 								}}
 							>
-								<Zap size={14} class="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+								<Zap size={14} class="mt-0.5 shrink-0 text-secondary" />
 								<div class="flex flex-col min-w-0">
 									<span class="font-medium">
 										Run + trigger {data.downstreamCount} downstream

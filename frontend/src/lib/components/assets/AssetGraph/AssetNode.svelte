@@ -112,17 +112,23 @@
 	onmouseleave={() => (hovered = false)}
 	role="presentation"
 >
+	<!-- Mirrors the flow editor's asset pill: quiet surface + gray border at
+	     rest, accent reserved for the selected state. -->
 	<div
 		class={twMerge(
 			'flex items-center rounded-md drop-shadow-sm overflow-hidden border',
-			'bg-surface-secondary border-gray-300 dark:border-gray-600 hover:border-blue-400 transition-colors'
+			'bg-surface-secondary border-gray-400 dark:border-gray-600 hover:border-gray-500 dark:hover:border-gray-500 transition-colors',
+			selected && 'bg-surface-accent-selected border-border-selected'
 		)}
 		style="width: {NODE.width}px; min-height: {NODE.height}px;"
 		title={data.path}
 	>
+		<!-- Data identity carries the accent (luminance blue), pairing with
+		     the blue write edges that produce these assets — scripts stay
+		     neutral, so script vs data reads at a glance. -->
 		<AssetGenericIcon
 			assetKind={data.asset_kind}
-			class="shrink-0 ml-2 mr-2 text-blue-600 dark:text-blue-400"
+			class={`shrink-0 ml-2 mr-2 ${selected ? 'text-accent' : 'text-blue-600 dark:text-blue-400'}`}
 			size="14px"
 		/>
 		<span class="flex-1 min-w-0 pr-1 py-0.5 text-2xs font-mono text-emphasis truncate">
@@ -199,7 +205,7 @@
 					<button
 						type="button"
 						onclick={(e) => e.stopPropagation()}
-						class="bg-emerald-500 hover:bg-emerald-600 text-white rounded-full w-6 h-6 grid place-items-center shadow border-2 border-surface-secondary leading-none"
+						class="bg-surface border border-gray-400 dark:border-gray-600 text-secondary hover:bg-surface-hover rounded-full w-6 h-6 grid place-items-center shadow-sm leading-none"
 						title="Add downstream pipeline script"
 					>
 						<Plus size={16} strokeWidth={2.5} />

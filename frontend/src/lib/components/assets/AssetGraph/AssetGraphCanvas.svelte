@@ -576,31 +576,36 @@
 				let strokeDasharray: string | undefined = undefined
 				let label: string | undefined = undefined
 				let labelStyle: string | undefined = undefined
+				// Two edge families, two hues: edges *out of scripts* (writes
+				// — data being produced) carry the luminance-blue accent and
+				// pair with the blue asset icons; edges *out of data* (reads
+				// + asset triggers into scripts) stay gray, with dashes /
+				// labels for the trigger variants. Red is reserved for the
+				// missing-trigger branch below; the run animation itself is
+				// the "happening now" signal.
 				switch (e.kind) {
 					case 'lineage-write':
-						style = 'stroke: rgb(59 130 246); stroke-width: 1.5px;'
+						style = 'stroke: rgb(59 130 246); stroke-width: 2px;'
 						animated = touchesActiveRunnable
+						markerColor = 'rgb(59 130 246)'
 						break
 					case 'lineage-read':
-						style = 'stroke: rgb(107 114 128); stroke-width: 1.25px;'
+						style = 'stroke: rgb(156 163 175); stroke-width: 1.25px;'
 						animated = touchesActiveRunnable
 						break
 					case 'trigger-asset':
-						style = 'stroke: rgb(16 185 129); stroke-width: 2px;'
+						style = 'stroke: rgb(107 114 128); stroke-width: 2px;'
 						animated = touchesActiveRunnable
-						markerColor = 'rgb(16 185 129)'
+						markerColor = 'rgb(107 114 128)'
 						label = 'triggers'
-						labelStyle = 'fill: rgb(16 185 129); font-size: 10px; font-weight: 600;'
+						labelStyle = 'fill: rgb(107 114 128); font-size: 10px; font-weight: 600;'
 						break
 					case 'trigger-native':
-						// Colour neutral here because the trigger source node
-						// already carries per-kind colour; edge just needs to
-						// say "this fires it" distinctly from lineage.
-						style = 'stroke: rgb(100 116 139); stroke-width: 2px;'
+						style = 'stroke: rgb(107 114 128); stroke-width: 2px;'
 						strokeDasharray = '6 3'
-						markerColor = 'rgb(100 116 139)'
+						markerColor = 'rgb(107 114 128)'
 						label = 'triggers'
-						labelStyle = 'fill: rgb(100 116 139); font-size: 10px; font-weight: 600;'
+						labelStyle = 'fill: rgb(107 114 128); font-size: 10px; font-weight: 600;'
 						break
 					default:
 						style = ''
