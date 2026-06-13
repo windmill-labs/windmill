@@ -909,6 +909,20 @@ pub async fn start_child_process(
     use process_wrap::tokio::*;
     let mut cmd = TokioCommandWrap::from(cmd);
 
+    // On Windows, always put the child in its own console process group so a
+    // CTRL_BREAK_EVENT sent to the worker's group (e.g. by Nomad on scale-in) is not
+    // delivered to it. Otherwise the whole child tree dies instantly with
+    // STATUS_CONTROL_C_EXIT (0xC000013A) before the worker can drain running jobs.
+    // This is independent of the JobObject grouping below, which dotnet opts out of
+    // (disable_process_group) but still needs console-signal isolation. process-wrap
+    // requires CreationFlags to be wrapped before JobObject.
+    #[cfg(windows)]
+    {
+        use process_wrap::tokio::CreationFlags;
+        use windows::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP;
+        cmd.wrap(CreationFlags(CREATE_NEW_PROCESS_GROUP));
+    }
+
     if !*DISABLE_PROCESS_GROUP && !disable_process_group {
         #[cfg(unix)]
         {
