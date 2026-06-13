@@ -400,7 +400,7 @@
 					})
 				}
 
-				await goto('/run/' + id + '?workspace=' + $workspaceStore)
+				await goto('/run/' + id)
 			} else {
 				sendUserToast('Cannot run this job immediately', true)
 			}
@@ -560,7 +560,7 @@
 		{#snippet right()}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const isHubFlowPreview = isFlowPreview(job?.job_kind) && isHubFlowPath(job?.script_path)}
-			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
+			{@const runsHref = `/runs/${job?.script_path}?workspace=${job?.workspace_id ?? $workspaceStore}${!isScript ? '&jobKind=flow' : ''}`}
 			{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
 				<Dropdown
 					items={[
@@ -600,7 +600,7 @@
 				</Button>
 			{/if}
 			{@const stem = job?.job_kind === 'script_hub' ? '/scripts' : `/${job?.job_kind}s`}
-			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
+			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}?workspace=${job?.workspace_id ?? $workspaceStore}`}
 			{#if (job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)) && job?.['running'] && job?.parent_job == undefined}
 				<div class="inline">
 					<Dropdown
@@ -709,7 +709,7 @@
 					iterationCounts={restart.iterationCounts}
 					nestedPathIterationCounts={restart.nestedPathIterationCounts}
 					onRestartComplete={(newJobId) => {
-						goto('/run/' + newJobId + '?workspace=' + $workspaceStore)
+						goto('/run/' + newJobId)
 					}}
 					flowPath={job.script_path}
 					flowVersionId={job.script_hash ? parseInt(job.script_hash, 16) : undefined}
@@ -740,7 +740,7 @@
 				{#if !$userStore?.operator}
 					{#if canWrite(job?.script_path ?? '', {}, $userStore)}
 						<Button
-							href={`${stem}/edit/${job?.script_path}?workspace=${$workspaceStore}${isScript ? `` : `&nodraft=true`}`}
+							href={`${stem}/edit/${job?.script_path}?workspace=${job?.workspace_id ?? $workspaceStore}${isScript ? `` : `&nodraft=true`}`}
 							on:click={() => {
 								$initialArgsStore = job?.args
 							}}

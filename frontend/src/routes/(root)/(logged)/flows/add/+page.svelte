@@ -192,10 +192,10 @@
 	onDeploy={(e) => {
 		UserDraft.remove('flow', '')
 		if ($workspaceStore) invalidate($workspaceStore, 'flow')
-		goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
+		goto(`/flows/get/${e.path}`)
 	}}
 	onDetails={(e) => {
-		goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
+		goto(`/flows/get/${e.path}`)
 	}}
 	onNavigate={(item) => goto(editPathFor(item))}
 	{initialPath}

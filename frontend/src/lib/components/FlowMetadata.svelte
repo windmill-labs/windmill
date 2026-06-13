@@ -2,7 +2,7 @@
 	import { type Job } from '$lib/gen'
 	import { base } from '$lib/base'
 	import JobStatus from '$lib/components/JobStatus.svelte'
-	import { flowPathToHref } from '$lib/scripts'
+	import { jobViewHref } from '$lib/scripts'
 	import { displayDate, truncateRev } from '$lib/utils'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import TimeAgo from './TimeAgo.svelte'
@@ -58,7 +58,9 @@
 					<BarsStaggered size={SMALL_ICON_SIZE} class="min-w-3.5" />
 					<span class="whitespace-nowrap">
 						Step of flow
-						<a href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}>
+						<a
+							href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id ?? $workspaceStore}`}
+						>
 							{truncateRev(job.parent_job, 18)}
 						</a>
 					</span>
@@ -68,7 +70,9 @@
 					<Bot size={SMALL_ICON_SIZE} class="min-w-3.5" />
 					<span class="whitespace-nowrap">
 						Triggered by parent
-						<a href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}>
+						<a
+							href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id ?? $workspaceStore}`}
+						>
 							{job.parent_job}</a
 						>
 					</span>
@@ -93,11 +97,8 @@
 		{/if}
 
 		{#if (job && job.job_kind == 'flow') || job?.job_kind == 'script'}
-			{@const stem = `${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
-			{@const viewHref = isScript
-				? `${base}/${stem}/get/${job?.script_hash}`
-				: flowPathToHref(job?.script_path ?? '')}
+			{@const viewHref = jobViewHref(job, job?.workspace_id ?? $workspaceStore)}
 			<div class="flex flex-row gap-2 items-center">
 				{#if isScript}
 					<Code2 size={SMALL_ICON_SIZE} class="min-w-3.5" />

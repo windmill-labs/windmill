@@ -317,7 +317,7 @@
 					skipPreprocessor: true
 				})
 			}
-			await goto('/run/' + run + '?workspace=' + $workspaceStore)
+			await goto('/run/' + run)
 		} catch (err) {
 			runLoading = false
 			sendUserToast(`Could not create job: ${err.body}`, true)
@@ -623,7 +623,7 @@
 <MoveDrawer
 	bind:this={moveDrawer}
 	on:update={async (e) => {
-		await goto('/scripts/get/' + e.detail + `?workspace=${$workspaceStore}`)
+		await goto('/scripts/get/' + e.detail)
 		loadScript(page.params.hash ?? '')
 	}}
 />
@@ -642,7 +642,7 @@
 				openDetails
 				on:openDetails={(e) => {
 					if (script) {
-						goto(`/scripts/get/${e.detail.version}?workspace=${$workspaceStore}`)
+						goto(`/scripts/get/${e.detail.version}`)
 					}
 					versionsDrawerOpen = false
 				}}
@@ -675,7 +675,7 @@
 				onSaved={can_write
 					? async (newPath) => {
 							if (newPath !== script?.path) {
-								await goto(`/scripts/get/${newPath}?workspace=${$workspaceStore}`)
+								await goto(`/scripts/get/${newPath}`)
 							} else {
 								loadScript(newPath)
 							}
@@ -784,9 +784,7 @@
 										<div class="mt-2"></div>
 										<Alert type="warning" title="Not HEAD">
 											This hash is not HEAD (latest non-archived version at this path) :
-											<a href="{base}/scripts/get/{topHash}?workspace={$workspaceStore}"
-												>Go to the HEAD of this path</a
-											>
+											<a href="{base}/scripts/get/{topHash}">Go to the HEAD of this path</a>
 										</Alert>
 									{/if}
 									{#if script.archived && !topHash}
@@ -817,11 +815,7 @@
 									<Loader2 size={12} class="inline animate-spin mr-1" />
 									Deployment in progress
 									{#if deploymentJobId}
-										<a
-											href="/run/{deploymentJobId}?workspace={$workspaceStore}"
-											class="underline"
-											target="_blank">view job</a
-										>
+										<a href="/run/{deploymentJobId}" class="underline" target="_blank">view job</a>
 									{/if}
 								</Badge>
 							</div>
