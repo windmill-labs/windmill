@@ -1912,10 +1912,7 @@ async fn get_logs_from_disk(
     if log_offset > 0 {
         if let Some(file_index) = log_file_index.clone() {
             for file_p in &file_index {
-                if !tokio::fs::metadata(format!("{}/{file_p}", *WINDMILL_DIR))
-                    .await
-                    .is_ok()
-                {
+                if !windmill_common::jobs::is_valid_log_file_on_disk(file_p).await {
                     return None;
                 }
             }

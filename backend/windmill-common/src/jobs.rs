@@ -283,6 +283,51 @@ pub fn format_completed_job_result(mut cj: CompletedJob) -> CompletedJob {
     cj
 }
 
+/// Validate that a `log_file_index` entry is a well-formed log file path and not
+/// an attempt at path traversal. Legitimate entries are produced by the worker as
+/// `logs/{UUID}/{timestamp}_{size}.txt` (see windmill-worker `job_logger_ee.rs`),
+/// but the value is attacker-controllable via the job import endpoint, so it must
+/// be validated before being used to open a file or fetch from object storage.
+pub fn validate_log_file_index_path(file_p: &str) -> error::Result<()> {
+    if file_p.contains("..") {
+        return Err(Error::BadRequest(format!(
+            "Invalid log file path: {file_p}"
+        )));
+    }
+    let parts: Vec<&str> = file_p.split('/').collect();
+    if parts.len() != 3 || parts[0] != "logs" {
+        return Err(Error::BadRequest(format!(
+            "Invalid log file path (expected logs/<uuid>/<file>.txt): {file_p}"
+        )));
+    }
+    uuid::Uuid::parse_str(parts[1]).map_err(|_| {
+        Error::BadRequest(format!(
+            "Invalid log file path: second component must be a valid UUID: {file_p}"
+        ))
+    })?;
+    if !parts[2].ends_with(".txt") {
+        return Err(Error::BadRequest(format!(
+            "Invalid log file path: file must end with .txt: {file_p}"
+        )));
+    }
+    Ok(())
+}
+
+/// Validate a disk-backed log file path and refuse to read through a symlink
+/// (defense in depth, matching `get_log_file`). Returns `true` only if the path
+/// is well-formed and points at a regular existing file; fails closed otherwise.
+pub async fn is_valid_log_file_on_disk(file_p: &str) -> bool {
+    if let Err(e) = validate_log_file_index_path(file_p) {
+        tracing::warn!("Rejected log_file_index path: {e:#}");
+        return false;
+    }
+    let local_file = format!("{}/{file_p}", *WINDMILL_DIR);
+    match tokio::fs::symlink_metadata(&local_file).await {
+        Ok(meta) => !meta.file_type().is_symlink(),
+        Err(_) => false,
+    }
+}
+
 pub async fn get_logs_from_disk(
     log_offset: i32,
     logs: &str,
@@ -291,10 +336,7 @@ pub async fn get_logs_from_disk(
     if log_offset > 0 {
         if let Some(file_index) = log_file_index.clone() {
             for file_p in &file_index {
-                if !tokio::fs::metadata(format!("{}/{file_p}", *WINDMILL_DIR))
-                    .await
-                    .is_ok()
-                {
+                if !is_valid_log_file_on_disk(file_p).await {
                     return None;
                 }
             }
@@ -439,3 +481,47 @@ pub struct WorkerInternalServerInlineUtils {
 // The server cannot call the worker functions directly because they are independent crates
 pub static WORKER_INTERNAL_SERVER_INLINE_UTILS: OnceCell<WorkerInternalServerInlineUtils> =
     OnceCell::new();
+
+#[cfg(test)]
+mod tests {
+    use super::validate_log_file_index_path;
+
+    #[test]
+    fn accepts_well_formed_log_path() {
+        assert!(validate_log_file_index_path(
+            "logs/00000000-0000-0000-0000-000000000000/1700000000000_42.txt"
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn rejects_path_traversal() {
+        for p in [
+            "logs/../../../../etc/passwd",
+            "../etc/passwd",
+            "logs/00000000-0000-0000-0000-000000000000/../../../etc/passwd.txt",
+        ] {
+            assert!(
+                validate_log_file_index_path(p).is_err(),
+                "{p} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_paths() {
+        for p in [
+            "/etc/passwd",                                           // absolute, wrong prefix
+            "logs/not-a-uuid/1700000000000_42.txt",                  // invalid uuid
+            "logs/00000000-0000-0000-0000-000000000000/secret.json", // not .txt
+            "logs/00000000-0000-0000-0000-000000000000",             // too few components
+            "logs/00000000-0000-0000-0000-000000000000/a/b.txt",     // too many components
+            "tmp/00000000-0000-0000-0000-000000000000/1700000000000_42.txt", // wrong root
+        ] {
+            assert!(
+                validate_log_file_index_path(p).is_err(),
+                "{p} should be rejected"
+            );
+        }
+    }
+}

@@ -390,6 +390,12 @@ pub async fn import_completed_jobs(
         .execute(&mut *tx)
         .await?;
 
+        if let Some(file_index) = &job.log_file_index {
+            for file_p in file_index {
+                windmill_common::jobs::validate_log_file_index_path(file_p)?;
+            }
+        }
+
         if let Some(logs) = &job.logs {
             sqlx::query!(
                 r#"

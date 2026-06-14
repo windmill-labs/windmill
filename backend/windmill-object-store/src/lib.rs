@@ -1300,6 +1300,10 @@ pub async fn get_logs_from_store(
                 let logs = logs.to_string();
                 let stream = async_stream::stream! {
                     for file_p in file_index {
+                        if let Err(e) = windmill_common::jobs::validate_log_file_index_path(&file_p) {
+                            tracing::warn!("Rejected log_file_index path from object store: {e:#}");
+                            continue;
+                        }
                         let file = os.get(&object_store::path::Path::from(file_p.clone())).await;
                         match file {
                             Ok(file) => {
