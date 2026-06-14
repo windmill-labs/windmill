@@ -6320,8 +6320,14 @@ async fn run_inline_preview_script(
     Path(w_id): Path<String>,
     Json(preview): Json<PreviewInline>,
 ) -> error::Result<Response> {
-    // Same arbitrary-code class as run_preview_script: a narrowly-scoped token
-    // must not be able to run request-supplied code through inline preview.
+    // Same arbitrary-code class as run_preview_script: operators are blocked from
+    // running request-supplied code, and a narrowly-scoped token must not escape
+    // its scope through inline preview.
+    if authed.is_operator {
+        return Err(error::Error::NotAuthorized(
+            "Operators cannot run preview jobs for security reasons".to_string(),
+        ));
+    }
     check_scopes(&authed, || format!("jobs:run"))?;
     if let Some(job_id) = job_id {
         register_potential_assets_on_inline_execution(job_id, &w_id, &preview);
