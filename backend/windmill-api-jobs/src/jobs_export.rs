@@ -16,7 +16,7 @@ use uuid::Uuid;
 use windmill_common::{
     db::UserDB,
     error,
-    jobs::{JobKind, JobStatus, JobTriggerKind},
+    jobs::{is_safe_log_file_path, JobKind, JobStatus, JobTriggerKind},
     scripts::ScriptLang,
     utils::{paginate, paginate_without_limits, require_admin, Pagination},
 };
@@ -327,6 +327,20 @@ pub async fn import_completed_jobs(
     Json(jobs): Json<Vec<ExportableCompletedJob>>,
 ) -> error::Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+
+    // log_file_index is read back by the log endpoints as paths under the windmill
+    // log directory; an attacker-supplied traversal here would become an arbitrary
+    // file read. Reject anything that could escape the log directory at ingestion.
+    for job in &jobs {
+        if let Some(file_index) = &job.log_file_index {
+            if file_index.iter().any(|p| !is_safe_log_file_path(p)) {
+                return Err(error::Error::BadRequest(format!(
+                    "Invalid log_file_index for job {}: entries must be relative paths without '..'",
+                    job.id
+                )));
+            }
+        }
+    }
 
     let mut tx = user_db.begin(&authed).await?;
 
