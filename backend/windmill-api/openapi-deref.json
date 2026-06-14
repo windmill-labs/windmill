@@ -1,7 +1,7 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "version": "1.713.1",
+    "version": "1.721.0",
     "title": "Windmill API",
     "contact": {
       "name": "Windmill Team",
@@ -7879,6 +7879,54 @@
         }
       }
     },
+    "/users/tokens/update_label/{token_prefix}": {
+      "post": {
+        "summary": "update label of an existing token (owner only)",
+        "operationId": "updateTokenLabel",
+        "tags": [
+          "user"
+        ],
+        "parameters": [
+          {
+            "name": "token_prefix",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "new label (null or omitted = no label)",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "label updated",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/users/tokens/list": {
       "get": {
         "summary": "list token",
@@ -8202,6 +8250,9 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "$ref": "#/components/parameters/GetDraft"
           }
         ],
         "responses": {
@@ -8210,7 +8261,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListableVariable"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ListableVariable"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UserDraftOverlay"
+                    }
+                  ]
                 }
               }
             }
@@ -8349,6 +8407,15 @@
             "required": false,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "include_draft_only",
+            "description": "When true, append per-user draft variables whose path has no\ndeployed variable. Synthesized rows carry `draft_only: true`\nso the home page can render a \"Draft\" badge.\n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -10264,6 +10331,9 @@
           },
           {
             "$ref": "#/components/parameters/Path"
+          },
+          {
+            "$ref": "#/components/parameters/GetDraft"
           }
         ],
         "responses": {
@@ -10272,7 +10342,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Resource"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ListableResource"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UserDraftOverlay"
+                    }
+                  ]
                 }
               }
             }
@@ -10506,6 +10583,15 @@
             "required": false,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "include_draft_only",
+            "description": "When true, append per-user draft resources whose path has\nno deployed resource. Synthesized rows carry\n`draft_only: true`.\n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -12005,7 +12091,37 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/Script"
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/Script"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "is_draft": {
+                            "type": "boolean",
+                            "description": "True when the authed user has a draft for this\nscript — either no deployed row exists at this\npath (draft-only) or the user saved a per-user\ndraft on top of the deployed row.\n"
+                          },
+                          "draft_path": {
+                            "type": "string",
+                            "description": "User-typed path the editor has staged but not\nyet deployed. Surfaced for draft-only rows so\nthe home list can render the meaningful name\ninstead of the autogenerated\n`u/{user}/draft_{uuid}` URL path. Omitted\nwhen unchanged.\n"
+                          },
+                          "draft_users": {
+                            "description": "Workspace users (including the authed user, and\nthe legacy NULL-email row if any) who have a\nper-user draft at this path. Drives the home\npage's user-avatar circles inside the Draft\nbadge. Omitted when no drafts exist.\n",
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "username": {
+                                  "type": "string",
+                                  "nullable": true
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
                   }
                 }
               }
@@ -12043,10 +12159,10 @@
         }
       }
     },
-    "/w/{workspace}/drafts/create": {
-      "post": {
-        "summary": "create draft",
-        "operationId": "createDraft",
+    "/w/{workspace}/drafts/list": {
+      "get": {
+        "summary": "list every draft the current user has in this workspace, across all kinds",
+        "operationId": "listDrafts",
         "tags": [
           "draft"
         ],
@@ -12055,42 +12171,42 @@
             "$ref": "#/components/parameters/WorkspaceId"
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "path": {
-                    "type": "string"
-                  },
-                  "typ": {
-                    "type": "string",
-                    "enum": [
-                      "flow",
-                      "script",
-                      "app"
-                    ]
-                  },
-                  "value": {}
-                },
-                "required": [
-                  "path",
-                  "typ",
-                  "enum"
-                ]
-              }
-            }
-          }
-        },
         "responses": {
-          "201": {
-            "description": "draft created",
+          "200": {
+            "description": "the user's drafts",
             "content": {
-              "text/plain": {
+              "application/json": {
                 "schema": {
-                  "type": "string"
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "$ref": "#/components/schemas/UserDraftItemKind"
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "summary": {
+                        "type": "string",
+                        "description": "Best-effort, read from the draft JSON's `summary` field when the editor shape carries one."
+                      },
+                      "draft_only": {
+                        "type": "boolean",
+                        "description": "No deployed counterpart exists at this path — the draft is the whole item."
+                      },
+                      "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "path",
+                      "draft_only",
+                      "created_at"
+                    ]
+                  }
                 }
               }
             }
@@ -12098,10 +12214,10 @@
         }
       }
     },
-    "/w/{workspace}/drafts/delete/{kind}/{path}": {
-      "delete": {
-        "summary": "delete draft",
-        "operationId": "deleteDraft",
+    "/w/{workspace}/drafts/get/{kind}/{path}": {
+      "get": {
+        "summary": "fetch a single draft's content by workspace username (or the legacy workspace-level row)",
+        "operationId": "getDraftForUser",
         "tags": [
           "draft"
         ],
@@ -12114,25 +12230,122 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string",
-              "enum": [
-                "script",
-                "flow",
-                "app"
-              ]
+              "$ref": "#/components/schemas/UserDraftItemKind"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ScriptPath"
+          },
+          {
+            "name": "username",
+            "in": "query",
+            "required": false,
+            "description": "Workspace username of the draft owner. Omit to fetch the legacy workspace-level (NULL email) row.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "draft content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "value": {},
+                    "created_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "created_at"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no draft for that owner at that path"
+          }
+        }
+      }
+    },
+    "/w/{workspace}/drafts/save_draft/{kind}/{path}": {
+      "post": {
+        "summary": "save the current user's draft at a path",
+        "operationId": "saveDraft",
+        "tags": [
+          "draft"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UserDraftItemKind"
             }
           },
           {
             "$ref": "#/components/parameters/ScriptPath"
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "nullable": true,
+                    "description": "Draft content to save. `null` (or omitted) signals a delete — the row is removed under the same conflict rules."
+                  },
+                  "last_sync": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Server timestamp of the client's last known sync for this draft. Omit on first save."
+                  },
+                  "force": {
+                    "type": "boolean",
+                    "description": "Skip the conflict check and overwrite the server copy."
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
-            "description": "draft deleted",
+            "description": "save result",
             "content": {
-              "text/plain": {
+              "application/json": {
                 "schema": {
-                  "type": "string"
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "saved",
+                        "conflict"
+                      ]
+                    },
+                    "current_timestamp": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "current_timestamp"
+                  ]
                 }
               }
             }
@@ -12729,6 +12942,9 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "$ref": "#/components/parameters/GetDraft"
           }
         ],
         "responses": {
@@ -12737,7 +12953,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Script"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Script"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UserDraftOverlay"
+                    }
+                  ]
                 }
               }
             }
@@ -12799,35 +13022,6 @@
                   "items": {
                     "$ref": "#/components/schemas/TruncatedToken"
                   }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/w/{workspace}/scripts/get/draft/{path}": {
-      "get": {
-        "summary": "get script by path with draft",
-        "operationId": "getScriptByPathWithDraft",
-        "tags": [
-          "script"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/WorkspaceId"
-          },
-          {
-            "$ref": "#/components/parameters/ScriptPath"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "script details",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NewScriptWithDraft"
                 }
               }
             }
@@ -14541,6 +14735,42 @@
         }
       }
     },
+    "/w/{workspace}/jobs/job_view_token/{id}": {
+      "get": {
+        "summary": "mint a read-only share token for a job",
+        "description": "Returns a stateless `{job_id}.{hmac}` token that grants an authenticated workspace member read access to this job (and its flow subtree) via a `view_token` query param or `X-View-Token` header. Only callable by a user who can already read the job.\n",
+        "operationId": "getJobViewToken",
+        "tags": [
+          "job"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "the share read token",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/w/{workspace}/flows/list_paths": {
       "get": {
         "summary": "list all flow paths",
@@ -14722,11 +14952,29 @@
                       {
                         "type": "object",
                         "properties": {
-                          "has_draft": {
-                            "type": "boolean"
-                          },
                           "draft_only": {
                             "type": "boolean"
+                          },
+                          "is_draft": {
+                            "type": "boolean",
+                            "description": "True when the authed user has a draft for this\nflow — either no deployed row exists at this\npath (draft-only) or the user saved a per-user\ndraft on top of the deployed row.\n"
+                          },
+                          "draft_path": {
+                            "type": "string",
+                            "description": "User-typed path the editor has staged but not\nyet deployed. Sourced from the draft JSON's\n`draft_path` field (the editor only writes it\nwhen the typed path differs from the deployed\none). Lets the home list render the meaningful\nname instead of the autogenerated\n`u/{user}/draft_{uuid}` URL path. Omitted when\nunchanged.\n"
+                          },
+                          "draft_users": {
+                            "description": "Workspace users (including the authed user, and\nthe legacy NULL-email row if any) who have a\nper-user draft at this path. Drives the home\npage's user-avatar circles inside the Draft\nbadge. Omitted when no drafts exist.\n",
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "username": {
+                                  "type": "string",
+                                  "nullable": true
+                                }
+                              }
+                            }
                           }
                         }
                       }
@@ -14950,6 +15198,9 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "$ref": "#/components/parameters/GetDraft"
           }
         ],
         "responses": {
@@ -14958,7 +15209,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Flow"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Flow"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UserDraftOverlay"
+                    }
+                  ]
                 }
               }
             }
@@ -15110,52 +15368,6 @@
         }
       }
     },
-    "/w/{workspace}/flows/get/draft/{path}": {
-      "get": {
-        "summary": "get flow by path with draft",
-        "operationId": "getFlowByPathWithDraft",
-        "tags": [
-          "flow"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/WorkspaceId"
-          },
-          {
-            "$ref": "#/components/parameters/ScriptPath"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "flow details with draft",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "allOf": [
-                    {
-                      "$ref": "#/components/schemas/Flow"
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "draft": {
-                          "$ref": "#/components/schemas/Flow"
-                        },
-                        "draft_created_at": {
-                          "type": "string",
-                          "format": "date-time",
-                          "description": "Timestamp at which the most recent DB draft was created. Used by the frontend's UserDraft staleness check."
-                        }
-                      }
-                    }
-                  ]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/w/{workspace}/flows/exists/{path}": {
       "get": {
         "summary": "exists flow by path",
@@ -15224,9 +15436,6 @@
                   {
                     "type": "object",
                     "properties": {
-                      "draft_only": {
-                        "type": "boolean"
-                      },
                       "deployment_message": {
                         "type": "string"
                       },
@@ -15643,6 +15852,9 @@
               "type": "string"
             },
             "description": "Filter by label"
+          },
+          {
+            "$ref": "#/components/parameters/IncludeDraftOnly"
           }
         ],
         "responses": {
@@ -16059,9 +16271,6 @@
                   "policy": {
                     "$ref": "#/components/schemas/Policy"
                   },
-                  "draft_only": {
-                    "type": "boolean"
-                  },
                   "deployment_message": {
                     "type": "string"
                   },
@@ -16139,9 +16348,6 @@
                       },
                       "policy": {
                         "$ref": "#/components/schemas/Policy"
-                      },
-                      "draft_only": {
-                        "type": "boolean"
                       },
                       "deployment_message": {
                         "type": "string"
@@ -16245,6 +16451,17 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "$ref": "#/components/parameters/GetDraft"
+          },
+          {
+            "name": "raw_app",
+            "in": "query",
+            "description": "When no deployed app exists at this path and `get_draft` is set,\ndisambiguates which draft kind (`raw_app` or `app`) to look up.\nIgnored when a deployed row exists.\n",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -16253,7 +16470,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AppWithLastVersion"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/AppWithLastVersion"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UserDraftOverlay"
+                    }
+                  ]
                 }
               }
             }
@@ -16283,35 +16507,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AppWithLastVersion"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/w/{workspace}/apps/get/draft/{path}": {
-      "get": {
-        "summary": "get app by path with draft",
-        "operationId": "getAppByPathWithDraft",
-        "tags": [
-          "app"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/WorkspaceId"
-          },
-          {
-            "$ref": "#/components/parameters/ScriptPath"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "app details with draft",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AppWithLastVersionWDraft"
                 }
               }
             }
@@ -18546,6 +18741,20 @@
             }
           },
           {
+            "name": "status",
+            "description": "filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "success",
+                "failure",
+                "canceled",
+                "skipped"
+              ]
+            }
+          },
+          {
             "name": "all_workspaces",
             "description": "get jobs from all workspaces (only valid if request come from the `admins` workspace)",
             "in": "query",
@@ -18963,6 +19172,20 @@
             "$ref": "#/components/parameters/Success"
           },
           {
+            "name": "status",
+            "description": "filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "success",
+                "failure",
+                "canceled",
+                "skipped"
+              ]
+            }
+          },
+          {
             "$ref": "#/components/parameters/JobKinds"
           },
           {
@@ -19343,6 +19566,20 @@
             "in": "query",
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "name": "status",
+            "description": "filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "success",
+                "failure",
+                "canceled",
+                "skipped"
+              ]
             }
           },
           {
@@ -21488,6 +21725,9 @@
           },
           {
             "$ref": "#/components/parameters/Path"
+          },
+          {
+            "$ref": "#/components/parameters/GetDraft"
           }
         ],
         "responses": {
@@ -21496,7 +21736,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Schedule"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Schedule"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UserDraftOverlay"
+                    }
+                  ]
                 }
               }
             }
@@ -21618,6 +21865,15 @@
               "type": "string"
             },
             "description": "Filter by label"
+          },
+          {
+            "name": "include_draft_only",
+            "description": "When true, append per-user draft schedules whose path has\nno deployed schedule. Synthesized rows carry\n`draft_only: true`.\n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -21966,6 +22222,9 @@
           },
           {
             "$ref": "#/components/parameters/Path"
+          },
+          {
+            "$ref": "#/components/parameters/GetDraft"
           }
         ],
         "responses": {
@@ -21974,7 +22233,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HttpTrigger"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpTrigger"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UserDraftOverlay"
+                    }
+                  ]
                 }
               }
             }
@@ -22030,6 +22296,9 @@
               "type": "string"
             },
             "description": "Filter by label"
+          },
+          {
+            "$ref": "#/components/parameters/IncludeDraftOnly"
           }
         ],
         "responses": {
@@ -22303,6 +22572,9 @@
           },
           {
             "$ref": "#/components/parameters/Path"
+          },
+          {
+            "$ref": "#/components/parameters/GetDraft"
           }
         ],
         "responses": {
@@ -22311,7 +22583,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/WebsocketTrigger"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/WebsocketTrigger"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UserDraftOverlay"
+                    }
+                  ]
                 }
               }
             }
@@ -22367,6 +22646,9 @@
               "type": "string"
             },
             "description": "Filter by label"
+          },
+          {
+            "$ref": "#/components/parameters/IncludeDraftOnly"
           }
         ],
         "responses": {
@@ -22638,6 +22920,9 @@
           },
           {
             "$ref": "#/components/parameters/Path"
+          },
+          {
+            "$ref": "#/components/parameters/GetDraft"
           }
         ],
         "responses": {
@@ -22646,7 +22931,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/KafkaTrigger"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/KafkaTrigger"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UserDraftOverlay"
+                    }
+                  ]
                 }
               }
             }
@@ -22702,6 +22994,9 @@
               "type": "string"
             },
             "description": "Filter by label"
+          },
+          {
+            "$ref": "#/components/parameters/IncludeDraftOnly"
           }
         ],
         "responses": {
@@ -23039,6 +23334,9 @@
           },
           {
             "$ref": "#/components/parameters/Path"
+          },
+          {
+            "$ref": "#/components/parameters/GetDraft"
           }
         ],
         "responses": {
@@ -23047,7 +23345,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NatsTrigger"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/NatsTrigger"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UserDraftOverlay"
+                    }
+                  ]
                 }
               }
             }
@@ -23103,6 +23408,9 @@
               "type": "string"
             },
             "description": "Filter by label"
+          },
+          {
+            "$ref": "#/components/parameters/IncludeDraftOnly"
           }
         ],
         "responses": {
@@ -23367,6 +23675,9 @@
           },
           {
             "$ref": "#/components/parameters/Path"
+          },
+          {
+            "$ref": "#/components/parameters/GetDraft"
           }
         ],
         "responses": {
@@ -23375,7 +23686,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SqsTrigger"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/SqsTrigger"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UserDraftOverlay"
+                    }
+                  ]
                 }
               }
             }
@@ -23431,6 +23749,9 @@
               "type": "string"
             },
             "description": "Filter by label"
+          },
+          {
+            "$ref": "#/components/parameters/IncludeDraftOnly"
           }
         ],
         "responses": {
@@ -24145,6 +24466,9 @@
               "type": "string"
             },
             "description": "Filter by label"
+          },
+          {
+            "$ref": "#/components/parameters/IncludeDraftOnly"
           }
         ],
         "responses": {
@@ -24620,6 +24944,9 @@
           },
           {
             "$ref": "#/components/parameters/Path"
+          },
+          {
+            "$ref": "#/components/parameters/GetDraft"
           }
         ],
         "responses": {
@@ -24628,7 +24955,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MqttTrigger"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/MqttTrigger"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UserDraftOverlay"
+                    }
+                  ]
                 }
               }
             }
@@ -24684,6 +25018,9 @@
               "type": "string"
             },
             "description": "Filter by label"
+          },
+          {
+            "$ref": "#/components/parameters/IncludeDraftOnly"
           }
         ],
         "responses": {
@@ -24948,6 +25285,9 @@
           },
           {
             "$ref": "#/components/parameters/Path"
+          },
+          {
+            "$ref": "#/components/parameters/GetDraft"
           }
         ],
         "responses": {
@@ -24956,7 +25296,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GcpTrigger"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/GcpTrigger"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UserDraftOverlay"
+                    }
+                  ]
                 }
               }
             }
@@ -25012,6 +25359,9 @@
               "type": "string"
             },
             "description": "Filter by label"
+          },
+          {
+            "$ref": "#/components/parameters/IncludeDraftOnly"
           }
         ],
         "responses": {
@@ -25389,6 +25739,9 @@
           },
           {
             "$ref": "#/components/parameters/Path"
+          },
+          {
+            "$ref": "#/components/parameters/GetDraft"
           }
         ],
         "responses": {
@@ -25397,7 +25750,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AzureTrigger"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/AzureTrigger"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UserDraftOverlay"
+                    }
+                  ]
                 }
               }
             }
@@ -25443,6 +25803,9 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "$ref": "#/components/parameters/IncludeDraftOnly"
           }
         ],
         "responses": {
@@ -26302,6 +26665,9 @@
           },
           {
             "$ref": "#/components/parameters/Path"
+          },
+          {
+            "$ref": "#/components/parameters/GetDraft"
           }
         ],
         "responses": {
@@ -26310,7 +26676,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PostgresTrigger"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/PostgresTrigger"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UserDraftOverlay"
+                    }
+                  ]
                 }
               }
             }
@@ -26366,6 +26739,9 @@
               "type": "string"
             },
             "description": "Filter by label"
+          },
+          {
+            "$ref": "#/components/parameters/IncludeDraftOnly"
           }
         ],
         "responses": {
@@ -26630,6 +27006,9 @@
           },
           {
             "$ref": "#/components/parameters/Path"
+          },
+          {
+            "$ref": "#/components/parameters/GetDraft"
           }
         ],
         "responses": {
@@ -26638,7 +27017,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EmailTrigger"
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/EmailTrigger"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UserDraftOverlay"
+                    }
+                  ]
                 }
               }
             }
@@ -26694,6 +27080,9 @@
               "type": "string"
             },
             "description": "Filter by label"
+          },
+          {
+            "$ref": "#/components/parameters/IncludeDraftOnly"
           }
         ],
         "responses": {
@@ -27667,6 +28056,12 @@
                   },
                   "default_permissioned_as": {
                     "$ref": "#/components/schemas/FolderDefaultPermissionedAs"
+                  },
+                  "labels": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   }
                 },
                 "required": [
@@ -27729,6 +28124,12 @@
                   },
                   "default_permissioned_as": {
                     "$ref": "#/components/schemas/FolderDefaultPermissionedAs"
+                  },
+                  "labels": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   }
                 }
               }
@@ -31495,6 +31896,20 @@
             }
           },
           {
+            "name": "status",
+            "description": "filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "success",
+                "failure",
+                "canceled",
+                "skipped"
+              ]
+            }
+          },
+          {
             "name": "all_workspaces",
             "description": "get jobs from all workspaces (only valid if request come from the `admins` workspace)",
             "in": "query",
@@ -32604,6 +33019,24 @@
       }
     },
     "parameters": {
+      "GetDraft": {
+        "name": "get_draft",
+        "in": "query",
+        "required": false,
+        "description": "When true, overlay the authed user's draft (if any) onto the deployed payload.",
+        "schema": {
+          "type": "boolean"
+        }
+      },
+      "IncludeDraftOnly": {
+        "name": "include_draft_only",
+        "in": "query",
+        "required": false,
+        "description": "When true, append per-user draft rows whose path has no\ndeployed counterpart. Synthesized rows carry `draft_only: true`\nso the home page can render a \"Draft\" badge. Gated to\nnon-operators + page 0 + no narrowing filters on the backend so\npicker callers stay deployed-only and pagination stays clean.\n",
+        "schema": {
+          "type": "boolean"
+        }
+      },
       "Id": {
         "name": "id",
         "in": "path",
@@ -33148,6 +33581,73 @@
       }
     },
     "schemas": {
+      "UserDraftOverlay": {
+        "type": "object",
+        "description": "Overlay fields added to every \"get by path\" response that accepts\nthe `get_draft` query parameter. The deployed payload is sent\nuntouched in the response body; the authed user's saved draft\nfor this path — whatever shape the editor wrote — is attached\nas the sibling `draft` field when `get_draft=true` and a draft\nexists. The frontend pairs the two to present diff / reset /\ndiscard UI; the server never merges them.\n\nWhen `no_deployed=true` there is no deployed row at this path —\nthe response body is a best-effort stand-in synthesized from\nthe draft, and only `draft` is canonical. Callers should disable\n\"diff vs deployed\" UI in that case.\n",
+        "properties": {
+          "is_draft": {
+            "type": "boolean"
+          },
+          "draft_saved_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "no_deployed": {
+            "type": "boolean"
+          },
+          "draft": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "other_drafts_users": {
+            "description": "Other workspace users (and the legacy NULL-email row, if any)\nwith a saved draft at the same path. Populated only on the\nauthed user's \"get by path\" responses for kinds the editor\nsurfaces a fork banner for (script, flow, app, raw_app).\nEmpty / omitted for kinds without that UI.\n",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "username": {
+                  "type": "string",
+                  "nullable": true,
+                  "description": "Workspace username of the draft owner. `null` represents\nthe legacy workspace-level (NULL-email) row. Emails never\nleave the server.\n"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "is_draft"
+        ]
+      },
+      "UserDraftItemKind": {
+        "type": "string",
+        "description": "Closed set of item kinds a user can autosave as a draft. Mirrors the\nPostgres `DRAFT_KIND` enum and the backend `UserDraftItemKind`.\n",
+        "enum": [
+          "script",
+          "flow",
+          "app",
+          "raw_app",
+          "resource",
+          "variable",
+          "trigger_schedule",
+          "trigger_webhook",
+          "trigger_default_email",
+          "trigger_email",
+          "trigger_http",
+          "trigger_websocket",
+          "trigger_postgres",
+          "trigger_kafka",
+          "trigger_nats",
+          "trigger_mqtt",
+          "trigger_sqs",
+          "trigger_gcp",
+          "trigger_azure",
+          "trigger_poll",
+          "trigger_cli",
+          "trigger_nextcloud",
+          "trigger_google",
+          "trigger_github"
+        ]
+      },
       "OpenFlow": {
         "type": "object",
         "description": "Top-level flow definition containing metadata, configuration, and the flow structure",
@@ -33354,6 +33854,10 @@
             "type": "string",
             "nullable": true,
             "description": "Custom error message when stopping with an error. Mutually exclusive with skip_if_stopped. If set to a non-empty string, the flow stops with this error. If empty string, a default error message is used. If null or omitted, no error is raised."
+          },
+          "error_include_result": {
+            "type": "boolean",
+            "description": "When stopping with an error (error_message set), embed the stopping step's own result inside the raised error object (as error.result) instead of discarding it. The top-level result stays { error }. Defaults to false."
           }
         },
         "required": [
@@ -34173,6 +34677,10 @@
             "enum": [
               "aiagent"
             ]
+          },
+          "tag": {
+            "type": "string",
+            "description": "Worker group tag for execution routing. If not set, the AI agent step runs on the flow's tag (default `flow`)"
           },
           "omit_output_from_conversation": {
             "type": "boolean",
@@ -35633,9 +36141,6 @@
           "tag": {
             "type": "string"
           },
-          "has_draft": {
-            "type": "boolean"
-          },
           "draft_only": {
             "type": "boolean"
           },
@@ -35723,6 +36228,13 @@
               "type": "string"
             },
             "default": []
+          },
+          "inherited_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Labels inherited from the parent folder, computed at read time. Read-only — edit them on the folder.\n"
           }
         },
         "required": [
@@ -35786,9 +36298,6 @@
           },
           "tag": {
             "type": "string"
-          },
-          "draft_only": {
-            "type": "boolean"
           },
           "envs": {
             "type": "array",
@@ -35928,32 +36437,6 @@
           "summary",
           "content",
           "language"
-        ]
-      },
-      "NewScriptWithDraft": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/NewScript"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "draft": {
-                "$ref": "#/components/schemas/NewScript"
-              },
-              "draft_created_at": {
-                "type": "string",
-                "format": "date-time",
-                "description": "Timestamp at which the most recent DB draft was created. Used by the frontend's UserDraft staleness check."
-              },
-              "hash": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "hash"
-            ]
-          }
         ]
       },
       "ScriptHistory": {
@@ -37391,6 +37874,13 @@
               "type": "string"
             }
           },
+          "inherited_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Labels inherited from the parent folder, computed at read time. Read-only — edit them on the folder.\n"
+          },
           "ws_specific": {
             "type": "boolean"
           },
@@ -37400,6 +37890,14 @@
           },
           "edited_by": {
             "type": "string"
+          },
+          "draft_only": {
+            "description": "True when this row is a per-user draft with no deployed\nvariable at the same path. Frontend renders a \"Draft\" badge.\n",
+            "type": "boolean"
+          },
+          "is_draft": {
+            "description": "True when the authed user has a per-user draft at this path\n(over a deployed row or a synthesized draft-only row).\nFrontend appends a `*` to the displayed name.\n",
+            "type": "boolean"
           }
         },
         "required": [
@@ -38115,6 +38613,13 @@
               "type": "string"
             }
           },
+          "inherited_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Labels inherited from the parent folder, computed at read time. Read-only — edit them on the folder.\n"
+          },
           "ws_specific": {
             "type": "boolean"
           }
@@ -38178,7 +38683,22 @@
               "type": "string"
             }
           },
+          "inherited_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Labels inherited from the parent folder, computed at read time. Read-only — edit them on the folder.\n"
+          },
           "ws_specific": {
+            "type": "boolean"
+          },
+          "draft_only": {
+            "description": "True when this row is a per-user draft with no deployed\nresource at the same path. Frontend renders a \"Draft\" badge.\n",
+            "type": "boolean"
+          },
+          "is_draft": {
+            "description": "True when the authed user has a per-user draft at this path\n(over a deployed row or a synthesized draft-only row).\nFrontend appends a `*` to the displayed name.\n",
             "type": "boolean"
           }
         },
@@ -38384,6 +38904,21 @@
               "type": "string"
             },
             "default": []
+          },
+          "draft_only": {
+            "description": "True when this row is a per-user draft with no deployed\nschedule at the same path. Frontend renders a \"Draft\" badge.\n",
+            "type": "boolean"
+          },
+          "is_draft": {
+            "description": "True when the authed user has a per-user draft at this path\n(over a deployed row or a synthesized draft-only row).\nFrontend appends a `*` to the displayed name.\n",
+            "type": "boolean"
+          },
+          "inherited_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Labels inherited from the parent folder, computed at read time. Read-only — edit them on the folder.\n"
           }
         },
         "required": [
@@ -38785,6 +39320,14 @@
               "type": "string"
             },
             "default": []
+          },
+          "draft_only": {
+            "description": "True when this row is a per-user draft with no deployed\ntrigger at the same path. Set by list endpoints when\n`include_draft_only=true` synthesizes the row from the\ndraft. Frontend renders a \"Draft\" badge.\n",
+            "type": "boolean"
+          },
+          "is_draft": {
+            "description": "True when the authed user has a per-user draft at this path\n(over a deployed row or a synthesized draft-only row).\nFrontend appends a `*` to the displayed name.\n",
+            "type": "boolean"
           }
         },
         "required": [
@@ -41871,6 +42414,13 @@
           },
           "default_permissioned_as": {
             "$ref": "#/components/schemas/FolderDefaultPermissionedAs"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Labels set on the folder. Items inside the folder inherit them, exposed as `inherited_labels` on scripts and flows and stamped into job labels at run time.\n"
           }
         },
         "required": [
@@ -42369,6 +42919,13 @@
               "type": "string"
             },
             "default": []
+          },
+          "inherited_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Labels inherited from the parent folder, computed at read time. Read-only — edit them on the folder.\n"
           }
         },
         "required": [
@@ -42599,6 +43156,34 @@
               "type": "string"
             },
             "default": []
+          },
+          "is_draft": {
+            "type": "boolean",
+            "description": "True when the authed user has a draft for this app — either no\ndeployed row exists at this path (draft-only) or the user has\nsaved a per-user draft on top of the deployed row.\n"
+          },
+          "draft_path": {
+            "type": "string",
+            "description": "User-typed path the editor has staged but not yet deployed.\nSourced from the draft JSON's `draft_path` field (the editor\nonly writes it when the typed path differs from the deployed\none). Lets the home list render the meaningful name instead of\nthe autogenerated `u/{user}/draft_{uuid}` URL path. Omitted\nwhen unchanged.\n"
+          },
+          "draft_users": {
+            "description": "Workspace users (including the authed user, and the legacy\nNULL-email row if any) who have a per-user draft at this\npath. Drives the home page's user-avatar circles inside the\nDraft badge. Omitted when no drafts exist.\n",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "username": {
+                  "type": "string",
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "inherited_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Labels inherited from the parent folder, computed at read time. Read-only — edit them on the folder.\n"
           }
         },
         "required": [
@@ -42691,6 +43276,13 @@
               "type": "string"
             },
             "default": []
+          },
+          "inherited_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Labels inherited from the parent folder, computed at read time. Read-only — edit them on the folder.\n"
           }
         },
         "required": [
@@ -42778,27 +43370,6 @@
           "execution_mode",
           "extra_perms",
           "raw_app"
-        ]
-      },
-      "AppWithLastVersionWDraft": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/AppWithLastVersion"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "draft_only": {
-                "type": "boolean"
-              },
-              "draft": {},
-              "draft_created_at": {
-                "type": "string",
-                "format": "date-time",
-                "description": "Timestamp at which the most recent DB draft was created. Used by the frontend's UserDraft staleness check."
-              }
-            }
-          }
         ]
       },
       "AppHistory": {
@@ -44350,7 +44921,8 @@
         "enum": [
           "DisableDirectDeployment",
           "DisableWorkspaceForking",
-          "RestrictDeployToDeployers"
+          "RestrictDeployToDeployers",
+          "RestrictAnonymousAppDeployment"
         ]
       },
       "RuleBypasserGroups": {
@@ -46030,6 +46602,10 @@
               "aiagent"
             ]
           },
+          "tag": {
+            "type": "string",
+            "description": "Worker group tag for execution routing. If not set, the AI agent step runs on the flow's tag (default `flow`)"
+          },
           "omit_output_from_conversation": {
             "type": "boolean",
             "default": false,
@@ -46062,6 +46638,10 @@
             "type": "string",
             "nullable": true,
             "description": "Custom error message when stopping with an error. Mutually exclusive with skip_if_stopped. If set to a non-empty string, the flow stops with this error. If empty string, a default error message is used. If null or omitted, no error is raised."
+          },
+          "error_include_result": {
+            "type": "boolean",
+            "description": "When stopping with an error (error_message set), embed the stopping step's own result inside the raised error object (as error.result) instead of discarding it. The top-level result stays { error }. Defaults to false."
           }
         },
         "required": [

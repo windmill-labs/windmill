@@ -10,11 +10,10 @@
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { resource } from 'runed'
-	import { deepEqual } from 'fast-equals'
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
-	import { UserDraft, checkStaleness, type UserDraftHandle } from '$lib/userDraft.svelte'
-	import LocalDraftStaleModal from './common/confirmationModal/LocalDraftStaleModal.svelte'
+	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
+	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 
 	interface Props {
 		canSave?: boolean
@@ -75,53 +74,19 @@
 	let existedInitially: Record<string, boolean> = $state({})
 	let fetchedResources: Record<string, Resource> = $state({})
 	let perWsUser: Record<string, UserExt | undefined> = $state({})
-	// Backend `edited_at` per workspace — the rev the staleness check
-	// compares the local autosave's recorded rev against. Resources have
-	// no DB-draft concept, so only `remoteRev` is ever populated.
-	let fetchedRev: Record<string, string | undefined> = $state({})
-
-	// Local-draft staleness modal: opened when the backend resource moved
-	// on (someone else edited it) since the local autosave was written.
-	let staleModalOpen = $state(false)
-	let pendingStale: { ws: string; backend: ResourceState } | undefined = undefined
-
-	function onStaleLoadLatest(): void {
-		if (!pendingStale) {
-			staleModalOpen = false
-			return
-		}
-		const { ws, backend } = pendingStale
-		// Drop the divergent autosave and reset the handle to the freshly
-		// fetched backend state. A later edit re-creates the autosave and
-		// the seeding effect records the new rev.
-		UserDraft.discard('resource', initialPath ?? '', backend, { workspace: ws })
-		initialStates[ws] = $state.snapshot(backend) as ResourceState
-		pendingStale = undefined
-		staleModalOpen = false
-	}
-
-	function onStaleKeepDraft(): void {
-		if (pendingStale) {
-			const { ws } = pendingStale
-			// Ack the new backend rev so the modal doesn't fire again until
-			// the backend moves once more. Keeps the local autosave intact.
-			UserDraft.saveMeta(
-				'resource',
-				initialPath ?? '',
-				{ remoteRev: fetchedRev[ws] },
-				{ workspace: ws }
-			)
-		}
-		pendingStale = undefined
-		staleModalOpen = false
-	}
 
 	const handlesArray = UserDraft.useMany<ResourceState>(() =>
 		workspaceSpecs.map((s) => ({
 			itemKind: 'resource' as const,
 			path: initialPath ?? '',
 			workspace: s.ws,
-			defaultValue: s.defaultValue
+			defaultValue: s.defaultValue,
+			// Autosaves landing back on the deployed value become deletes.
+			// Same comparison as `dirtyWorkspaces` (the banner), so the
+			// synced draft and the banner can never disagree. Never true
+			// for draft-only/new items (the draft is the only copy;
+			// deleting it on equality would destroy the item).
+			discardIf: (val) => !!existedInitially[s.ws] && draftValuesEqual(val, initialStates[s.ws])
 		}))
 	)
 	const states = $derived.by(() => {
@@ -195,9 +160,26 @@
 	)
 
 	const dirtyWorkspaces = $derived(
-		Object.keys(states).filter((ws) => !deepEqual(states[ws].draft, initialStates[ws]))
+		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
 	)
 	const anyDirty = $derived(dirtyWorkspaces.length > 0)
+
+	// The list-page `*` hint is OWNED by UserDraftDbSyncer (set on save,
+	// cleared on delete). The editor only CLEARS it: a loaded workspace at
+	// the deployed baseline (not dirty) has no draft, so drop any stale
+	// hint — this is what makes a draft discarded from another tab vanish
+	// on reopen. Never SET here (the syncer is the single source).
+	$effect(() => {
+		const p = initialPath
+		const loadedWs = Object.keys(states)
+		const dirty = dirtyWorkspaces
+		untrack(() => {
+			if (!p) return
+			for (const ws of loadedWs) {
+				if (!dirty.includes(ws)) setLocalDraftHint(ws, 'resource', p, false)
+			}
+		})
+	})
 	// Banner is scoped to the selected workspace — the diff/discard only
 	// operate on it, so showing it for an unrelated dirty workspace would be
 	// misleading. The cross-workspace `otherDirty` alert below still covers
@@ -250,49 +232,37 @@
 		if (ws in states) return
 		untrack(() => {
 			Promise.all([
-				ResourceService.getResource({ workspace: ws, path: initialPath }),
+				ResourceService.getResource({ workspace: ws, path: initialPath, getDraft: true }),
 				getUserExt(ws)
 			]).then(([r, user]) => {
+				// `r` is the deployed `Resource` (wire shape `{path, value,
+				// description, labels, ws_specific, ...}`); the autosaved
+				// draft (if any) sits in `.draft` as the editor's internal
+				// `ResourceState` shape — the editor reads it directly.
+				const savedDraftState = (r as any).draft as ResourceState | undefined
 				fetchedResources[ws] = r
-				fetchedRev[ws] = r.edited_at
-				const s: ResourceState = {
+				// The deployed baseline, translated into the editor's
+				// `ResourceState` shape. Kept as the dirty-check reference
+				// so the "unsaved changes" banner compares draft-vs-deployed
+				// instead of loaded-vs-current — when a saved draft exists,
+				// the form opens with `draft != deployed` so the banner
+				// fires immediately, exactly as if the user had typed.
+				const deployedState: ResourceState = {
 					path: r.path,
 					description: r.description ?? '',
 					args: (r.value ?? {}) as any,
 					labels: r.labels ?? undefined,
 					wsSpecific: r.ws_specific ?? false
 				}
-				// Reconcile the local autosave with the backend before the
-				// handle is registered. If the backend moved on since the
-				// autosave was written (recorded rev != current rev) surface
-				// the staleness modal; otherwise the form is just showing the
-				// user's unsaved work — a toast with a "Reset to deployed"
-				// escape is enough.
-				const persisted = UserDraft.get<ResourceState>('resource', initialPath ?? '', {
-					workspace: ws
-				})
-				const previousMeta = UserDraft.getMeta('resource', initialPath ?? '', { workspace: ws })
-				if (persisted !== undefined && !deepEqual(persisted, s)) {
-					const cause = checkStaleness(previousMeta, r.edited_at)
-					if (cause) {
-						pendingStale = { ws, backend: s }
-						staleModalOpen = true
-					} else {
-						if (previousMeta.remoteRev === undefined && previousMeta.remoteDraftRev === undefined) {
-							// Legacy autosave (no rev recorded) — backfill so the
-							// next backend change is detectable as drift.
-							UserDraft.saveMeta(
-								'resource',
-								initialPath ?? '',
-								{ remoteRev: r.edited_at },
-								{ workspace: ws }
-							)
-						}
-					}
-				}
+				// What the editor opens with: the saved draft if present,
+				// otherwise the deployed.
+				const s: ResourceState = savedDraftState ?? deployedState
 				ensureHandle(ws, s)
-				initialStates[ws] = structuredClone(s)
-				existedInitially[ws] = true
+				initialStates[ws] = structuredClone(deployedState)
+				// Draft-only paths (`no_deployed`) have no resource row —
+				// saving must CREATE, not update (update 404s with
+				// "Resource not found at name ...").
+				existedInitially[ws] = !(r as any).no_deployed
 				perWsUser[ws] = user
 				// Keep resource_type in sync for the base workspace (controls the schema)
 				if (ws === effectiveWorkspace) {
@@ -300,25 +270,6 @@
 				}
 			})
 		})
-	})
-
-	// Seed the staleness rev the moment a real autosave appears. Until the
-	// user's first edit diverges the handle's draft from the backend
-	// baseline there's no autosave to attach a rev to; once it does, record
-	// the backend rev captured at fetch time so a later external edit is
-	// detectable as drift on the next open. Self-limiting: after the write
-	// `meta.remoteRev` is set so the guard fails on the re-run.
-	$effect(() => {
-		for (const ws of Object.keys(states)) {
-			const h = states[ws]
-			const rev = fetchedRev[ws]
-			const baseline = initialStates[ws]
-			if (!h || rev === undefined || baseline === undefined) continue
-			const draft = h.draft
-			if (draft === undefined || deepEqual(draft, baseline)) continue
-			if (h.meta.remoteRev !== undefined || h.meta.remoteDraftRev !== undefined) continue
-			untrack(() => h.setMeta({ remoteRev: rev }))
-		}
 	})
 
 	// Keep current.path bound to the outer `path` prop for consumers
@@ -417,13 +368,15 @@
 						}
 					})
 				}
-				// Saved on the backend — drop the local autosave for this
-				// workspace and refresh the dirty baseline. `s` is the
-				// UserDraft handle's draft, a Svelte $state proxy;
-				// `structuredClone` can't clone a proxy, so snapshot it to a
-				// plain object first.
+				// Deployed — the just-saved state is the new deployed
+				// baseline. Refresh it and reset the handle to it (`discard`,
+				// not `remove`: blanking the cell to `undefined` would read
+				// as dirty, keeping the banner and the list asterisk on).
+				// The `value: null` POST inside also deletes the server
+				// draft row so `is_draft` clears on the next refetch.
 				initialStates[ws] = $state.snapshot(s) as ResourceState
-				UserDraft.remove('resource', initialPath ?? '', { workspace: ws })
+				existedInitially[ws] = true
+				UserDraft.discard('resource', initialPath ?? '', s, { workspace: ws })
 				// Path now exists server-side — drop the autocomplete cache so
 				// it shows up immediately instead of after the 60s TTL.
 				invalidateWorkspacePaths(ws)
@@ -437,13 +390,6 @@
 		}
 	}
 </script>
-
-<LocalDraftStaleModal
-	open={staleModalOpen}
-	cause="version"
-	onLoadLatest={onStaleLoadLatest}
-	onKeepDraft={onStaleKeepDraft}
-/>
 
 <div>
 	<div class="flex flex-col gap-6 py-2">

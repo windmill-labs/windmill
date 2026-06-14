@@ -472,7 +472,6 @@
 		type?: U
 		time?: number
 		starred?: boolean
-		has_draft?: boolean
 	}
 
 	// interface SelectableSearchMenuItem {

@@ -9,9 +9,28 @@ import {
 	WorkspaceService,
 	type Flow,
 	type NewScript,
-	type NewScriptWithDraft,
+	type Script,
+	type UserDraftOverlay,
 	type WorkspaceComparison
 } from '$lib/gen'
+
+// Carry the `.draft` field through to consumers. The `get_draft=true`
+// overlay does NOT merge the draft into the top-level fields — the
+// deployed payload stays untouched and the user's saved draft rides in
+// the sibling `.draft` pocket. The `(saved.draft ?? saved)`
+// fall-throughs downstream therefore prefer the draft when one exists
+// and fall back to the deployed payload otherwise. The overlay's
+// `is_draft` / `draft_saved_at` ride alongside so downstream "is there
+// a draft to delete?" checks have a typed handle on them.
+// The generated `UserDraftOverlay` types `draft` as a permissive
+// `{[key: string]: unknown}` because the backend doesn't constrain the
+// draft shape per kind. Locally we know it's a `NewScript` / `Flow`
+// (set by this editor's autosave), so we `Omit` the generic field and
+// re-add it with the precise type. Assignments from the generated
+// response type still need an explicit cast — the source has the wider
+// `{[key: string]: unknown}` shape.
+type SavedScript = Omit<Script & UserDraftOverlay, 'draft'> & { draft?: NewScript }
+type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { workspaceStore } from '$lib/stores'
@@ -29,6 +48,7 @@ import {
 	type SessionTarget
 } from './sessionState.svelte'
 import { UserDraft } from '$lib/userDraft.svelte'
+import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { applyDraftToRuntimeRawApp, runtimeRawAppToDraft, type RawAppDraft } from './appDraftCodec'
 import {
 	setDeployedInSessionHandler,
@@ -72,11 +92,11 @@ export interface SessionRuntime {
 	// Flow target state
 	readonly flowStore: StateStore<Flow>
 	readonly flowStateStore: { val: Record<string, any> }
-	readonly savedFlow: { val: (Flow & { draft?: Flow | undefined }) | undefined }
+	readonly savedFlow: { val: SavedFlow | undefined }
 	loadFlow(workspace: string, path: string, force?: boolean): Promise<void>
 	// Script target state (parallel to flow, populated only for script-targeted sessions)
 	readonly scriptStore: { val: NewScript | undefined }
-	readonly savedScript: { val: NewScriptWithDraft | undefined }
+	readonly savedScript: { val: SavedScript | undefined }
 	loadScript(workspace: string, path: string, force?: boolean): Promise<void>
 	// Note: legacy drag-and-drop apps are intentionally NOT hosted in the
 	// session preview pane (only code-based raw apps are), so there's no
@@ -271,14 +291,14 @@ function createRuntime(session: Session): SessionRuntime {
 
 	const flowStore: StateStore<Flow> = $state({ val: emptyFlow() })
 	const flowStateStore: { val: Record<string, any> } = $state({ val: {} })
-	const savedFlow: { val: (Flow & { draft?: Flow | undefined }) | undefined } = $state({
+	const savedFlow: { val: SavedFlow | undefined } = $state({
 		val: undefined
 	})
 
 	const flowSlot: LoadSlot = $state({ loadedPath: undefined, loading: false, notFound: false })
 
 	const scriptStore: { val: NewScript | undefined } = $state({ val: undefined })
-	const savedScript: { val: NewScriptWithDraft | undefined } = $state({ val: undefined })
+	const savedScript: { val: SavedScript | undefined } = $state({ val: undefined })
 	const scriptSlot: LoadSlot = $state({ loadedPath: undefined, loading: false, notFound: false })
 
 	const rawApp: { val: SessionRuntime['rawApp']['val'] } = $state({ val: undefined })
@@ -339,7 +359,7 @@ function createRuntime(session: Session): SessionRuntime {
 				// when the path has never been deployed.
 				const aiDraft = UserDraft.get<Flow>('flow', path, { workspace })
 
-				// getFlowByPathWithDraft omits version_id (the diff's deployed side,
+				// getFlowByPath with getDraft=true omits version_id (the diff's deployed side,
 				// via getFlowByPath, has it) — stamp it onto the editing flow so it
 				// doesn't always diff. Best-effort (a never-deployed flow has none).
 				let deployedVersionId: number | undefined
@@ -354,8 +374,8 @@ function createRuntime(session: Session): SessionRuntime {
 					// drawer. Don't fail the load if the path doesn't exist
 					// yet on the backend — draft-only flows are a valid state.
 					try {
-						const result = await FlowService.getFlowByPathWithDraft({ workspace, path })
-						savedFlow.val = result
+						const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
+						savedFlow.val = result as SavedFlow
 					} catch {
 						savedFlow.val = undefined
 					}
@@ -366,11 +386,14 @@ function createRuntime(session: Session): SessionRuntime {
 					return
 				}
 
-				// No draft yet. Seed one from the last deploy (or the
-				// backend-side draft, if one exists).
-				const result = await FlowService.getFlowByPathWithDraft({ workspace, path })
-				savedFlow.val = result
-				const flow: Flow = (result.draft as Flow | undefined) ?? (result as Flow)
+				// No draft yet. Seed one from the last deploy — or from the
+				// backend-side draft, if one exists. The `get_draft=true`
+				// response attaches the user's saved draft as `.draft`
+				// (deployed stays untouched in the response body), so the
+				// seed is `result.draft ?? result`.
+				const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
+				savedFlow.val = result as SavedFlow
+				const flow: Flow = ((result as SavedFlow).draft ?? (result as Flow)) as Flow
 				UserDraft.save('flow', path, flow, { workspace })
 				await initFlow(flow, flowStore, flowStateStore)
 				if (deployedVersionId != null && flowStore.val) flowStore.val.version_id = deployedVersionId
@@ -408,8 +431,8 @@ function createRuntime(session: Session): SessionRuntime {
 					// drawer + parent_hash. 404 means draft-only — leave
 					// savedScript undefined and skip parent_hash.
 					try {
-						const result = await ScriptService.getScriptByPathWithDraft({ workspace, path })
-						savedScript.val = result
+						const result = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
+						savedScript.val = result as SavedScript
 					} catch {
 						savedScript.val = undefined
 					}
@@ -443,14 +466,17 @@ function createRuntime(session: Session): SessionRuntime {
 					return
 				}
 
-				// No draft yet. Seed from backend.
-				const result = await ScriptService.getScriptByPathWithDraft({ workspace, path })
-				savedScript.val = result
-				// Clone before mutating: when result.draft is falsy, `baseline` would
-				// otherwise alias `result` (= savedScript.val), so baseline.parent_hash
-				// would corrupt the pristine deployed baseline the diff drawer reads.
+				// No draft yet. Seed from backend. `get_draft=true` returns
+				// the deployed in the response body plus the user's saved
+				// draft (if any) as `.draft` — seed from `.draft` when
+				// present, else from the deployed.
+				const result = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
+				savedScript.val = result as SavedScript
+				// Clone before mutating: otherwise `baseline` would alias
+				// `result` (= savedScript.val), so `baseline.parent_hash` would
+				// corrupt the pristine baseline the diff drawer reads.
 				const baseline = structuredClone(
-					(result.draft as NewScript | undefined) ?? (result as NewScript)
+					((result as SavedScript).draft as NewScript | undefined) ?? (result as NewScript)
 				)
 				baseline.parent_hash = result.hash
 				UserDraft.save<NewScript>('script', path, baseline, { workspace })
@@ -486,14 +512,22 @@ function createRuntime(session: Session): SessionRuntime {
 					// drawer. Don't fail the load if the path doesn't exist
 					// yet on the backend — draft-only apps are a valid state.
 					try {
-						const result = await AppService.getAppByPathWithDraft({ workspace, path })
+						const result = await AppService.getAppByPath({
+							workspace,
+							path,
+							getDraft: true,
+							rawApp: true
+						})
+						// The top-level fields are the DEPLOYED payload (the
+						// overlay never merges; the user's draft sits in the
+						// `.draft` pocket) — exactly what the diff baseline
+						// wants here, since the session already has its own
+						// in-memory draft (`aiDraft`).
 						savedRawApp.val = {
 							summary: result.summary,
 							value: result.value as any,
 							path: result.path,
 							policy: result.policy,
-							draft_only: result.draft_only,
-							draft: result.draft,
 							custom_path: result.custom_path
 						}
 					} catch {
@@ -518,17 +552,31 @@ function createRuntime(session: Session): SessionRuntime {
 				// backend-side draft, if one exists — that's the user's
 				// "Save draft" content from the standalone editor and is
 				// fresher than `value`).
-				const result = await AppService.getAppByPathWithDraft({ workspace, path })
+				const result = await AppService.getAppByPath({
+					workspace,
+					path,
+					getDraft: true,
+					rawApp: true
+				})
+				// Deployed baseline for the diff drawer — the overlay never
+				// merges, so the top-level fields are the deployed payload.
 				savedRawApp.val = {
 					summary: result.summary,
 					value: result.value as any,
 					path: result.path,
 					policy: result.policy,
-					draft_only: result.draft_only,
-					draft: result.draft,
 					custom_path: result.custom_path
 				}
-				const sourceValue: any = result.draft ?? result.value
+				// Prefer the user's server-side draft (the `.draft` pocket —
+				// their "Save draft" content from the standalone editor)
+				// over the deployed value, mirroring the flow/script
+				// branches' `result.draft ?? result`. A raw-app draft is
+				// already editor-shaped ({files, runnables, data, summary,
+				// policy}), same keys the extraction below reads. Seeding
+				// from `result.value` here used to overwrite the user's
+				// draft with deployed content via the save below.
+				const draftValue: any = (result as any).draft
+				const sourceValue: any = draftValue ?? result.value
 				let data: RawAppData = { ...DEFAULT_DATA }
 				if (sourceValue?.data) {
 					const d = sourceValue.data
@@ -548,11 +596,21 @@ function createRuntime(session: Session): SessionRuntime {
 					files: (sourceValue?.files ?? {}) as Record<string, string>,
 					runnables: (sourceValue?.runnables ?? {}) as Record<string, any>,
 					data,
-					policy: result.policy,
-					summary: result.summary ?? '',
+					policy: draftValue?.policy ?? result.policy,
+					summary: draftValue?.summary ?? result.summary ?? '',
 					path: result.path,
-					custom_path: result.custom_path
+					custom_path: draftValue?.custom_path ?? result.custom_path
 				}
+				// Seed the per-tab last_sync from the server draft's
+				// timestamp so the session's subsequent saves attach a
+				// matching last_sync and the server can reject stale writes
+				// instead of unconditionally overwriting (a fresh tab has no
+				// last_sync, and the first POST takes the server's
+				// "treat as fresh" branch).
+				UserDraftDbSyncer.recordRemoteSync(
+					{ workspace, itemKind: 'raw_app', path },
+					(result as any).draft_saved_at as string | undefined
+				)
 				UserDraft.save('raw_app', path, runtimeRawAppToDraft(runtimeValue), { workspace })
 				rawApp.val = runtimeValue
 				rawAppSlot.loadedPath = path

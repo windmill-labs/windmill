@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { Badge, Button } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 
 	import JsonEditor from '../../JsonEditor.svelte'
-	import { AppService, DraftService } from '$lib/gen'
+	import { AppService } from '$lib/gen'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
@@ -15,63 +16,83 @@
 
 	let code: string = $state('')
 	let path: string = ''
-	let useDraft: boolean = $state(false)
 	let loading = $state(true)
+	let isDraftOnly = $state(false)
+	let isRawApp = $state(false)
 	const dispatch = createEventDispatcher()
 
 	let app: any | undefined = undefined
 
-	export async function open(path_l: string) {
+	/**
+	 * Open the JSON drawer for an item from the home list. `rawApp` MUST
+	 * be set when the row is a raw-app draft, since `get_draft=true` has
+	 * no deployed row to read the kind from — without it the backend
+	 * looks for an `app` draft, doesn't find one, and 404s.
+	 */
+	export async function open(path_l: string, rawApp = false) {
 		loading = true
 		jsonViewerDrawer?.toggleDrawer()
 		path = path_l
-		const fapp = await AppService.getAppByPathWithDraft({
+		// `get_draft=true` so draft-only items at `u/{user}/draft_{uuid}`
+		// resolve to the synthesized draft stand-in instead of 404'ing the
+		// home-page "View/Edit JSON" menu entry. Deployed apps continue to
+		// return the deployed payload unchanged (see WithDraftOverlay).
+		const fapp = (await AppService.getAppByPath({
 			workspace: $workspaceStore!,
-			path
-		})
-		useDraft = fapp?.draft != undefined
+			path,
+			getDraft: true,
+			rawApp
+		})) as any
 		app = { ...fapp }
-		if (fapp.draft) {
-			delete app['draft']
-		}
-		const capp = fapp?.draft ? fapp.draft : fapp.value
-		code = JSON.stringify(capp, null, 4)
+		isDraftOnly = !!fapp.no_deployed
+		isRawApp = !!fapp.raw_app || rawApp
+		// Draft-only items: the editor's autosave writes the bare editable
+		// shape (low-code: App; raw-app: `{files, runnables, data, ...}`)
+		// straight into `draft`, so render that. The flattened `inner` has
+		// the same content but is polluted with overlay fields
+		// (`is_draft`, `no_deployed`, …) we don't want in the JSON.
+		// Deployed items: the editable shape is the App definition under
+		// `.value` (raw-app deploys keep the same response wrapper).
+		const display = isDraftOnly ? fapp.draft : fapp.value
+		code = JSON.stringify(display, null, 4)
 		loading = false
 	}
 
 	export async function saveApp() {
-		await AppService.updateApp({
-			workspace: $workspaceStore!,
-			path,
-			requestBody: { ...app, value: JSON.parse(code) }
-		})
-		dispatch('change')
-		UserDraft.remove('app', path)
-		sendUserToast('App deployed')
-	}
-
-	export async function saveDraft() {
-		await DraftService.createDraft({
-			workspace: $workspaceStore!,
-			requestBody: {
-				path: path,
-				typ: 'app',
-				value: JSON.parse(code)
-			}
-		})
-		dispatch('change')
-		UserDraft.remove('app', path)
-		sendUserToast('Draft saved')
+		const parsed = JSON.parse(code)
+		if (isDraftOnly) {
+			// Draft-only items have no deployed row — `updateApp` would
+			// 404. Route the edit through the syncer (`immediate: true`
+			// so the caller's `await` resolves only after the POST lands)
+			// so the user keeps editing under the draft path until they
+			// rename + deploy from the regular editor. `parsed` is already
+			// the bare editable shape (App or raw-app value) — match what
+			// the autosave writes so the regular editor reads it back
+			// unchanged on next mount.
+			await UserDraftDbSyncer.save({
+				workspace: $workspaceStore!,
+				itemKind: isRawApp ? 'raw_app' : 'app',
+				path,
+				value: parsed,
+				immediate: true
+			})
+			dispatch('change')
+			sendUserToast('Draft saved')
+		} else {
+			await AppService.updateApp({
+				workspace: $workspaceStore!,
+				path,
+				requestBody: { ...app, value: parsed }
+			})
+			dispatch('change')
+			UserDraft.remove('app', path)
+			sendUserToast('App deployed')
+		}
 	}
 </script>
 
 <Drawer bind:this={jsonViewerDrawer} size="800px">
 	<DrawerContent title="App JSON" on:close={() => jsonViewerDrawer?.toggleDrawer()}>
-		{#if useDraft}
-			<div class="mb-1">
-				<Badge small color="indigo" baseClass="border border-indigo-200">+Draft</Badge>
-			</div>
-		{/if}
 		{#if loading}
 			<Loader2 class="animate-spin" />
 		{:else}
@@ -80,11 +101,13 @@
 
 		{#snippet actions()}
 			{#if !$userStore?.operator}
-				<Button on:click={saveDraft} startIcon={{ icon: Save }} variant="accent" size="xs">
-					Save as draft
-				</Button>
-				<Button on:click={saveApp} startIcon={{ icon: Globe }} variant="accent" size="xs">
-					Deploy
+				<Button
+					on:click={saveApp}
+					startIcon={{ icon: isDraftOnly ? Save : Globe }}
+					variant="accent"
+					size="xs"
+				>
+					{isDraftOnly ? 'Save draft' : 'Deploy'}
 				</Button>
 			{/if}
 		{/snippet}

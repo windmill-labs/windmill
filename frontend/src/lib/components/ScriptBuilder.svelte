@@ -3,10 +3,9 @@
 
 	const bubble = createBubbler()
 	import {
-		DraftService,
 		ScriptService,
-		type NewScriptWithDraft,
 		type Script,
+		type NewScript,
 		type TriggersCount,
 		PostgresTriggerService,
 		CaptureService,
@@ -31,7 +30,6 @@
 		workspaceStore
 	} from '$lib/stores'
 	import {
-		cleanValueProperties,
 		emptySchema,
 		emptyString,
 		generateRandomString,
@@ -59,14 +57,13 @@
 		EllipsisVertical,
 		Plus,
 		Rocket,
-		Save,
 		Settings,
 		Shuffle,
 		Tag,
 		X
 	} from 'lucide-svelte'
 	import DropdownV2 from './DropdownV2.svelte'
-	import { isMac, type Item } from '$lib/utils'
+	import { type Item } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import Awareness from './Awareness.svelte'
@@ -82,8 +79,9 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { getContext, onMount, setContext, untrack } from 'svelte'
+	import { getContext, onMount, setContext, tick, untrack } from 'svelte'
 	import EditorHeader from './EditorHeader.svelte'
+	import AutosaveIndicator from './AutosaveIndicator.svelte'
 	import LabelsInput from './LabelsInput.svelte'
 
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
@@ -92,13 +90,7 @@
 	import CaptureTable from './triggers/CaptureTable.svelte'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
-	import {
-		type NewScriptWithDraftAndDraftTriggers,
-		type Trigger,
-		deployTriggers,
-		filterDraftTriggers,
-		handleSelectTriggerFromKind
-	} from './triggers/utils'
+	import { type Trigger, deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
 	import type { ScriptBuilderProps } from './script_builder'
@@ -109,11 +101,14 @@
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
 	import OnBehalfOfSelector, { type OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 	let {
 		script = $bindable(),
 		fullyLoaded = true,
 		initialPath = $bindable(''),
+		userDraftPath = '',
 		template = $bindable('script'),
 		initialArgs = {},
 		lockedLanguage = false,
@@ -129,15 +124,16 @@
 		children,
 		onDeploy,
 		onDeployError,
-		onSaveInitial,
 		onSeeDetails,
-		onSaveDraftError,
-		onSaveDraft,
 		onNavigate,
 		onTestJob,
 		disableAi,
 		initialTestPanelCollapsed = false,
-		initialPathChosen = false
+		initialPathChosen = false,
+		onResetToDeployed,
+		loadedFromDraft = false,
+		othersDraftsCount = 0,
+		onOpenOthersDrafts
 	}: ScriptBuilderProps = $props()
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
@@ -166,18 +162,10 @@
 	// Top-bar responsive collapse — container width, not viewport.
 	let topbarWidth = $state(0)
 	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
-	const mod = isMac() ? '⌘' : 'Ctrl+'
 
 	function getCompactMenuItems(): Item[] {
 		const hasTags = ($workerTags?.length ?? 0) > 0
 		return [
-			{
-				displayName: 'Save draft',
-				icon: Save,
-				action: () => saveDraft(),
-				shortcut: `${mod}S`,
-				disabled: initialPath != '' && !savedScript
-			},
 			...(customUi?.topBar?.tagEdit != false && hasTags
 				? [
 						{
@@ -292,13 +280,6 @@
 			$primaryScheduleStore,
 			$userStore
 		)
-
-		if (savedScript && savedScript.draft && savedScript.draft.draft_triggers) {
-			savedScript = filterDraftTriggers(
-				savedScript,
-				triggersState
-			) as NewScriptWithDraftAndDraftTriggers
-		}
 	}
 
 	// Add triggers context store
@@ -369,9 +350,16 @@
 
 	let pathError = $state('')
 	let loadingSave = $state(false)
-	let loadingDraft = $state(false)
 
 	if (script.content == '') {
+		// Suspend autosave around the bootstrap mutations — seeding the
+		// editor with the template's `initialCode` is a programmatic
+		// write that shouldn't count as the user's "first edit" and
+		// shouldn't POST to the server. The route's UserDraft handle is
+		// keyed by `userDraftPath` (the URL path), distinct from
+		// `initialPath` which is the editor-displayed path (empty for
+		// new drafts).
+		UserDraft.stopSync('script', userDraftPath)
 		if (template === 'wac_python') {
 			script.modules = {
 				'helper.py': {
@@ -387,7 +375,47 @@
 				}
 			}
 		}
-		initContent(script.language, script.kind, template)
+		// Two cascades have to settle before sync resumes: the async
+		// `initContent` filling `script.content` from the template, AND
+		// the Path widget's `$workspaceStore && $userStore`-gated
+		// `initPath → reset → onMetaChange → bind:path` chain that
+		// auto-generates a friendly path for new drafts. Whichever lands
+		// last calls `tryRestart`; we await two ticks past it so the
+		// `bind:path` cascade itself observably settles before sync
+		// re-arms — without that gap, the auto-generated path is the
+		// first observable change post-restart and POSTs as a "user
+		// edit".
+		let initContentDone = false
+		let storesReady = !!($userStore && $workspaceStore)
+		let restarted = false
+		async function tryRestart() {
+			if (restarted || !initContentDone || !storesReady) return
+			// 500ms past initContent + stores-ready: the Path widget's
+			// `$workspaceStore && $userStore`-gated cascade (`initPath →
+			// await tick → reset → onMetaChange → bind:path`) lands well
+			// inside this window even on cold reload. Two `tick()`s were
+			// not enough in practice — the bind:path mutation fired ~100ms
+			// after `restartSync` and posted as a "user edit".
+			await new Promise((r) => setTimeout(r, 500))
+			if (restarted) return
+			restarted = true
+			UserDraft.restartSync('script', userDraftPath)
+		}
+		initContent(script.language, script.kind, template).finally(() => {
+			initContentDone = true
+			void tryRestart()
+		})
+		// Cold-reload path: the auth stores load over the network, so
+		// `storesReady` may flip from false → true after mount. The
+		// effect cleans itself up via the `restarted` guard.
+		if (!storesReady) {
+			$effect(() => {
+				if ($userStore && $workspaceStore) {
+					storesReady = true
+					untrack(() => void tryRestart())
+				}
+			})
+		}
 	}
 
 	async function isTemplateScript() {
@@ -427,8 +455,16 @@
 			| 'ci_test_python'
 	) {
 		scriptEditor?.disableCollaboration()
+		// Seed the template content SYNCHRONOUSLY so a user clicking
+		// Deploy before the (async) template-script fetch resolves
+		// doesn't run `inferArgs` on an empty `script.content` and toast
+		// "Could not parse code". If a template script is then loaded
+		// below we re-seed with the `templateScript=true` variant.
+		script.content = initialCode(language, kind, template, false)
 		const templateScript = await isTemplateScript()
-		script.content = initialCode(language, kind, template, templateScript != undefined)
+		if (templateScript) {
+			script.content = initialCode(language, kind, template, true)
+		}
 		if (templateScript) {
 			script.content += '\r\n' + templateScript
 		}
@@ -533,7 +569,16 @@
 
 		loadingSave = true
 		try {
-			script.schema = script.schema ?? emptySchema()
+			// `?? emptySchema()` only catches null/undefined — a legacy draft
+			// (seeded with `schema: {}` before the new-draft route was
+			// fixed) lands here with an object missing `properties`. That
+			// trips `inferArgs` at `JSON.parse(JSON.stringify(schema.properties))`
+			// (stringify of undefined → undefined, parse → "undefined is
+			// not valid JSON"), which surfaces as the "Could not parse
+			// code" toast even on perfectly valid bun template content.
+			if (!script.schema || !(script.schema as any).properties) {
+				script.schema = emptySchema()
+			}
 			try {
 				const result = await inferArgs(
 					script.language,
@@ -623,7 +668,7 @@
 			}
 
 			const { draft_triggers: _, ...newScript } = structuredClone($state.snapshot(script))
-			savedScript = structuredClone($state.snapshot(newScript)) as NewScriptWithDraft
+			savedScript = structuredClone($state.snapshot(newScript))
 			setDraftTriggers([])
 
 			if (!disableHistoryChange) {
@@ -653,153 +698,26 @@
 		loadingSave = false
 	}
 
-	async function saveDraft(forceSave = false): Promise<void> {
-		scriptEditor?.flushModuleState()
-		if (initialPath != '' && !savedScript) {
-			return
-		}
-
-		if (savedScript) {
-			const draftOrDeployed = cleanValueProperties(savedScript.draft || savedScript)
-			const currentTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
-			const current = cleanValueProperties({ ...script, draft_triggers: currentTriggers })
-			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
-				sendUserToast('No changes detected, ignoring', false, [
-					{
-						label: 'Save anyway',
-						callback: () => {
-							saveDraft(true)
-						}
-					}
-				])
-				return
-			}
-		}
-
-		loadingDraft = true
-		try {
-			script.schema = script.schema ?? emptySchema()
-			try {
-				const result = await inferArgs(
-					script.language,
-					script.content,
-					script.schema as any,
-					script.kind === 'preprocessor' ? 'preprocessor' : undefined
-				)
-				if (script.kind === 'preprocessor') {
-					script.auto_kind = undefined
-					script.has_preprocessor = undefined
-				} else {
-					script.auto_kind = result?.auto_kind || undefined
-					script.has_preprocessor = result?.has_preprocessor || undefined
-				}
-			} catch (error) {
-				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
-			}
-			let newHash = ''
-			if (initialPath == '' || savedScript?.draft_only) {
-				if (savedScript?.draft_only) {
-					await ScriptService.deleteScriptByPath({
-						workspace: $workspaceStore!,
-						path: initialPath,
-						keepCaptures: true
-					})
-					script.parent_hash = undefined
-				}
-				if (!initialPath || script.path != initialPath) {
-					await CaptureService.moveCapturesAndConfigs({
-						workspace: $workspaceStore!,
-						path: initialPath || fakeInitialPath,
-						requestBody: {
-							new_path: script.path
-						},
-						runnableKind: 'script'
-					})
-				}
-				newHash = await ScriptService.createScript({
-					workspace: $workspaceStore!,
-					requestBody: {
-						path: script.path,
-						summary: script.summary,
-						description: script.description ?? '',
-						content: script.content,
-						schema: script.schema,
-						is_template: script.is_template,
-						language: script.language,
-						kind: script.kind,
-						tag: script.tag,
-						draft_only: true,
-						envs: script.envs,
-						concurrent_limit: script.concurrent_limit,
-						concurrency_time_window_s: script.concurrency_time_window_s,
-						debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
-						debounce_delay_s: script.debounce_delay_s,
-						debounce_args_to_accumulate:
-							script.debounce_args_to_accumulate && script.debounce_args_to_accumulate.length > 0
-								? script.debounce_args_to_accumulate
-								: undefined,
-						max_total_debouncing_time: script.max_total_debouncing_time,
-						max_total_debounces_amount: script.max_total_debounces_amount,
-						cache_ttl: script.cache_ttl,
-						cache_ignore_s3_path: script.cache_ignore_s3_path,
-						ws_error_handler_muted: script.ws_error_handler_muted,
-						priority: script.priority,
-						restart_unless_cancelled: script.restart_unless_cancelled,
-						timeout: script.timeout,
-						concurrency_key: emptyString(script.concurrency_key)
-							? undefined
-							: script.concurrency_key,
-						visible_to_runner_only: script.visible_to_runner_only,
-						auto_kind: script.auto_kind,
-						has_preprocessor: script.has_preprocessor,
-						on_behalf_of_email: script.on_behalf_of_email,
-						assets: script.assets,
-						modules: script.modules,
-						labels: script.labels
-					}
-				})
-			}
-			const draftTriggers = triggersState.getDraftTriggersSnapshot()
-			await DraftService.createDraft({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path: initialPath == '' || savedScript?.draft_only ? script.path : initialPath,
-					typ: 'script',
-					value: {
-						...script,
-						draft_triggers: draftTriggers
-					}
-				}
-			})
-
-			const clonedScript = structuredClone($state.snapshot(script))
-			savedScript = {
-				...(initialPath == '' || savedScript?.draft_only
-					? { ...clonedScript, draft_only: true }
-					: savedScript),
-				draft: {
-					...clonedScript,
-					draft_triggers: draftTriggers
-				}
-			} as NewScriptWithDraftAndDraftTriggers
-
-			let savedAtNewPath = false
-			if (initialPath == '' || (savedScript?.draft_only && script.path !== initialPath)) {
-				savedAtNewPath = true
-				initialPath = script.path
-				onSaveInitial?.({ path: script.path, hash: newHash })
-			}
-			onSaveDraft?.({ path: script.path, savedAtNewPath, script })
-
-			sendUserToast('Saved as draft')
-		} catch (error) {
-			sendUserToast(
-				`Error while saving the script as a draft: ${error.body || error.message}`,
-				true
-			)
-			onSaveDraftError?.({ path: script.path, error })
-		}
-		loadingDraft = false
+	// Ctrl/Cmd+S forces an immediate save of whatever the page-level
+	// autosave has pending. Flush Monaco first so anything typed within
+	// the last `changeTimeout` ms reaches the bindable before we tell
+	// the syncer to flush — otherwise we'd POST the pre-burst content.
+	// `tick()` lets the bind:code → script.content → UserDraft mirror
+	// chain settle before the flush call sees `pendingSaveOpts`.
+	//
+	// No toast — the AutosaveIndicator narrates the flush (Saving... →
+	// Saved / Save failed). A toast here would also lie on network
+	// failure: `flush` never rejects (postSave catches and routes errors
+	// to the failures map), so the success branch fired regardless.
+	async function saveDraft(): Promise<void> {
+		if (!$workspaceStore || !userDraftPath) return
+		editor?.flushPendingChanges()
+		await tick()
+		await UserDraftDbSyncer.flush({
+			workspace: $workspaceStore,
+			itemKind: 'script',
+			path: userDraftPath
+		})
 	}
 
 	// Inside an AI session pane (which injects an aiChatManager via context) the
@@ -830,10 +748,7 @@
 		})
 	}
 
-	function computeDropdownItems(
-		initialPath: string,
-		savedScript: NewScriptWithDraftAndDraftTriggers | undefined
-	) {
+	function computeDropdownItems(initialPath: string, savedScript: Script | NewScript | undefined) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
 			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
 				? [
@@ -864,7 +779,7 @@
 								]
 							: []),
 						...(!inSessionPane &&
-						!script.draft_only &&
+						(savedScript as any)?.no_deployed !== true &&
 						script.kind === 'script' &&
 						!script.auto_kind
 							? [
@@ -994,17 +909,7 @@
 		}
 	}
 
-	function handleDeployTrigger(trigger: Trigger) {
-		const { id, path, type } = trigger
-		//Update the saved script to remove the draft trigger that is deployed
-		if (savedScript && savedScript.draft && savedScript.draft.draft_triggers) {
-			const newSavedDraftTrigers = savedScript.draft.draft_triggers.filter(
-				(t) => t.id !== id || t.path !== path || t.type !== type
-			)
-			savedScript.draft.draft_triggers =
-				newSavedDraftTrigers.length > 0 ? newSavedDraftTrigers : undefined
-		}
-	}
+	function handleDeployTrigger(_trigger: Trigger) {}
 
 	function onScriptLanguageTrigger(lang: 'docker' | 'bunnative' | ScriptLang) {
 		if (lang == 'docker') {
@@ -1946,7 +1851,7 @@
 									{hasPreprocessor}
 									canHavePreprocessor={canHavePreprocessor(script.language)}
 									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
-									isDeployed={savedScript && !savedScript?.draft_only}
+									isDeployed={savedScript && (savedScript as any)?.no_deployed !== true}
 									schema={script.schema}
 									runnableVersion={script.parent_hash}
 									onDeployTrigger={handleDeployTrigger}
@@ -1985,6 +1890,18 @@
 							onNavigate={(item) => onNavigate?.(item)}
 						/>
 					{/if}
+					{#if $workspaceStore}
+						<AutosaveIndicator
+							workspace={$workspaceStore}
+							itemKind="script"
+							path={userDraftPath}
+							draftOnly={(savedScript as any)?.no_deployed === true}
+							{onResetToDeployed}
+							{loadedFromDraft}
+							{othersDraftsCount}
+							{onOpenOthersDrafts}
+						/>
+					{/if}
 				</div>
 
 				<!-- Separator -->
@@ -2015,13 +1932,16 @@
 				{/snippet}
 				{#snippet diffButton()}
 					{#if customUi?.topBar?.diff != false}
+						{@const isDraftOnly = (savedScript as any)?.no_deployed === true}
 						<Button
 							variant="default"
 							unifiedSize="md"
 							on:click={() => openDiffDrawer()}
-							disabled={!savedScript || !diffDrawer}
+							disabled={!savedScript || !diffDrawer || isDraftOnly}
 							iconOnly={compactTopbar}
-							title="Diff"
+							title={isDraftOnly
+								? 'Deploy this script once to compare against the deployed version'
+								: 'Diff'}
 							startIcon={{ icon: DiffIcon }}
 						>
 							Diff
@@ -2059,17 +1979,6 @@
 						{/if}
 					{/if}
 					{@render settingsButton()}
-					<Button
-						loading={loadingDraft}
-						unifiedSize="md"
-						variant="accent"
-						startIcon={{ icon: Save }}
-						on:click={() => saveDraft()}
-						disabled={initialPath != '' && !savedScript}
-						shortCut={{ key: 'S' }}
-					>
-						<span> Draft </span>
-					</Button>
 				{/if}
 
 				<DeployButton
@@ -2108,8 +2017,8 @@
 			autoKind={script.auto_kind}
 			{template}
 			tag={script.tag}
-			lastSavedCode={savedScript?.draft?.content}
-			lastDeployedCode={savedScript?.draft_only ? undefined : savedScript?.content}
+			lastSavedCode={savedScript?.content}
+			lastDeployedCode={savedScript?.content}
 			bind:args
 			bind:hasPreprocessor
 			bind:captureTable

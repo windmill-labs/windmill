@@ -1,227 +1,286 @@
 <script lang="ts">
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
-	import {
-		AppService,
-		type AppWithLastVersion,
-		type AppWithLastVersionWDraft,
-		DraftService
-	} from '$lib/gen'
+	import { AppService, type AppWithLastVersion } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { cleanValueProperties, orderedJsonStringify, type Value } from '$lib/utils'
 	import { replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
-	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
-	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
+	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
-	import { untrack } from 'svelte'
+	import { emptyApp } from '$lib/components/apps/editor/appUtils'
+	import { importStore } from '$lib/components/apps/store'
+	import { tick, untrack } from 'svelte'
 	import { page } from '$app/state'
-	import { UserDraft, checkStaleness, type UserDraftMeta } from '$lib/userDraft.svelte'
-	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import { runResetToDeployed } from '$lib/userDraftToast'
 
-	let app = $state(
-		undefined as (AppWithLastVersion & { draft_only?: boolean; value: any }) | undefined
-	)
+	let app = $state(undefined as (AppWithLastVersion & { value: any }) | undefined)
+	let appEditor: AppEditor | undefined = $state(undefined)
+	/** True when the editor was seeded from a hub app this load — passed
+	 * through to AppEditor, which relaxes a few authoring affordances for
+	 * hub content. */
+	let fromHub = $state(false)
 	let savedApp:
 		| {
 				value: App
-				draft?: any
 				path: string
 				summary: string
 				policy: any
-				draft_only?: boolean
 				custom_path?: string
 		  }
 		| undefined = $state(undefined)
 	let redraw = $state(0)
 	let path = page.params.path ?? ''
-
-	// Local-draft staleness modal: opened when the remote has moved on since
-	// the local autosave was written.
-	let staleModalOpen = $state(false)
-	let staleModalCause = $state<'draft' | 'version'>('version')
-	let pendingBaseline:
-		| { baseline: AppWithLastVersion & { draft_only?: boolean; value: any }; revs: UserDraftMeta }
-		| undefined = undefined
-
-	// Backend revs at the most recent `loadApp` — handed to AppEditor as
-	// `initialRevs` so the very first local autosave persists with a meta
-	// stamp. Without it the next reload's staleness check has nothing to
-	// compare against and the first external deploy/draft slips through.
-	let currentRevs = $state<UserDraftMeta | undefined>(undefined)
-
-	function onStaleLoadLatest(): void {
-		if (!pendingBaseline) {
-			staleModalOpen = false
-			return
-		}
-		// `discard` (not `remove`) so the entry's in-memory state.val is
-		// cleared synchronously. `redraw++` remounts AppEditor on the next
-		// microtask, but Svelte may mount the new instance before the old
-		// one's onDestroy releases its handle — the new instance would
-		// then re-acquire the SAME entry whose state.val still has the
-		// stale autosave, ignoring the just-emptied LS. Same reason every
-		// "reset" path below uses discard.
-		UserDraft.discard('app', path, undefined)
-		currentRevs = pendingBaseline.revs
-		app = pendingBaseline.baseline
-		pendingBaseline = undefined
-		staleModalOpen = false
-		redraw++
-	}
-
-	function onStaleKeepDraft(): void {
-		if (pendingBaseline) {
-			UserDraft.saveMeta('app', path, pendingBaseline.revs)
-		}
-		pendingBaseline = undefined
-		staleModalOpen = false
-	}
-
-	// `?nodraft=true` is the callers' way of saying "skip the local autosave
-	// on this load." Wipe the UserDraft entry and strip the flag from the
-	// URL synchronously, before any descendant reads it. A plain reload
-	// (no nodraft) restores normally.
-	if (page.url.searchParams.get('nodraft') && typeof window !== 'undefined') {
-		UserDraft.remove('app', path)
-		const url = new URL(window.location.href)
-		url.searchParams.delete('nodraft')
-		window.history.replaceState(window.history.state, '', url.toString())
-	}
+	/** True when no deployed app exists at the URL path — either we
+	 * landed via `/apps/add → ?new_draft=true` (no fetch yet) or the
+	 * fetch came back with `no_deployed`. Controls the editor's deploy
+	 * flow: `createApp` vs `updateApp`. Survives `loadApp` reloads
+	 * (e.g. workspace switch on the same draft path). Flips back to
+	 * false once a deployed row exists at this path. */
+	let isNewApp = $state(false)
+	let otherDraftsUsers = $state<OtherDraftUser[]>([])
+	let loadedFromDraft = $state(false)
+	let othersModalOpen = $state(false)
+	let draftSavedAt = $state<string | undefined>(undefined)
+	let deployedAt = $state<string | undefined>(undefined)
 
 	/** Increments per `loadApp` call. Stale loads (e.g. when picker
 	 * navigation races a draft-discard reload) bail at the next checkpoint
 	 * after their captured token no longer matches. */
 	let loadAppToken = 0
-	async function loadApp(): Promise<void> {
+	async function loadApp(opts: { getDraft?: boolean } = {}): Promise<void> {
+		const getDraft = opts.getDraft ?? true
 		const tok = ++loadAppToken
-		const app_w_draft = await AppService.getAppByPathWithDraft({
+		// `?new_draft=true` (set by `/apps/add`'s redirect) means we landed
+		// on a fresh `u/{user}/draft_{uuid}` path that's never been saved.
+		// Skip the backend fetch (it would 404), seed an empty app with
+		// `path = ''` so the `Path` widget's `initPath` calls `reset()`
+		// and generates the friendly `<random_adj>_app` name. Anything
+		// non-empty (even `u/{user}/`) is parsed verbatim and the
+		// friendly seed never fires. Strip the flag last.
+		if (page.url.searchParams.get('new_draft') === 'true') {
+			// Suspend autosave for the new-draft bootstrap: the seed
+			// `app` assignment + AppEditor's `firstMirror` mirror are
+			// programmatic writes that shouldn't POST as the user's
+			// first edit. AppEditor lifts the suspension in `onMount`
+			// once mount-time effects have settled.
+			UserDraft.stopSync('app', page.params.path ?? '')
+			// No deployed row at the autogenerated `draft_{uuid}` URL
+			// path — the editor's Deploy button must `createApp` at
+			// the user-typed path, not `updateApp` at the URL.
+			isNewApp = true
+			// The page component is reused across same-route navigation
+			// (e.g. forking from an editor with collaborators) — clear the
+			// previous path's draft-presence state so its hints and
+			// stale-draft timestamps don't bleed onto the fresh draft.
+			otherDraftsUsers = []
+			loadedFromDraft = false
+			draftSavedAt = undefined
+			deployedAt = undefined
+			// Capture every seeding intent BEFORE touching the URL — all of
+			// these used to be consumed by /apps/add and are preserved
+			// verbatim by its redirect.
+			const templatePath = page.url.searchParams.get('template')
+			const templateId = page.url.searchParams.get('template_id')
+			const hubId = page.url.searchParams.get('hub')
+			// Explicit path seed — the fork-a-draft handoff re-homes the
+			// source path into the forker's namespace and passes it here.
+			const pathParam = page.url.searchParams.get('seed_path')
+			const url = new URL(window.location.href)
+			url.searchParams.delete('new_draft')
+			window.history.replaceState(window.history.state, '', url.toString())
+			// Backend's `Policy` requires `execution_mode` — an empty
+			// object fails to deserialize on deploy. `publisher` is the
+			// default authoring mode (the only other authored option is
+			// `anonymous`, which the deploy header lets the user opt
+			// into).
+			const emptyPolicy = { execution_mode: 'publisher' } as any
+			// One-shot import handoff: "Import from YAML/JSON" / "Build
+			// app" from a script or flow writes $importStore and routes
+			// to /apps/add, which redirects here. Wrapped exports carry
+			// { summary, value, policy }; bare ones are the App value.
+			const importRaw = $importStore
+			if (importRaw) {
+				$importStore = undefined
+				sendUserToast('Loaded from YAML/JSON')
+			}
+			// Seed selection, in main's /apps/add priority order: YAML/JSON
+			// import > template fork > template-version fork > hub fork >
+			// empty app.
+			let seedSummary = ''
+			let seedValue = emptyApp() as any
+			let seedPolicy = emptyPolicy
+			if (importRaw) {
+				if ('value' in importRaw) {
+					seedSummary = importRaw.summary ?? ''
+					seedValue = importRaw.value
+					seedPolicy = importRaw.policy ?? emptyPolicy
+				} else {
+					seedValue = importRaw
+				}
+			} else if (templatePath) {
+				try {
+					const template = await AppService.getAppByPath({
+						workspace: $workspaceStore!,
+						path: templatePath
+					})
+					if (tok !== loadAppToken) return
+					seedValue = template.value
+					sendUserToast('App loaded from template')
+				} catch (err: any) {
+					if (tok !== loadAppToken) return
+					console.error('Error loading template', err)
+					sendUserToast('Error loading template: ' + (err.body ?? err.message), true)
+				}
+			} else if (templateId) {
+				try {
+					const template = await AppService.getAppByVersion({
+						workspace: $workspaceStore!,
+						id: parseInt(templateId)
+					})
+					if (tok !== loadAppToken) return
+					seedValue = template.value
+					sendUserToast('App loaded from template')
+				} catch (err: any) {
+					if (tok !== loadAppToken) return
+					console.error('Error loading template', err)
+					sendUserToast('Error loading template: ' + (err.body ?? err.message), true)
+				}
+			} else if (hubId) {
+				try {
+					const hub = await AppService.getHubAppById({ id: Number(hubId) })
+					if (tok !== loadAppToken) return
+					seedValue = {
+						hiddenInlineScripts: [],
+						unusedInlineScripts: [],
+						fullscreen: false,
+						...((hub.app.value ?? {}) as any)
+					}
+					seedSummary = hub.app.summary
+					fromHub = true
+					sendUserToast('App loaded from Hub')
+				} catch (err: any) {
+					if (tok !== loadAppToken) return
+					console.error('Error loading hub app', err)
+					sendUserToast('Error loading hub app: ' + (err.body ?? err.message), true)
+				}
+			}
+			app = {
+				summary: seedSummary,
+				value: seedValue,
+				path: pathParam ?? '',
+				policy: seedPolicy,
+				custom_path: undefined,
+				versions: [] as any,
+				id: 0 as any,
+				extra_perms: {},
+				created_at: new Date().toISOString(),
+				created_by: '',
+				raw_app: false
+			} as unknown as AppWithLastVersion & { value: any }
+			savedApp = {
+				summary: seedSummary,
+				value: seedValue,
+				path: pathParam ?? '',
+				policy: seedPolicy
+			}
+			// Tutorial links ("/apps/add?tutorial=...") land here via the
+			// redirect; fire once AppEditor has mounted and the runnable
+			// panel the tour points at exists.
+			const tutorialParam = page.url.searchParams.get('tutorial')
+			if (tutorialParam) {
+				await tick()
+				let attempts = 0
+				while (attempts < 20 && !document.querySelector('#app-editor-runnable-panel')) {
+					await new Promise((resolve) => setTimeout(resolve, 100))
+					attempts++
+				}
+				if (tok !== loadAppToken) return
+				appEditor?.triggerTutorial()
+			}
+			return
+		}
+		let backendApp = await AppService.getAppByPath({
 			path: page.params.path ?? '',
-			workspace: $workspaceStore!
+			workspace: $workspaceStore!,
+			getDraft
 		})
 		if (tok !== loadAppToken) return
-		const app_w_draft_: AppWithLastVersionWDraft = structuredClone(stateSnapshot(app_w_draft))
+		otherDraftsUsers = (backendApp.other_drafts_users ?? []) as OtherDraftUser[]
+		if ($workspaceStore && path) {
+			UserDraftDbSyncer.recordRemoteSync(
+				{ workspace: $workspaceStore, itemKind: 'app', path },
+				backendApp.draft_saved_at
+			)
+		}
+		// Apply the user's saved draft to `.value`. The autosave for apps
+		// writes the raw `App` (just the editor's working value) — when a
+		// draft exists the backend sends it back in `.draft`, and the
+		// rest of this loader (plus AppEditor's `app={app.value}` prop)
+		// expects the `AppWithLastVersion` `{summary, value, path,
+		// policy, ...}` shape. Two branches:
+		//   - `no_deployed`: no deployed row exists. The response body is
+		//     a best-effort stand-in (same JSON as `.draft`). Synthesize
+		//     the wrapper with the saved App as `.value` and empty
+		//     deployed-metadata defaults.
+		//   - deployed + draft: keep the deployed metadata, replace
+		//     `.value` with the saved App.
+		const savedDraftApp = (backendApp as any).draft as App | undefined
+		// Re-evaluate the "new app" signal on each load — flips to true
+		// for draft-only paths and back to false once a deploy lands.
+		isNewApp = !!backendApp.no_deployed
+		if (backendApp.no_deployed) {
+			backendApp = {
+				summary: '',
+				value: (savedDraftApp ?? {}) as App,
+				path: page.params.path ?? '',
+				// Backend's `Policy` requires `execution_mode` —
+				// matches the new-app seed above.
+				policy: { execution_mode: 'publisher' } as any,
+				custom_path: undefined,
+				versions: undefined as any,
+				id: 0 as any,
+				extra_perms: {},
+				created_at: new Date().toISOString(),
+				created_by: '',
+				raw_app: false,
+				is_draft: true,
+				draft_saved_at: backendApp.draft_saved_at,
+				no_deployed: true
+			} as unknown as typeof backendApp
+		} else if (savedDraftApp) {
+			backendApp = { ...backendApp, value: savedDraftApp } as typeof backendApp
+		}
+		if (backendApp.is_draft) {
+			loadedFromDraft = true
+		}
+		// App's deploy timestamp is `created_at` (sourced from the latest
+		// `app_version.created_at`); compare with `draft_saved_at` so
+		// DraftEditorModals can fire the StaleDraftModal. Skip when
+		// `no_deployed` — there's no deployed baseline to be older than.
+		draftSavedAt = backendApp.draft_saved_at as string | undefined
+		deployedAt = backendApp.no_deployed ? undefined : (backendApp.created_at as string | undefined)
+		const backendApp_ = structuredClone(stateSnapshot(backendApp))
 		savedApp = {
-			summary: app_w_draft_.summary,
-			value: app_w_draft_.value as App,
-			path: app_w_draft_.path,
-			policy: app_w_draft_.policy,
-			draft_only: app_w_draft_.draft_only,
-			draft:
-				app_w_draft_.draft?.['summary'] !== undefined // backward compatibility for old drafts missing metadata
-					? app_w_draft_.draft
-					: app_w_draft_.draft
-						? {
-								summary: app_w_draft_.summary,
-								value: app_w_draft_.draft,
-								path: app_w_draft_.path,
-								policy: app_w_draft_.policy,
-								custom_path: app_w_draft_.custom_path
-							}
-						: undefined,
-			custom_path: app_w_draft_.custom_path
+			summary: backendApp_.summary,
+			value: backendApp_.value as App,
+			path: backendApp_.path,
+			policy: backendApp_.policy,
+			custom_path: backendApp_.custom_path
 		}
-
-		// Resolve the app value: backend draft > deployed, then overlay any
-		// local autosave from UserDraft if present.
-		const backendApp = app_w_draft.draft
-			? app_w_draft.summary !== undefined
-				? ({ ...app_w_draft, ...app_w_draft.draft } as AppWithLastVersion & {
-						draft_only?: boolean
-						value: any
-					})
-				: ({ ...app_w_draft, value: app_w_draft.draft } as AppWithLastVersion & {
-						draft_only?: boolean
-						value: any
-					})
-			: app_w_draft
-
-		const localDraftValue = UserDraft.get<App>('app', path)
-		const previousMeta = UserDraft.getMeta('app', path)
-		const newRevs: UserDraftMeta = {
-			remoteRev: app_w_draft.versions
-				? app_w_draft.versions[app_w_draft.versions.length - 1]
-				: undefined,
-			remoteDraftRev: app_w_draft.draft_created_at
-		}
-		currentRevs = newRevs
-		if (
-			localDraftValue != undefined &&
-			orderedJsonStringify(cleanValueProperties(localDraftValue)) !==
-				orderedJsonStringify(cleanValueProperties(backendApp.value))
-		) {
-			const cause = checkStaleness(previousMeta, newRevs.remoteRev, newRevs.remoteDraftRev)
-			if (cause) {
-				pendingBaseline = { baseline: backendApp, revs: newRevs }
-				staleModalCause = cause
-				staleModalOpen = true
-			} else {
-				if (previousMeta.remoteRev === undefined && previousMeta.remoteDraftRev === undefined) {
-					// Legacy entry — backfill meta so the next load can detect staleness.
-					UserDraft.saveMeta('app', path, newRevs)
-				}
-				const appPath = backendApp.path
-				const hasBackendDraft = app_w_draft.draft != undefined
-				notifyRestoredFromLocal(hasBackendDraft, !app_w_draft.draft_only, {
-					onResetToSavedDraft: () => {
-						UserDraft.discard('app', path, undefined)
-						currentRevs = newRevs
-						app = backendApp
-						redraw++
-					},
-					onResetToDeployed: async () => {
-						if (hasBackendDraft) {
-							await DraftService.deleteDraft({
-								workspace: $workspaceStore!,
-								kind: 'app',
-								path: appPath
-							})
-						}
-						UserDraft.discard('app', path, undefined)
-						goto(`/apps/edit/${appPath}`)
-						await loadApp()
-						redraw++
-					}
-				})
-			}
-			app = { ...backendApp, value: localDraftValue }
-		} else {
-			// Local is missing or matches backend — wipe any stale entry so it
-			// doesn't haunt the next session and use the backend value.
-			if (localDraftValue != undefined) UserDraft.remove('app', path)
-			app = backendApp
-		}
-
-		if (app_w_draft.draft && !app_w_draft.draft_only && localDraftValue == undefined) {
-			const reloadAction = () => {
-				app = app_w_draft
-				redraw++
-			}
-
-			const deployed = cleanValueProperties(app_w_draft as Value)
-			const draft = cleanValueProperties(app ?? {})
-			sendUserToast('app loaded from latest saved draft', false, [
-				{
-					label: 'Reset to deployed',
-					callback: reloadAction
-				},
-				{
-					label: 'Show diff',
-					callback: async () => {
-						diffDrawer?.openDrawer()
-						diffDrawer?.setDiff({
-							mode: 'simple',
-							original: deployed,
-							current: draft,
-							title: 'Deployed <> Draft',
-							button: { text: 'Discard draft', onClick: reloadAction }
-						})
-					}
-				}
-			])
-		}
+		// Backend canonical: assign the fresh response onto `app`. The
+		// path-change $effect upstream sets `app = undefined` before
+		// calling loadApp, which unmounts AppEditor and releases the
+		// UserDraft entry — so when `app = backendApp` triggers a
+		// remount, the new handle starts fresh with no stale draft to
+		// dedup against. (`UserDraft.discard` was here previously but
+		// it POSTs `value: null` server-side, which surfaced as a
+		// spurious autosave on every /edit visit.)
+		app = backendApp
 	}
 
 	$effect(() => {
@@ -239,35 +298,28 @@
 		}
 	})
 
-	async function restoreDraft() {
-		if (!savedApp || !savedApp.draft) {
-			sendUserToast('Could not restore to draft', true)
-			return
-		}
-		diffDrawer?.closeDrawer()
-		UserDraft.discard('app', path, undefined)
-		goto(`/apps/edit/${savedApp.draft.path}`)
-		await loadApp()
-		redraw++
-	}
-
 	async function restoreDeployed() {
-		if (!savedApp) {
+		if (!savedApp || !$workspaceStore) {
 			sendUserToast('Could not restore to deployed', true)
 			return
 		}
 		diffDrawer?.closeDrawer()
-		if (savedApp.draft) {
-			await DraftService.deleteDraft({
-				workspace: $workspaceStore!,
-				kind: 'app',
-				path: savedApp.path
-			})
-		}
-		UserDraft.discard('app', path, undefined)
 		goto(`/apps/edit/${savedApp.path}`)
-		await loadApp()
-		redraw++
+		// stopSync-bracketed delete + getDraft:false reload — same dance as
+		// the AutosaveIndicator's reset. A bare discard + `loadApp()` would
+		// lose the race: the reload's draft write re-enters the autosave
+		// mirror and displaces the queued `value: null`, so the delete
+		// never lands and the editor re-renders the draft.
+		await runResetToDeployed({
+			workspace: $workspaceStore,
+			itemKind: 'app',
+			path,
+			onResetToDeployed: async () => {
+				UserDraft.remove('app', path)
+				await loadApp({ getDraft: false })
+				redraw++
+			}
+		})
 	}
 
 	let diffDrawer: DiffDrawer | undefined = $state()
@@ -287,18 +339,48 @@
 	}
 </script>
 
-<DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
-<LocalDraftStaleModal
-	open={staleModalOpen}
-	cause={staleModalCause}
-	onLoadLatest={onStaleLoadLatest}
-	onKeepDraft={onStaleKeepDraft}
+<DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
+<DraftEditorModals
+	workspace={$workspaceStore ?? ''}
+	itemKind="app"
+	{path}
+	{otherDraftsUsers}
+	onLoadFromServer={async () => {
+		// AppEditor's `stateApp` is captured once at mount and doesn't
+		// react to prop changes, so a plain loadApp() reload would update
+		// `app` but leave the editor displaying the conflicting local
+		// state. `redraw++` remounts AppEditor against the fresh `app`.
+		await loadApp()
+		redraw++
+	}}
+	getLocalDraft={() => app?.value}
+	bind:othersModalOpen
+	{draftSavedAt}
+	{deployedAt}
+	onLoadLatestDeploy={async () => {
+		// Bracketed like the AutosaveIndicator reset — an unbracketed
+		// delete gets displaced by the reload's deployed-payload write,
+		// leaving a deployed-identical draft behind.
+		if (!$workspaceStore) return
+		await runResetToDeployed({
+			workspace: $workspaceStore,
+			itemKind: 'app',
+			path,
+			onResetToDeployed: async () => {
+				UserDraft.remove('app', path)
+				await loadApp({ getDraft: false })
+				redraw++
+			}
+		})
+	}}
 />
 
 {#key redraw}
 	{#if app}
 		<div class="h-screen">
 			<AppEditor
+				bind:this={appEditor}
+				{fromHub}
 				onSavedNewAppPath={(url) => {
 					goto(`/apps/edit/${url}`)
 					if (app) {
@@ -308,29 +390,24 @@
 				on:restore={onRestore}
 				summary={app.summary}
 				app={app.value}
-				newPath={app.path}
+				newPath={app.value?.draft_path ?? app.path}
 				path={page.params.path ?? ''}
 				policy={app.policy}
 				bind:savedApp
 				{diffDrawer}
 				version={app.versions ? app.versions[app.versions.length - 1] : undefined}
-				newApp={false}
-				initialRevs={currentRevs}
+				newApp={isNewApp}
 				replaceStateFn={(path) => replaceState(path, page.state)}
 				gotoFn={(path, opt) => goto(path, opt)}
-			>
-				{#snippet unsavedConfirmationModal({
-					diffDrawer,
-					additionalExitAction,
-					getInitialAndModifiedValues
-				})}
-					<UnsavedConfirmationModal
-						{diffDrawer}
-						{additionalExitAction}
-						{getInitialAndModifiedValues}
-					/>
-				{/snippet}
-			</AppEditor>
+				onResetToDeployed={async () => {
+					UserDraft.remove('app', path)
+					await loadApp({ getDraft: false })
+					redraw++
+				}}
+				{loadedFromDraft}
+				othersDraftsCount={otherDraftsUsers.length}
+				onOpenOthersDrafts={() => (othersModalOpen = true)}
+			/>
 		</div>
 	{/if}
 {/key}

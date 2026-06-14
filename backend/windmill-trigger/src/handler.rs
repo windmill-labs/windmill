@@ -16,6 +16,10 @@ use windmill_api_auth::{check_scopes, ApiAuthed};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
+    user_drafts::{
+        delete_all_drafts_for_path, fetch_draft_only_list_rows, overlay_or_draft_only,
+        UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+    },
     utils::{paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
     DB,
@@ -60,7 +64,10 @@ pub trait TriggerCrud: Send + Sync + 'static {
         + for<'r> FromRow<'r, sqlx::postgres::PgRow>
         + Send
         + Sync
-        + Unpin;
+        + Unpin
+        // `'static` so the deployed trigger can be boxed into
+        // `WithDraftOverlay`'s erased-serde inner (it's an owned row).
+        + 'static;
 
     type TriggerConfig: Debug
         + DeserializeOwned
@@ -77,6 +84,11 @@ pub trait TriggerCrud: Send + Sync + 'static {
     /// constant set by each trigger impl — it is never user-controllable.
     const TABLE_NAME: &'static str;
     const TRIGGER_TYPE: &'static str;
+    /// `UserDraftItemKind` for this trigger's per-user `draft` table rows.
+    /// A required associated const (no default) so adding a trigger that
+    /// forgets to set it is a compile error — not a runtime panic on the
+    /// first draft save. Replaces the old `TRIGGER_TYPE` string-match.
+    const DRAFT_KIND: UserDraftItemKind;
     const SUPPORTS_SERVER_STATE: bool;
     const SUPPORTS_TEST_CONNECTION: bool;
     const ROUTE_PREFIX: &'static str;
@@ -125,6 +137,13 @@ pub trait TriggerCrud: Send + Sync + 'static {
 
     fn scope_domain_name() -> &'static str {
         &Self::ROUTE_PREFIX[1..]
+    }
+
+    /// `UserDraftItemKind` for the per-user `draft` table lookup — just
+    /// the `DRAFT_KIND` const each impl declares. Kept as a fn so the
+    /// existing call sites (`T::user_draft_item_kind()`) are unchanged.
+    fn user_draft_item_kind() -> UserDraftItemKind {
+        Self::DRAFT_KIND
     }
 
     async fn create_trigger(
@@ -349,11 +368,16 @@ pub trait TriggerCrud: Send + Sync + 'static {
         count
     }
 
+    /// `authed_email`: when `Some`, each row's `is_draft` reflects whether
+    /// that user has a per-user draft at the row's path (EXISTS subquery —
+    /// scalar, so it can't fan rows out). `None` (e.g. workspace export)
+    /// leaves `is_draft` NULL/omitted.
     async fn list_triggers(
         &self,
         tx: &mut PgConnection,
         workspace_id: &str,
         query: Option<&StandardTriggerQuery>,
+        authed_email: Option<&str>,
     ) -> Result<Vec<Self::Trigger>> {
         let mut fields = vec![
             "workspace_id",
@@ -380,6 +404,20 @@ pub trait TriggerCrud: Send + Sync + 'static {
         sqlb.fields(&fields)
             .order_by("edited_at", true)
             .and_where("workspace_id = ?".bind(&workspace_id));
+
+        if let Some(email) = authed_email {
+            // SAFETY: TABLE_NAME and the draft kind are compile-time
+            // constants; the email is bound.
+            sqlb.field(
+                &format!(
+                    "EXISTS(SELECT 1 FROM draft WHERE draft.workspace_id = {t}.workspace_id \
+                     AND draft.path = {t}.path AND draft.typ = '{k}' AND draft.email = ?) as is_draft",
+                    t = Self::TABLE_NAME,
+                    k = Self::user_draft_item_kind().as_str(),
+                )
+                .bind(&email),
+            );
+        }
 
         if let Some(query) = query {
             let (per_page, offset) =
@@ -563,14 +601,79 @@ async fn list_triggers<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
     Query(query): Query<StandardTriggerQuery>,
 ) -> JsonResult<Vec<T::Trigger>> {
     let mut tx = user_db.begin(&authed).await?;
-    let triggers = handler
-        .list_triggers(&mut *tx, &workspace_id, Some(&query))
+    let mut triggers = handler
+        .list_triggers(&mut *tx, &workspace_id, Some(&query), Some(&authed.email))
         .await?;
     tx.commit().await?;
+
+    // Draft-only rows: per-user drafts whose path has no deployed
+    // trigger of this kind. Same gate as scripts/flows/apps — gated on
+    // `include_draft_only`, non-operators only, page 0, no narrowing
+    // filters. Synthesis is best-effort: the editor's TriggerData shape
+    // overlaps T::Trigger but each per-kind config can deviate, so we
+    // tolerate per-row deserialize failures and drop the row instead of
+    // failing the whole listing.
+    if query.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && query.page.unwrap_or(0) == 0
+        && query.path.is_none()
+        && query.is_flow.is_none()
+        && query.path_start.is_none()
+        && query.label.is_none()
+    {
+        let draft_only_rows = fetch_draft_only_list_rows(
+            &db,
+            &workspace_id,
+            &authed.email,
+            T::user_draft_item_kind(),
+        )
+        .await?;
+
+        for row in draft_only_rows {
+            let created_at = row.created_at;
+            let v: serde_json::Value = match serde_json::from_str(row.value.0.get()) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let serde_json::Value::Object(mut map) = v else {
+                continue;
+            };
+            // Fill in the operational fields the editor draft doesn't
+            // carry — workspace_id, edited_by/at, mode (from `enabled`
+            // when `mode` is absent), extra_perms — so the merged JSON
+            // matches `Trigger<T::TriggerConfig>`'s flattened shape.
+            map.insert(
+                "workspace_id".into(),
+                serde_json::Value::String(workspace_id.clone()),
+            );
+            map.insert("edited_by".into(), serde_json::Value::String(String::new()));
+            if let Ok(at) = serde_json::to_value(&created_at) {
+                map.insert("edited_at".into(), at);
+            }
+            map.entry("permissioned_as")
+                .or_insert(serde_json::Value::String(String::new()));
+            map.entry("extra_perms").or_insert(serde_json::Value::Null);
+            if !map.contains_key("mode") {
+                let enabled = map.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true);
+                map.insert(
+                    "mode".into(),
+                    serde_json::Value::String(if enabled { "enabled" } else { "disabled" }.into()),
+                );
+            }
+            map.insert("draft_only".into(), serde_json::Value::Bool(true));
+            // Synthesized rows ARE the authed user's draft.
+            map.insert("is_draft".into(), serde_json::Value::Bool(true));
+            match serde_json::from_value::<T::Trigger>(serde_json::Value::Object(map)) {
+                Ok(t) => triggers.push(t),
+                Err(_) => continue,
+            }
+        }
+    }
 
     Ok(Json(triggers))
 }
@@ -579,21 +682,41 @@ async fn get_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((workspace_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<T::Trigger> {
+    Query(q): Query<WithDraftQuery>,
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
     check_scopes(&authed, || {
         format!("{}:read:{}", T::scope_domain_name(), &path)
     })?;
 
     let mut tx = user_db.begin(&authed).await?;
-    let trigger = handler
+    let trigger_res = handler
         .get_trigger_by_path(&mut *tx, &workspace_id, path)
-        .await?;
-
+        .await;
     tx.commit().await?;
 
-    Ok(Json(trigger))
+    // Map "no deployed trigger" to `None` and let the shared choreography
+    // handle the draft overlay / draft-only fallback / 404.
+    let deployed = match trigger_res {
+        Ok(t) => Some(t),
+        Err(Error::NotFound(_)) => None,
+        Err(e) => return Err(e),
+    };
+
+    let overlay = overlay_or_draft_only(
+        &db,
+        &workspace_id,
+        &authed.email,
+        T::user_draft_item_kind(),
+        path,
+        q.get_draft,
+        deployed,
+        || Error::NotFound(format!("Trigger not found at path: {}", path)),
+    )
+    .await?;
+    Ok(Json(overlay))
 }
 
 async fn update_trigger<T: TriggerCrud>(
@@ -724,6 +847,7 @@ async fn delete_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((workspace_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
@@ -780,6 +904,13 @@ async fn delete_trigger<T: TriggerCrud>(
     .await?;
 
     tx.commit().await?;
+
+    // The trigger is gone for everyone — wipe ALL users' drafts for this
+    // path, not just the caller's, so teammates' drafts don't orphan. The
+    // draft kind is derived from the impl via TriggerCrud, mirroring the
+    // lookup `maybe_overlay_draft` uses on get-by-path. Idempotent on
+    // no-draft.
+    delete_all_drafts_for_path(&db, &workspace_id, T::user_draft_item_kind(), path).await?;
 
     Ok(format!("Trigger '{}' deleted", path))
 }

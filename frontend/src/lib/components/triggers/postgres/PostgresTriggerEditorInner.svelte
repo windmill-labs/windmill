@@ -250,11 +250,16 @@
 			relations = []
 			transaction_to_track = []
 			tab = 'basic'
-			await loadTrigger(defaultConfig)
+			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultConfig)
+			// Draft-only triggers open as "new trigger prefilled from the
+			// draft" — no deployed row exists, so saving must CREATE (the
+			// update endpoint 404s).
+			edit = !noDeployed
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			if (draftOverlay) loadTriggerConfig(draftOverlay)
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)
@@ -367,28 +372,66 @@
 		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
-	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
+	/**
+	 * Apply the deployed config to the form (incl. publication fetch),
+	 * then return the saved-draft overlay (already merged with the
+	 * publication payload) so the caller can capture the deployed-only
+	 * form state as `originalConfig` BEFORE applying the draft. See
+	 * `NatsTriggerEditorInner.loadTrigger` for the broader rationale.
+	 *
+	 * Postgres-specific wrinkle: the publication payload is fetched from
+	 * the resource — keyed by `postgres_resource_path` /
+	 * `publication_name`, which the draft may have changed. Fetch once
+	 * using the effective values so the overlay reflects the draft's
+	 * publication, not the deployed one.
+	 */
+	async function loadTrigger(
+		defaultConfig?: Record<string, any>
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
 			if (defaultConfig?.publication) {
 				transaction_to_track = [...defaultConfig.publication.transaction_to_track]
 				relations = defaultConfig.publication.table_to_track ?? []
 			}
-			return
-		} else {
-			const s = await PostgresTriggerService.getPostgresTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath
-			})
-
-			const publication_data = await PostgresTriggerService.getPostgresPublication({
-				path: s.postgres_resource_path,
-				workspace: $workspaceStore!,
-				publication: s.publication_name
-			})
-
-			loadTriggerConfig({ ...s, publication: publication_data })
+			return { overlay: undefined, noDeployed: false }
 		}
+		const s = await PostgresTriggerService.getPostgresTrigger({
+			workspace: $workspaceStore!,
+			path: initialPath,
+			getDraft: true
+		})
+		const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+		// Draft-only path: the response is a stand-in synthesized from the
+		// draft (`fetch_draft_only`); no trigger row exists, so saving must
+		// CREATE, not update.
+		const noDeployed = !!(s as any)?.no_deployed
+
+		// Fetch deployed publication and apply deployed config — this
+		// becomes the `originalConfig` baseline for the dirty check.
+		const deployedPublication = await PostgresTriggerService.getPostgresPublication({
+			path: deployedTrigger.postgres_resource_path,
+			workspace: $workspaceStore!,
+			publication: deployedTrigger.publication_name
+		})
+		loadTriggerConfig({ ...deployedTrigger, publication: deployedPublication })
+
+		if (!draftFromBackend) return { overlay: undefined, noDeployed }
+
+		// Draft may have changed the resource/publication keys; fetch
+		// the publication that matches the effective values so the
+		// overlay opens on the draft's view.
+		const effective = { ...deployedTrigger, ...draftFromBackend }
+		const effectivePublication =
+			effective.postgres_resource_path === deployedTrigger.postgres_resource_path &&
+			effective.publication_name === deployedTrigger.publication_name
+				? deployedPublication
+				: await PostgresTriggerService.getPostgresPublication({
+						path: effective.postgres_resource_path,
+						workspace: $workspaceStore!,
+						publication: effective.publication_name
+					})
+		return { overlay: { ...effective, publication: effectivePublication }, noDeployed }
 	}
 
 	function getCaptureConfig() {

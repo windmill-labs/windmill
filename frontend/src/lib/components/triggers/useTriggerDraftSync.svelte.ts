@@ -1,7 +1,26 @@
 import { untrack } from 'svelte'
-import { UserDraft, localDraftDiffers, type UserDraftItemKind } from '$lib/userDraft.svelte'
+import { deepEqual } from 'fast-equals'
+import { UserDraft, normalizeDraftForCompare, type UserDraftItemKind } from '$lib/userDraft.svelte'
+import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 
 type Cfg = Record<string, any>
+
+/**
+ * Whether `a` differs meaningfully from `b` after normalizing both
+ * sides through the shared draft comparator (`normalizeDraftForCompare`:
+ * JSON round-trip — freshly-built configs keep `undefined`-valued keys,
+ * so a raw `deepEqual` reports `{ a: undefined }` ≠ `{}` — plus the
+ * ignored deploy-directive fields like `permissioned_as`). Returns
+ * `false` when `a` is nullish (treats "no draft" as "no divergence").
+ * Typed as a guard: a `true` result narrows `a` to non-nullish `V`.
+ */
+function cfgDiffers<V>(a: V | undefined | null, b: V | undefined): a is V {
+	if (a === undefined || a === null) return false
+	return !deepEqual(
+		normalizeDraftForCompare(a),
+		b === undefined ? undefined : normalizeDraftForCompare(b)
+	)
+}
 
 export interface TriggerDraftSyncOptions {
 	/** UserDraft item kind for this trigger, e.g. `'trigger_postgres'`. */
@@ -66,7 +85,7 @@ export interface TriggerDraftSync {
  * - **persist-effect**: writes form edits back through the handle, dropping
  *   the draft when the form is back at the deployed baseline.
  *
- * Both effect bodies are `untrack`ed and gated by `localDraftDiffers`
+ * Both effect bodies are `untrack`ed and gated by `cfgDiffers`
  * idempotence so they can't feed back into each other. Must be called once
  * during component init (it registers `useMany` + two `$effect`s).
  */
@@ -85,12 +104,22 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 	const hasDraft = $derived(
 		!opts.drawerLoading() &&
 			opts.deployed() != null &&
-			localDraftDiffers(opts.getCfg() as Cfg, opts.deployed() as Cfg)
+			cfgDiffers(opts.getCfg() as Cfg, opts.deployed() as Cfg)
 	)
 
-	function discard(path: string, fallback: Cfg | undefined): void {
+	/** `auto: true` marks the discard as coming from the reactive
+	 * persist-effect (form drifted back to the deployed baseline) rather
+	 * than an explicit user action (banner Discard, post-deploy cleanup)
+	 * — reactive discards must respect the "Enable auto-save" toggle the
+	 * same way reactive value-saves do, otherwise with autosave off the
+	 * editor would still DELETE server drafts while never writing any. */
+	function discard(path: string, fallback: Cfg | undefined, auto = false): void {
+		// `UserDraft.discard` POSTs `value: null`, which routes through
+		// `UserDraftDbSyncer.postSave` and clears the list-page `*` hint
+		// (the syncer owns the hint). No explicit clear needed here.
 		UserDraft.discard(opts.itemKind, path, fallback, {
-			workspace: opts.workspace() ?? undefined
+			workspace: opts.workspace() ?? undefined,
+			auto
 		})
 	}
 
@@ -99,11 +128,37 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 		const d = handle?.draft
 		if (opts.drawerLoading() || d == null) return
 		untrack(() => {
-			if (localDraftDiffers(d, opts.getCfg() as Cfg)) {
+			if (cfgDiffers(d, opts.getCfg() as Cfg)) {
 				void opts.applyCfg(d)
 			}
 		})
 	})
+
+	/** Deferred + revalidated auto-discard. The at-baseline-with-a-draft
+	 * state pattern also occurs TRANSIENTLY during programmatic churn: the
+	 * trigger list pages fire `openEdit` twice per row click (onclick +
+	 * `#path` hash listener), and the second load resets the form to the
+	 * deployed payload after the first already cleared `drawerLoading` and
+	 * seeded the cell — an immediate discard there deletes the server
+	 * draft the user never touched. Re-checking after a settle window
+	 * keeps the legit case (user reverts the form back to baseline) while
+	 * the churn case re-applies the overlay / re-seeds before the timer
+	 * fires and the recheck sees a consistent state again. */
+	let discardTimer: ReturnType<typeof setTimeout> | undefined
+	function scheduleAutoDiscard() {
+		if (discardTimer) return
+		discardTimer = setTimeout(() => {
+			discardTimer = undefined
+			if (opts.drawerLoading()) return
+			const cfg = opts.getCfg()
+			const deployed = opts.deployed()
+			const h = handle
+			if (!h || cfg == null) return
+			if (!cfgDiffers(cfg, deployed) && cfgDiffers(h.draft, deployed)) {
+				discard(opts.path(), deployed, true)
+			}
+		}, 600)
+	}
 
 	// persist-effect: form edits → handle; drop the draft when back at the
 	// deployed baseline.
@@ -115,11 +170,32 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 			const h = handle
 			if (!h) return
 			const deployed = opts.deployed()
-			if (localDraftDiffers(cfg, deployed)) {
-				if (localDraftDiffers(cfg, h.draft)) h.draft = cfg
-			} else {
-				discard(opts.path(), deployed)
+			if (cfgDiffers(cfg, deployed)) {
+				if (cfgDiffers(cfg, h.draft)) h.draft = cfg
+			} else if (cfgDiffers(h.draft, deployed)) {
+				// Only when there's actually a draft to drop: `h.draft`
+				// equals `deployed` right after a discard (no repeat POST
+				// per cfg recompute at baseline) and right after the
+				// post-load baseline seed (no spurious POST per open).
+				scheduleAutoDiscard()
 			}
+		})
+	})
+
+	// The list-page `*` hint is OWNED by UserDraftDbSyncer (set on save,
+	// cleared on delete). This effect only CLEARS it: while the drawer is
+	// settled (not loading) and the form is at the deployed baseline (no
+	// draft), drop any stale hint — that's what makes a draft discarded
+	// from another tab disappear on reopen. Never SET here (the syncer is
+	// the single source). NOT cleared on teardown.
+	$effect(() => {
+		const ws = opts.workspace()
+		const p = opts.path()
+		const loading = opts.drawerLoading()
+		const dirty = hasDraft
+		untrack(() => {
+			if (!ws || !p || loading) return
+			if (!dirty) setLocalDraftHint(ws, opts.itemKind, p, false)
 		})
 	})
 
@@ -138,9 +214,26 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 		},
 		async maybeRestore() {
 			const d = handle?.draft
-			if (!localDraftDiffers(d, opts.getCfg() as Cfg)) return
-			// Overlay the local autosave on the just-loaded backend config.
-			await opts.applyCfg(d)
+			if (cfgDiffers(d, opts.getCfg() as Cfg)) {
+				// Overlay the local autosave on the just-loaded backend config.
+				await opts.applyCfg(d)
+			}
+			// Adopt the post-load form state (server draft overlay if one
+			// existed, deployed otherwise) as the cell's baseline WITHOUT
+			// POSTing. This is what consumes the entry's one-shot
+			// first-write seed guard: trigger drawers never write the cell
+			// programmatically on open (the form holds the state), so
+			// without this seed the guard stayed armed and silently
+			// swallowed the user's FIRST edit — banner on, no asterisk, no
+			// save until a second change.
+			const ws = opts.workspace()
+			const p = opts.path()
+			const cfg = opts.getCfg()
+			if (ws && p && cfg != null) {
+				UserDraft.seed(opts.itemKind, p, structuredClone($state.snapshot(cfg)) as Cfg, {
+					workspace: ws
+				})
+			}
 		},
 		async resetToDeployed(path: string) {
 			const deployedCfg = structuredClone($state.snapshot(opts.deployed())) as Cfg

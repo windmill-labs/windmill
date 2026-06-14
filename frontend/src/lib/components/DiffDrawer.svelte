@@ -87,7 +87,7 @@
 			| {
 					mode: 'normal'
 					deployed: Value
-					draft: Value | undefined
+					draft?: Value | undefined
 					current: Value
 					defaultDiffType?: 'deployed' | 'draft'
 					button?: { text: string; onClick: () => void }

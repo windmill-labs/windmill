@@ -3,7 +3,7 @@
 
 	const bubble = createBubbler()
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
-	import { getContext, onMount, setContext, untrack } from 'svelte'
+	import { getContext, onMount, setContext, tick, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -34,7 +34,7 @@
 		sendUserToast,
 		urlParamsToObject
 	} from '$lib/utils'
-	import { UserDraft, type UserDraftMeta } from '$lib/userDraft.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import AppPreview from './AppPreview.svelte'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
@@ -77,10 +77,12 @@
 		newPath = undefined,
 		replaceStateFn = (path: string) => window.history.replaceState(null, '', path),
 		gotoFn = (path: string, opt?: Record<string, any>) => window.history.pushState(null, '', path),
-		unsavedConfirmationModal,
 		onSavedNewAppPath,
 		onNavigate,
-		initialRevs
+		onResetToDeployed,
+		loadedFromDraft = false,
+		othersDraftsCount = 0,
+		onOpenOthersDrafts
 	}: AppEditorProps = $props()
 
 	migrateApp(untrack(() => app))
@@ -93,48 +95,45 @@
 	// sides' autosaves. Skip UserDraft entirely in that case.
 	const inSessionPane = !!getContext('aiChatManager')
 
-	const appDraftPath = newApp ? '' : (path ?? '')
-	const appDraftHandle = inSessionPane ? undefined : UserDraft.use<App>('app', appDraftPath)
-	// Prefer the persisted autosave over the prop when both exist (e.g.
-	// /apps/add reload: the route always initializes `app` to an empty
-	// template, but the user's last session is sitting in LS under the
-	// empty-path entry). The route is responsible for wiping the entry
-	// (`UserDraft.remove`) when it wants to force a fresh start —
-	// `?nodraft=true`, template/hub loads, etc.
+	// `path` is the URL path (e.g. `u/{user}/draft_{uuid}` after the
+	// `/apps/add` redirect, or a deployed app's path on `/apps/edit/...`).
+	// The autosave keys on it directly so a refresh of
+	// `/apps/edit/u/{user}/draft_{uuid}` finds the user's saved draft at
+	// the same path, and the listing's draft-only branch (which scans the
+	// `draft` table by exact path) picks it up.
+	const appDraftPath = path ?? ''
+	const appDraftHandle = inSessionPane
+		? undefined
+		: // `canBeDisabled`: page editor — its AutosaveIndicator carries the
+			// "Enable auto-save" toggle, so its reactive saves honor it.
+			UserDraft.use<App>('app', appDraftPath, { canBeDisabled: true })
+	// Suspend autosave around mount — the route may have seeded `app`
+	// from an empty template (e.g. `/apps/add` redirect with
+	// `new_draft=true`), and the `firstMirror` effect below writes that
+	// seed into the handle as a programmatic mutation. Without
+	// suspension that write fires a POST that looks like the user's
+	// first edit before they've touched anything. `onMount`-then-`tick`
+	// resumes once all mount-time effects have settled, so the user's
+	// real first edit is the first POST.
+	if (appDraftHandle) UserDraft.stopSync('app', appDraftPath)
+	// Prefer the persisted autosave over the prop when both exist (the
+	// route always initializes `app` to an empty template on
+	// `new_draft=true`, but a prior session at this draft path may have
+	// left an autosave). The route is responsible for wiping the entry
+	// (`UserDraft.remove`) when it wants to force a fresh start
+	// (template/hub loads, etc.).
 	const stateApp = $state(untrack(() => appDraftHandle?.draft ?? app))
 	const appStore = writable<App>(stateApp)
-	// Captured once on mount: the load-time revs are only used as the
-	// seed meta on the very first persist of this entry. After that the
-	// handle's own meta wins.
-	const capturedInitialRevs = untrack(() => initialRevs)
-	// `useLocalStorageValue`'s `saveInitialValue: false` skips the first
-	// `set val` that DIFFERS from the loaded LS state — meant to absorb a
-	// route's "load baseline" write. In AppEditor's $effect-mirror pattern
-	// the loaded baseline always matches LS (stateApp is initialised from
-	// the handle's draft), so the skip slot survives until the user's
-	// FIRST edit and silently swallows it. Consume the slot up-front with
-	// a wipe-then-restore pair: the wipe sets state.val = undefined
-	// in-memory (the consumption side-effect of skipNextWrite, which
-	// suppresses the localStorage delete the wipe would otherwise schedule),
-	// and the restore immediately puts the value+meta back. Net effect: LS
-	// gets re-written once on mount and user edits persist normally.
-	let firstMirror = true
+	// Mirror local `stateApp` mutations (drag/drop, settings edits, etc.)
+	// back into the autosave cell. The first mirror writes the baseline
+	// back through the handle — `acquireEntry`'s `skipNextWrite` swallows
+	// that as the seed so it doesn't POST. Subsequent writes (user edits)
+	// fire the syncer normally.
 	$effect(() => {
 		readFieldsRecursively(stateApp)
 		if (!appDraftHandle) return
 		untrack(() => {
-			// Resolve the meta to attach BEFORE the wipe — the wipe clears
-			// in-memory meta and would otherwise force-seed `initialRevs`
-			// even when the handle had real meta.
-			const currentMeta = appDraftHandle.meta
-			const hasMeta =
-				currentMeta.remoteRev !== undefined || currentMeta.remoteDraftRev !== undefined
-			const meta: UserDraftMeta = hasMeta ? currentMeta : (capturedInitialRevs ?? {})
-			if (firstMirror) {
-				firstMirror = false
-				appDraftHandle.setDraftAndMeta(undefined, {})
-			}
-			appDraftHandle.setDraftAndMeta(stateApp, meta)
+			appDraftHandle.draft = stateApp
 		})
 	})
 	const selectedComponent = writable<string[] | undefined>(undefined)
@@ -482,6 +481,14 @@
 	let mounted = false
 	onMount(() => {
 		mounted = true
+		// Resume autosave now that mount-time effects (the
+		// `firstMirror` mirror, prop-driven initialization, ...) have
+		// all run. `tick` waits for the current pending effect flush
+		// to complete so the post-suspend writes have been observed by
+		// the sync effect and silently dropped.
+		if (appDraftHandle) {
+			tick().then(() => UserDraft.restartSync('app', appDraftPath))
+		}
 
 		setTimeout(() => {
 			if ($initialized?.initialized === false) {
@@ -858,8 +865,6 @@
 		;[!!$connectingInput.opened, !$panzoomActive]
 		untrack(() => updateCursorStyle(!!$connectingInput.opened && !$panzoomActive))
 	})
-
-	const unsavedConfirmationModal_render = $derived(unsavedConfirmationModal)
 </script>
 
 <svelte:head></svelte:head>
@@ -883,6 +888,11 @@
 		<AppEditorHeader
 			{newPath}
 			{newApp}
+			userDraftPath={appDraftPath}
+			{onResetToDeployed}
+			{loadedFromDraft}
+			{othersDraftsCount}
+			{onOpenOthersDrafts}
 			on:restore
 			{policy}
 			{fromHub}
@@ -901,19 +911,7 @@
 			onHideLeftPanel={() => hideLeftPanel()}
 			onHideRightPanel={() => hideRightPanel()}
 			onHideBottomPanel={() => hideBottomPanel()}
-		>
-			{#snippet unsavedConfirmationModal({
-				diffDrawer,
-				additionalExitAction,
-				getInitialAndModifiedValues
-			})}
-				{@render unsavedConfirmationModal_render?.({
-					diffDrawer,
-					additionalExitAction,
-					getInitialAndModifiedValues
-				})}
-			{/snippet}
-		</AppEditorHeader>
+		/>
 		{#if $mode === 'preview'}
 			<SplitPanesWrapper class="border-t">
 				<div

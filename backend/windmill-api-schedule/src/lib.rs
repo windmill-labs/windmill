@@ -25,6 +25,10 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     schedule::Schedule,
+    user_drafts::{
+        delete_all_drafts_for_path, fetch_draft_only_list_rows, overlay_or_draft_only,
+        UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+    },
     utils::{
         escape_ilike_pattern, not_found_if_none, paginate, Pagination, ScheduleType, StripPath,
     },
@@ -678,6 +682,11 @@ pub struct ListScheduleQuery {
     pub summary: Option<String>,
     pub broad_filter: Option<String>,
     pub label: Option<String>,
+    /// When true, append per-user draft rows whose path has no deployed
+    /// schedule. Gated to non-operators + offset 0 + no narrowing
+    /// filters so picker callers stay deployed-only and pagination
+    /// semantics stay clean.
+    pub include_draft_only: Option<bool>,
 }
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Debug, Clone)]
@@ -695,6 +704,18 @@ pub struct ScheduleLight {
     pub extra_perms: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// True when this row is a per-user draft with no deployed schedule
+    /// at the same path. Surfaced by `include_draft_only` so the frontend
+    /// can render a "Draft" badge.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub draft_only: Option<bool>,
+    /// True when the authed user has a per-user draft at this path —
+    /// layered over a deployed schedule or a synthesized draft-only row.
+    /// Drives the `*` suffix on the schedules page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub is_draft: Option<bool>,
     /// Labels inherited from the parent folder, computed at read time.
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -703,6 +724,7 @@ pub struct ScheduleLight {
 async fn list_schedule(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(lsq): Query<ListScheduleQuery>,
 ) -> JsonResult<Vec<ScheduleLight>> {
@@ -724,13 +746,21 @@ async fn list_schedule(
             "labels",
             "folder_labels(workspace_id, path) as inherited_labels",
         ])
+        // Scalar EXISTS — flags rows the authed user has a per-user
+        // draft on, without fanning rows out the way a join could.
+        .field(
+            &"EXISTS(SELECT 1 FROM draft WHERE draft.workspace_id = schedule.workspace_id \
+              AND draft.path = schedule.path AND draft.typ = 'trigger_schedule' \
+              AND draft.email = ?) as is_draft"
+                .bind(&authed.email),
+        )
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))
         .offset(offset)
         .limit(per_page)
         .clone();
-    if let Some(path) = lsq.path {
-        sqlb.and_where_eq("script_path", "?".bind(&path));
+    if let Some(path) = lsq.path.as_ref() {
+        sqlb.and_where_eq("script_path", "?".bind(path));
     }
     if let Some(is_flow) = lsq.is_flow {
         sqlb.and_where_eq("is_flow", "?".bind(&is_flow));
@@ -773,10 +803,100 @@ async fn list_schedule(
         }
     }
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
-    let rows = sqlx::query_as::<_, ScheduleLight>(&sql)
+    let mut rows = sqlx::query_as::<_, ScheduleLight>(&sql)
         .fetch_all(&mut *tx)
         .await?;
     tx.commit().await?;
+
+    // Draft-only rows: per-user drafts (kind `trigger_schedule`) for
+    // paths with no deployed schedule. Same guard as the other kinds.
+    if lsq.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && offset == 0
+        && lsq.path.is_none()
+        && lsq.is_flow.is_none()
+        && lsq.args.is_none()
+        && lsq.path_start.is_none()
+        && lsq.schedule_path.is_none()
+        && lsq.description.is_none()
+        && lsq.summary.is_none()
+        && lsq.broad_filter.is_none()
+        && lsq.label.is_none()
+    {
+        let draft_only_rows = fetch_draft_only_list_rows(
+            &db,
+            &w_id,
+            &authed.email,
+            UserDraftItemKind::TriggerSchedule,
+        )
+        .await?;
+
+        for row in draft_only_rows {
+            let v: serde_json::Value =
+                serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
+            // Schedule editor's draft shape mirrors NewSchedule:
+            //   { path, schedule, timezone, script_path, is_flow,
+            //     enabled?, summary?, labels? }
+            let path = v
+                .get("path")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string();
+            if path.is_empty() {
+                continue;
+            }
+            let schedule = v
+                .get("schedule")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            let timezone = v
+                .get("timezone")
+                .and_then(|x| x.as_str())
+                .unwrap_or("UTC")
+                .to_string();
+            let script_path = v
+                .get("script_path")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            let is_flow = v.get("is_flow").and_then(|x| x.as_bool()).unwrap_or(false);
+            let enabled = v.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true);
+            let summary = v
+                .get("summary")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string());
+            let labels = v.get("labels").and_then(|x| {
+                x.as_array().map(|arr| {
+                    arr.iter()
+                        .filter_map(|s| s.as_str().map(|s| s.to_string()))
+                        .collect::<Vec<_>>()
+                })
+            });
+
+            rows.push(ScheduleLight {
+                workspace_id: w_id.clone(),
+                path,
+                edited_by: String::new(),
+                edited_at: row.created_at,
+                schedule,
+                timezone,
+                enabled,
+                script_path,
+                is_flow,
+                summary,
+                extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                labels,
+                // Synthesized draft-only rows have no deployed row to
+                // inherit folder labels from.
+                inherited_labels: None,
+                draft_only: Some(true),
+                // Synthesized rows ARE the authed user's draft.
+                is_draft: Some(true),
+            });
+        }
+    }
+
     Ok(Json(rows))
 }
 
@@ -839,16 +959,28 @@ async fn list_schedule_with_jobs(
 async fn get_schedule(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<Schedule> {
+    Query(q): Query<WithDraftQuery>,
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let schedule_o = windmill_queue::schedule::get_schedule_opt(&mut *tx, &w_id, path).await?;
-    let schedule = not_found_if_none(schedule_o, "Schedule", path)?;
     tx.commit().await?;
-    Ok(Json(schedule))
+    let overlay = overlay_or_draft_only(
+        &db,
+        &w_id,
+        &authed.email,
+        UserDraftItemKind::TriggerSchedule,
+        path,
+        q.get_draft,
+        schedule_o,
+        || Error::NotFound(format!("Schedule not found at path {path}")),
+    )
+    .await?;
+    Ok(Json(overlay))
 }
 
 async fn exists_schedule(
@@ -1136,6 +1268,11 @@ async fn delete_schedule(
     .await?;
 
     tx.commit().await?;
+
+    // The schedule is gone for everyone — wipe ALL users' drafts for this
+    // path, not just the caller's, so teammates' drafts don't orphan.
+    // Idempotent on no-draft.
+    delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::TriggerSchedule, path).await?;
 
     handle_deployment_metadata(
         &authed.email,
