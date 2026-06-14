@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.721.0
+  version: 1.723.0
   title: Windmill API
 
   contact:
@@ -21878,6 +21878,8 @@ components:
           type: array
           items:
             type: string
+        web_search_enabled:
+          type: boolean
       required:
         - resource_path
         - models

@@ -291,6 +291,10 @@ import Stripe from "stripe";
 import { someFunction } from "some-package";
 \`\`\`
 
+## Prefer \`//native\` when the runtime allows it
+
+If a script only needs \`fetch\` and the JavaScript standard library — including when it uses \`windmill-client\` — prefer making it a **native** script: add \`//native\` as the first line and write it with the \`write-script-bunnative\` skill. Native scripts run on a lightweight V8 isolate, start faster, and parallelize heavily. \`windmill-client\` works on the native worker (its calls go over \`fetch\`), so needing the Windmill client is **not** a reason to avoid \`//native\`. Use the regular \`bun\` language only when the code (or a dependency) needs Node/Bun runtime APIs — \`node:*\` modules, the filesystem, child processes, or native addons.
+
 ## Windmill Client
 
 Import the windmill client for platform interactions:
@@ -299,7 +303,9 @@ Import the windmill client for platform interactions:
 import * as wmill from "windmill-client";
 \`\`\`
 
-See the SDK documentation for available methods.
+**Prefer \`windmill-client\` over raw \`fetch\` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you, so you don't hand-roll URLs or tokens. Reserve \`fetch\` for calling *external* HTTP APIs that aren't Windmill.
+
+The full \`windmill-client\` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method to use instead of guessing or falling back to \`fetch\`.
 
 ## Preprocessor Scripts
 
@@ -1012,7 +1018,9 @@ export async function main(url: string) {
 
 ## Windmill Client
 
-\`windmill-client\` is available for Windmill-specific primitives such as the S3 helpers below (\`loadS3File\`, \`loadS3FileStream\`, \`writeS3File\`, \`S3Object\`). Use \`fetch\` for plain HTTP.
+\`windmill-client\` works on the native worker (its calls go over \`fetch\`), so use it as the **preferred way to talk to Windmill** — reading resources/variables/states, running scripts and flows, and the S3 helpers below (\`loadS3File\`, \`loadS3FileStream\`, \`writeS3File\`, \`S3Object\`). It handles auth, the workspace, and the base URL for you. Reserve raw \`fetch\` for calling *external* HTTP APIs that aren't Windmill.
+
+The full \`windmill-client\` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method instead of hand-rolling a \`fetch\` against the Windmill API.
 
 ## Preprocessor Scripts
 
@@ -1813,7 +1821,9 @@ Import the windmill client for platform interactions:
 import * as wmill from "windmill-client";
 \`\`\`
 
-See the SDK documentation for available methods.
+**Prefer \`windmill-client\` over raw \`fetch\` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you. Reserve \`fetch\` for calling *external* HTTP APIs that aren't Windmill.
+
+The full \`windmill-client\` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method instead of guessing or falling back to \`fetch\`.
 
 ## Preprocessor Scripts
 
@@ -4494,7 +4504,7 @@ Once the flow has real content, **offer** to open the visual preview as a one-se
 
 ## CLI Commands — running, previewing, deploying
 
-After writing, tell the user which command fits what they want to do:
+After writing, act on the user's intent instead of just listing commands. Run the safe, non-deploying command yourself when it fits (\`wmill flow preview\` — see "After writing — offer to run, don't wait passively" below); only *name* the commands that deploy or rewrite files (\`wmill sync push\`, \`wmill generate-metadata\`) so the user can approve them. The options:
 
 - \`wmill flow preview <flow_path>\` — **default when iterating on a local flow.** Runs the local \`flow.yaml\` against local inline scripts without deploying. Add \`--remote\` to use deployed workspace scripts for PathScript steps instead of local files. Add \`--step <step_id>\` to run only one module in isolation (see "Single-step vs whole-flow preview" below).
 - \`wmill flow run <path>\` — runs the flow **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
@@ -4960,7 +4970,7 @@ The runnable ID is the filename without extension. For example, \`get_user.ts\` 
 | C#               | \`.cs\`        | \`myFunc.cs\`      |
 | Java             | \`.java\`      | \`myFunc.java\`    |
 
-After creating a runnable, tell the user they can generate lock files by running:
+After creating a runnable, offer to generate its lock files as a one-sentence next step (e.g. "Want me to generate the lock files?") and run it yourself once they agree — don't just name the command and wait. If the user already asked you to finish/lock the app, run it directly. It writes local lock files (not a deploy), so offer rather than running silently:
 \`\`\`bash
 wmill generate-metadata
 \`\`\`
@@ -5051,15 +5061,16 @@ data:
 
 ## CLI Commands
 
-\`wmill app new\` is the exception: you run it yourself, with flags, per the "Creating a Raw App" section above.
+Two commands you run yourself, not the user:
+- \`wmill app new\` — run it with flags, per the "Creating a Raw App" section above.
+- \`wmill generate-metadata\` — generates local lock files; offer it and run it on consent, per "After creating a runnable" above (it writes local lock files, not a deploy).
 
-For everything else, tell the user which command fits their intent and let them run it — these touch the workspace or local lock files, and the user should consent each time:
+For the rest, tell the user which command fits their intent and let them run it — these deploy to the workspace, overwrite local files, or launch a long-running server, so the user should consent each time:
 
 | Command | Description |
 |---------|-------------|
 | \`wmill app dev\` | Start dev server with live reload (see the \`preview\` skill for the full open-the-app-in-the-IDE-pane procedure). |
 | \`wmill app generate-agents\` | Refresh AGENTS.md and DATATABLES.md |
-| \`wmill generate-metadata\` | Generate lock files for backend runnables |
 | \`wmill sync push\` | Deploy app to Windmill |
 | \`wmill sync pull\` | Pull latest from Windmill |
 
@@ -6456,12 +6467,12 @@ List all queues with their metrics
 
 ### refresh
 
-Refresh wmill-managed project files (AGENTS.cli.md, skills, tsconfig.wmill.json)
+Refresh wmill-managed project files (AGENTS.wmill.md, skills, tsconfig.wmill.json)
 
 **Subcommands:**
 
-- \`refresh prompts\` - Refresh AGENTS.cli.md and managed skills. User-owned AGENTS.md and CLAUDE.md are never overwritten unless you opt in.
-  - \`--yes\` - Non-interactive: append the @AGENTS.cli.md include to an existing AGENTS.md / CLAUDE.md without prompting. Without it, a non-interactive run leaves an unlinked file untouched.
+- \`refresh prompts\` - Refresh AGENTS.wmill.md and managed skills. User-owned AGENTS.md and CLAUDE.md are never overwritten unless you opt in.
+  - \`--yes\` - Non-interactive: append the @AGENTS.wmill.md include to an existing AGENTS.md / CLAUDE.md without prompting. Without it, a non-interactive run leaves an unlinked file untouched.
 - \`refresh tsconfig\` - Refresh the wmill-managed tsconfig.wmill.json (and Deno import map for Deno projects)
   - \`--yes\` - Non-interactive: wire an existing custom tsconfig.json/deno.json to the managed file without prompting (a previously-generated config is always migrated automatically).
 
@@ -6694,8 +6705,12 @@ variable related commands
 - \`variable push <file_path:string> <remote_path:string>\` - Push a local variable spec. This overrides any remote versions.
   - \`--plain-secrets\` - Push secrets as plain text
 - \`variable add <value:string> <remote_path:string>\` - Create a new variable on the remote. This will update the variable if it already exists.
+  - \`--yes\` - Skip confirmation prompt when updating an existing variable
+  - \`--secret\` - Mark the variable as secret (default when creating a new variable)
+  - \`--no-secret\` - Mark the variable as non-secret (when updating, the existing setting is preserved if neither --secret nor --no-secret is passed)
+  - \`--description <description:string>\` - Set the variable description (when updating, the existing description is preserved if not passed)
   - \`--plain-secrets\` - Push secrets as plain text
-  - \`--public\` - Legacy option, use --plain-secrets instead
+  - \`--public\` - Legacy option, use --no-secret instead
 
 ### version
 
@@ -6752,7 +6767,8 @@ workspace related commands
   - \`--create-workspace-name <workspace_name:string>\` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
   - \`--color <color:string>\` - Workspace color (hex code, e.g. #ff0000)
   - \`--datatable-behavior <behavior:string>\` - How to handle datatables: skip, schema_only, or schema_and_data (default: interactive prompt)
-  - \`-y --yes\` - Skip interactive prompts (defaults datatable behavior to 'skip')
+  - \`--from-branch <branch:string>\` - Non-interactive override for the 'turn my current working branch into the fork' workflow: base the fork on <branch> (its bound workspace is the parent) and rename the current branch onto wm-fork/<branch>/<id>. Usually unneeded — from a working branch \`wmill workspace fork\` offers this interactively; from a base branch it creates a fresh fork branch.
+  - \`-y --yes\` - Skip interactive prompts (defaults datatable behavior to 'skip'). On a non-base branch, requires --from-branch since the base branch can't be prompted for.
 - \`workspace delete-fork <fork_name:string>\` - Delete a forked workspace and git branch
   - \`-y --yes\` - Skip confirmation prompt
 - \`workspace merge\` - Compare and deploy changes between a fork and its parent workspace

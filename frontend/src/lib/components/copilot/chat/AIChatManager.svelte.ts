@@ -59,9 +59,14 @@ import {
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
-import { runChatLoop } from './chatLoop'
+import { runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
 import type { ReviewChangesOpts } from './monaco-adapter'
-import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
+import {
+	getCurrentModel,
+	tryGetCurrentModel,
+	getCombinedCustomPrompt,
+	isWebSearchEnabledForProvider
+} from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
 import {
 	globalToolsFor,
@@ -76,6 +81,8 @@ const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
 const MAX_TOKENS_HARD_LIMIT = 5000
 const AI_AUTONOMY_MODE_STORAGE_KEY = 'ai-chat-autonomy-mode'
 const LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
+const WEB_SEARCH_ERROR_HINT =
+	'Web search is unavailable for this provider/model/key. Disable web search in workspace settings and try again.'
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -152,6 +159,23 @@ function persistAutonomyMode(mode: AIAutonomyMode) {
 		return
 	}
 	localStorage.setItem(AI_AUTONOMY_MODE_STORAGE_KEY, mode)
+}
+
+function appendWebSearchErrorHint(message: string, shouldAppend: boolean): string {
+	if (!shouldAppend) {
+		return message
+	}
+	const separator = /[.!?]$/.test(message.trim()) ? ' ' : '. '
+	return `${message}${separator}${WEB_SEARCH_ERROR_HINT}`
+}
+
+function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean): string {
+	const errorMessage =
+		err instanceof Error ? err.message : typeof err === 'string' ? err : undefined
+	const message = errorMessage
+		? `Failed to send request: ${errorMessage}`
+		: 'Failed to send request'
+	return appendWebSearchErrorHint(message, webSearchUnavailable)
 }
 
 export class AIChatManager {
@@ -648,11 +672,54 @@ export class AIChatManager {
 		}
 	}
 
+	// Commit an interrupted turn's usable output as context for a follow-up:
+	// the tool-paired prefix of completed steps (a dangling tool call would
+	// make providers reject the next request) plus the partial answer text.
+	// A reasoning-only interrupt instead drops its stuck-open bubble.
+	private commitInterruptedTurn = (
+		collectedMessages: ChatCompletionMessageParam[],
+		partialReply: string
+	) => {
+		const prefix = truncateToToolPairedPrefix(collectedMessages)
+		this.messages = [...this.messages, ...prefix]
+		// partialReply can be stale — equal to text already committed inside the
+		// prefix (see its capture in onMessageEnd) — so only append when new.
+		const lastCommittedText = [...prefix]
+			.reverse()
+			.find(
+				(m): m is ChatCompletionMessageParam & { content: string } =>
+					m.role === 'assistant' && typeof m.content === 'string' && !!m.content.trim()
+			)?.content
+		if (partialReply.trim() && partialReply !== lastCommittedText) {
+			this.messages = [...this.messages, { role: 'assistant', content: partialReply }]
+		} else {
+			const last = this.displayMessages[this.displayMessages.length - 1]
+			if (last?.role === 'assistant' && !last.content.trim() && !!last.reasoning) {
+				this.displayMessages = this.displayMessages.slice(0, -1)
+			}
+		}
+	}
+
+	// Roll a turn that produced nothing usable back out of the transcript and
+	// hand its text back to the composer for editing/resending.
+	private restoreUnsentTurn = (
+		displayLenAfterUser: number,
+		modelLenAfterUser: number,
+		instructions: string,
+		pastes: PasteAttachment[]
+	) => {
+		this.displayMessages = this.displayMessages.slice(0, displayLenAfterUser - 1)
+		this.messages = this.messages.slice(0, modelLenAfterUser - 1)
+		this.aiChatInput?.restoreInstructions(instructions, pastes)
+	}
+
 	private chatRequest = async ({
 		messages,
 		abortController,
 		callbacks,
-		systemMessage: systemMessageOverride
+		addedMessages,
+		systemMessage: systemMessageOverride,
+		onWebSearchUnavailable
 	}: {
 		messages: ChatCompletionMessageParam[]
 		abortController: AbortController
@@ -660,7 +727,10 @@ export class AIChatManager {
 			onNewToken: (token: string) => void
 			onMessageEnd: () => void
 		}
+		// Caller-owned accumulator so partial output survives an abort/throw.
+		addedMessages?: ChatCompletionMessageParam[]
 		systemMessage?: ChatCompletionSystemMessageParam
+		onWebSearchUnavailable?: () => void
 	}) => {
 		try {
 			// Use JS getters so runChatLoop re-reads tools/helpers/systemMessage/modelProvider
@@ -669,6 +739,7 @@ export class AIChatManager {
 			const self = this
 			const result = await runChatLoop({
 				messages,
+				addedMessages,
 				get systemMessage() {
 					return systemMessageOverride ?? self.systemMessage
 				},
@@ -683,6 +754,9 @@ export class AIChatManager {
 				get modelProvider() {
 					return getCurrentModel()
 				},
+				get webSearch() {
+					return isWebSearchEnabledForProvider(getCurrentModel().provider)
+				},
 				clients: {
 					openai: workspaceAIClients.getOpenaiClient(),
 					anthropic: workspaceAIClients.getAnthropicClient()
@@ -692,6 +766,7 @@ export class AIChatManager {
 				onSkipResponsesApi: () => {
 					this.skipResponsesApi = true
 				},
+				onWebSearchUnavailable,
 				getPendingUserMessage: () => {
 					const pendingPrompt = this.pendingPrompt
 					if (!pendingPrompt) return undefined
@@ -873,6 +948,15 @@ export class AIChatManager {
 			}
 		}
 		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
+		// Declared outside `try` so the catch can recover what the loop produced
+		// before a failure: the structured messages and the latest streamed text
+		// that never became one.
+		const collectedMessages: ChatCompletionMessageParam[] = []
+		let partialReply = ''
+		// Once an outcome branch (commit/restore) took over, a later throw (e.g.
+		// from saveChat) must not make the catch commit the turn a second time.
+		let turnOutcomeHandled = false
+		let webSearchUnavailable = false
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
 			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
@@ -925,6 +1009,11 @@ export class AIChatManager {
 					index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 				}
 			]
+			// For restoreUnsentTurn: the compact composer form (with paste tokens),
+			// not the expanded LLM text, plus the rollback anchor after the user turn.
+			const sentInstructions = this.instructions
+			const sentPastes = pastes
+			const displayLenAfterUser = this.displayMessages.length
 			// The LLM gets the full pasted content; the display message above keeps
 			// the compact tokens + registry so the bubble can render/expand chips.
 			const oldInstructions = expanded(chatDraft(this.instructions, pastes))
@@ -974,6 +1063,7 @@ export class AIChatManager {
 			}
 
 			this.messages.push(userMessage)
+			const modelLenAfterUser = this.messages.length
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
 
 			this.currentReply = ''
@@ -1000,6 +1090,13 @@ export class AIChatManager {
 					onReasoningDelta: (token) => (this.currentReasoning += token),
 					onReasoningStart: () => (this.currentReasoningActive = true),
 					onMessageEnd: () => {
+						// Keep the streamed text for the abort/error paths. Non-empty only:
+						// parsers flush (and reset) when a tool call starts after text, and
+						// the catch's later empty call would wipe it — stale keeps are
+						// deduped in commitInterruptedTurn.
+						if (this.currentReply) {
+							partialReply = this.currentReply
+						}
 						if (this.currentReply || this.currentReasoning) {
 							this.displayMessages = [
 								...this.displayMessages,
@@ -1062,27 +1159,78 @@ export class AIChatManager {
 				await this.loadApiTools()
 			}
 
-			const addedMessages = await this.chatRequest({
-				...params
+			await this.chatRequest({
+				...params,
+				addedMessages: collectedMessages,
+				onWebSearchUnavailable: () => {
+					webSearchUnavailable = true
+				}
 			})
-			this.messages = [...this.messages, ...(addedMessages ?? [])]
-			if (this.autoAcceptEditsActive) {
-				this.acceptPendingFlowEdits()
-			}
-			await this.historyManager.saveChat(this.displayMessages, this.messages)
-			if (isFirstUserTurn && this.afterFirstTurnSaved) {
-				void Promise.resolve(this.afterFirstTurnSaved()).catch((e) => {
-					console.error('AIChatManager afterFirstTurnSaved hook failed', e)
-				})
+			const wasAborted = this.abortController?.signal.aborted ?? false
+			// Pure reasoning doesn't count as usable: it's not replayed as context,
+			// so a reasoning-only turn is as unsent as a literally empty one.
+			const hasUsableOutput =
+				truncateToToolPairedPrefix(collectedMessages).length > 0 || !!partialReply.trim()
+			turnOutcomeHandled = true
+
+			if (wasAborted && hasUsableOutput) {
+				// Interrupted after some output: keep it so a follow-up like
+				// "continue" picks up from there.
+				this.commitInterruptedTurn(collectedMessages, partialReply)
+				if (this.autoAcceptEditsActive) {
+					this.acceptPendingFlowEdits()
+				}
+				await this.historyManager.saveChat(this.displayMessages, this.messages)
+				// Still counts as the saved first turn — skipping the hook here would
+				// permanently miss it (the next turn isn't "first" anymore).
+				if (isFirstUserTurn && this.afterFirstTurnSaved) {
+					void Promise.resolve(this.afterFirstTurnSaved()).catch((e) => {
+						console.error('AIChatManager afterFirstTurnSaved hook failed', e)
+					})
+				}
+			} else if (wasAborted || !hasUsableOutput) {
+				// Cancelled before anything usable, or the model returned nothing
+				// (or only reasoning) — treat the turn as unsent (matches Claude Code).
+				this.restoreUnsentTurn(displayLenAfterUser, modelLenAfterUser, sentInstructions, sentPastes)
+				if (this.displayMessages.length === 0) {
+					// saveChat no-ops on an empty transcript; the chat persisted earlier
+					// this turn would linger in history and resurface the rolled-back
+					// user message on reload. Remove it instead.
+					this.historyManager.deletePastChat(this.historyManager.getCurrentChatId())
+				} else {
+					await this.historyManager.saveChat(this.displayMessages, this.messages)
+				}
+				if (!wasAborted) {
+					sendUserToast('The model returned no response — your message was restored to the input.')
+				}
+			} else {
+				// Clean turn with output → commit as-is.
+				this.messages = [...this.messages, ...collectedMessages]
+				if (this.autoAcceptEditsActive) {
+					this.acceptPendingFlowEdits()
+				}
+				await this.historyManager.saveChat(this.displayMessages, this.messages)
+				if (isFirstUserTurn && this.afterFirstTurnSaved) {
+					void Promise.resolve(this.afterFirstTurnSaved()).catch((e) => {
+						console.error('AIChatManager afterFirstTurnSaved hook failed', e)
+					})
+				}
 			}
 		} catch (err) {
 			console.error(err)
-			this.flagLastMessageAsError()
-			if (err instanceof Error) {
-				sendUserToast('Failed to send request: ' + err.message, true)
-			} else {
-				sendUserToast('Failed to send request', true)
+			// Request failure: keep the usable output as context for a follow-up.
+			// Skipped when the throw came from post-outcome code (e.g. saveChat) —
+			// re-committing would duplicate the turn's messages.
+			if (!turnOutcomeHandled) {
+				this.commitInterruptedTurn(collectedMessages, partialReply)
+				try {
+					await this.historyManager.saveChat(this.displayMessages, this.messages)
+				} catch (saveErr) {
+					console.error('Failed to persist partial chat after error', saveErr)
+				}
+				this.flagLastMessageAsError()
 			}
+			sendUserToast(getSendRequestErrorMessage(err, webSearchUnavailable), true)
 		} finally {
 			this.loading = false
 		}

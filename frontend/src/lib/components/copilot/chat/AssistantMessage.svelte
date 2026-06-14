@@ -19,14 +19,15 @@
 
 	let { message }: Props = $props()
 
-	// Trimmed: rendered in a whitespace-pre-wrap block, so provider-sent leading/
-	// trailing whitespace would otherwise show as a stray space before the content.
 	const reasoning = $derived(
 		message.role === 'assistant' ? message.reasoning?.trim() || undefined : undefined
 	)
-	// Spinner while the reasoning text streams before the answer. Textless reasoning
-	// (e.g. OpenAI) is surfaced on the typing indicator instead of a card.
-	const reasoningStreaming = $derived(!!reasoning && !message.content)
+	// Spinner while the reasoning text streams before the answer. Only the live
+	// synthetic message carries `streaming` — a finalized reasoning-only message
+	// (thinking that led straight to a tool call) must not look in-progress.
+	const reasoningStreaming = $derived(
+		!!reasoning && message.role === 'assistant' && !!message.streaming && !message.content
+	)
 	// Expand while still thinking, collapse once the answer begins — unless toggled.
 	let reasoningToggled = $state<boolean | undefined>(undefined)
 	const reasoningExpanded = $derived(reasoningToggled ?? reasoningStreaming)
@@ -71,9 +72,7 @@
 </script>
 
 {#if reasoning}
-	<div
-		class="mb-2 bg-surface border border-border-light rounded-md overflow-hidden font-mono text-xs"
-	>
+	<div class="mb-2 bg-surface border border-border-light rounded-md overflow-hidden text-xs">
 		<button
 			class={twMerge(
 				'w-full p-2 bg-surface-secondary/30 hover:bg-surface-hover transition-colors flex items-center gap-2 text-left',
@@ -95,8 +94,14 @@
 		</button>
 
 		{#if reasoningExpanded}
-			<div class="p-2 bg-surface text-2xs text-secondary whitespace-pre-wrap break-words">
-				{reasoning}
+			<div
+				class="p-2 bg-surface text-secondary break-words prose prose-sm dark:prose-invert max-w-full leading-snug
+					prose-p:text-2xs prose-li:text-2xs prose-code:text-2xs prose-pre:text-2xs prose-ul:!pl-5
+					prose-headings:font-medium prose-headings:text-secondary prose-headings:mt-2 prose-headings:mb-1
+					prose-h1:text-2xs prose-h2:text-2xs prose-h3:text-2xs prose-h4:text-2xs prose-h5:text-2xs prose-h6:text-2xs
+					prose-strong:text-secondary"
+			>
+				<Markdown md={reasoning} plugins={[gfmPlugin()]} />
 			</div>
 		{/if}
 	</div>

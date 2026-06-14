@@ -58,12 +58,11 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	// Chat tree leaves carry either a workspace path (resolved to content
 	// at pick time) or a runtime ContextElement (added directly).
 	type ChatLeafData = WorkspaceItem | ContextElement
+	type DrillPickerHandle = {
+		handleKeydown: (e: KeyboardEvent) => void
+	}
 
-	// `DrillPicker.svelte` uses `<script generics="L">`; in Svelte 5 the
-	// emitted component class type is the bare `Component`, which can't be
-	// parameterised at the `bind:this` site. The only method `inner` is
-	// ever called against is `handleKeydown`, so drop the unusable generic.
-	let inner = $state<ReturnType<typeof DrillPicker> | undefined>(undefined)
+	let inner = $state<DrillPickerHandle | undefined>(undefined)
 
 	export function handleKeydown(e: KeyboardEvent) {
 		inner?.handleKeydown(e)

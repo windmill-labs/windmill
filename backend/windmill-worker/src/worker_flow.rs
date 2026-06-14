@@ -3268,7 +3268,7 @@ async fn push_next_flow_job(
     }
 
     // Compute and initialize last_job_result
-    let arc_last_job_result = if status_module.is_failure() {
+    let mut arc_last_job_result = if status_module.is_failure() {
         // if job is being retried, pass the result of its previous failure
         last_job_result.unwrap_or_else(|| Arc::new(to_raw_value(&json!("{}"))))
     } else if matches!(step, Step::Step { idx: 0, .. }) || step.is_preprocessor_step() {
@@ -3699,6 +3699,30 @@ async fn push_next_flow_job(
                  .context("update flow retry")?;
 
                 status_module = FlowStatusModule::WaitingForPriorSteps { id: status_module.id() };
+
+                // The failed attempt's error has already been consumed by `evaluate_retry`
+                // above. Restore `previous_result` to the preceding step's result (or the
+                // flow args for the first step) so that predicates re-evaluated for the
+                // retry (skip_if, loop iterator expressions, ...) don't see the failed
+                // attempt's error instead. Like the suspend/restart path above, this
+                // falls back to `"{}"` when the preceding step has no Success status
+                // (e.g. it failed with continue_on_error).
+                if !matches!(step, Step::FailureStep) {
+                    arc_last_job_result = if matches!(step, Step::Step { idx: 0, .. })
+                        || step.is_preprocessor_step()
+                    {
+                        Arc::new(to_raw_value(&flow_job.args))
+                    } else {
+                        match get_previous_job_result(db, flow_job.workspace_id.as_str(), &status)
+                            .warn_after_seconds(3)
+                            .await?
+                        {
+                            None => Arc::new(to_raw_value(&json!("{}"))),
+                            Some(previous_job_result) => Arc::new(previous_job_result),
+                        }
+                    };
+                }
+
                 // we get the args from the last failed job
                 status.retry.failed_jobs.last()
             /* Start the failure module ... */

@@ -24,6 +24,29 @@ interface ParsedCompletionResult {
 	tokenUsage: ChatTokenUsage
 }
 
+type WebSearchStatus = 'searching' | 'completed' | 'failed'
+
+function setAnthropicWebSearchStatus(
+	callbacks: ToolCallbacks & { onMessageEnd: () => void },
+	toolId: string,
+	status: WebSearchStatus,
+	errorCode?: string
+) {
+	const isLoading = status === 'searching'
+	const failed = status === 'failed'
+	callbacks.onMessageEnd()
+	callbacks.setToolStatus(`anthropic_web_search:${toolId}`, {
+		content: failed ? 'Web search failed' : isLoading ? 'Searching the web...' : 'Searched the web',
+		error: failed ? `Web search failed${errorCode ? `: ${errorCode}` : ''}` : undefined,
+		isLoading,
+		isStreamingArguments: false,
+		needsConfirmation: false,
+		toolName: 'web_search',
+		showDetails: false,
+		autoCollapseDetails: true
+	})
+}
+
 export async function getAnthropicCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
@@ -31,6 +54,7 @@ export async function getAnthropicCompletion(
 	options?: {
 		forceModelProvider?: AIProviderModel
 		anthropicClient?: Anthropic
+		webSearch?: boolean
 		reasoningEffort?: string
 	}
 ): Promise<MessageStream> {
@@ -40,20 +64,29 @@ export async function getAnthropicCompletion(
 		forceModelProvider: options?.forceModelProvider
 	})
 	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
-	const anthropicTools = convertOpenAIToolsToAnthropic(tools)
+	let anthropicTools = convertOpenAIToolsToAnthropic(tools)
+
+	// Enable Anthropic's server-side web search tool. The proxy forwards the body
+	// verbatim, so this reaches Anthropic as a native server tool that it executes
+	// itself (no client round-trip).
+	if (options?.webSearch) {
+		anthropicTools = [
+			...(anthropicTools ?? []),
+			{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }
+		]
+	}
 
 	const client = options?.anthropicClient ?? workspaceAIClients.getAnthropicClient()
 
-	// Adds output_config.effort + adaptive thinking (and strips temperature) when an
-	// effort is set; no-op otherwise. Returns the base shape unchanged when off.
+	// Adds output_config.effort + adaptive thinking when an effort is set;
+	// no-op otherwise. Returns the base shape unchanged when off.
 	const anthropicParams = applyReasoningToConfig(
 		{
 			model: config.model,
 			max_tokens: config.max_tokens as number,
 			messages: anthropicMessages,
 			...(system && { system }),
-			...(anthropicTools && { tools: anthropicTools }),
-			...(typeof config.temperature === 'number' && { temperature: config.temperature })
+			...(anthropicTools && { tools: anthropicTools })
 		},
 		'anthropic',
 		options?.reasoningEffort
@@ -117,6 +150,8 @@ export async function parseAnthropicCompletion(
 					showDetails: tool?.showDetails,
 					autoCollapseDetails: tool?.autoCollapseDetails
 				})
+			} else if (block.type === 'server_tool_use' && block.name === 'web_search') {
+				setAnthropicWebSearchStatus(callbacks, block.id, 'searching')
 			}
 		}
 	})
@@ -173,6 +208,14 @@ export async function parseAnthropicCompletion(
 				messages.push(assistantMessage)
 				addedMessages.push(assistantMessage)
 				callbacks.onMessageEnd()
+			} else if (block.type === 'web_search_tool_result') {
+				const errorCode = Array.isArray(block.content) ? undefined : block.content.error_code
+				setAnthropicWebSearchStatus(
+					callbacks,
+					block.tool_use_id,
+					errorCode ? 'failed' : 'completed',
+					errorCode
+				)
 			} else if (block.type === 'tool_use') {
 				// Convert Anthropic tool calls to OpenAI format for compatibility
 				toolCallsToProcess.push({
