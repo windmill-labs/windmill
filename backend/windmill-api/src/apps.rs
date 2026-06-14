@@ -507,13 +507,13 @@ async fn list_apps(
                FROM draft
                WHERE workspace_id = $1
                  AND typ IN ('app', 'raw_app')
-                 AND email = $2
+                 AND (email = $2 OR email IS NULL)
                  AND NOT EXISTS (
                      SELECT 1 FROM app a
                      WHERE a.workspace_id = draft.workspace_id
                        AND a.path = draft.path
                  )
-               ORDER BY path, created_at DESC"#,
+               ORDER BY path, (email IS NULL), created_at DESC"#,
             &w_id,
             &authed.email,
         )

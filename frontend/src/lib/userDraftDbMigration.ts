@@ -27,6 +27,8 @@
 import { DraftService } from './gen'
 import type { UserDraftItemKind } from './gen'
 import { sendUserToast } from './toast'
+import { getUsernameForNamespace } from './userNamespace'
+import { randomUUID } from './utils/uuid'
 
 // Mirror of `USER_DRAFT_ITEM_KINDS` from `userDraft.svelte.ts`. Inlined
 // here so the migration module can be imported without pulling in the
@@ -79,6 +81,12 @@ type ParsedKey = {
  * Returns `undefined` for keys that don't match the schema or whose
  * kind isn't one we recognize — we ignore those rather than risk
  * sending a junk POST.
+ *
+ * `path` is `''` for a legacy `/add` autosave: the new-item editor had
+ * no path yet, so the key was just `.../{kind}/`. The caller mints a
+ * fresh `u/{user}/draft_{uuid}` slot for those. A key without the
+ * trailing `{kind}/` never matches and falls through to `undefined`, so
+ * an empty `path` here always means the addable-slot case, not garbage.
  */
 function parseKey(key: string): ParsedKey | undefined {
 	if (!key.startsWith(KEY_PREFIX)) return undefined
@@ -91,11 +99,24 @@ function parseKey(key: string): ParsedKey | undefined {
 		const kindPrefix = `${kind}/`
 		if (afterWorkspace.startsWith(kindPrefix)) {
 			const path = afterWorkspace.slice(kindPrefix.length)
-			if (!path) return undefined
 			return { key, workspace, itemKind: kind, path }
 		}
 	}
 	return undefined
+}
+
+/**
+ * Mint a fresh `u/{user}/draft_{uuid}` slot for a pathless legacy `/add`
+ * autosave, matching the convention the editors' `/add` redirects use
+ * (`makeDraftAddLoad`). Underscores, not dashes — path segments are
+ * `[a-zA-Z0-9_]` words and downstream consumers treat `-` as foreign —
+ * and `randomUUID` rather than `crypto.randomUUID` (the WebCrypto version
+ * is unavailable on non-secure origins, common for self-hosted).
+ */
+function mintDraftAddPath(): string {
+	const username = getUsernameForNamespace()
+	const uuid = randomUUID().replaceAll('-', '_')
+	return `u/${username}/draft_${uuid}`
 }
 
 /**
@@ -159,6 +180,7 @@ export async function migrateUserDraftsToDb(): Promise<void> {
 	const toMigrate: {
 		key: string
 		parsed: ParsedKey
+		path: string
 		value: unknown
 		lastWrittenAt?: number
 	}[] = []
@@ -175,24 +197,34 @@ export async function migrateUserDraftsToDb(): Promise<void> {
 			}
 			continue
 		}
-		toMigrate.push({ key, parsed, value: payload.value, lastWrittenAt: payload.lastWrittenAt })
+		// A legacy `/add` autosave (`parsed.path === ''`) has no path of its
+		// own — give it a fresh `u/{user}/draft_{uuid}` slot so it lands as a
+		// regular draft-only item instead of being dropped.
+		const path = parsed.path === '' ? mintDraftAddPath() : parsed.path
+		toMigrate.push({
+			key,
+			parsed,
+			path,
+			value: payload.value,
+			lastWrittenAt: payload.lastWrittenAt
+		})
 	}
 	if (toMigrate.length === 0) return
 
 	// Legacy drafts detected — tell the user the one-off upload is running.
 	sendUserToast('Migrating local storage drafts ...', 'info')
 
-	for (const { key, parsed, value, lastWrittenAt } of toMigrate) {
+	for (const { key, parsed, path, value, lastWrittenAt } of toMigrate) {
 		try {
 			const res = await DraftService.saveDraft({
 				workspace: parsed.workspace,
 				kind: parsed.itemKind,
-				path: parsed.path,
+				path,
 				requestBody: { value, last_sync: new Date(lastWrittenAt ?? 0).toISOString() }
 			})
 			if (res.status === 'conflict') {
 				console.info(
-					`UserDraft LS→DB migration: server draft for ${parsed.path} is fresher, dropping LS copy`
+					`UserDraft LS→DB migration: server draft for ${path} is fresher, dropping LS copy`
 				)
 			}
 			try {
@@ -206,22 +238,18 @@ export async function migrateUserDraftsToDb(): Promise<void> {
 			// surface it so the user isn't silently stuck, with an escape
 			// hatch to drop the un-migratable draft.
 			console.error('UserDraft LS→DB migration: failed for', key, e)
-			sendUserToast(
-				`Could not migrate draft ${parsed.path} in workspace ${parsed.workspace}`,
-				'error',
-				[
-					{
-						label: 'Delete draft',
-						callback: () => {
-							try {
-								localStorage.removeItem(key)
-							} catch {
-								// ignore
-							}
+			sendUserToast(`Could not migrate draft ${path} in workspace ${parsed.workspace}`, 'error', [
+				{
+					label: 'Delete draft',
+					callback: () => {
+						try {
+							localStorage.removeItem(key)
+						} catch {
+							// ignore
 						}
 					}
-				]
-			)
+				}
+			])
 		}
 	}
 }

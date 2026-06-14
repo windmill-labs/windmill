@@ -330,14 +330,21 @@ where
         Vec::new()
     };
 
+    // Prefer the user's OWN per-user draft, falling back to the legacy
+    // NULL-email workspace draft (pre-per-user drafts + `draft_only`
+    // migration rows are all email IS NULL and shared workspace-wide).
+    // `NULLS LAST` puts the owned row first; `LIMIT 1` drops the legacy
+    // row when an owned one exists.
     let row = sqlx::query!(
         r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
                   created_at
            FROM draft
            WHERE workspace_id = $1
-             AND email = $2
+             AND (email = $2 OR email IS NULL)
              AND path = $3
-             AND typ = $4"#,
+             AND typ = $4
+           ORDER BY email NULLS LAST
+           LIMIT 1"#,
         w_id,
         email,
         path,
@@ -398,11 +405,17 @@ pub async fn fetch_draft_only_list_rows(
     };
     // `table` is from the closed `deployed_table()` enum mapping, never
     // user input. `typ` binds as text and casts to DRAFT_KIND.
+    // `(email = $3 OR email IS NULL)` surfaces the user's own draft-only
+    // rows AND the legacy NULL-email workspace rows (pre-per-user drafts +
+    // `draft_only` migration). `DISTINCT ON (path)` with `email IS NULL`
+    // last collapses a path that has both to the owned row.
     let sql = format!(
-        "SELECT path, value, created_at FROM draft \
-         WHERE workspace_id = $1 AND typ = $2::text::DRAFT_KIND AND email = $3 \
-         AND NOT EXISTS (SELECT 1 FROM {table} t \
-             WHERE t.workspace_id = draft.workspace_id AND t.path = draft.path)"
+        "SELECT DISTINCT ON (path) path, value, created_at FROM draft \
+         WHERE workspace_id = $1 AND typ = $2::text::DRAFT_KIND \
+           AND (email = $3 OR email IS NULL) \
+           AND NOT EXISTS (SELECT 1 FROM {table} t \
+             WHERE t.workspace_id = draft.workspace_id AND t.path = draft.path) \
+         ORDER BY path, (email IS NULL)"
     );
     let rows = sqlx::query_as::<_, DraftOnlyListRow>(&sql)
         .bind(w_id)
@@ -525,14 +538,18 @@ pub async fn fetch_draft_only(
     kind: UserDraftItemKind,
     path: &str,
 ) -> Result<Option<WithDraftOverlay>> {
+    // Prefer the user's OWN per-user draft, falling back to the legacy
+    // NULL-email workspace draft (see `maybe_overlay_draft`).
     let row = sqlx::query!(
         r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
                   created_at
            FROM draft
            WHERE workspace_id = $1
-             AND email = $2
+             AND (email = $2 OR email IS NULL)
              AND path = $3
-             AND typ = $4"#,
+             AND typ = $4
+           ORDER BY email NULLS LAST
+           LIMIT 1"#,
         w_id,
         email,
         path,

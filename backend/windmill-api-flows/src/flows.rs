@@ -254,19 +254,25 @@ async fn list_flows(
         && !lq.starred_only.unwrap_or(false)
         && !lq.show_archived.unwrap_or(false)
     {
+        // `(email = $2 OR email IS NULL)` surfaces the user's own draft-only
+        // rows AND the legacy NULL-email workspace rows (pre-per-user drafts +
+        // `draft_only` migration). `DISTINCT ON (path)` with `email IS NULL`
+        // last collapses a path that has both to the owned row.
         let draft_only_rows = sqlx::query!(
-            r#"SELECT path,
+            r#"SELECT DISTINCT ON (path)
+                      path,
                       value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
                       created_at
                FROM draft
                WHERE workspace_id = $1
                  AND typ = 'flow'
-                 AND email = $2
+                 AND (email = $2 OR email IS NULL)
                  AND NOT EXISTS (
                      SELECT 1 FROM flow f
                      WHERE f.workspace_id = draft.workspace_id
                        AND f.path = draft.path
-                 )"#,
+                 )
+               ORDER BY path, (email IS NULL)"#,
             &w_id,
             &authed.email,
         )

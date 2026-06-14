@@ -98,15 +98,21 @@ fn list_drafts_query() -> String {
         ));
     }
     case.push_str("  ELSE true\nEND");
+    // `(d.email = $2 OR d.email IS NULL)` lists the user's own drafts AND
+    // the legacy NULL-email workspace drafts (pre-per-user drafts +
+    // `draft_only` migration rows). `DISTINCT ON (d.path, d.typ)` with
+    // `d.email IS NULL` last collapses a (path, kind) that has both to the
+    // owned row.
     format!(
-        r#"SELECT d.path,
+        r#"SELECT DISTINCT ON (d.path, d.typ)
+                  d.path,
                   d.typ AS kind,
                   d.created_at,
                   d.value ->> 'summary' AS summary,
                   {case} AS draft_only
            FROM draft d
-           WHERE d.workspace_id = $1 AND d.email = $2
-           ORDER BY d.path"#
+           WHERE d.workspace_id = $1 AND (d.email = $2 OR d.email IS NULL)
+           ORDER BY d.path, d.typ, (d.email IS NULL)"#
     )
 }
 
