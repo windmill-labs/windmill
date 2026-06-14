@@ -263,9 +263,14 @@ async fn fetch_other_drafts_users(
     kind: UserDraftItemKind,
     path: &str,
 ) -> Result<Vec<OtherDraftUser>> {
+    // The `admins` workspace has no `usr` rows — there username IS the email
+    // (identity mapping) — so fall back to `d.email` when the join misses,
+    // otherwise a real teammate's draft would render as a phantom "Legacy
+    // draft". The genuine NULL-email legacy row keeps `username = None` (its
+    // `d.email` is NULL, so the CASE yields NULL too).
     let rows = sqlx::query_as!(
         OtherDraftUser,
-        r#"SELECT u.username as "username?"
+        r#"SELECT COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) as "username?"
            FROM draft d
            LEFT JOIN usr u
                   ON u.workspace_id = d.workspace_id

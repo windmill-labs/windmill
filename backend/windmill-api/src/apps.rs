@@ -403,8 +403,12 @@ async fn list_apps(
             "draft.path IS NOT NULL as is_draft",
             // All workspace users with a per-user draft at this path,
             // aggregated as a JSON array. Same shape & decoding as the
-            // scripts/flows list — see scripts.rs for the rationale.
-            "(SELECT json_agg(json_build_object('username', u.username) ORDER BY u.username NULLS LAST) \
+            // scripts/flows list — see scripts.rs for the rationale,
+            // including the `admins`-workspace identity fallback (username IS
+            // the email there, so resolve self via `d.email` rather than the
+            // absent `usr` row; the genuine NULL-email legacy row stays
+            // `None`).
+            "(SELECT json_agg(json_build_object('username', COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END)) ORDER BY COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) NULLS LAST) \
               FROM draft d \
               LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
               WHERE d.workspace_id = app.workspace_id AND d.path = app.path AND d.typ = 'app') as draft_users",

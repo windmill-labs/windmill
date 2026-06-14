@@ -348,6 +348,11 @@ async fn get_draft_for_user(
         .await?;
         match email {
             Some(e) => Some(e),
+            // The `admins` workspace has no `usr` rows — there username IS
+            // the email (identity mapping) — so the draft_users surface
+            // passes the email back as the "username". Accept it as the
+            // owner email directly rather than 404-ing.
+            None if w_id == "admins" => Some(username.clone()),
             None => {
                 return Err(Error::NotFound(format!(
                     "no user with username {username} in workspace"

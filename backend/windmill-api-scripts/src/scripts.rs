@@ -213,7 +213,13 @@ async fn list_scripts(
             // NULL (no rows) decodes to `None`; never returns an empty
             // array. LEFT JOIN to `usr` lets orphaned drafts (user removed
             // from the workspace) still surface with `username = None`.
-            "(SELECT json_agg(json_build_object('username', u.username) ORDER BY u.username NULLS LAST) \
+            // The `admins` workspace has no `usr` rows — there username IS
+            // the email (identity mapping) — so fall back to `d.email`
+            // there, otherwise the authed user's own draft would resolve to
+            // NULL and render as a phantom "Legacy workspace draft". The
+            // genuine legacy row keeps `username = None` (its `d.email` is
+            // NULL, so the CASE yields NULL too).
+            "(SELECT json_agg(json_build_object('username', COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END)) ORDER BY COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) NULLS LAST) \
               FROM draft d \
               LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
               WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'script') as draft_users",
