@@ -1739,7 +1739,7 @@ struct PrimaryKeyConstraintPayload {
 fn db_supports_schemas(db_type: DbType) -> bool {
     matches!(
         db_type,
-        DbType::Postgresql | DbType::Snowflake | DbType::Bigquery
+        DbType::Postgresql | DbType::Snowflake | DbType::Bigquery | DbType::Duckdb
     )
 }
 
@@ -2395,8 +2395,12 @@ fn expand_load_table_metadata(json_str: &str, db_type: DbType) -> Result<Expande
         return Ok(ExpandedQuery::with_language(code, ScriptLang::Bun));
     }
 
-    let query =
-        make_load_table_metadata_query(db_type, p.table.as_deref(), p.database_name.as_deref())?;
+    let query = make_load_table_metadata_query(
+        db_type,
+        p.table.as_deref(),
+        p.database_name.as_deref(),
+        p.ducklake.is_some(),
+    )?;
     Ok(ExpandedQuery::sql(maybe_wrap_ducklake(
         query,
         p.ducklake.as_deref(),
@@ -2407,12 +2411,12 @@ fn make_load_table_metadata_query(
     db_type: DbType,
     table: Option<&str>,
     database_name: Option<&str>,
+    is_ducklake: bool,
 ) -> Result<String, String> {
     match db_type {
         DbType::Duckdb => {
             // For ducklake, the ducklake ATTACH is handled by the ducklake wrapper.
-            let mut q = String::from(
-                "SELECT
+            let select_cols = "SELECT
     COLUMN_NAME as field,
     DATA_TYPE as DataType,
     COLUMN_DEFAULT as DefaultValue,
@@ -2420,14 +2424,34 @@ fn make_load_table_metadata_query(
     false as IsIdentity,
     CASE WHEN IS_NULLABLE = true THEN 'YES' ELSE 'NO' END as IsNullable,
     false as IsEnum,
-    TABLE_NAME as table_name
-FROM information_schema.columns c
-WHERE table_schema = current_schema()",
-            );
+    TABLE_NAME as table_name";
             if let Some(t) = table {
-                q.push_str(&format!(" AND TABLE_NAME = '{}'", escape_sql_literal(t)));
+                let parts: Vec<&str> = t.split('.').collect();
+                let tname = parts[parts.len() - 1];
+                let schema_filter = if parts.len() > 1 {
+                    format!("table_schema = '{}'", escape_sql_literal(parts[0]))
+                } else {
+                    "table_schema = current_schema()".to_string()
+                };
+                Ok(format!(
+                    "{}\nFROM information_schema.columns c\nWHERE table_catalog = current_database() AND {} AND TABLE_NAME = '{}'",
+                    select_cols,
+                    schema_filter,
+                    escape_sql_literal(tname)
+                ))
+            } else if is_ducklake {
+                // Ducklake schema browsing is not supported in the frontend: keep the
+                // single-schema behavior so table keys stay unqualified.
+                Ok(format!(
+                    "{}\nFROM information_schema.columns c\nWHERE table_schema = current_schema()",
+                    select_cols
+                ))
+            } else {
+                Ok(format!(
+                    "{},\n    TABLE_SCHEMA as schema_name\nFROM information_schema.columns c\nWHERE table_catalog = current_database() AND table_schema NOT IN ('information_schema', 'pg_catalog')",
+                    select_cols
+                ))
             }
-            Ok(q)
         }
         DbType::Mysql => {
             let explicit_db = database_name.filter(|s| !s.is_empty());
@@ -3724,7 +3748,7 @@ mod tests {
         );
         assert_eq!(
             table_ref("users", Some("myschema"), DbType::Duckdb),
-            r#""users""#
+            r#""myschema"."users""#
         );
     }
 
@@ -3846,6 +3870,13 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_DROP_TABLE {"table":"users","schema":"myschema"}"#;
         let sql = expand_code(marker, &ScriptLang::Mysql);
         assert_eq!(sql, "DROP TABLE `users`;");
+    }
+
+    #[test]
+    fn test_expand_drop_table_duckdb_with_schema() {
+        let marker = r#"-- WM_INTERNAL_DB_DROP_TABLE {"table":"users","schema":"myschema"}"#;
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
+        assert_eq!(sql, "DROP TABLE \"myschema\".\"users\";");
     }
 
     #[test]
@@ -4348,6 +4379,25 @@ mod tests {
         let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.contains("COLUMN_NAME as field"));
         assert!(sql.contains("TABLE_NAME = 'users'"));
+        assert!(sql.contains("table_schema = current_schema()"));
+    }
+
+    #[test]
+    fn test_expand_load_table_metadata_duckdb_schema_table() {
+        let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"table":"myschema.users"}"#;
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
+        assert!(sql.contains("TABLE_NAME = 'users'"));
+        assert!(sql.contains("table_schema = 'myschema'"));
+    }
+
+    #[test]
+    fn test_expand_load_table_metadata_duckdb_all_tables() {
+        let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {}"#;
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
+        assert!(sql.contains("TABLE_SCHEMA as schema_name"));
+        assert!(sql.contains("TABLE_NAME as table_name"));
+        assert!(sql.contains("table_catalog = current_database()"));
+        assert!(sql.contains("table_schema NOT IN ('information_schema', 'pg_catalog')"));
     }
 
     #[test]
@@ -4356,6 +4406,15 @@ mod tests {
         let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.starts_with("ATTACH 'ducklake://lake' AS dl;USE dl;\n"));
         assert!(sql.contains("TABLE_NAME = 'users'"));
+    }
+
+    #[test]
+    fn test_expand_load_table_metadata_ducklake_all_tables_stays_single_schema() {
+        let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"ducklake":"lake"}"#;
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
+        assert!(sql.starts_with("ATTACH 'ducklake://lake' AS dl;USE dl;\n"));
+        assert!(sql.contains("table_schema = current_schema()"));
+        assert!(!sql.contains("schema_name"));
     }
 
     // -----------------------------------------------------------------------
