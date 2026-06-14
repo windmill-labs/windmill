@@ -32,6 +32,7 @@
 	import { DraftService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { forkDraftToImport } from '$lib/components/forkDraftToImport'
+	import { userStore } from '$lib/stores'
 
 	type DraftUser = { username?: string | null }
 
@@ -276,16 +277,22 @@
 									>
 										View JSON
 									</Button>
-									<Button
-										variant="subtle"
-										size="xs3"
-										startIcon={{ icon: GitFork }}
-										disabled={busyFor !== null && busyFor !== ownerKey(u)}
-										loading={busyFor === ownerKey(u)}
-										on:click={() => fork(u)}
-									>
-										Fork
-									</Button>
+									<!-- Operators can't create workspace items, so forking
+									     another user's draft into a new item is meaningless
+									     for them — hide the action (View JSON stays: it's
+									     read-only). -->
+									{#if !$userStore?.operator}
+										<Button
+											variant="subtle"
+											size="xs3"
+											startIcon={{ icon: GitFork }}
+											disabled={busyFor !== null && busyFor !== ownerKey(u)}
+											loading={busyFor === ownerKey(u)}
+											on:click={() => fork(u)}
+										>
+											Fork
+										</Button>
+									{/if}
 								{/if}
 							</li>
 						{/each}
