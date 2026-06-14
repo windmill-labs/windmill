@@ -2333,12 +2333,14 @@ async fn execute_component(
                 &policy
             };
 
-            // Caller-supplied inline code (no deployed `app_script` row). Its
-            // `rawscript/<sha>` key must be explicitly present in the policy
-            // triggerables below — it must never resolve via the Viewer default
-            // fallback, or any caller could substitute code the publisher never
-            // authorized (and run it as themselves).
-            let is_inline_raw_code = payload.raw_code.is_some() && payload.id.is_none();
+            // Caller-supplied inline code (`raw_code`), with or without an
+            // `app_script` id. Its resolved `rawscript/<sha>` key must be present
+            // in the policy triggerables below — it must never resolve via the
+            // Viewer default fallback. Without `id` the caller supplies the code
+            // verbatim; with `id` it selects any `app_script` row by number (no
+            // app/workspace scoping), so both let a caller run code the publisher
+            // never pinned for this app.
+            let is_inline_raw_code = payload.raw_code.is_some();
 
             // Compute the path for the triggerables map:
             // - flow: `flow/<payload.path>`
@@ -2377,11 +2379,12 @@ async fn execute_component(
                 .get(path) // start with `path` in case we can avoid the next` format!`.
                 .or_else(|| triggerables_v2.get(&format!("{}:{}", payload.component, &path)))
                 .or(match policy.execution_mode {
-                    // A Viewer app may invoke any deployed runnable it references
-                    // (resolved as the caller), but caller-supplied inline code
-                    // must match a publisher-pinned `rawscript/<sha>` entry —
-                    // otherwise an unauthorized caller (e.g. an operator, who is
-                    // barred from `/jobs/run/preview`) could run arbitrary code.
+                    // A Viewer app may invoke any deployed `script`/`flow` it
+                    // references (resolved as the caller), but caller-supplied
+                    // inline `raw_code` must match a publisher-pinned
+                    // `rawscript/<sha>` entry — otherwise an unauthorized caller
+                    // (e.g. an operator, barred from `/jobs/run/preview`) could
+                    // run code the publisher never pinned for this app.
                     ExecutionMode::Viewer if !is_inline_raw_code => {
                         Some(&policy_triggerables_default)
                     }

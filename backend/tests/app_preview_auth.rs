@@ -259,13 +259,12 @@ async fn test_app_preview_authorization(db: Pool<Postgres>) -> anyhow::Result<()
         "rejection must be the jobs:run scope gate, got: {body}"
     );
 
-    // 9. RUN-MODE REGRESSION (CVE-2026-22683 residual): against a *deployed*
-    //    Viewer-mode app, run mode (no `force_viewer_static_fields`) must NOT let
-    //    a caller substitute arbitrary inline `raw_code`. Pre-fix the
-    //    `rawscript/<sha>` lookup fell back to the Viewer default triggerable, so
-    //    the operator's code was enqueued and ran as them (200 + job UUID, the
-    //    exact preview class blocked in step 1). Post-fix the unpinned sha is
-    //    rejected by the policy.
+    // 9. RUN-MODE REGRESSION (CVE-2026-22683 residual): in run mode (no
+    //    `force_viewer_static_fields`) against a deployed Viewer-mode app,
+    //    caller-supplied inline `raw_code` whose `rawscript/<sha>` is not pinned
+    //    in the app's `triggerables_v2` must be rejected by the policy — it must
+    //    not resolve via the Viewer default triggerable and run as the caller
+    //    (the same preview-class execution an operator is denied in step 1).
     let run_mode_raw_code = json!({
         "args": {},
         "component": "comp",
@@ -309,6 +308,40 @@ async fn test_app_preview_authorization(db: Pool<Postgres>) -> anyhow::Result<()
     assert_eq!(
         status, 400,
         "run-mode unpinned raw_code must be rejected for any caller, not just operators (got {status}): {body}"
+    );
+
+    // 11. The pin requirement also covers `raw_code` carrying an `app_script`
+    //     `id`. The id resolves to `rawscript/<code_sha256>` of any app_script row
+    //     by number (no app scoping), so without the pin a caller could run a
+    //     script belonging to another app against this Viewer app. Here `999777`
+    //     belongs to `u/test-user/private`, not to the targeted `vapp`, and its
+    //     sha is absent from `vapp`'s empty `triggerables_v2` — it must be
+    //     rejected, not fall back to the Viewer default.
+    let resp = authed(
+        client().post(format!("{base}/u/test-user/vapp")),
+        "OPERATOR_TOKEN",
+    )
+    .json(&json!({
+        "args": {},
+        "component": "comp",
+        "id": 999777,
+        "raw_code": {
+            "language": "deno",
+            "content": "export function main() { return 1; }",
+            "path": "x"
+        }
+    }))
+    .send()
+    .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(
+        status, 400,
+        "run-mode raw_code with an unpinned app_script id must be rejected against a Viewer app (got {status}): {body}"
+    );
+    assert!(
+        body.contains("forbidden by policy"),
+        "rejection must be the content-hash pin (unpinned app_script sha), got: {body}"
     );
 
     Ok(())
