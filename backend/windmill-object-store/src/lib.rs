@@ -53,6 +53,7 @@ use tokio::task;
 use windmill_common::error::to_anyhow;
 #[cfg(feature = "parquet")]
 use windmill_common::jobs::is_safe_log_file_path;
+#[cfg(feature = "parquet")]
 use windmill_common::utils::rd_string;
 #[cfg(all(feature = "parquet", feature = "private"))]
 pub mod job_s3_helpers_ee;
