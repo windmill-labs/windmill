@@ -36,9 +36,9 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     scripts::ScriptHash,
     user_drafts::{
-        decrypt_draft_secret_value, delete_all_drafts_for_path, fetch_draft_only,
-        fetch_draft_only_list_rows, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay,
-        ENCRYPTED_DRAFT_PREFIX,
+        decrypt_draft_secret_value, delete_all_drafts_for_path, delete_own_draft_for_path,
+        fetch_draft_only, fetch_draft_only_list_rows, maybe_overlay_draft, UserDraftItemKind,
+        WithDraftOverlay, ENCRYPTED_DRAFT_PREFIX,
     },
     utils::{not_found_if_none, paginate, Pagination, StripPath, WarnAfterExt},
     variables::{
@@ -944,12 +944,12 @@ async fn delete_variables_bulk(
     )
     .execute(&mut *tx)
     .await?;
-    sqlx::query!(
-        "DELETE FROM resource WHERE path = ANY($1) AND workspace_id = $2",
+    let deleted_resource_paths = sqlx::query_scalar!(
+        "DELETE FROM resource WHERE path = ANY($1) AND workspace_id = $2 RETURNING path",
         &deleted_paths,
         w_id
     )
-    .execute(&mut *tx)
+    .fetch_all(&mut *tx)
     .await?;
 
     sqlx::query!(
@@ -972,6 +972,16 @@ async fn delete_variables_bulk(
     .await?;
 
     tx.commit().await?;
+
+    // The variables are gone for everyone — wipe ALL users' drafts for these
+    // paths (and the linked resources we cascaded into), mirroring the single
+    // delete_variable. Idempotent on no-draft.
+    for path in &deleted_paths {
+        delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Variable, path).await?;
+    }
+    for path in &deleted_resource_paths {
+        delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Resource, path).await?;
+    }
 
     // Delete secrets from Vault backend (if configured)
     for path in &secret_paths {
@@ -1337,6 +1347,30 @@ async fn update_variable(
 
     // Detect if this was a rename operation
     let old_path_if_renamed = if npath != path { Some(path) } else { None };
+
+    // On rename the per-user draft at the OLD path orphans (no SQL FK to
+    // cascade). Clear the deployer's own (+ legacy NULL) there, mirroring the
+    // script/flow/app rename path; teammates keep theirs (StaleDraftModal).
+    // The linked resource is renamed alongside the variable, so its draft at
+    // the old path orphans too.
+    if let Some(old_path) = old_path_if_renamed {
+        delete_own_draft_for_path(
+            &db,
+            &w_id,
+            UserDraftItemKind::Variable,
+            old_path,
+            &authed.email,
+        )
+        .await?;
+        delete_own_draft_for_path(
+            &db,
+            &w_id,
+            UserDraftItemKind::Resource,
+            old_path,
+            &authed.email,
+        )
+        .await?;
+    }
 
     handle_deployment_metadata(
         &authed.email,

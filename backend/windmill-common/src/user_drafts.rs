@@ -474,6 +474,36 @@ pub async fn delete_all_drafts_for_path(
     Ok(())
 }
 
+/// Discard the deploying user's OWN draft (plus the legacy NULL-email
+/// workspace draft) for a path+kind, leaving teammates' drafts intact.
+/// Use on RENAME: the item moved to a new path, so the per-user draft
+/// left at the old path is orphaned and there's no SQL FK to cascade it.
+/// Other users' drafts are independent — they keep theirs and get the
+/// StaleDraftModal on their next reload, mirroring the script/flow/app
+/// rename path. Idempotent on the no-draft case.
+pub async fn delete_own_draft_for_path(
+    db: &DB,
+    w_id: &str,
+    kind: UserDraftItemKind,
+    path: &str,
+    email: &str,
+) -> Result<()> {
+    sqlx::query!(
+        r#"DELETE FROM draft
+           WHERE workspace_id = $1
+             AND path = $2
+             AND typ = $3
+             AND (email = $4 OR email IS NULL)"#,
+        w_id,
+        path,
+        kind as UserDraftItemKind,
+        email,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 /// Fetch the authed user's draft as a standalone payload, used by
 /// "get by path" routes when no deployed row exists at the path but a
 /// draft might. Returns the draft as `WithDraftOverlay` with both

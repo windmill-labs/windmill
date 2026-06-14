@@ -17,8 +17,8 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     user_drafts::{
-        delete_all_drafts_for_path, fetch_draft_only_list_rows, overlay_or_draft_only,
-        UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+        delete_all_drafts_for_path, delete_own_draft_for_path, fetch_draft_only_list_rows,
+        overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
     },
     utils::{paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
@@ -839,6 +839,21 @@ async fn update_trigger<T: TriggerCrud>(
     .await?;
 
     tx.commit().await?;
+
+    // On rename the per-user draft at the OLD path orphans (no SQL FK to
+    // cascade). Clear the deployer's own (+ legacy NULL) there, mirroring
+    // delete_trigger's draft cleanup and the script/flow/app rename path;
+    // teammates keep theirs (StaleDraftModal on reload).
+    if path != new_path {
+        delete_own_draft_for_path(
+            &db,
+            &workspace_id,
+            T::user_draft_item_kind(),
+            path,
+            &authed.email,
+        )
+        .await?;
+    }
 
     Ok(format!("Trigger '{}' updated", path))
 }

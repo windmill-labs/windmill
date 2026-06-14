@@ -44,8 +44,9 @@ use windmill_common::{
     error::{self, Error, JsonResult, Result},
     get_database_url,
     user_drafts::{
-        delete_all_drafts_for_path, fetch_draft_only, fetch_draft_only_list_rows,
-        maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+        delete_all_drafts_for_path, delete_own_draft_for_path, fetch_draft_only,
+        fetch_draft_only_list_rows, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay,
+        WithDraftQuery,
     },
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
@@ -1608,6 +1609,16 @@ async fn delete_resources_bulk(
 
     tx.commit().await?;
 
+    // The resources are gone for everyone — wipe ALL users' drafts for these
+    // paths (and the linked variables we cascaded into), mirroring the single
+    // delete_resource. Idempotent on no-draft.
+    for path in &deleted_paths {
+        delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Resource, path).await?;
+    }
+    for var_path in &linked_var_paths {
+        delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Variable, var_path).await?;
+    }
+
     try_join_all(deleted_paths.iter().map(|path| {
         handle_deployment_metadata(
             &authed.email,
@@ -1834,6 +1845,30 @@ async fn update_resource(
 
     // Detect if this was a rename operation
     let old_path_if_renamed = if npath != path { Some(path) } else { None };
+
+    // On rename the per-user draft at the OLD path orphans (no SQL FK to
+    // cascade). Clear the deployer's own (+ legacy NULL) there, mirroring the
+    // script/flow/app rename path; teammates keep theirs (StaleDraftModal).
+    // The linked variable is renamed alongside the resource, so its draft at
+    // the old path orphans too.
+    if let Some(old_path) = old_path_if_renamed {
+        delete_own_draft_for_path(
+            &db,
+            &w_id,
+            UserDraftItemKind::Resource,
+            old_path,
+            &authed.email,
+        )
+        .await?;
+        delete_own_draft_for_path(
+            &db,
+            &w_id,
+            UserDraftItemKind::Variable,
+            old_path,
+            &authed.email,
+        )
+        .await?;
+    }
 
     handle_deployment_metadata(
         &authed.email,
