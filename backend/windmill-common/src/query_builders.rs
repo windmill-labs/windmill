@@ -304,6 +304,10 @@ pub fn try_expand_internal_db_query(
             expand_primary_key_constraint(json_str, db_type).map(ExpandedQuery::sql)
         }
         "SNOWFLAKE_PRIMARY_KEYS" => expand_snowflake_primary_keys(json_str).map(ExpandedQuery::sql),
+        // Index management
+        "LIST_INDEXES" => expand_list_indexes(json_str, db_type).map(ExpandedQuery::sql),
+        "CREATE_INDEX" => expand_create_index(json_str, db_type).map(ExpandedQuery::sql),
+        "DROP_INDEX" => expand_drop_index(json_str, db_type).map(ExpandedQuery::sql),
         _ => Err(format!("Unknown WM_INTERNAL_DB operation: {}", op)),
     };
 
@@ -1734,6 +1738,53 @@ struct PrimaryKeyConstraintPayload {
     ducklake: Option<String>,
 }
 
+// --- Index management payload structs ---
+
+#[derive(Deserialize)]
+struct ListIndexesPayload {
+    table: String,
+    schema: Option<String>,
+}
+
+/// A single key of an index: either a plain column (`is_expression: false`,
+/// quoted as an identifier) or an arbitrary expression (`is_expression: true`,
+/// wrapped in parentheses and emitted verbatim, e.g. `lower(email)`).
+#[derive(Debug, Clone, Deserialize)]
+struct IndexColumn {
+    value: String,
+    #[serde(default, rename = "isExpression")]
+    is_expression: bool,
+}
+
+#[derive(Deserialize)]
+struct CreateIndexPayload {
+    /// Optional index name. When omitted, the database auto-generates one.
+    name: Option<String>,
+    table: String,
+    schema: Option<String>,
+    columns: Vec<IndexColumn>,
+    #[serde(default)]
+    unique: bool,
+    /// Index access method, e.g. btree/hash/gin/gist/brin/spgist. Defaults to the DB default.
+    method: Option<String>,
+    /// Partial-index predicate (raw SQL, emitted after WHERE).
+    #[serde(rename = "where")]
+    where_predicate: Option<String>,
+    /// Covering (INCLUDE) columns.
+    #[serde(default)]
+    include: Vec<String>,
+    #[serde(default)]
+    concurrent: bool,
+}
+
+#[derive(Deserialize)]
+struct DropIndexPayload {
+    name: String,
+    schema: Option<String>,
+    #[serde(default)]
+    concurrent: bool,
+}
+
 // --- Helper functions ---
 
 fn db_supports_schemas(db_type: DbType) -> bool {
@@ -2599,6 +2650,192 @@ fn expand_primary_key_constraint(json_str: &str, db_type: DbType) -> Result<Stri
         .map_err(|e| format!("Invalid PRIMARY_KEY_CONSTRAINT payload: {}", e))?;
     let query = make_primary_key_constraint_query(db_type, &p.table, p.schema.as_deref())?;
     Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
+}
+
+// ---------------------------------------------------------------------------
+// Index management
+//
+// PostgreSQL-only for now, but structured per-`db_type` so other dialects can
+// be added later. Unsupported dialects return an explicit error.
+// None of these wrap the statement in BEGIN/COMMIT, so `CONCURRENTLY` is legal.
+// ---------------------------------------------------------------------------
+
+/// Allowed PostgreSQL index access methods (allowlist guards against injection
+/// since the method is emitted as a bare keyword, not a quoted literal).
+/// Keep in sync with `INDEX_METHODS` in `frontend/src/lib/components/DBIndexManager.svelte`.
+const PG_INDEX_METHODS: &[&str] = &["btree", "hash", "gin", "gist", "brin", "spgist"];
+
+/// Resolve a (schema, table) pair for an index operation.
+///
+/// `table` may be bare (`users`) or schema-qualified (`reporting.users`). When
+/// qualified, the embedded schema takes precedence over `default_schema` — the
+/// frontend always sends a bare table plus a separate schema, so this only
+/// matters if a caller dot-qualifies the table. Only one- or two-part names are
+/// accepted; PostgreSQL has no 3-part (db.schema.table) names, so anything with
+/// more dots is rejected rather than silently dropping the middle parts.
+fn split_table_schema<'a>(
+    table: &'a str,
+    default_schema: &'a str,
+) -> Result<(&'a str, &'a str), String> {
+    let parts: Vec<&str> = table.split('.').collect();
+    match parts.as_slice() {
+        [t] => Ok((default_schema, *t)),
+        [s, t] => Ok((*s, *t)),
+        _ => Err(format!(
+            "Invalid table name '{}': expected 'table' or 'schema.table'",
+            table
+        )),
+    }
+}
+
+fn expand_list_indexes(json_str: &str, db_type: DbType) -> Result<String, String> {
+    let p: ListIndexesPayload = serde_json::from_str(json_str)
+        .map_err(|e| format!("Invalid LIST_INDEXES payload: {}", e))?;
+    match db_type {
+        DbType::Postgresql => {
+            let (schema_name, table_name) =
+                split_table_schema(&p.table, p.schema.as_deref().unwrap_or("public"))?;
+            Ok(format!(
+                "SELECT
+    ic.relname AS index_name,
+    pg_get_indexdef(i.indexrelid) AS index_def,
+    i.indisunique AS is_unique,
+    i.indisprimary AS is_primary,
+    i.indisvalid AS is_valid,
+    am.amname AS method,
+    pg_relation_size(i.indexrelid) AS size_bytes,
+    EXISTS (SELECT 1 FROM pg_catalog.pg_constraint con WHERE con.conindid = i.indexrelid) AS backs_constraint
+FROM pg_catalog.pg_index i
+    JOIN pg_catalog.pg_class ic ON ic.oid = i.indexrelid
+    JOIN pg_catalog.pg_class tc ON tc.oid = i.indrelid
+    JOIN pg_catalog.pg_namespace ns ON ns.oid = tc.relnamespace
+    JOIN pg_catalog.pg_am am ON am.oid = ic.relam
+WHERE tc.relname = '{}' AND ns.nspname = '{}'
+ORDER BY ic.relname;",
+                escape_sql_literal(table_name),
+                escape_sql_literal(schema_name),
+            ))
+        }
+        _ => Err("Index management is only supported for PostgreSQL".to_string()),
+    }
+}
+
+fn expand_create_index(json_str: &str, db_type: DbType) -> Result<String, String> {
+    let p: CreateIndexPayload = serde_json::from_str(json_str)
+        .map_err(|e| format!("Invalid CREATE_INDEX payload: {}", e))?;
+    match db_type {
+        DbType::Postgresql => make_pg_create_index_query(&p),
+        _ => Err("Index management is only supported for PostgreSQL".to_string()),
+    }
+}
+
+fn make_pg_create_index_query(p: &CreateIndexPayload) -> Result<String, String> {
+    if p.columns.is_empty() {
+        return Err("CREATE INDEX requires at least one column".to_string());
+    }
+    // The backend is authoritative: reject blank/whitespace-only columns rather
+    // than emitting an empty key (the frontend filters these, but don't rely on it).
+    if p.columns.iter().any(|c| c.value.trim().is_empty()) {
+        return Err("Index columns must not be empty".to_string());
+    }
+
+    let method = match p.method.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+        Some(m) => {
+            let lower = m.to_lowercase();
+            if !PG_INDEX_METHODS.contains(&lower.as_str()) {
+                return Err(format!(
+                    "Unsupported index method '{}'. Allowed: {}",
+                    m,
+                    PG_INDEX_METHODS.join(", ")
+                ));
+            }
+            Some(lower)
+        }
+        None => None,
+    };
+
+    let (schema_name, table_name) =
+        split_table_schema(&p.table, p.schema.as_deref().unwrap_or("public"))?;
+    let tref = format!(
+        "{}.{}",
+        qi(schema_name, DbType::Postgresql),
+        qi(table_name, DbType::Postgresql)
+    );
+
+    let cols = p
+        .columns
+        .iter()
+        .map(|c| {
+            let v = c.value.trim();
+            if c.is_expression {
+                format!("({})", v)
+            } else {
+                qi(v, DbType::Postgresql)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let mut query = String::from("CREATE ");
+    if p.unique {
+        query.push_str("UNIQUE ");
+    }
+    query.push_str("INDEX ");
+    if p.concurrent {
+        query.push_str("CONCURRENTLY ");
+    }
+    if let Some(name) = p.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        query.push_str(&qi(name, DbType::Postgresql));
+        query.push(' ');
+    }
+    query.push_str(&format!("ON {}", tref));
+    if let Some(m) = &method {
+        query.push_str(&format!(" USING {}", m));
+    }
+    query.push_str(&format!(" ({})", cols));
+
+    let include: Vec<String> = p
+        .include
+        .iter()
+        .map(|c| c.trim())
+        .filter(|c| !c.is_empty())
+        .map(|c| qi(c, DbType::Postgresql))
+        .collect();
+    if !include.is_empty() {
+        query.push_str(&format!(" INCLUDE ({})", include.join(", ")));
+    }
+
+    if let Some(pred) = p
+        .where_predicate
+        .as_deref()
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
+    {
+        query.push_str(&format!(" WHERE {}", pred));
+    }
+
+    query.push(';');
+    Ok(query)
+}
+
+fn expand_drop_index(json_str: &str, db_type: DbType) -> Result<String, String> {
+    let p: DropIndexPayload =
+        serde_json::from_str(json_str).map_err(|e| format!("Invalid DROP_INDEX payload: {}", e))?;
+    match db_type {
+        DbType::Postgresql => {
+            let iref = match p.schema.as_deref().filter(|s| !s.is_empty()) {
+                Some(s) => format!(
+                    "{}.{}",
+                    qi(s, DbType::Postgresql),
+                    qi(&p.name, DbType::Postgresql)
+                ),
+                None => qi(&p.name, DbType::Postgresql),
+            };
+            let concurrently = if p.concurrent { "CONCURRENTLY " } else { "" };
+            Ok(format!("DROP INDEX {}IF EXISTS {};", concurrently, iref))
+        }
+        _ => Err("Index management is only supported for PostgreSQL".to_string()),
+    }
 }
 
 #[derive(Deserialize)]
@@ -4581,6 +4818,130 @@ mod tests {
         assert!(sql.contains("\"order_id\" = $1"));
         assert!(sql.contains("\"item_id\" = $2"));
         assert!(!sql.contains("\"quantity\""));
+    }
+
+    // -----------------------------------------------------------------------
+    // Index management
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_list_indexes_postgresql() {
+        let marker = r#"-- WM_INTERNAL_DB_LIST_INDEXES {"table":"users","schema":"public"}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        assert!(sql.contains("pg_get_indexdef(i.indexrelid)"));
+        assert!(sql.contains("backs_constraint"));
+        assert!(sql.contains("tc.relname = 'users'"));
+        assert!(sql.contains("ns.nspname = 'public'"));
+    }
+
+    #[test]
+    fn test_list_indexes_defaults_to_public_schema() {
+        let marker = r#"-- WM_INTERNAL_DB_LIST_INDEXES {"table":"users"}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        assert!(sql.contains("ns.nspname = 'public'"));
+    }
+
+    #[test]
+    fn test_list_indexes_schema_qualified_table() {
+        let marker = r#"-- WM_INTERNAL_DB_LIST_INDEXES {"table":"reporting.users"}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        assert!(sql.contains("tc.relname = 'users'"));
+        assert!(sql.contains("ns.nspname = 'reporting'"));
+    }
+
+    #[test]
+    fn test_create_index_basic() {
+        let marker =
+            r#"-- WM_INTERNAL_DB_CREATE_INDEX {"table":"users","columns":[{"value":"email"}]}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        assert_eq!(sql, "CREATE INDEX ON \"public\".\"users\" (\"email\");");
+    }
+
+    #[test]
+    fn test_create_index_full_options() {
+        let marker = r#"-- WM_INTERNAL_DB_CREATE_INDEX {"name":"idx_active_email","table":"users","schema":"app","columns":[{"value":"email"},{"value":"created_at"}],"unique":true,"method":"btree","include":["id"],"where":"active = true","concurrent":true}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        assert_eq!(
+            sql,
+            "CREATE UNIQUE INDEX CONCURRENTLY \"idx_active_email\" ON \"app\".\"users\" USING btree (\"email\", \"created_at\") INCLUDE (\"id\") WHERE active = true;"
+        );
+    }
+
+    #[test]
+    fn test_create_index_expression() {
+        let marker = r#"-- WM_INTERNAL_DB_CREATE_INDEX {"table":"users","columns":[{"value":"lower(email)","isExpression":true}]}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        assert_eq!(
+            sql,
+            "CREATE INDEX ON \"public\".\"users\" ((lower(email)));"
+        );
+    }
+
+    #[test]
+    fn test_create_index_rejects_unknown_method() {
+        let marker = r#"-- WM_INTERNAL_DB_CREATE_INDEX {"table":"users","columns":[{"value":"email"}],"method":"bogus"}"#;
+        let result = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
+            .expect("should be recognized as a marker");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_index_rejects_empty_columns() {
+        let marker = r#"-- WM_INTERNAL_DB_CREATE_INDEX {"table":"users","columns":[]}"#;
+        let result = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
+            .expect("should be recognized as a marker");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_index_rejects_blank_column() {
+        let marker =
+            r#"-- WM_INTERNAL_DB_CREATE_INDEX {"table":"users","columns":[{"value":"   "}]}"#;
+        let result = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
+            .expect("should be recognized as a marker");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_index_rejects_three_part_table() {
+        let marker = r#"-- WM_INTERNAL_DB_CREATE_INDEX {"table":"db.public.users","columns":[{"value":"email"}]}"#;
+        let result = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
+            .expect("should be recognized as a marker");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_index_qualified_table_overrides_schema() {
+        // schema-qualified table wins over the separate schema arg
+        let marker = r#"-- WM_INTERNAL_DB_CREATE_INDEX {"table":"reporting.users","schema":"public","columns":[{"value":"email"}]}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        assert_eq!(sql, "CREATE INDEX ON \"reporting\".\"users\" (\"email\");");
+    }
+
+    #[test]
+    fn test_drop_index_basic() {
+        let marker = r#"-- WM_INTERNAL_DB_DROP_INDEX {"name":"idx_users_email"}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        assert_eq!(sql, "DROP INDEX IF EXISTS \"idx_users_email\";");
+    }
+
+    #[test]
+    fn test_drop_index_concurrent_with_schema() {
+        let marker = r#"-- WM_INTERNAL_DB_DROP_INDEX {"name":"idx_users_email","schema":"app","concurrent":true}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        assert_eq!(
+            sql,
+            "DROP INDEX CONCURRENTLY IF EXISTS \"app\".\"idx_users_email\";"
+        );
+    }
+
+    #[test]
+    fn test_index_ops_rejected_for_non_postgres() {
+        let marker =
+            r#"-- WM_INTERNAL_DB_CREATE_INDEX {"table":"users","columns":[{"value":"email"}]}"#;
+        let result = try_expand_internal_db_query(marker, &ScriptLang::Mysql)
+            .expect("should be recognized as a marker");
+        assert!(result.is_err());
     }
 }
 

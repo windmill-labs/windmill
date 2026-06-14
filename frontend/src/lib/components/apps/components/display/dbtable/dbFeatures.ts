@@ -9,6 +9,7 @@ export type DbFeatures = {
 	primaryKeys?: boolean
 	defaultValues?: boolean
 	schemas?: boolean
+	indexes?: boolean
 }
 
 export function getDbFeatures(dbInput: DbInput): Required<DbFeatures> {
@@ -17,7 +18,10 @@ export function getDbFeatures(dbInput: DbInput): Required<DbFeatures> {
 		primaryKeys: true,
 		defaultValues: true,
 		enforcedForeignKeys: true,
-		schemas: dbInput.type !== 'ducklake' && dbSupportsSchemas(dbInput.resourceType)
+		schemas: dbInput.type !== 'ducklake' && dbSupportsSchemas(dbInput.resourceType),
+		// Index management is currently PostgreSQL-only (backend markers reject
+		// other dialects). Structured as a flag so it can be widened later.
+		indexes: dbInput.type !== 'ducklake' && dbInput.resourceType === 'postgresql'
 	}
 
 	if (dbInput.type == 'ducklake')
