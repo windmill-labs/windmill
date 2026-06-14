@@ -812,6 +812,49 @@ impl process_wrap::tokio::TokioChildWrapper for WindowsJobChild {
     }
 }
 
+/// Resume all threads of a process created with CREATE_SUSPENDED. We create the child
+/// suspended so it can be assigned to its job object before running any code; otherwise
+/// a child that forks a helper at startup could create it before the assignment and
+/// leave it outside the job (escaping KILL_ON_JOB_CLOSE reaping / the memory cap).
+/// (Ported from process-wrap's resume_threads.)
+#[cfg(windows)]
+fn resume_process(pid: u32) -> Result<(), std::io::Error> {
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
+    };
+    use windows::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
+
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("CreateToolhelp32Snapshot: {e}"),
+            )
+        })?;
+        let mut entry = THREADENTRY32 {
+            dwSize: std::mem::size_of::<THREADENTRY32>() as u32,
+            cntUsage: 0,
+            th32ThreadID: 0,
+            th32OwnerProcessID: 0,
+            tpBasePri: 0,
+            tpDeltaPri: 0,
+            dwFlags: 0,
+        };
+        let mut res = Thread32First(snapshot, &mut entry);
+        while res.is_ok() {
+            if entry.th32OwnerProcessID == pid {
+                if let Ok(thread) = OpenThread(THREAD_SUSPEND_RESUME, false, entry.th32ThreadID) {
+                    ResumeThread(thread);
+                    let _ = windows::Win32::Foundation::CloseHandle(thread);
+                }
+            }
+            res = Thread32Next(snapshot, &mut entry);
+        }
+        let _ = windows::Win32::Foundation::CloseHandle(snapshot);
+    }
+    Ok(())
+}
+
 /// Create a Windows Job Object and assign the process to it, optionally with
 /// KILL_ON_JOB_CLOSE (so the child tree is reaped when the worker drops the handle /
 /// dies) and/or a memory limit. Assigning post-spawn (rather than via process-wrap's
@@ -942,8 +985,12 @@ pub async fn start_child_process(
     #[cfg(windows)]
     if !*DISABLE_PROCESS_GROUP {
         use process_wrap::tokio::CreationFlags;
-        use windows::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP;
-        cmd.wrap(CreationFlags(CREATE_NEW_PROCESS_GROUP));
+        use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_SUSPENDED};
+        // Also create the child suspended so it can be placed in its job object (below)
+        // before it runs any code; otherwise a child that forks a helper at startup could
+        // create it before the assignment and leave it outside the job. Resumed right
+        // after the job assignment.
+        cmd.wrap(CreationFlags(CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED));
     }
 
     if !*DISABLE_PROCESS_GROUP && !disable_process_group {
@@ -974,7 +1021,16 @@ pub async fn start_child_process(
             (*windmill_common::worker::LIMIT_WINDOWS_TO_1CU).then_some(MEMORY_LIMIT_1CU);
         if kill_on_close || memory_limit.is_some() {
             if let Some(pid) = child.inner().id() {
-                match assign_job_object(pid, memory_limit, kill_on_close) {
+                let assigned = assign_job_object(pid, memory_limit, kill_on_close);
+                // When kill_on_close, the child was created suspended (CREATE_SUSPENDED
+                // above) so it could be placed in the job before running. Resume it now —
+                // unconditionally of assign success, so a failed assign never leaves it hung.
+                if kill_on_close {
+                    if let Err(e) = resume_process(pid) {
+                        tracing::error!("Failed to resume child process {pid}: {e}");
+                    }
+                }
+                match assigned {
                     Ok(job_handle) => {
                         if memory_limit.is_some() {
                             tracing::info!(
