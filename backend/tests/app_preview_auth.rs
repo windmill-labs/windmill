@@ -17,7 +17,12 @@
 //!     must not over-block the legitimate editor flow),
 //!   - preview is confined to paths the caller can read (defense-in-depth
 //!     against scoped tokens / cross-namespace preview), and
-//!   - run mode (no `force_viewer_static_fields`) is unaffected by the guard.
+//!   - run mode (no `force_viewer_static_fields`) is unaffected by the preview
+//!     guard, and
+//!   - run mode against a deployed Viewer app rejects caller-supplied inline
+//!     `raw_code` whose sha is not publisher-pinned (CVE-2026-22683 residual:
+//!     the Viewer default-triggerable fallback let any caller / an operator run
+//!     arbitrary code as themselves, bypassing the content-hash pin).
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};
@@ -252,6 +257,58 @@ async fn test_app_preview_authorization(db: Pool<Postgres>) -> anyhow::Result<()
     assert!(
         body.contains("jobs:run"),
         "rejection must be the jobs:run scope gate, got: {body}"
+    );
+
+    // 9. RUN-MODE REGRESSION (CVE-2026-22683 residual): against a *deployed*
+    //    Viewer-mode app, run mode (no `force_viewer_static_fields`) must NOT let
+    //    a caller substitute arbitrary inline `raw_code`. Pre-fix the
+    //    `rawscript/<sha>` lookup fell back to the Viewer default triggerable, so
+    //    the operator's code was enqueued and ran as them (200 + job UUID, the
+    //    exact preview class blocked in step 1). Post-fix the unpinned sha is
+    //    rejected by the policy.
+    let run_mode_raw_code = json!({
+        "args": {},
+        "component": "comp",
+        "raw_code": {
+            "language": "bash",
+            "content": "id; echo RCE_$(whoami)",
+            "path": "x"
+        }
+    });
+    let resp = authed(
+        client().post(format!("{base}/u/test-user/vapp")),
+        "OPERATOR_TOKEN",
+    )
+    .json(&run_mode_raw_code)
+    .send()
+    .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(
+        status, 400,
+        "run-mode inline raw_code against a Viewer app must be rejected, not run as the caller (got {status}): {body}"
+    );
+    assert!(
+        body.contains("forbidden by policy"),
+        "rejection must be the content-hash pin (unpinned rawscript), got: {body}"
+    );
+
+    // 10. The content-pin fix is not operator-specific: even a regular
+    //     non-operator member (who could run their own code via
+    //     `/jobs/run/preview`) must not be able to substitute unpinned code into
+    //     someone else's deployed Viewer app — the deployed-app integrity break.
+    let resp = authed(
+        client().post(format!("{base}/u/test-user/vapp")),
+        "SECRET_TOKEN_2",
+    )
+    .json(&run_mode_raw_code)
+    .send()
+    .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(
+        status, 400,
+        "run-mode unpinned raw_code must be rejected for any caller, not just operators (got {status}): {body}"
     );
 
     Ok(())
