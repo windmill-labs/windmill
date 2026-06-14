@@ -195,7 +195,7 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 	const key = draftKey(opts.workspace, opts.itemKind, opts.path)
 	const lastSync = getLastSyncEntry(key)?.lastSync
 	try {
-		const resp = await DraftService.saveDraft({
+		const resp = await DraftService.updateDraft({
 			workspace: opts.workspace,
 			kind: opts.itemKind,
 			path: opts.path,
@@ -274,7 +274,7 @@ function flushOnPageHide(): void {
 			const url =
 				OpenAPI.BASE +
 				`/w/${encodeURI(opts.workspace)}` +
-				`/drafts/save_draft/${encodeURI(opts.itemKind)}` +
+				`/drafts/update/${encodeURI(opts.itemKind)}` +
 				`/${encodeURI(opts.path)}`
 			const lastSync = getLastSyncEntry(key)?.lastSync
 			void fetch(url, {

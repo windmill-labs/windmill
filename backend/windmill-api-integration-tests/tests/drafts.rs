@@ -20,7 +20,7 @@ fn client_for(token: &str) -> reqwest::Client {
 }
 
 fn save_url(port: u16, kind: &str, path: &str) -> String {
-    format!("http://localhost:{port}/api/w/{WS}/drafts/save_draft/{kind}/{path}")
+    format!("http://localhost:{port}/api/w/{WS}/drafts/update/{kind}/{path}")
 }
 
 async fn draft_count(db: &Pool<Postgres>, path: &str, kind: &str, email: &str) -> i64 {
@@ -38,9 +38,9 @@ async fn draft_count(db: &Pool<Postgres>, path: &str, kind: &str, email: &str) -
 }
 
 /// Upsert → conflict (stale last_sync) → force-overwrite → delete, the
-/// optimistic-concurrency contract `save_draft` exists to enforce.
+/// optimistic-concurrency contract `update_draft` exists to enforce.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_save_draft_conflict_lifecycle(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_update_draft_conflict_lifecycle(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -130,7 +130,7 @@ async fn test_save_draft_conflict_lifecycle(db: Pool<Postgres>) -> anyhow::Resul
 /// require_can_write_path: own namespace allowed, another user's namespace
 /// rejected, operators rejected outright.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_save_draft_write_authorization(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_update_draft_write_authorization(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -174,7 +174,7 @@ async fn test_save_draft_write_authorization(db: Pool<Postgres>) -> anyhow::Resu
 /// item (via the Share dialog) can save a draft on it even though it's
 /// outside their namespace. Regression test for the authz drop.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_save_draft_extra_perms_writer(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_update_draft_extra_perms_writer(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();

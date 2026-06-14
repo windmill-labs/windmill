@@ -408,7 +408,7 @@ pub async fn overlay_or_draft_only<T: serde::Serialize + Send + 'static>(
 /// Delete EVERY user's draft (and the legacy NULL-email row) at a path+kind.
 /// Use when the item is DELETED outright: it's gone for everyone, so leaving
 /// teammates' drafts behind would orphan them forever. Discarding one's OWN
-/// draft while the item lives on goes through `save_draft` with `value: null`.
+/// draft while the item lives on goes through `update_draft` with `value: null`.
 /// Idempotent on the no-draft case.
 pub async fn delete_all_drafts_for_path(
     db: &DB,
@@ -514,7 +514,7 @@ pub async fn fetch_draft_only(
 }
 
 /// Marker prefix for draft secret values encrypted at rest with the workspace
-/// crypt key (`build_crypt`). Written by `save_draft` for secret variables;
+/// crypt key (`build_crypt`). Written by `update_draft` for secret variables;
 /// resolved back to plaintext by the variable deploy endpoints.
 pub const ENCRYPTED_DRAFT_PREFIX: &str = "$encrypted:";
 

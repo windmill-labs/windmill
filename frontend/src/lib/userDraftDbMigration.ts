@@ -2,7 +2,7 @@
  * One-off migration from the localStorage UserDraft autosave to the
  * DB-backed `draft` table. Runs after `migrateLegacyUserDrafts` (which
  * produces the `userdraft/w/{workspace}/{kind}/{path}` keys this reads),
- * POSTing each to `/drafts/save_draft` and clearing the source key only on
+ * POSTing each to `/drafts/update` and clearing the source key only on
  * success — so it's idempotent without a sentinel; failed entries retry next
  * mount. Not workspace-gated: keys embed their own workspace and the token
  * covers all of them, so gating would orphan other-workspace entries.
@@ -127,7 +127,7 @@ function collectKeys(): string[] {
 }
 
 /**
- * Push every LS `userdraft/...` entry to `/drafts/save_draft`, clearing each on
+ * Push every LS `userdraft/...` entry to `/drafts/update`, clearing each on
  * success; failures stay in LS and retry next mount.
  *
  * `lastWrittenAt` rides as `last_sync` so the server rejects the upload when its
@@ -181,7 +181,7 @@ export async function migrateUserDraftsToDb(): Promise<void> {
 
 	for (const { key, parsed, path, value, lastWrittenAt } of toMigrate) {
 		try {
-			const res = await DraftService.saveDraft({
+			const res = await DraftService.updateDraft({
 				workspace: parsed.workspace,
 				kind: parsed.itemKind,
 				path,

@@ -490,7 +490,7 @@ export const UserDraft = {
 				// Empty path = no draftable item (e.g. read-only
 				// historical-hash view that still binds an editor value).
 				// Acquiring would mirror edits into an unroutable
-				// `POST /drafts/save_draft/kind/` (permanent "Save failed").
+				// `POST /drafts/update/kind/` (permanent "Save failed").
 				// Hand out a detached, local-only handle instead.
 				if (!spec.path) {
 					let handle = handleCache.get(mk)

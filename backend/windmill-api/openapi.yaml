@@ -7959,10 +7959,10 @@ paths:
         "404":
           description: no draft for that owner at that path
 
-  /w/{workspace}/drafts/save_draft/{kind}/{path}:
+  /w/{workspace}/drafts/update/{kind}/{path}:
     post:
-      summary: save the current user's draft at a path
-      operationId: saveDraft
+      summary: upsert (or clear) the current user's draft at a path
+      operationId: updateDraft
       tags:
         - draft
       parameters:

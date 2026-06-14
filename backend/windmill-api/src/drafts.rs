@@ -25,7 +25,7 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_drafts))
         .route("/get/{kind}/{*path}", get(get_draft_for_user))
-        .route("/save_draft/{kind}/{*path}", post(save_draft))
+        .route("/update/{kind}/{*path}", post(update_draft))
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -142,7 +142,7 @@ pub struct SaveDraftResponse {
 /// upserts, `null` (or omitted) deletes. Either way, when the existing row is
 /// newer than `last_sync` (and `force` is false) the op is skipped and the
 /// response is `status = conflict` + the server's current timestamp.
-async fn save_draft(
+async fn update_draft(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
