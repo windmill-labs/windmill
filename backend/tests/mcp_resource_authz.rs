@@ -1,17 +1,14 @@
 //! Regression test for the MCP resource-authorization bypass
 //! (WIN-2041, GHSA-7qg3-pr4g-cq5x).
 //!
-//! The regular MCP tools API (`GET /api/w/{w}/resources/mcp_tools/{path}`,
-//! `get_mcp_tools`) enforces `resources:read:{path}` and reads the resource
-//! through an RLS-scoped `user_db` transaction. Before the fix, the AI Agent
-//! worker (`load_mcp_tools`) read the referenced MCP resource straight from the
-//! raw DB pool — no scope check, no RLS — so a low-privileged user who could
-//! edit a flow could make the agent load and use an MCP resource (URL + inline
-//! headers + token) they were not allowed to read: a confused-deputy bypass.
-//!
-//! The fix loads the resource through the job's permissioned client
-//! (`AuthedClient::get_resource_value`), which hits the same RLS + scope gate as
-//! `resources/get_value`.
+//! Invariant: the AI Agent worker (`load_mcp_tools`) must load an MCP resource
+//! only when the job identity is allowed to read it — the same
+//! `resources:read:{path}` + RLS gate the regular MCP tools API (`get_mcp_tools`)
+//! enforces. It loads the resource through the job's permissioned client
+//! (`AuthedClient::get_resource_value`, the `resources/get_value` path), not the
+//! raw DB pool. Otherwise a low-privileged user who can edit a flow could make
+//! the agent load and use an MCP resource (URL + inline headers + token) they are
+//! not allowed to read: a confused-deputy bypass.
 //!
 //! This test pins, against the `mcp_resource_authz` fixture (an MCP resource in
 //! a folder only the admin can read):
@@ -71,8 +68,8 @@ async fn test_mcp_resource_not_loaded_without_authorization(
         msg.contains("don't have access"),
         "denial should come from the resource-RLS gate, not a connection error: {msg}"
     );
-    // Pre-fix, the resource was read as admin and the worker proceeded to build
-    // the MCP client; that step must no longer be reached for the developer.
+    // An unauthorized caller must be blocked before MCP client creation, so no
+    // resource material (URL, headers, token) is ever loaded for them.
     assert!(
         !msg.contains("Failed to create MCP client"),
         "developer must be blocked before the connection step (would mean the resource was loaded): {msg}"
