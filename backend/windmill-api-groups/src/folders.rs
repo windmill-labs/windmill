@@ -86,6 +86,14 @@ pub struct UpdateFolder {
     pub labels: Option<Vec<String>>,
 }
 
+// Folder labels are surfaced verbatim as `inherited_labels` and rendered in keyed
+// `{#each}` blocks; a repeated label is a duplicate key that crashes the list views.
+// The UI dedups on entry but API/CLI/git-sync writes do not, so normalize on write.
+fn dedup_labels(labels: &mut Vec<String>) {
+    let mut seen = std::collections::HashSet::new();
+    labels.retain(|l| seen.insert(l.clone()));
+}
+
 #[derive(Deserialize)]
 pub struct Owner {
     pub owner: String,
@@ -226,8 +234,11 @@ async fn create_folder(
     Extension(webhook): Extension<WebhookShared>,
     Extension(cache): Extension<Arc<AuthCache>>,
     Path(w_id): Path<String>,
-    Json(ng): Json<NewFolder>,
+    Json(mut ng): Json<NewFolder>,
 ) -> Result<String> {
+    if let Some(labels) = ng.labels.as_mut() {
+        dedup_labels(labels);
+    }
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -471,7 +482,8 @@ async fn update_folder(
         );
     }
 
-    if let Some(labels) = ng.labels.as_ref() {
+    if let Some(labels) = ng.labels.as_mut() {
+        dedup_labels(labels);
         if labels.is_empty() {
             // normalize cleared labels to NULL so the field stays out of API/tarball output
             sqlb.set("labels", "NULL");
