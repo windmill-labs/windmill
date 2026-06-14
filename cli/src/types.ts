@@ -25,6 +25,10 @@ import {
 } from "./core/settings.ts";
 import { pushTrigger, pushNativeTrigger } from "./commands/trigger/trigger.ts";
 import { pushRawApp } from "./commands/app/raw_apps.ts";
+import {
+  isDatatableMigrationPath,
+  pushDatatableMigration,
+} from "./commands/datatable/migrations.ts";
 import type { PermissionedAsContext } from "./core/permissioned_as.ts";
 import {
   isFlowPath,
@@ -259,6 +263,8 @@ export async function pushObj(
     await pushGroup(workspace, p, befObj, newObj);
   } else if (typeEnding === "workspace_dependencies") {
     await pushWorkspaceDependencies(workspace, p, befObj, newObj);
+  } else if (typeEnding === "datatable_migration") {
+    await pushDatatableMigration(workspace, p, newObj);
   } else if (typeEnding === "settings") {
     await pushWorkspaceSettings(workspace, p, befObj, newObj);
   } else if (typeEnding === "encryption_key") {
@@ -315,9 +321,14 @@ export function getTypeStrFromPath(
   | "group"
   | "settings"
   | "encryption_key"
-  | "workspace_dependencies" {
+  | "workspace_dependencies"
+  | "datatable_migration" {
   if (isScriptModulePath(p)) {
     return "script";
+  }
+  // Must be checked before the generic .sql script-extension check below
+  if (isDatatableMigrationPath(p)) {
+    return "datatable_migration";
   }
   if (isFlowPath(p)) {
     return "flow";

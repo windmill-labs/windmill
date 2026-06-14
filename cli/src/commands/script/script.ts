@@ -1,4 +1,5 @@
 import { GlobalOptions } from "../../types.ts";
+import { isDatatableMigrationPath } from "../datatable/migrations.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
@@ -300,6 +301,8 @@ export async function handleFile(
     // Raw-app files (frontend included) belong to the app bundle, never
     // standalone scripts — pushed via pushRawApp, not here.
     !isRawAppPath(path) &&
+    // Datatable migration .sql files are pushed via pushDatatableMigration
+    !isDatatableMigrationPath(path) &&
     (!isScriptModulePath(path) || moduleEntryPoint) &&
     exts.some((exts) => path.endsWith(exts))
   ) {

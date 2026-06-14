@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO datatable_migration (workspace_id, datatable, version, name, content, checksum, created_at, created_by)\n         SELECT $1, datatable, version, name, content, checksum, created_at, created_by\n         FROM datatable_migration\n         WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "31ac12f2344c8a4a4d4e864a5ac2511e063d524c5451ae1f0512e9cbbef2d01d"
+}

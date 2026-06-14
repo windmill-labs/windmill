@@ -3893,6 +3893,31 @@ async fn clone_workspace_data(
 
     // Clone workspace dependencies
     clone_workspace_dependencies(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone datatable migrations. Their applied state is tracked inside the
+    // datatable database itself, so a fork that copies the database sees the
+    // same migrations as applied; new parent migrations later reach the fork
+    // via sync and are applied by the migration runner.
+    clone_datatable_migrations(tx, source_workspace_id, target_workspace_id).await?;
+    Ok(())
+}
+
+async fn clone_datatable_migrations(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO datatable_migration (workspace_id, datatable, version, name, content, checksum, created_at, created_by)
+         SELECT $1, datatable, version, name, content, checksum, created_at, created_by
+         FROM datatable_migration
+         WHERE workspace_id = $2",
+        target_workspace_id,
+        source_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
     Ok(())
 }
 
@@ -4828,36 +4853,8 @@ async fn create_workspace_fork_branch(
 /// Update a forked workspace's datatable config to point to the new database.
 /// For instance datatables: updates resource_path in the datatable config.
 /// For resource datatables: updates the resource's dbname and marks it as ws_specific.
-/// Snapshot the schema from the source datatable by connecting to its database.
-async fn snapshot_datatable_schema(
-    db: &DB,
-    parent_w_id: &str,
-    dt_name: &str,
-) -> Result<serde_json::Value> {
-    let pg = get_datatable_resource_from_db_unchecked(db, parent_w_id, dt_name).await?;
-    let pg: PgDatabase = serde_json::from_value(pg)
-        .map_err(|e| Error::internal_err(format!("Failed to parse db credentials: {}", e)))?;
-    let (client, connection) = pg.connect(Some(db)).await?;
-    let join_handle = tokio::spawn(async move { connection.await });
-
-    let schema = windmill_common::query_builders::pg_get_full_schema(&client)
-        .await
-        .map_err(Error::internal_err)?;
-
-    drop(client);
-    join_handle
-        .await
-        .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
-        .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
-
-    serde_json::to_value(schema)
-        .map_err(|e| Error::internal_err(format!("Failed to serialize schema: {}", e)))
-}
-
 async fn apply_forked_datatable(
-    db: &DB,
     tx: &mut Transaction<'_, Postgres>,
-    parent_w_id: &str,
     forked_w_id: &str,
     fdt: &ForkedDatatableInfo,
 ) -> Result<()> {
@@ -4869,9 +4866,11 @@ async fn apply_forked_datatable(
         )));
     }
 
-    // Snapshot the schema from the source (parent) datatable
-    let schema = snapshot_datatable_schema(db, parent_w_id, &fdt.name).await?;
-    let forked_from = serde_json::json!({ "schema": schema });
+    // Mark the datatable as forked. We no longer snapshot the parent schema to
+    // generate a best-effort diff: schema changes are tracked as datatable
+    // migrations, which are copied along with the database on fork and re-applied
+    // via the migration runner. See GIT-890.
+    let forked_from = serde_json::json!({});
 
     // Read the datatable config from the forked workspace
     let config_val = sqlx::query_scalar!(
@@ -5033,7 +5032,7 @@ async fn create_workspace_fork(
 
     // Update forked datatable settings to point to new databases
     for fdt in &nw.forked_datatables {
-        apply_forked_datatable(&db, &mut tx, &parent_workspace_id, &forked_id, fdt).await?;
+        apply_forked_datatable(&mut tx, &forked_id, fdt).await?;
     }
 
     audit_log(

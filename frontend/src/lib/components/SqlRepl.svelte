@@ -57,6 +57,10 @@
 	import { getDatabaseArg, getDbType } from './dbOps'
 	import type { DbInput } from './dbTypes'
 	import { wrapDucklakeQuery } from './ducklake'
+	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
+	import { containsDdlStatement } from './sqlDdl'
+	import { WorkspaceService } from '$lib/gen'
+	import TextInput from './text_input/TextInput.svelte'
 
 	type Props = {
 		input: DbInput
@@ -65,6 +69,14 @@
 	}
 	let { input, onData, placeholderTableName }: Props = $props()
 	let dbType = $derived(getDbType(input))
+	let isDatatable = $derived(
+		input?.type === 'database' && input.resourcePath.startsWith('datatable://')
+	)
+	let datatableName = $derived(
+		input?.type === 'database' && input.resourcePath.startsWith('datatable://')
+			? input.resourcePath.slice('datatable://'.length)
+			: undefined
+	)
 
 	const DEFAULT_SQL = 'SELECT * FROM _'
 	let code = $state(DEFAULT_SQL)
@@ -75,20 +87,67 @@
 		}
 	})
 	let isRunning = $state(false)
+	let ddlWarningOpen = $state(false)
+	let migrationName = $state('')
+	let savingMigration = $state(false)
 
 	let runHistory: (StepHistoryData & { code: string; result: Record<string, any>[] })[] = $state([])
 
-	async function run({ doPostgresRowToJsonFix }: { doPostgresRowToJsonFix?: boolean } = {}) {
+	// Record the current query as a datatable migration and apply pending migrations.
+	async function saveAsMigration() {
+		if (!$workspaceStore || !datatableName) return
+		savingMigration = true
+		try {
+			await WorkspaceService.createDatatableMigration({
+				workspace: $workspaceStore,
+				datatable: datatableName,
+				requestBody: { name: migrationName || undefined, content: code }
+			})
+			const { applied } = await WorkspaceService.runDatatableMigrations({
+				workspace: $workspaceStore,
+				datatable: datatableName
+			})
+			ddlWarningOpen = false
+			migrationName = ''
+			sendUserToast(
+				applied.length > 0
+					? `Migration saved and applied (${applied.length} migration${applied.length > 1 ? 's' : ''} run)`
+					: 'Migration saved'
+			)
+		} catch (e: any) {
+			sendUserToast('Failed to save migration: ' + (e?.message ?? e), true)
+		} finally {
+			savingMigration = false
+		}
+	}
+
+	function runAnyway() {
+		ddlWarningOpen = false
+		run({ bypassDdlCheck: true })
+	}
+
+	async function run({
+		doPostgresRowToJsonFix,
+		bypassDdlCheck
+	}: { doPostgresRowToJsonFix?: boolean; bypassDdlCheck?: boolean } = {}) {
 		if (isRunning || !$workspaceStore) return
 		const READ_OPS = ['SELECT', 'WITH', 'SHOW', 'EXPLAIN', 'DESCRIBE']
+
+		const statements = splitSqlStatements(pruneComments(code))
+		if (statements.length === 0) {
+			sendUserToast('Nothing to run', true)
+			return
+		}
+
+		// On a datatable, schema-changing (DDL) statements should be recorded as
+		// migrations rather than run ad-hoc. Warn before running them directly.
+		if (isDatatable && !bypassDdlCheck && containsDdlStatement(statements)) {
+			ddlWarningOpen = true
+			return
+		}
+
 		isRunning = true
 		try {
-			const statements = splitSqlStatements(pruneComments(code))
-			if (statements.length === 0) {
-				sendUserToast('Nothing to run', true)
-				return
-			}
-
 			// Transform all to JSON in case of select. This fixes the issue of
 			// custom postgres enum type failing to convert to a rust type in the backend.
 			// We don't always put the fix by default for row ordering concerns
@@ -153,7 +212,7 @@
 			if (dbType === 'postgresql' && !doPostgresRowToJsonFix) {
 				console.error('Error running query, trying with row_to_json fix')
 				isRunning = false
-				return await run({ doPostgresRowToJsonFix: true })
+				return await run({ doPostgresRowToJsonFix: true, bypassDdlCheck: true })
 			}
 			sendUserToast('Error running query: ' + (e.message ?? e.error.message), true)
 		} finally {
@@ -197,3 +256,38 @@
 		/>
 	</Pane>
 </Splitpanes>
+
+<ConfirmationModal
+	open={ddlWarningOpen}
+	title="Schema change detected"
+	confirmationText="Save as migration"
+	type="reload"
+	keyListen={false}
+	loading={savingMigration}
+	onConfirmed={saveAsMigration}
+	onCanceled={() => {
+		ddlWarningOpen = false
+	}}
+>
+	<p>
+		This query contains schema-changing (DDL) statements such as <code>CREATE</code>,
+		<code>ALTER</code> or <code>DROP</code>.
+	</p>
+	<p class="mt-2">
+		Schema changes to a datatable should be recorded as migrations so they can be versioned, synced
+		with the CLI and re-applied to forks. Saving will record this query as a migration and apply any
+		pending migrations.
+	</p>
+	<div class="mt-3">
+		<span class="text-2xs font-semibold text-secondary">Migration name (optional)</span>
+		<TextInput
+			inputProps={{ type: 'text', placeholder: 'e.g. add_orders_table' }}
+			bind:value={migrationName}
+		/>
+	</div>
+	<div class="mt-3">
+		<Button variant="subtle" size="xs" disabled={savingMigration} on:click={runAnyway}>
+			Run once without saving
+		</Button>
+	</div>
+</ConfirmationModal>
