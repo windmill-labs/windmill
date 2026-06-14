@@ -1,7 +1,7 @@
 import type { Job } from '$lib/gen'
 import { triggerIconMap } from '$lib/components/triggers/utils'
 import { formatMemory } from '$lib/utils'
-import { flowPathToHref } from '$lib/scripts'
+import { jobViewHref } from '$lib/scripts'
 import { Calendar, Bot } from 'lucide-svelte'
 import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
@@ -287,10 +287,9 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 		field: 'script_path',
 		label: 'Path',
 		getValue: (job) => job.script_path || null,
-		getHref: (job, _workspaceId) => {
+		getHref: (job, workspaceId) => {
 			if (!job.script_path) return null
-			const isScript = job.job_kind === 'script'
-			return isScript ? `/scripts/get/${job.script_hash}` : flowPathToHref(job.script_path)
+			return jobViewHref(job, workspaceId)
 		}
 	},
 

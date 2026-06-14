@@ -36,8 +36,9 @@
 		globalForkModal
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
-	import { afterNavigate, beforeNavigate } from '$app/navigation'
+	import { afterNavigate, beforeNavigate, replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
+	import { workspaceParamAllowed, workspaceAgnosticRoute } from '$lib/workspaceParam'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
@@ -90,6 +91,10 @@
 	let userSettings: UserSettings | undefined = $state()
 	let superadminSettings: SuperadminSettings | undefined = $state()
 	let menuHidden = $state(false)
+	// replaceState() throws if called before SvelteKit's router is initialized
+	// (which happens on the first navigation). Gate the store -> URL sync on this
+	// so the initial seeding waits until the router is ready.
+	let routerReady = $state(false)
 	let isDarkMode = useIsDarkMode()
 	let darkMode = $derived(isDarkMode.val)
 
@@ -114,14 +119,49 @@
 	}
 
 	function onQueryChange() {
-		let queryWorkspace = page.url.searchParams.get('workspace')
-		if (queryWorkspace) {
-			$workspaceStore = queryWorkspace
+		if (workspaceParamAllowed(page.url.pathname)) {
+			const queryWorkspace = page.url.searchParams.get('workspace')
+			if (queryWorkspace && queryWorkspace !== $workspaceStore) {
+				$workspaceStore = queryWorkspace
+			}
 		}
 
 		menuHidden =
 			page.url.searchParams.get('nomenubar') === 'true' ||
 			page.url.pathname.startsWith('/oauth/callback/')
+	}
+
+	// Reflect the active workspace into the URL as `?workspace=<id>` so links are
+	// workspace-explicit and shareable, and so separate tabs stay independent.
+	// Uses replaceState to avoid polluting browser history on every navigation.
+	// Guarded to be idempotent: it only writes when the param actually differs,
+	// which also prevents a ping-pong with the URL → store sync in onQueryChange.
+	function syncWorkspaceToUrl() {
+		if (!BROWSER || !routerReady) return
+		const path = page.url.pathname
+		if (!workspaceParamAllowed(path)) return
+		const param = page.url.searchParams.get('workspace')
+		try {
+			if (workspaceAgnosticRoute(path)) {
+				// Workspace-agnostic page: strip ?workspace= for a clean URL. Adoption
+				// of an explicit param into the store is handled by onQueryChange
+				// (URL → store); doing it here too could clobber a workspace switch
+				// that happened between navigation and this post-navigation sync.
+				if (!param) return
+				const url = new URL(page.url)
+				url.searchParams.delete('workspace')
+				replaceState(url, page.state)
+				return
+			}
+			// Workspace-scoped page: reflect the active workspace into the URL.
+			const ws = $workspaceStore
+			if (!ws || param === ws) return
+			const url = new URL(page.url)
+			url.searchParams.set('workspace', ws)
+			replaceState(url, page.state)
+		} catch (e) {
+			console.warn('Could not sync workspace to URL', e)
+		}
 	}
 
 	async function updateUserStore(workspace: string | undefined) {
@@ -319,6 +359,11 @@
 		)
 	}
 	afterNavigate((n) => {
+		// The router is initialized once the first navigation completes, so it is
+		// now safe to replaceState. Seeding the param here (post-commit) rather
+		// than reactively on page.url avoids clobbering the in-flight navigation.
+		routerReady = true
+		syncWorkspaceToUrl()
 		if (pathInAppMode(n.to?.url.pathname) && innerWidth >= 768) {
 			isCollapsed = true
 		}
@@ -416,6 +461,14 @@
 	})
 	$effect(() => {
 		page.url && untrack(() => onQueryChange())
+	})
+	$effect(() => {
+		// Handles a workspace switch that does not navigate (e.g. picking another
+		// workspace in the sidebar on a list page). The navigation case is handled
+		// post-commit in afterNavigate to avoid clobbering an in-flight navigation.
+		$workspaceStore
+		routerReady
+		untrack(() => syncWorkspaceToUrl())
 	})
 	$effect(() => {
 		$workspaceStore

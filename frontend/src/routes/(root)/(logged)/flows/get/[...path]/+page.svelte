@@ -156,7 +156,7 @@
 			})
 			if (versioned.path !== path) {
 				sendUserToast(`Flow version ${versionId} belongs to ${versioned.path}, not ${path}.`, true)
-				goto(`/flows/get/${versioned.path}?workspace=${$workspaceStore}&version=${versionId}`)
+				goto(`/flows/get/${versioned.path}?version=${versionId}`)
 				return
 			}
 			flow = versioned
@@ -218,7 +218,7 @@
 				tag: overrideTag,
 				skipPreprocessor: true
 			})
-			await goto('/run/' + run + '?workspace=' + $workspaceStore)
+			await goto('/run/' + run)
 		} catch (e) {
 			throw e
 		} finally {
@@ -501,7 +501,7 @@
 <MoveDrawer
 	bind:this={moveDrawer}
 	on:update={async (e) => {
-		await goto('/flows/get/' + e.detail + `?workspace=${$workspaceStore}`)
+		await goto('/flows/get/' + e.detail)
 		loadFlow()
 	}}
 />
@@ -544,7 +544,7 @@
 			onSaved={can_write
 				? async (newPath) => {
 						if (newPath !== flow?.path) {
-							await goto(`/flows/get/${newPath}?workspace=${$workspaceStore}`)
+							await goto(`/flows/get/${newPath}`)
 						} else {
 							loadFlow()
 						}
@@ -612,9 +612,7 @@
 						{#if pinnedVersion !== undefined}
 							<Alert type="info" title="Viewing pinned version {pinnedVersion}">
 								This is a historical version of the flow, not the latest.
-								<a class="underline" href="/flows/get/{path}?workspace={$workspaceStore}">
-									View latest
-								</a>
+								<a class="underline" href="/flows/get/{path}"> View latest </a>
 							</Alert>
 							<div class="h-4"></div>
 						{/if}
@@ -635,11 +633,7 @@
 									<Loader2 size={12} class="inline animate-spin mr-1" />
 									Deployment in progress
 									{#if deploymentJobId}
-										<a
-											href="/run/{deploymentJobId}?workspace={$workspaceStore}"
-											class="underline"
-											target="_blank">view job</a
-										>
+										<a href="/run/{deploymentJobId}" class="underline" target="_blank">view job</a>
 									{/if}
 								</HeaderBadge>
 							</div>

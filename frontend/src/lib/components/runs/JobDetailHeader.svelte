@@ -19,7 +19,7 @@
 		isFlowVersionHash,
 		type FieldConfig
 	} from './JobDetailFieldConfig'
-	import { flowPathToHref } from '$lib/scripts'
+	import { jobViewHref } from '$lib/scripts'
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 
@@ -240,7 +240,7 @@
 				Triggered by
 			{/if}
 			<a
-				href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}
+				href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id ?? $workspaceStore}`}
 				target="_blank"
 				rel="noopener noreferrer"
 				class="flex items-center gap-1"
@@ -362,7 +362,7 @@
 					{#each expandedFields as config}
 						{@const displayValue = getDisplayValue(config, job)}
 						{@const fullValue = getFullValue(config, job)}
-						{@const href = config.getHref?.(job, $workspaceStore || '')}
+						{@const href = config.getHref?.(job, job.workspace_id ?? $workspaceStore ?? '')}
 
 						<div class="flex items-baseline gap-1 text-xs">
 							<span class="text-secondary flex-shrink-0">{config.label}</span>
@@ -409,11 +409,7 @@
 						<!-- Title row -->
 						<div class="min-w-0 grow">
 							{#if job.script_path && (job.job_kind === 'script' || job.job_kind === 'flow' || job.job_kind === 'singlestepflow' || job.job_kind === 'flowpreview')}
-								{@const stem = job.job_kind === 'script' ? 'scripts' : 'flows'}
-								{@const isScript = job.job_kind === 'script'}
-								{@const viewHref = isScript
-									? `${base}/${stem}/get/${job?.script_hash}`
-									: flowPathToHref(job?.script_path ?? '')}
+								{@const viewHref = jobViewHref(job, job.workspace_id ?? $workspaceStore)}
 								<a
 									href={viewHref}
 									target="_blank"
@@ -467,7 +463,7 @@
 						{#each fields as config}
 							{@const displayValue = getDisplayValue(config, job)}
 							{@const fullValue = getFullValue(config, job)}
-							{@const href = config.getHref?.(job, $workspaceStore || '')}
+							{@const href = config.getHref?.(job, job.workspace_id ?? $workspaceStore ?? '')}
 
 							<div class="flex items-baseline gap-3 text-xs">
 								<span class="text-secondary min-w-[110px] flex-shrink-0">
@@ -520,7 +516,7 @@
 							{#each fields as config (config.field)}
 								{@const displayValue = getDisplayValue(config, job)}
 								{@const fullValue = getFullValue(config, job)}
-								{@const href = config.getHref?.(job, $workspaceStore || '')}
+								{@const href = config.getHref?.(job, job.workspace_id ?? $workspaceStore ?? '')}
 
 								<!-- Field -->
 								<div class="flex items-baseline gap-1 text-xs min-w-0">
@@ -568,7 +564,7 @@
 							{#each expandedFields as config}
 								{@const displayValue = getDisplayValue(config, job)}
 								{@const fullValue = getFullValue(config, job)}
-								{@const href = config.getHref?.(job, $workspaceStore || '')}
+								{@const href = config.getHref?.(job, job.workspace_id ?? $workspaceStore ?? '')}
 
 								<div class="flex items-baseline gap-3 text-xs">
 									<span class="text-secondary min-w-[110px] flex-shrink-0">

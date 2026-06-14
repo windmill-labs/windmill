@@ -282,7 +282,7 @@
 				sendUserToast('Deployed')
 				return
 			}
-			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
+			goto(`/scripts/get/${e.hash}`)
 		}}
 		onSaveInitial={(e) => {
 			goto(`/scripts/edit/${e.path}`)

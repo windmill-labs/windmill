@@ -141,6 +141,29 @@ export function flowPathToHref(path: string, hubBaseUrl: string = get(hubBaseUrl
 	return `${base}/flows/get/${path}?workspace=${get(workspaceStore)}`
 }
 
+/**
+ * Base-prefixed href to the script/flow definition page for a job, targeting
+ * the job's own workspace (which may differ from the active one in the
+ * cross-workspace runs view). Hub scripts/flows aren't workspace-scoped, so
+ * they get a workspace-free link. Suitable for an `<a href>` or `goto()`.
+ *
+ * Centralizes the hub-vs-workspace rule shared by JobDetailHeader,
+ * JobDetailFieldConfig, FlowMetadata and RunsTable.
+ */
+export function jobViewHref(
+	job: { job_kind?: string; script_hash?: string; script_path?: string },
+	workspace: string | undefined
+): string {
+	const isScript = job.job_kind === 'script'
+	const scriptPath = job.script_path ?? ''
+	if (scriptPath.startsWith('hub/')) {
+		return isScript ? `${base}/scripts/get/${job.script_hash}` : flowPathToHref(scriptPath)
+	}
+	return isScript
+		? `${base}/scripts/get/${job.script_hash}?workspace=${workspace}`
+		: `${base}/flows/get/${scriptPath}?workspace=${workspace}`
+}
+
 const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string][] = [
 	['bun', 'TypeScript (Bun)'],
 	['python3', 'Python'],
