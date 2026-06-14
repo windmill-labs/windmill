@@ -271,7 +271,14 @@
 			rawApp: true
 		})) as any
 		if (tok !== loadAppToken) return
-		otherDraftsUsers = (backendApp.other_drafts_users ?? []) as OtherDraftUser[]
+		// The backend only computes `other_drafts_users` when `getDraft` is
+		// true (it skips the cross-user lookup otherwise). Don't clobber the
+		// known list to empty on a `getDraft:false` reload — e.g.
+		// reset-to-deployed, which discards only OUR draft and leaves other
+		// users' drafts (and the "See others' drafts" button) intact.
+		if (getDraft) {
+			otherDraftsUsers = (backendApp.other_drafts_users ?? []) as OtherDraftUser[]
+		}
 		draftSync.recordRemoteSync(backendApp.draft_saved_at as string | undefined)
 		isNewApp = !!backendApp.no_deployed
 		if (backendApp.is_draft) {

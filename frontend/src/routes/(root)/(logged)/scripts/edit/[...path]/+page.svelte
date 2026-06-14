@@ -311,7 +311,14 @@
 				getDraft
 			})
 			if (tok !== loadScriptToken) return
-			otherDraftsUsers = (backendScript.other_drafts_users ?? []) as OtherDraftUser[]
+			// The backend only computes `other_drafts_users` when `getDraft`
+			// is true (it skips the cross-user lookup otherwise). Don't clobber
+			// the known list to empty on a `getDraft:false` reload — e.g.
+			// reset-to-deployed, which discards only OUR draft and leaves other
+			// users' drafts (and the "See others' drafts" button) intact.
+			if (getDraft) {
+				otherDraftsUsers = (backendScript.other_drafts_users ?? []) as OtherDraftUser[]
+			}
 			// Seed the per-tab `last_sync` map with the server's draft
 			// timestamp so the next autosave attaches a matching
 			// `last_sync` and the backend can reject stale writes.
