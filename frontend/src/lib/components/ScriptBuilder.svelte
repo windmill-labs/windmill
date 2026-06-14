@@ -352,13 +352,9 @@
 	let loadingSave = $state(false)
 
 	if (script.content == '') {
-		// Suspend autosave around the bootstrap mutations — seeding the
-		// editor with the template's `initialCode` is a programmatic
-		// write that shouldn't count as the user's "first edit" and
-		// shouldn't POST to the server. The route's UserDraft handle is
-		// keyed by `userDraftPath` (the URL path), distinct from
-		// `initialPath` which is the editor-displayed path (empty for
-		// new drafts).
+		// Suspend autosave around the bootstrap mutations: seeding the template
+		// content is a programmatic write, not the user's first edit. The handle
+		// keys on `userDraftPath` (URL path), not the editor-displayed `initialPath`.
 		UserDraft.stopSync('script', userDraftPath)
 		if (template === 'wac_python') {
 			script.modules = {
@@ -375,27 +371,17 @@
 				}
 			}
 		}
-		// Two cascades have to settle before sync resumes: the async
-		// `initContent` filling `script.content` from the template, AND
-		// the Path widget's `$workspaceStore && $userStore`-gated
-		// `initPath → reset → onMetaChange → bind:path` chain that
-		// auto-generates a friendly path for new drafts. Whichever lands
-		// last calls `tryRestart`; we await two ticks past it so the
-		// `bind:path` cascade itself observably settles before sync
-		// re-arms — without that gap, the auto-generated path is the
-		// first observable change post-restart and POSTs as a "user
-		// edit".
+		// Sync resumes only after two cascades settle: the async `initContent`,
+		// and the stores-gated `initPath → reset → onMetaChange → bind:path`
+		// auto-naming chain. Whichever lands last calls `tryRestart`; otherwise
+		// the auto-generated path posts as the first "user edit".
 		let initContentDone = false
 		let storesReady = !!($userStore && $workspaceStore)
 		let restarted = false
 		async function tryRestart() {
 			if (restarted || !initContentDone || !storesReady) return
-			// 500ms past initContent + stores-ready: the Path widget's
-			// `$workspaceStore && $userStore`-gated cascade (`initPath →
-			// await tick → reset → onMetaChange → bind:path`) lands well
-			// inside this window even on cold reload. Two `tick()`s were
-			// not enough in practice — the bind:path mutation fired ~100ms
-			// after `restartSync` and posted as a "user edit".
+			// 500ms covers the bind:path cascade even on cold reload; two ticks
+			// weren't enough (bind:path fired ~100ms after restart, posting an edit).
 			await new Promise((r) => setTimeout(r, 500))
 			if (restarted) return
 			restarted = true
@@ -405,9 +391,8 @@
 			initContentDone = true
 			void tryRestart()
 		})
-		// Cold-reload path: the auth stores load over the network, so
-		// `storesReady` may flip from false → true after mount. The
-		// effect cleans itself up via the `restarted` guard.
+		// Cold reload: auth stores may load after mount; the `restarted` guard
+		// makes the effect self-cleaning.
 		if (!storesReady) {
 			$effect(() => {
 				if ($userStore && $workspaceStore) {
@@ -455,11 +440,8 @@
 			| 'ci_test_python'
 	) {
 		scriptEditor?.disableCollaboration()
-		// Seed the template content SYNCHRONOUSLY so a user clicking
-		// Deploy before the (async) template-script fetch resolves
-		// doesn't run `inferArgs` on an empty `script.content` and toast
-		// "Could not parse code". If a template script is then loaded
-		// below we re-seed with the `templateScript=true` variant.
+		// Seed synchronously so a Deploy before the async template fetch resolves
+		// doesn't run `inferArgs` on empty content and toast "Could not parse code".
 		script.content = initialCode(language, kind, template, false)
 		const templateScript = await isTemplateScript()
 		if (templateScript) {
@@ -569,13 +551,9 @@
 
 		loadingSave = true
 		try {
-			// `?? emptySchema()` only catches null/undefined — a legacy draft
-			// (seeded with `schema: {}` before the new-draft route was
-			// fixed) lands here with an object missing `properties`. That
-			// trips `inferArgs` at `JSON.parse(JSON.stringify(schema.properties))`
-			// (stringify of undefined → undefined, parse → "undefined is
-			// not valid JSON"), which surfaces as the "Could not parse
-			// code" toast even on perfectly valid bun template content.
+			// Legacy drafts can carry `schema: {}` (no `properties`), which trips
+			// `inferArgs` on `JSON.stringify(schema.properties)` and toasts "Could
+			// not parse code". Backfill an empty schema so it parses.
 			if (!script.schema || !(script.schema as any).properties) {
 				script.schema = emptySchema()
 			}
@@ -698,17 +676,10 @@
 		loadingSave = false
 	}
 
-	// Ctrl/Cmd+S forces an immediate save of whatever the page-level
-	// autosave has pending. Flush Monaco first so anything typed within
-	// the last `changeTimeout` ms reaches the bindable before we tell
-	// the syncer to flush — otherwise we'd POST the pre-burst content.
-	// `tick()` lets the bind:code → script.content → UserDraft mirror
-	// chain settle before the flush call sees `pendingSaveOpts`.
-	//
-	// No toast — the AutosaveIndicator narrates the flush (Saving... →
-	// Saved / Save failed). A toast here would also lie on network
-	// failure: `flush` never rejects (postSave catches and routes errors
-	// to the failures map), so the success branch fired regardless.
+	// Ctrl/Cmd+S forces an immediate flush of the pending autosave. Flush Monaco
+	// + `tick()` first so the last keystrokes reach the bindable before the
+	// syncer flushes. No toast — the AutosaveIndicator narrates the result, and
+	// `flush` never rejects (postSave routes errors to the failures map).
 	async function saveDraft(): Promise<void> {
 		if (!$workspaceStore || !userDraftPath) return
 		editor?.flushPendingChanges()

@@ -7,10 +7,8 @@ import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
 import { getUsernameForNamespace } from '$lib/userNamespace'
 
 /**
- * Re-home the source path into the forker's own namespace: keep
- * everything after the first two segments (`u/{owner}` / `f/{folder}`)
- * and prefix `u/{me}`. `u/admin/myflow` → `u/me/myflow`,
- * `f/folder/my/flow` → `u/me/my/flow`.
+ * Re-home the source path into the forker's namespace: drop the first two
+ * segments, prefix `u/{me}`. `u/admin/myflow` → `u/me/myflow`.
  */
 function forkSeedPath(sourcePath: string): string {
 	const rest = sourcePath.split('/').slice(2).join('/')
@@ -18,25 +16,13 @@ function forkSeedPath(sourcePath: string): string {
 }
 
 /**
- * Open a fetched draft value as a brand-new item of `itemKind` — the
- * same one-shot import handoff the "Import from YAML/JSON" actions use:
- * stash the payload in the matching import store and route to the
- * kind's `/add` page, whose redirect mints a fresh
- * `u/{user}/draft_{uuid}` slot. The destination editor seeds from the
- * store, so the fork behaves exactly like a new item of one's own:
- * nothing is saved server-side until the first real edit, and none of
- * the source item's identity (draft_path, perms) rides along. The
- * source path, re-homed into the forker's namespace, travels as the
- * `?seed_path=` param (preserved by the redirect) so the editor's Path
- * widget starts from a recognizable name instead of a random one.
- * (`?path=` would be eaten in transit — ScriptBuilder strips `path` /
- * `collab` from the live searchParams object as part of the legacy
- * collab-session cleanup.)
- *
- * Used by the "Fork" actions on other users' drafts
- * (OtherUsersDraftsModal, DraftBadge). Only the cross-user-visible
- * kinds can be forked — drawer kinds (resource/variable/triggers) never
- * surface other users' drafts in the first place.
+ * Open a fetched draft value as a brand-new item of `itemKind`, via the same
+ * one-shot import handoff as "Import from YAML/JSON": stash the payload in the
+ * import store and route to the kind's `/add` page. The fork behaves like a new
+ * item of one's own — nothing saved until the first edit, no source identity
+ * carried over. The re-homed source path travels as `?seed_path=` (not `?path=`,
+ * which ScriptBuilder strips in transit) so the Path widget starts recognizable.
+ * Only the cross-user-visible kinds can be forked.
  */
 export function forkDraftToImport(
 	itemKind: UserDraftItemKind,

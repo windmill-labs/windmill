@@ -153,14 +153,11 @@
 			itemKind = isFlow ? 'flow' : 'script'
 			path = defaultCfg?.path ?? ePath
 			const { overlay: draftOverlay, noDeployed } = await loadSchedule(defaultCfg)
-			// Draft-only schedules open as "new schedule prefilled from the
-			// draft" — there's no deployed row, so the save must go through
-			// the create branch (update 404s).
+			// Draft-only schedules have no deployed row, so saving must CREATE (update 404s).
 			edit = !noDeployed
 			if (!defaultCfg) {
-				// Form holds DEPLOYED here. Capture `initialConfig` as the
-				// deployed baseline so the dirty check / unsaved banner
-				// fires whenever a saved draft exists.
+				// Form holds DEPLOYED here; capture it as `initialConfig` so the
+				// dirty check / banner fires whenever a saved draft exists.
 				initialConfig = structuredClone($state.snapshot(getScheduleCfg()))
 			}
 			if (draftOverlay) await loadScheduleCfg(draftOverlay)
@@ -300,10 +297,8 @@
 					path: schedule_path,
 					getDraft
 				})
-				// The autosaved draft (when present) sits in `.draft` as the
-				// editor's saved Schedule shape. Layer it over the deployed
-				// at the field level so the inline form assignments below
-				// see the editor's last-saved state.
+				// `.draft` holds the saved Schedule; layer it over the deployed
+				// fields so the form assignments below see the last-saved state.
 				const { draft: draftFromBackend, ...deployedSchedule } = resp as any
 				s = draftFromBackend
 					? ({ ...deployedSchedule, ...draftFromBackend } as Schedule)
@@ -471,13 +466,9 @@
 	}
 
 	/**
-	 * Apply the deployed schedule config to the form, then return the
-	 * saved-draft overlay (if any) so the caller can capture the
-	 * deployed-only form state as `initialConfig` BEFORE applying the
-	 * draft. The "unsaved changes" banner compares `current` vs
-	 * `initialConfig` (via `useTriggerDraftSync.deployed`), so capturing
-	 * from the deployed-only form makes the banner fire whenever a
-	 * draft is present.
+	 * Apply the deployed config to the form, then return the saved-draft overlay
+	 * so the caller captures `initialConfig` from the deployed-only form BEFORE
+	 * applying the draft, making the banner fire whenever a draft is present.
 	 */
 	async function loadSchedule(
 		defaultCfg?: Record<string, any>
@@ -498,9 +489,7 @@
 				overlay: draftFromBackend
 					? ({ ...deployedSchedule, ...draftFromBackend } as Record<string, any>)
 					: undefined,
-				// Draft-only path: the response is a stand-in synthesized from
-				// the draft (`fetch_draft_only`); no schedule row exists, so
-				// saving must CREATE, not update.
+				// Draft-only: synthesized stand-in, no row, so saving must CREATE.
 				noDeployed: !!(s as any).no_deployed
 			}
 		} catch (err) {

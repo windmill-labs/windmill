@@ -1,24 +1,13 @@
 /**
- * Optimistic "this item has a draft" overrides for the list pages.
+ * Optimistic "this item has a draft" overrides for the list-page `*` suffix.
  *
- * The variable / resource / schedule / trigger list pages render a `*`
- * suffix from the server's `is_draft` flag, which only updates on a
- * refetch. While an editor is open it knows the live truth — the
- * "unsaved changes" banner state — and publishes it here; the pages
- * read it with `getLocalDraftHint(...) ?? is_draft`, so the editor's
- * observation OVERRIDES the stale server flag in both directions:
- * editing sets the asterisk immediately, and discarding (or editing
- * back to the deployed value) clears it immediately instead of waiting
- * for the next refetch.
+ * The list pages render `*` from the server's `is_draft`, which only updates on
+ * refetch. An open editor knows the live truth and publishes it here; pages read
+ * `getLocalDraftHint(...) ?? is_draft`, so the editor overrides the stale flag in
+ * both directions immediately. SvelteMap-backed, so readers re-render on a flip.
  *
- * Backed by a `SvelteMap`, so a page template reading
- * `getLocalDraftHint(...)` re-renders when the editor flips the hint.
- *
- * Lifetime: hints PERSIST past editor teardown — they record the truth
- * the editor last observed, which outlives the drawer (the divergence,
- * or its discard, is synced server-side). They are corrected, not
- * expired: the next time an editor settles on the same item it
- * re-publishes what it sees.
+ * Hints PERSIST past editor teardown (the divergence/discard is synced
+ * server-side) and are corrected, not expired, on the next editor settle.
  */
 import { SvelteMap } from 'svelte/reactivity'
 import type { UserDraftItemKind } from '$lib/gen'

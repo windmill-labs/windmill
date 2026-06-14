@@ -1,27 +1,13 @@
 /**
- * One-off migration from the localStorage-backed UserDraft autosave to
- * the new per-user DB-backed `draft` table.
- *
- * Runs AFTER `migrateLegacyUserDrafts` (which folds the original
- * `flow` / `app-{path}` / `rawapp-{path}` style keys into the
- * intermediate `userdraft/w/{workspace}/{kind}/{path}` format). This
- * file picks up from that intermediate format and pushes each entry
- * over to `POST /drafts/save_draft`, deleting it from localStorage
- * only after the POST returns successfully.
- *
- * Per-entry semantics:
- *   - A successful save deletes the source key, so on next page load
- *     it's gone. The migration is idempotent without a sentinel: any
- *     entry that failed (network error, parse error, ...) is simply
- *     left in place and retried on the next mount.
- *   - We do not gate on the current workspace — the key embeds its own
- *     workspace, and the auth token covers every workspace the user is
- *     a member of. Migrating only the active workspace would orphan
- *     entries for any other workspace the user had been editing in.
- *
- * Intentionally NOT importing from `userDraft.svelte.ts`: this is
- * one-way LS-clearing scaffolding, kept here so the runtime module
- * stays free of legacy decoders.
+ * One-off migration from the localStorage UserDraft autosave to the
+ * DB-backed `draft` table. Runs after `migrateLegacyUserDrafts` (which
+ * produces the `userdraft/w/{workspace}/{kind}/{path}` keys this reads),
+ * POSTing each to `/drafts/save_draft` and clearing the source key only on
+ * success — so it's idempotent without a sentinel; failed entries retry next
+ * mount. Not workspace-gated: keys embed their own workspace and the token
+ * covers all of them, so gating would orphan other-workspace entries.
+ * Deliberately self-contained (no `userDraft.svelte.ts` import) so the
+ * runtime module stays free of legacy decoders.
  */
 
 import { DraftService } from './gen'
@@ -30,11 +16,9 @@ import { sendUserToast } from './toast'
 import { getUsernameForNamespace } from './userNamespace'
 import { randomUUID } from './utils/uuid'
 
-// Mirror of `USER_DRAFT_ITEM_KINDS` from `userDraft.svelte.ts`. Inlined
-// here so the migration module can be imported without pulling in the
-// reactive runtime. Tested by the type assertion below: the compiler
-// rejects this file if a kind is added to the OpenAPI schema but not
-// listed here (and vice-versa).
+// Mirror of `USER_DRAFT_ITEM_KINDS`, inlined to avoid importing the reactive
+// runtime. The `_Exhaustive` assertion below fails compilation if this list
+// drifts from the OpenAPI schema's kinds.
 const ITEM_KINDS = [
 	'script',
 	'flow',
@@ -77,16 +61,11 @@ type ParsedKey = {
 }
 
 /**
- * Split a `userdraft/w/{workspace}/{kind}/{path}` key into its parts.
- * Returns `undefined` for keys that don't match the schema or whose
- * kind isn't one we recognize — we ignore those rather than risk
- * sending a junk POST.
- *
- * `path` is `''` for a legacy `/add` autosave: the new-item editor had
- * no path yet, so the key was just `.../{kind}/`. The caller mints a
- * fresh `u/{user}/draft_{uuid}` slot for those. A key without the
- * trailing `{kind}/` never matches and falls through to `undefined`, so
- * an empty `path` here always means the addable-slot case, not garbage.
+ * Split a `userdraft/w/{workspace}/{kind}/{path}` key into its parts, or
+ * `undefined` for keys that don't match or have an unrecognized kind.
+ * `path` is `''` only for a legacy `/add` autosave (key ended `.../{kind}/`);
+ * the caller mints a fresh slot for those. An empty `path` here is always that
+ * case, never garbage, since a non-matching key returns `undefined`.
  */
 function parseKey(key: string): ParsedKey | undefined {
 	if (!key.startsWith(KEY_PREFIX)) return undefined
@@ -107,11 +86,9 @@ function parseKey(key: string): ParsedKey | undefined {
 
 /**
  * Mint a fresh `u/{user}/draft_{uuid}` slot for a pathless legacy `/add`
- * autosave, matching the convention the editors' `/add` redirects use
- * (`makeDraftAddLoad`). Underscores, not dashes — path segments are
- * `[a-zA-Z0-9_]` words and downstream consumers treat `-` as foreign —
- * and `randomUUID` rather than `crypto.randomUUID` (the WebCrypto version
- * is unavailable on non-secure origins, common for self-hosted).
+ * autosave, matching the editors' `/add` redirect convention (`makeDraftAddLoad`).
+ * Underscores not dashes (path segments are `[a-zA-Z0-9_]` words); `randomUUID`
+ * not `crypto.randomUUID` (WebCrypto is absent on non-secure origins).
  */
 function mintDraftAddPath(): string {
 	const username = getUsernameForNamespace()
@@ -120,12 +97,9 @@ function mintDraftAddPath(): string {
 }
 
 /**
- * Extract the payload that was stored in localStorage. The LS schema
- * was `{ value: V, lastWrittenAt?: number, remoteRev?: ..., ... }`.
- * The migration needs `value` plus `lastWrittenAt` (the LS copy's age,
- * passed as `last_sync` so a fresher server draft wins the upload).
- * Returns `undefined` when the slot is empty / unparseable / wrong
- * shape.
+ * Extract `value` and `lastWrittenAt` from the LS payload (`{ value, lastWrittenAt?, ... }`).
+ * `lastWrittenAt` rides along as `last_sync` so a fresher server draft wins.
+ * `undefined` when the slot is empty / unparseable / wrong shape.
  */
 function readPayload(key: string): { value: unknown; lastWrittenAt?: number } | undefined {
 	try {
@@ -153,22 +127,14 @@ function collectKeys(): string[] {
 }
 
 /**
- * Walk every `userdraft/w/{ws}/{kind}/{path}` entry in localStorage,
- * push each to `POST /drafts/save_draft`, and remove it from LS once
- * settled. Entries that fail to migrate (parse error, network error,
- * unrecognized kind, ...) stay in LS and are retried on the next mount.
+ * Push every LS `userdraft/...` entry to `/drafts/save_draft`, clearing each on
+ * success; failures stay in LS and retry next mount.
  *
- * The LS copy's `lastWrittenAt` rides along as `last_sync`, so the
- * server only accepts the upload when its own draft (if any) is not
- * fresher — the user may have kept editing the same path from another
- * browser after this one last wrote LS, and a blind overwrite would
- * destroy that newer server draft. Entries without `lastWrittenAt`
- * use epoch 0: insert when the slot is empty, yield to any existing
- * server draft. A `conflict` response means the server copy won — the
- * LS entry is dropped without uploading.
- *
- * Resolves only when every candidate has been attempted. Logs per-entry
- * errors but never throws — the caller is fire-and-forget.
+ * `lastWrittenAt` rides as `last_sync` so the server rejects the upload when its
+ * own draft is fresher (the user may have edited the same path from another
+ * browser since this LS write). Missing `lastWrittenAt` uses epoch 0 (insert if
+ * absent, else yield). A `conflict` response means the server won; drop the LS
+ * copy. Never throws — the caller is fire-and-forget.
  */
 export async function migrateUserDraftsToDb(): Promise<void> {
 	if (typeof localStorage === 'undefined') return
@@ -197,9 +163,8 @@ export async function migrateUserDraftsToDb(): Promise<void> {
 			}
 			continue
 		}
-		// A legacy `/add` autosave (`parsed.path === ''`) has no path of its
-		// own — give it a fresh `u/{user}/draft_{uuid}` slot so it lands as a
-		// regular draft-only item instead of being dropped.
+		// A legacy `/add` autosave has no path — mint a fresh slot so it lands
+		// as a regular draft-only item instead of being dropped.
 		const path = parsed.path === '' ? mintDraftAddPath() : parsed.path
 		toMigrate.push({
 			key,

@@ -3,23 +3,13 @@ import { UserDraft, type UserDraftHandle, type UserDraftItemKind } from '$lib/us
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 /**
- * Page-level draft orchestration shared by the full-page editors
- * (scripts / flows / apps / apps_raw). The page editors each hand-rolled
- * this with three divergent handle-ownership models and an easy-to-forget
- * `recordRemoteSync`; this is the single model — the page analogue of
- * `useTriggerDraftSync` for the drawer editors.
- *
- * It owns:
- *   - the per-path autosave handle (re-keyed on navigation),
- *   - the live-editor-draft registry entry (home-page "edit draft" links),
- *   - `recordRemoteSync` (forgetting it silently downgrades conflict
- *     detection to overwrite-as-fresh — so it's a method here, not a
- *     thing each page remembers to call),
- *   - the deployed-baseline `seed` (via `UserDraft.seed`, no stopSync
- *     bracket to forget to resume) and the draft `remove`.
- *
- * The entity-specific backend load and the new-draft template stay in the
- * page — only the cross-cutting plumbing moves here.
+ * Page-level draft orchestration for the full-page editors (scripts / flows /
+ * apps / apps_raw) — the page analogue of `useTriggerDraftSync`. Owns the
+ * per-path autosave handle (re-keyed on navigation), the live-editor-draft
+ * registry entry (home-page "edit draft" links), `recordRemoteSync` (a method
+ * so pages can't forget it and silently downgrade conflict detection to
+ * overwrite-as-fresh), the deployed-baseline `seed`, and the draft `remove`.
+ * The entity-specific backend load and new-draft template stay in the page.
  */
 export interface PageDraftSyncOptions {
 	itemKind: UserDraftItemKind
@@ -52,11 +42,8 @@ export interface PageDraftSync<V> {
 }
 
 export function usePageDraftSync<V = unknown>(opts: PageDraftSyncOptions): PageDraftSync<V> {
-	// One handle, re-keyed on (workspace, path) navigation — the single
-	// ownership model. `''` path yields no spec, so the handle releases.
-	// `canBeDisabled`: the page editors (script / flow / raw app) are
-	// exactly the surfaces whose AutosaveIndicator carries the "Enable
-	// auto-save" toggle, so their reactive saves honor it.
+	// One handle, re-keyed on (workspace, path); `''` path releases it.
+	// `canBeDisabled` because these editors carry the "Enable auto-save" toggle.
 	const handle = UserDraft.useReactive<V>(() => ({
 		itemKind: opts.itemKind,
 		path: opts.path(),
@@ -64,9 +51,8 @@ export function usePageDraftSync<V = unknown>(opts: PageDraftSyncOptions): PageD
 		canBeDisabled: true
 	}))
 
-	// Live-editor-draft registry: lets the home-page "edit draft" deep
-	// link resolve this open editor. Re-registers when the path or the
-	// draft's effective path changes; cleared on teardown / re-key.
+	// Live-editor-draft registry: lets the home-page "edit draft" link resolve
+	// this open editor. Re-registers on path change; cleared on teardown.
 	$effect(() => {
 		if (!opts.effectivePath) return
 		const ws = opts.workspace()

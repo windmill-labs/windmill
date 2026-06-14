@@ -53,10 +53,9 @@ import { saveEmailTriggerFromCfg } from '$lib/components/triggers/email/utils'
 
 export type DraftKind = UserDraftItemKind
 
-/** Kind → "get by path with draft overlay" call, for the kinds whose draft is
- * the editor's flat config object (everything except script/flow/app, which
- * have bespoke handling below). Feature-gated trigger services 404 when the
- * backend wasn't compiled with the kind — the caller surfaces the error. */
+/** Kind → "get by path with draft overlay" call, for kinds whose draft is the
+ * editor's flat config (all but script/flow/app, handled below). Feature-gated
+ * trigger services 404 when the backend lacks the kind; the caller surfaces it. */
 const OVERLAY_GETTERS: Partial<
 	Record<DraftKind, (workspace: string, path: string) => Promise<any>>
 > = {
@@ -105,11 +104,9 @@ export interface DraftDiffValues {
 	draft: unknown
 }
 
-// Empty-but-valid "deployed" shapes for draft_only items (which have never been
-// deployed). Using a fully-empty `{}` breaks the flow graph diff (it needs
-// `value.modules`) and leaves the drawer spinning — so each kind gets a minimal
-// valid shape, making the whole draft show as "all new". Kinds not listed fall
-// back to `{}` (their diffs are plain object diffs with no shape requirements).
+// Empty-but-valid "deployed" shapes for draft_only items. A bare `{}` breaks
+// the flow graph diff (needs `value.modules`) and hangs the drawer, so each
+// listed kind gets a minimal shape; unlisted kinds fall back to `{}`.
 const EMPTY_DEPLOYED: Partial<Record<DraftKind, (draft: any) => unknown>> = {
 	script: (draft) => ({ content: '', language: draft?.language, schema: {} }),
 	flow: () => ({ summary: '', value: { modules: [] }, schema: {} }),
@@ -133,10 +130,9 @@ export async function getDraftDiffValues(
 	// draft-table row (e.g. a flow created via createFlow(draft_only: true), like
 	// `u/admin/new`). There `draft` is null, so the draft side must fall back to
 	// the row's own value — otherwise the diff "after" is empty and nothing shows.
-	// Overlay metadata (is_draft / draft_saved_at / no_deployed /
-	// other_drafts_users) is stripped from the "deployed" side so the
-	// DiffDrawer's `cleanValueProperties` doesn't render the per-user
-	// markers as noise. Same shape as the script/flow editor's loader.
+	// Strip overlay metadata (is_draft / draft_saved_at / no_deployed /
+	// other_drafts_users) from the deployed side so the diff doesn't show the
+	// per-user markers as noise.
 	if (kind === 'script') {
 		const r = (await ScriptService.getScriptByPath({ workspace, path, getDraft: true })) as any
 		const {
@@ -231,14 +227,11 @@ export async function deployDraft(
 ): Promise<DeployResult> {
 	try {
 		if (kind === 'raw_app' || (kind === 'app' && rawApp)) {
-			// Raw apps bundle their source files to js/css and deploy via the
-			// raw-app endpoints — same as the global AI chat's deploy. The
-			// Review & Deploy page passes `kind === 'raw_app'` (raw apps are
-			// their own DRAFT_KIND); the editor path passes `kind === 'app'`
-			// + `rawApp`. Either MUST route here — falling into the visual-app
-			// branch below would do a partial `updateApp` with no `value`
-			// (a RawAppDraft has no `value` field), silently discarding the
-			// draft's files without ever bundling/deploying them.
+			// Raw apps bundle their source files and deploy via the raw-app
+			// endpoints. Reached as `kind === 'raw_app'` (Review & Deploy) or
+			// `kind === 'app'` + `rawApp` (editor). Must route here: the
+			// visual-app branch would `updateApp` with no `value` (RawAppDraft
+			// has none) and silently drop the draft's files.
 			await deployRawAppDraft(workspace, path)
 		} else if (kind === 'script') {
 			const r = (await ScriptService.getScriptByPath({ workspace, path, getDraft: true })) as any
@@ -398,11 +391,9 @@ export async function deployDraft(
 		} else {
 			return { success: false, error: `Deploy not supported for draft kind ${kind}` }
 		}
-		// The script/flow/app deploy endpoints delete the deployer's draft
-		// server-side, but the drawer kinds' create/update endpoints never
-		// touch the draft table — their editors discard client-side after a
-		// save. Replay that half too, or the just-deployed draft survives
-		// the deploy and keeps listing.
+		// script/flow/app deploys delete the draft server-side; the drawer
+		// kinds' create/update endpoints don't, so delete it here too — else
+		// the just-deployed draft survives and keeps listing.
 		if (
 			kind === 'variable' ||
 			kind === 'resource' ||
@@ -419,10 +410,9 @@ export async function deployDraft(
 		}
 		// Mutated the workspace's Server Drafts — refresh every mounted reader.
 		invalidateWorkspaceDrafts(workspace)
-		// Deploy deletes the draft server-side (for script/flow/app) without
-		// going through UserDraftDbSyncer, so the syncer-owned hint won't
-		// auto-clear here — clear it explicitly. (For the drawer kinds the
-		// syncer delete above already clears it; this is idempotent.)
+		// For script/flow/app the server-side delete bypasses UserDraftDbSyncer,
+		// so the syncer-owned hint won't auto-clear — clear it explicitly.
+		// (Idempotent: the drawer-kind delete above already cleared it.)
 		setLocalDraftHint(workspace, kind, path, false)
 		return { success: true }
 	} catch (e: any) {
@@ -430,10 +420,9 @@ export async function deployDraft(
 	}
 }
 
-/** Kind → editor save helper for the standalone trigger kinds. All share the
- * `(initialPath, cfg, edit, workspace, ...)` shape; the two that take an
- * `isAdmin` slot get it threaded. A throwaway `usedTriggerKinds` store is fine
- * — it only feeds the editors' kind-usage UI. */
+/** Kind → editor save helper for the standalone trigger kinds, all sharing the
+ * `(initialPath, cfg, edit, workspace, isAdmin?)` shape. The throwaway
+ * `usedTriggerKinds` store only feeds the editors' kind-usage UI. */
 const TRIGGER_SAVERS: Partial<
 	Record<
 		DraftKind,
@@ -469,11 +458,9 @@ const TRIGGER_SAVERS: Partial<
 }
 
 /**
- * Discard a draft. Draft-only items exist ONLY as a draft-table row (the
- * deployed tables hold nothing for them since the draft_only column was
- * dropped), so deleting the draft row is the whole discard in every case —
- * `save({ value: null })` is the canonical "drop my draft for this path"
- * POST, the same call the editor makes on Reset to deployed.
+ * Discard a draft. Draft-only items exist only as a draft-table row, so
+ * deleting that row is the whole discard in every case. `save({ value: null })`
+ * is the canonical "drop my draft for this path" POST.
  */
 export async function discardDraft(
 	kind: DraftKind,
@@ -482,12 +469,10 @@ export async function discardDraft(
 	_draftOnly = false
 ): Promise<DeployResult> {
 	try {
-		// Routes through UserDraftDbSyncer.postSave, which clears the
-		// syncer-owned `*` hint on a `value: null` delete — no explicit
-		// clear needed here. `immediate: true` so this await resolves only
-		// after the POST lands — without it the save resolves at enqueue
-		// time and the invalidate below refetches ~1.5s ahead of the
-		// delete, re-listing the just-discarded draft.
+		// postSave clears the syncer-owned `*` hint on the delete. `immediate`
+		// so the await resolves after the POST lands — else it resolves at
+		// enqueue time and the invalidate below refetches before the delete,
+		// re-listing the just-discarded draft.
 		await UserDraftDbSyncer.save({ workspace, itemKind: kind, path, value: null, immediate: true })
 		invalidateWorkspaceDrafts(workspace)
 		return { success: true }

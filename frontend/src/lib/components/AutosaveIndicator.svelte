@@ -13,31 +13,17 @@
 		workspace,
 		itemKind,
 		path,
-		// Reactive — when true, the indicator's popover hides "Reset to
-		// deployed" because there's nothing to fall back to (the editor
-		// is on a per-user draft at a path with no deployed row). Routes
-		// thread their own `isNewX` / `savedX.no_deployed` here.
+		// True when on a per-user draft with no deployed row: popover hides
+		// "Reset to deployed" since there's nothing to fall back to.
 		draftOnly = false,
-		// Route-specific reset logic. The popover button stops sync,
-		// fires `value: null` at the syncer, awaits this, then restarts
-		// sync after two ticks — mirrors `notifyDraftLoaded`'s "Reset to
-		// deployed" toast action so the discard sticks.
+		// Stops sync, POSTs `value: null`, restarts sync after two ticks.
 		onResetToDeployed,
-		// Set true on the first overlay response that came back with
-		// `is_draft: true` — triggers the on-mount "Loaded from draft"
-		// hint label and green-flash animation. Replaces the old
-		// `notifyDraftLoaded` toast. We snapshot the prop at mount so
-		// re-renders from prop churn don't re-trigger the hint.
+		// Set on the first `is_draft: true` overlay response; fires the
+		// on-mount "Loaded from draft" hint. Snapshotted at mount.
 		loadedFromDraft = false,
-		// Number of OTHER workspace users with a draft at this path
-		// (i.e. the deployed-overlay's `other_drafts_users` length).
-		// When > 0, the on-mount hint takes priority over "Loaded from
-		// draft" and the popover offers a "See others' drafts" button
-		// that flips the OtherUsersDraftsModal open through
-		// `onOpenOthersDrafts`.
+		// Count of OTHER users with a draft here. >0 makes the on-mount hint
+		// take priority over "Loaded from draft" and offers "See others' drafts".
 		othersDraftsCount = 0,
-		// Wired by the route to the bindable `othersModalOpen` it
-		// threads into DraftEditorModals.
 		onOpenOthersDrafts
 	}: {
 		workspace: string
@@ -50,21 +36,15 @@
 		onOpenOthersDrafts?: () => void
 	} = $props()
 
-	// `UserDraft.has` reads `entry.state.val` (a $state), so the $derived
-	// re-runs when the in-memory draft appears / disappears — flips on
-	// after the first edit and back off after a successful reset.
+	// Reactive to the in-memory draft appearing/disappearing.
 	const hasDraft = $derived(UserDraft.has(itemKind, path, { workspace }))
 
-	// Recompute the handle when the target draft changes; its `.state` getter
-	// is itself reactive to the autosave pipeline, so `syncState` tracks both.
 	const handle = $derived(UserDraftDbSyncer.getState({ workspace, itemKind, path }))
 	const syncState: UserDraftSyncState = $derived(handle.state)
 	const failureMessage = $derived(handle.failureMessage)
 
-	// The "Saved" label is shown only for a few seconds after a save actually
-	// completes (saving → none). A transition straight to `failed` skips the
-	// "Saved" flash entirely — the persistent "Save failed" label takes its
-	// slot until the next attempt clears or replaces it.
+	// "Saved" flashes for a few seconds on saving → none. A jump straight to
+	// `failed` skips it; the sticky "Save failed" label takes the slot instead.
 	const SAVED_LABEL_MS = 3000
 	let savedVisible = $state(false)
 	let prev: UserDraftSyncState = 'none'
@@ -106,14 +86,9 @@
 		}
 	})
 
-	// One-shot tinted → transparent backdrop behind the whole indicator.
-	// Shared by the on-mount load hints below and the Ctrl/Cmd+S
-	// confirmation — re-triggering replays the CSS animation (the keyed
-	// span remounts). `flashActive` keeps the span mounted just long
-	// enough for the animation to finish, then unmounts it so the DOM
-	// stays clean. Color signals the meaning: green = "your save landed"
-	// (Ctrl/Cmd+S), blue = informational load hints ("Loaded from draft",
-	// "Others are working on this ...").
+	// One-shot tinted backdrop. Bumping `flashKey` remounts the keyed span to
+	// replay the CSS animation; `flashActive` unmounts it once done. Color:
+	// green = save landed (Ctrl/Cmd+S), blue = load hints.
 	const FLASH_MS = 2000
 	let flashKey = $state(0)
 	let flashActive = $state(false)
@@ -137,14 +112,9 @@
 		}
 	})
 
-	// Explicit Ctrl/Cmd+S confirmation. `flushCount` bumps on every
-	// `UserDraftDbSyncer.flush()` completion — including the no-op path
-	// where the autosave had already landed everything. When the pipeline
-	// is idle and not failed at that moment, flash "Saved" + the green
-	// backdrop so the shortcut always gives visible feedback (a real
-	// flush also flashes the label via the saving → none transition
-	// above; setting `savedVisible` twice is harmless). Seed from the
-	// handle's current count so a remount doesn't replay an old flush.
+	// Ctrl/Cmd+S feedback. `flushCount` bumps on every flush() completion,
+	// including no-ops. When idle and not failed, flash "Saved" + green so the
+	// shortcut always confirms. Seeded from the count so a remount doesn't replay.
 	let prevFlushCount: number | undefined = undefined
 	$effect(() => {
 		const count = handle.flushCount
@@ -166,9 +136,6 @@
 	})
 
 	// On-mount load hint — "Others are working..." or "Loaded from draft".
-	// Stays for HINT_LABEL_MS, paired with the shared green flash above.
-	// Snapshot the props at mount so we don't re-fire the hint as the
-	// route re-renders the indicator.
 	const HINT_LABEL_MS = 7000
 	let hintLabel = $state('')
 	let hintTimer: ReturnType<typeof setTimeout> | undefined
@@ -177,12 +144,9 @@
 		itemKind === 'flow' ? 'flow' : itemKind === 'app' || itemKind === 'raw_app' ? 'app' : 'script'
 	)
 
-	// Triggers when either prop becomes truthy. Each truthy transition fires
-	// a fresh flash — wins precedence is computed here too (others > loaded).
-	// Seed to `false` (NOT to the props' current values) so a prop that is
-	// already truthy at mount counts as the first false → true transition
-	// and fires the hint; routes pass `loadedFromDraft = true` immediately
-	// after the overlay response comes back, so this is the common case.
+	// Each false → true transition fires a hint (others > loaded). Seeded to
+	// `false`, NOT the props' values, so a prop already truthy at mount counts
+	// as a transition and fires — the common case once the overlay responds.
 	let prevOthers = false
 	let prevLoaded = false
 	$effect(() => {
@@ -211,10 +175,8 @@
 		}
 	})
 
-	// "Saving..." / "Saved" / "Save failed" beat any hint; otherwise the hint
-	// shows. Empty string collapses the label `<span>`. `Save failed` is
-	// sticky — stays until either a fresh save attempt fires (→ "Saving...")
-	// or the next attempt succeeds (→ "Saved" flash).
+	// Status labels beat any hint; "" collapses the label span. "Save failed"
+	// is sticky until the next attempt fires or succeeds.
 	const label = $derived(
 		syncState === 'saving' || syncState === 'pending'
 			? 'Saving...'
@@ -228,10 +190,9 @@
 
 	const showResetAction = $derived(!draftOnly && hasDraft && !!onResetToDeployed)
 
-	// "Enable auto-save" preference — browser-wide, persisted by the
-	// syncer. When off, keystrokes never POST (they park for Ctrl/Cmd+S)
-	// and the indicator shows a muted cloud-off so the idle check-mark
-	// can't be mistaken for "everything saved".
+	// "Enable auto-save" preference — browser-wide, persisted by the syncer.
+	// When off, keystrokes park for Ctrl/Cmd+S and the indicator shows a muted
+	// cloud-off so the idle check-mark can't read as "everything saved".
 	const autosaveEnabled = $derived(UserDraftDbSyncer.autosaveEnabled)
 
 	let popoverOpen = $state(false)
@@ -259,11 +220,7 @@
 	aria-label="Autosave status"
 >
 	{#if flashActive}
-		<!-- One-shot tinted flash behind the indicator — load hints (blue)
-		     and Ctrl/Cmd+S confirmations (green) both route through
-		     `triggerFlash`. Keyed on `flashKey` so re-triggering replays
-		     the animation (Svelte tears the keyed block down and
-		     remounts). -->
+		<!-- Keyed on `flashKey` so re-triggering remounts and replays the animation. -->
 		{#key flashKey}
 			<span
 				class="autosave-hint-flash absolute inset-0 rounded-md pointer-events-none"
@@ -287,8 +244,7 @@
 				{:else if syncState === 'failed'}
 					<CloudOff size={16} class="text-red-500" />
 				{:else if !autosaveEnabled}
-					<!-- Muted (not red — that's the failure state): autosave is
-					     deliberately off, edits only persist on Ctrl/Cmd+S. -->
+					<!-- Muted, not red (the failure state): autosave is off, edits persist on Ctrl/Cmd+S. -->
 					<CloudOff size={16} class="text-tertiary" />
 				{:else}
 					<CloudCheck size={16} />
@@ -367,11 +323,8 @@
 </div>
 
 <style>
-	/* Tinted fade behind the whole indicator — green for save
-	   confirmations, blue for informational load hints. The animation
-	   fades a per-variant custom property to transparent; `forwards`
-	   keeps the end state so the backdrop disappears cleanly when the
-	   keyed wrapper unmounts. */
+	/* Fades the per-variant custom property to transparent; `forwards` keeps
+	   the end state so the backdrop disappears cleanly on unmount. */
 	@keyframes autosave-hint-flash-anim {
 		0% {
 			background-color: var(--autosave-flash-color);

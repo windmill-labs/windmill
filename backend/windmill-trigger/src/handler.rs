@@ -84,10 +84,8 @@ pub trait TriggerCrud: Send + Sync + 'static {
     /// constant set by each trigger impl — it is never user-controllable.
     const TABLE_NAME: &'static str;
     const TRIGGER_TYPE: &'static str;
-    /// `UserDraftItemKind` for this trigger's per-user `draft` table rows.
-    /// A required associated const (no default) so adding a trigger that
-    /// forgets to set it is a compile error — not a runtime panic on the
-    /// first draft save. Replaces the old `TRIGGER_TYPE` string-match.
+    /// `UserDraftItemKind` for this trigger's per-user `draft` rows. Required (no
+    /// default) so a trigger that forgets it is a compile error, not a runtime panic.
     const DRAFT_KIND: UserDraftItemKind;
     const SUPPORTS_SERVER_STATE: bool;
     const SUPPORTS_TEST_CONNECTION: bool;
@@ -139,9 +137,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
         &Self::ROUTE_PREFIX[1..]
     }
 
-    /// `UserDraftItemKind` for the per-user `draft` table lookup — just
-    /// the `DRAFT_KIND` const each impl declares. Kept as a fn so the
-    /// existing call sites (`T::user_draft_item_kind()`) are unchanged.
+    /// Accessor for `DRAFT_KIND` used at the draft-lookup call sites.
     fn user_draft_item_kind() -> UserDraftItemKind {
         Self::DRAFT_KIND
     }
@@ -368,10 +364,8 @@ pub trait TriggerCrud: Send + Sync + 'static {
         count
     }
 
-    /// `authed_email`: when `Some`, each row's `is_draft` reflects whether
-    /// that user has a per-user draft at the row's path (EXISTS subquery —
-    /// scalar, so it can't fan rows out). `None` (e.g. workspace export)
-    /// leaves `is_draft` NULL/omitted.
+    /// `authed_email = Some` adds the per-user `is_draft` flag (scalar EXISTS);
+    /// `None` (e.g. workspace export) leaves it omitted.
     async fn list_triggers(
         &self,
         tx: &mut PgConnection,
@@ -406,8 +400,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
             .and_where("workspace_id = ?".bind(&workspace_id));
 
         if let Some(email) = authed_email {
-            // SAFETY: TABLE_NAME and the draft kind are compile-time
-            // constants; the email is bound.
+            // SAFETY: interpolated TABLE_NAME and draft kind are compile-time constants; email is bound.
             sqlb.field(
                 &format!(
                     "EXISTS(SELECT 1 FROM draft WHERE draft.workspace_id = {t}.workspace_id \
@@ -611,13 +604,9 @@ async fn list_triggers<T: TriggerCrud>(
         .await?;
     tx.commit().await?;
 
-    // Draft-only rows: per-user drafts whose path has no deployed
-    // trigger of this kind. Same gate as scripts/flows/apps — gated on
-    // `include_draft_only`, non-operators only, page 0, no narrowing
-    // filters. Synthesis is best-effort: the editor's TriggerData shape
-    // overlaps T::Trigger but each per-kind config can deviate, so we
-    // tolerate per-row deserialize failures and drop the row instead of
-    // failing the whole listing.
+    // Append the authed user's draft-only triggers of this kind; see scripts.rs.
+    // Best-effort: the editor's TriggerData shape overlaps T::Trigger but a per-kind
+    // config can deviate, so drop a row on deserialize failure rather than fail the list.
     if query.include_draft_only.unwrap_or(false)
         && !authed.is_operator
         && query.page.unwrap_or(0) == 0
@@ -643,10 +632,8 @@ async fn list_triggers<T: TriggerCrud>(
             let serde_json::Value::Object(mut map) = v else {
                 continue;
             };
-            // Fill in the operational fields the editor draft doesn't
-            // carry — workspace_id, edited_by/at, mode (from `enabled`
-            // when `mode` is absent), extra_perms — so the merged JSON
-            // matches `Trigger<T::TriggerConfig>`'s flattened shape.
+            // Fill operational fields the editor draft omits so the merged JSON matches
+            // `Trigger<T::TriggerConfig>`'s flattened shape (mode derived from `enabled`).
             map.insert(
                 "workspace_id".into(),
                 serde_json::Value::String(workspace_id.clone()),
@@ -666,7 +653,7 @@ async fn list_triggers<T: TriggerCrud>(
                 );
             }
             map.insert("draft_only".into(), serde_json::Value::Bool(true));
-            // Synthesized rows ARE the authed user's draft.
+            // Synthesized rows are the authed user's draft.
             map.insert("is_draft".into(), serde_json::Value::Bool(true));
             match serde_json::from_value::<T::Trigger>(serde_json::Value::Object(map)) {
                 Ok(t) => triggers.push(t),
@@ -840,10 +827,8 @@ async fn update_trigger<T: TriggerCrud>(
 
     tx.commit().await?;
 
-    // On rename the per-user draft at the OLD path orphans (no SQL FK to
-    // cascade). Clear the deployer's own (+ legacy NULL) there, mirroring
-    // delete_trigger's draft cleanup and the script/flow/app rename path;
-    // teammates keep theirs (StaleDraftModal on reload).
+    // On rename the old-path draft orphans (no SQL FK); clear the deployer's own
+    // (+ legacy NULL) there, teammates keep theirs (StaleDraftModal). See scripts.rs.
     if path != new_path {
         delete_own_draft_for_path(
             &db,
@@ -920,11 +905,7 @@ async fn delete_trigger<T: TriggerCrud>(
 
     tx.commit().await?;
 
-    // The trigger is gone for everyone — wipe ALL users' drafts for this
-    // path, not just the caller's, so teammates' drafts don't orphan. The
-    // draft kind is derived from the impl via TriggerCrud, mirroring the
-    // lookup `maybe_overlay_draft` uses on get-by-path. Idempotent on
-    // no-draft.
+    // Trigger gone for everyone: wipe ALL users' drafts at this path; see scripts.rs.
     delete_all_drafts_for_path(&db, &workspace_id, T::user_draft_item_kind(), path).await?;
 
     Ok(format!("Trigger '{}' deleted", path))

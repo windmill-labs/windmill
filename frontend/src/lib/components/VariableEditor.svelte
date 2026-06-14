@@ -50,11 +50,9 @@
 			path: editPath ?? '',
 			workspace: s.ws,
 			defaultValue: s.defaultValue,
-			// Autosaves landing back on the deployed value become deletes.
-			// Same comparison as `dirtyWorkspaces` (the banner), so the
-			// synced draft and the banner can never disagree. Never true
-			// for draft-only/new items (the draft is the only copy;
-			// deleting it on equality would destroy the item).
+			// Autosaves landing back on the deployed value become deletes (same
+			// comparison as the banner's `dirtyWorkspaces`, so they can't disagree).
+			// Guarded by `existedInitially` so draft-only items aren't destroyed.
 			discardIf: (val) => !!existedInitially[s.ws] && draftValuesEqual(val, initialStates[s.ws])
 		}))
 	)
@@ -99,14 +97,10 @@
 		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
 	)
 
-	// The list-page `*` hint is OWNED by UserDraftDbSyncer (set on save,
-	// cleared on delete) — the syncer is the one choke point where draft
-	// existence actually changes. The editor only CLEARS it: when a loaded
-	// workspace is at the deployed baseline (not dirty), there's no draft,
-	// so drop any stale hint. This is what makes a draft discarded from
-	// another tab disappear on reopen (the reopened editor settles clean
-	// and clears the leftover hint). Never SET here — that would make the
-	// editor a second source of truth.
+	// The list-page `*` hint is owned by UserDraftDbSyncer (set on save, cleared
+	// on delete). The editor only CLEARS it — a workspace at the deployed
+	// baseline has no draft, so drop any stale hint (this is how a draft
+	// discarded in another tab vanishes on reopen). Never SET here.
 	$effect(() => {
 		const p = editPath
 		const loadedWs = Object.keys(states)
@@ -132,9 +126,8 @@
 	const dirtyValid = $derived(
 		dirtyWorkspaces.every((ws) => {
 			const v = states[ws].draft
-			// `$encrypted:` markers are ciphertext (longer than the plaintext
-			// the user typed) — the backend re-derives the real value on save,
-			// so the length cap doesn't apply to them.
+			// `$encrypted:` markers are ciphertext; the backend re-derives the
+			// real value on save, so the length cap doesn't apply.
 			return (
 				!!v &&
 				(isEncryptedDraftValue(v.variable.value) || v.variable.value.length <= MAX_VARIABLE_LENGTH)
@@ -164,16 +157,10 @@
 				}),
 				getUserExt(ws)
 			]).then(([v, user]) => {
-				// `v` is the deployed `Variable` (wire shape); the autosaved
-				// draft (if any) sits in `.draft` as the editor's internal
-				// `VariableState` shape — the editor reads it directly.
+				// `.draft` already holds the editor's `VariableState` shape.
 				const savedDraftState = (v as any).draft as VariableState | undefined
-				// The deployed baseline, translated into the editor's
-				// `VariableState` shape. Kept as the dirty-check reference
-				// so the "unsaved changes" banner compares draft-vs-deployed
-				// instead of loaded-vs-current — when a saved draft exists,
-				// the form opens with `draft != deployed` so the banner
-				// fires immediately, exactly as if the user had typed.
+				// Deployed baseline as the dirty-check reference, so the banner
+				// compares draft-vs-deployed and fires immediately when a draft exists.
 				const deployedState: VariableState = {
 					path: v.path,
 					variable: {
@@ -184,15 +171,12 @@
 					labels: v.labels ?? undefined,
 					wsSpecific: v.ws_specific ?? false
 				}
-				// What the editor opens with: the saved draft if present,
-				// otherwise the deployed.
+				// Open with the saved draft if present, else the deployed.
 				const s: VariableState = savedDraftState ?? deployedState
 				ensureHandle(ws, s)
 				initialStates[ws] = structuredClone(deployedState)
-				// Draft-only paths (`no_deployed`) have no variable row —
-				// saving must CREATE, not update (update 404s). The flag
-				// also keeps the editor semantically in "new item
-				// prefilled from draft" mode.
+				// Draft-only paths (`no_deployed`) have no row — saving must
+				// CREATE, not update (update 404s).
 				existedInitially[ws] = !(v as any).no_deployed
 				extraPerms[ws] = v.extra_perms ?? {}
 				perWsUser[ws] = user
@@ -285,12 +269,10 @@
 						}
 					})
 				}
-				// Deployed — the just-saved state is the new deployed
-				// baseline. Refresh it and reset the handle to it (`discard`,
-				// not `remove`: blanking the cell to `undefined` would read
-				// as dirty, keeping the banner and the list asterisk on).
-				// The `value: null` POST inside also deletes the server
-				// draft row so `is_draft` clears on the next refetch.
+				// The just-saved state is the new deployed baseline; reset the
+				// handle to it via `discard` (not `remove` — blanking the cell to
+				// `undefined` reads as dirty). The `value: null` POST also deletes
+				// the server draft row so `is_draft` clears on refetch.
 				initialStates[ws] = $state.snapshot(s) as VariableState
 				existedInitially[ws] = true
 				UserDraft.discard('variable', editPath ?? '', s, { workspace: ws })

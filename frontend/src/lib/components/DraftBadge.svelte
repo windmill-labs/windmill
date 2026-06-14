@@ -1,28 +1,10 @@
 <script lang="ts">
 	/**
-	 * Home-page badge that surfaces "this entity has a draft" plus tiny
-	 * user-initial circles for every workspace user with a per-user draft
-	 * at this path. Up to 3 circles render inline; with 4+ users we show
-	 * the first 2 + a `+N` overflow circle so the badge stays compact.
-	 *
-	 * Popover (hover): one row per draft owner with a circle icon. When
-	 * the row knows the item kind (workspace + itemKind + path passed
-	 * through) each OTHER user's row also gets "View JSON" / "Fork"
-	 * buttons — same actions as the in-editor OtherUsersDraftsModal,
-	 * surfaced inline here so users don't need to
-	 * open the editor first. The authed user's own row never has those
-	 * actions (forking yourself is meaningless); when the entry is
-	 * draft-only AND it's the authed user's own draft, the popover ends
-	 * with "Only you can see this {kind}" so the row's privacy is clear.
-	 *
-	 * Variants:
-	 *   draft_only=true  → "Draft only" (no deployed row exists)
-	 *   draft_only=false → "Draft"      (deployed and at least one user
-	 *                                    has a draft on top)
-	 *
-	 * Nothing renders when neither `is_draft` is true nor `draft_users`
-	 * is non-empty — the list endpoint omits `draft_users` for paths
-	 * with no drafts, so a falsy/empty array is the no-draft signal.
+	 * Home-page draft badge with per-user initial circles. Hover popover lists
+	 * each draft owner; when full context (workspace + itemKind + path) is
+	 * passed, OTHER users' rows get inline "View JSON" / "Fork" (forking
+	 * yourself is meaningless, so own rows don't). draft_only → "Draft only"
+	 * (no deployed row), else "Draft". Renders nothing when there's no draft.
 	 */
 	import Popover from './meltComponents/Popover.svelte'
 	import { Badge } from './common'
@@ -40,16 +22,9 @@
 		is_draft?: boolean
 		draft_only?: boolean
 		draft_users?: DraftUser[]
-		/** Authed user's workspace username. Used to pin THIS user's
-		 *  circle to the first slot (so the authed user always shows
-		 *  up front when they have a draft) and to annotate the
-		 *  popover entry with `(you)`. Pass `$userStore?.username`
-		 *  from the row. */
+		/** Authed user's username — pins their circle first and annotates `(you)`. */
 		currentUsername?: string | null
-		/** Optional context needed to render the per-user View JSON /
-		 *  Fork actions. When any of these is missing the popover falls
-		 *  back to the legacy text-only list (used by trigger rows that
-		 *  don't have a per-user draft surface). */
+		/** Context for the View JSON / Fork actions. Missing → text-only popover. */
 		workspace?: string
 		itemKind?: UserDraftItemKind
 		path?: string
@@ -65,11 +40,7 @@
 		path = undefined
 	}: Props = $props()
 
-	// Authed user always lands FIRST in the circle row when they have a
-	// draft; everyone else keeps the backend's alphabetical ordering
-	// behind them. The asterisk on the row's summary still flags the
-	// own-draft case textually — the leading circle is the visual half
-	// of the same signal.
+	// Authed user lands first; everyone else keeps the backend's ordering.
 	const orderedUsers = $derived.by(() => {
 		if (!currentUsername) return draft_users
 		const selfIdx = draft_users.findIndex((u) => u.username === currentUsername)
@@ -79,8 +50,7 @@
 		return [self, ...rest]
 	})
 
-	/** Two-letter uppercase initials from a username — `john.doe`/`john_doe` →
-	 * `JD`, `alice` → `AL`, the legacy NULL-email row (no username) → `?`. */
+	/** Two-letter initials; `john.doe` → `JD`, `alice` → `AL`, no username → `?`. */
 	function initials(u: DraftUser): string {
 		const name = u.username
 		if (!name) return '?'
@@ -95,8 +65,7 @@
 		return u.username ?? 'Legacy workspace draft'
 	}
 
-	// Deterministic color per username so the same user gets the same circle
-	// across rows. Tailwind palette of 6 — small enough to read at a glance.
+	// Deterministic color per username, same circle across rows.
 	const PALETTE = [
 		'bg-blue-500',
 		'bg-emerald-500',
@@ -112,10 +81,8 @@
 		return PALETTE[hash % PALETTE.length]
 	}
 
-	// First 3 circles when ≤3 users; first 2 + a "+N" overflow when 4+.
-	// Slice from `orderedUsers` so the authed user — always the first
-	// element when present — is always kept (it would be wrong to drop
-	// their own draft into the +N bubble while showing strangers).
+	// First 3 circles when ≤3 users; first 2 + "+N" overflow when 4+. Sliced from
+	// `orderedUsers` so the authed user (first) is never hidden in the overflow.
 	const MAX_CIRCLES = 3
 	const visibleUsers = $derived(
 		orderedUsers.length <= MAX_CIRCLES ? orderedUsers : orderedUsers.slice(0, MAX_CIRCLES - 1)
@@ -124,15 +91,10 @@
 		orderedUsers.length > MAX_CIRCLES ? orderedUsers.length - (MAX_CIRCLES - 1) : 0
 	)
 
-	// Show the badge whenever ANY draft exists (`draft_users` non-empty)
-	// OR when the authed user has a draft (`is_draft` true — the list
-	// endpoint sets this even for paths the user has a draft on but no
-	// one else does).
+	// Show whenever any draft exists, or the authed user has one (`is_draft`).
 	const showBadge = $derived(is_draft || draft_users.length > 0)
 
-	// The popover renders inline actions only when the parent supplied
-	// the full context (we need workspace + itemKind + path to actually
-	// fetch and fork drafts).
+	// Inline actions need full context to fetch and fork drafts.
 	const actionsEnabled = $derived(!!workspace && !!itemKind && !!path && draft_users.length > 0)
 
 	const kindLabel = $derived(
@@ -189,8 +151,7 @@
 		busyFor = ownerKey(owner)
 		try {
 			const value = await fetchDraft(owner)
-			// Import-style handoff: seed a brand-new own item from the
-			// fetched value (no immediate server save, fresh owned path).
+			// Seed a brand-new own item from the fetched value (no server save).
 			forkDraftToImport(itemKind, value, path)
 		} catch (e: any) {
 			sendUserToast(`Could not fork draft: ${e.body ?? e.message}`, true)
@@ -205,12 +166,7 @@
 		{#snippet trigger()}
 			<Badge small color="indigo">
 				{#if orderedUsers.length > 0}
-					<!-- Circles sit inside the Badge, before the label. `-space-x-1`
-					     overlaps them slightly; each circle's ring uses the badge's
-					     indigo tint instead of plain white so the overlap reads as
-					     intentional rather than a stack-of-floating-dots. The
-					     authed user is pinned to the first slot when present (see
-					     `orderedUsers`). -->
+					<!-- `-space-x-1` overlaps the circles; the indigo ring tint makes the overlap read intentional. -->
 					<span class="flex -space-x-1">
 						{#each visibleUsers as u, i (i)}
 							<span
@@ -277,10 +233,7 @@
 									>
 										View JSON
 									</Button>
-									<!-- Operators can't create workspace items, so forking
-									     another user's draft into a new item is meaningless
-									     for them — hide the action (View JSON stays: it's
-									     read-only). -->
+									<!-- Operators can't create items, so Fork is hidden (View JSON stays, it's read-only). -->
 									{#if !$userStore?.operator}
 										<Button
 											variant="subtle"

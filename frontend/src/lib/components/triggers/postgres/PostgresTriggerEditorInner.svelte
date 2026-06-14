@@ -251,9 +251,7 @@
 			transaction_to_track = []
 			tab = 'basic'
 			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultConfig)
-			// Draft-only triggers open as "new trigger prefilled from the
-			// draft" — no deployed row exists, so saving must CREATE (the
-			// update endpoint 404s).
+			// Draft-only triggers have no deployed row, so saving must CREATE (update 404s).
 			edit = !noDeployed
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			if (draftOverlay) loadTriggerConfig(draftOverlay)
@@ -373,17 +371,11 @@
 	}
 
 	/**
-	 * Apply the deployed config to the form (incl. publication fetch),
-	 * then return the saved-draft overlay (already merged with the
-	 * publication payload) so the caller can capture the deployed-only
-	 * form state as `originalConfig` BEFORE applying the draft. See
-	 * `NatsTriggerEditorInner.loadTrigger` for the broader rationale.
-	 *
-	 * Postgres-specific wrinkle: the publication payload is fetched from
-	 * the resource — keyed by `postgres_resource_path` /
-	 * `publication_name`, which the draft may have changed. Fetch once
-	 * using the effective values so the overlay reflects the draft's
-	 * publication, not the deployed one.
+	 * Apply the deployed config to the form, then return the saved-draft overlay
+	 * so the caller captures `originalConfig` BEFORE applying the draft (see
+	 * `NatsTriggerEditorInner.loadTrigger`). Postgres wrinkle: the publication is
+	 * keyed by resource/name the draft may have changed, so it's fetched using
+	 * the effective values to reflect the draft's view.
 	 */
 	async function loadTrigger(
 		defaultConfig?: Record<string, any>
@@ -402,13 +394,10 @@
 			getDraft: true
 		})
 		const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
-		// Draft-only path: the response is a stand-in synthesized from the
-		// draft (`fetch_draft_only`); no trigger row exists, so saving must
-		// CREATE, not update.
+		// Draft-only: synthesized stand-in, no row, so saving must CREATE.
 		const noDeployed = !!(s as any)?.no_deployed
 
-		// Fetch deployed publication and apply deployed config — this
-		// becomes the `originalConfig` baseline for the dirty check.
+		// Deployed config + publication become the `originalConfig` baseline.
 		const deployedPublication = await PostgresTriggerService.getPostgresPublication({
 			path: deployedTrigger.postgres_resource_path,
 			workspace: $workspaceStore!,
@@ -418,9 +407,7 @@
 
 		if (!draftFromBackend) return { overlay: undefined, noDeployed }
 
-		// Draft may have changed the resource/publication keys; fetch
-		// the publication that matches the effective values so the
-		// overlay opens on the draft's view.
+		// Refetch the publication for the draft's keys if they differ.
 		const effective = { ...deployedTrigger, ...draftFromBackend }
 		const effectivePublication =
 			effective.postgres_resource_path === deployedTrigger.postgres_resource_path &&

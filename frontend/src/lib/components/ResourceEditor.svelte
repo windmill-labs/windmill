@@ -81,11 +81,8 @@
 			path: initialPath ?? '',
 			workspace: s.ws,
 			defaultValue: s.defaultValue,
-			// Autosaves landing back on the deployed value become deletes.
-			// Same comparison as `dirtyWorkspaces` (the banner), so the
-			// synced draft and the banner can never disagree. Never true
-			// for draft-only/new items (the draft is the only copy;
-			// deleting it on equality would destroy the item).
+			// Autosaves landing back on the deployed value become deletes;
+			// `existedInitially` guards draft-only items from self-destructing.
 			discardIf: (val) => !!existedInitially[s.ws] && draftValuesEqual(val, initialStates[s.ws])
 		}))
 	)
@@ -164,11 +161,9 @@
 	)
 	const anyDirty = $derived(dirtyWorkspaces.length > 0)
 
-	// The list-page `*` hint is OWNED by UserDraftDbSyncer (set on save,
-	// cleared on delete). The editor only CLEARS it: a loaded workspace at
-	// the deployed baseline (not dirty) has no draft, so drop any stale
-	// hint — this is what makes a draft discarded from another tab vanish
-	// on reopen. Never SET here (the syncer is the single source).
+	// The syncer owns the list-page `*` hint; the editor only CLEARS it when a
+	// workspace is at the deployed baseline (so a draft discarded elsewhere
+	// vanishes on reopen). Never SET here. See VariableEditor for the full note.
 	$effect(() => {
 		const p = initialPath
 		const loadedWs = Object.keys(states)
@@ -235,18 +230,11 @@
 				ResourceService.getResource({ workspace: ws, path: initialPath, getDraft: true }),
 				getUserExt(ws)
 			]).then(([r, user]) => {
-				// `r` is the deployed `Resource` (wire shape `{path, value,
-				// description, labels, ws_specific, ...}`); the autosaved
-				// draft (if any) sits in `.draft` as the editor's internal
-				// `ResourceState` shape — the editor reads it directly.
+				// `.draft` already holds the editor's `ResourceState` shape.
 				const savedDraftState = (r as any).draft as ResourceState | undefined
 				fetchedResources[ws] = r
-				// The deployed baseline, translated into the editor's
-				// `ResourceState` shape. Kept as the dirty-check reference
-				// so the "unsaved changes" banner compares draft-vs-deployed
-				// instead of loaded-vs-current — when a saved draft exists,
-				// the form opens with `draft != deployed` so the banner
-				// fires immediately, exactly as if the user had typed.
+				// Deployed baseline as the dirty-check reference, so the banner
+				// compares draft-vs-deployed and fires immediately when a draft exists.
 				const deployedState: ResourceState = {
 					path: r.path,
 					description: r.description ?? '',
@@ -254,14 +242,12 @@
 					labels: r.labels ?? undefined,
 					wsSpecific: r.ws_specific ?? false
 				}
-				// What the editor opens with: the saved draft if present,
-				// otherwise the deployed.
+				// Open with the saved draft if present, else the deployed.
 				const s: ResourceState = savedDraftState ?? deployedState
 				ensureHandle(ws, s)
 				initialStates[ws] = structuredClone(deployedState)
-				// Draft-only paths (`no_deployed`) have no resource row —
-				// saving must CREATE, not update (update 404s with
-				// "Resource not found at name ...").
+				// Draft-only paths (`no_deployed`) have no row — saving must
+				// CREATE, not update (update 404s).
 				existedInitially[ws] = !(r as any).no_deployed
 				perWsUser[ws] = user
 				// Keep resource_type in sync for the base workspace (controls the schema)
@@ -368,12 +354,8 @@
 						}
 					})
 				}
-				// Deployed — the just-saved state is the new deployed
-				// baseline. Refresh it and reset the handle to it (`discard`,
-				// not `remove`: blanking the cell to `undefined` would read
-				// as dirty, keeping the banner and the list asterisk on).
-				// The `value: null` POST inside also deletes the server
-				// draft row so `is_draft` clears on the next refetch.
+				// Reset the handle to the new deployed baseline via `discard`, not
+				// `remove`. See VariableEditor for the full rationale.
 				initialStates[ws] = $state.snapshot(s) as ResourceState
 				existedInitially[ws] = true
 				UserDraft.discard('resource', initialPath ?? '', s, { workspace: ws })

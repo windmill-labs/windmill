@@ -24,24 +24,16 @@
 
 	type EditableScript = NewScript & { draft_triggers?: Trigger[] }
 
-	// `initialArgs` is intentionally captured once at mount — it's the
-	// session's initial argument set, not per-script. The URL form
-	// (`?initial_args=<encoded>`, e.g. the run page's "Fork" action) wins
-	// over the store form.
+	// Captured once at mount: a session-wide arg set, not per-script. URL form
+	// (`?initial_args=`, e.g. run page's "Fork") wins over the store form.
 	const urlArgs = page.url.searchParams.get('initial_args')
 	let initialArgs = urlArgs ? decodeState(urlArgs) : (get(initialArgsStore) ?? {})
 	if (get(initialArgsStore)) $initialArgsStore = undefined
 
-	/** Some pages (run/[...run]'s "Fork" action, workspace_settings'
-	 * error/success-handler template buttons) base64-JSON-encode a NewScript
-	 * payload into the URL hash of a `/scripts/add` link; the redirect
-	 * preserves the hash. That value is an explicit "open this script"
-	 * intent and wins over templates, hubs, and YAML imports.
-	 *
-	 * We can't use `decodeState` from utils.ts directly — it fires its own
-	 * "Impossible to parse state" toast on failure, which would noise up the
-	 * UI when the hash isn't a script payload at all (e.g. a route anchor).
-	 */
+	/** Some pages base64-JSON-encode a NewScript payload into the `/scripts/add`
+	 * link's URL hash (preserved by the redirect); it wins over templates, hubs
+	 * and imports. Not `decodeState`: that toasts on parse failure, which would
+	 * fire for non-payload hashes (e.g. a route anchor). */
 	function decodeUrlScript(): Partial<EditableScript> | undefined {
 		const fragment = page.url.hash.startsWith('#') ? page.url.hash.slice(1) : ''
 		if (!fragment) return undefined
@@ -54,12 +46,9 @@
 		return undefined
 	}
 
-	// Editor-template seeding state, populated in the `new_draft` branch:
-	// `builderTemplate` puts ScriptBuilder in WAC mode for `?wac=` /
-	// imported workflows-as-code; `lockedLanguage` pins the language picker
-	// for hub/template forks (their content is language-specific);
-	// `pathChosen` marks seeds carrying an explicit path so ScriptBuilder's
-	// summary→path auto-slug doesn't overwrite it.
+	// Template-seeding state set in the `new_draft` branch: `builderTemplate`
+	// selects WAC mode, `lockedLanguage` pins the picker for hub/template forks,
+	// `pathChosen` stops ScriptBuilder's summary→path auto-slug for explicit paths.
 	let builderTemplate: 'script' | 'wac_python' | 'wac_typescript' = $state('script')
 	let lockedLanguage = $state(false)
 	let pathChosen = $state(false)
@@ -73,10 +62,9 @@
 	// local draft — that view is read-only relative to drafts.
 	let draftPath = $derived(hash ? '' : (page.params.path ?? ''))
 
-	// Single page-level draft orchestration: the autosave handle (re-keyed
-	// on nav via the reactive `draftPath`), the live-editor-draft registry
-	// entry, `recordRemoteSync`, and draft removal. `draftSync.draft` stays
-	// a stable lvalue for `bind:script`.
+	// Page-level draft orchestration: autosave handle (re-keyed on nav via
+	// `draftPath`), live-editor-draft registry, `recordRemoteSync`, removal.
+	// `draftSync.draft` stays a stable lvalue for `bind:script`.
 	const draftSync = usePageDraftSync<EditableScript>({
 		itemKind: 'script',
 		path: () => draftPath,
@@ -95,23 +83,15 @@
 
 	let savedScript: Script | NewScript | undefined = $state(undefined)
 	let fullyLoaded = $state(false)
-	/** Other workspace users (and the legacy NULL-email row, if any) with
-	 *  a draft on this path. Populated from the deployed-overlay response
-	 *  on each `loadScript`; the AutosaveIndicator picks up the count for
-	 *  its on-mount "Others are working on this script" hint. */
+	/** Other users (incl. the legacy NULL-email row) with a draft on this path,
+	 *  from each `loadScript`. Feeds the AutosaveIndicator's "others" hint. */
 	let otherDraftsUsers = $state<OtherDraftUser[]>([])
-	/** Whether the editor mounted on a per-user draft this load — flipped
-	 *  true once when the overlay response says so, drives the
-	 *  AutosaveIndicator's on-mount "Loaded from draft" hint. */
+	/** Editor mounted on a per-user draft this load; drives the "Loaded from draft" hint. */
 	let loadedFromDraft = $state(false)
-	/** Bound through DraftEditorModals; flipped on from the
-	 *  AutosaveIndicator popover's "See others' drafts" button. */
+	/** "See others' drafts" button state, bound through DraftEditorModals. */
 	let othersModalOpen = $state(false)
-	/** Timestamps DraftEditorModals compares to decide whether to open
-	 *  the StaleDraftModal: when `draftSavedAt < deployedAt` the
-	 *  authed user has been editing a draft that's now behind the
-	 *  latest deployed version. Cleared between loads so the modal
-	 *  re-fires when a fresh load surfaces fresh staleness. */
+	/** DraftEditorModals opens the StaleDraftModal when `draftSavedAt < deployedAt`
+	 *  (our draft is behind the latest deploy). Cleared between loads to re-fire. */
 	let draftSavedAt = $state<string | undefined>(undefined)
 	let deployedAt = $state<string | undefined>(undefined)
 
@@ -130,53 +110,40 @@
 		const getDraft = opts.getDraft ?? true
 		const tok = ++loadScriptToken
 		fullyLoaded = false
-		// `?new_draft=true` (set by `/scripts/add`'s redirect) means we
-		// landed on a fresh `u/{user}/draft_{uuid}` path that's never
-		// been saved. Skip the backend fetch (it would 404), seed an
-		// empty `NewScript` whose `path` is intentionally empty: the
-		// `Path` widget's `initPath` calls `reset()` when both `path`
-		// and `initialPath` are empty, which is what generates the
-		// friendly `<random_adj>_<kind>` name. Anything non-empty (even
-		// `u/{user}/`) is parsed verbatim and the friendly seed never
-		// fires. `initialPath = ''` also makes ScriptBuilder open the
-		// metadata drawer on mount. Strip the single-use flag last.
+		// `?new_draft=true` (from `/scripts/add`'s redirect): a fresh, never-saved
+		// `u/{user}/draft_{uuid}` path. Skip the backend fetch (would 404) and seed
+		// empty. `path` AND `initialPath` must both be '' so the Path widget's
+		// `initPath` calls `reset()`, generating the friendly `<adj>_<kind>` name;
+		// any non-empty value is parsed verbatim. Empty `initialPath` also opens the
+		// metadata drawer. Strip the single-use flag last.
 		if (page.url.searchParams.get('new_draft') === 'true') {
-			// Suspend autosave for the whole new-draft bootstrap: the seed
-			// AND ScriptBuilder's `initContent` (which fills
-			// `script.content` from a template) are both programmatic
-			// writes that shouldn't appear on the server as the user's
-			// first edit. ScriptBuilder lifts the suspension in
-			// `initContent`'s `.finally`; this overlap is harmless (both
-			// calls set the same flag).
+			// Suspend autosave across the bootstrap: both the seed and
+			// ScriptBuilder's `initContent` are programmatic writes that must not
+			// post as the user's first edit. ScriptBuilder lifts it in
+			// `initContent`'s `.finally` (overlapping the same flag is harmless).
 			UserDraft.stopSync('script', draftPath)
-			// The page component is reused across same-route navigation
-			// (e.g. forking from an editor with collaborators) — clear the
-			// previous path's draft-presence state so its hints and
-			// stale-draft timestamps don't bleed onto the fresh draft.
+			// Page component is reused across same-route nav (e.g. forking from an
+			// editor) — clear the previous path's draft-presence state so its hints
+			// and stale-draft timestamps don't bleed onto the fresh draft.
 			otherDraftsUsers = []
 			loadedFromDraft = false
 			draftSavedAt = undefined
 			deployedAt = undefined
-			// Capture every seeding intent BEFORE touching the URL — all of
-			// these used to be consumed by /scripts/add and are preserved
-			// verbatim by its redirect.
+			// Capture every seeding param BEFORE stripping the URL flag.
 			const templatePath = page.url.searchParams.get('template')
 			const hubPath = page.url.searchParams.get('hub')
 			const collabLang = page.url.searchParams.get('lang') as ScriptLang | null
 			const wacParam = page.url.searchParams.get('wac')
-			// Explicit path seed — the fork-a-draft handoff re-homes the
-			// source path into the forker's namespace and passes it here.
+			// Explicit path seed: the fork-a-draft handoff re-homes the source
+			// path into the forker's namespace and passes it here.
 			const pathParam = page.url.searchParams.get('seed_path')
 			const urlScript = decodeUrlScript()
 			const url = new URL(window.location.href)
 			url.searchParams.delete('new_draft')
 			window.history.replaceState(window.history.state, '', url.toString())
-			// One-shot import handoff: "Import workflows-as-code from
-			// YAML/JSON" (CreateActionsFlow) writes $importScriptStore and
-			// routes to /scripts/add, which redirects here. Consume + clear;
-			// imported content is non-empty, so ScriptBuilder's
-			// template-seeding bootstrap (guarded on `content == ''`)
-			// leaves it untouched.
+			// One-shot YAML/JSON import handoff via $importScriptStore. Consume +
+			// clear; imported content is non-empty so ScriptBuilder's template
+			// bootstrap (guarded on `content == ''`) leaves it untouched.
 			const imported = $importScriptStore
 			if (imported) {
 				$importScriptStore = undefined
@@ -190,24 +157,17 @@
 					(wacParam === 'python' ? 'python3' : wacParam === 'typescript' ? 'bun' : null) ??
 					collabLang ??
 					'bun',
-				// MUST be `emptySchema()` (`{properties: {}, required: [],
-				// type: 'object'}`), NOT `{}`. `inferArgs` does
-				// `JSON.parse(JSON.stringify(schema.properties))` —
-				// `JSON.stringify(undefined)` returns the value `undefined`,
-				// and `JSON.parse(undefined)` coerces to the literal string
-				// "undefined", throwing the toast "Could not parse code".
+				// MUST be `emptySchema()`, not `{}`: `inferArgs` does
+				// `JSON.parse(JSON.stringify(schema.properties))`, and undefined
+				// `properties` throws "Could not parse code".
 				schema: emptySchema(),
-				// Mirrors the backend's overlay shape for deployed=null
-				// paths — ScriptBuilder's Diff button gates on this so
-				// /add (and any other draft-only state) doesn't offer a
-				// diff that has no baseline to compare against.
+				// Mirrors the backend overlay for deployed=null; ScriptBuilder's Diff
+				// button gates on this so draft-only state offers no baseline-less diff.
 				no_deployed: true
 			} as unknown as EditableScript
-			// Seed selection, in main's /scripts/add priority order:
-			// explicit URL-hash payload > YAML/JSON import > hub fork >
-			// template fork > wac/lang-flavored empty. Seeds with an empty
-			// `path` let the Path widget generate the friendly name; fork
-			// seeds carry an explicit `<source>_fork` suggestion instead.
+			// Seed priority: URL payload > YAML/JSON import > hub > template >
+			// wac/lang empty. Empty-`path` seeds get the friendly name; fork seeds
+			// carry an explicit `<source>_fork` suggestion.
 			let seed: EditableScript = empty
 			if (urlScript) {
 				seed = {
@@ -219,10 +179,8 @@
 				} as unknown as EditableScript
 				sendUserToast('Loaded from URL')
 			} else if (imported) {
-				// Imported fields layer over the empty template; `path` stays
-				// '' so the Path widget still generates the friendly name, and
-				// the editor-only/deployed-only keys are pinned to new-draft
-				// values.
+				// Imported fields layer over the empty template; `path` stays '' for
+				// the friendly name, editor/deployed keys pinned to new-draft values.
 				seed = {
 					...empty,
 					...imported,
@@ -285,9 +243,7 @@
 			if (pathParam) {
 				seed = { ...seed, path: pathParam }
 			}
-			// A seeded path (?path=, hub/template forks, URL payloads) is an
-			// explicit choice — the Path widget parses it verbatim and the
-			// summary auto-slug must leave it alone.
+			// A seeded path is an explicit choice: parsed verbatim, auto-slug off.
 			pathChosen = seed.path !== ''
 			initialPath = ''
 			savedScript = structuredClone(empty)
@@ -311,44 +267,34 @@
 				getDraft
 			})
 			if (tok !== loadScriptToken) return
-			// The backend only computes `other_drafts_users` when `getDraft`
-			// is true (it skips the cross-user lookup otherwise). Don't clobber
-			// the known list to empty on a `getDraft:false` reload — e.g.
-			// reset-to-deployed, which discards only OUR draft and leaves other
-			// users' drafts (and the "See others' drafts" button) intact.
+			// Backend only computes `other_drafts_users` when `getDraft`. Don't clobber
+			// the known list on a `getDraft:false` reload (e.g. reset-to-deployed, which
+			// discards only OUR draft and must keep other users' drafts visible).
 			if (getDraft) {
 				otherDraftsUsers = (backendScript.other_drafts_users ?? []) as OtherDraftUser[]
 			}
-			// Seed the per-tab `last_sync` map with the server's draft
-			// timestamp so the next autosave attaches a matching
-			// `last_sync` and the backend can reject stale writes.
-			// `undefined` (no draft existed) clears the entry — the
-			// next save then takes the "first push" branch on the server.
+			// Seed the per-tab `last_sync` so the next autosave attaches a matching
+			// timestamp the backend can stale-check. `undefined` (no draft) clears
+			// it, making the next save take the "first push" branch.
 			draftSync.recordRemoteSync(backendScript.draft_saved_at as string | undefined)
 			if (backendScript.is_draft) {
 				loadedFromDraft = true
 			}
-			// Latest deploy's created_at on `script` is the row's
-			// `created_at`; the per-user draft's save time is
-			// `draft_saved_at`. DraftEditorModals takes the comparison
-			// from here, so we just pass both through.
+			// Pass both timestamps through for DraftEditorModals' staleness compare:
+			// `created_at` is the latest deploy, `draft_saved_at` the draft's save.
 			draftSavedAt = backendScript.draft_saved_at as string | undefined
 			deployedAt = backendScript.created_at as string | undefined
-			// `backendScript` is the deployed payload; the user's saved
-			// draft (if any) sits in `.draft`. Layer the draft over the
-			// deployed at the field level — the draft contributes editor
-			// state (content, summary, …) and the deployed contributes
-			// metadata the draft never carries (hash, version markers).
+			// Layer the draft (`.draft`, if any) over the deployed payload at the
+			// field level: the draft supplies editor state (content, summary, …),
+			// the deployed supplies metadata it lacks (hash, version markers).
 			const { draft: draftFromBackend, ...deployedScript } = backendScript as any
 			const effectiveScript: EditableScript = draftFromBackend
 				? { ...deployedScript, ...draftFromBackend }
 				: (deployedScript as EditableScript)
 			savedScript = structuredClone($state.snapshot(effectiveScript))
-			// Backend is canonical: write the baked baseline into the
-			// cell. `parent_hash` is grafted on so the editor's compile
-			// reuses the deployed lock. The first cell write after
-			// `acquireEntry` is swallowed by the syncer's seed guard, so
-			// this load doesn't POST.
+			// `parent_hash` is grafted on so the editor's compile reuses the
+			// deployed lock. The first cell write after `acquireEntry` is swallowed
+			// by the syncer's seed guard, so this load doesn't POST.
 			draftSync.draft = {
 				...effectiveScript,
 				parent_hash: topHash ?? backendScript.hash
@@ -392,11 +338,10 @@
 		}
 		diffDrawer?.closeDrawer()
 		goto(`/scripts/edit/${savedScript.path}`)
-		// stopSync-bracketed delete + getDraft:false reload — same dance as
-		// the AutosaveIndicator's reset. A bare `remove()` + `loadScript()`
-		// would lose the race: the reload's draft write re-enters the
-		// autosave mirror and displaces the queued `value: null`, so the
-		// delete never lands and the editor re-renders the draft.
+		// stopSync-bracketed delete + getDraft:false reload. A bare `remove()` +
+		// `loadScript()` loses the race: the reload's draft write re-enters the
+		// autosave mirror and displaces the queued `value: null`, so the delete
+		// never lands and the draft re-renders.
 		await runResetToDeployed({
 			workspace: $workspaceStore,
 			itemKind: 'script',
@@ -422,9 +367,7 @@
 	{draftSavedAt}
 	{deployedAt}
 	onLoadLatestDeploy={async () => {
-		// Bracketed like the AutosaveIndicator reset — an unbracketed
-		// delete gets displaced by the reload's deployed-payload write,
-		// leaving a deployed-identical draft behind.
+		// stopSync-bracketed; see restoreDeployed for the race.
 		if (!$workspaceStore) return
 		await runResetToDeployed({
 			workspace: $workspaceStore,
@@ -465,8 +408,7 @@
 				sendUserToast('Deployed')
 				return
 			}
-			// stopSync-bracketed immediate delete — a bare remove() only
-			// queues the null and post-deploy mirror writes can displace it.
+			// stopSync-bracketed immediate delete; see restoreDeployed for the race.
 			if ($workspaceStore) {
 				discardDraftAfterDeploy({
 					workspace: $workspaceStore,

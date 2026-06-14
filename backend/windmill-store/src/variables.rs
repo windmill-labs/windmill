@@ -114,10 +114,8 @@ struct ListVariableQuery {
     pub value: Option<String>,
     pub broad_filter: Option<String>,
     pub label: Option<String>,
-    /// When true, append per-user draft rows whose path has no deployed
-    /// variable. Gated to operators-out + offset 0 + no narrowing
-    /// filters so picker callers (which want a deployed-only listing)
-    /// can opt out and pagination semantics stay clean.
+    /// When true, append per-user draft-only rows; picker callers leave it off
+    /// to stay deployed-only. See list synthesis in scripts.rs.
     pub include_draft_only: Option<bool>,
 }
 
@@ -154,8 +152,7 @@ async fn list_variables(
             "variable.edited_at",
             "variable.edited_by",
         ])
-        // Scalar EXISTS — flags rows the authed user has a per-user
-        // draft on, without fanning rows out the way a join could.
+        // Scalar EXISTS flags the authed user's per-user draft; see resources.rs.
         .field(
             &"EXISTS(SELECT 1 FROM draft WHERE draft.workspace_id = variable.workspace_id \
               AND draft.path = variable.path AND draft.typ = 'variable' \
@@ -227,12 +224,7 @@ async fn list_variables(
 
     tx.commit().await?;
 
-    // Draft-only rows: per-user drafts for paths with no deployed
-    // variable. Same guard as scripts/flows/apps — gated on
-    // `include_draft_only` so picker callers (variable selectors,
-    // resource ↔ variable links) stay deployed-only, skipped past
-    // page 0 and under any narrowing filter so pagination /
-    // search-by-X semantics stay predictable.
+    // Append the authed user's draft-only variables; see scripts.rs.
     if lq.include_draft_only.unwrap_or(false)
         && !authed.is_operator
         && offset == 0
@@ -250,9 +242,7 @@ async fn list_variables(
         for row in draft_only_rows {
             let v: serde_json::Value =
                 serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
-            // VariableEditor's `VariableState` shape:
-            //   { path, variable: { value, is_secret, description },
-            //     labels?, wsSpecific }
+            // VariableEditor's `VariableState`: { path, variable: { value, is_secret, description }, labels?, wsSpecific }
             let path = v
                 .get("path")
                 .and_then(|s| s.as_str())
@@ -274,8 +264,7 @@ async fn list_variables(
                 .and_then(|x| x.as_str())
                 .unwrap_or("")
                 .to_string();
-            // Mirror the deployed query: secret variables never expose
-            // their value in the list response — even from a draft.
+            // Secret variables never expose their value in the list response, even from a draft.
             let value = if is_secret {
                 None
             } else {
@@ -308,14 +297,13 @@ async fn list_variables(
                 is_linked: None,
                 expires_at: None,
                 labels,
-                // Synthesized draft-only rows have no deployed row to
-                // inherit folder labels from.
+                // No deployed row to inherit folder labels from.
                 inherited_labels: None,
                 ws_specific,
                 edited_at: Some(row.created_at),
                 edited_by: None,
                 draft_only: Some(true),
-                // Synthesized rows ARE the authed user's draft.
+                // Synthesized rows are the authed user's draft.
                 is_draft: Some(true),
             });
         }
@@ -324,10 +312,7 @@ async fn list_variables(
     Ok(Json(rows))
 }
 
-// `get_draft` inlined rather than flattened from WithDraftQuery — see
-// the same comment on `GetScriptByPathQuery` in scripts.rs: axum's
-// `serde_urlencoded` query extractor doesn't preserve the "true"/"false"
-// → bool conversion through `#[serde(flatten)]`.
+// `get_draft` inlined rather than flattened (axum query bool quirk); see GetScriptByPathQuery in scripts.rs.
 #[derive(Deserialize)]
 struct GetVariableQuery {
     decrypt_secret: Option<bool>,
@@ -373,9 +358,8 @@ async fn get_variable(
     let variable = if let Some(variable) = variable_o {
         variable
     } else if q.get_draft {
-        // No deployed row but caller wants the draft if present —
-        // mirrors scripts/flows/apps. Drop the user_db tx first since
-        // `fetch_draft_only` runs on `db`.
+        // No deployed row + `get_draft`: fall back to the draft (see scripts.rs).
+        // Drop the user_db tx first since `fetch_draft_only` runs on `db`.
         tx.commit().await?;
         if let Some(overlay) =
             fetch_draft_only(&db, &w_id, &authed.email, UserDraftItemKind::Variable, path).await?
@@ -591,9 +575,8 @@ async fn create_variable(
 
     check_path_conflict(&db, &w_id, &variable.path).await?;
     let value = if variable.is_secret && !already_encrypted.unwrap_or(false) {
-        // Deploying a restored draft sends the draft's `$encrypted:` marker
-        // as-is — decrypt it back (validating it against the workspace key)
-        // so it goes through the secret backend like any typed plaintext.
+        // A restored draft sends the `$encrypted:` marker as-is; decrypt it back
+        // (validating against the workspace key) before the secret backend re-stores it.
         let plain = if variable.value.starts_with(ENCRYPTED_DRAFT_PREFIX) {
             decrypt_draft_secret_value(&db, &w_id, &variable.value).await?
         } else {
@@ -797,10 +780,8 @@ async fn delete_variable(
 
     tx.commit().await?;
 
-    // The variable is gone for everyone — wipe ALL users' drafts for this
-    // path, not just the caller's, so teammates' drafts don't orphan.
-    // Idempotent on no-draft. Resource is included because variables
-    // cascade-delete linked resource rows at the same path.
+    // Variable gone for everyone: wipe ALL users' drafts at this path (see resources.rs).
+    // Resource included because variables cascade-delete the linked resource at the same path.
     delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Variable, path).await?;
     if deleted_linked_resource.is_some() {
         delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Resource, path).await?;
@@ -973,9 +954,7 @@ async fn delete_variables_bulk(
 
     tx.commit().await?;
 
-    // The variables are gone for everyone — wipe ALL users' drafts for these
-    // paths (and the linked resources we cascaded into), mirroring the single
-    // delete_variable. Idempotent on no-draft.
+    // Wipe ALL users' drafts at these paths (and linked resources); see delete_variable.
     for path in &deleted_paths {
         delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Variable, path).await?;
     }
@@ -1087,9 +1066,7 @@ async fn update_variable(
         };
 
         let value = if is_secret && !already_encrypted.unwrap_or(false) {
-            // Deploying a restored draft sends the draft's `$encrypted:`
-            // marker as-is — decrypt it back (validating it against the
-            // workspace key) before re-storing through the secret backend.
+            // Decrypt a restored draft's `$encrypted:` marker before re-storing; see create_variable.
             let plain = if nvalue.starts_with(ENCRYPTED_DRAFT_PREFIX) {
                 decrypt_draft_secret_value(&db, &w_id, &nvalue).await?
             } else {
@@ -1348,11 +1325,8 @@ async fn update_variable(
     // Detect if this was a rename operation
     let old_path_if_renamed = if npath != path { Some(path) } else { None };
 
-    // On rename the per-user draft at the OLD path orphans (no SQL FK to
-    // cascade). Clear the deployer's own (+ legacy NULL) there, mirroring the
-    // script/flow/app rename path; teammates keep theirs (StaleDraftModal).
-    // The linked resource is renamed alongside the variable, so its draft at
-    // the old path orphans too.
+    // On rename the old-path draft orphans (see resources.rs); the linked resource
+    // renames alongside the variable, so its old-path draft orphans too.
     if let Some(old_path) = old_path_if_renamed {
         delete_own_draft_for_path(
             &db,

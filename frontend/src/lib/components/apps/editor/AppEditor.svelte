@@ -95,40 +95,22 @@
 	// sides' autosaves. Skip UserDraft entirely in that case.
 	const inSessionPane = !!getContext('aiChatManager')
 
-	// `path` is the URL path (e.g. `u/{user}/draft_{uuid}` after the
-	// `/apps/add` redirect, or a deployed app's path on `/apps/edit/...`).
-	// The autosave keys on it directly so a refresh of
-	// `/apps/edit/u/{user}/draft_{uuid}` finds the user's saved draft at
-	// the same path, and the listing's draft-only branch (which scans the
-	// `draft` table by exact path) picks it up.
+	// Autosave keys on the URL path so a refresh of `.../draft_{uuid}` finds the
+	// saved draft and the listing's draft-only branch picks it up.
 	const appDraftPath = path ?? ''
 	const appDraftHandle = inSessionPane
 		? undefined
-		: // `canBeDisabled`: page editor — its AutosaveIndicator carries the
-			// "Enable auto-save" toggle, so its reactive saves honor it.
+		: // `canBeDisabled`: page editor's AutosaveIndicator carries the toggle.
 			UserDraft.use<App>('app', appDraftPath, { canBeDisabled: true })
-	// Suspend autosave around mount — the route may have seeded `app`
-	// from an empty template (e.g. `/apps/add` redirect with
-	// `new_draft=true`), and the `firstMirror` effect below writes that
-	// seed into the handle as a programmatic mutation. Without
-	// suspension that write fires a POST that looks like the user's
-	// first edit before they've touched anything. `onMount`-then-`tick`
-	// resumes once all mount-time effects have settled, so the user's
-	// real first edit is the first POST.
+	// Suspend autosave around mount so the `firstMirror` seed write isn't POSTed
+	// as the user's first edit; `onMount`-then-`tick` resumes once effects settle.
 	if (appDraftHandle) UserDraft.stopSync('app', appDraftPath)
-	// Prefer the persisted autosave over the prop when both exist (the
-	// route always initializes `app` to an empty template on
-	// `new_draft=true`, but a prior session at this draft path may have
-	// left an autosave). The route is responsible for wiping the entry
-	// (`UserDraft.remove`) when it wants to force a fresh start
-	// (template/hub loads, etc.).
+	// Prefer a prior-session autosave over the prop (the route seeds an empty
+	// template on `new_draft=true`; it calls `UserDraft.remove` to force a reset).
 	const stateApp = $state(untrack(() => appDraftHandle?.draft ?? app))
 	const appStore = writable<App>(stateApp)
-	// Mirror local `stateApp` mutations (drag/drop, settings edits, etc.)
-	// back into the autosave cell. The first mirror writes the baseline
-	// back through the handle — `acquireEntry`'s `skipNextWrite` swallows
-	// that as the seed so it doesn't POST. Subsequent writes (user edits)
-	// fire the syncer normally.
+	// Mirror `stateApp` mutations into the autosave cell. The first mirror is the
+	// seed — `acquireEntry`'s `skipNextWrite` swallows it; later writes POST.
 	$effect(() => {
 		readFieldsRecursively(stateApp)
 		if (!appDraftHandle) return
@@ -481,11 +463,8 @@
 	let mounted = false
 	onMount(() => {
 		mounted = true
-		// Resume autosave now that mount-time effects (the
-		// `firstMirror` mirror, prop-driven initialization, ...) have
-		// all run. `tick` waits for the current pending effect flush
-		// to complete so the post-suspend writes have been observed by
-		// the sync effect and silently dropped.
+		// Resume autosave after mount-time effects run; `tick` lets the sync
+		// effect observe and drop the post-suspend seed writes first.
 		if (appDraftHandle) {
 			tick().then(() => UserDraft.restartSync('app', appDraftPath))
 		}

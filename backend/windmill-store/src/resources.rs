@@ -158,16 +158,12 @@ pub struct ListableResource {
     pub inherited_labels: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_specific: Option<bool>,
-    /// True when this row is a per-user draft with no deployed resource
-    /// at the same path. Surfaced by `include_draft_only` so the frontend
-    /// can render a "Draft" badge and the editor can open from the draft
-    /// alone. `None`/omitted on rows fetched from the `resource` table.
+    /// `Some(true)` only on synthesized draft-only rows; `None` on deployed rows.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub draft_only: Option<bool>,
-    /// True when the authed user has a per-user draft at this path —
-    /// layered over a deployed resource or a synthesized draft-only row.
-    /// Drives the `*` suffix on the resources page.
+    /// True when the authed user has a per-user draft at this path (drives the
+    /// `*` suffix on the resources page).
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub is_draft: Option<bool>,
@@ -203,10 +199,8 @@ pub struct ListResourceQuery {
     pub value: Option<String>,
     pub broad_filter: Option<String>,
     pub label: Option<String>,
-    /// When true, append per-user draft rows whose path has no deployed
-    /// resource. Gated to non-operators + offset 0 + no narrowing
-    /// filters so picker callers (resource selectors in script inputs)
-    /// stay deployed-only and pagination semantics stay clean.
+    /// When true, append per-user draft-only rows; picker callers leave it off
+    /// to stay deployed-only. See list synthesis in scripts.rs.
     pub include_draft_only: Option<bool>,
 }
 
@@ -300,8 +294,7 @@ async fn list_resources(
             "folder_labels(resource.workspace_id, resource.path) as inherited_labels",
             "ws_specific.path IS NOT NULL as ws_specific",
         ])
-        // Scalar EXISTS — flags rows the authed user has a per-user
-        // draft on, without fanning rows out the way a join could.
+        // Scalar EXISTS flags the authed user's per-user draft without fanning rows out.
         .field(
             &"EXISTS(SELECT 1 FROM draft WHERE draft.workspace_id = resource.workspace_id \
               AND draft.path = resource.path AND draft.typ = 'resource' \
@@ -393,18 +386,10 @@ async fn list_resources(
 
     tx.commit().await?;
 
-    // Draft-only rows: per-user drafts for paths with no deployed
-    // resource. Same guard as variables/scripts/flows/apps — gated
-    // on `include_draft_only`, skipped past page 0 and under any
-    // narrowing filter so the deployed-only picker callers (resource
-    // selectors in script inputs) keep their lean shape.
-    //
-    // `resource_type` / `resource_type_exclude` are NOT in the bail-out
-    // list — the resources page always lists with
-    // `resource_type_exclude=cache,state,app_theme` (its tab split), so
-    // bailing on them meant draft-only rows never showed there at all.
-    // They're applied per-row below against the draft JSON's
-    // `resource_type` instead.
+    // Append the authed user's draft-only resources; see scripts.rs.
+    // `resource_type` / `resource_type_exclude` are deliberately NOT in the bail-out
+    // list (the resources page always passes `resource_type_exclude`); they're applied
+    // per-row below against the draft JSON's `resource_type` instead.
     if lq.include_draft_only.unwrap_or(false)
         && !authed.is_operator
         && offset == 0
@@ -430,9 +415,7 @@ async fn list_resources(
         for row in draft_only_rows {
             let v: serde_json::Value =
                 serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
-            // ResourceEditor's `ResourceState` shape:
-            //   { path, description, args, labels?, wsSpecific,
-            //     resource_type? }
+            // ResourceEditor's `ResourceState`: { path, description, args, labels?, wsSpecific, resource_type? }
             let path = v
                 .get("path")
                 .and_then(|s| s.as_str())
@@ -488,12 +471,11 @@ async fn list_resources(
                 refresh_error: None,
                 account: None,
                 labels,
-                // Synthesized draft-only rows have no deployed row to
-                // inherit folder labels from.
+                // No deployed row to inherit folder labels from.
                 inherited_labels: None,
                 ws_specific,
                 draft_only: Some(true),
-                // Synthesized rows ARE the authed user's draft.
+                // Synthesized rows are the authed user's draft.
                 is_draft: Some(true),
             });
         }
@@ -515,8 +497,7 @@ async fn get_resource(
 
     let resource_o = sqlx::query_as!(
         ListableResource,
-        // `null::bool as draft_only` keeps the column-list aligned with
-        // the struct's new field; deployed-table rows are never draft-only.
+        // `null::bool` columns align with the struct fields; deployed rows are never draft-only.
         "SELECT resource.workspace_id, resource.path, resource.value, resource.description,
         resource.resource_type, resource.extra_perms, resource.created_by, resource.edited_at,
         resource.labels,
@@ -541,10 +522,8 @@ async fn get_resource(
     .await?;
     tx.commit().await?;
     if resource_o.is_none() && q.get_draft {
-        // No deployed row but caller wants the draft if present —
-        // mirrors scripts/flows/apps. Fallback synthesizes the
-        // response from the draft alone with `no_deployed = true`
-        // so the frontend skips "diff vs deployed" UI.
+        // No deployed row + `get_draft`: synthesize the response from the draft
+        // alone (`no_deployed = true`); see scripts.rs.
         if let Some(overlay) =
             fetch_draft_only(&db, &w_id, &authed.email, UserDraftItemKind::Resource, path).await?
         {
@@ -1332,9 +1311,8 @@ async fn delete_resource(
     .await?;
     tx.commit().await?;
 
-    // The resource is gone for everyone — wipe ALL users' drafts for this
-    // path (and any linked variables we cascaded into), not just the
-    // caller's, so teammates' drafts don't orphan. Idempotent on no-draft.
+    // Resource gone for everyone: wipe ALL users' drafts at this path (and any linked
+    // variables cascaded into) so teammates' drafts don't orphan. Idempotent on no-draft.
     delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Resource, path).await?;
     for var_path in &deleted_linked_variables {
         delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Variable, var_path).await?;
@@ -1609,9 +1587,7 @@ async fn delete_resources_bulk(
 
     tx.commit().await?;
 
-    // The resources are gone for everyone — wipe ALL users' drafts for these
-    // paths (and the linked variables we cascaded into), mirroring the single
-    // delete_resource. Idempotent on no-draft.
+    // Wipe ALL users' drafts at these paths (and linked variables); see delete_resource.
     for path in &deleted_paths {
         delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Resource, path).await?;
     }
@@ -1846,11 +1822,9 @@ async fn update_resource(
     // Detect if this was a rename operation
     let old_path_if_renamed = if npath != path { Some(path) } else { None };
 
-    // On rename the per-user draft at the OLD path orphans (no SQL FK to
-    // cascade). Clear the deployer's own (+ legacy NULL) there, mirroring the
-    // script/flow/app rename path; teammates keep theirs (StaleDraftModal).
-    // The linked variable is renamed alongside the resource, so its draft at
-    // the old path orphans too.
+    // On rename the draft at the OLD path orphans (no SQL FK); clear the deployer's
+    // own (+ legacy NULL) there, teammates keep theirs (StaleDraftModal). The linked
+    // variable renames alongside the resource, so its old-path draft orphans too.
     if let Some(old_path) = old_path_if_renamed {
         delete_own_draft_for_path(
             &db,

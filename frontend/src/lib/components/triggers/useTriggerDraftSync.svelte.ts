@@ -6,13 +6,10 @@ import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 type Cfg = Record<string, any>
 
 /**
- * Whether `a` differs meaningfully from `b` after normalizing both
- * sides through the shared draft comparator (`normalizeDraftForCompare`:
- * JSON round-trip — freshly-built configs keep `undefined`-valued keys,
- * so a raw `deepEqual` reports `{ a: undefined }` ≠ `{}` — plus the
- * ignored deploy-directive fields like `permissioned_as`). Returns
- * `false` when `a` is nullish (treats "no draft" as "no divergence").
- * Typed as a guard: a `true` result narrows `a` to non-nullish `V`.
+ * Whether `a` differs from `b` after `normalizeDraftForCompare` (JSON
+ * round-trip to drop `undefined`-valued keys, plus ignored deploy-directive
+ * fields). Nullish `a` returns `false` ("no draft" = "no divergence"). A
+ * `true` result narrows `a` to non-nullish `V`.
  */
 function cfgDiffers<V>(a: V | undefined | null, b: V | undefined): a is V {
 	if (a === undefined || a === null) return false
@@ -107,16 +104,12 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 			cfgDiffers(opts.getCfg() as Cfg, opts.deployed() as Cfg)
 	)
 
-	/** `auto: true` marks the discard as coming from the reactive
-	 * persist-effect (form drifted back to the deployed baseline) rather
-	 * than an explicit user action (banner Discard, post-deploy cleanup)
-	 * — reactive discards must respect the "Enable auto-save" toggle the
-	 * same way reactive value-saves do, otherwise with autosave off the
-	 * editor would still DELETE server drafts while never writing any. */
+	/** `auto: true` marks a discard from the reactive persist-effect (not an
+	 * explicit user action), so it respects the "Enable auto-save" toggle — else
+	 * with autosave off the editor would delete server drafts while writing none. */
 	function discard(path: string, fallback: Cfg | undefined, auto = false): void {
-		// `UserDraft.discard` POSTs `value: null`, which routes through
-		// `UserDraftDbSyncer.postSave` and clears the list-page `*` hint
-		// (the syncer owns the hint). No explicit clear needed here.
+		// `UserDraft.discard` POSTs `value: null`, which clears the list-page
+		// `*` hint via the syncer. No explicit clear needed.
 		UserDraft.discard(opts.itemKind, path, fallback, {
 			workspace: opts.workspace() ?? undefined,
 			auto
@@ -134,16 +127,11 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 		})
 	})
 
-	/** Deferred + revalidated auto-discard. The at-baseline-with-a-draft
-	 * state pattern also occurs TRANSIENTLY during programmatic churn: the
-	 * trigger list pages fire `openEdit` twice per row click (onclick +
-	 * `#path` hash listener), and the second load resets the form to the
-	 * deployed payload after the first already cleared `drawerLoading` and
-	 * seeded the cell — an immediate discard there deletes the server
-	 * draft the user never touched. Re-checking after a settle window
-	 * keeps the legit case (user reverts the form back to baseline) while
-	 * the churn case re-applies the overlay / re-seeds before the timer
-	 * fires and the recheck sees a consistent state again. */
+	/** Deferred + revalidated auto-discard. "At baseline but a draft exists"
+	 * also occurs transiently during programmatic churn (list pages fire
+	 * `openEdit` twice per row click), where an immediate discard would delete a
+	 * draft the user never touched. Re-checking after a settle window keeps the
+	 * legit revert case while the churn case reconciles before the timer fires. */
 	let discardTimer: ReturnType<typeof setTimeout> | undefined
 	function scheduleAutoDiscard() {
 		if (discardTimer) return
@@ -173,21 +161,16 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 			if (cfgDiffers(cfg, deployed)) {
 				if (cfgDiffers(cfg, h.draft)) h.draft = cfg
 			} else if (cfgDiffers(h.draft, deployed)) {
-				// Only when there's actually a draft to drop: `h.draft`
-				// equals `deployed` right after a discard (no repeat POST
-				// per cfg recompute at baseline) and right after the
-				// post-load baseline seed (no spurious POST per open).
+				// Only when a draft actually exists to drop: `h.draft` equals
+				// `deployed` right after a discard or the post-load seed.
 				scheduleAutoDiscard()
 			}
 		})
 	})
 
-	// The list-page `*` hint is OWNED by UserDraftDbSyncer (set on save,
-	// cleared on delete). This effect only CLEARS it: while the drawer is
-	// settled (not loading) and the form is at the deployed baseline (no
-	// draft), drop any stale hint — that's what makes a draft discarded
-	// from another tab disappear on reopen. Never SET here (the syncer is
-	// the single source). NOT cleared on teardown.
+	// The list-page `*` hint is owned by UserDraftDbSyncer. This effect only
+	// CLEARS it (never sets): while settled and at baseline, drop any stale
+	// hint, so a draft discarded in another tab disappears on reopen.
 	$effect(() => {
 		const ws = opts.workspace()
 		const p = opts.path()
@@ -218,14 +201,10 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 				// Overlay the local autosave on the just-loaded backend config.
 				await opts.applyCfg(d)
 			}
-			// Adopt the post-load form state (server draft overlay if one
-			// existed, deployed otherwise) as the cell's baseline WITHOUT
-			// POSTing. This is what consumes the entry's one-shot
-			// first-write seed guard: trigger drawers never write the cell
-			// programmatically on open (the form holds the state), so
-			// without this seed the guard stayed armed and silently
-			// swallowed the user's FIRST edit — banner on, no asterisk, no
-			// save until a second change.
+			// Adopt the post-load form state as the cell's baseline without
+			// POSTing, consuming the entry's one-shot first-write seed guard.
+			// Trigger drawers never write the cell programmatically on open, so
+			// without this the guard would swallow the user's first edit.
 			const ws = opts.workspace()
 			const p = opts.path()
 			const cfg = opts.getCfg()

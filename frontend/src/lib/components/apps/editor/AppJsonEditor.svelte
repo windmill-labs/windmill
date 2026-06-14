@@ -24,19 +24,16 @@
 	let app: any | undefined = undefined
 
 	/**
-	 * Open the JSON drawer for an item from the home list. `rawApp` MUST
-	 * be set when the row is a raw-app draft, since `get_draft=true` has
-	 * no deployed row to read the kind from — without it the backend
-	 * looks for an `app` draft, doesn't find one, and 404s.
+	 * Open the JSON drawer for a home-list item. `rawApp` MUST be set for a
+	 * raw-app draft, since a draft-only row has no deployed kind to read and
+	 * the backend would 404 looking for an `app` draft.
 	 */
 	export async function open(path_l: string, rawApp = false) {
 		loading = true
 		jsonViewerDrawer?.toggleDrawer()
 		path = path_l
-		// `get_draft=true` so draft-only items at `u/{user}/draft_{uuid}`
-		// resolve to the synthesized draft stand-in instead of 404'ing the
-		// home-page "View/Edit JSON" menu entry. Deployed apps continue to
-		// return the deployed payload unchanged (see WithDraftOverlay).
+		// `get_draft=true` so draft-only items resolve to the synthesized draft
+		// stand-in instead of 404'ing; deployed apps return unchanged.
 		const fapp = (await AppService.getAppByPath({
 			workspace: $workspaceStore!,
 			path,
@@ -46,13 +43,8 @@
 		app = { ...fapp }
 		isDraftOnly = !!fapp.no_deployed
 		isRawApp = !!fapp.raw_app || rawApp
-		// Draft-only items: the editor's autosave writes the bare editable
-		// shape (low-code: App; raw-app: `{files, runnables, data, ...}`)
-		// straight into `draft`, so render that. The flattened `inner` has
-		// the same content but is polluted with overlay fields
-		// (`is_draft`, `no_deployed`, …) we don't want in the JSON.
-		// Deployed items: the editable shape is the App definition under
-		// `.value` (raw-app deploys keep the same response wrapper).
+		// Draft-only: render `draft` (the bare editable shape) rather than the
+		// overlay-polluted top level. Deployed: the editable shape is `.value`.
 		const display = isDraftOnly ? fapp.draft : fapp.value
 		code = JSON.stringify(display, null, 4)
 		loading = false
@@ -61,14 +53,9 @@
 	export async function saveApp() {
 		const parsed = JSON.parse(code)
 		if (isDraftOnly) {
-			// Draft-only items have no deployed row — `updateApp` would
-			// 404. Route the edit through the syncer (`immediate: true`
-			// so the caller's `await` resolves only after the POST lands)
-			// so the user keeps editing under the draft path until they
-			// rename + deploy from the regular editor. `parsed` is already
-			// the bare editable shape (App or raw-app value) — match what
-			// the autosave writes so the regular editor reads it back
-			// unchanged on next mount.
+			// No deployed row — `updateApp` would 404. Route through the syncer
+			// (`immediate: true` so `await` resolves after the POST). `parsed` is
+			// the bare editable shape the autosave writes, so it reads back unchanged.
 			await UserDraftDbSyncer.save({
 				workspace: $workspaceStore!,
 				itemKind: isRawApp ? 'raw_app' : 'app',

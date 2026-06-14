@@ -207,18 +207,12 @@ async fn list_scripts(
             "kind",
             "o.labels",
             "draft.email IS NOT NULL as is_draft",
-            // All workspace users (and the legacy NULL-email row) with a
-            // per-user draft at this path. Aggregated as a JSON array so
-            // the row decodes via `sqlx::types::Json<Vec<DraftUserRef>>`.
-            // NULL (no rows) decodes to `None`; never returns an empty
-            // array. LEFT JOIN to `usr` lets orphaned drafts (user removed
-            // from the workspace) still surface with `username = None`.
-            // The `admins` workspace has no `usr` rows — there username IS
-            // the email (identity mapping) — so fall back to `d.email`
-            // there, otherwise the authed user's own draft would resolve to
-            // NULL and render as a phantom "Legacy workspace draft". The
-            // genuine legacy row keeps `username = None` (its `d.email` is
-            // NULL, so the CASE yields NULL too).
+            // Canonical reference for the draft-feature comments; flows/apps point here.
+            // Per-path draft owners as a JSON array (`Json<Vec<DraftUserRef>>`); NULL -> None,
+            // never an empty array. LEFT JOIN `usr` keeps orphaned drafts (user left workspace)
+            // visible with `username = None`. In the `admins` workspace username IS the email,
+            // so fall back to `d.email` there or the authed user's own draft resolves to a phantom
+            // "Legacy workspace draft"; the genuine NULL-email legacy row stays None.
             "(SELECT json_agg(json_build_object('username', COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END)) ORDER BY COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) NULLS LAST) \
               FROM draft d \
               LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
@@ -351,16 +345,10 @@ async fn list_scripts(
         .collect::<Vec<_>>();
     tx.commit().await?;
 
-    // Draft-only rows: drafts the authed user has at paths with no
-    // deployed script. Gated on the same `include_draft_only` flag
-    // that controls deployed `draft_only` rows above so picker callers
-    // (workspace pickers, script selectors, ...) get the deployed
-    // listing only — the home page opts in explicitly.
-    //
-    // Concatenated after the deployed page so the home page surfaces
-    // them too. Fields not in the draft JSON fall back to sensible
-    // defaults. Skipped when filters narrow the list or we're past
-    // page 0 — keeps pagination semantics clean.
+    // Canonical reference for draft-only synthesis; the other kinds point here.
+    // Append the authed user's drafts at paths with no deployed script. Gated on
+    // `include_draft_only` so picker callers stay deployed-only (home page opts in);
+    // skipped past page 0 or under any narrowing filter to keep pagination clean.
     if lq.include_draft_only.unwrap_or(false)
         && !authed.is_operator
         && offset == 0
@@ -377,10 +365,9 @@ async fn list_scripts(
         && !lq.starred_only.unwrap_or(false)
         && !lq.show_archived.unwrap_or(false)
     {
-        // `(email = $2 OR email IS NULL)` surfaces the user's own draft-only
-        // rows AND the legacy NULL-email workspace rows (pre-per-user drafts +
-        // `draft_only` migration). `DISTINCT ON (path)` with `email IS NULL`
-        // last collapses a path that has both to the owned row.
+        // `(email = $2 OR email IS NULL)` surfaces the user's own draft-only rows plus
+        // legacy NULL-email workspace rows; `DISTINCT ON (path)` ordered `email IS NULL`
+        // last collapses a path holding both to the owned row.
         let draft_only_rows = sqlx::query!(
             r#"SELECT DISTINCT ON (path)
                       path,
@@ -413,9 +400,8 @@ async fn list_scripts(
                 .get("kind")
                 .and_then(|x| serde_json::from_value(x.clone()).ok())
                 .unwrap_or(ScriptKind::Script);
-            // Scripts bind the Path widget directly to `script.path`, so
-            // the user-typed path round-trips through the draft JSON's
-            // own `path` field — no separate `draft_path` field needed.
+            // Scripts bind the Path widget to `script.path`, so the typed path
+            // round-trips through the draft JSON's own `path` (no `draft_path` field).
             let draft_path = v
                 .get("path")
                 .and_then(|s| s.as_str())
@@ -447,14 +433,11 @@ async fn list_scripts(
                 deployment_msg: None,
                 kind,
                 labels: None,
-                // Synthesized draft-only rows have no deployed row to
-                // inherit folder labels from.
+                // Synthesized rows have no deployed row to inherit folder labels from.
                 inherited_labels: None,
                 is_draft: true,
                 draft_path,
-                // Synthesized rows come from the authed user's own draft
-                // (the WHERE clause above filters by `email = $2`), so
-                // they're known to be the single-user case.
+                // Synthesized rows are the authed user's own draft (single-user case).
                 draft_users: Some(sqlx::types::Json(vec![DraftUserRef {
                     username: Some(authed.username.clone()),
                 }])),
@@ -1371,12 +1354,9 @@ async fn create_script_internal<'c>(
     let p_path_opt = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone());
     if let Some(ref p_path) = p_path_opt {
         if !skip_draft_deletion {
-            // Only wipe the deployer's own draft (plus the legacy
-            // NULL-email workspace draft, if any). Other users' drafts
-            // are independent — they should NOT vanish silently when a
-            // teammate deploys. The home-page badge surfaces them, and
-            // the StaleDraftModal fires on their next reload because
-            // the draft now predates the new deploy.
+            // Canonical: on deploy only wipe the deployer's own draft (plus the legacy
+            // NULL-email row). Teammates' drafts are independent — they stay and fire the
+            // StaleDraftModal on the teammate's next reload rather than vanishing silently.
             sqlx::query!(
                 "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script' \
                  AND (email = $3 OR email IS NULL)",
@@ -1780,13 +1760,10 @@ pub async fn pick_hub_script_by_path(
     Ok::<_, Error>((status_code, headers, response))
 }
 
-// NOTE: inlined fields rather than `#[serde(flatten)]` on
-// `WithStarredInfoQuery` / `WithDraftQuery`. axum's default query
-// extractor uses `serde_urlencoded`, and flatten there routes through an
-// internal map that drops type info — so `?get_draft=true` arrives as a
-// `String` and fails the inner `bool` deserializer. Inlining keeps the
-// fields on the top-level struct so `serde_urlencoded`'s own bool
-// adapter sees the value directly.
+// Canonical: fields inlined rather than `#[serde(flatten)]` from
+// `WithStarredInfoQuery` / `WithDraftQuery`. axum's `serde_urlencoded` extractor
+// drops type info through flatten, so `?get_draft=true` arrives as a String and
+// fails the inner bool deserializer. Inlining lets the bool adapter see it directly.
 #[derive(Deserialize)]
 struct GetScriptByPathQuery {
     with_starred_info: Option<bool>,
@@ -1839,10 +1816,8 @@ async fn get_script_by_path(
     };
     tx.commit().await?;
 
-    // Editors that have only ever drafted (never deployed) a script at this
-    // path will land here with no deployed row. When `get_draft` is set, fall
-    // back to the draft table so /scripts/edit/draft_<uuid> works the same
-    // way as a deployed-script reload.
+    // Canonical: with no deployed row and `get_draft` set, fall back to the draft
+    // table so editing a never-deployed draft works like a deployed reload.
     let deployed = match script_o {
         Some(script_o) => Some(
             windmill_common::scripts::prefetch_cached_script_with_starred(script_o, &db).await?,

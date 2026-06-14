@@ -1,23 +1,16 @@
 /**
- * Per-key coalescing async runner.
- *
- * For each key, at most one task is running and at most one is pending.
- * `submit(key, fn)` runs `fn` immediately when the key is idle; otherwise
- * `fn` REPLACES any previously-pending task for that key (the displaced
- * one is dropped and never runs). When the running task settles, the
- * pending task — if any — starts next. Different keys are independent.
- *
- * Use to collapse bursts of "save the latest version" calls down to
- * exactly two runs: the one in flight plus the most recent.
+ * Per-key coalescing async runner: at most one task running and one pending per
+ * key. `submit` runs `fn` now if idle, else REPLACES the pending task (the
+ * displaced one never runs); the pending task starts when the running one
+ * settles. Collapses bursts of "save latest" to the in-flight call plus the
+ * most recent. Keys are independent.
  */
 import { SvelteSet } from 'svelte/reactivity'
 
 export type CoalescingTask<T = unknown> = () => T | Promise<T>
 
-/** Thrown into the rejection of a `submitAndWait` promise (and a
- * `cancel`-dropped pending task) when the task is discarded before it
- * had a chance to run. Fire-and-forget `submit` callers don't see this
- * — only awaiters do. */
+/** Rejection reason for a `submitAndWait` (or `cancel`-dropped) task discarded
+ * before it ran. Only awaiters see it, not fire-and-forget `submit` callers. */
 export class CoalescingDisplacedError extends Error {
 	constructor() {
 		super('coalescingRunner: pending task displaced before it could run')
@@ -26,26 +19,16 @@ export class CoalescingDisplacedError extends Error {
 }
 
 export type CoalescingKeyedRunner = {
-	/** Fire-and-forget. Schedule `fn` under `key` per the policy above.
-	 * Synchronous; `fn` is invoked on the current tick when the key is
-	 * idle. If a previously-submitted task is still pending for this
-	 * key, it is silently dropped. */
+	/** Fire-and-forget schedule per the policy above. */
 	submit(key: string, fn: CoalescingTask): void
-	/** Same scheduling as `submit`, but returns a promise that resolves
-	 * with `fn`'s return value when `fn` actually runs, rejects with
-	 * `fn`'s throw if `fn` fails, or rejects with `CoalescingDisplacedError`
-	 * if this submission is dropped (by `cancel`, or by a later
-	 * `submit` / `submitAndWait` for the same key) before it runs. */
+	/** Like `submit`, but the promise resolves/rejects with `fn`'s outcome, or
+	 * rejects with `CoalescingDisplacedError` if dropped before running. */
 	submitAndWait<T>(key: string, fn: CoalescingTask<T>): Promise<T>
-	/** Drop the pending (queued) task for `key` without running it.
-	 * Returns true if there was something to cancel. Does NOT affect
-	 * any task currently in flight — there's no way to abort it. If
-	 * the dropped task was submitted via `submitAndWait`, its promise
-	 * rejects with `CoalescingDisplacedError`. */
+	/** Drop the pending task for `key` (returns whether there was one). Can't
+	 * abort an in-flight task. A dropped `submitAndWait` rejects with
+	 * `CoalescingDisplacedError`. */
 	cancel(key: string): boolean
-	/** Reactively whether a task for `key` is currently in flight (the
-	 * chain is running). Backed by a `SvelteSet`, so reading this inside a
-	 * `$derived` / `$effect` re-runs when the key starts/stops running. */
+	/** Reactively whether `key`'s chain is running (SvelteSet-backed). */
 	isRunning(key: string): boolean
 }
 
@@ -58,22 +41,15 @@ type PendingTask = {
 type Entry = { pending: PendingTask | undefined }
 
 /**
- *
  * @example
- * const runner = createCoalescingKeyedRunner()
- * // f, g, h are async functions
- * runner.submit('key1', f) // run is synchronous but f is async. Here f is ran immediately.
- * runner.submit('key1', g) // f is still running: g is postponed
- * runner.submit('key2', someFn) // someFn runs immediately (different key, unrelated to the rest)
- * runner.submit('key1', h) // f is still running: g is discarded, h is postponed
- * // A while later: f finished : h runs now
+ * runner.submit('k', f) // runs immediately
+ * runner.submit('k', g) // f running: g pending
+ * runner.submit('k', h) // g discarded, h pending; h runs once f settles
  */
 export function createCoalescingKeyedRunner(): CoalescingKeyedRunner {
 	const state = new Map<string, Entry>()
-	// Reactive mirror of the keys with a chain currently running. Updated
-	// in lock-step with `state`'s lifetime (added when a chain starts in
-	// `setOrDisplace`, removed when it drains in `chain`). A `SvelteSet`
-	// gives per-key subscriptions for `isRunning`.
+	// Reactive mirror of keys with a running chain, kept in lock-step with
+	// `state` (SvelteSet for per-key `isRunning` subscriptions).
 	const runningKeys = new SvelteSet<string>()
 
 	async function chain(key: string, first: PendingTask): Promise<void> {
@@ -83,11 +59,9 @@ export function createCoalescingKeyedRunner(): CoalescingKeyedRunner {
 				const result = await current.fn()
 				current.resolve?.(result)
 			} catch (e) {
-				// Don't kill the chain on a task failure — bursty callers
-				// rely on later submissions still running. submitAndWait
-				// callers see the error via their promise; fire-and-forget
-				// submit callers get a console.error so the failure isn't
-				// silently swallowed.
+				// Don't kill the chain on failure — later submissions must
+				// still run. Awaiters get the error via their promise;
+				// fire-and-forget callers get a console.error.
 				if (current.reject) current.reject(e)
 				else console.error('coalescingRunner: task failed', e)
 			}
@@ -99,9 +73,8 @@ export function createCoalescingKeyedRunner(): CoalescingKeyedRunner {
 		runningKeys.delete(key)
 	}
 
-	/** Set `task` as the pending entry for `key`, displacing whatever
-	 * was there (and rejecting its promise if it had one). If the key
-	 * is idle, set up the entry and start the chain. */
+	/** Set `task` pending for `key`, displacing (and rejecting) any prior
+	 * pending. If the key is idle, start the chain. */
 	function setOrDisplace(key: string, task: PendingTask): void {
 		const entry = state.get(key)
 		if (entry) {

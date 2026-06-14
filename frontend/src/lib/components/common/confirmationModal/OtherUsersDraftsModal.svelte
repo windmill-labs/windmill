@@ -1,15 +1,9 @@
 <script lang="ts">
 	/**
-	 * Modal opened on demand (from the AutosaveIndicator popover or the
-	 * home-page DraftBadge popover) when other workspace users have a
-	 * draft at the same path. The owner list is part of the
-	 * deployed-overlay / list payload; individual drafts are fetched
-	 * on-demand for the "View JSON" / "Fork" actions so the response
-	 * stays lean when many users are working on the same item.
-	 *
-	 * The parent controls visibility — bind to `isOpen`. The modal does
-	 * NOT auto-open on mount; that used to surprise users every time
-	 * they opened an item with collaborators.
+	 * On-demand modal (from the AutosaveIndicator or DraftBadge popover) listing
+	 * other users' drafts at this path. The owner list rides the overlay/list
+	 * payload; individual drafts are fetched lazily for View JSON / Fork.
+	 * Parent-controlled via `isOpen` — never auto-opens.
 	 */
 	import { DraftService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
@@ -25,9 +19,8 @@
 		workspace: string
 		itemKind: UserDraftItemKind
 		path: string
-		/** Owners list from the deployed-overlay response. Each entry has a
-		 *  workspace `username` (or `null` for the legacy workspace-level
-		 *  row). The authed user is already filtered out server-side. */
+		/** Owners from the overlay response (`username`, or `null` for the
+		 *  legacy row). The authed user is filtered out server-side. */
 		otherDraftsUsers: OtherDraftUser[]
 		/** Controlled visibility — bind from the parent. */
 		isOpen: boolean
@@ -75,15 +68,10 @@
 		busyFor = ownerKey(owner)
 		try {
 			const value = await fetchDraft(owner)
-			// Close the banner BEFORE the navigation so the user sees the
-			// modal disappear on click. Without this the modal stays
-			// visible during the navigation tear-down — Svelte hasn't
-			// torn down the previous route's components by the time
-			// `goto` returns, so the banner lingers on top of the
-			// destination editor for a beat.
+			// Close before navigating — `goto` returns before Svelte tears down
+			// the route, so the modal would otherwise linger on the destination.
 			isOpen = false
-			// Import-style handoff: seed a brand-new own item from the
-			// fetched value (no immediate server save, fresh owned path).
+			// Seed a brand-new own item from the fetched value (no server save).
 			forkDraftToImport(itemKind, value, path)
 		} catch (e) {
 			sendUserToast(`Could not fork draft: ${e.body ?? e.message}`, true)

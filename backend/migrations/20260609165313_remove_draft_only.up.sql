@@ -1,23 +1,12 @@
--- `draft_only` items (scripts/flows/apps that were saved as a draft but
--- never deployed) used to live as a stub row in their own table PLUS a
--- `draft` row. Now that drafts are first-class and live in `draft`
--- exclusively, the stub is redundant.
---
--- For every draft_only stub:
---   1. Make sure a workspace-level draft row exists at its path. A real
---      per-user draft already exists for the vast majority of stubs
---      (the autosaver writes one alongside the stub when the user first
---      saves a brand-new item). ON CONFLICT DO NOTHING preserves those
---      and only synthesises a stand-in for the rare stub that lost its
---      draft — same shape the editor's autosave would write. The
---      synthesised row has `email = NULL` (no known owner — a legacy
---      workspace draft shared across the workspace).
---   2. Drop the stub. FKs from script_version / flow_version /
---      app_version cascade.
---   3. Drop the now-unused `draft_only` column.
---
--- ON CONFLICT targets the `draft_pkey_legacy` partial unique index —
--- (workspace_id, path, typ) WHERE email IS NULL.
+-- `draft_only` items (scripts/flows/apps saved as a draft but never
+-- deployed) lived as a stub row in their own table plus a `draft` row; the
+-- stub is now redundant. For each stub: ensure a draft row exists at its
+-- path (ON CONFLICT DO NOTHING preserves the real per-user draft most stubs
+-- already have, synthesising an `email = NULL` legacy stand-in only for the
+-- rare stub that lost its draft), drop the stub (version FKs cascade), then
+-- drop the `draft_only` column.
+-- ON CONFLICT targets `draft_pkey_legacy` — (workspace_id, path, typ) WHERE
+-- email IS NULL.
 
 INSERT INTO draft (workspace_id, path, typ, email, value)
 SELECT
@@ -85,12 +74,10 @@ FROM flow f
 WHERE f.draft_only IS TRUE AND f.archived IS FALSE
 ON CONFLICT (workspace_id, path, typ) WHERE email IS NULL DO NOTHING;
 
--- App drafts (raw or not) store the editor's working value directly in
--- `draft.value` — an `App` object for `typ='app'`, a `{files, runnables,
--- data}` object for `typ='raw_app'`. The deployed wrapper's
--- summary/policy/custom_path aren't in the App type and aren't restored
--- from a draft on reload, so we don't bother carrying them through here
--- — the editor renders the stub with default summary/policy on load.
+-- App drafts store the editor's working value directly in `draft.value` (an
+-- `App` object for `app`, a `{files, runnables, data}` object for `raw_app`).
+-- The deployed wrapper's summary/policy/custom_path aren't part of the App
+-- type and aren't restored from a draft on reload, so they're dropped here.
 INSERT INTO draft (workspace_id, path, typ, email, value)
 SELECT
     a.workspace_id,

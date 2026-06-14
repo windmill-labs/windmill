@@ -6,32 +6,21 @@ import { createDebouncerByKey } from './debouncerByKey.svelte'
 import { setLocalDraftHint } from './localDraftHints.svelte'
 
 /**
- * Per-draft last-sync map. Lets the next `save_draft` know the server's
- * clock at our most recent successful sync for `(workspace, itemKind,
- * path)` so it can attach `last_sync` and the backend can reject stale
- * writes.
+ * Per-draft baseline timestamp attached as `last_sync` on the next save so
+ * the backend can reject stale writes (`created_at <= last_sync`).
  *
- * Lives in TAB-LOCAL memory — not localStorage — because the whole point
- * is that two tabs each track THEIR OWN baseline. If we shared the map,
- * tab-1's successful save would update tab-2's "last_sync" to tab-1's
- * fresh timestamp, and the next tab-2 save would attach that newer
- * timestamp, the server's WHERE clause (`created_at <= last_sync`) would
- * be true, and tab-2 would clobber tab-1's edit. That's the conflict
- * detection failure mode the whole feature is meant to prevent.
- *
- * The cost of being tab-local: a fresh tab reload starts with no
- * `last_sync`, so its first save sends nothing → the backend's "treat as
- * fresh" branch fires and the save lands unconditionally. That's
- * acceptable — the editor's load path calls `recordRemoteSync(query,
- * draft_saved_at)` right after `get_draft=true` returns, which reseeds
- * the map from the authoritative server timestamp before any user edit
- * could fire a save.
+ * MUST be tab-local, not localStorage: each tab tracks its own baseline.
+ * Sharing it would let tab-1's save advance tab-2's `last_sync` to a fresh
+ * timestamp, so tab-2's next save would pass the server's WHERE check and
+ * clobber tab-1 — the exact conflict this feature prevents. The cost: a
+ * fresh tab has no `last_sync` (first save lands unconditionally), but the
+ * editor's `recordRemoteSync` reseeds from the server timestamp on load
+ * before any user edit can save.
  */
 type DraftLastSyncEntry = { lastSync: string }
 const lastSyncMap = new Map<string, DraftLastSyncEntry>()
 
-/** Must match `mapKey` in `userDraft.svelte.ts` so the two files agree
- *  on what identifies a draft. */
+/** Must match `mapKey` in `userDraft.svelte.ts`. */
 function draftKey(workspace: string, itemKind: UserDraftItemKind, path: string): string {
 	return `${workspace}/${itemKind}/${path}`
 }
@@ -57,44 +46,35 @@ export type UserDraftDbSyncerSaveOpts = {
 	workspace: string
 	itemKind: UserDraftItemKind
 	path: string
-	/** `null` signals a delete — the server removes the row under the same
-	 *  conflict rules as an upsert. */
+	/** `null` signals a delete — same conflict rules as an upsert. */
 	value: unknown | null
-	/** Bypass the autosave debouncer for THIS save. Cancels any pending
-	 * debouncer task for the same key (the queued autosave would
-	 * otherwise overwrite what we're about to send), routes through the
-	 * coalescing runner so ordering against any in-flight POST is
-	 * preserved, and the returned promise resolves only after the POST
-	 * actually lands. Use for `await save(...); then-read-the-server`
-	 * flows (table-row delete, etc.) where a fire-and-forget save would
-	 * race the next read. */
+	/** Bypass the debouncer: cancel any pending autosave for this key (it
+	 * would otherwise overwrite what we send), route through the coalescing
+	 * runner to preserve ordering against an in-flight POST, and resolve
+	 * the returned promise only once the POST lands. Use for
+	 * `await save(...); read-the-server` flows where a fire-and-forget save
+	 * would race the next read. */
 	immediate?: boolean
-	/** Skip the optimistic-concurrency check on this save and overwrite
-	 *  the server row unconditionally. Used by the conflict-resolution UI
-	 *  ("Overwrite the remote") and by callers that have already resolved
-	 *  the conflict locally. Default `false`: regular autosaves attach
-	 *  `last_sync` and respect the server's reject response. */
+	/** Skip the optimistic-concurrency check and overwrite the server row.
+	 * Used by the conflict-resolution UI ("Overwrite the remote"). Default
+	 * `false`: autosaves attach `last_sync` and respect a reject. */
 	force?: boolean
-	/** Marks this save as coming from the reactive autosave mirror (the
-	 * editor's keystroke-driven pipeline) rather than an explicit user
+	/** Save came from the reactive autosave mirror, not an explicit user
 	 * action (Ctrl/Cmd+S flush, discard, fork, overwrite). */
 	auto?: boolean
-	/** Whether this save's source handle opts into the "Enable auto-save"
-	 * toggle. Only the full-page editors (script / flow / app / raw app)
-	 * set it — their `auto` saves are suppressed while the toggle is off
-	 * (the latest opts still land in `pendingSaveOpts` so an explicit
-	 * Ctrl/Cmd+S flush sends exactly what the user sees). The drawer
-	 * editors (variables / resources / triggers) leave it unset, so their
-	 * autosaves always sync regardless of the toggle. Explicit saves
-	 * always go through. */
+	/** Source handle opts into the "Enable auto-save" toggle. Only the
+	 * full-page editors (script / flow / app / raw app) set it; their
+	 * `auto` saves are suppressed while the toggle is off (latest opts
+	 * still park in `pendingSaveOpts` for an explicit flush). Drawer
+	 * editors (variables / resources / triggers) leave it unset and always
+	 * sync. Explicit saves always go through. */
 	canBeDisabled?: boolean
 }
 
 /**
- * Snapshot of a rejected save. `localLastSync` is what we sent the
- * server (or `null` if we'd never synced this key); `serverTimestamp` is
- * the row's current `created_at`, surfaced so the resolution UI can show
- * how recent the conflicting write was.
+ * Snapshot of a rejected save. `localLastSync` is what we sent (or `null`
+ * if never synced); `serverTimestamp` is the row's current `created_at`,
+ * surfaced so the resolution UI can show how recent the conflict was.
  */
 export type DraftConflictInfo = {
 	serverTimestamp: string
@@ -108,67 +88,49 @@ export type UserDraftLastSyncQuery = {
 }
 
 /**
- * Autosave lifecycle for a single draft, derived from the two-stage
- * pipeline:
- *   - `saving`:  a POST is currently in flight (coalescing runner busy).
- *   - `pending`: a change is queued in the debouncer but not yet fired.
- *   - `failed`:  the last POST threw (network / 5xx / etc.) and no later
- *                attempt has succeeded. Conflicts use the conflict modal
- *                path and don't surface here.
- *   - `none`:    none of the above — the draft is in sync (or nothing
- *                happened).
- * Priority on render: `saving` > `pending` > `failed` > `none`. An active
- * save attempt outranks the prior failure so the indicator shows the
- * retry as in-flight; once it settles, either success clears `failed` or
- * a fresh throw sets it again.
+ * Autosave lifecycle for a single draft:
+ *   - `saving`:  a POST is in flight (coalescing runner busy).
+ *   - `pending`: a change is queued in the debouncer, not yet fired.
+ *   - `failed`:  the last POST threw (network / 5xx) and no later attempt
+ *                succeeded. Conflicts go through the modal, not here.
+ *   - `none`:    in sync (or nothing happened).
+ * Render priority `saving` > `pending` > `failed` > `none`: an active
+ * retry outranks the prior failure so the indicator shows it in-flight.
  */
 export type UserDraftSyncState = 'none' | 'pending' | 'saving' | 'failed'
 
 export type UserDraftStateHandle = {
-	/** Reactive — read it inside a `$derived`/`$effect` and it re-runs as
-	 * the draft moves through the pipeline. */
+	/** Reactive: re-runs as the draft moves through the pipeline. */
 	readonly state: UserDraftSyncState
-	/** When `state === 'failed'`, the message extracted from the thrown
-	 * error (server body / status text / Error.message, in that order).
-	 * `undefined` for every other state. */
+	/** When `state === 'failed'`, the message from the thrown error.
+	 * `undefined` otherwise. */
 	readonly failureMessage: string | undefined
-	/** Reactive — bumped each time `flush()` completes for this draft,
-	 * INCLUDING the no-op path (nothing pending). Lets the indicator
-	 * flash "Saved" on an explicit Ctrl/Cmd+S even when the autosave
-	 * already landed — without it the shortcut is completely silent in
-	 * the everything-already-saved case. */
+	/** Reactive: bumped each time `flush()` completes, INCLUDING the no-op
+	 * path. Lets the indicator flash "Saved" on Ctrl/Cmd+S even when the
+	 * autosave already landed (otherwise the shortcut is silent then). */
 	readonly flushCount: number
 }
 
 /**
- * Two-stage pipeline per draft key (`workspace/itemKind/path`):
- *   1. Debouncer collapses keystroke bursts so we don't POST per edit.
- *      `debounceMs = 1500` resets on each new submission; the
- *      `maxDebounceMs = 10000` ceiling guarantees sustained typing still
- *      flushes at least once every 10s instead of getting deferred
- *      forever.
- *   2. When the debouncer fires, the captured `opts` is submitted to a
- *      coalescing runner. The runner keeps at most one POST in flight
- *      per key plus at most one "latest" follow-up — newer submissions
- *      while a POST is running drop any prior pending and replace it,
- *      so the server never sees stale-then-fresh out of order.
+ * Two-stage pipeline per draft key. The debouncer collapses keystroke
+ * bursts (1500ms reset, 10000ms ceiling so sustained typing still flushes
+ * within 10s). When it fires, `opts` goes to the coalescing runner, which
+ * keeps at most one POST in flight per key plus one "latest" follow-up —
+ * newer submissions replace any prior pending, so the server never sees
+ * stale-then-fresh out of order.
  *
- * Together: the debouncer absorbs typing, the runner absorbs network
- * slowness. Imperative awaits (e.g. delete-then-refetch) MUST NOT rely
- * on `save()` returning a settled promise — the returned promise
- * resolves as soon as the work is queued, not when the POST lands. A
- * bypass path for those callers is tracked separately.
+ * Imperative awaits (delete-then-refetch) MUST NOT rely on `save()`'s
+ * promise: it resolves when the work is queued, not when the POST lands.
+ * Use the `immediate` bypass for those.
  */
 const debouncer = createDebouncerByKey({ debounceMs: 1500, maxDebounceMs: 10000 })
 const runner = createCoalescingKeyedRunner()
 
 /**
- * "Enable auto-save" user preference (AutosaveIndicator popover toggle).
- * Browser-wide and persisted — a user who turns autosave off expects it
- * to stay off across editors and reloads. While off, `auto: true` saves
- * are suppressed (the latest opts still park in `pendingSaveOpts` so
- * Ctrl/Cmd+S flushes exactly what's on screen) and the unload keepalive
- * flush is skipped too — nothing leaves the tab except explicit saves.
+ * "Enable auto-save" preference (AutosaveIndicator popover toggle).
+ * Browser-wide and persisted. While off, `auto: true` saves and the
+ * unload keepalive flush are suppressed — nothing leaves the tab except
+ * explicit saves (latest opts still park in `pendingSaveOpts` for flush).
  */
 const AUTOSAVE_ENABLED_LS_KEY = 'userDraftAutosaveEnabled'
 function readAutosaveEnabled(): boolean {
@@ -181,38 +143,25 @@ function readAutosaveEnabled(): boolean {
 let autosaveEnabledState = $state(readAutosaveEnabled())
 
 /**
- * Latest `save` opts per draft key that haven't been confirmed by a
- * successful `postSave`. The unload flush walks this map and fires a
- * `keepalive: true` POST for each entry so the browser commits the
- * request even after the document is torn down.
- *
- * Updated on every `save()` (newer opts displace older) and cleared by
- * `postSave` on a successful response — but only when the entry is
- * still the same object the success was for. A newer `save()` that
- * landed during the in-flight POST leaves its opts in the map so the
- * next round (or the flush) still picks them up.
+ * Latest unconfirmed `save` opts per draft key. The unload flush fires a
+ * `keepalive` POST for each entry. Cleared by `postSave` on success, but
+ * only when the entry is still the same object the success was for — a
+ * newer `save()` during the in-flight POST must survive for the next round.
  */
 const pendingSaveOpts = new Map<string, UserDraftDbSyncerSaveOpts>()
 
 /**
- * Reactive map of conflict snapshots — populated when the server rejects
- * a save because the row's `created_at` is newer than the `last_sync` we
- * sent. Read via `getConflict(query)` from the UI to drive the
- * resolution modal. SvelteMap so consumer `$derived` re-runs when an
- * entry is added/removed.
+ * Conflict snapshots, populated when the server rejects a save (row
+ * `created_at` newer than our `last_sync`). Read via `getConflict(query)`
+ * to drive the resolution modal.
  */
 const conflicts = new SvelteMap<string, DraftConflictInfo>()
 
 /**
- * Reactive map of draft keys whose last save attempt threw (network
- * error, 5xx, anything `DraftService.saveDraft` rejects with) → the
- * error message extracted from the thrown value. Cleared on the next
- * successful save for that key. Drives the AutosaveIndicator's
- * "Save failed" label so a silent failure doesn't masquerade as "Saved"
- * — the previous behaviour was to console.error and let the runner
- * finish, which the indicator read as success. Conflicts are tracked
- * separately (DraftSyncConflictModal handles those) and don't populate
- * this map.
+ * Draft keys whose last save threw (network / 5xx) → extracted error
+ * message. Cleared on the next success. Drives the AutosaveIndicator's
+ * "Save failed" label so a silent failure can't masquerade as "Saved".
+ * Conflicts are tracked separately and don't populate this map.
  */
 const failures = new SvelteMap<string, string>()
 
@@ -224,9 +173,8 @@ const flushes = new SvelteMap<string, number>()
 
 /**
  * Best-effort error → readable string. The generated client wraps HTTP
- * failures as `ApiError` with `body` / `statusText`; raw fetch errors
- * surface a plain `Error`. Falls back to `String(e)` so we never end up
- * with a useless `[object Object]`.
+ * failures as `ApiError` (`body` / `statusText`); raw fetch errors are a
+ * plain `Error`. Falls back to `String(e)` to avoid `[object Object]`.
  */
 function formatSaveError(e: unknown): string {
 	if (e == null) return 'Unknown error'
@@ -253,43 +201,35 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 			path: opts.path,
 			requestBody: {
 				value: opts.value as any,
-				// Force-saves skip the conflict check (callers that
-				// explicitly opted in via `overwrite(...)` already showed
-				// the user the conflict). Regular autosaves attach
-				// `last_sync` (when we have one) so the server can reject
-				// stale writes — defining behaviour for a first-ever save
-				// is "no last_sync field at all", matching the backend's
-				// "treat as fresh" branch.
+				// Force-saves skip the conflict check; autosaves attach
+				// `last_sync` so the server can reject stale writes. Omitting
+				// `last_sync` (first-ever save) hits the backend's "treat as
+				// fresh" branch.
 				last_sync: opts.force ? undefined : lastSync,
 				force: opts.force ?? false
 			}
 		})
 		if (resp.status === 'conflict') {
-			// Server rejected the write because someone (another tab /
-			// browser / user) advanced the row past our `last_sync`. Park
-			// the snapshot in the conflict map for the UI to pick up; do
-			// NOT touch the local `lastSync` (the next save retries from
-			// the same baseline so the conflict persists until resolved).
+			// Someone advanced the row past our `last_sync`. Park the
+			// snapshot for the UI; do NOT touch `lastSync` — the next save
+			// retries from the same baseline so the conflict persists until
+			// resolved.
 			conflicts.set(key, {
 				serverTimestamp: resp.current_timestamp,
 				localLastSync: lastSync ?? null
 			})
 			return
 		}
-		// resp.status === 'saved' — clear any prior conflict and bring
-		// the local lastSync forward (or drop it entirely on a delete).
+		// resp.status === 'saved' — advance lastSync (or drop on delete).
 		if (opts.value === null) {
 			clearLastSync(opts.workspace, opts.itemKind, opts.path)
 		} else {
 			setLastSync(opts.workspace, opts.itemKind, opts.path, resp.current_timestamp)
 		}
-		// postSave is the ONE choke point where a draft's existence actually
-		// changes on the server — so it's the single source for the list
-		// pages' optimistic `*` hint. value !== null → a draft exists; null
-		// → it's gone. This makes the hint a derived shadow that every
-		// delete path (autosave-to-baseline, banner discard, Review & Deploy
-		// deploy/discard) clears for free, instead of a third source of
-		// truth only the open editors wrote.
+		// postSave is the only place a draft's server-side existence changes,
+		// so it's the single source for the list pages' `*` hint
+		// (value !== null → exists). Every delete path clears the hint for
+		// free instead of maintaining a separate source of truth.
 		setLocalDraftHint(opts.workspace, opts.itemKind, opts.path, opts.value !== null)
 		conflicts.delete(key)
 		failures.delete(key)
@@ -299,58 +239,38 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		if (pendingSaveOpts.get(key) === opts) pendingSaveOpts.delete(key)
 	} catch (e) {
 		console.error('UserDraftDbSyncer.save failed', e)
-		// Surface the failure (with its message) to the indicator.
-		// Leave the pending opts in place so the next flush / next save
-		// attempt retries the same payload — clearing only on success
-		// means we don't pretend the user's pending edit landed when
-		// it didn't.
+		// Leave pending opts in place so the next attempt retries the same
+		// payload — we don't pretend the edit landed when it didn't.
 		failures.set(key, formatSaveError(e))
 	}
 }
 
-/**
- * True-unload flush — `pagehide` is the browser's commitment that the
- * document is going away. Use `keepalive: true` so the network stack
- * commits the request even after the JS context is torn down; the
- * response is necessarily discarded (no listener left to read it).
- *
- * Trade-offs:
- *   - Total keepalive body size per page is capped (Chrome: 64KB). For
- *     huge editor states (low-code apps with many inline scripts) this
- *     may exceed the cap and the request will be rejected. We log and
- *     accept the loss for the oversized payload — still strictly better
- *     than the status quo, which drops every pending save.
- *   - Bypasses the debouncer/runner pipeline because both are
- *     async-scheduled and won't get a chance to run after the document
- *     hides. `debouncer.cancel(key)` is still called so a queued
- *     keystroke can't fire a second POST in between.
- *   - The keepalive POST advances `created_at` server-side but we can't
- *     read the response to update `lastSync`. That's fine on this path
- *     because the page is dying — the next mount calls
- *     `recordRemoteSync(draft_saved_at)` and reseeds from authoritative
- *     server state before any user edit can fire a save.
- */
 /** Keys whose `lastSync` was made stale by a `pagehide` keepalive flush
- *  (the POST advances the server row's `created_at` but the response is
- *  unreadable on that path). Consumed by the `pageshow` handler below:
- *  on a bfcache restore the SAME document comes back alive, and a save
- *  carrying the pre-flush `last_sync` would conflict against the user's
- *  own keepalive write. */
+ *  (the POST advances `created_at` but its response is unreadable).
+ *  Consumed by the `pageshow` handler: on a bfcache restore the SAME
+ *  document comes back alive, and a save carrying the pre-flush
+ *  `last_sync` would conflict against the user's own keepalive write. */
 const staleSyncAfterHideFlush = new Set<string>()
 
+/**
+ * True-unload flush on `pagehide`. Uses `keepalive` so the request commits
+ * after the JS context is torn down (response discarded). Bypasses the
+ * debouncer/runner — both are async-scheduled and won't run post-hide. The
+ * keepalive body is capped (~64KB in Chrome); oversized payloads are
+ * rejected and lost (logged, still better than dropping every pending
+ * save). The POST advances `created_at` but we can't read it to update
+ * `lastSync` — fine here, the next mount reseeds via `recordRemoteSync`.
+ */
 function flushOnPageHide(): void {
 	if (pendingSaveOpts.size === 0) return
 	for (const [key, opts] of pendingSaveOpts) {
-		// Auto-save off = nothing leaves the tab except explicit
-		// Ctrl/Cmd+S for the page editors that opted into the toggle —
-		// their parked opts are deliberately dropped with the page.
-		// Drawer-kind pendings (mid-debounce at unload) still flush.
+		// Auto-save off: page-editor opts are dropped with the page;
+		// drawer-kind pendings (no `canBeDisabled`) still flush.
 		if (!autosaveEnabledState && opts.auto && opts.canBeDisabled) continue
 		debouncer.cancel(key)
 		try {
-			// Path encoding mirrors the generated client (`encodeURI`,
-			// not `encodeURIComponent`) so slashes inside the path
-			// (e.g. `u/user/myScript`) pass through.
+			// `encodeURI` (not `encodeURIComponent`), mirroring the
+			// generated client, so slashes in the path pass through.
 			const url =
 				OpenAPI.BASE +
 				`/w/${encodeURI(opts.workspace)}` +
@@ -368,14 +288,10 @@ function flushOnPageHide(): void {
 				}),
 				keepalive: true
 			}).catch((e) => {
-				// `keepalive` size cap or network error — log so the loss
-				// is at least visible in devtools. We can't await this
-				// during unload anyway.
 				console.error('UserDraftDbSyncer: keepalive flush failed', e)
 			})
-			// The POST above moved the server row past our recorded
-			// `lastSync` and we can't read the response — mark the key so
-			// a bfcache restore can drop the stale entry (see `pageshow`).
+			// POST advanced the row past `lastSync` and we can't read the
+			// response — mark the key so a bfcache restore drops it.
 			staleSyncAfterHideFlush.add(key)
 		} catch (e) {
 			console.error('UserDraftDbSyncer: keepalive flush threw', e)
@@ -385,22 +301,15 @@ function flushOnPageHide(): void {
 }
 
 if (typeof document !== 'undefined') {
-	// `pagehide` is the only signal that means "the document is truly
-	// going away". We deliberately do NOT listen for
-	// `visibilitychange → hidden`: it fires on every tab/app switch with
-	// the page surviving, and on a surviving page the debouncer's
-	// pending `setTimeout` keeps running in the background, the runner
-	// POST eventually fires, and the server's response updates
-	// `lastSync` — no flush needed, no spurious conflict modal on the
-	// user's own background-tab write.
+	// Only `pagehide` means the document is truly going away. Do NOT use
+	// `visibilitychange → hidden`: it fires on every tab switch with the
+	// page surviving, where the debounced POST still fires normally — a
+	// flush there would spuriously conflict against the user's own write.
 	window.addEventListener('pagehide', flushOnPageHide)
-	// bfcache restore: the SAME document comes back alive after a
-	// `pagehide` keepalive flush advanced the server rows past the
-	// in-memory `lastSync`. Drop the stale entries — the next save then
-	// omits `last_sync` (first-push semantics), which is safe here: the
-	// server copy it overwrites is this very document's own flush, same
-	// state lineage. Without this, that save is rejected as a conflict
-	// and the DraftSyncConflictModal opens against the user's own write.
+	// bfcache restore: drop the keepalive-stale entries so the next save
+	// omits `last_sync` (first-push). Safe — the server copy it overwrites
+	// is this document's own flush. Without this, that save is rejected as
+	// a conflict and the modal opens against the user's own write.
 	window.addEventListener('pageshow', (e: PageTransitionEvent) => {
 		if (!e.persisted) return
 		for (const key of staleSyncAfterHideFlush) {
@@ -411,28 +320,19 @@ if (typeof document !== 'undefined') {
 }
 
 /**
- * Server-side persistence for `UserDraft`. Every write is funneled
- * through the debouncer + coalescing runner above so editor autosave
- * spam can't translate into one POST per keystroke or out-of-order
- * writes under slow networks.
+ * Server-side persistence for `UserDraft`. Every write goes through the
+ * debouncer + coalescing runner above so autosave spam can't become one
+ * POST per keystroke or out-of-order writes under slow networks.
  *
- * Kept as a separate module so the two halves stay decoupled — `UserDraft`
- * just calls `UserDraftDbSyncer.save(...)` and doesn't reach into the
- * generated client.
- *
- * Concurrency: every save attaches the per-tab `last_sync` recorded by
- * `recordRemoteSync` (or the previous successful save). The server
- * rejects on a stale `last_sync` and `postSave` surfaces a
- * `DraftConflictInfo` for the conflict modal to resolve.
+ * Concurrency: every save attaches the per-tab `last_sync` (from
+ * `recordRemoteSync` or the prior success). The server rejects a stale
+ * `last_sync` and `postSave` surfaces a `DraftConflictInfo` for the modal.
  */
 export const UserDraftDbSyncer = {
 	/**
-	 * Reactive autosave state for a draft. Returns a handle whose `state`
-	 * getter reads the debouncer / runner's reactive key-sets, so a Svelte
-	 * consumer (`AutosaveIndicator`) can just `$derived(handle.state)` and
-	 * re-render as the draft flows through pending → saving → none. The key
-	 * is captured at call time; if the consumer's `(workspace, itemKind,
-	 * path)` can change, recompute the handle in a `$derived`.
+	 * Reactive autosave-state handle for a draft. The key is captured at
+	 * call time; if the consumer's `(workspace, itemKind, path)` can change,
+	 * recompute the handle in a `$derived`.
 	 */
 	getState(query: UserDraftLastSyncQuery): UserDraftStateHandle {
 		const key = draftKey(query.workspace, query.itemKind, query.path)
@@ -444,9 +344,8 @@ export const UserDraftDbSyncer = {
 				return 'none'
 			},
 			get failureMessage(): string | undefined {
-				// Only meaningful when state === 'failed'; reading it for
-				// other states would surface a stale message from a
-				// previous failure that's already been superseded.
+				// Suppress while saving/pending: an in-flight retry must not
+				// show the stale message from the failure it's retrying.
 				if (runner.isRunning(key) || debouncer.isPending(key)) return undefined
 				return failures.get(key)
 			},
@@ -458,31 +357,23 @@ export const UserDraftDbSyncer = {
 
 	async save(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		const key = draftKey(opts.workspace, opts.itemKind, opts.path)
-		// Track the latest unconfirmed save BEFORE entering the pipeline
-		// so the unload flush has something to send even if the page
-		// hides before the debouncer fires.
+		// Park the latest opts BEFORE the pipeline so the unload flush has
+		// something to send even if the page hides before the debouncer fires.
 		pendingSaveOpts.set(key, opts)
 		if (opts.immediate) {
-			// Drop the queued autosave (if any) — letting it fire after
-			// our POST would re-save the pre-delete value. The runner's
-			// own cancel is implicit in `submitAndWait`, which displaces
-			// any pending runner task with ours, but call it explicitly
-			// so a `submit` -> `cancel` -> `submitAndWait` sequence is
-			// observable in the runner's internal state for debugging.
+			// Drop the queued autosave — firing it after our POST would
+			// re-save the pre-delete value.
 			debouncer.cancel(key)
 			runner.cancel(key)
 			await runner.submitAndWait(key, () => postSave(opts))
 			return
 		}
-		// Auto-save off: park the opts (done above) so an explicit flush
-		// sends the latest content, but never schedule the POST. Only
-		// applies to handles that opted into the toggle (the page editors)
-		// — drawer-kind autosaves always sync.
+		// Auto-save off: opts stay parked (above) for an explicit flush but
+		// never schedule a POST. Only for handles that opted into the toggle.
 		if (opts.auto && opts.canBeDisabled && !autosaveEnabledState) return
-		// Optimistically light up the list-page `*` the moment a real save
-		// is scheduled, so the asterisk tracks the editor's unsaved-changes
-		// banner without waiting ~1.5s for the debounced POST. postSave
-		// reconciles to the confirmed server state (and clears on delete).
+		// Optimistically light the list-page `*` so it tracks the editor's
+		// unsaved-changes banner without waiting for the debounced POST;
+		// postSave reconciles to the confirmed server state.
 		if (opts.value !== null) {
 			setLocalDraftHint(opts.workspace, opts.itemKind, opts.path, true)
 		}
@@ -491,11 +382,9 @@ export const UserDraftDbSyncer = {
 		})
 	},
 
-	/** "Enable auto-save" preference — see the module-level doc. Reactive
-	 * (backed by `$state`) so the AutosaveIndicator toggle re-renders;
-	 * persisted to localStorage. Turning it back ON re-schedules every
-	 * parked unsaved draft through the normal debouncer so the edits made
-	 * while it was off catch up without waiting for the next keystroke. */
+	/** "Enable auto-save" preference — see the module-level doc. Turning it
+	 * back ON re-schedules every parked draft so edits made while off catch
+	 * up without waiting for the next keystroke. */
 	get autosaveEnabled(): boolean {
 		return autosaveEnabledState
 	},
@@ -514,14 +403,10 @@ export const UserDraftDbSyncer = {
 	},
 
 	/**
-	 * Seed the per-tab `last_sync` map after an editor reads a draft
-	 * from the server (via `?get_draft=true`). Calling this with the
-	 * `draft_saved_at` from the response makes the next save send a
-	 * matching `last_sync`, so the server accepts it unless someone
-	 * pushed a newer write in between. Pass `undefined` (or omit the
-	 * draftSavedAt) when no draft existed — that flips the next save
-	 * back to the "no last_sync" branch, which the backend treats as a
-	 * first-time push.
+	 * Seed the per-tab `last_sync` after an editor reads a draft from the
+	 * server. Pass the response's `draft_saved_at` so the next save sends a
+	 * matching `last_sync`; pass `undefined` when no draft existed (next
+	 * save omits `last_sync`, the backend's first-push branch).
 	 */
 	recordRemoteSync(query: UserDraftLastSyncQuery, draftSavedAt: string | undefined): void {
 		const key = draftKey(query.workspace, query.itemKind, query.path)
@@ -530,18 +415,12 @@ export const UserDraftDbSyncer = {
 		} else {
 			clearLastSync(query.workspace, query.itemKind, query.path)
 		}
-		// Reading the server's authoritative timestamp resets the
-		// conflict state and clears any prior failure flag — by
-		// definition we're now back in sync with the server.
+		// Back in sync with the server: clear any conflict / failure.
 		conflicts.delete(key)
 		failures.delete(key)
 	},
 
-	/**
-	 * Reactive snapshot of the conflict (if any) for a draft. The
-	 * returned handle reads `conflicts` via a SvelteMap getter so a
-	 * `$derived` re-runs when the entry appears or clears.
-	 */
+	/** Reactive conflict snapshot (if any) for a draft. */
 	getConflict(query: UserDraftLastSyncQuery): {
 		readonly conflict: DraftConflictInfo | undefined
 	} {
@@ -554,42 +433,32 @@ export const UserDraftDbSyncer = {
 	},
 
 	/**
-	 * Clear the conflict snapshot for a draft. Call after the
-	 * resolution UI lands a fresh read (the editor reloaded from
-	 * server) — `recordRemoteSync` does this implicitly, so the only
-	 * standalone use is the "dismiss without resolving" path.
+	 * Clear the conflict snapshot. `recordRemoteSync` does this implicitly
+	 * on a fresh read, so the only standalone use is "dismiss without
+	 * resolving".
 	 */
 	clearConflict(query: UserDraftLastSyncQuery): void {
 		conflicts.delete(draftKey(query.workspace, query.itemKind, query.path))
 	},
 
 	/**
-	 * Force-save: bypass the `last_sync` check and overwrite the
-	 * server row. Used by the conflict-resolution modal's "Overwrite
-	 * the remote" action. Goes through the same coalescing runner
-	 * (and resolves only after the POST lands) so the caller can `await`
-	 * it before navigating away or refetching.
+	 * Force-save: bypass the `last_sync` check and overwrite the server row
+	 * (conflict modal's "Overwrite the remote"). Resolves only after the
+	 * POST lands so the caller can `await` before navigating / refetching.
 	 */
 	async overwrite(opts: Omit<UserDraftDbSyncerSaveOpts, 'force'>): Promise<void> {
 		await this.save({ ...opts, immediate: true, force: true })
 	},
 
 	/**
-	 * Flush whatever's queued in the autosave debouncer for this draft
-	 * RIGHT NOW. Use for explicit "save now" shortcuts (Ctrl/Cmd+S).
+	 * Flush the draft's queued autosave NOW (explicit Ctrl/Cmd+S). Re-submits
+	 * the parked opts with `immediate: true` and resolves only after the POST
+	 * lands, so callers can `await flush(...); show "Saved"`.
 	 *
-	 * Re-submits the latest opts captured by `save()` (held in
-	 * `pendingSaveOpts` until the POST lands) with `immediate: true`,
-	 * which cancels the queued debouncer and routes through the
-	 * coalescing runner. The returned promise resolves only after the
-	 * POST lands, so callers can `await flush(...); show "Saved"`.
-	 *
-	 * No-op when nothing is pending (the most recent save already
-	 * landed, or the editor never autosaved this entry). The caller
-	 * should NOT assume "no pending" means "nothing to save" — Monaco
-	 * may still have unmaterialized text in its own buffer; flush the
-	 * editor first (`Editor.flushPendingChanges()`) and await `tick()`
-	 * so the bind:code propagation reaches our save() before this.
+	 * No-op when nothing is pending. "No pending" does NOT mean "nothing to
+	 * save" — Monaco may hold unmaterialized text; flush the editor
+	 * (`Editor.flushPendingChanges()`) and await `tick()` first so its
+	 * bind:code reaches our save() before this.
 	 */
 	async flush(query: UserDraftLastSyncQuery): Promise<void> {
 		const key = draftKey(query.workspace, query.itemKind, query.path)
@@ -598,9 +467,8 @@ export const UserDraftDbSyncer = {
 			if (!opts) return
 			await this.save({ ...opts, immediate: true })
 		} finally {
-			// Signal the indicator even on the no-op path — an explicit
-			// Ctrl/Cmd+S deserves visible confirmation ("Saved") even
-			// when the autosave already landed everything.
+			// Signal the indicator even on the no-op path so Ctrl/Cmd+S
+			// shows "Saved" even when the autosave already landed.
 			flushes.set(key, (flushes.get(key) ?? 0) + 1)
 		}
 	}

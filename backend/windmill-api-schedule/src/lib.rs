@@ -682,10 +682,8 @@ pub struct ListScheduleQuery {
     pub summary: Option<String>,
     pub broad_filter: Option<String>,
     pub label: Option<String>,
-    /// When true, append per-user draft rows whose path has no deployed
-    /// schedule. Gated to non-operators + offset 0 + no narrowing
-    /// filters so picker callers stay deployed-only and pagination
-    /// semantics stay clean.
+    /// When true, append per-user draft-only rows; picker callers leave it off
+    /// to stay deployed-only. See list synthesis in scripts.rs.
     pub include_draft_only: Option<bool>,
 }
 
@@ -704,15 +702,12 @@ pub struct ScheduleLight {
     pub extra_perms: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
-    /// True when this row is a per-user draft with no deployed schedule
-    /// at the same path. Surfaced by `include_draft_only` so the frontend
-    /// can render a "Draft" badge.
+    /// `Some(true)` only on synthesized draft-only rows; `None` on deployed rows.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub draft_only: Option<bool>,
-    /// True when the authed user has a per-user draft at this path —
-    /// layered over a deployed schedule or a synthesized draft-only row.
-    /// Drives the `*` suffix on the schedules page.
+    /// True when the authed user has a per-user draft at this path (drives the
+    /// `*` suffix on the schedules page).
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub is_draft: Option<bool>,
@@ -746,8 +741,7 @@ async fn list_schedule(
             "labels",
             "folder_labels(workspace_id, path) as inherited_labels",
         ])
-        // Scalar EXISTS — flags rows the authed user has a per-user
-        // draft on, without fanning rows out the way a join could.
+        // Scalar EXISTS flags the authed user's per-user draft; see resources.rs.
         .field(
             &"EXISTS(SELECT 1 FROM draft WHERE draft.workspace_id = schedule.workspace_id \
               AND draft.path = schedule.path AND draft.typ = 'trigger_schedule' \
@@ -808,8 +802,7 @@ async fn list_schedule(
         .await?;
     tx.commit().await?;
 
-    // Draft-only rows: per-user drafts (kind `trigger_schedule`) for
-    // paths with no deployed schedule. Same guard as the other kinds.
+    // Append the authed user's draft-only schedules; see scripts.rs.
     if lsq.include_draft_only.unwrap_or(false)
         && !authed.is_operator
         && offset == 0
@@ -834,9 +827,7 @@ async fn list_schedule(
         for row in draft_only_rows {
             let v: serde_json::Value =
                 serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
-            // Schedule editor's draft shape mirrors NewSchedule:
-            //   { path, schedule, timezone, script_path, is_flow,
-            //     enabled?, summary?, labels? }
+            // Schedule editor's draft mirrors NewSchedule: { path, schedule, timezone, script_path, is_flow, enabled?, summary?, labels? }
             let path = v
                 .get("path")
                 .and_then(|s| s.as_str())
@@ -887,11 +878,10 @@ async fn list_schedule(
                 summary,
                 extra_perms: serde_json::Value::Object(serde_json::Map::new()),
                 labels,
-                // Synthesized draft-only rows have no deployed row to
-                // inherit folder labels from.
+                // No deployed row to inherit folder labels from.
                 inherited_labels: None,
                 draft_only: Some(true),
-                // Synthesized rows ARE the authed user's draft.
+                // Synthesized rows are the authed user's draft.
                 is_draft: Some(true),
             });
         }
@@ -1269,9 +1259,7 @@ async fn delete_schedule(
 
     tx.commit().await?;
 
-    // The schedule is gone for everyone — wipe ALL users' drafts for this
-    // path, not just the caller's, so teammates' drafts don't orphan.
-    // Idempotent on no-draft.
+    // Schedule gone for everyone: wipe ALL users' drafts at this path; see scripts.rs.
     delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::TriggerSchedule, path).await?;
 
     handle_deployment_metadata(

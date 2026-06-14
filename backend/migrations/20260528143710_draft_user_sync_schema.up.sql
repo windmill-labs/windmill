@@ -1,16 +1,10 @@
--- Reshape `draft` for per-user bidirectional sync:
---   * add `email` (FK to `password.email`) — owner of the draft. NULL on
---     legacy rows written before per-user sync existed.
---   * replace the composite PK with two partial unique indexes so per-user
---     rows and the single legacy workspace-level row can coexist at the
---     same (workspace_id, path, typ).
---   * replace the DRAFT_TYPE enum (script/flow/app only) with DRAFT_KIND,
---     covering every UserDraftItemKind the sync layer accepts. Keeping it
---     as an enum (rather than VARCHAR) lets the type system reject typos
---     at the DB boundary and stays in sync with the Rust `UserDraftItemKind`.
---   * give the table a synthetic BIGSERIAL `id` PK — tools that assume a
---     real PK (pg_dump, replication, ORM drift detection) break on the
---     partial-index-only layout above.
+-- Reshape `draft` for per-user bidirectional sync: add the owner `email`
+-- (FK to password.email, NULL on legacy rows); replace the composite PK with
+-- two partial unique indexes so per-user rows and the single legacy
+-- workspace-level row coexist at the same (workspace_id, path, typ); widen
+-- the DRAFT_TYPE enum to DRAFT_KIND (every UserDraftItemKind); and add a
+-- synthetic BIGSERIAL `id` PK (tools like pg_dump/replication break on the
+-- partial-index-only layout).
 
 CREATE TYPE DRAFT_KIND AS ENUM (
     'script',
@@ -61,34 +55,26 @@ CREATE UNIQUE INDEX draft_pkey_legacy
     ON draft (workspace_id, path, typ)
     WHERE email IS NULL;
 
--- Serves the per-user draft listing (`GET /drafts/list`:
--- `WHERE workspace_id = ? AND email = ? ORDER BY path`). Neither partial
--- unique index above helps — both lead with `path, typ` — and the
--- trailing `path` lets the planner read rows already in output order.
+-- Serves the per-user draft listing (`WHERE workspace_id = ? AND email = ?
+-- ORDER BY path`); neither partial unique index helps (both lead with
+-- `path, typ`), and the trailing `path` keeps rows in output order.
 CREATE INDEX draft_user_listing_idx
     ON draft (workspace_id, email, path)
     WHERE email IS NOT NULL;
 
 ALTER TABLE draft ADD COLUMN id BIGSERIAL PRIMARY KEY;
 
--- Hot path: `fetch_other_drafts_users` runs on EVERY get-by-path request
--- (scripts, flows, apps, variables, resources, schedules, triggers) with
--- `WHERE workspace_id = ? AND path = ? AND typ = ?` and no email
--- predicate. Neither partial unique index (`draft_pkey_with_user` /
--- `draft_pkey_legacy`) can serve it — their `email IS [NOT] NULL`
--- predicates aren't implied by the query — and `draft_user_sync_idx` is
--- partial too, so the planner fell back to a sequential scan over a
--- table that accumulates per-user autosaves across all workspaces.
--- A plain btree over the three columns also covers `get_draft_for_user`
--- (same three + `email IS NOT DISTINCT FROM ?` as a filter).
+-- Hot path: `fetch_other_drafts_users` runs on every get-by-path request
+-- with `WHERE workspace_id = ? AND path = ? AND typ = ?` and no email
+-- predicate. The partial unique/listing indexes can't serve it (their
+-- `email IS [NOT] NULL` predicates aren't implied by the query), so a plain
+-- btree is needed. Also covers `get_draft_for_user` (same three columns +
+-- `email IS NOT DISTINCT FROM ?` as a filter).
 CREATE INDEX draft_workspace_path_typ_idx ON draft (workspace_id, path, typ);
 
--- Secret variable values must never sit in `draft.value` in plaintext
--- (deployed secrets are encrypted with the workspace crypt key precisely
--- so DB dumps don't leak them). `save_draft` encrypts `variable.value`
--- for `is_secret: true` drafts at write time; this scrubs any rows that
--- were persisted before that guard existed (irreversible — the plaintext
--- is deliberately destroyed, see the .down.sql note).
+-- Secret variable values must never sit in `draft.value` in plaintext.
+-- `save_draft` now encrypts them at write time; this scrubs any rows
+-- persisted before that guard (irreversible — see the .down.sql note).
 UPDATE draft
 SET value = jsonb_set(value::jsonb, '{variable,value}', '""'::jsonb)::json
 WHERE typ = 'variable'

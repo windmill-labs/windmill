@@ -154,12 +154,8 @@ async fn list_flows(
             "ws_error_handler_muted",
             "o.labels",
             "draft.email IS NOT NULL as is_draft",
-            // All workspace users with a per-user draft at this path,
-            // aggregated as a JSON array. Same shape & decoding as the
-            // scripts list — see scripts.rs for the rationale, including the
-            // `admins`-workspace identity fallback (username IS the email
-            // there, so resolve self via `d.email` rather than the absent
-            // `usr` row; the genuine NULL-email legacy row stays `None`).
+            // Per-path draft owners as a JSON array; see scripts.rs for the rationale
+            // (admins-workspace identity fallback, legacy NULL-email row).
             "(SELECT json_agg(json_build_object('username', COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END)) ORDER BY COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) NULLS LAST) \
               FROM draft d \
               LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
@@ -236,16 +232,7 @@ async fn list_flows(
         .collect::<Vec<_>>();
     tx.commit().await?;
 
-    // Draft-only rows: drafts the authed user has at paths with no
-    // deployed flow. Gated on the same `include_draft_only` flag that
-    // controls deployed `draft_only` rows above so picker callers
-    // (workspace pickers, script selectors, ...) get the deployed
-    // listing only — the home page opts in explicitly.
-    //
-    // Concatenated after the deployed page so the home page surfaces
-    // them too. Fields not in the draft JSON fall back to sensible
-    // defaults. Skipped when filters narrow the list or we're past
-    // page 0 — keeps pagination semantics clean.
+    // Append the authed user's drafts at paths with no deployed flow; see scripts.rs.
     if lq.include_draft_only.unwrap_or(false)
         && !authed.is_operator
         && offset == 0
@@ -257,10 +244,7 @@ async fn list_flows(
         && !lq.starred_only.unwrap_or(false)
         && !lq.show_archived.unwrap_or(false)
     {
-        // `(email = $2 OR email IS NULL)` surfaces the user's own draft-only
-        // rows AND the legacy NULL-email workspace rows (pre-per-user drafts +
-        // `draft_only` migration). `DISTINCT ON (path)` with `email IS NULL`
-        // last collapses a path that has both to the owned row.
+        // `(email = $2 OR email IS NULL)` + `DISTINCT ON (path)` ordered NULL-last; see scripts.rs.
         let draft_only_rows = sqlx::query!(
             r#"SELECT DISTINCT ON (path)
                       path,
@@ -285,12 +269,9 @@ async fn list_flows(
         for row in draft_only_rows {
             let v: serde_json::Value =
                 serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
-            // The Flow editor's autosave never updates `flow.path` from
-            // the Path widget — the widget binds `$pathStore` directly,
-            // which is one-way `flow.path → $pathStore`. So the editor
-            // writes a separate `draft_path` field into the draft JSON
-            // when (and only when) the typed path differs from the
-            // deployed one. `None` here = unchanged.
+            // The Path widget binds `$pathStore` one-way (`flow.path → $pathStore`),
+            // so the editor writes a separate `draft_path` field only when the typed
+            // path differs from the deployed one. `None` = unchanged.
             let draft_path = v
                 .get("draft_path")
                 .and_then(|s| s.as_str())
@@ -317,12 +298,11 @@ async fn list_flows(
                 ws_error_handler_muted: None,
                 deployment_msg: None,
                 labels: None,
-                // Synthesized draft-only rows have no deployed row to
-                // inherit folder labels from.
+                // No deployed row to inherit folder labels from.
                 inherited_labels: None,
                 is_draft: true,
                 draft_path,
-                // Synthesized rows come from the authed user's own draft.
+                // Synthesized rows are the authed user's own draft.
                 draft_users: Some(sqlx::types::Json(vec![DraftUserRef {
                     username: Some(authed.username.clone()),
                 }])),
@@ -673,9 +653,7 @@ async fn create_flow(
 
     // CLI / git-sync deploys ask us to preserve any existing user draft at this
     // path instead of wiping it as part of the deploy. Only wipe the deployer's
-    // own draft (plus the legacy NULL-email workspace draft) — other users'
-    // drafts are independent and should fire the StaleDraftModal on their next
-    // reload, not vanish silently.
+    // own draft (plus the legacy NULL-email row); see scripts.rs.
     if !nf.skip_draft_deletion.unwrap_or(false) {
         sqlx::query!(
             "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow' \
@@ -1267,8 +1245,7 @@ async fn update_flow(
 
     // CLI / git-sync deploys ask us to preserve any existing user draft at this
     // path instead of wiping it as part of the deploy. Only wipe the deployer's
-    // own draft (plus the legacy NULL-email row) — other users' drafts surface
-    // as stale on their next reload instead of disappearing silently.
+    // own draft (plus the legacy NULL-email row); see scripts.rs.
     if !nf.skip_draft_deletion.unwrap_or(false) {
         sqlx::query!(
             "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow' \
@@ -1493,10 +1470,7 @@ async fn get_deployment_status(
     Ok(Json(deployment_status))
 }
 
-// Fields inlined rather than flattened from WithStarredInfoQuery /
-// WithDraftQuery — see the same comment on `GetScriptByPathQuery` in
-// scripts.rs: axum's `serde_urlencoded` query extractor doesn't preserve
-// the "true"/"false" → bool conversion through `#[serde(flatten)]`.
+// Fields inlined rather than flattened (axum query bool quirk); see GetScriptByPathQuery in scripts.rs.
 #[derive(Deserialize)]
 struct GetFlowByPathQuery {
     with_starred_info: Option<bool>,
@@ -1594,10 +1568,7 @@ async fn get_flow_by_path(
 
     tx.commit().await?;
 
-    // Editors that have only ever drafted (never deployed) a flow at this
-    // path will land here with no deployed row. When `get_draft` is set,
-    // fall back to the draft table so /flows/edit/draft_<uuid> works the
-    // same way as a deployed-flow reload.
+    // No deployed row + `get_draft`: fall back to the draft table; see scripts.rs.
     let overlay = overlay_or_draft_only(
         &db,
         &w_id,
