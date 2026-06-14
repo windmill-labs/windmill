@@ -254,10 +254,55 @@ impl Migrate for CustomMigrator {
     }
 }
 
+/// Ensure the `windmill_user` and `windmill_admin` roles exist before migrations run.
+///
+/// The early migrations create these roles inside `DO`/`EXCEPTION` blocks that swallow any
+/// error, and `windmill_admin` is created `WITH BYPASSRLS`. On managed Postgres (Scaleway,
+/// RDS, Azure, ...) the connecting user is not a superuser and cannot create a BYPASSRLS
+/// role, so that creation silently fails and the role never exists — which then makes the
+/// first bare `GRANT ... TO windmill_admin` migration hard-fail. We bootstrap the roles here,
+/// falling back to a plain `windmill_admin` (no BYPASSRLS) when BYPASSRLS is not permitted;
+/// admin access is then enforced by the per-table `FOR ALL TO windmill_admin USING (true)`
+/// policies that the migrations create on every RLS-enabled table.
+async fn ensure_windmill_roles(db: &DB) {
+    let bootstrap = r#"
+DO
+$$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'windmill_user') THEN
+        BEGIN
+            CREATE ROLE windmill_user;
+        EXCEPTION WHEN OTHERS THEN
+            RAISE NOTICE 'Could not create windmill_user role: %', SQLERRM;
+        END;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'windmill_admin') THEN
+        BEGIN
+            CREATE ROLE windmill_admin WITH BYPASSRLS;
+        EXCEPTION WHEN OTHERS THEN
+            BEGIN
+                CREATE ROLE windmill_admin;
+                RAISE NOTICE 'Created windmill_admin without BYPASSRLS (managed db without superuser)';
+            EXCEPTION WHEN OTHERS THEN
+                RAISE NOTICE 'Could not create windmill_admin role: %', SQLERRM;
+            END;
+        END;
+    END IF;
+END
+$$;
+"#;
+    if let Err(err) = sqlx::query(bootstrap).execute(db).await {
+        tracing::info!("Could not bootstrap windmill roles: {err:#}");
+    }
+}
+
 pub async fn migrate(
     db: &DB,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> Result<Option<JoinHandle<()>>, Error> {
+    ensure_windmill_roles(db).await;
+
     let migrator = db.acquire().await?;
     let mut custom_migrator = CustomMigrator { inner: migrator };
 
