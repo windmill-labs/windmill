@@ -560,6 +560,26 @@ fn convert_message(msg: &OpenAIMessage) -> Result<Message, Error> {
 
     let mut content_blocks = Vec::new();
 
+    // Replay the Claude reasoning block first: when thinking is enabled,
+    // Anthropic requires the reasoning block (with its unmodified signature) to
+    // precede toolUse in the assistant turn it was emitted in. The proxy
+    // round-trips it on the tool call's extra_content (see BedrockExtraContent).
+    if role == ConversationRole::Assistant {
+        if let Some(reasoning) = msg
+            .tool_calls
+            .as_ref()
+            .and_then(|tcs| {
+                tcs.iter()
+                    .find_map(|tc| tc.extra_content.as_ref().and_then(|ec| ec.bedrock.as_ref()))
+            })
+            .map(bedrock_reasoning_block_from_extra)
+            .transpose()?
+            .flatten()
+        {
+            content_blocks.push(reasoning);
+        }
+    }
+
     // Handle content (text and/or images)
     if let Some(content) = &msg.content {
         match content {
@@ -595,6 +615,37 @@ fn convert_message(msg: &OpenAIMessage) -> Result<Message, Error> {
         .set_content(Some(content_blocks))
         .build()
         .map_err(|e| Error::internal_err(format!("Failed to build message: {}", e)))
+}
+
+/// Rebuild a Bedrock reasoning content block from the round-tripped
+/// [`BedrockExtraContent`](crate::ai_types::BedrockExtraContent).
+fn bedrock_reasoning_block_from_extra(
+    extra: &crate::ai_types::BedrockExtraContent,
+) -> Result<Option<ContentBlock>, Error> {
+    if let Some(redacted) = extra.redacted_content.as_deref() {
+        let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, redacted)
+            .map_err(|e| {
+                Error::internal_err(format!("Failed to decode redacted reasoning: {}", e))
+            })?;
+        return Ok(Some(ContentBlock::ReasoningContent(
+            aws_sdk_bedrockruntime::types::ReasoningContentBlock::RedactedContent(bytes.into()),
+        )));
+    }
+
+    let Some(text) = extra.reasoning_text.as_deref() else {
+        return Ok(None);
+    };
+    let mut builder = aws_sdk_bedrockruntime::types::ReasoningTextBlock::builder().text(text);
+    if let Some(signature) = extra.signature.as_deref() {
+        builder = builder.signature(signature);
+    }
+    Ok(Some(ContentBlock::ReasoningContent(
+        aws_sdk_bedrockruntime::types::ReasoningContentBlock::ReasoningText(
+            builder.build().map_err(|e| {
+                Error::internal_err(format!("Failed to build reasoning block: {}", e))
+            })?,
+        ),
+    )))
 }
 
 /// Convert OpenAI tool call to Bedrock ToolUse content block
@@ -814,7 +865,10 @@ pub fn streaming_tool_calls_to_openai(tool_calls: Vec<StreamingToolCall>) -> Vec
             id: tc.id,
             function: OpenAIFunction { name: tc.name, arguments: tc.arguments },
             r#type: FUNCTION_TYPE.to_string(),
-            extra_content: None, // Bedrock doesn't use thought signatures
+            // Worker agent requests never enable thinking, so there is no
+            // reasoning block to round-trip here (the chat proxy path does —
+            // see providers/bedrock.rs).
+            extra_content: None,
         })
         .collect()
 }
@@ -858,6 +912,7 @@ pub fn build_tool_config(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aws_sdk_bedrockruntime::types::ReasoningContentBlock;
     use serde_json::value::RawValue;
 
     fn text_message(role: &str, content: &str) -> OpenAIMessage {
@@ -932,6 +987,45 @@ mod tests {
                 .and_then(|message| message.content().last()),
             Some(ContentBlock::CachePoint(_))
         ));
+    }
+
+    #[test]
+    fn openai_messages_to_bedrock_replays_reasoning_before_tool_use() {
+        let tool_call = OpenAIToolCall {
+            id: "call_1".to_string(),
+            function: OpenAIFunction { name: "lookup".to_string(), arguments: "{}".to_string() },
+            r#type: FUNCTION_TYPE.to_string(),
+            extra_content: Some(crate::ai_types::ExtraContent {
+                bedrock: Some(crate::ai_types::BedrockExtraContent {
+                    reasoning_text: Some("let me think".to_string()),
+                    signature: Some("sig-abc".to_string()),
+                    redacted_content: None,
+                }),
+                ..Default::default()
+            }),
+        };
+        let assistant = OpenAIMessage {
+            role: "assistant".to_string(),
+            tool_calls: Some(vec![tool_call]),
+            ..Default::default()
+        };
+        let messages = vec![text_message("user", "hi"), assistant];
+
+        let (bedrock_messages, _) =
+            openai_messages_to_bedrock(&messages, false).expect("bedrock conversion succeeds");
+
+        let content = bedrock_messages
+            .last()
+            .expect("assistant message")
+            .content();
+        match &content[0] {
+            ContentBlock::ReasoningContent(ReasoningContentBlock::ReasoningText(rt)) => {
+                assert_eq!(rt.text(), "let me think");
+                assert_eq!(rt.signature(), Some("sig-abc"));
+            }
+            other => panic!("expected reasoning block first, got {:?}", other),
+        }
+        assert!(matches!(&content[1], ContentBlock::ToolUse(_)));
     }
 
     #[test]

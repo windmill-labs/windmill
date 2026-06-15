@@ -53,11 +53,19 @@ export async function refreshPrompts(opts: {
       },
     });
 
-    log.info(colors.green("Refreshed AGENTS.cli.md"));
+    log.info(colors.green("Refreshed AGENTS.wmill.md"));
+
+    if (result.legacyManagedRemoved) {
+      log.info(
+        colors.yellow(
+          "Migrated legacy AGENTS.cli.md → AGENTS.wmill.md (removed the old file and rewrote any @AGENTS.cli.md include)."
+        )
+      );
+    }
 
     reportReconciliation({
       file: "AGENTS.md",
-      includeLine: "@AGENTS.cli.md",
+      includeLine: "@AGENTS.wmill.md",
       created: result.agentsCreated,
       migration: result.agentsMigration,
     });
@@ -178,10 +186,10 @@ async function promptsAction(opts: CommandOptions): Promise<void> {
 }
 
 const command = new Command()
-  .description("Refresh AGENTS.cli.md and managed skills. User-owned AGENTS.md and CLAUDE.md are never overwritten unless you opt in.")
+  .description("Refresh AGENTS.wmill.md and managed skills. User-owned AGENTS.md and CLAUDE.md are never overwritten unless you opt in.")
   .option(
     "--yes",
-    "Non-interactive: append the @AGENTS.cli.md include to an existing AGENTS.md / CLAUDE.md without prompting. Without it, a non-interactive run leaves an unlinked file untouched."
+    "Non-interactive: append the @AGENTS.wmill.md include to an existing AGENTS.md / CLAUDE.md without prompting. Without it, a non-interactive run leaves an unlinked file untouched."
   )
   .action(promptsAction as any);
 

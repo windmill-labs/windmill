@@ -10,7 +10,7 @@
 	import { base } from '$lib/base'
 	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './script/core'
-	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
+	import { copilotInfo } from '$lib/aiStore'
 
 	let {
 		hideHeader = false,
@@ -97,7 +97,7 @@
 	})
 
 	$effect(() => {
-		aiChatManager.listenForContextChange($dbSchemas, $workspaceStore, $copilotSessionModel)
+		aiChatManager.listenForContextChange($dbSchemas, $workspaceStore)
 	})
 
 	$effect(() => {
@@ -136,12 +136,14 @@
 	availableContext={aiChatManager.mode === AIMode.APP
 		? aiChatManager.getAppAvailableContext()
 		: aiChatManager.contextManager.getAvailableContext()}
-	messages={aiChatManager.currentReply
+	messages={aiChatManager.currentReply || aiChatManager.currentReasoning
 		? [
 				...aiChatManager.displayMessages,
 				{
 					role: 'assistant',
 					content: aiChatManager.currentReply,
+					...(aiChatManager.currentReasoning ? { reasoning: aiChatManager.currentReasoning } : {}),
+					streaming: true,
 					contextElements: aiChatManager.contextManager
 						.getSelectedContext()
 						.filter((c) => c.type === 'code')

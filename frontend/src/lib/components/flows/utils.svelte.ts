@@ -104,7 +104,7 @@ export function filteredContentForExport(flow: ExtendedOpenFlow) {
 }
 
 import { dfs as dfsApply } from './dfs'
-import { randomUUID } from './conversations/FlowChatManager.svelte'
+import { randomUUID } from '$lib/utils/uuid'
 
 export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 	tag?: string

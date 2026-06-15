@@ -27,6 +27,8 @@
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
+	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
+	import AIChatSettingsMenu from './AIChatSettingsMenu.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
@@ -133,6 +135,28 @@
 
 	let aiChatInput: AIChatInput | undefined = $state()
 	let editingMessageIndex = $state<number | null>(null)
+
+	// Escape stops the generation when focus is on the chat (or parked on
+	// body), but stays with other widgets (e.g. the session's Monaco editor).
+	// Capture phase is required: Monaco and mounted-but-closed Modal2
+	// instances consume window Escapes before they bubble.
+	let panelEl: HTMLDivElement | undefined = $state()
+	$effect(() => {
+		function onWindowKeydownCapture(e: KeyboardEvent) {
+			if (e.key !== 'Escape' || !aiChatManager.loading) return
+			const active = document.activeElement
+			const focusOnChat =
+				!active || active === document.body || (panelEl?.contains(active) ?? false)
+			if (!focusOnChat) return
+			e.preventDefault()
+			// Immediate form: other chat panels' identical listeners must not
+			// also cancel on body focus, nor a drawer/modal close on this press.
+			e.stopImmediatePropagation()
+			aiChatManager.cancel()
+		}
+		window.addEventListener('keydown', onWindowKeydownCapture, true)
+		return () => window.removeEventListener('keydown', onWindowKeydownCapture, true)
+	})
 
 	let scrollEl: HTMLDivElement | undefined = $state()
 	// Programmatic-scroll guard. `scrollDown()` triggers an async `scroll`
@@ -312,7 +336,9 @@
 	)
 </script>
 
-<div class="flex flex-col h-full">
+<!-- tabindex="-1": clicks on non-focusable chat content must move focus into
+the panel, or the Escape-to-stop focus check would wrongly reject them. -->
+<div class="flex flex-col h-full outline-none" tabindex="-1" bind:this={panelEl}>
 	{#if !hideHeader}
 		<div
 			class="flex flex-row items-center justify-between gap-2 p-2 border-b border-gray-200 dark:border-gray-600"
@@ -422,20 +448,27 @@
 					{#if showTypingIndicator}
 						<div
 							class={twMerge(
-								'sticky z-10 mt-0.5 ml-2 self-start pointer-events-none',
+								'sticky z-10 -mt-10 ml-2 self-start pointer-events-none',
 								showFlowPendingActionControls ? 'bottom-14' : 'bottom-2'
 							)}
 						>
 							{#if waitingForUserAction}
 								<span
-									class="inline-flex items-center gap-1.5 text-2xs text-accent"
+									class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface/80 backdrop-blur text-2xs text-accent"
 									aria-label="Waiting for your input"
 								>
 									<Hourglass class="w-3 h-3 hourglass-flip" />
 									Waiting for your input
 								</span>
 							{:else}
-								<ChatTypingIndicator loading={aiChatManager.loading} />
+								<ChatTypingIndicator
+									loading={aiChatManager.loading}
+									label={aiChatManager.currentReasoningActive &&
+									!aiChatManager.currentReply &&
+									!aiChatManager.currentReasoning
+										? 'Thinking'
+										: undefined}
+								/>
 							{/if}
 						</div>
 					{/if}
@@ -503,6 +536,8 @@
 			{#if inputPreface}
 				{@render inputPreface()}
 			{/if}
+			<ContextUsageIndicator />
+
 			<AIChatInput
 				bind:this={aiChatInput}
 				bind:selectedContext
@@ -642,6 +677,7 @@
 							<DatatableCreationPolicy />
 						{/if}
 						<ProviderModelSelector />
+						<AIChatSettingsMenu />
 
 						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
 							{#if appContext.inspectorElement}

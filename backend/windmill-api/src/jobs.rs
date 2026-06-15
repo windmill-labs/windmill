@@ -34,8 +34,8 @@ use windmill_common::db::UserDbWithAuthed;
 use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
-    format_completed_job_result, format_result, is_valid_entrypoint_name, DynamicInput,
-    ENTRYPOINT_OVERRIDE,
+    format_completed_job_result, format_result, is_safe_log_file_path, is_valid_entrypoint_name,
+    DynamicInput, ENTRYPOINT_OVERRIDE,
 };
 #[cfg(feature = "run_inline")]
 use windmill_common::jobs::{
@@ -1912,11 +1912,16 @@ async fn get_logs_from_disk(
     if log_offset > 0 {
         if let Some(file_index) = log_file_index.clone() {
             for file_p in &file_index {
-                if !tokio::fs::metadata(format!("{}/{file_p}", *WINDMILL_DIR))
-                    .await
-                    .is_ok()
-                {
+                if !is_safe_log_file_path(file_p) {
                     return None;
+                }
+                let local_file = format!("{}/{file_p}", *WINDMILL_DIR);
+                // Defense in depth: refuse to read through a symlink so a planted
+                // symlink under the log directory cannot exfiltrate arbitrary files.
+                match tokio::fs::symlink_metadata(&local_file).await {
+                    Ok(meta) if meta.file_type().is_symlink() => return None,
+                    Ok(_) => {}
+                    Err(_) => return None,
                 }
             }
 
@@ -6315,8 +6320,14 @@ async fn run_inline_preview_script(
     Path(w_id): Path<String>,
     Json(preview): Json<PreviewInline>,
 ) -> error::Result<Response> {
-    // Same arbitrary-code class as run_preview_script: a narrowly-scoped token
-    // must not be able to run request-supplied code through inline preview.
+    // Same arbitrary-code class as run_preview_script: operators are blocked from
+    // running request-supplied code, and a narrowly-scoped token must not escape
+    // its scope through inline preview.
+    if authed.is_operator {
+        return Err(error::Error::NotAuthorized(
+            "Operators cannot run preview jobs for security reasons".to_string(),
+        ));
+    }
     check_scopes(&authed, || format!("jobs:run"))?;
     if let Some(job_id) = job_id {
         register_potential_assets_on_inline_execution(job_id, &w_id, &preview);

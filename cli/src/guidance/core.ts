@@ -3,18 +3,28 @@
  *
  * `wmill` writes two files:
  *
- * - `AGENTS.cli.md` — managed CLI / workspace guidance, refreshed by
+ * - `AGENTS.wmill.md` — managed CLI / workspace guidance, refreshed by
  *   `wmill refresh prompts` (and the implicit refresh inside `wmill init`).
  * - `AGENTS.md` — user-owned project entry point. The default skeleton
- *   references `AGENTS.cli.md` via an `@`-include so the managed content is
+ *   references `AGENTS.wmill.md` via an `@`-include so the managed content is
  *   pulled in automatically.
+ *
+ * The managed file used to be named `AGENTS.cli.md`; `wmill init` /
+ * `wmill refresh prompts` migrate the old name to `AGENTS.wmill.md` (and
+ * rewrite the `@`-include) automatically. The legacy constants below exist
+ * solely for that migration.
  */
 
-export const AGENTS_CLI_INCLUDE_LINE = "@AGENTS.cli.md";
+export const AGENTS_WMILL_FILENAME = "AGENTS.wmill.md";
+export const AGENTS_WMILL_INCLUDE_LINE = "@AGENTS.wmill.md";
+
+/** Legacy managed filename / include line, migrated away from on init/refresh. */
+export const LEGACY_AGENTS_CLI_FILENAME = "AGENTS.cli.md";
+export const LEGACY_AGENTS_CLI_INCLUDE_LINE = "@AGENTS.cli.md";
 
 /**
  * Lightweight, user-owned AGENTS.md skeleton. Written only when no AGENTS.md
- * exists in the project. Everything below the `@AGENTS.cli.md` include is for
+ * exists in the project. Everything below the `@AGENTS.wmill.md` include is for
  * the user to edit; nothing in this file is refreshed by `wmill`.
  */
 export function generateAgentsMdSkeleton(): string {
@@ -28,7 +38,7 @@ The line below pulls in Windmill's managed CLI guidance (skills, deploy flow,
 debugging jobs, etc.). Refresh it with \`wmill refresh prompts\`. Remove the
 include line if you don't want the managed guidance in this project.
 
-${AGENTS_CLI_INCLUDE_LINE}
+${AGENTS_WMILL_INCLUDE_LINE}
 
 ## Project-specific instructions
 
@@ -41,8 +51,12 @@ ${AGENTS_CLI_INCLUDE_LINE}
 }
 
 /**
- * Managed AGENTS.cli.md content. Rewritten by `wmill init` and
+ * Managed AGENTS.wmill.md content. Rewritten by `wmill init` and
  * `wmill refresh prompts` every time.
+ *
+ * NOTE: `system_prompts/generate.py` extracts this template by anchoring on
+ * the function name `generateAgentsCliMdContent` — keep the name in sync if
+ * you rename it.
  */
 export function generateAgentsCliMdContent(skillsReference: string): string {
   return `# Windmill CLI Agent Instructions
@@ -112,9 +126,10 @@ There are two ways local changes reach the workspace. Pick based on how the repo
 Before deploying, check whether this repo has a **GitHub Actions (or other CI) workflow that runs \`wmill sync push\` on push**. That workflow is the signal that pushing a branch will deploy:
 
 - Look for \`.github/workflows/*.yml\` (or other CI configs) that invoke \`wmill sync push\`, \`wmill\` deployment commands, or similar.
-- Cache the result for the rest of the session — don't re-scan on every deploy.
 
 If such a workflow exists → **use \`git push\`** (Option A). Otherwise → **use \`wmill sync push\`** directly (Option B).
+
+**Save the preference so you don't re-detect it every session.** Once you've determined which option this repo uses (or the user tells you), record it in the **project-specific instructions** section of \`AGENTS.md\` (user-owned — never overwritten by \`wmill refresh prompts\`), e.g. a line like \`Deploy mode: git push (CI runs wmill sync push)\` or \`Deploy mode: wmill sync push (no CI wiring)\`. On later sessions, read that line first and skip the scan. Re-detect only if the CI wiring visibly changed.
 
 ### Option A — \`git push\` (CI is wired to sync)
 
@@ -137,6 +152,19 @@ No CI workflow runs \`wmill sync push\` automatically, so deploy directly from t
 
 Only deploy when the user explicitly asks to deploy, publish, push, or ship — not when they say "run", "try", or "test". For testing local edits use the per-entity \`preview\` commands (\`wmill script preview\`, \`wmill flow preview\`) — they don't deploy.
 
+## Workspace forks
+
+A **fork** is an isolated copy of a workspace for parallel or experimental work — make changes (including to datatables, which are cloned per fork) without touching the parent, then merge back after review. Each fork is paired with a git branch named \`wm-fork/<base>/<id>\`. Forks require a git repo.
+
+Just run \`wmill workspace fork\` — it adapts to where you are:
+
+- **On a base branch** (e.g. \`main\`, or a branch bound to a workspace): it bases the fork on that branch and prints a \`git checkout -b wm-fork/<base>/<id>\` to start a fresh fork branch.
+- **On a working branch** (e.g. you've branched and already edited a forked datatable): it offers to base the fork on that branch and rename it onto \`wm-fork/<base>/<id>\` in place, preserving its commits — asking which base branch is the parent if there's more than one.
+
+For non-interactive runs from a working branch, pass \`--from-branch <base>\` to skip the prompts. The CLI refuses to rename a base branch.
+
+Merge a fork back into its parent with \`wmill workspace merge\` (or the Merge UI on the fork's home page). Full reference: https://www.windmill.dev/docs/advanced/workspace_forks
+
 ## Debugging Jobs
 
 When the user reports a script or flow failure, is investigating unexpected output, or asks why something ran the way it did, use the CLI to fetch job details before speculating. See the \`cli-commands\` skill for all flags.
@@ -157,5 +185,13 @@ For flow failures, start with \`wmill job get <id>\` to identify the failing ste
 For specific guidance, ALWAYS use the skills listed below. Paths point at \`.agents/skills/\` — Claude Code reads identical copies under \`.claude/skills/\`.
 
 ${skillsReference}
+
+## Windmill Documentation
+
+For Windmill concepts not covered by the skills (triggers, schedules, workers, flows, error handling, etc.), read the official docs:
+
+- Fetch https://www.windmill.dev/llms.txt — a curated index of every docs page with one-line descriptions — to find the right page for any concept.
+- Every docs page is available as raw markdown by appending \`.md\` to its URL, e.g. https://www.windmill.dev/docs/core_concepts/scheduling.md — prefer these over the HTML pages.
+- https://www.windmill.dev/llms-full.txt is the entire documentation as a single ~2.3 MB file — only for bulk indexing/RAG, do NOT load it directly into context.
 `;
 }

@@ -1,8 +1,10 @@
 import { openDB, deleteDB, type DBSchema as IDBSchema, type IDBPDatabase } from 'idb'
 import type { DisplayMessage } from './shared'
+import { expanded, messageDraft } from './chatDraft'
 import { createLongHash } from '$lib/editorLangUtils'
 import { scopedKey } from '$lib/userScopedStorage'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
+import type { PersistedContextUsage } from './tokenUsage'
 
 // Base IndexedDB name; the effective DB is namespaced by the logged-in user's
 // email (scopedKey) so chat messages are never physically shared across users
@@ -20,6 +22,9 @@ interface ChatSchema extends IDBSchema {
 			title: string
 			lastModified: number
 			sessionId?: string
+			// New writes store the plain reported token count; chats persisted by
+			// earlier versions may still hold the legacy anchor object.
+			contextUsage?: PersistedContextUsage
 		}
 	}
 }
@@ -72,6 +77,7 @@ export default class HistoryManager {
 			id: string
 			lastModified: number
 			sessionId?: string
+			contextUsage?: PersistedContextUsage
 		}
 	> = $state({})
 
@@ -157,8 +163,15 @@ export default class HistoryManager {
 		return Object.values(this.savedChats)
 	}
 
-	async saveChat(displayMessages: DisplayMessage[], messages: ChatCompletionMessageParam[]) {
+	async saveChat(
+		displayMessages: DisplayMessage[],
+		messages: ChatCompletionMessageParam[],
+		contextUsage?: number
+	) {
 		if (displayMessages.length > 0) {
+			// Expand any collapsed-paste tokens so the title is readable text, not
+			// the chip label + its zero-width id chars.
+			const title = expanded(messageDraft(displayMessages[0])).slice(0, 50)
 			// we don't want to save the snapshot in the history
 			const updatedChat = {
 				actualMessages: $state.snapshot(messages),
@@ -166,10 +179,11 @@ export default class HistoryManager {
 					...m,
 					snapshot: undefined
 				})),
-				title: displayMessages[0].content.slice(0, 50),
+				title,
 				id: this.currentChatId,
 				lastModified: Date.now(),
-				...(this.sessionId ? { sessionId: this.sessionId } : {})
+				...(this.sessionId ? { sessionId: this.sessionId } : {}),
+				...(contextUsage !== undefined ? { contextUsage } : {})
 			}
 			this.savedChats = {
 				...this.savedChats,
@@ -182,8 +196,12 @@ export default class HistoryManager {
 		}
 	}
 
-	async save(displayMessages: DisplayMessage[], messages: ChatCompletionMessageParam[]) {
-		await this.saveChat(displayMessages, messages)
+	async save(
+		displayMessages: DisplayMessage[],
+		messages: ChatCompletionMessageParam[],
+		contextUsage?: number
+	) {
+		await this.saveChat(displayMessages, messages, contextUsage)
 		this.currentChatId = createLongHash()
 	}
 
