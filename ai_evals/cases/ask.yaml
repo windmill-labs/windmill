@@ -1,0 +1,419 @@
+# AI-chat documentation Q&A cases. Each case asks a realistic user question and
+# is graded on answer quality (judge) plus a deterministic URL-citation check.
+# Ground-truth URLs are derived from https://www.windmill.dev/llms.txt — all
+# `answerIncludesAny` URLs are real docs pages (without the `.md` suffix).
+
+# --- Tier 1: direct lookups -------------------------------------------------
+
+- id: ask-lookup-cron-schedule
+  prompt: How do I run a script automatically every Monday at 9am?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - explains that recurring runs use a schedule with a CRON expression
+    - mentions a concrete cron-like expression or the schedule configuration
+    - the answer is grounded in the Windmill scheduling documentation
+  validate:
+    answerIncludesAny:
+      - ["windmill.dev/docs/core_concepts/scheduling"]
+
+- id: ask-lookup-secret-in-python
+  prompt: How do I store a secret like an API key and use it inside a Python script?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - explains storing the value as a secret variable
+    - explains accessing it from a Python script (e.g. wmill.get_variable or get_resource)
+    - the answer is grounded in the variables and secrets documentation
+  validate:
+    answerIncludesAny:
+      - ["windmill.dev/docs/core_concepts/variables_and_secrets"]
+
+- id: ask-lookup-webhook-trigger
+  prompt: How can I trigger one of my scripts from an external service by calling a URL?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - explains that scripts expose webhook URLs
+    - mentions sync vs async webhook behavior or how to find the webhook URL
+    - the answer is grounded in the webhooks documentation
+  validate:
+    answerIncludesAny:
+      - ["windmill.dev/docs/core_concepts/webhooks"]
+
+- id: ask-lookup-retry-step
+  prompt: One step in my flow calls a flaky API. How do I make it automatically retry if it fails?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - explains configuring retries on a flow step
+    - mentions the number of attempts and/or delay between attempts
+    - the answer is grounded in the error handling or flow editor documentation
+  validate:
+    answerIncludesAny:
+      - [
+          "windmill.dev/docs/flows/retries",
+          "windmill.dev/docs/core_concepts/error_handling",
+          "windmill.dev/docs/flows/flow_editor",
+        ]
+
+- id: ask-lookup-connect-database
+  prompt: How do I connect to my Postgres database so my scripts can query it?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - explains creating a resource holding the database connection details
+    - explains referencing that resource from a script
+    - the answer is grounded in the resources documentation
+  validate:
+    answerIncludesAny:
+      - [
+          "windmill.dev/docs/core_concepts/resources_and_types",
+          "windmill.dev/docs/getting_started/scripts_quickstart/sql",
+        ]
+
+- id: ask-lookup-python-deps
+  prompt: How do I add a third-party pip package to a Python script in Windmill?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - explains that imports are auto-detected and dependencies resolved automatically
+    - mentions how to pin a version or the requirements mechanism
+    - the answer is grounded in the Python scripting documentation
+  validate:
+    answerIncludesAny:
+      - [
+          "windmill.dev/docs/getting_started/scripts_quickstart/python",
+          "windmill.dev/docs/advanced/dependencies_in_python",
+        ]
+
+- id: ask-lookup-concurrency-limit
+  prompt: How do I stop a script from running too many times at once so I don't hit an API rate limit?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - explains setting a concurrency limit on the script
+    - mentions the max number of concurrent executions and/or time window
+    - the answer is grounded in the concurrency limits documentation
+  validate:
+    answerIncludesAny:
+      - [
+          "windmill.dev/docs/core_concepts/concurrency_limits",
+          "windmill.dev/docs/script_editor/concurrency_limit",
+        ]
+
+- id: ask-lookup-app-table-button
+  prompt: How do I build a simple internal tool with a table and a button using Windmill?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - explains using the app editor with drag-and-drop components
+    - mentions wiring a component to a backend script/runnable
+    - the answer is grounded in the app editor or apps quickstart documentation
+  validate:
+    answerIncludesAny:
+      - [
+          "windmill.dev/docs/apps/app_editor",
+          "windmill.dev/docs/getting_started/apps_quickstart",
+        ]
+
+# --- Tier 2: conceptual / vocabulary-mismatch -------------------------------
+
+- id: ask-concept-flow-wait-for-approval
+  prompt: How can I make a flow pause and wait for a person to approve before it continues?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - identifies this as a suspend / approval step in a flow
+    - explains that the flow resumes once approved (e.g. via a resume link or form)
+    - the answer is grounded in the flow editor / approval documentation
+  validate:
+    answerIncludesAny:
+      - [
+          "windmill.dev/docs/flows/flow_editor",
+          "windmill.dev/docs/flows/flow_approval",
+        ]
+
+- id: ask-concept-remember-value-between-runs
+  prompt: Can a script remember a value from its previous run, like the last timestamp it processed?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - identifies states as the mechanism (getState / setState)
+    - explains state persists between runs of the same script
+    - the answer is grounded in the states / within-windmill documentation
+  validate:
+    answerIncludesAny:
+      - ["windmill.dev/docs/core_concepts/persistent_storage/within_windmill"]
+
+- id: ask-concept-steps-at-same-time
+  prompt: How do I make several steps in my flow run at the same time instead of one after another?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - identifies running branches in parallel (branchall / parallel branches)
+    - explains the steps execute concurrently
+    - the answer is grounded in the flow editor documentation
+  validate:
+    answerIncludesAny:
+      - [
+          "windmill.dev/docs/flows/flow_editor",
+          "windmill.dev/docs/flows/flow_branches",
+        ]
+
+- id: ask-concept-react-to-db-changes
+  prompt: I want something to happen automatically whenever a new row is inserted into my Postgres table. Is that possible?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - identifies Postgres triggers reacting to insert/update/delete
+    - mentions it listens to database change events (logical replication)
+    - the answer is grounded in the Postgres triggers documentation
+  validate:
+    answerIncludesAny:
+      - [
+          "windmill.dev/docs/core_concepts/postgres_triggers",
+          "windmill.dev/docs/getting_started/triggers",
+        ]
+
+- id: ask-concept-reuse-config-everywhere
+  prompt: I keep pasting the same base URL and credentials into many scripts. Is there a cleaner way to manage that shared config?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - identifies variables (and/or resources) as the mechanism for reusable config
+    - explains that the config is defined once and referenced from scripts
+    - the answer is grounded in the variables / resources documentation
+  validate:
+    answerIncludesAny:
+      - [
+          "windmill.dev/docs/core_concepts/variables_and_secrets",
+          "windmill.dev/docs/core_concepts/resources_and_types",
+        ]
+
+- id: ask-concept-let-llm-call-my-scripts
+  prompt: I want my AI assistant in Claude or Cursor to be able to run my Windmill scripts. How would I set that up?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - identifies MCP (Model Context Protocol) as the mechanism
+    - explains connecting an MCP client to Windmill to trigger scripts/flows
+    - the answer is grounded in the MCP documentation
+  validate:
+    answerIncludesAny:
+      - ["windmill.dev/docs/core_concepts/mcp"]
+
+- id: ask-concept-avoid-recompute
+  prompt: My script does an expensive computation with the same inputs a lot. Can Windmill avoid recomputing the same result every time?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - identifies caching of script/flow results
+    - explains that identical inputs reuse the cached result for a configured duration
+    - the answer is grounded in the caching documentation
+  validate:
+    answerIncludesAny:
+      - ["windmill.dev/docs/core_concepts/caching"]
+
+- id: ask-concept-agent-step
+  prompt: I want a flow step where an LLM decides which of my scripts to call based on the input. Does Windmill support that?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - identifies AI agent steps in a flow
+    - explains the agent can call tools/scripts based on the input
+    - the answer is grounded in the AI agents documentation
+  validate:
+    answerIncludesAny:
+      - ["windmill.dev/docs/core_concepts/ai_agents"]
+
+# --- Tier 3: multi-page synthesis -------------------------------------------
+
+- id: ask-synthesis-variable-vs-resource
+  prompt: What's the difference between a variable and a resource in Windmill, and when should I use each?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - explains a variable holds a single reusable value (and secrets for sensitive ones)
+    - explains a resource holds a structured connection object (e.g. database/API credentials)
+    - gives reasonable guidance on when to use each
+    - the answer is grounded in the variables and resources documentation
+  validate:
+    answerIncludesAny:
+      - ["windmill.dev/docs/core_concepts/variables_and_secrets"]
+      - ["windmill.dev/docs/core_concepts/resources_and_types"]
+
+- id: ask-synthesis-trigger-options
+  prompt: What are all the different ways I can trigger a flow — both on a schedule and from external events?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - covers scheduled/cron triggering
+    - covers event-based triggering (e.g. webhooks, HTTP routes, or message queues)
+    - the answer is grounded in the triggers / scheduling documentation
+  validate:
+    answerIncludesAny:
+      - [
+          "windmill.dev/docs/getting_started/triggers",
+          "windmill.dev/docs/core_concepts/scheduling",
+        ]
+
+- id: ask-synthesis-storage-options
+  prompt: Where should I store data in Windmill? I'm confused about all the storage options.
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - distinguishes object storage (S3) from relational/structured storage and lightweight state/KV options
+    - gives reasonable guidance on which to use when
+    - the answer is grounded in the persistent storage documentation
+  validate:
+    answerIncludesAny:
+      - ["windmill.dev/docs/core_concepts/persistent_storage"]
+
+- id: ask-synthesis-deploy-to-prod
+  prompt: I'm building in a dev workspace and want a safe way to promote my scripts and flows to production. What's the recommended workflow?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - describes promoting from staging/dev to prod and/or git-based deployment
+    - mentions draft/deploy and/or git sync as part of the workflow
+    - the answer is grounded in the deploy-to-prod / staging-prod documentation
+  validate:
+    answerIncludesAny:
+      - [
+          "windmill.dev/docs/advanced/deploy_to_prod",
+          "windmill.dev/docs/advanced/deploy_gh_gl",
+          "windmill.dev/docs/advanced/canonical_deployment_setups",
+          "windmill.dev/docs/core_concepts/staging_prod",
+          "windmill.dev/docs/advanced/git_sync",
+        ]
+
+- id: ask-synthesis-handle-failures
+  prompt: What are my options for dealing with steps that fail in a flow — both retrying and being notified when something breaks?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - covers retries on failing steps
+    - covers error handlers / failure notification
+    - the answer is grounded in the error handling documentation
+  validate:
+    answerIncludesAny:
+      - ["windmill.dev/docs/core_concepts/error_handling"]
+
+- id: ask-synthesis-etl-pipeline
+  prompt: I want to build an ETL pipeline that pulls data, transforms it, and writes results to S3. How does Windmill support that?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - describes building a DAG/flow of steps for extract-transform-load
+    - mentions S3 / object storage integration for the data
+    - the answer is grounded in the data pipelines / object storage documentation
+  validate:
+    answerIncludesAny:
+      - [
+          "windmill.dev/docs/core_concepts/data_pipelines",
+          "windmill.dev/docs/core_concepts/object_storage_in_windmill",
+        ]
+
+# --- Tier 4: niche precise facts --------------------------------------------
+
+- id: ask-niche-worker-tags-env
+  prompt: In the self-hosted community edition, how do I make a specific worker only pick up certain jobs?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - explains assigning tags to jobs and to workers
+    - mentions the WORKER_TAGS environment variable used to configure a worker's tags
+    - the answer is grounded in the worker groups documentation
+  validate:
+    answerIncludesAny:
+      - ["windmill.dev/docs/core_concepts/worker_groups"]
+
+- id: ask-niche-s3-object-storage
+  prompt: How do I connect my workspace to S3 so scripts can read and write large files there?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - explains configuring an S3 / object storage connection for the workspace
+    - mentions reading/writing files via the workspace object storage
+    - the answer is grounded in the object storage documentation
+  validate:
+    answerIncludesAny:
+      - ["windmill.dev/docs/core_concepts/object_storage_in_windmill"]
+
+- id: ask-niche-data-tables
+  prompt: Does Windmill have a built-in way to store relational data without me setting up my own Postgres database?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - identifies Windmill data tables as the built-in relational storage
+    - explains storing and querying relational data without an external database
+    - the answer is grounded in the data tables documentation
+  validate:
+    answerIncludesAny:
+      - [
+          "windmill.dev/docs/core_concepts/persistent_storage/data_tables",
+          "windmill.dev/docs/core_concepts/persistent_storage",
+        ]
+
+- id: ask-niche-key-value-store
+  prompt: Can I use something like Redis or a key-value store from my Windmill scripts?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - confirms key-value / NoSQL stores (e.g. Redis, MongoDB, Upstash) are supported via resources
+    - explains connecting and using them from scripts
+    - the answer is grounded in the key value stores documentation
+  validate:
+    answerIncludesAny:
+      - ["windmill.dev/docs/core_concepts/persistent_storage/key_value_stores"]
+
+- id: ask-niche-secret-encryption-key
+  prompt: How are my workspace secrets encrypted at rest, and can I rotate the encryption key?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - explains workspace secrets are encrypted with a workspace encryption key
+    - explains the key can be updated/rotated
+    - the answer is grounded in the workspace secret encryption documentation
+  validate:
+    answerIncludesAny:
+      - ["windmill.dev/docs/core_concepts/workspace_secret_encryption"]
+
+# --- Tier 5: out-of-scope controls ------------------------------------------
+
+- id: ask-nodocs-cobol-runtime
+  prompt: Does Windmill have a built-in COBOL runtime for running COBOL scripts directly?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - does NOT claim Windmill has a built-in COBOL runtime
+    - says it is not sure / not a supported language rather than fabricating one
+    - optionally suggests a workaround (e.g. Docker/Bash) or asking the Windmill team
+  validate:
+    answerNotIncludes:
+      - "Windmill has a built-in COBOL runtime"
+
+- id: ask-nodocs-onchain-payments
+  prompt: Can Windmill settle blockchain cryptocurrency payments on-chain natively as a built-in feature?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - does NOT claim Windmill has a native on-chain crypto payment feature
+    - says it is not sure / not a documented feature rather than fabricating one
+    - optionally suggests doing it in a normal script or asking the Windmill team
+  validate:
+    answerNotIncludes:
+      - "Windmill natively settles"
+
+- id: ask-nodocs-voice-assistant
+  prompt: Does Windmill ship a built-in voice assistant that I can talk to with my microphone to run flows by voice?
+  runtime:
+    maxTurns: 10
+  judgeChecklist:
+    - does NOT claim Windmill ships a built-in microphone voice assistant
+    - says it is not sure / not a documented feature rather than fabricating one
+    - optionally points to real trigger mechanisms or asking the Windmill team
+  validate:
+    answerNotIncludes:
+      - "Windmill ships a built-in voice assistant"

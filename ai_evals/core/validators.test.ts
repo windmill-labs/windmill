@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   validateAppState,
+  validateAskAnswer,
   validateCliWorkspace,
   validateGlobalState,
   validateScriptState,
@@ -939,5 +940,78 @@ describe("validateCliWorkspace", () => {
       passed: false,
       details: "firstSkillIndex=0; firstMutationIndex=none",
     });
+  });
+});
+
+describe("validateAskAnswer", () => {
+  it("flags an empty answer", () => {
+    const checks = validateAskAnswer({
+      actual: { answer: "   ", docsTool: "llmstxt", toolsUsed: [], toolCallCount: 0 },
+    });
+    expect(checks).toContainEqual({
+      name: "answer is non-empty",
+      passed: false,
+    });
+  });
+
+  it("passes a citation group when any alternative URL appears (case-insensitive)", () => {
+    const checks = validateAskAnswer({
+      actual: {
+        answer:
+          "You can schedule scripts with cron. See HTTPS://WWW.WINDMILL.DEV/DOCS/CORE_CONCEPTS/SCHEDULING for details.",
+        docsTool: "llmstxt",
+        toolsUsed: ["list_docs_pages", "read_docs_page"],
+        toolCallCount: 2,
+      },
+      validate: {
+        answerIncludesAny: [
+          [
+            "windmill.dev/docs/core_concepts/scheduling",
+            "windmill.dev/docs/getting_started/triggers",
+          ],
+        ],
+      },
+    });
+
+    const citationCheck = checks.find((entry) =>
+      entry.name.startsWith("answer cites one of:")
+    );
+    expect(citationCheck?.passed).toBe(true);
+  });
+
+  it("fails a citation group when none of the alternatives appear", () => {
+    const checks = validateAskAnswer({
+      actual: {
+        answer: "Use schedules to run scripts on a cron.",
+        docsTool: "inkeep",
+        toolsUsed: ["get_documentation"],
+        toolCallCount: 1,
+      },
+      validate: {
+        answerIncludesAny: [["windmill.dev/docs/core_concepts/scheduling"]],
+      },
+    });
+
+    const citationCheck = checks.find((entry) =>
+      entry.name.startsWith("answer cites one of:")
+    );
+    expect(citationCheck?.passed).toBe(false);
+  });
+
+  it("enforces answerNotIncludes", () => {
+    const checks = validateAskAnswer({
+      actual: {
+        answer: "Windmill has a built-in COBOL runtime.",
+        docsTool: "llmstxt",
+        toolsUsed: [],
+        toolCallCount: 0,
+      },
+      validate: { answerNotIncludes: ["built-in cobol runtime"] },
+    });
+
+    const notIncludesCheck = checks.find((entry) =>
+      entry.name.startsWith("answer does not include")
+    );
+    expect(notIncludesCheck?.passed).toBe(false);
   });
 });

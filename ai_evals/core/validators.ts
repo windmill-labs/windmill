@@ -2,6 +2,7 @@ import path from "node:path";
 import ts from "typescript";
 import type {
   AppValidationSpec,
+  AskValidationSpec,
   BenchmarkCheck,
   CliTrace,
   CliValidationSpec,
@@ -10,6 +11,13 @@ import type {
   ModeRunOutput,
   ToolValidationSpec,
 } from "./types";
+
+export interface AskAnswerState {
+  answer: string;
+  docsTool: string;
+  toolsUsed: string[];
+  toolCallCount: number;
+}
 
 export interface ScriptState {
   path: string;
@@ -395,6 +403,51 @@ export function validateGlobalState(input: {
         `global does not include ${forbidden.type} draft ${forbidden.path}`,
         !findGlobalDraft(drafts, forbidden),
         summarizeGlobalDrafts(drafts)
+      )
+    );
+  }
+
+  return checks;
+}
+
+export function validateAskAnswer(input: {
+  actual: AskAnswerState;
+  validate?: AskValidationSpec;
+}): BenchmarkCheck[] {
+  const checks: BenchmarkCheck[] = [];
+  const answer = input.actual.answer ?? "";
+  const normalizedAnswer = answer.toLowerCase();
+
+  checks.push(check("answer is non-empty", answer.trim().length > 0));
+
+  const validate = input.validate;
+  if (!validate) {
+    return checks;
+  }
+
+  for (const group of validate.answerIncludesAny ?? []) {
+    if (group.length === 0) {
+      continue;
+    }
+    const matched = group.some((needle) =>
+      normalizedAnswer.includes(needle.toLowerCase())
+    );
+    checks.push(
+      check(
+        `answer cites one of: ${group.join(" | ")}`,
+        matched,
+        matched ? undefined : `answer: ${truncateForDetails(answer)}`
+      )
+    );
+  }
+
+  for (const needle of validate.answerNotIncludes ?? []) {
+    const present = normalizedAnswer.includes(needle.toLowerCase());
+    checks.push(
+      check(
+        `answer does not include '${needle}'`,
+        !present,
+        present ? `answer: ${truncateForDetails(answer)}` : undefined
       )
     );
   }

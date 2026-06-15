@@ -48,4 +48,11 @@ describe("resolveEvalModel", () => {
       "Model gemini-3-flash-preview is not supported for cli mode",
     );
   });
+
+  it("resolves frontend models for ask mode", () => {
+    expect(resolveEvalModel("ask", "sonnet").frontend).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet-4-5-20250929",
+    });
+  });
 });

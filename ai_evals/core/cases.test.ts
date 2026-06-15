@@ -246,6 +246,35 @@ describe("loadCases", () => {
     });
   });
 
+  it("loads ask docs Q&A cases with citation validation", async () => {
+    const askCases = await loadCases("ask");
+    expect(askCases.length).toBeGreaterThanOrEqual(25);
+
+    const lookupCase = askCases.find((entry) => entry.id === "ask-lookup-cron-schedule");
+    expect(lookupCase?.runtime).toEqual({ maxTurns: 10 });
+    expect(lookupCase?.validate).toEqual({
+      answerIncludesAny: [["windmill.dev/docs/core_concepts/scheduling"]],
+    });
+    expect(lookupCase?.judgeChecklist?.length).toBeGreaterThan(0);
+
+    const noDocsCase = askCases.find((entry) => entry.id === "ask-nodocs-cobol-runtime");
+    expect(noDocsCase?.validate).toEqual({
+      answerNotIncludes: ["Windmill has a built-in COBOL runtime"],
+    });
+
+    // Every case must cap turns and either cite docs or assert a forbidden claim.
+    for (const entry of askCases) {
+      expect(entry.runtime?.maxTurns).toBe(10);
+      const validate = entry.validate as
+        | { answerIncludesAny?: string[][]; answerNotIncludes?: string[] }
+        | undefined;
+      expect(
+        (validate?.answerIncludesAny?.length ?? 0) > 0 ||
+          (validate?.answerNotIncludes?.length ?? 0) > 0,
+      ).toBe(true);
+    }
+  });
+
   it("loads tool expectations for workspace mutation cases", async () => {
     const scriptCases = await loadCases("script");
     const caseEntry = scriptCases.find(

@@ -1,4 +1,4 @@
-export const EVAL_MODES = ["cli", "flow", "script", "app", "global"] as const;
+export const EVAL_MODES = ["cli", "flow", "script", "app", "global", "ask"] as const;
 
 export type EvalMode = (typeof EVAL_MODES)[number];
 
@@ -131,6 +131,18 @@ export interface GlobalValidationSpec {
   }>;
 }
 
+export interface AskValidationSpec {
+  /**
+   * URL-citation / required-mention check. A list of groups; each group passes
+   * if ANY of its alternative substrings appears in the answer
+   * (case-insensitive). Used where several documentation URLs are acceptable
+   * answers to the same question.
+   */
+  answerIncludesAny?: string[][];
+  /** Substrings that must NOT appear in the answer (case-insensitive). */
+  answerNotIncludes?: string[];
+}
+
 export interface CliValidationSpec {
   requiredSkills?: string[];
   forbiddenSkills?: string[];
@@ -172,7 +184,11 @@ export interface ToolValidationSpec {
   toolCallArgs?: ToolCallArgumentRule[];
 }
 
-export type EvalValidationSpec = FlowValidationSpec | AppValidationSpec | GlobalValidationSpec;
+export type EvalValidationSpec =
+  | FlowValidationSpec
+  | AppValidationSpec
+  | GlobalValidationSpec
+  | AskValidationSpec;
 
 export interface EvalCase {
   id: string;
@@ -294,6 +310,12 @@ export interface ModeRunner<TInitial, TExpected, TActual> {
     context: ModeRunContext;
   }): Promise<BackendValidationResult | null>;
   buildArtifacts?(actual: TActual): BenchmarkArtifactFile[];
+  /**
+   * Optional transform applied to `actual` before it is handed to the LLM judge.
+   * Use it to strip fields the judge must stay blind to (e.g. which docs-tool
+   * arm produced an answer). When omitted, the judge receives `actual` as-is.
+   */
+  prepareJudgeActual?(actual: TActual): unknown;
 }
 
 export interface BenchmarkAttemptResult {

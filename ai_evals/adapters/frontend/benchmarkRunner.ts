@@ -12,7 +12,7 @@ import { resolveWindmillBackendSettings } from "../../core/windmillBackendSettin
 import { emitFrontendBenchmarkProgress } from "./progress";
 import { DEFAULT_JUDGE_MODEL } from "../../core/judge";
 
-export type FrontendBenchmarkMode = "flow" | "app" | "script" | "global";
+export type FrontendBenchmarkMode = "flow" | "app" | "script" | "global" | "ask";
 
 export async function runFrontendBenchmarkFromEnv(): Promise<BenchmarkRunResult> {
   const mode = parseMode(process.env.WMILL_FRONTEND_AI_EVAL_MODE);
@@ -42,7 +42,11 @@ export async function runFrontendBenchmarkFromEnv(): Promise<BenchmarkRunResult>
     backendValidation,
     backendSettings,
   );
-  const runModel = formatRunModelLabel(mode, model);
+  const docsTool =
+    mode === "ask" ? process.env.WMILL_AI_EVAL_DOCS_TOOL?.trim() || "llmstxt" : undefined;
+  const runModel = docsTool
+    ? `${formatRunModelLabel(mode, model)} ask:${docsTool}`
+    : formatRunModelLabel(mode, model);
   const caseResults = await runSuite({
     modeRunner,
     cases: selectedCases,
@@ -92,11 +96,21 @@ async function getModeRunner(
       const { createGlobalModeRunner } = await import("../../modes/global");
       return createGlobalModeRunner(model, backendSettings);
     }
+    case "ask": {
+      const { createAskModeRunner } = await import("../../modes/ask");
+      return createAskModeRunner(model, backendSettings);
+    }
   }
 }
 
 function parseMode(value: string | undefined): FrontendBenchmarkMode {
-  if (value === "flow" || value === "app" || value === "script" || value === "global") {
+  if (
+    value === "flow" ||
+    value === "app" ||
+    value === "script" ||
+    value === "global" ||
+    value === "ask"
+  ) {
     return value;
   }
   throw new Error(`Unsupported frontend benchmark mode: ${String(value)}`);
