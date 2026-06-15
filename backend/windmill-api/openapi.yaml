@@ -7915,13 +7915,19 @@ paths:
                     summary:
                       type: string
                       description: Best-effort, read from the draft JSON's `summary` field when the editor shape carries one.
+                    draft_path:
+                      type: string
+                      description: User-typed friendly path from the draft JSON's `draft_path`, when set and different from the storage path (e.g. a never-deployed item parked at `u/{user}/draft_{uuid}`).
                     draft_only:
                       type: boolean
                       description: No deployed counterpart exists at this path — the draft is the whole item.
+                    legacy_draft:
+                      type: boolean
+                      description: The listed draft is a legacy workspace-level row (email NULL) predating the per-user drafts migration. Only true when no per-user draft exists at this path.
                     created_at:
                       type: string
                       format: date-time
-                  required: [kind, path, draft_only, created_at]
+                  required: [kind, path, draft_only, legacy_draft, created_at]
 
   /w/{workspace}/drafts/get/{kind}/{path}:
     get:
@@ -7990,6 +7996,9 @@ paths:
                 force:
                   type: boolean
                   description: Skip the conflict check and overwrite the server copy.
+                legacy:
+                  type: boolean
+                  description: Delete-only. Target the legacy workspace-level row (email NULL) instead of the current user's row. Used to discard a legacy draft from the review page.
       responses:
         "200":
           description: save result

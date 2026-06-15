@@ -96,34 +96,39 @@ export interface SessionRuntime {
 	// Raw App (HTML-based) target state
 	readonly rawApp: {
 		val:
-		| {
-			files: Record<string, string>
-			runnables: Record<string, any>
-			data: RawAppData
-			policy: any
-			summary: string
-			path: string
-			custom_path?: string
-		}
-		| undefined
+			| {
+					files: Record<string, string>
+					runnables: Record<string, any>
+					data: RawAppData
+					policy: any
+					summary: string
+					path: string
+					custom_path?: string
+			  }
+			| undefined
 	}
 	readonly savedRawApp: {
 		val:
-		| {
-			value: {
-				files: Record<string, { code: string }>
-				runnables: Record<string, HiddenRunnable>
-			}
-			draft?: any
-			path: string
-			summary: string
-			policy: any
-			draft_only?: boolean
-			custom_path?: string
-		}
-		| undefined
+			| {
+					value: {
+						files: Record<string, { code: string }>
+						runnables: Record<string, HiddenRunnable>
+					}
+					draft?: any
+					path: string
+					summary: string
+					policy: any
+					draft_only?: boolean
+					custom_path?: string
+			  }
+			| undefined
 	}
-	loadRawApp(workspace: string, path: string, force?: boolean): Promise<void>
+	loadRawApp(
+		workspace: string,
+		path: string,
+		force?: boolean,
+		deployedOnly?: boolean
+	): Promise<void>
 	setRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined): void
 	requestRuntimeLogs(limit: number): Promise<RawAppRuntimeLogEntry[] | undefined>
 	setAppRunsProvider(provider: RawAppRunsProvider | undefined): void
@@ -381,6 +386,16 @@ function createRuntime(session: Session): SessionRuntime {
 				const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
 				savedFlow.val = result as SavedFlow
 				const flow: Flow = ((result as SavedFlow).draft ?? (result as Flow)) as Flow
+				// Seed the per-tab last_sync from the server draft's timestamp so the
+				// seeding save below attaches a matching last_sync and the server can
+				// reject stale writes (see loadRawApp). Without this a server draft —
+				// saved from the standalone editor or another device — is clobbered
+				// with a fresh created_at, so the standalone editor's next autosave
+				// (carrying its own last_sync) is rejected as a conflict.
+				UserDraftDbSyncer.recordRemoteSync(
+					{ workspace, itemKind: 'flow', path },
+					(result as SavedFlow).draft_saved_at
+				)
 				UserDraft.save('flow', path, flow, { workspace })
 				await initFlow(flow, flowStore, flowStateStore)
 				if (deployedVersionId != null && flowStore.val) flowStore.val.version_id = deployedVersionId
@@ -427,18 +442,18 @@ function createRuntime(session: Session): SessionRuntime {
 					// `savedScript.val` in place and lose the pristine diff baseline.
 					const baseline: NewScript = savedScript.val
 						? (structuredClone(
-							$state.snapshot(
-								(savedScript.val.draft as NewScript | undefined) ?? (savedScript.val as NewScript)
-							)
-						) as NewScript)
+								$state.snapshot(
+									(savedScript.val.draft as NewScript | undefined) ?? (savedScript.val as NewScript)
+								)
+							) as NewScript)
 						: {
-							path,
-							summary: aiDraft.summary ?? '',
-							content: '',
-							description: '',
-							schema: emptySchema(),
-							language: (aiDraft.language ?? 'bun') as any
-						}
+								path,
+								summary: aiDraft.summary ?? '',
+								content: '',
+								description: '',
+								schema: emptySchema(),
+								language: (aiDraft.language ?? 'bun') as any
+							}
 					if (savedScript.val?.hash) {
 						baseline.parent_hash = savedScript.val.hash
 					}
@@ -459,6 +474,16 @@ function createRuntime(session: Session): SessionRuntime {
 					((result as SavedScript).draft as NewScript | undefined) ?? (result as NewScript)
 				)
 				baseline.parent_hash = result.hash
+				// Seed the per-tab last_sync from the server draft's timestamp so the
+				// seeding save below attaches a matching last_sync and the server can
+				// reject stale writes (see loadRawApp). Without this a server draft —
+				// saved from the standalone editor or another device — is clobbered
+				// with a fresh created_at, so the standalone editor's next autosave
+				// (carrying its own last_sync) is rejected as a conflict.
+				UserDraftDbSyncer.recordRemoteSync(
+					{ workspace, itemKind: 'script', path },
+					(result as SavedScript).draft_saved_at
+				)
 				UserDraft.save<NewScript>('script', path, baseline, { workspace })
 				scriptStore.val = baseline
 				scriptSlot.loadedPath = path
@@ -473,7 +498,7 @@ function createRuntime(session: Session): SessionRuntime {
 		rawApp,
 		savedRawApp,
 
-		async loadRawApp(workspace: string, path: string, force = false) {
+		async loadRawApp(workspace: string, path: string, force = false, deployedOnly = false) {
 			if (rawAppSlot.loadedPath === path && !force) return
 			// See loadScript: forced reload remounts via the render gate.
 			if (force) rawAppSlot.loadedPath = undefined
@@ -485,7 +510,9 @@ function createRuntime(session: Session): SessionRuntime {
 				// editor's outbound $effect both write through it. If a draft
 				// exists we render from it, even when the path has never been
 				// deployed.
-				const aiDraft = UserDraft.get<RawAppDraft>('raw_app', path, { workspace })
+				const aiDraft = deployedOnly
+					? undefined
+					: UserDraft.get<RawAppDraft>('raw_app', path, { workspace })
 
 				if (aiDraft) {
 					// Best-effort fetch the backend baseline for the diff
@@ -530,7 +557,7 @@ function createRuntime(session: Session): SessionRuntime {
 				const result = await AppService.getAppByPath({
 					workspace,
 					path,
-					getDraft: true,
+					getDraft: !deployedOnly,
 					rawApp: true
 				})
 				// Deployed baseline for the diff drawer (top-level fields).
@@ -544,7 +571,7 @@ function createRuntime(session: Session): SessionRuntime {
 				// Prefer the server draft over the deployed value (mirrors the
 				// flow/script `result.draft ?? result`). A raw-app draft is already
 				// editor-shaped, same keys the extraction below reads.
-				const draftValue: any = (result as any).draft
+				const draftValue: any = deployedOnly ? undefined : (result as any).draft
 				const sourceValue: any = draftValue ?? result.value
 				let data: RawAppData = { ...DEFAULT_DATA }
 				if (sourceValue?.data) {
@@ -848,8 +875,7 @@ setListAppRunsHandler(({ sessionId: callerSessionId, limit }) => {
 	}
 	if (runs.length === 0) {
 		return {
-			aiResult:
-				'No backend runnable executions are tracked for this raw app preview yet.',
+			aiResult: 'No backend runnable executions are tracked for this raw app preview yet.',
 			uiMessage: 'No app runs',
 			toolResult: 'No app runs'
 		}
