@@ -1,23 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
-// userScopedStorage's subscription and the sessionState persistence paths are
-// gated on BROWSER; the vitest "server" env reports BROWSER=false.
+// The userStore subscription is gated on BROWSER; the vitest "server" env
+// reports BROWSER=false.
 vi.mock('esm-env', async (importOriginal) => ({
 	...(await importOriginal<typeof import('esm-env')>()),
 	BROWSER: true
 }))
-
-// sessionState pulls in WorkspaceService; we only exercise local persistence.
-vi.mock('$lib/gen', async (orig) => {
-	const actual = await orig<typeof import('$lib/gen')>()
-	return {
-		...actual,
-		WorkspaceService: {
-			...actual.WorkspaceService,
-			listUserWorkspaces: vi.fn().mockResolvedValue([])
-		}
-	}
-})
 
 import { userStore, type UserExt } from '$lib/stores'
 import {
@@ -26,25 +14,14 @@ import {
 	onUserChange,
 	migrateLegacyLocalStorage
 } from './userScopedStorage'
-import {
-	sessionState,
-	persistSessions,
-	type Session
-} from './components/sessions/sessionState.svelte'
 
 function asUser(email: string): UserExt {
 	return { email, username: email.split('@')[0] } as unknown as UserExt
 }
 
-function session(over: Partial<Session> = {}): Session {
-	return { id: 's1', name: 'sess', createdAt: 0, ...over }
-}
-
 beforeEach(() => {
 	localStorage.clear()
 	userStore.set(undefined)
-	sessionState.sessions = []
-	sessionState.currentSessionId = undefined
 })
 
 describe('scopedKey / getCurrentUserEmail', () => {
@@ -81,64 +58,24 @@ describe('onUserChange', () => {
 
 describe('migrateLegacyLocalStorage', () => {
 	it('claims a legacy key into the target and deletes the legacy copy', () => {
-		localStorage.setItem('windmill_sessions', '[{"id":"x"}]')
-		migrateLegacyLocalStorage('windmill_sessions', 'windmill_sessions::a@x.com')
-		expect(localStorage.getItem('windmill_sessions::a@x.com')).toBe('[{"id":"x"}]')
-		expect(localStorage.getItem('windmill_sessions')).toBeNull()
+		localStorage.setItem('ai-chat-autonomy-mode', 'yolo')
+		migrateLegacyLocalStorage('ai-chat-autonomy-mode', 'ai-chat-autonomy-mode::a@x.com')
+		expect(localStorage.getItem('ai-chat-autonomy-mode::a@x.com')).toBe('yolo')
+		expect(localStorage.getItem('ai-chat-autonomy-mode')).toBeNull()
 	})
 
 	it('does not overwrite an existing target', () => {
-		localStorage.setItem('windmill_sessions', 'legacy')
-		localStorage.setItem('windmill_sessions::a@x.com', 'mine')
-		migrateLegacyLocalStorage('windmill_sessions', 'windmill_sessions::a@x.com')
-		expect(localStorage.getItem('windmill_sessions::a@x.com')).toBe('mine')
+		localStorage.setItem('ai-chat-autonomy-mode', 'yolo')
+		localStorage.setItem('ai-chat-autonomy-mode::a@x.com', 'acceptedit')
+		migrateLegacyLocalStorage('ai-chat-autonomy-mode', 'ai-chat-autonomy-mode::a@x.com')
+		expect(localStorage.getItem('ai-chat-autonomy-mode::a@x.com')).toBe('acceptedit')
 		// Legacy left untouched since the target was already populated.
-		expect(localStorage.getItem('windmill_sessions')).toBe('legacy')
+		expect(localStorage.getItem('ai-chat-autonomy-mode')).toBe('yolo')
 	})
 
 	it('is a no-op when the target key is undefined (no user)', () => {
-		localStorage.setItem('windmill_sessions', 'legacy')
-		migrateLegacyLocalStorage('windmill_sessions', undefined)
-		expect(localStorage.getItem('windmill_sessions')).toBe('legacy')
-	})
-})
-
-describe('sessionState user scoping', () => {
-	it('persists under the email-namespaced key and isolates users', () => {
-		userStore.set(asUser('a@x.com'))
-		sessionState.sessions = [session({ id: 'a1', name: 'A session' })]
-		persistSessions()
-		expect(localStorage.getItem('windmill_sessions::a@x.com')).toContain('a1')
-
-		// Switching user hydrates B's (empty) list and resets the active session;
-		// A's data stays under A's key, invisible to B.
-		userStore.set(asUser('b@y.com'))
-		expect(sessionState.sessions).toEqual([])
-		expect(localStorage.getItem('windmill_sessions::b@y.com')).toBeNull()
-
-		sessionState.sessions = [session({ id: 'b1', name: 'B session' })]
-		persistSessions()
-		expect(localStorage.getItem('windmill_sessions::b@y.com')).toContain('b1')
-		expect(localStorage.getItem('windmill_sessions::a@x.com')).toContain('a1')
-
-		// Back to A: their list is restored intact.
-		userStore.set(asUser('a@x.com'))
-		expect(sessionState.sessions.map((s) => s.id)).toEqual(['a1'])
-	})
-
-	it('claims legacy un-namespaced sessions for the first user to log in', () => {
-		localStorage.setItem('windmill_sessions', JSON.stringify([session({ id: 'legacy1' })]))
-		userStore.set(asUser('a@x.com'))
-		expect(sessionState.sessions.map((s) => s.id)).toEqual(['legacy1'])
-		expect(localStorage.getItem('windmill_sessions::a@x.com')).toContain('legacy1')
-		// Legacy key is removed so a later different user does not re-claim it.
-		expect(localStorage.getItem('windmill_sessions')).toBeNull()
-	})
-
-	it('does not persist while no user is known', () => {
-		sessionState.sessions = [session({ id: 'orphan' })]
-		persistSessions()
-		expect(localStorage.getItem('windmill_sessions')).toBeNull()
-		expect(localStorage.length).toBe(0)
+		localStorage.setItem('ai-chat-autonomy-mode', 'yolo')
+		migrateLegacyLocalStorage('ai-chat-autonomy-mode', undefined)
+		expect(localStorage.getItem('ai-chat-autonomy-mode')).toBe('yolo')
 	})
 })

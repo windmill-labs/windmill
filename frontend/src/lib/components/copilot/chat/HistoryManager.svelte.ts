@@ -1,15 +1,15 @@
-import { openDB, deleteDB, type DBSchema as IDBSchema, type IDBPDatabase } from 'idb'
+import { type DBSchema as IDBSchema, type IDBPDatabase } from 'idb'
 import type { DisplayMessage } from './shared'
 import { expanded, messageDraft } from './chatDraft'
 import { createLongHash } from '$lib/editorLangUtils'
-import { scopedKey } from '$lib/userScopedStorage'
+import { userScopedDb, type UserScopedDbMigrateDeps } from '$lib/userScopedDb'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 import type { PersistedContextUsage } from './tokenUsage'
 
-// Base IndexedDB name; the effective DB is namespaced by the logged-in user's
-// email (scopedKey) so chat messages are never physically shared across users
-// on a shared browser. The bare name is also the legacy (pre-namespacing) DB,
-// claimed once on first login.
+// Base IndexedDB name; userScopedDb namespaces the effective DB by the logged-in
+// user's email so chat messages are never physically shared across users on a
+// shared browser. The bare name is also the legacy (pre-namespacing) DB, claimed
+// once on first login.
 const DB_NAME = 'copilot-chat-history'
 
 interface ChatSchema extends IDBSchema {
@@ -29,43 +29,44 @@ interface ChatSchema extends IDBSchema {
 	}
 }
 
-// Scoped DB names whose legacy-migration has already been attempted this
-// session — avoids re-opening the legacy DB on every init() call.
-const legacyMigrationAttempted = new Set<string>()
-
-// One-shot claim of the pre-namespacing chat-history DB: when the user-scoped
-// DB has no chats yet (first login on a previously single-user browser), copy
-// every record from the legacy un-namespaced DB into it, then delete the
-// legacy DB. Both session-tagged and untagged chats belong to the prior single
-// browser user, so all are claimed. Subsequent users start with an empty DB.
-async function maybeMigrateLegacyChatDb(
-	scopedDb: IDBPDatabase<ChatSchema>,
-	scopedName: string
-): Promise<void> {
-	if (scopedName === DB_NAME || legacyMigrationAttempted.has(scopedName)) return
-	legacyMigrationAttempted.add(scopedName)
-	try {
-		if ((await scopedDb.count('chats')) > 0) return
-		const legacy = await openDB<ChatSchema>(DB_NAME, 1, {
-			upgrade(indexDB) {
-				if (!indexDB.objectStoreNames.contains('chats')) {
-					indexDB.createObjectStore('chats', { keyPath: 'id' })
-				}
-			}
-		})
-		const legacyChats = await legacy.getAll('chats')
-		if (legacyChats.length > 0) {
-			const tx = scopedDb.transaction('chats', 'readwrite')
-			await Promise.all([...legacyChats.map((c) => tx.store.put(c)), tx.done])
-		}
-		legacy.close()
-		await deleteDB(DB_NAME)
-	} catch (e) {
-		console.error('Could not migrate legacy chat history database', e)
+function createChatStore(db: IDBPDatabase<ChatSchema>): void {
+	if (!db.objectStoreNames.contains('chats')) {
+		db.createObjectStore('chats', { keyPath: 'id' })
 	}
 }
 
+// One-shot claim of the pre-namespacing chat-history DB: when the user-scoped
+// DB has no chats yet (first login on a previously single-user browser), copy
+// every record from the legacy un-namespaced DB into it, then delete the legacy
+// DB. Both session-tagged and untagged chats belong to the prior single browser
+// user, so all are claimed. Subsequent users start with an empty DB. Wired as
+// userScopedDb's `migrate` hook (which gates it to once per scoped name); the
+// emptiness check makes it idempotent across the several manager instances that
+// share the same per-user DB.
+async function migrateLegacyChatDb(
+	scopedDb: IDBPDatabase<ChatSchema>,
+	{ openDB, deleteDB }: UserScopedDbMigrateDeps
+): Promise<void> {
+	if ((await scopedDb.count('chats')) > 0) return
+	const legacy = await openDB<ChatSchema>(DB_NAME, 1, { upgrade: createChatStore })
+	const legacyChats = await legacy.getAll('chats')
+	if (legacyChats.length > 0) {
+		const tx = scopedDb.transaction('chats', 'readwrite')
+		await Promise.all([...legacyChats.map((c) => tx.store.put(c)), tx.done])
+	}
+	legacy.close()
+	await deleteDB(DB_NAME)
+}
+
 export default class HistoryManager {
+	// Per-instance handle to the shared per-user DB lifecycle. There is one
+	// HistoryManager per AIChatManager (the singleton + one per session runtime),
+	// so the handle must be per-instance — not a module singleton.
+	private dbh = userScopedDb<ChatSchema>(DB_NAME, {
+		version: 1,
+		upgrade: createChatStore,
+		migrate: migrateLegacyChatDb
+	})
 	private indexDB: IDBPDatabase<ChatSchema> | undefined = undefined
 
 	private savedChats: Record<
@@ -96,24 +97,12 @@ export default class HistoryManager {
 	)
 
 	async init() {
-		const dbName = scopedKey(DB_NAME)
-		// Email-gated: never open a browser-global DB before the logged-in user
-		// is known. All callers (AiChatLayout mount, session runtime init,
-		// ensureChatIdsSeeded) run post-login, so this is defensive. The singleton
-		// also re-runs init() via onUserChange once the email resolves, so an
-		// early bail self-heals rather than leaving savedChats empty.
-		if (!dbName) return
+		// whenReady() is email-gated (returns undefined before the user is known —
+		// all callers run post-login, and the singleton re-inits via onUserChange),
+		// runs the legacy migration once, and reopens automatically on user change.
+		this.indexDB = await this.dbh.whenReady()
+		if (!this.indexDB) return
 		try {
-			this.indexDB = await openDB<ChatSchema>(dbName, 1, {
-				upgrade(indexDB) {
-					if (!indexDB.objectStoreNames.contains('chats')) {
-						indexDB.createObjectStore('chats', { keyPath: 'id' })
-					}
-				}
-			})
-
-			await maybeMigrateLegacyChatDb(this.indexDB, dbName)
-
 			const chats = await this.indexDB.getAll('chats')
 			this.savedChats = chats.reduce(
 				(acc, chat) => {
@@ -123,13 +112,13 @@ export default class HistoryManager {
 				{} as typeof this.savedChats
 			)
 		} catch (err) {
-			console.error('Could not open chat history database', err)
-			return {}
+			console.error('Could not load chat history', err)
 		}
 	}
 
 	close() {
-		this.indexDB?.close()
+		this.dbh.close()
+		this.indexDB = undefined
 	}
 
 	getCurrentChatId() {
