@@ -42,11 +42,7 @@ export async function runFrontendBenchmarkFromEnv(): Promise<BenchmarkRunResult>
     backendValidation,
     backendSettings,
   );
-  const docsTool =
-    mode === "ask" ? process.env.WMILL_AI_EVAL_DOCS_TOOL?.trim() || "llmstxt" : undefined;
-  const runModel = docsTool
-    ? `${formatRunModelLabel(mode, model)} ask:${docsTool}`
-    : formatRunModelLabel(mode, model);
+  const runModel = formatRunModelLabel(mode, model);
   const caseResults = await runSuite({
     modeRunner,
     cases: selectedCases,

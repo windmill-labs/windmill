@@ -54,8 +54,8 @@ async function main() {
         "  bun run cli -- run flow --backend-validation preview",
         "  bun run cli -- run flow flow-test5-simple-modification --runs 3",
         "  bun run cli -- run global global-test1-script-create",
-        "  bun run cli -- run ask --docs-tool search",
-        "  bun run cli -- run ask ask-lookup-cron-schedule --docs-tool inkeep",
+        "  bun run cli -- run ask",
+        "  bun run cli -- run ask ask-lookup-cron-schedule",
         "  bun run cli -- run cli bun-hello-script",
         "",
         "Models:",
@@ -107,11 +107,6 @@ async function main() {
       "--backend-validation <mode>",
       `backend smoke validation (${BACKEND_VALIDATION_MODES.join(", ")})`,
     )
-    .option(
-      "--docs-tool <arm>",
-      "docs-tool arm for ask mode (inkeep, llmstxt, search)",
-      parseDocsTool,
-    )
     .action(
       async (
         mode: EvalMode,
@@ -124,7 +119,6 @@ async function main() {
           verbose?: boolean;
           record?: boolean;
           backendValidation?: string;
-          docsTool?: string;
         },
       ) => {
         await handleRun({
@@ -137,7 +131,6 @@ async function main() {
           verbose: options.verbose ?? false,
           record: options.record ?? false,
           backendValidation: options.backendValidation,
-          docsTool: options.docsTool,
         });
       },
     );
@@ -186,7 +179,6 @@ async function handleRun(input: {
   verbose: boolean;
   record: boolean;
   backendValidation?: string;
-  docsTool?: string;
 }) {
   if (input.record && input.caseIds.length > 0) {
     throw new Error(
@@ -196,9 +188,6 @@ async function handleRun(input: {
   if (input.model && input.models) {
     throw new Error("Use either --model or --models, not both");
   }
-
-  // The docs-tool arm only applies to ask mode; default to the new llms.txt arm.
-  const docsTool = input.mode === "ask" ? input.docsTool ?? "llmstxt" : undefined;
 
   const selectedCases = await loadSelectedCases(input.mode, input.caseIds);
   const models = resolveRequestedModels(input.mode, input.model, input.models);
@@ -228,17 +217,13 @@ async function handleRun(input: {
   }> = [];
 
   for (const [index, model] of models.entries()) {
-    const baseRunModel = formatRunModelLabel(input.mode, model);
-    // Distinguish saved results / history by the docs-tool arm.
-    const runModel = docsTool ? `${baseRunModel} ask:${docsTool}` : baseRunModel;
+    const runModel = formatRunModelLabel(input.mode, model);
     if (models.length > 1) {
       process.stdout.write(
         `${index > 0 ? "\n" : ""}=== ${input.mode} ${model.id} (${runModel}) ===\n`,
       );
     }
-    process.stderr.write(
-      `Starting ${input.mode} benchmark${docsTool ? ` (docs-tool: ${docsTool})` : ""}...\n`,
-    );
+    process.stderr.write(`Starting ${input.mode} benchmark...\n`);
 
     const result =
       input.mode === "cli"
@@ -255,7 +240,6 @@ async function handleRun(input: {
             model: model.id,
             verbose: input.verbose,
             backendValidation,
-            docsTool,
           });
 
     const resolvedOutputPath =
@@ -333,15 +317,6 @@ function parsePositiveInteger(value: string): number {
     throw new InvalidArgumentError("must be a positive integer");
   }
   return parsed;
-}
-
-function parseDocsTool(value: string): string {
-  if (value === "inkeep" || value === "llmstxt" || value === "search") {
-    return value;
-  }
-  throw new InvalidArgumentError(
-    "docs-tool must be one of: inkeep, llmstxt, search",
-  );
 }
 
 function resolveRequestedModels(

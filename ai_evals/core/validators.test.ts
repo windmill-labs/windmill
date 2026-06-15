@@ -946,7 +946,7 @@ describe("validateCliWorkspace", () => {
 describe("validateAskAnswer", () => {
   it("flags an empty answer", () => {
     const checks = validateAskAnswer({
-      actual: { answer: "   ", docsTool: "llmstxt", toolsUsed: [], toolCallCount: 0 },
+      actual: { answer: "   ", docsTool: "search", toolsUsed: [], toolCallCount: 0 },
     });
     expect(checks).toContainEqual({
       name: "answer is non-empty",
@@ -959,8 +959,8 @@ describe("validateAskAnswer", () => {
       actual: {
         answer:
           "You can schedule scripts with cron. See HTTPS://WWW.WINDMILL.DEV/DOCS/CORE_CONCEPTS/SCHEDULING for details.",
-        docsTool: "llmstxt",
-        toolsUsed: ["list_docs_pages", "read_docs_page"],
+        docsTool: "search",
+        toolsUsed: ["search_docs", "read_docs_page"],
         toolCallCount: 2,
       },
       validate: {
@@ -983,7 +983,7 @@ describe("validateAskAnswer", () => {
     const checks = validateAskAnswer({
       actual: {
         answer: "Use schedules to run scripts on a cron.",
-        docsTool: "inkeep",
+        docsTool: "search",
         toolsUsed: ["get_documentation"],
         toolCallCount: 1,
       },
@@ -1002,7 +1002,7 @@ describe("validateAskAnswer", () => {
     const checks = validateAskAnswer({
       actual: {
         answer: "Windmill has a built-in COBOL runtime.",
-        docsTool: "llmstxt",
+        docsTool: "search",
         toolsUsed: [],
         toolCallCount: 0,
       },

@@ -25,7 +25,6 @@ export async function runFrontendBenchmarkAdapter(input: {
   model?: string;
   verbose?: boolean;
   backendValidation?: string;
-  docsTool?: string;
 }): Promise<BenchmarkRunResult> {
   const tempDir = await mkdtemp(
     path.join(tmpdir(), "wmill-frontend-benchmark-"),
@@ -42,8 +41,6 @@ export async function runFrontendBenchmarkAdapter(input: {
     WMILL_FRONTEND_AI_EVAL_PROGRESS: "1",
     WMILL_FRONTEND_AI_EVAL_VERBOSE: input.verbose ? "1" : "0",
     WMILL_FRONTEND_AI_EVAL_BACKEND_VALIDATION: input.backendValidation ?? "",
-    // Only meaningful for ask mode; selects the docs-tool arm to benchmark.
-    WMILL_AI_EVAL_DOCS_TOOL: input.docsTool ?? process.env.WMILL_AI_EVAL_DOCS_TOOL ?? "",
   };
 
   try {

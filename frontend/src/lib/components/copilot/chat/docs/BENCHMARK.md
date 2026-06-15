@@ -1,14 +1,18 @@
-# Ask docs-tool variants — approaches & benchmark
+# Ask docs-tool: approaches & benchmark
 
 The "ask" copilot answers Windmill questions by calling a docs tool, then writing
-an answer. This note records the variants tried, why, and how they compare —
+an answer. This note records the approaches tried, why, and how they compared —
 primarily on **token usage** (the main goal) without sacrificing answer quality.
 
-The arm is selected by `DocsToolVariant` (`ask/core.ts`) and benchmarked via the
-`ai_evals` `ask` mode (`bun run cli -- run ask --docs-tool <arm>`), which records
-pass-rate and prompt/completion/total tokens per attempt.
+> **Status:** the **hybrid full-text search** (`search_docs` + `read_docs_page`)
+> is now the *sole* docs tool, used by both the ask copilot and the global
+> workspace assistant. The `inkeep` and `llmstxt` arms below were comparison
+> baselines used to choose it; they have since been **removed from the code**.
+> This document is the rationale for that choice and is kept for history. The
+> `ai_evals` `ask` mode now benchmarks the single search tool
+> (`bun run cli -- run ask --model sonnet`).
 
-## Variants
+## Variants (compared, then removed except `search`)
 
 ### `inkeep` (original)
 One tool, `get_documentation(request)` → `POST /api/inkeep` (hosted RAG). Search
@@ -175,5 +179,6 @@ miss) **passed when re-run in isolation** — single-run flakiness on the strict
 - 1 run per case, one model (sonnet), 30 cases — judge scores on single runs
   carry noise (see the flaky citation case). Multi-run would tighten this.
 - `inkeep` not re-benchmarked here (separate hosted service; needs backend config).
-- Result files: `ai_evals/results/*__ask.json` (look for `runModel` `ask:search` /
-  `ask:llmstxt`). Re-run: `bun run cli -- run ask --docs-tool search --model sonnet`.
+- Result files: `ai_evals/results/*__ask.json`. Re-run the (now single-arm)
+  suite: `bun run cli -- run ask --model sonnet`. The llmstxt/inkeep columns
+  above came from the comparison arms that have since been removed.

@@ -327,26 +327,12 @@ export function extractDocsSection(content: string, section: string): string | u
 	return content.slice(start, end).trim()
 }
 
-const LIST_DOCS_PAGES_TOOL: ChatCompletionTool = {
-	type: 'function',
-	function: {
-		name: 'list_docs_pages',
-		description:
-			'Return the full Windmill documentation index (llms.txt): a list of every docs page with its title, URL and a short description. Call this FIRST, before read_docs_page, to discover which pages are relevant to the user request.',
-		parameters: {
-			type: 'object',
-			properties: {},
-			required: []
-		}
-	}
-}
-
 const READ_DOCS_PAGE_TOOL: ChatCompletionTool = {
 	type: 'function',
 	function: {
 		name: 'read_docs_page',
 		description:
-			'Fetch the raw markdown of a single Windmill documentation page. Provide the `path` (or full URL) of a page found via list_docs_pages. If the page is large, this returns its list of section headings instead of the full content; call again with the `section` argument set to one of those headings to read that section.',
+			'Fetch the raw markdown of a single Windmill documentation page. Provide the `path` (or full URL) of a page found via search_docs. If the page is large, this returns its list of section headings instead of the full content; call again with the `section` argument set to one of those headings to read that section.',
 		parameters: {
 			type: 'object',
 			properties: {
@@ -362,27 +348,6 @@ const READ_DOCS_PAGE_TOOL: ChatCompletionTool = {
 				}
 			},
 			required: ['path']
-		}
-	}
-}
-
-export const listDocsPagesTool: Tool<{}> = {
-	def: LIST_DOCS_PAGES_TOOL,
-	fn: async ({ toolId, toolCallbacks }) => {
-		toolCallbacks.setToolStatus(toolId, { content: 'Listing documentation pages...' })
-		try {
-			const index = await fetchDocsIndex()
-			toolCallbacks.setToolStatus(toolId, { content: 'Retrieved documentation index' })
-			return index
-		} catch (error) {
-			toolCallbacks.setToolStatus(toolId, {
-				content: 'Error listing documentation pages',
-				error: 'Error listing documentation pages'
-			})
-			console.error('Error listing documentation pages:', error)
-			const errorMessage =
-				error instanceof Error ? error.message : 'An error occurred while listing documentation pages'
-			return `Failed to list documentation pages: ${errorMessage}, pursuing with the user request...`
 		}
 	}
 }

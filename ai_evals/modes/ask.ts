@@ -1,7 +1,4 @@
-import {
-  runAskEval,
-  resolveDocsToolVariant,
-} from "../adapters/frontend/core/ask/askEvalRunner";
+import { runAskEval } from "../adapters/frontend/core/ask/askEvalRunner";
 import type { FrontendEvalModelConfig } from "../core/models";
 import type {
   AskValidationSpec,
@@ -16,8 +13,6 @@ export function createAskModeRunner(
   modelConfig: FrontendEvalModelConfig,
   backendSettings: WindmillBackendSettings,
 ): ModeRunner<undefined, undefined, AskAnswerState> {
-  const variant = resolveDocsToolVariant();
-
   return {
     mode: "ask",
     concurrency: 2,
@@ -33,7 +28,6 @@ export function createAskModeRunner(
         prompt,
         getFrontendApiKey(modelConfig.provider),
         {
-          variant,
           maxIterations: context.evalCase?.runtime?.maxTurns,
           provider: modelConfig.provider,
           model: modelConfig.model,

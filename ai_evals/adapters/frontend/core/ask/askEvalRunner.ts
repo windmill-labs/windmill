@@ -1,15 +1,13 @@
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
 import type { AIProvider } from "$lib/gen/types.gen";
 import {
-  getAskTools,
+  askTools,
   prepareAskSystemMessage,
   prepareAskUserMessage,
-  type DocsToolVariant,
 } from "../../../../../frontend/src/lib/components/copilot/chat/ask/core";
 import type { ModeRunContext } from "../../../../core/types";
 import type { AskAnswerState } from "../../../../core/validators";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
-import { WindmillBackendClient } from "../../windmillBackend";
 import { runEval } from "../shared";
 import type { TokenUsage, ToolCallDetail } from "../shared/types";
 
@@ -25,7 +23,6 @@ export interface AskEvalResult {
 }
 
 export interface AskEvalOptions {
-  variant: DocsToolVariant;
   model?: string;
   maxIterations?: number;
   provider?: AIProvider;
@@ -33,48 +30,27 @@ export interface AskEvalOptions {
   runContext?: ModeRunContext;
 }
 
-const DOCS_TOOL_ENV = "WMILL_AI_EVAL_DOCS_TOOL";
-
-/**
- * Resolves which docs-tool arm to benchmark. Defaults to the llms.txt arm.
- */
-export function resolveDocsToolVariant(
-  value: string | undefined = process.env[DOCS_TOOL_ENV],
-): DocsToolVariant {
-  if (value === "inkeep") {
-    return "inkeep";
-  }
-  if (value === "search") {
-    return "search";
-  }
-  return "llmstxt";
-}
+// The ask copilot's only docs tool is the self-hosted full-text search
+// (search_docs + read_docs_page); recorded in artifacts for provenance.
+const DOCS_TOOL = "search";
 
 export async function runAskEval(
   userPrompt: string,
   apiKey: string,
   options: AskEvalOptions,
 ): Promise<AskEvalResult> {
-  // The production inkeep tool calls fetch('/api/inkeep') with a relative URL,
-  // which has no origin under node. Install a process-wide shim that rewrites
-  // /api/* calls to the eval backend with an auth token. Only needed for the
-  // inkeep arm; the llms.txt arm fetches absolute windmill.dev URLs natively.
-  if (options.variant === "inkeep") {
-    await installInkeepFetchShim(options.backend);
-  }
-
   const model = options.model ?? "claude-haiku-4-5-20251001";
 
   const rawResult = await runEval({
     userPrompt,
-    systemMessage: prepareAskSystemMessage(undefined, options.variant),
+    systemMessage: prepareAskSystemMessage(),
     userMessage: prepareAskUserMessage(userPrompt),
-    tools: getAskTools(options.variant),
+    tools: askTools,
     helpers: {},
     apiKey,
     getOutput: () => ({
       answer: "",
-      docsTool: options.variant,
+      docsTool: DOCS_TOOL,
       toolsUsed: [],
       toolCallCount: 0,
     }),
@@ -98,7 +74,7 @@ export async function runAskEval(
     success: rawResult.success,
     state: {
       answer,
-      docsTool: options.variant,
+      docsTool: DOCS_TOOL,
       toolsUsed: rawResult.toolsCalled,
       toolCallCount: rawResult.toolCallsCount,
     },
@@ -141,41 +117,4 @@ export function extractFinalAnswer(
     }
   }
   return "";
-}
-
-let inkeepFetchShimInstalled = false;
-
-/**
- * Installs (once) a process-wide fetch wrapper that rewrites relative /api/*
- * requests to the eval backend, adding a bearer token. All other URLs are
- * passed through untouched.
- */
-async function installInkeepFetchShim(
-  backend: WindmillBackendSettings,
-): Promise<void> {
-  if (inkeepFetchShimInstalled) {
-    return;
-  }
-  inkeepFetchShimInstalled = true;
-
-  const client = new WindmillBackendClient(backend);
-  const originalFetch = globalThis.fetch.bind(globalThis);
-
-  globalThis.fetch = (async (
-    input: RequestInfo | URL,
-    init?: RequestInit,
-  ): Promise<Response> => {
-    if (typeof input === "string" && input.startsWith("/api/")) {
-      const token = await client.getToken();
-      const url = `${backend.baseUrl}${input}`;
-      return await originalFetch(url, {
-        ...init,
-        headers: {
-          ...(init?.headers ?? {}),
-          Authorization: `Bearer ${token}`,
-        },
-      });
-    }
-    return await originalFetch(input as any, init);
-  }) as typeof fetch;
 }
