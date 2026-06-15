@@ -123,6 +123,10 @@
       "vismanet_erp_interactive_api:update"
     ]
   },
+  "coupa": {
+    "token_url": "https://{instance}.coupahost.com/oauth2/token",
+    "grant_types": ["client_credentials"]
+  },
   "sage_intacct": {
     "auth_url": "https://api.intacct.com/ia/api/v1/oauth2/authorize",
     "token_url": "https://api.intacct.com/ia/api/v1/oauth2/token",
