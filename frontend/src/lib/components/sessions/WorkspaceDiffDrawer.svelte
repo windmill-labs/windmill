@@ -432,6 +432,7 @@
 		{@const key = itemKey(node.diff)}
 		<WorkspaceItemRow
 			kind={node.diff.kind as any}
+			uniformHeight
 			summary={summaries[key]}
 			secondary={node.name}
 			highlighted={key === highlightedKey}
