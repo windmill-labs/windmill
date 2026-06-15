@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.724.0](https://github.com/windmill-labs/windmill/compare/v1.723.0...v1.724.0) (2026-06-15)
+
+
+### Features
+
+* **cli:** add --yes, --secret/--no-secret and --description to variable add ([#9548](https://github.com/windmill-labs/windmill/issues/9548)) ([4e9e0c0](https://github.com/windmill-labs/windmill/commit/4e9e0c024b4b95f9676b1646591d8f0c662e84ab))
+* **frontend:** improve AI chat cancel and interrupted-turn handling ([#9539](https://github.com/windmill-labs/windmill/issues/9539)) ([114c412](https://github.com/windmill-labs/windmill/commit/114c41251a8c738b58a1a3dd9434d09d33feb6f1))
+* **frontend:** precise AI chat context usage tracking + indicator ([#9551](https://github.com/windmill-labs/windmill/issues/9551)) ([2b47180](https://github.com/windmill-labs/windmill/commit/2b471805bf1c92bb210cfacda217a4341e1f989c))
+* wire chat reasoning effort through gemini and bedrock proxies ([#9545](https://github.com/windmill-labs/windmill/issues/9545)) ([aaf0563](https://github.com/windmill-labs/windmill/commit/aaf05635cedadc73455dc522474b673719f9fd5c))
+
+
+### Bug Fixes
+
+* actually isolate windows job children from CTRL_BREAK_EVENT + reap on worker death ([#9563](https://github.com/windmill-labs/windmill/issues/9563)) ([61f3291](https://github.com/windmill-labs/windmill/commit/61f3291b240bdb5c26bee8947351a9590bc3bd45))
+* **ai:** enforce resource authz when loading MCP tools in agent worker ([#9571](https://github.com/windmill-labs/windmill/issues/9571)) ([317a862](https://github.com/windmill-labs/windmill/commit/317a8629d1c8436d2a6f3443bd25b81d606ce283))
+* append system CA bundle to tracing proxy cert file ([#9549](https://github.com/windmill-labs/windmill/issues/9549)) ([3cf4083](https://github.com/windmill-labs/windmill/commit/3cf40839602e5c3d1df51f0a29b01736bade09da))
+* **cli:** consistent flow inline lock filenames for compound extensions ([#9555](https://github.com/windmill-labs/windmill/issues/9555)) ([f0659a7](https://github.com/windmill-labs/windmill/commit/f0659a755a161420833e3bfdbe04befc6ebeb977))
+* **flows:** skip_if evaluates wrong previous_result during retry ([#9547](https://github.com/windmill-labs/windmill/issues/9547)) ([2aab352](https://github.com/windmill-labs/windmill/commit/2aab35245c362c2f911c60ea435f29bfb1369ebf))
+* **folders:** allow hyphens in folder names ([#9566](https://github.com/windmill-labs/windmill/issues/9566)) ([84df111](https://github.com/windmill-labs/windmill/commit/84df11177f2009bff007e9b722b55a9a5a63c06a)), closes [#8474](https://github.com/windmill-labs/windmill/issues/8474)
+* **frontend:** load resource value in JSON editor when resource type is missing ([#9574](https://github.com/windmill-labs/windmill/issues/9574)) ([251266c](https://github.com/windmill-labs/windmill/commit/251266cd8119dbef314314daed43aa43ab92f1c9))
+* isolate windows job children from worker CTRL_BREAK_EVENT ([#9562](https://github.com/windmill-labs/windmill/issues/9562)) ([1d6191e](https://github.com/windmill-labs/windmill/commit/1d6191ebb75843917eec6c76a4be347f9ac4cb72))
+* stop sending temperature for AI chat across all providers ([#9553](https://github.com/windmill-labs/windmill/issues/9553)) ([3585716](https://github.com/windmill-labs/windmill/commit/358571687296fbe5c378533b3c1662707955c64a))
+
 ## [1.723.0](https://github.com/windmill-labs/windmill/compare/v1.722.0...v1.723.0) (2026-06-11)
 
 
