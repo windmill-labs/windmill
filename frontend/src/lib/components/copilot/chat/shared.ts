@@ -31,7 +31,7 @@ import {
 	type FlowValue,
 	type FlowModule,
 	type ScriptLang,
-	type Script,
+	type ListableScript,
 	type Flow
 } from '$lib/gen'
 import uFuzzy from '@leeoniya/ufuzzy'
@@ -1343,7 +1343,7 @@ export class WorkspaceRunnablesSearch {
 	private uf: uFuzzy
 	private scriptsWorkspace: string | undefined = undefined
 	private flowsWorkspace: string | undefined = undefined
-	private scripts: Script[] | undefined = undefined
+	private scripts: ListableScript[] | undefined = undefined
 	private flows: Flow[] | undefined = undefined
 	private scriptCache: Map<string, Awaited<ReturnType<typeof ScriptService.getScriptByPath>>> =
 		new Map()

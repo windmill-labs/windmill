@@ -6,6 +6,7 @@
 		AppService,
 		FlowService,
 		type ListableApp,
+		type ListableScript,
 		type Script,
 		ScriptService,
 		type Flow,
@@ -65,7 +66,7 @@
 		hash?: string
 	}
 
-	type TableScript = TableItem<Script, 'script'>
+	type TableScript = TableItem<ListableScript, 'script'>
 	type TableFlow = TableItem<Flow, 'flow'>
 	type TableApp = TableItem<ListableApp, 'app'>
 	type TableRawApp = TableItem<ListableRawApp, 'raw_app'>
@@ -94,7 +95,7 @@
 			withoutDescription: true
 		})
 
-		scripts = loadedScripts.map((script: Script) => {
+		scripts = loadedScripts.map((script: ListableScript) => {
 			return {
 				canWrite: canWrite(script.path, script.extra_perms, $userStore) && !$userStore?.operator,
 				...script

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
-	import { ScriptService, type Script } from '$lib/gen'
+	import { ScriptService, type ListableScript } from '$lib/gen'
 
 	import { Wand2, Loader2 } from 'lucide-svelte'
 	import SearchItems from '../SearchItems.svelte'
@@ -8,14 +8,14 @@
 	import { createEventDispatcher, onMount, untrack } from 'svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 
-	let scripts: Script[] | undefined = $state(undefined)
+	let scripts: ListableScript[] | undefined = $state(undefined)
 	interface Props {
 		funcDesc: string
 		trigger?: boolean
 		loading?: boolean
 		preFilter: string
 		disableAi?: boolean
-		filteredItems?: (Script & { marked?: string })[] | (Item & { marked?: string })[]
+		filteredItems?: (ListableScript & { marked?: string })[] | (Item & { marked?: string })[]
 	}
 
 	let {

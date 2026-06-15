@@ -6,7 +6,7 @@
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
-	import { type Script, ScriptService } from '$lib/gen'
+	import { type ListableScript, ScriptService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { emptyString } from '$lib/utils'
 	import { Skeleton } from '$lib/components/common'
@@ -18,8 +18,8 @@
 
 	let { filter = $bindable(''), children }: Props = $props()
 
-	let scripts: Script[] | undefined = $state(undefined)
-	let filteredItems: (Script & { marked?: string })[] = $state([])
+	let scripts: ListableScript[] | undefined = $state(undefined)
+	let filteredItems: (ListableScript & { marked?: string })[] = $state([])
 	let prefilteredItems = $derived(scripts ?? [])
 
 	const dispatch = createEventDispatcher()

@@ -1,4 +1,4 @@
-import type { ListableApp, Script, Flow, ListableRawApp } from '$lib/gen'
+import type { ListableApp, ListableScript, Flow, ListableRawApp } from '$lib/gen'
 type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 	canWrite: boolean
 	marked?: string
@@ -8,7 +8,7 @@ type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 	has_draft?: boolean
 }
 
-type TableScript = TableItem<Script, 'script'>
+type TableScript = TableItem<ListableScript, 'script'>
 type TableFlow = TableItem<Flow, 'flow'>
 type TableApp = TableItem<ListableApp, 'app'>
 type TableRawApp = TableItem<ListableRawApp, 'raw_app'>

@@ -1,4 +1,4 @@
-import type { Flow, ListableApp, Script } from '$lib/gen'
+import type { Flow, ListableApp, ListableScript } from '$lib/gen'
 
 export type WorkspaceItemKind = 'flow' | 'script' | 'app'
 
@@ -116,7 +116,7 @@ export async function loadKind(
 				includeDraftOnly: true,
 				withoutDescription: true
 			})
-			items = scripts.map((s: Script) => ({
+			items = scripts.map((s: ListableScript) => ({
 				path: s.path,
 				summary: s.summary ?? '',
 				kind: 'script' as const

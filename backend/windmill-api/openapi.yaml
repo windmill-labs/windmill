@@ -7813,7 +7813,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Script"
+                  $ref: "#/components/schemas/ListableScript"
 
   /w/{workspace}/scripts/list_paths:
     get:
@@ -21770,6 +21770,72 @@ components:
         - workspace_id
         - language
         - content
+
+    ListableScript:
+      type: object
+      description: |
+        A script as returned by the list endpoint. This is a lighter
+        representation than `Script` and omits heavy fields such as `content`.
+      properties:
+        hash:
+          type: string
+        path:
+          type: string
+        summary:
+          type: string
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        archived:
+          type: boolean
+        extra_perms:
+          type: object
+          additionalProperties:
+            type: boolean
+        language:
+          $ref: "#/components/schemas/ScriptLang"
+        kind:
+          type: string
+          enum: [script, failure, trigger, command, approval, preprocessor]
+        starred:
+          type: boolean
+        tag:
+          type: string
+        has_draft:
+          type: boolean
+        draft_only:
+          type: boolean
+        has_deploy_errors:
+          type: boolean
+        ws_error_handler_muted:
+          type: boolean
+        auto_kind:
+          type: string
+        use_codebase:
+          type: boolean
+        deployment_msg:
+          type: string
+        labels:
+          type: array
+          items:
+            type: string
+        inherited_labels:
+          type: array
+          items:
+            type: string
+      required:
+        - hash
+        - path
+        - summary
+        - created_at
+        - archived
+        - extra_perms
+        - language
+        - kind
+        - starred
+        - has_deploy_errors
 
     Script:
       type: object

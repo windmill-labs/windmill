@@ -26,6 +26,7 @@ import type {
 	Job,
 	ListableApp,
 	ListableResource,
+	ListableScript,
 	ListableVariable,
 	NewSchedule,
 	NewScript,
@@ -704,13 +705,16 @@ function itemMatches(
 	)
 }
 
-function scriptToItem(script: Script | NewScript, includeValue: boolean): WorkspaceItem {
+function scriptToItem(
+	script: Script | NewScript | ListableScript,
+	includeValue: boolean
+): WorkspaceItem {
 	return {
 		type: 'script',
 		path: script.path,
 		summary: script.summary,
 		language: script.language,
-		value: includeValue ? script.content : undefined,
+		value: includeValue && 'content' in script ? script.content : undefined,
 		isDraft: false
 	}
 }
