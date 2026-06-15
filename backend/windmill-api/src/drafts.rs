@@ -110,12 +110,19 @@ fn list_drafts_query() -> String {
                   d.typ AS kind,
                   d.created_at,
                   d.value ->> 'summary' AS summary,
-                  CASE
-                    WHEN d.value ->> 'draft_path' IS NOT NULL
-                     AND d.value ->> 'draft_path' <> ''
-                     AND d.value ->> 'draft_path' <> d.path
-                    THEN d.value ->> 'draft_path'
-                  END AS draft_path,
+                  -- Friendly typed path, by kind (mirrors the home-page list
+                  -- endpoints): scripts bind the Path widget to `script.path`,
+                  -- so it round-trips through the draft JSON's own `path`;
+                  -- flows/apps/raw-apps carry a separate `draft_path`. NULLIF
+                  -- drops it when empty or equal to the storage path.
+                  NULLIF(
+                    NULLIF(
+                      CASE WHEN d.typ::text = 'script'
+                           THEN d.value ->> 'path'
+                           ELSE d.value ->> 'draft_path' END,
+                      ''),
+                    d.path
+                  ) AS draft_path,
                   (d.email IS NULL) AS legacy_draft,
                   {case} AS draft_only
            FROM draft d

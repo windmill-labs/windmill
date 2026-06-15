@@ -353,6 +353,21 @@
 		)
 	}
 
+	// Path to show for a row: the friendly typed path if the draft carries one,
+	// else the storage path. Auto-generated draft slots live at
+	// `u/{user}/draft_{uuid}`, and in the admins workspace (or email-as-username
+	// setups) `{user}` is the full email — truncate it at `@` for display only;
+	// the real path/key (used for fetch/deploy/discard) is left untouched.
+	function displayPath(d: Row): string {
+		const path = d.draft_path ?? d.path
+		const segs = path.split('/')
+		if (segs[0] === 'u' && segs.length >= 2) {
+			const at = segs[1].indexOf('@')
+			if (at > 0) segs[1] = segs[1].slice(0, at)
+		}
+		return segs.join('/')
+	}
+
 	// Human label for the kind badge on each row — without it a variable
 	// draft and a script draft at the same path are indistinguishable.
 	function kindLabel(kind: Row['draftKind']): string {
@@ -416,7 +431,7 @@
 				{@const oldSummary = cache?.deployed ?? draftItem.summary}
 				{@const newSummary = cache?.draft ?? draftItem.summary}
 				<WorkspaceDeployItemSummary
-					path={draftItem.draft_path ?? draftItem.path}
+					path={displayPath(draftItem)}
 					{editUrl}
 					{oldSummary}
 					{newSummary}
