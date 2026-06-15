@@ -329,7 +329,7 @@
 					onClick: async () => {
 						const app = createAppFromFlow(flow.path, flow.schema)
 						$importStore = JSON.parse(JSON.stringify(app))
-						await goto('/apps/add?nodraft=true')
+						await goto('/apps/add')
 					},
 					unifiedSize: 'md',
 					variant: 'subtle',
@@ -341,7 +341,7 @@
 			buttons.push({
 				label: 'Edit',
 				buttonProps: {
-					href: `${base}/flows/edit/${path}?nodraft=true`,
+					href: `${base}/flows/edit/${path}`,
 					variant: 'accent',
 					unifiedSize: 'md',
 					disabled: !can_write || !showEditButtons,

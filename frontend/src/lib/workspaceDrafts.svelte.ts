@@ -4,10 +4,9 @@
  * simply that list's length — never a separate query. This is what makes the
  * count reliable: count ≡ list, by construction.
  *
- * Behind this seam the list is currently assembled from the three version-aware
- * list endpoints (scripts/flows/apps with `include_draft_only`). A single
- * `GET /w/{ws}/drafts/items` endpoint can replace `getDraftItems` later without
- * touching any consumer.
+ * Backed by `GET /w/{ws}/drafts/list` — one query over the `draft` table on
+ * the server, covering every kind (scripts, flows, apps, variables, resources,
+ * schedules, triggers) with a per-kind `draft_only` flag.
  *
  * Reactivity: `useWorkspaceDrafts(() => ws)` is a component-scoped `runed`
  * resource — it fetches on mount and when `ws` changes, and is disposed on
@@ -16,9 +15,9 @@
  * every *mounted* consumer re-fetches after a Server-Draft mutation.
  */
 import { resource } from 'runed'
-import { ScriptService, FlowService, AppService } from '$lib/gen'
+import { DraftService, type UserDraftItemKind } from '$lib/gen'
 
-export type DraftKind = 'script' | 'flow' | 'app'
+export type DraftKind = UserDraftItemKind
 
 export interface DraftItem {
 	kind: DraftKind
@@ -30,70 +29,15 @@ export interface DraftItem {
 	raw_app: boolean
 }
 
-/** The one place the "is this a deployable Draft Item?" rule lives on the
- * frontend: a pending draft on a deployed item (`has_draft`) OR a never-deployed
- * `draft_only` item. Mirrors the backend `count_drafts` predicate. */
-/** The list-endpoint fields this module reads. Kept as a narrow local interface
- * (rather than `any`) so the count predicate isn't typed against `any`. NOTE:
- * `openapi.yaml`'s `ListableApp` still omits `has_draft`/`draft_only` (the backend
- * struct returns them) — the proper fix is to add them to the spec and regenerate
- * the client; until then this interface documents the contract relied on. */
-interface DraftListEntry {
-	path: string
-	summary?: string
-	has_draft?: boolean
-	draft_only?: boolean
-	raw_app?: boolean
-}
-
-// The list endpoints are paginated; without paging, drafts past the first page
-// would be silently missing from the count/list (and "Deploy all"). Page through
-// with a generous page size until a short page signals the end.
-const DRAFT_LIST_PER_PAGE = 100
-
-async function listAllPages(
-	fetchPage: (page: number, perPage: number) => Promise<DraftListEntry[]>
-): Promise<DraftListEntry[]> {
-	const all: DraftListEntry[] = []
-	for (let page = 1; ; page++) {
-		const batch = await fetchPage(page, DRAFT_LIST_PER_PAGE)
-		all.push(...batch)
-		if (batch.length < DRAFT_LIST_PER_PAGE) break
-	}
-	return all
-}
-
 export async function getDraftItems(workspace: string): Promise<DraftItem[]> {
-	const [scripts, flows, apps] = await Promise.all([
-		listAllPages((page, perPage) =>
-			ScriptService.listScripts({ workspace, includeDraftOnly: true, page, perPage })
-		),
-		listAllPages((page, perPage) =>
-			FlowService.listFlows({ workspace, includeDraftOnly: true, page, perPage })
-		),
-		listAllPages((page, perPage) =>
-			AppService.listApps({ workspace, includeDraftOnly: true, page, perPage })
-		)
-	])
-	const items: DraftItem[] = []
-	const push = (kind: DraftKind, list: DraftListEntry[]) => {
-		for (const it of list) {
-			if (it.has_draft || it.draft_only) {
-				items.push({
-					kind,
-					path: it.path,
-					summary: it.summary,
-					draft_only: !!it.draft_only,
-					raw_app: !!it.raw_app
-				})
-			}
-		}
-	}
-	push('script', scripts)
-	push('flow', flows)
-	push('app', apps)
-	items.sort((a, b) => a.path.localeCompare(b.path))
-	return items
+	const rows = await DraftService.listDrafts({ workspace })
+	return rows.map((r) => ({
+		kind: r.kind,
+		path: r.path,
+		summary: r.summary,
+		draft_only: r.draft_only,
+		raw_app: r.kind === 'raw_app'
+	}))
 }
 
 // Per-workspace invalidation version. Bumping it changes the resource key for

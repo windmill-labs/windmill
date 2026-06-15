@@ -31,7 +31,7 @@
 		syncWorkspaceTo,
 		type Session
 	} from './sessionState.svelte'
-	import { forgetSessionSeen, unreadCountFor } from './sessionUnread.svelte'
+	import { unreadCountFor } from './sessionUnread.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
@@ -264,7 +264,6 @@
 		if (!session) return
 		const wasActive = sessionState.currentSessionId === session.id
 		removeSession(session.id)
-		forgetSessionSeen(session.id)
 		if (forkToDelete) {
 			try {
 				await WorkspaceService.deleteWorkspace({ workspace: forkToDelete })

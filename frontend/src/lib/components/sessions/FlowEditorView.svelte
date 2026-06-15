@@ -66,11 +66,6 @@
 			{diffDrawer}
 			{onNavigate}
 			customUi={{ topBar: { aiBuilder: false } }}
-			onSaveDraft={() => {
-				runtime.scheduleForkComparisonRefresh()
-				// Saving a draft adds/keeps a pending draft — refresh the Draft Count.
-				invalidateWorkspaceDrafts(workspaceId)
-			}}
 			onDeploy={() => {
 				// FlowBuilder has no deploy toast and the session stays put, so toast
 				// here, then sync the preview to deployed (pulls the new locks + version_id).

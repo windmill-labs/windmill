@@ -41,7 +41,6 @@ pub async fn get_item_schema(
     sqlb.and_where("o.path = ?".bind(&path));
     sqlb.and_where("o.workspace_id = ?".bind(&workspace_id));
     sqlb.and_where("o.archived = false");
-    sqlb.and_where("o.draft_only IS NOT TRUE");
     let sql = sqlb.sql().map_err(|e| {
         tracing::error!("failed to build sql: {}", e);
         ErrorData::internal_error(format!("failed to build sql: {}", e), None)
@@ -147,8 +146,7 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
                 .bind(&authed.username));
     }
     sqlb.and_where("o.workspace_id = ?".bind(&workspace_id))
-        .and_where("o.archived = false")
-        .and_where("o.draft_only IS NOT TRUE");
+        .and_where("o.archived = false");
 
     if item_type == "script" {
         sqlb.and_where("o.auto_kind IS NULL");

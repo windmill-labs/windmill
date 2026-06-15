@@ -37,7 +37,8 @@
 		newPath,
 		hideSecretUrl = false,
 		preserveOnBehalfOf = $bindable(false),
-		rawApp = false
+		rawApp = false,
+		newApp = false
 	}: {
 		policy: any
 		setPublishState: () => void
@@ -58,6 +59,11 @@
 		// document and break no-CORP cross-origin subresources (external images,
 		// {@html} embeds, CDN imports).
 		rawApp?: boolean
+		/** True while the editor is on a draft-only URL (`/edit/u/{user}/draft_{uuid}`
+		 *  with no deployed row yet). Suppresses the public-secret-URL fetch
+		 *  (`/secret_of/...` 404s with no `app` row) and renders a placeholder
+		 *  instead of the eternally-spinning link. */
+		newApp?: boolean
 	} = $props()
 
 	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
@@ -150,7 +156,15 @@
 	})
 
 	$effect(() => {
-		appPath && appPath != '' && savedApp && secretUrl == undefined && untrack(() => getSecretUrl())
+		// Skip the secret URL fetch on draft-only items — `/secret_of/...`
+		// has no `app` row to look up and would 404, leaving the UI
+		// component spinning indefinitely.
+		!newApp &&
+			appPath &&
+			appPath != '' &&
+			savedApp &&
+			secretUrl == undefined &&
+			untrack(() => getSecretUrl())
 	})
 </script>
 
@@ -282,11 +296,11 @@
 					policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
 					setPublishState()
 				}}
-				disabled={!savedApp || (!canSetAnonymous && policy.execution_mode != 'anonymous')}
+				disabled={!savedApp || newApp || (!canSetAnonymous && policy.execution_mode != 'anonymous')}
 			/>
 		</div>
-		{#if !savedApp}
-			<ClipboardPanel content={`Save this app once to get the public secret URL`} size="md" />
+		{#if !savedApp || newApp}
+			<ClipboardPanel content={`Deploy this app once to get the public secret URL`} size="md" />
 		{:else if secretUrlHref}
 			<div class="flex justify-end mb-1">
 				<Toggle

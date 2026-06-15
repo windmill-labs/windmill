@@ -61,7 +61,6 @@
 		type?: U
 		time?: number
 		starred?: boolean
-		has_draft?: boolean
 		hash?: string
 	}
 
@@ -241,9 +240,13 @@
 	async function showCode(path: string, summary: string) {
 		viewCodeTitle = summary || path
 		await viewCodeDrawer?.openDrawer()
+		// `getDraft: true` so draft-only scripts (no deployed row at this
+		// path) still return their content via the per-user draft overlay
+		// instead of 404'ing.
 		script = await ScriptService.getScriptByPath({
 			workspace: $workspaceStore!,
-			path
+			path,
+			getDraft: true
 		})
 	}
 
