@@ -3,9 +3,10 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { AppService, DraftService, type Policy } from '$lib/gen'
+	import { AppService, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history.svelte'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { enterpriseLicense, tutorialsToDo, userStore, workspaceStore } from '$lib/stores'
 	import { isMac, type Item, userPathPrefix } from '$lib/utils'
 	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
@@ -39,12 +40,7 @@
 		Globe
 	} from 'lucide-svelte'
 	import { getContext, untrack } from 'svelte'
-	import {
-		cleanValueProperties,
-		orderedJsonStringify,
-		type Value,
-		replaceFalseWithUndefined
-	} from '../../../utils'
+	import { orderedJsonStringify, type Value, replaceFalseWithUndefined } from '../../../utils'
 	import type { App, AppEditorContext, AppViewerContext } from '../types'
 	import { toStatic } from '../utils'
 	import AppExportButton from './AppExportButton.svelte'
@@ -64,9 +60,10 @@
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 
 	import EditorHeader from '$lib/components/EditorHeader.svelte'
+	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
 	import { editPathFor } from '$lib/components/workspacePicker'
 	import { invalidateWorkspacePaths } from '$lib/components/PathNameAutocomplete.svelte'
-	import { goto } from '$app/navigation'
+	import { beforeNavigate, goto } from '$app/navigation'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import LegacySandboxMigrationModal from './LegacySandboxMigrationModal.svelte'
@@ -75,7 +72,6 @@
 	import LazyModePanel from './contextPanel/LazyModePanel.svelte'
 	import type { DiffDrawerI } from '$lib/components/diff_drawer'
 	import AppEditorHeaderDeploy from './AppEditorHeaderDeploy.svelte'
-	import AppEditorHeaderDeployInitialDraft from './AppEditorHeaderDeployInitialDraft.svelte'
 	import { computeSecretUrl } from './appDeploy.svelte'
 	import { updatePolicy } from './appPolicy'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
@@ -89,11 +85,9 @@
 		savedApp?:
 			| {
 					value: App
-					draft?: any
 					path: string
 					summary: string
 					policy: any
-					draft_only?: boolean
 					custom_path?: string
 			  }
 			| undefined
@@ -103,7 +97,8 @@
 		bottomPanelHidden?: boolean
 		newApp: boolean
 		newPath?: string
-		unsavedConfirmationModal?: import('svelte').Snippet<[any]>
+		/** URL path the draft is keyed under; empty on `/apps/add` (no draft yet). */
+		userDraftPath?: string
 		onSavedNewAppPath?: (path: string) => void
 		onShowRightPanel?: () => void
 		onShowLeftPanel?: () => void
@@ -112,6 +107,12 @@
 		onHideLeftPanel?: () => void
 		onHideBottomPanel?: () => void
 		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
+		// Threaded to the AutosaveIndicator's "Reset to deployed" button.
+		onResetToDeployed?: () => void | Promise<void>
+		// See ScriptBuilderProps — same indicator semantics.
+		loadedFromDraft?: boolean
+		othersDraftsCount?: number
+		onOpenOthersDrafts?: () => void
 	}
 
 	let {
@@ -125,7 +126,7 @@
 		bottomPanelHidden = false,
 		newApp,
 		newPath = '',
-		unsavedConfirmationModal,
+		userDraftPath = '',
 		onSavedNewAppPath,
 		onShowLeftPanel,
 		onShowRightPanel,
@@ -133,7 +134,11 @@
 		onHideLeftPanel,
 		onHideRightPanel,
 		onHideBottomPanel,
-		onNavigate = undefined
+		onNavigate = undefined,
+		onResetToDeployed,
+		loadedFromDraft = false,
+		othersDraftsCount = 0,
+		onOpenOthersDrafts
 	}: Props = $props()
 
 	/** Mirror of the path the user is editing in the pen popover. Initialized
@@ -141,13 +146,15 @@
 	 * updated by user input from then on — we deliberately do NOT sync from
 	 * `newPath` afterwards so the user's in-flight rename isn't clobbered by
 	 * a parent reload that re-supplies the saved path. The fallback chain at
-	 * read sites (`newEditedPath || savedApp?.draft?.path || savedApp?.path`)
+	 * read sites (`newEditedPath || savedApp?.path`)
 	 * handles the case where `newEditedPath` is briefly empty before the
 	 * synthesized initialization runs — falls through to the saved path so
 	 * rename detection still works. */
 	let newEditedPath = $state(
 		untrack(() =>
-			newApp ? userPathPrefix($userStore?.username) + random_adj() + '_app' : (newPath ?? '')
+			newApp && !newPath
+				? userPathPrefix($userStore?.username) + random_adj() + '_app'
+				: (newPath ?? '')
 		)
 	)
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
@@ -170,6 +177,23 @@
 		darkMode
 	} = getContext<AppViewerContext>('AppViewerContext')
 
+	// Mirror the user-typed path into the draft as `draft_path` when it differs
+	// from the baseline, so the home row shows the friendly name instead of
+	// `draft_{uuid}`. Drop the field once it matches the baseline again.
+	$effect(() => {
+		const typed = newEditedPath
+		const baseline = savedApp?.path ?? ''
+		const a = $app
+		if (!a) return
+		untrack(() => {
+			if (typed && typed !== baseline) {
+				a.draft_path = typed
+			} else if (a.draft_path !== undefined) {
+				delete a.draft_path
+			}
+		})
+	})
+
 	const { history, jobsDrawerOpen, refreshComponents } =
 		getContext<AppEditorContext>('AppEditorContext')
 
@@ -183,8 +207,7 @@
 
 	const loading = $state({
 		publish: false,
-		save: false,
-		saveDraft: false
+		save: false
 	})
 
 	let selectedJobId: string | undefined = $state(undefined)
@@ -192,7 +215,6 @@
 	let pathError: string = $state('')
 	let appExport: AppExportButton | undefined = $state()
 
-	let draftDrawerOpen = $state(false)
 	let saveDrawerOpen = $state(false)
 	// WIN-2006: deploy-time migration prompt for grandfathered (legacy-unsandboxed)
 	// apps — the publisher makes an explicit sandbox choice on the first re-deploy.
@@ -210,10 +232,6 @@
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
-	}
-
-	function closeDraftDrawer() {
-		draftDrawerOpen = false
 	}
 
 	async function createApp(path: string) {
@@ -243,7 +261,16 @@
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
-			if (!inSessionPane) UserDraft.remove('app', path)
+			// Remove the autosave at its canonical URL draft key, not the deploy
+			// `path` (they differ for new apps), or the real draft row orphans.
+			// stopSync-bracketed + flushed so AppEditor's mirror can't re-save.
+			if (!inSessionPane && $workspaceStore) {
+				discardDraftAfterDeploy({
+					workspace: $workspaceStore,
+					itemKind: 'app',
+					path: userDraftPath
+				})
+			}
 			onSavedNewAppPath?.(path)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
@@ -272,7 +299,7 @@
 						replaceFalseWithUndefined({
 							summary: $summary,
 							value: $app,
-							path: newEditedPath || savedApp.draft?.path || savedApp.path,
+							path: newEditedPath || savedApp.path,
 							policy,
 							custom_path: customPath
 						})
@@ -344,7 +371,16 @@
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
-		if (!inSessionPane) UserDraft.remove('app', $appPath)
+		// Canonical autosave key (the URL draft path), not `$appPath` — a
+		// rename leaves the autosave at the original key, so removing at
+		// `$appPath` would miss it. Bracketed + flushed (see createApp).
+		if (!inSessionPane && $workspaceStore) {
+			discardDraftAfterDeploy({
+				workspace: $workspaceStore,
+				itemKind: 'app',
+				path: userDraftPath
+			})
+		}
 		if ($appPath !== npath) {
 			onSavedNewAppPath?.(npath)
 		}
@@ -372,156 +408,6 @@
 
 		saveDrawerOpen = true
 		return
-	}
-
-	async function saveInitialDraft() {
-		policy = await updatePolicy($app, policy)
-		try {
-			await AppService.createApp({
-				workspace: $workspaceStore!,
-				requestBody: {
-					value: $app,
-					path: newEditedPath,
-					summary: $summary,
-					policy,
-					draft_only: true,
-					custom_path: customPath
-				}
-			})
-			await DraftService.createDraft({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path: newEditedPath,
-					typ: 'app',
-					value: {
-						value: $app,
-						path: newEditedPath,
-						summary: $summary,
-						policy,
-						custom_path: customPath
-					}
-				}
-			})
-			savedApp = {
-				summary: $summary,
-				value: structuredClone($state.snapshot($app)),
-				path: newEditedPath,
-				policy,
-				draft_only: true,
-				draft: {
-					summary: $summary,
-					value: structuredClone($state.snapshot($app)),
-					path: newEditedPath,
-					policy,
-					custom_path: customPath
-				},
-				custom_path: customPath
-			}
-
-			draftDrawerOpen = false
-			// The initial draft was promoted to a real path on the backend —
-			// drop the autosave keyed on the prior (possibly empty) path so
-			// a future "+ App" click opens on a clean slate.
-			if (!inSessionPane) UserDraft.remove('app', $appPath)
-			onSavedNewAppPath?.(newEditedPath)
-		} catch (e) {
-			sendUserToast('Error saving initial draft', e)
-		}
-		draftDrawerOpen = false
-	}
-
-	async function saveDraft(forceSave = false) {
-		if (newApp) {
-			// initial draft
-			draftDrawerOpen = true
-			return
-		}
-		if (!savedApp) {
-			return
-		}
-		const draftOrDeployed = cleanValueProperties(savedApp.draft || savedApp)
-		const current = cleanValueProperties({
-			summary: $summary,
-			value: $app,
-			path: newEditedPath || savedApp.draft?.path || savedApp.path,
-			policy
-		})
-		if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
-			sendUserToast('No changes detected, ignoring', false, [
-				{
-					label: 'Save anyway',
-					callback: () => {
-						saveDraft(true)
-					}
-				}
-			])
-			return
-		}
-		loading.saveDraft = true
-		try {
-			policy = await updatePolicy($app, policy)
-			let path = $appPath
-			if (savedApp.draft_only) {
-				await AppService.deleteApp({
-					workspace: $workspaceStore!,
-					path: path
-				})
-				await AppService.createApp({
-					workspace: $workspaceStore!,
-					requestBody: {
-						value: $app!,
-						summary: $summary,
-						policy,
-						path: newEditedPath || path,
-						draft_only: true,
-						custom_path: customPath
-					}
-				})
-			}
-			await DraftService.createDraft({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path: savedApp.draft_only ? newEditedPath || path : path,
-					typ: 'app',
-					value: {
-						value: $app!,
-						summary: $summary,
-						policy,
-						path: newEditedPath || path
-					}
-				}
-			})
-
-			savedApp = {
-				...(savedApp?.draft_only
-					? {
-							summary: $summary,
-							value: structuredClone($state.snapshot($app)),
-							path: savedApp.draft_only ? newEditedPath || path : path,
-							policy,
-							draft_only: true,
-							custom_path: customPath
-						}
-					: savedApp),
-				draft: {
-					summary: $summary,
-					value: structuredClone($state.snapshot($app)),
-					path: newEditedPath || path,
-					policy,
-					custom_path: customPath
-				}
-			}
-
-			sendUserToast('Draft saved')
-			if (!inSessionPane) UserDraft.remove('app', path)
-			loading.saveDraft = false
-			if (newApp || savedApp.draft_only) {
-				onSavedNewAppPath?.(newEditedPath || path)
-			}
-		} catch (e) {
-			loading.saveDraft = false
-			throw e
-		}
 	}
 
 	let onLatest = $state(true)
@@ -569,8 +455,16 @@
 				break
 			case 's':
 				if (event.ctrlKey || event.metaKey) {
-					saveDraft()
 					event.preventDefault()
+					// Flush the pending autosave (also covers the toggle-off parked
+					// case); no-op in the AI session pane (no handle there).
+					if (!inSessionPane && $workspaceStore && userDraftPath) {
+						void UserDraftDbSyncer.flush({
+							workspace: $workspaceStore,
+							itemKind: 'app',
+							path: userDraftPath
+						})
+					}
 				}
 				break
 			// case 'ArrowDown': {
@@ -613,13 +507,6 @@
 	let moreItems = $derived([
 		...(compactTopbar
 			? [
-					{
-						displayName: 'Save draft',
-						icon: Save,
-						action: () => saveDraft(),
-						shortcut: `${mod}S`,
-						disabled: !newApp && !savedApp
-					},
 					{
 						displayName: `Debug runs (${$jobs?.length > 99 ? '99+' : ($jobs?.length ?? 0)})`,
 						icon: Bug,
@@ -696,13 +583,13 @@
 			action: () => {
 				appReportingDrawerOpen = true
 			},
-			disabled: !savedApp || savedApp.draft_only
+			disabled: !savedApp
 		},
 		{
 			displayName: 'Diff',
 			icon: DiffIcon,
 			action: async () => {
-				if (!savedApp) {
+				if (!savedApp || newApp) {
 					return
 				}
 
@@ -713,17 +600,16 @@
 				diffDrawer?.setDiff({
 					mode: 'normal',
 					deployed: deployedValue ?? savedApp,
-					draft: savedApp.draft,
 					current: {
 						summary: $summary,
 						value: $app,
-						path: newEditedPath || savedApp.draft?.path || savedApp.path,
+						path: newEditedPath || savedApp.path,
 						policy,
 						custom_path: customPath
 					}
 				})
 			},
-			disabled: !savedApp
+			disabled: !savedApp || newApp
 		},
 		// App debug menu
 		{
@@ -811,6 +697,12 @@
 	let priorDarkMode = document.documentElement.classList.contains('dark')
 	setTheme($app?.darkMode)
 
+	// Restore the user's prior theme on navigation away from the editor; the
+	// app's darkMode override would otherwise leak into the next page.
+	beforeNavigate(() => {
+		setTheme(priorDarkMode)
+	})
+
 	let customPath = $state(savedApp?.custom_path)
 
 	$effect(() => {
@@ -830,24 +722,6 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
-{#if unsavedConfirmationModal}
-	{@render unsavedConfirmationModal?.({
-		diffDrawer,
-		additionalExitAction: () => {
-			setTheme(priorDarkMode)
-		},
-		getInitialAndModifiedValues: () => ({
-			savedValue: savedApp,
-			modifiedValue: {
-				summary: $summary,
-				value: $app,
-				path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
-				policy,
-				custom_path: customPath
-			}
-		})
-	})}
-{/if}
 <DeployOverrideConfirmationModal
 	{deployedBy}
 	{confirmCallback}
@@ -857,40 +731,13 @@
 	currentValue={{
 		summary: $summary,
 		value: $app,
-		path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
+		path: newEditedPath || savedApp?.path,
 		policy,
 		custom_path: customPath
 	}}
 />
 
 <LegacySandboxMigrationModal bind:this={legacySandboxModal} />
-
-{#if $appPath == ''}
-	<Drawer bind:open={draftDrawerOpen} size="800px">
-		<DrawerContent title="Initial draft save" on:close={() => closeDraftDrawer()}>
-			{#snippet actions()}
-				<div>
-					<Button
-						startIcon={{ icon: Save }}
-						disabled={pathError != ''}
-						on:click={() => saveInitialDraft()}
-						unifiedSize="md"
-						variant="accent"
-					>
-						Save initial draft
-					</Button>
-				</div>
-			{/snippet}
-
-			<AppEditorHeaderDeployInitialDraft
-				bind:summary={$summary}
-				bind:appPath={$appPath}
-				bind:pathError
-				bind:newEditedPath
-			/>
-		</DrawerContent>
-	</Drawer>
-{/if}
 
 <AppJobsDrawer
 	bind:open={$jobsDrawerOpen}
@@ -914,9 +761,9 @@
 			<div class="flex flex-row gap-4">
 				<Button
 					variant="accent"
-					disabled={!savedApp || savedApp.draft_only}
+					disabled={!savedApp || newApp}
 					on:click={async () => {
-						if (!savedApp) {
+						if (!savedApp || newApp) {
 							return
 						}
 						// deployedValue should be syncronized when we open Diff
@@ -927,18 +774,17 @@
 						diffDrawer?.setDiff({
 							mode: 'normal',
 							deployed: deployedValue ?? savedApp,
-							draft: savedApp.draft,
 							current: {
 								summary: $summary,
 								value: $app,
-								path: newEditedPath || savedApp.draft?.path || savedApp.path,
+								path: newEditedPath || savedApp.path,
 								policy,
 								custom_path: customPath
 							},
 							button: {
 								text: 'Looks good, deploy',
 								onClick: () => {
-									if ($appPath == '') {
+									if (newApp) {
 										createApp(newEditedPath)
 									} else {
 										handleUpdateApp(newEditedPath)
@@ -958,7 +804,9 @@
 					startIcon={{ icon: Save }}
 					disabled={pathError != '' || customPathError != ''}
 					on:click={() => {
-						if ($appPath == '') {
+						// Use `newApp` (set for /apps/add and draft-only paths), not
+						// `$appPath` — its `draft_{uuid}` is a poor create signal.
+						if (newApp) {
 							createApp(newEditedPath)
 						} else {
 							handleUpdateApp(newEditedPath)
@@ -971,6 +819,7 @@
 		{/snippet}
 		<AppEditorHeaderDeploy
 			{newPath}
+			{newApp}
 			{policy}
 			{setPublishState}
 			appPath={$appPath}
@@ -1126,6 +975,20 @@
 				</ToggleButtonGroup>
 			</div>
 		</div>
+		{#if $workspaceStore}
+			<div class="ml-4">
+				<AutosaveIndicator
+					workspace={$workspaceStore}
+					itemKind="app"
+					path={userDraftPath}
+					draftOnly={newApp}
+					{onResetToDeployed}
+					{loadedFromDraft}
+					{othersDraftsCount}
+					{onOpenOthersDrafts}
+				/>
+			</div>
+		{/if}
 	</div>
 
 	{#if $mode !== 'preview'}
@@ -1219,19 +1082,6 @@
 		</div>
 		<AppExportButton bind:this={appExport} />
 		<PreviewToggle loading={loading.save} />
-		{#if !compactTopbar}
-			<Button
-				variant="accent"
-				loading={loading.save}
-				startIcon={{ icon: Save }}
-				on:click={() => saveDraft()}
-				unifiedSize="md"
-				disabled={!newApp && !savedApp}
-				shortCut={{ key: 'S' }}
-			>
-				Draft
-			</Button>
-		{/if}
 		<Button
 			variant="accent"
 			loading={loading.save}
