@@ -19,9 +19,9 @@
 		 * Restrict waitJob/getJob/streamJob to job ids launched by this app
 		 * instance (WIN-2006): a SANDBOXED bundle must not read arbitrary
 		 * workspace jobs through the credentialed bridge. Off for unsandboxed
-		 * renders (legacy / consented / editor preview) — there the bundle holds
+		 * renders (the default, and editor preview) — there the bundle holds
 		 * the same credential as the bridge, so gating adds nothing and would
-		 * only break pre-sandbox apps that poll persisted or runnable-returned
+		 * only break unsandboxed apps that poll persisted or runnable-returned
 		 * job ids.
 		 */
 		gateJobIds?: boolean

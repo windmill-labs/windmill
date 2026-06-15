@@ -79,19 +79,18 @@ export function formatAppRunsForChat(runs: RawAppRunSummary[]): string {
 	return JSON.stringify(runs, null, 2)
 }
 
-// The DEFAULT (isolated) raw-app wrapper is generated server-side and served as
+// The sandboxed (isolated) raw-app wrapper is generated server-side and served as
 // a sandboxed, opaque-origin document (see `get_raw_app_data` in the backend
 // `apps.rs`, WIN-2006) — a blob: URL cannot carry the `CSP: sandbox` response
 // header that enforces isolation, so the wrapper must come from the backend.
 //
-// The function below is used ONLY for the opt-out path: a publisher who disabled
-// sandbox isolation AND a viewer who consented (per app version, upstream in
-// PublicAppFrame). It is loaded as a blob: URL — same-origin with the SPA — so,
-// with `allow-same-origin`, the bundle runs with the viewer's full session (the
-// publisher's explicit, consented choice). Crucially this is an in-memory blob,
-// not a real-origin endpoint, so it is not a URL an attacker can navigate a
-// logged-in victim to in order to bypass the consent prompt — the backend
-// `.html` document stays sandboxed in all cases.
+// The function below is used ONLY for the unsandboxed path (the default — the
+// publisher did not opt into sandbox isolation). It is loaded as a blob: URL —
+// same-origin with the SPA — so, with `allow-same-origin`, the bundle runs with
+// the viewer's full session. Crucially this is an in-memory blob, not a
+// real-origin endpoint, so it is not a URL an attacker can navigate a logged-in
+// victim to in order to gain isolation-bypassing access — the backend `.html`
+// document stays sandboxed whenever the publisher did opt in.
 export function unsandboxedRawAppHtml(
 	workspace: string,
 	secret: string,

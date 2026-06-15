@@ -20,17 +20,16 @@
 	// Get initial hash from parent URL to pass to the iframe
 	let initialHash = ''
 
-	// WIN-2006: when the publisher disabled sandbox isolation (and the viewer
-	// consented upstream in PublicAppFrame), run the bundle same-origin with full
-	// access; otherwise the default opaque-origin sandbox.
+	// WIN-2006: unless the publisher opted into sandbox isolation, run the bundle
+	// same-origin with full access (the default); otherwise the opaque-origin sandbox.
 	const unsandboxedCtx = getContext<{ value: boolean }>('IS_APP_UNSANDBOXED')
 	let unsandboxed = $derived(unsandboxedCtx?.value ?? false)
-	// Unsandboxed (grandfathered legacy / consented opt-out) must match the
-	// pre-isolation viewer exactly: NO sandbox attribute (a same-origin blob with
-	// full session — an attribute would only break leftover features like
-	// unsandboxed popups for OAuth flows, while adding no isolation). The default
-	// keeps the restrictive attribute; the wrapper document's `CSP: sandbox`
-	// response header enforces the opaque origin regardless.
+	// Unsandboxed (the default) must match the pre-isolation viewer exactly: NO
+	// sandbox attribute (a same-origin blob with full session — an attribute would
+	// only break leftover features like unsandboxed popups for OAuth flows, while
+	// adding no isolation). The sandboxed path keeps the restrictive attribute; the
+	// wrapper document's `CSP: sandbox` response header enforces the opaque origin
+	// regardless.
 	let sandboxAttr = $derived(
 		unsandboxed
 			? undefined
@@ -45,8 +44,8 @@
 	//   against the real host even when this component itself runs inside an opaque
 	//   viewer (where `location.origin` is "null"). Context is handed over via
 	//   postMessage — never baked into the document, never a credential.
-	// - UNSANDBOXED (publisher opted out + viewer consented): a client-built
-	//   blob: wrapper (same-origin with the SPA) loaded with `allow-same-origin`,
+	// - UNSANDBOXED (the default — publisher did not opt into isolation): a
+	//   client-built blob: wrapper (same-origin with the SPA) loaded with `allow-same-origin`,
 	//   so relative `fetch('/api/...')` and the session cookie work. The backend
 	//   `.html` is ALWAYS sandboxed, so we must build the same-origin wrapper here
 	//   rather than relax a real-origin endpoint a victim could be linked to.
@@ -222,9 +221,9 @@
 />
 
 {#if iframeSrc}
-	<!-- `unsandboxed` (publisher disabled isolation + viewer consented) adds
+	<!-- `unsandboxed` (the default — publisher did not opt into isolation) adds
 	     allow-same-origin and loads a same-origin blob: wrapper, so the bundle runs
-	     with full access. The default path loads the always-CSP-sandboxed backend
+	     with full access. The sandboxed path loads the always-CSP-sandboxed backend
 	     wrapper, which stays opaque even on direct navigation. -->
 	<!-- referrerpolicy (sandboxed only, for exact legacy parity): the hosting page
 	     URL can carry a viewer credential (the JWT path segment of share links);

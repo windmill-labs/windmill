@@ -2,12 +2,12 @@
 	/*
 	 * WIN-2006: shared in-workspace app viewer (low-code AND raw). Renders the app
 	 * through the same PublicAppFrame -> PublicApp machinery the public viewer uses,
-	 * so the sandbox / legacy-unsandboxed / disable-sandbox-consent behavior is
-	 * identical on every page. PublicAppFrame picks the rendering: an opaque
-	 * /app_embed iframe for sandboxed low-code, or inline (with the bundle isolated
-	 * in RawAppPreview's own opaque iframe) for raw and for unsandboxed/consented
-	 * apps. The app is untrusted markup/JS, so it must not run with the member's
-	 * full session — hence the scoped embed token / opaque isolation.
+	 * so the sandbox behavior is identical on every page. PublicAppFrame picks the
+	 * rendering: an opaque /app_embed iframe for sandboxed low-code, or inline (with
+	 * the bundle isolated in RawAppPreview's own opaque iframe) for raw and for
+	 * unsandboxed apps. When the publisher opts an app into sandbox isolation, its
+	 * untrusted markup/JS must not run with the member's full session — hence the
+	 * scoped embed token / opaque isolation.
 	 */
 	import { base } from '$lib/base'
 	import PublicApp from '$lib/components/apps/editor/PublicApp.svelte'
@@ -66,10 +66,10 @@
 		return await res.json()
 	}
 
-	// Viewer side — used for the inline renderings (raw, legacy, consented
-	// disable-sandbox); the sandboxed low-code case loads inside the opaque
-	// /app_embed iframe instead. getAppByPath returns bundle_secret + runnables for
-	// raw apps, which PublicApp -> RawAppPreview needs.
+	// Viewer side — used for the inline renderings (raw, and unsandboxed low-code);
+	// the sandboxed low-code case loads inside the opaque /app_embed iframe instead.
+	// getAppByPath returns bundle_secret + runnables for raw apps, which
+	// PublicApp -> RawAppPreview needs.
 	async function loadApp() {
 		try {
 			userStore.set(await getUserExt(workspace))

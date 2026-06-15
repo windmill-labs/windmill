@@ -2,9 +2,8 @@
 	/*
 	 * WIN-2006: in-workspace raw app viewer. Thin wrapper over the shared
 	 * InWorkspaceAppViewer (same component as the low-code /apps/get route) so raw
-	 * apps get the identical sandbox / legacy-unsandboxed / disable-sandbox-consent
-	 * behavior. PublicAppFrame renders raw apps inline with the bundle isolated in
-	 * RawAppPreview's own opaque iframe.
+	 * apps get the identical sandbox behavior. PublicAppFrame renders raw apps
+	 * inline with the bundle isolated in RawAppPreview's own opaque iframe.
 	 */
 	import { base } from '$lib/base'
 	import InWorkspaceAppViewer from '$lib/components/apps/editor/InWorkspaceAppViewer.svelte'

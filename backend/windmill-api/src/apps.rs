@@ -596,13 +596,12 @@ async fn get_raw_app_data(
         // ALWAYS served with `CSP: sandbox`, which forces an opaque origin even on
         // direct top-level navigation — so this real-origin URL can never be used
         // to run a raw-app bundle with the viewer's session (WIN-2006). The
-        // publisher "disable sandbox isolation" opt-out is NOT applied here: it is
-        // handled entirely on the viewer side, which (after a per-version consent
-        // prompt) builds its own same-origin wrapper. Relaxing this header from a
-        // policy flag would let anyone with the share secret hand a logged-in
-        // victim a same-origin URL that runs the bundle with their session,
-        // bypassing the consent prompt — so the standalone document stays
-        // sandboxed no matter how it is reached.
+        // unsandboxed (default) render is NOT applied here: it is handled entirely
+        // on the viewer side, which builds its own same-origin wrapper. Relaxing
+        // this header from a policy flag would let anyone with the share secret
+        // hand a logged-in victim a same-origin URL that runs the bundle with
+        // their session — so the standalone document stays sandboxed no matter how
+        // it is reached.
         let html = raw_app_wrapper_html(secret_id);
         let mut builder = Response::builder()
             .header(http::header::CONTENT_TYPE, "text/html; charset=utf-8")
