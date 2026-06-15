@@ -59,22 +59,10 @@
 		delete deployed.draft
 		UserDraft.discard<Flow>('flow', path, deployed, { workspace: workspaceId })
 	}
-
-	async function restoreDraft() {
-		const backendDraft = runtime.savedFlow.val?.draft
-		if (!backendDraft) {
-			sendUserToast('Could not restore to draft', true)
-			return
-		}
-		diffDrawer?.closeDrawer()
-		UserDraft.discard<Flow>('flow', path, structuredClone($state.snapshot(backendDraft)), {
-			workspace: workspaceId
-		})
-	}
 </script>
 
 {#if runtime.savedFlow.val}
-	<DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} isFlow />
+	<DiffDrawer bind:this={diffDrawer} {restoreDeployed} isFlow />
 {/if}
 <SessionEditorTarget
 	{runtime}

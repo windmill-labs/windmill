@@ -57,23 +57,6 @@
 		invalidateWorkspaceDrafts(workspaceId)
 	}
 
-	async function restoreDraft() {
-		const backendDraft = runtime.savedRawApp.val?.draft as RawAppDraft | undefined
-		if (!backendDraft) {
-			sendUserToast('Could not restore to draft', true)
-			return
-		}
-		diffDrawer?.closeDrawer()
-		UserDraft.discard<RawAppDraft>(
-			'raw_app',
-			path,
-			structuredClone($state.snapshot(backendDraft)),
-			{
-				workspace: workspaceId
-			}
-		)
-	}
-
 	function registerRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined) {
 		runtime.setRuntimeLogRequester(requester)
 	}
@@ -84,7 +67,7 @@
 </script>
 
 {#if runtime.savedRawApp.val}
-	<DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
+	<DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
 {/if}
 <SessionEditorTarget
 	{runtime}
