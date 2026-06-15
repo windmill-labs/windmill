@@ -7,6 +7,7 @@
 	 * (no deployed row), else "Draft". Renders nothing when there's no draft.
 	 */
 	import Popover from './meltComponents/Popover.svelte'
+	import Tooltip from './meltComponents/Tooltip.svelte'
 	import { Badge } from './common'
 	import Button from './common/button/Button.svelte'
 	import Modal2 from './common/modal/Modal2.svelte'
@@ -219,8 +220,17 @@
 								>
 									{initials(u)}
 								</span>
-								<span class="flex-1 truncate text-primary">
+								<span class="flex-1 truncate text-primary inline-flex items-center gap-1">
 									{fullLabel(u)}{isSelf ? ' (you)' : ''}
+									{#if !u.username}
+										<Tooltip small>
+											{#snippet text()}
+												A legacy draft predates the per-user drafts migration: it isn't tied to any
+												user (workspace-level, email NULL), so everyone with access to this path
+												sees it.
+											{/snippet}
+										</Tooltip>
+									{/if}
 								</span>
 								{#if actionsEnabled && !isSelf}
 									<Button
