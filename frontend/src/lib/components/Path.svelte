@@ -378,6 +378,25 @@
 		;[meta?.name, meta?.owner, meta?.ownerKind]
 		meta && untrack(() => onMetaChange())
 	})
+	// Reflect an EXTERNAL `path` change back into `meta` (which drives the
+	// owner/name inputs). The effect above is one-way meta→path; without
+	// this counterpart, a parent that reassigns `path` — e.g. "Discard"
+	// reverting a draft to the deployed value — leaves the inputs showing
+	// the stale value until a remount. Guard against a meta↔path loop: skip
+	// when `path` already matches what `meta` produces (the meta→path write),
+	// and only adopt a derivation that round-trips cleanly (so a malformed
+	// path left to `initPath`/`reset` can't oscillate).
+	$effect.pre(() => {
+		const p = path
+		untrack(() => {
+			if (p == undefined || p == '' || p.startsWith('tmp/') || p.startsWith('hub/')) return
+			if (!meta || metaToPath(meta) === p) return
+			const next = pathToMeta(p, hideUser)
+			if (metaToPath(next) === p) {
+				meta = next
+			}
+		})
+	})
 	$effect.pre(() => {
 		if ($workspaceStore && $userStore) {
 			untrack(() => {

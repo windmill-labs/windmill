@@ -3,8 +3,9 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
-	import { DraftService, ScriptService, type NewScript } from '$lib/gen'
+	import type { NewScript } from '$lib/gen'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import SessionEditorTarget from './SessionEditorTarget.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
@@ -41,18 +42,28 @@
 			return
 		}
 		diffDrawer?.closeDrawer()
-		// Drop the backend (DB) draft too, so "deployed" sticks across a reload.
-		if (saved.draft) {
-			try {
-				await DraftService.deleteDraft({ workspace: workspaceId, kind: 'script', path: saved.path })
-				saved.draft = undefined
-				// Server draft gone — refresh the session draft-bar count immediately
-				// instead of waiting for an AI turn-end / tab-refocus signal.
-				invalidateWorkspaceDrafts(workspaceId)
-			} catch (e: any) {
-				sendUserToast(`Could not delete draft: ${e?.body ?? e}`, true)
-				return
-			}
+		// Drop the user's per-user draft too, so "deployed" sticks across
+		// a reload. The overlay sets `is_draft: true` when a draft exists
+		// for the authed user; the syncer's `value: null` POST is the
+		// canonical per-user delete.
+		//
+		// Fire-and-forget: every read here (`saved`, the snapshot we build
+		// below, the UserDraft.discard write) is purely in-memory, so we
+		// don't need the DELETE to have landed to finish the restore. We
+		// flip `is_draft` optimistically so the UI matches the new intent
+		// immediately. A failed DELETE only matters across a hard reload
+		// before it lands — log and move on.
+		if (saved.is_draft) {
+			saved.is_draft = false
+			UserDraftDbSyncer.save({
+				workspace: workspaceId,
+				itemKind: 'script',
+				path: saved.path,
+				value: null
+			}).catch((e) => console.error('restoreDeployed: draft delete failed', e))
+			// Per-user draft gone — refresh the session draft-bar count immediately
+			// instead of waiting for an AI turn-end / tab-refocus signal.
+			invalidateWorkspaceDrafts(workspaceId)
 		}
 		const deployed = structuredClone($state.snapshot(saved)) as NewScript & { draft?: unknown }
 		delete deployed.draft
@@ -105,24 +116,6 @@
 				{diffDrawer}
 				{onNavigate}
 				{initialTestPanelCollapsed}
-				onSaveDraft={async (e) => {
-					runtime.scheduleForkComparisonRefresh()
-					// Saving a draft adds/keeps a pending draft — refresh the Draft Count.
-					invalidateWorkspaceDrafts(workspaceId)
-					// Re-pin parent_hash to the latest version so the next Deploy's conflict
-					// check (which runs before deploy, while the session stays mounted)
-					// doesn't misfire.
-					try {
-						const latest = await ScriptService.getScriptLatestVersion({
-							workspace: workspaceId,
-							path: e.path
-						})
-						const cur = runtime.scriptStore.val
-						if (latest?.script_hash && cur) cur.parent_hash = latest.script_hash
-					} catch (err) {
-						console.error('Failed to sync parent_hash after save draft', err)
-					}
-				}}
 				onDeploy={(e) => {
 					// Fires on every deploy (primary, "Deploy & Stay here", and lib — we
 					// ignore e.stay since the session always stays). Toast, then sync the

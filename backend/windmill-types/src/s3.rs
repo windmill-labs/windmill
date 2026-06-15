@@ -364,13 +364,11 @@ mod tests {
         assert_eq!(deserialized, S3Permission::READ | S3Permission::WRITE);
 
         // Unknown permissions are silently ignored
-        let deserialized: S3Permission =
-            serde_json::from_str("\"read,unknown,delete\"").unwrap();
+        let deserialized: S3Permission = serde_json::from_str("\"read,unknown,delete\"").unwrap();
         assert_eq!(deserialized, S3Permission::READ | S3Permission::DELETE);
 
         // All four permissions
-        let all: S3Permission =
-            serde_json::from_str("\"read,write,delete,list\"").unwrap();
+        let all: S3Permission = serde_json::from_str("\"read,write,delete,list\"").unwrap();
         assert_eq!(
             all,
             S3Permission::READ | S3Permission::WRITE | S3Permission::DELETE | S3Permission::LIST
@@ -409,20 +407,15 @@ mod tests {
         );
 
         // Region set, endpoint empty → use region
-        let with_region = S3Resource {
-            region: "ap-southeast-1".to_string(),
-            ..resource.clone()
-        };
+        let with_region = S3Resource { region: "ap-southeast-1".to_string(), ..resource.clone() };
         assert_eq!(
             with_region.endpoint_with_region_fallback(Some("ignored".to_string())),
             "s3.ap-southeast-1.amazonaws.com"
         );
 
         // Endpoint set → return as-is
-        let with_endpoint = S3Resource {
-            endpoint: "custom.s3.endpoint.com".to_string(),
-            ..resource.clone()
-        };
+        let with_endpoint =
+            S3Resource { endpoint: "custom.s3.endpoint.com".to_string(), ..resource.clone() };
         assert_eq!(
             with_endpoint.endpoint_with_region_fallback(Some("ignored".to_string())),
             "custom.s3.endpoint.com"
@@ -431,10 +424,8 @@ mod tests {
 
     #[test]
     fn test_lfs_methods_filesystem() {
-        let rules = vec![S3PermissionRule {
-            pattern: "**/*.csv".to_string(),
-            allow: S3Permission::READ,
-        }];
+        let rules =
+            vec![S3PermissionRule { pattern: "**/*.csv".to_string(), allow: S3Permission::READ }];
         let lfs = LargeFileStorage::FilesystemStorage(FilesystemStorage {
             root_path: "/data/workspace".to_string(),
             public_resource: Some(true),
