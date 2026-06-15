@@ -1070,7 +1070,7 @@
 		<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
 		<FlowEditorDrawer bind:this={$flowEditorDrawer} />
 
-		<div bind:this={flowBuilderRoot} class="flex flex-col flex-1 h-screen">
+		<div bind:this={flowBuilderRoot} class="flex flex-col h-screen">
 			<!-- Nav between steps-->
 			<div
 				bind:clientWidth={topbarWidth}
