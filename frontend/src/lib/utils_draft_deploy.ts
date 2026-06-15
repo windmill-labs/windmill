@@ -113,6 +113,72 @@ const EMPTY_DEPLOYED: Partial<Record<DraftKind, (draft: any) => unknown>> = {
 	app: () => ({ summary: '', value: {}, policy: {} })
 }
 
+/** Runtime/server-managed fields dropped from schedule & trigger rows so the
+ *  diff shows only config changes. Mirrors the fork/compare path's
+ *  `stripTriggerOrScheduleRuntimeFields` (windmill-utils-internal) and the
+ *  backend `TRIGGER_COMPARE_IGNORE`. */
+const SCHEDULE_TRIGGER_RUNTIME_FIELDS = new Set([
+	'workspace_id',
+	'edited_by',
+	'edited_at',
+	'email',
+	'error',
+	'enabled',
+	'mode',
+	'server_id',
+	'last_server_ping',
+	'extra_perms',
+	'permissioned_as',
+	'subscription_id',
+	'push_auth_config'
+])
+
+function stripScheduleTriggerRuntime(row: any): Record<string, unknown> {
+	if (!row || typeof row !== 'object') return {}
+	return Object.fromEntries(
+		Object.entries(row).filter(([k]) => !SCHEDULE_TRIGGER_RUNTIME_FIELDS.has(k))
+	)
+}
+
+/**
+ * Project a variable/resource/schedule/trigger value — given in either its
+ * deployed backend-row shape or its draft editor-state shape — onto one
+ * canonical field set, so the deployed and draft sides of a diff are comparable
+ * and read as labeled rows instead of structural noise (variable `variable.value`
+ * vs `value`, resource `args` vs `value`, schedule/trigger runtime fields). This
+ * matches the shaping the compare page applies via `getItemValue`. `isDraft`
+ * selects the editor-state field names; secret variable values are masked.
+ */
+function canonicalizeDraftDiffValue(kind: DraftKind, raw: any, isDraft: boolean): unknown {
+	if (!raw || typeof raw !== 'object') return raw ?? {}
+	if (kind === 'variable') {
+		// draft: { variable: { value, is_secret, description }, labels, wsSpecific }
+		// deployed row: { value, is_secret, description, labels, ws_specific }
+		const v = isDraft ? (raw.variable ?? {}) : raw
+		const is_secret = !!v.is_secret
+		return {
+			value: is_secret ? '<secret>' : (v.value ?? ''),
+			is_secret,
+			description: v.description ?? '',
+			labels: raw.labels ?? undefined,
+			ws_specific: (isDraft ? raw.wsSpecific : raw.ws_specific) ?? undefined
+		}
+	}
+	if (kind === 'resource') {
+		// draft: { args, description, resource_type, labels, wsSpecific }
+		// deployed row: { value, description, resource_type, labels, ws_specific }
+		return {
+			value: (isDraft ? raw.args : raw.value) ?? {},
+			description: raw.description ?? '',
+			resource_type: raw.resource_type ?? undefined,
+			labels: raw.labels ?? undefined,
+			ws_specific: (isDraft ? raw.wsSpecific : raw.ws_specific) ?? undefined
+		}
+	}
+	// schedule + triggers: same field names on both sides — drop runtime noise.
+	return stripScheduleTriggerRuntime(raw)
+}
+
 /**
  * Fetch the deployed value and the draft value for an item, for the DiffDrawer
  * (`mode: 'simple'`, original = deployed, current = draft). For a `draft_only`
@@ -180,15 +246,20 @@ export async function getDraftDiffValues(
 		const draftValue = r.draft ?? deployed
 		return { deployed: draftOnly ? EMPTY_DEPLOYED.app!(draftValue) : deployed, draft: draftValue }
 	} else {
-		// Variables / resources / schedules / triggers: the draft is the
-		// editor's flat config object and the deployed shape diffs cleanly
-		// as a plain object — one overlay GET covers both sides.
+		// Variables / resources / schedules / triggers: one overlay GET yields
+		// both sides, but the draft side is the editor's state shape while the
+		// deployed side is the backend row — they diverge enough to make a raw
+		// diff pure noise. Canonicalize both onto a shared field set (same shaping
+		// the compare page's `getItemValue` applies) so only real changes show.
 		const getter = OVERLAY_GETTERS[kind]
 		if (!getter) {
 			throw new Error(`Draft diff not supported for kind ${kind}`)
 		}
 		const { deployed, draft } = splitOverlay(await getter(workspace, path))
-		return { deployed: draftOnly ? {} : deployed, draft }
+		return {
+			deployed: draftOnly ? {} : canonicalizeDraftDiffValue(kind, deployed, false),
+			draft: canonicalizeDraftDiffValue(kind, draft, true)
+		}
 	}
 }
 
