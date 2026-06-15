@@ -1145,14 +1145,27 @@ async fn get_public_app_by_secret(
 ///                      and `execute_component` (run). Run/Read only — it does
 ///                      NOT grant `apps:write`, so the token cannot reach
 ///                      app-management routes (`apps/update`, `apps/delete`, ...).
-/// - `jobs:read`     → `jobs_u/getupdate_sse`, completed-job results.
-/// - `resources:read`→ `resources/list`, `resources/type/*`, `resources/exists`.
+/// - `jobs:read`     → `jobs_u/getupdate_sse`, completed-job results (by id). The
+///                      `app_embed` sentinel additionally blocks the workspace-wide
+///                      job enumeration/export routes (`jobs/list`, `list_filtered_uuids`,
+///                      `queue/list`, `completed/list`, `queue/export`), so a
+///                      sandboxed app reads only jobs it launched — see
+///                      `app_embed_denied_job_route`.
+/// - `app_embed`     → sentinel marking this as an app embed token (grants nothing;
+///                      drives the job-enumeration deny above).
+/// - `resources:run` → resource METADATA only (`resources/list`,
+///                      `resources/type/*`, `resources/exists`, `list_names`) for
+///                      pickers/type schemas. Deliberately NOT `resources:read`,
+///                      which also exposes resource VALUES (`get`, `get_value`,
+///                      `get_value_interpolated`, `list_search`) that can contain
+///                      credentials — see `resource_metadata_route_allowed`.
 /// - `users:read`    → `users/whoami`.
 /// - `folders:read`  → `folders/listnames`.
-pub const APP_EMBED_SCOPES: [&str; 5] = [
+pub const APP_EMBED_SCOPES: [&str; 6] = [
     "apps:run",
     "jobs:read",
-    "resources:read",
+    windmill_api_auth::scopes::APP_EMBED_SENTINEL,
+    "resources:run",
     "users:read",
     "folders:read",
 ];
@@ -4067,8 +4080,14 @@ mod embed_token_tests {
             ("/api/w/test/apps_u/public_resource/f/app_themes/t", "GET"),
             ("/api/w/test/apps_u/execute_component/u/admin/app", "POST"),
             ("/api/w/test/jobs_u/getupdate_sse/some-uuid", "GET"),
+            // By-id job reads (result polling) stay allowed — only enumeration is blocked.
+            ("/api/w/test/jobs_u/completed/get_result/some-uuid", "GET"),
+            ("/api/w/test/jobs_u/completed/get_timing/some-uuid", "GET"),
             ("/api/w/test/users/whoami", "GET"),
+            // Resource METADATA only (picker list + type schemas) — never values.
             ("/api/w/test/resources/list", "GET"),
+            ("/api/w/test/resources/exists/u/admin/r", "GET"),
+            ("/api/w/test/resources/type/list", "GET"),
             ("/api/w/test/folders/listnames", "GET"),
         ];
         for (path, method) in allowed {
@@ -4079,13 +4098,30 @@ mod embed_token_tests {
         }
 
         // Denied: anything outside what an app needs, including app management
-        // (apps:write is intentionally withheld) and other workspace domains.
+        // (apps:write is intentionally withheld), resource VALUE reads (which can
+        // hold credentials), and other workspace domains.
         let denied = [
             ("/api/w/test/apps/update/u/admin/app", "POST"),
             ("/api/w/test/apps/delete/u/admin/app", "DELETE"),
             ("/api/w/test/scripts/list", "GET"),
             ("/api/w/test/variables/list", "GET"),
             ("/api/w/test/resources/update/u/admin/r", "POST"),
+            // Resource value reads must NOT be reachable with the embed token.
+            ("/api/w/test/resources/get/u/admin/r", "GET"),
+            ("/api/w/test/resources/get_value/u/admin/r", "GET"),
+            (
+                "/api/w/test/resources/get_value_interpolated/u/admin/r",
+                "GET",
+            ),
+            ("/api/w/test/resources/list_search", "GET"),
+            // Workspace-wide job enumeration/export must NOT be reachable — an app
+            // reads only jobs it launched, by id (blocked via the app_embed sentinel).
+            ("/api/w/test/jobs/list", "GET"),
+            ("/api/w/test/jobs/list_filtered_uuids", "GET"),
+            ("/api/w/test/jobs/completed/list", "GET"),
+            ("/api/w/test/jobs/queue/list", "GET"),
+            ("/api/w/test/jobs/queue/list_filtered_uuids", "GET"),
+            ("/api/w/test/jobs/queue/export", "GET"),
         ];
         for (path, method) in denied {
             assert!(
@@ -4109,7 +4145,11 @@ mod embed_token_tests {
         scopes.push("apps:read:u/admin/app".to_string());
         let required = ScopeDefinition::from_scope_string("apps:read").unwrap();
         for s in &scopes {
-            let def = ScopeDefinition::from_scope_string(s).unwrap();
+            // The `app_embed` sentinel intentionally doesn't parse as a domain:action
+            // scope (it grants nothing; it only drives the job-enumeration deny).
+            let Ok(def) = ScopeDefinition::from_scope_string(s) else {
+                continue;
+            };
             assert!(
                 !def.includes(&required),
                 "embed scope {s} must not satisfy domain-level apps:read (would leak apps/list[_search])"

@@ -1,4 +1,4 @@
-import { JobService, ResourceService } from '$lib/gen'
+import { JobService } from '$lib/gen'
 
 import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 import type { DbInput } from '$lib/components/dbTypes'
@@ -39,17 +39,11 @@ export async function loadTableMetaData(
 	const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
 	const dbArg = getDatabaseArg(input)
 
-	// MySQL needs the database name for metadata queries
-	let databaseName: string | undefined
-	if (input.type === 'database' && input.resourceType === 'mysql') {
-		const resourceObj = (await ResourceService.getResourceValue({
-			workspace,
-			path: input.resourcePath
-		})) as any
-		databaseName = resourceObj?.database
-	}
-
-	const content = makeMetadataMarker('LOAD_TABLE_METADATA', { table, databaseName }, ducklake)
+	// MySQL: the db name is resolved server-side — the generated metadata query
+	// falls back to `DATABASE()` (the connection's default database) when none is
+	// passed. So we don't read the resource value client-side just for the name (a
+	// sandboxed app iframe holds no scope to read resource values).
+	const content = makeMetadataMarker('LOAD_TABLE_METADATA', { table }, ducklake)
 
 	const job = await JobService.runScriptPreview({
 		workspace,
@@ -106,22 +100,10 @@ export async function loadAllTablesMetaData(
 		const dbArg = getDatabaseArg(input)
 		const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
 
-		// MySQL needs the database name for metadata queries
-		let databaseName: string | undefined
-		if (input.type === 'database' && input.resourceType === 'mysql') {
-			const resourceObj = (await ResourceService.getResourceValue({
-				workspace,
-				path: input.resourcePath
-			})) as any
-			databaseName = resourceObj?.database
-		}
-
 		const language = getLanguageByResourceType(dbType)
-		const content = makeMetadataMarker(
-			'LOAD_TABLE_METADATA',
-			{ table: undefined, databaseName },
-			ducklake
-		)
+		// MySQL db name is resolved server-side via `DATABASE()` (see loadTableMetaData);
+		// no client-side resource-value read.
+		const content = makeMetadataMarker('LOAD_TABLE_METADATA', { table: undefined }, ducklake)
 
 		let result = (await runScriptAndPollResult({
 			workspace,
@@ -283,9 +265,7 @@ export async function getDbSchemas(
 
 export async function getTablesByResource(
 	schema: Partial<Record<string, DBSchema>>,
-	dbType: DbType | undefined,
-	dbPath: string,
-	workspace: string
+	dbType: DbType | undefined
 ): Promise<string[]> {
 	const s = Object.values(schema)?.[0]
 	switch (dbType) {
@@ -301,14 +281,16 @@ export async function getTablesByResource(
 			return paths
 		}
 		case 'mysql': {
-			const resourceObj = (await ResourceService.getResourceValue({
-				workspace,
-				path: dbPath.split('$res:')[1]
-			})) as any
+			// MySQL metadata is scoped server-side to the connection's default
+			// database (`TABLE_SCHEMA = DATABASE()`), so a single schema key IS that
+			// default db — show its tables unprefixed without reading the resource
+			// value client-side (a sandboxed app iframe holds no scope for that).
+			const schemaKeys = Object.keys(s?.schema ?? {})
+			const defaultDb = schemaKeys.length === 1 ? schemaKeys[0] : undefined
 			const paths: string[] = []
 			for (const key in s?.schema) {
 				for (const subKey in s.schema[key]) {
-					if (key === resourceObj?.database) {
+					if (key === defaultDb) {
 						paths.push(`${subKey}`)
 					} else {
 						paths.push(`${key}.${subKey}`)

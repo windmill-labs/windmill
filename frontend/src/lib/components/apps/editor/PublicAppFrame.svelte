@@ -200,10 +200,18 @@
 	let disableSandbox = $state(false)
 	let appVersion: number | undefined = $state(undefined)
 	let consented = $state(false)
-	// WIN-2006: whether the viewer is authenticated (has a session). The
-	// disable_sandbox consent prompt is only shown to authenticated viewers — an
-	// anonymous viewer has no session to expose, so the prompt is meaningless.
+	// WIN-2006: whether the viewer is authenticated FOR THIS WORKSPACE. Drives the
+	// embed-token mint server-side; NOT the right signal for the consent gate (a
+	// browser logged into a *different* workspace is reported `authed=false` here
+	// but still carries the domain cookie). Use `hasSession` for consent.
 	let authed = $state(false)
+	// WIN-2006: whether this BROWSER holds any Windmill session (the domain-wide
+	// auth cookie), even for another workspace. The disable_sandbox consent gate
+	// keys off THIS, not `authed`: a same-origin app receives the domain cookie, so
+	// a viewer logged into a different workspace must still consent before the app
+	// runs with their session. Set in initEmbedder (cookie-only whoami) before the
+	// app is allowed to render same-origin.
+	let hasSession = $state(false)
 	// WIN-2006: grandfathered app (existed before sandboxing shipped) — runs
 	// same-origin with NO consent prompt, to avoid breaking the installed base on
 	// upgrade. Distinct from disable_sandbox, which is a deliberate publisher opt-out.
@@ -218,12 +226,12 @@
 	let isRaw = $state(false)
 
 	// Effective same-origin (unsandboxed) execution: legacy apps always; a
-	// publisher disable_sandbox app when the viewer is anonymous (no session at
-	// risk) or an authenticated viewer has consented.
-	let unsandboxed = $derived(legacyUnsandboxed || (disableSandbox && (!authed || consented)))
-	// Consent is required only for an authenticated viewer of a non-legacy
-	// disable_sandbox app that hasn't consented yet.
-	let needsConsent = $derived(disableSandbox && authed && !legacyUnsandboxed && !consented)
+	// publisher disable_sandbox app when the viewer has no Windmill session (nothing
+	// to expose) or a session-holding viewer has consented.
+	let unsandboxed = $derived(legacyUnsandboxed || (disableSandbox && (!hasSession || consented)))
+	// Consent is required only for a viewer who holds a Windmill session looking at
+	// a non-legacy disable_sandbox app that hasn't consented yet.
+	let needsConsent = $derived(disableSandbox && hasSession && !legacyUnsandboxed && !consented)
 
 	// Read by RawAppPreview (and any app component) to render same-origin (full
 	// access) instead of the sandboxed bundle iframe.
@@ -232,6 +240,24 @@
 			return unsandboxed
 		}
 	})
+
+	// WIN-2006: does this browser hold a Windmill session for ANY workspace? A
+	// cookie-only probe (no Authorization header, so the embed JWT in OpenAPI.TOKEN
+	// is NOT sent) — we want the viewer's real login, not the app identity. Used to
+	// decide whether a disable_sandbox app must gate behind consent even when the
+	// viewer isn't a member of this app's workspace. On a separate PUBLIC_APP_DOMAIN
+	// the cookie isn't present, so this correctly returns false (no session to leak).
+	async function browserHasWindmillSession(): Promise<boolean> {
+		try {
+			const resp = await fetch(`${OpenAPI.BASE}/users/whoami`, {
+				credentials: 'include',
+				headers: { accept: 'application/json' }
+			})
+			return resp.ok
+		} catch (_) {
+			return false
+		}
+	}
 
 	function consentKey(): string {
 		return `wm_unsandboxed_ok:${page.url.pathname}:${appVersion ?? ''}`
@@ -271,15 +297,25 @@
 			authed = resp.authed ?? false
 			appVersion = resp.version ?? undefined
 			isRaw = resp.raw_app ?? false
-			// Only an authenticated viewer of a non-legacy disable_sandbox app must
+			// The consent gate keys off whether the BROWSER holds any Windmill session
+			// (domain cookie), not workspace membership. `authed` already implies a
+			// session; otherwise probe the cookie (a viewer logged into another
+			// workspace must still consent). Only relevant for the consent case, so we
+			// skip the extra request elsewhere. MUST resolve before `status = 'ready'`
+			// so the app never renders same-origin in the gap before we know.
+			hasSession = authed
+			if (disableSandbox && !legacyUnsandboxed && !authed) {
+				hasSession = await browserHasWindmillSession()
+			}
+			// Only a session-holding viewer of a non-legacy disable_sandbox app must
 			// consent (once per version) before it runs with their session.
-			if (disableSandbox && authed && !legacyUnsandboxed) {
+			if (disableSandbox && hasSession && !legacyUnsandboxed) {
 				consented = hasConsent()
 			}
 			status = 'ready'
 
-			const needConsentNow = disableSandbox && authed && !legacyUnsandboxed && !consented
-			const unsandboxedNow = legacyUnsandboxed || (disableSandbox && (!authed || consented))
+			const needConsentNow = disableSandbox && hasSession && !legacyUnsandboxed && !consented
+			const unsandboxedNow = legacyUnsandboxed || (disableSandbox && (!hasSession || consented))
 
 			if (needConsentNow) {
 				// Wait for the viewer to accept (consent modal → acceptConsent).
