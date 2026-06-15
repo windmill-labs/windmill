@@ -7996,6 +7996,9 @@ paths:
                 force:
                   type: boolean
                   description: Skip the conflict check and overwrite the server copy.
+                legacy:
+                  type: boolean
+                  description: Delete-only. Target the legacy workspace-level row (email NULL) instead of the current user's row. Used to discard a legacy draft from the review page.
       responses:
         "200":
           description: save result

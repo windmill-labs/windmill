@@ -307,7 +307,13 @@
 		const item = discardTarget
 		discardTarget = undefined
 		if (!item) return
-		const res = await discardDraft(item.draftKind, item.path, currentWorkspaceId, item.draft_only)
+		const res = await discardDraft(
+			item.draftKind,
+			item.path,
+			currentWorkspaceId,
+			item.draft_only,
+			item.legacy_draft
+		)
 		if (res.success) {
 			sendUserToast(item.draft_only ? `Deleted ${item.path}` : `Discarded draft of ${item.path}`)
 			// discardDraft invalidated the Draft list; refresh the fork comparison.

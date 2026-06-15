@@ -14,6 +14,7 @@
  */
 import { get, writable } from 'svelte/store'
 import {
+	DraftService,
 	ScriptService,
 	FlowService,
 	AppService,
@@ -461,14 +462,31 @@ const TRIGGER_SAVERS: Partial<
  * Discard a draft. Draft-only items exist only as a draft-table row, so
  * deleting that row is the whole discard in every case. `save({ value: null })`
  * is the canonical "drop my draft for this path" POST.
+ *
+ * A legacy draft (workspace-level, `email IS NULL`) isn't owned by the authed
+ * user, so the email-scoped syncer delete can't reach it. Discard it via a
+ * direct `legacy` delete instead — then clear the local hint + invalidate as
+ * the syncer path would.
  */
 export async function discardDraft(
 	kind: DraftKind,
 	path: string,
 	workspace: string,
-	_draftOnly = false
+	_draftOnly = false,
+	legacy = false
 ): Promise<DeployResult> {
 	try {
+		if (legacy) {
+			await DraftService.updateDraft({
+				workspace,
+				kind,
+				path,
+				requestBody: { value: null, legacy: true }
+			})
+			setLocalDraftHint(workspace, kind, path, false)
+			invalidateWorkspaceDrafts(workspace)
+			return { success: true }
+		}
 		// postSave clears the syncer-owned `*` hint on the delete. `immediate`
 		// so the await resolves after the POST lands — else it resolves at
 		// enqueue time and the invalidate below refetches before the delete,

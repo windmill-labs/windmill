@@ -139,6 +139,12 @@ pub struct SaveDraftRequest {
     /// copy. Use after the client has resolved the conflict locally.
     #[serde(default)]
     pub force: bool,
+    /// Delete-only: target the legacy workspace-level row (`email IS NULL`)
+    /// rather than the authed user's row. An upsert ignores it (always writes
+    /// the user's own row). Lets the review page discard a legacy draft, which
+    /// the email-scoped delete otherwise can't reach.
+    #[serde(default)]
+    pub legacy: bool,
 }
 
 #[derive(Serialize, Debug)]
@@ -203,11 +209,11 @@ async fn update_draft(
     } else {
         // Delete, same conflict rule in the WHERE clause. Returns NULL when
         // the row was too new (conflict) OR already absent (idempotent) —
-        // disambiguated below.
+        // disambiguated below. `legacy` ($7) retargets to the NULL-email row.
         sqlx::query_scalar!(
             r#"DELETE FROM draft
                WHERE workspace_id = $1
-                 AND email = $2
+                 AND email IS NOT DISTINCT FROM (CASE WHEN $7::bool THEN NULL::text ELSE $2 END)
                  AND path = $3
                  AND typ = $4
                  AND ($6::bool = true
@@ -220,6 +226,7 @@ async fn update_draft(
             kind as UserDraftItemKind,
             req.last_sync,
             req.force,
+            req.legacy,
         )
         .fetch_optional(&db)
         .await?
@@ -237,11 +244,14 @@ async fn update_draft(
     // by re-reading.
     let existing = sqlx::query_scalar!(
         r#"SELECT created_at FROM draft
-           WHERE workspace_id = $1 AND email = $2 AND path = $3 AND typ = $4"#,
+           WHERE workspace_id = $1
+             AND email IS NOT DISTINCT FROM (CASE WHEN $5::bool THEN NULL::text ELSE $2 END)
+             AND path = $3 AND typ = $4"#,
         &w_id,
         email,
         path,
         kind as UserDraftItemKind,
+        req.legacy,
     )
     .fetch_optional(&db)
     .await?;

@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT created_at FROM draft\n           WHERE workspace_id = $1 AND email = $2 AND path = $3 AND typ = $4",
+  "query": "DELETE FROM draft\n               WHERE workspace_id = $1\n                 AND email IS NOT DISTINCT FROM (CASE WHEN $7::bool THEN NULL::text ELSE $2 END)\n                 AND path = $3\n                 AND typ = $4\n                 AND ($6::bool = true\n                      OR $5::timestamptz IS NULL\n                      OR created_at <= $5::timestamptz)\n               RETURNING now() as \"now!\"",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "created_at",
+        "name": "now!",
         "type_info": "Timestamptz"
       }
     ],
@@ -46,12 +46,15 @@
               ]
             }
           }
-        }
+        },
+        "Timestamptz",
+        "Bool",
+        "Bool"
       ]
     },
     "nullable": [
-      false
+      null
     ]
   },
-  "hash": "ee783aeeb2eba7446995ca8467ff271cc64e5a3c9901c2e2f806ab3acbb4aa75"
+  "hash": "2bed492ef32edf36e60e8a03268fa25bfb67dd641153d1ca23f7d0d2ae73624e"
 }
