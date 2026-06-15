@@ -39,10 +39,8 @@ export async function loadTableMetaData(
 	const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
 	const dbArg = getDatabaseArg(input)
 
-	// MySQL: the db name is resolved server-side — the generated metadata query
-	// falls back to `DATABASE()` (the connection's default database) when none is
-	// passed. So we don't read the resource value client-side just for the name (a
-	// sandboxed app iframe holds no scope to read resource values).
+	// MySQL: the metadata query resolves the database name server-side (it falls
+	// back to `DATABASE()`), so we don't read the resource value client-side for it.
 	const content = makeMetadataMarker('LOAD_TABLE_METADATA', { table }, ducklake)
 
 	const job = await JobService.runScriptPreview({
@@ -281,10 +279,9 @@ export async function getTablesByResource(
 			return paths
 		}
 		case 'mysql': {
-			// MySQL metadata is scoped server-side to the connection's default
-			// database (`TABLE_SCHEMA = DATABASE()`), so a single schema key IS that
-			// default db — show its tables unprefixed without reading the resource
-			// value client-side (a sandboxed app iframe holds no scope for that).
+			// MySQL metadata is scoped to the connection's default database
+			// (`TABLE_SCHEMA = DATABASE()`), so the single schema key is that default
+			// db — show its tables unprefixed.
 			const schemaKeys = Object.keys(s?.schema ?? {})
 			const defaultDb = schemaKeys.length === 1 ? schemaKeys[0] : undefined
 			const paths: string[] = []

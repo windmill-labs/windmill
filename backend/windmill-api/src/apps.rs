@@ -1145,20 +1145,12 @@ async fn get_public_app_by_secret(
 ///                      and `execute_component` (run). Run/Read only — it does
 ///                      NOT grant `apps:write`, so the token cannot reach
 ///                      app-management routes (`apps/update`, `apps/delete`, ...).
-/// - `jobs:read`     → `jobs_u/getupdate_sse`, completed-job results (by id). The
-///                      `app_embed` sentinel additionally blocks the workspace-wide
-///                      job enumeration/export routes (`jobs/list`, `list_filtered_uuids`,
-///                      `queue/list`, `completed/list`, `queue/export`), so a
-///                      sandboxed app reads only jobs it launched — see
-///                      `app_embed_denied_job_route`.
-/// - `app_embed`     → sentinel marking this as an app embed token (grants nothing;
-///                      drives the job-enumeration deny above).
-/// - `resources:run` → resource METADATA only (`resources/list`,
-///                      `resources/type/*`, `resources/exists`, `list_names`) for
-///                      pickers/type schemas. Deliberately NOT `resources:read`,
-///                      which also exposes resource VALUES (`get`, `get_value`,
-///                      `get_value_interpolated`, `list_search`) that can contain
-///                      credentials — see `resource_metadata_route_allowed`.
+/// - `jobs:read`     → completed-job results & updates by id; the `app_embed`
+///                      sentinel additionally blocks workspace-wide job enumeration
+///                      (see `app_embed_denied_job_route`).
+/// - `app_embed`     → sentinel tagging this as an app embed token (grants nothing).
+/// - `resources:run` → resource metadata only (pickers, type schemas), never
+///                      values (see `resource_metadata_route_allowed`).
 /// - `users:read`    → `users/whoami`.
 /// - `folders:read`  → `folders/listnames`.
 pub const APP_EMBED_SCOPES: [&str; 6] = [

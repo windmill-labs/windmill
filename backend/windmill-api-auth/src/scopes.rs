@@ -649,16 +649,13 @@ const RUN_WHITELISTED_GET_PATHS: [&'static str; 20] = [
     "jobs/completed/get_result_maybe/",
 ];
 
-/// Sentinel scope minted into app embed tokens (see windmill-api `APP_EMBED_SCOPES`).
-/// It grants nothing on its own — `check_route_access` uses it to additionally DENY
-/// the workspace-wide job enumeration routes that the token's `jobs:read` would
-/// otherwise reach. A sandboxed embedded app reads only jobs it launched, by id; it
-/// must not enumerate other users' jobs (whose results/args can hold secrets).
+/// Sentinel scope in app embed tokens. Grants nothing itself; `check_route_access`
+/// uses it to deny the workspace-wide job enumeration routes `jobs:read` would
+/// otherwise reach, so an embedded app reads only jobs it launched (by id).
 pub const APP_EMBED_SENTINEL: &str = "app_embed";
 
-/// Job enumeration / export routes an app embed token is denied even though
-/// `jobs:read` would grant them. By-id job reads (the result polling an app needs,
-/// under both `jobs/` and `jobs_u/`) are intentionally unaffected.
+/// Job enumeration/export routes an app embed token is denied despite `jobs:read`.
+/// By-id job reads (result polling, under both `jobs/` and `jobs_u/`) are unaffected.
 fn app_embed_denied_job_route(suffix: &str) -> bool {
     suffix.starts_with("jobs/list") // jobs/list, jobs/list_filtered_uuids
         || suffix == "jobs/completed/list"
@@ -666,12 +663,10 @@ fn app_embed_denied_job_route(suffix: &str) -> bool {
         || suffix == "jobs/queue/export"
 }
 
-/// Route suffixes a metadata-only resources scope (`resources:run`, carried by
-/// app embed tokens) may GET. Intentionally excludes every value-returning route
-/// — `resources/get`, `resources/get_value`, `resources/get_value_interpolated`,
-/// and `resources/list_search` (which `SELECT`s the value) — so a sandboxed app
-/// can populate a resource picker (`/list`) and read type schemas without ever
-/// reading a credential-bearing resource value.
+/// Resource routes a metadata-only `resources:run` scope (app embed tokens) may
+/// GET: pickers (`/list`) and type schemas. Excludes every value-returning route
+/// (`get`, `get_value`, `get_value_interpolated`, `list_search`) so resource
+/// values — which can hold credentials — are never exposed.
 fn resource_metadata_route_allowed(suffix: &str) -> bool {
     suffix == "resources/list"
         || suffix.starts_with("resources/list_names/")
@@ -698,12 +693,9 @@ fn scope_grants_access(
     let scope_action = ScopeAction::from_str(&scope.action)
         .ok_or_else(|| Error::BadRequest(format!("Invalid scope action: {}", scope.action)))?;
 
-    // App embed tokens carry `resources:run` (not `resources:read`): a deliberately
-    // narrow grant that exposes only non-secret resource METADATA (list / type /
-    // exists) and never resource VALUES (`get`, `get_value`,
-    // `get_value_interpolated`, `list_search`), which can contain credentials. We
-    // default-deny and allowlist the safe metadata GET routes, so a newly-added
-    // value route is never exposed to a sandboxed app by accident.
+    // App embed tokens carry `resources:run`: metadata-only resource access via
+    // default-deny + allowlist (so a new value route is never exposed by accident).
+    // See `resource_metadata_route_allowed`.
     if scope_domain == ScopeDomain::Resources && scope_action == ScopeAction::Run {
         return Ok(required_action == ScopeAction::Read
             && route_path.is_some_and(resource_metadata_route_allowed));
