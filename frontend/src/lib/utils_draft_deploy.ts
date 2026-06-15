@@ -34,6 +34,7 @@ import {
 } from '$lib/gen'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import type { DeployResult } from '$lib/utils_workspace_deploy'
+import { TRIGGER_RUNTIME_IGNORE } from '$lib/utils_deployable'
 import { deployRawAppDraft } from '$lib/rawAppDeploy'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
@@ -113,31 +114,12 @@ const EMPTY_DEPLOYED: Partial<Record<DraftKind, (draft: any) => unknown>> = {
 	app: () => ({ summary: '', value: {}, policy: {} })
 }
 
-/** Runtime/server-managed fields dropped from schedule & trigger rows so the
- *  diff shows only config changes. Mirrors the fork/compare path's
- *  `stripTriggerOrScheduleRuntimeFields` (windmill-utils-internal) and the
- *  backend `TRIGGER_COMPARE_IGNORE`. */
-const SCHEDULE_TRIGGER_RUNTIME_FIELDS = new Set([
-	'workspace_id',
-	'edited_by',
-	'edited_at',
-	'email',
-	'error',
-	'enabled',
-	'mode',
-	'server_id',
-	'last_server_ping',
-	'extra_perms',
-	'permissioned_as',
-	'subscription_id',
-	'push_auth_config'
-])
-
+// Schedule & trigger rows drop the same runtime/server-managed fields as the
+// fork/compare path so the diff shows only config changes — reuse that set
+// (the authoritative mirror of the backend `TRIGGER_COMPARE_IGNORE`).
 function stripScheduleTriggerRuntime(row: any): Record<string, unknown> {
 	if (!row || typeof row !== 'object') return {}
-	return Object.fromEntries(
-		Object.entries(row).filter(([k]) => !SCHEDULE_TRIGGER_RUNTIME_FIELDS.has(k))
-	)
+	return Object.fromEntries(Object.entries(row).filter(([k]) => !TRIGGER_RUNTIME_IGNORE.has(k)))
 }
 
 /**

@@ -801,9 +801,9 @@
 			variant="default"
 			unifiedSize="md"
 			on:click={() => openDiffDrawer()}
-			disabled={!savedApp || newApp || (savedApp as any)?.no_deployed === true}
+			disabled={!savedApp || newApp || savedApp?.no_deployed === true}
 			iconOnly={compactTopbar}
-			title={newApp || (savedApp as any)?.no_deployed === true
+			title={newApp || savedApp?.no_deployed === true
 				? 'Deploy this app once to compare against the deployed version'
 				: 'Diff'}
 			startIcon={{ icon: DiffIcon }}
