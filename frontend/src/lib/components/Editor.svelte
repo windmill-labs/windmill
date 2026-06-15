@@ -1981,7 +1981,7 @@
 		$copilotInfo.enabled && initialized && editor && untrack(() => editor && addChatHandler(editor))
 	})
 	$effect(() => {
-		!$codeCompletionSessionEnabled && autocompletor?.dispose()
+		;(!$codeCompletionSessionEnabled || !$copilotInfo.enabled) && autocompletor?.dispose()
 	})
 	$effect(() => {
 		if (yContent && awareness && model && editor) {
