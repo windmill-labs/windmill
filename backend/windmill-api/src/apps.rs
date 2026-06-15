@@ -12,7 +12,7 @@ use crate::{
     db::{ApiAuthed, DB},
     jobs::RunJobQuery,
     users::{require_owner_of_path, require_path_read_access_for_preview, OptAuthed},
-    utils::{check_scopes, WithStarredInfoQuery},
+    utils::{build_scope_path_predicate, check_scopes, WithStarredInfoQuery},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -354,6 +354,8 @@ async fn list_search_apps(
     let n = 3;
     let mut tx = user_db.begin(&authed).await?;
 
+    let allowed = build_scope_path_predicate(&authed, "apps", "read");
+
     let rows = sqlx::query_as::<_, SearchApp>(
         "SELECT path, app_version.value from app LEFT JOIN app_version ON app_version.id = versions[array_upper(versions, 1)]  WHERE workspace_id = $1 LIMIT $2",
     )
@@ -362,6 +364,7 @@ async fn list_search_apps(
     .fetch_all(&mut *tx)
     .await?
     .into_iter()
+    .filter(|r| allowed(&r.path))
     .collect::<Vec<_>>();
     tx.commit().await?;
     Ok(Json(rows))
@@ -451,9 +454,13 @@ async fn list_apps(
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
+    let allowed = build_scope_path_predicate(&authed, "apps", "read");
     let rows = sqlx::query_as::<_, ListableApp>(&sql)
         .fetch_all(&mut *tx)
-        .await?;
+        .await?
+        .into_iter()
+        .filter(|r| allowed(&r.path))
+        .collect::<Vec<_>>();
 
     tx.commit().await?;
 
