@@ -583,9 +583,11 @@ impl PgDatabase {
             "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
             user = urlencoding::encode(&self.user.as_deref().unwrap_or("postgres")),
             password = urlencoding::encode(&self.password.as_deref().unwrap_or("")),
-            host = &self.host,
+            // Encode host/dbname too: an unencoded '@', '/', '?' or '&' would
+            // otherwise reshape the parsed URI (inject libpq params / alter host).
+            host = urlencoding::encode(&self.host),
             port = self.port.unwrap_or(5432),
-            dbname = self.dbname,
+            dbname = urlencoding::encode(&self.dbname),
             sslmode = sslmode
         )
     }

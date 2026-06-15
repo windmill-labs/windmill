@@ -638,9 +638,13 @@ async fn db_resource_to_attach_statements(
     db_type: &str,
     extra_args: Option<&str>,
 ) -> Result<Vec<String>> {
+    // Escape single quotes: the connection string is built from resource fields
+    // (host/db/user/password) and embedded in a single-quoted DuckDB literal, so an
+    // unescaped quote in any field would otherwise break out of the ATTACH statement.
+    let conn_str = format_attach_db_conn_str(db_resource, db_type)?.replace('\'', "''");
     let attach_str = format!(
         "ATTACH '{}' as {} (TYPE {}{});",
-        format_attach_db_conn_str(db_resource, db_type)?,
+        conn_str,
         ident_name,
         db_type,
         extra_args.unwrap_or("")

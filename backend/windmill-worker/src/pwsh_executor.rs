@@ -554,13 +554,17 @@ pub async fn handle_powershell_job(
             .replace("{job_id}", &job.id.to_string())
             .replace("{has_private_repo}", &format!("${has_private_repo}"))
             .replace("{has_credentials}", &format!("${has_credentials}"))
+            // Escape single quotes: these are interpolated into single-quoted
+            // PowerShell literals ($privateRepoUrl/$privateRepoPat) in the install
+            // script, so an unescaped quote in the configured repo URL/PAT would
+            // break out of the literal (same sink as the module names above).
             .replace(
                 "{private_repo_url}",
-                &powershell_repo_url.unwrap_or_default(),
+                &powershell_repo_url.unwrap_or_default().replace("'", "''"),
             )
             .replace(
                 "{private_repo_pat}",
-                &powershell_repo_pat.unwrap_or_default(),
+                &powershell_repo_pat.unwrap_or_default().replace("'", "''"),
             )
             .replace("{modules}", &modules_list);
         let mut cmd = Command::new(POWERSHELL_PATH.as_str());
