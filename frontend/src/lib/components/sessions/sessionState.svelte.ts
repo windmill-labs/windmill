@@ -153,7 +153,8 @@ interface SessionSchema extends DBSchema {
 // Normalise legacy localStorage records in place: drop empty-string
 // workspace_id (older drafts used '' as a missing marker), migrate the
 // deprecated 'rawapp' target.kind, and coerce unknown summarySource values.
-function normalizeLegacySession(s: any): void {
+// Operates on raw parsed JSON, so the record is loosely typed.
+function normalizeLegacySession(s: Record<string, any>): void {
 	if (s.workspace_id === '') delete s.workspace_id
 	if (s.target?.kind === 'rawapp') s.target.kind = 'raw_app'
 	if (

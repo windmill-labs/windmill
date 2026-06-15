@@ -66,12 +66,16 @@ export function userScopedDb<Schema extends DBSchema>(
 				try {
 					await opts.migrate(db, { openDB, deleteDB })
 				} catch (e) {
+					// A failed migration is non-fatal: the (open) DB is still usable, so
+					// we log and return it — unlike a failed open below, which yields
+					// undefined. Worst case the legacy claim is missed, not the store.
 					console.error(`userScopedDb(${baseName}): migration failed`, e)
 				}
 			}
 			return db
 		} catch (e) {
-			// Blocked / corrupt / private-browsing: degrade to in-memory. The
+			// Failed open (blocked / corrupt / private-browsing): degrade to
+			// in-memory by resolving undefined (callers no-op their writes). The
 			// undefined is cached for this name so we don't hammer the open.
 			console.error(`userScopedDb(${baseName}): could not open database`, e)
 			return undefined
