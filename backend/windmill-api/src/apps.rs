@@ -303,18 +303,13 @@ pub struct Policy {
     pub execution_mode: ExecutionMode,
     pub s3_inputs: Option<Vec<S3Input>>,
     pub allowed_s3_keys: Option<Vec<S3Key>>,
-    // WIN-2006: publisher opt-out of iframe sandbox isolation. When true the app
-    // runs same-origin with the viewer's full session (full browser features),
-    // gated by a per-version consent prompt on the viewer. Default false.
+    // WIN-2006: publisher opt-in to iframe sandbox isolation (alpha). When true the
+    // app is isolated from each viewer's Windmill session: low-code renders in an
+    // opaque-origin iframe with a scoped embed token, raw renders its bundle in an
+    // opaque iframe. Default/absent means unsandboxed — the app runs same-origin
+    // with the viewer's full session, the pre-isolation behavior.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub disable_sandbox: Option<bool>,
-    // WIN-2006: apps that existed before sandbox isolation shipped are stamped
-    // (by migration) so they keep running same-origin — without a consent prompt —
-    // to avoid breaking the installed base on upgrade. New apps are sandboxed by
-    // default; a re-deploy clears this. Distinct from `disable_sandbox`, which is
-    // a deliberate publisher opt-out and DOES prompt the viewer.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub legacy_unsandboxed: Option<bool>,
+    pub sandbox: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -1172,27 +1167,16 @@ pub struct EmbedTokenResponse {
     /// (the iframe then calls the public endpoints anonymously).
     pub token: Option<String>,
     pub expiration: Option<chrono::DateTime<chrono::Utc>>,
-    /// WIN-2006: publisher disabled sandbox isolation — the viewer must run the
-    /// app same-origin (full session) behind a per-version consent prompt.
-    #[serde(default)]
-    pub disable_sandbox: bool,
-    /// Latest app version id — the consent prompt is keyed on it so a new version
-    /// re-prompts.
-    pub version: Option<i64>,
     /// WIN-2006: raw apps render single-iframe (the bundle is already isolated in
     /// its own opaque iframe), so the viewer skips the opaque-viewer indirection
     /// and the embed token entirely — it loads the app with the page credential.
     #[serde(default)]
     pub raw_app: bool,
-    /// WIN-2006: grandfathered app (existed before sandboxing) — runs same-origin
-    /// without a consent prompt to avoid breaking the installed base on upgrade.
+    /// WIN-2006: publisher opted this app into sandbox isolation. When false the
+    /// viewer runs the app same-origin with its full session (the default,
+    /// pre-isolation behavior).
     #[serde(default)]
-    pub legacy_unsandboxed: bool,
-    /// Whether the viewer is authenticated. The `disable_sandbox` consent prompt is
-    /// only shown to authenticated viewers — an anonymous viewer has no session to
-    /// expose, so the prompt would be meaningless friction.
-    #[serde(default)]
-    pub authed: bool,
+    pub sandbox: bool,
 }
 
 /// Mint a short-lived, narrowly-scoped embed token for `app_path` when a caller
@@ -1250,11 +1234,8 @@ pub async fn mint_app_embed_token(
     Ok(EmbedTokenResponse {
         token: token_and_exp.as_ref().map(|(t, _)| t.clone()),
         expiration: token_and_exp.map(|(_, e)| e),
-        disable_sandbox: false,
-        version: None,
         raw_app: false,
-        legacy_unsandboxed: false,
-        authed: opt_authed.is_some(),
+        sandbox: false,
     })
 }
 
@@ -1318,29 +1299,18 @@ async fn get_app_embed_token(
 
     // The token is only consumed by the sandboxed low-code render. Raw apps
     // render single-iframe with the page credential (WIN-2006 Variant A), and
-    // legacy/disable_sandbox apps render same-origin with the viewer's own
-    // session — minting for those would write a useless token row per view and,
-    // worse, could fail the whole render for a scope-restricted caller
-    // (`ensure_scopes_within_caller`) even though no token is needed. The access
-    // check above still gates visibility in every case.
-    let mut resp = if raw_app || policy.legacy_unsandboxed || policy.disable_sandbox {
-        EmbedTokenResponse {
-            token: None,
-            expiration: None,
-            disable_sandbox: false,
-            version: None,
-            raw_app,
-            legacy_unsandboxed: false,
-            authed: false,
-        }
+    // unsandboxed apps render same-origin with the viewer's own session — minting
+    // for those would write a useless token row per view and, worse, could fail
+    // the whole render for a scope-restricted caller (`ensure_scopes_within_caller`)
+    // even though no token is needed. The access check above still gates
+    // visibility in every case.
+    let mut resp = if raw_app || !policy.sandbox {
+        EmbedTokenResponse { token: None, expiration: None, raw_app, sandbox: policy.sandbox }
     } else {
         mint_app_embed_token(&db, &w_id, &app.path, authed_for_token.as_ref()).await?
     };
-    resp.disable_sandbox = policy.disable_sandbox;
-    resp.version = app.version;
     resp.raw_app = raw_app;
-    resp.legacy_unsandboxed = policy.legacy_unsandboxed;
-    resp.authed = authed_for_token.is_some();
+    resp.sandbox = policy.sandbox;
     Ok(Json(resp))
 }
 
@@ -1353,22 +1323,14 @@ async fn get_app_embed_token(
 /// strictest access interpretation.
 pub struct EmbedPolicyView {
     pub anonymous_execution: bool,
-    pub disable_sandbox: bool,
-    pub legacy_unsandboxed: bool,
+    pub sandbox: bool,
 }
 
 pub fn parse_embed_policy(policy_str: &str) -> Result<EmbedPolicyView> {
     let v: serde_json::Value = serde_json::from_str(policy_str).map_err(to_anyhow)?;
     Ok(EmbedPolicyView {
         anonymous_execution: v.get("execution_mode").and_then(|m| m.as_str()) == Some("anonymous"),
-        disable_sandbox: v
-            .get("disable_sandbox")
-            .and_then(|b| b.as_bool())
-            .unwrap_or(false),
-        legacy_unsandboxed: v
-            .get("legacy_unsandboxed")
-            .and_then(|b| b.as_bool())
-            .unwrap_or(false),
+        sandbox: v.get("sandbox").and_then(|b| b.as_bool()).unwrap_or(false),
     })
 }
 
@@ -1406,24 +1368,13 @@ async fn get_app_embed_token_for_path(
     // [`get_app_embed_token`] for the rationale (identical here).
     let policy = parse_embed_policy(&policy_str)?;
 
-    let mut resp = if raw_app || policy.legacy_unsandboxed || policy.disable_sandbox {
-        EmbedTokenResponse {
-            token: None,
-            expiration: None,
-            disable_sandbox: false,
-            version: None,
-            raw_app,
-            legacy_unsandboxed: false,
-            authed: true,
-        }
+    let mut resp = if raw_app || !policy.sandbox {
+        EmbedTokenResponse { token: None, expiration: None, raw_app, sandbox: policy.sandbox }
     } else {
         mint_app_embed_token(&db, &w_id, path, Some(&authed)).await?
     };
-    resp.disable_sandbox = policy.disable_sandbox;
-    resp.version = app.version;
     resp.raw_app = raw_app;
-    resp.legacy_unsandboxed = policy.legacy_unsandboxed;
-    resp.authed = true;
+    resp.sandbox = policy.sandbox;
     Ok(Json(resp))
 }
 
@@ -1917,10 +1868,6 @@ async fn create_app_internal<'a>(
         .execute(&mut *tx)
         .await?;
     }
-    // `legacy_unsandboxed` is backend-owned (set only by the grandfather migration)
-    // and grants consent-free same-origin execution. Never let a client set it via
-    // the policy payload, or it would bypass the sandbox.
-    app.policy.legacy_unsandboxed = None;
     let id = sqlx::query_scalar!(
         "INSERT INTO app
             (workspace_id, path, summary, policy, versions, custom_path, labels)
@@ -2427,29 +2374,6 @@ async fn update_app_internal<'a>(
         }
 
         if let Some(mut npolicy) = ns.policy {
-            // `legacy_unsandboxed` is backend-owned (set only by the grandfather
-            // migration) and grants consent-free same-origin execution. Clients may
-            // CLEAR it (explicit `false`, sent by the editor's migration prompt once
-            // the publisher makes a sandbox choice) but never set it — otherwise it
-            // would bypass the sandbox. When the payload leaves it unset, the stored
-            // value is carried forward: an unrelated update (CLI / git-sync redeploy,
-            // publish-mode toggle, cross-workspace promotion) must not silently drop
-            // the grandfathering and change how the app runs for its viewers.
-            let legacy_explicitly_cleared = npolicy.legacy_unsandboxed == Some(false);
-            npolicy.legacy_unsandboxed = None;
-            if !legacy_explicitly_cleared {
-                let existing_legacy = sqlx::query_scalar!(
-                    "SELECT (policy->>'legacy_unsandboxed')::bool FROM app WHERE path = $1 AND workspace_id = $2",
-                    path,
-                    w_id
-                )
-                .fetch_optional(&mut *tx)
-                .await?
-                .flatten();
-                if existing_legacy == Some(true) {
-                    npolicy.legacy_unsandboxed = Some(true);
-                }
-            }
             if matches!(npolicy.execution_mode, ExecutionMode::Anonymous) && !authed.is_admin {
                 // Restricted users may keep deploying an app that is already
                 // public, but flipping an app to anonymous (public) access is
@@ -3279,8 +3203,7 @@ async fn upload_s3_file_from_app(
                     .unwrap_or_default(),
             }]),
             allowed_s3_keys: None,
-            disable_sandbox: None,
-            legacy_unsandboxed: None,
+            sandbox: None,
         })
     } else {
         let policy_o = sqlx::query_scalar!(
@@ -3640,8 +3563,7 @@ async fn get_on_behalf_authed_from_app(
             on_behalf_of_email: None,
             s3_inputs: None,
             allowed_s3_keys: Some(force_allowed_s3_keys),
-            disable_sandbox: None,
-            legacy_unsandboxed: None,
+            sandbox: None,
         }
     } else {
         // TODO: improve db query to not return uneeded fields
@@ -3664,8 +3586,7 @@ async fn get_on_behalf_authed_from_app(
                 on_behalf_of_email: None,
                 s3_inputs: None,
                 allowed_s3_keys: None,
-                disable_sandbox: None,
-                legacy_unsandboxed: None,
+                sandbox: None,
             })
     };
 
@@ -4193,22 +4114,19 @@ mod embed_token_tests {
         use super::parse_embed_policy;
 
         // Quirky legacy policy: triggerables_v2 entry missing required fields,
-        // no execution_mode at all — must still parse.
-        let p = parse_embed_policy(r#"{"triggerables_v2": {"x": {}}, "legacy_unsandboxed": true}"#)
-            .unwrap();
-        assert!(p.legacy_unsandboxed);
-        assert!(!p.disable_sandbox);
+        // no execution_mode at all — must still parse, and absent `sandbox`
+        // resolves to the unsandboxed default.
+        let p = parse_embed_policy(r#"{"triggerables_v2": {"x": {}}}"#).unwrap();
+        assert!(!p.sandbox);
         assert!(
             !p.anonymous_execution,
             "missing execution_mode must not grant anonymous access"
         );
 
         // Normal policies map field-for-field.
-        let p = parse_embed_policy(r#"{"execution_mode": "anonymous", "disable_sandbox": true}"#)
-            .unwrap();
+        let p = parse_embed_policy(r#"{"execution_mode": "anonymous", "sandbox": true}"#).unwrap();
         assert!(p.anonymous_execution);
-        assert!(p.disable_sandbox);
-        assert!(!p.legacy_unsandboxed);
+        assert!(p.sandbox);
 
         // Unknown execution_mode value: lenient parse, but not anonymous.
         let p = parse_embed_policy(r#"{"execution_mode": "weird"}"#).unwrap();

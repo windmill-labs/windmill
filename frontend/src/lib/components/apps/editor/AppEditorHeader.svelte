@@ -66,7 +66,6 @@
 	import { beforeNavigate, goto } from '$app/navigation'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
-	import LegacySandboxMigrationModal from './LegacySandboxMigrationModal.svelte'
 
 	import AppJobsDrawer from './AppJobsDrawer.svelte'
 	import LazyModePanel from './contextPanel/LazyModePanel.svelte'
@@ -216,9 +215,6 @@
 	let appExport: AppExportButton | undefined = $state()
 
 	let saveDrawerOpen = $state(false)
-	// WIN-2006: deploy-time migration prompt for grandfathered (legacy-unsandboxed)
-	// apps — the publisher makes an explicit sandbox choice on the first re-deploy.
-	let legacySandboxModal: LegacySandboxMigrationModal | undefined = $state(undefined)
 	let inputsDrawerOpen = $state(untrack(() => fromHub))
 	let historyBrowserDrawerOpen = $state(false)
 	let debugAppDrawerOpen = $state(false)
@@ -278,7 +274,6 @@
 	}
 
 	async function handleUpdateApp(npath: string) {
-		if (legacySandboxModal && !(await legacySandboxModal.ensureLegacyResolved(policy))) return
 		// We have to make sure there is no updates when we clicked the button
 		await compareVersions()
 
@@ -736,8 +731,6 @@
 		custom_path: customPath
 	}}
 />
-
-<LegacySandboxMigrationModal bind:this={legacySandboxModal} />
 
 <AppJobsDrawer
 	bind:open={$jobsDrawerOpen}

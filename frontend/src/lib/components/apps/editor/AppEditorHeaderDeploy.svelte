@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Alert } from '$lib/components/common'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { Loader2 } from 'lucide-svelte'
@@ -274,40 +275,34 @@
 
 <div class="mt-10"></div>
 
-<h2>Sandbox isolation</h2>
+<div class="flex items-center gap-2">
+	<h2>Sandbox isolation</h2>
+	<Badge color="yellow">Alpha</Badge>
+</div>
 <div class="my-6">
 	<Toggle
 		options={{ right: 'Run the app in an isolated sandbox' }}
-		checked={policy.disable_sandbox != true}
+		checked={policy.sandbox == true}
 		on:change={(e) => {
-			policy.disable_sandbox = !e.detail
-			// Toggling is an explicit publisher choice: clear the grandfathering
-			// flag (the backend preserves it across updates unless told `false`).
-			policy.legacy_unsandboxed = false
+			policy.sandbox = e.detail || undefined
 			setPublishState(e.detail ? 'Sandbox isolation enabled' : 'Sandbox isolation disabled')
 		}}
 		disabled={!savedApp}
 	/>
 	<div class="text-xs text-secondary mt-1">
 		Isolates the app from each viewer's Windmill session, on every surface the app is viewed from
-		(public URL and within the workspace). Disable it only if the app needs full browser features
-		(IndexedDB, third-party auth/SDKs, OAuth redirects).
+		(public URL and within the workspace). Off by default — the app keeps full session access. Leave
+		it off if the app needs full browser features (IndexedDB, third-party auth/SDKs, OAuth
+		redirects).
 	</div>
 	{#if !savedApp}
 		<div class="text-xs text-tertiary mt-1">Save the app once to change this setting.</div>
 	{/if}
-	{#if policy.disable_sandbox == true}
+	{#if policy.sandbox == true}
 		<div class="mt-2">
-			<Alert type="warning" title="Runs with the viewer's session" size="xs">
-				Without isolation the app runs with each viewer's full Windmill session and can act on their
-				behalf. Logged-in viewers are asked to consent once per app version.
-			</Alert>
-		</div>
-	{:else if policy.legacy_unsandboxed}
-		<div class="mt-2">
-			<Alert type="info" title="Currently runs without isolation" size="xs">
-				This app predates sandbox isolation and still runs with full session access. On the next
-				deploy you will be asked whether to enable isolation.
+			<Alert type="warning" title="Alpha feature" size="xs">
+				Sandbox isolation is in alpha. After enabling, open the app from its public URL to confirm
+				it still works, and report any broken behavior.
 			</Alert>
 		</div>
 	{/if}
