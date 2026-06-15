@@ -72,6 +72,7 @@ import {
 	type ToolCallbacks,
 	type ToolDisplayAction
 } from '../shared'
+import { searchDocsTool, readDocsPageTool } from '../docs/core'
 import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
 import { UserDraft, type UserDraftMeta } from '$lib/userDraft.svelte'
@@ -630,6 +631,7 @@ Rules:
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
 - Use search_resource_types before write_resource.
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
+- Use search_docs to look up how a Windmill feature works in the official documentation (a flag, concept, function, or "does Windmill support X") instead of guessing about product behavior. It returns matching doc snippets with their Source URL; call read_docs_page with a Source URL to read the full page (or a section, if it returns headings). Cite the Source URL when you rely on it.
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer local drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
@@ -1469,6 +1471,8 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	createSearchHubScriptsTool(false),
+	searchDocsTool,
+	readDocsPageTool,
 	{
 		def: createToolDef(
 			askUserQuestionSchema,
