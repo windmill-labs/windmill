@@ -3,6 +3,7 @@
 	import DiffDrawer from './DiffDrawer.svelte'
 	import WorkspaceDeployItemSummary from './WorkspaceDeployItemSummary.svelte'
 	import { Badge } from './common'
+	import Tooltip from './meltComponents/Tooltip.svelte'
 	import Button from './common/button/Button.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { ArrowRight, DiffIcon, GitFork, Pencil, Undo2 } from 'lucide-svelte'
@@ -64,6 +65,7 @@
 		draft_path?: string
 		summary?: string
 		draft_only: boolean
+		legacy_draft: boolean
 		raw_app: boolean
 		key: string
 	}
@@ -106,7 +108,8 @@
 			key: getItemKey(d.kind, d.path),
 			kind: toLayoutKind(d.kind),
 			draftKind: d.kind,
-			draft_path: d.draft_path
+			draft_path: d.draft_path,
+			legacy_draft: d.legacy_draft
 		}))
 	)
 
@@ -423,6 +426,15 @@
 				<Badge color="gray" size="xs">{kindLabel(draftItem.draftKind)}</Badge>
 				{#if draftItem.draft_only}
 					<Badge color="indigo" size="xs">New</Badge>
+				{/if}
+				{#if draftItem.legacy_draft}
+					<Tooltip>
+						<Badge color="yellow" size="xs">Legacy draft</Badge>
+						{#snippet text()}
+							A legacy draft predates the per-user drafts migration: it isn't tied to any user
+							(workspace-level, email NULL), so everyone with access to this path sees it.
+						{/snippet}
+					</Tooltip>
 				{/if}
 				{#if deploymentStatus[draftItem.key]?.status !== 'deployed'}
 					<Button

@@ -7921,10 +7921,13 @@ paths:
                     draft_only:
                       type: boolean
                       description: No deployed counterpart exists at this path — the draft is the whole item.
+                    legacy_draft:
+                      type: boolean
+                      description: The listed draft is a legacy workspace-level row (email NULL) predating the per-user drafts migration. Only true when no per-user draft exists at this path.
                     created_at:
                       type: string
                       format: date-time
-                  required: [kind, path, draft_only, created_at]
+                  required: [kind, path, draft_only, legacy_draft, created_at]
 
   /w/{workspace}/drafts/get/{kind}/{path}:
     get:

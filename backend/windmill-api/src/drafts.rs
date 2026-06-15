@@ -45,6 +45,10 @@ pub struct DraftListItem {
     /// No deployed counterpart exists at this path — the draft is the whole
     /// item. Kinds without a per-path backing table report `true`.
     pub draft_only: bool,
+    /// The listed row is a legacy workspace-level draft (`email IS NULL`),
+    /// predating the per-user drafts migration. Only `true` when no per-user
+    /// row exists at this (path, kind) — the DISTINCT ON prefers an owned row.
+    pub legacy_draft: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -112,6 +116,7 @@ fn list_drafts_query() -> String {
                      AND d.value ->> 'draft_path' <> d.path
                     THEN d.value ->> 'draft_path'
                   END AS draft_path,
+                  (d.email IS NULL) AS legacy_draft,
                   {case} AS draft_only
            FROM draft d
            WHERE d.workspace_id = $1 AND (d.email = $2 OR d.email IS NULL)
