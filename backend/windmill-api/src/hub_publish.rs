@@ -57,7 +57,7 @@ fn validate_folder(folder: &str) -> Result<(), Error> {
         && folder.len() <= 255
         && folder
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_');
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
     if ok {
         Ok(())
     } else {
