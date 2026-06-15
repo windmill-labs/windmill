@@ -1828,10 +1828,12 @@ async fn get_script_by_path(
 }
 
 async fn list_tokens(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Vec<TruncatedTokenWithEmail>> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("scripts:read:{}", path))?;
     list_tokens_internal(&db, &w_id, &path, false).await
 }
 
