@@ -2099,7 +2099,8 @@ export function preservePendingScriptLocks(
 ): void {
   // A multi-module script keeps its metadata in the folder layout
   // `…__mod/script.{yaml,json}` instead of `….script.{yaml,json}`.
-  const modMeta = getModuleFolderSuffix() + SEP + "script";
+  // Map keys are always forward-slash normalized, on every platform.
+  const modMeta = getModuleFolderSuffix() + "/script";
   for (const metaKey of Object.keys(remote)) {
     const isYaml =
       metaKey.endsWith(".script.yaml") || metaKey.endsWith(modMeta + ".yaml");
@@ -2134,9 +2135,9 @@ export function preservePendingScriptLocks(
 
     // Derive the lock-file key from the `!inline` reference itself, not from the
     // metadata path: a multi-module script keeps its lock at `…__mod/script.lock`,
-    // which a `.script.yaml -> .script.lock` rewrite would miss. The reference is
-    // always forward-slash; map keys use the OS separator.
-    const lockKey = localLock.slice("!inline ".length).replaceAll("/", SEP);
+    // which a `.script.yaml -> .script.lock` rewrite would miss. The reference and
+    // the map keys are both forward-slash, so no separator rewrite is needed.
+    const lockKey = localLock.slice("!inline ".length);
     if (local[lockKey] === undefined) continue; // committed lock already gone
 
     remoteParsed["lock"] = localLock;
