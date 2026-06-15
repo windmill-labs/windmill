@@ -59,7 +59,9 @@ export interface ChatLoopConfig {
 
 export interface ChatLoopResult {
 	addedMessages: ChatCompletionMessageParam[]
+	/** Sum of usage across all loop iterations (suitable for cost accounting). */
 	tokenUsage: ChatTokenUsage
+	lastIterationUsage: ChatTokenUsage | null
 	hitMaxIterations: boolean
 }
 
@@ -215,8 +217,17 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 
 	const addedMessages: ChatCompletionMessageParam[] = config.addedMessages ?? []
 	let tokenUsage = emptyChatTokenUsage()
+	let lastIterationUsage: ChatTokenUsage | null = null
 	let iterations = 0
 	let hitMaxIterations = false
+
+	const trackUsage = (usage: ChatTokenUsage | null | undefined) => {
+		tokenUsage = addChatTokenUsage(tokenUsage, usage)
+		// Some providers/paths report no usage (prompt 0); keep the last real one.
+		if (usage && usage.prompt > 0) {
+			lastIterationUsage = usage
+		}
+	}
 
 	while (true) {
 		if (maxIterations !== undefined && iterations >= maxIterations) {
@@ -283,7 +294,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					helpers,
 					parseOptions
 				)
-				tokenUsage = addChatTokenUsage(tokenUsage, continueCompletion.tokenUsage)
+				trackUsage(continueCompletion.tokenUsage)
 				return continueCompletion.shouldContinue
 			}
 
@@ -342,7 +353,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					undefined,
 					parseOptions
 				)
-				tokenUsage = addChatTokenUsage(tokenUsage, continueCompletion.tokenUsage)
+				trackUsage(continueCompletion.tokenUsage)
 				if (!continueCompletion.shouldContinue) {
 					break
 				}
@@ -368,7 +379,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					abortController,
 					parseOptions
 				)
-				tokenUsage = addChatTokenUsage(tokenUsage, continueCompletion.tokenUsage)
+				trackUsage(continueCompletion.tokenUsage)
 				return continueCompletion.shouldContinue
 			}
 
@@ -403,7 +414,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					undefined,
 					parseOptions
 				)
-				tokenUsage = addChatTokenUsage(tokenUsage, continueCompletion.tokenUsage)
+				trackUsage(continueCompletion.tokenUsage)
 				if (!continueCompletion.shouldContinue) {
 					break
 				}
@@ -411,5 +422,5 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		}
 	}
 
-	return { addedMessages, tokenUsage, hitMaxIterations }
+	return { addedMessages, tokenUsage, lastIterationUsage, hitMaxIterations }
 }

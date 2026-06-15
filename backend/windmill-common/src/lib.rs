@@ -102,6 +102,7 @@ pub mod teams_oss;
 pub mod tracing_init;
 pub mod trashbin;
 pub mod triggers;
+pub mod user_drafts;
 pub mod usernames;
 pub mod users;
 pub mod utils;

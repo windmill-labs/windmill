@@ -1,15 +1,9 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
-	import { untrack } from 'svelte'
 
-	import { AppService, DraftService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-	import {
-		cleanValueProperties,
-		orderedJsonStringify,
-		readFieldsRecursively,
-		type Value
-	} from '$lib/utils'
+	import { AppService } from '$lib/gen'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import { readFieldsRecursively } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
@@ -18,14 +12,21 @@
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
 	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
+	import { importStore } from '$lib/components/apps/store'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
+	import { armRestartOnFirstInteraction, runResetToDeployed } from '$lib/userDraftToast'
+	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
+	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
+	import RawAppTemplatePicker, {
+		type RawAppTemplatePickerResult
+	} from '$lib/components/raw_apps/RawAppTemplatePicker.svelte'
 	import {
-		UserDraft,
-		checkStaleness,
-		localDraftDiffers,
-		type UserDraftMeta
-	} from '$lib/userDraft.svelte'
-	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
-	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
+		react19Template,
+		STARTER_RUNNABLE,
+		STARTER_RUNNABLE_KEY
+	} from '$lib/components/raw_apps/templates'
+	import { aiChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
 	type RawAppDraft = {
 		files: Record<string, string>
@@ -34,6 +35,9 @@
 		summary: string
 		policy?: any
 		custom_path?: string
+		/** User-typed path the home list renders, set only when it differs
+		 *  from the deployed/seeded `savedApp.path`. */
+		draft_path?: string
 	}
 
 	let files: Record<string, string> | undefined = $state(undefined)
@@ -44,6 +48,10 @@
 	// let lastVersion = 0
 	let policy: any = $state({})
 	let summary = $state('')
+	/** User-typed path from `RawAppEditorHeader` when it differs from
+	 *  `savedApp.path`; mirrored into the draft below as `draft_path` for the
+	 *  home list's friendly name. */
+	let pendingDraftPath = $state<string | undefined>(undefined)
 
 	let savedApp:
 		| {
@@ -51,59 +59,26 @@
 					files: Record<string, { code: string }>
 					runnables: Record<string, HiddenRunnable>
 				}
-				draft?: any
 				path: string
 				summary: string
 				policy: any
-				draft_only?: boolean
 				custom_path?: string
 		  }
 		| undefined = $state(undefined)
 	let redraw = $state(0)
 	let path = page.params.path ?? ''
+	/** Opens the framework picker on a brand-new draft (`new_draft=true`):
+	 * React/Svelte + data config + optional AI prompt before the editor goes live. */
+	let templatePicker = $state(false)
 
-	// `?nodraft=true` is the callers' way of saying "skip the local autosave
-	// on this load." Wipe the UserDraft entry and strip the flag from the
-	// URL synchronously, before the handle is created. A plain reload (no
-	// nodraft) restores normally.
-	if (page.url.searchParams.get('nodraft') && typeof window !== 'undefined') {
-		UserDraft.remove('raw_app', path)
-		const url = new URL(window.location.href)
-		url.searchParams.delete('nodraft')
-		window.history.replaceState(window.history.state, '', url.toString())
-	}
-
-	const draftHandle = UserDraft.use<RawAppDraft>('raw_app', path)
-
-	// Local-draft staleness modal: opened when the remote has moved on since
-	// the local autosave was written.
-	let staleModalOpen = $state(false)
-	let staleModalCause = $state<'draft' | 'version'>('version')
-	let pendingBaseline:
-		| { baseline: RawAppDraft; backendSource: any; revs: UserDraftMeta }
-		| undefined = undefined
-
-	function onStaleLoadLatest(): void {
-		if (!pendingBaseline) {
-			staleModalOpen = false
-			return
-		}
-		const { baseline, backendSource, revs } = pendingBaseline
-		UserDraft.remove('raw_app', path)
-		draftHandle.setDraftAndMeta(baseline, revs)
-		extractRawApp(backendSource)
-		pendingBaseline = undefined
-		staleModalOpen = false
-		redraw++
-	}
-
-	function onStaleKeepDraft(): void {
-		if (pendingBaseline) {
-			draftHandle.setMeta(pendingBaseline.revs, { force: true })
-		}
-		pendingBaseline = undefined
-		staleModalOpen = false
-	}
+	// Page-level draft orchestration. `path` is a mount-scoped plain `let` (the
+	// editor remounts per path), so this re-keys only on workspace change.
+	// effectivePath omitted: the live-editor-draft entry is owned by RawAppEditor.
+	const draftSync = usePageDraftSync<RawAppDraft>({
+		itemKind: 'raw_app',
+		path: () => path,
+		workspace: () => $workspaceStore
+	})
 
 	// Persist the bundle whenever any of the four pieces of state changes.
 	$effect(() => {
@@ -114,40 +89,18 @@
 		readFieldsRecursively(data)
 		readFieldsRecursively(policy)
 		void summary
-		draftHandle.draft = {
+		void pendingDraftPath
+		draftSync.draft = {
 			files: currentFiles,
 			runnables,
 			data,
 			summary,
 			policy,
-			custom_path: savedApp?.custom_path
-		}
-	})
-
-	// Reflect an external UserDraft.save into the form. Idempotent; the
-	// `!files` guard skips the reload window so it doesn't fight loadApp.
-	$effect(() => {
-		const d = draftHandle.draft
-		const currentFiles = files
-		if (d == null || !currentFiles) return
-		untrack(() => {
-			if (
-				localDraftDiffers(d, {
-					files: currentFiles,
-					runnables,
-					data,
-					summary,
-					policy,
-					custom_path: savedApp?.custom_path
-				})
-			) {
-				files = d.files
-				runnables = d.runnables
-				data = d.data
-				summary = d.summary
-				if (d.policy !== undefined) policy = d.policy
-			}
-		})
+			custom_path: savedApp?.custom_path,
+			// Only persist when set, so the field disappears from the saved JSON
+			// once the typed path matches the baseline again (or on deploy).
+			...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
+		} as RawAppDraft
 	})
 
 	function extractRawApp(app: any) {
@@ -172,135 +125,195 @@
 		summary = app.summary
 		// lastVersion = app.version
 		policy = app.policy
-		newPath = app.path
+		// Prefer the saved `draft_path` so the topbar shows the pending name, not
+		// the `draft_{uuid}` URL. See /flows/edit's loader.
+		newPath = (app as any).draft_path ?? app.path
 	}
 
 	/** Increments per `loadApp` call. Stale loads (e.g. when picker
 	 * navigation races a draft-discard reload) bail at the next checkpoint
 	 * after their captured token no longer matches. */
 	let loadAppToken = 0
-	async function loadApp(): Promise<void> {
+	/** No deployed row at the URL path; flips RawAppEditor's deploy from
+	 * `updateApp` to `createApp`. See /apps/edit's `isNewApp`. */
+	let isNewApp = $state(false)
+	let otherDraftsUsers = $state<OtherDraftUser[]>([])
+	let loadedFromDraft = $state(false)
+	let othersModalOpen = $state(false)
+	let draftSavedAt = $state<string | undefined>(undefined)
+	let deployedAt = $state<string | undefined>(undefined)
+	async function loadApp(opts: { getDraft?: boolean } = {}): Promise<void> {
+		const getDraft = opts.getDraft ?? true
 		const tok = ++loadAppToken
-		const app_w_draft = await AppService.getAppByPathWithDraft({
+		// `?new_draft=true` (from `/apps_raw/add`'s redirect): a fresh, never-saved
+		// `draft_{uuid}` path. Skip the backend fetch (would 404) and seed every
+		// piece of state RawAppEditor needs — rendering gates on `files`, so an
+		// unset `files` blanks the page. `path = ''` for the friendly auto-name.
+		if (page.url.searchParams.get('new_draft') === 'true') {
+			isNewApp = true
+			// Page reused across same-route nav: clear the previous path's
+			// draft-presence state so it doesn't bleed onto the fresh draft.
+			otherDraftsUsers = []
+			loadedFromDraft = false
+			draftSavedAt = undefined
+			deployedAt = undefined
+			// Suspend autosave across the bootstrap: the seed template and the
+			// picker's `onStart` are programmatic writes that must not POST as the
+			// first edit. Resume on first interaction (the template-card click or
+			// picker X) so the choice persists but earlier mutations don't.
+			if ($workspaceStore) {
+				UserDraft.stopSync('raw_app', path, { workspace: $workspaceStore })
+				armRestartOnFirstInteraction($workspaceStore, 'raw_app', path)
+			}
+			const url = new URL(window.location.href)
+			url.searchParams.delete('new_draft')
+			window.history.replaceState(window.history.state, '', url.toString())
+			// Backend's `Policy` requires `execution_mode` (empty object fails to deserialize).
+			const defaultPolicy = {
+				on_behalf_of: $userStore?.username.includes('@')
+					? $userStore?.username
+					: `u/${$userStore?.username}`,
+				on_behalf_of_email: $userStore?.email,
+				execution_mode: 'publisher'
+			} as any
+			// Explicit path seed: the fork-a-draft handoff re-homes the source
+			// path into the forker's namespace and passes it here.
+			const pathParam = page.url.searchParams.get('seed_path')
+			// One-shot YAML/JSON import handoff. Carried via $importStore, or
+			// sessionStorage when /apps_raw's full page reload would drop in-memory
+			// state. Wrapped exports carry { summary, value, policy }; bare ones the value.
+			let importRaw: any = $importStore
+			if ($importStore) {
+				$importStore = undefined
+			}
+			if (!importRaw) {
+				const sessionData = sessionStorage.getItem('rawAppImport')
+				if (sessionData) {
+					sessionStorage.removeItem('rawAppImport')
+					try {
+						importRaw = JSON.parse(sessionData)
+					} catch {
+						importRaw = undefined
+					}
+				}
+			}
+			const importedValue = importRaw && 'value' in importRaw ? importRaw.value : importRaw
+			// Rendering gates on `files`; only honor imports that carry them.
+			if (importedValue?.files) {
+				sendUserToast('Loaded from YAML/JSON')
+				const importedSummary = ('value' in importRaw ? importRaw.summary : '') ?? ''
+				const importedPolicy =
+					('value' in importRaw ? importRaw.policy : undefined) ?? defaultPolicy
+				savedApp = {
+					summary: importedSummary,
+					value: importedValue,
+					path: '',
+					policy: importedPolicy,
+					custom_path: undefined
+				}
+				extractRawApp({ summary: importedSummary, value: importedValue, policy: importedPolicy })
+				newPath = pathParam ?? ''
+				// Imported content is the starting state — skip the picker.
+				templatePicker = false
+				return
+			}
+			// Seed the React 19 template so the editor has a usable state even if the
+			// user dismisses the picker without selecting.
+			const seedFiles = { ...react19Template }
+			const seedRunnables = { [STARTER_RUNNABLE_KEY]: STARTER_RUNNABLE }
+			savedApp = {
+				summary: '',
+				value: { files: seedFiles as any, runnables: seedRunnables as any },
+				path: '',
+				policy: defaultPolicy,
+				custom_path: undefined
+			}
+			files = seedFiles
+			runnables = seedRunnables
+			data = { ...DEFAULT_DATA }
+			summary = ''
+			policy = defaultPolicy
+			newPath = ''
+			templatePicker = true
+			return
+		}
+		const backendApp = (await AppService.getAppByPath({
 			path: page.params.path ?? '',
-			workspace: $workspaceStore!
-		})
+			workspace: $workspaceStore!,
+			getDraft,
+			rawApp: true
+		})) as any
 		if (tok !== loadAppToken) return
-		const app_w_draft_ = structuredClone(stateSnapshot(app_w_draft))
+		// `other_drafts_users` only computed when `getDraft`; don't clobber the
+		// known list on a `getDraft:false` reload. See /scripts/edit's loader.
+		if (getDraft) {
+			otherDraftsUsers = (backendApp.other_drafts_users ?? []) as OtherDraftUser[]
+		}
+		draftSync.recordRemoteSync(backendApp.draft_saved_at as string | undefined)
+		isNewApp = !!backendApp.no_deployed
+		if (backendApp.is_draft) {
+			loadedFromDraft = true
+		}
+		// Deploy timestamp is `backendApp.created_at`; skip when `no_deployed`.
+		// See /apps/edit's loader.
+		draftSavedAt = backendApp.draft_saved_at as string | undefined
+		deployedAt = backendApp.no_deployed ? undefined : (backendApp.created_at as string | undefined)
+		// The raw-app autosave stores a flat `RawAppDraft`, but this loader (and
+		// `extractRawApp`) needs the deployed shape with `files`/`runnables`/`data`
+		// under `.value` and the rest top-level. Re-wrap the saved draft (`.draft`):
+		//   - `no_deployed`: no deployed row — synthesize the wrapper.
+		//   - deployed + draft: keep deployed metadata, swap in the editable fields.
+		const savedRawAppDraft = backendApp.draft as
+			| {
+					files?: any
+					runnables?: any
+					data?: any
+					summary?: string
+					policy?: any
+					custom_path?: string
+					draft_path?: string
+			  }
+			| undefined
+		// Surface the saved `draft_path` on `backendApp` so `extractRawApp` seeds
+		// `newPath` with the friendly name, not the `draft_{uuid}` URL.
+		if (savedRawAppDraft?.draft_path) {
+			;(backendApp as any).draft_path = savedRawAppDraft.draft_path
+		}
+		if (backendApp.no_deployed) {
+			backendApp.value = {
+				files: savedRawAppDraft?.files ?? {},
+				runnables: savedRawAppDraft?.runnables ?? {},
+				data: savedRawAppDraft?.data
+			}
+			backendApp.summary = savedRawAppDraft?.summary ?? ''
+			// `execution_mode` required; fall back to publisher when unset.
+			backendApp.policy = savedRawAppDraft?.policy ?? { execution_mode: 'publisher' }
+			backendApp.custom_path = savedRawAppDraft?.custom_path
+			backendApp.path = page.params.path ?? ''
+		} else if (savedRawAppDraft) {
+			backendApp.value = {
+				...(backendApp.value ?? {}),
+				files: savedRawAppDraft.files ?? backendApp.value?.files ?? {},
+				runnables: savedRawAppDraft.runnables ?? backendApp.value?.runnables ?? {},
+				data: savedRawAppDraft.data ?? backendApp.value?.data
+			}
+			if (savedRawAppDraft.summary !== undefined) backendApp.summary = savedRawAppDraft.summary
+			if (savedRawAppDraft.policy !== undefined) backendApp.policy = savedRawAppDraft.policy
+			if (savedRawAppDraft.custom_path !== undefined)
+				backendApp.custom_path = savedRawAppDraft.custom_path
+		}
+		const backendApp_ = structuredClone(stateSnapshot(backendApp))
 		savedApp = {
-			summary: app_w_draft_.summary,
-			value: app_w_draft_.value as any,
-			path: app_w_draft_.path,
-			policy: app_w_draft_.policy,
-			draft_only: app_w_draft_.draft_only,
-			draft: app_w_draft_.draft,
-			custom_path: app_w_draft_.custom_path
+			summary: backendApp_.summary,
+			value: backendApp_.value as any,
+			path: backendApp_.path,
+			policy: backendApp_.policy,
+			custom_path: backendApp_.custom_path
 		}
-
-		const backendSource: any = app_w_draft.draft ? app_w_draft.draft : app_w_draft
-		const localDraft = draftHandle.draft
-		const previousMeta = draftHandle.meta
-		const newRevs: UserDraftMeta = {
-			remoteRev: app_w_draft.versions
-				? app_w_draft.versions[app_w_draft.versions.length - 1]
-				: undefined,
-			remoteDraftRev: app_w_draft.draft_created_at
-		}
-		const backendBundle: RawAppDraft = {
-			files: backendSource.value?.files ?? {},
-			runnables: backendSource.value?.runnables ?? {},
-			data:
-				backendSource.value?.data ??
-				(backendSource.value?.datatables
-					? { ...DEFAULT_DATA, tables: backendSource.value.datatables }
-					: { ...DEFAULT_DATA }),
-			summary: backendSource.summary ?? '',
-			policy: backendSource.policy ?? app_w_draft.policy,
-			custom_path: backendSource.custom_path ?? app_w_draft.custom_path
-		}
-
-		if (
-			localDraft != undefined &&
-			orderedJsonStringify(cleanValueProperties(localDraft)) !==
-				orderedJsonStringify(cleanValueProperties(backendBundle))
-		) {
-			const cause = checkStaleness(previousMeta, newRevs.remoteRev, newRevs.remoteDraftRev)
-			if (cause) {
-				pendingBaseline = { baseline: backendBundle, backendSource, revs: newRevs }
-				staleModalCause = cause
-				staleModalOpen = true
-			} else {
-				if (previousMeta.remoteRev === undefined && previousMeta.remoteDraftRev === undefined) {
-					// Legacy entry — backfill meta so the next load can detect staleness.
-					draftHandle.setMeta(newRevs, { force: true })
-				}
-				const appPath = app_w_draft.path
-				const hasBackendDraft = app_w_draft.draft != undefined
-				notifyRestoredFromLocal(hasBackendDraft, !app_w_draft.draft_only, {
-					onResetToSavedDraft: () => {
-						UserDraft.remove('raw_app', path)
-						draftHandle.setDraftAndMeta(backendBundle, newRevs)
-						extractRawApp(backendSource)
-						redraw++
-					},
-					onResetToDeployed: async () => {
-						if (hasBackendDraft) {
-							await DraftService.deleteDraft({
-								workspace: $workspaceStore!,
-								kind: 'app',
-								path: appPath
-							})
-						}
-						UserDraft.remove('raw_app', path)
-						// UserDraft.remove only clears localStorage. Drop the
-						// entry's in-memory state too so loadApp doesn't re-read
-						// the stale autosave and re-fire the same toast.
-						draftHandle.setDraftAndMeta(undefined, {})
-						await loadApp()
-						redraw++
-					}
-				})
-			}
-			runnables = localDraft.runnables
-			data = localDraft.data
-			summary = localDraft.summary
-			policy = localDraft.policy ?? app_w_draft.policy
-			newPath = app_w_draft.path
-			files = localDraft.files
-		} else {
-			if (localDraft != undefined) UserDraft.remove('raw_app', path)
-			extractRawApp(backendSource)
-			draftHandle.setDraftAndMeta(backendBundle, newRevs)
-
-			if (app_w_draft.draft && !app_w_draft.draft_only) {
-				const reloadAction = () => {
-					extractRawApp(app_w_draft)
-					redraw++
-				}
-
-				const deployed = cleanValueProperties(app_w_draft as Value)
-				const draft = cleanValueProperties({ files, runnables })
-				sendUserToast('app loaded from latest saved draft', false, [
-					{
-						label: 'Reset to deployed',
-						callback: reloadAction
-					},
-					{
-						label: 'Show diff',
-						callback: async () => {
-							diffDrawer?.openDrawer()
-							diffDrawer?.setDiff({
-								mode: 'simple',
-								original: deployed,
-								current: draft,
-								title: 'Deployed <> Draft',
-								button: { text: 'Discard draft', onClick: reloadAction }
-							})
-						}
-					}
-				])
-			}
-		}
+		// Extract the effective raw app into the editor's local pieces. The bundle
+		// $effect re-mirrors them into `draftSync.draft`; the first write is
+		// swallowed by `acquireEntry`'s seed guard, so no POST.
+		extractRawApp(backendApp)
 	}
 
 	run(() => {
@@ -316,41 +329,25 @@
 		}
 	})
 
-	async function restoreDraft() {
-		if (!savedApp || !savedApp.draft) {
-			sendUserToast('Could not restore to draft', true)
-			return
-		}
-		diffDrawer?.closeDrawer()
-		UserDraft.remove('raw_app', path)
-		// Drop the in-memory handle state so loadApp sees no local draft
-		// on the next pass — otherwise the staleness check would compare
-		// the stale in-memory meta against the freshly fetched backend and
-		// fire a spurious modal.
-		draftHandle.setDraftAndMeta(undefined, {})
-		goto(`/apps/edit/${savedApp.draft.path}`)
-		await loadApp()
-		redraw++
-	}
-
 	async function restoreDeployed() {
-		if (!savedApp) {
+		if (!savedApp || !$workspaceStore) {
 			sendUserToast('Could not restore to deployed', true)
 			return
 		}
 		diffDrawer?.closeDrawer()
-		if (savedApp.draft) {
-			await DraftService.deleteDraft({
-				workspace: $workspaceStore!,
-				kind: 'app',
-				path: savedApp.path
-			})
-		}
-		UserDraft.remove('raw_app', path)
-		draftHandle.setDraftAndMeta(undefined, {})
-		goto(`/apps/edit/${savedApp.path}`)
-		await loadApp()
-		redraw++
+		goto(`/apps_raw/edit/${savedApp.path}`)
+		// stopSync-bracketed delete + getDraft:false reload; a bare `remove()` +
+		// `loadApp()` loses the race. See /scripts/edit's restoreDeployed.
+		await runResetToDeployed({
+			workspace: $workspaceStore,
+			itemKind: 'raw_app',
+			path,
+			onResetToDeployed: async () => {
+				draftSync.draft = undefined
+				await loadApp({ getDraft: false })
+				redraw++
+			}
+		})
 	}
 
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
@@ -368,22 +365,66 @@
 		}
 		redraw++
 	}
+
+	function onTemplatePickerStart(result: RawAppTemplatePickerResult, withPrompt: boolean) {
+		files = { ...result.files }
+		runnables = { ...result.runnables, [STARTER_RUNNABLE_KEY]: STARTER_RUNNABLE }
+		data = result.data
+		summary = result.summary
+		policy = result.policy
+		// Remount RawAppEditor so the iframe picks up the new files.
+		redraw++
+		// Sync to aiChatManager so its prompts respect the picked data config.
+		aiChatManager.datatableCreationPolicy = {
+			enabled: !!result.data.datatable,
+			datatable: result.data.datatable,
+			schema: result.data.schema
+		}
+		if (withPrompt && result.prompt) {
+			setTimeout(() => {
+				aiChatManager.changeMode(AIMode.APP)
+				if (!aiChatManager.open) aiChatManager.toggleOpen()
+				aiChatManager.instructions = result.prompt!
+				aiChatManager.sendRequest()
+			}, 500)
+		}
+	}
 </script>
 
-<DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
-<LocalDraftStaleModal
-	open={staleModalOpen}
-	cause={staleModalCause}
-	onLoadLatest={onStaleLoadLatest}
-	onKeepDraft={onStaleKeepDraft}
+<DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
+<DraftEditorModals
+	workspace={$workspaceStore ?? ''}
+	itemKind="raw_app"
+	{path}
+	{otherDraftsUsers}
+	onLoadFromServer={() => loadApp()}
+	getLocalDraft={() => draftSync.draft}
+	bind:othersModalOpen
+	{draftSavedAt}
+	{deployedAt}
+	onLoadLatestDeploy={async () => {
+		// stopSync-bracketed; see /scripts/edit's restoreDeployed for the race.
+		if (!$workspaceStore) return
+		await runResetToDeployed({
+			workspace: $workspaceStore,
+			itemKind: 'raw_app',
+			path,
+			onResetToDeployed: async () => {
+				draftSync.draft = undefined
+				await loadApp({ getDraft: false })
+			}
+		})
+	}}
 />
+
+<RawAppTemplatePicker bind:open={templatePicker} onStart={onTemplatePickerStart} />
 
 {#if files}
 	{#key redraw}
 		<div class="h-screen">
 			<RawAppEditor
 				on:savedNewAppPath={(event) => {
-					UserDraft.remove('raw_app', path)
+					draftSync.remove()
 					goto(`/apps_raw/edit/${event.detail}`)
 					newPath = event.detail
 				}}
@@ -392,13 +433,21 @@
 				bind:runnables
 				bind:data
 				bind:summary
+				bind:pendingDraftPath
 				{newPath}
 				path={page.params.path ?? ''}
 				liveEditorDraftStoragePath={path}
 				{policy}
 				bind:savedApp
 				{diffDrawer}
-				newApp={false}
+				newApp={isNewApp}
+				onResetToDeployed={async () => {
+					draftSync.draft = undefined
+					await loadApp({ getDraft: false })
+				}}
+				{loadedFromDraft}
+				othersDraftsCount={otherDraftsUsers.length}
+				onOpenOthersDrafts={() => (othersModalOpen = true)}
 			/>
 		</div>
 	{/key}

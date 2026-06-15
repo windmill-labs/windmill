@@ -2,8 +2,6 @@
 	import ConfirmationModal from './ConfirmationModal.svelte'
 	import { beforeNavigate } from '$app/navigation'
 	import { goto as gotoUrl } from '$app/navigation'
-	import Button from '../button/Button.svelte'
-	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import {
 		cleanValueProperties,
 		orderedJsonStringify,
@@ -16,7 +14,6 @@
 
 	interface Props {
 		getInitialAndModifiedValues?: GetInitialAndModifiedValues
-		diffDrawer?: DiffDrawer | undefined
 		additionalExitAction?: () => void
 		triggerOnSearchParamsChange?: boolean
 		onDiscardChanges?: () => void
@@ -25,7 +22,6 @@
 
 	let {
 		getInitialAndModifiedValues = undefined,
-		diffDrawer = undefined,
 		additionalExitAction = () => {},
 		triggerOnSearchParamsChange = false,
 		onDiscardChanges = undefined,
@@ -125,37 +121,5 @@
 >
 	<div class="flex flex-col w-full space-y-4">
 		<span>Are you sure you want to discard the changes you have made? </span>
-		{#if savedValue && modifiedValue && diffDrawer}
-			<Button
-				wrapperClasses="self-start"
-				variant="default"
-				size="xs"
-				on:click={() => {
-					if (!savedValue || !modifiedValue) {
-						return
-					}
-					open = false
-					diffDrawer?.openDrawer()
-					diffDrawer?.setDiff({
-						mode: 'normal',
-						deployed: savedValue,
-						draft: savedValue.draft,
-						current: modifiedValue,
-						defaultDiffType: 'draft',
-						button: {
-							text: 'Leave anyway',
-							onClick: () => {
-								if (goingTo) {
-									bypassBeforeNavigate = true
-									additionalExitAction?.()
-									gotoUrl(goingTo)
-								}
-							}
-						}
-					})
-				}}
-				>Show diff
-			</Button>
-		{/if}
 	</div>
 </ConfirmationModal>

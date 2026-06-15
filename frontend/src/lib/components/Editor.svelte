@@ -136,7 +136,17 @@
 		lineNumbersMinChars?: number
 		files?: Record<string, { code: string; readonly?: boolean }> | undefined
 		extraLib?: string | undefined
+		/** Trailing debounce window (ms) on Monaco's onDidChangeModelContent.
+		 * Each keystroke schedules (or reschedules) an `updateCode` call this
+		 * far in the future. */
 		changeTimeout?: number
+		/** Hard ceiling (ms) on how long `updateCode` can be deferred while
+		 * the user is typing continuously — measured from the FIRST
+		 * keystroke of the burst (the leading fire). Without this cap,
+		 * uninterrupted typing would hold the bindable `code` prop stale
+		 * indefinitely and downstream consumers (autosave, lint, live
+		 * preview) would never see the latest text. */
+		maxChangeTimeout?: number
 		loadAsync?: boolean
 		key?: string | undefined
 		class?: string | undefined
@@ -177,6 +187,7 @@
 		files = {},
 		extraLib = undefined,
 		changeTimeout = 500,
+		maxChangeTimeout = 1000,
 		loadAsync = false,
 		key = undefined,
 		class: clazz = undefined,
@@ -415,6 +426,22 @@
 		}
 		code = ncode
 		dispatch('change', ncode)
+	}
+
+	/** Force-materialize the latest Monaco content into the bindable
+	 * `code` prop right now, bypassing the trailing debounce. Use for
+	 * explicit "save now" shortcuts (Ctrl/Cmd+S) — without this, anything
+	 * the user typed within the last `changeTimeout` ms is still sitting
+	 * in Monaco's buffer and downstream consumers (autosave, lint) won't
+	 * see it. Clears the chain state so the next keystroke after this
+	 * flush is a fresh leading fire. */
+	export function flushPendingChanges(): void {
+		if (timeoutModel !== undefined) {
+			clearTimeout(timeoutModel)
+			timeoutModel = undefined
+		}
+		changeChainStart = undefined
+		updateCode()
 	}
 
 	export function append(code: string): void {
@@ -1327,6 +1354,10 @@
 	}
 
 	let timeoutModel: number | undefined = undefined
+	/** Wall-clock start (ms) of the current debounce chain. Reset whenever
+	 * the trailing fire lands — so a typing burst → pause → typing burst
+	 * gets a fresh leading fire instead of inheriting the previous cap. */
+	let changeChainStart: number | undefined = undefined
 	async function loadMonaco() {
 		setMonacoTypescriptOptions()
 		console.log('path', uri)
@@ -1433,10 +1464,29 @@
 		let ataModel: number | undefined = undefined
 
 		editor?.onDidChangeModelContent((event) => {
-			timeoutModel && clearTimeout(timeoutModel)
-			timeoutModel = setTimeout(() => {
+			// Leading fire on the first keystroke of a burst: every
+			// downstream consumer (autosave's 1.5s debouncer, the
+			// `bind:code` chain, change listeners) sees text within the
+			// same tick instead of after `changeTimeout` ms of silence.
+			// Subsequent keystrokes within the burst are trailing-only
+			// (debounced by `changeTimeout`), with a hard ceiling at
+			// `chainStart + maxChangeTimeout` so continuous typing still
+			// materializes at least once per `maxChangeTimeout` window.
+			const now = Date.now()
+			if (changeChainStart === undefined) {
 				updateCode()
-			}, changeTimeout)
+				changeChainStart = now
+			}
+			timeoutModel && clearTimeout(timeoutModel)
+			const fireAt = Math.min(now + changeTimeout, changeChainStart + maxChangeTimeout)
+			timeoutModel = setTimeout(
+				() => {
+					updateCode()
+					timeoutModel = undefined
+					changeChainStart = undefined
+				},
+				Math.max(0, fireAt - now)
+			)
 
 			ataModel && clearTimeout(ataModel)
 			ataModel = setTimeout(() => {
@@ -1479,6 +1529,12 @@
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
 				updateCode()
 				shouldBindKey && format && format()
+				// Monaco swallows the keydown (addCommand prevents default and
+				// stops propagation), so page-level Ctrl/Cmd+S handlers never
+				// see it. Re-broadcast as a window event so editors that flush
+				// a draft on the shortcut (raw apps) can react regardless of
+				// which Monaco has focus.
+				window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut'))
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {
@@ -1788,6 +1844,7 @@
 		resultCollectionCompletor && resultCollectionCompletor.dispose()
 		preprocessorCompletor && preprocessorCompletor.dispose()
 		timeoutModel && clearTimeout(timeoutModel)
+		changeChainStart = undefined
 		loadTimeout && clearTimeout(loadTimeout)
 		aiChatEditorHandler?.clear()
 		absolutePathExtraLibs.forEach((d) => d.dispose())

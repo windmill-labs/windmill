@@ -11,7 +11,11 @@ import {
 	splitContentDelta
 } from './chat/openaiReasoning'
 import { parseFimCompletionChoice } from './fim'
-import { requiresMaxCompletionTokens } from './modelConfig'
+import {
+	getKnownModelContextWindow,
+	getModelContextWindow,
+	requiresMaxCompletionTokens
+} from './modelConfig'
 import { supportsAutocomplete } from './utils'
 
 type AssistantMessageWithReasoning = ChatCompletionMessageParam & {
@@ -204,5 +208,50 @@ describe('splitContentDelta', () => {
 			reasoning: '',
 			text: ''
 		})
+	})
+})
+
+describe('model context windows', () => {
+	it('maps Sonnet/Opus 4.6+ Claude models to the 1M window', () => {
+		expect(getKnownModelContextWindow('claude-sonnet-4-6')).toBe(1000000)
+		expect(getKnownModelContextWindow('claude-opus-4-6')).toBe(1000000)
+		expect(getKnownModelContextWindow('claude-opus-4-8')).toBe(1000000)
+		expect(getKnownModelContextWindow('anthropic.claude-sonnet-4-6-v1:0')).toBe(1000000)
+	})
+
+	it('keeps Haiku and older Claude models at 200K', () => {
+		expect(getKnownModelContextWindow('claude-haiku-4-5')).toBe(200000)
+		expect(getKnownModelContextWindow('global.anthropic.claude-haiku-4-5-20251001-v1:0')).toBe(
+			200000
+		)
+		expect(getKnownModelContextWindow('claude-3-5-sonnet-latest')).toBe(200000)
+		expect(getKnownModelContextWindow('claude-sonnet-4-5-20250929')).toBe(200000)
+		expect(getKnownModelContextWindow('claude-opus-4-1')).toBe(200000)
+		// date-suffixed base ids without a minor version: the date must not be
+		// captured as the version
+		expect(getKnownModelContextWindow('claude-sonnet-4-20250514')).toBe(200000)
+		expect(getKnownModelContextWindow('anthropic.claude-sonnet-4-20250514-v1:0')).toBe(200000)
+	})
+
+	it('keeps base GPT-5 models at 400K while GPT-5.4+ get the 1M window', () => {
+		expect(getKnownModelContextWindow('gpt-5')).toBe(400000)
+		expect(getKnownModelContextWindow('gpt-5-mini')).toBe(400000)
+		expect(getKnownModelContextWindow('gpt-5.2')).toBe(400000)
+		expect(getKnownModelContextWindow('gpt-5.4')).toBe(1000000)
+		expect(getKnownModelContextWindow('gpt-5.5')).toBe(1000000)
+	})
+
+	it('maps recent Gemini and DeepSeek models to the 1M window', () => {
+		expect(getKnownModelContextWindow('gemini-3.1-pro')).toBe(1000000)
+		expect(getKnownModelContextWindow('gemini-3-flash')).toBe(1000000)
+		expect(getKnownModelContextWindow('gemini-2.5-flash')).toBe(1000000)
+		expect(getKnownModelContextWindow('deepseek-v4-pro')).toBe(1000000)
+		expect(getKnownModelContextWindow('deepseek-chat')).toBe(1000000)
+		expect(getKnownModelContextWindow('deepseek-reasoner')).toBe(1000000)
+	})
+
+	it('returns undefined for unrecognized models, 128K via the defaulting wrapper', () => {
+		expect(getKnownModelContextWindow('some-custom-model')).toBeUndefined()
+		expect(getModelContextWindow('some-custom-model')).toBe(128000)
 	})
 })

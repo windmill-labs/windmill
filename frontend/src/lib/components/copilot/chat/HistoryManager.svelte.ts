@@ -3,6 +3,7 @@ import type { DisplayMessage } from './shared'
 import { expanded, messageDraft } from './chatDraft'
 import { createLongHash } from '$lib/editorLangUtils'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
+import type { PersistedContextUsage } from './tokenUsage'
 interface ChatSchema extends IDBSchema {
 	chats: {
 		key: string
@@ -13,6 +14,9 @@ interface ChatSchema extends IDBSchema {
 			title: string
 			lastModified: number
 			sessionId?: string
+			// New writes store the plain reported token count; chats persisted by
+			// earlier versions may still hold the legacy anchor object.
+			contextUsage?: PersistedContextUsage
 		}
 	}
 }
@@ -29,6 +33,7 @@ export default class HistoryManager {
 			id: string
 			lastModified: number
 			sessionId?: string
+			contextUsage?: PersistedContextUsage
 		}
 	> = $state({})
 
@@ -105,7 +110,11 @@ export default class HistoryManager {
 		return Object.values(this.savedChats)
 	}
 
-	async saveChat(displayMessages: DisplayMessage[], messages: ChatCompletionMessageParam[]) {
+	async saveChat(
+		displayMessages: DisplayMessage[],
+		messages: ChatCompletionMessageParam[],
+		contextUsage?: number
+	) {
 		if (displayMessages.length > 0) {
 			// Expand any collapsed-paste tokens so the title is readable text, not
 			// the chip label + its zero-width id chars.
@@ -120,7 +129,8 @@ export default class HistoryManager {
 				title,
 				id: this.currentChatId,
 				lastModified: Date.now(),
-				...(this.sessionId ? { sessionId: this.sessionId } : {})
+				...(this.sessionId ? { sessionId: this.sessionId } : {}),
+				...(contextUsage !== undefined ? { contextUsage } : {})
 			}
 			this.savedChats = {
 				...this.savedChats,
@@ -133,8 +143,12 @@ export default class HistoryManager {
 		}
 	}
 
-	async save(displayMessages: DisplayMessage[], messages: ChatCompletionMessageParam[]) {
-		await this.saveChat(displayMessages, messages)
+	async save(
+		displayMessages: DisplayMessage[],
+		messages: ChatCompletionMessageParam[],
+		contextUsage?: number
+	) {
+		await this.saveChat(displayMessages, messages, contextUsage)
 		this.currentChatId = createLongHash()
 	}
 

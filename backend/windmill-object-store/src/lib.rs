@@ -52,6 +52,8 @@ use tokio::task;
 #[cfg(feature = "parquet")]
 use windmill_common::error::to_anyhow;
 #[cfg(feature = "parquet")]
+use windmill_common::jobs::is_safe_log_file_path;
+#[cfg(feature = "parquet")]
 use windmill_common::utils::rd_string;
 #[cfg(all(feature = "parquet", feature = "private"))]
 pub mod job_s3_helpers_ee;
@@ -1296,6 +1298,9 @@ pub async fn get_logs_from_store(
 ) -> Option<impl futures::Stream<Item = Result<bytes::Bytes, object_store::Error>>> {
     if log_offset > 0 {
         if let Some(file_index) = log_file_index.clone() {
+            if file_index.iter().any(|p| !is_safe_log_file_path(p)) {
+                return None;
+            }
             if let Some(os) = get_object_store().await {
                 let logs = logs.to_string();
                 let stream = async_stream::stream! {

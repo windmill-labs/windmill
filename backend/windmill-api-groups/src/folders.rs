@@ -223,7 +223,7 @@ async fn check_name_conflict<'c>(
 }
 
 lazy_static! {
-    static ref VALID_FOLDER_NAME: Regex = Regex::new(r#"^[a-zA-Z_0-9]+$"#).unwrap();
+    static ref VALID_FOLDER_NAME: Regex = Regex::new(r#"^[a-zA-Z_0-9-]+$"#).unwrap();
 }
 
 async fn create_folder(
@@ -255,7 +255,7 @@ async fn create_folder(
 
     if !VALID_FOLDER_NAME.is_match(&ng.name) {
         return Err(windmill_common::error::Error::BadRequest(format!(
-            "Folder name can only contain alphanumeric characters, underscores"
+            "Folder name can only contain alphanumeric characters, underscores, and hyphens"
         )));
     }
     check_name_conflict(&mut tx, &w_id, &ng.name).await?;
@@ -978,4 +978,23 @@ pub async fn log_folder_permission_change<'c, E: sqlx::Executor<'c, Database = P
     .execute(db)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn folder_name_allows_hyphens() {
+        // #8474: hyphens are valid in folder names, consistent with owner/path
+        // validation (which already permits them) and with folders created via
+        // the CLI / by deploying to an `f/<folder>/...` path.
+        assert!(VALID_FOLDER_NAME.is_match("folder-name"));
+        assert!(VALID_FOLDER_NAME.is_match("foo_bar"));
+        assert!(VALID_FOLDER_NAME.is_match("Foo123"));
+        // Disallowed characters are still rejected.
+        assert!(!VALID_FOLDER_NAME.is_match("foo/bar"));
+        assert!(!VALID_FOLDER_NAME.is_match("foo bar"));
+        assert!(!VALID_FOLDER_NAME.is_match(""));
+    }
 }

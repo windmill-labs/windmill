@@ -27,6 +27,7 @@
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
+	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
 	import AIChatSettingsMenu from './AIChatSettingsMenu.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
@@ -535,6 +536,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			{#if inputPreface}
 				{@render inputPreface()}
 			{/if}
+			<ContextUsageIndicator />
+
 			<AIChatInput
 				bind:this={aiChatInput}
 				bind:selectedContext

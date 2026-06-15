@@ -30,8 +30,6 @@ pub struct Flow {
     pub schema: Option<Schema>,
     pub extra_perms: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub dedicated_worker: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
@@ -83,7 +81,9 @@ pub struct ListableFlow {
     pub archived: bool,
     pub extra_perms: serde_json::Value,
     pub starred: bool,
-    pub has_draft: bool,
+    /// `Some(true)` only on synthesised draft-only rows; `None` on deployed rows.
+    /// See ListableScript in scripts.rs.
+    #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -93,6 +93,20 @@ pub struct ListableFlow {
     pub deployment_msg: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// True when the authed user has a draft for this flow (draft-only or layered
+    /// over the deployed row). See ListableScript in scripts.rs.
+    #[serde(default)]
+    pub is_draft: bool,
+    /// User-typed staged path from the draft JSON's `draft_path`; `None` = unchanged.
+    /// See ListableScript in scripts.rs.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_path: Option<String>,
+    /// Per-path draft owners driving the home-page avatar circles.
+    /// See ListableScript in scripts.rs.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_users: Option<sqlx::types::Json<Vec<crate::user_drafts::DraftUserRef>>>,
     /// Labels inherited from the parent folder, computed at read time.
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -107,7 +121,6 @@ pub struct NewFlow {
     #[serde(deserialize_with = "validate_flow_value")]
     pub value: Box<RawValue>,
     pub schema: Option<Schema>,
-    pub draft_only: Option<bool>,
     pub tag: Option<String>,
     pub dedicated_worker: Option<bool>,
     pub timeout: Option<i32>,
