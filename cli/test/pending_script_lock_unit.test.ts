@@ -69,6 +69,27 @@ test("NULL lock without a committed local lock file is a no-op", () => {
   expect(remote[LOCK]).toBeUndefined();
 });
 
+test("NULL remote lock preserves a multi-module (__mod) script lock", () => {
+  // Multi-module layout: metadata at <dir>/script.yaml, lock at <dir>/script.lock,
+  // and the inline reference points into the __mod folder.
+  const meta = "f/foo/bar__mod/script.yaml";
+  const lock = "f/foo/bar__mod/script.lock";
+  const lockRef = "!inline f/foo/bar__mod/script.lock";
+  const remote: Record<string, string> = {
+    [meta]: yamlStringify({ summary: "bar" }),
+  };
+  const local: Record<string, string> = {
+    [meta]: yamlStringify({ summary: "bar", lock: lockRef }),
+    [lock]: LOCK_CONTENT,
+  };
+
+  preservePendingScriptLocks(remote, local);
+
+  expect(remote[lock]).toBe(LOCK_CONTENT);
+  const parsed = yamlParseContent(meta, remote[meta]) as Record<string, unknown>;
+  expect(parsed["lock"]).toBe(lockRef);
+});
+
 test("deleted remote script does not resurrect its lock", () => {
   // Script removed remotely: no remote metadata key at all.
   const remote: Record<string, string> = {};
