@@ -450,6 +450,12 @@
 			hubReadme = ''
 			previewItemCache.clear()
 			previewTypeCache.clear()
+			// Close any open drawers and clear their targets so stale item paths
+			// from the previous workspace don't linger.
+			recordDrawer?.closeDrawer()
+			publishDrawer?.closeDrawer()
+			recordTarget = undefined
+			publishTarget = undefined
 			loadWorkspace($workspaceStore, seq)
 			loadTriggers($workspaceStore, seq)
 			// Resume the folder's project if one exists.
@@ -1070,10 +1076,12 @@
 		const workspace = $workspaceStore
 		if (!workspace) return
 		const slug = hubSlug
-		// Snapshot the selection up-front so a folder switch mid-deploy can't
-		// rewrite draftItems on success.
+		// Snapshot the selection and workspace sequence up-front so a workspace
+		// switch mid-deploy can't write stale state into the new workspace.
+		const deploySeq = workspaceLoadSeq
 		const itemsSnapshot = selectedItems.slice()
 		const triggersSnapshot = relevantTriggers.slice()
+		hubItemIds = {}
 		deploying = true
 		let failures = 0
 		try {
@@ -1175,6 +1183,7 @@
 			}
 
 			await sleep(150)
+			if (deploySeq !== workspaceLoadSeq) return
 			deploymentStatus = {}
 			draftItems = itemsSnapshot.map((i) => ({ ...i, rec: 'none' }))
 			recordings = {}

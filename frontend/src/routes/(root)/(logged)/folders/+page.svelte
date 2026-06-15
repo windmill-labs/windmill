@@ -217,7 +217,7 @@
 											{
 												displayName: 'Publish to Hub',
 												icon: UploadCloud,
-												disabled: !canWrite,
+												disabled: !($userStore?.is_admin || $userStore?.is_super_admin),
 												action: () => {
 													publishFolderName = name
 													hubDrawer?.openDrawer()
