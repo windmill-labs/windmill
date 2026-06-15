@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.724.0
+  version: 1.726.0
   title: Windmill API
 
   contact:
@@ -8023,9 +8023,10 @@ paths:
         Creates a new version of an existing script when called with the same path and the current `parent_hash`.
       operationId: createScript
       x-mcp-tool: true
-      x-mcp-instructions: "To create a script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed."
+      x-mcp-instructions: "To create a NEW script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language, and leave parent_hash unset. For TypeScript, use 'bun' unless deno-specific APIs are needed. To UPDATE an existing script, do NOT delete and recreate it: call this tool with the same path and set parent_hash to the script's current hash, which you can read from the `hash` field returned by getScriptByPath. This creates a new version while preserving the script's history."
       x-mcp-tool-include-fields:
         - path
+        - parent_hash
         - content
         - language
         - summary
@@ -21175,59 +21176,6 @@ components:
     # NOTE: Not so many generators and validators support this format:
     # $ref: "../../openflow.openapi.yaml#/components/schemas"
     # This is why it is better to inline each of schemas for better compat
-    # Do not change next line. It is used by python-client for pre-processing
-    # -- INLINE START --
-    OpenFlow:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
-    FlowValue:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowValue"
-    Retry:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-    StopAfterIf:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/StopAfterIf"
-    FlowModule:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowModule"
-    InputTransform:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/InputTransform"
-    StaticTransform:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/StaticTransform"
-    JavascriptTransform:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/JavascriptTransform"
-    AiTransform:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/AiTransform"
-    ProviderConfig:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/ProviderConfig"
-    MemoryConfig:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/MemoryConfig"
-    FlowModuleValue:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowModuleValue"
-    RawScript:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/RawScript"
-    PathScript:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/PathScript"
-    PathFlow:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/PathFlow"
-    ForloopFlow:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/ForloopFlow"
-    WhileloopFlow:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/WhileloopFlow"
-    BranchOne:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/BranchOne"
-    BranchAll:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/BranchAll"
-    AiAgent:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/AiAgent"
-    Identity:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/Identity"
-    FlowStatus:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
-    FlowStatusModule:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatusModule"
-    FlowNote:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowNote"
-    # -- INLINE END --
-    # Do not change line above
-
     UserDraftOverlay:
       type: object
       description: |
@@ -21303,6 +21251,59 @@ components:
         - trigger_nextcloud
         - trigger_google
         - trigger_github
+    # Do not change next line. It is used by python-client for pre-processing
+    # -- INLINE START --
+    OpenFlow:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
+    FlowValue:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowValue"
+    Retry:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+    StopAfterIf:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/StopAfterIf"
+    FlowModule:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowModule"
+    InputTransform:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/InputTransform"
+    StaticTransform:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/StaticTransform"
+    JavascriptTransform:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/JavascriptTransform"
+    AiTransform:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/AiTransform"
+    ProviderConfig:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/ProviderConfig"
+    MemoryConfig:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/MemoryConfig"
+    FlowModuleValue:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowModuleValue"
+    RawScript:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/RawScript"
+    PathScript:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/PathScript"
+    PathFlow:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/PathFlow"
+    ForloopFlow:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/ForloopFlow"
+    WhileloopFlow:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/WhileloopFlow"
+    BranchOne:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/BranchOne"
+    BranchAll:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/BranchAll"
+    AiAgent:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/AiAgent"
+    Identity:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/Identity"
+    FlowStatus:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
+    FlowStatusModule:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatusModule"
+    FlowNote:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/FlowNote"
+    # -- INLINE END --
+    # Do not change line above
+
     CiTestResult:
       type: object
       properties:
