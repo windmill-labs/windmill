@@ -3,10 +3,17 @@ import {
 	buildDocsOutline,
 	canonicalDocsPageUrl,
 	extractDocsSection,
+	formatDocsSearchResults,
+	makeSnippet,
+	mergeDocsSearchResults,
 	normalizeDocsUrl,
+	parseDocsFullText,
 	parseDocsHeadings,
+	parseDocsIndex,
 	renderDocsPageResult,
-	sanitizeDocsMarkdownLinks
+	sanitizeDocsMarkdownLinks,
+	searchDocsIndex,
+	searchDocsPages
 } from './core'
 
 const SAMPLE = `# Jobs
@@ -249,5 +256,209 @@ describe('renderDocsPageResult', () => {
 		const result = renderDocsPageResult(SAMPLE, 'Does not exist')
 		expect(result).toContain('No section matching "Does not exist" was found')
 		expect(result).toContain('- Jobs (~')
+	})
+})
+
+// Mirrors the llms-full.txt layout: a corpus preamble, then per-page blocks each
+// introduced by a `---` + `## <Category>` lead-in followed by a `Source:` line.
+const SAMPLE_FULL = `# Windmill
+
+> Preamble blurb that precedes the first Source line and must be ignored.
+
+## Browser automation
+
+Source: https://www.windmill.dev/docs/advanced/browser_automation
+
+# Browser automation
+
+By default, a worker group named \`reports\` handles jobs with the \`chromium\` tag.
+The chromium binary will be available on these workers at /usr/bin/chromium.
+You can disable the sandbox by passing the --no-sandbox flag.
+
+---
+
+## Worker groups
+
+Source: https://www.windmill.dev/docs/core_concepts/worker_groups
+
+# Worker groups
+
+Worker groups let you assign tags to workers.
+Set the chromium tag on a worker so it can run browser jobs.
+
+---
+
+## Scheduling
+
+Source: https://www.windmill.dev/docs/core_concepts/scheduling
+
+# Scheduling
+
+Use cron expressions to schedule scripts and flows.
+`
+
+describe('parseDocsFullText', () => {
+	it('splits the corpus into pages keyed by Source URL, dropping the preamble', () => {
+		const pages = parseDocsFullText(SAMPLE_FULL)
+		expect(pages.map((p) => p.url)).toEqual([
+			'https://www.windmill.dev/docs/advanced/browser_automation',
+			'https://www.windmill.dev/docs/core_concepts/worker_groups',
+			'https://www.windmill.dev/docs/core_concepts/scheduling'
+		])
+	})
+
+	it('uses each page first heading as its title', () => {
+		const pages = parseDocsFullText(SAMPLE_FULL)
+		expect(pages.map((p) => p.title)).toEqual([
+			'Browser automation',
+			'Worker groups',
+			'Scheduling'
+		])
+	})
+
+	it('strips the trailing category lead-in so it is not mis-attributed to the previous page', () => {
+		const pages = parseDocsFullText(SAMPLE_FULL)
+		const browser = pages.find((p) => p.url.endsWith('/browser_automation'))
+		// "## Worker groups" introduces the *next* page and must not leak into this body.
+		expect(browser?.body).not.toContain('Worker groups')
+		expect(browser?.body).not.toContain('---')
+	})
+})
+
+describe('searchDocsPages', () => {
+	const pages = parseDocsFullText(SAMPLE_FULL)
+
+	it('ranks the page with more occurrences of the term first', () => {
+		const results = searchDocsPages(pages, 'chromium')
+		expect(results.map((r) => r.url)).toEqual([
+			'https://www.windmill.dev/docs/advanced/browser_automation',
+			'https://www.windmill.dev/docs/core_concepts/worker_groups'
+		])
+		expect(results[0].snippets.length).toBeGreaterThan(0)
+		expect(results[0].snippets.join('\n')).toContain('chromium')
+	})
+
+	it('prefers pages that cover every query term over partial matches', () => {
+		// Only browser_automation mentions both "chromium" and "sandbox".
+		const results = searchDocsPages(pages, 'chromium sandbox')
+		expect(results.map((r) => r.url)).toEqual([
+			'https://www.windmill.dev/docs/advanced/browser_automation'
+		])
+	})
+
+	it('returns nothing when no term matches', () => {
+		expect(searchDocsPages(pages, 'kubernetes helm chart')).toEqual([])
+	})
+
+	it('respects the maxPages cap', () => {
+		const results = searchDocsPages(pages, 'worker', { maxPages: 1 })
+		expect(results.length).toBe(1)
+	})
+})
+
+describe('makeSnippet', () => {
+	it('returns short lines unchanged after collapsing whitespace', () => {
+		expect(makeSnippet('  hello   world  ', ['world'], 200)).toBe('hello world')
+	})
+
+	it('windows a long line around the first matched term with ellipses', () => {
+		const line = `${'a '.repeat(200)}NEEDLE${' b'.repeat(200)}`
+		const snippet = makeSnippet(line, ['needle'], 60)
+		expect(snippet.length).toBeLessThanOrEqual(62) // 60 + two ellipsis chars
+		expect(snippet.toLowerCase()).toContain('needle')
+		expect(snippet.startsWith('…')).toBe(true)
+		expect(snippet.endsWith('…')).toBe(true)
+	})
+})
+
+describe('formatDocsSearchResults', () => {
+	it('renders Source URLs, snippet bullets and a citation instruction', () => {
+		const results = searchDocsPages(parseDocsFullText(SAMPLE_FULL), 'chromium')
+		const rendered = formatDocsSearchResults('chromium', results)
+		expect(rendered).toContain('Source: https://www.windmill.dev/docs/advanced/browser_automation')
+		expect(rendered).toContain('  - ')
+		expect(rendered).toContain('Cite the exact "Source" URL')
+	})
+
+	it('returns a no-match message when there are no results', () => {
+		expect(formatDocsSearchResults('zzz', [])).toContain('No documentation pages matched "zzz"')
+	})
+})
+
+const SAMPLE_INDEX = `# Windmill
+
+> Blurb.
+
+## Documentation structure
+
+### Core concepts
+- [AI agents](https://www.windmill.dev/docs/core_concepts/ai_agents.md): How do I build AI agents in Windmill? Add agent steps to flows. Connect to OpenAI, Anthropic and more.
+- [Retries](https://www.windmill.dev/docs/flows/retries.md): How do I retry a failing flow step automatically with exponential backoff?
+- [Persistent storage](https://www.windmill.dev/docs/core_concepts/persistent_storage/within_windmill.md): How do I persist state between runs in Windmill?
+`
+
+describe('parseDocsIndex', () => {
+	it('parses index entries into title, url and description', () => {
+		const entries = parseDocsIndex(SAMPLE_INDEX)
+		expect(entries).toHaveLength(3)
+		expect(entries[0]).toEqual({
+			title: 'AI agents',
+			url: 'https://www.windmill.dev/docs/core_concepts/ai_agents.md',
+			description:
+				'How do I build AI agents in Windmill? Add agent steps to flows. Connect to OpenAI, Anthropic and more.'
+		})
+	})
+
+	it('ignores lines that are not docs links', () => {
+		expect(parseDocsIndex('## Heading\n> blurb\nplain text')).toEqual([])
+	})
+})
+
+describe('searchDocsIndex', () => {
+	const entries = parseDocsIndex(SAMPLE_INDEX)
+
+	it('surfaces a named feature from its title/description when body grep would miss it', () => {
+		// The branch-centric phrasing a model used that failed body search; the
+		// index entry still matches on "agent"/"LLM"-adjacent terms.
+		const results = searchDocsIndex(entries, 'AI agent step decide')
+		expect(results[0].url).toBe('https://www.windmill.dev/docs/core_concepts/ai_agents.md')
+		expect(results[0].snippets[0]).toContain('agent steps')
+	})
+
+	it('ranks title matches above description-only matches', () => {
+		const results = searchDocsIndex(entries, 'retries')
+		expect(results[0].url).toBe('https://www.windmill.dev/docs/flows/retries.md')
+	})
+
+	it('returns nothing when no term matches', () => {
+		expect(searchDocsIndex(entries, 'kubernetes helm')).toEqual([])
+	})
+})
+
+describe('mergeDocsSearchResults', () => {
+	const body: ReturnType<typeof searchDocsPages> = [
+		{ url: 'https://www.windmill.dev/docs/openflow', title: 'OpenFlow', score: 10, snippets: ['x'] }
+	]
+	const index: ReturnType<typeof searchDocsIndex> = [
+		// Same page as a body hit but as the index `.md` URL — must dedupe.
+		{
+			url: 'https://www.windmill.dev/docs/openflow.md',
+			title: 'OpenFlow',
+			score: 5,
+			snippets: ['desc']
+		},
+		{ url: 'https://www.windmill.dev/docs/flows/retries.md', title: 'Retries', score: 4, snippets: ['desc'] }
+	]
+
+	it('keeps body results first and appends index-only matches, deduping by canonical URL', () => {
+		const merged = mergeDocsSearchResults(body, index)
+		expect(merged.map((r) => r.url)).toEqual([
+			'https://www.windmill.dev/docs/openflow',
+			'https://www.windmill.dev/docs/flows/retries.md'
+		])
+	})
+
+	it('respects the maxPages cap', () => {
+		expect(mergeDocsSearchResults(body, index, 1)).toHaveLength(1)
 	})
 })

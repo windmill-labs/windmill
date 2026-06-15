@@ -4,9 +4,9 @@ import type {
 } from 'openai/resources/index.mjs'
 import type { Tool } from '../shared'
 import { getDocumentationTool } from '../navigator/core'
-import { listDocsPagesTool, readDocsPageTool } from '../docs/core'
+import { listDocsPagesTool, readDocsPageTool, searchDocsTool } from '../docs/core'
 
-export type DocsToolVariant = 'inkeep' | 'llmstxt'
+export type DocsToolVariant = 'inkeep' | 'llmstxt' | 'search'
 
 const CHAT_SYSTEM_PROMPT_INTRO = `You are Windmill's intelligent assistant, designed to answer questions about its functionality. It is your only purpose to help the user in the context of the windmill application.
 Windmill is an open-source developer platform for building internal tools, API integrations, background jobs, workflows, and user interfaces. It offers a unified system where scripts are automatically turned into sharable UIs and can be composed into flows or embedded in custom applications.`
@@ -35,10 +35,27 @@ INSTRUCTIONS:
 - Always include the documentation URL(s) you consulted in your answer so the user can read more. Cite the exact "Source page" URL shown at the top of each page you read — never reconstruct a URL from a link inside the page body.
 - If the documentation does not cover the user's question, say so clearly rather than inventing an answer, and suggest asking the Windmill team.`
 
+const SEARCH_TOOL_SECTION = `You have access to these tools:
+1. Search the documentation (search_docs)
+2. Read a documentation page (read_docs_page)
+
+INSTRUCTIONS:
+- Call search_docs FIRST with a few distinctive keywords from the user's question to find the most relevant documentation pages and matching snippets.
+- If the snippets already answer the question, answer directly. Otherwise call read_docs_page with one of the returned Source URLs to read the full page; if read_docs_page returns a list of section headings, call it again with the same path and a \`section\` argument to read the relevant section.
+- If the first search returns nothing useful, retry with different or broader keywords before giving up.
+- Answer based ONLY on what you find in the documentation. Do not invent features, flags, syntax, or behavior that you did not see in the docs.
+- Always include the documentation URL(s) you consulted in your answer. Cite the exact "Source" URL shown in the search results (or the "Source page" URL at the top of a read page) — never reconstruct a URL from a link inside the page body.
+- If the documentation does not cover the user's question, say so clearly rather than inventing an answer, and suggest asking the Windmill team.`
+
 export const CHAT_SYSTEM_PROMPT = buildAskSystemPrompt('inkeep')
 
 function buildAskSystemPrompt(variant: DocsToolVariant): string {
-	const toolSection = variant === 'llmstxt' ? LLMSTXT_TOOL_SECTION : INKEEP_TOOL_SECTION
+	const toolSection =
+		variant === 'llmstxt'
+			? LLMSTXT_TOOL_SECTION
+			: variant === 'search'
+				? SEARCH_TOOL_SECTION
+				: INKEEP_TOOL_SECTION
 	return `
 ${CHAT_SYSTEM_PROMPT_INTRO}
 
@@ -49,10 +66,14 @@ ${CHAT_SYSTEM_PROMPT_PRINCIPLES}
 }
 
 export function getAskTools(variant: DocsToolVariant = 'inkeep'): Tool<{}>[] {
-	if (variant === 'llmstxt') {
-		return [listDocsPagesTool, readDocsPageTool]
+	switch (variant) {
+		case 'llmstxt':
+			return [listDocsPagesTool, readDocsPageTool]
+		case 'search':
+			return [searchDocsTool, readDocsPageTool]
+		default:
+			return [getDocumentationTool]
 	}
-	return [getDocumentationTool]
 }
 
 export const askTools: Tool<{}>[] = getAskTools('inkeep')

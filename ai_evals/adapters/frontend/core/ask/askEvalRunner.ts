@@ -36,12 +36,18 @@ export interface AskEvalOptions {
 const DOCS_TOOL_ENV = "WMILL_AI_EVAL_DOCS_TOOL";
 
 /**
- * Resolves which docs-tool arm to benchmark. Defaults to the new llms.txt arm.
+ * Resolves which docs-tool arm to benchmark. Defaults to the llms.txt arm.
  */
 export function resolveDocsToolVariant(
   value: string | undefined = process.env[DOCS_TOOL_ENV],
 ): DocsToolVariant {
-  return value === "inkeep" ? "inkeep" : "llmstxt";
+  if (value === "inkeep") {
+    return "inkeep";
+  }
+  if (value === "search") {
+    return "search";
+  }
+  return "llmstxt";
 }
 
 export async function runAskEval(

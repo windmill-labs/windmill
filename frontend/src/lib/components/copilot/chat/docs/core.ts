@@ -3,10 +3,17 @@ import type { ChatCompletionTool } from 'openai/resources/index.mjs'
 
 const DOCS_ORIGIN = 'https://www.windmill.dev'
 const LLMS_TXT_URL = `${DOCS_ORIGIN}/llms.txt`
+const LLMS_FULL_TXT_URL = `${DOCS_ORIGIN}/llms-full.txt`
 const CACHE_TTL_MS = 15 * 60 * 1000
 // Above this size, return an outline of the page's headings instead of the full
 // content, prompting the model to request a specific section.
 const FULL_PAGE_CHAR_LIMIT = 20_000
+
+// search_docs result caps — keep the returned payload small (the whole point of
+// search vs. dumping the index or full pages is token economy).
+const SEARCH_MAX_PAGES = 8
+const SEARCH_MAX_SNIPPETS_PER_PAGE = 3
+const SEARCH_MAX_SNIPPET_CHARS = 200
 
 interface CacheEntry {
 	expiresAt: number
@@ -14,6 +21,7 @@ interface CacheEntry {
 }
 
 let llmsTxtCache: CacheEntry | undefined
+let llmsFullTxtCache: CacheEntry | undefined
 const pageCache = new Map<string, CacheEntry>()
 
 /**
@@ -34,6 +42,28 @@ export async function fetchDocsIndex(): Promise<string> {
 		throw error
 	})
 	llmsTxtCache = { expiresAt: now + CACHE_TTL_MS, promise }
+	return promise
+}
+
+/**
+ * Fetches the full documentation corpus (llms-full.txt): every page concatenated
+ * into one document, each delimited by a `Source: <url>` line. ~2 MB. Cached at
+ * module level with a TTL. Mirrors fetchDocsIndex; used by search_docs to grep
+ * the whole corpus in a single fetch.
+ */
+export async function fetchDocsFullText(): Promise<string> {
+	const now = Date.now()
+	if (llmsFullTxtCache && llmsFullTxtCache.expiresAt > now) {
+		return llmsFullTxtCache.promise
+	}
+
+	const promise = fetchText(LLMS_FULL_TXT_URL).catch((error) => {
+		if (llmsFullTxtCache?.promise === promise) {
+			llmsFullTxtCache = undefined
+		}
+		throw error
+	})
+	llmsFullTxtCache = { expiresAt: now + CACHE_TTL_MS, promise }
 	return promise
 }
 
@@ -418,4 +448,451 @@ export function renderDocsPageResult(content: string, section?: string): string 
 		'',
 		buildDocsOutline(content)
 	].join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// Full-text docs search (search_docs)
+//
+// Discovery primitive for the `search` ask variant: instead of dumping the whole
+// llms.txt index, grep the full corpus (llms-full.txt) for the user's keywords
+// and return only small matching snippets plus each page's `Source:` URL. The
+// model then cites that URL directly or passes it to read_docs_page for more.
+// ---------------------------------------------------------------------------
+
+const SOURCE_LINE_RE = /^Source:\s*(\S+)\s*$/
+// In llms-full.txt every page's `Source:` line is preceded by a category-header
+// lead-in: `...page body...\n\n---\n\n## <Category>\n\nSource: <url>`. Splitting
+// on `Source:` lines leaves that lead-in on the *previous* page, so strip a
+// trailing `---` + level-2-heading block to avoid mis-attributing the next
+// page's category title to the previous page.
+const TRAILING_LEAD_IN_RE = /\n+-{3,}[ \t]*\n+#{2}[ \t]+.*[ \t]*\n*$/
+
+export interface DocsFullPage {
+	url: string
+	title: string
+	body: string
+}
+
+export interface DocsSearchResult {
+	url: string
+	title: string
+	/** Higher = more relevant. Distinct query terms matched dominate raw occurrences. */
+	score: number
+	snippets: string[]
+}
+
+/**
+ * Splits the llms-full.txt corpus into per-page records keyed by the `Source:`
+ * URL. Content before the first `Source:` line (the corpus preamble) is dropped.
+ */
+export function parseDocsFullText(fullText: string): DocsFullPage[] {
+	const pages: DocsFullPage[] = []
+	let url: string | undefined
+	let buffer: string[] = []
+
+	const flush = () => {
+		if (url === undefined) {
+			return
+		}
+		const body = buffer.join('\n').replace(TRAILING_LEAD_IN_RE, '').trim()
+		if (body.length > 0) {
+			pages.push({ url, title: firstHeading(body) ?? url, body })
+		}
+	}
+
+	for (const line of fullText.split('\n')) {
+		const match = SOURCE_LINE_RE.exec(line)
+		if (match) {
+			flush()
+			url = match[1]
+			buffer = []
+			continue
+		}
+		if (url !== undefined) {
+			buffer.push(line)
+		}
+	}
+	flush()
+	return pages
+}
+
+function firstHeading(body: string): string | undefined {
+	for (const line of body.split('\n')) {
+		const match = /^#{1,6}\s+(.*\S)\s*$/.exec(line)
+		if (match) {
+			return match[1].trim()
+		}
+	}
+	return undefined
+}
+
+/**
+ * Ranks docs pages for a keyword query. The query is split into distinct terms;
+ * a page's score is `distinctTermsMatched` (dominant) then total occurrences.
+ * Pages covering every term are preferred over partial matches. Each result
+ * carries up to `maxSnippetsPerPage` of its most term-dense lines.
+ */
+export function searchDocsPages(
+	pages: DocsFullPage[],
+	query: string,
+	opts: { maxPages?: number; maxSnippetsPerPage?: number; maxSnippetChars?: number } = {}
+): DocsSearchResult[] {
+	const maxPages = opts.maxPages ?? SEARCH_MAX_PAGES
+	const maxSnippetsPerPage = opts.maxSnippetsPerPage ?? SEARCH_MAX_SNIPPETS_PER_PAGE
+	const maxSnippetChars = opts.maxSnippetChars ?? SEARCH_MAX_SNIPPET_CHARS
+
+	const terms = tokenizeQuery(query)
+	if (terms.length === 0) {
+		return []
+	}
+
+	interface Scored extends DocsSearchResult {
+		distinctTerms: number
+		order: number
+	}
+	const scored: Scored[] = []
+
+	pages.forEach((page, order) => {
+		const lowerBody = page.body.toLowerCase()
+		let distinctTerms = 0
+		let occurrences = 0
+		for (const term of terms) {
+			const count = countOccurrences(lowerBody, term)
+			if (count > 0) {
+				distinctTerms += 1
+				occurrences += count
+			}
+		}
+		if (distinctTerms === 0) {
+			return
+		}
+		scored.push({
+			url: page.url,
+			title: page.title,
+			// distinctTerms dominates so a page matching all terms always outranks
+			// one matching fewer, regardless of raw occurrence counts.
+			score: distinctTerms * 1_000_000 + occurrences,
+			distinctTerms,
+			order,
+			snippets: selectSnippets(page.body, terms, maxSnippetsPerPage, maxSnippetChars)
+		})
+	})
+
+	// Prefer pages that cover every query term; fall back to partial matches only
+	// when nothing covers all of them.
+	const fullCoverage = scored.filter((entry) => entry.distinctTerms === terms.length)
+	const pool = fullCoverage.length > 0 ? fullCoverage : scored
+
+	pool.sort((a, b) => b.score - a.score || a.order - b.order)
+
+	return pool
+		.slice(0, maxPages)
+		.map(({ url, title, score, snippets }) => ({ url, title, score, snippets }))
+}
+
+/** Splits a query into distinct, lowercased, non-empty terms. */
+function tokenizeQuery(query: string): string[] {
+	return Array.from(
+		new Set(
+			query
+				.toLowerCase()
+				.split(/\s+/)
+				.map((term) => term.trim())
+				.filter((term) => term.length > 0)
+		)
+	)
+}
+
+function countOccurrences(haystack: string, needle: string): number {
+	if (needle.length === 0) {
+		return 0
+	}
+	let count = 0
+	let index = haystack.indexOf(needle)
+	while (index !== -1) {
+		count += 1
+		index = haystack.indexOf(needle, index + needle.length)
+	}
+	return count
+}
+
+/**
+ * Picks the most term-dense lines of a page body as snippets, in document order,
+ * deduped, each trimmed to `maxChars` around the first matched term.
+ */
+function selectSnippets(
+	body: string,
+	terms: string[],
+	maxSnippets: number,
+	maxChars: number
+): string[] {
+	interface LineHit {
+		text: string
+		distinct: number
+		order: number
+	}
+	const hits: LineHit[] = []
+
+	body.split('\n').forEach((line, order) => {
+		const lower = line.toLowerCase()
+		let distinct = 0
+		for (const term of terms) {
+			if (lower.includes(term)) {
+				distinct += 1
+			}
+		}
+		if (distinct === 0) {
+			return
+		}
+		const text = makeSnippet(line, terms, maxChars)
+		if (text.length > 0) {
+			hits.push({ text, distinct, order })
+		}
+	})
+
+	hits.sort((a, b) => b.distinct - a.distinct || a.order - b.order)
+
+	const seen = new Set<string>()
+	const result: string[] = []
+	for (const hit of hits) {
+		if (seen.has(hit.text)) {
+			continue
+		}
+		seen.add(hit.text)
+		result.push(hit.text)
+		if (result.length >= maxSnippets) {
+			break
+		}
+	}
+	return result
+}
+
+/**
+ * Collapses a matched line to a single-line snippet of at most `maxChars`,
+ * windowed around the first matched term (with ellipses) when the line is long.
+ */
+export function makeSnippet(line: string, terms: string[], maxChars: number): string {
+	const collapsed = line.replace(/\s+/g, ' ').trim()
+	if (collapsed.length <= maxChars) {
+		return collapsed
+	}
+
+	const lower = collapsed.toLowerCase()
+	let firstIndex = -1
+	for (const term of terms) {
+		const index = lower.indexOf(term)
+		if (index !== -1 && (firstIndex === -1 || index < firstIndex)) {
+			firstIndex = index
+		}
+	}
+	if (firstIndex === -1) {
+		return `${collapsed.slice(0, maxChars).trimEnd()}…`
+	}
+
+	const start = Math.max(0, firstIndex - Math.floor(maxChars / 3))
+	const end = Math.min(collapsed.length, start + maxChars)
+	const prefix = start > 0 ? '…' : ''
+	const suffix = end < collapsed.length ? '…' : ''
+	return `${prefix}${collapsed.slice(start, end).trim()}${suffix}`
+}
+
+export interface DocsIndexEntry {
+	title: string
+	url: string
+	description: string
+}
+
+// A line in llms.txt: `- [Title](https://.../page.md): question-phrased description`.
+const INDEX_ENTRY_RE = /^\s*-\s*\[([^\]]+)\]\(([^)\s]+)\)\s*:?\s*(.*)$/
+
+/** Parses the llms.txt index into per-page entries (title, URL, description). */
+export function parseDocsIndex(indexText: string): DocsIndexEntry[] {
+	const entries: DocsIndexEntry[] = []
+	for (const line of indexText.split('\n')) {
+		const match = INDEX_ENTRY_RE.exec(line)
+		if (!match) {
+			continue
+		}
+		const [, title, url, description] = match
+		if (!url.includes('/docs/')) {
+			continue
+		}
+		entries.push({ title: title.trim(), url: url.trim(), description: description.trim() })
+	}
+	return entries
+}
+
+/**
+ * Ranks index entries for a query by matching its terms against each entry's
+ * title and description. Title matches weigh more than description matches.
+ * The description becomes the result's single snippet. This recovers the
+ * "named feature" discovery that full-text grep misses when the model searches
+ * the wrong keywords (e.g. finding "AI agents" for "LLM decides which script").
+ */
+export function searchDocsIndex(
+	entries: DocsIndexEntry[],
+	query: string,
+	opts: { maxPages?: number } = {}
+): DocsSearchResult[] {
+	const maxPages = opts.maxPages ?? SEARCH_MAX_PAGES
+	const terms = tokenizeQuery(query)
+	if (terms.length === 0) {
+		return []
+	}
+
+	interface Scored extends DocsSearchResult {
+		distinctTerms: number
+		order: number
+	}
+	const scored: Scored[] = []
+
+	entries.forEach((entry, order) => {
+		const title = entry.title.toLowerCase()
+		const description = entry.description.toLowerCase()
+		let distinctTerms = 0
+		let score = 0
+		for (const term of terms) {
+			const inTitle = title.includes(term)
+			const inDescription = description.includes(term)
+			if (inTitle || inDescription) {
+				distinctTerms += 1
+				score += (inTitle ? 5 : 0) + (inDescription ? 1 : 0)
+			}
+		}
+		if (distinctTerms === 0) {
+			return
+		}
+		scored.push({
+			url: entry.url,
+			title: entry.title,
+			score: distinctTerms * 1_000_000 + score,
+			distinctTerms,
+			order,
+			snippets: entry.description ? [entry.description] : []
+		})
+	})
+
+	const fullCoverage = scored.filter((entry) => entry.distinctTerms === terms.length)
+	const pool = fullCoverage.length > 0 ? fullCoverage : scored
+	pool.sort((a, b) => b.score - a.score || a.order - b.order)
+
+	return pool
+		.slice(0, maxPages)
+		.map(({ url, title, score, snippets }) => ({ url, title, score, snippets }))
+}
+
+/** Strips the `.md` suffix and trailing slash so index/body URLs dedupe. */
+function canonicalSearchUrl(url: string): string {
+	return url.replace(/\.md$/i, '').replace(/\/$/, '')
+}
+
+/**
+ * Merges full-text (body) results with index-description results. Body matches
+ * come first (concrete content hits), then index-only matches fill remaining
+ * slots — so a named feature surfaced only by its index entry still appears even
+ * when body grep landed on the wrong pages.
+ */
+export function mergeDocsSearchResults(
+	bodyResults: DocsSearchResult[],
+	indexResults: DocsSearchResult[],
+	maxPages = SEARCH_MAX_PAGES
+): DocsSearchResult[] {
+	const seen = new Set(bodyResults.map((result) => canonicalSearchUrl(result.url)))
+	const merged = [...bodyResults]
+	for (const entry of indexResults) {
+		const key = canonicalSearchUrl(entry.url)
+		if (seen.has(key)) {
+			continue
+		}
+		seen.add(key)
+		merged.push(entry)
+	}
+	return merged.slice(0, maxPages)
+}
+
+/** Renders search results as the string returned to the model. */
+export function formatDocsSearchResults(query: string, results: DocsSearchResult[]): string {
+	if (results.length === 0) {
+		return `No documentation pages matched "${query}". Try fewer or more general keywords (a single distinctive term often works best).`
+	}
+
+	const blocks = results.map((result) => {
+		const lines = [`## ${result.title}`, `Source: ${result.url}`]
+		for (const snippet of result.snippets) {
+			lines.push(`  - ${snippet}`)
+		}
+		return lines.join('\n')
+	})
+
+	return [
+		`Found ${results.length} documentation page(s) matching "${query}", most relevant first:`,
+		'',
+		blocks.join('\n\n'),
+		'',
+		'Cite the exact "Source" URL when referencing a page. If these snippets are not enough, call read_docs_page with a Source URL to read the full page or a section.'
+	].join('\n')
+}
+
+const SEARCH_DOCS_TOOL: ChatCompletionTool = {
+	type: 'function',
+	function: {
+		name: 'search_docs',
+		description:
+			'Full-text search across the entire Windmill documentation. Provide one or more keywords; returns the most relevant docs pages, each with its Source URL and short matching snippets. Use this FIRST to find relevant pages by their content (a flag, function, error message, config key or concept). If the snippets answer the question, answer directly; otherwise call read_docs_page with a returned Source URL to read more.',
+		parameters: {
+			type: 'object',
+			properties: {
+				query: {
+					type: 'string',
+					description:
+						'Keywords to search for in the documentation body, e.g. "chromium worker tag" or "retry exponential backoff". Fewer, more distinctive words match better.'
+				}
+			},
+			required: ['query']
+		}
+	}
+}
+
+export const searchDocsTool: Tool<{}> = {
+	def: SEARCH_DOCS_TOOL,
+	fn: async ({ args, toolId, toolCallbacks }) => {
+		const query = typeof args?.query === 'string' ? args.query.trim() : ''
+		toolCallbacks.setToolStatus(toolId, {
+			content: query ? `Searching documentation for "${query}"...` : 'Searching documentation...'
+		})
+		try {
+			if (!query) {
+				return 'No search query was provided. Provide a `query` of one or more keywords.'
+			}
+			const bodyResults = searchDocsPages(parseDocsFullText(await fetchDocsFullText()), query, {
+				maxPages: 5
+			})
+			// Also match the (small) index titles/descriptions to surface named
+			// features that body grep misses. Best-effort: a failed index fetch
+			// still leaves full-text results.
+			let indexResults: DocsSearchResult[] = []
+			try {
+				indexResults = searchDocsIndex(parseDocsIndex(await fetchDocsIndex()), query, {
+					maxPages: 4
+				})
+			} catch (indexError) {
+				console.error('Error searching documentation index:', indexError)
+			}
+			const results = mergeDocsSearchResults(bodyResults, indexResults)
+			toolCallbacks.setToolStatus(toolId, {
+				content:
+					results.length > 0 ? `Found ${results.length} matching page(s)` : 'No matching pages found'
+			})
+			return formatDocsSearchResults(query, results)
+		} catch (error) {
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Error searching documentation',
+				error: 'Error searching documentation'
+			})
+			console.error('Error searching documentation:', error)
+			const errorMessage =
+				error instanceof Error ? error.message : 'An error occurred while searching the documentation'
+			return `Failed to search documentation: ${errorMessage}, pursuing with the user request...`
+		}
+	}
 }

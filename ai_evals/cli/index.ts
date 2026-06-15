@@ -54,7 +54,7 @@ async function main() {
         "  bun run cli -- run flow --backend-validation preview",
         "  bun run cli -- run flow flow-test5-simple-modification --runs 3",
         "  bun run cli -- run global global-test1-script-create",
-        "  bun run cli -- run ask --docs-tool llmstxt",
+        "  bun run cli -- run ask --docs-tool search",
         "  bun run cli -- run ask ask-lookup-cron-schedule --docs-tool inkeep",
         "  bun run cli -- run cli bun-hello-script",
         "",
@@ -109,7 +109,7 @@ async function main() {
     )
     .option(
       "--docs-tool <arm>",
-      "docs-tool arm for ask mode (inkeep, llmstxt)",
+      "docs-tool arm for ask mode (inkeep, llmstxt, search)",
       parseDocsTool,
     )
     .action(
@@ -336,10 +336,12 @@ function parsePositiveInteger(value: string): number {
 }
 
 function parseDocsTool(value: string): string {
-  if (value === "inkeep" || value === "llmstxt") {
+  if (value === "inkeep" || value === "llmstxt" || value === "search") {
     return value;
   }
-  throw new InvalidArgumentError("docs-tool must be one of: inkeep, llmstxt");
+  throw new InvalidArgumentError(
+    "docs-tool must be one of: inkeep, llmstxt, search",
+  );
 }
 
 function resolveRequestedModels(
