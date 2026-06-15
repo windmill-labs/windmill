@@ -24,7 +24,7 @@
 	     must fully remount — otherwise the previous app (and in sandbox mode its
 	     path-scoped token) sticks around. -->
 	{#key `${workspace}/${path}`}
-		<InWorkspaceAppViewer {workspace} {path} editHref="{base}/apps/edit/{path}" />
+		<InWorkspaceAppViewer {workspace} {path} editHref="{base}/apps/edit/{path}?nodraft=true" />
 	{/key}
 {:else}
 	<Skeleton layout={[10]} />

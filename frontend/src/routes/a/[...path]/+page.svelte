@@ -3,6 +3,7 @@
 
 	import { AppService, OpenAPI, type AppWithLastVersion } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/toast'
 
 	import { setLicense } from '$lib/enterpriseUtils'
 
@@ -90,9 +91,17 @@
 			workspaceStore.set(app.workspace_id)
 			noPermission = false
 			notExists = false
+			jwtError = false
 
 			try {
 				userStore.set(await getUserExt(app.workspace_id))
+				// A JWT in the custom path that fails to resolve a user is surfaced as a
+				// toast (matches the pre-sandbox custom-path viewer) rather than silently
+				// falling through to anonymous.
+				if (!$userStore && parsedCustomPath.jwt) {
+					jwtError = true
+					sendUserToast('Could not authentify user with jwt token', true)
+				}
 			} catch (e) {
 				console.warn('Anonymous user')
 			}

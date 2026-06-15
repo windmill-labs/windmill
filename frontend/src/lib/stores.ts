@@ -178,6 +178,10 @@ export interface SQLSchema {
 	schema: SQLBaseSchema
 	publicOnly: boolean | undefined
 	stringified: string
+	/** MySQL only: the connection's default database (`DATABASE()`), surfaced by the
+	 * introspection script. Lets the table picker render the default db's tables
+	 * unprefixed even when the connection can also see other (non-system) schemas. */
+	defaultDb?: string
 }
 
 export interface GraphqlSchema {

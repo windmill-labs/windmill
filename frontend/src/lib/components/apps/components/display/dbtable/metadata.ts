@@ -239,7 +239,11 @@ export async function getDbSchemas(
 			const dbSchema = {
 				lang: resourceTypeToLang(resourceType) as SQLSchema['lang'],
 				schema,
-				publicOnly: !!schema.public || !!schema.PUBLIC || !!schema.dbo
+				publicOnly: !!schema.public || !!schema.PUBLIC || !!schema.dbo,
+				// MySQL introspection selects `DATABASE() AS default_db_name`; carry it
+				// so the table picker can tell the default db apart from other visible
+				// schemas. Other dbs don't return it (stays undefined).
+				defaultDb: Array.isArray(result) ? (result[0] as any)?.default_db_name : undefined
 			}
 			return { ...dbSchema, stringified: stringifySchema(dbSchema) }
 		} else {
@@ -279,11 +283,11 @@ export async function getTablesByResource(
 			return paths
 		}
 		case 'mysql': {
-			// MySQL metadata is scoped to the connection's default database
-			// (`TABLE_SCHEMA = DATABASE()`), so the single schema key is that default
-			// db — show its tables unprefixed.
-			const schemaKeys = Object.keys(s?.schema ?? {})
-			const defaultDb = schemaKeys.length === 1 ? schemaKeys[0] : undefined
+			// MySQL introspection lists DATABASE() plus any other visible non-system
+			// schemas. Show the default db's tables unprefixed and the rest as
+			// `db.table` — matching the pre-removal behavior (which matched the
+			// resource's `database`); `defaultDb` is the connection's DATABASE().
+			const defaultDb = s && 'defaultDb' in s ? s.defaultDb : undefined
 			const paths: string[] = []
 			for (const key in s?.schema) {
 				for (const subKey in s.schema[key]) {
