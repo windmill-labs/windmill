@@ -55,7 +55,9 @@ export async function deployRawAppDraft(
 	path: string,
 	deploymentMessage?: string
 ): Promise<void> {
-	const app = await AppService.getAppByPathWithDraft({ workspace, path })
+	// `rawApp: true` so a never-deployed raw app (no `app` row) resolves to
+	// the raw_app draft kind server-side instead of 404ing.
+	const app = await AppService.getAppByPath({ workspace, path, getDraft: true, rawApp: true })
 	const draft = (app as any).draft
 	// Honor a renamed draft path; the URL `path` below stays the existing item key.
 	const targetPath = draft?.path ?? path

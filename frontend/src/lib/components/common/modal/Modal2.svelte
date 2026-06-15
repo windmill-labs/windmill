@@ -15,8 +15,15 @@
 		target?: string
 		isOpen?: boolean
 		fixedWidth?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
-		fixedHeight?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
+		/** `adaptive` sizes the modal to its content (no fixed height,
+		 * still capped by max-h-screen-80). */
+		fixedHeight?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' | 'adaptive'
 		contentClasses?: string
+		/** Close when the user clicks outside the modal body. Default
+		 * true. Set false when the caller stacks a child modal on top
+		 * and clicks "outside" the child would otherwise propagate
+		 * here and close the underlying modal. */
+		closeOnOutsideClick?: boolean
 		headerLeft?: import('svelte').Snippet
 		headerRight?: import('svelte').Snippet
 		children?: import('svelte').Snippet
@@ -25,11 +32,15 @@
 	let {
 		title,
 		css = {},
-		target = '',
+		// Forwarded to `Portal`. An empty string would hit
+		// `document.querySelector('')` and throw "The provided selector
+		// is empty" — match `Portal`'s own default instead.
+		target = 'body',
 		isOpen = $bindable(false),
 		fixedWidth = 'md',
 		fixedHeight = 'md',
 		contentClasses = '',
+		closeOnOutsideClick = true,
 		headerLeft,
 		headerRight,
 		children
@@ -49,7 +60,9 @@
 		md: '500px',
 		lg: '720px',
 		xl: '800px',
-		xxl: '1000px'
+		xxl: '1000px',
+		// Content-driven height — emit no `height:` rule at all.
+		adaptive: undefined
 	}
 
 	export function close() {
@@ -61,6 +74,7 @@
 	}
 
 	function handleKeyDown(event: KeyboardEvent) {
+		if (!isOpen) return
 		if (event.key === 'Escape') {
 			event.preventDefault()
 			event.stopPropagation()
@@ -83,15 +97,17 @@
 		>
 			<div class="flex min-h-full items-center justify-center p-8">
 				<div
-					style={`width: ${widthMap[fixedWidth]}; height: ${heightMap[fixedHeight]}; ${
-						css?.popup?.style || ''
-					}`}
+					style={`width: ${widthMap[fixedWidth]}; ${
+						heightMap[fixedHeight] ? `height: ${heightMap[fixedHeight]}; ` : ''
+					}${css?.popup?.style || ''}`}
 					class={twMerge(
 						'max-h-screen-80 max-w-screen-80 rounded-lg relative bg-surface p-4',
 						css?.popup?.class,
 						'wm-modal-form-popup'
 					)}
-					use:clickOutside={{ onClickOutside: () => close() }}
+					use:clickOutside={{
+						onClickOutside: () => closeOnOutsideClick && close()
+					}}
 				>
 					<List gap="md">
 						<div class="flex w-full">

@@ -287,21 +287,6 @@ export function getModelMaxTokens(provider: AIProvider, model: string) {
 	return 8192
 }
 
-export function getModelContextWindow(model: string) {
-	if (model.includes('gpt-4.1') || model.includes('gemini')) {
-		return 1000000
-	} else if (model.includes('gpt-5')) {
-		return 400000
-	} else if (model.includes('gpt-4o') || model.includes('llama-3.3')) {
-		return 128000
-	} else if (model.includes('claude') || model.includes('o4-mini') || model.includes('o3')) {
-		return 200000
-	} else if (model.includes('codestral')) {
-		return 32000
-	} else {
-		return 128000
-	}
-}
 
 function getModelSpecificConfig(
 	modelProvider: AIProviderModel,
