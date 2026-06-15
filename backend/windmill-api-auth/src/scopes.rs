@@ -657,28 +657,57 @@ const RUN_WHITELISTED_GET_PATHS: [&'static str; 20] = [
 /// otherwise reach, so an embedded app reads only jobs it launched (by id).
 pub const APP_EMBED_SENTINEL: &str = "app_embed";
 
-/// Routes an app embed token (sentinel) is denied despite its broad read scopes.
-/// `jobs:read` is for by-id result polling, `users:read` for `users/whoami`, and
-/// `folders:read` for `folders/listnames`; deny everything else in those domains
-/// (workspace-wide job enumeration/export, user emails/usage, folder owners).
+/// Routes an app embed token (sentinel) is denied. Its broad scopes (`apps:run`,
+/// `jobs:read`, `users:read`, `folders:read`) exist only for a fixed set of routes a
+/// running app uses, but the whole `/apps`, `/jobs`, `/users`, `/folders` routers are
+/// CORS-enabled for the opaque app iframe. Default-deny those domains via an explicit
+/// allowlist so the token can't reach workspace inventory, counts, exports, or
+/// capability-minting routes (job signatures / resume URLs).
 fn app_embed_route_denied(domain: ScopeDomain, suffix: &str) -> bool {
     match domain {
-        ScopeDomain::Jobs => app_embed_denied_job_route(suffix),
-        // Allowlist (default-deny): only the single route each scope exists for.
+        ScopeDomain::Apps => !app_embed_apps_route_allowed(suffix),
+        ScopeDomain::Jobs => !app_embed_job_route_allowed(suffix),
         ScopeDomain::Users => suffix != "users/whoami",
         ScopeDomain::Folders => suffix != "folders/listnames",
         _ => false,
     }
 }
 
-/// Job enumeration/export routes an app embed token is denied despite `jobs:read`.
-/// By-id job reads (result polling, under both `jobs/` and `jobs_u/`) are unaffected.
-fn app_embed_denied_job_route(suffix: &str) -> bool {
-    suffix.starts_with("jobs/list") // jobs/list, jobs/list_filtered_uuids
-        || suffix == "jobs/completed/list"
-        || suffix == "jobs/completed/export"
-        || suffix.starts_with("jobs/queue/list") // jobs/queue/list, jobs/queue/list_filtered_uuids
-        || suffix == "jobs/queue/export"
+/// App routes a running app uses: its own definition (`apps/get/p/<path>`, further
+/// path-scoped by `apps:read:<path>`) and the public app-serving endpoints
+/// (`apps_u/*`: public_app, public_resource, get_data, execute_component — the last
+/// path-checked in its handler). Everything else in the domain — workspace app
+/// inventory (`exists`, `custom_path_exists`, `list`, `list_paths*`, `secret_of`,
+/// history, management) — is denied.
+fn app_embed_apps_route_allowed(suffix: &str) -> bool {
+    suffix.starts_with("apps/get/p/") || suffix.starts_with("apps_u/")
+}
+
+/// Job routes a running app uses (the by-id poll/cancel surface driven by the
+/// frontend JobLoader). Everything else in the jobs domain — enumeration, counts,
+/// exports, and the `job_signature`/`resume_urls` capability-minting routes — is
+/// denied. By-id reads are further confined to the app's own runs by
+/// `require_job_read_access` (the `app_embed` cutoff).
+fn app_embed_job_route_allowed(suffix: &str) -> bool {
+    const ALLOWED: [&str; 16] = [
+        "jobs_u/get/",
+        "jobs_u/getupdate/",
+        "jobs_u/getupdate_sse/",
+        "jobs_u/get_logs/",
+        "jobs_u/get_completed_logs_tail/",
+        "jobs_u/get_args/",
+        "jobs_u/get_flow/",
+        "jobs_u/get_flow_all_logs/",
+        "jobs_u/get_flow_debug_info/",
+        "jobs_u/get_root_job_id/",
+        "jobs_u/get_log_file/",
+        "jobs_u/completed/get/",
+        "jobs_u/completed/get_result/",
+        "jobs_u/completed/get_result_maybe/",
+        "jobs_u/completed/get_timing/",
+        "jobs_u/queue/cancel/",
+    ];
+    ALLOWED.iter().any(|p| suffix.starts_with(p))
 }
 
 /// Resource routes a metadata-only `resources:run` scope (app embed tokens) may

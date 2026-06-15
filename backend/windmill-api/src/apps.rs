@@ -1134,23 +1134,21 @@ async fn get_public_app_by_secret(
 /// never receives the viewer's session cookie. Instead of restricting which
 /// routes a *domain* may hit, we restrict which routes the *token* may hit, so
 /// that even a malicious or compromised app document can only reach the
-/// endpoints an app legitimately needs:
-/// - `apps:run`      → `apps_u/public_app`, `get_data`, `public_resource` (read)
-///                      and `execute_component` (run). Run/Read only — it does
-///                      NOT grant `apps:write`, so the token cannot reach
-///                      app-management routes (`apps/update`, `apps/delete`, ...).
-/// - `jobs:read`     → completed-job results & updates by id; the `app_embed`
-///                      sentinel additionally blocks workspace-wide job
-///                      enumeration/export (see `app_embed_route_denied`).
+/// endpoints an app legitimately needs. The `app_embed` sentinel turns each of
+/// these into a strict route allowlist (`app_embed_route_denied`):
+/// - `jobs:read`     → by-id job poll/cancel only; enumeration, counts, exports,
+///                      and `job_signature`/`resume_urls` are denied, and by-id
+///                      reads are confined to the app's own runs.
 /// - `app_embed`     → sentinel tagging this as an app embed token (grants nothing).
-/// - `resources:run` → resource metadata only (pickers, type schemas), never
-///                      values (see `resource_metadata_route_allowed`).
-/// - `users:read`    → `users/whoami` only; the sentinel denies every other
-///                      `/users` route (see `app_embed_route_denied`).
-/// - `folders:read`  → `folders/listnames` only; the sentinel denies every other
-///                      `/folders` route (see `app_embed_route_denied`).
-pub const APP_EMBED_SCOPES: [&str; 6] = [
-    "apps:run",
+/// - `resources:run` → resource metadata only (pickers, type schemas), never values.
+/// - `users:read`    → `users/whoami` only.
+/// - `folders:read`  → `folders/listnames` only.
+/// Plus two path-scoped scopes minted per app (see `mint_app_embed_token`):
+/// - `apps:read:<path>` → the app's own definition (`apps/get/p/<path>`); no
+///                      `apps:write`, so management routes are unreachable.
+/// - `apps:run:<path>`  → run THIS app's components (`execute_component`, which
+///                      re-checks the path); `apps_u/*` public-serving routes.
+pub const APP_EMBED_SCOPES: [&str; 5] = [
     "jobs:read",
     windmill_api_auth::scopes::APP_EMBED_SENTINEL,
     "resources:run",
@@ -1210,6 +1208,10 @@ pub async fn mint_app_embed_token(
         // which the in-workspace sandboxed viewer uses) — but no other app's. The
         // public viewer fetches via apps_u/public_app and doesn't rely on this.
         scopes.push(format!("apps:read:{app_path}"));
+        // Path-scoped run (NOT unqualified `apps:run`) so the token can only execute
+        // THIS app's components: `execute_component` re-checks `apps:run:<path>` for
+        // the requested app, so the token can't drive another app's runnables.
+        scopes.push(format!("apps:run:{app_path}"));
         // A scope-restricted caller token must not bootstrap a broader-scoped
         // embed token (`create_token_internal` deliberately does not check this
         // itself). No-op for unscoped sessions — the normal embed flow.
@@ -2684,6 +2686,15 @@ async fn execute_component(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(mut payload): Json<ExecuteApp>,
 ) -> Result<String> {
+    let path = path.to_path();
+    // Authorize FIRST, before touching the payload: a scoped caller (notably an app
+    // embed token, which carries `apps:run:<own path>`) may only execute components
+    // of the app it was minted for. The route layer can't path-check the apps domain,
+    // so enforce it here; unscoped sessions (editor / normal viewers) and anonymous
+    // callers pass through unaffected.
+    if let Some(authed) = opt_authed.as_ref() {
+        check_scopes(authed, || format!("apps:run:{}", path))?;
+    }
     // Only honor temp_script_refs for the inline-script preview path:
     // preview/editor mode (force_viewer_static_fields set, == `is_preview`),
     // raw_code present, and no deployed app_script id — i.e. `wmill app dev`.
@@ -2706,7 +2717,6 @@ async fn execute_component(
         _ => {}
     };
 
-    let path = path.to_path();
     let (arc_policy, policy): (Arc<Policy>, Policy);
     let policy_triggerables_default = Default::default();
     // Preview mode means the request was issued from the editor; the editing
@@ -3984,17 +3994,24 @@ mod embed_token_tests {
     /// compromised app to app-only routes (WIN-2006).
     #[test]
     fn embed_scopes_allow_app_routes_and_deny_the_rest() {
-        let scopes: Vec<String> = APP_EMBED_SCOPES.iter().map(|s| s.to_string()).collect();
+        let mut scopes: Vec<String> = APP_EMBED_SCOPES.iter().map(|s| s.to_string()).collect();
+        // Mirror mint_app_embed_token: the per-app path-scoped read + run.
+        scopes.push("apps:read:u/admin/app".to_string());
+        scopes.push("apps:run:u/admin/app".to_string());
         let scopes = Some(scopes.as_slice());
 
         // Allowed: the routes a running app legitimately calls.
         let allowed = [
+            // Own definition + the public app-serving / execution endpoints.
+            ("/api/w/test/apps/get/p/u/admin/app", "GET"),
             ("/api/w/test/apps_u/public_app/secret", "GET"),
             ("/api/w/test/apps_u/get_data/v/secret.js", "GET"),
             ("/api/w/test/apps_u/public_resource/f/app_themes/t", "GET"),
             ("/api/w/test/apps_u/execute_component/u/admin/app", "POST"),
+            // By-id job poll routes (the JobLoader surface) stay allowed.
+            ("/api/w/test/jobs_u/get/some-uuid", "GET"),
+            ("/api/w/test/jobs_u/getupdate/some-uuid", "GET"),
             ("/api/w/test/jobs_u/getupdate_sse/some-uuid", "GET"),
-            // By-id job reads (result polling) stay allowed — only enumeration is blocked.
             ("/api/w/test/jobs_u/completed/get_result/some-uuid", "GET"),
             ("/api/w/test/jobs_u/completed/get_timing/some-uuid", "GET"),
             ("/api/w/test/users/whoami", "GET"),
@@ -4017,6 +4034,15 @@ mod embed_token_tests {
         let denied = [
             ("/api/w/test/apps/update/u/admin/app", "POST"),
             ("/api/w/test/apps/delete/u/admin/app", "DELETE"),
+            // Workspace app inventory must NOT be reachable (Apps domain is
+            // default-denied for the embed sentinel; only own-def + apps_u/* allowed).
+            ("/api/w/test/apps/exists/u/admin/app", "GET"),
+            ("/api/w/test/apps/custom_path_exists/foo", "GET"),
+            (
+                "/api/w/test/apps/list_paths_from_workspace_runnable/script/u/admin/x",
+                "GET",
+            ),
+            ("/api/w/test/apps/list", "GET"),
             ("/api/w/test/scripts/list", "GET"),
             ("/api/w/test/variables/list", "GET"),
             ("/api/w/test/resources/update/u/admin/r", "POST"),
@@ -4037,6 +4063,13 @@ mod embed_token_tests {
             ("/api/w/test/jobs/queue/list", "GET"),
             ("/api/w/test/jobs/queue/list_filtered_uuids", "GET"),
             ("/api/w/test/jobs/queue/export", "GET"),
+            // Job counts (workspace-wide aggregates) and the capability-minting
+            // routes (signed resume/approval URLs) are NOT by-id polling — denied.
+            ("/api/w/test/jobs/completed/count", "GET"),
+            ("/api/w/test/jobs/completed/count_jobs", "GET"),
+            ("/api/w/test/jobs/queue/count", "GET"),
+            ("/api/w/test/jobs/job_signature/some-uuid/some-rid", "GET"),
+            ("/api/w/test/jobs/resume_urls/some-uuid/some-rid", "GET"),
             // `users:read`/`folders:read` exist only for whoami/listnames — every
             // other route in those domains is denied via the app_embed sentinel
             // (the whole /users and /folders routers are CORS-enabled for the iframe).
@@ -4083,6 +4116,29 @@ mod embed_token_tests {
         assert!(ScopeDefinition::from_scope_string("apps:read")
             .unwrap()
             .includes(&required));
+    }
+
+    /// The token carries `apps:run:<own path>` (NOT unqualified `apps:run`), and
+    /// `execute_component` re-checks `apps:run:<requested path>` via
+    /// `ScopeDefinition::includes` — so it runs only its OWN app's components, never
+    /// another app's runnables (cross-app execution).
+    #[test]
+    fn embed_run_scope_is_path_scoped_to_its_app() {
+        use windmill_api_auth::scopes::ScopeDefinition;
+        // The mint must not grant unqualified run (which would include any path).
+        assert!(
+            !APP_EMBED_SCOPES.contains(&"apps:run"),
+            "embed scopes must not include unqualified apps:run"
+        );
+        let own = ScopeDefinition::from_scope_string("apps:run:u/admin/app").unwrap();
+        assert!(
+            own.includes(&ScopeDefinition::from_scope_string("apps:run:u/admin/app").unwrap()),
+            "must run its own app's components"
+        );
+        assert!(
+            !own.includes(&ScopeDefinition::from_scope_string("apps:run:u/admin/other").unwrap()),
+            "must NOT run another app's components"
+        );
     }
 
     /// `mint_app_embed_token` guards its `create_token_internal` call with
