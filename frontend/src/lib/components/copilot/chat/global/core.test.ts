@@ -2020,6 +2020,25 @@ describe('session-only preview tools gating', () => {
 	})
 })
 
+describe('documentation lookup tools', () => {
+	it('exposes list_docs_pages and read_docs_page in both the session and non-session tool sets', () => {
+		// The docs tools are read-only references, not session-preview tools, so
+		// they must be present regardless of `sessionPreview`.
+		for (const sessionPreview of [false, true]) {
+			const names = globalToolsFor({ sessionPreview }).map((t) => t.def.function.name)
+			expect(names).toContain('list_docs_pages')
+			expect(names).toContain('read_docs_page')
+		}
+	})
+
+	it('instructs the model to look up product docs and cite the Source page URL', () => {
+		const content = prepareGlobalSystemMessage().content as string
+		expect(content).toContain('list_docs_pages')
+		expect(content).toContain('read_docs_page')
+		expect(content).toContain('Source page')
+	})
+})
+
 describe('prepareGlobalUserMessage', () => {
 	it('injects the active editor reference without contents', () => {
 		__resetUserDraftForTesting()

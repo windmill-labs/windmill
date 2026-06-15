@@ -870,3 +870,27 @@
   judgeChecklist:
     - fetches the logs for the requested job id
     - explains the failure from the returned logs (connection refused to the upstream API)
+
+- id: global-test29-docs-lookup-scheduling
+  prompt: |-
+    How do I schedule a script to run every Monday at 9am in Windmill?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_docs_pages
+      - read_docs_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+      - write_script
+  # Answering a product-docs question produces no draft, so the global judge
+  # (which only sees the drafts artifact) would score it empty — validate the
+  # docs-lookup contract via tool use: browse the index first, then read a page.
+  skipJudge: true
+  judgeChecklist:
+    - lists the documentation pages before reading one
+    - reads the scheduling documentation page rather than answering from memory
+    - cites the canonical windmill.dev/docs scheduling URL in the answer

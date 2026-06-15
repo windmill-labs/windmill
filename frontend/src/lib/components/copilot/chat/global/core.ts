@@ -74,6 +74,7 @@ import {
 } from '../shared'
 import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
+import { listDocsPagesTool, readDocsPageTool } from '../docs/core'
 import { UserDraft, type UserDraftMeta } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
 import { inferArgs } from '$lib/infer'
@@ -638,6 +639,12 @@ Rules:
 - After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.`
 		: ''
 	}
+
+Documentation:
+- To answer questions about Windmill product features, concepts, or syntax, look them up in the official docs with list_docs_pages and read_docs_page rather than relying on memory.
+- Call list_docs_pages FIRST to see the full index of documentation pages with their titles, URLs and descriptions. Then call read_docs_page on the 1 to 3 most relevant pages. If read_docs_page returns a list of section headings instead of the full page, call it again with the same path and a \`section\` argument to read the relevant section.
+- Base documentation answers ONLY on what you read. Do not invent features, flags, syntax, or behavior you did not see in the docs.
+- When you cite a docs page, use the exact "Source page" URL printed at the top of each read_docs_page result — never reconstruct a URL from a link inside the page body. If the docs do not cover the question, say so rather than inventing an answer.
 
 Flows:
 - read_workspace_item returns compact flow JSON. Inline script bodies appear as "inline_script.<moduleId>".
@@ -1469,6 +1476,8 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	createSearchHubScriptsTool(false),
+	listDocsPagesTool,
+	readDocsPageTool,
 	{
 		def: createToolDef(
 			askUserQuestionSchema,
