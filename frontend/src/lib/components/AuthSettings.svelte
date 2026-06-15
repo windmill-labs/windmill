@@ -111,6 +111,24 @@
 		...windmillBuiltinsTemplated
 	]
 
+	/** The static registry declares client credentials for this provider */
+	function registryCcCapable(name: string): boolean {
+		return (
+			(oauthConnectRegistry as Record<string, any>)[name]?.grant_types?.includes(
+				'client_credentials'
+			) ?? false
+		)
+	}
+
+	/** Designate the instance credentials for one grant: client credentials (shared
+	 * server-to-server) or the authorization-code popup flow. */
+	function setCcGrant(name: string, useClientCredentials: boolean) {
+		if (!oauths || !oauths[name]) return
+		oauths[name]['grant_types'] = [
+			useClientCredentials ? 'client_credentials' : 'authorization_code'
+		]
+	}
+
 	let showCustomOAuthForm = $state(false)
 	let customOAuthName = $state('')
 	let customNameInput = $state<HTMLInputElement>()
@@ -462,47 +480,24 @@
 										bind:password={oauths[k]['secret']}
 									/>
 								</label>
-								{#if k === 'visma' || !windmillBuiltins.includes(k)}
-									<div class="mb-8">
-										<div style="display: flex; align-items: center; gap: 8px;">
-											<input
-												type="checkbox"
-												style="width: 16px; height: 16px; margin: 0;"
-												checked={oauths?.[k]?.['grant_types']?.includes('client_credentials') ??
-													false}
-												onchange={(e) => {
-													const target = e.target as HTMLInputElement
-													if (oauths && oauths[k]) {
-														if (!oauths[k]['grant_types']) {
-															oauths[k]['grant_types'] = ['authorization_code']
-														}
-														if (target.checked) {
-															if (!oauths[k]['grant_types'].includes('client_credentials')) {
-																oauths[k]['grant_types'] = [
-																	...oauths[k]['grant_types'],
-																	'client_credentials'
-																]
-															}
-														} else {
-															oauths[k]['grant_types'] = oauths[k]['grant_types'].filter(
-																(gt: string) => gt !== 'client_credentials'
-															)
-														}
-													}
-												}}
-											/>
-											<span class="text-xs font-semibold text-emphasis"
-												>Support Client Credentials Flow</span
-											>
+								{#if registryCcCapable(k) || !windmillBuiltins.includes(k)}
+									<div class="flex flex-col gap-1 mb-2">
+										<span class="text-xs font-semibold text-emphasis">
+											These credentials are for
 											<Tooltip>
-												Enables server-to-server authentication without user interaction. Use for
-												automated scripts and background jobs.
+												Authorization code: users sign in via a popup using this app.
 												<br /><br />
-												When enabled, users can provide their own client credentials at the resource
-												level. The Client ID and Secret configured above are only used for the traditional
-												OAuth flow (popup window).
+												Client credentials: server-to-server. These credentials mint the token for every
+												connection and the secret stays on the server. Leave the Client ID and Secret
+												empty to let each user supply their own instead.
 											</Tooltip>
-										</div>
+										</span>
+										<Toggle
+											options={{ left: 'Authorization code', right: 'Client credentials' }}
+											checked={oauths?.[k]?.['grant_types']?.includes('client_credentials') ??
+												false}
+											on:change={(e) => setCcGrant(k, e.detail)}
+										/>
 									</div>
 								{/if}
 								{#if k === 'azure_oauth'}

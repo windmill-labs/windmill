@@ -167,6 +167,10 @@
 	 * (custom provider configured with only a token URL) */
 	let authCodeUnavailable = $state(false)
 
+	/** Instance entry carries shared client-credentials (id + secret); the user
+	 * doesn't enter their own — the exchange runs server-side with those creds */
+	let ccInstanceConfigured = $state(false)
+
 	/** Connectable via client credentials only: registry-declared provider with
 	 * no instance OAuth client, or instance provider without an authorize URL */
 	let ccOnly = $derived.by(
@@ -180,6 +184,7 @@
 		supportsClientCredentials = false
 		useClientCredentials = false
 		authCodeUnavailable = false
+		ccInstanceConfigured = false
 		clientId = ''
 		clientSecret = ''
 		tokenUrl = ''
@@ -310,6 +315,7 @@
 						args['key'] == '' &&
 						linkedSecrets.length > 0
 					: useClientCredentials &&
+						!ccInstanceConfigured &&
 						(clientId.trim() == '' || clientSecret.trim() == '' || tokenUrl.trim() == ''))) ||
 			step == 3 ||
 			(step == 4 && pathError != '') ||
@@ -444,6 +450,8 @@
 		 */
 		supportsClientCredentials =
 			registryCcCapable() || (connect.grant_types?.includes('client_credentials') ?? false)
+		// Shared instance credentials: the user connects without entering any creds
+		ccInstanceConfigured = connect.client_credentials_configured ?? false
 		if (!tokenUrl) {
 			tokenUrl = connect.token_url ?? registryEntry()?.token_url ?? ''
 		}
@@ -500,9 +508,13 @@
 					const trimmedClientSecret = clientSecret.trim()
 					const trimmedTokenUrl = tokenUrl.trim()
 
-					// Validate required fields. The token URL is persisted on the
-					// account so token refresh works without any instance-level config.
-					if (!trimmedClientId || !trimmedClientSecret || !trimmedTokenUrl) {
+					// Bring-your-own credentials are required unless the provider has
+					// shared instance credentials, in which case the exchange runs
+					// server-side with those and no input is collected here.
+					if (
+						!ccInstanceConfigured &&
+						(!trimmedClientId || !trimmedClientSecret || !trimmedTokenUrl)
+					) {
 						sendUserToast(
 							'Client ID, Client Secret and Token URL are required for client credentials flow',
 							true
@@ -513,12 +525,14 @@
 					const tokenResponse = await OauthService.connectClientCredentials({
 						workspace: effectiveWorkspace,
 						client: connectClient,
-						requestBody: {
-							scopes: scopes,
-							cc_client_id: trimmedClientId,
-							cc_client_secret: trimmedClientSecret,
-							cc_token_url: trimmedTokenUrl
-						}
+						requestBody: ccInstanceConfigured
+							? { scopes: scopes }
+							: {
+									scopes: scopes,
+									cc_client_id: trimmedClientId,
+									cc_client_secret: trimmedClientSecret,
+									cc_token_url: trimmedTokenUrl
+								}
 					})
 
 					// Process the token response like in popup flow
@@ -629,8 +643,10 @@
 				}
 
 				// Client-credentials accounts are self-contained: the refresh worker
-				// re-exchanges using only what is stored on the account row
-				if (useClientCredentials) {
+				// re-exchanges using only what is stored on the account row. With
+				// shared instance credentials the backend copies them onto the row,
+				// so nothing is sent from here.
+				if (useClientCredentials && !ccInstanceConfigured) {
 					accountData.cc_client_id = clientId.trim()
 					accountData.cc_client_secret = clientSecret.trim()
 					accountData.cc_token_url = tokenUrl.trim()
@@ -1046,8 +1062,13 @@
 						<h3 class="text-sm font-semibold text-emphasis mb-1">Authentication</h3>
 						{#if ccOnly}
 							<div class="text-xs text-secondary font-normal mb-2">
-								{resourceType} connects server-to-server. Enter a client ID and secret; the token is
-								acquired and refreshed automatically.
+								{#if ccInstanceConfigured}
+									{resourceType} connects server-to-server using the credentials configured for this
+									instance. The token is acquired and refreshed automatically.
+								{:else}
+									{resourceType} connects server-to-server. Enter a client ID and secret; the token is
+									acquired and refreshed automatically.
+								{/if}
 							</div>
 						{:else}
 							<div class="flex flex-col gap-2 mb-2">
@@ -1059,14 +1080,18 @@
 								)}
 								{@render authOption(
 									true,
-									'Use a client ID and secret',
-									'Runs server-to-server. Best for automation or service accounts.',
+									ccInstanceConfigured
+										? 'Use the configured instance credentials'
+										: 'Use a client ID and secret',
+									ccInstanceConfigured
+										? "Runs server-to-server with this instance's credentials. No input needed."
+										: 'Runs server-to-server. Best for automation or service accounts.',
 									'Client credentials'
 								)}
 							</div>
 						{/if}
 
-						{#if useClientCredentials}
+						{#if useClientCredentials && !ccInstanceConfigured}
 							<form class="flex flex-col gap-6">
 								<label class="flex flex-col gap-1">
 									<span class="text-xs font-semibold text-emphasis">Client ID</span>

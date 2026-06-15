@@ -440,9 +440,32 @@ pub async fn build_client_credentials_oauth_client(
         connect_config.token_url = override_url.to_string();
     }
 
+    // Fall back to the instance entry's own credentials when the caller supplies
+    // none — this is the shared instance-level client-credentials setup, where an
+    // admin configures one service-account client for everyone and the secret
+    // never leaves the server.
+    let resolved_client_id = if client_id.is_empty() {
+        instance_entry
+            .as_ref()
+            .map(|e| e.id.clone())
+            .filter(|id| !id.is_empty())
+            .unwrap_or_default()
+    } else {
+        client_id.to_string()
+    };
+    let resolved_client_secret = if client_secret.is_empty() {
+        instance_entry
+            .as_ref()
+            .map(|e| e.secret.clone())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_default()
+    } else {
+        client_secret.to_string()
+    };
+
     let resource_oauth_client = OAuthClient {
-        id: client_id.to_string(),
-        secret: client_secret.to_string(),
+        id: resolved_client_id,
+        secret: resolved_client_secret,
         allowed_domains: instance_entry
             .as_ref()
             .and_then(|e| e.allowed_domains.clone()),
@@ -467,6 +490,38 @@ pub async fn build_client_credentials_oauth_client(
     )?;
 
     Ok((client, connect_config))
+}
+
+/// Shared instance-level client-credentials for `client_name`: the `(id, secret,
+/// token_url)` from its instance `oauths` entry, but only when that entry both
+/// declares the `client_credentials` grant and carries non-empty credentials.
+/// Lets the connect flow use one admin-configured service-account client instead
+/// of asking each user for their own.
+pub async fn resolve_instance_cc_credentials(
+    db: &DB,
+    client_name: &str,
+) -> error::Result<Option<(String, String, Option<String>)>> {
+    use windmill_common::global_settings::{load_value_from_global_settings, OAUTH_SETTING};
+
+    let oauths = load_value_from_global_settings(db, OAUTH_SETTING).await?;
+    let entry: Option<OAuthClient> = oauths
+        .as_ref()
+        .and_then(|o| o.get(client_name))
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
+
+    Ok(entry.and_then(|e| {
+        let cc_grant = e.grant_types.iter().any(|g| g == "client_credentials");
+        if cc_grant && !e.id.is_empty() && !e.secret.is_empty() {
+            let token_url = e
+                .connect_config
+                .as_ref()
+                .map(|c| c.token_url.clone())
+                .filter(|u| !u.is_empty());
+            Some((e.id, e.secret, token_url))
+        } else {
+            None
+        }
+    }))
 }
 
 /// Exchange authorization code for tokens
