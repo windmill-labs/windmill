@@ -391,23 +391,23 @@ export async function deployDraft(
 		} else {
 			return { success: false, error: `Deploy not supported for draft kind ${kind}` }
 		}
-		// script/flow/app deploys delete the draft server-side; the drawer
-		// kinds' create/update endpoints don't, so delete it here too — else
-		// the just-deployed draft survives and keeps listing.
-		if (
-			kind === 'variable' ||
-			kind === 'resource' ||
-			kind === 'trigger_schedule' ||
-			kind in TRIGGER_SAVERS
-		) {
-			await UserDraftDbSyncer.save({
-				workspace,
-				itemKind: kind,
-				path,
-				value: null,
-				immediate: true
-			})
-		}
+		// Delete the draft at its STORAGE path (the row key, = the `path` arg).
+		// Two reasons it must happen here for every kind, mirroring the editors'
+		// post-deploy `discardDraftAfterDeploy(draftPath)`:
+		//  - Drawer kinds (variable / resource / triggers) aren't deleted by
+		//    their create/update endpoints at all.
+		//  - script/flow/app/raw_app DO delete server-side, but only the draft at
+		//    the *deployed* path (`d.path`). A renamed draft_only item lives at a
+		//    synthetic `u/{user}/draft_{uuid}` storage path ≠ `d.path`, so its
+		//    draft row survives the deploy and keeps listing. Deleting the
+		//    storage-path draft removes it (a no-op when the server already did).
+		await UserDraftDbSyncer.save({
+			workspace,
+			itemKind: kind,
+			path,
+			value: null,
+			immediate: true
+		})
 		// Mutated the workspace's Server Drafts — refresh every mounted reader.
 		invalidateWorkspaceDrafts(workspace)
 		// For script/flow/app the server-side delete bypasses UserDraftDbSyncer,
