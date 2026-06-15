@@ -1,5 +1,7 @@
 <script lang="ts">
 	import {
+		AI_USER_DISABLED_SETTING_NAME,
+		aiUserDisabled,
 		codeCompletionSessionEnabled,
 		metadataCompletionEnabled,
 		stepInputCompletionEnabled
@@ -14,6 +16,7 @@
 	})
 
 	function loadSettings() {
+		$aiUserDisabled = (getLocalSetting(AI_USER_DISABLED_SETTING_NAME) ?? 'false') == 'true'
 		$codeCompletionSessionEnabled =
 			(getLocalSetting('codeCompletionSessionEnabled') ?? 'true') == 'true'
 		$metadataCompletionEnabled = (getLocalSetting('metadataCompletionEnabled') ?? 'true') == 'true'
@@ -25,6 +28,12 @@
 		store.set(value)
 		storeLocalSetting(setting, value.toString())
 	}
+
+	// The toggle reads as enablement; the stored flag is the inverse (opt-out).
+	function updateAiEnabled(enabled: boolean) {
+		$aiUserDisabled = !enabled
+		storeLocalSetting(AI_USER_DISABLED_SETTING_NAME, (!enabled).toString())
+	}
 </script>
 
 <div class="border border-border-light rounded-md p-4 h-full">
@@ -33,35 +42,52 @@
 	<div class="flex flex-col gap-4">
 		<Toggle
 			on:change={(e) => {
-				updateSetting(codeCompletionSessionEnabled, e.detail, 'codeCompletionSessionEnabled')
+				updateAiEnabled(e.detail)
 			}}
-			checked={$codeCompletionSessionEnabled}
+			checked={!$aiUserDisabled}
 			options={{
-				right: 'Code completion',
-				rightTooltip: 'AI completion in the code editors'
+				right: 'Windmill AI',
+				rightTooltip:
+					'Enable Windmill AI for your account on this device. Turning this off hides the AI chat, code completion, metadata completion and flow step input completion.'
 			}}
 		/>
 
-		<Toggle
-			on:change={(e) => {
-				updateSetting(metadataCompletionEnabled, e.detail, 'metadataCompletionEnabled')
-			}}
-			checked={$metadataCompletionEnabled}
-			options={{
-				right: 'Metadata completion',
-				rightTooltip: 'AI completion for summaries and descriptions'
-			}}
-		/>
-		<Toggle
-			on:change={(e) => {
-				updateSetting(stepInputCompletionEnabled, e.detail, 'stepInputCompletionEnabled')
-			}}
-			checked={$stepInputCompletionEnabled}
-			options={{
-				right: 'Flow step input completion',
-				rightTooltip: 'AI completion for flow step inputs'
-			}}
-		/>
+		<div class="flex flex-col gap-4 pl-2 border-l border-border-light">
+			<Toggle
+				disabled={$aiUserDisabled}
+				on:change={(e) => {
+					updateSetting(codeCompletionSessionEnabled, e.detail, 'codeCompletionSessionEnabled')
+				}}
+				checked={$codeCompletionSessionEnabled}
+				options={{
+					right: 'Code completion',
+					rightTooltip: 'AI completion in the code editors'
+				}}
+			/>
+
+			<Toggle
+				disabled={$aiUserDisabled}
+				on:change={(e) => {
+					updateSetting(metadataCompletionEnabled, e.detail, 'metadataCompletionEnabled')
+				}}
+				checked={$metadataCompletionEnabled}
+				options={{
+					right: 'Metadata completion',
+					rightTooltip: 'AI completion for summaries and descriptions'
+				}}
+			/>
+			<Toggle
+				disabled={$aiUserDisabled}
+				on:change={(e) => {
+					updateSetting(stepInputCompletionEnabled, e.detail, 'stepInputCompletionEnabled')
+				}}
+				checked={$stepInputCompletionEnabled}
+				options={{
+					right: 'Flow step input completion',
+					rightTooltip: 'AI completion for flow step inputs'
+				}}
+			/>
+		</div>
 	</div>
 
 	<UserAIPromptsSettings />
