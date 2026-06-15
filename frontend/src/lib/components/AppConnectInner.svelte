@@ -27,11 +27,10 @@
 	import { base } from '$lib/base'
 	import Required from './Required.svelte'
 	import Toggle from './Toggle.svelte'
-	import { Pen } from 'lucide-svelte'
+	import { Pen, Search, Circle, CircleDot } from 'lucide-svelte'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import { apiTokenApps, forceSecretValue, linkedSecretValue } from './app_connect'
 	import type { SchemaProperty } from '$lib/common'
-	import Tooltip from './Tooltip.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
@@ -197,6 +196,31 @@
 		if (scopes.length === 0) {
 			scopes = registryEntry()?.scopes ?? []
 		}
+	}
+
+	/** Static registry declares client-credentials support for `key`. */
+	function isCcCapable(key: string): boolean {
+		return (
+			(oauthConnectRegistry as Record<string, any>)[key]?.grant_types?.includes(
+				'client_credentials'
+			) ?? false
+		)
+	}
+
+	/** Step-1 "Others" selection: CC-capable resource types open in managed
+	 * client-credentials mode by default (the managed form offers a "Create
+	 * resource manually instead" link to drop to raw editing); every other type
+	 * opens the raw manual form as before. */
+	function selectFromOthers(key: string) {
+		connectClient = key
+		resourceType = key
+		resetClientCredentialsState()
+		if (isCcCapable(key)) {
+			enableClientCredentials()
+		} else {
+			manual = true
+		}
+		next()
 	}
 
 	let pathError = $state('')
@@ -746,18 +770,50 @@
 		bind:filteredItems={filteredConnectsManual}
 		f={(x) => x.key}
 	/>
+	{#snippet authOption(cc: boolean, title: string, desc: string, tag: string)}
+		{@const selected = useClientCredentials === cc}
+		<button
+			type="button"
+			onclick={() => {
+				if (cc) {
+					enableClientCredentials()
+				} else {
+					useClientCredentials = false
+				}
+			}}
+			class="w-full text-left rounded-md border p-3 transition-colors {selected
+				? 'border-border-selected bg-surface-selected'
+				: 'border-border-light hover:bg-surface-hover'}"
+		>
+			<div class="flex items-start gap-2">
+				{#if selected}
+					<CircleDot size={16} class="text-accent shrink-0 mt-0.5" />
+				{:else}
+					<Circle size={16} class="text-hint shrink-0 mt-0.5" />
+				{/if}
+				<div class="flex-1 min-w-0">
+					<div class="flex items-center justify-between gap-2">
+						<span class="text-xs font-semibold text-emphasis">{title}</span>
+						<span class="text-2xs text-hint shrink-0 whitespace-nowrap">{tag}</span>
+					</div>
+					<div class="text-xs font-normal text-secondary mt-0.5">{desc}</div>
+				</div>
+			</div>
+		</button>
+	{/snippet}
 	{#if step == 1}
-		<div class="w-12/12 pb-2 flex flex-row my-1 gap-1">
-			<input
-				type="text"
-				placeholder="Search resource type"
-				bind:value={filter}
-				class="text-2xl grow"
-				id="search-resource-type"
-			/>
+		<div class="pb-2 my-1">
+			<div class="relative w-full">
+				<Search class="absolute left-2 top-1/2 -translate-y-1/2 text-tertiary" size={14} />
+				<TextInput
+					inputProps={{ placeholder: 'Search resource type', id: 'search-resource-type' }}
+					bind:value={filter}
+					class="pl-7 text-xs w-full"
+				/>
+			</div>
 		</div>
 
-		<h2 class="mb-4 text-sm font-semibold text-emphasis">OAuth APIs</h2>
+		<h2 class="mb-4 text-sm font-semibold text-emphasis">Instance-configured OAuth APIs</h2>
 		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center">
 			{#if filteredConnects}
 				{#each filteredConnects as { key }}
@@ -784,8 +840,8 @@
 		</div>
 		{#if connects && connects.length == 0}
 			<div class="text-secondary text-xs w-full"
-				>No OAuth APIs has been setup on the instance. To add oauth APIs, first sync the resource
-				types with the hub, then add oauth configuration. See <a
+				>No OAuth APIs have been set up on this instance. To add OAuth APIs, first sync the resource
+				types with the hub, then add OAuth configuration. See <a
 					href="https://www.windmill.dev/docs/misc/setup_oauth">documentation</a
 				>
 			</div>
@@ -795,7 +851,7 @@
 
 		{#if connectsManual && connectsManual?.length < 10}
 			<div class="text-secondary text-xs p-2">
-				Resource Types have not been synced with the hub
+				Resource types have not been synced with the hub
 			</div>
 		{/if}
 
@@ -807,13 +863,7 @@
 							unifiedSize="md"
 							variant="default"
 							selected={key === resourceType}
-							on:click={() => {
-								manual = true
-								connectClient = key
-								resourceType = key
-								resetClientCredentialsState()
-								next()
-							}}
+							on:click={() => selectFromOthers(key)}
 						>
 							<IconedResourceType name={key} after={true} width="20px" height="20px" />
 						</Button>
@@ -827,17 +877,10 @@
 						<Button
 							aiId={`app-connect-inner-${key}`}
 							aiDescription={`Connect to ${key}`}
-							size="sm"
+							unifiedSize="md"
 							variant="default"
-							color={key === resourceType ? 'blue' : 'light'}
-							btnClasses={key === resourceType ? '!border-2' : 'm-[1px]'}
-							on:click={() => {
-								manual = true
-								connectClient = key
-								resourceType = key
-								resetClientCredentialsState()
-								next()
-							}}
+							selected={key === resourceType}
+							on:click={() => selectFromOthers(key)}
 						>
 							<IconedResourceType name={key} after={true} width="20px" height="20px" />
 						</Button>
@@ -999,37 +1042,27 @@
 				<LabelsInput bind:labels class="-mt-5" />
 
 				{#if supportsClientCredentials}
-					<div>
-						<h3 class="text-sm font-semibold text-emphasis mb-1">Authentication Method</h3>
+					<div class="flex flex-col gap-1">
+						<h3 class="text-sm font-semibold text-emphasis mb-1">Authentication</h3>
 						{#if ccOnly}
-							<div class="text-xs text-primary font-normal mb-2">
-								Server-to-server authentication: the token is acquired with your client credentials
-								and refreshed automatically before expiration.
+							<div class="text-xs text-secondary font-normal mb-2">
+								{resourceType} connects server-to-server. Enter a client ID and secret; the token is
+								acquired and refreshed automatically.
 							</div>
 						{:else}
-							<div class="flex items-center gap-2 mb-2">
-								<input
-									type="checkbox"
-									style="width: 16px; height: 16px; margin: 0;"
-									checked={useClientCredentials}
-									onchange={(e) => {
-										if (e.currentTarget.checked) {
-											enableClientCredentials()
-										} else {
-											useClientCredentials = false
-										}
-									}}
-									id="useClienCrediential"
-								/>
-								<label for="useClienCrediential" class="text-xs font-semibold text-emphasis"
-									>Use Client Credentials Flow</label
-								>
-								<Tooltip>
-									Server-to-server authentication without user interaction.
-									<br /><br />
-									Provide your own OAuth client credentials for this resource. The token is acquired
-									and refreshed automatically.
-								</Tooltip>
+							<div class="flex flex-col gap-2 mb-2">
+								{@render authOption(
+									false,
+									`Sign in through ${resourceType}`,
+									'Opens a browser window to log in and authorize. Connects as you.',
+									'OAuth · auth code'
+								)}
+								{@render authOption(
+									true,
+									'Use a client ID and secret',
+									'Runs server-to-server. Best for automation or service accounts.',
+									'Client credentials'
+								)}
 							</div>
 						{/if}
 
@@ -1043,7 +1076,7 @@
 									/>
 								</label>
 								<label class="flex flex-col gap-1">
-									<span class="text-xs font-semibold text-emphasis">Client Secret</span>
+									<span class="text-xs font-semibold text-emphasis">Client secret</span>
 									<TextInput
 										inputProps={{
 											type: 'password',
@@ -1055,7 +1088,7 @@
 								</label>
 								<label class="flex flex-col gap-1">
 									<span class="text-xs font-semibold text-emphasis">Token URL</span>
-									<div class="text-xs text-primary font-normal">
+									<div class="text-xs text-secondary font-normal">
 										Token endpoint of the OAuth provider, stored with the connection and used for
 										automatic token refresh
 									</div>
