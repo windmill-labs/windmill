@@ -353,13 +353,20 @@
 		)
 	}
 
-	// Path to show for a row: the friendly typed path if the draft carries one,
-	// else the storage path. Auto-generated draft slots live at
-	// `u/{user}/draft_{uuid}`, and in the admins workspace (or email-as-username
-	// setups) `{user}` is the full email — truncate it at `@` for display only;
-	// the real path/key (used for fetch/deploy/discard) is left untouched.
+	// Auto-generated draft slot: `u/{user}/draft_{uuid}` (uuid dashes → underscores),
+	// minted for a never-named draft. We don't surface this synthetic id as a row's
+	// bold title.
+	const AUTO_GEN_DRAFT_RE = /(^|\/)draft_[0-9a-f]{8}(_[0-9a-f]{4}){3}_[0-9a-f]{12}$/
+
+	// Bold title for a row: the friendly typed path if the draft carries one, else
+	// the storage path — with `{user}` truncated at `@` (the admins workspace and
+	// email-as-username setups put the full email in the namespace). The real
+	// path/key (used for fetch/deploy/discard) is left untouched. Returns '' for an
+	// auto-generated `draft_{uuid}` path so it isn't shown in bold (the row still
+	// shows the storage path in its secondary line).
 	function displayPath(d: Row): string {
 		const path = d.draft_path ?? d.path
+		if (AUTO_GEN_DRAFT_RE.test(path)) return ''
 		const segs = path.split('/')
 		if (segs[0] === 'u' && segs.length >= 2) {
 			const at = segs[1].indexOf('@')
