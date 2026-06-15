@@ -448,15 +448,18 @@ pub fn check_route_access(
     // Find the domain and kind for this route
     let (required_domain, required_kind, route_suffix) = extract_domain_from_route(route_path)?;
 
-    // App embed tokens (sentinel) read only jobs they launched, by id — deny the
-    // workspace-wide job enumeration/export routes their `jobs:read` would reach.
-    if let Some(suffix) = route_suffix.as_deref() {
-        if app_embed_denied_job_route(suffix)
-            && token_scopes.iter().any(|s| s == APP_EMBED_SENTINEL)
-        {
-            return Err(Error::PermissionDenied(
-                "Access denied. App embed tokens cannot enumerate jobs.".to_string(),
-            ));
+    // App embed tokens (sentinel) carry broad read scopes (`jobs:read`,
+    // `users:read`, `folders:read`) that exist only for a handful of routes. The
+    // whole `/users`, `/folders` and `/jobs` routers are CORS-enabled for the
+    // opaque app iframe, so default-deny everything in those domains except the
+    // intended routes — otherwise the token could enumerate/export workspace data.
+    if token_scopes.iter().any(|s| s == APP_EMBED_SENTINEL) {
+        if let Some(suffix) = route_suffix.as_deref() {
+            if app_embed_route_denied(required_domain, suffix) {
+                return Err(Error::PermissionDenied(
+                    "Access denied. App embed token cannot access this route.".to_string(),
+                ));
+            }
         }
     }
 
@@ -654,11 +657,26 @@ const RUN_WHITELISTED_GET_PATHS: [&'static str; 20] = [
 /// otherwise reach, so an embedded app reads only jobs it launched (by id).
 pub const APP_EMBED_SENTINEL: &str = "app_embed";
 
+/// Routes an app embed token (sentinel) is denied despite its broad read scopes.
+/// `jobs:read` is for by-id result polling, `users:read` for `users/whoami`, and
+/// `folders:read` for `folders/listnames`; deny everything else in those domains
+/// (workspace-wide job enumeration/export, user emails/usage, folder owners).
+fn app_embed_route_denied(domain: ScopeDomain, suffix: &str) -> bool {
+    match domain {
+        ScopeDomain::Jobs => app_embed_denied_job_route(suffix),
+        // Allowlist (default-deny): only the single route each scope exists for.
+        ScopeDomain::Users => suffix != "users/whoami",
+        ScopeDomain::Folders => suffix != "folders/listnames",
+        _ => false,
+    }
+}
+
 /// Job enumeration/export routes an app embed token is denied despite `jobs:read`.
 /// By-id job reads (result polling, under both `jobs/` and `jobs_u/`) are unaffected.
 fn app_embed_denied_job_route(suffix: &str) -> bool {
     suffix.starts_with("jobs/list") // jobs/list, jobs/list_filtered_uuids
         || suffix == "jobs/completed/list"
+        || suffix == "jobs/completed/export"
         || suffix.starts_with("jobs/queue/list") // jobs/queue/list, jobs/queue/list_filtered_uuids
         || suffix == "jobs/queue/export"
 }

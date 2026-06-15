@@ -1141,13 +1141,15 @@ async fn get_public_app_by_secret(
 ///                      NOT grant `apps:write`, so the token cannot reach
 ///                      app-management routes (`apps/update`, `apps/delete`, ...).
 /// - `jobs:read`     → completed-job results & updates by id; the `app_embed`
-///                      sentinel additionally blocks workspace-wide job enumeration
-///                      (see `app_embed_denied_job_route`).
+///                      sentinel additionally blocks workspace-wide job
+///                      enumeration/export (see `app_embed_route_denied`).
 /// - `app_embed`     → sentinel tagging this as an app embed token (grants nothing).
 /// - `resources:run` → resource metadata only (pickers, type schemas), never
 ///                      values (see `resource_metadata_route_allowed`).
-/// - `users:read`    → `users/whoami`.
-/// - `folders:read`  → `folders/listnames`.
+/// - `users:read`    → `users/whoami` only; the sentinel denies every other
+///                      `/users` route (see `app_embed_route_denied`).
+/// - `folders:read`  → `folders/listnames` only; the sentinel denies every other
+///                      `/folders` route (see `app_embed_route_denied`).
 pub const APP_EMBED_SCOPES: [&str; 6] = [
     "apps:run",
     "jobs:read",
@@ -4032,9 +4034,19 @@ mod embed_token_tests {
             ("/api/w/test/jobs/list", "GET"),
             ("/api/w/test/jobs/list_filtered_uuids", "GET"),
             ("/api/w/test/jobs/completed/list", "GET"),
+            ("/api/w/test/jobs/completed/export", "GET"),
             ("/api/w/test/jobs/queue/list", "GET"),
             ("/api/w/test/jobs/queue/list_filtered_uuids", "GET"),
             ("/api/w/test/jobs/queue/export", "GET"),
+            // `users:read`/`folders:read` exist only for whoami/listnames — every
+            // other route in those domains is denied via the app_embed sentinel
+            // (the whole /users and /folders routers are CORS-enabled for the iframe).
+            ("/api/w/test/users/list", "GET"),
+            ("/api/w/test/users/list_usage", "GET"),
+            ("/api/w/test/users/username_to_email/admin", "GET"),
+            ("/api/w/test/folders/list", "GET"),
+            ("/api/w/test/folders/get/myfolder", "GET"),
+            ("/api/w/test/folders/getusage/myfolder", "GET"),
         ];
         for (path, method) in denied {
             assert!(
