@@ -4,7 +4,10 @@
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import SessionEditorTarget from './SessionEditorTarget.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
+	import { rawAppValueToDraft, type RawAppDraft } from './appDraftCodec'
 	import type {
 		RawAppRuntimeLogRequester,
 		RawAppRunsProvider
@@ -28,9 +31,47 @@
 
 	let diffDrawer: DiffDrawer | undefined = $state()
 
-	async function restoreFromCurrentTarget() {
+	// Restore actions for the diff drawer. A `loadRawApp`-based handler is a
+	// no-op: loadRawApp early-returns on the already-loaded path (and would
+	// re-read the local draft anyway). Instead reset the live UserDraft cell to
+	// the target baseline — useUserDraftSync's inbound effect then syncs the
+	// editor preview. Mirrors ScriptEditorView.
+	async function restoreDeployed() {
+		const saved = runtime.savedRawApp.val
+		if (!saved) {
+			sendUserToast('Could not restore to deployed', true)
+			return
+		}
 		diffDrawer?.closeDrawer()
-		await runtime.loadRawApp(workspaceId, path)
+		// Project the deployed value into the draft shape and reset the cell to
+		// it. `UserDraft.discard` fires the canonical `value: null` delete for the
+		// per-user draft (so "deployed" sticks across a reload) and resets the
+		// live cell in-memory; the inbound sync projects it into the preview.
+		const deployed = rawAppValueToDraft(saved.value, {
+			summary: saved.summary,
+			policy: saved.policy,
+			custom_path: saved.custom_path
+		})
+		UserDraft.discard<RawAppDraft>('raw_app', path, deployed, { workspace: workspaceId })
+		// Per-user draft gone — refresh the session draft-bar count immediately.
+		invalidateWorkspaceDrafts(workspaceId)
+	}
+
+	async function restoreDraft() {
+		const backendDraft = runtime.savedRawApp.val?.draft as RawAppDraft | undefined
+		if (!backendDraft) {
+			sendUserToast('Could not restore to draft', true)
+			return
+		}
+		diffDrawer?.closeDrawer()
+		UserDraft.discard<RawAppDraft>(
+			'raw_app',
+			path,
+			structuredClone($state.snapshot(backendDraft)),
+			{
+				workspace: workspaceId
+			}
+		)
 	}
 
 	function registerRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined) {
@@ -43,11 +84,7 @@
 </script>
 
 {#if runtime.savedRawApp.val}
-	<DiffDrawer
-		bind:this={diffDrawer}
-		restoreDeployed={restoreFromCurrentTarget}
-		restoreDraft={restoreFromCurrentTarget}
-	/>
+	<DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
 {/if}
 <SessionEditorTarget
 	{runtime}
