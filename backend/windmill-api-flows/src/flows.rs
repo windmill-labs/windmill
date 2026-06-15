@@ -1431,10 +1431,12 @@ async fn update_flow(
 }
 
 async fn list_tokens(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Vec<TruncatedTokenWithEmail>> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("flows:read:{}", path))?;
     list_tokens_internal(&db, &w_id, &path, true).await
 }
 
@@ -2107,8 +2109,7 @@ mod tests {
               },
               "stop_after_if": {
                   "expr": "foo = 'bar'",
-                  "skip_if_stopped": false,
-                  "error_message": null
+                  "skip_if_stopped": false
               }
             },
             {
@@ -2129,8 +2130,7 @@ mod tests {
               },
               "stop_after_if": {
                   "expr": "previous.isEmpty()",
-                  "skip_if_stopped": false,
-                  "error_message": null
+                  "skip_if_stopped": false
               }
             }
           ],
@@ -2143,8 +2143,7 @@ mod tests {
             },
             "stop_after_if": {
                 "expr": "previous.isEmpty()",
-                "skip_if_stopped": false,
-                "error_message": null
+                "skip_if_stopped": false
             }
           },
         });

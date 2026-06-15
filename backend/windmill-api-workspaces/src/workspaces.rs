@@ -5238,6 +5238,18 @@ async fn archive_workspace(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
+        Some(audit_params_refs.clone()),
+    )
+    .await?;
+    // Also record under the instance-level "admins" workspace so superadmins can
+    // discover who archived a workspace after it becomes hidden from the UI.
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.archive",
+        ActionKind::Update,
+        "admins",
+        Some(&w_id),
         Some(audit_params_refs),
     )
     .await?;
@@ -5296,6 +5308,18 @@ async fn unarchive_workspace(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
+        None,
+    )
+    .await?;
+    // Also record under the instance-level "admins" workspace so superadmins keep
+    // a durable trail of who unarchived a workspace.
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.unarchive",
+        ActionKind::Update,
+        "admins",
+        Some(&w_id),
         None,
     )
     .await?;
