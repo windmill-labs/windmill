@@ -26,6 +26,12 @@ vi.mock('@codingame/monaco-vscode-languages-service-override', () => ({
 
 vi.mock('$lib/components/vscode', () => ({}))
 
+// In-memory stand-in for the per-user draft backend. The chat now persists/reads
+// drafts through DraftService (no in-tab cell in unit tests), so this Map is the
+// source of truth the write/read tools round-trip against. `vi.hoisted` makes it
+// available inside the hoisted `vi.mock` factory and the test body alike.
+const { backendDrafts } = vi.hoisted(() => ({ backendDrafts: new Map<string, unknown>() }))
+
 vi.mock('$lib/gen', async () => {
 	const actual = await vi.importActual<any>('$lib/gen')
 
@@ -140,6 +146,31 @@ vi.mock('$lib/gen', async () => {
 			}),
 			createVariable: vi.fn(async () => 'created'),
 			updateVariable: vi.fn(async () => 'updated')
+		}),
+		DraftService: wrapService(actual.DraftService, {
+			updateDraft: vi.fn(async ({ kind, path, requestBody }: any) => {
+				const key = `${kind}:${path}`
+				if (requestBody?.value == null) backendDrafts.delete(key)
+				else backendDrafts.set(key, requestBody.value)
+				return { status: 'saved', current_timestamp: '2026-06-15T00:00:00Z' }
+			}),
+			getDraftForUser: vi.fn(async ({ kind, path }: any) => {
+				const key = `${kind}:${path}`
+				if (!backendDrafts.has(key)) throw new Error('no draft for that owner at that path')
+				return { value: backendDrafts.get(key), created_at: '2026-06-15T00:00:00Z' }
+			}),
+			listDrafts: vi.fn(async () =>
+				Array.from(backendDrafts.entries()).map(([key, value]) => {
+					const idx = key.indexOf(':')
+					return {
+						kind: key.slice(0, idx),
+						path: key.slice(idx + 1),
+						summary: (value as any)?.summary,
+						draft_only: true,
+						created_at: '2026-06-15T00:00:00Z'
+					}
+				})
+			)
 		})
 	}
 })
@@ -178,6 +209,17 @@ import {
 import type { Tool, ToolCallbacks } from '../shared'
 
 const WORKSPACE = 'global-core-test'
+
+// Seed/read the backend draft store directly (keyed exactly like the syncer:
+// `${itemKind}:${storagePath}`). Drop-in replacements for the old in-tab
+// `UserDraft.save`/`UserDraft.get` round-trip the tests used before the drafts
+// moved to the backend. Extra opts arg is ignored (kept for call-site parity).
+function seedBackendDraft(kind: string, path: string, value: unknown, _opts?: unknown): void {
+	backendDrafts.set(`${kind}:${path}`, value)
+}
+function getBackendDraft<V = any>(kind: string, path: string, _opts?: unknown): V | undefined {
+	return backendDrafts.get(`${kind}:${path}`) as V | undefined
+}
 
 const toolCallbacks: ToolCallbacks = {
 	setToolStatus: vi.fn(),
@@ -231,6 +273,7 @@ describe('global AI tools', () => {
 	beforeEach(() => {
 		__resetUserDraftForTesting()
 		localStorage.clear()
+		backendDrafts.clear()
 		clearGlobalDrafts(WORKSPACE)
 		vi.clearAllMocks()
 	})
@@ -406,7 +449,7 @@ describe('global AI tools', () => {
 			resource_type: 'postgresql'
 		})
 
-		expect(UserDraft.get<any>('resource', 'f/resources/db', { workspace: WORKSPACE })).toEqual({
+		expect(getBackendDraft<any>('resource', 'f/resources/db', { workspace: WORKSPACE })).toEqual({
 			path: 'f/resources/db',
 			description: 'existing database',
 			args: { host: 'new.example.com', port: 5432 },
@@ -438,19 +481,21 @@ describe('global AI tools', () => {
 			description: 'new description'
 		})
 
-		expect(UserDraft.get<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })).toEqual({
-			path: 'f/secrets/api_key',
-			variable: {
-				value: '',
-				is_secret: true,
-				description: 'new description'
-			},
-			labels: ['prod'],
-			wsSpecific: true,
-			account: 123,
-			is_oauth: true,
-			expires_at: '2026-06-22T09:30:00Z'
-		})
+		expect(getBackendDraft<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })).toEqual(
+			{
+				path: 'f/secrets/api_key',
+				variable: {
+					value: '',
+					is_secret: true,
+					description: 'new description'
+				},
+				labels: ['prod'],
+				wsSpecific: true,
+				account: 123,
+				is_oauth: true,
+				expires_at: '2026-06-22T09:30:00Z'
+			}
+		)
 		expect(localStorageSnapshot()).not.toContain('new-secret-token')
 	})
 
@@ -463,7 +508,7 @@ describe('global AI tools', () => {
 		})
 
 		expect(
-			UserDraft.get<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
+			getBackendDraft<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
 		).toMatchObject({
 			path: 'f/secrets/api_key',
 			variable: {
@@ -490,12 +535,14 @@ describe('global AI tools', () => {
 				ws_specific: false
 			})
 		})
-		expect(UserDraft.get('variable', 'f/secrets/api_key', { workspace: WORKSPACE })).toBeUndefined()
+		expect(
+			getBackendDraft('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
+		).toBeUndefined()
 		expect(localStorageSnapshot()).not.toContain('new-secret-token')
 	})
 
 	it('does not deploy a secret variable draft when the ephemeral value is gone', async () => {
-		UserDraft.save(
+		seedBackendDraft(
 			'variable',
 			'f/secrets/api_key',
 			{
@@ -531,17 +578,17 @@ describe('global AI tools', () => {
 			content
 		})
 
-		expect(UserDraft.get<any>('script', 'f/scripts/hello', { workspace: WORKSPACE })).toMatchObject(
-			{
-				path: 'f/scripts/hello',
-				summary: 'Hello script',
-				language: 'bun',
-				content
-			}
-		)
+		expect(
+			getBackendDraft<any>('script', 'f/scripts/hello', { workspace: WORKSPACE })
+		).toMatchObject({
+			path: 'f/scripts/hello',
+			summary: 'Hello script',
+			language: 'bun',
+			content
+		})
 	})
 
-	it('applies path_prefix to local drafts before enforcing the result limit', async () => {
+	it('applies path_prefix to drafts before enforcing the result limit', async () => {
 		await callGlobalTool('write_script', {
 			path: 'f/other/outside',
 			summary: 'Outside draft',
@@ -571,7 +618,7 @@ describe('global AI tools', () => {
 	})
 
 	it('lists and edits the live script editor draft through its effective path', async () => {
-		UserDraft.save(
+		seedBackendDraft(
 			'script',
 			'',
 			{
@@ -609,17 +656,17 @@ describe('global AI tools', () => {
 			new_string: 'return a * b'
 		})
 
-		expect(UserDraft.get<any>('script', '', { workspace: WORKSPACE })).toMatchObject({
+		expect(getBackendDraft<any>('script', '', { workspace: WORKSPACE })).toMatchObject({
 			path: 'u/admin/amazed_script',
 			content: 'export async function main(a: number, b: number) {\n\treturn a * b\n}'
 		})
 		expect(
-			UserDraft.get('script', 'u/admin/amazed_script', { workspace: WORKSPACE })
+			getBackendDraft('script', 'u/admin/amazed_script', { workspace: WORKSPACE })
 		).toBeUndefined()
 	})
 
 	it('lists and writes the live flow editor draft through its effective path', async () => {
-		UserDraft.save(
+		seedBackendDraft(
 			'flow',
 			'',
 			{
@@ -657,16 +704,16 @@ describe('global AI tools', () => {
 			modules: JSON.stringify([{ id: 'step', value: { type: 'identity' } }])
 		})
 
-		expect(UserDraft.get<any>('flow', '', { workspace: WORKSPACE })).toMatchObject({
+		expect(getBackendDraft<any>('flow', '', { workspace: WORKSPACE })).toMatchObject({
 			path: 'u/admin/live_flow',
 			summary: 'Updated live flow',
 			value: { modules: [{ id: 'step', value: { type: 'identity' } }] }
 		})
-		expect(UserDraft.get('flow', 'u/admin/live_flow', { workspace: WORKSPACE })).toBeUndefined()
+		expect(getBackendDraft('flow', 'u/admin/live_flow', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
 	it('writes the live raw app editor draft through its effective path', async () => {
-		UserDraft.save(
+		seedBackendDraft(
 			'raw_app',
 			'',
 			{
@@ -690,16 +737,16 @@ describe('global AI tools', () => {
 			content: 'export default function New() { return null }'
 		})
 
-		expect(UserDraft.get<any>('raw_app', '', { workspace: WORKSPACE })).toMatchObject({
+		expect(getBackendDraft<any>('raw_app', '', { workspace: WORKSPACE })).toMatchObject({
 			files: {
 				'/src/App.tsx': 'export default function App() { return null }',
 				'/src/New.tsx': 'export default function New() { return null }'
 			}
 		})
-		expect(UserDraft.get('raw_app', 'u/admin/live_app', { workspace: WORKSPACE })).toBeUndefined()
+		expect(getBackendDraft('raw_app', 'u/admin/live_app', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
-	it('discards a local draft without deleting the workspace item', async () => {
+	it('discards a draft without deleting the workspace item', async () => {
 		await callGlobalTool('write_script', {
 			path: 'f/scripts/discard-me',
 			summary: 'Temporary draft',
@@ -707,7 +754,9 @@ describe('global AI tools', () => {
 			content: 'export async function main() { return 1 }'
 		})
 
-		expect(UserDraft.get('script', 'f/scripts/discard-me', { workspace: WORKSPACE })).toBeDefined()
+		expect(
+			getBackendDraft('script', 'f/scripts/discard-me', { workspace: WORKSPACE })
+		).toBeDefined()
 
 		const raw = await callGlobalTool('discard_local_draft', {
 			type: 'script',
@@ -721,7 +770,7 @@ describe('global AI tools', () => {
 		})
 		expect(raw).toContain('The deployed workspace item was not changed')
 		expect(
-			UserDraft.get('script', 'f/scripts/discard-me', { workspace: WORKSPACE })
+			getBackendDraft('script', 'f/scripts/discard-me', { workspace: WORKSPACE })
 		).toBeUndefined()
 	})
 
@@ -754,7 +803,7 @@ describe('global AI tools', () => {
 		})
 
 		expect(
-			UserDraft.get<any>('script', 'f/scripts/existing', { workspace: WORKSPACE })
+			getBackendDraft<any>('script', 'f/scripts/existing', { workspace: WORKSPACE })
 		).toMatchObject({
 			path: 'f/scripts/existing',
 			parent_hash: 'deployed-hash',
@@ -786,7 +835,9 @@ describe('global AI tools', () => {
 			modules: JSON.stringify([{ id: 'step', value: { type: 'identity' } }])
 		})
 
-		expect(UserDraft.get<any>('flow', 'f/flows/existing', { workspace: WORKSPACE })).toMatchObject({
+		expect(
+			getBackendDraft<any>('flow', 'f/flows/existing', { workspace: WORKSPACE })
+		).toMatchObject({
 			path: 'f/flows/existing',
 			summary: 'new summary',
 			description: 'deployed description',
@@ -825,7 +876,7 @@ describe('global AI tools', () => {
 		})
 
 		expect(
-			UserDraft.get<any>('trigger_schedule', 'f/schedules/nightly', { workspace: WORKSPACE })
+			getBackendDraft<any>('trigger_schedule', 'f/schedules/nightly', { workspace: WORKSPACE })
 		).toMatchObject({
 			path: 'f/schedules/nightly',
 			schedule: '0 15 0 * * *',
@@ -840,7 +891,7 @@ describe('global AI tools', () => {
 			no_flow_overlap: true
 		})
 		expect(
-			UserDraft.get<any>('trigger_schedule', 'f/schedules/nightly', { workspace: WORKSPACE })
+			getBackendDraft<any>('trigger_schedule', 'f/schedules/nightly', { workspace: WORKSPACE })
 		).not.toMatchObject({
 			edited_by: expect.anything()
 		})
@@ -883,7 +934,7 @@ describe('global AI tools', () => {
 			}
 		})
 
-		const draft = UserDraft.get<any>('trigger_http', 'f/routes/api', { workspace: WORKSPACE })
+		const draft = getBackendDraft<any>('trigger_http', 'f/routes/api', { workspace: WORKSPACE })
 		expect(draft).toMatchObject({
 			path: 'f/routes/api',
 			script_path: 'f/flows/new',
@@ -927,7 +978,7 @@ describe('global AI tools', () => {
 			content: 'export default function New() { return null }'
 		})
 
-		const draft = UserDraft.get<any>('raw_app', 'f/apps/report', { workspace: WORKSPACE })
+		const draft = getBackendDraft<any>('raw_app', 'f/apps/report', { workspace: WORKSPACE })
 		expect(draft).toMatchObject({
 			summary: 'deployed app',
 			files: {
@@ -947,7 +998,7 @@ describe('global AI tools', () => {
 	})
 
 	it('summarizes local raw app drafts in read_workspace_item', async () => {
-		UserDraft.save(
+		seedBackendDraft(
 			'raw_app',
 			'f/apps/local',
 			{
@@ -1058,10 +1109,10 @@ describe('global AI tools', () => {
 				file_path: '/src/Helper.tsx'
 			})
 		).resolves.toBe('helper content')
-		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+		expect(getBackendDraft('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
-	it('reads raw app files without creating a local draft', async () => {
+	it('reads raw app files without creating a draft', async () => {
 		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
 			path: 'f/apps/report',
 			summary: 'deployed app',
@@ -1079,7 +1130,7 @@ describe('global AI tools', () => {
 				file_path: '/src/App.tsx'
 			})
 		).resolves.toBe('deployed content')
-		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+		expect(getBackendDraft('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
 	it('does not persist a raw app draft when patch_app_file validation fails', async () => {
@@ -1103,7 +1154,7 @@ describe('global AI tools', () => {
 				replace_all: false
 			})
 		).rejects.toThrow()
-		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+		expect(getBackendDraft('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
 	it('does not persist a raw app draft when delete_app_file validation fails', async () => {
@@ -1124,7 +1175,7 @@ describe('global AI tools', () => {
 				file_path: '/src/Missing.tsx'
 			})
 		).rejects.toThrow('Frontend file "/src/Missing.tsx" not found in app "f/apps/report".')
-		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+		expect(getBackendDraft('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
 	it('does not persist a raw app draft when delete_app_runnable validation fails', async () => {
@@ -1150,11 +1201,11 @@ describe('global AI tools', () => {
 				key: 'missing'
 			})
 		).rejects.toThrow('Backend runnable "missing" not found in app "f/apps/report".')
-		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+		expect(getBackendDraft('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
 	it('deploys a new raw app draft by bundling files and creating a raw app', async () => {
-		UserDraft.save(
+		seedBackendDraft(
 			'raw_app',
 			'f/apps/report',
 			{
@@ -1206,7 +1257,7 @@ describe('global AI tools', () => {
 			}
 		})
 		expect(AppService.updateAppRaw).not.toHaveBeenCalled()
-		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+		expect(getBackendDraft('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 		expect(JSON.parse(raw)).toMatchObject({
 			success: true,
 			type: 'app',
@@ -1216,7 +1267,7 @@ describe('global AI tools', () => {
 
 	it('deploys an existing raw app draft by bundling files and updating the raw app', async () => {
 		vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
-		UserDraft.save(
+		seedBackendDraft(
 			'raw_app',
 			'f/apps/report',
 			{
@@ -1255,14 +1306,14 @@ describe('global AI tools', () => {
 			}
 		})
 		expect(AppService.createAppRaw).not.toHaveBeenCalled()
-		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+		expect(getBackendDraft('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
 	it('notifies the session preview (as raw_app) after deploying a raw app', async () => {
 		const onDeployed = vi.fn()
 		setDeployedInSessionHandler(onDeployed)
 		try {
-			UserDraft.save(
+			seedBackendDraft(
 				'raw_app',
 				'f/apps/report',
 				{
@@ -1388,7 +1439,7 @@ describe('global AI tools', () => {
 		expect(item.value.value).toBeUndefined()
 	})
 
-	it('test_run_script previews local draft script content by path', async () => {
+	it('test_run_script previews draft script content by path', async () => {
 		const content = 'export async function main(name: string) {\n\treturn `hello ${name}`\n}'
 		await callGlobalTool('write_script', {
 			path: 'f/scripts/draft-test',
@@ -1418,7 +1469,7 @@ describe('global AI tools', () => {
 		expect(result).toContain('test logs')
 	})
 
-	it('test_run_script previews deployed script content when no local draft exists', async () => {
+	it('test_run_script previews deployed script content when no draft exists', async () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
 			path: 'f/scripts/deployed-test',
 			summary: 'Deployed test script',
@@ -1448,7 +1499,7 @@ describe('global AI tools', () => {
 		})
 	})
 
-	it('test_run_flow previews local draft flow content by path', async () => {
+	it('test_run_flow previews draft flow content by path', async () => {
 		const modules = [{ id: 'start', value: { type: 'identity' } }]
 		await callGlobalTool('write_flow', {
 			path: 'f/flows/draft-test',
@@ -1474,7 +1525,7 @@ describe('global AI tools', () => {
 		})
 	})
 
-	it('test_run_flow previews deployed flow content when no local draft exists', async () => {
+	it('test_run_flow previews deployed flow content when no draft exists', async () => {
 		const modules = [{ id: 'deployed_start', value: { type: 'identity' } }]
 		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
 			path: 'f/flows/deployed-test',
@@ -1505,7 +1556,7 @@ describe('global AI tools', () => {
 	})
 
 	it('test_run_flow uses the live flow editor test hook when the active editor matches the path', async () => {
-		UserDraft.save(
+		seedBackendDraft(
 			'flow',
 			'',
 			{
@@ -1547,7 +1598,7 @@ describe('global AI tools', () => {
 	})
 
 	it('test_run_flow falls back to preview when the live flow editor test hook returns undefined', async () => {
-		UserDraft.save(
+		seedBackendDraft(
 			'flow',
 			'',
 			{
@@ -1594,7 +1645,7 @@ describe('global AI tools', () => {
 		})
 	})
 
-	it('test_run_step previews rawscript steps from the local draft flow', async () => {
+	it('test_run_step previews rawscript steps from the draft flow', async () => {
 		const content = 'export async function main(name: string) {\n\treturn name.toUpperCase()\n}'
 		await callGlobalTool('write_flow', {
 			path: 'f/flows/rawscript-step',
@@ -1673,7 +1724,7 @@ describe('global AI tools', () => {
 		})
 	})
 
-	it('test_run_step previews local draft subflows for flow steps', async () => {
+	it('test_run_step previews draft subflows for flow steps', async () => {
 		const nestedModules = [{ id: 'nested_start', value: { type: 'identity' } }]
 		await callGlobalTool('write_flow', {
 			path: 'f/flows/nested-draft',
@@ -1864,9 +1915,9 @@ describe('prepareGlobalSystemMessage', () => {
 		const message = prepareGlobalSystemMessage()
 		const content = message.content
 
-		expect(content).toContain('Draft tools create or update local drafts only')
+		expect(content).toContain('Draft tools create or update drafts only')
 		expect(content).toContain(
-			'Use discard_local_draft to remove an unsaved local draft, including the matching open editor draft'
+			'Use discard_local_draft to remove a draft, including the matching open editor draft'
 		)
 		expect(content).toContain(
 			'After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step'
@@ -1883,7 +1934,7 @@ describe('prepareGlobalSystemMessage', () => {
 		const deleteItem = getGlobalTool('delete_workspace_item')
 
 		expect(discard.def.function.description).toBe(
-			'Discard a local draft only. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
+			'Discard a draft only. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
 		)
 		expect(deleteItem.def.function.description).toBe(
 			'Delete a deployed workspace item. Mutates the workspace.'
@@ -1984,7 +2035,8 @@ describe('prepareGlobalSystemMessage', () => {
 			const handler = vi.fn(() => ({
 				aiResult: 'runs output. Next step: call get_job_logs.',
 				uiMessage: 'Listed 1 app run',
-				toolResult: '[{"job_id":"job-1","component":"backend.1","status":"completed","created_at":1718000000000,"started_at":1718000000000,"duration_ms":1000}]'
+				toolResult:
+					'[{"job_id":"job-1","component":"backend.1","status":"completed","created_at":1718000000000,"started_at":1718000000000,"duration_ms":1000}]'
 			}))
 			setListAppRunsHandler(handler)
 			const result = await callGlobalTool('list_app_runs', {}, callbacks, {
@@ -2003,7 +2055,8 @@ describe('prepareGlobalSystemMessage', () => {
 			const handler = vi.fn(() => ({
 				aiResult: 'runs output',
 				uiMessage: 'Listed app runs',
-				toolResult: '[{"job_id":"job-1","component":"backend.1","status":"completed","created_at":1718000000000,"started_at":1718000000000,"duration_ms":1000}]'
+				toolResult:
+					'[{"job_id":"job-1","component":"backend.1","status":"completed","created_at":1718000000000,"started_at":1718000000000,"duration_ms":1000}]'
 			}))
 			setListAppRunsHandler(handler)
 			await callGlobalTool('list_app_runs', { limit: 5 }, toolCallbacks, {

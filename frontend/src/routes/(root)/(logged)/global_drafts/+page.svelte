@@ -11,6 +11,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { Trash2 } from 'lucide-svelte'
 	import { onMount } from 'svelte'
+	import { resource } from 'runed'
 
 	let enabled = $state(false)
 	let refreshToken = $state(0)
@@ -39,18 +40,19 @@
 		}
 	})
 
-	let drafts = $derived.by(() => {
-		refreshToken
-		return $workspaceStore ? listGlobalDrafts($workspaceStore) : []
-	})
+	const draftsResource = resource(
+		() => ({ ws: $workspaceStore, token: refreshToken }),
+		async ({ ws }) => (ws ? await listGlobalDrafts(ws) : [])
+	)
+	let drafts = $derived(draftsResource.current ?? [])
 
 	function draftKey(item: WorkspaceItem): string {
 		return `${item.type}:${item.triggerKind ?? '-'}:${item.path}`
 	}
 
-	function deleteDraft(item: WorkspaceItem) {
+	async function deleteDraft(item: WorkspaceItem) {
 		if (!$workspaceStore) return
-		deleteGlobalDraft($workspaceStore, item.type, item.path, item.triggerKind)
+		await deleteGlobalDraft($workspaceStore, item.type, item.path, item.triggerKind)
 		refreshDrafts()
 	}
 
@@ -66,9 +68,7 @@
 		<div class="flex items-center justify-between mb-6">
 			<div>
 				<h1 class="text-2xl font-semibold">Global local drafts</h1>
-				<p class="text-sm text-tertiary">
-					Dev-only inspector for global local drafts.
-				</p>
+				<p class="text-sm text-tertiary"> Dev-only inspector for global local drafts. </p>
 			</div>
 			<Button
 				variant="default"

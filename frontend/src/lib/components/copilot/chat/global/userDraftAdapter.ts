@@ -1,4 +1,8 @@
 import type { Flow, NewSchedule, NewScript } from '$lib/gen/types.gen'
+import { DraftService } from '$lib/gen'
+import { get } from 'svelte/store'
+import { userStore } from '$lib/stores'
+import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { UserDraft, type UserDraftEntry, type UserDraftItemKind } from '$lib/userDraft.svelte'
 import {
@@ -321,17 +325,165 @@ function getGlobalDraftSlot(
 	return { itemKind, storagePath, displayPath, item }
 }
 
-export function getGlobalDraft(
+// Current user's persisted draft value (+ records the sync baseline so a later
+// save detects external conflicts). undefined on 404 (no draft at that path).
+async function fetchBackendDraftValue(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	storagePath: string
+): Promise<unknown | undefined> {
+	try {
+		const resp = await DraftService.getDraftForUser({
+			workspace,
+			kind: itemKind as any,
+			path: storagePath,
+			username: get(userStore)?.username
+		})
+		UserDraftDbSyncer.recordRemoteSync({ workspace, itemKind, path: storagePath }, resp.created_at)
+		return resp.value ?? undefined
+	} catch {
+		return undefined // 404 = no draft for this owner at that path
+	}
+}
+
+// Draft VALUE for a write merge: cell-if-present (the user's freshest in-tab
+// edits) else the current user's backend draft.
+export async function readGlobalDraftValue<V>(
 	workspace: string,
 	type: WorkspaceItemType,
 	path: string,
 	triggerKind?: TriggerKind
-): WorkspaceItem | undefined {
-	return getGlobalDraftSlot(workspace, type, path, triggerKind)?.item
+): Promise<V | undefined> {
+	const itemKind = itemKindFor(type, triggerKind)
+	if (!itemKind) return undefined
+	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
+	const cell = UserDraft.get<V>(itemKind, storagePath, { workspace })
+	if (cell !== undefined) return cell
+	return (await fetchBackendDraftValue(workspace, itemKind, storagePath)) as V | undefined
 }
 
-export function listGlobalDrafts(workspace: string): WorkspaceItem[] {
+export type DraftPersistResult =
+	| { status: 'saved'; item: WorkspaceItem }
+	| { status: 'conflict'; item: WorkspaceItem; serverTimestamp?: string }
+
+// Persist a built draft value. `UserDraft.seed` reflects it into an open editor's
+// cell WITHOUT a double-POST (no-ops if no cell; its seedNextWrite suppresses the
+// cell's autosave mirror), then the awaited immediate save is the single source of
+// persistence + conflict detection against the shared baseline. force overwrites.
+export async function persistGlobalDraft(
+	workspace: string,
+	type: WorkspaceItemType,
+	path: string,
+	value: unknown,
+	opts: { triggerKind?: TriggerKind; force?: boolean } = {}
+): Promise<DraftPersistResult> {
+	const itemKind = itemKindFor(type, opts.triggerKind)
+	if (!itemKind) throw new Error(`Unsupported draft type "${type}".`)
+	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
+	UserDraft.seed(itemKind, storagePath, value, { workspace })
+	await UserDraftDbSyncer.save({
+		workspace,
+		itemKind,
+		path: storagePath,
+		value,
+		immediate: true,
+		force: opts.force
+	})
+	const { displayPath, isLiveDraft } = liveDisplayPath(workspace, itemKind, storagePath)
+	const item = userDraftEntryToWorkspaceItem(
+		{ workspace, itemKind, path: storagePath, value },
+		displayPath,
+		isLiveDraft
+	)
+	if (!item) throw new Error(`Could not synthesize ${type} draft "${path}".`)
+	const conflict = opts.force
+		? undefined
+		: UserDraftDbSyncer.getConflict({ workspace, itemKind, path: storagePath }).conflict
+	return conflict
+		? { status: 'conflict', item, serverTimestamp: conflict.serverTimestamp }
+		: { status: 'saved', item }
+}
+
+export async function getGlobalDraft(
+	workspace: string,
+	type: WorkspaceItemType,
+	path: string,
+	triggerKind?: TriggerKind
+): Promise<WorkspaceItem | undefined> {
+	const slot = getGlobalDraftSlot(workspace, type, path, triggerKind)
+	if (slot) return slot.item
+	const itemKind = itemKindFor(type, triggerKind)
+	if (!itemKind) return undefined
+	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
+	const value = await fetchBackendDraftValue(workspace, itemKind, storagePath)
+	if (value === undefined || value === null) return undefined
+	const { displayPath, isLiveDraft } = liveDisplayPath(workspace, itemKind, storagePath)
+	return userDraftEntryToWorkspaceItem(
+		{ workspace, itemKind, path: storagePath, value },
+		displayPath,
+		isLiveDraft
+	)
+}
+
+// Maps a backend `listDrafts` metadata row (no value) to a lightweight item.
+// The row's `path` is the storage path; remap it to the live editor's effective
+// path (and flag it) when one is open on this key, matching the cell path.
+function backendDraftRowToWorkspaceItem(
+	workspace: string,
+	row: {
+		kind: string
+		path: string
+		summary?: string
+	}
+): WorkspaceItem | undefined {
+	if (!(GLOBAL_DRAFT_KINDS as readonly string[]).includes(row.kind)) return undefined
+	let type: WorkspaceItemType
+	let triggerKind: TriggerKind | undefined
+	switch (row.kind) {
+		case 'script':
+		case 'flow':
+		case 'resource':
+		case 'variable':
+			type = row.kind
+			break
+		case 'raw_app':
+			type = 'app'
+			break
+		case 'trigger_schedule':
+			type = 'schedule'
+			break
+		default: {
+			const tk = TRIGGER_KIND_BY_DRAFT_KIND[row.kind as UserDraftItemKind]
+			if (!tk) return undefined
+			type = 'trigger'
+			triggerKind = tk
+		}
+	}
+	const { displayPath, isLiveDraft } = liveDisplayPath(
+		workspace,
+		row.kind as UserDraftItemKind,
+		row.path
+	)
+	return {
+		type,
+		path: displayPath,
+		summary: row.summary,
+		value: undefined,
+		isDraft: true,
+		triggerKind,
+		...(isLiveDraft ? { isLiveDraft: true } : {})
+	}
+}
+
+export async function listGlobalDrafts(workspace: string): Promise<WorkspaceItem[]> {
 	const drafts = new Map<string, WorkspaceItem>()
+	const rows = await DraftService.listDrafts({ workspace })
+	for (const row of rows) {
+		const item = backendDraftRowToWorkspaceItem(workspace, row)
+		if (!item) continue
+		drafts.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
+	}
+	// Overlay live in-tab cells (full values + the user's live edits); cell wins.
 	for (const entry of UserDraft.list({ workspace, itemKinds: [...GLOBAL_DRAFT_KINDS] })) {
 		const { displayPath, isLiveDraft } = liveDisplayPath(workspace, entry.itemKind, entry.path)
 		const draft = userDraftEntryToWorkspaceItem(entry, displayPath, isLiveDraft)
@@ -341,30 +493,26 @@ export function listGlobalDrafts(workspace: string): WorkspaceItem[] {
 	return Array.from(drafts.values())
 }
 
-export function saveGlobalAppDraft(
+export async function saveGlobalAppDraft(
 	workspace: string,
 	path: string,
 	value: AppDraftValue
-): WorkspaceItem {
-	const storagePath = resolveDraftStoragePath(workspace, 'raw_app', path)
-	const normalized = normalizeAppDraftValue(value)
-	UserDraft.save('raw_app', storagePath, normalized, { workspace })
-	const stored = getGlobalDraft(workspace, 'app', path)
-	if (!stored) throw new Error(`Could not read written app draft "${path}".`)
-	return stored
+): Promise<WorkspaceItem> {
+	const result = await persistGlobalDraft(workspace, 'app', path, normalizeAppDraftValue(value), {})
+	return result.item
 }
 
 type DeleteGlobalDraftOptions = {
 	preserveLiveDraft?: boolean
 }
 
-export function deleteGlobalDraft(
+export async function deleteGlobalDraft(
 	workspace: string,
 	type: WorkspaceItemType,
 	path: string,
 	triggerKind?: TriggerKind,
 	options: DeleteGlobalDraftOptions = {}
-): void {
+): Promise<void> {
 	const itemKind = itemKindFor(type, triggerKind)
 	if (!itemKind) return
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
@@ -374,6 +522,15 @@ export function deleteGlobalDraft(
 	} else {
 		UserDraft.clear(itemKind, storagePath, { workspace })
 	}
+	// `remove`/`clear` only debounce the delete; persist it now so a deploy/discard
+	// that the caller awaits has actually cleared the server draft on return.
+	await UserDraftDbSyncer.save({
+		workspace,
+		itemKind,
+		path: storagePath,
+		value: null,
+		immediate: true
+	})
 	if (type === 'variable') clearEphemeralSecretVariableDraftValue(workspace, storagePath)
 }
 
