@@ -623,14 +623,16 @@ impl PgDatabase {
         use native_tls::{Certificate, TlsConnector};
         use postgres_native_tls::MakeTlsConnector;
         use tokio_postgres::tls::NoTls;
-        let ssl_mode_is_require = matches!(
-            self.sslmode.as_deref(),
+        let sslmode = self.sslmode.as_deref();
+        let use_tls = matches!(
+            sslmode,
             Some("require") | Some("verify-ca") | Some("verify-full")
         );
 
-        if ssl_mode_is_require {
+        if use_tls {
             tracing::info!("Creating new connection");
             let mut connector = TlsConnector::builder();
+            // Add the configured root certificate, if any, to the trust store.
             if let Some(root_certificate_pem) = &self.root_certificate_pem {
                 if !root_certificate_pem.is_empty() {
                     connector.add_root_certificate(
@@ -638,14 +640,22 @@ impl PgDatabase {
                             error::Error::BadConfig(format!("Invalid Certs: {e:#}"))
                         })?,
                     );
-                } else {
-                    connector.danger_accept_invalid_certs(true);
+                }
+            }
+            // Verification follows libpq sslmode semantics (CWE-295):
+            // - require:     encrypt only, no certificate verification
+            // - verify-ca:   verify the certificate chain, but not the hostname
+            // - verify-full: verify both the certificate chain and the hostname
+            match sslmode {
+                Some("verify-full") => {}
+                Some("verify-ca") => {
                     connector.danger_accept_invalid_hostnames(true);
                 }
-            } else {
-                connector
-                    .danger_accept_invalid_certs(true)
-                    .danger_accept_invalid_hostnames(true);
+                _ => {
+                    connector
+                        .danger_accept_invalid_certs(true)
+                        .danger_accept_invalid_hostnames(true);
+                }
             }
 
             let (client, connection) = tokio::time::timeout(
