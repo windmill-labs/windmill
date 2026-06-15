@@ -884,6 +884,26 @@ mod tests {
     }
 
     #[test]
+    fn provider_resource_ignores_legacy_enable_1m_context_keys() {
+        // Resources created before the field was removed still carry the legacy key
+        // (lowercase `enable_1m_context` or the frontend alias `enable_1M_context`).
+        // The struct has no `deny_unknown_fields`, so both must be silently ignored.
+        let json = r#"{
+            "base_url": "https://api.anthropic.com",
+            "enable_1m_context": true,
+            "enable_1M_context": true
+        }"#;
+
+        let resource: ProviderResource =
+            serde_json::from_str(json).expect("legacy resource must still deserialize");
+
+        assert_eq!(
+            resource.base_url.as_deref(),
+            Some("https://api.anthropic.com")
+        );
+    }
+
+    #[test]
     fn test_make_strict_adds_additional_properties_false() {
         let mut schema = object_schema(vec![("name", string_schema())]);
 

@@ -957,6 +957,26 @@ mod tests {
     }
 
     #[test]
+    fn ai_standard_resource_ignores_legacy_enable_1m_context_keys() {
+        // Resources created before the field was removed still carry the legacy key
+        // (lowercase `enable_1m_context` or the frontend alias `enable_1M_context`).
+        // The struct has no `deny_unknown_fields`, so both must be silently ignored.
+        let json = r#"{
+            "base_url": "https://api.anthropic.com",
+            "enable_1m_context": true,
+            "enable_1M_context": true
+        }"#;
+
+        let resource: AIStandardResource =
+            serde_json::from_str(json).expect("legacy resource must still deserialize");
+
+        assert_eq!(
+            resource.base_url.as_deref(),
+            Some("https://api.anthropic.com")
+        );
+    }
+
+    #[test]
     fn invalidates_all_cached_providers_for_workspace() {
         let _guard = TEST_LOCK.lock().unwrap();
         AI_REQUEST_CACHE.clear();
