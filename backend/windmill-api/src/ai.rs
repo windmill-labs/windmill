@@ -168,9 +168,9 @@ struct AIStandardResource {
     /// Platform (standard or google_vertex_ai)
     #[serde(default)]
     platform: AIPlatform,
-    /// Enable 1M context window for Anthropic
+    /// Deprecated: 1M context is now standard. Kept for back-compat deserialization.
     #[serde(alias = "enable_1M_context", default)]
-    enable_1m_context: bool,
+    _enable_1m_context: bool,
     /// Custom HTTP headers to include in AI requests
     #[serde(default)]
     headers: HashMap<String, String>,
@@ -263,7 +263,6 @@ async fn resolve_provider_credentials(
                 aws_secret_access_key,
                 aws_session_token,
                 platform: resource.platform,
-                enable_1m_context: resource.enable_1m_context,
                 custom_headers: resource.headers,
             })
         }
@@ -288,7 +287,6 @@ async fn resolve_provider_credentials(
                 aws_secret_access_key: None,
                 aws_session_token: None,
                 platform: AIPlatform::Standard,
-                enable_1m_context: false,
                 custom_headers: HashMap::new(),
             })
         }
@@ -548,7 +546,6 @@ async fn global_proxy(
         aws_secret_access_key: None,
         aws_session_token: None,
         platform: AIPlatform::Standard,
-        enable_1m_context: false,
         custom_headers: HashMap::new(),
     };
 
@@ -958,7 +955,6 @@ mod tests {
             aws_secret_access_key: None,
             aws_session_token: None,
             platform: AIPlatform::Standard,
-            enable_1m_context: false,
             custom_headers: HashMap::new(),
         }
     }

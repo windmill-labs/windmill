@@ -193,9 +193,9 @@ pub struct ProviderResource {
     /// Platform (standard or google_vertex_ai)
     #[serde(default)]
     pub platform: AIPlatform,
-    /// Enable 1M context window for Anthropic
+    /// Deprecated: 1M context is now standard. Kept for back-compat deserialization.
     #[serde(alias = "enable_1M_context", default)]
-    pub enable_1m_context: bool,
+    _enable_1m_context: bool,
     /// Custom HTTP headers to include in AI requests
     #[serde(default)]
     pub headers: HashMap<String, String>,
@@ -246,7 +246,6 @@ impl ProviderWithResource {
             aws_secret_access_key: self.resource.aws_secret_access_key.clone(),
             aws_session_token: self.resource.aws_session_token.clone(),
             platform: self.resource.platform.clone(),
-            enable_1m_context: self.resource.enable_1m_context,
             custom_headers: self.resource.headers.clone(),
         })
     }
@@ -273,10 +272,6 @@ impl ProviderWithResource {
 
     pub fn get_platform(&self) -> &AIPlatform {
         &self.resource.platform
-    }
-
-    pub fn get_enable_1m_context(&self) -> bool {
-        self.resource.enable_1m_context
     }
 
     pub fn get_headers(&self) -> &HashMap<String, String> {
