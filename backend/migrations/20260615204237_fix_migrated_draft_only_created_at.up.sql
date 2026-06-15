@@ -19,6 +19,11 @@
 -- only those rows and skips any edited since (their `created_at` was bumped,
 -- so it no longer equals `installed_on`). If the values somehow don't match,
 -- this updates nothing — it can never clobber a real draft.
+--
+-- Both columns are TIMESTAMPTZ (draft.created_at since
+-- 20260514233244_convert_draft_created_at_to_timestamptz), so this is an exact
+-- instant comparison — no implicit timestamp/timestamptz cast or timezone
+-- sensitivity.
 UPDATE draft d
 SET created_at = 'epoch'
 FROM _sqlx_migrations m
