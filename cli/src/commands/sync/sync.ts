@@ -2077,6 +2077,67 @@ export async function isCaseInsensitiveFilesystem(
   return result;
 }
 
+// A script's `lock` is NULL on the remote only while the server is still
+// (re)generating it — e.g. an importer relock is in flight after a dependent
+// relative-import module changed, or the script's own first lock job has not
+// settled yet. NULL means "lock pending", NOT "this script has no lock": a
+// genuinely lock-free script (no dependencies, or a codebase script) serializes
+// `lock: ''` (empty string), which keeps its metadata key. The git-sync deploy
+// mirror reads the workspace inside that window and would otherwise mirror the
+// transient NULL as a deletion of the committed `.script.lock` (and strip the
+// `lock: '!inline …'` line from the metadata), corrupting the mirror until the
+// relock writes the identical lock back seconds later (issue #9588).
+//
+// When pulling (remote -> local), if the remote reports a pending (NULL) lock
+// for a script whose committed lock still exists locally, carry the local lock
+// onto the remote map so the diff is a no-op for both the lock file and the
+// metadata `lock` line. An empty-string lock ('') is left untouched, so a real
+// "dependencies removed" transition still deletes the obsolete lock.
+export function preservePendingScriptLocks(
+  remote: Record<string, string>,
+  local: Record<string, string>,
+): void {
+  for (const metaKey of Object.keys(remote)) {
+    const isYaml = metaKey.endsWith(".script.yaml");
+    const isJson = metaKey.endsWith(".script.json");
+    if (!isYaml && !isJson) continue;
+
+    const localMeta = local[metaKey];
+    if (localMeta === undefined) continue; // script not committed locally
+
+    let remoteParsed: any;
+    let localParsed: any;
+    try {
+      remoteParsed = isYaml
+        ? yamlParseContent(metaKey, remote[metaKey])
+        : JSON.parse(remote[metaKey]);
+      localParsed = isYaml ? yamlParseContent(metaKey, localMeta) : JSON.parse(localMeta);
+    } catch {
+      continue;
+    }
+    if (typeof remoteParsed !== "object" || remoteParsed === null) continue;
+    if (typeof localParsed !== "object" || localParsed === null) continue;
+
+    // Only a NULL/absent remote lock is "pending". An empty-string lock ('') is
+    // a real "no dependencies" state and must still propagate as a deletion.
+    const remoteLock = remoteParsed["lock"];
+    if (remoteLock !== undefined && remoteLock !== null) continue;
+
+    // The local side must reference an inline lock backed by a committed file.
+    const localLock = localParsed["lock"];
+    if (typeof localLock !== "string" || !localLock.startsWith("!inline")) continue;
+
+    const lockKey = metaKey.replace(/\.(yaml|json)$/, ".lock");
+    if (local[lockKey] === undefined) continue; // committed lock already gone
+
+    remoteParsed["lock"] = localLock;
+    remote[metaKey] = isYaml
+      ? yamlStringify(remoteParsed, yamlOptions)
+      : JSON.stringify(remoteParsed, null, 2);
+    remote[lockKey] = local[lockKey];
+  }
+}
+
 async function compareDynFSElement(
   els1: DynFSElement,
   els2: DynFSElement | undefined,
@@ -2136,6 +2197,12 @@ async function compareDynFSElement(
         );
       }
     }
+  }
+
+  // Pull only (remote is els1): keep a committed `.script.lock` when the remote
+  // lock is transiently NULL (a relock is mid-flight). See #9588.
+  if (isEls1Remote === true) {
+    preservePendingScriptLocks(m1, m2);
   }
 
   const changes: Change[] = [];
