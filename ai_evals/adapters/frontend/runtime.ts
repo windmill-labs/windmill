@@ -16,7 +16,7 @@ const FRONTEND_BENCHMARK_TEST =
 const FRONTEND_BENCHMARK_CONFIG =
   "../ai_evals/adapters/frontend/vitest.config.ts";
 
-export type FrontendMode = "flow" | "app" | "script" | "global" | "ask";
+export type FrontendMode = "flow" | "app" | "script" | "global";
 
 export async function runFrontendBenchmarkAdapter(input: {
   mode: FrontendMode;

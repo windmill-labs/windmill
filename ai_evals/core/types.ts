@@ -1,4 +1,4 @@
-export const EVAL_MODES = ["cli", "flow", "script", "app", "global", "ask"] as const;
+export const EVAL_MODES = ["cli", "flow", "script", "app", "global"] as const;
 
 export type EvalMode = (typeof EVAL_MODES)[number];
 
@@ -131,18 +131,6 @@ export interface GlobalValidationSpec {
   }>;
 }
 
-export interface AskValidationSpec {
-  /**
-   * URL-citation / required-mention check. A list of groups; each group passes
-   * if ANY of its alternative substrings appears in the answer
-   * (case-insensitive). Used where several documentation URLs are acceptable
-   * answers to the same question.
-   */
-  answerIncludesAny?: string[][];
-  /** Substrings that must NOT appear in the answer (case-insensitive). */
-  answerNotIncludes?: string[];
-}
-
 export interface CliValidationSpec {
   requiredSkills?: string[];
   forbiddenSkills?: string[];
@@ -187,8 +175,7 @@ export interface ToolValidationSpec {
 export type EvalValidationSpec =
   | FlowValidationSpec
   | AppValidationSpec
-  | GlobalValidationSpec
-  | AskValidationSpec;
+  | GlobalValidationSpec;
 
 export interface EvalCase {
   id: string;

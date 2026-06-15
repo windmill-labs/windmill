@@ -12,7 +12,7 @@ import { resolveWindmillBackendSettings } from "../../core/windmillBackendSettin
 import { emitFrontendBenchmarkProgress } from "./progress";
 import { DEFAULT_JUDGE_MODEL } from "../../core/judge";
 
-export type FrontendBenchmarkMode = "flow" | "app" | "script" | "global" | "ask";
+export type FrontendBenchmarkMode = "flow" | "app" | "script" | "global";
 
 export async function runFrontendBenchmarkFromEnv(): Promise<BenchmarkRunResult> {
   const mode = parseMode(process.env.WMILL_FRONTEND_AI_EVAL_MODE);
@@ -92,10 +92,6 @@ async function getModeRunner(
       const { createGlobalModeRunner } = await import("../../modes/global");
       return createGlobalModeRunner(model, backendSettings);
     }
-    case "ask": {
-      const { createAskModeRunner } = await import("../../modes/ask");
-      return createAskModeRunner(model, backendSettings);
-    }
   }
 }
 
@@ -104,8 +100,7 @@ function parseMode(value: string | undefined): FrontendBenchmarkMode {
     value === "flow" ||
     value === "app" ||
     value === "script" ||
-    value === "global" ||
-    value === "ask"
+    value === "global"
   ) {
     return value;
   }

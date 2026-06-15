@@ -54,8 +54,6 @@ async function main() {
         "  bun run cli -- run flow --backend-validation preview",
         "  bun run cli -- run flow flow-test5-simple-modification --runs 3",
         "  bun run cli -- run global global-test1-script-create",
-        "  bun run cli -- run ask",
-        "  bun run cli -- run ask ask-lookup-cron-schedule",
         "  bun run cli -- run cli bun-hello-script",
         "",
         "Models:",
@@ -73,7 +71,7 @@ async function main() {
   program
     .command("cases")
     .description("List available cases")
-    .argument("[mode]", "cli, flow, script, app, global, or ask", parseOptionalMode)
+    .argument("[mode]", "cli, flow, script, app, or global", parseOptionalMode)
     .action(async (mode?: EvalMode) => {
       await handleCases(mode);
     });
@@ -81,7 +79,7 @@ async function main() {
   program
     .command("run")
     .description("Run one benchmark mode")
-    .argument("<mode>", "cli, flow, script, app, global, or ask", parseMode)
+    .argument("<mode>", "cli, flow, script, app, or global", parseMode)
     .argument("[caseIds...]", "specific case ids to run")
     .option(
       "--runs <n>",
@@ -155,7 +153,7 @@ function handleModels() {
   process.stdout.write("Available models\n");
   for (const model of EVAL_MODELS) {
     const supports = [
-      ...(model.frontend ? ["flow", "script", "app", "global", "ask"] : []),
+      ...(model.frontend ? ["flow", "script", "app", "global"] : []),
       ...(model.cli ? ["cli"] : []),
     ];
     const aliases = [

@@ -161,7 +161,7 @@ export function resolveEvalModel(
 export function getEvalModelHelpText(): string {
   return EVAL_MODELS.map((model) => {
     const modes = [
-      ...(model.frontend ? ["flow", "script", "app", "global", "ask"] : []),
+      ...(model.frontend ? ["flow", "script", "app", "global"] : []),
       ...(model.cli ? ["cli"] : []),
     ];
     return `  ${model.id.padEnd(8)} ${model.label} (${modes.join(", ")})`;
