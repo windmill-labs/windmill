@@ -4,6 +4,15 @@
   "version": "1.723.0",
   "author": "Ruben Fiszel",
   "license": "Apache 2.0",
+  "homepage": "https://github.com/windmill-labs/windmill/tree/main/typescript-client#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/windmill-labs/windmill.git",
+    "directory": "typescript-client"
+  },
+  "bugs": {
+    "url": "https://github.com/windmill-labs/windmill/issues"
+  },
   "sideEffects": false,
   "devDependencies": {
     "@types/node": "^20.17.16",
