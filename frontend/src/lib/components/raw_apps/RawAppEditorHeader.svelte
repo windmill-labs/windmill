@@ -101,6 +101,8 @@
 					summary: string
 					policy: any
 					custom_path?: string
+					/** No deployed counterpart exists (draft-only); disables Diff. */
+					no_deployed?: boolean
 			  }
 			| undefined
 		version?: number | undefined
@@ -126,6 +128,12 @@
 		onToggleSidebar?: () => void
 		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 		liveEditorDraftStoragePath?: string
+		/** Indicator-only overrides for the sessions preview: the AutosaveIndicator
+		 *  watches the session's (workspace, path) so it renders + animates on the
+		 *  key SessionEditorTarget saves under. Undefined on the full-page editor →
+		 *  falls back to `$workspaceStore`/`liveEditorDraftStoragePath`. */
+		autosaveWorkspace?: string
+		autosavePath?: string
 		// Fired after a successful deploy; lets the session preview reload.
 		onDeploy?: (e: { path: string }) => void
 		/** Surfaces the user-typed path (`newEditedPath`) up to the route
@@ -168,6 +176,8 @@
 		onToggleSidebar = undefined,
 		onNavigate = undefined,
 		liveEditorDraftStoragePath = undefined,
+		autosaveWorkspace = undefined,
+		autosavePath = undefined,
 		onDeploy = undefined,
 		pendingDraftPath = $bindable(undefined),
 		onResetToDeployed,
@@ -175,6 +185,11 @@
 		othersDraftsCount = 0,
 		onOpenOthersDrafts
 	}: Props = $props()
+
+	// The AutosaveIndicator watches these; in the sessions preview they're the
+	// session's (workspace, path), else the full-page editor's own values.
+	const indicatorWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
 
 	$effect(() => {
 		const typed = newEditedPath
@@ -752,11 +767,11 @@
 			raw_app
 			onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
 		/>
-		{#if $workspaceStore && liveEditorDraftStoragePath !== undefined}
+		{#if indicatorWorkspace && indicatorPath !== undefined}
 			<AutosaveIndicator
-				workspace={$workspaceStore}
+				workspace={indicatorWorkspace}
 				itemKind="raw_app"
-				path={liveEditorDraftStoragePath}
+				path={indicatorPath}
 				draftOnly={newApp}
 				{onResetToDeployed}
 				{loadedFromDraft}
@@ -786,9 +801,11 @@
 			variant="default"
 			unifiedSize="md"
 			on:click={() => openDiffDrawer()}
-			disabled={!savedApp || newApp}
+			disabled={!savedApp || newApp || (savedApp as any)?.no_deployed === true}
 			iconOnly={compactTopbar}
-			title={newApp ? 'Deploy this app once to compare against the deployed version' : 'Diff'}
+			title={newApp || (savedApp as any)?.no_deployed === true
+				? 'Deploy this app once to compare against the deployed version'
+				: 'Diff'}
 			startIcon={{ icon: DiffIcon }}
 		>
 			Diff

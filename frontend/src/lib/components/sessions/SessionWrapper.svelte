@@ -295,8 +295,13 @@
 	     sessions have their own empty-state affordances above. -->
 	{#snippet sessionEmptyHint()}{/snippet}
 
+	<!-- Undefined pane sizes (not an explicit `size`): Splitpanes auto-distributes —
+	     a lone chat pane fills 100%, and when the editor pane mounts the two split
+	     50/50. A reactive `size={hasEditor ? 50 : 100}` here instead races the
+	     sibling pane appearing on reload → "Could not resize panes due to constraints"
+	     and a wrong split. -->
 	<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
-		<Pane size={hasEditor ? 50 : 100} minSize={25} class="flex flex-col min-h-0 pb-2">
+		<Pane minSize={25} class="flex flex-col min-h-0 pb-2">
 			<header class="flex flex-row items-center gap-1 pl-4 pr-4 py-2 shrink-0">
 				<EditableInput
 					bind:this={summaryInput}
@@ -408,7 +413,7 @@
 			</div>
 		</Pane>
 		{#if hasEditor && session.target}
-			<Pane size={50} minSize={30} class="flex flex-col min-h-0 p-2 pl-0">
+			<Pane minSize={30} class="flex flex-col min-h-0 p-2 pl-0">
 				<div
 					transition:slide={{ axis: 'x', duration: 200 }}
 					class="flex flex-col flex-1 min-h-0 rounded-md border border-light overflow-hidden relative"

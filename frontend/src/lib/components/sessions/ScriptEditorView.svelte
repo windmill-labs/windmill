@@ -109,6 +109,8 @@
 				bind:script={runtime.scriptStore.val}
 				bind:savedScript={runtime.savedScript.val}
 				initialPath={runtime.savedScript.val ? path : ''}
+				autosaveWorkspace={workspaceId}
+				autosavePath={path}
 				initialPathChosen={true}
 				neverShowMeta={true}
 				fullyLoaded={!runtime.slot('script').loading}

@@ -67,6 +67,8 @@
 				bind:summary={runtime.rawApp.val.summary}
 				newPath={runtime.rawApp.val.path}
 				{path}
+				autosaveWorkspace={workspaceId}
+				autosavePath={path}
 				policy={runtime.rawApp.val.policy}
 				bind:savedApp={runtime.savedRawApp.val}
 				newApp={!runtime.savedRawApp.val}

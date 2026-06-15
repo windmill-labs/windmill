@@ -59,6 +59,8 @@
 			flowStore={runtime.flowStore}
 			flowStateStore={runtime.flowStateStore}
 			initialPath={path}
+			autosaveWorkspace={workspaceId}
+			autosavePath={path}
 			newFlow={!runtime.savedFlow.val}
 			{selectedId}
 			loading={false}

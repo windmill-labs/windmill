@@ -96,32 +96,34 @@ export interface SessionRuntime {
 	// Raw App (HTML-based) target state
 	readonly rawApp: {
 		val:
-		| {
-			files: Record<string, string>
-			runnables: Record<string, any>
-			data: RawAppData
-			policy: any
-			summary: string
-			path: string
-			custom_path?: string
-		}
-		| undefined
+			| {
+					files: Record<string, string>
+					runnables: Record<string, any>
+					data: RawAppData
+					policy: any
+					summary: string
+					path: string
+					custom_path?: string
+			  }
+			| undefined
 	}
 	readonly savedRawApp: {
 		val:
-		| {
-			value: {
-				files: Record<string, { code: string }>
-				runnables: Record<string, HiddenRunnable>
-			}
-			draft?: any
-			path: string
-			summary: string
-			policy: any
-			draft_only?: boolean
-			custom_path?: string
-		}
-		| undefined
+			| {
+					value: {
+						files: Record<string, { code: string }>
+						runnables: Record<string, HiddenRunnable>
+					}
+					draft?: any
+					path: string
+					summary: string
+					policy: any
+					draft_only?: boolean
+					/** No deployed counterpart (draft-only); disables the topbar Diff. */
+					no_deployed?: boolean
+					custom_path?: string
+			  }
+			| undefined
 	}
 	loadRawApp(workspace: string, path: string, force?: boolean): Promise<void>
 	setRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined): void
@@ -427,18 +429,18 @@ function createRuntime(session: Session): SessionRuntime {
 					// `savedScript.val` in place and lose the pristine diff baseline.
 					const baseline: NewScript = savedScript.val
 						? (structuredClone(
-							$state.snapshot(
-								(savedScript.val.draft as NewScript | undefined) ?? (savedScript.val as NewScript)
-							)
-						) as NewScript)
+								$state.snapshot(
+									(savedScript.val.draft as NewScript | undefined) ?? (savedScript.val as NewScript)
+								)
+							) as NewScript)
 						: {
-							path,
-							summary: aiDraft.summary ?? '',
-							content: '',
-							description: '',
-							schema: emptySchema(),
-							language: (aiDraft.language ?? 'bun') as any
-						}
+								path,
+								summary: aiDraft.summary ?? '',
+								content: '',
+								description: '',
+								schema: emptySchema(),
+								language: (aiDraft.language ?? 'bun') as any
+							}
 					if (savedScript.val?.hash) {
 						baseline.parent_hash = savedScript.val.hash
 					}
@@ -505,7 +507,8 @@ function createRuntime(session: Session): SessionRuntime {
 							value: result.value as any,
 							path: result.path,
 							policy: result.policy,
-							custom_path: result.custom_path
+							custom_path: result.custom_path,
+							no_deployed: (result as any).no_deployed
 						}
 					} catch {
 						savedRawApp.val = undefined
@@ -539,7 +542,8 @@ function createRuntime(session: Session): SessionRuntime {
 					value: result.value as any,
 					path: result.path,
 					policy: result.policy,
-					custom_path: result.custom_path
+					custom_path: result.custom_path,
+					no_deployed: (result as any).no_deployed
 				}
 				// Prefer the server draft over the deployed value (mirrors the
 				// flow/script `result.draft ?? result`). A raw-app draft is already
@@ -848,8 +852,7 @@ setListAppRunsHandler(({ sessionId: callerSessionId, limit }) => {
 	}
 	if (runs.length === 0) {
 		return {
-			aiResult:
-				'No backend runnable executions are tracked for this raw app preview yet.',
+			aiResult: 'No backend runnable executions are tracked for this raw app preview yet.',
 			uiMessage: 'No app runs',
 			toolResult: 'No app runs'
 		}

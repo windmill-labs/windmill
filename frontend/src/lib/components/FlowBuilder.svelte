@@ -119,6 +119,8 @@
 		loadedFromHistoryFromUrl,
 		noInitial = false,
 		liveEditorDraftStoragePath = undefined,
+		autosaveWorkspace = undefined,
+		autosavePath = undefined,
 		onDeploy,
 		onDeployError,
 		onDetails,
@@ -130,6 +132,12 @@
 		onOpenOthersDrafts,
 		onTestJob
 	}: FlowBuilderProps = $props()
+
+	// Key the AutosaveIndicator watches. Falls back to this component's own
+	// draft key, so the full-page editor is unchanged; the sessions preview
+	// overrides both to the (forked) workspace + path its autosave saves under.
+	const indicatorWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
 
 	let initialPathStore = writable(initialPath)
 
@@ -1084,11 +1092,11 @@
 						onBehalfOfEmail={$savedOnBehalfOfEmail}
 						onNavigate={(item) => onNavigate?.(item)}
 					/>
-					{#if $workspaceStore && liveEditorDraftStoragePath !== undefined}
+					{#if indicatorWorkspace && indicatorPath !== undefined}
 						<AutosaveIndicator
-							workspace={$workspaceStore}
+							workspace={indicatorWorkspace}
 							itemKind="flow"
-							path={liveEditorDraftStoragePath}
+							path={indicatorPath}
 							draftOnly={newFlow}
 							{onResetToDeployed}
 							{loadedFromDraft}
@@ -1110,13 +1118,14 @@
 						{/if}
 					</div>
 					{#if customUi?.topBar?.diff != false}
+						{@const isDraftOnly = (savedFlow as any)?.no_deployed === true}
 						<Button
 							variant="default"
 							unifiedSize="md"
 							on:click={() => openDiffDrawer()}
-							disabled={!savedFlow || newFlow}
+							disabled={!savedFlow || newFlow || isDraftOnly}
 							iconOnly={compactTopbar}
-							title={newFlow
+							title={newFlow || isDraftOnly
 								? 'Deploy this flow once to compare against the deployed version'
 								: 'Diff'}
 							startIcon={{ icon: DiffIcon }}
