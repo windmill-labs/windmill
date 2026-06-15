@@ -281,7 +281,7 @@
 </div>
 <div class="my-6">
 	<Toggle
-		options={{ right: 'Run the app in an isolated sandbox' }}
+		options={{ right: "Isolate the app from the viewer's browser session" }}
 		checked={policy.sandbox == true}
 		on:change={(e) => {
 			policy.sandbox = e.detail || undefined
@@ -290,10 +290,11 @@
 		disabled={!savedApp}
 	/>
 	<div class="text-xs text-secondary mt-1">
-		Isolates the app from each viewer's Windmill session, on every surface the app is viewed from
-		(public URL and within the workspace). Off by default — the app keeps full session access. Leave
-		it off if the app needs full browser features (IndexedDB, third-party auth/SDKs, OAuth
-		redirects).
+		Controls what the app's browser-side code can reach in each viewer's browser — distinct from the
+		on-behalf-of model above (which sets who its runnables run as). Off by default, the app's code
+		uses the viewer's own session; enable it to confine the app to a narrowly-scoped token instead,
+		on every surface (public URL and in-workspace). Leave it off if the app needs full browser
+		features (IndexedDB, third-party auth/SDKs, OAuth redirects).
 	</div>
 	{#if !savedApp}
 		<div class="text-xs text-tertiary mt-1">Save the app once to change this setting.</div>
