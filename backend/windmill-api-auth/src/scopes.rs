@@ -675,10 +675,11 @@ fn app_embed_route_denied(domain: ScopeDomain, suffix: &str) -> bool {
 
 /// App routes a running app uses: its own definition (`apps/get/p/<path>`, further
 /// path-scoped by `apps:read:<path>`) and the public app-serving endpoints
-/// (`apps_u/*`: public_app, public_resource, get_data, execute_component — the last
-/// path-checked in its handler). Everything else in the domain — workspace app
-/// inventory (`exists`, `custom_path_exists`, `list`, `list_paths*`, `secret_of`,
-/// history, management) — is denied.
+/// (`apps_u/*`: public_app, public_resource, get_data, and the path-taking
+/// `execute_component` / `download_s3_file`, which re-check `apps:run|read:<path>`
+/// in their handlers so they stay confined to this app). Everything else in the
+/// domain — workspace app inventory (`exists`, `custom_path_exists`, `list`,
+/// `list_paths*`, `secret_of`, history, management) — is denied.
 fn app_embed_apps_route_allowed(suffix: &str) -> bool {
     suffix.starts_with("apps/get/p/") || suffix.starts_with("apps_u/")
 }

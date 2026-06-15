@@ -3707,6 +3707,15 @@ async fn download_s3_file_from_app(
 
     let path = path.to_path();
 
+    // Authorize the app path first: a scoped caller (notably an app embed token,
+    // which carries `apps:read:<own path>`) may only download files for the app it
+    // was minted for — otherwise it could read another app's S3 files via that app's
+    // on-behalf policy. Unscoped sessions / anonymous callers pass through (the
+    // latter still gated by the policy allowlist in `check_if_allowed_...`).
+    if let Some(authed) = opt_authed.as_ref() {
+        check_scopes(authed, || format!("apps:read:{}", path))?;
+    }
+
     let force_viewer_allowed_s3_keys = if let Some(force_viewer_allowed_s3_keys) =
         query.force_viewer_allowed_s3_keys.clone()
     {
@@ -4118,10 +4127,12 @@ mod embed_token_tests {
             .includes(&required));
     }
 
-    /// The token carries `apps:run:<own path>` (NOT unqualified `apps:run`), and
-    /// `execute_component` re-checks `apps:run:<requested path>` via
-    /// `ScopeDefinition::includes` — so it runs only its OWN app's components, never
-    /// another app's runnables (cross-app execution).
+    /// The token carries path-scoped `apps:run:<own path>` and `apps:read:<own path>`
+    /// (NOT unqualified `apps:run`). The handlers that act on an app's behalf re-check
+    /// the requested path via `ScopeDefinition::includes` — `execute_component` checks
+    /// `apps:run:<path>` and `download_s3_file_from_app` checks `apps:read:<path>` —
+    /// so the token can only run/download its OWN app, never another app's
+    /// (cross-app execution / cross-app S3 file reads).
     #[test]
     fn embed_run_scope_is_path_scoped_to_its_app() {
         use windmill_api_auth::scopes::ScopeDefinition;
@@ -4130,15 +4141,24 @@ mod embed_token_tests {
             !APP_EMBED_SCOPES.contains(&"apps:run"),
             "embed scopes must not include unqualified apps:run"
         );
-        let own = ScopeDefinition::from_scope_string("apps:run:u/admin/app").unwrap();
-        assert!(
-            own.includes(&ScopeDefinition::from_scope_string("apps:run:u/admin/app").unwrap()),
-            "must run its own app's components"
-        );
-        assert!(
-            !own.includes(&ScopeDefinition::from_scope_string("apps:run:u/admin/other").unwrap()),
-            "must NOT run another app's components"
-        );
+        for action in ["run", "read"] {
+            let own =
+                ScopeDefinition::from_scope_string(&format!("apps:{action}:u/admin/app")).unwrap();
+            assert!(
+                own.includes(
+                    &ScopeDefinition::from_scope_string(&format!("apps:{action}:u/admin/app"))
+                        .unwrap()
+                ),
+                "apps:{action} must grant its own app"
+            );
+            assert!(
+                !own.includes(
+                    &ScopeDefinition::from_scope_string(&format!("apps:{action}:u/admin/other"))
+                        .unwrap()
+                ),
+                "apps:{action} must NOT grant another app (cross-app)"
+            );
+        }
     }
 
     /// `mint_app_embed_token` guards its `create_token_internal` call with
