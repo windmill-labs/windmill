@@ -1296,13 +1296,31 @@ function replaceFalseWithUndefinedRec(obj: any) {
 	return obj
 }
 
+// Keys that are server-managed bookkeeping, never user-editable, and therefore
+// must not surface in any value diff or unsaved-change comparison. `getScriptByPath`
+// (and the flow/app equivalents) return the full DB row, so the editing object
+// carries these while the deployed side is fetched trimmed — leaving them in would
+// render as spurious metadata diff.
+const CLEANED_VALUE_KEYS = new Set([
+	'parent_hash',
+	'draft',
+	'draft_only',
+	'created_at',
+	'created_by',
+	'extra_perms',
+	'workspace_id',
+	'parent_hashes',
+	'lock',
+	'lock_error_logs'
+])
+
 export function cleanValueProperties(obj: Value) {
 	if (typeof obj !== 'object') {
 		return obj
 	} else {
 		let newObj: any = {}
 		for (const key of Object.keys(obj)) {
-			if (key !== 'parent_hash' && key !== 'draft' && key !== 'draft_only') {
+			if (!CLEANED_VALUE_KEYS.has(key)) {
 				newObj[key] = structuredClone(stateSnapshot(obj[key]))
 			}
 		}
