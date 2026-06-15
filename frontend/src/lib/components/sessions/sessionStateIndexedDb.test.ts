@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
+import { openDB } from 'idb'
 
 // sessionState persistence is BROWSER-gated; the vitest "server" env reports false.
 vi.mock('esm-env', async (importOriginal) => ({
@@ -143,6 +144,32 @@ describe('sessionState IndexedDB persistence', () => {
 		expect(sessionState.sessions.find((s) => s.id === 'leg3')!.workspace_id).toBeUndefined()
 
 		// Bare keys are gone so a later different user does not re-inherit them.
+		expect(localStorage.getItem('windmill_sessions')).toBeNull()
+		expect(localStorage.getItem('windmill_sessions_last_seen_counts')).toBeNull()
+	})
+
+	it('deletes lingering bare keys even when the user DB is already populated', async () => {
+		const user = freshUser()
+		const dbName = `windmill-sessions::${user.email}`
+		// Returning user: their DB already holds a session...
+		const seed = await openDB(dbName, 1, {
+			upgrade(d) {
+				d.createObjectStore('sessions', { keyPath: 'id' })
+			}
+		})
+		await seed.put('sessions' as never, { id: 'existing', name: 'kept', createdAt: 1 } as never)
+		seed.close()
+		// ...and a partially-failed prior migration left bare keys behind.
+		localStorage.setItem(
+			'windmill_sessions',
+			JSON.stringify([{ id: 'stale', name: 'x', createdAt: 2 }])
+		)
+		localStorage.setItem('windmill_sessions_last_seen_counts', JSON.stringify({ stale: 3 }))
+
+		userStore.set(user)
+		// The existing record is kept; the stale legacy session is NOT claimed
+		// (DB already populated) — but the bare keys are still cleaned up.
+		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['existing']))
 		expect(localStorage.getItem('windmill_sessions')).toBeNull()
 		expect(localStorage.getItem('windmill_sessions_last_seen_counts')).toBeNull()
 	})

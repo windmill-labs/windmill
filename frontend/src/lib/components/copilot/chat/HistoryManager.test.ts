@@ -9,7 +9,9 @@ vi.mock('esm-env', async (importOriginal) => ({
 }))
 
 import { userStore, type UserExt } from '$lib/stores'
-import HistoryManager from './HistoryManager.svelte'
+import HistoryManager, { __resetLegacyChatClaimForTesting } from './HistoryManager.svelte'
+import type { DisplayMessage } from './shared'
+import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 
 function asUser(email: string): UserExt {
 	return { email, username: email.split('@')[0] } as unknown as UserExt
@@ -36,8 +38,20 @@ async function seedLegacyChatDb(records: LegacyChat[]) {
 
 beforeEach(() => {
 	;(globalThis as any).indexedDB = new IDBFactory()
+	__resetLegacyChatClaimForTesting()
 	userStore.set(asUser('admin@test'))
 })
+
+async function countChats(dbName: string): Promise<number> {
+	const db = await openDB(dbName)
+	if (!db.objectStoreNames.contains('chats')) {
+		db.close()
+		return 0
+	}
+	const n = await db.count('chats' as never)
+	db.close()
+	return n
+}
 
 describe('HistoryManager legacy chat-history migration', () => {
 	it('claims the legacy un-namespaced DB into the per-user DB, then deletes it', async () => {
@@ -74,5 +88,29 @@ describe('HistoryManager legacy chat-history migration', () => {
 		const hm = new HistoryManager()
 		await hm.init()
 		expect(hm.getAllSavedChats()).toEqual([])
+	})
+
+	it('writes land in the current user DB after an in-place user switch', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+
+		// Save under user A.
+		await hm.save(
+			[{ role: 'user', content: 'hello A' }] as DisplayMessage[],
+			[] as ChatCompletionMessageParam[]
+		)
+		expect(await countChats('copilot-chat-history::admin@test')).toBe(1)
+
+		// Switch identity in-place (no reload), then save again. The write must go
+		// to user B's DB, not A's stale handle.
+		userStore.set(asUser('other@test'))
+		await hm.save(
+			[{ role: 'user', content: 'hello B' }] as DisplayMessage[],
+			[] as ChatCompletionMessageParam[]
+		)
+
+		expect(await countChats('copilot-chat-history::other@test')).toBe(1)
+		// A's DB is untouched by the post-switch write.
+		expect(await countChats('copilot-chat-history::admin@test')).toBe(1)
 	})
 })

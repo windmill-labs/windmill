@@ -175,9 +175,13 @@ function normalizeLegacySession(s: Record<string, any>): void {
 // so nothing is left to re-claim. Intermediate `::email` keys (this branch's
 // throwaway dev data) are intentionally not migrated.
 async function migrateSessionsFromLocalStorage(db: IDBPDatabase<SessionSchema>): Promise<void> {
-	if ((await db.count('sessions')) > 0) return
+	// Only claim into a still-empty DB, but ALWAYS fall through to delete the bare
+	// keys below — even when the DB is already populated. Otherwise a partially
+	// failed prior migration (puts committed, deletes didn't) would leave the bare
+	// keys for a different empty-DB user to later claim: the exact leak this closes.
+	const alreadyPopulated = (await db.count('sessions')) > 0
 	const raw = getLocalSetting(LEGACY_SESSIONS_KEY)
-	if (raw) {
+	if (!alreadyPopulated && raw) {
 		try {
 			const parsed = JSON.parse(raw)
 			if (Array.isArray(parsed) && parsed.length > 0) {
@@ -204,8 +208,9 @@ async function migrateSessionsFromLocalStorage(db: IDBPDatabase<SessionSchema>):
 			console.error('Failed to migrate legacy sessions into IndexedDB', e)
 		}
 	}
-	// Drop the bare keys regardless (claimed, empty, or malformed) so a later
-	// different user on this browser never re-inherits them.
+	// Drop the bare keys unconditionally (claimed, empty, malformed, or stale
+	// leftovers from a partially-failed prior migration) so a later different user
+	// on this browser never re-inherits them.
 	storeLocalSetting(LEGACY_SESSIONS_KEY, undefined)
 	storeLocalSetting(LEGACY_LAST_SEEN_KEY, undefined)
 }

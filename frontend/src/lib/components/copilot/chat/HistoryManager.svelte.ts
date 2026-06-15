@@ -35,15 +35,31 @@ function createChatStore(db: IDBPDatabase<ChatSchema>): void {
 	}
 }
 
+// Shared across all HistoryManager instances. Each instance owns its own
+// userScopedDb handle (see below), so without this the legacy claim could run
+// concurrently in several instances on first login — and racing `deleteDB`s can
+// block on each other's still-open legacy connections. Deduping to a single
+// session-wide promise restores the "runs exactly once" guarantee the pre-factory
+// module-level guard had. Reset on failure so a later instance can retry.
+let legacyChatClaim: Promise<void> | undefined
+
+async function migrateLegacyChatDb(
+	scopedDb: IDBPDatabase<ChatSchema>,
+	deps: UserScopedDbMigrateDeps
+): Promise<void> {
+	legacyChatClaim ??= claimLegacyChatDb(scopedDb, deps).catch((e) => {
+		legacyChatClaim = undefined
+		throw e
+	})
+	return legacyChatClaim
+}
+
 // One-shot claim of the pre-namespacing chat-history DB: when the user-scoped
 // DB has no chats yet (first login on a previously single-user browser), copy
 // every record from the legacy un-namespaced DB into it, then delete the legacy
 // DB. Both session-tagged and untagged chats belong to the prior single browser
-// user, so all are claimed. Subsequent users start with an empty DB. Wired as
-// userScopedDb's `migrate` hook (which gates it to once per scoped name); the
-// emptiness check makes it idempotent across the several manager instances that
-// share the same per-user DB.
-async function migrateLegacyChatDb(
+// user, so all are claimed. Subsequent users start with an empty DB.
+async function claimLegacyChatDb(
 	scopedDb: IDBPDatabase<ChatSchema>,
 	{ openDB, deleteDB }: UserScopedDbMigrateDeps
 ): Promise<void> {
@@ -58,6 +74,12 @@ async function migrateLegacyChatDb(
 	await deleteDB(DB_NAME)
 }
 
+// Test-only: reset the session-wide legacy-claim guard so suites can exercise
+// the migration deterministically regardless of test order.
+export function __resetLegacyChatClaimForTesting(): void {
+	legacyChatClaim = undefined
+}
+
 export default class HistoryManager {
 	// Per-instance handle to the shared per-user DB lifecycle. There is one
 	// HistoryManager per AIChatManager (the singleton + one per session runtime),
@@ -67,7 +89,6 @@ export default class HistoryManager {
 		upgrade: createChatStore,
 		migrate: migrateLegacyChatDb
 	})
-	private indexDB: IDBPDatabase<ChatSchema> | undefined = undefined
 
 	private savedChats: Record<
 		string,
@@ -100,10 +121,10 @@ export default class HistoryManager {
 		// whenReady() is email-gated (returns undefined before the user is known —
 		// all callers run post-login, and the singleton re-inits via onUserChange),
 		// runs the legacy migration once, and reopens automatically on user change.
-		this.indexDB = await this.dbh.whenReady()
-		if (!this.indexDB) return
+		const db = await this.dbh.whenReady()
+		if (!db) return
 		try {
-			const chats = await this.indexDB.getAll('chats')
+			const chats = await db.getAll('chats')
 			this.savedChats = chats.reduce(
 				(acc, chat) => {
 					acc[chat.id] = chat
@@ -118,7 +139,6 @@ export default class HistoryManager {
 
 	close() {
 		this.dbh.close()
-		this.indexDB = undefined
 	}
 
 	getCurrentChatId() {
@@ -139,9 +159,10 @@ export default class HistoryManager {
 		const snapshot = $state.snapshot(existing)
 		const updated = { ...snapshot, sessionId }
 		this.savedChats = { ...this.savedChats, [chatId]: updated }
-		if (this.indexDB) {
-			await this.indexDB.put('chats', updated)
-		}
+		// Resolve the DB via the handle (not a cached ref) so a write always lands
+		// in the current user's DB, even after an in-place user switch.
+		const db = await this.dbh.whenReady()
+		if (db) await db.put('chats', updated)
 	}
 
 	getPastChats() {
@@ -179,9 +200,8 @@ export default class HistoryManager {
 				[updatedChat.id]: updatedChat
 			}
 
-			if (this.indexDB) {
-				await this.indexDB.put('chats', updatedChat)
-			}
+			const db = await this.dbh.whenReady()
+			if (db) await db.put('chats', updatedChat)
 		}
 	}
 
@@ -198,7 +218,7 @@ export default class HistoryManager {
 		this.savedChats = Object.fromEntries(
 			Object.entries(this.savedChats).filter(([key]) => key !== id)
 		)
-		this.indexDB?.delete('chats', id)
+		void this.dbh.whenReady().then((db) => db?.delete('chats', id))
 	}
 
 	loadPastChat(id: string) {
