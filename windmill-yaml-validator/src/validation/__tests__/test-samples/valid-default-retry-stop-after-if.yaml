@@ -15,13 +15,14 @@ value:
         language: deno
       retry:
         constant:
-          attempts: 2
-          seconds: 5
+          attempts: 1
+          seconds: 60
         exponential:
           attempts: 0
           multiplier: 1
-          seconds: 0
           random_factor: null
+          seconds: 0
       stop_after_if:
-        expr: "false"
         error_message: null
+        expr: result == 404
+        skip_if_stopped: true
