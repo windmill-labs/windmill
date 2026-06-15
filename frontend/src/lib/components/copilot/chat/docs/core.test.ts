@@ -174,10 +174,10 @@ describe('sanitizeDocsMarkdownLinks', () => {
 		)
 	})
 
-	it('strips numeric prefixes from sibling-directory links', () => {
-		expect(
-			sanitizeDocsMarkdownLinks('[handling](../core_concepts/8_error_handling.mdx)', PAGE)
-		).toBe('[handling](https://www.windmill.dev/docs/core_concepts/error_handling)')
+	it('strips numeric prefixes from same-directory links', () => {
+		expect(sanitizeDocsMarkdownLinks('[handling](./8_error_handling.mdx)', PAGE)).toBe(
+			'[handling](https://www.windmill.dev/docs/flows/error_handling)'
+		)
 	})
 
 	it('preserves anchors when rewriting', () => {
@@ -196,9 +196,17 @@ describe('sanitizeDocsMarkdownLinks', () => {
 		expect(sanitizeDocsMarkdownLinks('[top](#introduction)', PAGE)).toBe('[top](#introduction)')
 	})
 
-	it('leaves ambiguous ../ cross-directory links untouched', () => {
-		// `../../flows/14_retries.md` is authored against the source tree; resolving
-		// it against the published URL is unreliable, so it must be left as-is.
+	// `../` links are authored against the docusaurus source tree, whose directory
+	// depth differs from the published URL on slug-flattened pages, so resolving
+	// them against the page URL is unreliable (a single `../` can over-escape just
+	// as a double one does). All `../` links are left untouched and disambiguated
+	// by the canonical "Source page" header instead.
+	it('leaves single ../ cross-directory links untouched', () => {
+		const input = '[handling](../core_concepts/8_error_handling.mdx)'
+		expect(sanitizeDocsMarkdownLinks(input, PAGE)).toBe(input)
+	})
+
+	it('leaves double ../../ cross-directory links untouched', () => {
 		const input = '[retries](../../flows/14_retries.md)'
 		expect(sanitizeDocsMarkdownLinks(input, PAGE)).toBe(input)
 	})

@@ -404,6 +404,10 @@ export function renderDocsPageResult(content: string, section?: string): string 
 		].join('\n')
 	}
 
+	// Gate on the page body only; the caller may prepend a short "Source page"
+	// header, so the returned payload can exceed this limit by that header's
+	// length. This threshold only decides whole-page vs. outline, so the small
+	// overshoot is immaterial.
 	if (content.length <= FULL_PAGE_CHAR_LIMIT) {
 		return content
 	}
