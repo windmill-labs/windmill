@@ -1095,6 +1095,15 @@ async fn get_public_app_by_secret(
 
     let mut app = not_found_if_none(app_o, "App", id.to_string())?;
 
+    // Bind a scoped caller (notably an app embed token, which carries
+    // `apps:read:<own path>`) to the app the secret resolves to: it may only read its
+    // OWN app's definition, never another's — the viewer-RLS check below would
+    // otherwise let app JS reuse the viewer's identity to read any app it can see by
+    // secret. No-op for unscoped sessions; anonymous access stays gated below.
+    if let Some(authed) = opt_authed.as_ref() {
+        check_scopes(authed, || format!("apps:read:{}", app.path))?;
+    }
+
     let policy = serde_json::from_str::<Policy>(app.policy.0.get()).map_err(to_anyhow)?;
 
     if !matches!(policy.execution_mode, ExecutionMode::Anonymous) {
@@ -4128,11 +4137,15 @@ mod embed_token_tests {
     }
 
     /// The token carries path-scoped `apps:run:<own path>` and `apps:read:<own path>`
-    /// (NOT unqualified `apps:run`). The handlers that act on an app's behalf re-check
-    /// the requested path via `ScopeDefinition::includes` — `execute_component` checks
-    /// `apps:run:<path>` and `download_s3_file_from_app` checks `apps:read:<path>` —
-    /// so the token can only run/download its OWN app, never another app's
-    /// (cross-app execution / cross-app S3 file reads).
+    /// (NOT unqualified `apps:run`). Every handler that resolves an app and acts on
+    /// its behalf re-checks the requested path via `ScopeDefinition::includes`, so the
+    /// token is confined to its OWN app:
+    /// - `apps:run:<path>` — `execute_component`.
+    /// - `apps:read:<path>` — `get_app` (apps/get/p), `get_public_app_by_secret`,
+    ///   the EE custom-path `get_public_app_by_custom_path`, and
+    ///   `download_s3_file_from_app`.
+    /// This blocks cross-app execution, definition reads (by secret / custom path),
+    /// and S3 file reads through another app's on-behalf policy.
     #[test]
     fn embed_run_scope_is_path_scoped_to_its_app() {
         use windmill_api_auth::scopes::ScopeDefinition;
