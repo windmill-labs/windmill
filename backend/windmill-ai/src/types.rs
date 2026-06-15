@@ -193,9 +193,6 @@ pub struct ProviderResource {
     /// Platform (standard or google_vertex_ai)
     #[serde(default)]
     pub platform: AIPlatform,
-    /// Deprecated: 1M context is now standard. Kept for back-compat deserialization.
-    #[serde(alias = "enable_1M_context", default)]
-    _enable_1m_context: bool,
     /// Custom HTTP headers to include in AI requests
     #[serde(default)]
     pub headers: HashMap<String, String>,
