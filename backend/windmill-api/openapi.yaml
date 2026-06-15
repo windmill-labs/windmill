@@ -7915,6 +7915,9 @@ paths:
                     summary:
                       type: string
                       description: Best-effort, read from the draft JSON's `summary` field when the editor shape carries one.
+                    draft_path:
+                      type: string
+                      description: User-typed friendly path from the draft JSON's `draft_path`, when set and different from the storage path (e.g. a never-deployed item parked at `u/{user}/draft_{uuid}`).
                     draft_only:
                       type: boolean
                       description: No deployed counterpart exists at this path — the draft is the whole item.

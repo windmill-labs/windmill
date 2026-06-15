@@ -35,6 +35,13 @@ pub struct DraftListItem {
     /// Best-effort, read from the draft JSON's `summary` field when present.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    /// User-typed friendly path read from the draft JSON's `draft_path` (set by
+    /// the editors when it differs from the storage path, e.g. a never-deployed
+    /// item parked at `u/{user}/draft_{uuid}`). `None` when absent. Lets the
+    /// review page show the friendly name instead of the storage path, like the
+    /// home-page list endpoints.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_path: Option<String>,
     /// No deployed counterpart exists at this path — the draft is the whole
     /// item. Kinds without a per-path backing table report `true`.
     pub draft_only: bool,
@@ -99,6 +106,12 @@ fn list_drafts_query() -> String {
                   d.typ AS kind,
                   d.created_at,
                   d.value ->> 'summary' AS summary,
+                  CASE
+                    WHEN d.value ->> 'draft_path' IS NOT NULL
+                     AND d.value ->> 'draft_path' <> ''
+                     AND d.value ->> 'draft_path' <> d.path
+                    THEN d.value ->> 'draft_path'
+                  END AS draft_path,
                   {case} AS draft_only
            FROM draft d
            WHERE d.workspace_id = $1 AND (d.email = $2 OR d.email IS NULL)

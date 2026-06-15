@@ -59,6 +59,9 @@
 		kind: LayoutKind
 		draftKind: DraftItem['kind']
 		path: string
+		/** Friendly path for display (storage `path` stays the key for all
+		 * fetch/deploy/discard calls — the draft is keyed by it server-side). */
+		draft_path?: string
 		summary?: string
 		draft_only: boolean
 		raw_app: boolean
@@ -102,7 +105,8 @@
 			...d,
 			key: getItemKey(d.kind, d.path),
 			kind: toLayoutKind(d.kind),
-			draftKind: d.kind
+			draftKind: d.kind,
+			draft_path: d.draft_path
 		}))
 	)
 
@@ -403,7 +407,7 @@
 				{@const oldSummary = cache?.deployed ?? draftItem.summary}
 				{@const newSummary = cache?.draft ?? draftItem.summary}
 				<WorkspaceDeployItemSummary
-					path={draftItem.path}
+					path={draftItem.draft_path ?? draftItem.path}
 					{editUrl}
 					{oldSummary}
 					{newSummary}
