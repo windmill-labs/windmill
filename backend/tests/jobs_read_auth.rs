@@ -38,6 +38,8 @@ const TOP_SECRET_FLOW: &str = "ffffffff-ffff-ffff-ffff-ffffffffffff";
 const DEEP_LEAF_JOB: &str = "88888888-8888-8888-8888-888888888888";
 // A queued/running job (no completed row) owned by test-user-2.
 const RUNNING_JOB: &str = "77777777-7777-7777-7777-777777777777";
+// An app-component job launched BY the admin embed viewer (created_by test-user).
+const EMBED_OWN_JOB: &str = "12121212-1212-1212-1212-121212121212";
 
 // Secrets that must never leak to an unauthorized viewer.
 const RESULT_SECRET: &str = "RESULT_SECRET";
@@ -280,6 +282,49 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         reqwest::StatusCode::FORBIDDEN,
         "top flow in an unreadable folder must stay denied (got {status}): {body}"
     );
+
+    // ---- APP EMBED TOKEN: confined to jobs the viewer LAUNCHED, not everything
+    //      the (admin) viewer can otherwise read. The token carries the `app_embed`
+    //      sentinel; an admin's normal token reads VICTIM (asserted above), but the
+    //      embed token must stop at the `created_by == viewer` grant so user-authored
+    //      app JS can't reuse it to read unrelated jobs by UUID.
+    // Its own launched component job (created_by == viewer) still reads.
+    let (status, body) = get(
+        &base,
+        &format!("completed/get_result/{EMBED_OWN_JOB}"),
+        Some("EMBED_APP_TOKEN"),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "embed token must read a job it launched (got {status}): {body}"
+    );
+    assert!(
+        body.contains("EMBED_OWN_RESULT"),
+        "embed token should get its own launched job result: {body}"
+    );
+    // The VICTIM job — created by another user but readable by this admin viewer's
+    // normal token (asserted above) — is denied to the embed token across result /
+    // logs / live update. NotFound (not 403) so the untrusted app can't even probe
+    // existence, and no secret leaks.
+    for path in [
+        format!("completed/get_result/{VICTIM}"),
+        format!("get_logs/{VICTIM}"),
+        format!("getupdate/{VICTIM}?only_result=true"),
+    ] {
+        let (status, body) = get(&base, &path, Some("EMBED_APP_TOKEN")).await;
+        assert_eq!(
+            status,
+            reqwest::StatusCode::NOT_FOUND,
+            "embed token must not read a job it did not launch ({path}, got {status}): {body}"
+        );
+        for secret in [RESULT_SECRET, ARGS_SECRET, LOGS_SECRET] {
+            assert!(
+                !body.contains(secret),
+                "embed token response for {path} leaked `{secret}`: {body}"
+            );
+        }
+    }
 
     // ---- UNAUTHENTICATED, unchanged: an anonymous-created job is readable
     //      without a token (public trigger / public app result polling).

@@ -1005,6 +1005,20 @@ async fn require_job_read_access(
         return Ok(());
     }
 
+    // App embed tokens (the sandboxed app iframe) carry the viewer's identity so the
+    // app can read its own component runs — which are stamped `created_by == viewer`
+    // and so already returned above. They must NOT inherit the viewer's *broader*
+    // job access (share links, folder ACLs, admin RLS): user-authored app JS holds
+    // this token, and letting it reach any job merely visible to the viewer would
+    // expose unrelated runs' results/logs. Stop at the launched-by-viewer grant.
+    // NotFound (not PermissionDenied) so the untrusted app can't probe job existence.
+    if authed.scopes.as_ref().is_some_and(|s| {
+        s.iter()
+            .any(|x| x == windmill_api_auth::scopes::APP_EMBED_SENTINEL)
+    }) {
+        return Err(Error::NotFound(format!("Job {job_id} not found")));
+    }
+
     // `username_override` is derived from the token *label* (`username_override_from_label`),
     // which is fully user-controlled with no uniqueness/ownership check (webhook-/http-/
     // email-/ws- trigger tokens, `ephemeral-script-end-user-*`, and the generic `label-*`
