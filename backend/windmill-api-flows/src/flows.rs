@@ -2109,8 +2109,7 @@ mod tests {
               },
               "stop_after_if": {
                   "expr": "foo = 'bar'",
-                  "skip_if_stopped": false,
-                  "error_message": null
+                  "skip_if_stopped": false
               }
             },
             {
@@ -2131,8 +2130,7 @@ mod tests {
               },
               "stop_after_if": {
                   "expr": "previous.isEmpty()",
-                  "skip_if_stopped": false,
-                  "error_message": null
+                  "skip_if_stopped": false
               }
             }
           ],
@@ -2145,8 +2143,7 @@ mod tests {
             },
             "stop_after_if": {
                 "expr": "previous.isEmpty()",
-                "skip_if_stopped": false,
-                "error_message": null
+                "skip_if_stopped": false
             }
           },
         });
