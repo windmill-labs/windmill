@@ -138,10 +138,10 @@ const ACTIVE_GLOBAL_EDITOR_DRAFTS: readonly {
 	itemKind: LiveEditorDraftKind
 	type: ActiveGlobalEditorType
 }[] = [
-		{ itemKind: 'script', type: 'script' },
-		{ itemKind: 'flow', type: 'flow' },
-		{ itemKind: 'raw_app', type: 'app' }
-	]
+	{ itemKind: 'script', type: 'script' },
+	{ itemKind: 'flow', type: 'flow' },
+	{ itemKind: 'raw_app', type: 'app' }
+]
 
 export type GlobalActiveEditorContext = {
 	type: ActiveGlobalEditorType
@@ -351,14 +351,8 @@ const getJobLogsSchema = z.object({
 })
 
 const listRunsSchema = z.object({
-	path: z
-		.string()
-		.optional()
-		.describe('Filter to runs of this exact script or flow path.'),
-	created_by: z
-		.string()
-		.optional()
-		.describe('Filter by the username that started the run.'),
+	path: z.string().optional().describe('Filter to runs of this exact script or flow path.'),
+	created_by: z.string().optional().describe('Filter by the username that started the run.'),
 	label: z.string().optional().describe('Filter by job label.'),
 	success: z
 		.boolean()
@@ -656,13 +650,14 @@ Rules:
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer local drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
-- Keep context targeted.${previewTools
+- Keep context targeted.${
+	previewTools
 		? `
 - After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
 - get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.`
 		: ''
-	}
+}
 
 Flows:
 - read_workspace_item returns compact flow JSON. Inline script bodies appear as "inline_script.<moduleId>".
@@ -891,11 +886,11 @@ function buildPersistedRunnable(
 ): PersistedRunnable {
 	const fields = input.staticInputs
 		? Object.fromEntries(
-			Object.entries(input.staticInputs).map(([k, v]) => [
-				k,
-				{ type: 'static', value: v, fieldType: 'object' }
-			])
-		)
+				Object.entries(input.staticInputs).map(([k, v]) => [
+					k,
+					{ type: 'static', value: v, fieldType: 'object' }
+				])
+			)
 		: (existing?.fields ?? {})
 
 	if (input.type === 'inline') {
@@ -2046,7 +2041,7 @@ export const globalTools: Tool<{}>[] = [
 			const result = await getSessionRuntimeLogs(parsed.limit ?? 10, sessionIdFromCtx(ctx))
 			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 				content: result.uiMessage,
-				result: result.toolResult,
+				result: result.toolResult
 			})
 			return result.aiResult
 		}
@@ -2055,7 +2050,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			listAppRunsSchema,
 			'list_app_runs',
-			"List the backend runnable executions (jobs) the raw app preview currently open in this AI session has triggered, newest first."
+			'List the backend runnable executions (jobs) the raw app preview currently open in this AI session has triggered, newest first.'
 		),
 		showDetails: true,
 		fn: async (ctx) => {
@@ -2378,10 +2373,15 @@ function getRequiredGlobalDraft(
 
 function finishDraftWrite(stored: WorkspaceItem, existed: boolean, ctx: WriteDraftCtx): string {
 	const verb = existed ? 'Updated' : 'Created'
+	// Don't echo the flow value back: the model just sent it in the write call,
+	// so reflecting the (large) compact flow JSON only burns tokens. Variables
+	// echo a redacted item; everything else round-trips its small payload.
 	const serializedItem =
-		stored.type === 'variable' || stored.type === 'flow'
-			? serializeWorkspaceItemForRead(stored)
-			: stored
+		stored.type === 'flow'
+			? undefined
+			: stored.type === 'variable'
+				? serializeWorkspaceItemForRead(stored)
+				: stored
 
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 		content: `${verb} ${stored.type} "${stored.path}" as a draft`,
@@ -2530,9 +2530,9 @@ async function writeScheduleDraft(args: NewSchedule, ctx: WriteDraftCtx): Promis
 		? existingDraft
 		: backendExists
 			? ((await ScheduleService.getSchedule({
-				workspace,
-				path: args.path
-			})) as ScheduleDraftConfig)
+					workspace,
+					path: args.path
+				})) as ScheduleDraftConfig)
 			: undefined
 	const draft = mergeDraftConfig<ScheduleDraftConfig>(base, args as DraftConfig, args.path)
 
