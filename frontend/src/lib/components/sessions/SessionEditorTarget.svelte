@@ -49,7 +49,7 @@
 
 	function buildCodec(): DraftSyncCodec<any> {
 		if (kind === 'flow') return makeFlowCodec(runtime)
-		if (kind === 'script') return makeScriptCodec(runtime)
+		if (kind === 'script') return makeScriptCodec(runtime, () => path)
 		return makeRawAppCodec(runtime)
 	}
 
