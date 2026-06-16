@@ -14,6 +14,8 @@
 
 import { AppService, DraftService, FlowService, ScriptService } from './gen'
 import type { UserDraftItemKind } from './gen'
+import type { App } from './components/apps/types'
+import { migrateApp } from './components/apps/utils'
 import { sendUserToast } from './toast'
 import { draftValuesEqual } from './userDraft.svelte'
 import { getUsernameForNamespace } from './userNamespace'
@@ -143,9 +145,14 @@ async function fetchDeployedValue(
 				return await FlowService.getFlowByPath({ workspace, path, getDraft: false })
 			case 'app': {
 				// The app autosave stores the inner `App`, not the `AppWithLastVersion`
-				// wrapper getAppByPath returns — compare against `.value`.
+				// wrapper getAppByPath returns — compare against `.value`. Run
+				// `migrateApp` so the deployed value matches the editor-migrated draft
+				// (AppEditor `migrateApp`s `stateApp` on mount); without this an app
+				// whose deployed row predates those field migrations never dedups.
 				const app = await AppService.getAppByPath({ workspace, path, getDraft: false })
-				return (app as { value?: unknown }).value
+				const value = (app as { value?: App }).value
+				if (value) migrateApp(value)
+				return value
 			}
 			default:
 				return undefined

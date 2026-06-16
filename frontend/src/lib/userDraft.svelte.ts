@@ -157,11 +157,16 @@ function snapshotDraftValue<V>(value: V | undefined): V | undefined {
  * run-as directives, not draft content, and the editor round-trips them
  * asymmetrically (`preserve_…` rebuilt as `!!cfg.permissioned_as` on load
  * but `|| undefined` on build) — keeping them produces a phantom banner.
+ * `draft_saved_at` / `edited_at` are server-managed timestamps (the draft's
+ * own save time, the deploy time) that ride along on the loaded payload but
+ * aren't user content — comparing them would mask a true baseline match.
  */
 const DRAFT_COMPARE_IGNORED_FIELDS = [
 	'permissioned_as',
 	'preserve_permissioned_as',
-	'extra_perms'
+	'extra_perms',
+	'draft_saved_at',
+	'edited_at'
 ] as const
 
 /**
