@@ -205,7 +205,7 @@
 		supportsClientCredentials = true
 		useClientCredentials = true
 		if (!tokenUrl) {
-			tokenUrl = registryEntry()?.token_url ?? ''
+			tokenUrl = registryEntry()?.cc_token_url ?? registryEntry()?.token_url ?? ''
 		}
 		if (scopes.length === 0) {
 			scopes = registryEntry()?.scopes ?? []
@@ -445,7 +445,7 @@
 			extra_params = []
 			supportsClientCredentials = registryCcCapable()
 			if (!tokenUrl) {
-				tokenUrl = registryEntry()?.token_url ?? ''
+				tokenUrl = registryEntry()?.cc_token_url ?? registryEntry()?.token_url ?? ''
 			}
 			return
 		}
@@ -463,7 +463,8 @@
 		// Shared instance credentials: the user connects without entering any creds
 		ccInstanceConfigured = connect.client_credentials_configured ?? false
 		if (!tokenUrl) {
-			tokenUrl = connect.token_url ?? registryEntry()?.token_url ?? ''
+			tokenUrl =
+				connect.token_url ?? registryEntry()?.cc_token_url ?? registryEntry()?.token_url ?? ''
 		}
 		// Custom provider configured with only a token URL: no popup flow possible
 		authCodeUnavailable =
