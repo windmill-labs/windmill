@@ -27574,6 +27574,10 @@ components:
         sandbox:
           type: boolean
           description: Publisher opted this app into sandbox isolation. When false the viewer runs the app same-origin with its full session.
+        app_path:
+          type: string
+          nullable: true
+          description: The resolved app path; the embedder uses it to scope the app's backing localStorage per app.
       required:
         - raw_app
         - sandbox

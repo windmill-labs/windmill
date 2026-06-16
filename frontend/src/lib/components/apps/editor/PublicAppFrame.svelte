@@ -37,6 +37,7 @@
 		token?: string | null
 		raw_app?: boolean
 		sandbox?: boolean
+		app_path?: string | null
 	}
 
 	let {
@@ -199,6 +200,10 @@
 	// matching the logged-in raw viewer. Low-code keeps the opaque viewer + token.
 	let isRaw = $state(false)
 
+	// WIN-2006: the resolved app path, used to scope this app's backing localStorage
+	// (below) so sandboxed apps don't share one store.
+	let appPath: string | undefined = $state(undefined)
+
 	// Same-origin (full session) execution: every app that wasn't opted into
 	// sandbox isolation. RawAppPreview reads this to drop the bundle's opaque
 	// sandbox; an unsandboxed low-code app renders directly here.
@@ -229,6 +234,7 @@
 			embedToken = resp.token ?? null
 			sandboxed = resp.sandbox ?? false
 			isRaw = resp.raw_app ?? false
+			appPath = resp.app_path ?? undefined
 			status = 'ready'
 
 			if (unsandboxed || isRaw) {
@@ -253,16 +259,17 @@
 		iframeEl?.contentWindow?.postMessage({ type: 'wm_embed_token', token: embedToken }, '*')
 	}
 
-	// Persistence authority (WIN-2006): opaque app frames (the viewer SPA and any
-	// raw-app bundle nested under it) have no real Web Storage, so the embedder —
-	// on the real origin — backs their `localStorage` here. It is a single store
-	// **shared across all apps** (like one PUBLIC_APP_DOMAIN origin), kept under
-	// one key and updated with per-key ops so concurrent frames merge instead of
-	// clobbering.
-	const SHARED_LS_KEY = 'wm_apps_localstorage'
+	// Persistence authority (WIN-2006): opaque app frames (the viewer SPA) have no
+	// real Web Storage, so the embedder — on the real origin — backs their
+	// `localStorage` here. The store is scoped PER APP (keyed by the app path) so one
+	// sandboxed app cannot read or clobber another's storage. Updated with per-key
+	// ops so concurrent frames of the same app merge instead of clobbering.
+	function lsKey(): string {
+		return `wm_apps_localstorage:${appPath ?? ''}`
+	}
 	function readSharedLs(): Record<string, string> {
 		try {
-			return JSON.parse(localStorage.getItem(SHARED_LS_KEY) || '{}')
+			return JSON.parse(localStorage.getItem(lsKey()) || '{}')
 		} catch (_) {
 			return {}
 		}
@@ -273,15 +280,14 @@
 		else if (d.op === 'remove') delete s[d.key]
 		else if (d.op === 'clear') for (const k in s) delete s[k]
 		try {
-			localStorage.setItem(SHARED_LS_KEY, JSON.stringify(s))
+			localStorage.setItem(lsKey(), JSON.stringify(s))
 		} catch (_) {}
 	}
 
 	function handleEmbedderMessage(e: MessageEvent) {
 		// The viewer is opaque-origin (e.origin === 'null'), so we authenticate
-		// the message by source identity only. Storage messages arrive either from
-		// the viewer SPA's shim or relayed up by RawAppPreview (raw bundle) — both
-		// target the same shared store.
+		// the message by source identity only. Storage messages come from the opaque
+		// low-code viewer SPA's shim and are backed in this app's per-app store.
 		if (e.source !== iframeEl?.contentWindow) return
 		if (e.data?.type === 'wm_embed_ready') {
 			postTokenToIframe()

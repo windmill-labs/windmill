@@ -1185,6 +1185,12 @@ pub struct EmbedTokenResponse {
     /// pre-isolation behavior).
     #[serde(default)]
     pub sandbox: bool,
+    /// WIN-2006: the resolved app path. The embedder uses it to scope the app's
+    /// backing `localStorage` per app (so sandboxed apps don't share one store).
+    /// Not a new disclosure — the viewer already receives `path` when it loads the
+    /// app (e.g. `get_public_app_by_secret`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_path: Option<String>,
 }
 
 /// Mint a short-lived, narrowly-scoped embed token for `app_path` when a caller
@@ -1248,6 +1254,7 @@ pub async fn mint_app_embed_token(
         expiration: token_and_exp.map(|(_, e)| e),
         raw_app: false,
         sandbox: false,
+        app_path: Some(app_path.to_string()),
     })
 }
 
@@ -1317,12 +1324,19 @@ async fn get_app_embed_token(
     // even though no token is needed. The access check above still gates
     // visibility in every case.
     let mut resp = if raw_app || !policy.sandbox {
-        EmbedTokenResponse { token: None, expiration: None, raw_app, sandbox: policy.sandbox }
+        EmbedTokenResponse {
+            token: None,
+            expiration: None,
+            raw_app,
+            sandbox: policy.sandbox,
+            app_path: None,
+        }
     } else {
         mint_app_embed_token(&db, &w_id, &app.path, authed_for_token.as_ref()).await?
     };
     resp.raw_app = raw_app;
     resp.sandbox = policy.sandbox;
+    resp.app_path = Some(app.path);
     Ok(Json(resp))
 }
 
@@ -1381,12 +1395,19 @@ async fn get_app_embed_token_for_path(
     let policy = parse_embed_policy(&policy_str)?;
 
     let mut resp = if raw_app || !policy.sandbox {
-        EmbedTokenResponse { token: None, expiration: None, raw_app, sandbox: policy.sandbox }
+        EmbedTokenResponse {
+            token: None,
+            expiration: None,
+            raw_app,
+            sandbox: policy.sandbox,
+            app_path: None,
+        }
     } else {
         mint_app_embed_token(&db, &w_id, path, Some(&authed)).await?
     };
     resp.raw_app = raw_app;
     resp.sandbox = policy.sandbox;
+    resp.app_path = Some(path.to_string());
     Ok(Json(resp))
 }
 
