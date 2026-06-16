@@ -400,6 +400,8 @@ export const UserDraft = {
 		opts?: UserDraftOptions & {
 			/** See the `useMany` spec field. Default `false`. */
 			canBeDisabled?: boolean
+			/** See the `useMany` spec field. Captured once on first acquire. */
+			discardIf?: (val: V) => boolean
 		}
 	): UserDraftHandle<V> {
 		// Single-spec wrapper around `useMany`. `untrack` captures reactive
@@ -407,7 +409,13 @@ export const UserDraft = {
 		// workspace until unmount. For reactive `(kind, path)` use `useReactive`.
 		const handles = UserDraft.useMany<V>(() =>
 			untrack(() => [
-				{ itemKind, path, workspace: opts?.workspace, canBeDisabled: opts?.canBeDisabled }
+				{
+					itemKind,
+					path,
+					workspace: opts?.workspace,
+					canBeDisabled: opts?.canBeDisabled,
+					discardIf: opts?.discardIf
+				}
 			])
 		)
 		return handles[0]
@@ -426,6 +434,8 @@ export const UserDraft = {
 			path: string
 			workspace?: string
 			canBeDisabled?: boolean
+			/** See the `useMany` spec field. Captured per re-keyed acquire. */
+			discardIf?: (val: V) => boolean
 		}
 	): UserDraftHandle<V> {
 		const handles = UserDraft.useMany<V>(() => [getSpec()])
