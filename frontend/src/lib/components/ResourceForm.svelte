@@ -92,6 +92,14 @@
 		}
 	})
 
+	// Seed the JSON editor when the resource type schema is missing
+	// (restores the old ResourceEditor's catch-block behavior)
+	$effect(() => {
+		if (resource_type && !loadingSchema && !resourceSchema && rawCode === undefined) {
+			rawCode = JSON.stringify(args, null, 2)
+		}
+	})
+
 	$effect(() => {
 		if (textFileContent) parseTextFileContent()
 	})
