@@ -34,7 +34,11 @@ function normalizeRawAppData(value: Record<string, any>): AppDraftValue['data'] 
 }
 
 function appSourceToDraftValue(app: any, fallback?: any): AppDraftValue {
-	const value = (app.value ?? {}) as Record<string, any>
+	// A deployed app nests its source under `value` (`app.value.files`); a
+	// `RawAppDraft` carries `files`/`runnables`/`data` at the top level. Fall back
+	// to the object itself so a draft's bundle isn't dropped (which shipped no
+	// files → "Raw app bundle requires /index.ts").
+	const value = (app.value ?? app) as Record<string, any>
 	return {
 		summary: app.summary ?? '',
 		files: { ...(value.files ?? {}) },
