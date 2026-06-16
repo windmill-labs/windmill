@@ -477,6 +477,11 @@ export const UserDraft = {
 		const handles = $state<UserDraftHandle<V>[]>([])
 		const acquired = new Set<string>()
 		const handleCache = new Map<string, UserDraftHandle<V>>()
+		// `defaultValue` reference last used to seed each detached (empty-path)
+		// handle. The reference is stable within an editing session but swapped
+		// for a fresh clone each time the caller restarts (e.g. reopening the
+		// new-item drawer) — so a change here means "re-seed", not "live edit".
+		const detachedSeeds = new Map<string, unknown>()
 
 		function reconcile() {
 			const specs = getSpecs()
@@ -493,10 +498,24 @@ export const UserDraft = {
 				// `POST /drafts/update/kind/` (permanent "Save failed").
 				// Hand out a detached, local-only handle instead.
 				if (!spec.path) {
+					seen.add(mk)
 					let handle = handleCache.get(mk)
+					// Drop the cached handle when the caller hands in a fresh
+					// `defaultValue` reference (reopening the new-item drawer seeds a
+					// new clone) so the rebuilt handle re-seeds instead of replaying
+					// the previous session's edits. Stable reference within a session
+					// means live edits are never clobbered.
+					if (handle && detachedSeeds.get(mk) !== spec.defaultValue) {
+						handleCache.delete(mk)
+						handle = undefined
+					}
 					if (!handle) {
-						handle = makeDetachedHandle<V>()
+						// Seed with `defaultValue` so consumers (e.g. the new-variable
+						// drawer, whose path is empty until the user types one) get a
+						// populated cell to bind their form to instead of `undefined`.
+						handle = makeDetachedHandle<V>(spec.defaultValue)
 						handleCache.set(mk, handle)
+						detachedSeeds.set(mk, spec.defaultValue)
 					}
 					next.push(handle)
 					continue
@@ -527,6 +546,16 @@ export const UserDraft = {
 					releaseEntry(mk)
 					acquired.delete(mk)
 					handleCache.delete(mk)
+				}
+			}
+
+			// Detached handles (empty-path) live only in `handleCache` — they're
+			// never in `acquired`. Drop any that fell out of the specs so they
+			// don't leak and a later reappearance rebuilds from scratch.
+			for (const mk of [...handleCache.keys()]) {
+				if (!acquired.has(mk) && !seen.has(mk)) {
+					handleCache.delete(mk)
+					detachedSeeds.delete(mk)
 				}
 			}
 
@@ -705,8 +734,8 @@ function releaseEntry(mk: string): void {
  * `bind:` but is wired to nothing (no entry, no sync, no POSTs). For views
  * that bind an editor value with no draftable item behind it.
  */
-function makeDetachedHandle<V>(): UserDraftHandle<V> {
-	let val = $state<V | undefined>(undefined)
+function makeDetachedHandle<V>(defaultValue?: V): UserDraftHandle<V> {
+	let val = $state<V | undefined>(snapshotDraftValue(defaultValue))
 	return {
 		get draft(): V | undefined {
 			return val
