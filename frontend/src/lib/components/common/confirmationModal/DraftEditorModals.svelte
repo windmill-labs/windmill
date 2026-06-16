@@ -14,6 +14,8 @@
 	import DraftSyncConflictModal from './DraftSyncConflictModal.svelte'
 	import OtherUsersDraftsModal, { type OtherDraftUser } from './OtherUsersDraftsModal.svelte'
 	import StaleDraftModal from './StaleDraftModal.svelte'
+	import ConfirmationModal from './ConfirmationModal.svelte'
+	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { untrack } from 'svelte'
 
 	type Props = {
@@ -92,6 +94,7 @@
 				{path}
 				{otherDraftsUsers}
 				{draftOnly}
+				onReload={onLoadFromServer}
 				bind:isOpen={othersModalOpen}
 			/>
 		{/key}
@@ -104,4 +107,16 @@
 			{onLoadLatestDeploy}
 		/>
 	{/if}
+	<ConfirmationModal
+		open={OtherUserDraftLoad.isOverwriteModalOpen(workspace, itemKind, path)}
+		title="Overwrite your current draft?"
+		confirmationText="Overwrite"
+		onConfirmed={() => OtherUserDraftLoad.confirmOverwrite(workspace, itemKind, path)}
+		onCanceled={() => OtherUserDraftLoad.dismissOverwriteModal(workspace, itemKind, path)}
+	>
+		<span class="text-sm">
+			You're editing another user's draft. Saving this edit will overwrite your own draft at this
+			path. Continue?
+		</span>
+	</ConfirmationModal>
 {/if}

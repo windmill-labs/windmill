@@ -13,6 +13,7 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
 	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
+	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
@@ -342,10 +343,32 @@
 		const renderedDraftPath = (effectiveFlow as any).draft_path as string | undefined
 		if (renderedDraftPath) flowInitialPath = renderedDraftPath
 
-		// Overwrite the cell with the effective flow. The first cell write after
-		// `acquireEntry` is swallowed by the syncer's seed guard, so no POST.
-		flow = effectiveFlow
-		draftSync.draft = effectiveFlow
+		// "Load another user's draft" handoff: render their value over the deployed
+		// metadata. Overlay mode (we have our own draft) never saves until the user
+		// confirms overwriting it. See /scripts/edit's loader.
+		const pendingLoad = getDraft
+			? OtherUserDraftLoad.takePending($workspaceStore!, 'flow', flowDraftPath)
+			: undefined
+		const flowToRender: Flow = pendingLoad
+			? ({ ...deployedFlow, ...(pendingLoad.value as object) } as Flow)
+			: effectiveFlow
+		flow = flowToRender
+		if (pendingLoad && loadedFromDraft) {
+			OtherUserDraftLoad.beginOverlay({
+				workspace: $workspaceStore!,
+				itemKind: 'flow',
+				path: flowDraftPath,
+				ownerLabel: pendingLoad.ownerLabel,
+				onResetToOwnDraft: () => loadFlow({ getDraft: true })
+			})
+			// Seed so the bound value updates WITHOUT a POST (the lock blocks it
+			// anyway, but seeding avoids tripping the edit prompt).
+			UserDraft.seed('flow', flowDraftPath, flowToRender, { workspace: $workspaceStore! })
+		} else {
+			// Overwrite the cell with the effective flow. The first cell write after
+			// `acquireEntry` is swallowed by the syncer's seed guard, so no POST.
+			draftSync.draft = flowToRender
+		}
 
 		flowBuilder?.setDraftTriggers(undefined)
 

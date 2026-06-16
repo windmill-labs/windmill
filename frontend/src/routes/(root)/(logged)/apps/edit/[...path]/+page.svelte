@@ -16,6 +16,7 @@
 	import { tick, untrack } from 'svelte'
 	import { page } from '$app/state'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { runResetToDeployed } from '$lib/userDraftToast'
 
 	let app = $state(undefined as (AppWithLastVersion & { value: any }) | undefined)
@@ -241,6 +242,27 @@
 			path: backendApp_.path,
 			policy: backendApp_.policy,
 			custom_path: backendApp_.custom_path
+		}
+		// "Load another user's draft" handoff: render their value. Overlay mode (we
+		// have our own draft) hard-locks saves until the user confirms overwriting
+		// it (AppEditor's own autosave is blocked by the lock). See /scripts/edit.
+		const pendingLoad = getDraft
+			? OtherUserDraftLoad.takePending($workspaceStore!, 'app', path)
+			: undefined
+		if (pendingLoad) {
+			backendApp = { ...backendApp, value: pendingLoad.value as App } as typeof backendApp
+			if (loadedFromDraft) {
+				OtherUserDraftLoad.beginOverlay({
+					workspace: $workspaceStore!,
+					itemKind: 'app',
+					path,
+					ownerLabel: pendingLoad.ownerLabel,
+					onResetToOwnDraft: async () => {
+						await loadApp({ getDraft: true })
+						redraw++
+					}
+				})
+			}
 		}
 		// Assign the fresh response onto `app`. The path-change $effect sets
 		// `app = undefined` first, unmounting AppEditor and releasing the UserDraft

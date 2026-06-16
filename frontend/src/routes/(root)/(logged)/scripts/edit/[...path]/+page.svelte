@@ -21,6 +21,7 @@
 	import { discardDraftAfterDeploy, runResetToDeployed } from '$lib/userDraftToast'
 	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
+	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 
 	type EditableScript = NewScript & { draft_triggers?: Trigger[] }
 
@@ -292,12 +293,42 @@
 				? { ...deployedScript, ...draftFromBackend }
 				: (deployedScript as EditableScript)
 			savedScript = structuredClone($state.snapshot(effectiveScript))
-			// `parent_hash` is grafted on so the editor's compile reuses the
-			// deployed lock. The first cell write after `acquireEntry` is swallowed
-			// by the syncer's seed guard, so this load doesn't POST.
-			draftSync.draft = {
-				...effectiveScript,
-				parent_hash: topHash ?? backendScript.hash
+			const parentHash = topHash ?? backendScript.hash
+			// "Load another user's draft" handoff: show their value over the
+			// deployed metadata. If WE already have a draft → overlay mode (never
+			// saved until the user confirms overwriting their own draft).
+			const pendingLoad = getDraft
+				? OtherUserDraftLoad.takePending($workspaceStore!, 'script', draftPath)
+				: undefined
+			if (pendingLoad) {
+				const loadedValue = {
+					...deployedScript,
+					...(pendingLoad.value as object),
+					parent_hash: parentHash
+				} as EditableScript
+				if (loadedFromDraft) {
+					OtherUserDraftLoad.beginOverlay({
+						workspace: $workspaceStore!,
+						itemKind: 'script',
+						path: draftPath,
+						ownerLabel: pendingLoad.ownerLabel,
+						onResetToOwnDraft: () => loadScript({ getDraft: true })
+					})
+					// Seed so the bound value updates WITHOUT a POST (the lock would
+					// block it anyway, but seeding avoids tripping the edit prompt).
+					UserDraft.seed('script', draftPath, loadedValue, { workspace: $workspaceStore! })
+				} else {
+					// No own draft: adopt their value as ours (autosaves normally).
+					draftSync.draft = loadedValue
+				}
+			} else {
+				// `parent_hash` is grafted on so the editor's compile reuses the
+				// deployed lock. The first cell write after `acquireEntry` is swallowed
+				// by the syncer's seed guard, so this load doesn't POST.
+				draftSync.draft = {
+					...effectiveScript,
+					parent_hash: parentHash
+				}
 			}
 		}
 

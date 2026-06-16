@@ -2,7 +2,7 @@
 	/**
 	 * Home-page draft badge with per-user initial circles. Hover popover lists
 	 * each draft owner; when full context (workspace + itemKind + path) is
-	 * passed, OTHER users' rows get inline "View Diff" / "Fork" (forking
+	 * passed, OTHER users' rows get inline "View Diff" / "Load" (loading
 	 * yourself is meaningless, so own rows don't). draft_only → "Draft only"
 	 * (no deployed row), else "Draft". Renders nothing when there's no draft.
 	 */
@@ -11,10 +11,10 @@
 	import { Badge } from './common'
 	import Button from './common/button/Button.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
-	import { GitCompareArrows, GitFork } from 'lucide-svelte'
+	import { GitCompareArrows, Download } from 'lucide-svelte'
 	import { DraftService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { forkDraftToImport } from '$lib/components/forkDraftToImport'
+	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { fetchDeployedValueForDiff } from '$lib/components/otherUserDraftDiff'
 	import { userStore } from '$lib/stores'
 
@@ -26,7 +26,7 @@
 		draft_users?: DraftUser[]
 		/** Authed user's username — pins their circle first and annotates `(you)`. */
 		currentUsername?: string | null
-		/** Context for the View JSON / Fork actions. Missing → text-only popover. */
+		/** Context for the View Diff / Load actions. Missing → text-only popover. */
 		workspace?: string
 		itemKind?: UserDraftItemKind
 		path?: string
@@ -155,15 +155,19 @@
 		}
 	}
 
-	async function fork(owner: DraftUser) {
+	async function load(owner: DraftUser) {
 		if (!workspace || !itemKind || !path) return
 		busyFor = ownerKey(owner)
 		try {
 			const value = await fetchDraft(owner)
-			// Seed a brand-new own item from the fetched value (no server save).
-			forkDraftToImport(itemKind, value, path)
+			// Stage their value and open this item's editor. If we already have a
+			// draft here, the editor enters overlay mode (no save until the user
+			// confirms overwriting it).
+			OtherUserDraftLoad.stage(workspace, itemKind, value, path, fullLabel(owner), {
+				navigate: true
+			})
 		} catch (e: any) {
-			sendUserToast(`Could not fork draft: ${e.body ?? e.message}`, true)
+			sendUserToast(`Could not load draft: ${e.body ?? e.message}`, true)
 		} finally {
 			busyFor = null
 		}
@@ -253,17 +257,17 @@
 											View Diff
 										</Button>
 									{/if}
-									<!-- Operators can't create items, so Fork is hidden (View JSON stays, it's read-only). -->
+									<!-- Operators can't edit items, so Load is hidden (View Diff stays, it's read-only). -->
 									{#if !$userStore?.operator}
 										<Button
 											variant="subtle"
 											size="xs3"
-											startIcon={{ icon: GitFork }}
+											startIcon={{ icon: Download }}
 											disabled={busyFor !== null && busyFor !== ownerKey(u)}
 											loading={busyFor === ownerKey(u)}
-											on:click={() => fork(u)}
+											on:click={() => load(u)}
 										>
-											Fork
+											Load
 										</Button>
 									{/if}
 								{/if}

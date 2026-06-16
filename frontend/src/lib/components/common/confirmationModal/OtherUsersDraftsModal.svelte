@@ -7,13 +7,13 @@
 	 */
 	import { DraftService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { Users, GitFork, GitCompareArrows } from 'lucide-svelte'
+	import { Users, Download, GitCompareArrows } from 'lucide-svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import { fetchDeployedValueForDiff } from '$lib/components/otherUserDraftDiff'
-	import { forkDraftToImport } from '$lib/components/forkDraftToImport'
+	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 
 	export type OtherDraftUser = { username?: string | null }
 
@@ -27,6 +27,9 @@
 		/** No deployed row exists (never deployed): hides View Diff, since there's
 		 *  no deployed baseline to diff against. */
 		draftOnly?: boolean
+		/** Reload the editor in place so it picks up the staged "Load" — we're
+		 *  already on this item's edit route. */
+		onReload?: () => void | Promise<void>
 		/** Controlled visibility — bind from the parent. */
 		isOpen: boolean
 	}
@@ -37,6 +40,7 @@
 		path,
 		otherDraftsUsers,
 		draftOnly = false,
+		onReload,
 		isOpen = $bindable()
 	}: Props = $props()
 	let busyFor = $state<string | null>(null)
@@ -84,17 +88,20 @@
 		}
 	}
 
-	async function fork(owner: OtherDraftUser) {
+	async function load(owner: OtherDraftUser) {
 		busyFor = ownerKey(owner)
 		try {
 			const value = await fetchDraft(owner)
-			// Close before navigating — `goto` returns before Svelte tears down
-			// the route, so the modal would otherwise linger on the destination.
 			isOpen = false
-			// Seed a brand-new own item from the fetched value (no server save).
-			forkDraftToImport(itemKind, value, path)
+			// Already on this item's edit route — stage + reload in place. If we
+			// have our own draft, the loader enters overlay mode (no save until
+			// the user confirms overwriting it).
+			OtherUserDraftLoad.stage(workspace, itemKind, value, path, ownerLabel(owner), {
+				navigate: false
+			})
+			await onReload?.()
 		} catch (e) {
-			sendUserToast(`Could not fork draft: ${e.body ?? e.message}`, true)
+			sendUserToast(`Could not load draft: ${e.body ?? e.message}`, true)
 		} finally {
 			busyFor = null
 		}
@@ -148,12 +155,12 @@
 					<Button
 						variant="default"
 						size="xs"
-						startIcon={{ icon: GitFork }}
+						startIcon={{ icon: Download }}
 						disabled={busyFor !== null && busyFor !== ownerKey(owner)}
 						loading={busyFor === ownerKey(owner)}
-						on:click={() => fork(owner)}
+						on:click={() => load(owner)}
 					>
-						Fork
+						Load
 					</Button>
 				</li>
 			{/each}

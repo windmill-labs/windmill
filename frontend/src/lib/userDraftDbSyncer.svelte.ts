@@ -151,6 +151,15 @@ let autosaveEnabledState = $state(readAutosaveEnabled())
 const pendingSaveOpts = new Map<string, UserDraftDbSyncerSaveOpts>()
 
 /**
+ * Keys whose saves are HARD-blocked: while editing another user's loaded draft
+ * the foreign value must never reach the server through ANY path (reactive
+ * mirror, explicit flush, the pagehide keepalive flush). The value is the
+ * "blocked save attempted" callback — the first such attempt is the user's
+ * first edit, which the overlay UI turns into an "overwrite?" prompt.
+ */
+const syncLocked = new Map<string, (() => void) | undefined>()
+
+/**
  * Conflict snapshots, populated when the server rejects a save (row
  * `created_at` newer than our `last_sync`). Read via `getConflict(query)`
  * to drive the resolution modal.
@@ -264,6 +273,8 @@ const staleSyncAfterHideFlush = new Set<string>()
 function flushOnPageHide(): void {
 	if (pendingSaveOpts.size === 0) return
 	for (const [key, opts] of pendingSaveOpts) {
+		// Editing another user's loaded draft: never flush the foreign value.
+		if (syncLocked.has(key)) continue
 		// Auto-save off: page-editor opts are dropped with the page;
 		// drawer-kind pendings (no `canBeDisabled`) still flush.
 		if (!autosaveEnabledState && opts.auto && opts.canBeDisabled) continue
@@ -357,6 +368,13 @@ export const UserDraftDbSyncer = {
 
 	async save(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		const key = draftKey(opts.workspace, opts.itemKind, opts.path)
+		// Hard lock (editing another user's loaded draft): block EVERY save path
+		// for this key — no parking, no POST. Notify the overlay so the first
+		// blocked attempt (the user's first edit) can prompt before overwriting.
+		if (syncLocked.has(key)) {
+			syncLocked.get(key)?.()
+			return
+		}
 		// Park the latest opts BEFORE the pipeline so the unload flush has
 		// something to send even if the page hides before the debouncer fires.
 		pendingSaveOpts.set(key, opts)
@@ -418,6 +436,26 @@ export const UserDraftDbSyncer = {
 		// Back in sync with the server: clear any conflict / failure.
 		conflicts.delete(key)
 		failures.delete(key)
+	},
+
+	/**
+	 * Hard-block every save for this key (editing another user's loaded draft).
+	 * Cancels any in-flight/queued autosave and drops parked opts so a pending
+	 * flush can't fire the user's own value either. `onBlockedAttempt` fires on
+	 * each subsequent blocked save — the overlay uses it to detect the first
+	 * edit. MUST pair with `unlockSync`.
+	 */
+	lockSync(query: UserDraftLastSyncQuery, onBlockedAttempt?: () => void): void {
+		const key = draftKey(query.workspace, query.itemKind, query.path)
+		syncLocked.set(key, onBlockedAttempt)
+		debouncer.cancel(key)
+		runner.cancel(key)
+		pendingSaveOpts.delete(key)
+	},
+
+	/** Release a `lockSync`; subsequent saves go through normally. */
+	unlockSync(query: UserDraftLastSyncQuery): void {
+		syncLocked.delete(draftKey(query.workspace, query.itemKind, query.path))
 	},
 
 	/** Reactive conflict snapshot (if any) for a draft. */

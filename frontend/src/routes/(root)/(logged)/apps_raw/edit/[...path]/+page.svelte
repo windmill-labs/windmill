@@ -15,6 +15,7 @@
 	import { importStore } from '$lib/components/apps/store'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
+	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { armRestartOnFirstInteraction, runResetToDeployed } from '$lib/userDraftToast'
 	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
 	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
@@ -314,6 +315,31 @@
 		// $effect re-mirrors them into `draftSync.draft`; the first write is
 		// swallowed by `acquireEntry`'s seed guard, so no POST.
 		extractRawApp(backendApp)
+		// "Load another user's draft" handoff: their value is a flat RawAppDraft
+		// bundle. Override the local pieces with it; overlay mode (we have our own
+		// draft) hard-locks saves until the user confirms overwriting. The bundle
+		// $effect's write to `draftSync.draft` is blocked by the lock. See /scripts.
+		const pendingLoad = getDraft
+			? OtherUserDraftLoad.takePending($workspaceStore!, 'raw_app', path)
+			: undefined
+		if (pendingLoad) {
+			const v = pendingLoad.value as RawAppDraft
+			files = v.files ?? {}
+			runnables = v.runnables ?? {}
+			data = v.data ?? { ...DEFAULT_DATA }
+			summary = v.summary ?? ''
+			policy = v.policy ?? {}
+			newPath = v.draft_path ?? savedApp?.path ?? path
+			if (loadedFromDraft) {
+				OtherUserDraftLoad.beginOverlay({
+					workspace: $workspaceStore!,
+					itemKind: 'raw_app',
+					path,
+					ownerLabel: pendingLoad.ownerLabel,
+					onResetToOwnDraft: () => loadApp({ getDraft: true })
+				})
+			}
+		}
 	}
 
 	run(() => {
