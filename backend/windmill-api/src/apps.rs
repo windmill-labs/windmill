@@ -4103,6 +4103,9 @@ mod embed_token_tests {
             ("/api/w/test/jobs/queue/count", "GET"),
             ("/api/w/test/jobs/job_signature/some-uuid/some-rid", "GET"),
             ("/api/w/test/jobs/resume_urls/some-uuid/some-rid", "GET"),
+            // get_root_job_id has no access check in its handler and the app never
+            // calls it — denied so the token can't probe foreign jobs' flow lineage.
+            ("/api/w/test/jobs_u/get_root_job_id/some-uuid", "GET"),
             // `users:read`/`folders:read` exist only for whoami/listnames — every
             // other route in those domains is denied via the app_embed sentinel
             // (the whole /users and /folders routers are CORS-enabled for the iframe).

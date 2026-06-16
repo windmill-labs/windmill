@@ -706,7 +706,10 @@ fn app_embed_apps_route_allowed(suffix: &str) -> bool {
 /// denied. By-id reads are further confined to the app's own runs by
 /// `require_job_read_access` (the `app_embed` cutoff).
 fn app_embed_job_route_allowed(suffix: &str) -> bool {
-    const ALLOWED: [&str; 16] = [
+    // `get_root_job_id` is intentionally absent: its handler has no access check at
+    // all (returns any job's root id by id) and the app never calls it, so denying
+    // it costs nothing and avoids leaking a foreign job's flow lineage.
+    const ALLOWED: [&str; 15] = [
         "jobs_u/get/",
         "jobs_u/getupdate/",
         "jobs_u/getupdate_sse/",
@@ -716,7 +719,6 @@ fn app_embed_job_route_allowed(suffix: &str) -> bool {
         "jobs_u/get_flow/",
         "jobs_u/get_flow_all_logs/",
         "jobs_u/get_flow_debug_info/",
-        "jobs_u/get_root_job_id/",
         "jobs_u/get_log_file/",
         "jobs_u/completed/get/",
         "jobs_u/completed/get_result/",
