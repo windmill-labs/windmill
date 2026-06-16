@@ -224,6 +224,7 @@ import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import {
 	clearGlobalDrafts,
+	deleteGlobalDraft,
 	persistGlobalDraft,
 	readGlobalDraftValue,
 	saveGlobalAppDraft
@@ -899,6 +900,39 @@ describe('global AI tools', () => {
 			runnables: {}
 		} as any)
 		expect(res.status).toBe('conflict')
+	})
+
+	// A failed server delete must surface (throw), not silently report removed —
+	// the same guard the write path got, applied to the delete path.
+	it('deleteGlobalDraft throws when the server delete fails', async () => {
+		const path = 'f/scripts/delfail'
+		seedBackendDraft('script', path, {
+			path,
+			summary: 's',
+			content: 'export function main() {}',
+			language: 'bun'
+		})
+		failingWrites.add(`script:${path}`)
+		await expect(deleteGlobalDraft(WORKSPACE, 'script', path)).rejects.toThrow()
+	})
+
+	// `override` is a tool-only conflict flag and must not leak into the persisted
+	// schedule draft value.
+	it('does not persist the tool-only override flag into a schedule draft', async () => {
+		await callGlobalTool('write_schedule', {
+			path: 'f/schedules/ov',
+			schedule: '0 0 9 * * *',
+			timezone: 'UTC',
+			script_path: 'f/scripts/run',
+			is_flow: false,
+			args: {},
+			override: true
+		})
+		const draft = getBackendDraft<any>('trigger_schedule', 'f/schedules/ov', {
+			workspace: WORKSPACE
+		})
+		expect(draft).toBeTruthy()
+		expect(draft).not.toHaveProperty('override')
 	})
 
 	it('requires trigger_kind when discarding a trigger draft', async () => {

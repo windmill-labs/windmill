@@ -2590,8 +2590,12 @@ const SCHEDULE_SPEC: WriteSpec<ScheduleDraftConfig, NewSchedule & { override?: b
 	probe: (workspace, path) => ScheduleService.existsSchedule({ workspace, path }),
 	fetchDeployed: async (workspace, path) =>
 		(await ScheduleService.getSchedule({ workspace, path })) as ScheduleDraftConfig,
-	buildDraft: (base, args, path) =>
-		mergeDraftConfig<ScheduleDraftConfig>(base, args as DraftConfig, path)
+	buildDraft: (base, args, path) => {
+		// `override` is a tool-only conflict-resolution flag, not schedule config —
+		// strip it so mergeDraftConfig doesn't clone it into the persisted draft.
+		const { override: _override, ...config } = args
+		return mergeDraftConfig<ScheduleDraftConfig>(base, config as DraftConfig, path)
+	}
 }
 
 function writeScheduleDraft(

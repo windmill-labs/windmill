@@ -546,6 +546,18 @@ export async function deleteGlobalDraft(
 		value: null,
 		immediate: true
 	})
+	// A failed (network/5xx) or conflicted delete is recorded in the syncer state,
+	// not thrown — surface it so callers don't report the draft as removed while
+	// the DB-backed source of truth still has it (same guard as the write path).
+	const state = UserDraftDbSyncer.getState({ workspace, itemKind, path: storagePath })
+	if (state.state === 'failed') {
+		throw new Error(state.failureMessage ?? `Failed to delete draft "${path}".`)
+	}
+	if (UserDraftDbSyncer.getConflict({ workspace, itemKind, path: storagePath }).conflict) {
+		throw new Error(
+			`Draft "${path}" changed externally since you last read it; it was not removed. Re-read and retry.`
+		)
+	}
 	if (type === 'variable') clearEphemeralSecretVariableDraftValue(workspace, storagePath)
 }
 
