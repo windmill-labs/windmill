@@ -152,10 +152,10 @@
 	let resourceTypeNotFound = $state(false)
 
 	function registryEntry(): any {
-		return (
-			(oauthConnectRegistry as Record<string, any>)[connectClient] ??
-			(oauthConnectRegistry as Record<string, any>)[resourceType]
-		)
+		const reg = oauthConnectRegistry as Record<string, any>
+		// Resolve `_sandbox` clients to their parent registry entry (e.g.
+		// salesforce_sandbox -> salesforce) so sandbox connections see CC metadata.
+		return reg[stripSandboxSuffix(connectClient)] ?? reg[stripSandboxSuffix(resourceType)]
 	}
 
 	/** The static registry declares this provider supports client credentials */
@@ -222,7 +222,7 @@
 	/** Static registry declares client-credentials support for `key`. */
 	function isCcCapable(key: string): boolean {
 		return (
-			(oauthConnectRegistry as Record<string, any>)[key]?.grant_types?.includes(
+			(oauthConnectRegistry as Record<string, any>)[stripSandboxSuffix(key)]?.grant_types?.includes(
 				'client_credentials'
 			) ?? false
 		)

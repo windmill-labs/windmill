@@ -554,6 +554,12 @@ pub async fn build_client_credentials_oauth_client(
 /// declares the `client_credentials` grant and carries non-empty credentials.
 /// Lets the connect flow use one admin-configured service-account client instead
 /// of asking each user for their own.
+///
+/// # Authorization
+/// Returns the admin's shared service-account secret, so callers MUST first
+/// verify the caller's authorization to use it (workspace membership plus
+/// read-write access — operators and read-only tokens are excluded). This helper
+/// performs no authorization itself.
 pub async fn resolve_instance_cc_credentials(
     db: &DB,
     client_name: &str,

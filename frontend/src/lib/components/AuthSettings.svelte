@@ -114,19 +114,23 @@
 		...windmillBuiltinsTemplated
 	]
 
-	/** The static registry declares client credentials for this provider */
-	function registryCcCapable(name: string): boolean {
-		return (
-			(oauthConnectRegistry as Record<string, any>)[name]?.grant_types?.includes(
-				'client_credentials'
-			) ?? false
-		)
+	/** Registry entry for `name`, resolving a trailing `_sandbox` suffix to the
+	 * parent provider (mirrors the backend's canonical_provider_name) so sandbox
+	 * entries inherit the parent's CC capability and metadata. */
+	function canonicalRegistryEntry(name: string): any {
+		const key = name.endsWith('_sandbox') ? name.slice(0, -'_sandbox'.length) : name
+		return (oauthConnectRegistry as Record<string, any>)[key]
 	}
 
-	/** The registry declares a CC-specific token endpoint (instance-templated) that
-	 * the admin must complete for this provider */
+	/** The static registry declares client credentials for this provider */
+	function registryCcCapable(name: string): boolean {
+		return canonicalRegistryEntry(name)?.grant_types?.includes('client_credentials') ?? false
+	}
+
+	/** The registry declares a CC-specific token endpoint distinct from the
+	 * authorization-code one (e.g. Salesforce My Domain). */
 	function registryCcTokenUrl(name: string): string | undefined {
-		return (oauthConnectRegistry as Record<string, any>)[name]?.cc_token_url
+		return canonicalRegistryEntry(name)?.cc_token_url
 	}
 
 	/** Instance-name metadata for the CC token URL, when the provider expects an
@@ -134,14 +138,21 @@
 	function registryCcInstance(
 		name: string
 	): { label: string; placeholder: string; help_url?: string; strip_suffix?: string } | undefined {
-		return (oauthConnectRegistry as Record<string, any>)[name]?.cc_instance
+		return canonicalRegistryEntry(name)?.cc_instance
+	}
+
+	/** Effective CC token URL template: the CC-specific endpoint when present, else
+	 * the provider's token URL (Coupa carries the `{instance}` placeholder there). */
+	function ccTokenUrlTemplate(name: string): string | undefined {
+		const e = canonicalRegistryEntry(name)
+		return e?.cc_token_url || e?.token_url || undefined
 	}
 
 	/** Recover the instance name from the stored (substituted) cc_token_url, so the
 	 * input round-trips on reload. Empty when the stored URL is still the raw
 	 * template or has been hand-edited. */
 	function ccInstanceValue(name: string): string {
-		const tmpl = registryCcTokenUrl(name)
+		const tmpl = ccTokenUrlTemplate(name)
 		const stored = oauths?.[name]?.cc_token_url
 		if (!tmpl || !stored) return ''
 		const i = tmpl.indexOf('{instance}')
@@ -162,7 +173,7 @@
 	/** Substitute the admin-entered instance name into the fixed-host template and
 	 * store the concrete cc_token_url (mirrors the per-instance provider flow). */
 	function setCcInstance(name: string, value: string) {
-		const tmpl = registryCcTokenUrl(name)
+		const tmpl = ccTokenUrlTemplate(name)
 		if (!tmpl || !oauths?.[name]) return
 		let v = value.trim()
 		const suffix = registryCcInstance(name)?.strip_suffix
@@ -600,7 +611,7 @@
 										>
 									{/if}
 								</div>
-								{#if ccSelected(k) && registryCcInstance(k)}
+								{#if ccSelected(k) && registryCcInstance(k) && !connectConfigTemplates[k]}
 									{@const meta = registryCcInstance(k)}
 									<label>
 										<span class="text-primary font-semibold text-xs flex gap-2 items-center">
