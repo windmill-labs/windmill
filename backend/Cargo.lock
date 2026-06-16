@@ -15206,6 +15206,7 @@ dependencies = [
  "futures",
  "itertools 0.14.0",
  "lazy_static",
+ "rcgen",
  "regex",
  "reqwest 0.13.1",
  "rustls 0.23.35",
