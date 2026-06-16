@@ -1930,19 +1930,27 @@
 				{#snippet diffButton()}
 					{#if customUi?.topBar?.diff != false}
 						{@const isDraftOnly = savedScript?.no_deployed === true}
-						<Button
-							variant="default"
-							unifiedSize="md"
-							on:click={() => openDiffDrawer()}
-							disabled={!savedScript || !diffDrawer || isDraftOnly}
-							iconOnly={compactTopbar}
-							title={isDraftOnly
-								? 'Deploy this script once to compare against the deployed version'
-								: 'Diff'}
-							startIcon={{ icon: DiffIcon }}
-						>
-							Diff
-						</Button>
+						{@const diffDisabled = !savedScript || !diffDrawer || isDraftOnly}
+						{@const diffTitle = isDraftOnly
+							? 'Deploy this script once to compare against the deployed version'
+							: 'Diff'}
+						<!-- A disabled <button> fires no pointer events, so a title/tooltip on it
+						     never shows on hover. pointer-events-none on the button lets the hover
+						     reach this titled wrapper instead. -->
+						<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
+							<Button
+								variant="default"
+								unifiedSize="md"
+								on:click={() => openDiffDrawer()}
+								disabled={diffDisabled}
+								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
+								iconOnly={compactTopbar}
+								title={diffTitle}
+								startIcon={{ icon: DiffIcon }}
+							>
+								Diff
+							</Button>
+						</div>
 					{/if}
 				{/snippet}
 				{#if compactTopbar}

@@ -804,19 +804,34 @@
 			{/snippet}
 		</DropdownV2>
 
-		<Button
-			variant="default"
-			unifiedSize="md"
-			on:click={() => openDiffDrawer()}
-			disabled={!savedApp || newApp || savedApp?.no_deployed === true}
-			iconOnly={compactTopbar}
+		<!-- A disabled <button> fires no pointer events, so a title/tooltip on it
+		     never shows on hover. pointer-events-none on the button lets the hover
+		     reach this titled wrapper instead. -->
+		<div
 			title={newApp || savedApp?.no_deployed === true
 				? 'Deploy this app once to compare against the deployed version'
 				: 'Diff'}
-			startIcon={{ icon: DiffIcon }}
+			class={!savedApp || newApp || savedApp?.no_deployed === true
+				? 'flex cursor-not-allowed'
+				: 'flex'}
 		>
-			Diff
-		</Button>
+			<Button
+				variant="default"
+				unifiedSize="md"
+				on:click={() => openDiffDrawer()}
+				disabled={!savedApp || newApp || savedApp?.no_deployed === true}
+				btnClasses={!savedApp || newApp || savedApp?.no_deployed === true
+					? 'pointer-events-none'
+					: undefined}
+				iconOnly={compactTopbar}
+				title={newApp || savedApp?.no_deployed === true
+					? 'Deploy this app once to compare against the deployed version'
+					: 'Diff'}
+				startIcon={{ icon: DiffIcon }}
+			>
+				Diff
+			</Button>
+		</div>
 
 		<div class="{compactTopbar ? 'hidden' : 'hidden md:inline'} relative overflow-visible">
 			<Button
