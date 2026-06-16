@@ -147,6 +147,7 @@
 	let clientId = $state('')
 	let clientSecret = $state('')
 	let tokenUrl = $state('')
+	let ccInstance = $state('')
 
 	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
 	let resourceTypeNotFound = $state(false)
@@ -162,6 +163,16 @@
 	function registryCcCapable(): boolean {
 		return registryEntry()?.grant_types?.includes('client_credentials') ?? false
 	}
+
+	/** Registry metadata for providers whose client-credentials token URL is
+	 * instance-templated: the user enters an instance name (e.g. a Salesforce My
+	 * Domain) instead of a full token URL, and the backend substitutes it into
+	 * the fixed-host template so the exchange host stays pinned. */
+	let ccInstanceMeta = $derived(
+		registryEntry()?.cc_instance as
+			| { label: string; placeholder: string; help_url?: string }
+			| undefined
+	)
 
 	/** Instance entry declares client credentials but not authorization_code
 	 * (custom provider configured with only a token URL) */
@@ -197,6 +208,7 @@
 		clientId = ''
 		clientSecret = ''
 		tokenUrl = ''
+		ccInstance = ''
 		scopes = []
 	}
 
@@ -326,7 +338,9 @@
 						linkedSecrets.length > 0
 					: useClientCredentials &&
 						!useSharedInstanceCreds &&
-						(clientId.trim() == '' || clientSecret.trim() == '' || tokenUrl.trim() == ''))) ||
+						(clientId.trim() == '' ||
+							clientSecret.trim() == '' ||
+							(ccInstanceMeta ? ccInstance.trim() == '' : tokenUrl.trim() == '')))) ||
 			step == 3 ||
 			(step == 4 && pathError != '') ||
 			!isValid
@@ -518,16 +532,24 @@
 					const trimmedClientId = clientId.trim()
 					const trimmedClientSecret = clientSecret.trim()
 					const trimmedTokenUrl = tokenUrl.trim()
+					const trimmedInstance = ccInstance.trim()
+					// Instance-templated providers collect an instance name instead of a
+					// full token URL; the backend builds the host-pinned URL from it.
+					const needsInstance = !!ccInstanceMeta
 
 					// Bring-your-own credentials are required unless the provider has
 					// shared instance credentials, in which case the exchange runs
 					// server-side with those and no input is collected here.
 					if (
 						!useSharedInstanceCreds &&
-						(!trimmedClientId || !trimmedClientSecret || !trimmedTokenUrl)
+						(!trimmedClientId ||
+							!trimmedClientSecret ||
+							(needsInstance ? !trimmedInstance : !trimmedTokenUrl))
 					) {
 						sendUserToast(
-							'Client ID, Client Secret and Token URL are required for client credentials flow',
+							needsInstance
+								? `Client ID, Client Secret and ${ccInstanceMeta?.label} are required for client credentials flow`
+								: 'Client ID, Client Secret and Token URL are required for client credentials flow',
 							true
 						)
 						return
@@ -542,7 +564,9 @@
 									scopes: scopes,
 									cc_client_id: trimmedClientId,
 									cc_client_secret: trimmedClientSecret,
-									cc_token_url: trimmedTokenUrl
+									...(needsInstance
+										? { cc_instance: trimmedInstance }
+										: { cc_token_url: trimmedTokenUrl })
 								}
 					})
 
@@ -660,7 +684,11 @@
 				if (useClientCredentials && !useSharedInstanceCreds) {
 					accountData.cc_client_id = clientId.trim()
 					accountData.cc_client_secret = clientSecret.trim()
-					accountData.cc_token_url = tokenUrl.trim()
+					if (ccInstanceMeta) {
+						accountData.cc_instance = ccInstance.trim()
+					} else {
+						accountData.cc_token_url = tokenUrl.trim()
+					}
 				}
 
 				account = Number(
@@ -1093,21 +1121,35 @@
 										bind:value={clientSecret}
 									/>
 								</label>
-								<label class="flex flex-col gap-1">
-									<span class="text-xs font-semibold text-emphasis">Token URL</span>
-									<div class="text-xs text-secondary font-normal">
-										Token endpoint of the OAuth provider, stored with the connection and used for
-										automatic token refresh
-									</div>
-									<TextInput
-										inputProps={{
-											type: 'url',
-											placeholder: 'https://provider.example.com/oauth/token',
-											required: true
-										}}
-										bind:value={tokenUrl}
-									/>
-								</label>
+								{#if ccInstanceMeta}
+									<label class="flex flex-col gap-1">
+										<span class="text-xs font-semibold text-emphasis">{ccInstanceMeta.label}</span>
+										<div class="text-xs text-secondary font-normal">
+											Used to build this provider's token endpoint, stored with the connection for
+											automatic token refresh
+										</div>
+										<TextInput
+											inputProps={{ placeholder: ccInstanceMeta.placeholder, required: true }}
+											bind:value={ccInstance}
+										/>
+									</label>
+								{:else}
+									<label class="flex flex-col gap-1">
+										<span class="text-xs font-semibold text-emphasis">Token URL</span>
+										<div class="text-xs text-secondary font-normal">
+											Token endpoint of the OAuth provider, stored with the connection and used for
+											automatic token refresh
+										</div>
+										<TextInput
+											inputProps={{
+												type: 'url',
+												placeholder: 'https://provider.example.com/oauth/token',
+												required: true
+											}}
+											bind:value={tokenUrl}
+										/>
+									</label>
+								{/if}
 							</form>
 						{/if}
 					</div>

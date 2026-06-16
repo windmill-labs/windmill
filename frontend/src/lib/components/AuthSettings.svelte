@@ -129,6 +129,50 @@
 		return (oauthConnectRegistry as Record<string, any>)[name]?.cc_token_url
 	}
 
+	/** Instance-name metadata for the CC token URL, when the provider expects an
+	 * instance name (e.g. a Salesforce My Domain) rather than a full URL. */
+	function registryCcInstance(
+		name: string
+	): { label: string; placeholder: string; help_url?: string; strip_suffix?: string } | undefined {
+		return (oauthConnectRegistry as Record<string, any>)[name]?.cc_instance
+	}
+
+	/** Recover the instance name from the stored (substituted) cc_token_url, so the
+	 * input round-trips on reload. Empty when the stored URL is still the raw
+	 * template or has been hand-edited. */
+	function ccInstanceValue(name: string): string {
+		const tmpl = registryCcTokenUrl(name)
+		const stored = oauths?.[name]?.cc_token_url
+		if (!tmpl || !stored) return ''
+		const i = tmpl.indexOf('{instance}')
+		if (i < 0) return ''
+		const pre = tmpl.slice(0, i)
+		const post = tmpl.slice(i + '{instance}'.length)
+		if (
+			stored.startsWith(pre) &&
+			stored.endsWith(post) &&
+			stored.length >= pre.length + post.length
+		) {
+			const v = stored.slice(pre.length, stored.length - post.length)
+			return v.includes('{') ? '' : v
+		}
+		return ''
+	}
+
+	/** Substitute the admin-entered instance name into the fixed-host template and
+	 * store the concrete cc_token_url (mirrors the per-instance provider flow). */
+	function setCcInstance(name: string, value: string) {
+		const tmpl = registryCcTokenUrl(name)
+		if (!tmpl || !oauths?.[name]) return
+		let v = value.trim()
+		const suffix = registryCcInstance(name)?.strip_suffix
+		if (suffix) {
+			v = v.replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+			if (v.endsWith(suffix)) v = v.slice(0, -suffix.length)
+		}
+		oauths[name].cc_token_url = v ? tmpl.replaceAll('{instance}', v) : ''
+	}
+
 	/** Client credentials is among the selected grants */
 	function ccSelected(name: string): boolean {
 		return oauths?.[name]?.['grant_types']?.includes('client_credentials') ?? false
@@ -153,9 +197,15 @@
 		oauths[name]['grant_types'] =
 			choice === 'both' ? ['authorization_code', 'client_credentials'] : [choice]
 		// Prefill the CC-specific token URL template so the admin only has to fill
-		// in their instance
+		// in their instance. Skipped when the provider exposes a dedicated instance
+		// input, which substitutes into the template itself.
 		const ccUrl = registryCcTokenUrl(name)
-		if (ccUrl && choice !== 'authorization_code' && !oauths[name].cc_token_url) {
+		if (
+			ccUrl &&
+			choice !== 'authorization_code' &&
+			!oauths[name].cc_token_url &&
+			!registryCcInstance(name)
+		) {
 			oauths[name].cc_token_url = ccUrl
 		}
 	}
@@ -550,7 +600,30 @@
 										>
 									{/if}
 								</div>
-								{#if ccSelected(k) && registryCcTokenUrl(k)}
+								{#if ccSelected(k) && registryCcInstance(k)}
+									{@const meta = registryCcInstance(k)}
+									<label>
+										<span class="text-primary font-semibold text-xs flex gap-2 items-center">
+											{#if meta?.help_url}
+												<a href={meta.help_url} target="_blank">{meta.label}</a><ExternalLink
+													size={12}
+												/>
+											{:else}
+												{meta?.label}
+											{/if}
+											<Tooltip>
+												This provider's client-credentials flow uses an instance-specific token
+												endpoint. Enter the instance name; the token URL is built from it.
+											</Tooltip>
+										</span>
+										<input
+											type="text"
+											placeholder={meta?.placeholder}
+											value={ccInstanceValue(k)}
+											oninput={(e) => setCcInstance(k, e.currentTarget.value)}
+										/>
+									</label>
+								{:else if ccSelected(k) && registryCcTokenUrl(k)}
 									<label>
 										<span class="text-primary font-semibold text-xs">
 											Client credentials token URL

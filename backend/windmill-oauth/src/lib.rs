@@ -100,6 +100,32 @@ pub struct OAuthConfig {
     /// sees the resulting concrete `connect_config`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connect_config_template: Option<ConnectConfigTemplate>,
+    /// Client-credentials token endpoint when it differs from the
+    /// authorization-code `token_url` (e.g. Salesforce CC uses a My Domain host
+    /// while auth-code uses login.salesforce.com). May carry an `{instance}`
+    /// placeholder; see [`cc_instance`](Self::cc_instance).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cc_token_url: Option<String>,
+    /// Instance-name metadata for a client-credentials token URL that contains
+    /// an `{instance}` placeholder. When present, the connect flow collects an
+    /// instance name and the backend substitutes it into the fixed-host template
+    /// instead of accepting a free-form URL, so the exchange host stays pinned.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cc_instance: Option<CcInstance>,
+}
+
+/// Metadata for the instance-name input that fills the `{instance}` placeholder
+/// of a client-credentials token URL (e.g. a Salesforce My Domain).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CcInstance {
+    pub label: String,
+    pub placeholder: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub help_url: Option<String>,
+    /// Host suffix stripped from the entered value before substitution, so the
+    /// user can paste a full host or a bare name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strip_suffix: Option<String>,
 }
 
 /// URL overrides for an OAuth provider's sandbox environment. Inherits
@@ -431,6 +457,8 @@ pub async fn build_client_credentials_oauth_client(
                 grant_types: default_grant_types(),
                 sandbox: None,
                 connect_config_template: None,
+                cc_token_url: None,
+                cc_instance: None,
             },
             None => {
                 return Err(error::Error::BadRequest(format!(
@@ -558,6 +586,113 @@ pub async fn resolve_instance_cc_credentials(
             None
         }
     }))
+}
+
+/// Resolve the concrete client-credentials token URL for a bring-your-own
+/// connection (the caller supplies its own credentials).
+///
+/// For a known provider whose CC token URL carries an `{instance}` placeholder
+/// (Coupa, Salesforce My Domain, ServiceNow, …), the caller supplies only an
+/// instance name: it is validated as a bare hostname label and substituted into
+/// the fixed-host registry template, and a free-form URL is rejected. The
+/// exchange host can therefore never be redirected to an attacker-controlled
+/// server. For any other known provider the registry/instance token URL is used
+/// as-is (a caller URL is ignored). Only a truly unknown provider (no registry
+/// entry and no instance OAuth client) falls back to the caller-supplied URL.
+///
+/// `None` means there is no caller-derived URL and the caller did not need to
+/// supply one.
+pub async fn resolve_cc_token_url_input(
+    db: &DB,
+    client_name: &str,
+    connect_configs_json: &str,
+    caller_instance: Option<&str>,
+    caller_full_url: Option<&str>,
+) -> error::Result<Option<String>> {
+    use windmill_common::global_settings::{load_value_from_global_settings, OAUTH_SETTING};
+
+    let registry_config: Option<OAuthConfig> =
+        serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json)
+            .ok()
+            .and_then(|m| resolve_registry_config(&m, client_name));
+
+    let oauths = load_value_from_global_settings(db, OAUTH_SETTING).await?;
+    let instance_entry: Option<OAuthClient> = oauths
+        .as_ref()
+        .and_then(|o| o.get(client_name))
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
+
+    let nonempty = |s: String| Some(s).filter(|u| !u.is_empty());
+    let template = registry_config
+        .as_ref()
+        .and_then(|c| c.cc_token_url.clone())
+        .and_then(nonempty)
+        .or_else(|| {
+            registry_config
+                .as_ref()
+                .map(|c| c.token_url.clone())
+                .and_then(nonempty)
+        })
+        .or_else(|| {
+            instance_entry
+                .as_ref()
+                .and_then(|e| e.cc_token_url.clone())
+                .and_then(nonempty)
+        })
+        .or_else(|| {
+            instance_entry
+                .as_ref()
+                .and_then(|e| e.connect_config.as_ref())
+                .map(|c| c.token_url.clone())
+                .and_then(nonempty)
+        });
+
+    let caller_full_url = caller_full_url.filter(|u| !u.is_empty());
+
+    match template {
+        Some(t) if t.contains("{instance}") => {
+            let meta = registry_config
+                .as_ref()
+                .and_then(|c| c.cc_instance.as_ref());
+            if caller_full_url.is_some() {
+                return Err(error::Error::BadRequest(format!(
+                    "{client_name} expects an instance name, not a token URL"
+                )));
+            }
+            let raw = caller_instance
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| {
+                    error::Error::BadRequest(format!(
+                        "{} is required for {client_name}",
+                        meta.map(|m| m.label.as_str()).unwrap_or("An instance name")
+                    ))
+                })?;
+            // Strip an optional known host suffix so the user can paste a full
+            // host or a bare name, then accept only a hostname label — never any
+            // character that could move the host out of the template's domain.
+            let value = meta
+                .and_then(|m| m.strip_suffix.as_deref())
+                .and_then(|sfx| raw.strip_suffix(sfx))
+                .unwrap_or(raw)
+                .trim_end_matches('.');
+            let valid = !value.is_empty()
+                && !value.starts_with(['-', '.'])
+                && value
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.');
+            if !valid {
+                return Err(error::Error::BadRequest(format!(
+                    "invalid instance name '{raw}' for {client_name}"
+                )));
+            }
+            Ok(Some(t.replace("{instance}", value)))
+        }
+        // Known provider with a fixed token URL: use it, ignore any caller URL.
+        Some(t) => Ok(Some(t)),
+        // Unknown provider: only here is a caller-supplied URL the source of truth.
+        None => Ok(caller_full_url.map(str::to_string)),
+    }
 }
 
 /// Exchange authorization code for tokens
@@ -1011,6 +1146,8 @@ mod tests {
                 userinfo_url: None,
             }),
             connect_config_template: None,
+            cc_token_url: None,
+            cc_instance: None,
         }
     }
 

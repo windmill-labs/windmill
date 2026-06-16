@@ -6291,6 +6291,9 @@ paths:
                 cc_token_url:
                   type: string
                   description: "OAuth token URL override for resource-level authentication (client_credentials flow only)"
+                cc_instance:
+                  type: string
+                  description: "Instance name for providers whose client-credentials token URL is instance-templated; substituted into the fixed-host registry template server-side (client_credentials flow only)"
                 mcp_server_url:
                   type: string
                   description: "MCP server URL for MCP OAuth token refresh"
@@ -6346,6 +6349,9 @@ paths:
                 cc_token_url:
                   type: string
                   description: "OAuth token URL (falls back to instance settings or the static registry when omitted)"
+                cc_instance:
+                  type: string
+                  description: "Instance name for providers whose client-credentials token URL is instance-templated; substituted into the fixed-host registry template server-side"
       responses:
         "200":
           description: OAuth token response
