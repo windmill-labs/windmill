@@ -27,6 +27,16 @@ export interface ScriptBuilderProps {
 	 * stop/restart pair is a no-op on a non-live entry.
 	 */
 	userDraftPath?: string
+	/**
+	 * Workspace + path the AutosaveIndicator watches for sync state. Default
+	 * (undefined) falls back to `$workspaceStore` / `userDraftPath` — the
+	 * full-page editor. The sessions preview sets these to the session's
+	 * (possibly forked) workspace and target path, where autosave is owned by
+	 * `SessionEditorTarget`/`useUserDraftSync`, so the indicator must watch that
+	 * key rather than the global store + the unset `userDraftPath`.
+	 */
+	autosaveWorkspace?: string
+	autosavePath?: string
 	template?:
 		| 'docker'
 		| 'bunnative'
@@ -41,7 +51,7 @@ export interface ScriptBuilderProps {
 	showMeta?: boolean
 	neverShowMeta?: boolean
 	diffDrawer?: DiffDrawerI | undefined
-	savedScript?: Script | NewScript | undefined
+	savedScript?: (Script | NewScript) & { no_deployed?: boolean }
 	searchParams?: URLSearchParams
 	disableHistoryChange?: boolean
 	customUi?: ScriptBuilderWhitelabelCustomUi

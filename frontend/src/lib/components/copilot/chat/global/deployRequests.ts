@@ -84,7 +84,7 @@ export function buildFlowDeployRequestBody(
 	return {
 		path,
 		summary: draftSummary ?? existing?.summary ?? '',
-		description: existing?.description ?? '',
+		description: flowDraft.description ?? existing?.description ?? '',
 		value: flowValueWithDraftGroups(flowDraft),
 		schema: flowDraft.schema ?? existing?.schema ?? {},
 		tag: existing?.tag,

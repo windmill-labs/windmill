@@ -63,6 +63,7 @@
 				summary: string
 				policy: any
 				custom_path?: string
+				no_deployed?: boolean
 		  }
 		| undefined = $state(undefined)
 	let redraw = $state(0)
@@ -308,7 +309,8 @@
 			value: backendApp_.value as any,
 			path: backendApp_.path,
 			policy: backendApp_.policy,
-			custom_path: backendApp_.custom_path
+			custom_path: backendApp_.custom_path,
+			no_deployed: backendApp_.no_deployed
 		}
 		// Extract the effective raw app into the editor's local pieces. The bundle
 		// $effect re-mirrors them into `draftSync.draft`; the first write is

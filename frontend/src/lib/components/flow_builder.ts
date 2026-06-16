@@ -17,7 +17,7 @@ export type FlowBuilderProps = {
 	loading?: boolean
 	flowStore: StateStore<OpenFlow>
 	flowStateStore: StateStore<FlowState>
-	savedFlow?: Flow | undefined
+	savedFlow?: Flow & { no_deployed?: boolean }
 	diffDrawer?: DiffDrawerI | undefined
 	customUi?: FlowBuilderWhitelabelCustomUi
 	disableAi?: boolean
@@ -33,6 +33,16 @@ export type FlowBuilderProps = {
 	}
 	noInitial?: boolean
 	liveEditorDraftStoragePath?: string
+	// Indicator-only draft key overrides. When the flow editor is embedded
+	// (e.g. the sessions preview) its autosave runs under a different
+	// (workspace, path) than `$workspaceStore`/`liveEditorDraftStoragePath`
+	// (a forked workspace, and a path this component doesn't own). These let
+	// the host point the `AutosaveIndicator` at the key its own autosave uses,
+	// WITHOUT repurposing `liveEditorDraftStoragePath` (which still drives this
+	// component's setLiveEditorDraft/flush). Undefined → fall back, so the
+	// full-page editor is unaffected.
+	autosaveWorkspace?: string
+	autosavePath?: string
 	onDeploy?: ({ path }: { path: string }) => void
 	onDeployError?: ({ error }: { error: any }) => void
 	onDetails?: ({ path }: { path: string }) => void
