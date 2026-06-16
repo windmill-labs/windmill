@@ -120,13 +120,28 @@
 		)
 	}
 
-	/** Designate the instance credentials for one grant: client credentials (shared
-	 * server-to-server) or the authorization-code popup flow. */
-	function setCcGrant(name: string, useClientCredentials: boolean) {
+	/** The instance entry is configured for the given grant */
+	function hasGrant(name: string, grant: string): boolean {
+		return oauths?.[name]?.['grant_types']?.includes(grant) ?? false
+	}
+
+	/** `grant` is the only one selected, so its toggle is locked on — this keeps
+	 * at least one grant type and never produces an empty list */
+	function isLastGrant(name: string, grant: string): boolean {
+		const gts = oauths?.[name]?.['grant_types'] ?? []
+		return gts.length === 1 && gts[0] === grant
+	}
+
+	/** Add or remove a grant type. The instance credentials are then used for every
+	 * selected grant (authorization-code popup and/or server-to-server). */
+	function setGrant(name: string, grant: string, enabled: boolean) {
 		if (!oauths || !oauths[name]) return
-		oauths[name]['grant_types'] = [
-			useClientCredentials ? 'client_credentials' : 'authorization_code'
-		]
+		const current: string[] = oauths[name]['grant_types'] ?? ['authorization_code']
+		oauths[name]['grant_types'] = enabled
+			? current.includes(grant)
+				? current
+				: [...current, grant]
+			: current.filter((g: string) => g !== grant)
 	}
 
 	let showCustomOAuthForm = $state(false)
@@ -481,10 +496,13 @@
 									/>
 								</label>
 								{#if registryCcCapable(k) || !windmillBuiltins.includes(k)}
-									<div class="flex flex-col gap-1 mb-2">
+									<div class="flex flex-col gap-2 mb-2">
 										<span class="text-xs font-semibold text-emphasis">
 											These credentials are for
 											<Tooltip>
+												Pick one or both grant types the app's credentials are registered for; the
+												same Client ID and Secret are used for each selected flow.
+												<br /><br />
 												Authorization code: users sign in via a popup using this app.
 												<br /><br />
 												Client credentials: server-to-server. These credentials mint the token for every
@@ -492,12 +510,28 @@
 												empty to let each user supply their own instead.
 											</Tooltip>
 										</span>
-										<Toggle
-											options={{ left: 'Authorization code', right: 'Client credentials' }}
-											checked={oauths?.[k]?.['grant_types']?.includes('client_credentials') ??
-												false}
-											on:change={(e) => setCcGrant(k, e.detail)}
-										/>
+										<div class="flex items-center gap-2">
+											<Toggle
+												size="xs"
+												checked={hasGrant(k, 'authorization_code')}
+												disabled={isLastGrant(k, 'authorization_code')}
+												on:change={(e) => setGrant(k, 'authorization_code', e.detail)}
+											/>
+											<span class="text-xs text-primary font-normal">
+												Authorization code (browser sign-in)
+											</span>
+										</div>
+										<div class="flex items-center gap-2">
+											<Toggle
+												size="xs"
+												checked={hasGrant(k, 'client_credentials')}
+												disabled={isLastGrant(k, 'client_credentials')}
+												on:change={(e) => setGrant(k, 'client_credentials', e.detail)}
+											/>
+											<span class="text-xs text-primary font-normal">
+												Client credentials (server-to-server)
+											</span>
+										</div>
 									</div>
 								{/if}
 								{#if k === 'azure_oauth'}
