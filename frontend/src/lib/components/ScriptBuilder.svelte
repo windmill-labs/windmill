@@ -719,7 +719,16 @@
 		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
 
 		const deployed = deployedValue ?? savedScript
-		const current = { ...script, draft_triggers: currentDraftTriggers }
+		// `script` comes from the full DB row (since #9351), so it carries `lock`/`extra_perms`
+		// while the deployed side is trimmed in `syncWithDeployed` — null them here to match
+		// that strip. They stay in the shared `cleanValueProperties` so version-to-version and
+		// folder workspace/fork diffs still surface lockfile / sharing-permission changes.
+		const current = {
+			...script,
+			lock: undefined,
+			extra_perms: undefined,
+			draft_triggers: currentDraftTriggers
+		}
 		if (current.assets && !current.assets.length) delete current.assets
 
 		diffDrawer?.openDrawer()

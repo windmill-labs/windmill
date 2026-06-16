@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { base } from '$lib/base'
 	import { copilotInfo } from '$lib/aiStore'
+	import { aiUserDisabled } from '$lib/stores'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DarkPopover from '$lib/components/Popover.svelte'
 	import { ExternalLink, WandSparkles } from 'lucide-svelte'
@@ -36,14 +37,18 @@
 		{/snippet}
 		{#snippet content()}
 			<div class="block text-primary p-4">
-				<p class="text-sm"
-					>Enable Windmill AI in the <a
-						href="{base}/workspace_settings?tab=ai"
-						target="_blank"
-						class="inline-flex flex-row items-center gap-1"
-						>workspace settings <ExternalLink size={16} /></a
-					></p
-				>
+				{#if $aiUserDisabled}
+					<p class="text-sm">Windmill AI is disabled in your account settings.</p>
+				{:else}
+					<p class="text-sm"
+						>Enable Windmill AI in the <a
+							href="{base}/workspace_settings?tab=ai"
+							target="_blank"
+							class="inline-flex flex-row items-center gap-1"
+							>workspace settings <ExternalLink size={16} /></a
+						></p
+					>
+				{/if}
 			</div>
 		{/snippet}
 	</Popover>

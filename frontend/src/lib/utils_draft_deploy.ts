@@ -14,6 +14,7 @@
  */
 import { get, writable } from 'svelte/store'
 import {
+	DraftService,
 	ScriptService,
 	FlowService,
 	AppService,
@@ -444,23 +445,23 @@ export async function deployDraft(
 		} else {
 			return { success: false, error: `Deploy not supported for draft kind ${kind}` }
 		}
-		// script/flow/app deploys delete the draft server-side; the drawer
-		// kinds' create/update endpoints don't, so delete it here too — else
-		// the just-deployed draft survives and keeps listing.
-		if (
-			kind === 'variable' ||
-			kind === 'resource' ||
-			kind === 'trigger_schedule' ||
-			kind in TRIGGER_SAVERS
-		) {
-			await UserDraftDbSyncer.save({
-				workspace,
-				itemKind: kind,
-				path,
-				value: null,
-				immediate: true
-			})
-		}
+		// Delete the draft at its STORAGE path (the row key, = the `path` arg).
+		// Two reasons it must happen here for every kind, mirroring the editors'
+		// post-deploy `discardDraftAfterDeploy(draftPath)`:
+		//  - Drawer kinds (variable / resource / triggers) aren't deleted by
+		//    their create/update endpoints at all.
+		//  - script/flow/app/raw_app DO delete server-side, but only the draft at
+		//    the *deployed* path (`d.path`). A renamed draft_only item lives at a
+		//    synthetic `u/{user}/draft_{uuid}` storage path ≠ `d.path`, so its
+		//    draft row survives the deploy and keeps listing. Deleting the
+		//    storage-path draft removes it (a no-op when the server already did).
+		await UserDraftDbSyncer.save({
+			workspace,
+			itemKind: kind,
+			path,
+			value: null,
+			immediate: true
+		})
 		// Mutated the workspace's Server Drafts — refresh every mounted reader.
 		invalidateWorkspaceDrafts(workspace)
 		// For script/flow/app the server-side delete bypasses UserDraftDbSyncer,
@@ -514,14 +515,31 @@ const TRIGGER_SAVERS: Partial<
  * Discard a draft. Draft-only items exist only as a draft-table row, so
  * deleting that row is the whole discard in every case. `save({ value: null })`
  * is the canonical "drop my draft for this path" POST.
+ *
+ * A legacy draft (workspace-level, `email IS NULL`) isn't owned by the authed
+ * user, so the email-scoped syncer delete can't reach it. Discard it via a
+ * direct `legacy` delete instead — then clear the local hint + invalidate as
+ * the syncer path would.
  */
 export async function discardDraft(
 	kind: DraftKind,
 	path: string,
 	workspace: string,
-	_draftOnly = false
+	_draftOnly = false,
+	legacy = false
 ): Promise<DeployResult> {
 	try {
+		if (legacy) {
+			await DraftService.updateDraft({
+				workspace,
+				kind,
+				path,
+				requestBody: { value: null, legacy: true }
+			})
+			setLocalDraftHint(workspace, kind, path, false)
+			invalidateWorkspaceDrafts(workspace)
+			return { success: true }
+		}
 		// postSave clears the syncer-owned `*` hint on the delete. `immediate`
 		// so the await resolves after the POST lands — else it resolves at
 		// enqueue time and the invalidate below refetches before the delete,

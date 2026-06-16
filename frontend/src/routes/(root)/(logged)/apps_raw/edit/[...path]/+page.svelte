@@ -331,6 +331,19 @@
 		}
 	})
 
+	// Single source for "reset the editor to the deployed app": drop the live
+	// draft handle and reload without the draft overlay. Shared by the diff
+	// drawer's restore, the conflict modal's "load latest deploy", and the
+	// AutosaveIndicator's "Reset to deployed" so the three can't drift. A stray
+	// `redraw++` here previously remounted RawAppEditor mid-reset (inside the
+	// runResetToDeployed stopSync bracket), and the fresh mount's draft write
+	// resurrected the draft — so only the diff-drawer restore appeared to do
+	// nothing while the AutosaveIndicator path (no remount) worked.
+	async function reloadDeployed() {
+		draftSync.draft = undefined
+		await loadApp({ getDraft: false })
+	}
+
 	async function restoreDeployed() {
 		if (!savedApp || !$workspaceStore) {
 			sendUserToast('Could not restore to deployed', true)
@@ -344,11 +357,7 @@
 			workspace: $workspaceStore,
 			itemKind: 'raw_app',
 			path,
-			onResetToDeployed: async () => {
-				draftSync.draft = undefined
-				await loadApp({ getDraft: false })
-				redraw++
-			}
+			onResetToDeployed: reloadDeployed
 		})
 	}
 
@@ -411,10 +420,7 @@
 			workspace: $workspaceStore,
 			itemKind: 'raw_app',
 			path,
-			onResetToDeployed: async () => {
-				draftSync.draft = undefined
-				await loadApp({ getDraft: false })
-			}
+			onResetToDeployed: reloadDeployed
 		})
 	}}
 />
@@ -443,10 +449,7 @@
 				bind:savedApp
 				{diffDrawer}
 				newApp={isNewApp}
-				onResetToDeployed={async () => {
-					draftSync.draft = undefined
-					await loadApp({ getDraft: false })
-				}}
+				onResetToDeployed={reloadDeployed}
 				{loadedFromDraft}
 				othersDraftsCount={otherDraftsUsers.length}
 				onOpenOthersDrafts={() => (othersModalOpen = true)}

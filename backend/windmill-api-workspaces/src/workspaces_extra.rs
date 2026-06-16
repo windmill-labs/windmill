@@ -872,13 +872,16 @@ pub(crate) async fn delete_workspace(
         .execute(&mut *tx)
         .await?;
 
+    // Record under the instance-level "admins" workspace. The per-workspace audit
+    // rows are deleted along with the workspace, so this instance-level entry is the
+    // only durable, superadmin-discoverable record of who deleted the workspace.
     audit_log(
         &mut *tx,
         &authed,
         "workspaces.delete",
         ActionKind::Delete,
-        &w_id,
-        Some(&authed.email),
+        "admins",
+        Some(&w_id),
         None,
     )
     .await?;

@@ -3,6 +3,7 @@
 	import DiffDrawer from './DiffDrawer.svelte'
 	import WorkspaceDeployItemSummary from './WorkspaceDeployItemSummary.svelte'
 	import { Badge } from './common'
+	import Tooltip from './meltComponents/Tooltip.svelte'
 	import Button from './common/button/Button.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { ArrowRight, DiffIcon, GitFork, Pencil, Undo2 } from 'lucide-svelte'
@@ -59,8 +60,12 @@
 		kind: LayoutKind
 		draftKind: DraftItem['kind']
 		path: string
+		/** Friendly path for display (storage `path` stays the key for all
+		 * fetch/deploy/discard calls — the draft is keyed by it server-side). */
+		draft_path?: string
 		summary?: string
 		draft_only: boolean
+		legacy_draft: boolean
 		raw_app: boolean
 		key: string
 	}
@@ -102,7 +107,9 @@
 			...d,
 			key: getItemKey(d.kind, d.path),
 			kind: toLayoutKind(d.kind),
-			draftKind: d.kind
+			draftKind: d.kind,
+			draft_path: d.draft_path,
+			legacy_draft: d.legacy_draft
 		}))
 	)
 
@@ -300,7 +307,13 @@
 		const item = discardTarget
 		discardTarget = undefined
 		if (!item) return
-		const res = await discardDraft(item.draftKind, item.path, currentWorkspaceId, item.draft_only)
+		const res = await discardDraft(
+			item.draftKind,
+			item.path,
+			currentWorkspaceId,
+			item.draft_only,
+			item.legacy_draft
+		)
 		if (res.success) {
 			sendUserToast(item.draft_only ? `Deleted ${item.path}` : `Discarded draft of ${item.path}`)
 			// discardDraft invalidated the Draft list; refresh the fork comparison.
@@ -338,6 +351,28 @@
 			{ kind: d.raw_app ? 'raw_app' : d.draftKind, path: d.path } as unknown as WorkspaceItemDiff,
 			currentWorkspaceId
 		)
+	}
+
+	// Auto-generated draft slot: `u/{user}/draft_{uuid}` (uuid dashes → underscores),
+	// minted for a never-named draft. We don't surface this synthetic id as a row's
+	// bold title.
+	const AUTO_GEN_DRAFT_RE = /(^|\/)draft_[0-9a-f]{8}(_[0-9a-f]{4}){3}_[0-9a-f]{12}$/
+
+	// Bold title for a row: the friendly typed path if the draft carries one, else
+	// the storage path — with `{user}` truncated at `@` (the admins workspace and
+	// email-as-username setups put the full email in the namespace). The real
+	// path/key (used for fetch/deploy/discard) is left untouched. Returns '' for an
+	// auto-generated `draft_{uuid}` path so it isn't shown in bold (the row still
+	// shows the storage path in its secondary line).
+	function displayPath(d: Row): string {
+		const path = d.draft_path ?? d.path
+		if (AUTO_GEN_DRAFT_RE.test(path)) return ''
+		const segs = path.split('/')
+		if (segs[0] === 'u' && segs.length >= 2) {
+			const at = segs[1].indexOf('@')
+			if (at > 0) segs[1] = segs[1].slice(0, at)
+		}
+		return segs.join('/')
 	}
 
 	// Human label for the kind badge on each row — without it a variable
@@ -403,7 +438,7 @@
 				{@const oldSummary = cache?.deployed ?? draftItem.summary}
 				{@const newSummary = cache?.draft ?? draftItem.summary}
 				<WorkspaceDeployItemSummary
-					path={draftItem.path}
+					path={displayPath(draftItem)}
 					{editUrl}
 					{oldSummary}
 					{newSummary}
@@ -419,6 +454,15 @@
 				<Badge color="gray" size="xs">{kindLabel(draftItem.draftKind)}</Badge>
 				{#if draftItem.draft_only}
 					<Badge color="indigo" size="xs">New</Badge>
+				{/if}
+				{#if draftItem.legacy_draft}
+					<Tooltip>
+						<Badge color="yellow" size="xs">Legacy draft</Badge>
+						{#snippet text()}
+							A legacy draft predates the per-user drafts migration: it isn't tied to any user
+							(workspace-level, email NULL), so everyone with access to this path sees it.
+						{/snippet}
+					</Tooltip>
 				{/if}
 				{#if deploymentStatus[draftItem.key]?.status !== 'deployed'}
 					<Button

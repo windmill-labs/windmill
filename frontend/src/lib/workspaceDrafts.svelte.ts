@@ -23,8 +23,15 @@ export interface DraftItem {
 	kind: DraftKind
 	path: string
 	summary?: string
+	/** User-typed friendly path (from the draft JSON's `draft_path`) when it
+	 * differs from the storage `path` — e.g. a never-deployed item parked at
+	 * `u/{user}/draft_{uuid}`. Display this instead of `path` when present. */
+	draft_path?: string
 	/** Never deployed — exists only as a draft. */
 	draft_only: boolean
+	/** Legacy workspace-level draft (email NULL) predating the per-user drafts
+	 * migration. Not tied to any user, so anyone with access to the path sees it. */
+	legacy_draft: boolean
 	/** App is a raw app (deploys via the raw-app endpoints). Always false for non-apps. */
 	raw_app: boolean
 }
@@ -35,7 +42,9 @@ export async function getDraftItems(workspace: string): Promise<DraftItem[]> {
 		kind: r.kind,
 		path: r.path,
 		summary: r.summary,
+		draft_path: r.draft_path,
 		draft_only: r.draft_only,
+		legacy_draft: r.legacy_draft,
 		raw_app: r.kind === 'raw_app'
 	}))
 }
