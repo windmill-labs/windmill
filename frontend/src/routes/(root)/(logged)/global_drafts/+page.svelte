@@ -56,8 +56,18 @@
 		refreshDrafts()
 	}
 
-	function clearAll() {
+	async function clearAll() {
 		if (!$workspaceStore) return
+		// Delete each listed draft from the backend (the source of truth) — the
+		// local clearGlobalDrafts only clears in-tab cells, leaving persisted rows.
+		// Continue past a per-row failure so one bad delete doesn't strand the rest.
+		for (const item of [...drafts]) {
+			try {
+				await deleteGlobalDraft($workspaceStore, item.type, item.path, item.triggerKind)
+			} catch (e) {
+				console.error('Failed to clear draft', item.path, e)
+			}
+		}
 		clearGlobalDrafts($workspaceStore)
 		refreshDrafts()
 	}
