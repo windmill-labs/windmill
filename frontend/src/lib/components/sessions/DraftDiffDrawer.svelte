@@ -61,7 +61,18 @@
 				const baseKind = it.raw_app ? 'raw_app' : it.kind
 				const kind = DEPLOY_KIND_BY_DRAFT_KIND[baseKind] ?? baseKind
 				donly[`${kind}/${it.path}`] = it.draft_only
-				return { kind, path: it.path, status: it.draft_only ? 'added' : 'modified' }
+				// A never-deployed app/raw_app is parked at a synthetic `…/draft_<uuid>`
+				// storage path with the user's typed name in `draft_path`; show that
+				// (matches the home list) while `path` stays the storage key for loading.
+				// `summary` comes straight from the draft row, so it shows for every kind
+				// up front instead of only after the diff value loads.
+				return {
+					kind,
+					path: it.path,
+					displayPath: it.draft_path ?? it.path,
+					summary: it.summary,
+					status: it.draft_only ? 'added' : 'modified'
+				}
 			})
 			draftOnlyByKey = donly
 		} catch (e) {

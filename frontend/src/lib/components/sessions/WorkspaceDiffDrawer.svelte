@@ -8,6 +8,13 @@
 		status: DiffStatus
 		ahead?: number
 		behind?: number
+		/** Human-facing path; defaults to `path`. Lets a draft parked at a
+		 * synthetic storage path (`…/draft_<uuid>`) show its friendly typed path
+		 * while keys, value-loading and edit links stay keyed on `path`. */
+		displayPath?: string
+		/** Summary supplied by the data source. Preferred over the one derived
+		 * from the loaded diff value, and shown before that value loads. */
+		summary?: string
 	}
 </script>
 
@@ -86,6 +93,12 @@
 
 	function itemKey(d: DiffRow): string {
 		return `${d.kind}/${d.path}`
+	}
+
+	// Friendly path for display only; `path` stays the storage key everywhere
+	// keys/loads happen, so a never-deployed draft still loads from `…/draft_<uuid>`.
+	function displayPathOf(d: DiffRow): string {
+		return d.displayPath ?? d.path
 	}
 
 	const KIND_LABELS: Record<string, string> = {
@@ -183,7 +196,7 @@
 		}
 		const folderCache = new Map<string, FolderNode>()
 		for (const d of rows) {
-			const parts = d.path.split('/')
+			const parts = displayPathOf(d).split('/')
 			if (parts.length < 2) {
 				root.children.push({ type: 'file', name: d.path, diff: d })
 				continue
@@ -226,8 +239,8 @@
 	}
 
 	function searchableText(d: DiffRow): string {
-		const parts = [d.path, KIND_LABELS[d.kind] ?? d.kind]
-		const s = summaries[itemKey(d)]
+		const parts = [displayPathOf(d), KIND_LABELS[d.kind] ?? d.kind]
+		const s = summaries[itemKey(d)] ?? d.summary
 		if (s) parts.push(s)
 		return parts.join(' ')
 	}
@@ -433,12 +446,12 @@
 		<WorkspaceItemRow
 			kind={node.diff.kind as any}
 			uniformHeight
-			summary={summaries[key]}
+			summary={summaries[key] ?? node.diff.summary}
 			secondary={node.name}
 			highlighted={key === highlightedKey}
 			navKey={key}
 			indent={depth * 12 + 20}
-			title={node.diff.path}
+			title={displayPathOf(node.diff)}
 			onclick={() => {
 				highlightedKey = key
 				scrollToDiff(node.diff)
@@ -556,6 +569,7 @@
 								{@const StatusIcon = statusIcons[status]}
 								{@const loaded = loadedDiffs[key]}
 								{@const editUrl = editUrlFor?.(d)}
+								{@const dpath = displayPathOf(d)}
 								<details
 									open
 									id={rowId(d)}
@@ -573,14 +587,14 @@
 											{#if editUrl}
 												<ExternalEditLink
 													href={editUrl}
-													title={d.path}
+													title={dpath}
 													class="text-xs text-primary font-mono truncate"
 												>
-													<span class="truncate">{d.path}</span>
+													<span class="truncate">{dpath}</span>
 												</ExternalEditLink>
 											{:else}
-												<div class="text-xs text-primary font-mono truncate" title={d.path}>
-													{d.path}
+												<div class="text-xs text-primary font-mono truncate" title={dpath}>
+													{dpath}
 												</div>
 											{/if}
 										</div>
