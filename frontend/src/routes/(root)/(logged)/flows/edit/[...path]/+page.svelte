@@ -359,6 +359,7 @@
 				itemKind: 'flow',
 				path: flowDraftPath,
 				ownerLabel: pendingLoad.ownerLabel,
+				loadedValue: flowToRender,
 				onResetToOwnDraft: () => loadFlow({ getDraft: true })
 			})
 			// Seed so the bound value updates WITHOUT a POST (the lock blocks it

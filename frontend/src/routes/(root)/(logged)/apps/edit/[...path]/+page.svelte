@@ -257,6 +257,8 @@
 					itemKind: 'app',
 					path,
 					ownerLabel: pendingLoad.ownerLabel,
+					// AppEditor stores the bare App in the draft cell.
+					loadedValue: pendingLoad.value,
 					onResetToOwnDraft: async () => {
 						await loadApp({ getDraft: true })
 						redraw++

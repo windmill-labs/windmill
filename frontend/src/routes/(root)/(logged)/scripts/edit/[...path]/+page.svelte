@@ -312,6 +312,7 @@
 						itemKind: 'script',
 						path: draftPath,
 						ownerLabel: pendingLoad.ownerLabel,
+						loadedValue,
 						onResetToOwnDraft: () => loadScript({ getDraft: true })
 					})
 					// Seed so the bound value updates WITHOUT a POST (the lock would

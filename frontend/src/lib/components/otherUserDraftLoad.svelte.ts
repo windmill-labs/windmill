@@ -1,7 +1,7 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { goto } from '$lib/navigation'
 import { base } from '$app/paths'
-import { UserDraft, type UserDraftItemKind } from '$lib/userDraft.svelte'
+import { UserDraft, draftValuesEqual, type UserDraftItemKind } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 /**
@@ -37,6 +37,10 @@ type ActiveSession = {
 	itemKind: UserDraftItemKind
 	path: string
 	ownerLabel: string
+	/** The loaded value the editor shows. A blocked save whose value still
+	 *  equals this is a programmatic load-cascade write, not an edit — so the
+	 *  overwrite prompt fires only once the value actually diverges. */
+	loadedValue: unknown
 	/** Reload our own draft into the editor (AutosaveIndicator's "Reset to draft"). */
 	onResetToOwnDraft: () => void | Promise<void>
 }
@@ -47,10 +51,6 @@ const pending = new SvelteMap<string, PendingOtherUserDraftLoad>()
 const active = new SvelteMap<string, ActiveSession>()
 // Keys whose overwrite-confirmation modal is currently open.
 const overwriteOpen = new SvelteSet<string>()
-// Keys not yet armed for edit-detection: the programmatic load cascade
-// (seed + editor `setCode`) can momentarily look like an edit; ignore blocked
-// saves until the cascade settles.
-const armed = new SvelteSet<string>()
 
 function editRouteFor(itemKind: UserDraftItemKind, path: string): string {
 	switch (itemKind) {
@@ -99,22 +99,25 @@ export const OtherUserDraftLoad = {
 
 	/**
 	 * Enter overlay mode: lock all server saves for this key and remember how
-	 * to restore our own draft. The first blocked save (= first edit) opens the
-	 * overwrite modal. Arms edit-detection after a short delay so the load
-	 * cascade doesn't trip it.
+	 * to restore our own draft. A blocked save opens the overwrite modal ONLY
+	 * once the value diverges from `loadedValue` — so the programmatic load
+	 * cascade (which writes back the same value) never trips the prompt, while
+	 * the user's very first real edit does, with no timing window.
 	 */
 	beginOverlay(session: ActiveSession): void {
 		const k = keyOf(session.workspace, session.itemKind, session.path)
 		active.set(k, session)
-		armed.delete(k)
 		UserDraftDbSyncer.lockSync(
 			{ workspace: session.workspace, itemKind: session.itemKind, path: session.path },
 			() => {
-				if (armed.has(k))
+				const current = UserDraft.get(session.itemKind, session.path, {
+					workspace: session.workspace
+				})
+				if (current !== undefined && !draftValuesEqual(current, session.loadedValue)) {
 					this.requestOverwriteModal(session.workspace, session.itemKind, session.path)
+				}
 			}
 		)
-		setTimeout(() => armed.add(k), 700)
 	},
 
 	isActive(workspace: string, itemKind: UserDraftItemKind, path: string): boolean {
@@ -168,7 +171,6 @@ export const OtherUserDraftLoad = {
 		const k = keyOf(workspace, itemKind, path)
 		active.delete(k)
 		overwriteOpen.delete(k)
-		armed.delete(k)
 		UserDraftDbSyncer.unlockSync({ workspace, itemKind, path })
 	}
 }

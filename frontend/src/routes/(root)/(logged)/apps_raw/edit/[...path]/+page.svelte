@@ -336,6 +336,17 @@
 					itemKind: 'raw_app',
 					path,
 					ownerLabel: pendingLoad.ownerLabel,
+					// Mirror the bundle the persist-$effect produces from these pieces,
+					// so the cascade write that re-mirrors them isn't seen as an edit.
+					loadedValue: {
+						files,
+						runnables,
+						data,
+						summary,
+						policy,
+						custom_path: savedApp?.custom_path,
+						...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
+					} as RawAppDraft,
 					onResetToOwnDraft: () => loadApp({ getDraft: true })
 				})
 			}
