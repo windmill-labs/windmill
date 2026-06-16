@@ -18,6 +18,8 @@
 	import { capitalize, type Item } from '$lib/utils'
 	import ClipboardPanel from './details/ClipboardPanel.svelte'
 	import Toggle from './Toggle.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import { APP_TO_ICON_COMPONENT } from './icons'
 	import { ExternalLink, Plus, Circle, X } from 'lucide-svelte'
@@ -120,28 +122,24 @@
 		)
 	}
 
-	/** The instance entry is configured for the given grant */
-	function hasGrant(name: string, grant: string): boolean {
-		return oauths?.[name]?.['grant_types']?.includes(grant) ?? false
+	/** Map the entry's grant_types to the single-select choice (so the segmented
+	 * control always has exactly one selected and can never be empty) */
+	function grantChoice(name: string): string {
+		const gts = oauths?.[name]?.['grant_types'] ?? ['authorization_code']
+		const cc = gts.includes('client_credentials')
+		const ac = gts.includes('authorization_code')
+		if (cc && ac) return 'both'
+		if (cc) return 'client_credentials'
+		return 'authorization_code'
 	}
 
-	/** `grant` is the only one selected, so its toggle is locked on — this keeps
-	 * at least one grant type and never produces an empty list */
-	function isLastGrant(name: string, grant: string): boolean {
-		const gts = oauths?.[name]?.['grant_types'] ?? []
-		return gts.length === 1 && gts[0] === grant
-	}
-
-	/** Add or remove a grant type. The instance credentials are then used for every
-	 * selected grant (authorization-code popup and/or server-to-server). */
-	function setGrant(name: string, grant: string, enabled: boolean) {
+	/** Set the grant types from the segmented choice. The instance credentials are
+	 * then used for every selected grant — authorization-code popup and/or
+	 * server-to-server. */
+	function setGrantChoice(name: string, choice: string) {
 		if (!oauths || !oauths[name]) return
-		const current: string[] = oauths[name]['grant_types'] ?? ['authorization_code']
-		oauths[name]['grant_types'] = enabled
-			? current.includes(grant)
-				? current
-				: [...current, grant]
-			: current.filter((g: string) => g !== grant)
+		oauths[name]['grant_types'] =
+			choice === 'both' ? ['authorization_code', 'client_credentials'] : [choice]
 	}
 
 	let showCustomOAuthForm = $state(false)
@@ -495,45 +493,45 @@
 										bind:password={oauths[k]['secret']}
 									/>
 								</label>
-								{#if registryCcCapable(k) || !windmillBuiltins.includes(k)}
-									<div class="flex flex-col gap-2 mb-2">
-										<span class="text-xs font-semibold text-emphasis">
-											These credentials are for
-											<Tooltip>
-												Pick one or both grant types the app's credentials are registered for; the
-												same Client ID and Secret are used for each selected flow.
-												<br /><br />
-												Authorization code: users sign in via a popup using this app.
-												<br /><br />
-												Client credentials: server-to-server. These credentials mint the token for every
-												connection and the secret stays on the server. Leave the Client ID and Secret
-												empty to let each user supply their own instead.
-											</Tooltip>
-										</span>
-										<div class="flex items-center gap-2">
-											<Toggle
-												size="xs"
-												checked={hasGrant(k, 'authorization_code')}
-												disabled={isLastGrant(k, 'authorization_code')}
-												on:change={(e) => setGrant(k, 'authorization_code', e.detail)}
-											/>
-											<span class="text-xs text-primary font-normal">
-												Authorization code (browser sign-in)
-											</span>
-										</div>
-										<div class="flex items-center gap-2">
-											<Toggle
-												size="xs"
-												checked={hasGrant(k, 'client_credentials')}
-												disabled={isLastGrant(k, 'client_credentials')}
-												on:change={(e) => setGrant(k, 'client_credentials', e.detail)}
-											/>
-											<span class="text-xs text-primary font-normal">
-												Client credentials (server-to-server)
-											</span>
-										</div>
-									</div>
-								{/if}
+								<div class="flex flex-col gap-2 mb-2">
+									<span class="text-xs font-semibold text-emphasis">
+										These credentials are for
+										<Tooltip>
+											The grant type(s) this OAuth app's credentials are registered for; the same
+											Client ID and Secret are used for each selected flow.
+											<br /><br />
+											Authorization code: users sign in via a popup using this app.
+											<br /><br />
+											Client credentials: server-to-server. These credentials mint the token for every
+											connection and the secret stays on the server. Leave the Client ID and Secret empty
+											to let each user supply their own instead.
+										</Tooltip>
+									</span>
+									{#if registryCcCapable(k) || !windmillBuiltins.includes(k)}
+										<ToggleButtonGroup
+											selected={grantChoice(k)}
+											onSelected={(v) => setGrantChoice(k, v)}
+										>
+											{#snippet children({ item })}
+												<ToggleButton
+													value="authorization_code"
+													label="Authorization code"
+													{item}
+												/>
+												<ToggleButton
+													value="client_credentials"
+													label="Client credentials"
+													{item}
+												/>
+												<ToggleButton value="both" label="Both" {item} />
+											{/snippet}
+										</ToggleButtonGroup>
+									{:else}
+										<span class="text-xs text-secondary font-normal"
+											>Authorization code (browser sign-in)</span
+										>
+									{/if}
+								</div>
 								{#if k === 'azure_oauth'}
 									<AzureOauthSettings bind:connect_config={oauths[k]['connect_config']} />
 								{:else if !windmillBuiltins.includes(k) && k != 'slack'}
