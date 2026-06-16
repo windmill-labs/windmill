@@ -29,7 +29,9 @@
 	import type { Modules } from './RawAppModules.svelte'
 	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
-	import { onMount, untrack } from 'svelte'
+	import { navStaysInEditor } from '../copilot/chat/editorNav'
+	import { onDestroy, onMount, untrack } from 'svelte'
+	import { beforeNavigate } from '$app/navigation'
 	import type {
 		AppDatatableMetadata,
 		LintResult,
@@ -655,8 +657,33 @@
 		)
 	}
 
+	// Clear the chat only when the user actually LEAVES this app's editor (a real
+	// navigation to a different app or out of the raw-app editor). Default false
+	// so non-navigation unmount/remounts preserve the APP-mode conversation — in
+	// particular the edit page wipes `files` (unmount) and reloads (remount) after
+	// the /apps_raw/add → /apps_raw/edit/{path} promotion. Those remounts fire no
+	// beforeNavigate, so leaveOnDestroy stays false and the chat survives; the
+	// fresh onMount then sees mode is still APP and skips its clearing saveAndClear.
+	let leaveOnDestroy = $state(false)
+	beforeNavigate(({ from, to }) => {
+		// Recompute on every navigation (both branches) so a stale decision never
+		// lingers. Decided from the route pathnames (not this instance's `path`,
+		// which is '' on the add page) so cross-app navigation clears reliably.
+		leaveOnDestroy = !navStaysInEditor(
+			from?.url.pathname ?? '',
+			to?.url.pathname ?? '',
+			'/apps_raw/add',
+			'/apps_raw/edit/'
+		)
+	})
+
 	onMount(() => {
-		aiChatManager.saveAndClear()
+		// The previous instance may have preserved the chat for intra-app-editor
+		// nav; in that case mode is still APP and the conversation is intact. Skip
+		// saveAndClear so we don't blow it away.
+		if (aiChatManager.mode !== AIMode.APP) {
+			aiChatManager.saveAndClear()
+		}
 		aiChatManager.changeMode(AIMode.APP)
 		rawAppLintStore.enable()
 		loadSharedUi()
@@ -679,6 +706,15 @@
 		return () => {
 			rawAppLintStore.disable()
 			historyManager.destroy()
+		}
+	})
+
+	onDestroy(() => {
+		// Only a real navigation away from this app's editor clears the chat (see
+		// leaveOnDestroy above). Internal remounts leave it false and preserve it.
+		if (leaveOnDestroy) {
+			aiChatManager.saveAndClear()
+			aiChatManager.changeMode(AIMode.NAVIGATOR)
 		}
 	})
 
