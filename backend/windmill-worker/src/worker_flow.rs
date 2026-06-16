@@ -311,13 +311,14 @@ struct RecoveryObject {
     recover: Option<bool>,
 }
 
-fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<String>) {
+/// Returns `(skip_if_stopped, error_message, include_step_result)`.
+fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<String>, bool) {
     if let Some(stop_after_if) = stop_after_if {
         // skip_if_stopped and error_message are mutually exclusive:
         // skip_if_stopped=true means clean stop (mark remaining as skipped),
         // error_message means stop with error. skip_if_stopped takes precedence.
         if stop_after_if.skip_if_stopped {
-            return (true, None);
+            return (true, None, false);
         }
         let err_msg = stop_after_if.error_message.as_ref().and_then(|message| {
             if message.is_empty() {
@@ -326,9 +327,9 @@ fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<
                 Some(message.clone())
             }
         });
-        return (false, err_msg);
+        return (false, err_msg, stop_after_if.error_include_result);
     }
-    return (false, None);
+    return (false, None, false);
 }
 
 async fn get_id_ctx_for_expr(
@@ -358,6 +359,7 @@ async fn evaluate_stop_after_all_iters_if(
     stop_early: &mut bool,
     skip_if_stop_early: &mut bool,
     stop_early_err_msg: &mut Option<String>,
+    stop_early_include_result: &mut bool,
     nresult: &mut Option<Arc<Box<RawValue>>>,
     args: HashMap<String, Box<RawValue>>,
     flow_env: Option<&HashMap<String, Box<RawValue>>>,
@@ -394,8 +396,11 @@ async fn evaluate_stop_after_all_iters_if(
 
     if stop_early_after_all_iters {
         *stop_early = true;
-        (*skip_if_stop_early, *stop_early_err_msg) =
-            get_stop_after_if_data(Some(stop_after_all_iters_if));
+        (
+            *skip_if_stop_early,
+            *stop_early_err_msg,
+            *stop_early_include_result,
+        ) = get_stop_after_if_data(Some(stop_after_all_iters_if));
     }
     Ok(())
 }
@@ -655,19 +660,24 @@ pub async fn update_flow_status_after_job_completion_internal(
             false
         };
 
-        let (mut stop_early, mut stop_early_err_msg, mut skip_if_stop_early, continue_on_error) =
-            if stop_early_override.is_some()
-                && !is_flow_stop_early_override
-                && !parallel_loop
-                && !parallel_branchall
-            {
-                // we ignore stop_early_override (stop_early in children) if module is parallel or is a flow step
-                let se = stop_early_override.as_ref().unwrap();
-                (true, None, *se, false)
-            } else if is_failure_step || module_step.is_preprocessor_step() {
-                (false, None, false, false)
-            } else if let Some(current_module) = current_module {
-                let stop_early = success
+        let (
+            mut stop_early,
+            mut stop_early_err_msg,
+            mut skip_if_stop_early,
+            mut stop_early_include_result,
+            continue_on_error,
+        ) = if stop_early_override.is_some()
+            && !is_flow_stop_early_override
+            && !parallel_loop
+            && !parallel_branchall
+        {
+            // we ignore stop_early_override (stop_early in children) if module is parallel or is a flow step
+            let se = stop_early_override.as_ref().unwrap();
+            (true, None, *se, false, false)
+        } else if is_failure_step || module_step.is_preprocessor_step() {
+            (false, None, false, false, false)
+        } else if let Some(current_module) = current_module {
+            let stop_early = success
                     && !is_branch_all // we don't support stop_early per branch
                     && !parallel_loop // we don't support anymore stop_early per iteration when parallel for loop (removed from frontend)
                     && !is_identity_job // don't evaluate stop_after_if for skipped (identity) steps
@@ -717,21 +727,22 @@ pub async fn update_flow_status_after_job_completion_internal(
                     } else {
                         false
                     };
-                let (skip_if_stopped, stop_early_err_msg) = if stop_early {
-                    get_stop_after_if_data(current_module.stop_after_if.as_ref())
-                } else {
-                    (false, None)
-                };
-
-                (
-                    stop_early,
-                    stop_early_err_msg,
-                    skip_if_stopped,
-                    current_module.continue_on_error.unwrap_or(false),
-                )
+            let (skip_if_stopped, stop_early_err_msg, include_result) = if stop_early {
+                get_stop_after_if_data(current_module.stop_after_if.as_ref())
             } else {
-                (false, None, false, false)
+                (false, None, false)
             };
+
+            (
+                stop_early,
+                stop_early_err_msg,
+                skip_if_stopped,
+                include_result,
+                current_module.continue_on_error.unwrap_or(false),
+            )
+        } else {
+            (false, None, false, false, false)
+        };
 
         let skip_seq_branch_failure = match module_status {
             FlowStatusModule::InProgress {
@@ -974,6 +985,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &mut stop_early,
                             &mut skip_if_stop_early,
                             &mut stop_early_err_msg,
+                            &mut stop_early_include_result,
                             &mut nresult,
                             args,
                             resolved_flow_env.as_deref(),
@@ -1173,6 +1185,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     stop_early = false;
                     stop_early_err_msg = None;
                     skip_if_stop_early = false;
+                    stop_early_include_result = false;
                 }
 
                 if is_loop || (is_branch_all && !stop_early) {
@@ -1194,6 +1207,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &mut stop_early,
                             &mut skip_if_stop_early,
                             &mut stop_early_err_msg,
+                            &mut stop_early_include_result,
                             &mut nresult,
                             args,
                             resolved_flow_env.as_deref(),
@@ -1310,12 +1324,22 @@ pub async fn update_flow_status_after_job_completion_internal(
         };
 
         if stop_early && stop_early_err_msg.is_some() {
-            nresult = Some(Arc::new(to_raw_value(&serde_json::json! ({
-                "error": {
-                    "name": "EarlyStopError",
-                    "message": stop_early_err_msg.as_ref().unwrap(),
-                }
-            }))));
+            let mut error = serde_json::json!({
+                "name": "EarlyStopError",
+                "message": stop_early_err_msg.as_ref().unwrap(),
+            });
+            if stop_early_include_result {
+                // Embed the stopping step's own result inside the error object instead
+                // of discarding it, keeping the top-level result shape `{ "error": .. }`
+                // unchanged. `nresult` is already set for loops/branchall (aggregated
+                // iteration results), otherwise fall back to the step result.
+                let step_result = nresult.clone().unwrap_or_else(|| result.clone());
+                error["result"] =
+                    serde_json::to_value(&step_result).unwrap_or(serde_json::Value::Null);
+            }
+            nresult = Some(Arc::new(to_raw_value(
+                &serde_json::json!({ "error": error }),
+            )));
         }
 
         let step_counter = if inc_step_counter {
@@ -3244,7 +3268,7 @@ async fn push_next_flow_job(
     }
 
     // Compute and initialize last_job_result
-    let arc_last_job_result = if status_module.is_failure() {
+    let mut arc_last_job_result = if status_module.is_failure() {
         // if job is being retried, pass the result of its previous failure
         last_job_result.unwrap_or_else(|| Arc::new(to_raw_value(&json!("{}"))))
     } else if matches!(step, Step::Step { idx: 0, .. }) || step.is_preprocessor_step() {
@@ -3675,6 +3699,30 @@ async fn push_next_flow_job(
                  .context("update flow retry")?;
 
                 status_module = FlowStatusModule::WaitingForPriorSteps { id: status_module.id() };
+
+                // The failed attempt's error has already been consumed by `evaluate_retry`
+                // above. Restore `previous_result` to the preceding step's result (or the
+                // flow args for the first step) so that predicates re-evaluated for the
+                // retry (skip_if, loop iterator expressions, ...) don't see the failed
+                // attempt's error instead. Like the suspend/restart path above, this
+                // falls back to `"{}"` when the preceding step has no Success status
+                // (e.g. it failed with continue_on_error).
+                if !matches!(step, Step::FailureStep) {
+                    arc_last_job_result = if matches!(step, Step::Step { idx: 0, .. })
+                        || step.is_preprocessor_step()
+                    {
+                        Arc::new(to_raw_value(&flow_job.args))
+                    } else {
+                        match get_previous_job_result(db, flow_job.workspace_id.as_str(), &status)
+                            .warn_after_seconds(3)
+                            .await?
+                        {
+                            None => Arc::new(to_raw_value(&json!("{}"))),
+                            Some(previous_job_result) => Arc::new(previous_job_result),
+                        }
+                    };
+                }
+
                 // we get the args from the last failed job
                 status.retry.failed_jobs.last()
             /* Start the failure module ... */
@@ -4172,6 +4220,21 @@ async fn push_next_flow_job(
                     .get_or_insert_with(HashMap::new)
                     .insert("_TEMP_SCRIPT_REFS".to_string(), temp_script_refs.clone());
             }
+        }
+
+        // Propagate the inbound W3C traceparent captured at enqueue to each step
+        // so the whole flow shares the originating distributed trace (the trace
+        // identity is otherwise derived from the root job UUID). Observability
+        // only — no security impact — so unlike _TEMP_SCRIPT_REFS it is not
+        // gated to previews.
+        if let Some(traceparent) = arc_flow_job_args
+            .as_ref()
+            .get(windmill_common::jobs::WM_TRACEPARENT)
+        {
+            push_args.extra.get_or_insert_with(HashMap::new).insert(
+                windmill_common::jobs::WM_TRACEPARENT.to_string(),
+                traceparent.clone(),
+            );
         }
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed args for job {i} of {len}");
@@ -5019,13 +5082,13 @@ async fn compute_next_flow_transform(
                 NextStatus::NextStep,
             ))
         }
-        FlowModuleValue::AIAgent { .. } => {
+        FlowModuleValue::AIAgent { tag, .. } => {
             let path = get_path(flow_job, status, module);
             let payload = JobPayload::AIAgent { path };
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(JobPayloadWithTag {
                     payload,
-                    tag: None,
+                    tag: tag.filter(|t| !t.trim().is_empty()),
                     delete_after_use,
                     delete_after_secs,
                     timeout: None,

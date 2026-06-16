@@ -3640,6 +3640,27 @@ pub async fn check_w_id_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &
     return Ok(());
 }
 
+/// Reject fork creation when the target workspace id is already taken,
+/// distinguishing archived workspaces: archiving is a soft delete that keeps
+/// the id reserved, which users frequently mistake for a permanent delete.
+async fn check_fork_w_id_conflict(db: &DB, w_id: &str) -> Result<()> {
+    let deleted = sqlx::query_scalar!("SELECT deleted FROM workspace WHERE id = $1", w_id)
+        .fetch_optional(db)
+        .await?;
+    match deleted {
+        Some(true) => Err(Error::BadRequest(format!(
+            "Workspace '{w_id}' already exists but is archived (archiving does not free up the workspace id). \
+             To reuse this id, permanently delete the archived workspace first — its owner or a superadmin \
+             can do so from the fork creation dialog, the superadmin workspaces page, or the CLI \
+             (`wmill workspace delete-fork`) — or choose a different fork id."
+        ))),
+        Some(false) => Err(Error::BadRequest(format!(
+            "Workspace '{w_id}' already exists. Delete the existing fork first or choose a different fork id."
+        ))),
+        None => Ok(()),
+    }
+}
+
 lazy_static::lazy_static! {
 
     pub static ref CREATE_WORKSPACE_REQUIRE_SUPERADMIN: bool = {
@@ -3823,10 +3844,15 @@ async fn create_workspace(
     Ok(format!("Created workspace {}", &nw.id))
 }
 
+// `authed_email` is the forker's email — `clone_drafts` only carries this
+// user's per-user drafts (and the legacy NULL-email workspace draft, if any)
+// across, since other users aren't added to the fork's `usr` table and
+// their drafts would dangle as orphans.
 async fn clone_workspace_data(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
+    authed_email: &str,
 ) -> Result<()> {
     // Clone workspace settings (merge with existing basic settings)
     update_workspace_settings(tx, source_workspace_id, target_workspace_id).await?;
@@ -3866,6 +3892,14 @@ async fn clone_workspace_data(
 
     // Clone raw apps
     clone_raw_apps(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone the forker's own per-user drafts (plus the legacy NULL-email
+    // workspace draft, if any) so they keep their pending edits in the
+    // fork. Other users' drafts are intentionally NOT cloned — they don't
+    // own a `usr` row in the fork (see `clone_workspace_full`) so their
+    // drafts would dangle and the home-page `draft_users` aggregate would
+    // surface them as duplicate legacy entries.
+    clone_drafts(tx, source_workspace_id, target_workspace_id, authed_email).await?;
 
     // Clone workspace runnable dependencies and dependency map
     clone_workspace_runnable_dependencies(tx, source_workspace_id, target_workspace_id).await?;
@@ -4233,8 +4267,8 @@ async fn clone_folders(
     target_workspace_id: &str,
 ) -> Result<()> {
     sqlx::query!(
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as)
-         SELECT $2, name, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels)
+         SELECT $2, name, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels
          FROM folder
          WHERE workspace_id = $1",
         source_workspace_id,
@@ -4343,7 +4377,7 @@ async fn clone_scripts(
         r#"INSERT INTO script (
             workspace_id, hash, path, parent_hashes, summary, description, content,
             created_by, created_at, archived, schema, deleted, is_template,
-            extra_perms, lock, lock_error_logs, language, kind, tag, draft_only,
+            extra_perms, lock, lock_error_logs, language, kind, tag,
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
@@ -4353,7 +4387,7 @@ async fn clone_scripts(
         SELECT
             $1, hash, path, parent_hashes, summary, description, content,
             created_by, created_at, archived, schema, deleted, is_template,
-            extra_perms, lock, lock_error_logs, language, kind, tag, draft_only,
+            extra_perms, lock, lock_error_logs, language, kind, tag,
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
@@ -4396,12 +4430,12 @@ async fn clone_flows(
     sqlx::query!(
         "INSERT INTO flow (
             workspace_id, path, summary, description, value, edited_by, edited_at,
-            archived, schema, extra_perms, dependency_job, draft_only, tag,
+            archived, schema, extra_perms, dependency_job, tag,
             ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
             concurrency_key, versions, on_behalf_of_email, lock_error_logs
         )
         SELECT $2, path, summary, description, value, edited_by, edited_at,
-               archived, schema, extra_perms, NULL, draft_only, tag,
+               archived, schema, extra_perms, NULL, tag,
                ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
                concurrency_key, ARRAY[]::bigint[], on_behalf_of_email, lock_error_logs
         FROM flow
@@ -4482,7 +4516,7 @@ async fn clone_apps(
 ) -> Result<HashMap<i64, i64>> {
     // Get all apps from source workspace
     let apps = sqlx::query!(
-        "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, draft_only, custom_path
+        "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, custom_path
          FROM app
          WHERE workspace_id = $1",
         source_workspace_id
@@ -4495,8 +4529,8 @@ async fn clone_apps(
     // Clone apps with new IDs
     for app in apps {
         let new_app_id = sqlx::query_scalar!(
-            "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, draft_only, custom_path)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, custom_path)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
              RETURNING id",
             target_workspace_id,
             app.path,
@@ -4504,7 +4538,6 @@ async fn clone_apps(
             app.policy,
             &Vec::<i64>::new(), // Start with empty versions array
             app.extra_perms,
-            app.draft_only,
             app.custom_path,
         )
         .fetch_one(&mut **tx)
@@ -4708,6 +4741,39 @@ async fn clone_raw_apps(
     Ok(())
 }
 
+/// Clone every per-user draft (and the legacy NULL-email workspace draft,
+/// if present) from the parent. The fork target is empty at create time so
+/// a plain INSERT is safe — no need to UPSERT against the partial unique
+/// indexes (`draft_pkey_with_user` / `draft_pkey_legacy`). `id` is the
+/// BIGSERIAL synthetic PK and is regenerated by the default; we don't list
+/// it in the column set. `created_at` is preserved so the per-tab
+/// `last_sync` baseline the editor reads (`?get_draft=true` → overlay's
+/// `draft_saved_at`) lines up with the parent's timeline — otherwise the
+/// fork's first POST from any open editor would race a stale `last_sync`
+/// and trip the conflict modal on every cloned draft.
+// Only `email = authed_email` and the legacy NULL row are cloned — see
+// `clone_workspace_data` for the rationale.
+async fn clone_drafts(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    authed_email: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO draft (workspace_id, path, typ, value, created_at, email)
+         SELECT $2, path, typ, value, created_at, email
+         FROM draft
+         WHERE workspace_id = $1 AND (email = $3 OR email IS NULL)",
+        source_workspace_id,
+        target_workspace_id,
+        authed_email,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
 async fn clone_workspace_runnable_dependencies(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -4794,6 +4860,10 @@ async fn create_workspace_fork_branch(
     }
 
     validate_fork_workspace_id(&nw.id)?;
+
+    // Fail before creating any git branch so a name conflict doesn't leave a
+    // dangling branch on the synced repos.
+    check_fork_w_id_conflict(&db, &nw.id).await?;
 
     Ok(Json(
         handle_fork_branch_creation(&authed.email, &authed.username, &db, &w_id, &nw.id).await?,
@@ -4933,6 +5003,12 @@ async fn create_workspace_fork(
         )));
     }
 
+    validate_fork_workspace_id(&nw.id)?;
+    // Check the id conflict before the CE workspace-count limit so that
+    // re-using a taken (possibly archived) fork id reports the actual
+    // conflict instead of a misleading "maximum number of workspaces" error.
+    check_fork_w_id_conflict(&db, &nw.id).await?;
+
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
 
@@ -4953,8 +5029,6 @@ async fn create_workspace_fork(
     }
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
-
-    validate_fork_workspace_id(&nw.id)?;
 
     let forked_id = nw.id;
 
@@ -4994,7 +5068,7 @@ async fn create_workspace_fork(
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id).await?;
+    clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id, &authed.email).await?;
 
     // Clone triggers and schedules unconditionally, always with mode='disabled' /
     // enabled=false. Disabled rows have no side effects (no listener
@@ -5164,6 +5238,18 @@ async fn archive_workspace(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
+        Some(audit_params_refs.clone()),
+    )
+    .await?;
+    // Also record under the instance-level "admins" workspace so superadmins can
+    // discover who archived a workspace after it becomes hidden from the UI.
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.archive",
+        ActionKind::Update,
+        "admins",
+        Some(&w_id),
         Some(audit_params_refs),
     )
     .await?;
@@ -5222,6 +5308,18 @@ async fn unarchive_workspace(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
+        None,
+    )
+    .await?;
+    // Also record under the instance-level "admins" workspace so superadmins keep
+    // a durable trail of who unarchived a workspace.
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.unarchive",
+        ActionKind::Update,
+        "admins",
+        Some(&w_id),
         None,
     )
     .await?;
@@ -6290,13 +6388,67 @@ async fn compare_workspaces(
     .fetch_all(&db)
     .await?;
 
+    // A cached `has_changes = true` row is trusted without re-running the
+    // per-kind comparison, but that verdict can go stale: an item archived or
+    // deleted after it was cached still carries `exists_in_*=true` here. The
+    // common offender is the old path after a rename — for lock-gen languages
+    // (Python/TS/…) the `has_changes=NULL` reset is deferred to the dependency
+    // job, so until that runs (or if it fails) the archived old path looks like
+    // a live ahead change. Treat archived as non-existent: re-validate such rows
+    // against the live tables and, if the item no longer exists on a side the
+    // cache claims, re-evaluate it below so it gets corrected or removed.
+    //
+    // Only scripts/flows can hit this (they have `archived`; other kinds reset
+    // synchronously on delete). Probe both sides in one batched query per kind
+    // (mirroring `query_visible_items`) rather than per row, to keep the hot
+    // compare path off an O(number of cached diffs) sequence of round trips.
+    let (live_source, live_fork) = {
+        let mut cached_source: HashMap<&str, Vec<&str>> = HashMap::new();
+        let mut cached_fork: HashMap<&str, Vec<&str>> = HashMap::new();
+        for item in &diff_items {
+            if item.has_changes == Some(true) && (item.kind == "script" || item.kind == "flow") {
+                if item.exists_in_source.unwrap_or(false) {
+                    cached_source
+                        .entry(item.kind.as_str())
+                        .or_default()
+                        .push(item.path.as_str());
+                }
+                if item.exists_in_fork.unwrap_or(false) {
+                    cached_fork
+                        .entry(item.kind.as_str())
+                        .or_default()
+                        .push(item.path.as_str());
+                }
+            }
+        }
+        (
+            existing_runnables(&db, &source_workspace_id, &cached_source).await?,
+            existing_runnables(&db, &fork_workspace_id, &cached_fork).await?,
+        )
+    };
+
     let mut confirmed_diffs = vec![];
     for item in diff_items {
         if let Some(has_changes) = item.has_changes {
-            if has_changes {
-                confirmed_diffs.push(item);
+            if !has_changes {
+                // Defensive: rows that compared equal are normally deleted, so
+                // this is rarely hit. Not a diff — skip.
+                continue;
             }
-            continue;
+            // Stale only applies to script/flow (others aren't in the probed
+            // sets); a row whose claimed-existing side has no live version is
+            // stale and falls through to re-evaluation.
+            let key = (item.kind.clone(), item.path.clone());
+            let fork_stale = item.exists_in_fork.unwrap_or(false) && !live_fork.contains(&key);
+            let source_stale =
+                item.exists_in_source.unwrap_or(false) && !live_source.contains(&key);
+            let probed = item.kind == "script" || item.kind == "flow";
+            if !(probed && (fork_stale || source_stale)) {
+                // Cache is still valid (or not a probed kind) — trust it.
+                confirmed_diffs.push(item);
+                continue;
+            }
+            // Stale cache: fall through to re-evaluate (and correct/delete) below.
         }
 
         let item_comparison = match item.kind.as_str() {
@@ -6721,6 +6873,50 @@ async fn query_visible_items<'c>(
     Ok(visible)
 }
 
+/// Batched existence probe used to detect stale `workspace_diff` cache rows.
+///
+/// Given candidate paths grouped by kind, returns the set of `(kind, path)`
+/// that currently have a *deployable* (non-archived) version in the workspace,
+/// mirroring the existence semantics of `compare_two_scripts` /
+/// `compare_two_flows`. Only scripts and flows are probed — they're the only
+/// kinds with `archived`, and the only ones whose diff-row reset can lag behind
+/// the actual change (deferred dependency job for lock-gen languages); other
+/// kinds reset synchronously on delete, so their cache is trusted (and they're
+/// never passed in). One query per kind keeps the compare path off a per-row
+/// sequence of round trips. Runs on `&db` (no RLS) — this is a pure existence
+/// check; authorization stays in `filter_visible_diffs` / `query_visible_items`.
+async fn existing_runnables(
+    db: &DB,
+    workspace_id: &str,
+    items_by_kind: &HashMap<&str, Vec<&str>>,
+) -> Result<HashSet<(String, String)>> {
+    let mut existing = HashSet::new();
+    for (kind, paths) in items_by_kind {
+        let paths_vec: Vec<String> = paths.iter().map(|s| s.to_string()).collect();
+        let found: Vec<String> = match *kind {
+            "script" => sqlx::query_scalar!(
+                "SELECT DISTINCT path FROM script WHERE workspace_id = $1 AND path = ANY($2) AND archived = false",
+                workspace_id,
+                &paths_vec
+            )
+            .fetch_all(db)
+            .await?,
+            "flow" => sqlx::query_scalar!(
+                "SELECT path FROM flow WHERE workspace_id = $1 AND path = ANY($2) AND archived = false",
+                workspace_id,
+                &paths_vec
+            )
+            .fetch_all(db)
+            .await?,
+            _ => vec![],
+        };
+        for path in found {
+            existing.insert((kind.to_string(), path));
+        }
+    }
+    Ok(existing)
+}
+
 #[derive(Debug)]
 struct ItemComparison {
     has_changes: bool,
@@ -6845,7 +7041,7 @@ async fn compare_two_apps(
          FROM app
          JOIN app_version
          ON app_version.id = app.versions[array_upper(app.versions, 1)]
-         WHERE app.workspace_id = $1 AND app.path = $2 AND COALESCE(app.draft_only, false) = false",
+         WHERE app.workspace_id = $1 AND app.path = $2",
         source_workspace_id,
         path
     )
@@ -6857,7 +7053,7 @@ async fn compare_two_apps(
          FROM app
          JOIN app_version
          ON app_version.id = app.versions[array_upper(app.versions, 1)]
-         WHERE app.workspace_id = $1 AND app.path = $2 AND COALESCE(app.draft_only, false) = false",
+         WHERE app.workspace_id = $1 AND app.path = $2",
         fork_workspace_id,
         path
     )
@@ -7303,7 +7499,7 @@ async fn get_cloud_quotas(
     let scripts_prunable = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM script s WHERE s.workspace_id = $1 AND s.hash NOT IN (
             SELECT DISTINCT ON (path) hash FROM script
-            WHERE workspace_id = $1 AND deleted = false AND draft_only IS NOT TRUE
+            WHERE workspace_id = $1 AND deleted = false
             ORDER BY path, created_at DESC
         )",
         &w_id
@@ -7398,7 +7594,7 @@ async fn prune_versions(
                 "DELETE FROM script
                 WHERE workspace_id = $1 AND hash NOT IN (
                     SELECT DISTINCT ON (path) hash FROM script
-                    WHERE workspace_id = $1 AND deleted = false AND draft_only IS NOT TRUE
+                    WHERE workspace_id = $1 AND deleted = false
                     ORDER BY path, created_at DESC
                 )",
             )

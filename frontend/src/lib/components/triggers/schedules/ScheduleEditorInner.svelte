@@ -152,11 +152,15 @@
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			path = defaultCfg?.path ?? ePath
-			await loadSchedule(defaultCfg)
-			edit = true
+			const { overlay: draftOverlay, noDeployed } = await loadSchedule(defaultCfg)
+			// Draft-only schedules have no deployed row, so saving must CREATE (update 404s).
+			edit = !noDeployed
 			if (!defaultCfg) {
+				// Form holds DEPLOYED here; capture it as `initialConfig` so the
+				// dirty check / banner fires whenever a saved draft exists.
 				initialConfig = structuredClone($state.snapshot(getScheduleCfg()))
 			}
+			if (draftOverlay) await loadScheduleCfg(draftOverlay)
 			await draftSync.maybeRestore()
 		} finally {
 			clearTimeout(loadingTimeout)
@@ -277,8 +281,10 @@
 		nis_flow: boolean,
 		initial_script_path?: string,
 		defaultValues?: Schedule,
-		schedule_path?: string
+		schedule_path?: string,
+		opts: { getDraft?: boolean } = {}
 	) {
+		const getDraft = opts.getDraft ?? true
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -286,10 +292,17 @@
 		try {
 			let s: Schedule | undefined
 			if (schedule_path) {
-				s = await ScheduleService.getSchedule({
+				const resp = await ScheduleService.getSchedule({
 					workspace: $workspaceStore!,
-					path: schedule_path
+					path: schedule_path,
+					getDraft
 				})
+				// `.draft` holds the saved Schedule; layer it over the deployed
+				// fields so the form assignments below see the last-saved state.
+				const { draft: draftFromBackend, ...deployedSchedule } = resp as any
+				s = draftFromBackend
+					? ({ ...deployedSchedule, ...draftFromBackend } as Schedule)
+					: (deployedSchedule as Schedule)
 				initNewPath = true
 			} else if (defaultValues) {
 				s = defaultValues
@@ -452,19 +465,36 @@
 		}
 	}
 
-	async function loadSchedule(defaultCfg?: Record<string, any>): Promise<void> {
-		if (!defaultCfg) {
-			try {
-				const s = await ScheduleService.getSchedule({
-					workspace: $workspaceStore!,
-					path: initialPath
-				})
-				await loadScheduleCfg(s)
-			} catch (err) {
-				sendUserToast(`Could not load schedule: ${err}`, true)
-			}
-		} else {
+	/**
+	 * Apply the deployed config to the form, then return the saved-draft overlay
+	 * so the caller captures `initialConfig` from the deployed-only form BEFORE
+	 * applying the draft, making the banner fire whenever a draft is present.
+	 */
+	async function loadSchedule(
+		defaultCfg?: Record<string, any>
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
+		if (defaultCfg) {
 			await loadScheduleCfg(defaultCfg)
+			return { overlay: undefined, noDeployed: false }
+		}
+		try {
+			const s = await ScheduleService.getSchedule({
+				workspace: $workspaceStore!,
+				path: initialPath,
+				getDraft: true
+			})
+			const { draft: draftFromBackend, ...deployedSchedule } = s as any
+			await loadScheduleCfg(deployedSchedule)
+			return {
+				overlay: draftFromBackend
+					? ({ ...deployedSchedule, ...draftFromBackend } as Record<string, any>)
+					: undefined,
+				// Draft-only: synthesized stand-in, no row, so saving must CREATE.
+				noDeployed: !!(s as any).no_deployed
+			}
+		} catch (err) {
+			sendUserToast(`Could not load schedule: ${err}`, true)
+			return { overlay: undefined, noDeployed: false }
 		}
 	}
 

@@ -121,6 +121,30 @@ properties:
     type: array
     items:
       type: string
+  draft_only:
+    type: boolean
+    description: 'True when this row is a per-user draft with no deployed
+
+      schedule at the same path. Frontend renders a "Draft" badge.
+
+      '
+  is_draft:
+    type: boolean
+    description: 'True when the authed user has a per-user draft at this path
+
+      (over a deployed row or a synthesized draft-only row).
+
+      Frontend appends a `*` to the displayed name.
+
+      '
+  inherited_labels:
+    type: array
+    items:
+      type: string
+    description: 'Labels inherited from the parent folder, computed at read time.
+      Read-only — edit them on the folder.
+
+      '
 required:
 - schedule
 - script_path

@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 use windmill_common::{
     error,
-    jobs::{CompletedJob, JobKind, JobTriggerKind, QueuedJob},
+    jobs::{CompletedJob, JobKind, JobStatus, JobTriggerKind, QueuedJob},
     scripts::{ScriptHash, ScriptLang},
     utils::now_from_db,
     DB,
@@ -142,6 +142,7 @@ pub struct ListCompletedQuery {
     pub created_after_queue: Option<chrono::DateTime<chrono::Utc>>,
     pub completed_after: Option<chrono::DateTime<chrono::Utc>>,
     pub completed_before: Option<chrono::DateTime<chrono::Utc>>,
+    pub status: Option<JobStatus>,
     pub success: Option<bool>,
     pub running: Option<bool>,
     pub parent_job: Option<String>,
@@ -680,6 +681,7 @@ mod tests {
             created_after_queue: None,
             completed_after: None,
             completed_before: None,
+            status: None,
             success: None,
             running: Some(true),
             parent_job: None,
@@ -752,6 +754,7 @@ mod tests {
             created_after_queue: Some(specific_time),
             completed_after: None,
             completed_before: None,
+            status: None,
             success: None,
             running: None,
             parent_job: None,

@@ -14,7 +14,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
-import { getDefaultChatTemperature, modelDisallowsSamplingParams } from './modelConfig'
+import { requiresMaxCompletionTokens } from './modelConfig'
+import { applyReasoningToConfig } from './reasoningRegistry'
 import { formatResourceTypes } from './utils'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
 import {
@@ -33,6 +34,7 @@ import {
 import {
 	buildAssistantTextMessage,
 	buildAssistantToolCallMessage,
+	splitContentDelta,
 	getReasoningContentDelta
 } from './chat/openaiReasoning'
 import { parseFimCompletionChoice } from './fim'
@@ -66,7 +68,7 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	},
 	anthropic: {
 		label: 'Anthropic',
-		defaultModels: ['claude-sonnet-4-6', 'claude-sonnet-4-6/thinking', 'claude-3-5-haiku-latest']
+		defaultModels: ['claude-sonnet-4-6', 'claude-3-5-haiku-latest']
 	},
 	mistral: {
 		label: 'Mistral',
@@ -285,21 +287,6 @@ export function getModelMaxTokens(provider: AIProvider, model: string) {
 	return 8192
 }
 
-export function getModelContextWindow(model: string) {
-	if (model.includes('gpt-4.1') || model.includes('gemini')) {
-		return 1000000
-	} else if (model.includes('gpt-5')) {
-		return 400000
-	} else if (model.includes('gpt-4o') || model.includes('llama-3.3')) {
-		return 128000
-	} else if (model.includes('claude') || model.includes('o4-mini') || model.includes('o3')) {
-		return 200000
-	} else if (model.includes('codestral')) {
-		return 32000
-	} else {
-		return 128000
-	}
-}
 
 function getModelSpecificConfig(
 	modelProvider: AIProviderModel,
@@ -314,10 +301,9 @@ function getModelSpecificConfig(
 		// copilotInfo store may not be initialized in vitest
 	}
 	const maxTokens = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
-	const defaultTemperature = getDefaultChatTemperature(modelProvider)
 	if (
 		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
-		modelDisallowsSamplingParams(modelProvider.model)
+		requiresMaxCompletionTokens(modelProvider.model)
 	) {
 		return {
 			model: modelProvider.model,
@@ -326,18 +312,7 @@ function getModelSpecificConfig(
 		}
 	} else {
 		return {
-			...(modelProvider.model.endsWith('/thinking')
-				? {
-						thinking: {
-							type: 'enabled',
-							budget_tokens: 1024
-						},
-						model: modelProvider.model.slice(0, -9)
-					}
-				: {
-						model: modelProvider.model,
-						...(defaultTemperature !== undefined ? { temperature: defaultTemperature } : {})
-					}),
+			model: modelProvider.model,
 			...(tools && tools.length > 0 ? { tools } : {}),
 			max_tokens: maxTokens
 		}
@@ -720,6 +695,18 @@ const PROMPTS_CONFIGS = {
 	gen: GEN_CONFIG
 }
 
+/**
+ * Whether a provider can use native web search automatically in the web chat.
+ * Azure OpenAI can expose Responses API `web_search` for some deployments, but
+ * it is subscription/admin controlled and routes data through Grounding with
+ * Bing, so do not silently enable it until there is explicit Azure-specific UI.
+ * Providers behind OpenAI-compatible/native-translation proxy paths have no
+ * forwardable native web-search tool.
+ */
+export function providerSupportsWebSearch(provider: AIProvider | undefined): boolean {
+	return provider === 'openai' || provider === 'anthropic'
+}
+
 export function getProviderAndCompletionConfig<K extends boolean>({
 	messages,
 	stream,
@@ -892,6 +879,7 @@ export async function getCompletion(
 		forceCompletions?: boolean
 		forceModelProvider?: AIProviderModel
 		openaiClient?: OpenAI
+		reasoningEffort?: string
 	}
 ): Promise<Stream<ChatCompletionChunk>> {
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -906,7 +894,8 @@ export async function getCompletion(
 		try {
 			const stream = getOpenAIResponsesCompletionStream(messages, abortController, tools, {
 				forceModelProvider: options?.forceModelProvider,
-				openaiClient: options?.openaiClient
+				openaiClient: options?.openaiClient,
+				reasoningEffort: options?.reasoningEffort
 			}) as any
 			return stream
 		} catch (error) {
@@ -916,9 +905,9 @@ export async function getCompletion(
 
 	// Use Completions API for other providers
 	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
-	const completionConfig =
+	const completionConfig = applyReasoningToConfig(
 		(provider === 'openai' || provider === 'azure_openai' || provider === 'googleai') &&
-		config.stream
+			config.stream
 			? {
 					...config,
 					stream_options: {
@@ -926,7 +915,10 @@ export async function getCompletion(
 						include_usage: true
 					}
 				}
-			: config
+			: config,
+		provider === 'deepseek' ? 'deepseek' : provider === 'mistral' ? 'mistral' : 'completions',
+		options?.reasoningEffort
+	)
 	const completion = client.chat.completions.create(completionConfig, {
 		signal: abortController.signal,
 		headers: {
@@ -957,7 +949,7 @@ export async function parseOpenAICompletion(
 	tools: Tool<any>[],
 	helpers: any,
 	_abortController?: AbortController, // unused, for signature compatibility with parseAnthropicCompletion
-	options?: { workspace?: string }
+	options?: { workspace?: string; provider?: string }
 ): Promise<{ shouldContinue: boolean; tokenUsage: ChatTokenUsage }> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
 	let malformedFunctionCallError = false
@@ -988,13 +980,19 @@ export async function parseOpenAICompletion(
 			malformedFunctionCallError = true
 		}
 
+		// Mistral nests reasoning inside structured content parts; split them out
+		// so a content delta never leaks "[object Object]" into the answer.
+		const structured = splitContentDelta(delta.content)
 		const reasoningDelta = getReasoningContentDelta(delta)
-		if (typeof reasoningDelta === 'string') {
+		const reasoningText =
+			(typeof reasoningDelta === 'string' ? reasoningDelta : '') + structured.reasoning
+		if (typeof reasoningDelta === 'string' || structured.reasoning) {
 			hasReasoningContent = true
-			reasoningContent += reasoningDelta
+			reasoningContent += reasoningText
+			callbacks.onReasoningDelta?.(reasoningText)
 		}
 
-		const contentDelta = delta.content
+		const contentDelta = structured.text
 		if (contentDelta) {
 			answer += contentDelta
 			assistantContent += contentDelta
@@ -1109,7 +1107,8 @@ export async function parseOpenAICompletion(
 				hasReasoningContent,
 				reasoningContent
 			},
-			toolCalls: normalizedToolCalls
+			toolCalls: normalizedToolCalls,
+			provider: options?.provider
 		})
 		messages.push(toAdd)
 		addedMessages.push(toAdd)

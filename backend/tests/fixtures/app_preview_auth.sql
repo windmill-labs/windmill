@@ -32,3 +32,11 @@ INSERT INTO app (id, workspace_id, path, summary, policy, versions) VALUES
 	(999002, 'test-workspace', 'u/test-user-2/ownapp', 'own app', '{}'::jsonb, '{}');
 INSERT INTO app_script (id, app, hash, code, code_sha256) VALUES
 	(999778, 999002, repeat('c', 64), 'export function main(){ return "ok" }', repeat('d', 64));
+
+-- A deployed empty Viewer-mode app owned by `test-user` with NO runnables pinned
+-- in `triggerables_v2`. Used to assert run mode rejects caller-supplied inline
+-- `raw_code` whose sha is not publisher-pinned (the CVE-2026-22683 residual:
+-- the Viewer default fallback let any caller / an operator run arbitrary code).
+INSERT INTO app (id, workspace_id, path, summary, policy, versions) VALUES
+	(999003, 'test-workspace', 'u/test-user/vapp', 'empty viewer app',
+	 '{"execution_mode": "viewer", "triggerables_v2": {}}'::jsonb, '{}');

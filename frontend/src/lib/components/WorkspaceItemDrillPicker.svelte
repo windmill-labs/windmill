@@ -1,59 +1,49 @@
 <!--
 @component
-Drill-through workspace item picker. One level is shown at a time:
+Workspace drill picker — adapter over the generic `DrillPicker`. Preserves
+the workspace-specific public API (kinds, scope = `{ kind, dir? }`,
+currentItem, leaf/branch icons) so callers (BreadcrumbSegment, EditorHeader)
+don't need to know about the generic tree model underneath.
 
-  - **Root** (no scope): All + kinds (Flows / Scripts / Apps). "All" is a
-    cross-kind row — drilling in shows folders/items merged across every kind.
-  - **Kind** (`{ kind }`): top-level scopes for that kind (e.g. `f/demo`, `u/alice`).
-    `kind: 'all'` is the cross-kind variant — folders contain items from
-    every kind, leaves still belong to a real kind.
-  - **Dir** (`{ kind, dir }`): immediate children of `dir` — subdirs + leaves.
-
-Clicking a row drills *down*; the chevron-left in the header walks one level
-*up*. Search is global across all kinds and ignores the current scope.
+Surfaces AI-created localStorage drafts (via `listGlobalDrafts`) as extra
+items alongside the backend-loaded list, so chat-scaffolded scripts/flows/
+apps that haven't been deployed yet are still navigable. Gated on
+`isGlobalAiEnabled()` — without sessions, the only UserDrafts present are
+standalone editor autosaves and surfacing those in the breadcrumb picker
+would be surprising.
 -->
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
-	import { ChevronLeft, ChevronRight, Folder, Layers, Loader2, User } from 'lucide-svelte'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
-	import WorkspaceItemRow from '$lib/components/WorkspaceItemRow.svelte'
-	import SearchItems from '$lib/components/SearchItems.svelte'
-	import { onMount, untrack } from 'svelte'
-	import { generateRandomString } from '$lib/utils'
-	import {
-		dirKey,
-		getCachedItems,
-		KIND_LABEL,
-		KIND_LABEL_LOWER,
-		kindKey,
-		leafKeyFor,
-		loadKind,
-		type WorkspaceItem,
-		type WorkspaceItemKind
-	} from './workspacePicker'
+	import { untrack } from 'svelte'
+	import { type WorkspaceItem, type WorkspaceItemKind } from './workspacePicker'
+	import { useWorkspaceItemsLoader } from './workspaceItemsLoader.svelte'
+	import DrillPicker from './DrillPicker.svelte'
+	import type { DrillBranch, DrillLeaf } from './drillPicker'
+	import { buildWorkspaceTree, legacyScopeToPath, relativizeWorkspacePath } from './workspaceTree'
 	import { listGlobalDrafts } from '$lib/components/copilot/chat/global/userDraftAdapter'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
+	import { resource } from 'runed'
 
 	type Kind = WorkspaceItemKind
-	type Item = WorkspaceItem
-	/** `'all'` is a virtual cross-kind scope — items still belong to a real
-	 * kind, but folders and the root row group items from every kind. */
 	type ScopeKind = Kind | 'all'
+	type DrillPickerHandle = {
+		focus: () => void
+		handleKeydown: (e: KeyboardEvent) => void
+		pickHighlighted: () => void
+	}
 
 	export type Scope = { kind: ScopeKind; dir?: string } | undefined
 
 	interface Props {
 		onPick: (item: WorkspaceItem) => void
 		kinds?: Kind[]
-		/** Where the picker lands when first opened. `undefined` = root (kinds list). */
 		initialScope?: Scope
-		/** Composite key of the row to highlight (e.g. `dir:flow:f/demo`). */
 		initialHighlight?: string
-		/** Currently-edited item — gets `aria-current` and a no-op click. If
-		 * `savedPath` differs from `path` (draft rename), the saved entry is
-		 * suppressed so only the live one shows. */
 		currentItem?: WorkspaceItem & { savedPath?: string }
+		externalFilter?: string
+		autoFocus?: boolean
+		flush?: boolean
 	}
 
 	let {
@@ -61,116 +51,47 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		kinds = ['flow', 'script', 'app'],
 		initialScope,
 		initialHighlight,
-		currentItem
+		currentItem,
+		externalFilter,
+		autoFocus = true,
+		flush = false
 	}: Props = $props()
 
-	let searchInput: TextInput | undefined = $state()
-	let pickerRoot: HTMLElement | undefined = $state()
-	const instanceId = generateRandomString(8)
-	const listboxId = `pkr-list-${instanceId}`
-	const idFor = (key: string) => `pkr-${instanceId}-${key.replace(/[^a-zA-Z0-9-]/g, '_')}`
+	let inner = $state<DrillPickerHandle | undefined>(undefined)
 
 	export function focus() {
-		searchInput?.focus()
+		inner?.focus()
+	}
+	export function handleKeydown(e: KeyboardEvent) {
+		inner?.handleKeydown(e)
+	}
+	export function pickHighlighted() {
+		inner?.pickHighlighted()
 	}
 
-	// Sibling-popover open: melt-ui's `openFocus` runs once during the close→open
-	// transition; the picker may not be mounted yet. Retry after settle.
-	// Also kicks off the initial scope's fetch — drill/goUp do the same from
-	// their respective branches, so `ensureLoaded` is always a callback
-	// reaction to user navigation, never a reactive consequence.
-	onMount(() => {
-		const t = setTimeout(focus, 50)
-		const initial = untrack(() => scope)
-		if (initial) {
-			if (initial.kind === 'all') for (const k of kinds) ensureLoaded(k)
-			else ensureLoaded(initial.kind)
-		}
-		return () => clearTimeout(t)
-	})
-
-	const leafKey = (it: Item) => leafKeyFor(it.kind, it.path)
-
-	let scope = $state<Scope>(untrack(() => initialScope))
-	let filter = $state('')
-
-	/**
-	 * Canonical entry point for changing the picker's scope. Triggers the
-	 * fetch for the kind(s) the new scope needs at the same point in time.
-	 * Replaces the older "react to `scope` change via `$effect`" wiring,
-	 * which had a subtle bug: `ensureLoaded` reads `loaded[kind]`, so the
-	 * effect ended up subscribed to the signal it fills — every fetch
-	 * result re-fired it. With explicit callbacks the fetch is tied to
-	 * the user's action, never to a reactive consequence of that action.
-	 */
-	function setScope(next: Scope) {
-		scope = next
-		if (!next) return
-		if (next.kind === 'all') for (const k of kinds) ensureLoaded(k)
-		else ensureLoaded(next.kind)
-	}
-
-	/** Tracks whether the last user action was mouse movement (true) or
-	 * keyboard nav (false). When false, row `mouseenter` events are ignored
-	 * — prevents the cursor from stealing the keyboard-driven highlight as
-	 * rows shift under it during scope changes. Re-enabled on `mousemove`.
-	 * Starts `false` so the synthetic `mouseenter` fired when the popover
-	 * mounts under a stationary cursor doesn't clobber `initialHighlight`. */
-	let mouseActive = $state(false)
-
-	// Seed from the last fetched snapshot so kinds already fetched in this
-	// session render on the first frame. Each entry is replaced once
-	// `loadKind` returns fresh data — stale-while-revalidate, so deploys and
-	// AI-created drafts surface on the next open without explicit cache
-	// busting.
-	let loaded = $state<Partial<Record<Kind, Item[]>>>(
-		(() => {
-			if (!$workspaceStore) return {}
-			const out: Partial<Record<Kind, Item[]>> = {}
-			for (const k of kinds) {
-				const cached = getCachedItems($workspaceStore, k)
-				if (cached) out[k] = cached
-			}
-			return out
-		})()
+	const loader = useWorkspaceItemsLoader(
+		() => $workspaceStore,
+		() => kinds
 	)
-	let loadingKind = $state<Partial<Record<Kind, boolean>>>({})
 
-	async function ensureLoaded(kind: Kind) {
-		if (!$workspaceStore) return
-		// Always re-fetch. If we have nothing cached, show a spinner; if we do,
-		// keep displaying it and quietly swap to fresh data when it lands.
-		// `loaded[kind]` is read inside `untrack(...)` because this function is
-		// reachable from the search `$effect` below — without the untrack,
-		// that effect would subscribe to the signal `ensureLoaded` fills, and
-		// each `loaded[kind] = items` (proxy `set` notifies even when the ref
-		// is unchanged from cache) would refire it → runaway loop. Drill
-		// navigation goes through `setScope` directly so it isn't affected.
-		if (!untrack(() => loaded[kind])) loadingKind[kind] = true
-		try {
-			const items = await loadKind($workspaceStore, kind)
-			loaded[kind] = items
-		} finally {
-			loadingKind[kind] = false
-		}
-	}
-
-	// Chat tools and session editor previews write drafts through
-	// `UserDraft` (workspace-scoped, localStorage-backed). Merge those into
-	// the picker so users can navigate to in-flight items that haven't been
-	// deployed yet. Filter to kinds the picker actually displays.
-	//
-	// Gated on the same dev flag as the rest of the sessions feature: without
-	// it there are no sessions, so the only UserDrafts present are the
-	// standalone editors' autosaves — surfacing those in the breadcrumb picker
-	// would be surprising (they'd appear as navigable items that 404 on the
-	// backend draft fetch). When the flag is off this is a no-op.
+	// Chat tools and session editor previews write drafts through `UserDraft`
+	// (workspace-scoped, localStorage-backed). Merge those into the picker so
+	// users can navigate to in-flight items that haven't been deployed yet.
+	// Filter to kinds the picker actually displays. Gated on the global-AI
+	// flag — without sessions, the only UserDrafts present are the standalone
+	// editors' autosaves and surfacing those in the breadcrumb picker would
+	// be surprising (they'd appear as navigable items that 404 on the backend
+	// draft fetch).
 	const KIND_TO_DRAFT_TYPE = { flow: 'flow', script: 'script', app: 'app' } as const
-	function aiDraftsForKind(k: Kind): Item[] {
-		if (!isGlobalAiEnabled()) return []
-		if (!$workspaceStore) return []
+	// `listGlobalDrafts` is backend-backed (async); fetch once and derive the
+	// per-kind lists synchronously from the resolved snapshot.
+	const globalDraftsResource = resource(
+		() => ({ ws: $workspaceStore, enabled: isGlobalAiEnabled() }),
+		async ({ ws, enabled }) => (enabled && ws ? await listGlobalDrafts(ws) : [])
+	)
+	function aiDraftsForKind(k: Kind): WorkspaceItem[] {
 		const targetType = KIND_TO_DRAFT_TYPE[k]
-		return listGlobalDrafts($workspaceStore)
+		return (globalDraftsResource.current ?? [])
 			.filter((d) => d.type === targetType)
 			.map((d) => ({
 				path: d.path,
@@ -181,573 +102,58 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 			}))
 	}
 
-	// Searching is global → load every kind.
-	$effect(() => {
-		if (filter.trim() !== '') for (const k of kinds) ensureLoaded(k)
-	})
-
-	type DirNode = {
-		fullPath: string
-		name: string
-		isScope: boolean
-		children: DirNode[]
-		leaves: Item[]
-	}
-
-	/** Merge AI-created in-memory drafts into a kind's list. The AI may have
-	 * scaffolded a script/flow/app via chat tools without the user saving
-	 * yet — those drafts should be navigable from the picker. Existing items
-	 * (same path) win to keep the backend's metadata (summary etc.). */
-	function withAiDrafts(items: Item[], k: Kind): Item[] {
-		const ai = aiDraftsForKind(k)
-		if (ai.length === 0) return items
-		const known = new Set(items.map((it) => it.path))
-		return items.concat(ai.filter((d) => !known.has(d.path)))
-	}
-
-	/** Inject the currently-edited item into a kind's list at its live path,
-	 * dropping the saved entry when a draft rename is in progress. Other kinds
-	 * pass through untouched. */
-	function withCurrent(items: Item[], k: Kind): Item[] {
-		if (!currentItem || currentItem.kind !== k) return items
-		const drafted =
-			currentItem.savedPath && currentItem.savedPath !== currentItem.path
-				? items.filter((it) => it.path !== currentItem.savedPath)
-				: items
-		if (drafted.some((it) => it.path === currentItem.path)) return drafted
-		return [
-			...drafted,
-			{
-				path: currentItem.path,
-				summary: currentItem.summary,
-				kind: k,
-				raw_app: currentItem.raw_app
-			}
-		]
-	}
-
-	function buildTreeFromItems(items: Item[]): DirNode[] {
-		const scopeRoots = new Map<string, DirNode>()
-		for (const it of items) {
-			const parts = it.path.split('/')
-			if (parts.length < 3) continue
-			const scopeFp = parts.slice(0, 2).join('/')
-			let node = scopeRoots.get(scopeFp)
-			if (!node) {
-				node = { fullPath: scopeFp, name: scopeFp, isScope: true, children: [], leaves: [] }
-				scopeRoots.set(scopeFp, node)
-			}
-			const slug = parts.slice(2)
-			let cur = node
-			for (let i = 0; i < slug.length - 1; i++) {
-				const seg = slug[i]
-				const fullPath = cur.fullPath + '/' + seg
-				let next = cur.children.find((c) => c.name === seg)
-				if (!next) {
-					next = { fullPath, name: seg, isScope: false, children: [], leaves: [] }
-					cur.children.push(next)
-				}
-				cur = next
-			}
-			cur.leaves.push(it)
-		}
-		const scopes = Array.from(scopeRoots.values()).sort((a, b) => {
-			const af = a.fullPath.startsWith('f/') ? 0 : 1
-			const bf = b.fullPath.startsWith('f/') ? 0 : 1
-			if (af !== bf) return af - bf
-			return a.fullPath.localeCompare(b.fullPath)
-		})
-		const sortNode = (n: DirNode) => {
-			n.children.sort((a, b) => a.name.localeCompare(b.name))
-			n.leaves.sort((a, b) => a.path.localeCompare(b.path))
-			n.children.forEach(sortNode)
-		}
-		scopes.forEach(sortNode)
-		return scopes
-	}
-
-	/** Per-kind tree deriveds. Each only re-evaluates `buildTreeFromItems`
-	 * when its own `loaded[k]` changes or when the user is mid-rename on
-	 * that kind — typing in a flow's path edit leaves script/app trees
-	 * cached. */
-	function buildIfActive(k: Kind, list: Item[] | undefined): DirNode[] {
-		if (!kinds.includes(k)) return []
-		const items = withAiDrafts(withCurrent(list ?? [], k), k)
-		if (items.length === 0) return []
-		return buildTreeFromItems(items)
-	}
-
-	const flowTree = $derived(buildIfActive('flow', loaded.flow))
-	const scriptTree = $derived(buildIfActive('script', loaded.script))
-	const appTree = $derived(buildIfActive('app', loaded.app))
-	/** Cross-kind tree: every loaded item from every active kind, merged into
-	 * one folder hierarchy. Each leaf still carries its real kind, so the row
-	 * icon and `editPathFor` routing still work; folders contain a mix. */
-	const allTree = $derived.by(() => {
-		const merged = kinds.flatMap((k) => withAiDrafts(withCurrent(loaded[k] ?? [], k), k))
-		return merged.length === 0 ? [] : buildTreeFromItems(merged)
-	})
-
-	function treeFor(k: ScopeKind): DirNode[] {
-		if (k === 'all') return allTree
-		if (k === 'flow') return flowTree
-		if (k === 'script') return scriptTree
-		return appTree
-	}
-
-	function findDirInList(list: DirNode[], fullPath: string): DirNode | undefined {
-		for (const n of list) {
-			if (n.fullPath === fullPath) return n
-			const sub = findDirInList(n.children, fullPath)
-			if (sub) return sub
-		}
-		return undefined
-	}
-
-	function parentDirPath(p: string): string | undefined {
-		const parts = p.split('/')
-		if (parts.length <= 2) return undefined
-		return parts.slice(0, -1).join('/')
-	}
-
-	type Entry =
-		| { type: 'kind'; key: string; kind: ScopeKind }
-		| { type: 'dir'; key: string; kind: ScopeKind; node: DirNode }
-		| { type: 'leaf'; key: string; item: Item }
-
-	type DisplayItem = Item & { marked?: string }
-	type SearchInput = Item & { _key: string }
-
-	let allItems = $derived<SearchInput[]>(
-		kinds.flatMap((k) =>
-			withAiDrafts(withCurrent(loaded[k] ?? [], k), k).map((it) => ({
-				...it,
-				_key: `${k}:${it.path}`
-			}))
-		)
+	const extraItemsByKind = $derived<Partial<Record<Kind, WorkspaceItem[]>>>(
+		Object.fromEntries(kinds.map((k) => [k, aiDraftsForKind(k)]))
 	)
 
-	let searchedItems: DisplayItem[] | undefined = $state(undefined)
-
-	let isSearching = $derived(filter.trim() !== '')
-
-	let searchResultsByKind = $derived.by(() => {
-		const out: Record<Kind, DisplayItem[]> = { flow: [], script: [], app: [] }
-		if (!searchedItems) return out
-		for (const it of searchedItems) out[it.kind].push(it)
-		return out
-	})
-
-	/** Rows currently shown — drives both rendering and keyboard nav. Not used
-	 * while `isSearching` (search renders its own grouped layout). */
-	let entries = $derived.by<Entry[]>(() => {
-		const s = scope
-		if (!s) {
-			const kindEntries = kinds.map((k) => ({
-				type: 'kind' as const,
-				key: kindKey(k),
-				kind: k
-			}))
-			// "All" only makes sense across multiple kinds — with a single kind
-			// it would duplicate that kind's own root row.
-			if (kinds.length <= 1) return kindEntries
-			return [
-				{ type: 'kind' as const, key: kindKey('all'), kind: 'all' as ScopeKind },
-				...kindEntries
-			]
-		}
-		const tree = treeFor(s.kind)
-		if (!s.dir) {
-			return tree.map((node) => ({
-				type: 'dir',
-				key: dirKey(s.kind, node.fullPath),
-				kind: s.kind,
-				node
-			}))
-		}
-		const node = findDirInList(tree, s.dir)
-		if (!node) return []
-		return [
-			...node.children.map(
-				(c): Entry => ({
-					type: 'dir',
-					key: dirKey(s.kind, c.fullPath),
-					kind: s.kind,
-					node: c
-				})
-			),
-			...node.leaves.map((l): Entry => ({ type: 'leaf', key: leafKey(l), item: l }))
-		]
-	})
-
-	let navKeys = $derived.by(() => {
-		if (isSearching) {
-			return kinds.flatMap((k) => searchResultsByKind[k].map((it) => leafKey(it)))
-		}
-		return entries.map((e) => e.key)
-	})
-
-	let highlightedKey = $state<string | undefined>(untrack(() => initialHighlight))
-	let highlightedId = $derived(highlightedKey ? idFor(highlightedKey) : undefined)
-
-	$effect(() => {
-		if (navKeys.length === 0) return
-		if (!highlightedKey || !navKeys.includes(highlightedKey)) {
-			highlightedKey = navKeys[0]
-		}
-	})
-
-	$effect(() => {
-		if (highlightedKey && navKeys.includes(highlightedKey)) {
-			requestAnimationFrame(scrollHighlightIntoView)
-		}
-	})
-
-	function scrollHighlightIntoView() {
-		if (!pickerRoot || !highlightedKey) return
-		const el = pickerRoot.querySelector<HTMLElement>(
-			`[data-nav-key="${CSS.escape(highlightedKey)}"]`
-		)
-		el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-	}
-
-	function moveHighlight(delta: 1 | -1) {
-		if (navKeys.length === 0) return
-		const cur = navKeys.indexOf(highlightedKey ?? '')
-		const next = cur < 0 ? 0 : (cur + delta + navKeys.length) % navKeys.length
-		highlightedKey = navKeys[next]
-		mouseActive = false
-		requestAnimationFrame(scrollHighlightIntoView)
-	}
-
-	function setHoverHighlight(key: string) {
-		// Ignored until the user actually moves the mouse. Prevents the cursor
-		// (parked over a row) from clobbering keyboard-driven selection when
-		// the layout shifts beneath it.
-		if (mouseActive) highlightedKey = key
-	}
-
-	function isCurrent(it: Item): boolean {
-		return !!currentItem && currentItem.kind === it.kind && currentItem.path === it.path
-	}
-
-	function pick(it: Item) {
-		if (isCurrent(it)) return
-		onPick({ path: it.path, summary: it.summary, kind: it.kind, raw_app: it.raw_app })
-	}
-
-	function activate(key: string | undefined) {
-		if (!key) return
-		if (isSearching) {
-			const flat = kinds.flatMap((k) => searchResultsByKind[k])
-			const it = flat.find((x) => leafKey(x) === key)
-			if (it) pick(it)
-			return
-		}
-		const entry = entries.find((e) => e.key === key)
-		if (!entry) return
-		drill(entry)
-	}
-
-	function drill(entry: Entry) {
-		if (entry.type === 'kind') {
-			setScope({ kind: entry.kind })
-		} else if (entry.type === 'dir') {
-			setScope({ kind: entry.kind, dir: entry.node.fullPath })
-		} else {
-			pick(entry.item)
-		}
-	}
-
-	function goUp() {
-		if (!scope) return
-		// Highlight the row in the parent view that represents the scope we
-		// just left, so the user sees where they came from.
-		if (!scope.dir) {
-			const leaving = kindKey(scope.kind)
-			setScope(undefined)
-			highlightedKey = leaving
-			return
-		}
-		const leaving = dirKey(scope.kind, scope.dir)
-		const parent = parentDirPath(scope.dir)
-		setScope(parent ? { kind: scope.kind, dir: parent } : { kind: scope.kind })
-		highlightedKey = leaving
-	}
-
-	function handleSearchKeydown(e: KeyboardEvent) {
-		if (e.key === 'ArrowDown') {
-			e.preventDefault()
-			e.stopPropagation()
-			moveHighlight(1)
-		} else if (e.key === 'ArrowUp') {
-			e.preventDefault()
-			e.stopPropagation()
-			moveHighlight(-1)
-		} else if (e.key === 'Enter') {
-			e.preventDefault()
-			e.stopPropagation()
-			mouseActive = false
-			activate(highlightedKey)
-		} else if ((e.key === 'ArrowLeft' || e.key === 'Backspace') && filter === '' && scope) {
-			// Walk up the tree. Only when search is empty — otherwise these
-			// keys would hijack cursor movement / character deletion.
-			e.preventDefault()
-			e.stopPropagation()
-			mouseActive = false
-			goUp()
-		} else if (e.key === 'ArrowRight' && filter === '' && !isSearching) {
-			// Drill into the highlighted folder/kind. Leaves are reserved for
-			// Enter (more deliberate, since picking navigates away).
-			const entry = entries.find((en) => en.key === highlightedKey)
-			if (entry && entry.type !== 'leaf') {
-				e.preventDefault()
-				e.stopPropagation()
-				mouseActive = false
-				drill(entry)
-			}
-		}
-	}
-
-	/** Breadcrumb segments for the header — kind name first, then the scope
-	 * (`f/<folder>` or `u/<user>`) as one chunk, then any nested subdirs. */
-	let headerSegments = $derived.by<string[]>(() => {
-		if (!scope) return []
-		const out = [scope.kind === 'all' ? 'all' : KIND_LABEL_LOWER[scope.kind]]
-		if (scope.dir) {
-			const parts = scope.dir.split('/')
-			out.push(parts.slice(0, 2).join('/'))
-			for (let i = 2; i < parts.length; i++) out.push(parts[i])
-		}
-		return out
-	})
-
-	/** Full breadcrumb (used for the hover tooltip). */
-	let headerLabel = $derived(headerSegments.join(' › '))
-
-	/** Number of intermediate segments to hide behind a `…`. The collapsed
-	 * window is segments[2 .. 2 + hiddenCount); we always keep the first
-	 * two (kind, top-level scope) and the deepest segment. Bumped up by an
-	 * effect that measures actual overflow — see below. */
-	let hiddenCount = $state(0)
-
-	/** Breadcrumb shown to the user. Hides intermediate segments first, then
-	 * relies on `truncate-start` for any remaining overflow on the deepest
-	 * segment. Hover reveals the full path via `title`. */
-	let headerLabelDisplay = $derived.by(() => {
-		if (headerSegments.length <= 3 || hiddenCount === 0) return headerLabel
-		return [
-			headerSegments[0],
-			headerSegments[1],
-			'…',
-			...headerSegments.slice(2 + hiddenCount)
-		].join(' › ')
-	})
-
-	let breadcrumbSpan: HTMLElement | undefined = $state()
-	let lastSegmentsKey = ''
-
-	/** Measurement loop: each pass reads `scrollWidth > clientWidth` on the
-	 * truncated span; if overflowing and there's still an intermediate segment
-	 * to drop, increment `hiddenCount`. Mutating `hiddenCount` re-renders and
-	 * re-fires this effect, so the loop self-terminates either when the text
-	 * fits or when only [kind, scope, …, leaf] remain (`truncate-start` then
-	 * polishes any final overflow). When the breadcrumb itself changes (new
-	 * scope), reset to 0 first so a shorter path can re-expand. */
-	$effect(() => {
-		const key = headerSegments.join('|')
-		const segmentsChanged = key !== lastSegmentsKey
-		if (segmentsChanged) {
-			lastSegmentsKey = key
-			if (hiddenCount !== 0) {
-				hiddenCount = 0
-				return
-			}
-		}
-		// Track hiddenCount so each collapse step re-measures.
-		void hiddenCount
-		if (!breadcrumbSpan) return
-		const maxHide = Math.max(0, headerSegments.length - 3)
-		if (hiddenCount >= maxHide) return
-		queueMicrotask(() => {
-			if (!breadcrumbSpan) return
-			if (breadcrumbSpan.scrollWidth > breadcrumbSpan.clientWidth + 1) {
-				hiddenCount = hiddenCount + 1
-			}
+	const tree = $derived(
+		buildWorkspaceTree({
+			loaded: loader.loaded,
+			kinds,
+			currentItem,
+			loadingKind: loader.loadingKind,
+			extraItemsByKind
 		})
-	})
+	)
 
-	let scopeLoading = $derived.by(() => {
-		if (!scope) return false
-		if (scope.kind === 'all') {
-			return kinds.some((k) => !loaded[k] && !!loadingKind[k])
-		}
-		return !loaded[scope.kind] && !!loadingKind[scope.kind]
-	})
+	// Mount-time only: callers (BreadcrumbSegment, EditorHeader) snapshot the
+	// scope when the popover opens, so re-evaluating on prop changes would
+	// fight the user's drilling.
+	const computedInitialScope = untrack(() => legacyScopeToPath(initialScope, kinds))
 </script>
 
-<SearchItems
-	{filter}
-	items={isSearching ? allItems : []}
-	bind:filteredItems={searchedItems}
-	f={(x: SearchInput) => (x.summary ? `${x.summary} (${x.path})` : x.path)}
-	opts={{}}
-/>
-
-{#snippet leafRow(it: Item, secondary: string, baseClass: string)}
-	{@const key = leafKey(it)}
-	<WorkspaceItemRow
-		kind={it.kind}
-		summary={it.summary}
-		{secondary}
-		highlighted={key === highlightedKey}
-		current={isCurrent(it)}
-		id={idFor(key)}
-		navKey={key}
-		{baseClass}
-		onclick={() => pick(it)}
-		onmouseenter={() => setHoverHighlight(key)}
-	/>
+{#snippet leafIcon(leaf: DrillLeaf<WorkspaceItem>)}
+	<RowIcon kind={leaf.data.kind} size={12} />
 {/snippet}
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-	bind:this={pickerRoot}
-	class="flex flex-col w-[420px] max-h-[60vh]"
-	onkeydown={handleSearchKeydown}
-	onmousemove={() => (mouseActive = true)}
->
-	<div class="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
-		<TextInput
-			bind:this={searchInput}
-			bind:value={filter}
-			size="sm"
-			inputProps={{
-				placeholder: 'Search by name or summary...',
-				'data-workspace-picker-search': '',
-				role: 'combobox',
-				'aria-controls': listboxId,
-				'aria-expanded': 'true',
-				'aria-autocomplete': 'list',
-				'aria-activedescendant': highlightedId
-			}}
-		/>
-	</div>
-
-	{#if scope}
-		{@const s = scope}
-		<button
-			type="button"
-			class="flex items-center gap-1.5 w-full text-left px-3 py-1 text-xs font-medium font-mono text-secondary bg-surface-secondary/20 hover:bg-surface-hover transition-colors"
-			onmousedown={(e) => e.preventDefault()}
-			onclick={goUp}
-			title={headerLabel}
-		>
-			<ChevronLeft size={12} class="shrink-0 text-secondary" />
-			{#if s.kind === 'all'}
-				<Layers size={12} class="shrink-0 text-tertiary" />
-			{:else}
-				<RowIcon kind={s.kind} size={12} />
-			{/if}
-			<span bind:this={breadcrumbSpan} class="flex-1 min-w-0 truncate truncate-start"
-				>{headerLabelDisplay}</span
-			>
-		</button>
+{#snippet branchIcon(branch: DrillBranch<WorkspaceItem>)}
+	{#if branch.key === 'kind:flow' || branch.key === 'kind:script' || branch.key === 'kind:app'}
+		{@const k = branch.key.slice(5) as Kind}
+		<RowIcon kind={k} size={12} />
+	{:else if branch.icon}
+		{@const Icon = branch.icon}
+		<Icon size={12} class="shrink-0 text-tertiary" />
 	{/if}
+{/snippet}
 
-	<div class="flex-1 overflow-y-auto" role="listbox" id={listboxId}>
-		{#if isSearching}
-			{@const total = (searchedItems ?? []).length}
-			{@const anyKindLoading = kinds.some((k) => loadingKind[k])}
-			{#if !searchedItems || anyKindLoading}
-				<!-- "Searching…" while any active kind is still loading, otherwise
-				     `SearchItems` would briefly write `filteredItems=[]` from the
-				     partial set and flash "No matches" before results trickle in. -->
-				<div role="status" class="px-3 py-2 text-xs text-tertiary flex items-center gap-2">
-					<Loader2 size={14} class="animate-spin" /> Searching…
-				</div>
-			{:else if total === 0}
-				<div role="status" class="px-3 py-2 text-xs text-tertiary">No matches</div>
-			{:else}
-				{#each kinds as k (k)}
-					{@const results = searchResultsByKind[k]}
-					{#if results.length > 0}
-						<div class="px-3 pt-3 pb-1 text-2xs uppercase tracking-wide text-tertiary font-medium">
-							{KIND_LABEL[k]}
-						</div>
-						<ul class="pb-1">
-							{#each results as it (leafKey(it))}
-								<li>{@render leafRow(it, it.path, 'py-1.5')}</li>
-							{/each}
-						</ul>
-					{/if}
-				{/each}
-			{/if}
-		{:else if scopeLoading && entries.length === 0}
-			<div role="status" class="px-3 py-2 text-xs text-tertiary flex items-center gap-2">
-				<Loader2 size={14} class="animate-spin" /> Loading…
-			</div>
-		{:else if entries.length === 0}
-			<div role="status" class="px-3 py-2 text-xs text-tertiary">Empty</div>
-		{:else}
-			<div class="flex flex-col py-1">
-				{#each entries as entry (entry.key)}
-					{@const isHl = entry.key === highlightedKey}
-					{#if entry.type === 'leaf'}
-						{@render leafRow(
-							entry.item,
-							scope?.dir ? entry.item.path.slice(scope.dir.length + 1) : entry.item.path,
-							'py-1.5'
-						)}
-					{:else}
-						<button
-							type="button"
-							id={idFor(entry.key)}
-							role="option"
-							aria-selected={isHl}
-							data-nav-key={entry.key}
-							class="flex items-center gap-1.5 w-full text-left px-3 py-1.5 text-xs font-medium font-mono text-emphasis transition-colors {isHl
-								? 'bg-surface-hover'
-								: ''}"
-							onmousedown={(e) => e.preventDefault()}
-							onclick={() => drill(entry)}
-							onmouseenter={() => setHoverHighlight(entry.key)}
-						>
-							{#if entry.type === 'kind'}
-								{#if entry.kind === 'all'}
-									<Layers size={12} class="shrink-0 text-tertiary" />
-									<span class="flex-1">All</span>
-								{:else}
-									<RowIcon kind={entry.kind} size={12} />
-									<span class="flex-1">{KIND_LABEL[entry.kind]}</span>
-								{/if}
-							{:else if entry.node.isScope && entry.node.fullPath.startsWith('u/')}
-								<User size={12} class="shrink-0 text-tertiary" />
-								<span class="flex-1 truncate">{entry.node.name}</span>
-							{:else}
-								<Folder size={12} class="shrink-0 text-tertiary" />
-								<span class="flex-1 truncate">{entry.node.name}</span>
-							{/if}
-							{#if entry.type === 'kind' && entry.kind !== 'all' && loadingKind[entry.kind]}
-								<Loader2 size={12} class="animate-spin text-tertiary" />
-							{/if}
-							<ChevronRight size={10} class="shrink-0 text-secondary" />
-						</button>
-					{/if}
-				{/each}
-			</div>
-		{/if}
-	</div>
-</div>
-
-<style>
-	/* Path truncates from the start (left ellipsis) so the deepest (rightmost)
-	 * folder stays visible. `unicode-bidi: plaintext` keeps each path segment
-	 * laid out per its own direction — defends against any future RTL char
-	 * appearing in a workspace path. */
-	.truncate-start {
-		direction: rtl;
-		text-align: left;
-		unicode-bidi: plaintext;
-	}
-</style>
+<DrillPicker
+	bind:this={inner}
+	{tree}
+	onPick={(leaf) => onPick(leaf.data)}
+	initialScope={computedInitialScope}
+	{initialHighlight}
+	{externalFilter}
+	{autoFocus}
+	{flush}
+	{leafIcon}
+	{branchIcon}
+	leafSecondary={(leaf, scope) => relativizeWorkspacePath(leaf.data.path, scope)}
+	onScopeChange={(scope) => {
+		if (scope.length > 0) loader.ensureForScopeSegment(scope[0])
+		// Single-kind layout has no kind branch at root — `buildWorkspaceTree`
+		// collapses to the kind's children. The picker mounts with scope=[],
+		// so without this fallback nothing fires until the user searches.
+		else if (kinds.length === 1) loader.ensureLoaded(kinds[0])
+	}}
+	onFilterChange={loader.onFilterChange}
+/>

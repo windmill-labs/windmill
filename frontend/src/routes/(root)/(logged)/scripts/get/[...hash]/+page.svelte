@@ -422,7 +422,7 @@
 					onClick: async () => {
 						const app = createAppFromScript(script.path, script.schema)
 						$importStore = JSON.parse(JSON.stringify(app))
-						await goto('/apps/add?nodraft=true')
+						await goto('/apps/add')
 					},
 					disabled: !showEditButtons,
 					unifiedSize: 'md',
@@ -666,6 +666,7 @@
 				scriptOrFlowPath={script?.path ?? ''}
 				tag={script?.tag ?? ''}
 				labels={script?.labels}
+				inheritedLabels={script?.inherited_labels}
 				on:seeTriggers={() => {
 					rightPaneSelected = 'triggers'
 				}}

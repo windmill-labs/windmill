@@ -59,7 +59,7 @@
 		scrollTop?: number
 		localModuleStates?: Record<string, GraphModuleState>
 		localDurationStatuses?: Record<string, DurationStatus>
-		onRunPreview?: () => void
+		onRunPreview?: (jobId?: string) => void
 		render?: boolean
 		onJobDone?: () => void
 		upToId?: string | undefined
@@ -132,7 +132,8 @@
 		initialPathStore,
 		fakeInitialPath,
 		customUi,
-		executionCount
+		executionCount,
+		devTempScriptRefs
 	} = $state(getContext<FlowEditorContext>('FlowEditorContext'))
 	const dispatch = createEventDispatcher()
 
@@ -193,14 +194,21 @@
 			flowProgressBar?.reset()
 			const newFlow = extractFlow(previewMode)
 			args = await processSecretArgs(args, flowStore.val.schema as any)
-			newJobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom, conversationId)
+			newJobId = await runFlowPreview(
+				args,
+				newFlow,
+				$pathStore,
+				restartedFrom,
+				conversationId,
+				devTempScriptRefs?.()
+			)
 			jobId = newJobId
 			isRunning = true
 			if (inputSelected) {
 				savedArgs = $state.snapshot(previewArgs.val)
 				inputSelected = undefined
 			}
-			onRunPreview?.()
+			onRunPreview?.(newJobId)
 		} catch (e) {
 			sendUserToast('Could not run preview', true, undefined, e.toString())
 			isRunning = false

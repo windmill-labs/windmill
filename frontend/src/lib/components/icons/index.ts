@@ -26,7 +26,10 @@ import SendflakeIcon from './SendflakeIcon.svelte'
 import QRCodeIcon from './QRCodeIcon.svelte'
 import LinkedinIcon from './LinkedinIcon.svelte'
 import HubspotIcon from './HubspotIcon.svelte'
+import CoupaIcon from './CoupaIcon.svelte'
 import DatadogIcon from './DatadogIcon.svelte'
+import DatabricksIcon from './DatabricksIcon.svelte'
+import AdobeAcrobatSignIcon from './AdobeAcrobatSignIcon.svelte'
 import StripeIcon from './StripeIcon.svelte'
 import TelegramIcon from './TelegramIcon.svelte'
 import FunkwhaleIcon from './FunkwhaleIcon.svelte'
@@ -68,6 +71,7 @@ import GraphqlIcon from './GraphqlIcon.svelte'
 import NocoDbIcon from './NocoDbIcon.svelte'
 import AzureIcon from './AzureIcon.svelte'
 import OktaIcon from './OktaIcon.svelte'
+import OutreachIcon from './OutreachIcon.svelte'
 import Auth0Icon from './Auth0Icon.svelte'
 import MsSqlServerIcon from './MSSqlServerIcon.svelte'
 import AuthentikIcon from './AuthentikIcon.svelte'
@@ -214,6 +218,7 @@ import YnabIcon from './YnabIcon.svelte'
 import SpeechifyIcon from './SpeechifyIcon.svelte'
 import ConvertKitIcon from './ConvertKitIcon.svelte'
 import BrowserlessIcon from './BrowserlessIcon.svelte'
+import WizIcon from './WizIcon.svelte'
 import type { Component } from 'svelte'
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -244,6 +249,9 @@ export const APP_TO_ICON_COMPONENT = {
 	linkedin: LinkedinIcon,
 	hubspot: HubspotIcon,
 	datadog: DatadogIcon,
+	databricks: DatabricksIcon,
+	coupa: CoupaIcon,
+	adobe_acrobat_sign: AdobeAcrobatSignIcon,
 	stripe: StripeIcon,
 	telegram: TelegramIcon,
 	funkwhale: FunkwhaleIcon,
@@ -288,6 +296,7 @@ export const APP_TO_ICON_COMPONENT = {
 	nocodb: NocoDbIcon,
 	azure: AzureIcon,
 	okta: OktaIcon,
+	outreach: OutreachIcon,
 	auth0: Auth0Icon,
 	authentik: AuthentikIcon,
 	authelia: AutheliaIcon,
@@ -436,7 +445,8 @@ export const APP_TO_ICON_COMPONENT = {
 	ynab: YnabIcon,
 	speechify: SpeechifyIcon,
 	convertkit: ConvertKitIcon,
-	browserless: BrowserlessIcon
+	browserless: BrowserlessIcon,
+	wiz: WizIcon
 } as unknown as Record<string, Component> // to generate correct svelte package types
 
 export {
@@ -506,6 +516,7 @@ export {
 	AzureIcon,
 	MicrosoftIcon,
 	OktaIcon,
+	OutreachIcon,
 	Auth0Icon,
 	AuthentikIcon,
 	AutheliaIcon,
@@ -647,5 +658,6 @@ export {
 	YnabIcon,
 	SpeechifyIcon,
 	ConvertKitIcon,
-	BrowserlessIcon
+	BrowserlessIcon,
+	WizIcon
 }

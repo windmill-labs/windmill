@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { page } from '$app/state'
 	import AppConnect from '$lib/components/AppConnectDrawer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -22,6 +23,8 @@
 	import { buildResourcesFilterSchema } from '$lib/components/resources/resourcesFilter'
 	import { buildResourceTypesFilterSchema } from '$lib/components/resources/resourceTypesFilter'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
+	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import SupabaseConnect from '$lib/components/SupabaseConnect.svelte'
@@ -216,11 +219,16 @@
 	): Promise<ResourceW[]> {
 		const currentFilters = filters.val
 
-		// Build API parameters from filters
+		// Build API parameters from filters.
+		// `includeDraftOnly` surfaces per-user drafts at paths that have
+		// no deployed resource — appended server-side when no narrowing
+		// filter is set, so the user sees AI-agent-created drafts on
+		// the home page.
 		const apiParams: any = {
 			workspace: $workspaceStore!,
 			resourceTypeExclude,
-			resourceType: resourceType || (currentFilters.resource_type as string | undefined)
+			resourceType: resourceType || (currentFilters.resource_type as string | undefined),
+			includeDraftOnly: true
 		}
 
 		if (currentFilters.path) {
@@ -260,7 +268,9 @@
 		allOwners = Array.from(
 			new Set(result.map((x) => x.path.split('/').slice(0, 2).join('/')))
 		).sort()
-		allLabels = Array.from(new Set(result.flatMap((x) => x.labels ?? []))).sort()
+		allLabels = Array.from(
+			new Set(result.flatMap((x) => [...(x.labels ?? []), ...(x.inherited_labels ?? [])]))
+		).sort()
 
 		return result
 	}
@@ -989,7 +999,7 @@
 						</Head>
 						<tbody class="divide-y bg-surface">
 							{#if filteredItems}
-								{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, labels, ws_specific }}
+								{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
 									<Row>
 										<Cell first>
 											<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -1000,8 +1010,11 @@
 													class="break-all"
 													href="#/resource/{path}"
 													onclick={() => resourceEditor?.initEdit?.(path)}
-													>{#if marked}{@html marked}{:else}{path}{/if}</a
+													>{#if marked}{@html marked}{:else}{path}{/if}{(getLocalDraftHint($workspaceStore, 'resource', path) ?? is_draft) ? '*' : ''}</a
 												>
+												{#if draft_only}
+													<DraftBadge draft_only is_draft={false} />
+												{/if}
 												{#if labels?.length}
 													<div class="flex items-center gap-0.5">
 														{#each labels as label}
@@ -1025,6 +1038,7 @@
 														{/each}
 													</div>
 												{/if}
+												<InheritedLabels labels={inherited_labels} />
 											</div>
 										</Cell>
 										<Cell>

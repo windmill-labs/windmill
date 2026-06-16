@@ -773,7 +773,6 @@ pub async fn assert_lockfile(
                 cache_ttl: None,
                 dedicated_worker: None,
                 description: "".to_string(),
-                draft_only: None,
                 envs: vec![],
                 is_template: None,
                 kind: None,
@@ -796,6 +795,7 @@ pub async fn assert_lockfile(
                 on_behalf_of_email: None,
                 assets: vec![],
                 modules: None,
+                draft_only: None,
             },
         )
         .await
@@ -871,7 +871,6 @@ pub async fn run_deployed_relative_imports(
                 cache_ttl: None,
                 dedicated_worker: None,
                 description: "".to_string(),
-                draft_only: None,
                 envs: vec![],
                 is_template: None,
                 kind: None,
@@ -894,6 +893,7 @@ pub async fn run_deployed_relative_imports(
                 on_behalf_of_email: None,
                 assets: vec![],
                 modules: None,
+                draft_only: None,
             },
         )
         .await
@@ -915,7 +915,7 @@ pub async fn run_deployed_relative_imports(
             .unwrap();
 
             // Regression guard for the Deno lock-gen import map (generate_deno_lock):
-            // it must resolve the `$f/`/`$u/` aliases, otherwise `deno cache --lock`
+            // it must resolve workspace `/f/`/`/u/` imports, otherwise `deno cache --lock`
             // fails with "not a dependency and not in import map". We match that
             // specific failure rather than asserting lock_error_logs is empty —
             // the field also captures benign, non-fatal lock-job output (e.g. Bun's
@@ -930,7 +930,7 @@ pub async fn run_deployed_relative_imports(
             if let Some(err) = &lock_error {
                 assert!(
                     !err.contains("not in import map"),
-                    "lock generation failed to resolve a workspace import (likely $f//$u/): {err}"
+                    "lock generation failed to resolve a workspace import: {err}"
                 );
             }
 

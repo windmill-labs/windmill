@@ -859,6 +859,78 @@ pub struct BashAnnotations {
     pub sandbox: bool,
 }
 
+impl BashAnnotations {
+    /// If the script declares `# sandbox <image>` (an image ref after the sandbox
+    /// annotation), returns that image ref. This selects the daemonless, sandboxed
+    /// container runtime: extract the image's rootfs and run it inside the job's
+    /// nsjail sandbox.
+    ///
+    /// A bare `# sandbox` (no image argument) returns `None` and keeps the plain
+    /// nsjail-sandboxed-bash behavior (the `sandbox` boolean modifier). `# docker`
+    /// is unaffected and keeps the legacy v1 (dind/daemon) path.
+    pub fn sandbox_image(code: &str) -> Option<String> {
+        for line in code.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            // Mirror the annotation parser: stop at the first non-comment line.
+            if !line.starts_with('#') {
+                break;
+            }
+            let mut tokens = line[1..].split_whitespace();
+            if tokens.next() == Some("sandbox") {
+                // `# sandbox <image>` -> container; bare `# sandbox` -> nsjail bash.
+                if let Some(image) = tokens.next() {
+                    return Some(image.to_string());
+                }
+            }
+        }
+        None
+    }
+
+    /// If the script declares `#ssh <resource_path>` (a resource path after the
+    /// ssh annotation), returns that path. This reroutes execution to a remote
+    /// host over SSH (enterprise feature): the script runs on the host described
+    /// by the `ssh_target` resource at `<resource_path>` instead of on the worker.
+    /// The `#ssh $<arg_name>` form returns the `$`-prefixed token verbatim; the
+    /// executor resolves it from the job argument of that name at run time.
+    ///
+    /// Mirrors `sandbox_image`: only leading comment lines are scanned, stopping
+    /// at the first non-comment line. A bare `#ssh` with no path returns `None`.
+    /// Only an exact `#ssh <target>` line triggers the reroute — the target must
+    /// be a resource path (`u/...`/`f/...`) or a `$arg` reference (a valid
+    /// identifier), with nothing else on the line — so prose comments like
+    /// `# ssh into the box`, `# ssh tunnel/proxy setup is below` or
+    /// `# ssh $HOST manually first` never match.
+    pub fn ssh_target(code: &str) -> Option<String> {
+        for line in code.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if !line.starts_with('#') {
+                break;
+            }
+            let mut tokens = line[1..].split_whitespace();
+            if tokens.next() == Some("ssh") {
+                if let Some(path) = tokens.next() {
+                    let is_path = path.starts_with("u/") || path.starts_with("f/");
+                    let is_arg = path.strip_prefix('$').is_some_and(|a| {
+                        !a.is_empty()
+                            && !a.starts_with(|c: char| c.is_ascii_digit())
+                            && a.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                    });
+                    if (is_path || is_arg) && tokens.next().is_none() {
+                        return Some(path.to_string());
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SqlResultCollectionStrategy {
     LastStatementAllRows,
@@ -2223,6 +2295,88 @@ pub fn try_parse_locked_python_version_from_requirements<S: AsRef<str>>(
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn test_bash_sandbox_image_annotation() {
+        // `# sandbox <image>` selects the container runtime and returns the image.
+        assert_eq!(
+            BashAnnotations::sandbox_image("# sandbox alpine:latest\necho hi"),
+            Some("alpine:latest".to_string())
+        );
+        // Extra whitespace and a leading non-spaced `#` still work.
+        assert_eq!(
+            BashAnnotations::sandbox_image("#sandbox   python:3.12-slim\n"),
+            Some("python:3.12-slim".to_string())
+        );
+        // A bare `# sandbox` (no image) keeps the nsjail-bash modifier -> None.
+        assert_eq!(BashAnnotations::sandbox_image("# sandbox\necho hi"), None);
+        // `sandbox` must be its own token, not a prefix.
+        assert_eq!(BashAnnotations::sandbox_image("# sandboxed foo"), None);
+        // Stops at the first non-comment line (image declared too late is ignored).
+        assert_eq!(
+            BashAnnotations::sandbox_image("echo hi\n# sandbox alpine"),
+            None
+        );
+        // `# docker` is a different annotation -> not a sandbox image.
+        assert_eq!(
+            BashAnnotations::sandbox_image("# docker alpine\necho hi"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_bash_ssh_target_annotation() {
+        // `#ssh <path>` returns the resource path (reroutes to remote execution).
+        assert_eq!(
+            BashAnnotations::ssh_target("#ssh f/infra/jump_node\nset -e\ndf -h"),
+            Some("f/infra/jump_node".to_string())
+        );
+        // `# ssh <path>` with a space after `#` also works.
+        assert_eq!(
+            BashAnnotations::ssh_target("# ssh u/me/box\n"),
+            Some("u/me/box".to_string())
+        );
+        // `#ssh $arg` (dynamic target from a job argument) is returned verbatim.
+        assert_eq!(
+            BashAnnotations::ssh_target("#ssh $jump_host\necho hi"),
+            Some("$jump_host".to_string())
+        );
+        // A bare `#ssh` with no path -> None.
+        assert_eq!(BashAnnotations::ssh_target("#ssh\necho hi"), None);
+        // `ssh` must be its own token, not a prefix.
+        assert_eq!(BashAnnotations::ssh_target("# sshd restart"), None);
+        // Prose comments mentioning ssh must not trigger the reroute: the line
+        // must be exactly `#ssh <target>` with a `u/`/`f/` path or `$identifier`.
+        assert_eq!(
+            BashAnnotations::ssh_target("# ssh into the box and restart nginx\necho hi"),
+            None
+        );
+        assert_eq!(
+            BashAnnotations::ssh_target("# ssh tunnel/proxy setup is below\necho hi"),
+            None
+        );
+        assert_eq!(
+            BashAnnotations::ssh_target("# ssh $HOST manually first\necho hi"),
+            None
+        );
+        // Trailing tokens after a real-looking target also disqualify the line.
+        assert_eq!(
+            BashAnnotations::ssh_target("#ssh f/infra/box then reboot\necho hi"),
+            None
+        );
+        // ...but a real directive on a later comment line is still found.
+        assert_eq!(
+            BashAnnotations::ssh_target("# ssh into the box\n#ssh f/infra/box\necho hi"),
+            Some("f/infra/box".to_string())
+        );
+        // Stops at the first non-comment line (declared too late is ignored).
+        assert_eq!(
+            BashAnnotations::ssh_target("echo hi\n#ssh f/infra/box"),
+            None
+        );
+        // No annotation -> None (normal local bash).
+        assert_eq!(BashAnnotations::ssh_target("echo hello"), None);
+    }
 
     #[test]
     fn test_mixed_tags() {

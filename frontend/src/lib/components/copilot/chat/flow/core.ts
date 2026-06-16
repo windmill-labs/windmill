@@ -32,7 +32,13 @@ import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import { findModuleInFlow, findModuleInModules } from '$lib/components/flows/flowTree'
 import { createInlineScriptSession, type InlineScriptSession } from './inlineScriptsUtils'
-import { validateFlowGroups, type FlowGroup, type FlowJsonUpdateResult } from './helperUtils'
+import {
+	validateFlowGroups,
+	validateFlowNotes,
+	type FlowGroup,
+	type FlowNote,
+	type FlowJsonUpdateResult
+} from './helperUtils'
 import { flowModuleSchema } from './openFlowZod.gen'
 import { collectAllFlowModuleIdsFromModules } from '$lib/components/flows/flowTree'
 import {
@@ -50,6 +56,7 @@ type FlowJsonUpdate = {
 	preprocessorModule?: FlowModule | null
 	failureModule?: FlowModule | null
 	groups?: FlowGroup[] | null
+	notes?: FlowNote[] | null
 }
 
 function formatEmptyInlineScriptWarning({
@@ -179,6 +186,13 @@ const setFlowJsonToolSchema = z.object({
 		.nullable()
 		.describe(
 			'JSON string containing the optional array of semantic flow groups. Each group has summary, note, autocollapse, start_id, end_id, color. color MUST be one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray — never hex codes or other strings. Pass null to clear groups.'
+		),
+	notes: z
+		.string()
+		.optional()
+		.nullable()
+		.describe(
+			'JSON string containing the optional array of free-floating sticky notes attached to the flow. Use notes to surface important flow-wide information (what the flow does, key assumptions, warnings, TODOs). Each note has id (unique string), text (markdown), color (one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray — never hex codes), and optional position {x,y} and size {width,height} — omit both and the editor places and sizes the note automatically. Always use type "free". The "group" note type is DEPRECATED — to segment a complex flow into labelled, colored sections use the `groups` field instead (each group carries its own note and color). Pass null to clear notes.'
 		)
 })
 
@@ -548,7 +562,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				schema: parsedFlow.schema,
 				preprocessorModule: parsedFlow.preprocessor_module,
 				failureModule: parsedFlow.failure_module,
-				groups: parsedFlow.groups
+				groups: parsedFlow.groups,
+				notes: parsedFlow.notes
 			})
 			const warning = formatEmptyInlineScriptWarning(updateResult)
 
@@ -651,13 +666,14 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		showDetails: true,
 		showFade: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const { modules, schema, preprocessor_module, failure_module, groups } = args
+			const { modules, schema, preprocessor_module, failure_module, groups, notes } = args
 
 			let parsedModules: FlowModule[] | null | undefined
 			let parsedSchema: Record<string, any> | null | undefined
 			let parsedPreprocessorModule: FlowModule | null | undefined
 			let parsedFailureModule: FlowModule | null | undefined
 			let parsedGroups: FlowGroup[] | null | undefined
+			let parsedNotes: FlowNote[] | null | undefined
 
 			// Parse JSON strings
 			parsedModules = parseOptionalJsonArg(modules, 'modules') as FlowModule[] | null | undefined
@@ -674,6 +690,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				| null
 				| undefined
 			parsedGroups = parseOptionalJsonArg(groups, 'groups') as FlowGroup[] | null | undefined
+			parsedNotes = parseOptionalJsonArg(notes, 'notes') as FlowNote[] | null | undefined
 			if (parsedModules === null) {
 				parsedModules = undefined
 			}
@@ -702,11 +719,16 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			)
 			parsedFailureModule = validateSpecialFlowModule(parsedFailureModule, 'failure_module')
 
-			if (parsedGroups !== undefined) {
+			if (parsedGroups !== undefined || parsedNotes !== undefined) {
 				const effectiveModules =
 					parsedModules ?? helpers.getFlowAndSelectedId().flow.value.modules ?? []
 				const moduleIdsForGroups = new Set(collectAllFlowModuleIdsFromModules(effectiveModules))
-				parsedGroups = validateFlowGroups(parsedGroups, moduleIdsForGroups)
+				if (parsedGroups !== undefined) {
+					parsedGroups = validateFlowGroups(parsedGroups, moduleIdsForGroups)
+				}
+				if (parsedNotes !== undefined) {
+					parsedNotes = validateFlowNotes(parsedNotes, moduleIdsForGroups)
+				}
 			}
 
 			const ids = [
@@ -729,7 +751,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 					? { preprocessorModule: parsedPreprocessorModule }
 					: {}),
 				...(parsedFailureModule !== undefined ? { failureModule: parsedFailureModule } : {}),
-				...(parsedGroups !== undefined ? { groups: parsedGroups } : {})
+				...(parsedGroups !== undefined ? { groups: parsedGroups } : {}),
+				...(parsedNotes !== undefined ? { notes: parsedNotes } : {})
 			})
 			const warning = formatEmptyInlineScriptWarning(updateResult)
 
@@ -831,7 +854,7 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 Use \`patch_flow_json\` for small, localized changes when you can target an exact snippet from the \`CURRENT FLOW JSON COMPACT\` block below.
 
 Always copy the exact search text from the \`CURRENT FLOW JSON COMPACT\` block below.
-The compact JSON is a single object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\` keys.
+The compact JSON is a single object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\` keys.
 
 **Parameters:**
 - \`old_string\`: Exact JSON text to find
@@ -859,7 +882,16 @@ Use the \`set_flow_json\` tool to set the entire flow structure at once. Provide
 - \`schema\`: Flow input schema in JSON Schema format (optional)
 - \`preprocessor_module\`: Special module that runs before \`modules\` (optional, separate from \`modules\`)
 - \`failure_module\`: Special module that runs on failure (optional, separate from \`modules\`)
-- \`groups\`: Array of semantic groups for organizing modules in the editor (optional). Each group has \`summary\` (display name), \`note\` (markdown description shown below the group header — attached directly to the group, not a separate sticky note), \`autocollapse\`, \`start_id\`, \`end_id\`, and \`color\`. \`start_id\` and \`end_id\` must reference existing module IDs in the flow (not \`preprocessor\` or \`failure\`). \`color\` MUST be one of these exact names: \`yellow\`, \`blue\`, \`green\`, \`purple\`, \`pink\`, \`orange\`, \`red\`, \`cyan\`, \`lime\`, \`gray\` — do NOT use hex codes, CSS colors, or any other strings. Omit \`color\` entirely if no preference and the editor will assign one automatically. Groups do not affect execution — they provide naming and collapsibility in the editor. Pass \`null\` to clear existing groups.
+- \`groups\`: Array of semantic groups for organizing modules in the editor (optional, but **strongly recommended** — proactively segment any non-trivial flow into groups so it reads clearly; don't wait to be asked). Each group has \`summary\` (display name), \`note\` (markdown description shown below the group header — attached directly to the group, not a separate sticky note), \`autocollapse\`, \`start_id\`, \`end_id\`, and \`color\`. \`start_id\` and \`end_id\` must reference existing module IDs in the flow (not \`preprocessor\` or \`failure\`). \`color\` MUST be one of these exact names: \`yellow\`, \`blue\`, \`green\`, \`purple\`, \`pink\`, \`orange\`, \`red\`, \`cyan\`, \`lime\`, \`gray\` — do NOT use hex codes, CSS colors, or any other strings. Omit \`color\` entirely if no preference and the editor will assign one automatically. Groups do not affect execution — they provide naming and collapsibility in the editor. Pass \`null\` to clear existing groups.
+- \`notes\`: Array of free-floating sticky notes shown in the editor (optional). Each note has \`id\` (unique string), \`text\` (markdown content), \`color\` (same palette as groups: \`yellow\`, \`blue\`, \`green\`, \`purple\`, \`pink\`, \`orange\`, \`red\`, \`cyan\`, \`lime\`, \`gray\` — never hex codes), and optional \`position\` {x, y} / \`size\` {width, height} (omit both — the editor auto-places and sizes the note). Always set \`type\` to \`free\`. The \`group\` note type is **deprecated** — do not create group notes; use the \`groups\` field to segment a flow instead. Notes are documentation only and do not affect execution. Pass \`null\` to clear existing notes.
+
+### When to use notes vs groups
+
+**Strongly prefer \`groups\` to organize flows.** Groups are the primary way to make a flow readable: whenever a flow has more than a couple of steps, or any time consecutive steps form a logical stage (e.g. "fetch", "transform", "notify"), segment them into \`groups\`. Each group spans a range of steps (\`start_id\`..\`end_id\`), carries its own \`summary\`, \`note\` (markdown under the group header), and \`color\`, and can be collapsed. Proactively add or update groups when building or restructuring a flow — do not wait to be asked. Aim for every meaningful step to belong to a semantic group.
+
+- **\`groups\` (default, use liberally):** segment a flow into labelled semantic sections. This is the main organizational tool — reach for it on essentially any non-trivial flow, not just "complex" ones.
+- **\`notes\` (free sticky notes, use sparingly):** reserve for important flow-wide information that does not belong to a specific span of steps — overall purpose, key assumptions, warnings, or TODOs. Usually a single note is enough; do not use notes to label sequences of steps (that is what \`groups\` are for).
+- Do **not** use \`group\`-type notes (deprecated) — \`groups\` is the supported way to group steps.
 
 **Example - Simple flow:**
 \`\`\`javascript

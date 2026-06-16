@@ -104,7 +104,7 @@ export function filteredContentForExport(flow: ExtendedOpenFlow) {
 }
 
 import { dfs as dfsApply } from './dfs'
-import { randomUUID } from './conversations/FlowChatManager.svelte'
+import { randomUUID } from '$lib/utils/uuid'
 
 export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 	tag?: string
@@ -184,7 +184,8 @@ export async function runFlowPreview(
 	flow: OpenFlow & { tag?: string },
 	path: string,
 	restartedFrom: RestartedFrom | undefined,
-	conversationId?: string | undefined
+	conversationId?: string | undefined,
+	tempScriptRefs?: Record<string, string>
 ) {
 	const newFlow = flow
 	return await JobService.runFlowPreview({
@@ -194,7 +195,8 @@ export async function runFlowPreview(
 			value: newFlow.value,
 			path: path,
 			tag: newFlow.tag,
-			restarted_from: restartedFrom
+			restarted_from: restartedFrom,
+			temp_script_refs: tempScriptRefs
 		},
 		memoryId: conversationId
 	})

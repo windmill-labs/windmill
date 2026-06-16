@@ -11,7 +11,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { fetchVersion } from "../core/context.ts";
 import { updateGlobalVersions } from "../commands/sync/global.ts";
 import { isRawAppPath } from "./resource_folders.ts";
-import { VERSION } from "../main.ts";
+import { VERSION } from "../core/constants.ts";
 
 export function deepEqual<T>(a: T, b: T): boolean {
   if (a === b) return true;

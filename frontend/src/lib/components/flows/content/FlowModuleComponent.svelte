@@ -746,7 +746,7 @@
 						console.log('tagChange', e.detail)
 						if (flowModule.value.type == 'script') {
 							flowModule.value.tag_override = e.detail
-						} else if (flowModule.value.type == 'rawscript') {
+						} else if (flowModule.value.type == 'rawscript' || flowModule.value.type == 'aiagent') {
 							flowModule.value.tag = e.detail
 						}
 					}}
