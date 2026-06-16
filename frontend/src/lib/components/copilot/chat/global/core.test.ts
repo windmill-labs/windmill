@@ -30,7 +30,13 @@ vi.mock('$lib/components/vscode', () => ({}))
 // drafts through DraftService (no in-tab cell in unit tests), so this Map is the
 // source of truth the write/read tools round-trip against. `vi.hoisted` makes it
 // available inside the hoisted `vi.mock` factory and the test body alike.
-const { backendDrafts } = vi.hoisted(() => ({ backendDrafts: new Map<string, unknown>() }))
+const { backendDrafts, serverTimestamps } = vi.hoisted(() => ({
+	backendDrafts: new Map<string, unknown>(),
+	// Per-row server timestamp, only set by tests that want to simulate a
+	// concurrent writer advancing the row; otherwise empty, so the conflict
+	// branch in `updateDraft` stays inert for every pre-existing test.
+	serverTimestamps: new Map<string, string>()
+}))
 
 vi.mock('$lib/gen', async () => {
 	const actual = await vi.importActual<any>('$lib/gen')
@@ -150,6 +156,18 @@ vi.mock('$lib/gen', async () => {
 		DraftService: wrapService(actual.DraftService, {
 			updateDraft: vi.fn(async ({ kind, path, requestBody }: any) => {
 				const key = `${kind}:${path}`
+				// A non-force save whose last_sync no longer matches the row's
+				// server timestamp is rejected (optimistic concurrency). Inert
+				// unless a test set serverTimestamps for this key.
+				const serverTs = serverTimestamps.get(key)
+				if (
+					!requestBody?.force &&
+					requestBody?.last_sync != null &&
+					serverTs != null &&
+					requestBody.last_sync !== serverTs
+				) {
+					return { status: 'conflict', current_timestamp: serverTs }
+				}
 				if (requestBody?.value == null) backendDrafts.delete(key)
 				else backendDrafts.set(key, requestBody.value)
 				return { status: 'saved', current_timestamp: '2026-06-15T00:00:00Z' }
@@ -194,7 +212,8 @@ import {
 	setOpenPreviewHandler
 } from './core'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
-import { clearGlobalDrafts } from './userDraftAdapter'
+import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+import { clearGlobalDrafts, persistGlobalDraft } from './userDraftAdapter'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	AppService,
@@ -274,6 +293,7 @@ describe('global AI tools', () => {
 		__resetUserDraftForTesting()
 		localStorage.clear()
 		backendDrafts.clear()
+		serverTimestamps.clear()
 		clearGlobalDrafts(WORKSPACE)
 		vi.clearAllMocks()
 	})
@@ -772,6 +792,51 @@ describe('global AI tools', () => {
 		expect(
 			getBackendDraft('script', 'f/scripts/discard-me', { workspace: WORKSPACE })
 		).toBeUndefined()
+	})
+
+	// Covers the conflict-on-save / override branch of `persistGlobalDraft`
+	// directly: a non-force save whose recorded baseline is older than the
+	// server row is rejected with `status:'conflict'`, and `override` (force)
+	// pushes our version through. NB: this targets persistGlobalDraft, not the
+	// write_* tools — those re-read the backend first (readGlobalDraftValue ->
+	// recordRemoteSync), which re-seeds the baseline and so can only surface a
+	// conflict when a live editor cell is mounted (not the case in unit tests).
+	it('persistGlobalDraft surfaces a conflict on a stale baseline and override forces it', async () => {
+		const path = 'f/scripts/conflicted'
+		const key = `script:${path}`
+		const v1 = {
+			path,
+			summary: 'v1',
+			description: '',
+			content: 'export function main() {}',
+			language: 'bun'
+		}
+		seedBackendDraft('script', path, v1)
+		// A concurrent writer advanced the row past the baseline we recorded.
+		serverTimestamps.set(key, '2026-06-15T00:01:00Z')
+		UserDraftDbSyncer.recordRemoteSync(
+			{ workspace: WORKSPACE, itemKind: 'script', path },
+			'2026-06-15T00:00:00Z'
+		)
+
+		const v2 = { ...v1, summary: 'v2', content: 'export function main() { return 1 }' }
+		const conflict = await persistGlobalDraft(WORKSPACE, 'script', path, v2)
+		expect(conflict.status).toBe('conflict')
+		if (conflict.status === 'conflict') {
+			expect(conflict.serverTimestamp).toBe('2026-06-15T00:01:00Z')
+		}
+		// The rejected write left the stored draft untouched.
+		expect(getBackendDraft<any>('script', path, { workspace: WORKSPACE })).toMatchObject({
+			summary: 'v1'
+		})
+
+		// override:true bypasses the check and persists our version.
+		const forced = await persistGlobalDraft(WORKSPACE, 'script', path, v2, { force: true })
+		expect(forced.status).toBe('saved')
+		expect(getBackendDraft<any>('script', path, { workspace: WORKSPACE })).toMatchObject({
+			summary: 'v2',
+			content: 'export function main() { return 1 }'
+		})
 	})
 
 	it('requires trigger_kind when discarding a trigger draft', async () => {

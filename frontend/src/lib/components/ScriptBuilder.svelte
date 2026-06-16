@@ -731,7 +731,10 @@
 		})
 	}
 
-	function computeDropdownItems(initialPath: string, savedScript: Script | NewScript | undefined) {
+	function computeDropdownItems(
+		initialPath: string,
+		savedScript: ((Script | NewScript) & { no_deployed?: boolean }) | undefined
+	) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
 			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
 				? [
@@ -762,7 +765,7 @@
 								]
 							: []),
 						...(!inSessionPane &&
-						(savedScript as any)?.no_deployed !== true &&
+						savedScript?.no_deployed !== true &&
 						script.kind === 'script' &&
 						!script.auto_kind
 							? [
@@ -1834,7 +1837,7 @@
 									{hasPreprocessor}
 									canHavePreprocessor={canHavePreprocessor(script.language)}
 									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
-									isDeployed={savedScript && (savedScript as any)?.no_deployed !== true}
+									isDeployed={savedScript && savedScript?.no_deployed !== true}
 									schema={script.schema}
 									runnableVersion={script.parent_hash}
 									onDeployTrigger={handleDeployTrigger}
@@ -1880,7 +1883,7 @@
 							workspace={indicatorWorkspace}
 							itemKind="script"
 							path={indicatorPath}
-							draftOnly={(savedScript as any)?.no_deployed === true}
+							draftOnly={savedScript?.no_deployed === true}
 							{onResetToDeployed}
 							{loadedFromDraft}
 							{othersDraftsCount}
@@ -1917,7 +1920,7 @@
 				{/snippet}
 				{#snippet diffButton()}
 					{#if customUi?.topBar?.diff != false}
-						{@const isDraftOnly = (savedScript as any)?.no_deployed === true}
+						{@const isDraftOnly = savedScript?.no_deployed === true}
 						<Button
 							variant="default"
 							unifiedSize="md"

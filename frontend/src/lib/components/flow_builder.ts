@@ -17,7 +17,7 @@ export type FlowBuilderProps = {
 	loading?: boolean
 	flowStore: StateStore<OpenFlow>
 	flowStateStore: StateStore<FlowState>
-	savedFlow?: Flow | undefined
+	savedFlow?: Flow & { no_deployed?: boolean }
 	diffDrawer?: DiffDrawerI | undefined
 	customUi?: FlowBuilderWhitelabelCustomUi
 	disableAi?: boolean

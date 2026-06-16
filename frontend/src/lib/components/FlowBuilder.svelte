@@ -1118,7 +1118,7 @@
 						{/if}
 					</div>
 					{#if customUi?.topBar?.diff != false}
-						{@const isDraftOnly = (savedFlow as any)?.no_deployed === true}
+						{@const isDraftOnly = savedFlow?.no_deployed === true}
 						<Button
 							variant="default"
 							unifiedSize="md"

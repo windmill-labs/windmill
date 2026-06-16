@@ -51,7 +51,7 @@ export interface ScriptBuilderProps {
 	showMeta?: boolean
 	neverShowMeta?: boolean
 	diffDrawer?: DiffDrawerI | undefined
-	savedScript?: Script | NewScript | undefined
+	savedScript?: (Script | NewScript) & { no_deployed?: boolean }
 	searchParams?: URLSearchParams
 	disableHistoryChange?: boolean
 	customUi?: ScriptBuilderWhitelabelCustomUi

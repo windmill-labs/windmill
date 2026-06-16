@@ -63,7 +63,7 @@
 			<!-- newApp: a draft-only app (no_deployed=true) has a truthy synthesized
 			     savedApp but no deployed row, so it must deploy via createApp — keying
 			     on !savedApp alone would updateApp a never-deployed path and 404
-			     "not found" (same fix as the flow session preview). -->
+			     "not found". -->
 			<RawAppEditor
 				bind:files={runtime.rawApp.val.files}
 				bind:runnables={runtime.rawApp.val.runnables}

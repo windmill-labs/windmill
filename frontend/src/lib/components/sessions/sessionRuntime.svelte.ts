@@ -509,7 +509,7 @@ function createRuntime(session: Session): SessionRuntime {
 							path: result.path,
 							policy: result.policy,
 							custom_path: result.custom_path,
-							no_deployed: (result as any).no_deployed
+							no_deployed: result.no_deployed
 						}
 					} catch {
 						savedRawApp.val = undefined
@@ -544,7 +544,7 @@ function createRuntime(session: Session): SessionRuntime {
 					path: result.path,
 					policy: result.policy,
 					custom_path: result.custom_path,
-					no_deployed: (result as any).no_deployed
+					no_deployed: result.no_deployed
 				}
 				// Prefer the server draft over the deployed value (mirrors the
 				// flow/script `result.draft ?? result`). A raw-app draft is already
