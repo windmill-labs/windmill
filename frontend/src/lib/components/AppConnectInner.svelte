@@ -1042,7 +1042,7 @@
 				{#if supportsClientCredentials}
 					<div class="flex flex-col gap-1">
 						<h3 class="text-sm font-semibold text-emphasis mb-1">Authentication</h3>
-						{#if ccOnly}
+						{#if ccOnly || ccBringYourOwn}
 							<div class="text-xs text-secondary font-normal mb-2">
 								{#if useSharedInstanceCreds}
 									{resourceType} connects server-to-server using the credentials configured for this
