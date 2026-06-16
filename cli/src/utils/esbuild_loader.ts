@@ -28,20 +28,35 @@ type Esbuild = typeof import("esbuild");
 const FALLBACK_VERSION = "0.28.0";
 
 let cached: Esbuild | undefined;
+let inFlight: Promise<Esbuild> | undefined;
+// Distinguishes concurrent extraction temp dirs within a process.
+let extractCounter = 0;
 
 /**
  * Returns a working esbuild module, preferring the native binary and falling
  * back to esbuild-wasm only when the native host/binary versions don't match.
- * The result is memoized for the process.
+ * Memoized for the process: concurrent first callers (e.g. a parallel
+ * `wmill sync push`) share one probe/download instead of each running their own.
  */
-export async function getEsbuild(): Promise<Esbuild> {
-  if (cached) return cached;
+export function getEsbuild(): Promise<Esbuild> {
+  if (cached) return Promise.resolve(cached);
+  if (inFlight) return inFlight;
+  inFlight = acquireEsbuild()
+    .then((esbuild) => {
+      cached = esbuild;
+      return esbuild;
+    })
+    .finally(() => {
+      inFlight = undefined;
+    });
+  return inFlight;
+}
 
+async function acquireEsbuild(): Promise<Esbuild> {
   // Escape hatch: skip native entirely (e.g. a host known to have a broken
   // install, or to exercise the fallback path).
   if (process.env.WINDMILL_FORCE_ESBUILD_WASM) {
-    cached = await loadWasmEsbuild(await nativeHostVersion());
-    return cached;
+    return loadWasmEsbuild(await nativeHostVersion());
   }
 
   try {
@@ -52,7 +67,6 @@ export async function getEsbuild(): Promise<Esbuild> {
     // child's stderr while the thrown error is generic ("service was stopped"),
     // so we fall back on ANY smoke-test failure rather than matching a string.
     await esbuild.transform("");
-    cached = esbuild;
     return esbuild;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -61,8 +75,7 @@ export async function getEsbuild(): Promise<Esbuild> {
     );
   }
 
-  cached = await loadWasmEsbuild(await nativeHostVersion());
-  return cached;
+  return loadWasmEsbuild(await nativeHostVersion());
 }
 
 /**
@@ -119,9 +132,10 @@ async function ensureWasmPackage(version: string): Promise<string> {
     );
   }
 
-  // Extract to a temp dir and rename into place so a crash or a concurrent
-  // writer can't leave a half-extracted package behind.
-  const tmpDir = `${destDir}.${process.pid}.tmp`;
+  // Extract to a unique temp dir and rename into place so a crash or a
+  // concurrent writer can't leave a half-extracted package behind, and so two
+  // extractions never share an in-progress directory.
+  const tmpDir = `${destDir}.${process.pid}.${extractCounter++}.tmp`;
   fs.rmSync(tmpDir, { recursive: true, force: true });
   await extractTarball(res.body, tmpDir);
   if (!fs.existsSync(path.join(tmpDir, "lib", "main.js"))) {
