@@ -228,6 +228,12 @@ lazy_static! {
     /// layer. `deno_fetch` with `root_cert_store_provider: None` falls back to
     /// the Mozilla webpki roots only, so corporate CAs fail with `UnknownIssuer`.
     /// We read those env vars here and merge the certs into the default store.
+    ///
+    /// Snapshotted once for the process lifetime, like the Deno executor's
+    /// `DENO_CERT`/`DENO_TLS_CA_STORE` lazy statics (`deno_executor.rs`): the
+    /// fetch root store is shared across all (potentially prewarmed) isolates, so
+    /// per-job CA reconfiguration is out of scope. A later `WORKER_CONFIG` reload
+    /// is not picked up until the process restarts.
     static ref NATIVE_ROOT_CERT_STORE_PROVIDER: Option<Arc<dyn RootCertStoreProvider>> =
         build_native_root_cert_store_provider();
 }
@@ -240,6 +246,26 @@ impl RootCertStoreProvider for NativeRootCertStoreProvider {
     fn get_or_try_init(&self) -> Result<&RootCertStore, JsErrorBox> {
         Ok(&self.store)
     }
+}
+
+/// Resolve a CA-related env var the same way the child executors see it: the
+/// worker's own process env, then the worker-group config (`env_vars_allowlist`
+/// forwarded values + DB `env_vars_static` literals, resolved into
+/// `WORKER_CONFIG.env_vars`). Child Deno/Bun jobs receive that config map via
+/// `.envs(...)`, so nativets must consult it too or a CA set only through worker
+/// config would silently not apply in-process.
+fn resolve_ca_env_var(name: &str) -> Option<String> {
+    if let Ok(v) = std::env::var(name) {
+        if !v.is_empty() {
+            return Some(v);
+        }
+    }
+    windmill_common::worker::WORKER_CONFIG
+        .load()
+        .env_vars
+        .get(name)
+        .filter(|v| !v.is_empty())
+        .cloned()
 }
 
 /// Build a root cert store seeded with the Mozilla webpki roots plus any custom
@@ -256,7 +282,7 @@ fn build_native_root_cert_store_provider() -> Option<Arc<dyn RootCertStoreProvid
     // RootCertStore::add does not dedupe — we'd otherwise trust the same root N times.
     let mut seen_paths = std::collections::HashSet::new();
     for var in ["DENO_CERT", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS"] {
-        let Some(path) = std::env::var(var).ok().filter(|p| !p.is_empty()) else {
+        let Some(path) = resolve_ca_env_var(var).filter(|p| !p.is_empty()) else {
             continue;
         };
         if !seen_paths.insert(path.clone()) {
@@ -281,8 +307,7 @@ fn build_native_root_cert_store_provider() -> Option<Arc<dyn RootCertStoreProvid
     // and orders the stores — this is purely additive: the Mozilla defaults are
     // always seeded above, and `system` augments them. That is a strict superset
     // of the public roots, which is what the corporate-CA use case needs.
-    if std::env::var("DENO_TLS_CA_STORE")
-        .ok()
+    if resolve_ca_env_var("DENO_TLS_CA_STORE")
         .map(|v| v.split(',').any(|s| s.trim() == "system"))
         .unwrap_or(false)
     {

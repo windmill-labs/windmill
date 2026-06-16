@@ -135,6 +135,39 @@ fn multiple_ca_env_vars_pointing_at_same_file_dedupe_to_one_root() {
 }
 
 #[test]
+fn worker_config_env_var_adds_custom_root() {
+    // A CA configured only through the worker-group config (DB `env_vars_static`
+    // / allowlisted forwarded vars) lands in `WORKER_CONFIG.env_vars`, not the
+    // worker's own process env. Child Deno/Bun jobs receive it via `.envs(...)`;
+    // nativets must pick it up from the same place. Regression for the in-process
+    // path missing that source.
+    use windmill_common::worker::WORKER_CONFIG;
+
+    let path = write_test_ca("workercfg");
+    with_cleared_ca_env(|| {
+        let prev = WORKER_CONFIG.load_full();
+        let mut cfg = (*prev).clone();
+        cfg.env_vars.insert(
+            "SSL_CERT_FILE".to_string(),
+            path.to_string_lossy().into_owned(),
+        );
+        WORKER_CONFIG.store(std::sync::Arc::new(cfg));
+
+        let provider = build_native_root_cert_store_provider();
+        // restore before asserting so a failure can't leak the mutated global
+        WORKER_CONFIG.store(prev);
+
+        let provider = provider.expect("worker-config CA must produce a provider");
+        let store = provider.get_or_try_init().expect("store init");
+        assert_eq!(
+            store.len(),
+            deno_tls::create_default_root_cert_store().len() + 1
+        );
+    });
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
 fn deno_cert_adds_custom_root() {
     let path = write_test_ca("deno");
     with_cleared_ca_env(|| {
