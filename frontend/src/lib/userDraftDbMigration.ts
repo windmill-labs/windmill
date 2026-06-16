@@ -13,6 +13,7 @@
 import { DraftService } from './gen'
 import type { UserDraftItemKind } from './gen'
 import { sendUserToast } from './toast'
+import { reportDraftMigrationError } from './userDraftMigrationErrors.svelte'
 import { getUsernameForNamespace } from './userNamespace'
 import { randomUUID } from './utils/uuid'
 
@@ -203,18 +204,13 @@ export async function migrateUserDraftsToDb(): Promise<void> {
 			// surface it so the user isn't silently stuck, with an escape
 			// hatch to drop the un-migratable draft.
 			console.error('UserDraft LS→DB migration: failed for', key, e)
-			sendUserToast(`Could not migrate draft ${path} in workspace ${parsed.workspace}`, 'error', [
-				{
-					label: 'Delete draft',
-					callback: () => {
-						try {
-							localStorage.removeItem(key)
-						} catch {
-							// ignore
-						}
-					}
-				}
-			])
+			reportDraftMigrationError({
+				key,
+				workspace: parsed.workspace,
+				itemKind: parsed.itemKind,
+				path,
+				value
+			})
 		}
 	}
 }
