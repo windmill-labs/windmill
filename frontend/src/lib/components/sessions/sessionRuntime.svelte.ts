@@ -451,7 +451,15 @@ function createRuntime(session: Session): SessionRuntime {
 								)
 							) as NewScript)
 						: {
-								path,
+								// Seed from the draft's own path (a rename lives in `draft_path`,
+								// else `path`), not the storage key. Otherwise re-seeding a renamed
+								// never-deployed draft (e.g. a script→script switch re-runs loadScript
+								// with the draft still in memory) resets the path to `draft_<uuid>`,
+								// and the next autosave drops `draft_path` — clobbering the rename.
+								path:
+									(aiDraft as NewScript & { draft_path?: string }).draft_path ??
+									aiDraft.path ??
+									path,
 								summary: aiDraft.summary ?? '',
 								content: '',
 								description: '',
