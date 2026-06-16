@@ -134,12 +134,20 @@
 			dirtyPath = false
 			dirtyLocalPart = false
 			fixedScriptPath = fixedScriptPath_ ?? ''
-			await loadTrigger(defaultConfig)
+			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultConfig)
+			// Draft-only triggers open as "new trigger prefilled from the
+			// draft" — no deployed row exists, so saving must CREATE (the
+			// update endpoint 404s).
+			edit = !noDeployed
+			// Form holds DEPLOYED here. Capture `originalConfig` as the
+			// deployed baseline so `hasChanged` (= current != originalConfig)
+			// fires whenever a draft exists, not only after the user edits.
+			originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig())) as NewEmailTrigger
+			if (draftOverlay) loadTriggerConfig(draftOverlay as Partial<EmailTrigger>)
 			if (!defaultConfig) {
 				// If the email trigger is loaded from the backend, we to set the initial config
-				initialConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
+				initialConfig = structuredClone($state.snapshot(getEmailTriggerConfig())) as NewEmailTrigger
 			}
-			originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
 			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load email trigger: ${err}`, true)
@@ -209,17 +217,31 @@
 		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
-	async function loadTrigger(defaultConfig?: Partial<EmailTrigger>): Promise<void> {
+	/**
+	 * Apply the deployed config to the form, then return the saved-draft
+	 * overlay (if any) so the caller can capture the deployed-only form
+	 * state as `originalConfig` BEFORE applying the draft. See
+	 * `NatsTriggerEditorInner` for the rationale.
+	 */
+	async function loadTrigger(
+		defaultConfig?: Partial<EmailTrigger>
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
-			return
-		} else {
-			const s = await EmailTriggerService.getEmailTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath
-			})
-
-			loadTriggerConfig(s)
+			return { overlay: undefined, noDeployed: false }
+		}
+		const s = await EmailTriggerService.getEmailTrigger({
+			workspace: $workspaceStore!,
+			path: initialPath,
+			getDraft: true
+		})
+		const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+		loadTriggerConfig(deployedTrigger)
+		return {
+			noDeployed: !!(s as any)?.no_deployed,
+			overlay: draftFromBackend
+			? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
+			: undefined
 		}
 	}
 

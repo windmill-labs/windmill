@@ -646,6 +646,68 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
             .unwrap();
         assert_eq!(resp.json::<bool>().await?, true);
 
+        // --- create_fork over an existing (active) workspace id: clear 400, not a raw SQL 500 ---
+        let resp = authed(client().post(format!("{new_ws_base}/create_fork")))
+            .json(&json!({
+                "id": "wm-fork-renamed",
+                "name": "Conflicting Fork"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 400, "create_fork over active workspace");
+        let body = resp.text().await?;
+        assert!(
+            body.contains("already exists"),
+            "create_fork conflict body: {body}"
+        );
+
+        // --- create_fork over an archived workspace id: error must mention it is archived ---
+        let resp = authed(client().post(format!(
+            "http://localhost:{port}/api/w/wm-fork-renamed/workspaces/archive"
+        )))
+        .send()
+        .await
+        .unwrap();
+        assert_eq!(resp.status(), 200, "archive fork: {}", resp.text().await?);
+
+        let resp = authed(client().post(format!("{new_ws_base}/create_fork")))
+            .json(&json!({
+                "id": "wm-fork-renamed",
+                "name": "Conflicting Fork"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 400, "create_fork over archived workspace");
+        let body = resp.text().await?;
+        assert!(
+            body.contains("archived"),
+            "create_fork archived-conflict body: {body}"
+        );
+
+        // --- hard delete frees up the id for a new fork ---
+        let resp = authed(client().delete(format!("{global_base}/delete/wm-fork-renamed")))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200, "delete fork: {}", resp.text().await?);
+
+        let resp = authed(client().post(format!("{new_ws_base}/create_fork")))
+            .json(&json!({
+                "id": "wm-fork-renamed",
+                "name": "Recreated Fork"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            200,
+            "create_fork after hard delete: {}",
+            resp.text().await?
+        );
+
         // clean up renamed fork
         let resp = authed(client().delete(format!("{global_base}/delete/wm-fork-renamed")))
             .send()

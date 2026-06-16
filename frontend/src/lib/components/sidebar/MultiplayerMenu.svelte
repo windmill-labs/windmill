@@ -46,11 +46,18 @@
 
 		function setPeers() {
 			if (!awareness) return
-			$awarenessStore = Object.fromEntries(
-				Array.from(awareness.getStates().values())
-					.filter((x) => x.name)
-					.map((x) => [x.name, x.url])
-			)
+			const states = Array.from(awareness.getStates().values()).filter((x) => x.name)
+			const peerMap: Record<string, string> = {}
+			for (const state of states) {
+				if (state.name === $userStore?.username) {
+					// For current user, always use this tab's URL to avoid multi-tab flickering
+					peerMap[state.name] = $page.url.pathname
+				} else if (!Object.prototype.hasOwnProperty.call(peerMap, state.name)) {
+					// For other users, keep first seen URL per username (stable dedup)
+					peerMap[state.name] = state.url
+				}
+			}
+			$awarenessStore = peerMap
 		}
 
 		setPeers()

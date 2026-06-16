@@ -593,7 +593,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         name: Cow::Borrowed("createScript"),
         description: Cow::Borrowed("create script: Creates a new script when the path does not already exist.
 Creates a new version of an existing script when called with the same path and the current `parent_hash`"),
-        instructions: Cow::Borrowed("To create a script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed."),
+        instructions: Cow::Borrowed("To create a NEW script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language, and leave parent_hash unset. For TypeScript, use 'bun' unless deno-specific APIs are needed. To UPDATE an existing script, do NOT delete and recreate it: call this tool with the same path and set parent_hash to the script's current hash, which you can read from the `hash` field returned by getScriptByPath. This creates a new version while preserving the script's history."),
         path: Cow::Borrowed("/w/{workspace}/scripts/create"),
         method: Cow::Borrowed("POST"),
         path_params_schema: None,
@@ -602,6 +602,9 @@ Creates a new version of an existing script when called with the same path and t
         "type": "object",
         "properties": {
                 "path": {
+                        "type": "string"
+                },
+                "parent_hash": {
                         "type": "string"
                 },
                 "summary": {

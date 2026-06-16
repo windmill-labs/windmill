@@ -27,7 +27,7 @@
 	async function importRaw() {
 		$importFlowStore =
 			importType === 'yaml' ? YAML.parse(pendingRaw ?? '') : JSON.parse(pendingRaw ?? '')
-		await goto('/flows/add?nodraft=true')
+		await goto('/flows/add')
 		drawer?.closeDrawer?.()
 	}
 
@@ -35,7 +35,7 @@
 		const parsed =
 			wacImportType === 'yaml' ? YAML.parse(pendingWacRaw ?? '') : JSON.parse(pendingWacRaw ?? '')
 		$importScriptStore = parsed
-		await goto(`${base}/scripts/add?import=true&nodraft=true`)
+		await goto(`${base}/scripts/add?import=true`)
 		wacDrawer?.closeDrawer?.()
 	}
 
@@ -45,17 +45,17 @@
 
 	function selectFlowEditor() {
 		flowModalOpen = false
-		goto(`${base}/flows/add?nodraft=true`)
+		goto(`${base}/flows/add`)
 	}
 
 	function selectWacPython() {
 		flowModalOpen = false
-		goto(`${base}/scripts/add?nodraft=true&wac=python`)
+		goto(`${base}/scripts/add?wac=python`)
 	}
 
 	function selectWacTypescript() {
 		flowModalOpen = false
-		goto(`${base}/scripts/add?nodraft=true&wac=typescript`)
+		goto(`${base}/scripts/add?wac=typescript`)
 	}
 
 	function selectPipeline() {

@@ -1077,6 +1077,15 @@ async fn get_otel_tracing_proxy_envs(
 /// through the proxy without TLS interception, so clients that pin their own CA (kubectl,
 /// helm, terraform, etc.) keep working. Empty when unset, matching the prior behavior of
 /// intercepting all destinations including loopback.
+///
+/// The worker's own `NO_PROXY` env is merged in so that enabling HTTP request tracing never
+/// silently narrows exclusions an operator already configured at the container level: hosts
+/// reachable directly before tracing was turned on stay reachable directly afterwards. The
+/// upstream-relay side (`build_no_proxy_intercept`) already honors the container `NO_PROXY`;
+/// this keeps the injected-into-jobs side symmetric. Note that job runtimes match `NO_PROXY`
+/// by hostname/suffix, not by resolving against CIDR ranges, so CIDR-only entries (e.g.
+/// `10.0.0.0/8`) carry over but won't match a hostname target — operators still need an
+/// explicit host/suffix entry for those.
 #[cfg(all(feature = "private", feature = "enterprise"))]
 async fn build_tracing_proxy_no_proxy() -> String {
     let configured = OTEL_TRACING_PROXY_SETTINGS
@@ -1084,22 +1093,23 @@ async fn build_tracing_proxy_no_proxy() -> String {
         .await
         .no_proxy_hosts
         .clone();
-    normalize_no_proxy_hosts(configured.as_deref())
+    normalize_no_proxy_hosts([configured.as_deref(), NO_PROXY.as_deref()])
 }
 
-/// Split a comma-separated NO_PROXY value, trim whitespace, drop empty entries, and
-/// deduplicate while preserving order. `None` returns an empty string.
+/// Split comma-separated NO_PROXY sources, trim whitespace, drop empty entries, and
+/// deduplicate while preserving first-occurrence order. Sources are concatenated in the
+/// order given (earlier sources win on ordering). Returns an empty string when all sources
+/// are `None`/empty.
 #[cfg(all(feature = "private", feature = "enterprise"))]
-fn normalize_no_proxy_hosts(configured: Option<&str>) -> String {
-    let Some(configured) = configured else {
-        return String::new();
-    };
+fn normalize_no_proxy_hosts<'a>(sources: impl IntoIterator<Item = Option<&'a str>>) -> String {
     let mut seen = std::collections::HashSet::new();
     let mut out: Vec<&str> = Vec::new();
-    for entry in configured.split(',') {
-        let trimmed = entry.trim();
-        if !trimmed.is_empty() && seen.insert(trimmed) {
-            out.push(trimmed);
+    for source in sources.into_iter().flatten() {
+        for entry in source.split(',') {
+            let trimmed = entry.trim();
+            if !trimmed.is_empty() && seen.insert(trimmed) {
+                out.push(trimmed);
+            }
         }
     }
     out.join(",")
@@ -1111,26 +1121,58 @@ mod no_proxy_tests {
 
     #[test]
     fn unset_returns_empty() {
-        assert_eq!(normalize_no_proxy_hosts(None), "");
+        assert_eq!(normalize_no_proxy_hosts([None]), "");
+        assert_eq!(normalize_no_proxy_hosts([None, None]), "");
     }
 
     #[test]
     fn empty_and_whitespace_only_returns_empty() {
-        assert_eq!(normalize_no_proxy_hosts(Some("")), "");
-        assert_eq!(normalize_no_proxy_hosts(Some("  ,  ,\t")), "");
+        assert_eq!(normalize_no_proxy_hosts([Some("")]), "");
+        assert_eq!(normalize_no_proxy_hosts([Some("  ,  ,\t")]), "");
     }
 
     #[test]
     fn trims_and_skips_empties() {
         assert_eq!(
-            normalize_no_proxy_hosts(Some("  *.eks.amazonaws.com  ,, *.internal ")),
+            normalize_no_proxy_hosts([Some("  *.eks.amazonaws.com  ,, *.internal ")]),
             "*.eks.amazonaws.com,*.internal"
         );
     }
 
     #[test]
     fn dedupes_preserving_first_occurrence_order() {
-        assert_eq!(normalize_no_proxy_hosts(Some("a,b,a,c,b,d")), "a,b,c,d");
+        assert_eq!(normalize_no_proxy_hosts([Some("a,b,a,c,b,d")]), "a,b,c,d");
+    }
+
+    #[test]
+    fn merges_configured_with_container_no_proxy() {
+        // Configured tracing hosts come first, then the container NO_PROXY is appended.
+        assert_eq!(
+            normalize_no_proxy_hosts([
+                Some("gitlab.internal"),
+                Some("localhost,127.0.0.1,10.0.0.0/8,.cluster.local")
+            ]),
+            "gitlab.internal,localhost,127.0.0.1,10.0.0.0/8,.cluster.local"
+        );
+    }
+
+    #[test]
+    fn merges_dedupe_across_sources() {
+        // Entries present in both sources are not duplicated.
+        assert_eq!(
+            normalize_no_proxy_hosts([Some("localhost,gitlab.internal"), Some("localhost,.svc")]),
+            "localhost,gitlab.internal,.svc"
+        );
+    }
+
+    #[test]
+    fn container_no_proxy_carries_over_when_unconfigured() {
+        // Tracing setting unset but container NO_PROXY present: exclusions still carry over,
+        // so enabling tracing does not silently drop them.
+        assert_eq!(
+            normalize_no_proxy_hosts([None, Some(".cluster.local,gitlab.internal")]),
+            ".cluster.local,gitlab.internal"
+        );
     }
 }
 

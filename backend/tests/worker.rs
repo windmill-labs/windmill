@@ -4178,8 +4178,8 @@ async fn test_flow_lock_all(db: Pool<Postgres>) -> anyhow::Result<()> {
                     visible_to_runner_only: None,
                     on_behalf_of_email: None,
                 },
-                draft_only: None,
                 deployment_message: None,
+                draft_only: None,
             },
         )
         .await

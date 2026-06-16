@@ -741,7 +741,7 @@
 				{#if !$userStore?.operator}
 					{#if canWrite(job?.script_path ?? '', {}, $userStore)}
 						<Button
-							href={`${stem}/edit/${job?.script_path}?workspace=${$workspaceStore}${isScript ? `` : `&nodraft=true`}`}
+							href={`${stem}/edit/${job?.script_path}?workspace=${$workspaceStore}`}
 							on:click={() => {
 								$initialArgsStore = job?.args
 							}}

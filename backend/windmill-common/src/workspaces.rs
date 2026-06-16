@@ -68,6 +68,7 @@ bitflags::bitflags! {
         const DISABLE_DIRECT_DEPLOYMENT =           1 << 0;
         const DISABLE_WORKSPACE_FORKING =           1 << 1;
         const RESTRICT_DEPLOY_TO_DEPLOYERS =        1 << 2;
+        const RESTRICT_ANONYMOUS_APP_DEPLOYMENT =   1 << 3;
     }
 }
 
@@ -78,6 +79,7 @@ pub enum ProtectionRuleKind {
     DisableDirectDeployment,
     DisableWorkspaceForking,
     RestrictDeployToDeployers,
+    RestrictAnonymousAppDeployment,
 }
 
 impl ProtectionRuleKind {
@@ -92,6 +94,9 @@ impl ProtectionRuleKind {
             ProtectionRuleKind::RestrictDeployToDeployers => {
                 ProtectionRules::RESTRICT_DEPLOY_TO_DEPLOYERS
             }
+            ProtectionRuleKind::RestrictAnonymousAppDeployment => {
+                ProtectionRules::RESTRICT_ANONYMOUS_APP_DEPLOYMENT
+            }
         }
     }
 
@@ -103,6 +108,9 @@ impl ProtectionRuleKind {
             ProtectionRuleKind::DisableWorkspaceForking => "Forking this workspace is forbidden",
             ProtectionRuleKind::RestrictDeployToDeployers => {
                 "Only workspace admins and members of wm_deployers can deploy to this workspace"
+            }
+            ProtectionRuleKind::RestrictAnonymousAppDeployment => {
+                "Making an app publicly accessible without login (anonymous execution mode) is restricted in this workspace"
             }
         }
     }

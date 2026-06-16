@@ -39,7 +39,7 @@
 	</div>
 {:else}
 	<div class="border rounded-md bg-surface-tertiary">
-		{#each groupedItems.slice(0, nbDisplayed) as item (item['folderName'] ?? 'user__' + item['username'])}
+		{#each groupedItems.slice(0, nbDisplayed) as item ('folderName' in item ? `f__${item.folderName}` : 'username' in item ? `u__${item.username}` : `i__${item.type}__${item.path}`)}
 			{#if item}
 				<TreeView
 					{isSearching}

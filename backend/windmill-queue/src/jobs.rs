@@ -5953,7 +5953,13 @@ async fn push_inner<'c, 'd>(
                 labels -- 44
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
             $19, $20, $38, $21, $22, $23, $24, $25, $26, $39::job_trigger_kind,
-            ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27, $44)
+            ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27,
+            -- $44 (payload labels) merged with the labels of the runnable's folder, if any
+            -- ($45/$46 are runnable_path/workspace_id again, kept separate to avoid parameter type conflicts)
+            (SELECT CASE WHEN fl.labels IS NULL THEN $44
+                ELSE (SELECT array_agg(DISTINCT lbl) FROM unnest(COALESCE($44, ARRAY[]::TEXT[]) || fl.labels) lbl)
+            END
+            FROM folder_labels($46, $45) AS fl(labels)))
         ),
         inserted_runtime AS (
             INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)
@@ -6010,6 +6016,8 @@ async fn push_inner<'c, 'd>(
         cache_ignore_s3_path,
         runnable_settings_handle,
         labels.as_deref() as Option<&[String]>,
+        runnable_path,
+        workspace_id,
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)

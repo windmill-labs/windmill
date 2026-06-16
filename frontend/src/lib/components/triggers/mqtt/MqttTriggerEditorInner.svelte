@@ -158,11 +158,16 @@
 			edit = true
 			dirtyPath = false
 			fixedScriptPath = fixedScriptPath_ ?? ''
-			await loadTrigger(defaultConfig)
+			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultConfig)
+			// Draft-only triggers open as "new trigger prefilled from the
+			// draft" — no deployed row exists, so saving must CREATE (the
+			// update endpoint 404s).
+			edit = !noDeployed
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			if (draftOverlay) loadTriggerConfig(draftOverlay)
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load mqtt trigger: ${err.body}`, true)
@@ -247,20 +252,31 @@
 		}
 	}
 
-	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
+	/** See `NatsTriggerEditorInner.loadTrigger` for the rationale. */
+	async function loadTrigger(
+		defaultConfig?: Record<string, any>
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
 		try {
 			if (defaultConfig) {
 				loadTriggerConfig(defaultConfig)
-				return
-			} else {
-				const s = await MqttTriggerService.getMqttTrigger({
-					workspace: $workspaceStore!,
-					path: initialPath
-				})
-				loadTriggerConfig(s)
+				return { overlay: undefined, noDeployed: false }
 			}
+			const s = await MqttTriggerService.getMqttTrigger({
+				workspace: $workspaceStore!,
+				path: initialPath,
+				getDraft: true
+			})
+			const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+			loadTriggerConfig(deployedTrigger)
+			return {
+			noDeployed: !!(s as any)?.no_deployed,
+			overlay: draftFromBackend
+				? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
+				: undefined
+		}
 		} catch (error) {
 			sendUserToast(`Could not load mqtt trigger: ${error.body}`, true)
+			return { overlay: undefined, noDeployed: false }
 		}
 	}
 

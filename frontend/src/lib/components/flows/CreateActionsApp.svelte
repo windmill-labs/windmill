@@ -26,10 +26,10 @@
 			// Navigation to /apps_raw/add triggers a full page reload (for cross-origin isolation),
 			// so the in-memory importStore would be lost. Use sessionStorage instead.
 			sessionStorage.setItem('rawAppImport', JSON.stringify(parsed))
-			await goto('/apps_raw/add?nodraft=true')
+			await goto('/apps_raw/add')
 		} else {
 			$importStore = parsed
-			await goto('/apps/add?nodraft=true')
+			await goto('/apps/add')
 		}
 		drawer?.closeDrawer?.()
 	}
@@ -40,12 +40,12 @@
 
 	function selectLowCode() {
 		appTypeModalOpen = false
-		goto(`${base}/apps/add?nodraft=true`)
+		goto(`${base}/apps/add`)
 	}
 
 	function selectFullCode() {
 		appTypeModalOpen = false
-		goto(`${base}/apps_raw/add?nodraft=true`)
+		goto(`${base}/apps_raw/add`)
 	}
 </script>
 

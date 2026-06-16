@@ -305,7 +305,7 @@ async function main() {
       return response;
     });
 
-    // Warn (one line) if AGENTS.cli.md predates this CLI's prompts bundle.
+    // Warn (one line) if AGENTS.wmill.md predates this CLI's prompts bundle.
     // The check is gated on argv parsing (cheap) so the ~360 KB skills.gen.ts
     // bundle stays out of the import graph for help/version/init/refresh/etc.
     if (shouldRunFreshnessCheck(process.argv)) {

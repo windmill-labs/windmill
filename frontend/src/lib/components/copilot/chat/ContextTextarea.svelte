@@ -1,5 +1,6 @@
 <script lang="ts">
 	import autosize from '$lib/autosize'
+	import { tick } from 'svelte'
 	import type { ContextElement } from './context'
 	import ChatContextPicker from './ChatContextPicker.svelte'
 	import Portal from '$lib/components/Portal.svelte'
@@ -8,9 +9,19 @@
 	import { CHAT_INPUT_PADDING } from './aiChatManagerContext'
 	import { createFloatingActions, createVirtualElement } from 'svelte-floating-ui'
 	import { flip, offset, shift } from 'svelte-floating-ui/dom'
+	import {
+		type PasteAttachment,
+		countLines,
+		expandPasteTokens,
+		makePasteToken,
+		nextPasteId,
+		pasteTokenRegex,
+		shouldCollapsePaste
+	} from './pasteTokens'
 
 	interface Props {
 		value: string
+		pastes?: PasteAttachment[]
 		availableContext: ContextElement[]
 		selectedContext: ContextElement[]
 		placeholder: string
@@ -27,6 +38,7 @@
 
 	let {
 		value = $bindable(''),
+		pastes = $bindable(),
 		availableContext,
 		selectedContext,
 		placeholder,
@@ -81,6 +93,10 @@
 	// is the supported path for virtual references — see the library's
 	// `referenceAction` / `setupVirtualElementObserver` in dist/index.js.
 	floatingRef(anchorRef)
+
+	// Mirrors the textarea's vertical scroll so the highlight overlay stays
+	// aligned once the input is capped (max-height) and scrolls internally.
+	let scrollTop = $state(0)
 
 	// Properties to copy for caret position calculation
 	const properties = [
@@ -196,8 +212,26 @@
 		return coordinates
 	}
 
+	function escapeHtml(text: string) {
+		return text
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;')
+			.replace(/'/g, '&#39;')
+	}
+
 	function getHighlightedText(text: string) {
-		return text.replace(/@[\w/.\-\[\]]+/g, (match) => {
+		let html = escapeHtml(text)
+		// Wrap collapsed-paste tokens as clickable chips. The span keeps the exact
+		// token text (label + zero-width id) so its width matches the underlying
+		// transparent textarea text and the caret stays aligned.
+		html = html.replace(pasteTokenRegex(), (match, zw: string) => {
+			const att = pastes?.find((p) => p.id === zw.length)
+			if (!att) return match
+			return `<span data-paste-id="${att.id}" class="rounded bg-surface-secondary text-secondary cursor-pointer pointer-events-auto">${match}</span>`
+		})
+		html = html.replace(/@[\w/.\-\[\]]+/g, (match) => {
 			const title = match.slice(1)
 			const inContext =
 				availableContext.find((c) => c.title === title) ||
@@ -207,6 +241,255 @@
 			}
 			return match
 		})
+		return html
+	}
+
+	// Find the paste tokens that overlap a [start, end) selection, returning the
+	// range widened to cover each overlapped token whole (so a chip is never cut
+	// mid-token) plus the ids to drop from the registry. Strict overlap — merely
+	// abutting a token edge doesn't pull it in.
+	function tokensOverlapping(start: number, end: number) {
+		let from = start
+		let to = end
+		const ids: number[] = []
+		for (const m of value.matchAll(pasteTokenRegex())) {
+			if (m.index === undefined) continue
+			const tokenStart = m.index
+			const tokenEnd = m.index + m[0].length
+			if (tokenStart < end && tokenEnd > start) {
+				from = Math.min(from, tokenStart)
+				to = Math.max(to, tokenEnd)
+				ids.push(m[1].length)
+			}
+		}
+		return { from, to, ids }
+	}
+
+	// On a large paste, register the blob and insert a compact token instead of
+	// the raw lines (see pasteTokens.ts). Smaller pastes fall through to default
+	// (and beforeinput keeps any overlapped chip atomic). The insertion range is
+	// widened over overlapped tokens so pasting onto a chip replaces it whole.
+	function handlePaste(e: ClipboardEvent) {
+		const text = e.clipboardData?.getData('text/plain') ?? ''
+		if (!text || !shouldCollapsePaste(text)) return
+		e.preventDefault()
+		const ta = e.currentTarget as HTMLTextAreaElement
+		const { from, to, ids } = tokensOverlapping(
+			ta.selectionStart ?? value.length,
+			ta.selectionEnd ?? value.length
+		)
+		const att: PasteAttachment = {
+			id: nextPasteId(pastes ?? []),
+			lines: countLines(text),
+			content: text
+		}
+		const token = makePasteToken(att)
+		value = value.slice(0, from) + token + value.slice(to)
+		pastes = [...(pastes ?? []).filter((p) => !ids.includes(p.id)), att]
+		const caret = from + token.length
+		tick().then(() => ta.setSelectionRange(caret, caret))
+	}
+
+	// Click on a chip in the input expands it back to its raw lines (one-way).
+	function expandPasteInInput(id: number) {
+		const att = pastes?.find((p) => p.id === id)
+		if (!att) return
+		const token = makePasteToken(att)
+		const idx = value.indexOf(token)
+		if (idx === -1) return
+		value = value.slice(0, idx) + att.content + value.slice(idx + token.length)
+		pastes = (pastes ?? []).filter((p) => p.id !== id)
+		const caret = idx + att.content.length
+		tick().then(() => {
+			textarea?.focus()
+			textarea?.setSelectionRange(caret, caret)
+		})
+	}
+
+	// Delegated as an action (not an inline onclick) so the pointer-events-none
+	// overlay div doesn't trip a11y static-interaction lints; only the chip spans
+	// inside set pointer-events: auto, and their clicks bubble here.
+	function chipClickDelegate(node: HTMLElement) {
+		const handler = (e: Event) => {
+			const chip = (e.target as HTMLElement).closest('[data-paste-id]')
+			if (!chip) return
+			expandPasteInInput(Number(chip.getAttribute('data-paste-id')))
+		}
+		node.addEventListener('click', handler)
+		return {
+			destroy() {
+				node.removeEventListener('click', handler)
+			}
+		}
+	}
+
+	// Replace the [from, to) range with `insert`, drop the given paste ids, and
+	// place the caret after the inserted text — keeping value, the pastes
+	// registry, and the caret consistent.
+	function replacePasteRange(from: number, to: number, ids: number[], insert = '') {
+		value = value.slice(0, from) + insert + value.slice(to)
+		pastes = (pastes ?? []).filter((p) => !ids.includes(p.id))
+		const caret = from + insert.length
+		tick().then(() => textarea?.setSelectionRange(caret, caret))
+	}
+
+	// Keep chip deletion atomic for Backspace/Delete with a collapsed caret at a
+	// token boundary (the one case beforeinput can't see, since nothing is
+	// selected). Selection-spanning edits — including Backspace/Delete over a
+	// selection — are handled uniformly in handlePasteBeforeInput.
+	function handlePasteDeletion(e: KeyboardEvent): boolean {
+		if ((e.key !== 'Backspace' && e.key !== 'Delete') || !textarea) return false
+		const start = textarea.selectionStart
+		const end = textarea.selectionEnd
+		if (start === null || start !== end) return false
+		for (const m of value.matchAll(pasteTokenRegex())) {
+			if (m.index === undefined) continue
+			const tokenStart = m.index
+			const tokenEnd = m.index + m[0].length
+			const atEnd = e.key === 'Backspace' && start === tokenEnd
+			const atStart = e.key === 'Delete' && start === tokenStart
+			if (atEnd || atStart) {
+				e.preventDefault()
+				replacePasteRange(tokenStart, tokenEnd, [m[1].length])
+				return true
+			}
+		}
+		return false
+	}
+
+	// The content-mutating inputTypes we know how to reproduce. We intercept ONLY
+	// these — never history (historyUndo/Redo, which we'd turn into a deletion)
+	// nor composition (insertCompositionText is non-cancelable, so preventDefault
+	// is a no-op while we'd still rewrite value mid-IME).
+	const HANDLED_INPUT_TYPES = new Set([
+		'insertText',
+		'insertReplacementText',
+		'insertFromYank',
+		'insertFromPaste',
+		'insertFromDrop',
+		'insertLineBreak',
+		'insertParagraph',
+		'deleteContentBackward',
+		'deleteContentForward',
+		'deleteContent',
+		'deleteByCut',
+		'deleteByDrag',
+		'deleteWordBackward',
+		'deleteWordForward',
+		'deleteSoftLineBackward',
+		'deleteSoftLineForward',
+		'deleteHardLineBackward',
+		'deleteHardLineForward'
+	])
+
+	// Any selection-spanning input (typing over a selection, paste, cut,
+	// drag-and-drop, Backspace/Delete over a selection) that overlaps a chip is
+	// taken over and applied to the whole token(s), so a partial edit can never
+	// leave an orphaned zero-width run or a dangling pastes entry. Backspace/
+	// Delete at a collapsed boundary is handled earlier in keydown.
+	function handlePasteBeforeInput(e: InputEvent) {
+		// Skip non-cancelable events (e.g. IME composition) — we can't suppress
+		// them, and unknown inputTypes (history) we mustn't reinterpret as a delete.
+		if (!textarea || !e.cancelable || !HANDLED_INPUT_TYPES.has(e.inputType)) return
+		const start = textarea.selectionStart
+		const end = textarea.selectionEnd
+		if (start === null || end === null || start === end) return
+		const { from, to, ids } = tokensOverlapping(start, end)
+		if (ids.length === 0) return
+		e.preventDefault()
+		replacePasteRange(from, to, ids, insertedText(e))
+	}
+
+	// The text a (whitelisted) beforeinput event will insert, by inputType.
+	// Deletions insert nothing; line breaks insert a newline; paste/drop/yank/
+	// replacement carry their payload on dataTransfer, plain typing on `data`.
+	function insertedText(e: InputEvent): string {
+		const t = e.inputType
+		if (t.startsWith('delete')) return ''
+		if (t === 'insertLineBreak' || t === 'insertParagraph') return '\n'
+		if (
+			t === 'insertFromPaste' ||
+			t === 'insertFromDrop' ||
+			t === 'insertReplacementText' ||
+			t === 'insertFromYank'
+		) {
+			return e.dataTransfer?.getData('text/plain') ?? e.data ?? ''
+		}
+		return e.data ?? ''
+	}
+
+	// Dragging a selection that contains a chip carries the *expanded* content on
+	// the drag payload (mirroring copy/cut), so dropping it — inside the input or
+	// onto an external target — yields the real text, never the chip label + its
+	// zero-width id run (which, once its registry entry is gone, can't resolve).
+	function handlePasteDragStart(e: DragEvent) {
+		if (!textarea || !e.dataTransfer) return
+		const start = textarea.selectionStart
+		const end = textarea.selectionEnd
+		if (start === null || end === null || start === end) return
+		const { from, to, ids } = tokensOverlapping(start, end)
+		if (ids.length === 0) return
+		e.dataTransfer.setData('text/plain', expandPasteTokens(value.slice(from, to), pastes ?? []))
+	}
+
+	// Copy/cut of a selection containing a chip puts the *expanded* content on the
+	// clipboard instead of the chip label + its invisible zero-width run; cut also
+	// removes the chip whole. Selections without a chip use the browser default.
+	function handlePasteCopyCut(e: ClipboardEvent) {
+		if (!textarea || !e.clipboardData) return
+		const start = textarea.selectionStart
+		const end = textarea.selectionEnd
+		if (start === null || end === null || start === end) return
+		const { from, to, ids } = tokensOverlapping(start, end)
+		if (ids.length === 0) return
+		e.preventDefault()
+		e.clipboardData.setData('text/plain', expandPasteTokens(value.slice(from, to), pastes ?? []))
+		if (e.type === 'cut') {
+			replacePasteRange(from, to, ids)
+		}
+	}
+
+	// Arrow-Left/Right step over a paste chip as one unit, so the caret jumps
+	// edge-to-edge instead of crawling through the (invisible) token characters.
+	// Also snaps the caret out if it somehow lands inside a token. Shift extends
+	// the selection across the whole chip; word/line jumps (alt/cmd/ctrl) are
+	// left to the browser.
+	function handlePasteCaretSkip(e: KeyboardEvent): boolean {
+		if ((e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') || !textarea) return false
+		if (e.altKey || e.metaKey || e.ctrlKey) return false
+		const right = e.key === 'ArrowRight'
+		const collapsed = textarea.selectionStart === textarea.selectionEnd
+		// The end the caret is moving; for a non-collapsed selection that's the
+		// side opposite the anchor (given by selectionDirection).
+		const caret =
+			!collapsed && textarea.selectionDirection === 'backward'
+				? textarea.selectionStart
+				: textarea.selectionEnd
+		const anchor = collapsed
+			? caret
+			: textarea.selectionDirection === 'backward'
+				? textarea.selectionEnd
+				: textarea.selectionStart
+		for (const m of value.matchAll(pasteTokenRegex())) {
+			if (m.index === undefined) continue
+			const s = m.index
+			const en = m.index + m[0].length
+			const target =
+				right && caret >= s && caret < en ? en : !right && caret > s && caret <= en ? s : null
+			if (target === null) continue
+			e.preventDefault()
+			if (e.shiftKey) {
+				textarea.setSelectionRange(
+					Math.min(anchor, target),
+					Math.max(anchor, target),
+					target < anchor ? 'backward' : 'forward'
+				)
+			} else {
+				textarea.setSelectionRange(target, target)
+			}
+			return true
+		}
+		return false
 	}
 
 	function addContextToSelection(contextElement: ContextElement) {
@@ -237,7 +520,15 @@
 			const atIndex = value.length - contextTooltipWord.length
 			const coords = getCaretCoordinates(textarea, atIndex)
 			const rect = textarea.getBoundingClientRect()
-			anchorRect = new DOMRect(rect.left + coords.left, rect.top + coords.top, 1, coords.height)
+			// getCaretCoordinates returns content-relative coords; subtract the
+			// textarea's own scroll so the anchor tracks the `@` once the input is
+			// capped (max-height) and scrolls internally.
+			anchorRect = new DOMRect(
+				rect.left + coords.left - textarea.scrollLeft,
+				rect.top + coords.top - textarea.scrollTop,
+				1,
+				coords.height
+			)
 			// Re-prime the virtual ref then kick floating-ui (autoUpdate only fires
 			// on scroll/resize, not on text changes inside the textarea).
 			anchorRef.update({ getBoundingClientRect: anchorRect })
@@ -273,6 +564,11 @@
 			onKeyDown(e)
 		}
 
+		// Atomic chip deletion takes precedence over the default char delete.
+		if (handlePasteDeletion(e)) {
+			return
+		}
+
 		if (showContextTooltip) {
 			// Forward navigation keys to the picker so the textarea-focused
 			// user can drive it. The picker preventDefault/stopPropagation's
@@ -295,6 +591,11 @@
 			if (e.key === 'Enter') {
 				e.preventDefault()
 			}
+			return
+		}
+
+		// Step the caret over a paste chip as one unit (picker closed only).
+		if (handlePasteCaretSkip(e)) {
 			return
 		}
 
@@ -358,22 +659,35 @@
 <div class="relative w-full scroll-pb-2 bg-surface">
 	<div
 		class={twMerge(
-			'textarea-input absolute top-0 left-0 pointer-events-none',
+			'textarea-input absolute inset-0 overflow-hidden pointer-events-none',
 			CHAT_INPUT_PADDING,
 			className
 		)}
 	>
-		<span class="break-words">
-			{@html getHighlightedText(value)}
-		</span>
+		<div style="transform: translateY({-scrollTop}px)" use:chipClickDelegate>
+			<span class="break-words">
+				{@html getHighlightedText(value)}
+			</span>
+		</div>
 	</div>
 	<textarea
 		bind:this={textarea}
 		onkeydown={handleKeyDown}
 		bind:value
-		use:autosize
+		use:autosize={{ maxHeight: '40vh' }}
 		rows={1}
 		oninput={handleInput}
+		onpaste={handlePaste}
+		onbeforeinput={handlePasteBeforeInput}
+		oncopy={handlePasteCopyCut}
+		oncut={handlePasteCopyCut}
+		ondragstart={handlePasteDragStart}
+		onscroll={(e) => {
+			scrollTop = e.currentTarget.scrollTop
+			// Keep the `@` picker pinned to its anchor while the input scrolls
+			// internally (autoUpdate can't observe a virtual ref's scroll).
+			if (showContextTooltip) updateAnchorRect()
+		}}
 		onblur={() => {
 			setTimeout(() => {
 				// Don't close if focus moved to inside the tooltip (e.g., search input)
@@ -389,7 +703,7 @@
 			CHAT_INPUT_PADDING,
 			className
 		)}
-		style={value.length > 0 ? 'color: transparent; -webkit-text-fill-color: transparent;' : ''}
+		class:transparent-text={value.length > 0}
 		{disabled}
 	></textarea>
 </div>
@@ -436,5 +750,13 @@
 		word-break: break-words;
 		width: 100%;
 		min-height: 2.25rem;
+	}
+
+	/* Hide the textarea's own glyphs (the highlight overlay renders the text)
+	   while keeping the caret visible. Toggled via a class rather than an inline
+	   `style` so it never clobbers the inline height set by the autosize action. */
+	.transparent-text {
+		color: transparent;
+		-webkit-text-fill-color: transparent;
 	}
 </style>

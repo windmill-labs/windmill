@@ -77,8 +77,8 @@ mod capture;
 mod concurrency_groups;
 mod db;
 mod db_health;
-
 mod drafts;
+
 #[cfg(feature = "private")]
 pub mod ee;
 pub mod ee_oss;
@@ -553,8 +553,8 @@ pub async fn run_server(
                             "/concurrency_groups",
                             concurrency_groups::workspaced_service(),
                         )
-                        .nest("/embeddings", embeddings::workspaced_service())
                         .nest("/drafts", drafts::workspaced_service())
+                        .nest("/embeddings", embeddings::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
                         .nest(
@@ -1162,6 +1162,7 @@ async fn list_workspace_labels(
             UNION ALL SELECT labels FROM variable WHERE workspace_id = $1 AND labels IS NOT NULL
             UNION ALL SELECT labels FROM schedule WHERE workspace_id = $1 AND labels IS NOT NULL
             UNION ALL SELECT labels FROM app WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM folder WHERE workspace_id = $1 AND labels IS NOT NULL
         ) t ORDER BY 1",
         &w_id
     )

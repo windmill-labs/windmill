@@ -638,9 +638,13 @@ async fn db_resource_to_attach_statements(
     db_type: &str,
     extra_args: Option<&str>,
 ) -> Result<Vec<String>> {
+    // Escape single quotes: the connection string is built from resource fields
+    // (host/db/user/password) and embedded in a single-quoted DuckDB literal, so an
+    // unescaped quote in any field would otherwise break out of the ATTACH statement.
+    let conn_str = format_attach_db_conn_str(db_resource, db_type)?.replace('\'', "''");
     let attach_str = format!(
         "ATTACH '{}' as {} (TYPE {}{});",
-        format_attach_db_conn_str(db_resource, db_type)?,
+        conn_str,
         ident_name,
         db_type,
         extra_args.unwrap_or("")
@@ -690,13 +694,18 @@ async fn transform_attach_ducklake(
         hidden_passwords.lock().unwrap().push(pwd.to_string());
     }
 
-    let db_conn_str = format_attach_db_conn_str(ducklake.catalog_resource, db_type)?;
+    // Escape single quotes: db_conn_str, storage and data_path are embedded in
+    // single-quoted DuckDB literals below, so an unescaped quote in a resource
+    // field would break out of the ATTACH statement.
+    let db_conn_str =
+        format_attach_db_conn_str(ducklake.catalog_resource, db_type)?.replace('\'', "''");
     let storage = ducklake
         .storage
         .storage
         .as_deref()
-        .unwrap_or(DEFAULT_STORAGE);
-    let data_path = ducklake.storage.path;
+        .unwrap_or(DEFAULT_STORAGE)
+        .replace('\'', "''");
+    let data_path = ducklake.storage.path.replace('\'', "''");
 
     let extra_args = if let Some(default_extra_args) = ducklake.extra_args {
         format!("{},{}", extra_args, default_extra_args)

@@ -41,6 +41,10 @@ pub struct ListableApp {
     pub version: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Labels inherited from the parent folder, computed at read time.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inherited_labels: Option<Vec<String>>,
 }
 
 async fn list_apps(
@@ -62,6 +66,7 @@ async fn list_apps(
             "app.version",
             "favorite.path IS NOT NULL as starred",
             "app.labels",
+            "folder_labels(app.workspace_id, app.path) as inherited_labels",
         ])
         .left()
         .join("favorite")
@@ -90,7 +95,11 @@ async fn list_apps(
 
     if let Some(label) = &lq.label {
         for l in label.split(',') {
-            sqlb.and_where("app.labels @> ARRAY[?]".bind(&l.trim()));
+            sqlb.and_where(
+                "(app.labels @> ARRAY[?] OR folder_labels(app.workspace_id, app.path) @> ARRAY[?])"
+                    .bind(&l.trim())
+                    .bind(&l.trim()),
+            );
         }
     }
 

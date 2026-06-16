@@ -1827,7 +1827,7 @@ CONTEXT7_REPO_NAME = "windmill-cli-docs"
 
 
 def extract_agents_md_template() -> str:
-    """Extract the AGENTS.cli.md template string from cli/src/guidance/core.ts.
+    """Extract the AGENTS.wmill.md template string from cli/src/guidance/core.ts.
 
     Keeping a single source of truth in TypeScript avoids drift between what
     `wmill init` writes locally and what we publish for context7 ingestion.
@@ -1844,7 +1844,7 @@ def extract_agents_md_template() -> str:
     )
     if not match:
         raise RuntimeError(
-            f"Could not extract AGENTS.cli.md template from {core_ts_path}"
+            f"Could not extract AGENTS.wmill.md template from {core_ts_path}"
         )
     return _unescape_ts_template_literal(match.group(1))
 
@@ -1866,7 +1866,7 @@ def _unescape_ts_template_literal(raw: str) -> str:
 def render_agents_md_for_docs(
     skills: list[str], skill_desc_map: dict[str, str]
 ) -> str:
-    """Render AGENTS.cli.md exactly as `wmill init` would, for the docs repo.
+    """Render AGENTS.wmill.md exactly as `wmill init` would, for the docs repo.
 
     The skill reference paths point at `.agents/skills/` (the canonical tree
     that Codex/Pi read directly and that Claude Code mirrors under
@@ -2010,7 +2010,7 @@ def generate_context7_repo(
     skill_desc_map = build_skill_desc_map(skills)
 
     # AGENTS.md — the managed CLI guidance (what `wmill init` writes as
-    # AGENTS.cli.md locally). Kept under the `AGENTS.md` filename here to
+    # AGENTS.wmill.md locally). Kept under the `AGENTS.md` filename here to
     # preserve the existing context7 ingest path; docs consumers read this
     # as the canonical AGENTS file.
     (target_dir / "AGENTS.md").write_text(
