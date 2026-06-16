@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
-    user_drafts::{UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX},
+    user_drafts::{DraftUserRef, UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX},
     variables::{build_crypt, encrypt},
 };
 
@@ -50,6 +50,17 @@ pub struct DraftListItem {
     /// row exists at this (path, kind) — the DISTINCT ON prefers an owned row.
     pub legacy_draft: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
+    /// All draft authors at this `(path, kind)`, for the shared full-page-editor
+    /// kinds (script/flow/app/raw_app) only — feeds the home-page-style owner
+    /// circles on the review page. `None` for drawer kinds, which keep their
+    /// drafts private.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_users: Option<sqlx::types::Json<Vec<DraftUserRef>>>,
+    /// Whether the authed user may deploy/discard this draft — the same check
+    /// the deploy/discard endpoints enforce. Computed per row after the query,
+    /// so it defaults to `false` when read from the row.
+    #[sqlx(default)]
+    pub can_write: bool,
 }
 
 /// Every draft the authed user has in this workspace, across all kinds — the
@@ -59,6 +70,7 @@ pub struct DraftListItem {
 async fn list_drafts(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
 ) -> Result<Json<Vec<DraftListItem>>> {
     // Operators have no drafts of their own (they can't write any, see
@@ -67,11 +79,26 @@ async fn list_drafts(
     if authed.is_operator {
         return Ok(Json(vec![]));
     }
-    let rows = sqlx::query_as::<_, DraftListItem>(&list_drafts_query())
+    let mut rows = sqlx::query_as::<_, DraftListItem>(&list_drafts_query())
         .bind(&w_id)
         .bind(&authed.email)
         .fetch_all(&db)
         .await?;
+    // `can_write` gates the deploy/discard controls on the review page. Run the
+    // exact check the deploy/discard endpoints enforce so the UI never offers an
+    // action that would 403 — `NotAuthorized` means "not writable", any other
+    // error is a real failure and propagates.
+    for row in &mut rows {
+        row.can_write = match require_can_write_path(
+            &authed, &db, &user_db, &w_id, row.kind, &row.path,
+        )
+        .await
+        {
+            Ok(()) => true,
+            Err(Error::NotAuthorized(_)) => false,
+            Err(e) => return Err(e),
+        };
+    }
     Ok(Json(rows))
 }
 
@@ -101,6 +128,17 @@ fn list_drafts_query() -> String {
         ));
     }
     case.push_str("  ELSE true\nEND");
+    // Owner circles, mirroring the home-page list subquery (see apps.rs): every
+    // draft author at this (path, kind), legacy NULL-email row surfaced as a
+    // null username. Restricted to the shared full-page-editor kinds — drawer
+    // kinds keep their drafts private, so we never reveal their authors.
+    let draft_users = r#"CASE WHEN d.typ::text IN ('script', 'flow', 'app', 'raw_app') THEN (
+                      SELECT json_agg(json_build_object('username', COALESCE(u.username, CASE WHEN du.workspace_id = 'admins' THEN du.email END))
+                                      ORDER BY COALESCE(u.username, CASE WHEN du.workspace_id = 'admins' THEN du.email END) NULLS LAST)
+                      FROM draft du
+                      LEFT JOIN usr u ON u.workspace_id = du.workspace_id AND u.email = du.email
+                      WHERE du.workspace_id = d.workspace_id AND du.path = d.path AND du.typ = d.typ
+                    ) ELSE NULL END"#;
     // `(d.email = $2 OR d.email IS NULL)` lists the user's own drafts AND the
     // legacy NULL-email rows; `DISTINCT ON (d.path, d.typ)` with `email IS NULL`
     // last collapses a (path, kind) that has both to the owned row.
@@ -110,6 +148,7 @@ fn list_drafts_query() -> String {
                   d.typ AS kind,
                   d.created_at,
                   d.value ->> 'summary' AS summary,
+                  {draft_users} AS draft_users,
                   -- Friendly typed path, by kind (mirrors the home-page list
                   -- endpoints): scripts bind the Path widget to `script.path`,
                   -- so it round-trips through the draft JSON's own `path`;

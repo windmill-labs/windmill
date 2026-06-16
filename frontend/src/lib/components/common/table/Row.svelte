@@ -6,6 +6,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { goto } from '$lib/navigation'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import Tooltip from '../../meltComponents/Tooltip.svelte'
 
 	interface Props {
 		marked: string | undefined
@@ -14,6 +15,10 @@
 		disabled?: boolean
 		canFavorite?: boolean
 		isSelectable?: boolean
+		/** When the row is not selectable, render a disabled checkbox with this
+		 * reason as a hover tooltip (instead of an empty slot) — explains why the
+		 * row can't be selected without greying the whole row via `disabled`. */
+		selectDisabledReason?: string
 		/** When true, clicking anywhere on the row card (except interactive
 		 * children — checkbox, buttons, links) toggles selection. Opt-in so
 		 * existing tables that don't want it are unaffected. */
@@ -52,6 +57,9 @@
 		badges?: import('svelte').Snippet
 		actions?: import('svelte').Snippet
 		customSummary?: import('svelte').Snippet
+		/** Overrides the secondary path line (e.g. to strike a renamed path).
+		 * Falls back to the plain `path` string when not provided. */
+		pathDisplay?: import('svelte').Snippet
 		onSelect?: (
 			e: Event & {
 				currentTarget: EventTarget & HTMLInputElement
@@ -66,6 +74,7 @@
 		disabled = false,
 		canFavorite = true,
 		isSelectable = false,
+		selectDisabledReason = undefined,
 		selectOnRowClick = false,
 		alignWithSelectable = false,
 		errorHandlerMuted = false,
@@ -81,6 +90,7 @@
 		badges,
 		actions,
 		customSummary,
+		pathDisplay,
 		onSelect = () => {}
 	}: Props = $props()
 
@@ -154,6 +164,16 @@
 >
 	{#if isSelectable}
 		<input type="checkbox" checked={selected} onchange={onSelect} class="rounded max-w-4 w-full" />
+	{:else if selectDisabledReason}
+		<Tooltip class="cursor-not-allowed">
+			<input
+				type="checkbox"
+				disabled
+				checked={false}
+				class="rounded max-w-4 w-full opacity-50 pointer-events-none"
+			/>
+			{#snippet text()}{selectDisabledReason}{/snippet}
+		</Tooltip>
 	{:else if alignWithSelectable}
 		<div class="rounded max-w-4 w-full"></div>
 	{/if}
@@ -208,7 +228,11 @@
 			{/if}
 		</div>
 		<div class="text-hint text-3xs truncate text-left font-normal" title={path}>
-			{path}
+			{#if pathDisplay}
+				{@render pathDisplay()}
+			{:else}
+				{path}
+			{/if}
 		</div>
 	</div>
 {/snippet}

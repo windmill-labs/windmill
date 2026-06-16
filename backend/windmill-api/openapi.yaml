@@ -7927,7 +7927,22 @@ paths:
                     created_at:
                       type: string
                       format: date-time
-                  required: [kind, path, draft_only, legacy_draft, created_at]
+                    can_write:
+                      type: boolean
+                      description: Whether the current user may deploy/discard this draft (same check the deploy/discard endpoints enforce).
+                    draft_users:
+                      description: |
+                        Draft authors at this (path, kind) — the legacy NULL-email row surfaced as a null username.
+                        Populated only for the shared full-page-editor kinds (script/flow/app/raw_app); omitted for
+                        drawer kinds, which keep their drafts private. Feeds the Draft badge's owner-avatar circles.
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          username:
+                            type: string
+                            nullable: true
+                  required: [kind, path, draft_only, legacy_draft, created_at, can_write]
 
   /w/{workspace}/drafts/get/{kind}/{path}:
     get:
