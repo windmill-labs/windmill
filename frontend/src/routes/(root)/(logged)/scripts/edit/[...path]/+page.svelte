@@ -361,6 +361,7 @@
 	itemKind="script"
 	path={page.params.path ?? ''}
 	{otherDraftsUsers}
+	draftOnly={(savedScript as any)?.no_deployed === true}
 	onLoadFromServer={() => loadScript()}
 	getLocalDraft={() => draftSync.draft}
 	bind:othersModalOpen

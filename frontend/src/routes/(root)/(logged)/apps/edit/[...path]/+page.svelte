@@ -307,6 +307,7 @@
 	itemKind="app"
 	{path}
 	{otherDraftsUsers}
+	draftOnly={isNewApp}
 	onLoadFromServer={async () => {
 		// AppEditor's `stateApp` is captured at mount and ignores prop changes,
 		// so `redraw++` remounts it against the fresh `app`.

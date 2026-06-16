@@ -2,7 +2,7 @@
 	/**
 	 * Home-page draft badge with per-user initial circles. Hover popover lists
 	 * each draft owner; when full context (workspace + itemKind + path) is
-	 * passed, OTHER users' rows get inline "View JSON" / "Fork" (forking
+	 * passed, OTHER users' rows get inline "View Diff" / "Fork" (forking
 	 * yourself is meaningless, so own rows don't). draft_only → "Draft only"
 	 * (no deployed row), else "Draft". Renders nothing when there's no draft.
 	 */
@@ -10,11 +10,12 @@
 	import Tooltip from './meltComponents/Tooltip.svelte'
 	import { Badge } from './common'
 	import Button from './common/button/Button.svelte'
-	import Modal2 from './common/modal/Modal2.svelte'
-	import { Braces, GitFork } from 'lucide-svelte'
+	import DiffDrawer from './DiffDrawer.svelte'
+	import { GitCompareArrows, GitFork } from 'lucide-svelte'
 	import { DraftService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { forkDraftToImport } from '$lib/components/forkDraftToImport'
+	import { fetchDeployedValueForDiff } from '$lib/components/otherUserDraftDiff'
 	import { userStore } from '$lib/stores'
 
 	type DraftUser = { username?: string | null }
@@ -112,9 +113,7 @@
 	)
 
 	let busyFor = $state<string | null>(null)
-	let jsonOpen = $state(false)
-	let jsonOwnerLabel = $state('')
-	let jsonValue = $state<unknown>(undefined)
+	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 
 	function ownerKey(owner: DraftUser): string {
 		return owner.username ?? '__legacy__'
@@ -134,12 +133,21 @@
 		).value
 	}
 
-	async function viewJson(owner: DraftUser) {
+	async function viewDiff(owner: DraftUser) {
+		if (!workspace || !itemKind || !path) return
 		busyFor = ownerKey(owner)
 		try {
-			jsonValue = await fetchDraft(owner)
-			jsonOwnerLabel = fullLabel(owner)
-			jsonOpen = true
+			const [draftValue, deployed] = await Promise.all([
+				fetchDraft(owner),
+				fetchDeployedValueForDiff(workspace, itemKind, path)
+			])
+			diffDrawer?.openDrawer()
+			diffDrawer?.setDiff({
+				mode: 'simple',
+				title: `${fullLabel(owner)}'s draft vs deployed`,
+				original: deployed,
+				current: draftValue as any
+			})
 		} catch (e: any) {
 			sendUserToast(`Could not load draft: ${e.body ?? e.message}`, true)
 		} finally {
@@ -233,16 +241,18 @@
 									{/if}
 								</span>
 								{#if actionsEnabled && !isSelf}
-									<Button
-										variant="subtle"
-										size="xs3"
-										startIcon={{ icon: Braces }}
-										disabled={busyFor !== null && busyFor !== ownerKey(u)}
-										loading={busyFor === ownerKey(u)}
-										on:click={() => viewJson(u)}
-									>
-										View JSON
-									</Button>
+									{#if !draft_only}
+										<Button
+											variant="subtle"
+											size="xs3"
+											startIcon={{ icon: GitCompareArrows }}
+											disabled={busyFor !== null && busyFor !== ownerKey(u)}
+											loading={busyFor === ownerKey(u)}
+											on:click={() => viewDiff(u)}
+										>
+											View Diff
+										</Button>
+									{/if}
 									<!-- Operators can't create items, so Fork is hidden (View JSON stays, it's read-only). -->
 									{#if !$userStore?.operator}
 										<Button
@@ -266,27 +276,4 @@
 	</Popover>
 {/if}
 
-<Modal2
-	bind:isOpen={jsonOpen}
-	title="Draft JSON — {jsonOwnerLabel}"
-	fixedWidth="lg"
-	fixedHeight="lg"
->
-	{#snippet headerRight()}
-		<Button
-			variant="default"
-			size="xs"
-			on:click={() => {
-				navigator.clipboard?.writeText(JSON.stringify(jsonValue, null, 2))
-				sendUserToast('Copied to clipboard')
-			}}
-		>
-			Copy
-		</Button>
-	{/snippet}
-	<div class="w-full overflow-auto">
-		<pre class="text-xs whitespace-pre font-mono bg-surface-secondary rounded p-3"
-			>{JSON.stringify(jsonValue ?? {}, null, 2)}</pre
-		>
-	</div>
-</Modal2>
+<DiffDrawer bind:this={diffDrawer} isFlow={itemKind === 'flow'} />

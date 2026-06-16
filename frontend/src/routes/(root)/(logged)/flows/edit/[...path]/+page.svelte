@@ -414,6 +414,7 @@
 	itemKind="flow"
 	path={flowDraftPath}
 	{otherDraftsUsers}
+	draftOnly={isNewFlow}
 	onLoadFromServer={() => loadFlow()}
 	getLocalDraft={() => draftSync.draft}
 	bind:othersModalOpen

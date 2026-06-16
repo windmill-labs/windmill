@@ -2,15 +2,17 @@
 	/**
 	 * On-demand modal (from the AutosaveIndicator or DraftBadge popover) listing
 	 * other users' drafts at this path. The owner list rides the overlay/list
-	 * payload; individual drafts are fetched lazily for View JSON / Fork.
+	 * payload; individual drafts are fetched lazily for View Diff / Load.
 	 * Parent-controlled via `isOpen` — never auto-opens.
 	 */
 	import { DraftService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { Users, GitFork, Braces } from 'lucide-svelte'
+	import { Users, GitFork, GitCompareArrows } from 'lucide-svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
+	import { fetchDeployedValueForDiff } from '$lib/components/otherUserDraftDiff'
 	import { forkDraftToImport } from '$lib/components/forkDraftToImport'
 
 	export type OtherDraftUser = { username?: string | null }
@@ -22,15 +24,24 @@
 		/** Owners from the overlay response (`username`, or `null` for the
 		 *  legacy row). The authed user is filtered out server-side. */
 		otherDraftsUsers: OtherDraftUser[]
+		/** No deployed row exists (never deployed): hides View Diff, since there's
+		 *  no deployed baseline to diff against. */
+		draftOnly?: boolean
 		/** Controlled visibility — bind from the parent. */
 		isOpen: boolean
 	}
 
-	let { workspace, itemKind, path, otherDraftsUsers, isOpen = $bindable() }: Props = $props()
+	let {
+		workspace,
+		itemKind,
+		path,
+		otherDraftsUsers,
+		draftOnly = false,
+		isOpen = $bindable()
+	}: Props = $props()
 	let busyFor = $state<string | null>(null)
-	let jsonOpen = $state(false)
-	let jsonOwnerLabel = $state('')
-	let jsonValue = $state<unknown>(undefined)
+	let diffDrawer: DiffDrawer | undefined = $state(undefined)
+	let diffOpen = $state(false)
 
 	function ownerLabel(owner: OtherDraftUser): string {
 		return owner.username ?? 'Legacy draft'
@@ -51,12 +62,21 @@
 		).value
 	}
 
-	async function viewJson(owner: OtherDraftUser) {
+	async function viewDiff(owner: OtherDraftUser) {
 		busyFor = ownerKey(owner)
 		try {
-			jsonValue = await fetchDraft(owner)
-			jsonOwnerLabel = ownerLabel(owner)
-			jsonOpen = true
+			const [draftValue, deployed] = await Promise.all([
+				fetchDraft(owner),
+				fetchDeployedValueForDiff(workspace, itemKind, path)
+			])
+			diffOpen = true
+			diffDrawer?.openDrawer()
+			diffDrawer?.setDiff({
+				mode: 'simple',
+				title: `${ownerLabel(owner)}'s draft vs deployed`,
+				original: deployed,
+				current: draftValue as any
+			})
 		} catch (e) {
 			sendUserToast(`Could not load draft: ${e.body ?? e.message}`, true)
 		} finally {
@@ -86,7 +106,7 @@
 	title="Other users are currently working on {path}"
 	fixedWidth="sm"
 	fixedHeight="sm"
-	closeOnOutsideClick={!jsonOpen}
+	closeOnOutsideClick={!diffOpen}
 >
 	<div class="flex flex-col w-full gap-4">
 		<div class="flex gap-3 items-start">
@@ -113,16 +133,18 @@
 							</Tooltip>
 						{/if}
 					</div>
-					<Button
-						variant="default"
-						size="xs"
-						startIcon={{ icon: Braces }}
-						disabled={busyFor !== null && busyFor !== ownerKey(owner)}
-						loading={busyFor === ownerKey(owner)}
-						on:click={() => viewJson(owner)}
-					>
-						View JSON
-					</Button>
+					{#if !draftOnly}
+						<Button
+							variant="default"
+							size="xs"
+							startIcon={{ icon: GitCompareArrows }}
+							disabled={busyFor !== null && busyFor !== ownerKey(owner)}
+							loading={busyFor === ownerKey(owner)}
+							on:click={() => viewDiff(owner)}
+						>
+							View Diff
+						</Button>
+					{/if}
 					<Button
 						variant="default"
 						size="xs"
@@ -143,27 +165,8 @@
 	</div>
 </Modal2>
 
-<Modal2
-	bind:isOpen={jsonOpen}
-	title="Draft JSON — {jsonOwnerLabel}"
-	fixedWidth="lg"
-	fixedHeight="lg"
->
-	{#snippet headerRight()}
-		<Button
-			variant="default"
-			size="xs"
-			on:click={() => {
-				navigator.clipboard?.writeText(JSON.stringify(jsonValue, null, 2))
-				sendUserToast('Copied to clipboard')
-			}}
-		>
-			Copy
-		</Button>
-	{/snippet}
-	<div class="w-full overflow-auto">
-		<pre class="text-xs whitespace-pre font-mono bg-surface-secondary rounded p-3"
-			>{JSON.stringify(jsonValue ?? {}, null, 2)}</pre
-		>
-	</div>
-</Modal2>
+<DiffDrawer
+	bind:this={diffDrawer}
+	isFlow={itemKind === 'flow'}
+	on:close={() => (diffOpen = false)}
+/>

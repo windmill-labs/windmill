@@ -406,6 +406,7 @@
 	itemKind="raw_app"
 	{path}
 	{otherDraftsUsers}
+	draftOnly={isNewApp}
 	onLoadFromServer={() => loadApp()}
 	getLocalDraft={() => draftSync.draft}
 	bind:othersModalOpen

@@ -21,6 +21,9 @@
 		itemKind: UserDraftItemKind
 		path: string
 		otherDraftsUsers: OtherDraftUser[]
+		/** No deployed row exists: hides the OtherUsersDraftsModal's View Diff
+		 *  (nothing to diff the other user's draft against). */
+		draftOnly?: boolean
 		onLoadFromServer: () => void | Promise<void>
 		getLocalDraft: () => unknown
 		/** Bindable open-flag for the OtherUsersDraftsModal (route-owned). */
@@ -41,6 +44,7 @@
 		itemKind,
 		path,
 		otherDraftsUsers,
+		draftOnly = false,
 		onLoadFromServer,
 		getLocalDraft,
 		othersModalOpen = $bindable(),
@@ -87,6 +91,7 @@
 				{itemKind}
 				{path}
 				{otherDraftsUsers}
+				{draftOnly}
 				bind:isOpen={othersModalOpen}
 			/>
 		{/key}
