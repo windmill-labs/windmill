@@ -61,7 +61,18 @@
 				const baseKind = it.raw_app ? 'raw_app' : it.kind
 				const kind = DEPLOY_KIND_BY_DRAFT_KIND[baseKind] ?? baseKind
 				donly[`${kind}/${it.path}`] = it.draft_only
-				return { kind, path: it.path, status: it.draft_only ? 'added' : 'modified' }
+				// A never-deployed app/raw_app is parked at a synthetic `…/draft_<uuid>`
+				// storage path with the user's typed name in `draft_path`; show that
+				// (matches the home list) while `path` stays the storage key for loading.
+				// `summary` comes straight from the draft row, so it shows for every kind
+				// up front instead of only after the diff value loads.
+				return {
+					kind,
+					path: it.path,
+					displayPath: it.draft_path ?? it.path,
+					summary: it.summary,
+					status: it.draft_only ? 'added' : 'modified'
+				}
 			})
 			draftOnlyByKey = donly
 		} catch (e) {
@@ -75,10 +86,11 @@
 
 	async function loadValues(d: DiffRow): Promise<{ before: unknown; after: unknown }> {
 		const draftOnly = draftOnlyByKey[`${d.kind}/${d.path}`] ?? false
-		// getDraftDiffValues works on the draft itemKind ('app' for raw apps too);
-		// map the deploy-style display kind back to it.
-		const kind: DraftKind =
-			d.kind === 'raw_app' ? 'app' : ((DRAFT_KIND_BY_DEPLOY_KIND[d.kind] ?? d.kind) as DraftKind)
+		// getDraftDiffValues keys on the draft itemKind: `raw_app` must stay
+		// `raw_app` (the helper sends rawApp:true only for that exact kind, which a
+		// never-deployed raw app needs, else it hits the normal app endpoint and
+		// 404s). Only the trigger display kinds map back from their deploy-style names.
+		const kind = (DRAFT_KIND_BY_DEPLOY_KIND[d.kind] ?? d.kind) as DraftKind
 		const { deployed, draft } = await getDraftDiffValues(kind, d.path, workspaceId, draftOnly)
 		// draft_only items have never been deployed → render as "added" (empty
 		// before), matching how the fork drawer renders added items.
