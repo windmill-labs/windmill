@@ -34,16 +34,25 @@
 	// path. Mirror it into the runtime draft as `draft_path` so the rename
 	// mutates runtime.rawApp.val → the autosave sig changes → the draft is saved
 	// (and the home/review/Drafts lists show the friendly name). Mirrors the
-	// full-page /apps_raw/edit route. Guarded: only write a real typed path and
-	// only on an actual change, so the initial `undefined` never clobbers the
-	// draft_path seeded by loadRawApp nor fires a spurious save.
+	// full-page /apps_raw/edit route.
 	let pendingDraftPath = $state<string | undefined>(undefined)
+	// The header collapses both "not yet bound" and "reverted to baseline" to
+	// `undefined`. `surfacedDraftPath` tells them apart: the initial undefined
+	// (before the header binds) must not clobber the `draft_path` seeded by
+	// loadRawApp, but a revert/clear after a real typed path must drop the stale
+	// friendly name — mirroring the script codec's `else delete draft_path`.
+	let surfacedDraftPath = false
 	$effect(() => {
 		const dp = pendingDraftPath
-		if (dp === undefined) return
 		untrack(() => {
 			const val = runtime.rawApp.val
-			if (val && val.draft_path !== dp) val.draft_path = dp
+			if (!val) return
+			if (dp !== undefined) {
+				surfacedDraftPath = true
+				if (val.draft_path !== dp) val.draft_path = dp
+			} else if (surfacedDraftPath && val.draft_path !== undefined) {
+				val.draft_path = undefined
+			}
 		})
 	})
 
