@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
@@ -28,6 +29,23 @@
 	} = $props()
 
 	let diffDrawer: DiffDrawer | undefined = $state()
+
+	// Path typed in the editor header, surfaced when it differs from the stored
+	// path. Mirror it into the runtime draft as `draft_path` so the rename
+	// mutates runtime.rawApp.val → the autosave sig changes → the draft is saved
+	// (and the home/review/Drafts lists show the friendly name). Mirrors the
+	// full-page /apps_raw/edit route. Guarded: only write a real typed path and
+	// only on an actual change, so the initial `undefined` never clobbers the
+	// draft_path seeded by loadRawApp nor fires a spurious save.
+	let pendingDraftPath = $state<string | undefined>(undefined)
+	$effect(() => {
+		const dp = pendingDraftPath
+		if (dp === undefined) return
+		untrack(() => {
+			const val = runtime.rawApp.val
+			if (val && val.draft_path !== dp) val.draft_path = dp
+		})
+	})
 
 	async function reloadDeployed() {
 		await runtime.loadRawApp(workspaceId, path, true, true)
@@ -76,7 +94,8 @@
 				bind:runnables={runtime.rawApp.val.runnables}
 				bind:data={runtime.rawApp.val.data}
 				bind:summary={runtime.rawApp.val.summary}
-				newPath={runtime.rawApp.val.path}
+				bind:pendingDraftPath
+				newPath={runtime.rawApp.val.draft_path ?? runtime.rawApp.val.path}
 				{path}
 				autosaveWorkspace={workspaceId}
 				autosavePath={path}
