@@ -1045,15 +1045,17 @@
 						>Create a resource backed by an OAuth connection, whose token is fetched from the
 						external services and refreshed automatically if needed before expiration.</div
 					>
-					<button
-						onclick={() => {
-							manual = true
-							useClientCredentials = false
-						}}
-						class="text-xs font-normal text-accent w-fit mt-2"
-					>
-						Create resource manually instead
-					</button>
+					{#if ccBringYourOwn}
+						<button
+							onclick={() => {
+								manual = true
+								useClientCredentials = false
+							}}
+							class="text-xs font-normal text-accent w-fit mt-2"
+						>
+							Create resource manually instead
+						</button>
+					{/if}
 				</div>
 
 				{#if resourceTypeInfo?.description}
