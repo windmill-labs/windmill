@@ -322,6 +322,11 @@
 		const pendingLoad = getDraft
 			? OtherUserDraftLoad.takePending($workspaceStore!, 'raw_app', path)
 			: undefined
+		// Revisiting a path whose overlay was never confirmed/reset: drop the stale
+		// lock so editing our own draft works again. See /scripts/edit's loader.
+		if (!pendingLoad && OtherUserDraftLoad.isActive($workspaceStore!, 'raw_app', path)) {
+			OtherUserDraftLoad.clear($workspaceStore!, 'raw_app', path)
+		}
 		if (pendingLoad) {
 			const v = pendingLoad.value as RawAppDraft
 			files = v.files ?? {}

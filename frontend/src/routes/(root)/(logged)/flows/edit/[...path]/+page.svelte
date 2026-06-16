@@ -349,6 +349,11 @@
 		const pendingLoad = getDraft
 			? OtherUserDraftLoad.takePending($workspaceStore!, 'flow', flowDraftPath)
 			: undefined
+		// Revisiting a path whose overlay was never confirmed/reset: drop the stale
+		// lock so editing our own draft works again. See /scripts/edit's loader.
+		if (!pendingLoad && OtherUserDraftLoad.isActive($workspaceStore!, 'flow', flowDraftPath)) {
+			OtherUserDraftLoad.clear($workspaceStore!, 'flow', flowDraftPath)
+		}
 		const flowToRender: Flow = pendingLoad
 			? ({ ...deployedFlow, ...(pendingLoad.value as object) } as Flow)
 			: effectiveFlow

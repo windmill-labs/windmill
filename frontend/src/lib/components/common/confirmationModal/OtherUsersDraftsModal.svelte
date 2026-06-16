@@ -7,7 +7,7 @@
 	 */
 	import { DraftService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { Users, Download, GitCompareArrows } from 'lucide-svelte'
+	import { Users, Pencil, GitCompareArrows } from 'lucide-svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -45,7 +45,6 @@
 	}: Props = $props()
 	let busyFor = $state<string | null>(null)
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
-	let diffOpen = $state(false)
 
 	function ownerLabel(owner: OtherDraftUser): string {
 		return owner.username ?? 'Legacy draft'
@@ -73,7 +72,9 @@
 				fetchDraft(owner),
 				fetchDeployedValueForDiff(workspace, itemKind, path)
 			])
-			diffOpen = true
+			// Close this modal first — the DiffDrawer (z-index ~1100) renders below
+			// Modal2 (z-1110), so leaving it open would hide the drawer behind it.
+			isOpen = false
 			diffDrawer?.openDrawer()
 			diffDrawer?.setDiff({
 				mode: 'simple',
@@ -113,7 +114,6 @@
 	title="Other users are currently working on {path}"
 	fixedWidth="sm"
 	fixedHeight="sm"
-	closeOnOutsideClick={!diffOpen}
 >
 	<div class="flex flex-col w-full gap-4">
 		<div class="flex gap-3 items-start">
@@ -155,7 +155,7 @@
 					<Button
 						variant="default"
 						size="xs"
-						startIcon={{ icon: Download }}
+						startIcon={{ icon: Pencil }}
 						disabled={busyFor !== null && busyFor !== ownerKey(owner)}
 						loading={busyFor === ownerKey(owner)}
 						on:click={() => load(owner)}
@@ -172,8 +172,4 @@
 	</div>
 </Modal2>
 
-<DiffDrawer
-	bind:this={diffDrawer}
-	isFlow={itemKind === 'flow'}
-	on:close={() => (diffOpen = false)}
-/>
+<DiffDrawer bind:this={diffDrawer} isFlow={itemKind === 'flow'} />

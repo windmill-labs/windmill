@@ -300,6 +300,12 @@
 			const pendingLoad = getDraft
 				? OtherUserDraftLoad.takePending($workspaceStore!, 'script', draftPath)
 				: undefined
+			// Revisiting a path whose overlay was never confirmed/reset (e.g. the user
+			// navigated away mid-load): drop the stale lock so editing our own draft
+			// works again.
+			if (!pendingLoad && OtherUserDraftLoad.isActive($workspaceStore!, 'script', draftPath)) {
+				OtherUserDraftLoad.clear($workspaceStore!, 'script', draftPath)
+			}
 			if (pendingLoad) {
 				const loadedValue = {
 					...deployedScript,

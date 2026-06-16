@@ -11,10 +11,11 @@
 	import { Badge } from './common'
 	import Button from './common/button/Button.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
-	import { GitCompareArrows, Download } from 'lucide-svelte'
+	import { GitCompareArrows, Pencil } from 'lucide-svelte'
 	import { DraftService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
+	import { goto } from '$lib/navigation'
+	import { OtherUserDraftLoad, editRouteFor } from '$lib/components/otherUserDraftLoad.svelte'
 	import { fetchDeployedValueForDiff } from '$lib/components/otherUserDraftDiff'
 	import { userStore } from '$lib/stores'
 
@@ -244,7 +245,19 @@
 										</Tooltip>
 									{/if}
 								</span>
-								{#if actionsEnabled && !isSelf}
+								{#if actionsEnabled && isSelf}
+									<!-- Own draft: jump straight into the editor. -->
+									{#if !$userStore?.operator && itemKind && path}
+										<Button
+											variant="subtle"
+											size="xs3"
+											startIcon={{ icon: Pencil }}
+											on:click={() => goto(editRouteFor(itemKind, path))}
+										>
+											Edit
+										</Button>
+									{/if}
+								{:else if actionsEnabled && !isSelf}
 									{#if !draft_only}
 										<Button
 											variant="subtle"
@@ -262,7 +275,7 @@
 										<Button
 											variant="subtle"
 											size="xs3"
-											startIcon={{ icon: Download }}
+											startIcon={{ icon: Pencil }}
 											disabled={busyFor !== null && busyFor !== ownerKey(u)}
 											loading={busyFor === ownerKey(u)}
 											on:click={() => load(u)}

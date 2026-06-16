@@ -52,7 +52,7 @@ const active = new SvelteMap<string, ActiveSession>()
 // Keys whose overwrite-confirmation modal is currently open.
 const overwriteOpen = new SvelteSet<string>()
 
-function editRouteFor(itemKind: UserDraftItemKind, path: string): string {
+export function editRouteFor(itemKind: UserDraftItemKind, path: string): string {
 	switch (itemKind) {
 		case 'script':
 			return `${base}/scripts/edit/${path}`
