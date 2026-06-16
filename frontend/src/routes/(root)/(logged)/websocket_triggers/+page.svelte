@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { run } from 'svelte/legacy'
 
 	import {
@@ -25,6 +26,7 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
@@ -64,7 +66,7 @@
 	getDeployUiSettings()
 	async function loadTriggers(): Promise<void> {
 		triggers = (
-			await WebsocketTriggerService.listWebsocketTriggers({ workspace: $workspaceStore! })
+			await WebsocketTriggerService.listWebsocketTriggers({ workspace: $workspaceStore!, includeDraftOnly: true })
 		).map((x) => {
 			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 		})
@@ -333,7 +335,7 @@
 			<div class="text-center text-sm text-primary mt-2"> No websocket triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, url, is_flow, extra_perms, canWrite, marked, error, last_server_ping, server_id, mode, retry, error_handler_path, error_handler_args, labels } (path)}
+				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, url, is_flow, extra_perms, canWrite, marked, error, last_server_ping, server_id, mode, retry, error_handler_path, error_handler_args, labels, draft_only, is_draft } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = last_server_ping ? new Date(last_server_ping) : undefined}
 					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
@@ -362,7 +364,7 @@
 											: url.startsWith('$flow:')
 												? 'URL: ' + url.replace('$flow:', 'result of flow ')
 												: url}
-									{/if}
+									{/if}{(getLocalDraftHint($workspaceStore, 'trigger_websocket', path) ?? is_draft) ? '*' : ''}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
 									{path}
@@ -374,6 +376,9 @@
 
 							<div class="hidden lg:flex flex-row gap-1 items-center">
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
+									{#if draft_only}
+										<DraftBadge draft_only is_draft={false} />
+									{/if}
 								{#if labels?.length}
 									{#each labels as label}
 										<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>

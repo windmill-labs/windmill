@@ -426,6 +426,8 @@ async fn execute_windmill_tool(
                 ));
             }
             let path = format!("{}/tools/{}", ctx.job.runnable_path(), tool_module.id);
+            // tool jobs are pushed with the parent agent job's tag and executed inline on the
+            // same worker, so a tag override on a nested agent tool does not apply here
             JobPayloadWithTag {
                 payload: JobPayload::AIAgent { path },
                 tag: None,

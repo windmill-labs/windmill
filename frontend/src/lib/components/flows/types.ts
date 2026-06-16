@@ -94,6 +94,10 @@ export type FlowEditorContext = {
 	outputPickerOpenFns: Record<string, () => void>
 	preserveOnBehalfOf: Writable<boolean>
 	savedOnBehalfOfEmail: Writable<string | undefined>
+	// Only set by the local dev page (Dev.svelte): path -> temp-storage hash of
+	// locally-edited workspace scripts, passed as temp_script_refs on preview
+	// runs so relative imports resolve from local (not-yet-deployed) content
+	devTempScriptRefs?: () => Record<string, string> | undefined
 }
 
 export type FlowGraphAssetContext = StateStore<{

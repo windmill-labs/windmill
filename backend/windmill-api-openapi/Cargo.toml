@@ -11,7 +11,12 @@ path = "src/lib.rs"
 [dependencies]
 windmill-api-auth.workspace = true
 windmill-common = { workspace = true, default-features = false }
-windmill-store.workspace = true
+# `try_get_resource_from_db_as` is used unconditionally below but is
+# cfg-gated behind a trigger feature in windmill-store; forward
+# `http_trigger` so the import resolves even when this crate's targets are
+# built in isolation (e.g. `--all-targets` under resolver 2), not only via
+# whole-workspace feature unification.
+windmill-store = { workspace = true, features = ["http_trigger"] }
 windmill-trigger-http.workspace = true
 anyhow.workspace = true
 axum.workspace = true

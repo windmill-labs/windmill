@@ -13,6 +13,7 @@ use windmill_api_auth::{
     ApiAuthed,
 };
 use windmill_common::{
+    user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT},
     webhook::{WebhookMessage, WebhookShared},
     workspaces::{check_deploy_rules, RuleCheckResult},
@@ -33,7 +34,6 @@ use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use serde_json::value::RawValue;
 use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::{collections::HashMap, sync::Arc};
@@ -45,7 +45,7 @@ use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 use windmill_common::{
     assets::{
         clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
-        insert_static_asset_usage, AssetUsageKind, AssetWithAltAccessType,
+        insert_static_asset_usage, AssetUsageKind,
     },
     error::{self, to_anyhow},
     min_version::{MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2},
@@ -82,122 +82,6 @@ use windmill_queue::{
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
-#[derive(Serialize, sqlx::FromRow)]
-pub struct ScriptWDraft<SR> {
-    pub hash: ScriptHash,
-    pub path: String,
-    pub summary: String,
-    pub description: String,
-    pub content: String,
-    pub language: ScriptLang,
-    pub kind: ScriptKind,
-    pub tag: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft: Option<sqlx::types::Json<Box<RawValue>>>,
-    /// Timestamp at which the most recent DB draft was created.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_created_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub schema: Option<Schema>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub envs: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cache_ttl: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cache_ignore_s3_path: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dedicated_worker: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ws_error_handler_muted: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub priority: Option<i16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub restart_unless_cancelled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub delete_after_use: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub delete_after_secs: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timeout: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub visible_to_runner_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub auto_kind: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub has_preprocessor: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub on_behalf_of_email: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[sqlx(json(nullable))]
-    pub assets: Option<Vec<AssetWithAltAccessType>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[sqlx(json(nullable))]
-    pub modules: Option<HashMap<String, ScriptModule>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub labels: Option<Vec<String>>,
-    #[serde(flatten)]
-    #[sqlx(flatten)]
-    pub runnable_settings: SR,
-}
-
-impl ScriptWDraft<ScriptRunnableSettingsHandle> {
-    pub async fn prefetch_cached<'a>(
-        self,
-        db: &DB,
-    ) -> error::Result<ScriptWDraft<ScriptRunnableSettingsInline>> {
-        let (debouncing_settings, concurrency_settings) =
-            windmill_common::runnable_settings::prefetch_cached_from_handle(
-                self.runnable_settings.runnable_settings_handle,
-                db,
-            )
-            .await?;
-
-        Ok(ScriptWDraft {
-            runnable_settings: ScriptRunnableSettingsInline {
-                concurrency_settings: concurrency_settings.maybe_fallback(
-                    self.runnable_settings.concurrency_key,
-                    self.runnable_settings.concurrent_limit,
-                    self.runnable_settings.concurrency_time_window_s,
-                ),
-                debouncing_settings: debouncing_settings.maybe_fallback(
-                    self.runnable_settings.debounce_key,
-                    self.runnable_settings.debounce_delay_s,
-                ),
-            },
-            hash: self.hash,
-            path: self.path,
-            summary: self.summary,
-            description: self.description,
-            content: self.content,
-            language: self.language,
-            kind: self.kind,
-            tag: self.tag,
-            draft: self.draft,
-            draft_created_at: self.draft_created_at,
-            schema: self.schema,
-            draft_only: self.draft_only,
-            envs: self.envs,
-            cache_ttl: self.cache_ttl,
-            cache_ignore_s3_path: self.cache_ignore_s3_path,
-            dedicated_worker: self.dedicated_worker,
-            ws_error_handler_muted: self.ws_error_handler_muted,
-            priority: self.priority,
-            restart_unless_cancelled: self.restart_unless_cancelled,
-            delete_after_use: self.delete_after_use,
-            delete_after_secs: self.delete_after_secs,
-            timeout: self.timeout,
-            visible_to_runner_only: self.visible_to_runner_only,
-            auto_kind: self.auto_kind,
-            has_preprocessor: self.has_preprocessor,
-            on_behalf_of_email: self.on_behalf_of_email,
-            assets: self.assets,
-            modules: self.modules,
-            labels: self.labels,
-        })
-    }
-}
-
 pub fn global_service() -> Router {
     Router::new()
         .route("/hub/top", get(get_top_hub_scripts))
@@ -222,7 +106,6 @@ pub fn workspaced_service() -> Router {
         .route("/create", post(create_script))
         .route("/create_snapshot", post(create_snapshot_script))
         .route("/archive/p/{*path}", post(archive_script_by_path))
-        .route("/get/draft/{*path}", get(get_script_by_path_w_draft))
         .route("/get/p/{*path}", get(get_script_by_path))
         .route("/list_tokens/{*path}", get(list_tokens))
         .route("/raw/p/{*path}", get(raw_script_by_path))
@@ -295,6 +178,7 @@ async fn list_search_scripts(
 async fn list_scripts(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListScriptQuery>,
@@ -305,7 +189,7 @@ async fn list_scripts(
             "hash",
             "o.path",
             "summary",
-            "COALESCE(draft.created_at, o.created_at) as created_at",
+            "o.created_at as created_at",
             "archived",
             "extra_perms",
             if !lq.without_description.unwrap_or(false) {
@@ -317,13 +201,23 @@ async fn list_scripts(
             "language",
             "favorite.path IS NOT NULL as starred",
             "tag",
-            "draft.path IS NOT NULL as has_draft",
-            "draft_only",
             "ws_error_handler_muted",
             "auto_kind",
             "codebase IS NOT NULL as use_codebase",
             "kind",
-            "o.labels"
+            "o.labels",
+            "draft.email IS NOT NULL as is_draft",
+            // Canonical reference for the draft-feature comments; flows/apps point here.
+            // Per-path draft owners as a JSON array (`Json<Vec<DraftUserRef>>`); NULL -> None,
+            // never an empty array. LEFT JOIN `usr` keeps orphaned drafts (user left workspace)
+            // visible with `username = None`. In the `admins` workspace username IS the email,
+            // so fall back to `d.email` there or the authed user's own draft resolves to a phantom
+            // "Legacy workspace draft"; the genuine NULL-email legacy row stays None.
+            "(SELECT json_agg(json_build_object('username', COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END)) ORDER BY COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) NULLS LAST) \
+              FROM draft d \
+              LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
+              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'script') as draft_users",
+            "folder_labels(o.workspace_id, o.path) as inherited_labels"
         ])
         .left()
         .join("favorite")
@@ -334,7 +228,8 @@ async fn list_scripts(
         .left()
         .join("draft")
         .on(
-            "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'script'"
+            "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'script' AND draft.email = ?"
+                .bind(&authed.email),
         )
         .order_desc("favorite.path IS NOT NULL")
         .order_by("created_at", lq.order_desc.unwrap_or(true))
@@ -358,10 +253,6 @@ async fn list_scripts(
         // deny-list: anything that isn't a 'lib' (library script without
         // main) is callable, including future `auto_kind` values.
         sqlb.and_where("(o.auto_kind IS NULL OR o.auto_kind <> 'lib')");
-    }
-
-    if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
-        sqlb.and_where("draft_only IS NOT TRUE");
     }
 
     if lq.show_archived.unwrap_or(false) {
@@ -404,7 +295,11 @@ async fn list_scripts(
     }
     if let Some(label) = &lq.label {
         for l in label.split(',') {
-            sqlb.and_where("o.labels @> ARRAY[?]".bind(&l.trim()));
+            sqlb.and_where(
+                "(o.labels @> ARRAY[?] OR folder_labels(o.workspace_id, o.path) @> ARRAY[?])"
+                    .bind(&l.trim())
+                    .bind(&l.trim()),
+            );
         }
     }
     if authed.is_operator {
@@ -429,7 +324,7 @@ async fn list_scripts(
             .fields(&["dm.deployment_msg"]);
     }
 
-    if let Some(languages) = lq.languages {
+    if let Some(languages) = &lq.languages {
         sqlb.and_where_in(
             "language",
             &languages
@@ -442,13 +337,114 @@ async fn list_scripts(
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let allowed = build_scope_path_predicate(&authed, "scripts", "read");
-    let rows = sqlx::query_as::<_, ListableScript>(&sql)
+    let mut rows = sqlx::query_as::<_, ListableScript>(&sql)
         .fetch_all(&mut *tx)
         .await?
         .into_iter()
         .filter(|r| allowed(&r.path))
         .collect::<Vec<_>>();
     tx.commit().await?;
+
+    // Canonical reference for draft-only synthesis; the other kinds point here.
+    // Append the authed user's drafts at paths with no deployed script. Gated on
+    // `include_draft_only` so picker callers stay deployed-only (home page opts in);
+    // skipped past page 0 or under any narrowing filter to keep pagination clean.
+    if lq.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && offset == 0
+        && lq.path_start.is_none()
+        && lq.path_exact.is_none()
+        && lq.created_by.is_none()
+        && lq.first_parent_hash.is_none()
+        && lq.last_parent_hash.is_none()
+        && lq.parent_hash.is_none()
+        && lq.is_template.is_none()
+        && lq.dedicated_worker.is_none()
+        && lq.label.is_none()
+        && lq.languages.is_none()
+        && !lq.starred_only.unwrap_or(false)
+        && !lq.show_archived.unwrap_or(false)
+    {
+        // `(email = $2 OR email IS NULL)` surfaces the user's own draft-only rows plus
+        // legacy NULL-email workspace rows; `DISTINCT ON (path)` ordered `email IS NULL`
+        // last collapses a path holding both to the owned row.
+        let draft_only_rows = sqlx::query!(
+            r#"SELECT DISTINCT ON (path)
+                      path,
+                      value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+                      created_at
+               FROM draft
+               WHERE workspace_id = $1
+                 AND typ = 'script'
+                 AND (email = $2 OR email IS NULL)
+                 AND NOT EXISTS (
+                     SELECT 1 FROM script s
+                     WHERE s.workspace_id = draft.workspace_id
+                       AND s.path = draft.path
+                 )
+               ORDER BY path, (email IS NULL)"#,
+            &w_id,
+            &authed.email,
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for row in draft_only_rows {
+            let v: serde_json::Value =
+                serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
+            let language: ScriptLang = v
+                .get("language")
+                .and_then(|x| serde_json::from_value(x.clone()).ok())
+                .unwrap_or_default();
+            let kind: ScriptKind = v
+                .get("kind")
+                .and_then(|x| serde_json::from_value(x.clone()).ok())
+                .unwrap_or(ScriptKind::Script);
+            // Scripts bind the Path widget to `script.path`, so the typed path
+            // round-trips through the draft JSON's own `path` (no `draft_path` field).
+            let draft_path = v
+                .get("path")
+                .and_then(|s| s.as_str())
+                .filter(|s| !s.is_empty() && *s != row.path.as_str())
+                .map(|s| s.to_string());
+            rows.push(ListableScript {
+                hash: ScriptHash(0),
+                path: row.path,
+                summary: v
+                    .get("summary")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                created_at: row.created_at,
+                archived: false,
+                extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                language,
+                starred: false,
+                tag: v.get("tag").and_then(|s| s.as_str()).map(|s| s.to_string()),
+                description: v
+                    .get("description")
+                    .and_then(|s| s.as_str())
+                    .map(|s| s.to_string()),
+                draft_only: Some(true),
+                has_deploy_errors: false,
+                ws_error_handler_muted: None,
+                auto_kind: None,
+                use_codebase: false,
+                deployment_msg: None,
+                kind,
+                labels: None,
+                // Synthesized rows have no deployed row to inherit folder labels from.
+                inherited_labels: None,
+                is_draft: true,
+                draft_path,
+                // Synthesized rows are the authed user's own draft (single-user case).
+                draft_users: Some(sqlx::types::Json(vec![DraftUserRef {
+                    username: Some(authed.username.clone()),
+                }])),
+            });
+        }
+    }
+
     Ok(Json(rows))
 }
 
@@ -716,7 +712,6 @@ async fn is_noop_deploy_against_parent(
         language,
         kind,
         tag,
-        draft_only,
         envs,
         concurrency_settings,
         debouncing_settings,
@@ -793,7 +788,6 @@ async fn is_noop_deploy_against_parent(
         || visible_to_runner_only != &parent.visible_to_runner_only
         || has_preprocessor != &parent.has_preprocessor
         || is_template.unwrap_or(false) != parent.is_template.unwrap_or(false)
-        || draft_only.unwrap_or(false) != parent.draft_only.unwrap_or(false)
     {
         return Ok(false);
     }
@@ -1021,20 +1015,10 @@ async fn create_script_internal<'c>(
 
     let parent_hashes_and_perms: Option<ParentInfo> = match (&ns.parent_hash, clashing_script) {
         (None, None) => Ok(None),
-        (None, Some(s)) if !s.draft_only.unwrap_or(false) => Err(Error::BadRequest(format!(
+        (None, Some(s)) => Err(Error::BadRequest(format!(
             "Path conflict for {} with non-archived hash {}",
             &ns.path, &s.hash
         ))),
-        (None, Some(s)) => {
-            sqlx::query!(
-                "DELETE FROM script WHERE hash = $1 AND workspace_id = $2",
-                s.hash.0,
-                &w_id
-            )
-            .execute(&mut *tx)
-            .await?;
-            Ok(None)
-        }
         (Some(p_hash), o) => {
             // Lock the parent row to prevent concurrent updates with the same parent_hash
             // This ensures linear lineage - only one script can have a given parent at a time
@@ -1287,10 +1271,10 @@ async fn create_script_internal<'c>(
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
-         draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+         envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
          delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40)",
         &w_id,
         &hash.0,
         ns.path,
@@ -1306,7 +1290,6 @@ async fn create_script_internal<'c>(
         lang as ScriptLang,
         ns.kind.unwrap_or(ScriptKind::Script) as ScriptKind,
         ns.tag,
-        ns.draft_only,
         envs,
         guarded_concurrent_limit,
         guarded_concurrency_time_window_s,
@@ -1371,10 +1354,15 @@ async fn create_script_internal<'c>(
     let p_path_opt = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone());
     if let Some(ref p_path) = p_path_opt {
         if !skip_draft_deletion {
+            // Canonical: on deploy only wipe the deployer's own draft (plus the legacy
+            // NULL-email row). Teammates' drafts are independent — they stay and fire the
+            // StaleDraftModal on the teammate's next reload rather than vanishing silently.
             sqlx::query!(
-                "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
+                "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script' \
+                 AND (email = $3 OR email IS NULL)",
                 p_path,
-                &w_id
+                &w_id,
+                &authed.email,
             )
             .execute(&mut *tx)
             .await?;
@@ -1458,10 +1446,14 @@ async fn create_script_internal<'c>(
             }
         }
     } else if !skip_draft_deletion {
+        // See the matching branch above — only wipe the deployer's own
+        // draft (plus the legacy NULL-email row).
         sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script' \
+             AND (email = $3 OR email IS NULL)",
             ns.path,
-            &w_id
+            &w_id,
+            &authed.email,
         )
         .execute(&mut *tx)
         .await?;
@@ -1768,91 +1760,93 @@ pub async fn pick_hub_script_by_path(
     Ok::<_, Error>((status_code, headers, response))
 }
 
+// Canonical: fields inlined rather than `#[serde(flatten)]` from
+// `WithStarredInfoQuery` / `WithDraftQuery`. axum's `serde_urlencoded` extractor
+// drops type info through flatten, so `?get_draft=true` arrives as a String and
+// fails the inner bool deserializer. Inlining lets the bool adapter see it directly.
+#[derive(Deserialize)]
+struct GetScriptByPathQuery {
+    with_starred_info: Option<bool>,
+    #[serde(default)]
+    get_draft: bool,
+}
+
 #[axum::debug_handler]
 async fn get_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Query(query): Query<WithStarredInfoQuery>,
-) -> JsonResult<ScriptWithStarred<ScriptRunnableSettingsInline>> {
+    Query(query): Query<GetScriptByPathQuery>,
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = if query.with_starred_info.unwrap_or(false) {
         sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
-            "SELECT s.*, favorite.path IS NOT NULL as starred
+            "SELECT s.*, favorite.path IS NOT NULL as starred,
+                folder_labels(s.workspace_id, s.path) as inherited_labels
             FROM script s
             LEFT JOIN favorite
-            ON favorite.favorite_kind = 'script' 
-                AND favorite.workspace_id = s.workspace_id 
-                AND favorite.path = s.path 
+            ON favorite.favorite_kind = 'script'
+                AND favorite.workspace_id = s.workspace_id
+                AND favorite.path = s.path
                 AND favorite.usr = $3
             WHERE s.path = $1
                 AND s.workspace_id = $2
             ORDER BY s.created_at DESC LIMIT 1",
         )
         .bind(path)
-        .bind(w_id)
+        .bind(&w_id)
         .bind(&authed.username)
         .fetch_optional(&mut *tx)
         .await?
     } else {
         sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
             &format!(
-                "SELECT {}, NULL as starred FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+                "SELECT {}, NULL as starred, folder_labels(workspace_id, path) as inherited_labels FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
                 windmill_common::scripts::SCRIPT_COLUMNS,
             ),
         )
         .bind(path)
-        .bind(w_id)
+        .bind(&w_id)
         .fetch_optional(&mut *tx)
         .await?
     };
     tx.commit().await?;
 
-    let script = windmill_common::scripts::prefetch_cached_script_with_starred(
-        not_found_if_none(script_o, "Script", path)?,
+    // Canonical: with no deployed row and `get_draft` set, fall back to the draft
+    // table so editing a never-deployed draft works like a deployed reload.
+    let deployed = match script_o {
+        Some(script_o) => Some(
+            windmill_common::scripts::prefetch_cached_script_with_starred(script_o, &db).await?,
+        ),
+        None => None,
+    };
+    let overlay = overlay_or_draft_only(
         &db,
+        &w_id,
+        &authed.email,
+        UserDraftItemKind::Script,
+        path,
+        query.get_draft,
+        deployed,
+        || windmill_common::error::Error::NotFound(format!("Script not found at path {path}")),
     )
     .await?;
 
-    Ok(Json(script))
+    Ok(Json(overlay))
 }
 
 async fn list_tokens(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Vec<TruncatedTokenWithEmail>> {
     let path = path.to_path();
-    list_tokens_internal(&db, &w_id, &path, false).await
-}
-
-async fn get_script_by_path_w_draft(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<ScriptWDraft<ScriptRunnableSettingsInline>> {
-    let path = path.to_path();
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
-    let mut tx = user_db.begin(&authed).await?;
-
-    let script_o = sqlx::query_as::<_, ScriptWDraft<ScriptRunnableSettingsHandle>>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, runnable_settings_handle, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, ws_error_handler_muted, draft.value as draft, draft.created_at as draft_created_at, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, has_preprocessor, on_behalf_of_email, assets, modules, debounce_key, debounce_delay_s, labels FROM script LEFT JOIN draft ON
-         script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
-         WHERE script.path = $1 AND script.workspace_id = $2
-         ORDER BY script.created_at DESC LIMIT 1",
-    )
-    .bind(path)
-    .bind(w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
-    tx.commit().await?;
-
-    let script = not_found_if_none(script_o, "Script", path)?;
-    Ok(Json(script.prefetch_cached(&db).await?))
+    list_tokens_internal(&db, &w_id, &path, false).await
 }
 
 async fn get_script_history(
@@ -2397,13 +2391,14 @@ async fn get_script_by_hash_internal<'c>(
 ) -> Result<ScriptWithStarred<ScriptRunnableSettingsHandle>> {
     let script_o = if let Some(username) = with_starred_info_for_username {
         sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
-            "SELECT s.*, favorite.path IS NOT NULL as starred
+            "SELECT s.*, favorite.path IS NOT NULL as starred,
+                folder_labels(s.workspace_id, s.path) as inherited_labels
             FROM script s
-            LEFT JOIN favorite 
-            ON favorite.favorite_kind = 'script' 
-                AND favorite.workspace_id = s.workspace_id 
-                AND favorite.path = s.path 
-                AND favorite.usr = $1 
+            LEFT JOIN favorite
+            ON favorite.favorite_kind = 'script'
+                AND favorite.workspace_id = s.workspace_id
+                AND favorite.path = s.path
+                AND favorite.usr = $1
             WHERE s.hash = $2 AND s.workspace_id = $3",
         )
         .bind(&username)
@@ -2413,7 +2408,7 @@ async fn get_script_by_hash_internal<'c>(
         .await?
     } else {
         sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(&format!(
-            "SELECT {}, NULL as starred FROM script WHERE hash = $1 AND workspace_id = $2",
+            "SELECT {}, NULL as starred, folder_labels(workspace_id, path) as inherited_labels FROM script WHERE hash = $1 AND workspace_id = $2",
             windmill_common::scripts::SCRIPT_COLUMNS,
         ))
         .bind(hash)
@@ -2512,18 +2507,6 @@ async fn get_deployment_status(
 
     tx.commit().await?;
     Ok(Json(deployment_status))
-}
-
-pub async fn require_is_writer(authed: &ApiAuthed, path: &str, w_id: &str, db: DB) -> Result<()> {
-    return windmill_api_auth::require_is_writer(
-        authed,
-        path,
-        w_id,
-        db,
-        "SELECT extra_perms FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
-        "script",
-    )
-    .await;
 }
 
 async fn archive_script_by_path(
@@ -2762,18 +2745,7 @@ async fn delete_script_by_path(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    let draft_only = sqlx::query_scalar!(
-        "SELECT draft_only FROM script WHERE path = $1 AND workspace_id = $2",
-        path,
-        w_id
-    )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(false);
-
-    if !draft_only {
-        require_admin(authed.is_admin, &authed.username)?;
-    }
+    require_admin(authed.is_admin, &authed.username)?;
 
     // Capture all script versions and drafts for trashbin before deleting
     let trash_scripts: Vec<serde_json::Value> = sqlx::query_scalar(

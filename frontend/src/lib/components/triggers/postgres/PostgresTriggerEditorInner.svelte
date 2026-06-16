@@ -250,11 +250,14 @@
 			relations = []
 			transaction_to_track = []
 			tab = 'basic'
-			await loadTrigger(defaultConfig)
+			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultConfig)
+			// Draft-only triggers have no deployed row, so saving must CREATE (update 404s).
+			edit = !noDeployed
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			if (draftOverlay) loadTriggerConfig(draftOverlay)
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)
@@ -367,28 +370,55 @@
 		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
-	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
+	/**
+	 * Apply the deployed config to the form, then return the saved-draft overlay
+	 * so the caller captures `originalConfig` BEFORE applying the draft (see
+	 * `NatsTriggerEditorInner.loadTrigger`). Postgres wrinkle: the publication is
+	 * keyed by resource/name the draft may have changed, so it's fetched using
+	 * the effective values to reflect the draft's view.
+	 */
+	async function loadTrigger(
+		defaultConfig?: Record<string, any>
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
 			if (defaultConfig?.publication) {
 				transaction_to_track = [...defaultConfig.publication.transaction_to_track]
 				relations = defaultConfig.publication.table_to_track ?? []
 			}
-			return
-		} else {
-			const s = await PostgresTriggerService.getPostgresTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath
-			})
-
-			const publication_data = await PostgresTriggerService.getPostgresPublication({
-				path: s.postgres_resource_path,
-				workspace: $workspaceStore!,
-				publication: s.publication_name
-			})
-
-			loadTriggerConfig({ ...s, publication: publication_data })
+			return { overlay: undefined, noDeployed: false }
 		}
+		const s = await PostgresTriggerService.getPostgresTrigger({
+			workspace: $workspaceStore!,
+			path: initialPath,
+			getDraft: true
+		})
+		const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+		// Draft-only: synthesized stand-in, no row, so saving must CREATE.
+		const noDeployed = !!(s as any)?.no_deployed
+
+		// Deployed config + publication become the `originalConfig` baseline.
+		const deployedPublication = await PostgresTriggerService.getPostgresPublication({
+			path: deployedTrigger.postgres_resource_path,
+			workspace: $workspaceStore!,
+			publication: deployedTrigger.publication_name
+		})
+		loadTriggerConfig({ ...deployedTrigger, publication: deployedPublication })
+
+		if (!draftFromBackend) return { overlay: undefined, noDeployed }
+
+		// Refetch the publication for the draft's keys if they differ.
+		const effective = { ...deployedTrigger, ...draftFromBackend }
+		const effectivePublication =
+			effective.postgres_resource_path === deployedTrigger.postgres_resource_path &&
+			effective.publication_name === deployedTrigger.publication_name
+				? deployedPublication
+				: await PostgresTriggerService.getPostgresPublication({
+						path: effective.postgres_resource_path,
+						workspace: $workspaceStore!,
+						publication: effective.publication_name
+					})
+		return { overlay: { ...effective, publication: effectivePublication }, noDeployed }
 	}
 
 	function getCaptureConfig() {

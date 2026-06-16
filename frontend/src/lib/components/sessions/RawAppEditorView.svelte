@@ -4,7 +4,12 @@
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import SessionEditorTarget from './SessionEditorTarget.svelte'
+	import { runResetToDeployed } from '$lib/userDraftToast'
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
+	import type {
+		RawAppRuntimeLogRequester,
+		RawAppRunsProvider
+	} from '$lib/components/raw_apps/utils'
 
 	let {
 		runtime,
@@ -24,18 +29,32 @@
 
 	let diffDrawer: DiffDrawer | undefined = $state()
 
-	async function restoreFromCurrentTarget() {
+	async function reloadDeployed() {
+		await runtime.loadRawApp(workspaceId, path, true, true)
+	}
+
+	async function restoreDeployed() {
 		diffDrawer?.closeDrawer()
-		await runtime.loadRawApp(workspaceId, path)
+		await runResetToDeployed({
+			workspace: workspaceId,
+			itemKind: 'raw_app',
+			path,
+			onResetToDeployed: reloadDeployed
+		})
+		invalidateWorkspaceDrafts(workspaceId)
+	}
+
+	function registerRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined) {
+		runtime.setRuntimeLogRequester(requester)
+	}
+
+	function registerRunsProvider(provider: RawAppRunsProvider | undefined) {
+		runtime.setAppRunsProvider(provider)
 	}
 </script>
 
 {#if runtime.savedRawApp.val}
-	<DiffDrawer
-		bind:this={diffDrawer}
-		restoreDeployed={restoreFromCurrentTarget}
-		restoreDraft={restoreFromCurrentTarget}
-	/>
+	<DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
 {/if}
 <SessionEditorTarget
 	{runtime}
@@ -60,20 +79,18 @@
 				newApp={!runtime.savedRawApp.val}
 				{diffDrawer}
 				{onNavigate}
+				onResetToDeployed={reloadDeployed}
 				onDeploy={(e) => {
 					// Sync the preview to deployed (raw apps deploy only from this editor).
 					runtime.syncPreviewWithDeployed(workspaceId, 'raw_app', e.path)
 					// Deploying clears the item's pending draft — refresh the Draft Count.
 					invalidateWorkspaceDrafts(workspaceId)
 				}}
-				onSaveDraft={() => {
-					// Saving a server draft adds/updates a draft — refresh the Draft Count so
-					// the session draft bar appears/updates immediately (parity with script/flow).
-					invalidateWorkspaceDrafts(workspaceId)
-				}}
 				defaultSidebarCollapsed
 				sidebarStorageKey="raw-app-sidebar-collapsed-preview"
 				defaultSplitWithPreview={false}
+				onRuntimeLogRequester={registerRuntimeLogRequester}
+				onRunsProvider={registerRunsProvider}
 			/>
 		{/if}
 	{/snippet}

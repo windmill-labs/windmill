@@ -26,7 +26,7 @@
 		targetTutorial = undefined
 	}}
 	on:confirmed={async () => {
-		window.open(`/apps/add?tutorial=${targetTutorial}&nodraft=true`, '_blank')
+		window.open(`/apps/add?tutorial=${targetTutorial}`, '_blank')
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">

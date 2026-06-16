@@ -279,8 +279,8 @@ pub(crate) async fn change_workspace_id(
     info!("Duplicating flow table rows");
     sqlx::query!(
         "INSERT INTO flow
-            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, lock_error_logs)
-        SELECT $1, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, lock_error_logs
+            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, lock_error_logs)
+        SELECT $1, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, lock_error_logs
             FROM flow WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
@@ -469,8 +469,8 @@ pub(crate) async fn change_workspace_id(
     // Duplicate folders with new workspace id (FK constraint)
     info!("Duplicating folder table rows");
     sqlx::query!(
-        "INSERT INTO folder (name, workspace_id, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as) \
-         SELECT name, $1, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as \
+        "INSERT INTO folder (name, workspace_id, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels) \
+         SELECT name, $1, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels \
          FROM folder WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
@@ -872,13 +872,16 @@ pub(crate) async fn delete_workspace(
         .execute(&mut *tx)
         .await?;
 
+    // Record under the instance-level "admins" workspace. The per-workspace audit
+    // rows are deleted along with the workspace, so this instance-level entry is the
+    // only durable, superadmin-discoverable record of who deleted the workspace.
     audit_log(
         &mut *tx,
         &authed,
         "workspaces.delete",
         ActionKind::Delete,
-        &w_id,
-        Some(&authed.email),
+        "admins",
+        Some(&w_id),
         None,
     )
     .await?;

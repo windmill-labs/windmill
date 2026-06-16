@@ -1,11 +1,6 @@
 import type { Flow, NewSchedule, NewScript } from '$lib/gen/types.gen'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
-import {
-	UserDraft,
-	type UserDraftEntry,
-	type UserDraftItemKind,
-	type UserDraftMeta
-} from '$lib/userDraft.svelte'
+import { UserDraft, type UserDraftEntry, type UserDraftItemKind } from '$lib/userDraft.svelte'
 import {
 	getWorkspaceItemKey,
 	type AppDraftValue,
@@ -349,16 +344,11 @@ export function listGlobalDrafts(workspace: string): WorkspaceItem[] {
 export function saveGlobalAppDraft(
 	workspace: string,
 	path: string,
-	value: AppDraftValue,
-	meta?: UserDraftMeta
+	value: AppDraftValue
 ): WorkspaceItem {
 	const storagePath = resolveDraftStoragePath(workspace, 'raw_app', path)
 	const normalized = normalizeAppDraftValue(value)
-	if (meta) {
-		UserDraft.setDraftAndMeta('raw_app', storagePath, normalized, meta, { workspace })
-	} else {
-		UserDraft.save('raw_app', storagePath, normalized, { workspace })
-	}
+	UserDraft.save('raw_app', storagePath, normalized, { workspace })
 	const stored = getGlobalDraft(workspace, 'app', path)
 	if (!stored) throw new Error(`Could not read written app draft "${path}".`)
 	return stored

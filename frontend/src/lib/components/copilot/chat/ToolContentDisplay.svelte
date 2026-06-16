@@ -104,14 +104,14 @@
 </script>
 
 {#if showWhileLoading || (!loading && hasContent) || streaming}
-	<div class="space-y-2">
+	<div class="space-y-2 group">
 		<div class="flex items-center justify-between">
-			<span class="text-2xs">
+			<span class="text-2xs text-hint">
 				{title}:
 			</span>
 			{#if showCopy && hasContent && !streaming}
 				<button
-					class="p-1 rounded hover:bg-surface-secondary text-primary hover:text-secondary transition-colors"
+					class="p-1 rounded hover:bg-surface-secondary text-primary hover:text-secondary transition-opacity duration-200 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
 					onclick={copyToClipboard}
 					title="Copy {title.toLowerCase()}"
 				>
@@ -125,26 +125,20 @@
 		</div>
 
 		{#if loading && !streaming && !hasContent}
-			<div
-				class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 flex items-center gap-2 text-primary"
-			>
+			<div class="flex items-center gap-2 text-primary">
 				<Loader2 class="w-3 h-3 animate-spin" />
 				<span class="text-2xs">Executing...</span>
 			</div>
 		{:else if error}
-			<div
-				class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3 overflow-x-auto max-h-28 overflow-y-auto"
-			>
+			<div class="overflow-x-auto max-h-28 overflow-y-auto">
 				<pre class="text-2xs text-red-700 dark:text-red-300 whitespace-pre-wrap">{error}</pre>
 			</div>
 		{:else if hasContent}
-			<div
-				class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded overflow-hidden relative"
-			>
+			<div class="relative">
 				<div
 					bind:this={scrollEl}
 					onscroll={updateCanScrollDown}
-					class="p-3 overflow-x-auto max-h-28 overflow-y-auto"
+					class="overflow-x-auto max-h-28 overflow-y-auto"
 				>
 					<pre class="text-2xs text-primary whitespace-pre-wrap"
 						>{formatJson($state.snapshot(content))}</pre
@@ -152,16 +146,12 @@
 				</div>
 				{#if showFade && canScrollDown}
 					<div
-						class="absolute bottom-0 left-0 right-0 h-16 pointer-events-none bg-gradient-to-t from-surface-secondary via-surface-secondary/70 via-surface-secondary/40 to-transparent"
+						class="absolute bottom-0 left-0 right-0 h-16 pointer-events-none bg-gradient-to-t from-surface via-surface/70 via-surface/40 to-transparent"
 					></div>
 				{/if}
 			</div>
 		{:else}
-			<div
-				class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 text-center"
-			>
-				<span class="text-2xs text-primary">No {title.toLowerCase()} yet</span>
-			</div>
+			<span class="text-2xs text-tertiary">No {title.toLowerCase()} yet</span>
 		{/if}
 	</div>
 {/if}

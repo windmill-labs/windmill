@@ -48,12 +48,6 @@ vi.mock('$lib/gen', async () => {
 			getScriptByPath: vi.fn(async () => {
 				throw new Error('getScriptByPath mock not configured')
 			}),
-			getScriptByHash: vi.fn(async () => {
-				throw new Error('getScriptByHash mock not configured')
-			}),
-			getScriptByPathWithDraft: vi.fn(async () => {
-				throw new Error('getScriptByPathWithDraft mock not configured')
-			}),
 			queryHubScripts: vi.fn(async () => []),
 			getHubScriptContentByPath: vi.fn(async () => ''),
 			listScripts: vi.fn(async () => [])
@@ -67,7 +61,40 @@ vi.mock('$lib/gen', async () => {
 				success: true,
 				result: { ok: true },
 				logs: 'test logs'
-			}))
+			})),
+			getJobLogs: vi.fn(async () => 'job log line 1\njob log line 2'),
+			listJobs: vi.fn(async () => [
+				{
+					type: 'CompletedJob',
+					id: 'completed-1',
+					job_kind: 'script',
+					script_path: 'f/team/runner',
+					created_by: 'alice',
+					created_at: '2026-06-09T10:00:00Z',
+					started_at: '2026-06-09T10:00:01Z',
+					duration_ms: 1200,
+					success: true,
+					canceled: false,
+					is_flow_step: false,
+					tag: 'default',
+					// fields that must be stripped from the summary
+					logs: 'verbose logs',
+					args: { secret: 'do-not-leak' },
+					result: { value: 42 }
+				},
+				{
+					type: 'QueuedJob',
+					id: 'queued-1',
+					job_kind: 'flow',
+					script_path: 'f/team/pipeline',
+					created_by: 'bob',
+					created_at: '2026-06-09T10:05:00Z',
+					running: true,
+					canceled: false,
+					is_flow_step: false,
+					tag: 'default'
+				}
+			])
 		}),
 		FlowService: wrapService(actual.FlowService, {
 			existsFlowByPath: vi.fn(async () => false),
@@ -75,9 +102,6 @@ vi.mock('$lib/gen', async () => {
 			updateFlow: vi.fn(async () => 'updated'),
 			getFlowByPath: vi.fn(async () => {
 				throw new Error('getFlowByPath mock not configured')
-			}),
-			getFlowByPathWithDraft: vi.fn(async () => {
-				throw new Error('getFlowByPathWithDraft mock not configured')
 			}),
 			getFlowLatestVersion: vi.fn(async () => ({ id: 1 })),
 			listFlows: vi.fn(async () => [])
@@ -98,8 +122,8 @@ vi.mock('$lib/gen', async () => {
 			existsApp: vi.fn(async () => false),
 			createAppRaw: vi.fn(async () => 'created'),
 			updateAppRaw: vi.fn(async () => 'updated'),
-			getAppByPathWithDraft: vi.fn(async () => {
-				throw new Error('getAppByPathWithDraft mock not configured')
+			getAppByPath: vi.fn(async () => {
+				throw new Error('getAppByPath mock not configured')
 			}),
 			listApps: vi.fn(async () => [])
 		}),
@@ -134,6 +158,8 @@ import {
 	prepareGlobalUserMessage,
 	setDeployedInSessionHandler,
 	setGetPreviewStatusHandler,
+	setGetRuntimeLogsHandler,
+	setListAppRunsHandler,
 	setOpenPreviewHandler
 } from './core'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
@@ -238,6 +264,78 @@ describe('global AI tools', () => {
 		expect(names).toContain('test_run_script')
 		expect(names).toContain('test_run_flow')
 		expect(names).toContain('test_run_step')
+		expect(names).toContain('get_job_logs')
+		expect(names).toContain('list_runs')
+	})
+
+	it('lists recent runs with compact summaries and forwarded filters', async () => {
+		const result = await callGlobalTool('list_runs', {
+			path: 'f/team/runner',
+			created_by: 'alice',
+			success: true,
+			limit: 10
+		})
+
+		expect(JobService.listJobs).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			scriptPathExact: 'f/team/runner',
+			createdBy: 'alice',
+			label: undefined,
+			success: true,
+			running: undefined,
+			perPage: 10
+		})
+
+		const runs = JSON.parse(result)
+		expect(runs).toHaveLength(2)
+		expect(runs[0]).toMatchObject({
+			id: 'completed-1',
+			status: 'success',
+			path: 'f/team/runner',
+			duration_ms: 1200
+		})
+		expect(runs[1]).toMatchObject({ id: 'queued-1', status: 'running' })
+		// Heavy / sensitive fields must not leak into the summary.
+		expect(result).not.toContain('verbose logs')
+		expect(result).not.toContain('do-not-leak')
+		// The result must be surfaced to the tool display, otherwise the details
+		// panel shows "No result yet" even though the call succeeded.
+		expect(toolCallbacks.setToolStatus).toHaveBeenCalledWith(
+			'test-list_runs',
+			expect.objectContaining({ result })
+		)
+	})
+
+	it('defaults list_runs to 30 results when no limit is given', async () => {
+		await callGlobalTool('list_runs', {})
+		expect(JobService.listJobs).toHaveBeenCalledWith(
+			expect.objectContaining({ workspace: WORKSPACE, perPage: 30 })
+		)
+	})
+
+	it('fetches job logs by id and always suppresses the backend ansi hint line', async () => {
+		const result = await callGlobalTool('get_job_logs', { id: 'job-123' })
+
+		expect(JobService.getJobLogs).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			id: 'job-123',
+			removeAnsiWarnings: true
+		})
+		expect(result).toBe('job log line 1\njob log line 2')
+		// The logs must be surfaced as the tool result so the details panel shows
+		// them rather than "No result yet".
+		expect(toolCallbacks.setToolStatus).toHaveBeenCalledWith(
+			'test-get_job_logs',
+			expect.objectContaining({ result: 'job log line 1\njob log line 2' })
+		)
+	})
+
+	it('reports when a job has no logs', async () => {
+		vi.mocked(JobService.getJobLogs).mockResolvedValueOnce('   ')
+
+		const result = await callGlobalTool('get_job_logs', { id: 'job-empty' })
+
+		expect(result).toBe('No logs available for this job.')
 	})
 
 	it('searches hub scripts without fetching script contents', async () => {
@@ -316,9 +414,6 @@ describe('global AI tools', () => {
 			wsSpecific: true,
 			resource_type: 'postgresql'
 		})
-		expect(UserDraft.getMeta('resource', 'f/resources/db', { workspace: WORKSPACE })).toEqual({
-			remoteRev: '2026-05-22T09:30:00Z'
-		})
 	})
 
 	it('writes variable drafts in the editor UserDraft shape', async () => {
@@ -355,9 +450,6 @@ describe('global AI tools', () => {
 			account: 123,
 			is_oauth: true,
 			expires_at: '2026-06-22T09:30:00Z'
-		})
-		expect(UserDraft.getMeta('variable', 'f/secrets/api_key', { workspace: WORKSPACE })).toEqual({
-			remoteRev: '2026-05-22T09:30:00Z'
 		})
 		expect(localStorageSnapshot()).not.toContain('new-secret-token')
 	})
@@ -644,23 +736,14 @@ describe('global AI tools', () => {
 
 	it('preserves existing script metadata and seeds freshness on first script write', async () => {
 		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(true)
-		vi.mocked(ScriptService.getScriptByPathWithDraft).mockResolvedValueOnce({
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
 			path: 'f/scripts/existing',
 			hash: 'deployed-hash',
-			draft_created_at: '2026-05-22T10:00:00Z',
 			summary: 'deployed summary',
 			description: 'deployed description',
 			content: 'old deployed content',
 			language: 'bun',
-			kind: 'script',
-			draft: {
-				path: 'f/scripts/existing',
-				summary: 'db draft summary',
-				description: 'db draft description',
-				content: 'old draft content',
-				language: 'bun',
-				kind: 'script'
-			}
+			kind: 'script'
 		} as any)
 
 		await callGlobalTool('write_script', {
@@ -676,20 +759,16 @@ describe('global AI tools', () => {
 			path: 'f/scripts/existing',
 			parent_hash: 'deployed-hash',
 			summary: 'new summary',
-			description: 'db draft description',
+			description: 'deployed description',
 			content: 'new content',
 			language: 'bun'
-		})
-		expect(UserDraft.getMeta('script', 'f/scripts/existing', { workspace: WORKSPACE })).toEqual({
-			remoteRev: 'deployed-hash',
-			remoteDraftRev: '2026-05-22T10:00:00Z'
 		})
 	})
 
 	it('preserves existing flow metadata and seeds freshness on first flow write', async () => {
 		vi.mocked(FlowService.existsFlowByPath).mockResolvedValueOnce(true)
 		vi.mocked(FlowService.getFlowLatestVersion).mockResolvedValueOnce({ id: 42 } as any)
-		vi.mocked(FlowService.getFlowByPathWithDraft).mockResolvedValueOnce({
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
 			path: 'f/flows/existing',
 			summary: 'deployed summary',
 			description: 'deployed description',
@@ -698,19 +777,7 @@ describe('global AI tools', () => {
 			edited_by: 'admin',
 			edited_at: '2026-05-22T09:00:00Z',
 			archived: false,
-			extra_perms: {},
-			draft_created_at: '2026-05-22T10:00:00Z',
-			draft: {
-				path: 'f/flows/existing',
-				summary: 'db draft summary',
-				description: 'db draft description',
-				value: { modules: [] },
-				schema: { properties: { draft: { type: 'string' } } },
-				edited_by: 'admin',
-				edited_at: '2026-05-22T09:30:00Z',
-				archived: false,
-				extra_perms: {}
-			}
+			extra_perms: {}
 		} as any)
 
 		await callGlobalTool('write_flow', {
@@ -722,12 +789,8 @@ describe('global AI tools', () => {
 		expect(UserDraft.get<any>('flow', 'f/flows/existing', { workspace: WORKSPACE })).toMatchObject({
 			path: 'f/flows/existing',
 			summary: 'new summary',
-			description: 'db draft description',
+			description: 'deployed description',
 			value: { modules: [{ id: 'step', value: { type: 'identity' } }] }
-		})
-		expect(UserDraft.getMeta('flow', 'f/flows/existing', { workspace: WORKSPACE })).toEqual({
-			remoteRev: 42,
-			remoteDraftRev: '2026-05-22T10:00:00Z'
 		})
 	})
 
@@ -840,32 +903,22 @@ describe('global AI tools', () => {
 	})
 
 	it('seeds raw app draft metadata on first app write', async () => {
-		vi.mocked(AppService.getAppByPathWithDraft).mockResolvedValueOnce({
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
 			path: 'f/apps/report',
 			summary: 'deployed app',
 			versions: [3, 4],
-			draft_created_at: '2026-05-22T10:30:00Z',
 			value: {
 				files: { '/src/App.tsx': 'deployed content' },
-				runnables: {},
-				data: { tables: [] }
+				runnables: {
+					main: {
+						type: 'inline',
+						inlineScript: { language: 'bun', content: 'export async function main() {}' }
+					}
+				},
+				data: { tables: ['orders'], datatable: 'db', schema: 'public' }
 			},
 			policy: { execution_mode: 'publisher' },
-			custom_path: 'report',
-			draft: {
-				summary: 'saved app draft',
-				value: {
-					files: { '/src/App.tsx': 'draft content' },
-					runnables: {
-						main: {
-							type: 'inline',
-							inlineScript: { language: 'bun', content: 'export async function main() {}' }
-						}
-					},
-					data: { tables: ['orders'], datatable: 'db', schema: 'public' }
-				},
-				policy: { execution_mode: 'anonymous' }
-			}
+			custom_path: 'report'
 		} as any)
 
 		await callGlobalTool('write_app_file', {
@@ -876,9 +929,9 @@ describe('global AI tools', () => {
 
 		const draft = UserDraft.get<any>('raw_app', 'f/apps/report', { workspace: WORKSPACE })
 		expect(draft).toMatchObject({
-			summary: 'saved app draft',
+			summary: 'deployed app',
 			files: {
-				'/src/App.tsx': 'draft content',
+				'/src/App.tsx': 'deployed content',
 				'/src/New.tsx': 'export default function New() { return null }'
 			},
 			runnables: {
@@ -888,12 +941,8 @@ describe('global AI tools', () => {
 				}
 			},
 			data: { tables: ['orders'], datatable: 'db', schema: 'public' },
-			policy: { execution_mode: 'anonymous' },
+			policy: { execution_mode: 'publisher' },
 			custom_path: 'report'
-		})
-		expect(UserDraft.getMeta('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toEqual({
-			remoteRev: 4,
-			remoteDraftRev: '2026-05-22T10:30:00Z'
 		})
 	})
 
@@ -948,39 +997,31 @@ describe('global AI tools', () => {
 		expect(item.value.backend[0]).not.toHaveProperty('content')
 	})
 
-	it('summarizes backend raw app drafts from the same source as file reads', async () => {
-		const appWithDraft = {
+	it('summarizes backend raw apps from the same source as file reads', async () => {
+		const deployedApp = {
 			path: 'f/apps/report',
 			summary: 'deployed app',
 			versions: [5],
 			value: {
-				files: { '/src/App.tsx': 'deployed content' },
-				runnables: {},
-				data: { tables: ['deployed'] }
-			},
-			draft: {
-				summary: 'saved app draft',
-				value: {
-					files: {
-						'/src/App.tsx': 'draft content',
-						'/src/DraftOnly.tsx': 'draft-only content'
-					},
-					runnables: {
-						main: {
-							type: 'inline',
-							inlineScript: {
-								language: 'bun',
-								content: 'export async function main() { return "draft" }'
-							}
+				files: {
+					'/src/App.tsx': 'deployed content',
+					'/src/Helper.tsx': 'helper content'
+				},
+				runnables: {
+					main: {
+						type: 'inline',
+						inlineScript: {
+							language: 'bun',
+							content: 'export async function main() { return "deployed" }'
 						}
-					},
-					data: { tables: ['draft'] }
-				}
+					}
+				},
+				data: { tables: ['deployed'] }
 			}
 		}
-		vi.mocked(AppService.getAppByPathWithDraft)
-			.mockResolvedValueOnce(appWithDraft as any)
-			.mockResolvedValueOnce(appWithDraft as any)
+		vi.mocked(AppService.getAppByPath)
+			.mockResolvedValueOnce(deployedApp as any)
+			.mockResolvedValueOnce(deployedApp as any)
 
 		const raw = await callGlobalTool('read_workspace_item', {
 			type: 'app',
@@ -988,15 +1029,14 @@ describe('global AI tools', () => {
 		})
 		const item = JSON.parse(raw)
 
-		expect(raw).not.toContain('draft-only content')
 		expect(item).toMatchObject({
 			type: 'app',
 			path: 'f/apps/report',
-			summary: 'saved app draft',
+			summary: 'deployed app',
 			value: {
 				frontend: [
-					{ path: '/src/App.tsx', size: 'draft content'.length },
-					{ path: '/src/DraftOnly.tsx', size: 'draft-only content'.length }
+					{ path: '/src/App.tsx', size: 'deployed content'.length },
+					{ path: '/src/Helper.tsx', size: 'helper content'.length }
 				],
 				backend: [
 					expect.objectContaining({
@@ -1004,10 +1044,10 @@ describe('global AI tools', () => {
 						name: 'main',
 						type: 'inline',
 						language: 'bun',
-						contentSize: 'export async function main() { return "draft" }'.length
+						contentSize: 'export async function main() { return "deployed" }'.length
 					})
 				],
-				data: { tables: ['draft'] }
+				data: { tables: ['deployed'] }
 			},
 			isDraft: false
 		})
@@ -1015,14 +1055,14 @@ describe('global AI tools', () => {
 		await expect(
 			callGlobalTool('read_app_file', {
 				path: 'f/apps/report',
-				file_path: '/src/DraftOnly.tsx'
+				file_path: '/src/Helper.tsx'
 			})
-		).resolves.toBe('draft-only content')
+		).resolves.toBe('helper content')
 		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
 	it('reads raw app files without creating a local draft', async () => {
-		vi.mocked(AppService.getAppByPathWithDraft).mockResolvedValueOnce({
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
 			path: 'f/apps/report',
 			summary: 'deployed app',
 			versions: [5],
@@ -1030,14 +1070,6 @@ describe('global AI tools', () => {
 				files: { '/src/App.tsx': 'deployed content' },
 				runnables: {},
 				data: { tables: [] }
-			},
-			draft: {
-				summary: 'saved app draft',
-				value: {
-					files: { '/src/App.tsx': 'draft content' },
-					runnables: {},
-					data: { tables: [] }
-				}
 			}
 		} as any)
 
@@ -1046,12 +1078,12 @@ describe('global AI tools', () => {
 				path: 'f/apps/report',
 				file_path: '/src/App.tsx'
 			})
-		).resolves.toBe('draft content')
+		).resolves.toBe('deployed content')
 		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
 	it('does not persist a raw app draft when patch_app_file validation fails', async () => {
-		vi.mocked(AppService.getAppByPathWithDraft).mockResolvedValueOnce({
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
 			path: 'f/apps/report',
 			summary: 'deployed app',
 			versions: [5],
@@ -1075,7 +1107,7 @@ describe('global AI tools', () => {
 	})
 
 	it('does not persist a raw app draft when delete_app_file validation fails', async () => {
-		vi.mocked(AppService.getAppByPathWithDraft).mockResolvedValueOnce({
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
 			path: 'f/apps/report',
 			summary: 'deployed app',
 			versions: [5],
@@ -1096,7 +1128,7 @@ describe('global AI tools', () => {
 	})
 
 	it('does not persist a raw app draft when delete_app_runnable validation fails', async () => {
-		vi.mocked(AppService.getAppByPathWithDraft).mockResolvedValueOnce({
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
 			path: 'f/apps/report',
 			summary: 'deployed app',
 			versions: [5],
@@ -1324,7 +1356,9 @@ describe('global AI tools', () => {
 			})
 		)
 
-		expect(writeResult.item.value.value).toBeUndefined()
+		expect(writeResult.success).toBe(true)
+		// Write results must not echo the flow value back to the model.
+		expect(writeResult.item).toBeUndefined()
 
 		const raw = await callGlobalTool('read_workspace_item', {
 			type: 'flow',
@@ -1885,33 +1919,134 @@ describe('prepareGlobalSystemMessage', () => {
 			expect(result).toBe('The preview is currently open showing script "u/me/foo".')
 		})
 	})
+
+	describe('get_app_runtime_logs', () => {
+		afterEach(() => {
+			setGetRuntimeLogsHandler(undefined)
+		})
+
+		it('returns the session-only error when no handler is registered', async () => {
+			setGetRuntimeLogsHandler(undefined)
+			const result = await callGlobalTool('get_app_runtime_logs', {})
+			expect(result).toContain(
+				'Error: get_app_runtime_logs is only available inside an AI session.'
+			)
+			expect(result).toContain('open the raw app preview')
+		})
+
+		it('dispatches to the registered handler with the session id and default limit of 10', async () => {
+			const callbacks: ToolCallbacks = { setToolStatus: vi.fn(), removeToolStatus: vi.fn() }
+			const handler = vi.fn(async () => ({
+				aiResult: 'logs output. Next step: inspect the browser error.',
+				uiMessage: 'Read 1 runtime log',
+				toolResult: '[{"level":"log","message":"log message","ts":1718000000000}]'
+			}))
+			setGetRuntimeLogsHandler(handler)
+			const result = await callGlobalTool('get_app_runtime_logs', {}, callbacks, {
+				sessionId: 'sess-logs'
+			})
+			expect(result).toBe('logs output. Next step: inspect the browser error.')
+			expect(handler).toHaveBeenCalledWith({ sessionId: 'sess-logs', limit: 10 })
+			expect(callbacks.setToolStatus).toHaveBeenLastCalledWith('test-get_app_runtime_logs', {
+				content: 'Read 1 runtime log',
+				result: '[{"level":"log","message":"log message","ts":1718000000000}]'
+			})
+		})
+
+		it('passes an explicit limit through to the handler', async () => {
+			const handler = vi.fn(async () => ({
+				aiResult: 'logs output',
+				uiMessage: 'Read runtime logs',
+				toolResult: '[{"level":"log","message":"log message","ts":1718000000000}]'
+			}))
+			setGetRuntimeLogsHandler(handler)
+			await callGlobalTool('get_app_runtime_logs', { limit: 3 }, toolCallbacks, {
+				sessionId: 'sess-logs'
+			})
+			expect(handler).toHaveBeenCalledWith({ sessionId: 'sess-logs', limit: 3 })
+		})
+	})
+
+	describe('list_app_runs', () => {
+		afterEach(() => {
+			setListAppRunsHandler(undefined)
+		})
+
+		it('returns the session-only error when no handler is registered', async () => {
+			setListAppRunsHandler(undefined)
+			const result = await callGlobalTool('list_app_runs', {})
+			expect(result).toContain('Error: list_app_runs is only available inside an AI session.')
+			expect(result).toContain('open the raw app preview')
+		})
+
+		it('dispatches to the registered handler with the session id and default limit of 20', async () => {
+			const callbacks: ToolCallbacks = { setToolStatus: vi.fn(), removeToolStatus: vi.fn() }
+			const handler = vi.fn(() => ({
+				aiResult: 'runs output. Next step: call get_job_logs.',
+				uiMessage: 'Listed 1 app run',
+				toolResult: '[{"job_id":"job-1","component":"backend.1","status":"completed","created_at":1718000000000,"started_at":1718000000000,"duration_ms":1000}]'
+			}))
+			setListAppRunsHandler(handler)
+			const result = await callGlobalTool('list_app_runs', {}, callbacks, {
+				sessionId: 'sess-runs'
+			})
+			expect(result).toBe('runs output. Next step: call get_job_logs.')
+			expect(handler).toHaveBeenCalledWith({ sessionId: 'sess-runs', limit: 20 })
+			expect(callbacks.setToolStatus).toHaveBeenLastCalledWith('test-list_app_runs', {
+				content: 'Listed 1 app run',
+				result:
+					'[{"job_id":"job-1","component":"backend.1","status":"completed","created_at":1718000000000,"started_at":1718000000000,"duration_ms":1000}]'
+			})
+		})
+
+		it('passes an explicit limit through to the handler', async () => {
+			const handler = vi.fn(() => ({
+				aiResult: 'runs output',
+				uiMessage: 'Listed app runs',
+				toolResult: '[{"job_id":"job-1","component":"backend.1","status":"completed","created_at":1718000000000,"started_at":1718000000000,"duration_ms":1000}]'
+			}))
+			setListAppRunsHandler(handler)
+			await callGlobalTool('list_app_runs', { limit: 5 }, toolCallbacks, {
+				sessionId: 'sess-runs'
+			})
+			expect(handler).toHaveBeenCalledWith({ sessionId: 'sess-runs', limit: 5 })
+		})
+	})
 })
 
 describe('session-only preview tools gating', () => {
 	const toolNames = (sessionPreview: boolean) =>
 		globalToolsFor({ sessionPreview }).map((t) => t.def.function.name)
 
-	it('excludes open_preview / get_preview_status outside a session', () => {
+	it('excludes open_preview / get_preview_status / get_app_runtime_logs / list_app_runs outside a session', () => {
 		const names = toolNames(false)
 		expect(names).not.toContain('open_preview')
 		expect(names).not.toContain('get_preview_status')
+		expect(names).not.toContain('get_app_runtime_logs')
+		expect(names).not.toContain('list_app_runs')
 		// other tools are still present
 		expect(names).toContain('write_script')
 	})
 
-	it('includes open_preview / get_preview_status inside a session', () => {
+	it('includes open_preview / get_preview_status / get_app_runtime_logs / list_app_runs inside a session', () => {
 		const names = toolNames(true)
 		expect(names).toContain('open_preview')
 		expect(names).toContain('get_preview_status')
+		expect(names).toContain('get_app_runtime_logs')
+		expect(names).toContain('list_app_runs')
 		// session set is the full globalTools
 		expect(names.length).toBe(globalTools.length)
 	})
 
-	it('mentions open_preview in the system prompt only when preview tools are enabled', () => {
+	it('mentions open_preview / get_app_runtime_logs / list_app_runs in the system prompt only when preview tools are enabled', () => {
 		const off = prepareGlobalSystemMessage(undefined, { previewTools: false }).content as string
 		const on = prepareGlobalSystemMessage(undefined, { previewTools: true }).content as string
 		expect(off).not.toContain('open_preview')
+		expect(off).not.toContain('get_app_runtime_logs')
+		expect(off).not.toContain('list_app_runs')
 		expect(on).toContain('open_preview')
+		expect(on).toContain('get_app_runtime_logs')
+		expect(on).toContain('list_app_runs')
 	})
 })
 

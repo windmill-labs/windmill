@@ -118,7 +118,7 @@
 					<Button size="xs" variant="default" target="_blank" href="/scripts/add"
 						>Create new script</Button
 					>
-					<Button size="xs" variant="default" target="_blank" href="/flows/add?nodraft=true"
+					<Button size="xs" variant="default" target="_blank" href="/flows/add"
 						>Create new flow</Button
 					>
 				</div>
