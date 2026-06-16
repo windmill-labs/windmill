@@ -199,10 +199,15 @@
 		})
 	})
 
+	// `newApp` is true both for a brand-new app AND (in the session preview) for a
+	// draft-only one that already has a real path — so prefer `appPath` before the
+	// generated name. Only a genuinely new app (`appPath === ''`) falls through to
+	// the random suggestion; a named/draft-only app keeps its real path (else its
+	// breadcrumb shows a random name and deploy would createApp under it).
 	let newEditedPath = $state(
 		untrack(() =>
 			newApp
-				? newPath || userPathPrefix($userStore?.username) + random_adj() + '_app'
+				? newPath || appPath || userPathPrefix($userStore?.username) + random_adj() + '_app'
 				: newPath || appPath || ''
 		)
 	)
