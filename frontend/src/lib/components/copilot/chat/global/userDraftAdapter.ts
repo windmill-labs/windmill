@@ -147,7 +147,8 @@ function flowDraftToWorkspaceItem(path: string, draft: Flow): WorkspaceItem {
 		value: {
 			value: draft.value,
 			schema: draft.schema ?? null,
-			groups: draft.value.groups ?? null
+			groups: draft.value.groups ?? null,
+			description: draft.description ?? null
 		},
 		isDraft: true
 	}

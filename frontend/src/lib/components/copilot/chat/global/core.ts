@@ -255,6 +255,12 @@ const setFlowModuleCodeSchema = z.object({
 const writeFlowSchema = z.object({
 	path: z.string().describe('Workspace path of the flow, e.g. f/folder/name or u/user/name.'),
 	summary: z.string().optional().describe('Short human-readable summary.'),
+	description: z
+		.string()
+		.optional()
+		.describe(
+			'Longer human-readable description of what the flow does. Top-level flow metadata, separate from the modules — not part of the compact value patched by patch_flow_json.'
+		),
 	modules: z.string().describe('JSON string containing the complete flow modules array.'),
 	schema: z
 		.string()
@@ -1382,7 +1388,7 @@ function getFlowInstructions(): string {
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
 - Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` when the user gave a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist. Never invent a folder.
-- \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`. The flow-structure arguments are JSON strings, matching the tool schema descriptions.
+- \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, optional \`description\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`. \`summary\` and \`description\` are top-level flow metadata (not part of the compact value \`patch_flow_json\` edits); the flow-structure arguments are JSON strings, matching the tool schema descriptions.
 - \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`.
 - \`modules\` contains normal sequential modules. Use top-level \`preprocessor_module\` and \`failure_module\` for special modules; do not put \`preprocessor\` or \`failure\` in \`modules\`.
 - Every module needs a stable unique \`id\` and a useful \`summary\` when the schema supports it.
@@ -1644,6 +1650,7 @@ export const globalTools: Tool<{}>[] = [
 				{
 					path: parsed.path,
 					summary: parsed.summary,
+					description: parsed.description,
 					flow: editableFlowToDraftValue(editable)
 				},
 				ctx
@@ -2496,7 +2503,13 @@ function writeScriptDraft(args: ScriptDraftArgs, ctx: WriteDraftCtx): Promise<st
 	return writeDraft(SCRIPT_SPEC, 'script', args.path, args, ctx, { override: args.override })
 }
 
-type FlowDraftArgs = { path: string; summary?: string; flow: FlowDraftValue; override?: boolean }
+type FlowDraftArgs = {
+	path: string
+	summary?: string
+	description?: string
+	flow: FlowDraftValue
+	override?: boolean
+}
 
 const FLOW_SPEC: WriteSpec<Flow, FlowDraftArgs> = {
 	probe: (workspace, path) => FlowService.existsFlowByPath({ workspace, path }),
@@ -2511,12 +2524,14 @@ const FLOW_SPEC: WriteSpec<Flow, FlowDraftArgs> = {
 					...structuredClone(base),
 					path,
 					summary: args.summary ?? base.summary,
+					description: args.description ?? base.description,
 					value,
 					schema: args.flow.schema ?? base.schema
 				}
 			: {
 					path,
 					summary: args.summary ?? '',
+					description: args.description ?? '',
 					value,
 					schema: args.flow.schema ?? emptySchema(),
 					edited_by: '',
