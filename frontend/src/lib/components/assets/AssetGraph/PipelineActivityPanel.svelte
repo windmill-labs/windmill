@@ -20,27 +20,223 @@
 	} from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { untrack } from 'svelte'
-	import { isActiveEvent, type PipelineEvent } from './activeRunnables.svelte'
+	import { isActiveEvent, type EventStatus, type PipelineEvent } from './activeRunnables.svelte'
+	import type { DispatchEdge } from './pipelineHistory.svelte'
+	import { RotateCcw, Workflow } from 'lucide-svelte'
+	import ActivityHistogram from './ActivityHistogram.svelte'
 
 	interface Props {
 		// Merged history + live events, newest-first (page owns the merge —
 		// the live poll wins on id collisions since it carries fresher status).
 		events: PipelineEvent[]
+		// Asset-cascade producer→child edges (by job id) used to group the
+		// runs of one cascade together.
+		edges?: DispatchEdge[]
 		loading?: boolean
 		// History preload hit its page cap before the days cutoff.
 		truncated?: boolean
 		error?: string | undefined
 		days: number
 		onDaysChange: (days: number) => void
+		// Hover a run row → emphasize its node(s) on the canvas; a group header
+		// passes the whole cascade's paths. `undefined` clears.
+		onHoverRun?: (paths: string[] | undefined) => void
+		// Expand/collapse a run → sticky node emphasis (undefined clears).
+		onSelectRun?: (paths: string[] | undefined) => void
 	}
 
-	let { events, loading = false, truncated = false, error, days, onDaysChange }: Props = $props()
+	let {
+		events,
+		edges = [],
+		loading = false,
+		truncated = false,
+		error,
+		days,
+		onDaysChange,
+		onHoverRun,
+		onSelectRun
+	}: Props = $props()
 
+	type CascadeGroup = {
+		// Component representative id (stable per cascade).
+		key: string
+		// Earliest originating (non-asset) run — the group header. Undefined when
+		// the originating run fell outside the loaded window.
+		root: PipelineEvent | undefined
+		// Additional originating triggers beyond `root` (joins fed by >1 source).
+		extraTriggers: number
+		// All loaded runs of this cascade: roots first, then newest-first.
+		members: PipelineEvent[]
+		// Worth grouping (more than one run, or an edge reaches outside window).
+		isCascade: boolean
+		// Aggregate status across members (running > failure > success).
+		status: EventStatus
+		// Newest member time — drives group ordering.
+		latestAt: string
+	}
+
+	// Histogram window (last `days`) and the brushed sub-range. The histogram
+	// always shows the full window; the list + groups filter to the brush.
+	let windowBounds = $derived.by(() => {
+		void events // refresh as new runs arrive
+		const to = Date.now()
+		return { from: to - days * 86400000, to }
+	})
+	let selectedRange = $state<{ from: number; to: number } | undefined>(undefined)
+	// Drop a stale brush when the day window changes under it.
+	$effect(() => {
+		void days
+		untrack(() => (selectedRange = undefined))
+	})
+	let filteredEvents = $derived.by(() => {
+		const r = selectedRange
+		if (!r) return events
+		return events.filter((e) => {
+			const t = Date.parse(e.at)
+			return !isNaN(t) && t >= r.from && t <= r.to
+		})
+	})
+	// Quick reset: drop the brush and return to the default 30-day window.
+	function resetWindow() {
+		selectedRange = undefined
+		if (days !== 30) onDaysChange(30)
+	}
+	function fmtRange(r: { from: number; to: number }): string {
+		const opt: Intl.DateTimeFormatOptions = {
+			month: 'short',
+			day: 'numeric',
+			hour: '2-digit',
+			minute: '2-digit'
+		}
+		return `${new Date(r.from).toLocaleString(undefined, opt)} – ${new Date(r.to).toLocaleString(undefined, opt)}`
+	}
+
+	// Group cascades by the CONNECTED COMPONENT of the dispatch graph, so an
+	// AND-join (fed by several trigger chains) folds into one group rather than
+	// fragmenting by whichever input completed it last. Edges come by job id
+	// from `dispatched` rows; `join_pending` inputs (no child yet) are linked to
+	// the next firing of the same subscriber so the pre-completion contributors
+	// join the component too.
+	let groups = $derived.by<CascadeGroup[]>(() => {
+		// Producer→child edges (job id). `childSet` = jobs with an incoming edge
+		// (i.e. not an originating run).
+		const childEdges: Array<[string, string]> = []
+		const childSet = new Set<string>()
+		const inEdges = new Set<string>()
+		// Firings per subscriber path (a `dispatched` row), time-sorted, to map
+		// each join_pending input forward to the child it contributed to.
+		const firingsBySub = new Map<string, Array<{ child: string; at: number }>>()
+		for (const e of edges) {
+			if (e.outcome === 'dispatched' && e.child_job_id) {
+				childEdges.push([e.producer_job_id, e.child_job_id])
+				childSet.add(e.child_job_id)
+				const arr = firingsBySub.get(e.subscriber_path)
+				const f = { child: e.child_job_id, at: Date.parse(e.created_at) }
+				if (arr) arr.push(f)
+				else firingsBySub.set(e.subscriber_path, [f])
+			}
+		}
+		for (const arr of firingsBySub.values()) arr.sort((a, b) => a.at - b.at)
+		for (const e of edges) {
+			if (e.outcome !== 'join_pending') continue
+			const firings = firingsBySub.get(e.subscriber_path)
+			if (!firings) continue
+			const t = Date.parse(e.created_at)
+			const firing = firings.find((f) => f.at >= t)
+			if (firing) {
+				childEdges.push([e.producer_job_id, firing.child])
+				childSet.add(firing.child)
+			}
+		}
+		for (const [p, c] of childEdges) {
+			inEdges.add(p)
+			inEdges.add(c)
+		}
+		// Union-find over the edges.
+		const parent = new Map<string, string>()
+		const find = (x: string): string => {
+			let r = x
+			while (parent.has(r) && parent.get(r) !== r) r = parent.get(r)!
+			return r
+		}
+		const union = (a: string, b: string) => {
+			if (!parent.has(a)) parent.set(a, a)
+			if (!parent.has(b)) parent.set(b, b)
+			const ra = find(a)
+			const rb = find(b)
+			if (ra !== rb) parent.set(ra, rb)
+		}
+		for (const [p, c] of childEdges) union(p, c)
+
+		const byComponent = new Map<string, PipelineEvent[]>()
+		for (const e of filteredEvents) {
+			const k = parent.has(e.id) ? find(e.id) : e.id
+			const arr = byComponent.get(k)
+			if (arr) arr.push(e)
+			else byComponent.set(k, [e])
+		}
+		const out: CascadeGroup[] = []
+		for (const [key, members] of byComponent) {
+			const roots = members
+				.filter((m) => !childSet.has(m.id))
+				.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+			members.sort((a, b) => {
+				const aRoot = !childSet.has(a.id)
+				const bRoot = !childSet.has(b.id)
+				if (aRoot !== bRoot) return aRoot ? -1 : 1
+				if (aRoot) return a.at < b.at ? -1 : a.at > b.at ? 1 : 0 // roots earliest-first
+				return a.at < b.at ? 1 : a.at > b.at ? -1 : 0 // hops newest-first
+			})
+			const isCascade = members.length > 1 || members.some((m) => inEdges.has(m.id))
+			const anyActive = members.some((m) => m.status === 'running' || m.status === 'queued')
+			const anyFail = members.some((m) => m.status === 'failure')
+			const status: EventStatus = anyActive ? 'running' : anyFail ? 'failure' : 'success'
+			const latestAt = members.reduce((mx, m) => (m.at > mx ? m.at : mx), members[0].at)
+			out.push({
+				key,
+				root: roots[0],
+				extraTriggers: Math.max(0, roots.length - 1),
+				members,
+				isCascade,
+				status,
+				latestAt
+			})
+		}
+		out.sort((a, b) => (a.latestAt < b.latestAt ? 1 : a.latestAt > b.latestAt ? -1 : 0))
+		return out
+	})
+
+	// Collapsed cascade groups (members hidden). Default expanded.
+	let collapsedGroups = $state<Set<string>>(new Set())
+	function toggleGroup(key: string) {
+		const next = new Set(collapsedGroups)
+		if (next.has(key)) next.delete(key)
+		else next.add(key)
+		collapsedGroups = next
+	}
+
+	// The cascade's trigger label, shown on the group header — the earliest
+	// originating run's source. A loaded root is never asset-triggered (an asset
+	// hop always has a producer), so its `source` is the real origin; an
+	// unloaded root means the originating run fell outside the window.
+	function groupTrigger(g: CascadeGroup): string {
+		if (!g.root) return 'cascade'
+		return g.root.source === 'schedule' ? 'schedule' : 'run'
+	}
+	function groupTitle(g: CascadeGroup): string {
+		return g.root?.path ?? 'cascade (upstream outside window)'
+	}
+
+	// Window options as fractions of a day (the fetch cutoff is `days * 1d`).
 	const DAY_OPTIONS = [
+		{ label: 'Last hour', value: 1 / 24 },
+		{ label: 'Last 24 hours', value: 1 },
+		{ label: 'Last 48 hours', value: 2 },
 		{ label: 'Last 7 days', value: 7 },
 		{ label: 'Last 30 days', value: 30 },
 		{ label: 'Last 90 days', value: 90 }
 	]
+	let windowLabel = $derived(DAY_OPTIONS.find((o) => o.value === days)?.label ?? `Last ${days} days`)
 
 	// Excludes future-scheduled queued jobs (a schedule's next planned run
 	// is not activity) — see isActiveEvent.
@@ -73,8 +269,11 @@
 		})
 	})
 
-	function toggle(id: string) {
-		expandedId = expandedId === id ? undefined : id
+	function toggle(id: string, path: string) {
+		const willExpand = expandedId !== id
+		expandedId = willExpand ? id : undefined
+		// Expanding a run pins its node emphasis; collapsing clears it.
+		onSelectRun?.(willExpand ? [path] : undefined)
 	}
 
 	function isRunningJob(j: Job): boolean {
@@ -152,6 +351,33 @@
 		</div>
 	</div>
 
+	{#if events.length > 0}
+		<div class="border-b shrink-0">
+			<ActivityHistogram
+				{events}
+				from={windowBounds.from}
+				to={windowBounds.to}
+				selected={selectedRange}
+				onSelect={(r) => (selectedRange = r)}
+			/>
+			{#if selectedRange || days !== 30}
+				<div class="flex items-center justify-between px-2 pb-1.5 text-2xs text-tertiary">
+					<span class="truncate">
+						{selectedRange ? fmtRange(selectedRange) : windowLabel}
+					</span>
+					<button
+						type="button"
+						class="flex items-center gap-1 px-1.5 py-0.5 rounded-sm hover:bg-surface-hover text-secondary shrink-0"
+						onclick={resetWindow}
+						title="Reset to the last 30 days"
+					>
+						<RotateCcw size={11} /> Reset
+					</button>
+				</div>
+			{/if}
+		</div>
+	{/if}
+
 	<div class="flex-1 min-h-0 overflow-y-auto px-1 py-1">
 		{#if error}
 			<div class="px-3 py-4 text-xs text-red-600 dark:text-red-400">
@@ -164,17 +390,21 @@
 				</div>
 			{:else}
 				<div class="px-3 py-6 text-center text-xs text-tertiary">
-					No runs in the last {days} days — executions of this pipeline will appear here live.
+					No runs in this window ({windowLabel.toLowerCase()}) — executions of this pipeline will
+					appear here live.
 				</div>
 			{/if}
 		{:else}
-			{#each events as e (e.id)}
+			{#snippet runRow(e: PipelineEvent, isMember: boolean, showSource: boolean)}
 				{@const expanded = expandedId === e.id}
 				<button
 					type="button"
-					onclick={() => toggle(e.id)}
+					onclick={() => toggle(e.id, e.path)}
+					onmouseenter={() => onHoverRun?.([e.path])}
+					onmouseleave={() => onHoverRun?.(undefined)}
 					class={twMerge(
 						'w-full flex items-center gap-2 px-2 py-1 rounded-sm hover:bg-surface-hover text-xs text-left',
+						isMember && 'pl-7',
 						expanded && 'bg-surface-selected'
 					)}
 					title={expanded ? 'Collapse run details' : 'Expand run details'}
@@ -205,16 +435,18 @@
 					<span class="flex-1 min-w-0 truncate font-mono text-2xs" title={e.path}>
 						{e.path}
 					</span>
-					<span
-						class={twMerge(
-							'shrink-0 px-1 py-0.5 rounded-sm text-3xs leading-none',
-							e.source === 'schedule'
-								? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
-								: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
-						)}
-					>
-						{e.source}
-					</span>
+					{#if showSource}
+						<span
+							class={twMerge(
+								'shrink-0 px-1 py-0.5 rounded-sm text-3xs leading-none',
+								e.source === 'schedule'
+									? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+									: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
+							)}
+						>
+							{e.source}
+						</span>
+					{/if}
 					<span class="shrink-0 text-3xs text-tertiary tabular-nums w-14 text-right">
 						{isFutureScheduled(e) && e.scheduledFor ? inTxt(e.scheduledFor) : ago(e.at)}
 					</span>
@@ -270,6 +502,71 @@
 							<div class="p-3 text-xs text-tertiary">Could not load this run.</div>
 						{/if}
 					</div>
+				{/if}
+			{/snippet}
+
+			{#if groups.length === 0}
+				<div class="px-3 py-6 text-center text-xs text-tertiary">
+					No runs in the selected time range.
+				</div>
+			{/if}
+			{#each groups as g (g.key)}
+				{#if g.isCascade}
+					{@const collapsed = collapsedGroups.has(g.key)}
+					<!-- Cascade group header: the originating run + its trigger, the
+					     aggregate status, and a member count. Collapses the hops. -->
+					<button
+						type="button"
+						onclick={() => toggleGroup(g.key)}
+						onmouseenter={() => onHoverRun?.(g.members.map((m) => m.path))}
+						onmouseleave={() => onHoverRun?.(undefined)}
+						class="w-full flex items-center gap-2 px-2 py-1 rounded-sm hover:bg-surface-hover text-xs text-left"
+						title={collapsed ? 'Expand cascade runs' : 'Collapse cascade runs'}
+					>
+						<span class="shrink-0 text-tertiary">
+							{#if collapsed}<ChevronRight size={12} />{:else}<ChevronDown size={12} />{/if}
+						</span>
+						<span class="shrink-0">
+							{#if g.status === 'running'}
+								<Loader2 size={12} class="animate-spin text-blue-600 dark:text-blue-400" />
+							{:else if g.status === 'failure'}
+								<XCircle size={12} class="text-red-600 dark:text-red-400" />
+							{:else}
+								<CheckCircle2 size={12} class="text-emerald-600 dark:text-emerald-400" />
+							{/if}
+						</span>
+						<Workflow size={12} class="shrink-0 text-indigo-500" />
+						<span class="flex-1 min-w-0 truncate font-mono text-2xs" title={groupTitle(g)}>
+							{groupTitle(g)}
+						</span>
+						<span
+							class={twMerge(
+								'shrink-0 px-1 py-0.5 rounded-sm text-3xs leading-none',
+								groupTrigger(g) === 'schedule'
+									? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+									: 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300'
+							)}
+						>
+							{groupTrigger(g)}
+						</span>
+						{#if g.extraTriggers > 0}
+							<span
+								class="shrink-0 px-1 py-0.5 rounded-sm text-3xs leading-none bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
+								title={`Join fed by ${g.extraTriggers + 1} triggers`}>+{g.extraTriggers}</span
+							>
+						{/if}
+						<span class="shrink-0 text-3xs text-tertiary tabular-nums">{g.members.length} runs</span>
+						<span class="shrink-0 text-3xs text-tertiary tabular-nums w-14 text-right">
+							{ago(g.latestAt)}
+						</span>
+					</button>
+					{#if !collapsed}
+						{#each g.members as m (m.id)}
+							{@render runRow(m, true, false)}
+						{/each}
+					{/if}
+				{:else}
+					{@render runRow(g.members[0], false, true)}
 				{/if}
 			{/each}
 			{#if truncated}

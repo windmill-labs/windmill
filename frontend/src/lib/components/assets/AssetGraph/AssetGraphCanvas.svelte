@@ -125,6 +125,13 @@
 		// form (with the auto-generated S3 picker) for the given script.
 		// data_upload has no trigger row; it's a UI-first entry point.
 		onOpenDataUpload?: (scriptPath: string) => void
+		// Script paths the cursor is over in the Activity panel — a thin neutral
+		// ring each. One entry for a single run row; the whole cascade's runs
+		// when hovering a group header. Distinct from `selectedRunPaths`.
+		hoveredPaths?: string[]
+		// Script paths of the expanded (pinned) run(s) — a soft blue ring that
+		// persists until collapsed.
+		selectedRunPaths?: string[]
 	}
 	let {
 		graph,
@@ -143,8 +150,17 @@
 		onEditTrigger,
 		onDeleteTrigger,
 		onOpenWebhook,
-		onOpenDataUpload
+		onOpenDataUpload,
+		hoveredPaths,
+		selectedRunPaths
 	}: Props = $props()
+
+	// `${kind}:${path}` ids for the hovered / pinned runs (both script and flow
+	// variants, since the run row's kind isn't known here).
+	const runIds = (paths: string[] | undefined): Set<string> =>
+		new Set((paths ?? []).flatMap((p) => [`script:${p}`, `flow:${p}`]))
+	let hoveredRunIdSet = $derived(runIds(hoveredPaths))
+	let selectedRunIdSet = $derived(runIds(selectedRunPaths))
 
 	const ADD_NODE_ID = '__add__'
 
@@ -532,11 +548,25 @@
 			// Compensate for the + node being narrower than its layout slot
 			// so it visually centers over the node(s) below.
 			const xShift = n.id === ADD_NODE_ID ? (NODE.width - ADD_NODE_WIDTH) / 2 : 0
+			// Activity-panel emphasis (purely visual rings, kept off `selected`
+			// which swaps the details pane). Hover wins over pin so the cursor
+			// always tracks.
+			const runClass = hoveredRunIdSet.has(n.id)
+				? 'wm-run-hover'
+				: selectedRunIdSet.has(n.id)
+					? 'wm-run-selected'
+					: undefined
+			// Asset border matching the connecting edge's hue (only when no run
+			// class applies — a node is either a runnable or an asset).
+			const assetEmph = assetEmphasis.get(n.id)
+			const assetClass =
+				assetEmph === 'output' ? 'wm-asset-output' : assetEmph === 'input' ? 'wm-asset-input' : undefined
 			return {
 				id: n.id,
 				type: n.type,
 				position: { x: p.x + xCenter + xShift, y: p.y + 40 },
 				data: n.data,
+				class: runClass ?? assetClass,
 				selected: n.id === selectedId,
 				// All nodes non-draggable: the layout is sugiyama-computed,
 				// dragging would fight the reactive re-layout. Selection is
@@ -562,6 +592,29 @@
 			...(activeRunnableNodeId ? [activeRunnableNodeId] : [])
 		])
 	)
+	// Node ids emphasized from the Activity panel (hovered or pinned runs).
+	// Their incident edges get the same flow animation as a live run, so
+	// hovering a run (or a whole group) traces its data path through the graph.
+	let emphasizedRunIdSet = $derived(new Set<string>([...hoveredRunIdSet, ...selectedRunIdSet]))
+	// Asset nodes adjacent to an emphasized run, tagged by edge family so their
+	// border matches the edge hue: `output` (a write, blue) / `input` (a read or
+	// asset-trigger, gray). Output wins if an asset is both.
+	let assetEmphasis = $derived.by<Map<string, 'input' | 'output'>>(() => {
+		const m = new Map<string, 'input' | 'output'>()
+		if (emphasizedRunIdSet.size === 0) return m
+		for (const e of model.edges) {
+			if (e.kind === 'lineage-write' && emphasizedRunIdSet.has(e.source)) {
+				m.set(e.target, 'output')
+			} else if (
+				(e.kind === 'lineage-read' || e.kind === 'trigger-asset') &&
+				emphasizedRunIdSet.has(e.target) &&
+				m.get(e.source) !== 'output'
+			) {
+				m.set(e.source, 'input')
+			}
+		}
+		return m
+	})
 	let flowEdges = $derived.by(() =>
 		model.edges
 			// Anchor edges are layout-only.
@@ -570,6 +623,12 @@
 				const touchesActiveRunnable =
 					activeRunnableIdSet.size > 0 &&
 					(activeRunnableIdSet.has(e.source) || activeRunnableIdSet.has(e.target))
+				// Edge incident to an Activity-panel hovered/pinned run — animate
+				// it too so the row↔graph link is unmistakable.
+				const touchesEmphasis =
+					emphasizedRunIdSet.size > 0 &&
+					(emphasizedRunIdSet.has(e.source) || emphasizedRunIdSet.has(e.target))
+				const flowAnimated = touchesActiveRunnable || touchesEmphasis
 				let style: string
 				let animated = false
 				let markerColor: string | undefined = undefined
@@ -586,16 +645,16 @@
 				switch (e.kind) {
 					case 'lineage-write':
 						style = 'stroke: rgb(59 130 246); stroke-width: 2px;'
-						animated = touchesActiveRunnable
+						animated = flowAnimated
 						markerColor = 'rgb(59 130 246)'
 						break
 					case 'lineage-read':
 						style = 'stroke: rgb(156 163 175); stroke-width: 1.25px;'
-						animated = touchesActiveRunnable
+						animated = flowAnimated
 						break
 					case 'trigger-asset':
 						style = 'stroke: rgb(107 114 128); stroke-width: 2px;'
-						animated = touchesActiveRunnable
+						animated = flowAnimated
 						markerColor = 'rgb(107 114 128)'
 						label = 'triggers'
 						labelStyle = 'fill: rgb(107 114 128); font-size: 10px; font-weight: 600;'
@@ -742,5 +801,22 @@
 	}
 	:global(.svelte-flow__node.selected .drop-shadow-sm) {
 		@apply outline outline-2 outline-blue-500;
+	}
+	/* Activity-panel emphasis — soft, monochromatic, less prominent than the
+	   blue details selection above. Hover is a thin neutral ring (transient);
+	   pinning an expanded run is a soft-blue ring. */
+	:global(.svelte-flow__node.wm-run-hover .drop-shadow-sm) {
+		@apply outline outline-1 outline-gray-400 dark:outline-gray-500;
+	}
+	:global(.svelte-flow__node.wm-run-selected .drop-shadow-sm) {
+		@apply outline outline-2 outline-blue-400/70;
+	}
+	/* Assets adjacent to an emphasized run — border hue matches the edge:
+	   blue for a write (output), gray for a read / asset-trigger (input). */
+	:global(.svelte-flow__node.wm-asset-output .drop-shadow-sm) {
+		@apply outline outline-2 outline-blue-400/70;
+	}
+	:global(.svelte-flow__node.wm-asset-input .drop-shadow-sm) {
+		@apply outline outline-2 outline-gray-400;
 	}
 </style>

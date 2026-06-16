@@ -270,6 +270,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/run/dynamic_select", post(run_dynamic_select))
         .route("/list", get(list_jobs))
+        .route("/asset_dispatch_edges", get(list_asset_dispatch_edges))
         .route(
             "/list_selected_job_groups",
             // We use post because sending a huge array as a query param can produce
@@ -9139,6 +9140,86 @@ async fn get_dispatch_events(
                 required_inputs: r.required_inputs,
                 debounce_s: r.debounce_s,
                 reason: r.reason,
+                created_at: r.created_at,
+            })
+            .collect(),
+    ))
+}
+
+/// One asset-cascade dispatch record, for reconstructing the cascade graph of a
+/// pipeline folder in the Activity panel. `dispatched` rows carry the resolved
+/// `child_job_id` (a real producer→child job edge); `join_pending` rows are the
+/// pre-completion inputs of an AND-join (no child yet) — the client links them
+/// to the eventual child of the same `subscriber_path` so a join's separate
+/// trigger chains merge into one group. `skipped` is omitted.
+#[derive(Serialize)]
+struct AssetDispatchEdge {
+    producer_job_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    child_job_id: Option<Uuid>,
+    subscriber_path: String,
+    outcome: String,
+    asset_kind: windmill_common::assets::AssetKind,
+    asset_path: String,
+    created_at: chrono::DateTime<Utc>,
+}
+
+#[derive(Deserialize)]
+struct AssetDispatchEdgesQuery {
+    /// Folder path prefix the children live under, e.g. `f/orders/`. Matched
+    /// against `subscriber_path` — every intra-pipeline cascade edge has its
+    /// child in the folder, so this captures the whole folder's cascades.
+    path_start: String,
+    /// Only edges dispatched at/after this instant (align with the activity
+    /// window the client already loaded). Omit for the default cap.
+    created_after: Option<chrono::DateTime<Utc>>,
+}
+
+/// Asset-cascade edges for a pipeline folder. RLS on the joined `v2_job`
+/// producer row limits this to cascades whose producer the caller can already
+/// see (same visibility as the folder's job list).
+async fn list_asset_dispatch_edges(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(query): Query<AssetDispatchEdgesQuery>,
+) -> error::JsonResult<Vec<AssetDispatchEdge>> {
+    let like = format!("{}%", query.path_start);
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = sqlx::query!(
+        r#"SELECT
+              de.producer_job_id AS "producer_job_id!",
+              de.child_job_id,
+              de.subscriber_path AS "subscriber_path!",
+              de.outcome::text AS "outcome!",
+              de.asset_kind AS "asset_kind!: windmill_common::assets::AssetKind",
+              de.asset_path AS "asset_path!",
+              de.created_at AS "created_at!"
+           FROM dispatch_event de
+           JOIN v2_job pj ON pj.id = de.producer_job_id
+           WHERE de.workspace_id = $1
+             AND de.outcome IN ('dispatched', 'join_pending')
+             AND de.subscriber_path LIKE $2
+             AND ($3::timestamptz IS NULL OR de.created_at >= $3)
+           ORDER BY de.created_at DESC, de.id DESC
+           LIMIT 4000"#,
+        &w_id,
+        like,
+        query.created_after,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| AssetDispatchEdge {
+                producer_job_id: r.producer_job_id,
+                child_job_id: r.child_job_id,
+                subscriber_path: r.subscriber_path,
+                outcome: r.outcome,
+                asset_kind: r.asset_kind,
+                asset_path: r.asset_path,
                 created_at: r.created_at,
             })
             .collect(),

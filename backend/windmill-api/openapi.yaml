@@ -13006,6 +13006,78 @@ paths:
                     - outcome
                     - created_at
 
+  /w/{workspace}/jobs/asset_dispatch_edges:
+    get:
+      summary: list asset-cascade producer→child job edges for a folder
+      description: >
+        Returns the `dispatched` asset-trigger edges (producer job → child job)
+        whose subscriber lives under `path_start`. Lets a pipeline view
+        reconstruct the cascade tree of a folder by job id and group connected
+        runs. Visibility follows the producer job's RLS.
+      operationId: listAssetDispatchEdges
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: path_start
+          in: query
+          required: true
+          description: Folder path prefix the children live under, e.g. `f/orders/`.
+          schema:
+            type: string
+        - name: created_after
+          in: query
+          required: false
+          description: Only edges dispatched at/after this instant.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: asset-cascade edges for the folder
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    producer_job_id:
+                      type: string
+                      format: uuid
+                    child_job_id:
+                      type: string
+                      format: uuid
+                      description: Set for `dispatched`; absent for `join_pending` inputs.
+                    subscriber_path:
+                      type: string
+                    outcome:
+                      type: string
+                      enum:
+                        - dispatched
+                        - join_pending
+                    asset_kind:
+                      type: string
+                      enum:
+                        - s3object
+                        - resource
+                        - variable
+                        - ducklake
+                        - datatable
+                        - volume
+                    asset_path:
+                      type: string
+                    created_at:
+                      type: string
+                      format: date-time
+                  required:
+                    - producer_job_id
+                    - subscriber_path
+                    - outcome
+                    - asset_kind
+                    - asset_path
+                    - created_at
+
   /w/{workspace}/jobs/completed/delete/{id}:
     post:
       summary: delete completed job (erase content but keep run id)

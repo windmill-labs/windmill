@@ -71,6 +71,12 @@
 		// edited past the seeded template. Fires on every keystroke that
 		// changes the inferred set.
 		onAssetsChange?: (scriptPath: string | undefined, assets: AssetWithAltAccessType[]) => void
+		// Emits the live editor buffer on every keystroke so the parent can
+		// autosave the in-flight content WITHOUT waiting for the pane teardown
+		// (`onDraftPersist`). `onDraftPersist` stays the authoritative commit on
+		// navigate-away; this is the continuous feed that keeps the draft's
+		// server copy current while the user is still typing.
+		onContentChange?: (scriptPath: string | undefined, content: string) => void
 		// Fires when the user navigates away from a draft (selects another
 		// node, closes the pane, etc.) — the parent must persist the new
 		// content + write outputs into its drafts Map. Without this,
@@ -196,6 +202,7 @@
 		onDiscard,
 		onAnnotationsChange,
 		onAssetsChange,
+		onContentChange,
 		onDraftPersist,
 		onScriptRenamed,
 		onScriptRemoved,
@@ -539,6 +546,10 @@
 		if (readOnly) return
 		onAssetsChange?.(script?.path, liveBodyAssets ?? [])
 	})
+	$effect(() => {
+		if (readOnly) return
+		onContentChange?.(script?.path, script?.content ?? '')
+	})
 
 	async function save() {
 		if (!script) return
@@ -552,7 +563,7 @@
 			} catch {
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
-			await ScriptService.createScript({
+			const newHash = await ScriptService.createScript({
 				workspace,
 				requestBody: {
 					...script,
@@ -579,6 +590,11 @@
 					assets: (liveBodyAssets ?? []) as any
 				}
 			})
+			// Chain the NEXT save off the version we just created. Without this
+			// a second save re-sends the now-stale `parent_hash`, which the
+			// backend rejects as a lineage fork ("no 2 scripts can have the
+			// same parent").
+			if (typeof newHash === 'string' && newHash) script.hash = newHash
 			sendUserToast(`Saved ${script.path}`)
 			if (isDraft) {
 				onDraftSaved?.(script.path)
@@ -587,9 +603,53 @@
 				onPersistedSaved?.(script.path)
 			}
 		} catch (e: any) {
-			sendUserToast(`Save failed: ${e?.body ?? e?.message ?? e}`, true)
+			const msg = String(e?.body ?? e?.message ?? e)
+			// The deployed head moved off our `parent_hash` since we opened it —
+			// someone else (or another tab) deployed in between. Offer an
+			// explicit resolution instead of a cryptic lineage error.
+			if (/lineage must be linear|same parent_hash/i.test(msg)) {
+				conflictOpen = true
+			} else {
+				sendUserToast(`Save failed: ${msg}`, true)
+			}
 		} finally {
 			saving = false
+		}
+	}
+
+	// --- Deploy conflict resolution (another deploy landed since we opened) ---
+	let conflictOpen = $state(false)
+	let resolvingConflict = $state(false)
+	async function overwriteWithMine() {
+		if (!script) return
+		resolvingConflict = true
+		try {
+			// Re-base onto the current head so the retry is a linear deploy on
+			// top of theirs (our content wins).
+			const latest = await ScriptService.getScriptByPath({ workspace, path: script.path })
+			script.hash = String(latest.hash)
+			conflictOpen = false
+			await save()
+		} catch (e: any) {
+			sendUserToast(`Could not resolve conflict: ${e?.body ?? e?.message ?? e}`, true)
+		} finally {
+			resolvingConflict = false
+		}
+	}
+	async function viewLatestVersion() {
+		if (!script) return
+		resolvingConflict = true
+		try {
+			const latest = await ScriptService.getScriptByPath({ workspace, path: script.path })
+			// Replace the editor buffer with the latest deployed version. The
+			// user's unsaved edits are dropped — surfaced clearly in the modal.
+			script = structuredClone($state.snapshot(latest) as Script)
+			conflictOpen = false
+			sendUserToast('Loaded the latest deployed version')
+		} catch (e: any) {
+			sendUserToast(`Could not load the latest version: ${e?.body ?? e?.message ?? e}`, true)
+		} finally {
+			resolvingConflict = false
 		}
 	}
 
@@ -1114,6 +1174,72 @@
 								Delete permanently
 							</Button>
 						{/if}
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
+
+{#if conflictOpen}
+	<!-- Deploy conflict: the path's deployed head moved off our parent_hash
+	     since we opened it (another user / tab deployed in between). -->
+	<div
+		transition:fade={{ duration: 100 }}
+		class="fixed top-0 bottom-0 left-0 right-0 z-[9999]"
+		role="dialog"
+	>
+		<div class="fixed inset-0 bg-gray-500 bg-opacity-75"></div>
+		<div class="fixed inset-0 z-10 overflow-y-auto">
+			<div class="flex min-h-full items-center justify-center p-4">
+				<div
+					class="relative transform overflow-hidden rounded-lg bg-surface px-4 pt-5 pb-4 text-left shadow-xl sm:my-8 sm:w-full sm:max-w-lg sm:p-6"
+				>
+					<div class="flex">
+						<div
+							class="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-800/50"
+						>
+							<AlertTriangle class="text-amber-500 dark:text-amber-400" />
+						</div>
+						<div class="ml-4 flex-1">
+							<h3 class="text-lg font-medium text-primary">This script changed since you opened it</h3>
+							<div class="mt-2 text-sm text-secondary flex flex-col gap-2">
+								<p>
+									<span class="font-mono text-xs">{script?.path ?? ''}</span> was deployed by someone else
+									(or another tab) while you were editing, so saving on top of your version would fork its
+									lineage.
+								</p>
+								<p>
+									<span class="font-medium">Keep my version</span> deploys your changes on top of the latest.
+									<span class="font-medium">View latest</span> loads the newly-deployed version, discarding
+									your unsaved edits.
+								</p>
+							</div>
+						</div>
+					</div>
+					<div class="flex items-center gap-2 flex-row-reverse mt-4">
+						<Button disabled={resolvingConflict} onclick={overwriteWithMine} variant="accent" size="sm">
+							{#if resolvingConflict}
+								<Loader2 class="animate-spin" />
+							{/if}
+							<span class="min-w-20">Keep my version</span>
+						</Button>
+						<Button
+							disabled={resolvingConflict}
+							onclick={() => (conflictOpen = false)}
+							variant="default"
+							size="sm"
+						>
+							Cancel
+						</Button>
+						<Button
+							disabled={resolvingConflict}
+							onclick={viewLatestVersion}
+							variant="contained"
+							size="sm"
+						>
+							View latest version
+						</Button>
 					</div>
 				</div>
 			</div>

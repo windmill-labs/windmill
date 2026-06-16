@@ -5,8 +5,15 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
-	import { useActiveRunnableIds } from '$lib/components/assets/AssetGraph/activeRunnables.svelte'
-	import type { PipelineEvent } from '$lib/components/assets/AssetGraph/activeRunnables.svelte'
+	import {
+		useActiveRunnableIds,
+		isActiveEvent
+	} from '$lib/components/assets/AssetGraph/activeRunnables.svelte'
+	import type {
+		PipelineEvent,
+		RunnableRunState,
+		RunStatus
+	} from '$lib/components/assets/AssetGraph/activeRunnables.svelte'
 	import { usePipelineHistory } from '$lib/components/assets/AssetGraph/pipelineHistory.svelte'
 	import PipelineEventLog from '$lib/components/assets/AssetGraph/PipelineEventLog.svelte'
 	import PipelineActivityPanel from '$lib/components/assets/AssetGraph/PipelineActivityPanel.svelte'
@@ -47,6 +54,7 @@
 	import { decodeState, encodeState } from '$lib/utils'
 	import { DraftService } from '$lib/gen'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
 	import { onMount, tick, untrack } from 'svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import {
@@ -113,6 +121,18 @@
 	let urlMode = $derived(page.url.searchParams.get('mode'))
 	let mode = $derived<PipelineMode>(isOperator ? 'view' : urlMode === 'edit' ? 'edit' : 'view')
 	function setMode(m: PipelineMode, opts?: { replace?: boolean }) {
+		// Switching edit→view re-surfaces the activity feed: drop the edit-mode
+		// selection / open draft / hidden-pane state so view opens on Activity
+		// rather than a stale details pane (mirrors toggleActivity's show path).
+		if (m === 'view' && mode === 'edit') {
+			selection = undefined
+			activeDraftPath = undefined
+			panelHidden = false
+			liveAnnotations = {
+				scriptPath: undefined,
+				annotations: { inPipeline: false, triggerAssets: [], nativeTriggers: [] }
+			}
+		}
 		const url = new URL(page.url)
 		if (m === 'view') url.searchParams.delete('mode')
 		else url.searchParams.set('mode', m)
@@ -269,6 +289,9 @@
 	// just-loaded value itself) isn't re-POSTed.
 	let draftsHydrated = $state(false)
 	let lastPersistedBundle: string | undefined = undefined
+	// True once a bundle was restored from the DB on load — drives the
+	// AutosaveIndicator's one-shot "Loaded from draft" hint.
+	let loadedFromDbDraft = $state(false)
 
 	function restoreBundle(bundle: PipelineDraftBundle) {
 		if (Array.isArray(bundle.drafts)) {
@@ -329,6 +352,7 @@
 				if (row?.value) {
 					bundle = row.value as PipelineDraftBundle
 					serverSavedAt = row.created_at
+					loadedFromDbDraft = true
 				}
 			}
 			// One-time migration: no DB draft yet, but an older build left a
@@ -377,14 +401,29 @@
 				? extractWrites(liveBodyAssets.assets)
 				: undefined
 		const liveWritesPath = liveBodyAssets.scriptPath
+		// Live editor buffer for the open draft. `onDraftPersist` only commits
+		// content into the Map on pane teardown, so without this overlay the
+		// autosave (and a crash reload) would lag a whole editing session behind.
+		const liveContentPath =
+			liveContent.scriptPath != undefined && drafts.has(liveContent.scriptPath)
+				? liveContent.scriptPath
+				: undefined
+		const liveContentValue = liveContent.content
 		const serialized = Array.from(drafts.entries()).map(([p, d]) => {
-			if (liveWritesSnapshot != undefined && liveWritesPath === p) {
-				return [
-					p,
-					{ ...d, outputAssets: liveWritesSnapshot.length > 0 ? liveWritesSnapshot : undefined }
-				] as [string, Draft]
+			const outputAssets =
+				liveWritesSnapshot != undefined && liveWritesPath === p
+					? liveWritesSnapshot.length > 0
+						? liveWritesSnapshot
+						: undefined
+					: d.outputAssets
+			const script =
+				liveContentPath === p && d.script.content !== liveContentValue
+					? { ...d.script, content: liveContentValue }
+					: d.script
+			if (script === d.script && outputAssets === d.outputAssets) {
+				return [p, d] as [string, Draft]
 			}
-			return [p, d] as [string, Draft]
+			return [p, { ...d, script, outputAssets }] as [string, Draft]
 		})
 		const activePath = activeDraftPath
 		const key = storageKey
@@ -448,6 +487,16 @@
 		scriptPath: string | undefined
 		assets: AssetWithAltAccessType[]
 	}>({ scriptPath: undefined, assets: [] })
+
+	// The open draft's live editor buffer, emitted by the pane on every
+	// keystroke (`onContentChange`). The persist effect overlays it onto the
+	// Map's copy so autosave reflects in-progress edits — `onDraftPersist`
+	// only commits content into the Map on pane teardown, which would leave
+	// autosave a full editing session behind.
+	let liveContent = $state<{ scriptPath: string | undefined; content: string }>({
+		scriptPath: undefined,
+		content: ''
+	})
 
 	// Only-add cache of (script_path → body content) populated lazily by
 	// `bodyFetchEffect` for every script in the current folder. We never
@@ -865,6 +914,9 @@
 		if (liveBodyAssets.scriptPath === path) {
 			liveBodyAssets = { scriptPath: undefined, assets: [] }
 		}
+		if (liveContent.scriptPath === path) {
+			liveContent = { scriptPath: undefined, content: '' }
+		}
 		clearSaveError(path)
 	}
 
@@ -903,6 +955,9 @@
 		}
 		if (liveBodyAssets.scriptPath === oldPath) {
 			liveBodyAssets = { ...liveBodyAssets, scriptPath: newPath }
+		}
+		if (liveContent.scriptPath === oldPath) {
+			liveContent = { ...liveContent, scriptPath: newPath }
 		}
 		// `inferredWritesByPath` / `inferredReadsByPath` /
 		// `annotatedNativeKindsByPath` are derived from `g.runnables` ×
@@ -1089,6 +1144,9 @@
 		// into those caches here — the derive picks up our update on the
 		// next reactive tick.
 		liveBodyAssets = { scriptPath, assets }
+	}
+	function handleContentChange(scriptPath: string | undefined, content: string) {
+		liveContent = { scriptPath, content }
 	}
 	function handleDraftPersist(
 		p: string,
@@ -1412,6 +1470,9 @@
 				}
 				liveBodyAssets = { scriptPath: undefined, assets: [] }
 			}
+			if (liveContent.scriptPath != undefined) {
+				liveContent = { scriptPath: undefined, content: '' }
+			}
 		})
 	})
 	// Drafts are only addressable in view mode while the drafts overlay is
@@ -1477,11 +1538,13 @@
 	// View-mode activity panel: historical runs preloaded for the last N
 	// days (user-configurable, persisted) merged with the live poll's events.
 	const ACTIVITY_DAYS_KEY = 'pipeline-activity-days'
+	// Allowed window sizes in days (fractions for the sub-day ranges).
+	const ACTIVITY_WINDOW_DAYS = [1 / 24, 1, 2, 7, 30, 90]
 	let activityDays = $state(30)
 	onMount(() => {
 		if (typeof localStorage === 'undefined') return
 		const stored = Number(localStorage.getItem(ACTIVITY_DAYS_KEY))
-		if ([7, 30, 90].includes(stored)) activityDays = stored
+		if (ACTIVITY_WINDOW_DAYS.some((d) => Math.abs(d - stored) < 1e-9)) activityDays = stored
 	})
 	function setActivityDays(days: number) {
 		activityDays = days
@@ -1503,6 +1566,33 @@
 		for (const e of activeRunnables.events) byId.set(e.id, e)
 		return Array.from(byId.values()).sort((a, b) => b.at.localeCompare(a.at))
 	})
+	// Node run-count/status badges, derived from the SAME merged event set the
+	// Activity panel shows (historic preload + live poll) so the graph badges
+	// and the panel never disagree. `activityEvents` is newest-first, so the
+	// first event per runnable sets the badge status and the rest add to the
+	// count. Future-scheduled queued runs aren't activity — skip them.
+	let mergedRunStates = $derived.by<Map<string, RunnableRunState>>(() => {
+		const m = new Map<string, RunnableRunState>()
+		for (const e of activityEvents) {
+			if (e.status === 'queued' && !isActiveEvent(e)) continue
+			const id = `${e.kind}:${e.path}`
+			const status: RunStatus =
+				e.status === 'running' || e.status === 'queued'
+					? 'running'
+					: e.status === 'failure'
+						? 'failure'
+						: 'success'
+			const cur = m.get(id)
+			if (cur) cur.runs += 1
+			else m.set(id, { status, runs: 1 })
+		}
+		return m
+	})
+	// Activity-panel → canvas node emphasis. Hover and the pinned expanded run
+	// are fed to the canvas as separate path sets so they render distinctly; a
+	// group-header hover passes the whole cascade.
+	let activityHoverPaths = $state<string[]>([])
+	let activitySelectPaths = $state<string[]>([])
 	// Release the zero-latency `activeRunnable` hint for a per-node run of a
 	// script that isn't open in the pane: such runs have no editor Test callback
 	// to clear it, so without this the node's badge stays 'running' forever (the
@@ -2166,6 +2256,18 @@
 				</Popover>
 			{/if}
 			{#if mode === 'edit' && drafts.size > 0}
+				<!-- Draft autosave status for the whole pipeline bundle. Distinct
+				     from "Save all", which DEPLOYS the drafts — this only reflects
+				     that in-flight edits are persisted to the per-user server draft. -->
+				{#if $workspaceStore}
+					<AutosaveIndicator
+						workspace={$workspaceStore}
+						itemKind="data_pipeline"
+						path={pipelineDraftPath}
+						draftOnly
+						loadedFromDraft={loadedFromDbDraft}
+					/>
+				{/if}
 				<Button
 					variant="accent"
 					unifiedSize="sm"
@@ -2219,9 +2321,11 @@
 						<AssetGraphCanvas
 							graph={displayGraph}
 							selection={effectiveSelection}
+							hoveredPaths={activityHoverPaths}
+							selectedRunPaths={activitySelectPaths}
 							{activeRunnable}
 							activeRunnableIds={activeRunnables.ids}
-							runStates={activeRunnables.states}
+							runStates={mergedRunStates}
 							{pathPrefix}
 							defaultPathSuffix={DEFAULT_PATH_SUFFIX}
 							onCreateMissingTrigger={mode === 'edit' ? openMissingTriggerDrawer : undefined}
@@ -2279,11 +2383,14 @@
 							     here. -->
 							<PipelineActivityPanel
 								events={activityEvents}
+								edges={pipelineHistory.edges}
 								loading={pipelineHistory.loading}
 								truncated={pipelineHistory.truncated}
 								error={pipelineHistory.error}
 								days={activityDays}
 								onDaysChange={setActivityDays}
+								onHoverRun={(p) => (activityHoverPaths = p ?? [])}
+								onSelectRun={(p) => (activitySelectPaths = p ?? [])}
 							/>
 						{:else}
 							<AssetGraphDetailsPane
@@ -2333,6 +2440,7 @@
 								workspace={$workspaceStore}
 								onAnnotationsChange={handleAnnotationsChange}
 								onAssetsChange={handleAssetsChange}
+								onContentChange={handleContentChange}
 								onDraftPersist={handleDraftPersist}
 								onclose={() => {
 									// Close dismisses the pane but preserves drafts so

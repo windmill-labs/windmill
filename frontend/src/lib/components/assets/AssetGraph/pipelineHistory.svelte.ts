@@ -1,6 +1,21 @@
 import { JobService } from '$lib/gen'
 import type { PipelineEvent } from './activeRunnables.svelte'
 
+// One asset-cascade dispatch record (from the dispatch_event table). A
+// `dispatched` row carries the resolved `child_job_id` (a producer→child job
+// edge); a `join_pending` row is a pre-completion AND-join input with no child
+// yet — the panel links it to the eventual child of the same subscriber so a
+// join's separate trigger chains land in one group.
+export type DispatchEdge = {
+	producer_job_id: string
+	child_job_id?: string
+	subscriber_path: string
+	outcome: 'dispatched' | 'join_pending'
+	asset_path: string
+	asset_kind: string
+	created_at: string
+}
+
 // Page size is the API max; 3 pages keeps the preload bounded on noisy
 // folders — the panel notes the truncation instead of silently capping.
 const PER_PAGE = 100
@@ -21,6 +36,7 @@ export function usePipelineHistory(
 	getEnabled: () => boolean
 ) {
 	let events = $state<PipelineEvent[]>([])
+	let edges = $state<DispatchEdge[]>([])
 	let loading = $state(false)
 	let truncated = $state(false)
 	let error = $state<string | undefined>(undefined)
@@ -61,7 +77,21 @@ export function usePipelineHistory(
 				}
 				sawFullPage = rows.length === PER_PAGE
 			}
+			// Cascade edges for the same window. Best-effort: a failure here
+			// must not blank the activity list, so it only degrades grouping.
+			let edgeRows: DispatchEdge[] = []
+			try {
+				edgeRows = (await JobService.listAssetDispatchEdges({
+					workspace: ws,
+					pathStart: prefix,
+					createdAfter: cutoff
+				})) as DispatchEdge[]
+			} catch (e) {
+				console.warn('failed to load pipeline dispatch edges', e)
+			}
+			if (gen !== myGen) return
 			events = out
+			edges = edgeRows
 			truncated = sawFullPage
 		} catch (e: any) {
 			if (gen !== myGen) return
@@ -88,6 +118,10 @@ export function usePipelineHistory(
 		/** Completed folder jobs since the cutoff, newest-first. */
 		get events() {
 			return events
+		},
+		/** Asset-cascade producer→child edges over the same window. */
+		get edges() {
+			return edges
 		},
 		get loading() {
 			return loading
