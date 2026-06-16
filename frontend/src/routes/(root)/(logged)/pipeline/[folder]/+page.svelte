@@ -45,6 +45,8 @@
 		type DraftTriggerSource
 	} from '$lib/components/assets/AssetGraph/pipelineTemplates'
 	import { decodeState, encodeState } from '$lib/utils'
+	import { DraftService } from '$lib/gen'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { onMount, tick, untrack } from 'svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import {
@@ -248,43 +250,120 @@
 		}
 	})
 
-	// Per-folder localStorage key. Matches the flow-builder pattern so
-	// reloading /pipeline/<folder> restores in-flight drafts. We serialize
-	// the drafts map as an entry array (Map doesn't survive JSON.stringify).
+	// All of this folder's in-flight drafts live in ONE per-user DB draft
+	// (typ `data_pipeline`) keyed at the folder, so they sync across devices
+	// and surface in the global drafts list — replacing the prior
+	// browser-only blob. The `f/<folder>/...` path drives the backend's
+	// folder-write access check. localStorage is kept as a synchronous crash
+	// mirror (no size cap, survives a hard close inside the debounce window)
+	// but is only ever READ for the one-time import below; the DB is the
+	// source of truth on load.
+	const PIPELINE_DRAFT_KIND = 'data_pipeline' as const
+	let pipelineDraftPath = $derived(`f/${folder}/data_pipeline`)
 	let storageKey = $derived(`pipeline-${folder}`)
+	type PipelineDraftBundle = { drafts: Array<[string, Draft]>; activeDraftPath?: string }
 
-	onMount(() => {
-		if (typeof localStorage === 'undefined') return
+	// Gate the persist effect until the initial DB load resolves so empty
+	// pre-hydration state can't clobber the server copy. `lastPersistedBundle`
+	// holds the last value we pushed so an unchanged re-render (and the
+	// just-loaded value itself) isn't re-POSTed.
+	let draftsHydrated = $state(false)
+	let lastPersistedBundle: string | undefined = undefined
+
+	function restoreBundle(bundle: PipelineDraftBundle) {
+		if (Array.isArray(bundle.drafts)) {
+			const loaded = new Map<string, Draft>()
+			for (const entry of bundle.drafts) {
+				if (entry && typeof entry[0] === 'string' && entry[1]?.script) {
+					const d = entry[1] as Draft
+					// Backfill localId for state persisted by older builds.
+					if (typeof d.localId !== 'string' || d.localId === '') {
+						d.localId = newDraftLocalId()
+					}
+					loaded.set(entry[0], d)
+				}
+			}
+			if (loaded.size > 0) drafts = loaded
+		}
+		if (typeof bundle.activeDraftPath === 'string') {
+			activeDraftPath = bundle.activeDraftPath
+		}
+	}
+
+	// The pre-DB localStorage blob, for the one-time migration when the user
+	// has no DB draft yet.
+	function readLocalBundle(): PipelineDraftBundle | undefined {
+		if (typeof localStorage === 'undefined') return undefined
 		const raw = localStorage.getItem(`pipeline-${folder}`)
-		if (!raw) return
+		if (!raw) return undefined
 		try {
 			const state = decodeState(raw)
-			if (Array.isArray(state?.drafts)) {
-				const loaded = new Map<string, Draft>()
-				for (const entry of state.drafts) {
-					if (entry && typeof entry[0] === 'string' && entry[1]?.script) {
-						const d = entry[1] as Draft
-						// Backfill localId for state persisted by older builds.
-						if (typeof d.localId !== 'string' || d.localId === '') {
-							d.localId = newDraftLocalId()
-						}
-						loaded.set(entry[0], d)
-					}
+			if (state && (Array.isArray(state.drafts) || typeof state.activeDraftPath === 'string')) {
+				return {
+					drafts: Array.isArray(state.drafts) ? state.drafts : [],
+					activeDraftPath: typeof state.activeDraftPath === 'string' ? state.activeDraftPath : undefined
 				}
-				if (loaded.size > 0) drafts = loaded
-			}
-			if (typeof state?.activeDraftPath === 'string') {
-				activeDraftPath = state.activeDraftPath
 			}
 		} catch (e) {
-			console.warn('failed to restore pipeline state', e)
+			console.warn('failed to read local pipeline state', e)
 		}
+		return undefined
+	}
+
+	onMount(() => {
+		void hydrateDrafts()
 	})
 
-	// Debounced persist: reruns whenever drafts / activeDraftPath change.
-	// 500 ms matches FlowBuilder.saveSessionDraft; balances typing churn
-	// against losing state to a crash.
-	let persistTimer: number | undefined = undefined
+	async function hydrateDrafts() {
+		const ws = $workspaceStore
+		const path = pipelineDraftPath
+		try {
+			let bundle: PipelineDraftBundle | undefined
+			let serverSavedAt: string | undefined
+			if (ws) {
+				const row = await DraftService.getOwnDraft({
+					workspace: ws,
+					kind: PIPELINE_DRAFT_KIND,
+					path
+				})
+				if (row?.value) {
+					bundle = row.value as PipelineDraftBundle
+					serverSavedAt = row.created_at
+				}
+			}
+			// One-time migration: no DB draft yet, but an older build left a
+			// localStorage blob — adopt it and let the persist effect push it up.
+			let migratedFromLocal = false
+			if (!bundle) {
+				const local = readLocalBundle()
+				if (local) {
+					bundle = local
+					migratedFromLocal = true
+				}
+			}
+			if (bundle) restoreBundle(bundle)
+			// Seed the conflict baseline: server timestamp when loaded from the
+			// DB, none otherwise (first save omits last_sync → backend first-push
+			// branch). A local migration counts as "nothing server-side yet".
+			UserDraftDbSyncer.recordRemoteSync(
+				{ workspace: ws ?? '', itemKind: PIPELINE_DRAFT_KIND, path },
+				migratedFromLocal ? undefined : serverSavedAt
+			)
+			// Record what we loaded so the first persist run is a no-op — UNLESS
+			// we migrated from localStorage, which must push to the DB once.
+			if (!migratedFromLocal) {
+				lastPersistedBundle = bundle ? JSON.stringify(bundle) : undefined
+			}
+		} catch (e) {
+			console.warn('failed to load pipeline drafts', e)
+		} finally {
+			draftsHydrated = true
+		}
+	}
+
+	// Persist on change: debounced DB sync (UserDraftDbSyncer handles the
+	// debounce + optimistic-concurrency) plus a synchronous localStorage
+	// mirror for crash recovery before the first DB confirm.
 	$effect(() => {
 		// Track deps explicitly so Svelte 5 re-runs on mutation.
 		// For the active draft, also snapshot the latest live body writes
@@ -309,23 +388,37 @@
 		})
 		const activePath = activeDraftPath
 		const key = storageKey
+		const ws = $workspaceStore
+		const path = pipelineDraftPath
+		const hydrated = draftsHydrated
 		untrack(() => {
-			if (typeof localStorage === 'undefined') return
-			if (persistTimer != undefined) clearTimeout(persistTimer)
-			persistTimer = window.setTimeout(() => {
-				try {
-					if (serialized.length === 0 && !activePath) {
-						localStorage.removeItem(key)
-					} else {
-						localStorage.setItem(
-							key,
-							encodeState({ drafts: serialized, activeDraftPath: activePath })
-						)
-					}
-				} catch (e) {
-					console.warn('failed to persist pipeline state', e)
+			// Don't touch storage until the initial load settled.
+			if (!hydrated) return
+			const isEmpty = serialized.length === 0 && !activePath
+			const bundle: PipelineDraftBundle | undefined = isEmpty
+				? undefined
+				: { drafts: serialized, activeDraftPath: activePath }
+			// localStorage crash mirror — synchronous, no debounce, no size cap.
+			try {
+				if (typeof localStorage !== 'undefined') {
+					if (isEmpty) localStorage.removeItem(key)
+					else localStorage.setItem(key, encodeState({ drafts: serialized, activeDraftPath: activePath }))
 				}
-			}, 500)
+			} catch (e) {
+				console.warn('failed to mirror pipeline state', e)
+			}
+			const serializedBundle = bundle ? JSON.stringify(bundle) : undefined
+			if (serializedBundle === lastPersistedBundle) return
+			lastPersistedBundle = serializedBundle
+			if (!ws) return
+			void UserDraftDbSyncer.save({
+				workspace: ws,
+				itemKind: PIPELINE_DRAFT_KIND,
+				path,
+				// `null` deletes the bundle once the last draft is gone.
+				value: bundle ?? null,
+				auto: true
+			})
 		})
 	})
 

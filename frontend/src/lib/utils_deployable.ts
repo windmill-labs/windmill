@@ -43,6 +43,9 @@ export type Kind =
 	// Legacy generic kind used by the cross-workspace `DeployWorkspace` UI,
 	// which carries the trigger sub-kind in `additionalInformation`.
 	| 'trigger'
+	// A data-pipeline draft bundle (drafts list only — not a deployable item;
+	// opens the pipeline view instead).
+	| 'data_pipeline'
 
 export const ALL_DEPLOYABLE: WorkspaceDeployUISettings = {
 	include_path: [],

@@ -43,6 +43,7 @@
 			| 'gcp_trigger'
 			| 'azure_trigger'
 			| 'email_trigger'
+			| 'data_pipeline'
 		triggerKind?: string | undefined
 		summary?: string | undefined
 		path: string

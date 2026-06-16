@@ -172,6 +172,13 @@
 		})
 	})
 
+	// A data-pipeline bundle isn't deployable from this page — deploy happens
+	// per-script inside the pipeline view. Exclude it from every selection path
+	// so the bulk "Deploy N drafts" never tries to deploy a bundle.
+	function isRowDeployable(i: { key: string; draftKind: Row['draftKind'] }): boolean {
+		return deploymentStatus[i.key]?.status !== 'deployed' && i.draftKind !== 'data_pipeline'
+	}
+
 	let selectedItems = $state<string[]>([])
 	let deploying = $state(false)
 	// Select all on the first non-empty load (deploy-all is the common intent);
@@ -198,9 +205,7 @@
 
 	$effect(() => {
 		if (!hasAutoSelected && items.length > 0) {
-			selectedItems = items
-				.filter((i) => deploymentStatus[i.key]?.status !== 'deployed')
-				.map((i) => i.key)
+			selectedItems = items.filter(isRowDeployable).map((i) => i.key)
 			hasAutoSelected = true
 		}
 	})
@@ -210,16 +215,12 @@
 	// Drafts resource: deploy/discard drop items, and stale keys left in
 	// selectedItems are simply ignored here (and by deploySelected).
 	let selectedCount = $derived(
-		items.filter(
-			(i) => selectedItems.includes(i.key) && deploymentStatus[i.key]?.status !== 'deployed'
-		).length
+		items.filter((i) => selectedItems.includes(i.key) && isRowDeployable(i)).length
 	)
 
 	let allSelected = $derived(
 		items.length > 0 &&
-			items
-				.filter((i) => deploymentStatus[i.key]?.status !== 'deployed')
-				.every((i) => selectedItems.includes(i.key))
+			items.filter(isRowDeployable).every((i) => selectedItems.includes(i.key))
 	)
 
 	function toggleItem(item: { key: string }) {
@@ -231,9 +232,7 @@
 	}
 
 	function selectAll() {
-		selectedItems = items
-			.filter((i) => deploymentStatus[i.key]?.status !== 'deployed')
-			.map((i) => i.key)
+		selectedItems = items.filter(isRowDeployable).map((i) => i.key)
 	}
 
 	function deselectAll() {
@@ -342,7 +341,19 @@
 		trigger_azure: '/azure_triggers',
 		trigger_email: '/email_triggers'
 	}
+	// A data-pipeline bundle is keyed at `f/<folder>/data_pipeline`; its editor
+	// is the pipeline view of that folder.
+	function pipelineFolderFromPath(path: string): string | undefined {
+		const segs = path.split('/')
+		return segs[0] === 'f' && segs.length >= 2 ? segs[1] : undefined
+	}
 	function draftEditUrl(d: Row): string | undefined {
+		if (d.draftKind === 'data_pipeline') {
+			const folder = pipelineFolderFromPath(d.path)
+			return folder
+				? `/pipeline/${encodeURIComponent(folder)}?workspace=${encodeURIComponent(currentWorkspaceId)}`
+				: undefined
+		}
 		const listPage = LIST_PAGE_FOR_KIND[d.draftKind]
 		if (listPage) {
 			return `${listPage}?workspace=${encodeURIComponent(currentWorkspaceId)}#${d.path}`
@@ -365,6 +376,12 @@
 	// auto-generated `draft_{uuid}` path so it isn't shown in bold (the row still
 	// shows the storage path in its secondary line).
 	function displayPath(d: Row): string {
+		// The pipeline bundle's storage path (`f/<folder>/data_pipeline`) is an
+		// implementation detail — show the folder it belongs to.
+		if (d.draftKind === 'data_pipeline') {
+			const folder = pipelineFolderFromPath(d.path)
+			return folder ? `f/${folder}` : d.path
+		}
 		const path = d.draft_path ?? d.path
 		if (AUTO_GEN_DRAFT_RE.test(path)) return ''
 		const segs = path.split('/')
@@ -379,6 +396,7 @@
 	// draft and a script draft at the same path are indistinguishable.
 	function kindLabel(kind: Row['draftKind']): string {
 		if (kind === 'raw_app') return 'app'
+		if (kind === 'data_pipeline') return 'pipeline'
 		if (kind === 'trigger_schedule') return 'schedule'
 		if (kind.startsWith('trigger_')) return `${kind.slice('trigger_'.length)} trigger`
 		return kind
@@ -392,7 +410,7 @@
 			{selectedItems}
 			{deploymentStatus}
 			{allSelected}
-			selectablePredicate={(item) => deploymentStatus[item.key]?.status !== 'deployed'}
+			selectablePredicate={(item) => isRowDeployable(item as unknown as Row)}
 			onToggleItem={toggleItem}
 			onSelectAll={selectAll}
 			onDeselectAll={deselectAll}
@@ -465,14 +483,25 @@
 					</Tooltip>
 				{/if}
 				{#if deploymentStatus[draftItem.key]?.status !== 'deployed'}
-					<Button
-						unifiedSize="xs"
-						variant="subtle"
-						startIcon={{ icon: DiffIcon }}
-						onClick={() => showDiff(draftItem)}
-					>
-						Show diff
-					</Button>
+					{#if draftItem.draftKind === 'data_pipeline'}
+						<!-- A bundle isn't diffable/deployable here — its scripts deploy
+						     individually inside the pipeline view. -->
+						{@const openUrl = draftEditUrl(draftItem)}
+						{#if openUrl}
+							<Button unifiedSize="xs" variant="subtle" startIcon={{ icon: ArrowRight }} href={openUrl}>
+								Open pipeline
+							</Button>
+						{/if}
+					{:else}
+						<Button
+							unifiedSize="xs"
+							variant="subtle"
+							startIcon={{ icon: DiffIcon }}
+							onClick={() => showDiff(draftItem)}
+						>
+							Show diff
+						</Button>
+					{/if}
 					<Button
 						unifiedSize="xs"
 						variant="subtle"

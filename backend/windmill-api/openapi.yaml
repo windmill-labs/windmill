@@ -7965,6 +7965,35 @@ paths:
         "404":
           description: no draft for that owner at that path
 
+  /w/{workspace}/drafts/get_own/{kind}/{path}:
+    get:
+      summary: fetch the current user's own draft content at a path (any kind)
+      operationId: getOwnDraft
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/UserDraftItemKind"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: the user's draft content, or null when none exists
+          content:
+            application/json:
+              schema:
+                nullable: true
+                type: object
+                properties:
+                  value: {}
+                  created_at:
+                    type: string
+                    format: date-time
+                required: [value, created_at]
+
   /w/{workspace}/drafts/update/{kind}/{path}:
     post:
       summary: upsert (or clear) the current user's draft at a path
@@ -21463,6 +21492,7 @@ components:
         - trigger_nextcloud
         - trigger_google
         - trigger_github
+        - data_pipeline
     # Do not change next line. It is used by python-client for pre-processing
     # -- INLINE START --
     OpenFlow:

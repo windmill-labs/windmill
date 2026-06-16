@@ -25,6 +25,7 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_drafts))
         .route("/get/{kind}/{*path}", get(get_draft_for_user))
+        .route("/get_own/{kind}/{*path}", get(get_own_draft))
         .route("/update/{kind}/{*path}", post(update_draft))
 }
 
@@ -391,6 +392,37 @@ async fn get_draft_for_user(
             query.username.as_deref().unwrap_or("<legacy>")
         ))
     })
+}
+
+/// Fetch the AUTHED user's OWN draft at a path, for any kind — including
+/// private kinds (`shares_drafts_across_users() == false`). Backs editors with
+/// no deployed-item GET to overlay a draft onto: the `data_pipeline` bundle is
+/// keyed at a folder path with no runnable to hang `get_draft` on, so it loads
+/// its in-flight state from here. Returns `null` (200) when the user has no
+/// draft there, so a fresh pipeline isn't a 404. Secret-variable values come
+/// back `$encrypted:`-prefixed, same as `get_draft_for_user` — variable editors
+/// use their own overlay GET, not this route.
+async fn get_own_draft(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, kind, path)): Path<(String, UserDraftItemKind, windmill_common::utils::StripPath)>,
+) -> Result<Json<Option<DraftForUser>>> {
+    let path = path.to_path();
+    require_can_read_path(&authed, &user_db, &w_id, kind, path).await?;
+    let row = sqlx::query_as!(
+        DraftForUser,
+        r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>", created_at
+           FROM draft
+           WHERE workspace_id = $1 AND path = $2 AND typ = $3 AND email = $4"#,
+        &w_id,
+        path,
+        kind as UserDraftItemKind,
+        &authed.email,
+    )
+    .fetch_optional(&db)
+    .await?;
+    Ok(Json(row))
 }
 
 /// The deployed table RLS resolves item-level `extra_perms` against.
