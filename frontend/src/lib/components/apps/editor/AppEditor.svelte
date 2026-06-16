@@ -90,11 +90,9 @@
 
 	// Migrated clone of the deployed baseline for the autosave `discardIf`. The
 	// live `stateApp` is `migrateApp`'d on mount, so the baseline must be too or
-	// an unedited draft would never compare equal. Tracks `deployedBaseline`:
-	// recomputes whenever the page reassigns it (e.g. a getDraft:false reload),
-	// so the comparison never reads a stale deployed value. `undefined` for
-	// draft-only paths. The clone is local, so migrating it has no side effects.
-	const migratedDeployedBaseline = $derived.by(() => {
+	// an unedited draft would never compare equal. Captured once per mount (the
+	// route remounts AppEditor on path change), `undefined` for draft-only paths.
+	const migratedDeployedBaseline = untrack(() => {
 		if (!deployedBaseline) return undefined
 		const clone = structuredClone($state.snapshot(deployedBaseline)) as App
 		migrateApp(clone)
