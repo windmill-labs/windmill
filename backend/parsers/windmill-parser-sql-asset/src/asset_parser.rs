@@ -265,6 +265,21 @@ impl AssetCollector {
         }
     }
 
+    // Collect the table-level reads (and column assets) of a query's top
+    // SELECT. Table-level reads are only gathered here and in the statement
+    // arms — the generic table-factor visitor picks up read-functions and
+    // string literals, not plain `FROM <table>` references. Called for both
+    // standalone SELECTs and the `AS SELECT` of CTAS / CREATE VIEW.
+    fn handle_query_reads(&mut self, query: &sqlparser::ast::Query) {
+        self.cte_name_stack.push(collect_cte_names(query));
+        if let Some(select) = query.body.as_select() {
+            for t in &select.from {
+                self.handle_table_with_joins(t, Some(R));
+            }
+            self.extract_column_assets(&select.projection, &select.from);
+        }
+    }
+
     fn handle_table_with_joins(
         &mut self,
         table_with_joins: &sqlparser::ast::TableWithJoins,
@@ -490,15 +505,7 @@ impl Visitor for AssetCollector {
     ) -> std::ops::ControlFlow<Self::Break> {
         match statement {
             sqlparser::ast::Statement::Query(q) => {
-                self.cte_name_stack.push(collect_cte_names(q));
-                if let Some(select) = q.body.as_select() {
-                    // First, handle table references (adds table-level assets)
-                    for t in &select.from {
-                        self.handle_table_with_joins(t, Some(R));
-                    }
-                    // Then, extract column-level assets
-                    self.extract_column_assets(&select.projection, &select.from);
-                }
+                self.handle_query_reads(q);
             }
 
             sqlparser::ast::Statement::Insert(insert) => {
@@ -652,10 +659,17 @@ impl Visitor for AssetCollector {
 
             sqlparser::ast::Statement::CreateTable(create_table) => {
                 self.track_table_definition(&create_table.name);
+                // `CREATE TABLE x AS SELECT … FROM y` reads y. The AS-query
+                // isn't a `Statement::Query`, so its FROM tables are only
+                // caught here.
+                if let Some(query) = &create_table.query {
+                    self.handle_query_reads(query);
+                }
             }
 
-            sqlparser::ast::Statement::CreateView { name, .. } => {
+            sqlparser::ast::Statement::CreateView { name, query, .. } => {
                 self.track_table_definition(name);
+                self.handle_query_reads(query);
             }
 
             // DROP TABLE/VIEW is a write to the dropped object — the
@@ -727,7 +741,16 @@ impl Visitor for AssetCollector {
         &mut self,
         statement: &sqlparser::ast::Statement,
     ) -> std::ops::ControlFlow<Self::Break> {
-        if matches!(statement, sqlparser::ast::Statement::Query(_)) {
+        // Balance the push done by handle_query_reads (called from the Query,
+        // CreateView, and CTAS arms).
+        let pushed = match statement {
+            sqlparser::ast::Statement::Query(_) | sqlparser::ast::Statement::CreateView { .. } => {
+                true
+            }
+            sqlparser::ast::Statement::CreateTable(ct) => ct.query.is_some(),
+            _ => false,
+        };
+        if pushed {
             self.cte_name_stack.pop();
         }
         std::ops::ControlFlow::Continue(())
@@ -985,17 +1008,24 @@ mod tests {
             s.assets.sort_by(|a, b| a.path.cmp(&b.path));
             s.assets
         });
-        // NB: the SELECT inside CREATE TABLE … AS is not walked for reads
-        // (pre-existing behavior — CreateTable only tracks the definition
-        // name); this test pins the DROP+CTAS combo to a single clean write.
+        // The DROP+CTAS combo yields a clean write of the output plus the
+        // read of the CTAS source (`SELECT * FROM pg.orders_clean`).
         assert_eq!(
             s.map_err(|e| e.to_string()),
-            Ok(vec![ParseAssetsResult {
-                kind: AssetKind::DataTable,
-                path: "main/daily_revenue".to_string(),
-                access_type: Some(W),
-                columns: None
-            },])
+            Ok(vec![
+                ParseAssetsResult {
+                    kind: AssetKind::DataTable,
+                    path: "main/daily_revenue".to_string(),
+                    access_type: Some(W),
+                    columns: None
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::DataTable,
+                    path: "main/orders_clean".to_string(),
+                    access_type: Some(R),
+                    columns: None
+                },
+            ])
         );
     }
 
@@ -1867,5 +1897,47 @@ mod tests {
         let columns = result[0].columns.as_ref().expect("Should have columns");
         assert_eq!(columns.get("name"), Some(&R));
         assert_eq!(columns.get("age"), Some(&R));
+    }
+}
+
+#[cfg(test)]
+mod ctas_read_tests {
+    use super::*;
+
+    #[test]
+    fn test_ctas_collects_upstream_read() {
+        let input = r#"
+            ATTACH 'datatable://main' AS pg;
+            CREATE TABLE IF NOT EXISTS pg.exciting_809 AS
+            SELECT * FROM pg.fx_rates;
+        "#;
+        let assets = parse_assets(input).unwrap().assets;
+        assert!(
+            assets.iter().any(|a| a.path == "main/fx_rates"
+                && a.kind == AssetKind::DataTable
+                && a.access_type == Some(R)),
+            "expected read of main/fx_rates, got {:?}",
+            assets
+        );
+        assert!(
+            assets.iter().any(|a| a.path == "main/exciting_809"
+                && a.access_type == Some(W)),
+            "expected write of main/exciting_809, got {:?}",
+            assets
+        );
+    }
+
+    #[test]
+    fn test_create_view_collects_upstream_read() {
+        let input = r#"
+            ATTACH 'datatable://main' AS pg;
+            CREATE VIEW pg.v AS SELECT * FROM pg.fx_rates;
+        "#;
+        let assets = parse_assets(input).unwrap().assets;
+        assert!(
+            assets.iter().any(|a| a.path == "main/fx_rates" && a.access_type == Some(R)),
+            "expected read of main/fx_rates, got {:?}",
+            assets
+        );
     }
 }
