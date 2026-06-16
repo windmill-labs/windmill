@@ -15,7 +15,7 @@
 import { AppService, DraftService, FlowService, ScriptService } from './gen'
 import type { UserDraftItemKind } from './gen'
 import type { App } from './components/apps/types'
-import { migrateApp } from './components/apps/utils'
+import { migrateApp } from './components/apps/migrateApp'
 import { sendUserToast } from './toast'
 import { draftValuesEqual } from './userDraft.svelte'
 import { getUsernameForNamespace } from './userNamespace'

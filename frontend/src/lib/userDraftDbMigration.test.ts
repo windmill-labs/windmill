@@ -16,7 +16,7 @@ vi.mock('./gen', () => ({
 
 // `migrateApp` mutates an App in place; the deployed fixtures below are already
 // in migrated shape, so a no-op keeps the dedup comparison exact.
-vi.mock('./components/apps/utils', () => ({ migrateApp: vi.fn() }))
+vi.mock('./components/apps/migrateApp', () => ({ migrateApp: vi.fn() }))
 vi.mock('./toast', () => ({ sendUserToast: vi.fn() }))
 vi.mock('./userNamespace', () => ({ getUsernameForNamespace: () => 'me' }))
 vi.mock('./utils/uuid', () => ({ randomUUID: () => 'fixed-uuid' }))
@@ -93,17 +93,30 @@ describe('migrateUserDraftsToDb dedup', () => {
 		expect(localStorage.getItem(key)).toBeNull()
 	})
 
-	it('ignores top-level `draft_saved_at` / `edited_at` (server-managed timestamps)', async () => {
+	it('ignores server-managed metadata fields on the deployed flow payload', async () => {
+		// The deployed flow carries read-time metadata (workspace_id, edited_by,
+		// version_id, is_draft, timestamps) that the editor's draft content never
+		// holds — they must not block the dedup.
 		getFlowByPath.mockResolvedValue({
+			workspace_id: 'admins',
+			path: 'u/me/f',
 			summary: 'f',
 			value: { modules: [] },
-			edited_at: '2026-01-01T00:00:00Z'
+			edited_by: 'admin@windmill.dev',
+			edited_at: '2026-01-01T00:00:00Z',
+			archived: false,
+			schema: {},
+			extra_perms: {},
+			version_id: 2,
+			is_draft: false,
+			draft_saved_at: '2026-01-01T00:00:01Z'
 		})
 		const key = setDraft('flow', 'u/me/f', {
+			path: 'u/me/f',
 			summary: 'f',
 			value: { modules: [] },
-			edited_at: '2025-06-06T00:00:00Z',
-			draft_saved_at: '2025-06-06T00:00:01Z'
+			archived: false,
+			schema: {}
 		})
 
 		await migrateUserDraftsToDb()
