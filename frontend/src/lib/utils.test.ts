@@ -289,9 +289,12 @@ describe('cleanValueProperties', () => {
 		'parent_hash',
 		'draft',
 		'draft_only',
+		'draft_saved_at',
+		'draft_created_at',
+		'is_draft',
+		'other_drafts_users',
 		'created_at',
 		'created_by',
-		'extra_perms',
 		'workspace_id',
 		'parent_hashes',
 		'lock_error_logs'
@@ -315,8 +318,7 @@ describe('cleanValueProperties', () => {
 			content: 'export function main() {}',
 			schema: { properties: { x: { type: 'string' } } },
 			language: 'bun',
-			created_at: '2024-01-01',
-			extra_perms: { 'u/foo': true }
+			created_at: '2024-01-01'
 		}
 		const cleaned = cleanValueProperties(input) as any
 		expect(cleaned.summary).toBe('my script')
@@ -325,12 +327,19 @@ describe('cleanValueProperties', () => {
 		expect(cleaned.schema).toEqual({ properties: { x: { type: 'string' } } })
 		expect(cleaned.language).toBe('bun')
 		expect(cleaned).not.toHaveProperty('created_at')
-		expect(cleaned).not.toHaveProperty('extra_perms')
 	})
 
 	it('preserves lock so version-to-version diffs still surface lockfile changes', () => {
 		const cleaned = cleanValueProperties({ summary: 'hi', lock: 'resolved deps' } as any) as any
 		expect(cleaned.lock).toBe('resolved deps')
+	})
+
+	it('preserves extra_perms so folder workspace/fork diffs still surface permission changes', () => {
+		const cleaned = cleanValueProperties({
+			summary: 'hi',
+			extra_perms: { 'u/foo': true }
+		} as any) as any
+		expect(cleaned.extra_perms).toEqual({ 'u/foo': true })
 	})
 
 	it('returns non-object values unchanged', () => {

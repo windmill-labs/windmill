@@ -1300,16 +1300,23 @@ function replaceFalseWithUndefinedRec(obj: any) {
 // must not surface in any value diff or unsaved-change comparison. `getScriptByPath`
 // (and the flow/app equivalents) return the full DB row, so the editing object
 // carries these while the deployed side is fetched trimmed — leaving them in would
-// render as spurious metadata diff. `lock` is deliberately NOT in this set: it was
-// part of the comparison before the full-DB-row loader landed and version-to-version
-// diffs (e.g. WorkspaceItemDiffViewer) legitimately surface lockfile changes.
+// render as spurious metadata diff.
+//
+// `lock` and `extra_perms` are deliberately NOT in this set: both are legitimate,
+// user-meaningful fields in some diff contexts (lockfile changes in version-to-version
+// diffs, folder sharing-permission changes in workspace/fork diffs). The script-editor
+// noise they would otherwise cause is stripped at the source instead (the deployed side
+// in `ScriptBuilder.syncWithDeployed`, the current side in `ScriptBuilder.openDiffDrawer`).
 const CLEANED_VALUE_KEYS = new Set([
 	'parent_hash',
 	'draft',
 	'draft_only',
+	'draft_saved_at',
+	'draft_created_at',
+	'is_draft',
+	'other_drafts_users',
 	'created_at',
 	'created_by',
-	'extra_perms',
 	'workspace_id',
 	'parent_hashes',
 	'lock_error_logs'
