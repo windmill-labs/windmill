@@ -442,9 +442,15 @@ pub async fn build_client_credentials_oauth_client(
         },
     };
 
+    // The caller may redirect the exchange to its own token URL only when it also
+    // brings its own credentials. On the shared instance-credentials path (the
+    // caller omits creds and the admin's service-account secret is used below),
+    // honoring a caller-supplied token URL would let any authenticated user send
+    // the admin's secret to a server they control.
+    let caller_supplied_creds = !client_id.is_empty() && !client_secret.is_empty();
+
     // Shared instance client-credentials: an admin can configure a CC-specific
-    // token endpoint that differs from the authorization-code token URL. The
-    // caller's own token URL still wins below.
+    // token endpoint that differs from the authorization-code token URL.
     if let Some(cc_url) = instance_entry
         .as_ref()
         .and_then(|e| e.cc_token_url.clone())
@@ -453,27 +459,35 @@ pub async fn build_client_credentials_oauth_client(
         connect_config.token_url = cc_url;
     }
     if let Some(override_url) = cc_token_url_override {
+        if !caller_supplied_creds {
+            return Err(error::Error::BadRequest(
+                "A client-credentials token URL may only be supplied together with \
+                 client_id and client_secret"
+                    .to_string(),
+            ));
+        }
         connect_config.token_url = override_url.to_string();
     }
 
     // Fall back to the instance entry's own credentials when the caller supplies
-    // none — this is the shared instance-level client-credentials setup, where an
-    // admin configures one service-account client for everyone and the secret
-    // never leaves the server.
+    // none: the shared instance-level client-credentials setup, where an admin
+    // configures one service-account client for everyone and the secret never
+    // leaves the server. Only entries that explicitly enable the
+    // client_credentials grant qualify, so an authorization-code-only client's
+    // secret is never reused for this flow.
+    let instance_cc_creds = instance_entry.as_ref().filter(|e| {
+        e.grant_types.iter().any(|g| g == "client_credentials")
+            && !e.id.is_empty()
+            && !e.secret.is_empty()
+    });
     let resolved_client_id = if client_id.is_empty() {
-        instance_entry
-            .as_ref()
-            .map(|e| e.id.clone())
-            .filter(|id| !id.is_empty())
-            .unwrap_or_default()
+        instance_cc_creds.map(|e| e.id.clone()).unwrap_or_default()
     } else {
         client_id.to_string()
     };
     let resolved_client_secret = if client_secret.is_empty() {
-        instance_entry
-            .as_ref()
+        instance_cc_creds
             .map(|e| e.secret.clone())
-            .filter(|s| !s.is_empty())
             .unwrap_or_default()
     } else {
         client_secret.to_string()
