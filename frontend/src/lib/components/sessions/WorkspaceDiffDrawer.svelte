@@ -198,7 +198,7 @@
 		for (const d of rows) {
 			const parts = displayPathOf(d).split('/')
 			if (parts.length < 2) {
-				root.children.push({ type: 'file', name: d.path, diff: d })
+				root.children.push({ type: 'file', name: displayPathOf(d), diff: d })
 				continue
 			}
 			const scopeKey = parts.slice(0, 2).join('/')
