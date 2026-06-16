@@ -16,7 +16,7 @@
 	import oauthConnectRegistry from '$oauth_connect_registry'
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import Path from './Path.svelte'
-	import { Button, Skeleton } from './common'
+	import { Button, RadioCard, Skeleton } from './common'
 	import ApiConnectForm from './ApiConnectForm.svelte'
 	import SearchItems from './SearchItems.svelte'
 	import WhitelistIp from './WhitelistIp.svelte'
@@ -27,7 +27,7 @@
 	import { base } from '$lib/base'
 	import Required from './Required.svelte'
 	import Toggle from './Toggle.svelte'
-	import { Pen, Search, Circle, CircleDot } from 'lucide-svelte'
+	import { Pen, Search } from 'lucide-svelte'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import { apiTokenApps, forceSecretValue, linkedSecretValue } from './app_connect'
 	import type { SchemaProperty } from '$lib/common'
@@ -797,34 +797,6 @@
 		bind:filteredItems={filteredConnectsManual}
 		f={(x) => x.key}
 	/>
-	{#snippet authOption(cc: boolean, title: string, desc: string)}
-		{@const selected = useClientCredentials === cc}
-		<button
-			type="button"
-			onclick={() => {
-				if (cc) {
-					enableClientCredentials()
-				} else {
-					useClientCredentials = false
-				}
-			}}
-			class="w-full text-left rounded-md border p-3 transition-colors {selected
-				? 'border-border-selected bg-surface-selected'
-				: 'border-border-light hover:bg-surface-hover'}"
-		>
-			<div class="flex items-start gap-2">
-				{#if selected}
-					<CircleDot size={16} class="text-accent shrink-0 mt-0.5" />
-				{:else}
-					<Circle size={16} class="text-hint shrink-0 mt-0.5" />
-				{/if}
-				<div class="flex-1 min-w-0">
-					<div class="text-xs font-semibold text-emphasis">{title}</div>
-					<div class="text-xs font-normal text-secondary mt-0.5">{desc}</div>
-				</div>
-			</div>
-		</button>
-	{/snippet}
 	{#if step == 1}
 		<div class="pb-2 my-1">
 			<div class="relative w-full">
@@ -1082,20 +1054,22 @@
 							</div>
 						{:else}
 							<div class="flex flex-col gap-2 mb-2">
-								{@render authOption(
-									false,
-									`Sign in through ${resourceType}`,
-									'Opens a browser window to log in and authorize. Connects as you.'
-								)}
-								{@render authOption(
-									true,
-									useSharedInstanceCreds
+								<RadioCard
+									label={`Sign in through ${resourceType}`}
+									description="Opens a browser window to log in and authorize. Connects as you."
+									selected={!useClientCredentials}
+									onSelect={() => (useClientCredentials = false)}
+								/>
+								<RadioCard
+									label={useSharedInstanceCreds
 										? 'Use the configured instance credentials'
-										: 'Use a client ID and secret',
-									useSharedInstanceCreds
+										: 'Use a client ID and secret'}
+									description={useSharedInstanceCreds
 										? "Runs server-to-server with this instance's credentials. No input needed."
-										: 'Runs server-to-server. Best for automation or service accounts.'
-								)}
+										: 'Runs server-to-server. Best for automation or service accounts.'}
+									selected={useClientCredentials}
+									onSelect={() => enableClientCredentials()}
+								/>
 							</div>
 						{/if}
 
