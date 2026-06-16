@@ -10,7 +10,8 @@
 		targetY,
 		targetPosition,
 		markerEnd,
-		style
+		style,
+		data
 	}: EdgeProps = $props()
 
 	// An edge that skips at least one full layer (source-bottom → target-top
@@ -26,13 +27,9 @@
 	const CORNER = 14
 
 	// Rounded-orthogonal detour: drop out of the source, swing into the
-	// gutter lane, run it down past the intermediate rows, swing back into
-	// the target.
-	function gutterPath(): string {
-		const side = targetX >= sourceX ? 1 : -1
-		// Beyond *both* endpoints so the in/out horizontal runs never
-		// degenerate (midX stays a full lane away from each column).
-		const midX = side > 0 ? Math.max(sourceX, targetX) + LANE : Math.min(sourceX, targetX) - LANE
+	// gutter lane at `midX`, run it down past the intermediate rows, swing
+	// back into the target.
+	function gutterPath(midX: number): string {
 		const yTop = sourceY + 24
 		const yBot = targetY - 24
 		const outDir = midX > sourceX ? 1 : -1
@@ -62,8 +59,19 @@
 	// construction.
 	let edgePath = $derived.by(() => {
 		const dy = targetY - sourceY
+		// Obstacle-aware detour: the canvas detected this edge's straight run
+		// would pass over an unrelated node and chose a clear lane. Route there.
+		const detourX = (data as { detourX?: number } | undefined)?.detourX
+		if (detourX != undefined) {
+			return gutterPath(detourX)
+		}
 		if (dy > SKIP_DY && Math.abs(targetX - sourceX) < NEAR_VERTICAL_DX) {
-			return gutterPath()
+			// Near-vertical same-column skip: lane just beside the column, past
+			// both endpoints so the horizontal runs never degenerate.
+			const side = targetX >= sourceX ? 1 : -1
+			return gutterPath(
+				side > 0 ? Math.max(sourceX, targetX) + LANE : Math.min(sourceX, targetX) - LANE
+			)
 		}
 		const bendY = sourceY + Math.min(100, NODE.gap.vertical)
 		const long = dy > 100

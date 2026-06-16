@@ -615,6 +615,43 @@
 		}
 		return m
 	})
+	// Node centers (handle x ≈ left + width/2; y = top) for obstacle-aware edge
+	// routing. Computed off the laid-out positions, so it only re-runs when the
+	// graph relayouts — never per frame.
+	let nodeCenters = $derived(
+		positionedNodes
+			.filter((n) => n.id !== ADD_NODE_ID)
+			.map((n) => ({ id: n.id, cx: n.position.x + NODE.width / 2, cy: n.position.y }))
+	)
+	// Detour lane for an edge whose straight run would pass over an unrelated
+	// node (the failure the same-column gutter can't see). For each node
+	// strictly between the endpoints' rows, sample the straight line at that
+	// row; if the node sits under it, route around the obstacle on the side the
+	// edge is already heading. Returns the outermost lane x clearing every
+	// crossed node, or undefined when the corridor is clear. O(nodes) per edge.
+	const HALF_W = NODE.width / 2
+	const ROUTE_PAD = NODE.gap.horizontal / 2
+	function detourForEdge(sourceId: string, targetId: string): number | undefined {
+		const s = nodeCenters.find((n) => n.id === sourceId)
+		const t = nodeCenters.find((n) => n.id === targetId)
+		if (!s || !t || s.cy === t.cy) return undefined
+		const dyTot = t.cy - s.cy
+		let lane: number | undefined
+		for (const n of nodeCenters) {
+			if (n.id === sourceId || n.id === targetId) continue
+			// strictly between the two rows
+			if ((n.cy - s.cy) / dyTot <= 0.01 || (n.cy - s.cy) / dyTot >= 0.99) continue
+			const edgeX = s.cx + (t.cx - s.cx) * ((n.cy - s.cy) / dyTot)
+			if (Math.abs(edgeX - n.cx) >= HALF_W + 8) continue
+			// Crossed: a lane just outside this node, toward the target side.
+			const side = t.cx >= n.cx ? 1 : -1
+			const candidate = n.cx + side * (HALF_W + ROUTE_PAD)
+			// Keep the outermost lane so one detour clears every obstacle.
+			if (lane == undefined || Math.abs(candidate - s.cx) > Math.abs(lane - s.cx)) lane = candidate
+		}
+		return lane
+	}
+
 	let flowEdges = $derived.by(() =>
 		model.edges
 			// Anchor edges are layout-only.
@@ -706,6 +743,7 @@
 					source: e.source,
 					target: e.target,
 					type: 'asset',
+					data: { detourX: detourForEdge(e.source, e.target) },
 					animated,
 					label,
 					labelStyle,
