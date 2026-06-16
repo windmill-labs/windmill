@@ -6,9 +6,8 @@
  * This mirrors how the global AI chat deploys raw apps
  * (`copilot/chat/global/core.ts` → deployDraft, case 'app'): read the item with
  * its draft, normalise to an AppDraftValue, recompute the policy, bundle the
- * files, then createAppRaw/updateAppRaw. The two pure transforms
- * (appSourceToDraftValue / normalizeRawAppData) are re-implemented here to avoid
- * importing the heavy chat module.
+ * files, then createAppRaw/updateAppRaw. The source→AppDraftValue projection is
+ * shared via `rawAppDraftValue` so the two deploy paths can't drift.
  */
 import { get } from 'svelte/store'
 import { AppService } from '$lib/gen'
@@ -18,36 +17,7 @@ import { bundleRawAppDraft } from '$lib/components/copilot/chat/global/rawAppBun
 import type { AppDraftValue } from '$lib/components/copilot/chat/global/workspaceItems'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
-
-function normalizeRawAppData(value: Record<string, any>): AppDraftValue['data'] {
-	if (value.data?.creation) {
-		return {
-			tables: value.data.tables ?? [],
-			datatable: value.data.creation.datatable,
-			schema: value.data.creation.schema
-		}
-	}
-	if (value.data) return value.data
-	if (value.datatables) return { ...DEFAULT_RAW_APP_DATA, tables: value.datatables }
-	if (value.dataTableRefs) return { ...DEFAULT_RAW_APP_DATA, tables: value.dataTableRefs }
-	return { ...DEFAULT_RAW_APP_DATA }
-}
-
-function appSourceToDraftValue(app: any, fallback?: any): AppDraftValue {
-	// A deployed app nests its source under `value` (`app.value.files`); a
-	// `RawAppDraft` carries `files`/`runnables`/`data` at the top level. Fall back
-	// to the object itself so a draft's bundle isn't dropped (which shipped no
-	// files → "Raw app bundle requires /index.ts").
-	const value = (app.value ?? app) as Record<string, any>
-	return {
-		summary: app.summary ?? '',
-		files: { ...(value.files ?? {}) },
-		runnables: { ...(value.runnables ?? {}) },
-		data: normalizeRawAppData(value),
-		policy: app.policy ?? fallback?.policy,
-		custom_path: app.custom_path ?? fallback?.custom_path
-	}
-}
+import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
 
 /**
  * Promote a raw app's draft to deployed. Throws on failure (caller wraps into a
