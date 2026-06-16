@@ -453,12 +453,21 @@ pub fn check_route_access(
     // whole `/users`, `/folders` and `/jobs` routers are CORS-enabled for the
     // opaque app iframe, so default-deny everything in those domains except the
     // intended routes — otherwise the token could enumerate/export workspace data.
-    if token_scopes.iter().any(|s| s == APP_EMBED_SENTINEL) {
+    if has_app_embed_sentinel(Some(token_scopes)) {
         if let Some(suffix) = route_suffix.as_deref() {
             if app_embed_route_denied(required_domain, suffix) {
                 return Err(Error::PermissionDenied(
                     "Access denied. App embed token cannot access this route.".to_string(),
                 ));
+            }
+            // The by-id job cancel is a POST (write) that the token's `jobs:read`
+            // wouldn't satisfy, but cancelling the app's own component runs is
+            // intended (most components supersede an in-flight run on re-run). Permit
+            // it here; `cancel_job_api` confines it to jobs the app launched
+            // (created_by == viewer). A read_only token is still rejected by the
+            // separate read-only check.
+            if suffix.starts_with("jobs_u/queue/cancel/") {
+                return Ok(());
             }
         }
     }
@@ -656,6 +665,13 @@ const RUN_WHITELISTED_GET_PATHS: [&'static str; 20] = [
 /// uses it to deny the workspace-wide job enumeration routes `jobs:read` would
 /// otherwise reach, so an embedded app reads only jobs it launched (by id).
 pub const APP_EMBED_SENTINEL: &str = "app_embed";
+
+/// True if a token's scopes include the app-embed sentinel (a sandboxed app iframe
+/// token). Such tokens carry the viewer's identity but represent untrusted app JS,
+/// so several handlers confine them to the app's own resources/runs.
+pub fn has_app_embed_sentinel(scopes: Option<&[String]>) -> bool {
+    scopes.is_some_and(|s| s.iter().any(|x| x == APP_EMBED_SENTINEL))
+}
 
 /// Routes an app embed token (sentinel) is denied. Its broad scopes (`apps:run`,
 /// `jobs:read`, `users:read`, `folders:read`) exist only for a fixed set of routes a

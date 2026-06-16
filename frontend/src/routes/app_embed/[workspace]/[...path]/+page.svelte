@@ -10,7 +10,7 @@
 	 */
 	import { BROWSER } from 'esm-env'
 	import { AppService, OpenAPI } from '$lib/gen'
-	import { userStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import { getUserExt } from '$lib/user'
 	import { page } from '$app/state'
@@ -47,6 +47,10 @@
 
 	// Viewer side: load the app + user using the embed token handed to the iframe.
 	async function loadApp() {
+		// Set the workspace store so app job operations (notably JobLoader.cancelJob,
+		// which reads $workspaceStore) target this workspace instead of an empty/stale
+		// one in the cookieless iframe.
+		workspaceStore.set(workspace)
 		try {
 			userStore.set(await getUserExt(workspace))
 		} catch (e) {

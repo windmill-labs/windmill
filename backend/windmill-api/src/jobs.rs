@@ -511,6 +511,26 @@ async fn cancel_job_api(
     Path((w_id, id)): Path<(String, Uuid)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<String> {
+    // App embed tokens (the sandboxed app iframe) may cancel ONLY jobs they launched
+    // — their app's component runs, stamped created_by == viewer. cancel_job_api has
+    // no other per-job ownership check, so without this an embed token (which carries
+    // the viewer's identity) could cancel any job by id. NotFound (not 403) so the
+    // untrusted app can't probe job existence.
+    if let Some(authed) = opt_authed.as_ref() {
+        if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
+            let created_by = sqlx::query_scalar!(
+                "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+                id,
+                &w_id
+            )
+            .fetch_optional(&db)
+            .await?;
+            if created_by.as_deref() != Some(authed.username.as_str()) {
+                return Err(Error::NotFound(format!("Job {id} not found")));
+            }
+        }
+    }
+
     let tx = db.begin().await?;
 
     let audit_author: AuditAuthor = match opt_authed.as_ref() {
@@ -1012,10 +1032,7 @@ async fn require_job_read_access(
     // this token, and letting it reach any job merely visible to the viewer would
     // expose unrelated runs' results/logs. Stop at the launched-by-viewer grant.
     // NotFound (not PermissionDenied) so the untrusted app can't probe job existence.
-    if authed.scopes.as_ref().is_some_and(|s| {
-        s.iter()
-            .any(|x| x == windmill_api_auth::scopes::APP_EMBED_SENTINEL)
-    }) {
+    if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
         return Err(Error::NotFound(format!("Job {job_id} not found")));
     }
 
@@ -9282,16 +9299,31 @@ mod approval_view_gate_tests {
     fn anonymous_cannot_view_when_auth_required() {
         // The regression: an unauthenticated holder of the approval token must see nothing.
         let c = Some(conds(true, vec![]));
-        assert!(!can_view(&None, &c, Some("f/team/flow"), "trigger@example.com"));
+        assert!(!can_view(
+            &None,
+            &c,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
     }
 
     #[test]
     fn anonymous_can_view_when_no_auth_required() {
         // Unchanged behaviour: token alone is sufficient when auth isn't required.
         let c = Some(conds(false, vec![]));
-        assert!(can_view(&None, &c, Some("f/team/flow"), "trigger@example.com"));
+        assert!(can_view(
+            &None,
+            &c,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
         // No approval conditions at all also allows token-only view.
-        assert!(can_view(&None, &None, Some("f/team/flow"), "trigger@example.com"));
+        assert!(can_view(
+            &None,
+            &None,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
     }
 
     #[test]
@@ -9316,7 +9348,17 @@ mod approval_view_gate_tests {
         let member = Some(authed("carol", false, vec!["approvers".to_string()]));
         let outsider = Some(authed("dave", false, vec!["other".to_string()]));
         // Use a non-owned folder path so ownership doesn't short-circuit the check.
-        assert!(can_view(&member, &c, Some("f/team/flow"), "trigger@example.com"));
-        assert!(!can_view(&outsider, &c, Some("f/team/flow"), "trigger@example.com"));
+        assert!(can_view(
+            &member,
+            &c,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
+        assert!(!can_view(
+            &outsider,
+            &c,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
     }
 }

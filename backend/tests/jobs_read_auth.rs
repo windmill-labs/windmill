@@ -40,6 +40,8 @@ const DEEP_LEAF_JOB: &str = "88888888-8888-8888-8888-888888888888";
 const RUNNING_JOB: &str = "77777777-7777-7777-7777-777777777777";
 // An app-component job launched BY the admin embed viewer (created_by test-user).
 const EMBED_OWN_JOB: &str = "12121212-1212-1212-1212-121212121212";
+// A QUEUED job launched by the embed viewer (created_by test-user) — cancelable by it.
+const EMBED_OWN_QUEUED: &str = "13131313-1313-1313-1313-131313131313";
 
 // Secrets that must never leak to an unauthorized viewer.
 const RESULT_SECRET: &str = "RESULT_SECRET";
@@ -52,6 +54,19 @@ fn client() -> reqwest::Client {
 
 async fn get(base: &str, path: &str, token: Option<&str>) -> (reqwest::StatusCode, String) {
     let mut req = client().get(format!("{base}/{path}"));
+    if let Some(token) = token {
+        req = req.header("Authorization", format!("Bearer {token}"));
+    }
+    let resp = req.send().await.expect("request");
+    let status = resp.status();
+    let body = resp.text().await.expect("body");
+    (status, body)
+}
+
+async fn post(base: &str, path: &str, token: Option<&str>) -> (reqwest::StatusCode, String) {
+    let mut req = client()
+        .post(format!("{base}/{path}"))
+        .json(&serde_json::json!({}));
     if let Some(token) = token {
         req = req.header("Authorization", format!("Bearer {token}"));
     }
@@ -325,6 +340,32 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
             );
         }
     }
+
+    // ---- APP EMBED TOKEN: cancellation confined to the app's own jobs. The token
+    //      may cancel a job it launched (created_by == viewer), but `cancel_job_api`
+    //      denies (NotFound) a job created by someone else, even though cancel
+    //      otherwise has no per-job ownership check.
+    let (status, body) = post(
+        &base,
+        &format!("queue/cancel/{EMBED_OWN_QUEUED}"),
+        Some("EMBED_APP_TOKEN"),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "embed token must cancel a job it launched (got {status}): {body}"
+    );
+    let (status, body) = post(
+        &base,
+        &format!("queue/cancel/{RUNNING_JOB}"),
+        Some("EMBED_APP_TOKEN"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::NOT_FOUND,
+        "embed token must not cancel another user's job (got {status}): {body}"
+    );
 
     // ---- UNAUTHENTICATED, unchanged: an anonymous-created job is readable
     //      without a token (public trigger / public app result polling).
