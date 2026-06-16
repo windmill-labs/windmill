@@ -171,6 +171,14 @@
 	 * doesn't enter their own — the exchange runs server-side with those creds */
 	let ccInstanceConfigured = $state(false)
 
+	/** The user wants their own credentials (picked the provider from the "Others"
+	 * section) — overrides the shared instance credentials for this connection */
+	let ccBringYourOwn = $state(false)
+
+	/** Connect with the shared instance credentials (no form) rather than the
+	 * bring-your-own form */
+	let useSharedInstanceCreds = $derived(ccInstanceConfigured && !ccBringYourOwn)
+
 	/** Connectable via client credentials only: registry-declared provider with
 	 * no instance OAuth client, or instance provider without an authorize URL */
 	let ccOnly = $derived.by(
@@ -185,6 +193,7 @@
 		useClientCredentials = false
 		authCodeUnavailable = false
 		ccInstanceConfigured = false
+		ccBringYourOwn = false
 		clientId = ''
 		clientSecret = ''
 		tokenUrl = ''
@@ -212,15 +221,16 @@
 		)
 	}
 
-	/** Step-1 "Others" selection: CC-capable resource types open in managed
-	 * client-credentials mode by default (the managed form offers a "Create
-	 * resource manually instead" link to drop to raw editing); every other type
-	 * opens the raw manual form as before. */
+	/** Step-1 "Others" selection: CC-capable resource types open the client-
+	 * credentials form with the user's own credentials — even when the instance
+	 * has shared ones (the "Instance-configured OAuth APIs" section is the entry
+	 * point for those). Every other type opens the raw manual form as before. */
 	function selectFromOthers(key: string) {
 		connectClient = key
 		resourceType = key
 		resetClientCredentialsState()
 		if (isCcCapable(key)) {
+			ccBringYourOwn = true
 			enableClientCredentials()
 		} else {
 			manual = true
@@ -315,7 +325,7 @@
 						args['key'] == '' &&
 						linkedSecrets.length > 0
 					: useClientCredentials &&
-						!ccInstanceConfigured &&
+						!useSharedInstanceCreds &&
 						(clientId.trim() == '' || clientSecret.trim() == '' || tokenUrl.trim() == ''))) ||
 			step == 3 ||
 			(step == 4 && pathError != '') ||
@@ -512,7 +522,7 @@
 					// shared instance credentials, in which case the exchange runs
 					// server-side with those and no input is collected here.
 					if (
-						!ccInstanceConfigured &&
+						!useSharedInstanceCreds &&
 						(!trimmedClientId || !trimmedClientSecret || !trimmedTokenUrl)
 					) {
 						sendUserToast(
@@ -525,7 +535,7 @@
 					const tokenResponse = await OauthService.connectClientCredentials({
 						workspace: effectiveWorkspace,
 						client: connectClient,
-						requestBody: ccInstanceConfigured
+						requestBody: useSharedInstanceCreds
 							? { scopes: scopes }
 							: {
 									scopes: scopes,
@@ -646,7 +656,7 @@
 				// re-exchanges using only what is stored on the account row. With
 				// shared instance credentials the backend copies them onto the row,
 				// so nothing is sent from here.
-				if (useClientCredentials && !ccInstanceConfigured) {
+				if (useClientCredentials && !useSharedInstanceCreds) {
 					accountData.cc_client_id = clientId.trim()
 					accountData.cc_client_secret = clientSecret.trim()
 					accountData.cc_token_url = tokenUrl.trim()
@@ -1062,7 +1072,7 @@
 						<h3 class="text-sm font-semibold text-emphasis mb-1">Authentication</h3>
 						{#if ccOnly}
 							<div class="text-xs text-secondary font-normal mb-2">
-								{#if ccInstanceConfigured}
+								{#if useSharedInstanceCreds}
 									{resourceType} connects server-to-server using the credentials configured for this
 									instance. The token is acquired and refreshed automatically.
 								{:else}
@@ -1080,10 +1090,10 @@
 								)}
 								{@render authOption(
 									true,
-									ccInstanceConfigured
+									useSharedInstanceCreds
 										? 'Use the configured instance credentials'
 										: 'Use a client ID and secret',
-									ccInstanceConfigured
+									useSharedInstanceCreds
 										? "Runs server-to-server with this instance's credentials. No input needed."
 										: 'Runs server-to-server. Best for automation or service accounts.',
 									'Client credentials'
@@ -1091,7 +1101,7 @@
 							</div>
 						{/if}
 
-						{#if useClientCredentials && !ccInstanceConfigured}
+						{#if useClientCredentials && !useSharedInstanceCreds}
 							<form class="flex flex-col gap-6">
 								<label class="flex flex-col gap-1">
 									<span class="text-xs font-semibold text-emphasis">Client ID</span>
