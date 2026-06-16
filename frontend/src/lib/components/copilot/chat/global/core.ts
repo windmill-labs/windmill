@@ -1128,7 +1128,7 @@ async function saveAppDraft(
 	workspace: string,
 	path: string,
 	value: AppDraftValue
-): Promise<WorkspaceItem> {
+): Promise<DraftPersistResult> {
 	return saveGlobalAppDraft(workspace, path, value)
 }
 
@@ -2377,11 +2377,10 @@ function startDraftWrite(ctx: WriteDraftCtx, type: WorkspaceItemType, path: stri
 	})
 }
 
-function finishDraftWrite(
-	result: DraftPersistResult,
-	existed: boolean,
-	ctx: WriteDraftCtx
-): string {
+// Conflict / save-failure handling shared by the kind write tools and the app
+// write tools. Returns the JSON tool-result for a non-saved persist, or undefined
+// when the save succeeded (the caller then emits its own success payload).
+function draftWriteFailure(result: DraftPersistResult, ctx: WriteDraftCtx): string | undefined {
 	const stored = result.item
 	if (result.status === 'conflict') {
 		ctx.toolCallbacks.setToolStatus(ctx.toolId, {
@@ -2398,6 +2397,46 @@ function finishDraftWrite(
 			2
 		)
 	}
+	if (result.status === 'error') {
+		ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+			content: `Failed to save ${stored.type} "${stored.path}"`,
+			result: `Save failed`
+		})
+		return JSON.stringify(
+			{
+				success: false,
+				error: true,
+				message: `The ${stored.type} draft "${stored.path}" could NOT be saved (${result.message}). The change was not persisted — retry; do not assume it succeeded.`
+			},
+			null,
+			2
+		)
+	}
+	return undefined
+}
+
+// App write tools build varied success messages but share the same conflict /
+// save-failure handling; `onSaved` supplies the per-tool status + message.
+function finishAppDraftWrite(
+	result: DraftPersistResult,
+	ctx: WriteDraftCtx,
+	onSaved: (item: WorkspaceItem) => { content: string; message: string }
+): string {
+	const failure = draftWriteFailure(result, ctx)
+	if (failure) return failure
+	const { content, message } = onSaved(result.item)
+	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content, result: 'Saved as draft' })
+	return JSON.stringify({ success: true, message, item: result.item }, null, 2)
+}
+
+function finishDraftWrite(
+	result: DraftPersistResult,
+	existed: boolean,
+	ctx: WriteDraftCtx
+): string {
+	const failure = draftWriteFailure(result, ctx)
+	if (failure) return failure
+	const stored = result.item
 	const verb = existed ? 'Updated' : 'Created'
 	// Don't echo the flow value back: the model just sent it in the write call,
 	// so reflecting the (large) compact flow JSON only burns tokens. Variables
@@ -2938,21 +2977,11 @@ async function initApp(
 		runnables: { [STARTER_RUNNABLE_KEY]: { ...STARTER_RUNNABLE } }
 	}
 	await recomputeAppPolicy(value)
-	const stored = await saveAppDraft(workspace, path, value)
-
-	toolCallbacks.setToolStatus(toolId, {
+	const result = await saveAppDraft(workspace, path, value)
+	return finishAppDraftWrite(result, ctx, () => ({
 		content: `Saved app "${path}" draft (${framework})`,
-		result: 'Saved as draft'
-	})
-	return JSON.stringify(
-		{
-			success: true,
-			message: `Initialized a per-user draft app "${path}" from the ${framework} template with a starter runnable "${STARTER_RUNNABLE_KEY}" (saved server-side, not a deployed workspace item). Use write_app_file / write_app_runnable to evolve it.`,
-			item: stored
-		},
-		null,
-		2
-	)
+		message: `Initialized a per-user draft app "${path}" from the ${framework} template with a starter runnable "${STARTER_RUNNABLE_KEY}" (saved server-side, not a deployed workspace item). Use write_app_file / write_app_runnable to evolve it.`
+	}))
 }
 
 async function readAppFile(
@@ -3000,21 +3029,11 @@ async function writeAppFile(
 
 	const { value } = await loadAppDraftValue(args.path, workspace)
 	value.files = { ...value.files, [target.filePath]: args.content }
-	const stored = await saveAppDraft(workspace, args.path, value)
-
-	toolCallbacks.setToolStatus(toolId, {
+	const result = await saveAppDraft(workspace, args.path, value)
+	return finishAppDraftWrite(result, ctx, () => ({
 		content: `Updated ${target.filePath} in app "${args.path}"`,
-		result: 'Saved as draft'
-	})
-	return JSON.stringify(
-		{
-			success: true,
-			message: `Updated draft app "${args.path}" with frontend file "${target.filePath}".`,
-			item: stored
-		},
-		null,
-		2
-	)
+		message: `Updated draft app "${args.path}" with frontend file "${target.filePath}".`
+	}))
 }
 
 async function deleteAppFile(
@@ -3040,21 +3059,11 @@ async function deleteAppFile(
 	}
 	const { [target.filePath]: _removed, ...remaining } = value.files
 	value.files = remaining
-	const stored = await saveAppDraft(workspace, args.path, value)
-
-	toolCallbacks.setToolStatus(toolId, {
+	const result = await saveAppDraft(workspace, args.path, value)
+	return finishAppDraftWrite(result, ctx, () => ({
 		content: `Removed ${target.filePath} from app "${args.path}"`,
-		result: 'Saved as draft'
-	})
-	return JSON.stringify(
-		{
-			success: true,
-			message: `Removed "${target.filePath}" from draft app "${args.path}".`,
-			item: stored
-		},
-		null,
-		2
-	)
+		message: `Removed "${target.filePath}" from draft app "${args.path}".`
+	}))
 }
 
 async function patchAppFile(
@@ -3124,20 +3133,11 @@ async function patchAppFile(
 		}
 	}
 
-	const stored = await saveAppDraft(workspace, path, value)
-	toolCallbacks.setToolStatus(toolId, {
+	const result = await saveAppDraft(workspace, path, value)
+	return finishAppDraftWrite(result, ctx, () => ({
 		content: `Patched ${target.filePath} in app "${path}"`,
-		result: 'Saved as draft'
-	})
-	return JSON.stringify(
-		{
-			success: true,
-			message: `Patched "${target.filePath}" in draft app "${path}".`,
-			item: stored
-		},
-		null,
-		2
-	)
+		message: `Patched "${target.filePath}" in draft app "${path}".`
+	}))
 }
 
 async function recomputeAppPolicy(value: AppDraftValue): Promise<void> {
@@ -3166,21 +3166,11 @@ async function writeAppRunnable(
 	const persisted = buildPersistedRunnable(input, existing)
 	value.runnables = { ...value.runnables, [key]: persisted }
 	await recomputeAppPolicy(value)
-	const stored = await saveAppDraft(workspace, path, value)
-
-	toolCallbacks.setToolStatus(toolId, {
+	const result = await saveAppDraft(workspace, path, value)
+	return finishAppDraftWrite(result, ctx, () => ({
 		content: `Updated runnable "${key}" in app "${path}"`,
-		result: 'Saved as draft'
-	})
-	return JSON.stringify(
-		{
-			success: true,
-			message: `Updated draft app "${path}" with runnable "${key}".`,
-			item: stored
-		},
-		null,
-		2
-	)
+		message: `Updated draft app "${path}" with runnable "${key}".`
+	}))
 }
 
 async function deleteAppRunnable(
@@ -3200,21 +3190,11 @@ async function deleteAppRunnable(
 	const { [key]: _removed, ...remaining } = value.runnables
 	value.runnables = remaining
 	await recomputeAppPolicy(value)
-	const stored = await saveAppDraft(workspace, path, value)
-
-	toolCallbacks.setToolStatus(toolId, {
+	const result = await saveAppDraft(workspace, path, value)
+	return finishAppDraftWrite(result, ctx, () => ({
 		content: `Removed runnable "${key}" from app "${path}"`,
-		result: 'Saved as draft'
-	})
-	return JSON.stringify(
-		{
-			success: true,
-			message: `Removed runnable "${key}" from draft app "${path}".`,
-			item: stored
-		},
-		null,
-		2
-	)
+		message: `Removed runnable "${key}" from draft app "${path}".`
+	}))
 }
 
 const triggerLabels: Record<TriggerKind, string> = {

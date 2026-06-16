@@ -30,12 +30,16 @@ vi.mock('$lib/components/vscode', () => ({}))
 // drafts through DraftService (no in-tab cell in unit tests), so this Map is the
 // source of truth the write/read tools round-trip against. `vi.hoisted` makes it
 // available inside the hoisted `vi.mock` factory and the test body alike.
-const { backendDrafts, serverTimestamps } = vi.hoisted(() => ({
+const { backendDrafts, serverTimestamps, failingWrites, failingReads } = vi.hoisted(() => ({
 	backendDrafts: new Map<string, unknown>(),
 	// Per-row server timestamp, only set by tests that want to simulate a
 	// concurrent writer advancing the row; otherwise empty, so the conflict
 	// branch in `updateDraft` stays inert for every pre-existing test.
-	serverTimestamps: new Map<string, string>()
+	serverTimestamps: new Map<string, string>(),
+	// Keys whose `updateDraft` / `getDraftForUser` throw a non-404 (network/5xx);
+	// only set by the error-handling tests, empty otherwise.
+	failingWrites: new Set<string>(),
+	failingReads: new Set<string>()
 }))
 
 vi.mock('$lib/gen', async () => {
@@ -156,6 +160,7 @@ vi.mock('$lib/gen', async () => {
 		DraftService: wrapService(actual.DraftService, {
 			updateDraft: vi.fn(async ({ kind, path, requestBody }: any) => {
 				const key = `${kind}:${path}`
+				if (failingWrites.has(key)) throw Object.assign(new Error('server error'), { status: 500 })
 				// A non-force save whose last_sync no longer matches the row's
 				// server timestamp is rejected (optimistic concurrency). Inert
 				// unless a test set serverTimestamps for this key.
@@ -174,7 +179,11 @@ vi.mock('$lib/gen', async () => {
 			}),
 			getDraftForUser: vi.fn(async ({ kind, path }: any) => {
 				const key = `${kind}:${path}`
-				if (!backendDrafts.has(key)) throw new Error('no draft for that owner at that path')
+				if (failingReads.has(key)) throw Object.assign(new Error('server error'), { status: 500 })
+				// 404-shaped (status) like the real ApiError, so the adapter's
+				// narrowed catch treats it as "no draft" rather than re-throwing.
+				if (!backendDrafts.has(key))
+					throw Object.assign(new Error('no draft for that owner at that path'), { status: 404 })
 				return { value: backendDrafts.get(key), created_at: '2026-06-15T00:00:00Z' }
 			}),
 			listDrafts: vi.fn(async () =>
@@ -213,7 +222,12 @@ import {
 } from './core'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
-import { clearGlobalDrafts, persistGlobalDraft } from './userDraftAdapter'
+import {
+	clearGlobalDrafts,
+	persistGlobalDraft,
+	readGlobalDraftValue,
+	saveGlobalAppDraft
+} from './userDraftAdapter'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	AppService,
@@ -294,6 +308,8 @@ describe('global AI tools', () => {
 		localStorage.clear()
 		backendDrafts.clear()
 		serverTimestamps.clear()
+		failingWrites.clear()
+		failingReads.clear()
 		clearGlobalDrafts(WORKSPACE)
 		vi.clearAllMocks()
 	})
@@ -837,6 +853,52 @@ describe('global AI tools', () => {
 			summary: 'v2',
 			content: 'export function main() { return 1 }'
 		})
+	})
+
+	// A backend save failure (network/5xx) is recorded in the syncer's failure
+	// map, not thrown — persistGlobalDraft must report 'error', never 'saved'.
+	it('persistGlobalDraft reports an error (not saved) when the backend save fails', async () => {
+		const path = 'f/scripts/savefail'
+		failingWrites.add(`script:${path}`)
+		const v = {
+			path,
+			summary: 's',
+			description: '',
+			content: 'export function main() {}',
+			language: 'bun'
+		}
+		const res = await persistGlobalDraft(WORKSPACE, 'script', path, v)
+		expect(res.status).toBe('error')
+		if (res.status === 'error') expect(res.message).toBeTruthy()
+		// Nothing was persisted.
+		expect(getBackendDraft('script', path, { workspace: WORKSPACE })).toBeUndefined()
+	})
+
+	// A non-404 read failure must propagate, not collapse to "no draft" — else
+	// the write merge falls through to the deployed item, losing draft edits.
+	it('a non-404 backend read failure propagates instead of returning undefined', async () => {
+		const path = 'f/scripts/readfail'
+		failingReads.add(`script:${path}`)
+		await expect(readGlobalDraftValue(WORKSPACE, 'script', path)).rejects.toThrow()
+	})
+
+	// Raw-app writes go through saveGlobalAppDraft, which must carry the conflict
+	// status so write_app_* tools don't report a stale write as saved.
+	it('saveGlobalAppDraft surfaces a conflict on a stale baseline', async () => {
+		const path = 'u/admin/conflictedapp'
+		const key = `raw_app:${path}`
+		seedBackendDraft('raw_app', path, { summary: 'v1', files: {}, runnables: {} })
+		serverTimestamps.set(key, '2026-06-15T00:01:00Z')
+		UserDraftDbSyncer.recordRemoteSync(
+			{ workspace: WORKSPACE, itemKind: 'raw_app', path },
+			'2026-06-15T00:00:00Z'
+		)
+		const res = await saveGlobalAppDraft(WORKSPACE, path, {
+			summary: 'v2',
+			files: {},
+			runnables: {}
+		} as any)
+		expect(res.status).toBe('conflict')
 	})
 
 	it('requires trigger_kind when discarding a trigger draft', async () => {

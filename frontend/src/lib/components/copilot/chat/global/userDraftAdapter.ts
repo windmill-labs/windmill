@@ -342,8 +342,13 @@ async function fetchBackendDraftValue(
 		})
 		UserDraftDbSyncer.recordRemoteSync({ workspace, itemKind, path: storagePath }, resp.created_at)
 		return resp.value ?? undefined
-	} catch {
-		return undefined // 404 = no draft for this owner at that path
+	} catch (e) {
+		// 404 = no draft for this owner at that path (the intended empty case).
+		// Anything else (403/500/network) MUST propagate: swallowing it would make
+		// the write merge fall through to the deployed item instead of the user's
+		// in-progress draft, silently overwriting their draft-only changes.
+		if ((e as { status?: number } | null | undefined)?.status === 404) return undefined
+		throw e
 	}
 }
 
@@ -366,6 +371,7 @@ export async function readGlobalDraftValue<V>(
 export type DraftPersistResult =
 	| { status: 'saved'; item: WorkspaceItem }
 	| { status: 'conflict'; item: WorkspaceItem; serverTimestamp?: string }
+	| { status: 'error'; item: WorkspaceItem; message: string }
 
 // Persist a built draft value. `UserDraft.seed` reflects it into an open editor's
 // cell WITHOUT a double-POST (no-ops if no cell; its seedNextWrite suppresses the
@@ -397,6 +403,13 @@ export async function persistGlobalDraft(
 		isLiveDraft
 	)
 	if (!item) throw new Error(`Could not synthesize ${type} draft "${path}".`)
+	// A failed save (network/5xx) is recorded in the syncer's failure map, not
+	// thrown — so check it before reporting success, else a write tool would tell
+	// the chat "saved" while the DB-backed source of truth was never updated.
+	const saveState = UserDraftDbSyncer.getState({ workspace, itemKind, path: storagePath })
+	if (saveState.state === 'failed') {
+		return { status: 'error', item, message: saveState.failureMessage ?? 'Draft save failed' }
+	}
 	const conflict = opts.force
 		? undefined
 		: UserDraftDbSyncer.getConflict({ workspace, itemKind, path: storagePath }).conflict
@@ -498,9 +511,10 @@ export async function saveGlobalAppDraft(
 	workspace: string,
 	path: string,
 	value: AppDraftValue
-): Promise<WorkspaceItem> {
-	const result = await persistGlobalDraft(workspace, 'app', path, normalizeAppDraftValue(value), {})
-	return result.item
+): Promise<DraftPersistResult> {
+	// Return the full result (not just the item) so app write tools surface a
+	// conflict / save failure instead of reporting every stale write as saved.
+	return persistGlobalDraft(workspace, 'app', path, normalizeAppDraftValue(value), {})
 }
 
 type DeleteGlobalDraftOptions = {
