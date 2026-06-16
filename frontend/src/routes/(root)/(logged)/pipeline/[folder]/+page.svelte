@@ -789,6 +789,19 @@
 			// per-pane save uses). The createScript call is the real
 			// validation gate — if the body is broken it'll reject there.
 		}
+		// Re-infer the asset lineage from the CURRENT body. The draft's
+		// `script.assets` is a snapshot that isn't refreshed on edit, so without
+		// this a renamed/removed output (e.g. an old `CREATE TABLE foo`) would
+		// be re-deployed as a phantom write edge and linger as an orphan asset.
+		// Mirrors the per-pane save, which sends live-inferred assets.
+		let assets: AssetWithAltAccessType[] = []
+		try {
+			const inferred = await inferAssets(script.language, script.content)
+			if (inferred?.status !== 'error') assets = (inferred?.assets ?? []) as AssetWithAltAccessType[]
+		} catch {
+			// Same fallback as above — an unparsable body deploys with no
+			// lineage rather than the stale snapshot.
+		}
 		await ScriptService.createScript({
 			workspace: ws,
 			requestBody: {
@@ -805,7 +818,10 @@
 				is_template: false,
 				tag: script.tag,
 				kind: script.kind as Script['kind'] | undefined,
-				lock: undefined
+				lock: undefined,
+				// Freshly inferred above — overrides the stale snapshot carried
+				// by `...script`, so the deployed lineage matches the body.
+				assets: assets as any
 			}
 		})
 	}
