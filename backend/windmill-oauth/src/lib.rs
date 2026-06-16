@@ -480,17 +480,15 @@ pub async fn build_client_credentials_oauth_client(
             && !e.id.is_empty()
             && !e.secret.is_empty()
     });
-    let resolved_client_id = if client_id.is_empty() {
-        instance_cc_creds.map(|e| e.id.clone()).unwrap_or_default()
+    // All-or-nothing: use the caller's credentials only when both id and secret
+    // are present, otherwise fall back entirely to the instance entry. Never mix
+    // a caller-supplied id with the admin secret (or vice versa).
+    let (resolved_client_id, resolved_client_secret) = if caller_supplied_creds {
+        (client_id.to_string(), client_secret.to_string())
     } else {
-        client_id.to_string()
-    };
-    let resolved_client_secret = if client_secret.is_empty() {
         instance_cc_creds
-            .map(|e| e.secret.clone())
+            .map(|e| (e.id.clone(), e.secret.clone()))
             .unwrap_or_default()
-    } else {
-        client_secret.to_string()
     };
 
     let resource_oauth_client = OAuthClient {
