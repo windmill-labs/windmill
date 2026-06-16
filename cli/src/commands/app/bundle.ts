@@ -6,7 +6,7 @@ import * as log from "../../core/log.ts";
 import { colors } from "@cliffy/ansi/colors";
 import * as windmillUtils from "@windmill-labs/shared-utils";
 import { readTextFile, readTextFileSync } from "../../utils/utils.ts";
-import { getEsbuild, stopEsbuild } from "./esbuild_loader.ts";
+import { getEsbuild, stopEsbuild } from "../../utils/esbuild_loader.ts";
 export interface BundleOptions {
   entryPoint?: string;
   outDir?: string;

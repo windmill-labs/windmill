@@ -6,7 +6,7 @@ import { createGunzip } from "node:zlib";
 import { Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import * as tar from "tar-stream";
-import * as log from "../../core/log.ts";
+import * as log from "../core/log.ts";
 
 // esbuild splits into a JS host package and a per-platform native binary
 // (@esbuild/<platform>). They must be the same version. A broken or incremental
@@ -141,6 +141,25 @@ async function ensureWasmPackage(version: string): Promise<string> {
   return destDir;
 }
 
+/**
+ * Resolves a tar entry to an absolute path inside destDir, stripping the leading
+ * "package/" component that npm tarballs use. Returns null if the entry would
+ * escape destDir (tar-slip), since WINDMILL_ESBUILD_WASM_URL allows untrusted
+ * tarball sources.
+ */
+export function resolveTarEntryPath(
+  destDir: string,
+  entryName: string
+): string | null {
+  const rel = entryName.replace(/^[^/]+\//, "");
+  const root = path.resolve(destDir);
+  const outPath = path.resolve(root, rel);
+  if (outPath !== root && !outPath.startsWith(root + path.sep)) {
+    return null;
+  }
+  return outPath;
+}
+
 // Extracts an npm tarball (gzipped tar) into destDir, stripping the leading
 // "package/" path component that npm tarballs use.
 async function extractTarball(
@@ -154,8 +173,15 @@ async function extractTarball(
       stream.on("end", next);
       return;
     }
-    const rel = header.name.replace(/^[^/]+\//, "");
-    const outPath = path.join(destDir, rel);
+    const outPath = resolveTarEntryPath(destDir, header.name);
+    if (!outPath) {
+      // Reject tar-slip entries that would write outside the cache dir.
+      stream.resume();
+      stream.on("end", () =>
+        next(new Error(`unsafe path in esbuild-wasm tarball: ${header.name}`))
+      );
+      return;
+    }
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
     const ws = fs.createWriteStream(outPath, { mode: header.mode ?? 0o644 });
     stream.pipe(ws);
