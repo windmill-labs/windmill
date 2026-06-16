@@ -146,7 +146,6 @@
 	 */
 	let clientId = $state('')
 	let clientSecret = $state('')
-	let tokenUrl = $state('')
 	let ccInstance = $state('')
 
 	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
@@ -207,7 +206,6 @@
 		ccBringYourOwn = false
 		clientId = ''
 		clientSecret = ''
-		tokenUrl = ''
 		ccInstance = ''
 		scopes = []
 	}
@@ -216,9 +214,6 @@
 		manual = false
 		supportsClientCredentials = true
 		useClientCredentials = true
-		if (!tokenUrl) {
-			tokenUrl = registryEntry()?.cc_token_url ?? registryEntry()?.token_url ?? ''
-		}
 		if (scopes.length === 0) {
 			scopes = registryEntry()?.scopes ?? []
 		}
@@ -340,7 +335,7 @@
 						!useSharedInstanceCreds &&
 						(clientId.trim() == '' ||
 							clientSecret.trim() == '' ||
-							(ccInstanceMeta ? ccInstance.trim() == '' : tokenUrl.trim() == '')))) ||
+							(!!ccInstanceMeta && ccInstance.trim() == '')))) ||
 			step == 3 ||
 			(step == 4 && pathError != '') ||
 			!isValid
@@ -458,9 +453,6 @@
 			scopes = registryEntry()?.scopes ?? []
 			extra_params = []
 			supportsClientCredentials = registryCcCapable()
-			if (!tokenUrl) {
-				tokenUrl = registryEntry()?.cc_token_url ?? registryEntry()?.token_url ?? ''
-			}
 			return
 		}
 		const connect = await OauthService.getOauthConnect({ client: connectClient })
@@ -476,10 +468,6 @@
 			registryCcCapable() || (connect.grant_types?.includes('client_credentials') ?? false)
 		// Shared instance credentials: the user connects without entering any creds
 		ccInstanceConfigured = connect.client_credentials_configured ?? false
-		if (!tokenUrl) {
-			tokenUrl =
-				connect.token_url ?? registryEntry()?.cc_token_url ?? registryEntry()?.token_url ?? ''
-		}
 		// Custom provider configured with only a token URL: no popup flow possible
 		authCodeUnavailable =
 			supportsClientCredentials && !(connect.grant_types?.includes('authorization_code') ?? true)
@@ -531,10 +519,10 @@
 					// Trim whitespace from credentials to avoid false negatives
 					const trimmedClientId = clientId.trim()
 					const trimmedClientSecret = clientSecret.trim()
-					const trimmedTokenUrl = tokenUrl.trim()
 					const trimmedInstance = ccInstance.trim()
-					// Instance-templated providers collect an instance name instead of a
-					// full token URL; the backend builds the host-pinned URL from it.
+					// Instance-templated providers collect an instance name; the backend
+					// builds the host-pinned token URL from it. Other registry providers
+					// need no URL input (the token URL comes from the registry).
 					const needsInstance = !!ccInstanceMeta
 
 					// Bring-your-own credentials are required unless the provider has
@@ -542,14 +530,12 @@
 					// server-side with those and no input is collected here.
 					if (
 						!useSharedInstanceCreds &&
-						(!trimmedClientId ||
-							!trimmedClientSecret ||
-							(needsInstance ? !trimmedInstance : !trimmedTokenUrl))
+						(!trimmedClientId || !trimmedClientSecret || (needsInstance && !trimmedInstance))
 					) {
 						sendUserToast(
 							needsInstance
 								? `Client ID, Client Secret and ${ccInstanceMeta?.label} are required for client credentials flow`
-								: 'Client ID, Client Secret and Token URL are required for client credentials flow',
+								: 'Client ID and Client Secret are required for client credentials flow',
 							true
 						)
 						return
@@ -564,9 +550,7 @@
 									scopes: scopes,
 									cc_client_id: trimmedClientId,
 									cc_client_secret: trimmedClientSecret,
-									...(needsInstance
-										? { cc_instance: trimmedInstance }
-										: { cc_token_url: trimmedTokenUrl })
+									...(needsInstance ? { cc_instance: trimmedInstance } : {})
 								}
 					})
 
@@ -684,10 +668,11 @@
 				if (useClientCredentials && !useSharedInstanceCreds) {
 					accountData.cc_client_id = clientId.trim()
 					accountData.cc_client_secret = clientSecret.trim()
+					// Instance-templated providers send an instance name; the backend
+					// resolves and stores the host-pinned token URL. Other registry
+					// providers need nothing more (token URL comes from the registry).
 					if (ccInstanceMeta) {
 						accountData.cc_instance = ccInstance.trim()
-					} else {
-						accountData.cc_token_url = tokenUrl.trim()
 					}
 				}
 
@@ -1131,22 +1116,6 @@
 										<TextInput
 											inputProps={{ placeholder: ccInstanceMeta.placeholder, required: true }}
 											bind:value={ccInstance}
-										/>
-									</label>
-								{:else}
-									<label class="flex flex-col gap-1">
-										<span class="text-xs font-semibold text-emphasis">Token URL</span>
-										<div class="text-xs text-secondary font-normal">
-											Token endpoint of the OAuth provider, stored with the connection and used for
-											automatic token refresh
-										</div>
-										<TextInput
-											inputProps={{
-												type: 'url',
-												placeholder: 'https://provider.example.com/oauth/token',
-												required: true
-											}}
-											bind:value={tokenUrl}
 										/>
 									</label>
 								{/if}

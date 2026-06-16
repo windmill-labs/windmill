@@ -589,110 +589,73 @@ pub async fn resolve_instance_cc_credentials(
 }
 
 /// Resolve the concrete client-credentials token URL for a bring-your-own
-/// connection (the caller supplies its own credentials).
+/// connection. The caller never supplies a token URL: it always comes from the
+/// built-in registry, so the exchange host can never be redirected.
 ///
-/// For a known provider whose CC token URL carries an `{instance}` placeholder
-/// (Coupa, Salesforce My Domain, ServiceNow, …), the caller supplies only an
-/// instance name: it is validated as a bare hostname label and substituted into
-/// the fixed-host registry template, and a free-form URL is rejected. The
-/// exchange host can therefore never be redirected to an attacker-controlled
-/// server. For any other known provider the registry/instance token URL is used
-/// as-is (a caller URL is ignored). Only a truly unknown provider (no registry
-/// entry and no instance OAuth client) falls back to the caller-supplied URL.
-///
-/// `None` means there is no caller-derived URL and the caller did not need to
-/// supply one.
-pub async fn resolve_cc_token_url_input(
-    db: &DB,
-    client_name: &str,
+/// Supported only for registry providers. For one whose CC token URL carries an
+/// `{instance}` placeholder (Coupa, Salesforce My Domain, ServiceNow, …) the
+/// caller supplies only an instance name, validated as a bare hostname label and
+/// substituted into the fixed-host template. A fixed-host registry provider uses
+/// its registry token URL directly. A custom resource type (no registry entry)
+/// is rejected: there is no known host to send credentials to.
+pub fn resolve_cc_token_url_input(
     connect_configs_json: &str,
+    client_name: &str,
     caller_instance: Option<&str>,
-    caller_full_url: Option<&str>,
-) -> error::Result<Option<String>> {
-    use windmill_common::global_settings::{load_value_from_global_settings, OAUTH_SETTING};
+) -> error::Result<String> {
+    let Some(cfg) = serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json)
+        .ok()
+        .and_then(|m| resolve_registry_config(&m, client_name))
+    else {
+        return Err(error::Error::BadRequest(format!(
+            "Client credentials with your own credentials are only supported for built-in OAuth \
+             providers, not '{client_name}'. Configure shared credentials on the instance OAuth \
+             entry instead."
+        )));
+    };
 
-    let registry_config: Option<OAuthConfig> =
-        serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json)
-            .ok()
-            .and_then(|m| resolve_registry_config(&m, client_name));
+    let template = cfg
+        .cc_token_url
+        .filter(|u| !u.is_empty())
+        .or_else(|| Some(cfg.token_url).filter(|u| !u.is_empty()))
+        .ok_or_else(|| {
+            error::Error::BadRequest(format!("No token URL is configured for '{client_name}'"))
+        })?;
 
-    let oauths = load_value_from_global_settings(db, OAUTH_SETTING).await?;
-    let instance_entry: Option<OAuthClient> = oauths
-        .as_ref()
-        .and_then(|o| o.get(client_name))
-        .and_then(|v| serde_json::from_value(v.clone()).ok());
-
-    let nonempty = |s: String| Some(s).filter(|u| !u.is_empty());
-    let template = registry_config
-        .as_ref()
-        .and_then(|c| c.cc_token_url.clone())
-        .and_then(nonempty)
-        .or_else(|| {
-            registry_config
-                .as_ref()
-                .map(|c| c.token_url.clone())
-                .and_then(nonempty)
-        })
-        .or_else(|| {
-            instance_entry
-                .as_ref()
-                .and_then(|e| e.cc_token_url.clone())
-                .and_then(nonempty)
-        })
-        .or_else(|| {
-            instance_entry
-                .as_ref()
-                .and_then(|e| e.connect_config.as_ref())
-                .map(|c| c.token_url.clone())
-                .and_then(nonempty)
-        });
-
-    let caller_full_url = caller_full_url.filter(|u| !u.is_empty());
-
-    match template {
-        Some(t) if t.contains("{instance}") => {
-            let meta = registry_config
-                .as_ref()
-                .and_then(|c| c.cc_instance.as_ref());
-            if caller_full_url.is_some() {
-                return Err(error::Error::BadRequest(format!(
-                    "{client_name} expects an instance name, not a token URL"
-                )));
-            }
-            let raw = caller_instance
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .ok_or_else(|| {
-                    error::Error::BadRequest(format!(
-                        "{} is required for {client_name}",
-                        meta.map(|m| m.label.as_str()).unwrap_or("An instance name")
-                    ))
-                })?;
-            // Strip an optional known host suffix so the user can paste a full
-            // host or a bare name, then accept only a hostname label — never any
-            // character that could move the host out of the template's domain.
-            let value = meta
-                .and_then(|m| m.strip_suffix.as_deref())
-                .and_then(|sfx| raw.strip_suffix(sfx))
-                .unwrap_or(raw)
-                .trim_end_matches('.');
-            let valid = !value.is_empty()
-                && !value.starts_with(['-', '.'])
-                && value
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.');
-            if !valid {
-                return Err(error::Error::BadRequest(format!(
-                    "invalid instance name '{raw}' for {client_name}"
-                )));
-            }
-            Ok(Some(t.replace("{instance}", value)))
-        }
-        // Known provider with a fixed token URL: use it, ignore any caller URL.
-        Some(t) => Ok(Some(t)),
-        // Unknown provider: only here is a caller-supplied URL the source of truth.
-        None => Ok(caller_full_url.map(str::to_string)),
+    if !template.contains("{instance}") {
+        // Fixed-host registry provider: its registry token URL is authoritative.
+        return Ok(template);
     }
+
+    let meta = cfg.cc_instance.as_ref();
+    let raw = caller_instance
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            error::Error::BadRequest(format!(
+                "{} is required for {client_name}",
+                meta.map(|m| m.label.as_str()).unwrap_or("An instance name")
+            ))
+        })?;
+    // Strip an optional known host suffix so the user can paste a full host or a
+    // bare name, then accept only a hostname label — never any character that
+    // could move the host out of the template's domain.
+    let value = meta
+        .and_then(|m| m.strip_suffix.as_deref())
+        .and_then(|sfx| raw.strip_suffix(sfx))
+        .unwrap_or(raw)
+        .trim_end_matches('.');
+    let valid = !value.is_empty()
+        && !value.starts_with(['-', '.'])
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.');
+    if !valid {
+        return Err(error::Error::BadRequest(format!(
+            "invalid instance name '{raw}' for {client_name}"
+        )));
+    }
+    Ok(template.replace("{instance}", value))
 }
 
 /// Exchange authorization code for tokens
@@ -1218,5 +1181,70 @@ mod tests {
         // Parent exists but has no sandbox override.
         registry.insert("docusign".to_string(), sample_oauth_config(false));
         assert!(resolve_registry_config(&registry, "docusign_sandbox").is_none());
+    }
+
+    const CC_REGISTRY: &str = r#"{
+        "coupa": {
+            "token_url": "https://{instance}.coupahost.com/oauth2/token",
+            "grant_types": ["client_credentials"],
+            "cc_instance": { "label": "Coupa instance", "placeholder": "x", "strip_suffix": ".coupahost.com" }
+        },
+        "salesforce": {
+            "auth_url": "https://login.salesforce.com/services/oauth2/authorize",
+            "token_url": "https://login.salesforce.com/services/oauth2/token",
+            "grant_types": ["authorization_code", "client_credentials"],
+            "cc_token_url": "https://{instance}.my.salesforce.com/services/oauth2/token",
+            "cc_instance": { "label": "Salesforce My Domain", "placeholder": "acme", "strip_suffix": ".my.salesforce.com" }
+        },
+        "visma": {
+            "auth_url": "https://connect.visma.com/connect/authorize",
+            "token_url": "https://connect.visma.com/connect/token",
+            "grant_types": ["authorization_code", "client_credentials"]
+        }
+    }"#;
+
+    #[test]
+    fn cc_token_url_templated_substitutes_instance() {
+        let url = resolve_cc_token_url_input(CC_REGISTRY, "coupa", Some("acme")).unwrap();
+        assert_eq!(url, "https://acme.coupahost.com/oauth2/token");
+    }
+
+    #[test]
+    fn cc_token_url_prefers_cc_token_url_over_token_url() {
+        // Salesforce CC uses the My Domain template, not the auth-code login URL.
+        let url = resolve_cc_token_url_input(CC_REGISTRY, "salesforce", Some("acme")).unwrap();
+        assert_eq!(url, "https://acme.my.salesforce.com/services/oauth2/token");
+    }
+
+    #[test]
+    fn cc_token_url_strips_known_host_suffix() {
+        let url =
+            resolve_cc_token_url_input(CC_REGISTRY, "coupa", Some("acme.coupahost.com")).unwrap();
+        assert_eq!(url, "https://acme.coupahost.com/oauth2/token");
+    }
+
+    #[test]
+    fn cc_token_url_rejects_instance_that_escapes_the_host() {
+        // A '/' (or any non-hostname char) must not let the caller move the host
+        // out of the template's domain.
+        assert!(resolve_cc_token_url_input(CC_REGISTRY, "coupa", Some("evil.com/oauth")).is_err());
+        assert!(resolve_cc_token_url_input(CC_REGISTRY, "coupa", Some("a@b")).is_err());
+    }
+
+    #[test]
+    fn cc_token_url_requires_instance_when_templated() {
+        assert!(resolve_cc_token_url_input(CC_REGISTRY, "coupa", None).is_err());
+    }
+
+    #[test]
+    fn cc_token_url_fixed_host_uses_registry_url() {
+        let url = resolve_cc_token_url_input(CC_REGISTRY, "visma", None).unwrap();
+        assert_eq!(url, "https://connect.visma.com/connect/token");
+    }
+
+    #[test]
+    fn cc_token_url_rejects_custom_provider() {
+        // No registry entry: bring-your-own client credentials are not allowed.
+        assert!(resolve_cc_token_url_input(CC_REGISTRY, "my_custom_thing", Some("acme")).is_err());
     }
 }

@@ -6288,12 +6288,9 @@ paths:
                 cc_client_secret:
                   type: string
                   description: "OAuth client secret for resource-level credentials (client_credentials flow only)"
-                cc_token_url:
-                  type: string
-                  description: "OAuth token URL override for resource-level authentication (client_credentials flow only)"
                 cc_instance:
                   type: string
-                  description: "Instance name for providers whose client-credentials token URL is instance-templated; substituted into the fixed-host registry template server-side (client_credentials flow only)"
+                  description: "Instance name for built-in providers whose client-credentials token URL is instance-templated; substituted into the fixed-host registry template server-side (client_credentials flow only). The token URL is never caller-supplied."
                 mcp_server_url:
                   type: string
                   description: "MCP server URL for MCP OAuth token refresh"
@@ -6346,12 +6343,9 @@ paths:
                 cc_client_secret:
                   type: string
                   description: "OAuth client secret. Omit to use the credentials configured on the provider's instance OAuth entry."
-                cc_token_url:
-                  type: string
-                  description: "OAuth token URL (falls back to instance settings or the static registry when omitted)"
                 cc_instance:
                   type: string
-                  description: "Instance name for providers whose client-credentials token URL is instance-templated; substituted into the fixed-host registry template server-side"
+                  description: "Instance name for built-in providers whose client-credentials token URL is instance-templated; substituted into the fixed-host registry template server-side. The token URL is never caller-supplied."
       responses:
         "200":
           description: OAuth token response
