@@ -44,6 +44,9 @@ doesn't steal focus from a sibling search input (matches the picker).
 		navKey?: string
 		/** Per-row vertical padding class (e.g. `py-1` / `py-1.5`). */
 		baseClass?: string
+		/** Reserve two lines of height and vertically center the content so
+		 * summary and summary-less rows are the same height (diff viewer). */
+		uniformHeight?: boolean
 		/** Extra left padding (px) for tree-view indentation. Adds to the
 		 * default `px-3` horizontal padding. */
 		indent?: number
@@ -76,11 +79,18 @@ doesn't steal focus from a sibling search input (matches the picker).
 		href,
 		onclick,
 		onmouseenter,
-		extras
+		extras,
+		uniformHeight = false
 	}: Props = $props()
 
 	const rootClass = $derived(
 		`group w-full text-left flex items-center gap-2 px-3 transition-colors ${baseClass} ${highlighted ? 'bg-surface-hover' : ''} ${current ? 'cursor-default text-emphasis font-medium' : ''}`
+	)
+
+	// Same min-height + centering for both branches so a row with a summary
+	// (two lines) and one without (one line) end up identical in height.
+	const contentClass = $derived(
+		`min-w-0 flex-1${uniformHeight ? ' flex flex-col justify-center min-h-[2.25rem]' : ''}`
 	)
 </script>
 
@@ -101,7 +111,7 @@ doesn't steal focus from a sibling search input (matches the picker).
 		{onmouseenter}
 	>
 		<RowIcon {kind} {triggerKind} size={12} />
-		<div class="min-w-0 flex-1">
+		<div class={contentClass}>
 			{#if summary}
 				<div class="text-xs text-primary truncate">{summary}</div>
 				<div class="text-2xs text-secondary font-normal font-mono truncate">{secondary}</div>
@@ -131,7 +141,7 @@ doesn't steal focus from a sibling search input (matches the picker).
 		{onmouseenter}
 	>
 		<RowIcon {kind} {triggerKind} size={12} />
-		<div class="min-w-0 flex-1">
+		<div class={contentClass}>
 			{#if summary}
 				<div class="text-xs text-primary truncate">{summary}</div>
 				<div class="text-2xs text-secondary font-normal font-mono truncate">{secondary}</div>

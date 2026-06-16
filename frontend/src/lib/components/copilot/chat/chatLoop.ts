@@ -6,7 +6,7 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import { getCompletion, parseOpenAICompletion, providerSupportsWebSearch } from '../lib'
-import { resolveEffectiveReasoning, type ReasoningProviderModel } from '../reasoningRegistry'
+import { resolveRequestReasoning, type ReasoningProviderModel } from '../reasoningRegistry'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
 import { getOpenAIResponsesCompletion, parseOpenAIResponsesCompletion } from './openai-responses'
 import type { Tool, ToolCallbacks } from './shared'
@@ -48,14 +48,58 @@ export interface ChatLoopConfig {
 	onWebSearchUnavailable?: () => void
 	/** Return a pending user message to inject between iterations, or undefined. */
 	getPendingUserMessage?: () => ChatCompletionUserMessageParam | undefined
+	/**
+	 * Optional caller-owned accumulator for the messages produced this run —
+	 * lets the caller recover partial output if the loop throws or is aborted.
+	 */
+	addedMessages?: ChatCompletionMessageParam[]
 	/** Called before each iteration (e.g. to refresh tool schemas). */
 	onBeforeIteration?: (tools: Tool<any>[], helpers: any) => Promise<void>
 }
 
 export interface ChatLoopResult {
 	addedMessages: ChatCompletionMessageParam[]
+	/** Sum of usage across all loop iterations (suitable for cost accounting). */
 	tokenUsage: ChatTokenUsage
+	lastIterationUsage: ChatTokenUsage | null
 	hitMaxIterations: boolean
+}
+
+/**
+ * Returns the longest prefix of `messages` that forms a valid request sequence:
+ * every assistant `tool_calls` batch must be fully answered by following tool
+ * messages before the next assistant turn. Used to commit the partial output of
+ * an aborted or failed turn as context for a follow-up, without leaving a
+ * dangling tool_call (which the provider APIs reject on the next request).
+ */
+export function truncateToToolPairedPrefix(
+	messages: ChatCompletionMessageParam[]
+): ChatCompletionMessageParam[] {
+	let lastValidLen = 0
+	let pending = new Set<string>()
+	for (let i = 0; i < messages.length; i++) {
+		const m = messages[i]
+		if (m.role === 'assistant') {
+			// A new assistant turn while the previous tool batch is unanswered would
+			// be invalid — stop at the last known-good boundary.
+			if (pending.size > 0) break
+			const toolCalls = m.tool_calls ?? []
+			if (toolCalls.length === 0) {
+				lastValidLen = i + 1
+			} else {
+				pending = new Set(toolCalls.map((c) => c.id))
+			}
+		} else if (m.role === 'tool') {
+			pending.delete(m.tool_call_id)
+			// Boundary is valid only once every tool_call in the batch is answered.
+			if (pending.size === 0) lastValidLen = i + 1
+		} else {
+			// user/system message: a valid boundary only if no tool calls are pending.
+			if (pending.size > 0) break
+			lastValidLen = i + 1
+		}
+	}
+	return messages.slice(0, lastValidLen)
 }
 
 const unsupportedWebSearchCache = new Set<string>()
@@ -147,7 +191,11 @@ function shouldRetryWithoutWebSearch(err: unknown): boolean {
 	return status === undefined || WEB_SEARCH_UNAVAILABLE_STATUS_CODES.has(status)
 }
 
-function markWebSearchUnsupported(cacheKey: string, err: unknown, onWebSearchUnavailable?: () => void) {
+function markWebSearchUnsupported(
+	cacheKey: string,
+	err: unknown,
+	onWebSearchUnavailable?: () => void
+) {
 	unsupportedWebSearchCache.add(cacheKey)
 	console.warn('Native web search unavailable; retrying without web search:', err)
 	onWebSearchUnavailable?.()
@@ -167,10 +215,19 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 	} = config
 	let skipResponsesApi = config.skipResponsesApi ?? false
 
-	const addedMessages: ChatCompletionMessageParam[] = []
+	const addedMessages: ChatCompletionMessageParam[] = config.addedMessages ?? []
 	let tokenUsage = emptyChatTokenUsage()
+	let lastIterationUsage: ChatTokenUsage | null = null
 	let iterations = 0
 	let hitMaxIterations = false
+
+	const trackUsage = (usage: ChatTokenUsage | null | undefined) => {
+		tokenUsage = addChatTokenUsage(tokenUsage, usage)
+		// Some providers/paths report no usage (prompt 0); keep the last real one.
+		if (usage && usage.prompt > 0) {
+			lastIterationUsage = usage
+		}
+	}
 
 	while (true) {
 		if (maxIterations !== undefined && iterations >= maxIterations) {
@@ -202,9 +259,10 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai'
 		const isAnthropic = modelProvider.provider === 'anthropic'
 		// Resolve effort once in chat context (applies the default-on level for
-		// capable models); passed explicitly to each seam so background paths
-		// (metadata/autocomplete) never inherit it.
-		const reasoningEffort = resolveEffectiveReasoning(modelProvider)
+		// capable models, and the provider-native disable token for an explicit
+		// off on reasoning-by-default providers); passed explicitly to each seam
+		// so background paths (metadata/autocomplete) never inherit it.
+		const reasoningEffort = resolveRequestReasoning(modelProvider)
 
 		const messageParams = [
 			systemMessage,
@@ -212,7 +270,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			...(pendingUserMessage ? [pendingUserMessage] : [])
 		]
 		const toolDefs = tools.map((t) => t.def)
-		const parseOptions = { workspace }
+		const parseOptions = { workspace, provider: modelProvider.provider }
 
 		if (isOpenAI) {
 			const runOpenAIResponses = async (useWebSearch: boolean): Promise<boolean> => {
@@ -236,7 +294,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					helpers,
 					parseOptions
 				)
-				tokenUsage = addChatTokenUsage(tokenUsage, continueCompletion.tokenUsage)
+				trackUsage(continueCompletion.tokenUsage)
 				return continueCompletion.shouldContinue
 			}
 
@@ -295,24 +353,19 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					undefined,
 					parseOptions
 				)
-				tokenUsage = addChatTokenUsage(tokenUsage, continueCompletion.tokenUsage)
+				trackUsage(continueCompletion.tokenUsage)
 				if (!continueCompletion.shouldContinue) {
 					break
 				}
 			}
 		} else if (isAnthropic) {
 			const runAnthropic = async (useWebSearch: boolean): Promise<boolean> => {
-				const completion = await getAnthropicCompletion(
-					messageParams,
-					abortController,
-					toolDefs,
-					{
-						forceModelProvider: modelProvider,
-						anthropicClient: clients.anthropic,
-						webSearch: useWebSearch,
-						reasoningEffort
-					}
-				)
+				const completion = await getAnthropicCompletion(messageParams, abortController, toolDefs, {
+					forceModelProvider: modelProvider,
+					anthropicClient: clients.anthropic,
+					webSearch: useWebSearch,
+					reasoningEffort
+				})
 				if (!completion) {
 					return true
 				}
@@ -326,7 +379,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					abortController,
 					parseOptions
 				)
-				tokenUsage = addChatTokenUsage(tokenUsage, continueCompletion.tokenUsage)
+				trackUsage(continueCompletion.tokenUsage)
 				return continueCompletion.shouldContinue
 			}
 
@@ -361,7 +414,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					undefined,
 					parseOptions
 				)
-				tokenUsage = addChatTokenUsage(tokenUsage, continueCompletion.tokenUsage)
+				trackUsage(continueCompletion.tokenUsage)
 				if (!continueCompletion.shouldContinue) {
 					break
 				}
@@ -369,5 +422,5 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		}
 	}
 
-	return { addedMessages, tokenUsage, hitMaxIterations }
+	return { addedMessages, tokenUsage, lastIterationUsage, hitMaxIterations }
 }

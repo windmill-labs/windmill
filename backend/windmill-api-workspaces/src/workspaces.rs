@@ -3844,10 +3844,15 @@ async fn create_workspace(
     Ok(format!("Created workspace {}", &nw.id))
 }
 
+// `authed_email` is the forker's email — `clone_drafts` only carries this
+// user's per-user drafts (and the legacy NULL-email workspace draft, if any)
+// across, since other users aren't added to the fork's `usr` table and
+// their drafts would dangle as orphans.
 async fn clone_workspace_data(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
+    authed_email: &str,
 ) -> Result<()> {
     // Clone workspace settings (merge with existing basic settings)
     update_workspace_settings(tx, source_workspace_id, target_workspace_id).await?;
@@ -3887,6 +3892,14 @@ async fn clone_workspace_data(
 
     // Clone raw apps
     clone_raw_apps(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone the forker's own per-user drafts (plus the legacy NULL-email
+    // workspace draft, if any) so they keep their pending edits in the
+    // fork. Other users' drafts are intentionally NOT cloned — they don't
+    // own a `usr` row in the fork (see `clone_workspace_full`) so their
+    // drafts would dangle and the home-page `draft_users` aggregate would
+    // surface them as duplicate legacy entries.
+    clone_drafts(tx, source_workspace_id, target_workspace_id, authed_email).await?;
 
     // Clone workspace runnable dependencies and dependency map
     clone_workspace_runnable_dependencies(tx, source_workspace_id, target_workspace_id).await?;
@@ -4364,7 +4377,7 @@ async fn clone_scripts(
         r#"INSERT INTO script (
             workspace_id, hash, path, parent_hashes, summary, description, content,
             created_by, created_at, archived, schema, deleted, is_template,
-            extra_perms, lock, lock_error_logs, language, kind, tag, draft_only,
+            extra_perms, lock, lock_error_logs, language, kind, tag,
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
@@ -4374,7 +4387,7 @@ async fn clone_scripts(
         SELECT
             $1, hash, path, parent_hashes, summary, description, content,
             created_by, created_at, archived, schema, deleted, is_template,
-            extra_perms, lock, lock_error_logs, language, kind, tag, draft_only,
+            extra_perms, lock, lock_error_logs, language, kind, tag,
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
@@ -4417,12 +4430,12 @@ async fn clone_flows(
     sqlx::query!(
         "INSERT INTO flow (
             workspace_id, path, summary, description, value, edited_by, edited_at,
-            archived, schema, extra_perms, dependency_job, draft_only, tag,
+            archived, schema, extra_perms, dependency_job, tag,
             ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
             concurrency_key, versions, on_behalf_of_email, lock_error_logs
         )
         SELECT $2, path, summary, description, value, edited_by, edited_at,
-               archived, schema, extra_perms, NULL, draft_only, tag,
+               archived, schema, extra_perms, NULL, tag,
                ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
                concurrency_key, ARRAY[]::bigint[], on_behalf_of_email, lock_error_logs
         FROM flow
@@ -4503,7 +4516,7 @@ async fn clone_apps(
 ) -> Result<HashMap<i64, i64>> {
     // Get all apps from source workspace
     let apps = sqlx::query!(
-        "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, draft_only, custom_path
+        "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, custom_path
          FROM app
          WHERE workspace_id = $1",
         source_workspace_id
@@ -4516,8 +4529,8 @@ async fn clone_apps(
     // Clone apps with new IDs
     for app in apps {
         let new_app_id = sqlx::query_scalar!(
-            "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, draft_only, custom_path)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, custom_path)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
              RETURNING id",
             target_workspace_id,
             app.path,
@@ -4525,7 +4538,6 @@ async fn clone_apps(
             app.policy,
             &Vec::<i64>::new(), // Start with empty versions array
             app.extra_perms,
-            app.draft_only,
             app.custom_path,
         )
         .fetch_one(&mut **tx)
@@ -4722,6 +4734,39 @@ async fn clone_raw_apps(
          WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+/// Clone every per-user draft (and the legacy NULL-email workspace draft,
+/// if present) from the parent. The fork target is empty at create time so
+/// a plain INSERT is safe — no need to UPSERT against the partial unique
+/// indexes (`draft_pkey_with_user` / `draft_pkey_legacy`). `id` is the
+/// BIGSERIAL synthetic PK and is regenerated by the default; we don't list
+/// it in the column set. `created_at` is preserved so the per-tab
+/// `last_sync` baseline the editor reads (`?get_draft=true` → overlay's
+/// `draft_saved_at`) lines up with the parent's timeline — otherwise the
+/// fork's first POST from any open editor would race a stale `last_sync`
+/// and trip the conflict modal on every cloned draft.
+// Only `email = authed_email` and the legacy NULL row are cloned — see
+// `clone_workspace_data` for the rationale.
+async fn clone_drafts(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    authed_email: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO draft (workspace_id, path, typ, value, created_at, email)
+         SELECT $2, path, typ, value, created_at, email
+         FROM draft
+         WHERE workspace_id = $1 AND (email = $3 OR email IS NULL)",
+        source_workspace_id,
+        target_workspace_id,
+        authed_email,
     )
     .execute(&mut **tx)
     .await?;
@@ -5023,7 +5068,7 @@ async fn create_workspace_fork(
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id).await?;
+    clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id, &authed.email).await?;
 
     // Clone triggers and schedules unconditionally, always with mode='disabled' /
     // enabled=false. Disabled rows have no side effects (no listener
@@ -5193,6 +5238,18 @@ async fn archive_workspace(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
+        Some(audit_params_refs.clone()),
+    )
+    .await?;
+    // Also record under the instance-level "admins" workspace so superadmins can
+    // discover who archived a workspace after it becomes hidden from the UI.
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.archive",
+        ActionKind::Update,
+        "admins",
+        Some(&w_id),
         Some(audit_params_refs),
     )
     .await?;
@@ -5251,6 +5308,18 @@ async fn unarchive_workspace(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
+        None,
+    )
+    .await?;
+    // Also record under the instance-level "admins" workspace so superadmins keep
+    // a durable trail of who unarchived a workspace.
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.unarchive",
+        ActionKind::Update,
+        "admins",
+        Some(&w_id),
         None,
     )
     .await?;
@@ -6972,7 +7041,7 @@ async fn compare_two_apps(
          FROM app
          JOIN app_version
          ON app_version.id = app.versions[array_upper(app.versions, 1)]
-         WHERE app.workspace_id = $1 AND app.path = $2 AND COALESCE(app.draft_only, false) = false",
+         WHERE app.workspace_id = $1 AND app.path = $2",
         source_workspace_id,
         path
     )
@@ -6984,7 +7053,7 @@ async fn compare_two_apps(
          FROM app
          JOIN app_version
          ON app_version.id = app.versions[array_upper(app.versions, 1)]
-         WHERE app.workspace_id = $1 AND app.path = $2 AND COALESCE(app.draft_only, false) = false",
+         WHERE app.workspace_id = $1 AND app.path = $2",
         fork_workspace_id,
         path
     )
@@ -7430,7 +7499,7 @@ async fn get_cloud_quotas(
     let scripts_prunable = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM script s WHERE s.workspace_id = $1 AND s.hash NOT IN (
             SELECT DISTINCT ON (path) hash FROM script
-            WHERE workspace_id = $1 AND deleted = false AND draft_only IS NOT TRUE
+            WHERE workspace_id = $1 AND deleted = false
             ORDER BY path, created_at DESC
         )",
         &w_id
@@ -7525,7 +7594,7 @@ async fn prune_versions(
                 "DELETE FROM script
                 WHERE workspace_id = $1 AND hash NOT IN (
                     SELECT DISTINCT ON (path) hash FROM script
-                    WHERE workspace_id = $1 AND deleted = false AND draft_only IS NOT TRUE
+                    WHERE workspace_id = $1 AND deleted = false
                     ORDER BY path, created_at DESC
                 )",
             )

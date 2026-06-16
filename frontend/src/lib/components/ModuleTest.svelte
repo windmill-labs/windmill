@@ -32,8 +32,15 @@
 		onJobDone
 	}: Props = $props()
 
-	const { flowStore, flowStateStore, pathStore, stepsInputArgs, previewArgs, modulesTestStates } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const {
+		flowStore,
+		flowStateStore,
+		pathStore,
+		stepsInputArgs,
+		previewArgs,
+		modulesTestStates,
+		devTempScriptRefs
+	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let jobLoader: JobLoader | undefined = $state(undefined)
 	let jobProgressReset: () => void = () => {}
@@ -77,7 +84,9 @@
 				undefined,
 				undefined,
 				callbacks,
-				$pathStore
+				$pathStore,
+				undefined,
+				devTempScriptRefs?.()
 			)
 		} else if (val.type == 'script') {
 			const script = val.hash

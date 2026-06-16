@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { randomUUID } from '$lib/utils/uuid'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
-import { runChatLoop, type ChatLoopConfig } from './chatLoop'
+import { runChatLoop, truncateToToolPairedPrefix, type ChatLoopConfig } from './chatLoop'
 import type { ReasoningProviderModel } from '../reasoningRegistry'
 
 const mocks = vi.hoisted(() => ({
@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 	parseOpenAIResponsesCompletion: vi.fn(),
 	getAnthropicCompletion: vi.fn(),
 	parseAnthropicCompletion: vi.fn(),
-	resolveEffectiveReasoning: vi.fn()
+	resolveRequestReasoning: vi.fn()
 }))
 
 vi.mock('../lib', () => ({
@@ -22,7 +22,7 @@ vi.mock('../lib', () => ({
 }))
 
 vi.mock('../reasoningRegistry', () => ({
-	resolveEffectiveReasoning: mocks.resolveEffectiveReasoning
+	resolveRequestReasoning: mocks.resolveRequestReasoning
 }))
 
 vi.mock('./openai-responses', () => ({
@@ -83,7 +83,7 @@ describe('runChatLoop web search fallback', () => {
 		mocks.providerSupportsWebSearch.mockImplementation(
 			(provider) => provider === 'openai' || provider === 'anthropic'
 		)
-		mocks.resolveEffectiveReasoning.mockReturnValue(undefined)
+		mocks.resolveRequestReasoning.mockReturnValue(undefined)
 		mocks.parseOpenAICompletion.mockResolvedValue({
 			shouldContinue: false,
 			tokenUsage
@@ -255,9 +255,7 @@ describe('runChatLoop web search fallback', () => {
 			)
 			.mockResolvedValue({})
 
-		await runChatLoop(
-			createConfig({ workspace, callbacks, modelProvider, onWebSearchUnavailable })
-		)
+		await runChatLoop(createConfig({ workspace, callbacks, modelProvider, onWebSearchUnavailable }))
 
 		expect(mocks.getAnthropicCompletion).toHaveBeenCalledTimes(2)
 		expect(mocks.getAnthropicCompletion.mock.calls[0][3]).toEqual(
@@ -290,5 +288,114 @@ describe('runChatLoop web search fallback', () => {
 
 		expect(mocks.getAnthropicCompletion).toHaveBeenCalledTimes(1)
 		expect(callbacks.setToolStatus).not.toHaveBeenCalled()
+	})
+})
+
+describe('runChatLoop lastIterationUsage', () => {
+	beforeEach(() => {
+		vi.resetAllMocks()
+		mocks.resolveRequestReasoning.mockReturnValue(undefined)
+	})
+
+	it('keeps the usage of the last completion that reported it', async () => {
+		const workspace = `workspace-${randomUUID()}`
+		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
+		mocks.parseOpenAIResponsesCompletion
+			.mockResolvedValueOnce({
+				shouldContinue: true,
+				tokenUsage: { prompt: 1000, completion: 50, total: 1050 }
+			})
+			.mockResolvedValueOnce({
+				shouldContinue: false,
+				tokenUsage: { prompt: 1200, completion: 80, total: 1280 }
+			})
+
+		const result = await runChatLoop({ ...createConfig({ workspace }), maxIterations: 2 })
+
+		expect(result.lastIterationUsage).toEqual({ prompt: 1200, completion: 80, total: 1280 })
+		// the aggregate keeps summing across iterations
+		expect(result.tokenUsage).toEqual({ prompt: 2200, completion: 130, total: 2330 })
+	})
+
+	it('ignores empty usage reports and returns null when none are real', async () => {
+		const workspace = `workspace-${randomUUID()}`
+		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
+		mocks.parseOpenAIResponsesCompletion.mockResolvedValue({
+			shouldContinue: false,
+			tokenUsage: { prompt: 0, completion: 0, total: 0 }
+		})
+
+		const result = await runChatLoop(createConfig({ workspace }))
+
+		expect(result.lastIterationUsage).toBeNull()
+	})
+})
+
+// Builders for the message shapes the chat loop accumulates.
+const assistant = (content: string): ChatCompletionMessageParam => ({ role: 'assistant', content })
+const assistantTools = (...ids: string[]): ChatCompletionMessageParam => ({
+	role: 'assistant',
+	content: '',
+	tool_calls: ids.map((id) => ({
+		id,
+		type: 'function',
+		function: { name: 'do_thing', arguments: '{}' }
+	}))
+})
+const tool = (id: string): ChatCompletionMessageParam => ({
+	role: 'tool',
+	tool_call_id: id,
+	content: 'result'
+})
+const user = (content: string): ChatCompletionMessageParam => ({ role: 'user', content })
+
+describe('truncateToToolPairedPrefix', () => {
+	it('returns an empty array unchanged', () => {
+		expect(truncateToToolPairedPrefix([])).toEqual([])
+	})
+
+	it('drops a trailing dangling tool_call (aborted before the result)', () => {
+		const msgs = [assistantTools('a')]
+		expect(truncateToToolPairedPrefix(msgs)).toEqual([])
+	})
+
+	it('drops a partially-answered batch entirely (A answered, B missing)', () => {
+		const msgs = [assistantTools('a', 'b'), tool('a')]
+		expect(truncateToToolPairedPrefix(msgs)).toEqual([])
+	})
+
+	it('keeps text + a completed round-trip, then drops the dangling tail', () => {
+		const msgs = [
+			assistant('let me check'),
+			assistantTools('a'),
+			tool('a'),
+			assistant('more'),
+			assistantTools('b') // dangling
+		]
+		expect(truncateToToolPairedPrefix(msgs)).toEqual([
+			assistant('let me check'),
+			assistantTools('a'),
+			tool('a'),
+			assistant('more')
+		])
+	})
+
+	it('treats a user message as a valid boundary only when no tool calls are pending', () => {
+		const ok = [assistantTools('a'), tool('a'), user('next')]
+		expect(truncateToToolPairedPrefix(ok)).toEqual(ok)
+
+		const dangling = [assistantTools('a'), user('next')]
+		expect(truncateToToolPairedPrefix(dangling)).toEqual([])
+	})
+
+	it('leaves a valid full conversation unchanged (no loss on the normal path)', () => {
+		const msgs = [
+			assistant('thinking'),
+			assistantTools('a', 'b'),
+			tool('a'),
+			tool('b'),
+			assistant('done')
+		]
+		expect(truncateToToolPairedPrefix(msgs)).toEqual(msgs)
 	})
 })

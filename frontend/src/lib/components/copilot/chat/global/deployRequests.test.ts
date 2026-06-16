@@ -143,6 +143,31 @@ describe('global AI deploy request builders', () => {
 		expect(requestBody.value.groups).toEqual(draftValue.groups)
 	})
 
+	it('deploys a draft-set flow description, overriding the existing one', () => {
+		const existing = {
+			path: 'f/demo/flow',
+			summary: 'existing summary',
+			description: 'existing description',
+			value: { modules: [] },
+			schema: {}
+		} as unknown as Flow
+
+		const requestBody = buildFlowDeployRequestBody(
+			'f/demo/flow',
+			undefined,
+			{
+				value: { modules: [] },
+				schema: null,
+				groups: null,
+				description: 'draft-set description'
+			} as any,
+			existing,
+			undefined
+		)
+
+		expect(requestBody.description).toBe('draft-set description')
+	})
+
 	it('falls back to existing flow schema when the draft has no schema', () => {
 		const existing = {
 			path: 'f/demo/flow',

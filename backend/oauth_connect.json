@@ -225,5 +225,19 @@
         "instance_url": "https://{instance}.service-now.com"
       }
     }
+  },
+  "outreach": {
+    "auth_url": "https://api.outreach.io/oauth/authorize",
+    "token_url": "https://api.outreach.io/oauth/token",
+    "scopes": [
+      "accounts.all",
+      "prospects.all",
+      "sequences.all",
+      "sequenceStates.all",
+      "tasks.all",
+      "mailings.read",
+      "mailboxes.read"
+    ],
+    "req_body_auth": true
   }
 }

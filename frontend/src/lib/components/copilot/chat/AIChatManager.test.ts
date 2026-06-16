@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FlowAIChatHelpers } from './flow/core'
 import type { CurrentEditor } from '$lib/components/flows/types'
 import type { ReviewChangesOpts } from './monaco-adapter'
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
+import { runChatLoop } from './chatLoop'
 
 const mocks = vi.hoisted(() => ({
 	getCurrentModel: vi.fn(),
@@ -28,11 +30,15 @@ vi.mock('$lib/gen', () => ({
 	JobService: {}
 }))
 
+// Autonomy mode is now namespaced by the logged-in user's email (see
+// userScopedStorage); the mock emits one so scopedKey() resolves.
+const TEST_EMAIL = 'admin@test'
+
 vi.mock('$lib/stores', () => ({
 	workspaceStore: { subscribe: () => () => undefined },
 	userStore: {
-		subscribe: (run: (value: { username: string }) => void) => {
-			run({ username: 'admin' })
+		subscribe: (run: (value: { username: string; email: string }) => void) => {
+			run({ username: 'admin', email: 'admin@test' })
 			return () => undefined
 		}
 	}
@@ -50,7 +56,6 @@ vi.mock('$lib/aiStore', () => ({
 }))
 
 vi.mock('../lib', () => ({
-	getModelContextWindow: () => 128000,
 	workspaceAIClients: {
 		subscribe: () => () => undefined,
 		getOpenaiClient: mocks.getOpenaiClient,
@@ -62,7 +67,10 @@ vi.mock('./api/apiTools', () => ({
 	loadApiTools: vi.fn()
 }))
 
-vi.mock('./chatLoop', () => ({
+// Mock only runChatLoop; keep the real truncateToToolPairedPrefix (pure) that
+// the manager uses to commit partial output.
+vi.mock('./chatLoop', async (importOriginal) => ({
+	...(await importOriginal<typeof import('./chatLoop')>()),
 	runChatLoop: mocks.runChatLoop
 }))
 
@@ -180,7 +188,7 @@ describe('AIChatManager autonomy mode', () => {
 		localStorage.clear()
 		// These tests exercise the transition into auto-accept, so start from the
 		// ask-permission baseline rather than the new auto-accept-edits default.
-		localStorage.setItem('ai-chat-autonomy-mode', AIAutonomyMode.DEFAULT)
+		localStorage.setItem(`ai-chat-autonomy-mode::${TEST_EMAIL}`, AIAutonomyMode.DEFAULT)
 		vi.clearAllMocks()
 	})
 
@@ -282,9 +290,10 @@ describe('AIChatManager autonomy mode', () => {
 })
 
 describe('AIChatManager persisted autonomy default', () => {
-	// Mirrors the private storage keys in AIChatManager.svelte.ts.
-	const AUTONOMY_KEY = 'ai-chat-autonomy-mode'
-	const LEGACY_YOLO_KEY = 'ai-chat-yolo-mode'
+	// Mirrors the private storage keys in AIChatManager.svelte.ts, namespaced by
+	// the logged-in user's email (see userScopedStorage).
+	const AUTONOMY_KEY = `ai-chat-autonomy-mode::${TEST_EMAIL}`
+	const LEGACY_YOLO_KEY = `ai-chat-yolo-mode::${TEST_EMAIL}`
 
 	beforeEach(() => {
 		localStorage.clear()
@@ -303,5 +312,552 @@ describe('AIChatManager persisted autonomy default', () => {
 	it('restores an explicitly persisted autonomy mode', () => {
 		localStorage.setItem(AUTONOMY_KEY, AIAutonomyMode.DEFAULT)
 		expect(new AIChatManager().autonomyMode).toBe(AIAutonomyMode.DEFAULT)
+	})
+})
+
+describe('AIChatManager context compaction', () => {
+	// claude-sonnet-4-6 resolves to a known 1M window (modelConfig is
+	// unmocked): compaction triggers at a projected 800k and drops head
+	// messages until ~700k.
+	const anthropicModel = { provider: 'anthropic', model: 'claude-sonnet-4-6' }
+
+	// The turn-outcome handling rolls back turns with no usable output, so every
+	// sendRequest here must produce a reply to take the clean-commit path.
+	const replyWith = (
+		reply: string,
+		lastIterationUsage: { prompt: number; completion: number; total: number } | null = null
+	) =>
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const message = { role: 'assistant' as const, content: reply }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: lastIterationUsage ?? { prompt: 0, completion: 0, total: 0 },
+				lastIterationUsage,
+				hitMaxIterations: false
+			}
+		})
+
+	beforeEach(() => {
+		localStorage.clear()
+		vi.clearAllMocks()
+		mocks.getCurrentModel.mockReturnValue(anthropicModel)
+		mocks.tryGetCurrentModel.mockReturnValue(anthropicModel)
+		replyWith('done')
+	})
+
+	it('compacts the stored history before sending once reported usage projects over the trigger', async () => {
+		const manager = new AIChatManager()
+		manager.messages = [
+			{ role: 'user', content: 'a'.repeat(400_000) }, // ~100k estimated tokens
+			{ role: 'assistant', content: 'b'.repeat(400_000) }, // ~100k
+			{ role: 'user', content: 'c'.repeat(400) },
+			{ role: 'assistant', content: 'd'.repeat(400) }
+		]
+		// Provider fact: 850k used. Projected past the 800k trigger, so ~150k
+		// must be freed to come back to the 700k target — the first user +
+		// assistant pair (~200k estimated).
+		manager.contextUsage = 850_000
+		manager.instructions = 'next question'
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat')
+
+		await manager.sendRequest()
+
+		const sent = mocks.runChatLoop.mock.calls[0][0].messages
+		expect(sent.length).toBe(3)
+		expect(sent[0]).toMatchObject({ role: 'user', content: 'c'.repeat(400) })
+		// The mutation is on the stored history, not a per-send copy: the head
+		// pair is gone for good and the turn's reply was committed on top
+		expect(manager.messages.length).toBe(4)
+		expect(manager.messages[0]).toMatchObject({ role: 'user', content: 'c'.repeat(400) })
+		// Mid-turn, the report is debited by the freed estimate (visible in the
+		// compaction-time save) so a rolled-back turn keeps a consistent value
+		expect(saveChat).toHaveBeenCalledWith(expect.anything(), expect.anything(), 650_000)
+		// At commit, the no-report turn clears the stored value; the readable
+		// number falls back to estimating the now-tiny compacted history
+		expect(manager.contextUsage).toBeUndefined()
+		expect(manager.contextTokens).toBeGreaterThan(0)
+		expect(manager.contextTokens).toBeLessThan(50_000)
+		// The display message for the sent prompt re-bases onto the compacted history
+		const userDisplay = manager.displayMessages.find((m) => m.role === 'user')
+		expect(userDisplay && 'index' in userDisplay ? userDisplay.index : undefined).toBe(2)
+	})
+
+	it('updates the reported usage after every send, including compacted ones', async () => {
+		const manager = new AIChatManager()
+		manager.messages = [
+			{ role: 'user', content: 'a'.repeat(400_000) },
+			{ role: 'assistant', content: 'b'.repeat(400_000) },
+			{ role: 'user', content: 'c'.repeat(400) }
+		]
+		manager.contextUsage = 850_000
+		manager.instructions = 'next question'
+		replyWith('done', { prompt: 720_000, completion: 1_000, total: 721_000 })
+
+		await manager.sendRequest()
+
+		// The report describes exactly what was sent (the compacted history), so
+		// it replaces the debited estimate wholesale.
+		expect(manager.contextUsage).toBe(721_000)
+	})
+
+	it('does not compact while the estimated context stays under the trigger', async () => {
+		const manager = new AIChatManager()
+		manager.messages = [
+			{ role: 'user', content: 'a'.repeat(400_000) },
+			{ role: 'assistant', content: 'b'.repeat(400_000) }
+		]
+		// no report: the trigger runs off the ~200k estimate, well under 800k
+		manager.instructions = 'next question'
+
+		await manager.sendRequest()
+
+		expect(mocks.runChatLoop.mock.calls[0][0].messages.length).toBe(3)
+	})
+
+	it('compacts off the estimate alone when no report ever arrived', async () => {
+		const manager = new AIChatManager()
+		manager.messages = [
+			{ role: 'user', content: 'a'.repeat(1_600_000) }, // ~400k estimated tokens
+			{ role: 'assistant', content: 'b'.repeat(1_600_000) }, // ~400k
+			{ role: 'user', content: 'c'.repeat(400) },
+			{ role: 'assistant', content: 'd'.repeat(400) }
+		]
+		// ~800k estimated with no provider report ever seen (e.g. a gateway that
+		// strips usage): the lazily-estimated projection trips the 800k trigger
+		// and frees down to ~700k — the first user + assistant pair goes
+		manager.instructions = 'next question'
+
+		await manager.sendRequest()
+
+		const sent = mocks.runChatLoop.mock.calls[0][0].messages
+		expect(sent.length).toBe(3)
+		expect(sent[0]).toMatchObject({ role: 'user', content: 'c'.repeat(400) })
+	})
+
+	it('estimates lazily instead of storing a guess when the provider reports no usage', async () => {
+		const manager = new AIChatManager()
+		manager.messages = [
+			{ role: 'user', content: 'a'.repeat(400_000) },
+			{ role: 'assistant', content: 'b'.repeat(400_000) }
+		]
+		manager.instructions = 'next question'
+
+		await manager.sendRequest() // replyWith('done') reports no usage
+
+		// the stored value stays a pure provider fact…
+		expect(manager.contextUsage).toBeUndefined()
+		// …while the readable number estimates the stored context: ~200k for the
+		// messages plus the real navigator system prompt, tool defs and the small
+		// new-turn messages; the prompt templates aren't pinned here, so assert
+		// the magnitude rather than the byte count
+		expect(manager.contextTokens).toBeGreaterThan(200_000)
+		expect(manager.contextTokens).toBeLessThan(250_000)
+	})
+
+	it('prefers the provider report over the estimate once one arrives', async () => {
+		const manager = new AIChatManager()
+		manager.messages = [{ role: 'user', content: 'a'.repeat(400) }]
+		manager.instructions = 'first'
+		await manager.sendRequest()
+		expect(manager.contextUsage).toBeUndefined()
+		expect(manager.contextTokens).toBeGreaterThan(0)
+
+		replyWith('done', { prompt: 1_234, completion: 56, total: 1_290 })
+		manager.instructions = 'second'
+		await manager.sendRequest()
+		expect(manager.contextUsage).toBe(1_290)
+		expect(manager.contextTokens).toBe(1_290)
+	})
+
+	it('does not compact when the model context window is unknown', async () => {
+		mocks.getCurrentModel.mockReturnValue({ provider: 'custom', model: 'mystery-model-9000' })
+		mocks.tryGetCurrentModel.mockReturnValue({ provider: 'custom', model: 'mystery-model-9000' })
+		const manager = new AIChatManager()
+		manager.messages = [
+			{ role: 'user', content: 'a'.repeat(400_000) },
+			{ role: 'assistant', content: 'b'.repeat(400_000) }
+		]
+		manager.contextUsage = 10_000_000
+		manager.instructions = 'next question'
+
+		await manager.sendRequest()
+
+		expect(mocks.runChatLoop.mock.calls[0][0].messages.length).toBe(3)
+	})
+
+	it('never drops the most recent message', () => {
+		const manager = new AIChatManager()
+		manager.messages = [{ role: 'user', content: 'a'.repeat(400_000) }]
+		expect(manager.compactOldestMessages(Number.MAX_SAFE_INTEGER)).toBe(0)
+		expect(manager.messages.length).toBe(1)
+	})
+
+	it('keeps dropping past dangling turns so the history restarts on a user message', () => {
+		const manager = new AIChatManager()
+		manager.messages = [
+			{
+				role: 'assistant',
+				content: 'calling tools',
+				tool_calls: [
+					{ id: '1', type: 'function', function: { name: 'x', arguments: '{}' } },
+					{ id: '2', type: 'function', function: { name: 'y', arguments: '{}' } }
+				]
+			},
+			{ role: 'tool', content: 'result 1', tool_call_id: '1' },
+			{ role: 'tool', content: 'result 2', tool_call_id: '2' },
+			{ role: 'user', content: 'follow-up' },
+			{ role: 'user', content: 'latest' }
+		]
+		// Freeing 1 token is satisfied by the first drop alone, but the tool
+		// results would dangle without their assistant tool_calls message
+		manager.compactOldestMessages(1)
+		expect(manager.messages.map((m) => m.role)).toEqual(['user', 'user'])
+	})
+
+	it('re-bases display message indices and clamps fully-compacted ones to 0', () => {
+		const manager = new AIChatManager()
+		manager.messages = [
+			{ role: 'user', content: 'a'.repeat(400) }, // ~100 estimated tokens
+			{ role: 'assistant', content: 'b'.repeat(400) }, // ~100
+			{ role: 'user', content: 'c' },
+			{ role: 'user', content: 'd' }
+		]
+		manager.displayMessages = [
+			{ role: 'user', content: 'first', index: 0 },
+			{ role: 'assistant', content: 'answer' },
+			{ role: 'user', content: 'second', index: 2 },
+			{ role: 'user', content: 'third', index: 3 }
+		]
+		manager.compactOldestMessages(150)
+		expect(manager.messages.map((m) => m.content)).toEqual(['c', 'd'])
+		expect(manager.displayMessages.map((m) => ('index' in m ? m.index : undefined))).toEqual([
+			0,
+			undefined,
+			0,
+			1
+		])
+	})
+
+	it('falls back to estimating the rewound history after a rewind', () => {
+		const manager = new AIChatManager()
+		manager.messages = [
+			{ role: 'user', content: 'a'.repeat(400) }, // ~100 estimated tokens
+			{ role: 'assistant', content: 'b'.repeat(400) }, // ~100
+			{ role: 'user', content: 'q2' },
+			{ role: 'assistant', content: 'a2' }
+		]
+		manager.displayMessages = [
+			{ role: 'user', content: 'q1', index: 0 },
+			{ role: 'assistant', content: 'a1' },
+			{ role: 'user', content: 'q2', index: 2 },
+			{ role: 'assistant', content: 'a2' }
+		]
+		// A report that described the pre-rewind history must not survive the
+		// rewind as-is…
+		manager.contextUsage = 999_999
+		manager.restartGeneration(2)
+		expect(manager.contextUsage).toBeUndefined()
+		// …but the readable number stays armed by estimating what remains (the
+		// two surviving messages, plus the prompt/tools the resend installed),
+		// so e.g. Retry after a context-length error still compacts
+		expect(manager.contextTokens).toBeGreaterThanOrEqual(200)
+		expect(manager.contextTokens).toBeLessThan(50_000)
+	})
+
+	it('clears the reported usage when saveAndClear resets the conversation', async () => {
+		const manager = new AIChatManager()
+		manager.contextUsage = 1000
+		await manager.saveAndClear()
+		expect(manager.contextUsage).toBeUndefined()
+	})
+})
+
+const assistantToolCall = (id: string): ChatCompletionMessageParam => ({
+	role: 'assistant',
+	content: '',
+	tool_calls: [{ id, type: 'function', function: { name: 'do_thing', arguments: '{}' } }]
+})
+const toolResult = (id: string): ChatCompletionMessageParam => ({
+	role: 'tool',
+	tool_call_id: id,
+	content: 'ok'
+})
+
+describe('AIChatManager sendRequest lifecycle', () => {
+	beforeEach(() => {
+		localStorage.clear()
+		// The send path reads the current model (request logging + context window
+		// lookup), so it must be a real object (the file-level beforeEach defaults
+		// it to undefined). 'test-model' has no known window → compaction stays off.
+		mocks.getCurrentModel.mockReturnValue({ model: 'test-model', provider: 'openai' })
+	})
+
+	it('restores the message to the composer when the model returns no output (#2)', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		const restoreInstructions = vi.fn()
+		manager.setAiChatInput({ restoreInstructions, focusInput: vi.fn() } as any)
+
+		// Empty turn: the loop produces no messages and no display output.
+		vi.mocked(runChatLoop).mockResolvedValue({
+			addedMessages: [],
+			tokenUsage: {} as any,
+			lastIterationUsage: null,
+			hitMaxIterations: false
+		})
+
+		manager.instructions = 'do a thing'
+		await manager.sendRequest()
+
+		// The empty user turn is rolled back out of the transcript...
+		expect(manager.displayMessages.some((m) => m.role === 'user')).toBe(false)
+		expect(manager.messages.some((m) => m.role === 'user')).toBe(false)
+		// ...and its text is handed back to the composer.
+		expect(restoreInstructions).toHaveBeenCalledWith('do a thing', [])
+		expect(manager.loading).toBe(false)
+	})
+
+	it('restores the message when a completed turn produced only reasoning (#2)', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		const restoreInstructions = vi.fn()
+		manager.setAiChatInput({ restoreInstructions, focusInput: vi.fn() } as any)
+
+		// The model finishes (no abort, no error) having emitted only reasoning —
+		// nothing replayable as context, so the turn is as unsent as an empty one.
+		vi.mocked(runChatLoop).mockImplementation(async (config) => {
+			config.callbacks.onReasoningStart?.()
+			config.callbacks.onReasoningDelta?.('hmm...')
+			config.callbacks.onMessageEnd()
+			return {
+				addedMessages: [],
+				tokenUsage: {} as any,
+				lastIterationUsage: null,
+				hitMaxIterations: false
+			}
+		})
+
+		manager.instructions = 'do a thing'
+		await manager.sendRequest()
+
+		expect(manager.displayMessages).toHaveLength(0)
+		expect(manager.messages.some((m) => m.role === 'user')).toBe(false)
+		expect(restoreInstructions).toHaveBeenCalledWith('do a thing', [])
+		expect(manager.loading).toBe(false)
+	})
+
+	it('does NOT restore on a normal turn that produced output', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		const restoreInstructions = vi.fn()
+		manager.setAiChatInput({ restoreInstructions, focusInput: vi.fn() } as any)
+
+		vi.mocked(runChatLoop).mockImplementation(async (config) => {
+			config.callbacks.onNewToken('hello')
+			config.callbacks.onMessageEnd()
+			return {
+				addedMessages: [],
+				tokenUsage: {} as any,
+				lastIterationUsage: null,
+				hitMaxIterations: false
+			}
+		})
+
+		manager.instructions = 'do a thing'
+		await manager.sendRequest()
+
+		expect(restoreInstructions).not.toHaveBeenCalled()
+		expect(manager.displayMessages.some((m) => m.role === 'user')).toBe(true)
+		expect(manager.displayMessages.some((m) => m.role === 'assistant')).toBe(true)
+	})
+
+	it('keeps the tool-paired prefix of a failed turn as context, dropping the dangling call (#3)', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		manager.setAiChatInput({ restoreInstructions: vi.fn(), focusInput: vi.fn() } as any)
+
+		// Completed round-trip for 'a', then started 'b' and failed before its result.
+		vi.mocked(runChatLoop).mockImplementation(async (config) => {
+			config.addedMessages!.push(assistantToolCall('a'), toolResult('a'), assistantToolCall('b'))
+			throw new Error('boom')
+		})
+
+		manager.instructions = 'do a thing'
+		await manager.sendRequest()
+
+		// 'a' round-trip retained as context; dangling 'b' dropped.
+		const toolMsgs = manager.messages.filter((m) => m.role === 'tool')
+		expect(toolMsgs).toHaveLength(1)
+		const hasDanglingB = manager.messages.some(
+			(m) => m.role === 'assistant' && (m as any).tool_calls?.some((c: any) => c.id === 'b')
+		)
+		expect(hasDanglingB).toBe(false)
+		// The user message is flagged so the Retry affordance shows.
+		const lastUser = [...manager.displayMessages].reverse().find((m) => m.role === 'user')
+		expect((lastUser as any)?.error).toBe(true)
+		expect(manager.loading).toBe(false)
+	})
+
+	it('retains the partial answer text when cancelled mid-response, so a follow-up continues (#3)', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		manager.setAiChatInput({ restoreInstructions: vi.fn(), focusInput: vi.fn() } as any)
+
+		// Model wrote part of an answer, then the user hit Stop (abort).
+		vi.mocked(runChatLoop).mockImplementation(async (config) => {
+			config.callbacks.onNewToken('Here is the partial ')
+			config.callbacks.onNewToken('answer')
+			config.abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		manager.instructions = 'write a long thing'
+		await manager.sendRequest()
+
+		// The partial answer is carried as context for the next message.
+		const assistant = manager.messages.find((m) => m.role === 'assistant')
+		expect(assistant?.content).toBe('Here is the partial answer')
+		// And it stays visible in the transcript.
+		expect(manager.displayMessages.some((m) => m.role === 'assistant')).toBe(true)
+		expect(manager.loading).toBe(false)
+	})
+
+	it('restores the message and clears the reasoning bubble when cancelled while only thinking (#3)', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		const restoreInstructions = vi.fn()
+		manager.setAiChatInput({ restoreInstructions, focusInput: vi.fn() } as any)
+
+		// Model was still thinking (no answer text) when the user hit Stop.
+		vi.mocked(runChatLoop).mockImplementation(async (config) => {
+			config.callbacks.onReasoningStart?.()
+			config.callbacks.onReasoningDelta?.('still thinking...')
+			config.abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		manager.instructions = 'think hard'
+		await manager.sendRequest()
+
+		// Nothing usable was produced → treat as unsent: roll the turn back out
+		// (user message + stuck-open reasoning bubble) and restore the composer.
+		expect(manager.messages.some((m) => m.role === 'assistant')).toBe(false)
+		expect(manager.displayMessages.some((m) => m.role === 'assistant')).toBe(false)
+		expect(manager.displayMessages.some((m) => m.role === 'user')).toBe(false)
+		expect(restoreInstructions).toHaveBeenCalledWith('think hard', [])
+		expect(manager.loading).toBe(false)
+	})
+
+	it('keeps text flushed before a tool call when cancelled during the tool call (#3)', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		const restoreInstructions = vi.fn()
+		manager.setAiChatInput({ restoreInstructions, focusInput: vi.fn() } as any)
+
+		// When a tool call starts streaming after some answer text, the parsers
+		// flush onMessageEnd early (capturing the text and resetting currentReply)
+		// while the structured message carrying that text is only pushed at clean
+		// stream end. If the user cancels during the tool call, chatRequest's
+		// catch calls onMessageEnd again with an empty currentReply — the captured
+		// text must survive that second call.
+		vi.mocked(runChatLoop).mockImplementation(async (config) => {
+			config.callbacks.onNewToken('Partial from Claude')
+			config.callbacks.onMessageEnd()
+			config.abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		manager.instructions = 'write a long thing'
+		await manager.sendRequest()
+
+		const assistant = manager.messages.find((m) => m.role === 'assistant')
+		expect(assistant?.content).toBe('Partial from Claude')
+		expect(restoreInstructions).not.toHaveBeenCalled()
+		expect(manager.loading).toBe(false)
+	})
+
+	it('does not duplicate an already-committed answer when cancelled right after a completed message', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		manager.setAiChatInput({ restoreInstructions: vi.fn(), focusInput: vi.fn() } as any)
+
+		// A message completed cleanly (structured message in addedMessages,
+		// partialReply captured at its onMessageEnd), then the abort lands before
+		// the next iteration produced anything — the stale partialReply must not
+		// be committed a second time.
+		vi.mocked(runChatLoop).mockImplementation(async (config) => {
+			config.callbacks.onNewToken('The full answer')
+			config.addedMessages!.push({ role: 'assistant', content: 'The full answer' })
+			config.callbacks.onMessageEnd()
+			config.abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		manager.instructions = 'do a thing'
+		await manager.sendRequest()
+
+		const assistants = manager.messages.filter((m) => m.role === 'assistant')
+		expect(assistants).toHaveLength(1)
+		expect(assistants[0]?.content).toBe('The full answer')
+		expect(manager.loading).toBe(false)
+	})
+
+	it('does not re-commit the turn when a post-commit save throws', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		manager.setAiChatInput({ restoreInstructions: vi.fn(), focusInput: vi.fn() } as any)
+
+		// Clean turn, but persisting it fails — the catch must not treat that as a
+		// failed request and commit the collected messages a second time.
+		vi.mocked(runChatLoop).mockImplementation(async (config) => {
+			config.callbacks.onNewToken('hello')
+			config.addedMessages!.push({ role: 'assistant', content: 'hello' })
+			config.callbacks.onMessageEnd()
+			return {
+				addedMessages: config.addedMessages!,
+				tokenUsage: {} as any,
+				lastIterationUsage: null,
+				hitMaxIterations: false
+			}
+		})
+		const saveChat = vi
+			.spyOn(manager.historyManager, 'saveChat')
+			.mockResolvedValueOnce(undefined) // save right after the user message
+			.mockRejectedValueOnce(new Error('persist failed')) // post-commit save
+
+		manager.instructions = 'do a thing'
+		await manager.sendRequest()
+
+		expect(saveChat).toHaveBeenCalledTimes(2)
+		const assistants = manager.messages.filter((m) => m.role === 'assistant')
+		expect(assistants).toHaveLength(1)
+		// The request itself succeeded, so the user message is not flagged.
+		const lastUser = [...manager.displayMessages].reverse().find((m) => m.role === 'user')
+		expect((lastUser as any)?.error).toBeUndefined()
+		expect(manager.loading).toBe(false)
+	})
+
+	it('removes the persisted chat when a rolled-back first turn empties the transcript', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		manager.setAiChatInput({ restoreInstructions: vi.fn(), focusInput: vi.fn() } as any)
+
+		// saveChat no-ops on an empty transcript, so rolling back the only turn
+		// must delete the chat entry persisted earlier in the turn instead.
+		vi.mocked(runChatLoop).mockResolvedValue({
+			addedMessages: [],
+			tokenUsage: {} as any,
+			lastIterationUsage: null,
+			hitMaxIterations: false
+		})
+		const deletePastChat = vi.spyOn(manager.historyManager, 'deletePastChat')
+
+		manager.instructions = 'do a thing'
+		await manager.sendRequest()
+
+		expect(manager.displayMessages).toHaveLength(0)
+		expect(deletePastChat).toHaveBeenCalledWith(manager.historyManager.getCurrentChatId())
+		expect(manager.loading).toBe(false)
 	})
 })

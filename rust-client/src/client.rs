@@ -225,9 +225,15 @@ impl Windmill {
         path: &'a str,
         is_secret: bool,
     ) -> Result<(), SdkError> {
-        let res =
-            variable_api::get_variable(&self.client_config, &self.workspace, path, None, None)
-                .await;
+        let res = variable_api::get_variable(
+            &self.client_config,
+            &self.workspace,
+            path,
+            None,
+            None,
+            None,
+        )
+        .await;
 
         if res.is_err() {
             variable_api::create_variable(

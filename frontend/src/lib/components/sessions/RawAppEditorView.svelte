@@ -4,6 +4,7 @@
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import SessionEditorTarget from './SessionEditorTarget.svelte'
+	import { runResetToDeployed } from '$lib/userDraftToast'
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import type {
 		RawAppRuntimeLogRequester,
@@ -28,9 +29,19 @@
 
 	let diffDrawer: DiffDrawer | undefined = $state()
 
-	async function restoreFromCurrentTarget() {
+	async function reloadDeployed() {
+		await runtime.loadRawApp(workspaceId, path, true, true)
+	}
+
+	async function restoreDeployed() {
 		diffDrawer?.closeDrawer()
-		await runtime.loadRawApp(workspaceId, path)
+		await runResetToDeployed({
+			workspace: workspaceId,
+			itemKind: 'raw_app',
+			path,
+			onResetToDeployed: reloadDeployed
+		})
+		invalidateWorkspaceDrafts(workspaceId)
 	}
 
 	function registerRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined) {
@@ -43,11 +54,7 @@
 </script>
 
 {#if runtime.savedRawApp.val}
-	<DiffDrawer
-		bind:this={diffDrawer}
-		restoreDeployed={restoreFromCurrentTarget}
-		restoreDraft={restoreFromCurrentTarget}
-	/>
+	<DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
 {/if}
 <SessionEditorTarget
 	{runtime}
@@ -60,6 +67,10 @@
 >
 	{#snippet editor()}
 		{#if runtime.rawApp.val}
+			<!-- newApp: a draft-only app (no_deployed=true) has a truthy synthesized
+			     savedApp but no deployed row, so it must deploy via createApp — keying
+			     on !savedApp alone would updateApp a never-deployed path and 404
+			     "not found". -->
 			<RawAppEditor
 				bind:files={runtime.rawApp.val.files}
 				bind:runnables={runtime.rawApp.val.runnables}
@@ -67,20 +78,18 @@
 				bind:summary={runtime.rawApp.val.summary}
 				newPath={runtime.rawApp.val.path}
 				{path}
+				autosaveWorkspace={workspaceId}
+				autosavePath={path}
 				policy={runtime.rawApp.val.policy}
 				bind:savedApp={runtime.savedRawApp.val}
-				newApp={!runtime.savedRawApp.val}
+				newApp={!runtime.savedRawApp.val || runtime.savedRawApp.val.no_deployed === true}
 				{diffDrawer}
 				{onNavigate}
+				onResetToDeployed={reloadDeployed}
 				onDeploy={(e) => {
 					// Sync the preview to deployed (raw apps deploy only from this editor).
 					runtime.syncPreviewWithDeployed(workspaceId, 'raw_app', e.path)
 					// Deploying clears the item's pending draft — refresh the Draft Count.
-					invalidateWorkspaceDrafts(workspaceId)
-				}}
-				onSaveDraft={() => {
-					// Saving a server draft adds/updates a draft — refresh the Draft Count so
-					// the session draft bar appears/updates immediately (parity with script/flow).
 					invalidateWorkspaceDrafts(workspaceId)
 				}}
 				defaultSidebarCollapsed

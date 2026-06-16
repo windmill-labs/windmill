@@ -419,6 +419,9 @@
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
 				updateCode()
 				shouldBindKey && format && format()
+				// See Editor.svelte — re-broadcast the swallowed shortcut for
+				// page-level draft-flush handlers.
+				window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut'))
 			})
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {
@@ -448,6 +451,9 @@
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
 				updateCode()
 				shouldBindKey && format && format()
+				// See Editor.svelte — re-broadcast the swallowed shortcut for
+				// page-level draft-flush handlers.
+				window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut'))
 			})
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {

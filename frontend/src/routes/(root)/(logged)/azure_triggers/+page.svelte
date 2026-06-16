@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { run } from 'svelte/legacy'
 
 	import {
@@ -25,6 +26,7 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
@@ -77,7 +79,7 @@
 	}
 	getDeployUiSettings()
 	async function loadTriggers(): Promise<void> {
-		triggers = (await AzureTriggerService.listAzureTriggers({ workspace: $workspaceStore! })).map(
+		triggers = (await AzureTriggerService.listAzureTriggers({ workspace: $workspaceStore!, includeDraftOnly: true })).map(
 			(x) => {
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			}
@@ -404,7 +406,7 @@
 			<div class="text-center text-sm text-primary mt-2"> No Azure Event Grid triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { azure_resource_path, azure_mode, scope_resource_id, topic_name, subscription_name, workspace_id, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, mode, server_id, retry, error_handler_path, error_handler_args } (path)}
+				{#each items.slice(0, nbDisplayed) as { azure_resource_path, azure_mode, scope_resource_id, topic_name, subscription_name, workspace_id, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, mode, server_id, retry, error_handler_path, error_handler_args, draft_only, is_draft } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = new Date()}
 					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
@@ -427,7 +429,7 @@
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
 								<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
-									{path} - {topic_label} ({azure_mode}, {subscription_name})
+									{path} - {topic_label} ({azure_mode}, {subscription_name}){(getLocalDraftHint($workspaceStore, 'trigger_azure', path) ?? is_draft) ? '*' : ''}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
 									runnable: {script_path}
@@ -436,6 +438,9 @@
 
 							<div class="hidden lg:flex flex-row gap-1 items-center">
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
+									{#if draft_only}
+										<DraftBadge draft_only is_draft={false} />
+									{/if}
 							</div>
 
 							{#if is_pull}

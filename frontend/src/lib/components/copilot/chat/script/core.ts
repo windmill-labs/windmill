@@ -23,7 +23,7 @@ import {
 } from '../shared'
 import { createWorkspaceMutationTools } from '../workspaceTools'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
-import { getModelContextWindow } from '../../lib'
+import { getModelContextWindow } from '../../modelConfig'
 import type { ReviewChangesOpts } from '../monaco-adapter'
 import { getCurrentModel } from '$lib/aiStore'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/metadata'

@@ -86,7 +86,8 @@
 		'xero',
 		'apify',
 		'docusign',
-		'salesforce'
+		'salesforce',
+		'outreach'
 	]
 	// Providers whose registry entry (`backend/oauth_connect.json`) carries a
 	// `sandbox` URL block. Each one gets a sibling `<name>_sandbox` dropdown
