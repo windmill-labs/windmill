@@ -3620,6 +3620,17 @@ async fn get_on_behalf_authed_from_app(
     Ok((on_behalf_authed, policy))
 }
 
+/// True if the caller is an app embed token (carries the `app_embed` sentinel
+/// scope). Such tokens hold the viewer's identity but represent untrusted app JS,
+/// so some handlers confine them more tightly than a normal session.
+#[cfg(feature = "parquet")]
+fn is_app_embed_token(authed: &ApiAuthed) -> bool {
+    authed.scopes.as_ref().is_some_and(|s| {
+        s.iter()
+            .any(|x| x == windmill_api_auth::scopes::APP_EMBED_SENTINEL)
+    })
+}
+
 #[cfg(feature = "parquet")]
 async fn check_if_allowed_to_access_s3_file_from_app(
     db: &DB,
@@ -3650,34 +3661,47 @@ async fn check_if_allowed_to_access_s3_file_from_app(
         return Err(Error::InternalErr(
             "Internal error: signature validation is not supported in open source mode".to_string(),
         ));
-    } else if opt_authed.is_some() {
+    } else if opt_authed
+        .as_ref()
+        .is_some_and(|authed| !is_app_embed_token(authed))
+    {
+        // A normal logged-in caller (editor / full session) may fetch any file they
+        // can reach. An app embed token also carries an identity but represents
+        // untrusted app JS, so it falls through to the allowlist below instead of
+        // this bypass — otherwise the app could read arbitrary S3 keys the
+        // viewer/on-behalf identity can see, beyond its own declared keys/outputs.
         Ok(())
     } else {
-        let allowed = policy
-            .allowed_s3_keys
+        // Anonymous viewer, or an app embed token: confine to the app's declared S3
+        // keys, or files produced by THIS app's own component runs. The producing
+        // identity is the embed viewer for a token, else `anonymous`.
+        let creator = opt_authed
             .as_ref()
-            .unwrap()
-            .iter()
-            .any(|key| key.s3_path == file_query.s3 && key.storage == file_query.storage)
-            || {
-                sqlx::query_scalar!(
-                    r#"SELECT EXISTS (
+            .map(|authed| authed.username.clone())
+            .unwrap_or_else(|| "anonymous".to_string());
+        let allowed = policy.allowed_s3_keys.as_ref().is_some_and(|keys| {
+            keys.iter()
+                .any(|key| key.s3_path == file_query.s3 && key.storage == file_query.storage)
+        }) || {
+            sqlx::query_scalar!(
+                r#"SELECT EXISTS (
                 SELECT 1 FROM v2_job_completed c JOIN v2_job j USING (id)
                 WHERE j.workspace_id = $2
                     AND (j.kind = 'appscript' OR j.kind = 'preview')
-                    AND j.created_by = 'anonymous'
+                    AND j.created_by = $4
                     AND c.started_at > now() - interval '3 hours'
                     AND j.runnable_path LIKE $3 || '/%'
                     AND c.result @> ('{"s3":"' || $1 ||  '"}')::jsonb
             )"#,
-                    file_query.s3,
-                    w_id,
-                    path,
-                )
-                .fetch_one(db)
-                .await?
-                .unwrap_or(false)
-            };
+                file_query.s3,
+                w_id,
+                path,
+                creator,
+            )
+            .fetch_one(db)
+            .await?
+            .unwrap_or(false)
+        };
 
         if !allowed {
             Err(Error::BadRequest("File restricted".to_string()))
