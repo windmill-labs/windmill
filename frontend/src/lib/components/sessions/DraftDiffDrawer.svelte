@@ -75,10 +75,11 @@
 
 	async function loadValues(d: DiffRow): Promise<{ before: unknown; after: unknown }> {
 		const draftOnly = draftOnlyByKey[`${d.kind}/${d.path}`] ?? false
-		// getDraftDiffValues works on the draft itemKind ('app' for raw apps too);
-		// map the deploy-style display kind back to it.
-		const kind: DraftKind =
-			d.kind === 'raw_app' ? 'app' : ((DRAFT_KIND_BY_DEPLOY_KIND[d.kind] ?? d.kind) as DraftKind)
+		// getDraftDiffValues keys on the draft itemKind: `raw_app` must stay
+		// `raw_app` (the helper sends rawApp:true only for that exact kind, which a
+		// never-deployed raw app needs, else it hits the normal app endpoint and
+		// 404s). Only the trigger display kinds map back from their deploy-style names.
+		const kind = (DRAFT_KIND_BY_DEPLOY_KIND[d.kind] ?? d.kind) as DraftKind
 		const { deployed, draft } = await getDraftDiffValues(kind, d.path, workspaceId, draftOnly)
 		// draft_only items have never been deployed → render as "added" (empty
 		// before), matching how the fork drawer renders added items.
