@@ -200,16 +200,18 @@
 	})
 
 	// `newApp` is true both for a brand-new app AND (in the session preview) for a
-	// draft-only one that already has a real path — so prefer `appPath` before the
-	// generated name. Only a genuinely new app (`appPath === ''`) falls through to
-	// the random suggestion; a named/draft-only app keeps its real path (else its
-	// breadcrumb shows a random name and deploy would createApp under it).
+	// draft-only one that already has a real path — so prefer the real `appPath`,
+	// but NOT a `draft_{uuid}` storage placeholder (a brand-new app is parked at
+	// `u/{user}/draft_{uuid}`). A real named path is kept (else its breadcrumb shows
+	// a random name and deploy createApps under it); a placeholder still falls
+	// through to the friendly generated suggestion.
 	let newEditedPath = $state(
-		untrack(() =>
-			newApp
-				? newPath || appPath || userPathPrefix($userStore?.username) + random_adj() + '_app'
+		untrack(() => {
+			const realAppPath = appPath && !appPath.split('/').pop()?.startsWith('draft_') ? appPath : ''
+			return newApp
+				? newPath || realAppPath || userPathPrefix($userStore?.username) + random_adj() + '_app'
 				: newPath || appPath || ''
-		)
+		})
 	)
 
 	$effect(() => {
