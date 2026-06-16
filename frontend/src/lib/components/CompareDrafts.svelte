@@ -487,8 +487,8 @@
 					{oldSummary}
 					{newSummary}
 					renamed={!draftItem.draft_only &&
-						oldSummary != null &&
-						newSummary != null &&
+						!!oldSummary &&
+						!!newSummary &&
 						oldSummary !== newSummary}
 				/>
 			{/snippet}
