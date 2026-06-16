@@ -33,8 +33,11 @@ export async function deployRawAppDraft(
 	// the raw_app draft kind server-side instead of 404ing.
 	const app = await AppService.getAppByPath({ workspace, path, getDraft: true, rawApp: true })
 	const draft = (app as any).draft
-	// Honor a renamed draft path; the URL `path` below stays the existing item key.
-	const targetPath = draft?.path ?? path
+	// Deploy at the draft's intended path. A raw-app draft carries the user-typed
+	// path in `draft_path` (a never-deployed app is parked at a synthetic
+	// `u/{user}/draft_{uuid}` storage key); the URL `path` below stays that storage
+	// key. Falls back to `path` for an unrenamed draft on a deployed app.
+	const targetPath = draft?.draft_path ?? draft?.path ?? path
 	const value = appSourceToDraftValue(draft ?? app, app)
 
 	const policy = (await updateRawAppPolicy(

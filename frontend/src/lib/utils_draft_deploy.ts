@@ -305,8 +305,11 @@ export async function deployDraft(
 			const r = (await FlowService.getFlowByPath({ workspace, path, getDraft: true })) as any
 			const d = r.draft ?? r
 			const requestBody = {
-				// Honor a renamed draft path; the URL `path` stays the existing item key.
-				path: d.path ?? path,
+				// Deploy at the draft's intended path: flow/app/raw-app drafts keep the
+				// user-typed path in `draft_path` (a never-deployed item is parked at a
+				// synthetic `u/{user}/draft_{uuid}` storage key). The URL `path` stays
+				// that storage key.
+				path: d.draft_path ?? d.path ?? path,
 				summary: d.summary ?? '',
 				description: d.description ?? '',
 				value: d.value,
@@ -327,7 +330,12 @@ export async function deployDraft(
 				await FlowService.updateFlow({ workspace, path, requestBody })
 			}
 			// Then deploy any draft trigger edits, so they aren't dropped with the draft.
-			await deployDraftTriggers(d.draft_triggers, workspace, d.path ?? path, draftOnly)
+			await deployDraftTriggers(
+				d.draft_triggers,
+				workspace,
+				d.draft_path ?? d.path ?? path,
+				draftOnly
+			)
 		} else if (kind === 'app') {
 			// `raw_app` is handled above; only visual apps reach here.
 			const r = (await AppService.getAppByPath({ workspace, path, getDraft: true })) as any
@@ -349,7 +357,9 @@ export async function deployDraft(
 				value: d.value,
 				summary: d.summary ?? '',
 				policy: d.policy ?? { execution_mode: 'publisher' },
-				path: d.path ?? path,
+				// Honor the draft's intended path; `draft_path` holds the user-typed path
+				// for a never-deployed app parked at a `u/{user}/draft_{uuid}` storage key.
+				path: d.draft_path ?? d.path ?? path,
 				custom_path: isAdmin ? (d.custom_path ?? r.custom_path) : undefined
 			}
 			// Same as flows: draft-only apps have no app row → create;
