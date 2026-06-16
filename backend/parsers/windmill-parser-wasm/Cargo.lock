@@ -6213,6 +6213,7 @@ dependencies = [
  "croner",
  "dashmap",
  "equivalent",
+ "erased-serde",
  "futures",
  "futures-core",
  "gethostname",
