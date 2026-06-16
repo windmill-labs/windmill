@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import * as log from "../../core/log.ts";
 import { colors } from "@cliffy/ansi/colors";
 import * as windmillUtils from "@windmill-labs/shared-utils";
@@ -170,6 +171,19 @@ export async function ensureNodeModules(appDir?: string): Promise<void> {
 export async function createBundle(
   options: BundleOptions = {}
 ): Promise<BundleResult> {
+   // Pin esbuild's native binary to the one shipped alongside the pinned host
+   // (cli/package.json -> "esbuild": "0.28.0"). Otherwise service start resolves
+   // a floating @esbuild/<platform> that npm/bun may have bumped to a newer
+   // patch -> "Cannot start service: Host version X does not match binary version Y".
+   if (!process.env.ESBUILD_BINARY_PATH) {
+     try {
+       const require = createRequire(import.meta.url);
+       process.env.ESBUILD_BINARY_PATH = require.resolve(
+         `@esbuild/${process.platform}-${process.arch}/bin/esbuild`
+       );
+     } catch { /* fall back to esbuild's default resolution */ }
+   }
+  
   // Dynamically import esbuild
   const esbuild = await import("esbuild");
 
