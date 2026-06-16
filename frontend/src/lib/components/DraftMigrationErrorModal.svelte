@@ -36,9 +36,12 @@
 >
 	<div class="flex flex-col w-full gap-4">
 		<p class="text-sm text-secondary">
-			Drafts are now user-scoped and synced to the database. These local storage drafts could not be
-			migrated to the server — view their contents before deciding, then delete the ones you no
-			longer need.
+			Drafts are now user-scoped and synced to the database.
+			{#if draftMigrationErrors.list.length}
+				These local storage drafts could not be
+				migrated to the server — view their contents before deciding, then delete the ones you no
+				longer need.
+			{/if}
 			<a href={DRAFT_DOCS_URL} target="_blank" rel="noopener noreferrer">Learn more</a>.
 		</p>
 

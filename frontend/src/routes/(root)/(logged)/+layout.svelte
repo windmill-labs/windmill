@@ -442,7 +442,7 @@
 	// on success. The order matters — the second step only sees what
 	// the first one normalized.
 	$effect(() => {
-		if ($workspaceStore) {
+		if ($workspaceStore && $userStore) {
 			untrack(() => {
 				migrateLegacyUserDrafts($workspaceStore!)
 				void migrateUserDraftsToDb()

@@ -36,6 +36,11 @@ export const draftMigrationErrors = {
 	}
 }
 
+/** Open the modal listing the failed migrations. */
+export function openDraftMigrationErrorModal(): void {
+	modalOpen = true
+}
+
 /**
  * Record a failed draft migration. Idempotent per `key`; the toast only fires
  * on the first failure of a batch (empty→non-empty) and is suppressed when the
@@ -47,12 +52,7 @@ export function reportDraftMigrationError(error: DraftMigrationError): void {
 	errors.set(error.key, error)
 	if (wasEmpty && !modalOpen) {
 		sendUserToast('Some local storage drafts could not be migrated', 'error', [
-			{
-				label: 'Resolve issues',
-				callback: () => {
-					modalOpen = true
-				}
-			}
+			{ label: 'Resolve issues', callback: openDraftMigrationErrorModal }
 		])
 	}
 }
