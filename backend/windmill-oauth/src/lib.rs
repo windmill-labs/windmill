@@ -94,38 +94,14 @@ pub struct OAuthConfig {
     /// entry, `build_oauth_clients` registers a second client under that key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox: Option<OAuthSandboxOverride>,
-    /// Frontend-only metadata for per-instance OAuth providers (Snowflake,
-    /// ServiceNow, …) whose authorize/token URLs are derived from an
-    /// admin-entered instance name. Ignored by the backend, which only ever
-    /// sees the resulting concrete `connect_config`.
+    /// Metadata for per-instance OAuth providers (Snowflake, ServiceNow, Coupa,
+    /// …) whose authorize/token URLs carry an `{instance}` placeholder filled
+    /// from an instance name. The instance-settings UI uses it to build the
+    /// per-client `connect_config` for the authorization-code flow; the
+    /// client-credentials flow reads its `token_url`/`strip_suffix`/`label`
+    /// directly to host-pin the exchange.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connect_config_template: Option<ConnectConfigTemplate>,
-    /// Client-credentials token endpoint when it differs from the
-    /// authorization-code `token_url` (e.g. Salesforce CC uses a My Domain host
-    /// while auth-code uses login.salesforce.com). May carry an `{instance}`
-    /// placeholder; see [`cc_instance`](Self::cc_instance).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cc_token_url: Option<String>,
-    /// Instance-name metadata for a client-credentials token URL that contains
-    /// an `{instance}` placeholder. When present, the connect flow collects an
-    /// instance name and the backend substitutes it into the fixed-host template
-    /// instead of accepting a free-form URL, so the exchange host stays pinned.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cc_instance: Option<CcInstance>,
-}
-
-/// Metadata for the instance-name input that fills the `{instance}` placeholder
-/// of a client-credentials token URL (e.g. a Salesforce My Domain).
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct CcInstance {
-    pub label: String,
-    pub placeholder: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub help_url: Option<String>,
-    /// Host suffix stripped from the entered value before substitution, so the
-    /// user can paste a full host or a bare name.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub strip_suffix: Option<String>,
 }
 
 /// URL overrides for an OAuth provider's sandbox environment. Inherits
@@ -155,7 +131,10 @@ pub struct ConnectConfigTemplate {
     pub placeholder: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub help_url: Option<String>,
-    pub auth_url: String,
+    /// Authorize endpoint (with `{instance}`). Absent for client-credentials-only
+    /// providers (e.g. Coupa) that have no browser sign-in flow.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_url: Option<String>,
     pub token_url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub req_body_auth: Option<bool>,
@@ -245,11 +224,6 @@ pub struct OAuthClient {
     pub tenant: Option<String>,
     #[serde(default = "default_grant_types")]
     pub grant_types: Vec<String>,
-    /// Token endpoint for the client-credentials grant when it differs from the
-    /// authorization-code token URL (some providers use a per-org/instance-specific
-    /// endpoint). Used only for the CC exchange; auth-code keeps using the
-    /// `connect_config`/registry URL.
-    pub cc_token_url: Option<String>,
 }
 
 impl std::fmt::Debug for OAuthClient {
@@ -263,7 +237,6 @@ impl std::fmt::Debug for OAuthClient {
             .field("login_config", &self.login_config)
             .field("tenant", &self.tenant)
             .field("grant_types", &self.grant_types)
-            .field("cc_token_url", &self.cc_token_url)
             .finish()
     }
 }
@@ -457,8 +430,6 @@ pub async fn build_client_credentials_oauth_client(
                 grant_types: default_grant_types(),
                 sandbox: None,
                 connect_config_template: None,
-                cc_token_url: None,
-                cc_instance: None,
             },
             None => {
                 return Err(error::Error::BadRequest(format!(
@@ -477,15 +448,6 @@ pub async fn build_client_credentials_oauth_client(
     // the admin's secret to a server they control.
     let caller_supplied_creds = !client_id.is_empty() && !client_secret.is_empty();
 
-    // Shared instance client-credentials: an admin can configure a CC-specific
-    // token endpoint that differs from the authorization-code token URL.
-    if let Some(cc_url) = instance_entry
-        .as_ref()
-        .and_then(|e| e.cc_token_url.clone())
-        .filter(|u| !u.is_empty())
-    {
-        connect_config.token_url = cc_url;
-    }
     if let Some(override_url) = cc_token_url_override {
         if !caller_supplied_creds {
             return Err(error::Error::BadRequest(
@@ -533,7 +495,6 @@ pub async fn build_client_credentials_oauth_client(
             .map(|e| e.grant_types.clone())
             .unwrap_or_else(default_grant_types),
         tenant: instance_entry.as_ref().and_then(|e| e.tenant.clone()),
-        cc_token_url: None,
     };
 
     let base_url = (**BASE_URL.load()).clone();
@@ -575,18 +536,14 @@ pub async fn resolve_instance_cc_credentials(
     Ok(entry.and_then(|e| {
         let cc_grant = e.grant_types.iter().any(|g| g == "client_credentials");
         if cc_grant && !e.id.is_empty() && !e.secret.is_empty() {
-            // Prefer the CC-specific token URL so the account row is self-contained
-            // for refresh; else the auth-code URL.
+            // Token URL from the entry's connect_config (built by instance settings
+            // from the connect_config_template), so the account row is
+            // self-contained for refresh.
             let token_url = e
-                .cc_token_url
-                .clone()
-                .filter(|u| !u.is_empty())
-                .or_else(|| {
-                    e.connect_config
-                        .as_ref()
-                        .map(|c| c.token_url.clone())
-                        .filter(|u| !u.is_empty())
-                });
+                .connect_config
+                .as_ref()
+                .map(|c| c.token_url.clone())
+                .filter(|u| !u.is_empty());
             Some((e.id, e.secret, token_url))
         } else {
             None
@@ -599,11 +556,12 @@ pub async fn resolve_instance_cc_credentials(
 /// built-in registry, so the exchange host can never be redirected.
 ///
 /// Supported only for registry providers. For one whose CC token URL carries an
-/// `{instance}` placeholder (Coupa, Salesforce My Domain, ServiceNow, …) the
-/// caller supplies only an instance name, validated as a bare hostname label and
-/// substituted into the fixed-host template. A fixed-host registry provider uses
-/// its registry token URL directly. A custom resource type (no registry entry)
-/// is rejected: there is no known host to send credentials to.
+/// `{instance}` placeholder (Coupa, ServiceNow, …) — declared in its
+/// `connect_config_template` — the caller supplies only an instance name,
+/// validated as a bare hostname label and substituted into the fixed-host
+/// template. A fixed-host registry provider uses its registry token URL directly.
+/// A custom resource type (no registry entry) is rejected: there is no known host
+/// to send credentials to.
 pub fn resolve_cc_token_url_input(
     connect_configs_json: &str,
     client_name: &str,
@@ -620,10 +578,14 @@ pub fn resolve_cc_token_url_input(
         )));
     };
 
-    let template = cfg
-        .cc_token_url
+    // Instance-templated providers carry the `{instance}` token URL (and its
+    // label/strip_suffix) in `connect_config_template`; fixed-host providers use
+    // the plain `token_url`.
+    let tmpl = cfg.connect_config_template.as_ref();
+    let template = tmpl
+        .map(|t| t.token_url.clone())
         .filter(|u| !u.is_empty())
-        .or_else(|| Some(cfg.token_url).filter(|u| !u.is_empty()))
+        .or_else(|| Some(cfg.token_url.clone()).filter(|u| !u.is_empty()))
         .ok_or_else(|| {
             error::Error::BadRequest(format!("No token URL is configured for '{client_name}'"))
         })?;
@@ -633,21 +595,20 @@ pub fn resolve_cc_token_url_input(
         return Ok(template);
     }
 
-    let meta = cfg.cc_instance.as_ref();
     let raw = caller_instance
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| {
             error::Error::BadRequest(format!(
                 "{} is required for {client_name}",
-                meta.map(|m| m.label.as_str()).unwrap_or("An instance name")
+                tmpl.map(|t| t.label.as_str()).unwrap_or("An instance name")
             ))
         })?;
     // Strip an optional known host suffix so the user can paste a full host or a
     // bare name, then accept only a hostname label — never any character that
     // could move the host out of the template's domain.
-    let value = meta
-        .and_then(|m| m.strip_suffix.as_deref())
+    let value = tmpl
+        .and_then(|t| t.strip_suffix.as_deref())
         .and_then(|sfx| raw.strip_suffix(sfx))
         .unwrap_or(raw)
         .trim_end_matches('.');
@@ -1115,8 +1076,6 @@ mod tests {
                 userinfo_url: None,
             }),
             connect_config_template: None,
-            cc_token_url: None,
-            cc_instance: None,
         }
     }
 
@@ -1191,16 +1150,23 @@ mod tests {
 
     const CC_REGISTRY: &str = r#"{
         "coupa": {
-            "token_url": "https://{instance}.coupahost.com/oauth2/token",
             "grant_types": ["client_credentials"],
-            "cc_instance": { "label": "Coupa instance", "placeholder": "x", "strip_suffix": ".coupahost.com" }
+            "connect_config_template": {
+                "label": "Coupa instance",
+                "placeholder": "x",
+                "token_url": "https://{instance}.coupahost.com/oauth2/token",
+                "strip_suffix": ".coupahost.com"
+            }
         },
-        "salesforce": {
-            "auth_url": "https://login.salesforce.com/services/oauth2/authorize",
-            "token_url": "https://login.salesforce.com/services/oauth2/token",
+        "servicenow": {
             "grant_types": ["authorization_code", "client_credentials"],
-            "cc_token_url": "https://{instance}.my.salesforce.com/services/oauth2/token",
-            "cc_instance": { "label": "Salesforce My Domain", "placeholder": "acme", "strip_suffix": ".my.salesforce.com" }
+            "connect_config_template": {
+                "label": "ServiceNow instance",
+                "placeholder": "dev12345",
+                "auth_url": "https://{instance}.service-now.com/oauth_auth.do",
+                "token_url": "https://{instance}.service-now.com/oauth_token.do",
+                "strip_suffix": ".service-now.com"
+            }
         },
         "visma": {
             "auth_url": "https://connect.visma.com/connect/authorize",
@@ -1216,10 +1182,10 @@ mod tests {
     }
 
     #[test]
-    fn cc_token_url_prefers_cc_token_url_over_token_url() {
-        // Salesforce CC uses the My Domain template, not the auth-code login URL.
-        let url = resolve_cc_token_url_input(CC_REGISTRY, "salesforce", Some("acme")).unwrap();
-        assert_eq!(url, "https://acme.my.salesforce.com/services/oauth2/token");
+    fn cc_token_url_templated_from_connect_config_template() {
+        // ServiceNow's CC token URL comes from its connect_config_template.
+        let url = resolve_cc_token_url_input(CC_REGISTRY, "servicenow", Some("dev99")).unwrap();
+        assert_eq!(url, "https://dev99.service-now.com/oauth_token.do");
     }
 
     #[test]

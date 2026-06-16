@@ -102,9 +102,18 @@
 	// carry a `connect_config_template`. Derived from the registry so adding a
 	// new one needs only a JSON entry — they get a builtin tile + the generic
 	// instance-name input below, with no frontend change.
+	// Only templated providers with an `auth_url` (an authorization-code flow) get
+	// a settings tile + instance input. Client-credentials-only templated providers
+	// (e.g. Coupa) are connected from the resource drawer, not configured here.
 	const connectConfigTemplates: Record<string, any> = Object.fromEntries(
 		Object.entries(oauthConnectRegistry)
-			.filter(([, cfg]) => cfg && typeof cfg === 'object' && 'connect_config_template' in cfg)
+			.filter(
+				([, cfg]) =>
+					cfg &&
+					typeof cfg === 'object' &&
+					'connect_config_template' in cfg &&
+					(cfg as any).connect_config_template?.auth_url
+			)
 			.map(([name, cfg]) => [name, (cfg as any).connect_config_template])
 	)
 	const windmillBuiltinsTemplated = Object.keys(connectConfigTemplates)
@@ -114,79 +123,13 @@
 		...windmillBuiltinsTemplated
 	]
 
-	/** Registry entry for `name`, resolving a trailing `_sandbox` suffix to the
-	 * parent provider (mirrors the backend's canonical_provider_name) so sandbox
-	 * entries inherit the parent's CC capability and metadata. */
-	function canonicalRegistryEntry(name: string): any {
-		const key = name.endsWith('_sandbox') ? name.slice(0, -'_sandbox'.length) : name
-		return (oauthConnectRegistry as Record<string, any>)[key]
-	}
-
 	/** The static registry declares client credentials for this provider */
 	function registryCcCapable(name: string): boolean {
-		return canonicalRegistryEntry(name)?.grant_types?.includes('client_credentials') ?? false
-	}
-
-	/** The registry declares a CC-specific token endpoint distinct from the
-	 * authorization-code one (e.g. Salesforce My Domain). */
-	function registryCcTokenUrl(name: string): string | undefined {
-		return canonicalRegistryEntry(name)?.cc_token_url
-	}
-
-	/** Instance-name metadata for the CC token URL, when the provider expects an
-	 * instance name (e.g. a Salesforce My Domain) rather than a full URL. */
-	function registryCcInstance(
-		name: string
-	): { label: string; placeholder: string; help_url?: string; strip_suffix?: string } | undefined {
-		return canonicalRegistryEntry(name)?.cc_instance
-	}
-
-	/** Effective CC token URL template: the CC-specific endpoint when present, else
-	 * the provider's token URL (Coupa carries the `{instance}` placeholder there). */
-	function ccTokenUrlTemplate(name: string): string | undefined {
-		const e = canonicalRegistryEntry(name)
-		return e?.cc_token_url || e?.token_url || undefined
-	}
-
-	/** Recover the instance name from the stored (substituted) cc_token_url, so the
-	 * input round-trips on reload. Empty when the stored URL is still the raw
-	 * template or has been hand-edited. */
-	function ccInstanceValue(name: string): string {
-		const tmpl = ccTokenUrlTemplate(name)
-		const stored = oauths?.[name]?.cc_token_url
-		if (!tmpl || !stored) return ''
-		const i = tmpl.indexOf('{instance}')
-		if (i < 0) return ''
-		const pre = tmpl.slice(0, i)
-		const post = tmpl.slice(i + '{instance}'.length)
-		if (
-			stored.startsWith(pre) &&
-			stored.endsWith(post) &&
-			stored.length >= pre.length + post.length
-		) {
-			const v = stored.slice(pre.length, stored.length - post.length)
-			return v.includes('{') ? '' : v
-		}
-		return ''
-	}
-
-	/** Substitute the admin-entered instance name into the fixed-host template and
-	 * store the concrete cc_token_url (mirrors the per-instance provider flow). */
-	function setCcInstance(name: string, value: string) {
-		const tmpl = ccTokenUrlTemplate(name)
-		if (!tmpl || !oauths?.[name]) return
-		let v = value.trim()
-		const suffix = registryCcInstance(name)?.strip_suffix
-		if (suffix) {
-			v = v.replace(/^https?:\/\//, '').replace(/\/.*$/, '')
-			if (v.endsWith(suffix)) v = v.slice(0, -suffix.length)
-		}
-		oauths[name].cc_token_url = v ? tmpl.replaceAll('{instance}', v) : ''
-	}
-
-	/** Client credentials is among the selected grants */
-	function ccSelected(name: string): boolean {
-		return oauths?.[name]?.['grant_types']?.includes('client_credentials') ?? false
+		return (
+			(oauthConnectRegistry as Record<string, any>)[name]?.grant_types?.includes(
+				'client_credentials'
+			) ?? false
+		)
 	}
 
 	/** Map the entry's grant_types to the single-select choice (so the segmented
@@ -207,18 +150,6 @@
 		if (!oauths || !oauths[name]) return
 		oauths[name]['grant_types'] =
 			choice === 'both' ? ['authorization_code', 'client_credentials'] : [choice]
-		// Prefill the CC-specific token URL template so the admin only has to fill
-		// in their instance. Skipped when the provider exposes a dedicated instance
-		// input, which substitutes into the template itself.
-		const ccUrl = registryCcTokenUrl(name)
-		if (
-			ccUrl &&
-			choice !== 'authorization_code' &&
-			!oauths[name].cc_token_url &&
-			!registryCcInstance(name)
-		) {
-			oauths[name].cc_token_url = ccUrl
-		}
 	}
 
 	let showCustomOAuthForm = $state(false)
@@ -611,45 +542,6 @@
 										>
 									{/if}
 								</div>
-								{#if ccSelected(k) && registryCcInstance(k) && !connectConfigTemplates[k]}
-									{@const meta = registryCcInstance(k)}
-									<label>
-										<span class="text-primary font-semibold text-xs flex gap-2 items-center">
-											{#if meta?.help_url}
-												<a href={meta.help_url} target="_blank">{meta.label}</a><ExternalLink
-													size={12}
-												/>
-											{:else}
-												{meta?.label}
-											{/if}
-											<Tooltip>
-												This provider's client-credentials flow uses an instance-specific token
-												endpoint. Enter the instance name; the token URL is built from it.
-											</Tooltip>
-										</span>
-										<input
-											type="text"
-											placeholder={meta?.placeholder}
-											value={ccInstanceValue(k)}
-											oninput={(e) => setCcInstance(k, e.currentTarget.value)}
-										/>
-									</label>
-								{:else if ccSelected(k) && registryCcTokenUrl(k)}
-									<label>
-										<span class="text-primary font-semibold text-xs">
-											Client credentials token URL
-											<Tooltip>
-												This provider's client-credentials flow uses a different, instance-specific
-												token endpoint than the sign-in flow. Replace the placeholder with your URL.
-											</Tooltip>
-										</span>
-										<input
-											type="text"
-											placeholder={registryCcTokenUrl(k)}
-											bind:value={oauths[k]['cc_token_url']}
-										/>
-									</label>
-								{/if}
 								{#if k === 'azure_oauth'}
 									<AzureOauthSettings bind:connect_config={oauths[k]['connect_config']} />
 								{:else if !windmillBuiltins.includes(k) && k != 'slack'}

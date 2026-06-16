@@ -163,12 +163,12 @@
 		return registryEntry()?.grant_types?.includes('client_credentials') ?? false
 	}
 
-	/** Registry metadata for providers whose client-credentials token URL is
-	 * instance-templated: the user enters an instance name (e.g. a Salesforce My
-	 * Domain) instead of a full token URL, and the backend substitutes it into
-	 * the fixed-host template so the exchange host stays pinned. */
+	/** Instance-name metadata for providers whose token URL is instance-templated
+	 * (carried in `connect_config_template`): the user enters an instance name
+	 * instead of a full token URL, and the backend substitutes it into the
+	 * fixed-host template so the exchange host stays pinned. */
 	let ccInstanceMeta = $derived(
-		registryEntry()?.cc_instance as
+		registryEntry()?.connect_config_template as
 			| { label: string; placeholder: string; help_url?: string }
 			| undefined
 	)

@@ -126,11 +126,12 @@
     ]
   },
   "coupa": {
-    "token_url": "https://{instance}.coupahost.com/oauth2/token",
     "grant_types": ["client_credentials"],
-    "cc_instance": {
+    "connect_config_template": {
+      "display_name": "Coupa",
       "label": "Coupa instance",
       "placeholder": "your-instance",
+      "token_url": "https://{instance}.coupahost.com/oauth2/token",
       "strip_suffix": ".coupahost.com"
     }
   },
@@ -205,13 +206,6 @@
   "salesforce": {
     "auth_url": "https://login.salesforce.com/services/oauth2/authorize",
     "token_url": "https://login.salesforce.com/services/oauth2/token",
-    "grant_types": ["authorization_code", "client_credentials"],
-    "cc_token_url": "https://{instance}.my.salesforce.com/services/oauth2/token",
-    "cc_instance": {
-      "label": "Salesforce My Domain",
-      "placeholder": "your-domain",
-      "strip_suffix": ".my.salesforce.com"
-    },
     "scopes": ["api", "refresh_token", "offline_access"],
     "sandbox": {
       "auth_url": "https://test.salesforce.com/services/oauth2/authorize",
@@ -220,13 +214,7 @@
   },
   "servicenow": {
     "grant_types": ["authorization_code", "client_credentials"],
-    "token_url": "https://{instance}.service-now.com/oauth_token.do",
     "req_body_auth": true,
-    "cc_instance": {
-      "label": "ServiceNow instance",
-      "placeholder": "dev12345",
-      "strip_suffix": ".service-now.com"
-    },
     "connect_config_template": {
       "display_name": "ServiceNow",
       "label": "ServiceNow Instance",

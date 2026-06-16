@@ -279,9 +279,18 @@
 	// Per-instance OAuth providers (Snowflake, ServiceNow, …) keyed by name ->
 	// their registry connect_config_template. Adding a new one needs only a
 	// registry entry — no code here.
+	// Only templated providers with an `auth_url` are configured here (the
+	// authorization-code per-instance flow). Client-credentials-only templated
+	// providers (e.g. Coupa) are connected from the resource drawer instead.
 	const connectConfigTemplates: Record<string, any> = Object.fromEntries(
 		Object.entries(oauthConnectRegistry)
-			.filter(([, cfg]) => cfg && typeof cfg === 'object' && 'connect_config_template' in cfg)
+			.filter(
+				([, cfg]) =>
+					cfg &&
+					typeof cfg === 'object' &&
+					'connect_config_template' in cfg &&
+					(cfg as any).connect_config_template?.auth_url
+			)
 			.map(([name, cfg]) => [name, (cfg as any).connect_config_template])
 	)
 
