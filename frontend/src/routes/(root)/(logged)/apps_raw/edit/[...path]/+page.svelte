@@ -105,9 +105,13 @@
 			summary,
 			policy,
 			custom_path: savedApp?.custom_path,
-			// Only persist when set, so the field disappears from the saved JSON
-			// once the typed path matches the baseline again (or on deploy).
-			...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
+			// Persist the typed path as `draft_path` only when it actually differs
+			// from the current path — a `draft_path` equal to the baseline is a
+			// no-op that would block the draft from deduping against the deployed
+			// app (which carries none). Drops back out on a revert or deploy.
+			...(pendingDraftPath && pendingDraftPath !== (savedApp?.path ?? '')
+				? { draft_path: pendingDraftPath }
+				: {})
 		} as RawAppDraft
 	})
 
