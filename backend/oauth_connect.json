@@ -12,6 +12,7 @@
   "bitbucket": {
     "auth_url": "https://bitbucket.org/site/oauth2/authorize",
     "token_url": "https://bitbucket.org/site/oauth2/access_token",
+    "grant_types": ["authorization_code", "client_credentials"],
     "scopes": ["repository"]
   },
   "slack": {
@@ -103,6 +104,7 @@
   "linkedin": {
     "auth_url": "https://www.linkedin.com/oauth/v2/authorization",
     "token_url": "https://www.linkedin.com/oauth/v2/accessToken",
+    "grant_types": ["authorization_code", "client_credentials"],
     "scopes": ["w_member_social", "r_liteprofile", "r_emailaddress"],
     "req_body_auth": true
   },
@@ -135,6 +137,7 @@
   "spotify": {
     "auth_url": "https://accounts.spotify.com/authorize",
     "token_url": "https://accounts.spotify.com/api/token",
+    "grant_types": ["authorization_code", "client_credentials"],
     "scopes": [
       "user-read-playback-state",
       "user-modify-playback-state",
@@ -154,11 +157,13 @@
   "xero": {
     "auth_url": "https://login.xero.com/identity/connect/authorize",
     "token_url": "https://identity.xero.com/connect/token",
+    "grant_types": ["authorization_code", "client_credentials"],
     "scopes": ["offline_access", "accounting.transactions"]
   },
   "zoho": {
     "auth_url": "https://accounts.zoho.com/oauth/v2/auth",
     "token_url": "https://accounts.zoho.com/oauth/v2/token",
+    "grant_types": ["authorization_code", "client_credentials"],
     "scopes": ["ZohoAssist.sessionapi.ALL"],
     "extra_params": {
       "access_type": "offline"
