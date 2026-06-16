@@ -41,6 +41,7 @@ import {
 } from './sessionState.svelte'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
 import { applyDraftToRuntimeRawApp, runtimeRawAppToDraft, type RawAppDraft } from './appDraftCodec'
 import {
 	setDeployedInSessionHandler,
@@ -119,6 +120,8 @@ export interface SessionRuntime {
 					summary: string
 					policy: any
 					draft_only?: boolean
+					/** No deployed counterpart (draft-only); disables the topbar Diff. */
+					no_deployed?: boolean
 					custom_path?: string
 			  }
 			| undefined
@@ -532,7 +535,8 @@ function createRuntime(session: Session): SessionRuntime {
 							value: result.value as any,
 							path: result.path,
 							policy: result.policy,
-							custom_path: result.custom_path
+							custom_path: result.custom_path,
+							no_deployed: result.no_deployed
 						}
 					} catch {
 						savedRawApp.val = undefined
@@ -566,7 +570,8 @@ function createRuntime(session: Session): SessionRuntime {
 					value: result.value as any,
 					path: result.path,
 					policy: result.policy,
-					custom_path: result.custom_path
+					custom_path: result.custom_path,
+					no_deployed: result.no_deployed
 				}
 				// Prefer the server draft over the deployed value (mirrors the
 				// flow/script `result.draft ?? result`). A raw-app draft is already
@@ -618,10 +623,18 @@ function createRuntime(session: Session): SessionRuntime {
 
 		syncPreviewWithDeployed(workspace, kind, path) {
 			this.scheduleForkComparisonRefresh()
+			// After deploy the editor state equals the deployed value; the reload
+			// below re-seeds the cell from it, which must NOT POST as a fresh draft.
+			// The full-page editor guards this with discardDraftAfterDeploy, but the
+			// shared header skips that in a session pane (inSessionPane) and routes
+			// post-deploy cleanup here — so apply the same stopSync + arm-restart
+			// bracket. Covers all three kinds since they all funnel through this.
+			UserDraft.stopSync(kind, path, { workspace })
 			UserDraft.discard(kind, path, undefined, { workspace })
 			if (kind === 'script') void this.loadScript(workspace, path, true)
 			else if (kind === 'flow') void this.loadFlow(workspace, path, true)
 			else void this.loadRawApp(workspace, path, true)
+			armRestartOnFirstInteraction(workspace, kind, path)
 		},
 
 		setRuntimeLogRequester(requester) {
