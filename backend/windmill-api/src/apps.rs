@@ -1095,13 +1095,15 @@ async fn get_public_app_by_secret(
 
     let mut app = not_found_if_none(app_o, "App", id.to_string())?;
 
-    // Bind a scoped caller (notably an app embed token, which carries
-    // `apps:read:<own path>`) to the app the secret resolves to: it may only read its
-    // OWN app's definition, never another's — the viewer-RLS check below would
-    // otherwise let app JS reuse the viewer's identity to read any app it can see by
-    // secret. No-op for unscoped sessions; anonymous access stays gated below.
+    // Confine the app embed token (the only credential handed to untrusted app JS,
+    // carrying the viewer's identity + `apps:read:<own path>`) to the app the secret
+    // resolves to: without this, app JS could reuse the viewer's identity to read any
+    // app it can see by secret via the RLS check below. Scoped to embed tokens only —
+    // other callers (anonymous, cookie, plain external JWT) keep their existing access.
     if let Some(authed) = opt_authed.as_ref() {
-        check_scopes(authed, || format!("apps:read:{}", app.path))?;
+        if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
+            check_scopes(authed, || format!("apps:read:{}", app.path))?;
+        }
     }
 
     let policy = serde_json::from_str::<Policy>(app.policy.0.get()).map_err(to_anyhow)?;
@@ -1185,12 +1187,17 @@ pub struct EmbedTokenResponse {
     /// pre-isolation behavior).
     #[serde(default)]
     pub sandbox: bool,
-    /// WIN-2006: the resolved app path. The embedder uses it to scope the app's
-    /// backing `localStorage` per app (so sandboxed apps don't share one store).
-    /// Not a new disclosure — the viewer already receives `path` when it loads the
-    /// app (e.g. `get_public_app_by_secret`).
+    /// WIN-2006: the resolved app path. The embedder uses it (together with
+    /// `workspace_id`) to scope the app's backing `localStorage` per app (so
+    /// sandboxed apps don't share one store). Not a new disclosure — the viewer
+    /// already receives `path` when it loads the app (e.g. `get_public_app_by_secret`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app_path: Option<String>,
+    /// WIN-2006: the resolved workspace. Pairs with `app_path` for the per-app
+    /// `localStorage` key so two apps at the same path in different workspaces don't
+    /// share a store. For custom-path apps the viewer can't derive this itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
 }
 
 /// Mint a short-lived, narrowly-scoped embed token for `app_path` when a caller
@@ -1255,6 +1262,7 @@ pub async fn mint_app_embed_token(
         raw_app: false,
         sandbox: false,
         app_path: Some(app_path.to_string()),
+        workspace_id: Some(w_id.to_string()),
     })
 }
 
@@ -1330,6 +1338,7 @@ async fn get_app_embed_token(
             raw_app,
             sandbox: policy.sandbox,
             app_path: None,
+            workspace_id: None,
         }
     } else {
         mint_app_embed_token(&db, &w_id, &app.path, authed_for_token.as_ref()).await?
@@ -1337,6 +1346,7 @@ async fn get_app_embed_token(
     resp.raw_app = raw_app;
     resp.sandbox = policy.sandbox;
     resp.app_path = Some(app.path);
+    resp.workspace_id = Some(w_id.to_string());
     Ok(Json(resp))
 }
 
@@ -1401,6 +1411,7 @@ async fn get_app_embed_token_for_path(
             raw_app,
             sandbox: policy.sandbox,
             app_path: None,
+            workspace_id: None,
         }
     } else {
         mint_app_embed_token(&db, &w_id, path, Some(&authed)).await?
@@ -1408,6 +1419,7 @@ async fn get_app_embed_token_for_path(
     resp.raw_app = raw_app;
     resp.sandbox = policy.sandbox;
     resp.app_path = Some(path.to_string());
+    resp.workspace_id = Some(w_id.to_string());
     Ok(Json(resp))
 }
 
@@ -2717,13 +2729,15 @@ async fn execute_component(
     Json(mut payload): Json<ExecuteApp>,
 ) -> Result<String> {
     let path = path.to_path();
-    // Authorize FIRST, before touching the payload: a scoped caller (notably an app
-    // embed token, which carries `apps:run:<own path>`) may only execute components
-    // of the app it was minted for. The route layer can't path-check the apps domain,
-    // so enforce it here; unscoped sessions (editor / normal viewers) and anonymous
-    // callers pass through unaffected.
+    // Authorize FIRST, before touching the payload: confine the app embed token (the
+    // only credential handed to untrusted app JS, carrying `apps:run:<own path>`) to
+    // the app it was minted for. The route layer can't path-check the apps domain, so
+    // enforce it here. Scoped to embed tokens only — other callers (anonymous, cookie,
+    // plain external JWT) keep their existing access; the run is still policy-gated.
     if let Some(authed) = opt_authed.as_ref() {
-        check_scopes(authed, || format!("apps:run:{}", path))?;
+        if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
+            check_scopes(authed, || format!("apps:run:{}", path))?;
+        }
     }
     // Only honor temp_script_refs for the inline-script preview path:
     // preview/editor mode (force_viewer_static_fields set, == `is_preview`),

@@ -27578,6 +27578,10 @@ components:
           type: string
           nullable: true
           description: The resolved app path; the embedder uses it to scope the app's backing localStorage per app.
+        workspace_id:
+          type: string
+          nullable: true
+          description: The resolved workspace; pairs with app_path so apps at the same path in different workspaces don't share a localStorage store.
       required:
         - raw_app
         - sandbox

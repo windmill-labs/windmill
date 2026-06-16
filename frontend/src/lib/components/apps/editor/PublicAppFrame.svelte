@@ -38,6 +38,7 @@
 		raw_app?: boolean
 		sandbox?: boolean
 		app_path?: string | null
+		workspace_id?: string | null
 	}
 
 	let {
@@ -72,6 +73,9 @@
 	// ----------------------------- viewer mode -----------------------------
 	let viewerToken: string | undefined = $state(undefined)
 	let viewerReady = $state(false)
+	// Set when viewer mode never receives a token (see the orphan timer in onMount):
+	// the page carries `wm_embed` but isn't actually framed by a Windmill embedder.
+	let viewerOrphaned = $state(false)
 	const expectedEmbedderOrigin = BROWSER ? page.url.searchParams.get(ORIGIN_PARAM) : null
 
 	// Components that embed the token in a URL (images, PDFs, downloads, SSE) read
@@ -100,6 +104,7 @@
 			// cookie reaches this opaque origin.
 			OpenAPI.TOKEN = token
 			viewerReady = true
+			viewerOrphaned = false
 			onViewerReady?.(token, requestTokenRefresh)
 		}
 	}
@@ -200,9 +205,11 @@
 	// matching the logged-in raw viewer. Low-code keeps the opaque viewer + token.
 	let isRaw = $state(false)
 
-	// WIN-2006: the resolved app path, used to scope this app's backing localStorage
-	// (below) so sandboxed apps don't share one store.
+	// WIN-2006: the resolved app path + workspace, used together to scope this app's
+	// backing localStorage (below) so sandboxed apps don't share one store (even two
+	// apps at the same path in different workspaces).
 	let appPath: string | undefined = $state(undefined)
+	let workspaceId: string | undefined = $state(undefined)
 
 	// Same-origin (full session) execution: every app that wasn't opted into
 	// sandbox isolation. RawAppPreview reads this to drop the bundle's opaque
@@ -235,6 +242,7 @@
 			sandboxed = resp.sandbox ?? false
 			isRaw = resp.raw_app ?? false
 			appPath = resp.app_path ?? undefined
+			workspaceId = resp.workspace_id ?? undefined
 			status = 'ready'
 
 			if (unsandboxed || isRaw) {
@@ -261,11 +269,11 @@
 
 	// Persistence authority (WIN-2006): opaque app frames (the viewer SPA) have no
 	// real Web Storage, so the embedder — on the real origin — backs their
-	// `localStorage` here. The store is scoped PER APP (keyed by the app path) so one
-	// sandboxed app cannot read or clobber another's storage. Updated with per-key
-	// ops so concurrent frames of the same app merge instead of clobbering.
+	// `localStorage` here. The store is scoped PER APP (keyed by workspace + app path)
+	// so one sandboxed app cannot read or clobber another's storage. Updated with
+	// per-key ops so concurrent frames of the same app merge instead of clobbering.
 	function lsKey(): string {
-		return `wm_apps_localstorage:${appPath ?? ''}`
+		return `wm_apps_localstorage:${workspaceId ?? ''}:${appPath ?? ''}`
 	}
 	function readSharedLs(): Record<string, string> {
 		try {
@@ -337,6 +345,15 @@
 			installHashRelay()
 			// Announce readiness so the embedder sends us the token.
 			window.parent.postMessage({ type: 'wm_embed_ready' }, expectedEmbedderOrigin ?? '*')
+			// This page is only ever loaded as the embedder's opaque iframe, which
+			// replies with the token within milliseconds. If none arrives, it was
+			// opened with `wm_embed` outside a Windmill embedder (e.g. its iframe src
+			// embedded directly in a third-party page); show a diagnostic instead of an
+			// indefinite skeleton.
+			const orphanTimer = setTimeout(() => {
+				if (!viewerReady) viewerOrphaned = true
+			}, 3000)
+			return () => clearTimeout(orphanTimer)
 		} else {
 			window.addEventListener('message', handleEmbedderMessage)
 			initEmbedder()
@@ -354,6 +371,13 @@
 {#if isViewer}
 	{#if viewerReady}
 		{@render viewer()}
+	{:else if viewerOrphaned}
+		<div class="px-4 mt-20 max-w-xl mx-auto">
+			<Alert type="info" title="Open this app from Windmill">
+				This is a Windmill app viewer and must be loaded by Windmill. If you embedded it in your own
+				page, use the app's public URL without the <code>wm_embed</code> parameter.
+			</Alert>
+		</div>
 	{:else}
 		<Skeleton layout={[[4], 0.5, [50]]} />
 	{/if}

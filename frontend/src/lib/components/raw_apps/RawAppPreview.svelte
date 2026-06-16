@@ -83,8 +83,8 @@
 	})
 
 	// Persistence for the bundle's (opaque-origin) localStorage, backed by a store
-	// scoped PER APP (keyed by the app path) so one sandboxed app can't read or
-	// clobber another's. On a real origin (workspace viewer, public page — even when
+	// scoped PER APP (keyed by workspace + app path) so one sandboxed app can't read
+	// or clobber another's (even two apps at the same path in different workspaces). On a real origin (workspace viewer, public page — even when
 	// that page sits inside someone else's iframe) it reads/writes real localStorage
 	// directly. Only inside an opaque frame (the Windmill embed viewer), where Web
 	// Storage throws, does it relay per-key ops up to the embedder, the persistence
@@ -93,7 +93,7 @@
 	// Windmill embedder and would never answer the relay (leaving the bundle without
 	// ctx). The snapshot is handed to the bundle before it evaluates so its
 	// localStorage is hydrated synchronously.
-	const SHARED_LS_KEY = `wm_apps_localstorage:${path}`
+	const SHARED_LS_KEY = `wm_apps_localstorage:${workspace}:${path}`
 	function storageAccessible(): boolean {
 		try {
 			localStorage.getItem(SHARED_LS_KEY)
