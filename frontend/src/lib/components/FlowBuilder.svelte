@@ -119,6 +119,8 @@
 		loadedFromHistoryFromUrl,
 		noInitial = false,
 		liveEditorDraftStoragePath = undefined,
+		autosaveWorkspace = undefined,
+		autosavePath = undefined,
 		onDeploy,
 		onDeployError,
 		onDetails,
@@ -130,6 +132,12 @@
 		onOpenOthersDrafts,
 		onTestJob
 	}: FlowBuilderProps = $props()
+
+	// Key the AutosaveIndicator watches. Falls back to this component's own
+	// draft key, so the full-page editor is unchanged; the sessions preview
+	// overrides both to the (forked) workspace + path its autosave saves under.
+	const indicatorWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
 
 	let initialPathStore = writable(initialPath)
 
@@ -1084,11 +1092,11 @@
 						onBehalfOfEmail={$savedOnBehalfOfEmail}
 						onNavigate={(item) => onNavigate?.(item)}
 					/>
-					{#if $workspaceStore && liveEditorDraftStoragePath !== undefined}
+					{#if indicatorWorkspace && indicatorPath !== undefined}
 						<AutosaveIndicator
-							workspace={$workspaceStore}
+							workspace={indicatorWorkspace}
 							itemKind="flow"
-							path={liveEditorDraftStoragePath}
+							path={indicatorPath}
 							draftOnly={newFlow}
 							{onResetToDeployed}
 							{loadedFromDraft}
@@ -1110,19 +1118,29 @@
 						{/if}
 					</div>
 					{#if customUi?.topBar?.diff != false}
-						<Button
-							variant="default"
-							unifiedSize="md"
-							on:click={() => openDiffDrawer()}
-							disabled={!savedFlow || newFlow}
-							iconOnly={compactTopbar}
-							title={newFlow
+						{@const isDraftOnly = savedFlow?.no_deployed === true}
+						{@const diffDisabled = !savedFlow || newFlow || isDraftOnly}
+						{@const diffTitle =
+							newFlow || isDraftOnly
 								? 'Deploy this flow once to compare against the deployed version'
 								: 'Diff'}
-							startIcon={{ icon: DiffIcon }}
-						>
-							Diff
-						</Button>
+						<!-- A disabled <button> fires no pointer events, so a title/tooltip on
+						     it never shows on hover. pointer-events-none on the button lets the
+						     hover reach this titled wrapper instead. -->
+						<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
+							<Button
+								variant="default"
+								unifiedSize="md"
+								on:click={() => openDiffDrawer()}
+								disabled={diffDisabled}
+								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
+								iconOnly={compactTopbar}
+								title={diffTitle}
+								startIcon={{ icon: DiffIcon }}
+							>
+								Diff
+							</Button>
+						</div>
 					{/if}
 					{#if !compactTopbar}
 						{@render previewButtons()}
