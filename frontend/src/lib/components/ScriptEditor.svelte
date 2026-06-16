@@ -150,6 +150,11 @@
 		saveToWorkspace?: boolean
 		watchChanges?: boolean
 		customUi?: ScriptEditorWhitelabelCustomUi | undefined
+		// Pipeline editor: an asset-parse failure should also turn the
+		// "parsable" badge red — asset lineage is load-bearing there, so a
+		// green badge must mean both the main function AND the asset parse
+		// succeeded.
+		requireValidAssets?: boolean
 		args: Record<string, any>
 		selectedTab?: 'main' | 'preprocessor' | 'diagram'
 		hasPreprocessor?: boolean
@@ -206,6 +211,7 @@
 		saveToWorkspace = false,
 		watchChanges = false,
 		customUi = undefined,
+		requireValidAssets = false,
 		args = $bindable(),
 		selectedTab = $bindable('main'),
 		hasPreprocessor = $bindable(false),
@@ -552,6 +558,12 @@
 	let preparedSqlQueries = usePreparedAssetSqlQueries(
 		() => inferAssetsRes.current?.sql_queries,
 		() => $workspaceStore
+	)
+	// Asset-parse validity for the editor badge. `undefined` while loading (so
+	// the badge doesn't flicker red); only an explicit parser error counts as
+	// invalid. Surfaced only when `requireValidAssets` (pipeline editor).
+	let validAssets = $derived(
+		requireValidAssets ? inferAssetsRes.current?.status !== 'error' : undefined
 	)
 
 	const dispatch = createEventDispatcher()
@@ -1605,6 +1617,7 @@
 				collabLive={wsProvider?.shouldConnect}
 				{collabMode}
 				{validCode}
+				{validAssets}
 				iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
 				compactHelpers={width < EDITOR_BAR_HELPERS_COMPACT_THRESHOLD}
 				on:collabPopup={() => (showCollabPopup = true)}

@@ -1052,6 +1052,7 @@
 					bind:this={scriptEditorRef}
 					showCaptures={false}
 					noSyncFromGithub
+					requireValidAssets
 					lang={script.language}
 					path={script.path}
 					tag={script.tag}
