@@ -99,6 +99,42 @@ fn ssl_cert_file_adds_custom_root() {
 }
 
 #[test]
+fn node_extra_ca_certs_adds_custom_root() {
+    let path = write_test_ca("node");
+    with_cleared_ca_env(|| {
+        std::env::set_var("NODE_EXTRA_CA_CERTS", &path);
+        let provider = build_native_root_cert_store_provider()
+            .expect("provider must be Some for NODE_EXTRA_CA_CERTS");
+        let store = provider.get_or_try_init().expect("store init");
+        assert_eq!(
+            store.len(),
+            deno_tls::create_default_root_cert_store().len() + 1
+        );
+    });
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn multiple_ca_env_vars_pointing_at_same_file_dedupe_to_one_root() {
+    // The tracing proxy points SSL_CERT_FILE, NODE_EXTRA_CA_CERTS and DENO_CERT at
+    // the same bundle; the path dedupe in build_native_root_cert_store_provider
+    // loads it once, so the store grows by exactly one (rustls' add does not dedupe).
+    let path = write_test_ca("dupe");
+    with_cleared_ca_env(|| {
+        std::env::set_var("SSL_CERT_FILE", &path);
+        std::env::set_var("NODE_EXTRA_CA_CERTS", &path);
+        std::env::set_var("DENO_CERT", &path);
+        let provider = build_native_root_cert_store_provider().expect("provider must be Some");
+        let store = provider.get_or_try_init().expect("store init");
+        assert_eq!(
+            store.len(),
+            deno_tls::create_default_root_cert_store().len() + 1
+        );
+    });
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
 fn deno_cert_adds_custom_root() {
     let path = write_test_ca("deno");
     with_cleared_ca_env(|| {

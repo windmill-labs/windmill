@@ -251,11 +251,17 @@ fn build_native_root_cert_store_provider() -> Option<Arc<dyn RootCertStoreProvid
 
     // File-path env vars, each pointing at a PEM bundle of one or more certs.
     // `DENO_CERT` mirrors the Deno CLI; `SSL_CERT_FILE` is the OpenSSL standard
-    // also honoured by Bun/Node (via NODE_EXTRA_CA_CERTS).
+    // also honoured by Bun/Node (via NODE_EXTRA_CA_CERTS). Dedupe by path because
+    // the tracing proxy points several of these at the same bundle, and rustls'
+    // RootCertStore::add does not dedupe — we'd otherwise trust the same root N times.
+    let mut seen_paths = std::collections::HashSet::new();
     for var in ["DENO_CERT", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS"] {
         let Some(path) = std::env::var(var).ok().filter(|p| !p.is_empty()) else {
             continue;
         };
+        if !seen_paths.insert(path.clone()) {
+            continue;
+        }
         match load_pem_certs_from_path(&path) {
             Ok(certs) => {
                 for cert in certs {
@@ -271,8 +277,10 @@ fn build_native_root_cert_store_provider() -> Option<Arc<dyn RootCertStoreProvid
     }
 
     // `DENO_TLS_CA_STORE=system` (comma-separated, may also contain `mozilla`)
-    // pulls in the OS trust store, matching the Deno CLI semantics forwarded by
-    // the Deno executor.
+    // pulls in the OS trust store. Unlike the Deno CLI — where the list selects
+    // and orders the stores — this is purely additive: the Mozilla defaults are
+    // always seeded above, and `system` augments them. That is a strict superset
+    // of the public roots, which is what the corporate-CA use case needs.
     if std::env::var("DENO_TLS_CA_STORE")
         .ok()
         .map(|v| v.split(',').any(|s| s.trim() == "system"))
