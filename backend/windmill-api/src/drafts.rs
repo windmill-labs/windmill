@@ -35,9 +35,20 @@ pub struct DraftListItem {
     /// Best-effort, read from the draft JSON's `summary` field when present.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    /// User-typed friendly path read from the draft JSON's `draft_path` (set by
+    /// the editors when it differs from the storage path, e.g. a never-deployed
+    /// item parked at `u/{user}/draft_{uuid}`). `None` when absent. Lets the
+    /// review page show the friendly name instead of the storage path, like the
+    /// home-page list endpoints.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_path: Option<String>,
     /// No deployed counterpart exists at this path — the draft is the whole
     /// item. Kinds without a per-path backing table report `true`.
     pub draft_only: bool,
+    /// The listed row is a legacy workspace-level draft (`email IS NULL`),
+    /// predating the per-user drafts migration. Only `true` when no per-user
+    /// row exists at this (path, kind) — the DISTINCT ON prefers an owned row.
+    pub legacy_draft: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -99,6 +110,20 @@ fn list_drafts_query() -> String {
                   d.typ AS kind,
                   d.created_at,
                   d.value ->> 'summary' AS summary,
+                  -- Friendly typed path, by kind (mirrors the home-page list
+                  -- endpoints): scripts bind the Path widget to `script.path`,
+                  -- so it round-trips through the draft JSON's own `path`;
+                  -- flows/apps/raw-apps carry a separate `draft_path`. NULLIF
+                  -- drops it when empty or equal to the storage path.
+                  NULLIF(
+                    NULLIF(
+                      CASE WHEN d.typ::text = 'script'
+                           THEN d.value ->> 'path'
+                           ELSE d.value ->> 'draft_path' END,
+                      ''),
+                    d.path
+                  ) AS draft_path,
+                  (d.email IS NULL) AS legacy_draft,
                   {case} AS draft_only
            FROM draft d
            WHERE d.workspace_id = $1 AND (d.email = $2 OR d.email IS NULL)
@@ -121,6 +146,12 @@ pub struct SaveDraftRequest {
     /// copy. Use after the client has resolved the conflict locally.
     #[serde(default)]
     pub force: bool,
+    /// Delete-only: target the legacy workspace-level row (`email IS NULL`)
+    /// rather than the authed user's row. An upsert ignores it (always writes
+    /// the user's own row). Lets the review page discard a legacy draft, which
+    /// the email-scoped delete otherwise can't reach.
+    #[serde(default)]
+    pub legacy: bool,
 }
 
 #[derive(Serialize, Debug)]
@@ -185,11 +216,11 @@ async fn update_draft(
     } else {
         // Delete, same conflict rule in the WHERE clause. Returns NULL when
         // the row was too new (conflict) OR already absent (idempotent) —
-        // disambiguated below.
+        // disambiguated below. `legacy` ($7) retargets to the NULL-email row.
         sqlx::query_scalar!(
             r#"DELETE FROM draft
                WHERE workspace_id = $1
-                 AND email = $2
+                 AND email IS NOT DISTINCT FROM (CASE WHEN $7::bool THEN NULL::text ELSE $2 END)
                  AND path = $3
                  AND typ = $4
                  AND ($6::bool = true
@@ -202,6 +233,7 @@ async fn update_draft(
             kind as UserDraftItemKind,
             req.last_sync,
             req.force,
+            req.legacy,
         )
         .fetch_optional(&db)
         .await?
@@ -219,11 +251,14 @@ async fn update_draft(
     // by re-reading.
     let existing = sqlx::query_scalar!(
         r#"SELECT created_at FROM draft
-           WHERE workspace_id = $1 AND email = $2 AND path = $3 AND typ = $4"#,
+           WHERE workspace_id = $1
+             AND email IS NOT DISTINCT FROM (CASE WHEN $5::bool THEN NULL::text ELSE $2 END)
+             AND path = $3 AND typ = $4"#,
         &w_id,
         email,
         path,
         kind as UserDraftItemKind,
+        req.legacy,
     )
     .fetch_optional(&db)
     .await?;

@@ -264,24 +264,23 @@
 		}
 	})
 
+	async function reloadDeployed() {
+		UserDraft.remove('app', path)
+		await loadApp({ getDraft: false })
+		redraw++
+	}
+
 	async function restoreDeployed() {
 		if (!savedApp || !$workspaceStore) {
 			sendUserToast('Could not restore to deployed', true)
 			return
 		}
 		diffDrawer?.closeDrawer()
-		goto(`/apps/edit/${savedApp.path}`)
-		// stopSync-bracketed delete + getDraft:false reload; a bare discard +
-		// `loadApp()` loses the race. See /scripts/edit's restoreDeployed.
 		await runResetToDeployed({
 			workspace: $workspaceStore,
 			itemKind: 'app',
 			path,
-			onResetToDeployed: async () => {
-				UserDraft.remove('app', path)
-				await loadApp({ getDraft: false })
-				redraw++
-			}
+			onResetToDeployed: reloadDeployed
 		})
 	}
 
@@ -319,17 +318,12 @@
 	{draftSavedAt}
 	{deployedAt}
 	onLoadLatestDeploy={async () => {
-		// stopSync-bracketed; see /scripts/edit's restoreDeployed for the race.
 		if (!$workspaceStore) return
 		await runResetToDeployed({
 			workspace: $workspaceStore,
 			itemKind: 'app',
 			path,
-			onResetToDeployed: async () => {
-				UserDraft.remove('app', path)
-				await loadApp({ getDraft: false })
-				redraw++
-			}
+			onResetToDeployed: reloadDeployed
 		})
 	}}
 />
@@ -358,11 +352,7 @@
 				newApp={isNewApp}
 				replaceStateFn={(path) => replaceState(path, page.state)}
 				gotoFn={(path, opt) => goto(path, opt)}
-				onResetToDeployed={async () => {
-					UserDraft.remove('app', path)
-					await loadApp({ getDraft: false })
-					redraw++
-				}}
+				onResetToDeployed={reloadDeployed}
 				{loadedFromDraft}
 				othersDraftsCount={otherDraftsUsers.length}
 				onOpenOthersDrafts={() => (othersModalOpen = true)}

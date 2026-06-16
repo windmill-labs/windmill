@@ -1,16 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT value as \"value!: sqlx::types::Json<Box<serde_json::value::RawValue>>\",\n                  created_at\n           FROM draft\n           WHERE workspace_id = $1\n             AND email = $2\n             AND path = $3\n             AND typ = $4",
+  "query": "DELETE FROM draft\n               WHERE workspace_id = $1\n                 AND email IS NOT DISTINCT FROM (CASE WHEN $7::bool THEN NULL::text ELSE $2 END)\n                 AND path = $3\n                 AND typ = $4\n                 AND ($6::bool = true\n                      OR $5::timestamptz IS NULL\n                      OR created_at <= $5::timestamptz)\n               RETURNING now() as \"now!\"",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
-        "type_info": "Json"
-      },
-      {
-        "ordinal": 1,
-        "name": "created_at",
+        "name": "now!",
         "type_info": "Timestamptz"
       }
     ],
@@ -51,13 +46,15 @@
               ]
             }
           }
-        }
+        },
+        "Timestamptz",
+        "Bool",
+        "Bool"
       ]
     },
     "nullable": [
-      false,
-      false
+      null
     ]
   },
-  "hash": "ed47601f88cd92d422555b8a4eee6697e20385b9a1f222382d7bf9e540b0b9aa"
+  "hash": "2bed492ef32edf36e60e8a03268fa25bfb67dd641153d1ca23f7d0d2ae73624e"
 }

@@ -71,7 +71,8 @@ Object.defineProperty(globalThis, 'sessionStorage', {
 if (typeof (globalThis as any).window === 'undefined') {
 	Object.defineProperty(globalThis, 'window', {
 		value: globalThis,
-		writable: true
+		writable: true,
+		configurable: true
 	})
 }
 
