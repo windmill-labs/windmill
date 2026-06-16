@@ -797,7 +797,7 @@
 		bind:filteredItems={filteredConnectsManual}
 		f={(x) => x.key}
 	/>
-	{#snippet authOption(cc: boolean, title: string, desc: string, tag: string)}
+	{#snippet authOption(cc: boolean, title: string, desc: string)}
 		{@const selected = useClientCredentials === cc}
 		<button
 			type="button"
@@ -819,10 +819,7 @@
 					<Circle size={16} class="text-hint shrink-0 mt-0.5" />
 				{/if}
 				<div class="flex-1 min-w-0">
-					<div class="flex items-center justify-between gap-2">
-						<span class="text-xs font-semibold text-emphasis">{title}</span>
-						<span class="text-2xs text-hint shrink-0 whitespace-nowrap">{tag}</span>
-					</div>
+					<div class="text-xs font-semibold text-emphasis">{title}</div>
 					<div class="text-xs font-normal text-secondary mt-0.5">{desc}</div>
 				</div>
 			</div>
@@ -1088,8 +1085,7 @@
 								{@render authOption(
 									false,
 									`Sign in through ${resourceType}`,
-									'Opens a browser window to log in and authorize. Connects as you.',
-									'OAuth · auth code'
+									'Opens a browser window to log in and authorize. Connects as you.'
 								)}
 								{@render authOption(
 									true,
@@ -1098,8 +1094,7 @@
 										: 'Use a client ID and secret',
 									useSharedInstanceCreds
 										? "Runs server-to-server with this instance's credentials. No input needed."
-										: 'Runs server-to-server. Best for automation or service accounts.',
-									'Client credentials'
+										: 'Runs server-to-server. Best for automation or service accounts.'
 								)}
 							</div>
 						{/if}
