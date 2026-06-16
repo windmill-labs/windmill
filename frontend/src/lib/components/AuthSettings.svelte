@@ -122,6 +122,17 @@
 		)
 	}
 
+	/** The registry declares a CC-specific token endpoint (instance-templated) that
+	 * the admin must complete for this provider */
+	function registryCcTokenUrl(name: string): string | undefined {
+		return (oauthConnectRegistry as Record<string, any>)[name]?.cc_token_url
+	}
+
+	/** Client credentials is among the selected grants */
+	function ccSelected(name: string): boolean {
+		return oauths?.[name]?.['grant_types']?.includes('client_credentials') ?? false
+	}
+
 	/** Map the entry's grant_types to the single-select choice (so the segmented
 	 * control always has exactly one selected and can never be empty) */
 	function grantChoice(name: string): string {
@@ -140,6 +151,12 @@
 		if (!oauths || !oauths[name]) return
 		oauths[name]['grant_types'] =
 			choice === 'both' ? ['authorization_code', 'client_credentials'] : [choice]
+		// Prefill the CC-specific token URL template so the admin only has to fill
+		// in their instance
+		const ccUrl = registryCcTokenUrl(name)
+		if (ccUrl && choice !== 'authorization_code' && !oauths[name].cc_token_url) {
+			oauths[name].cc_token_url = ccUrl
+		}
 	}
 
 	let showCustomOAuthForm = $state(false)
@@ -532,6 +549,22 @@
 										>
 									{/if}
 								</div>
+								{#if ccSelected(k) && registryCcTokenUrl(k)}
+									<label>
+										<span class="text-primary font-semibold text-xs">
+											Client credentials token URL
+											<Tooltip>
+												This provider's client-credentials flow uses a different, instance-specific
+												token endpoint than the sign-in flow. Replace the placeholder with your URL.
+											</Tooltip>
+										</span>
+										<input
+											type="text"
+											placeholder={registryCcTokenUrl(k)}
+											bind:value={oauths[k]['cc_token_url']}
+										/>
+									</label>
+								{/if}
 								{#if k === 'azure_oauth'}
 									<AzureOauthSettings bind:connect_config={oauths[k]['connect_config']} />
 								{:else if !windmillBuiltins.includes(k) && k != 'slack'}

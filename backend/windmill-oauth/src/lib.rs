@@ -219,6 +219,11 @@ pub struct OAuthClient {
     pub tenant: Option<String>,
     #[serde(default = "default_grant_types")]
     pub grant_types: Vec<String>,
+    /// Token endpoint for the client-credentials grant when it differs from the
+    /// authorization-code token URL (some providers use a per-org/instance-specific
+    /// endpoint). Used only for the CC exchange; auth-code keeps using the
+    /// `connect_config`/registry URL.
+    pub cc_token_url: Option<String>,
 }
 
 impl std::fmt::Debug for OAuthClient {
@@ -232,6 +237,7 @@ impl std::fmt::Debug for OAuthClient {
             .field("login_config", &self.login_config)
             .field("tenant", &self.tenant)
             .field("grant_types", &self.grant_types)
+            .field("cc_token_url", &self.cc_token_url)
             .finish()
     }
 }
@@ -436,6 +442,16 @@ pub async fn build_client_credentials_oauth_client(
         },
     };
 
+    // Shared instance client-credentials: an admin can configure a CC-specific
+    // token endpoint that differs from the authorization-code token URL. The
+    // caller's own token URL still wins below.
+    if let Some(cc_url) = instance_entry
+        .as_ref()
+        .and_then(|e| e.cc_token_url.clone())
+        .filter(|u| !u.is_empty())
+    {
+        connect_config.token_url = cc_url;
+    }
     if let Some(override_url) = cc_token_url_override {
         connect_config.token_url = override_url.to_string();
     }
@@ -477,6 +493,7 @@ pub async fn build_client_credentials_oauth_client(
             .map(|e| e.grant_types.clone())
             .unwrap_or_else(default_grant_types),
         tenant: instance_entry.as_ref().and_then(|e| e.tenant.clone()),
+        cc_token_url: None,
     };
 
     let base_url = (**BASE_URL.load()).clone();
@@ -512,11 +529,18 @@ pub async fn resolve_instance_cc_credentials(
     Ok(entry.and_then(|e| {
         let cc_grant = e.grant_types.iter().any(|g| g == "client_credentials");
         if cc_grant && !e.id.is_empty() && !e.secret.is_empty() {
+            // Prefer the CC-specific token URL so the account row is self-contained
+            // for refresh; else the auth-code URL.
             let token_url = e
-                .connect_config
-                .as_ref()
-                .map(|c| c.token_url.clone())
-                .filter(|u| !u.is_empty());
+                .cc_token_url
+                .clone()
+                .filter(|u| !u.is_empty())
+                .or_else(|| {
+                    e.connect_config
+                        .as_ref()
+                        .map(|c| c.token_url.clone())
+                        .filter(|u| !u.is_empty())
+                });
             Some((e.id, e.secret, token_url))
         } else {
             None
