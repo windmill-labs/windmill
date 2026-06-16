@@ -7,6 +7,7 @@
 	import { goto } from '$lib/navigation'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Tooltip from '../../meltComponents/Tooltip.svelte'
+	import Checkbox from '../checkbox/Checkbox.svelte'
 
 	interface Props {
 		marked: string | undefined
@@ -163,15 +164,10 @@
 	onkeydown={clickToSelect ? handleRowKeydown : undefined}
 >
 	{#if isSelectable}
-		<input type="checkbox" checked={selected} onchange={onSelect} class="rounded max-w-4 w-full" />
+		<Checkbox checked={selected} onChange={onSelect} />
 	{:else if selectDisabledReason}
 		<Tooltip class="cursor-not-allowed">
-			<input
-				type="checkbox"
-				disabled
-				checked={false}
-				class="rounded max-w-4 w-full opacity-50 pointer-events-none"
-			/>
+			<Checkbox disabled checked={false} />
 			{#snippet text()}{selectDisabledReason}{/snippet}
 		</Tooltip>
 	{:else if alignWithSelectable}

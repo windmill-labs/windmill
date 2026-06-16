@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Loader2 } from 'lucide-svelte'
 	import { Badge } from './common'
+	import Checkbox from './common/checkbox/Checkbox.svelte'
 	import Row from './common/table/Row.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import type { Snippet } from 'svelte'
@@ -98,12 +99,10 @@
 					class:opacity-50={!hasSelectableItems}
 					class:cursor-pointer={hasSelectableItems}
 				>
-					<input
-						type="checkbox"
+					<Checkbox
 						disabled={!hasSelectableItems}
 						checked={allSelected}
-						onchange={allSelected ? onDeselectAll : onSelectAll}
-						class="rounded max-w-4 w-full"
+						onChange={allSelected ? onDeselectAll : onSelectAll}
 					/> Select all
 				</label>
 			{:else}
