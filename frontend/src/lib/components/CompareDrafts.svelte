@@ -497,13 +497,15 @@
 				{@const draftItem = item as unknown as Row}
 				{#if draftItem.kind === 'resource' || draftItem.kind === 'variable' || draftItem.kind === 'resource_type'}
 					<!-- drawer-only items show their path as the title; keep this line empty -->
-				{:else if draftItem.draft_path && draftItem.draft_path !== draftItem.path}
-					<!-- Path rename: the draft moves the item to a new path. Strike the
-					     deployed path and show the draft's target path. -->
+				{:else if !draftItem.draft_only && draftItem.draft_path && draftItem.draft_path !== draftItem.path}
+					<!-- Path rename: a *deployed* item's draft moves it to a new path. Strike
+					     the deployed path and show the draft's target path. Draft-only items are
+					     excluded — their storage path is an auto-generated `draft_{uuid}` and
+					     `draft_path` is just the pretty name, not a rename. -->
 					<span class="line-through">{draftItem.path}</span>
 					{draftItem.draft_path}
 				{:else}
-					{draftItem.path}
+					{draftItem.draft_path ?? draftItem.path}
 				{/if}
 			{/snippet}
 
