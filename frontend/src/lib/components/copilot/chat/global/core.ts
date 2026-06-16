@@ -2399,8 +2399,9 @@ function finishDraftWrite(
 		)
 	}
 	const verb = existed ? 'Updated' : 'Created'
-	// Flow write results must not echo the (large) flow value back to the model;
-	// the model can read_workspace_item for the compact value if it needs it.
+	// Don't echo the flow value back: the model just sent it in the write call,
+	// so reflecting the (large) compact flow JSON only burns tokens. Variables
+	// echo a redacted item; everything else round-trips its small payload.
 	const serializedItem =
 		stored.type === 'flow'
 			? undefined

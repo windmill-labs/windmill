@@ -102,7 +102,9 @@
 {/if}
 
 <Row
-	href="{base}/apps{app.raw_app ? '_raw' : ''}/get/{app.path}"
+	href={app.draft_only
+		? `${base}/apps${app.raw_app ? '_raw' : ''}/edit/${app.path}`
+		: `${base}/apps${app.raw_app ? '_raw' : ''}/get/${app.path}`}
 	kind="app"
 	{marked}
 	path={(app as any).draft_path ?? app.path}
