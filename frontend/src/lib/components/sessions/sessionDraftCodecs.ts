@@ -21,7 +21,8 @@ export function makeFlowCodec(runtime: SessionRuntime): DraftSyncCodec<Flow> {
 				...current,
 				value: incoming.value,
 				schema: incoming.schema ?? current.schema,
-				summary: incoming.summary ?? current.summary
+				summary: incoming.summary ?? current.summary,
+				description: incoming.description ?? current.description
 			}
 			// flowStateStore is keyed by module_id; after an AI write the set of
 			// module ids may differ, so rebuild the UI state. This wipes per-module
@@ -37,7 +38,12 @@ export function makeFlowCodec(runtime: SessionRuntime): DraftSyncCodec<Flow> {
 export function makeScriptCodec(runtime: SessionRuntime): DraftSyncCodec<NewScript> {
 	return {
 		itemKind: 'script',
-		sig: (d) => d.content ?? '',
+		// Must include every field write_script can set — not just content —
+		// else a summary-only/language-only change yields an identical signature
+		// and the inbound/outbound sync skips it (the chat's change is then
+		// invisible in the open editor and clobbered by the next content save).
+		sig: (d) =>
+			JSON.stringify({ content: d.content ?? '', summary: d.summary, language: d.language }),
 		debounceMs: DEBOUNCE_MS,
 		applyDraftToStore(incoming) {
 			const script = runtime.scriptStore.val

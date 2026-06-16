@@ -72,6 +72,8 @@
 					summary: string
 					policy: any
 					draft_only?: boolean
+					/** No deployed counterpart exists (draft-only); disables Diff. */
+					no_deployed?: boolean
 					custom_path?: string
 			  }
 			| undefined
@@ -88,6 +90,11 @@
 		 * preference. */
 		sidebarStorageKey?: string
 		liveEditorDraftStoragePath?: string
+		/** Indicator-only overrides forwarded to RawAppEditorHeader so the
+		 *  sessions preview's AutosaveIndicator watches the session's
+		 *  (workspace, path). Undefined on the full-page editor. */
+		autosaveWorkspace?: string
+		autosavePath?: string
 		/** Initial value for the "Split with Preview" tab-bar toggle. Defaults
 		 * to `true` (split mode, preview always pinned to the right). Set
 		 * `false` when the editor mounts inside a context that wants single-
@@ -125,6 +132,8 @@
 		defaultSidebarCollapsed = false,
 		sidebarStorageKey = 'raw-app-sidebar-collapsed',
 		liveEditorDraftStoragePath = undefined,
+		autosaveWorkspace = undefined,
+		autosavePath = undefined,
 		defaultSplitWithPreview = true,
 		pendingDraftPath = $bindable(undefined),
 		onResetToDeployed,
@@ -1503,6 +1512,8 @@
 		{newPath}
 		appPath={path}
 		{liveEditorDraftStoragePath}
+		{autosaveWorkspace}
+		{autosavePath}
 		{files}
 		{data}
 		{runnables}

@@ -120,6 +120,35 @@ const liveEditorDrafts = new Map<string, LiveEditorDraft>()
  * Consumed by `acquireEntry`; cleared by the matching `restartSync`. */
 const pendingSuspensions = new Set<string>()
 
+/**
+ * Synchronous read-through cache for values written via `save` while no live
+ * editor entry exists. That branch persists through the debounced
+ * `UserDraftDbSyncer` (async, fire-and-forget), so without this a same-tab
+ * `save(...)` followed by `get(...)` would miss its own write: the global AI
+ * chat writes a draft then immediately reads it back to return the result and
+ * would otherwise throw "Could not read written draft". A live entry shadows
+ * the cache (the entry is authoritative) and a release drops the key; a delete
+ * (`remove`/`discard`) evicts it.
+ */
+const writtenCache = new Map<
+	string,
+	{ workspace: string; itemKind: UserDraftItemKind; path: string; val: unknown }
+>()
+
+function rememberWrite(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string,
+	val: unknown
+): void {
+	const mk = mapKey(workspace, itemKind, path)
+	if (val === undefined) {
+		writtenCache.delete(mk)
+	} else {
+		writtenCache.set(mk, { workspace, itemKind, path, val: snapshotDraftValue(val) })
+	}
+}
+
 function resolveWorkspace(opts?: UserDraftOptions): string {
 	const ws = opts?.workspace ?? get(workspaceStore)
 	if (!ws) {
@@ -220,8 +249,10 @@ export const UserDraft = {
 			// and POSTs it.
 			entry.state.val = value
 		} else {
-			// No live handle: push straight to the syncer. The next editor
-			// mount re-fetches the draft from the backend.
+			// No live handle: remember the value so a same-tab read-after-write
+			// observes it synchronously (the syncer POST below is debounced),
+			// then persist. The next editor mount re-fetches from the backend.
+			rememberWrite(ws, itemKind, path, value)
 			void UserDraftDbSyncer.save({ workspace: ws, itemKind, path, value })
 		}
 	},
@@ -238,8 +269,10 @@ export const UserDraft = {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
-		if (!entry) return undefined
-		return snapshotDraftValue(entry.state.val as V | undefined)
+		if (entry) return snapshotDraftValue(entry.state.val as V | undefined)
+		const cached = writtenCache.get(mk)
+		if (cached) return snapshotDraftValue(cached.val as V | undefined)
+		return undefined
 	},
 
 	/**
@@ -250,8 +283,8 @@ export const UserDraft = {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
-		if (!entry) return false
-		return entry.state.val !== undefined
+		if (entry) return entry.state.val !== undefined
+		return writtenCache.get(mk)?.val !== undefined
 	},
 
 	remove(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
@@ -264,6 +297,7 @@ export const UserDraft = {
 			entry.skipNextSync = true
 			entry.state.val = undefined
 		}
+		writtenCache.delete(mk)
 		void UserDraftDbSyncer.save({ workspace: ws, itemKind, path, value: null })
 	},
 
@@ -332,15 +366,30 @@ export const UserDraft = {
 		const ws = resolveWorkspace(opts)
 		const itemKinds = opts?.itemKinds ?? USER_DRAFT_ITEM_KINDS
 		const out: UserDraftEntry<V>[] = []
+		const seen = new Set<string>()
 		for (const entry of entries.values()) {
 			if (entry.workspace !== ws || !itemKinds.includes(entry.itemKind)) continue
 			const val = untrack(() => entry.state.val as V | undefined)
 			if (val === undefined) continue
+			seen.add(mapKey(entry.workspace, entry.itemKind, entry.path))
 			out.push({
 				workspace: entry.workspace,
 				itemKind: entry.itemKind,
 				path: entry.path,
 				value: snapshotDraftValue(val)
+			})
+		}
+		// Drafts written without a live entry (e.g. global AI chat) live only in
+		// `writtenCache`; surface them too so the list matches what `get` returns.
+		for (const cached of writtenCache.values()) {
+			if (cached.workspace !== ws || !itemKinds.includes(cached.itemKind)) continue
+			const mk = mapKey(cached.workspace, cached.itemKind, cached.path)
+			if (seen.has(mk)) continue
+			out.push({
+				workspace: cached.workspace,
+				itemKind: cached.itemKind,
+				path: cached.path,
+				value: snapshotDraftValue(cached.val as V | undefined)
 			})
 		}
 		return out
@@ -404,6 +453,10 @@ export const UserDraft = {
 			entry.skipNextSync = true
 			entry.state.val = safeFallback
 		}
+		// The draft is deleted server-side (the `null` POST below); the fallback
+		// only resets the live handle's UI. Drop the cache so a no-entry read
+		// reports "no draft" rather than the discarded value.
+		writtenCache.delete(mk)
 		void UserDraftDbSyncer.save({ workspace: ws, itemKind, path, value: null, auto: opts?.auto })
 	},
 
@@ -747,6 +800,10 @@ function releaseEntry(mk: string): void {
 	if (!entry) return
 	entry.count--
 	if (entry.count <= 0) {
+		// The live entry was authoritative while mounted; once gone, drop any
+		// cached write for this key so a later read falls back to the server
+		// rather than a value the editor may have changed in the meantime.
+		writtenCache.delete(mk)
 		entry.destroyRoot?.()
 		entries.delete(mk)
 	}
@@ -794,4 +851,5 @@ function makeHandle<V>(
 export function __resetUserDraftForTesting(): void {
 	entries.clear()
 	liveEditorDrafts.clear()
+	writtenCache.clear()
 }

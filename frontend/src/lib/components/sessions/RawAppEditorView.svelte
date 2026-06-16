@@ -67,6 +67,10 @@
 >
 	{#snippet editor()}
 		{#if runtime.rawApp.val}
+			<!-- newApp: a draft-only app (no_deployed=true) has a truthy synthesized
+			     savedApp but no deployed row, so it must deploy via createApp — keying
+			     on !savedApp alone would updateApp a never-deployed path and 404
+			     "not found". -->
 			<RawAppEditor
 				bind:files={runtime.rawApp.val.files}
 				bind:runnables={runtime.rawApp.val.runnables}
@@ -74,9 +78,11 @@
 				bind:summary={runtime.rawApp.val.summary}
 				newPath={runtime.rawApp.val.path}
 				{path}
+				autosaveWorkspace={workspaceId}
+				autosavePath={path}
 				policy={runtime.rawApp.val.policy}
 				bind:savedApp={runtime.savedRawApp.val}
-				newApp={!runtime.savedRawApp.val}
+				newApp={!runtime.savedRawApp.val || runtime.savedRawApp.val.no_deployed === true}
 				{diffDrawer}
 				{onNavigate}
 				onResetToDeployed={reloadDeployed}

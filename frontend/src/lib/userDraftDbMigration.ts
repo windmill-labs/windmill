@@ -18,6 +18,10 @@ import type { App } from './components/apps/types'
 import { migrateApp } from './components/apps/migrateApp'
 import { sendUserToast } from './toast'
 import { draftValuesEqual } from './userDraft.svelte'
+import {
+	openDraftMigrationErrorModal,
+	reportDraftMigrationError
+} from './userDraftMigrationErrors.svelte'
 import { getUsernameForNamespace } from './userNamespace'
 import { randomUUID } from './utils/uuid'
 
@@ -223,8 +227,11 @@ export async function migrateUserDraftsToDb(): Promise<void> {
 	}
 	if (toMigrate.length === 0) return
 
-	// Legacy drafts detected — tell the user the one-off upload is running.
-	sendUserToast('Migrating local storage drafts ...', 'info')
+	// Legacy drafts detected — tell the user the one-off upload is running, with
+	// an escape hatch to the modal where any failures show up as they happen.
+	sendUserToast('Migrating local storage drafts ...', 'info', [
+		{ label: 'See more', callback: openDraftMigrationErrorModal }
+	])
 
 	for (const { key, parsed, path, value, lastWrittenAt } of toMigrate) {
 		try {
@@ -263,18 +270,13 @@ export async function migrateUserDraftsToDb(): Promise<void> {
 			// surface it so the user isn't silently stuck, with an escape
 			// hatch to drop the un-migratable draft.
 			console.error('UserDraft LS→DB migration: failed for', key, e)
-			sendUserToast(`Could not migrate draft ${path} in workspace ${parsed.workspace}`, 'error', [
-				{
-					label: 'Delete draft',
-					callback: () => {
-						try {
-							localStorage.removeItem(key)
-						} catch {
-							// ignore
-						}
-					}
-				}
-			])
+			reportDraftMigrationError({
+				key,
+				workspace: parsed.workspace,
+				itemKind: parsed.itemKind,
+				path,
+				value
+			})
 		}
 	}
 }
