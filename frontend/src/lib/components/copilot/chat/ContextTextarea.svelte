@@ -223,6 +223,18 @@
 			.replace(/'/g, '&#39;')
 	}
 
+	// Inverse of escapeHtml (&amp; last so an escaped entity isn't double-decoded). Mentions
+	// are parsed out of the escaped HTML, so a title is un-escaped before the store lookup —
+	// else a filename like `R&D notes.md` (escaped to `R&amp;D notes.md`) would never match.
+	function unescapeHtml(text: string) {
+		return text
+			.replace(/&lt;/g, '<')
+			.replace(/&gt;/g, '>')
+			.replace(/&quot;/g, '"')
+			.replace(/&#39;/g, "'")
+			.replace(/&amp;/g, '&')
+	}
+
 	function getHighlightedText(text: string) {
 		let html = escapeHtml(text)
 		// Wrap collapsed-paste tokens as clickable chips. The span keeps the exact
@@ -234,7 +246,7 @@
 			return `<span data-paste-id="${att.id}" class="rounded bg-surface-secondary text-secondary cursor-pointer pointer-events-auto">${match}</span>`
 		})
 		html = html.replace(MENTION_RE, (match) => {
-			const title = mentionTitle(match)
+			const title = unescapeHtml(mentionTitle(match))
 			const inContext =
 				availableContext.find((c) => c.title === title) ||
 				selectedContext.find((c) => c.title === title) ||

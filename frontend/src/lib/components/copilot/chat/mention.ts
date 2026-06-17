@@ -20,8 +20,12 @@ export function mentionTitle(token: string): string {
 	return token.slice(1)
 }
 
-/** Format a name as a mention token — bracket it when it contains whitespace, escaping
- *  any `\` and `]` so the bracketed form round-trips. */
+/** Chars the bare `@name` regex matches without truncating; anything else needs brackets. */
+const BARE_SAFE = /^[\w/.\-]+$/
+
+/** Format a name as a mention token. A bare `@name` only survives for simple names; anything
+ *  with whitespace, HTML-sensitive chars (`< > &`), brackets, parens, etc. is bracketed (with
+ *  `\` and `]` escaped) so the token is captured whole and round-trips through the parser. */
 export function formatMention(name: string): string {
-	return /\s/.test(name) ? `@[${name.replace(/[\\\]]/g, '\\$&')}]` : `@${name}`
+	return BARE_SAFE.test(name) ? `@${name}` : `@[${name.replace(/[\\\]]/g, '\\$&')}]`
 }

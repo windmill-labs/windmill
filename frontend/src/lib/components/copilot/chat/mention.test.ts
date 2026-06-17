@@ -10,6 +10,11 @@ describe('formatMention', () => {
 		expect(formatMention('my file.txt')).toBe('@[my file.txt]')
 		expect(formatMention('my folder/a b.ts')).toBe('@[my folder/a b.ts]')
 	})
+	it('brackets names with HTML-sensitive chars, parens, brackets', () => {
+		expect(formatMention('R&D notes.md')).toBe('@[R&D notes.md]')
+		expect(formatMention('a<b>.txt')).toBe('@[a<b>.txt]')
+		expect(formatMention('report(final).csv')).toBe('@[report(final).csv]')
+	})
 })
 
 describe('mentionTitle', () => {
@@ -38,6 +43,12 @@ describe('MENTION_RE', () => {
 		expect(formatMention(name)).toBe('@[notes \\] draft.md]')
 		const m = `x ${formatMention(name)} y`.match(MENTION_RE)!
 		expect(m[0]).toBe('@[notes \\] draft.md]')
+		expect(mentionTitle(m[0])).toBe(name)
+	})
+
+	it('round-trips an HTML-sensitive name (highlighter handles HTML-escaping separately)', () => {
+		const name = 'a <b> & c].txt'
+		const m = `x ${formatMention(name)} y`.match(MENTION_RE)!
 		expect(mentionTitle(m[0])).toBe(name)
 	})
 })
