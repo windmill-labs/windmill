@@ -152,6 +152,12 @@ pub struct SaveDraftRequest {
     /// the email-scoped delete otherwise can't reach.
     #[serde(default)]
     pub legacy: bool,
+    /// Upsert-only override for the stored `created_at`. Normal saves omit it
+    /// and the row is stamped `now()`; the localStorage→DB migration passes the
+    /// draft's original write time (or epoch 0 when unknown) so migrated drafts
+    /// keep their age instead of all resurfacing to the top as freshly created.
+    #[serde(default)]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Serialize, Debug)]
@@ -194,11 +200,13 @@ async fn update_draft(
         };
         // Upsert. The conflict check rides on the DO UPDATE WHERE clause —
         // when the row is newer than `last_sync`, RETURNING yields nothing.
+        // `created_at` defaults to `now()` but the migration overrides it ($8)
+        // so a migrated draft keeps its original age instead of jumping to top.
         sqlx::query_scalar!(
             r#"INSERT INTO draft (workspace_id, email, path, typ, value, created_at)
-               VALUES ($1, $2, $3, $4, $5::text::json, now())
+               VALUES ($1, $2, $3, $4, $5::text::json, COALESCE($8::timestamptz, now()))
                ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL
-               DO UPDATE SET value = EXCLUDED.value, created_at = now()
+               DO UPDATE SET value = EXCLUDED.value, created_at = EXCLUDED.created_at
                WHERE $7::bool = true
                   OR $6::timestamptz IS NULL
                   OR draft.created_at <= $6::timestamptz
@@ -210,6 +218,7 @@ async fn update_draft(
             serialized,
             req.last_sync,
             req.force,
+            req.created_at,
         )
         .fetch_optional(&db)
         .await?
