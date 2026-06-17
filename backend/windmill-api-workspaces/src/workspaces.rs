@@ -485,6 +485,7 @@ pub struct NewWorkspaceInvite {
     pub email: String,
     pub is_admin: bool,
     pub operator: bool,
+    pub skip_email: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -493,6 +494,7 @@ pub struct NewWorkspaceUser {
     pub username: Option<String>,
     pub is_admin: bool,
     pub operator: bool,
+    pub skip_email: Option<bool>,
 }
 
 // New format for error handler (grouped)
@@ -5386,16 +5388,18 @@ async fn invite_user(
 
     tx.commit().await?;
 
-    send_email_if_possible(
-        &format!("Invited to Windmill's workspace: {w_id}"),
-        &format!(
-            "You have been granted access to Windmill's workspace {w_id}
+    if !nu.skip_email.unwrap_or(false) {
+        send_email_if_possible(
+            &format!("Invited to Windmill's workspace: {w_id}"),
+            &format!(
+                "You have been granted access to Windmill's workspace {w_id}
 
 If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
-            (**BASE_URL.load()).clone()
-        ),
-        &nu.email,
-    );
+                (**BASE_URL.load()).clone()
+            ),
+            &nu.email,
+        );
+    }
 
     webhook.send_instance_event(InstanceEvent::UserInvitedWorkspace {
         email: nu.email.clone(),
@@ -5538,17 +5542,19 @@ async fn add_user(
     )
     .await?;
 
-    send_email_if_possible(
-        &format!("Added to Windmill's workspace: {w_id}"),
-        &format!(
-            "You have been granted access to Windmill's workspace {w_id} by {}
+    if !nu.skip_email.unwrap_or(false) {
+        send_email_if_possible(
+            &format!("Added to Windmill's workspace: {w_id}"),
+            &format!(
+                "You have been granted access to Windmill's workspace {w_id} by {}
 
 If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
-            authed.email,
-            (**BASE_URL.load()).clone()
-        ),
-        &nu.email,
-    );
+                authed.email,
+                (**BASE_URL.load()).clone()
+            ),
+            &nu.email,
+        );
+    }
 
     webhook.send_instance_event(InstanceEvent::UserAddedWorkspace {
         workspace: w_id.clone(),
