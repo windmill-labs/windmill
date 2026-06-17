@@ -9,6 +9,7 @@ import {
 } from "../../../../../frontend/src/lib/components/copilot/chat/global/core";
 import {
   clearGlobalDrafts,
+  getGlobalDraft,
   listGlobalDrafts,
 } from "../../../../../frontend/src/lib/components/copilot/chat/global/userDraftAdapter";
 import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/components/copilot/chat/shared";
@@ -18,6 +19,7 @@ import type { GlobalDraftState } from "../../../../core/validators";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
 import {
   registerBenchmarkWorkspaceRunnables,
+  seedBenchmarkDraft,
   unregisterBenchmarkWorkspaceRunnables,
   type BenchmarkWorkspaceRunnables,
 } from "../../mockBackend";
@@ -94,7 +96,7 @@ export async function runGlobalEval(
       tools: getGlobalEvalTools(),
       helpers: {},
       apiKey,
-      getOutput: () => ({ drafts: listGlobalDrafts(workspaceRoot) }),
+      getOutput: () => collectGlobalDraftState(workspaceRoot),
       onAssistantMessageStart: options.runContext?.onAssistantMessageStart,
       onAssistantToken: options.runContext?.onAssistantChunk,
       onAssistantMessageEnd: options.runContext?.onAssistantMessageEnd,
@@ -130,6 +132,32 @@ export async function runGlobalEval(
   }
 }
 
+// Build the harness output from the DB-backed drafts. `listGlobalDrafts` returns
+// metadata-only rows for backend drafts (the model's `write_script` etc. persist
+// straight to the backend with no in-tab editor cell), so re-read each such row
+// with `getGlobalDraft` to attach the full value the validators assert on. A row
+// that already carries a value (the production in-tab cell overlay) is kept as-is.
+async function collectGlobalDraftState(
+  workspace: string,
+): Promise<GlobalDraftState> {
+  const items = await listGlobalDrafts(workspace);
+  const drafts = await Promise.all(
+    items.map(async (item) => {
+      if (item.value !== undefined) {
+        return item;
+      }
+      const full = await getGlobalDraft(
+        workspace,
+        item.type,
+        item.path,
+        item.triggerKind,
+      );
+      return full ?? item;
+    }),
+  );
+  return { drafts: drafts as GlobalDraftState["drafts"] };
+}
+
 function seedLiveEditorDrafts(
   workspace: string,
   fixtures: GlobalLiveEditorDraftFixture[],
@@ -138,7 +166,9 @@ function seedLiveEditorDrafts(
     const itemKind = LIVE_EDITOR_ITEM_KINDS[fixture.type];
     const storagePath = fixture.storagePath ?? fixture.effectivePath ?? "";
     if (fixture.value !== undefined) {
-      UserDraft.save(itemKind, storagePath, fixture.value, { workspace });
+      // Seed as a backend draft row, not an in-tab cell: a cell would shadow the
+      // model's DB-backed edit when the output is read back via listGlobalDrafts.
+      seedBenchmarkDraft(workspace, itemKind, storagePath, fixture.value);
     }
     UserDraft.setLiveEditorDraft({
       workspace,
