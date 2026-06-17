@@ -1553,6 +1553,9 @@ export class AIChatManager {
 
 	saveAndClear = async () => {
 		this.cancel('saveAndClear')
+		// Drop any message queued in this conversation so it can't auto-send into
+		// the fresh chat or linger as a card across the switch.
+		this.queuedMessage = ''
 		await this.historyManager.save(this.displayMessages, this.messages, this.contextUsage)
 		this.displayMessages = []
 		this.messages = []
@@ -1562,6 +1565,9 @@ export class AIChatManager {
 	loadPastChat = async (id: string) => {
 		const chat = this.historyManager.loadPastChat(id)
 		if (chat) {
+			// Drop any message queued in the current conversation so it doesn't
+			// auto-send into the loaded one or linger as a card across the switch.
+			this.queuedMessage = ''
 			this.displayMessages = chat.displayMessages
 			this.messages = chat.actualMessages
 			this.contextUsage = normalizeContextUsage(chat.contextUsage)

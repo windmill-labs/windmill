@@ -493,6 +493,25 @@ describe('AIChatManager queued messages', () => {
 		expect(manager.queuedMessage).toBe('followup')
 		expect(input.prependText).not.toHaveBeenCalled()
 	})
+
+	it('drops the queued message when switching conversations (no cross-chat leak)', async () => {
+		const manager = createManager(createInputMock())
+
+		manager.queuedMessage = 'meant for chat A'
+		await manager.saveAndClear()
+		expect(manager.queuedMessage).toBe('')
+
+		manager.queuedMessage = 'still meant for chat A'
+		vi.spyOn(manager.historyManager, 'loadPastChat').mockReturnValue({
+			id: 'chat-b',
+			title: 'Chat B',
+			displayMessages: [],
+			actualMessages: [],
+			lastModified: 0
+		} as unknown as ReturnType<typeof manager.historyManager.loadPastChat>)
+		await manager.loadPastChat('chat-b')
+		expect(manager.queuedMessage).toBe('')
+	})
 })
 
 describe('AIChatManager context compaction', () => {
