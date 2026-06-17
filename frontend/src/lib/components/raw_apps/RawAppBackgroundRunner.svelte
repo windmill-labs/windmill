@@ -28,6 +28,8 @@
 	}: Props = $props()
 
 	let listener = async (event) => {
+		if (!iframe || event.source !== iframe.contentWindow) return
+
 		const data = event.data
 
 		function respond(o: object) {

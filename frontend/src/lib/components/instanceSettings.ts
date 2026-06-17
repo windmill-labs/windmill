@@ -323,6 +323,16 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
+			label: 'SSH execution (#ssh)',
+			key: 'ssh_execution_enabled',
+			fieldType: 'boolean',
+			description:
+				'Allow bash scripts starting with a <code>#ssh &lt;resource_path&gt;</code> directive to run on the remote host described by the referenced <code>ssh_target</code> resource instead of the worker. Off by default.',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
 			label: 'Default timeout',
 			key: 'job_default_timeout',
 			description:

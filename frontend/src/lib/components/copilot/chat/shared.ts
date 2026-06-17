@@ -16,6 +16,7 @@ export const SPECIAL_MODULE_IDS = {
 	FAILURE: 'failure'
 } as const
 import { get } from 'svelte/store'
+import type { PasteAttachment } from './pasteTokens'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -456,6 +457,9 @@ export type UserDisplayMessage = BaseDisplayMessage & {
 	role: 'user'
 	index: number // Used to match index with actual chat messages
 	error?: boolean
+	// Collapsed big-paste blobs referenced by tokens in `content`. Lets the
+	// bubble render/expand chips; the LLM message stores the expanded text.
+	pastes?: PasteAttachment[]
 }
 
 export type CreatedResourceTriggerKind =
@@ -510,6 +514,15 @@ export type ToolDisplayMessage = {
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
 	role: 'assistant'
+	/** Summarized reasoning/thinking text streamed before the answer (Anthropic + compat providers). */
+	reasoning?: string
+	/**
+	 * True only on the synthetic live message appended while tokens stream
+	 * (see AIChat.svelte). Finalized messages never set it — without the flag,
+	 * a reasoning-only message (thinking that led straight to a tool call)
+	 * would look like it is still streaming forever.
+	 */
+	streaming?: boolean
 }
 
 export type DisplayMessage = UserDisplayMessage | ToolDisplayMessage | AssistantDisplayMessage
@@ -715,6 +728,11 @@ export interface Tool<T> {
 export interface ToolCallbacks {
 	setToolStatus: (id: string, metadata?: Partial<ToolDisplayMessage>) => void
 	removeToolStatus: (id: string) => void
+	/** Streamed reasoning/thinking deltas, rendered as a collapsible block in the chat. */
+	onReasoningDelta?: (token: string) => void
+	/** Fired when the model starts reasoning — drives a "Thinking" indicator even when
+	 * no summary text is returned (e.g. OpenAI reasoning models). */
+	onReasoningStart?: () => void
 	requestConfirmation?: (toolId: string) => Promise<boolean>
 	shouldAutoAcceptToolConfirmations?: () => boolean
 	requestUserQuestion?: (

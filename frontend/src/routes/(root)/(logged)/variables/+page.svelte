@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
@@ -14,6 +15,8 @@
 	} from '$lib/components/FilterSearchbar.svelte'
 	import { buildVariablesFilterSchema } from '$lib/components/variables/variablesFilter'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
+	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
@@ -125,9 +128,14 @@
 	async function loadVariables(): Promise<void> {
 		const currentFilters = filters.val
 
-		// Build API parameters from filters
+		// Build API parameters from filters.
+		// `includeDraftOnly` surfaces per-user drafts at paths that have
+		// no deployed variable — appended server-side when no narrowing
+		// filter is set, so the user sees AI-agent-created drafts on
+		// the home page.
 		const apiParams: any = {
-			workspace: $workspaceStore!
+			workspace: $workspaceStore!,
+			includeDraftOnly: true
 		}
 
 		if (currentFilters.path) {
@@ -164,7 +172,9 @@
 		allOwners = Array.from(
 			new Set(result.map((x) => x.path.split('/').slice(0, 2).join('/')))
 		).sort()
-		allLabels = Array.from(new Set(result.flatMap((x) => x.labels ?? []))).sort()
+		allLabels = Array.from(
+			new Set(result.flatMap((x) => [...(x.labels ?? []), ...(x.inherited_labels ?? [])]))
+		).sort()
 
 		variables = result
 	}
@@ -346,7 +356,7 @@
 							</tr>
 						</Head>
 						<tbody class="divide-y">
-							{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, labels, ws_specific }}
+							{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, labels, inherited_labels, ws_specific, draft_only, is_draft }}
 								<Row>
 									<Cell class="!px-0 text-center w-12" first>
 										<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -359,8 +369,11 @@
 												onclick={() => variableEditor?.editVariable(path)}
 												href="#{path}"
 											>
-												{path}
+												{path}{(getLocalDraftHint($workspaceStore, 'variable', path) ?? is_draft) ? '*' : ''}
 											</a>
+											{#if draft_only}
+												<DraftBadge draft_only is_draft={false} />
+											{/if}
 											{#if labels?.length}
 												{#each labels as label}
 													<Badge
@@ -382,6 +395,7 @@
 													>
 												{/each}
 											{/if}
+											<InheritedLabels labels={inherited_labels} />
 										</div>
 									</Cell>
 									<Cell>

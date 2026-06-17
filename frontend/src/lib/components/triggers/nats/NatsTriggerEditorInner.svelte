@@ -143,11 +143,22 @@
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
-			await loadTrigger(defaultConfig)
+			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultConfig)
+			// Draft-only triggers open as "new trigger prefilled from the
+			// draft" — no deployed row exists, so saving must CREATE (the
+			// update endpoint 404s).
+			edit = !noDeployed
+			// At this point the form holds the DEPLOYED config (or
+			// `defaultConfig` for new triggers). Capture `originalConfig`
+			// here so `hasChanged` (= `current != originalConfig`) compares
+			// against the deployed baseline; if a draft exists, applying
+			// the overlay below makes `current != originalConfig` fire
+			// the "unsaved changes" banner immediately.
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			if (draftOverlay) loadTriggerConfig(draftOverlay)
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load nats trigger: ${err}`, true)
@@ -227,16 +238,34 @@
 		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
-	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
+	/**
+	 * Apply the deployed config to the form, then return the saved-draft
+	 * overlay (if any) so the caller can capture the deployed-only form
+	 * state as `originalConfig` BEFORE applying the draft. The
+	 * "unsaved changes" banner compares `current` vs `originalConfig`,
+	 * so capturing originalConfig from the deployed-only form makes the
+	 * banner fire whenever a draft is present (instead of only after
+	 * the user starts editing on top of the draft).
+	 */
+	async function loadTrigger(
+		defaultConfig?: Record<string, any>
+	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
-			return
-		} else {
-			const s = await NatsTriggerService.getNatsTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath
-			})
-			loadTriggerConfig(s)
+			return { overlay: undefined, noDeployed: false }
+		}
+		const s = await NatsTriggerService.getNatsTrigger({
+			workspace: $workspaceStore!,
+			path: initialPath,
+			getDraft: true
+		})
+		const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+		loadTriggerConfig(deployedTrigger)
+		return {
+			noDeployed: !!(s as any)?.no_deployed,
+			overlay: draftFromBackend
+			? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
+			: undefined
 		}
 	}
 

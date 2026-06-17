@@ -51,4 +51,4 @@ jobs:
             }
           claude_args: |
             --allowedTools "Bash,WebFetch,WebSearch"
-            --model claude-fable-5
+            --model claude-opus-4-8

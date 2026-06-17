@@ -133,6 +133,92 @@ describe("variable", () => {
     });
   });
 
+  test("add creates secret by default and preserves fields on update", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const varPath = `f/test/add_var_${uniqueId}`;
+
+      // Create: secret by default, --description sets the description
+      const createResult = await backend.runCLICommand(
+        ["variable", "add", "v1", varPath, "--description", "first desc"],
+        tempDir
+      );
+      expect(createResult.code).toEqual(0);
+
+      let apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${varPath}`
+      );
+      expect(apiResp.status).toEqual(200);
+      let varData = await apiResp.json();
+      expect(varData.is_secret).toBe(true);
+      expect(varData.description).toBe("first desc");
+
+      // Update with --yes only: no prompt, is_secret and description preserved
+      const updateResult = await backend.runCLICommand(
+        ["variable", "add", "v2", varPath, "--yes"],
+        tempDir
+      );
+      expect(updateResult.code).toEqual(0);
+
+      apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${varPath}`
+      );
+      expect(apiResp.status).toEqual(200);
+      varData = await apiResp.json();
+      expect(varData.is_secret).toBe(true);
+      expect(varData.description).toBe("first desc");
+      expect(varData.value).toBe("v2");
+
+      // Update with --no-secret: flips to non-secret
+      const noSecretResult = await backend.runCLICommand(
+        ["variable", "add", "v3", varPath, "--yes", "--no-secret"],
+        tempDir
+      );
+      expect(noSecretResult.code).toEqual(0);
+
+      apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${varPath}`
+      );
+      expect(apiResp.status).toEqual(200);
+      varData = await apiResp.json();
+      expect(varData.is_secret).toBe(false);
+      expect(varData.value).toBe("v3");
+
+      // Update the non-secret variable with no secret flags: is_secret must
+      // stay false (preserved, not re-defaulted to secret)
+      const preserveResult = await backend.runCLICommand(
+        ["variable", "add", "v4", varPath, "--yes"],
+        tempDir
+      );
+      expect(preserveResult.code).toEqual(0);
+
+      apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${varPath}`
+      );
+      expect(apiResp.status).toEqual(200);
+      varData = await apiResp.json();
+      expect(varData.is_secret).toBe(false);
+      expect(varData.value).toBe("v4");
+
+      // Explicit --secret flips it back
+      const secretResult = await backend.runCLICommand(
+        ["variable", "add", "v5", varPath, "--yes", "--secret"],
+        tempDir
+      );
+      expect(secretResult.code).toEqual(0);
+
+      apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${varPath}`
+      );
+      expect(apiResp.status).toEqual(200);
+      varData = await apiResp.json();
+      expect(varData.is_secret).toBe(true);
+      expect(varData.value).toBe("v5");
+    });
+  });
+
   test("pull retrieves variables into local files", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend);

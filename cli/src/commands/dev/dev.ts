@@ -228,6 +228,33 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
   const ignore = await ignoreF(opts);
   const codebases = await listSyncCodebases(opts);
 
+  // Resolve relative imports from local (not-yet-deployed) content so dev-page
+  // previews use locally-edited workspace scripts instead of the deployed
+  // versions. Diverged local scripts are uploaded to temp storage once here
+  // and the resulting path -> hash refs ride along on every preview run.
+  // Computed as a startup snapshot, like `wmill app dev`; restart `wmill dev`
+  // to pick up later edits to imported workspace scripts. Uses the "all"
+  // target because the previewed item can change at runtime (picker /
+  // loadWmPath), so there is no single anchor node. Degrades gracefully
+  // (undefined) on older backends without the /raw_temp endpoints.
+  let tempScriptRefs: Record<string, string> | undefined = undefined;
+  {
+    const { buildPreviewTempScriptRefs } = await import(
+      "../generate-metadata/generate-metadata.ts"
+    );
+    tempScriptRefs = await buildPreviewTempScriptRefs(
+      workspace,
+      opts,
+      codebases,
+      { kind: "all" },
+    );
+    if (tempScriptRefs) {
+      log.info(
+        `Resolved ${Object.keys(tempScriptRefs).length} locally-edited script(s) for preview relative imports (snapshot — restart wmill dev to refresh)`
+      );
+    }
+  }
+
   const changesTimeouts: Record<string, ReturnType<typeof setTimeout>> = {};
   function watchChanges() {
     return new Promise<void>((_resolve, _reject) => {
@@ -314,6 +341,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
           flow: localFlow,
           uriPath: localPath,
           path: wmFlowPath,
+          temp_script_refs: tempScriptRefs,
         };
         log.info("Updated " + wmFlowPath);
         broadcastChanges(currentLastEdit);
@@ -337,6 +365,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
           language: lang,
           tag: typed?.tag,
           lock: typed?.lock,
+          temp_script_refs: tempScriptRefs,
         };
         log.info("Updated " + wmPath);
         broadcastChanges(currentLastEdit);
@@ -350,7 +379,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     language: string;
     tag?: string;
     lock?: string;
-
+    temp_script_refs?: Record<string, string>;
   };
 
   type LastEditFlow = {
@@ -358,6 +387,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     flow: OpenFlow;
     uriPath: string;
     path: string;
+    temp_script_refs?: Record<string, string>;
   };
 
   // Load a resource by its windmill path (e.g., "u/admin/my_script" or "f/my_flow")
@@ -399,6 +429,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
         flow: localFlow,
         uriPath: flowDir,
         path: wmPath,
+        temp_script_refs: tempScriptRefs,
       };
       currentLastEdit = edit;
       return edit;
@@ -421,6 +452,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
           language: lang,
           tag: typed?.tag,
           lock: typed?.lock,
+          temp_script_refs: tempScriptRefs,
         };
         currentLastEdit = edit;
         return edit;

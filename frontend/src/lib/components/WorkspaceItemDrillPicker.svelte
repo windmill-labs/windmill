@@ -23,9 +23,15 @@ would be surprising.
 	import { buildWorkspaceTree, legacyScopeToPath, relativizeWorkspacePath } from './workspaceTree'
 	import { listGlobalDrafts } from '$lib/components/copilot/chat/global/userDraftAdapter'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
+	import { resource } from 'runed'
 
 	type Kind = WorkspaceItemKind
 	type ScopeKind = Kind | 'all'
+	type DrillPickerHandle = {
+		focus: () => void
+		handleKeydown: (e: KeyboardEvent) => void
+		pickHighlighted: () => void
+	}
 
 	export type Scope = { kind: ScopeKind; dir?: string } | undefined
 
@@ -51,7 +57,7 @@ would be surprising.
 		flush = false
 	}: Props = $props()
 
-	let inner = $state<DrillPicker<WorkspaceItem> | undefined>(undefined)
+	let inner = $state<DrillPickerHandle | undefined>(undefined)
 
 	export function focus() {
 		inner?.focus()
@@ -77,11 +83,15 @@ would be surprising.
 	// be surprising (they'd appear as navigable items that 404 on the backend
 	// draft fetch).
 	const KIND_TO_DRAFT_TYPE = { flow: 'flow', script: 'script', app: 'app' } as const
+	// `listGlobalDrafts` is backend-backed (async); fetch once and derive the
+	// per-kind lists synchronously from the resolved snapshot.
+	const globalDraftsResource = resource(
+		() => ({ ws: $workspaceStore, enabled: isGlobalAiEnabled() }),
+		async ({ ws, enabled }) => (enabled && ws ? await listGlobalDrafts(ws) : [])
+	)
 	function aiDraftsForKind(k: Kind): WorkspaceItem[] {
-		if (!isGlobalAiEnabled()) return []
-		if (!$workspaceStore) return []
 		const targetType = KIND_TO_DRAFT_TYPE[k]
-		return listGlobalDrafts($workspaceStore)
+		return (globalDraftsResource.current ?? [])
 			.filter((d) => d.type === targetType)
 			.map((d) => ({
 				path: d.path,

@@ -44,7 +44,10 @@ export interface UserDraftSyncOptions<Draft> {
  * Bidirectional sync between a session editor's runtime store and the shared
  * `UserDraft` cell for `(workspace, kind, path)`. Holding a *live* handle
  * (`useMany`) is what lets the chat's writes (`write_script`, `patch_flow_json`,
- * …) reach the open preview — a plain `UserDraft.get` would only see localStorage.
+ * …) reach the open preview: the chat persists through the backend syncer and
+ * reflects into this in-tab cell, and the inbound effect below mirrors that into
+ * the editor. Without a mounted handle there is no cell, so the chat falls back
+ * to reading/writing the backend directly.
  *
  * - **inbound** (`handle.draft → store`): reflects external writes into the editor.
  * - **outbound** (`store → handle`, debounced): persists editor edits.

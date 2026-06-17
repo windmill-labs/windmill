@@ -59,7 +59,8 @@
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
 	import { migrateLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
-	import { gcUserDrafts } from '$lib/userDraft.svelte'
+	import { migrateUserDraftsToDb } from '$lib/userDraftDbMigration'
+	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
 	import { setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
@@ -135,6 +136,16 @@
 			const user = await getUserExt(workspace)
 			if (!deepEqual(user, $userStore)) {
 				userStore.set(user)
+			}
+			// Persist the workspace username so the synchronous `/add` →
+			// `/edit/u/{user}/draft_{uuid}` redirects (in each editor's
+			// `+page.ts`) can land on the right namespace without waiting
+			// for this async layout fetch. Without this they fall back to
+			// the `'me'` placeholder on every fresh nav.
+			try {
+				if (user?.username) localStorage.setItem('username', user.username)
+			} catch (e) {
+				console.error('Could not persist username to local storage', e)
 			}
 			if (isCloudHosted() && user?.is_admin) {
 				isPremiumStore.set(await WorkspaceService.getIsPremium({ workspace }))
@@ -424,18 +435,19 @@
 	$effect(() => {
 		$workspaceStore && untrack(() => onLoad())
 	})
+	// One-shot UserDraft migration chain. `migrateLegacyUserDrafts` folds
+	// the legacy `flow` / `app-…` / `rawapp-…` LS keys into the
+	// `userdraft/w/{ws}/{kind}/{path}` format; `migrateUserDraftsToDb`
+	// then pushes those onto the server-side draft table and clears LS
+	// on success. The order matters — the second step only sees what
+	// the first one normalized.
 	$effect(() => {
-		if ($workspaceStore) untrack(() => migrateLegacyUserDrafts($workspaceStore!))
-	})
-	// Sweep UserDraft entries that haven't been touched in 30 days. Runs
-	// once on mount and on a 30-min timer so a single very long session
-	// also clears out stale autosaves over time. Live entries stamp
-	// `lastWrittenAt` on every persist, so the sweep only touches truly
-	// dormant records.
-	$effect(() => {
-		gcUserDrafts()
-		const interval = setInterval(() => gcUserDrafts(), 30 * 60 * 1000)
-		return () => clearInterval(interval)
+		if ($workspaceStore && $userStore) {
+			untrack(() => {
+				migrateLegacyUserDrafts($workspaceStore!)
+				void migrateUserDraftsToDb()
+			})
+		}
 	})
 	$effect(() => {
 		innerWidth && untrack(() => changeCollapsed())
@@ -490,6 +502,7 @@
 <svelte:window bind:innerWidth />
 
 <UserSettings bind:this={userSettings} showMcpMode={true} />
+<DraftMigrationErrorModal />
 {#if page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login" loading={true}></CenteredModal>
 {:else if $userStore}
@@ -600,6 +613,13 @@
 											iconClasses="!text-ai"
 											shortcut={`${getModifierKey()}L`}
 										/>
+									</div>
+
+									<!-- w-40 cap: the drawer is max-w-min, and long session titles
+									     (nowrap before truncation) would otherwise inflate its
+									     min-content width to the full text width. -->
+									<div class="w-40">
+										<SessionPicker isCollapsed={false} />
 									</div>
 
 									<SidebarContent

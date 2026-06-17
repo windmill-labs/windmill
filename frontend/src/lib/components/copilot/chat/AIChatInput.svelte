@@ -13,6 +13,8 @@
 	import { ArrowUp, Square } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
+	import { type PasteAttachment } from './pasteTokens'
+	import { chatDraft, expanded } from './chatDraft'
 
 	const aiChatManager = getAiChatManager()
 
@@ -23,6 +25,7 @@
 		disabled?: boolean
 		placeholder?: string
 		initialInstructions?: string
+		initialPastes?: PasteAttachment[]
 		editingMessageIndex?: number | null
 		onEditEnd?: () => void
 		className?: string
@@ -47,6 +50,7 @@
 		isFirstMessage = false,
 		placeholder,
 		initialInstructions = '',
+		initialPastes = undefined,
 		editingMessageIndex = null,
 		onEditEnd = () => {},
 		className = '',
@@ -113,6 +117,8 @@
 	let contextTextareaComponent: ContextTextarea | undefined = $state()
 	let instructionsTextareaComponent: HTMLTextAreaElement | undefined = $state()
 	let instructions = $state(untrack(() => initialInstructions))
+	// Collapsed big-paste blobs referenced by tokens in `instructions`.
+	let pastes = $state<PasteAttachment[]>(untrack(() => initialPastes ?? []))
 
 	// App mode @ mention state
 	let showAppContextTooltip = $state(false)
@@ -171,6 +177,15 @@
 		} else {
 			instructionsTextareaComponent?.focus()
 		}
+	}
+
+	// Restore composer contents after a rolled-back turn. No-op when the user
+	// already typed a new draft — restoring would clobber it.
+	export function restoreInstructions(value: string, restoredPastes: PasteAttachment[] = []) {
+		if (instructions.trim()) return
+		instructions = value
+		pastes = restoredPastes
+		focusInput()
 	}
 
 	/** Put text back into the textarea (queued-message delete, or restore
@@ -265,19 +280,22 @@
 		if (aiChatManager.loading) {
 			// Queue the message instead of silently discarding it — it is
 			// auto-sent when the streaming turn completes successfully.
-			// Editing-while-loading keeps the old discard behavior.
+			// Editing-while-loading keeps the old discard behavior. Paste
+			// tokens are expanded into the queued text (the queue is plain
+			// strings), so the full content survives the auto-send.
 			if (editingMessageIndex === null && instructions.trim()) {
-				aiChatManager.queueMessage(instructions)
+				aiChatManager.queueMessage(expanded(chatDraft(instructions, pastes)))
 				contextTextareaComponent?.clearForSend()
 				instructions = ''
+				pastes = []
 			}
 			return
 		}
 		if (editingMessageIndex !== null) {
-			aiChatManager.restartGeneration(editingMessageIndex, instructions)
+			aiChatManager.restartGeneration(editingMessageIndex, instructions, pastes)
 			onEditEnd()
 		} else {
-			aiChatManager.sendRequest({ instructions })
+			aiChatManager.sendRequest({ instructions, pastes })
 			// clearForSend() pre-zaps the textarea's mention-sync so the wipe
 			// doesn't drop `selectedContext` before `AIChatManager.beforeSend`
 			// snapshots it. Only mounted in SCRIPT/FLOW/GLOBAL — APP and the
@@ -285,6 +303,18 @@
 			// reset (no `@`-mention state to coordinate).
 			contextTextareaComponent?.clearForSend()
 			instructions = ''
+			pastes = []
+		}
+	}
+
+	// A custom `onSendRequest` consumer (e.g. the inline ⌘K widget) has no chip
+	// display, so it gets the fully expanded text; the default path keeps tokens
+	// for the conversation bubble and expands them for the LLM inside the manager.
+	function submitRequest() {
+		if (onSendRequest) {
+			onSendRequest(expanded(chatDraft(instructions, pastes)))
+		} else {
+			sendRequest()
 		}
 	}
 
@@ -501,7 +531,7 @@
 			if (isLoading) {
 				onCancel ? onCancel() : aiChatManager.cancel()
 			} else if (!sendDisabled) {
-				onSendRequest ? onSendRequest(instructions) : sendRequest()
+				submitRequest()
 			}
 		}}
 	/>
@@ -545,6 +575,7 @@
 			<ContextTextarea
 				bind:this={contextTextareaComponent}
 				bind:value={instructions}
+				bind:pastes
 				{availableContext}
 				{selectedContext}
 				placeholder={modePlaceholder}
@@ -558,7 +589,7 @@
 					if (disabled) {
 						return
 					}
-					onSendRequest ? onSendRequest(instructions) : sendRequest()
+					submitRequest()
 				}}
 				{disabled}
 				{onKeyDown}
@@ -577,7 +608,7 @@
 			<textarea
 				bind:this={instructionsTextareaComponent}
 				bind:value={instructions}
-				use:autosize
+				use:autosize={{ maxHeight: '40vh' }}
 				oninput={handleAppInput}
 				onblur={() => {
 					setTimeout(() => {
@@ -641,7 +672,7 @@
 			<textarea
 				bind:this={instructionsTextareaComponent}
 				bind:value={instructions}
-				use:autosize
+				use:autosize={{ maxHeight: '40vh' }}
 				onkeydown={(e) => {
 					if (onKeyDown) {
 						onKeyDown(e)

@@ -139,6 +139,22 @@ pub struct GeminiGenerationConfig {
     pub response_mime_type: Option<String>,
     #[serde(rename = "responseSchema", skip_serializing_if = "Option::is_none")]
     pub response_schema: Option<serde_json::Value>,
+    #[serde(rename = "thinkingConfig", skip_serializing_if = "Option::is_none")]
+    pub thinking_config: Option<GeminiThinkingConfig>,
+}
+
+/// Thinking controls. Gemini 3+ models take a level token (`thinkingLevel`);
+/// Gemini 2.5 models take a token budget (`thinkingBudget`, `-1` = dynamic).
+/// `includeThoughts` returns thought summaries for chat display — summaries are
+/// free; thinking tokens are billed whether or not they are returned.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct GeminiThinkingConfig {
+    #[serde(rename = "thinkingLevel", skip_serializing_if = "Option::is_none")]
+    pub thinking_level: Option<String>,
+    #[serde(rename = "thinkingBudget", skip_serializing_if = "Option::is_none")]
+    pub thinking_budget: Option<i32>,
+    #[serde(rename = "includeThoughts", skip_serializing_if = "Option::is_none")]
+    pub include_thoughts: Option<bool>,
 }
 
 // ============================================================================
@@ -206,6 +222,9 @@ pub struct GeminiSSEPart {
     pub text: Option<String>,
     #[serde(rename = "functionCall")]
     pub function_call: Option<GeminiSSEFunctionCall>,
+    /// Marks a thought-summary part (returned when `includeThoughts` is set).
+    #[serde(default)]
+    pub thought: Option<bool>,
     /// Thought signature for Gemini 3+ models.
     #[serde(rename = "thoughtSignature")]
     pub thought_signature: Option<String>,
@@ -293,6 +312,7 @@ impl GeminiToolCallEvent {
     pub fn to_extra_content(&self) -> Option<ExtraContent> {
         self.thought_signature.as_ref().map(|sig| ExtraContent {
             google: Some(GoogleExtraContent { thought_signature: Some(sig.clone()) }),
+            bedrock: None,
         })
     }
 }
@@ -301,6 +321,9 @@ impl GeminiToolCallEvent {
 #[derive(Debug, Default)]
 pub struct GeminiParsedEvent {
     pub text: Option<String>,
+    /// Thought-summary text (parts flagged `thought: true`), kept separate from
+    /// the answer so it can stream as `reasoning_content`.
+    pub reasoning: Option<String>,
     pub tool_calls: Vec<GeminiToolCallEvent>,
     pub annotations: Vec<UrlCitation>,
     pub used_websearch: bool,
@@ -575,6 +598,9 @@ pub fn gemini_response_to_openai(parsed: &GeminiParsedEvent, model: &str) -> ser
         "role": "assistant",
         "content": content,
     });
+    if let Some(reasoning) = &parsed.reasoning {
+        message["reasoning_content"] = serde_json::json!(reasoning);
+    }
     if !tool_calls.is_empty() {
         message["tool_calls"] = serde_json::json!(tool_calls);
     }
@@ -603,6 +629,20 @@ pub fn gemini_event_to_openai_sse_chunks(
     tool_call_index: &mut usize,
 ) -> Vec<String> {
     let mut chunks = Vec::new();
+
+    if let Some(reasoning) = &parsed.reasoning {
+        let chunk = serde_json::json!({
+            "id": id,
+            "object": "chat.completion.chunk",
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "delta": { "reasoning_content": reasoning },
+                "finish_reason": null,
+            }]
+        });
+        chunks.push(format!("data: {}\n\n", chunk));
+    }
 
     if let Some(text) = &parsed.text {
         let chunk = serde_json::json!({
@@ -718,9 +758,16 @@ fn extract_candidates_into(candidates: &[GeminiSSECandidate], parsed: &mut Gemin
                 for part in parts {
                     if let Some(text) = &part.text {
                         if !text.is_empty() {
-                            match parsed.text.as_mut() {
+                            // Thought-summary parts go to the reasoning channel,
+                            // not the answer.
+                            let target = if part.thought == Some(true) {
+                                &mut parsed.reasoning
+                            } else {
+                                &mut parsed.text
+                            };
+                            match target.as_mut() {
                                 Some(existing) => existing.push_str(text),
-                                None => parsed.text = Some(text.clone()),
+                                None => *target = Some(text.clone()),
                             }
                         }
                     }
@@ -788,8 +835,8 @@ fn openai_tool_call_json(
 #[cfg(test)]
 mod tests {
     use super::{
-        gemini_event_to_openai_sse_chunks, gemini_response_to_openai, sanitize_schema_for_google,
-        GeminiParsedEvent, GeminiToolCallEvent,
+        gemini_event_to_openai_sse_chunks, gemini_response_to_openai, parse_gemini_sse_event,
+        sanitize_schema_for_google, GeminiParsedEvent, GeminiToolCallEvent,
     };
 
     #[test]
@@ -854,6 +901,59 @@ mod tests {
             "stream-thought-signature"
         );
         assert_eq!(tool_call["index"], 0);
+    }
+
+    #[test]
+    fn gemini_thought_parts_route_to_reasoning() {
+        let event = r#"{
+            "candidates": [{
+                "content": {
+                    "parts": [
+                        {"text": "summary of my thinking", "thought": true},
+                        {"text": "the answer"}
+                    ]
+                }
+            }]
+        }"#;
+        let parsed = parse_gemini_sse_event(event)
+            .expect("parse succeeds")
+            .expect("event is recognised");
+        assert_eq!(parsed.reasoning.as_deref(), Some("summary of my thinking"));
+        assert_eq!(parsed.text.as_deref(), Some("the answer"));
+
+        let mut tool_call_index = 0;
+        let chunks = gemini_event_to_openai_sse_chunks(
+            &parsed,
+            "chatcmpl-test",
+            "gemini-3-flash-preview",
+            &mut tool_call_index,
+        );
+        assert_eq!(chunks.len(), 2);
+        let reasoning_chunk: serde_json::Value = serde_json::from_str(
+            chunks[0]
+                .strip_prefix("data: ")
+                .and_then(|c| c.strip_suffix("\n\n"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            reasoning_chunk["choices"][0]["delta"]["reasoning_content"],
+            "summary of my thinking"
+        );
+        let text_chunk: serde_json::Value = serde_json::from_str(
+            chunks[1]
+                .strip_prefix("data: ")
+                .and_then(|c| c.strip_suffix("\n\n"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(text_chunk["choices"][0]["delta"]["content"], "the answer");
+
+        // Non-streaming conversion keeps the channels separate too.
+        let response = gemini_response_to_openai(&parsed, "gemini-3-flash-preview");
+        let message = &response["choices"][0]["message"];
+        assert_eq!(message["content"], "the answer");
+        assert_eq!(message["reasoning_content"], "summary of my thinking");
     }
 
     #[test]
