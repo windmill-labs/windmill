@@ -32,4 +32,12 @@ describe('MENTION_RE', () => {
 		const m = `x ${formatMention(name)} y`.match(MENTION_RE)!
 		expect(mentionTitle(m[0])).toBe(name)
 	})
+
+	it('round-trips a name containing both whitespace and a closing bracket', () => {
+		const name = 'notes ] draft.md'
+		expect(formatMention(name)).toBe('@[notes \\] draft.md]')
+		const m = `x ${formatMention(name)} y`.match(MENTION_RE)!
+		expect(m[0]).toBe('@[notes \\] draft.md]')
+		expect(mentionTitle(m[0])).toBe(name)
+	})
 })
