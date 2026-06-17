@@ -1,10 +1,11 @@
 /**
  * Shared projection of a raw-app *source* into the flat `AppDraftValue` the
- * deploy paths consume. Used by BOTH the global AI chat
+ * deploy paths consume. The single source for BOTH the global AI chat
  * (`copilot/chat/global/core.ts`) and the Review & Deploy page
- * (`rawAppDeploy.ts`) so the two can't drift — a past divergence here silently
- * dropped a draft's files and broke deploys with "Raw app bundle requires
- * /index.ts".
+ * (`rawAppDeploy.ts`), so both bundle the identical shape. It must read a
+ * draft's top-level `files` (a `RawAppDraft` carries them there, not under
+ * `value.files`) — otherwise the bundle is empty and deploy fails with "Raw app
+ * bundle requires /index.ts".
  */
 import type { AppDraftValue } from '$lib/components/copilot/chat/global/workspaceItems'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'

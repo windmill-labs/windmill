@@ -197,7 +197,14 @@
 		// there's no deployed row (draft-only path).
 		deployedBaseline = backendApp.no_deployed
 			? undefined
-			: (structuredClone(stateSnapshot(backendApp.value)) as App)
+			: // Carry the deployed summary onto the baseline: the autosave mirrors the
+				// summary onto the live App value, so the `discardIf` no-op comparison must
+				// see the deployed summary here too — otherwise a reverted-to-deployed draft
+				// never compares equal (and a summary-only edit still counts as a change).
+				({
+					...(structuredClone(stateSnapshot(backendApp.value)) as App),
+					summary: backendApp.summary
+				} as App)
 		// `other_drafts_users` only computed when `getDraft`; don't clobber the
 		// known list on a `getDraft:false` reload. See /scripts/edit's loader.
 		if (getDraft) {
