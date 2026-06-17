@@ -51,6 +51,23 @@ function notReadyMessage(store: AttachedFilesStore, file: string): string | unde
 	return `No attached file named "${file}". Attached files: ${names || '(none)'}.`
 }
 
+/**
+ * When attachments exist but none expose a readable target (`readyFiles()` is empty),
+ * explain the actual reason instead of always claiming files are still indexing. Empty
+ * or binary-only linked folders leave only `ready` placeholder rows (filtered out of
+ * `readyFiles`), while a locked/unavailable restore surfaces those statuses on the rows.
+ */
+function noReadyFilesMessage(store: AttachedFilesStore): string {
+	const statuses = new Set(store.list().map((f) => f.status))
+	if (statuses.has('indexing')) return 'Attached files are still being indexed. Try again shortly.'
+	if (statuses.has('locked'))
+		return 'The attached files are locked after a reload. Ask the user to restore access (send a message, or click "Restore access").'
+	if (statuses.has('unavailable'))
+		return 'The attached files are no longer available (moved, deleted, or their local copies were evicted). Ask the user to re-link them.'
+	if (statuses.has('error')) return 'The attached files failed to load.'
+	return 'No searchable text files are attached (a linked folder may be empty or contain only non-text files).'
+}
+
 function humanSize(bytes: number): string {
 	if (bytes < 1024) return `${bytes} B`
 	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -90,7 +107,7 @@ export const searchFilesTool: Tool<{}> = {
 		}
 		const ready = store.readyFiles()
 		if (ready.length === 0) {
-			return 'Attached files are still being indexed. Try again shortly.'
+			return noReadyFilesMessage(store)
 		}
 		toolCallbacks.setToolStatus(toolId, {
 			content: `Searching attached files for /${parsed.pattern}/...`
