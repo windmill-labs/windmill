@@ -4577,6 +4577,27 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/generate_initial_datatable_migration/{datatable_name}:
+    post:
+      summary: snapshot the current schema as an already-installed initial migration
+      operationId: generateInitialDatatableMigration
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: created migration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatatableMigration"
+
   /w/{workspace}/workspaces/create_pg_database:
     post:
       summary: create a new PostgreSQL database for a datatable

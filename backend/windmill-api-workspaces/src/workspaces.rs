@@ -151,6 +151,10 @@ pub fn workspaced_service() -> Router {
             "/delete_datatable_migration/{datatable_name}/{timestamp}",
             delete(delete_datatable_migration),
         )
+        .route(
+            "/generate_initial_datatable_migration/{datatable_name}",
+            post(generate_initial_datatable_migration),
+        )
         .route("/git_sync_enabled", get(get_git_sync_enabled))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
@@ -1961,7 +1965,11 @@ impl Drop for DumpFile {
 
 /// Run pg_dump against a PgDatabase, writing output to a temp file on disk.
 /// Returns a DumpFile handle; the file is deleted when the handle is dropped.
-async fn pg_dump_database(pg_db: &PgDatabase, schema_only: bool) -> Result<DumpFile> {
+async fn pg_dump_database(
+    pg_db: &PgDatabase,
+    schema_only: bool,
+    exclude_tables: &[&str],
+) -> Result<DumpFile> {
     let dump_file = DumpFile::new()?;
 
     let host = &pg_db.host;
@@ -1973,6 +1981,9 @@ async fn pg_dump_database(pg_db: &PgDatabase, schema_only: bool) -> Result<DumpF
     cmd.arg("--format=plain").arg("--file").arg(&dump_file.path);
     if schema_only {
         cmd.arg("--schema-only");
+    }
+    for table in exclude_tables {
+        cmd.arg(format!("--exclude-table={table}"));
     }
     cmd.arg("--host")
         .arg(host)
@@ -2197,7 +2208,7 @@ async fn import_pg_database(
     }
     windmill_common::validate_dbname(&target_pg.dbname)?;
 
-    let dump_file = pg_dump_database(&source_pg, schema_only).await?;
+    let dump_file = pg_dump_database(&source_pg, schema_only, &[]).await?;
     pg_import_dump(&target_pg, &dump_file).await?;
 
     Ok(format!(
@@ -2219,7 +2230,7 @@ async fn export_pg_schema(
     Json(req): Json<ExportPgSchemaRequest>,
 ) -> Result<String> {
     let pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
-    let dump_file = pg_dump_database(&pg, true).await?;
+    let dump_file = pg_dump_database(&pg, true, &[]).await?;
     tokio::fs::read_to_string(&dump_file.path)
         .await
         .map_err(|e| Error::internal_err(format!("Failed to read dump file: {}", e)))
@@ -2963,6 +2974,110 @@ async fn delete_datatable_migration(
         "Deleted migration {} from {}",
         timestamp, datatable_name
     ))
+}
+
+/// Generate the first migration for a data table by snapshotting its current
+/// schema with `pg_dump`. The migration is recorded as already installed (its
+/// version is written to `_wm_migrations` *before* the definition row, so it is
+/// always considered applied and never re-run) and has no down migration.
+async fn generate_initial_datatable_migration(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, datatable_name)): Path<(String, String)>,
+) -> JsonResult<DatatableMigration> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let db_resource = get_datatable_resource_from_db_unchecked(&db, &w_id, &datatable_name).await?;
+    let pg_db: PgDatabase = serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+
+    // Snapshot the schema, excluding Windmill's own migration bookkeeping table.
+    let dump_file = pg_dump_database(&pg_db, true, &["_wm_migrations"]).await?;
+    let raw_dump = tokio::fs::read_to_string(&dump_file.path)
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to read schema dump: {}", e)))?;
+    // pg_dump emits psql meta-commands (\restrict / \unrestrict) that aren't
+    // valid SQL; drop them so the migration body can run via a plain query.
+    let code_up: String = raw_dump
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('\\'))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let now_ts: i64 = Utc::now()
+        .format("%Y%m%d%H%M%S")
+        .to_string()
+        .parse()
+        .map_err(|e| Error::internal_err(format!("Failed to build migration version: {}", e)))?;
+    let max_existing: Option<i64> = sqlx::query_scalar!(
+        "SELECT MAX(timestamp) FROM datatable_migrations WHERE workspace_id = $1 AND datatable = $2",
+        &w_id,
+        &datatable_name,
+    )
+    .fetch_one(&db)
+    .await?;
+    let timestamp = match max_existing {
+        Some(m) if m >= now_ts => m + 1,
+        _ => now_ts,
+    };
+
+    // Mark the version installed in the data table BEFORE recording the
+    // definition, so the migration is never observable as "not run".
+    let (client, connection) = pg_db.connect(Some(&db)).await?;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+    client
+        .batch_execute(
+            "CREATE TABLE IF NOT EXISTS _wm_migrations (\
+                version BIGINT PRIMARY KEY, \
+                installed_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!("Failed to ensure _wm_migrations table: {}", e))
+        })?;
+    client
+        .execute(
+            "INSERT INTO _wm_migrations (version) VALUES ($1) ON CONFLICT DO NOTHING",
+            &[&timestamp],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!("Failed to mark initial migration installed: {}", e))
+        })?;
+
+    sqlx::query!(
+        "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) \
+         VALUES ($1, $2, $3, 'initial', $4, NULL)",
+        &w_id,
+        &datatable_name,
+        timestamp,
+        &code_up,
+    )
+    .execute(&db)
+    .await?;
+
+    audit_log(
+        &db,
+        &authed,
+        "workspaces.generate_initial_datatable_migration",
+        ActionKind::Create,
+        &w_id,
+        Some(datatable_name.as_str()),
+        None,
+    )
+    .await?;
+
+    Ok(Json(DatatableMigration {
+        datatable: datatable_name,
+        timestamp,
+        name: "initial".to_string(),
+        code_up,
+        code_down: None,
+    }))
 }
 
 #[derive(Deserialize)]
