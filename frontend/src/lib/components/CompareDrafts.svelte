@@ -2,19 +2,22 @@
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import WorkspaceDeployItemSummary from './WorkspaceDeployItemSummary.svelte'
+	import DraftBadge from './DraftBadge.svelte'
+	import Toggle from './Toggle.svelte'
+	import Popover from './meltComponents/Popover.svelte'
 	import { Badge } from './common'
-	import Tooltip from './meltComponents/Tooltip.svelte'
 	import Button from './common/button/Button.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
-	import { ArrowRight, DiffIcon, GitFork, Pencil, Undo2 } from 'lucide-svelte'
+	import { AlertTriangle, ArrowRight, DiffIcon, GitFork, Pencil, Undo2 } from 'lucide-svelte'
 	import { untrack } from 'svelte'
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import { editUrlFor } from './sessions/forkEditUrl'
 	import { AppService, FlowService, ScriptService, type WorkspaceItemDiff } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { getDraftDiffValues, deployDraft, discardDraft } from '$lib/utils_draft_deploy'
-	import { type DraftItem } from '$lib/workspaceDrafts.svelte'
+	import { type DraftItem, useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import type { Kind as LayoutKind } from '$lib/utils_deployable'
+	import { userStore } from '$lib/stores'
 
 	interface Props {
 		currentWorkspaceId: string
@@ -68,6 +71,12 @@
 		legacy_draft: boolean
 		raw_app: boolean
 		key: string
+		can_write: boolean
+		draft_users?: { username?: string | null }[]
+		/** The row is my own draft (or the legacy no-owner row) — only then is it
+		 * actionable. Other users' rows (shown when "Show all drafts" is on) are
+		 * view-only: you can't deploy/discard someone else's draft. */
+		mine: boolean
 	}
 	function getItemKey(kind: string, path: string): string {
 		return `${kind}:${path}`
@@ -98,12 +107,25 @@
 		return kind as LayoutKind
 	}
 
-	// The list (and the Draft Count) come from the shared Workspace Drafts module,
-	// owned by the page and passed in via `draftItems`; deploy/discard invalidate
-	// that resource, so the list refetches and deployed items drop off without a
-	// manual reload here.
+	// "Show all drafts" widens the list from my own (+ legacy) to every user's
+	// drafts in the workspace. Off by default. The default view reuses the page's
+	// shared Workspace Drafts resource (passed in via `draftItems`); the "all
+	// users" superset is fetched lazily here via its own resource — only while the
+	// toggle is on (workspace() is undefined otherwise, so no fetch) — and shares
+	// the same invalidation, so a deploy/discard refetches both.
+	let showAll = $state(false)
+	const allDrafts = useWorkspaceDrafts(
+		() => (showAll ? currentWorkspaceId : undefined),
+		() => true
+	)
+	const sourceItems = $derived(showAll ? allDrafts.items : draftItems)
+	const loading = $derived(showAll ? allDrafts.loading : draftsLoading)
+
+	// The list (and, in the default view, the Draft Count) come from the Workspace
+	// Drafts module; deploy/discard invalidate the resource, so the list refetches
+	// and deployed items drop off without a manual reload here.
 	const items: Row[] = $derived(
-		draftItems.map((d) => ({
+		sourceItems.map((d) => ({
 			...d,
 			key: getItemKey(d.kind, d.path),
 			kind: toLayoutKind(d.kind),
@@ -113,13 +135,46 @@
 		}))
 	)
 
+	const currentUsername = $derived($userStore?.username)
+
+	// Other real users (not me, not the legacy NULL-email row) who also drafted
+	// this path. Only the shared full-page-editor kinds carry draft_users, so this
+	// is naturally empty for drawer kinds. Deploying only deploys my own draft, so
+	// a non-empty list warrants the triangle warning.
+	function otherDraftUsers(row: Row): string[] {
+		return (row.draft_users ?? [])
+			.map((u) => u.username)
+			.filter((u): u is string => !!u && u !== currentUsername)
+	}
+
+	// The backend already returns exactly the rows for the current view (own +
+	// legacy, or every user's with "Show all drafts"), so there's no client-side
+	// filtering — `visibleItems` is just the mapped list.
+	const visibleItems = $derived(items)
+
+	// A row is actionable when it isn't already deployed this session, the user has
+	// write permission, AND it's their own draft (you can't deploy someone else's
+	// draft — those show view-only in the "all drafts" view). The server enforces
+	// the same; this keeps the UI honest.
+	function isSelectable(item: Row): boolean {
+		return deploymentStatus[item.key]?.status !== 'deployed' && item.can_write && item.mine
+	}
+
+	// Why a row can't be deployed/discarded (drives the disabled-checkbox tooltip
+	// and the Discard button's title). `undefined` ⇒ actionable.
+	function blockedReason(item: Row): string | undefined {
+		if (!item.mine) return 'This draft belongs to another user'
+		if (!item.can_write) return "You don't have write permission on this path"
+		return undefined
+	}
+
 	// The Draft Items list only carries the *deployed* summary, so the draft's
 	// (new) display name isn't known yet. Fetch each item's draft blob once and
 	// cache both names — mirrors CompareWorkspaces' fetchSummaries (eager on load,
 	// keyed by row key) so the rename rendering is shared and consistent. Only
 	// non-`draft_only` items can show a rename: a `draft_only` item has no deployed
-	// side to diff the name against. Raw apps live on a separate route and aren't
-	// fetchable here, so they're skipped (no rename shown, same as before).
+	// side to diff the name against. Raw apps are fetched via the apps endpoint too
+	// (it auto-detects raw from the deployed row and overlays the raw_app draft).
 	const summaryCache = $state<
 		Record<string, { deployed?: string; draft?: string; loading?: boolean }>
 	>({})
@@ -161,9 +216,9 @@
 		untrack(() => {
 			for (const item of current) {
 				if (
+					item.mine &&
 					!item.draft_only &&
-					!item.raw_app &&
-					['script', 'flow', 'app'].includes(item.draftKind) &&
+					(['script', 'flow', 'app'].includes(item.draftKind) || item.raw_app) &&
 					!summaryCache[item.key]
 				) {
 					void fetchDraftSummary(item)
@@ -197,29 +252,23 @@
 	})
 
 	$effect(() => {
-		if (!hasAutoSelected && items.length > 0) {
-			selectedItems = items
-				.filter((i) => deploymentStatus[i.key]?.status !== 'deployed')
-				.map((i) => i.key)
+		if (!hasAutoSelected && visibleItems.length > 0) {
+			selectedItems = visibleItems.filter(isSelectable).map((i) => i.key)
 			hasAutoSelected = true
 		}
 	})
 
-	// Selected items still in the live list and deployable. Derived (not a pruning
-	// effect) so the "Deploy N drafts" button stays reactive to the Workspace
-	// Drafts resource: deploy/discard drop items, and stale keys left in
+	// Selected items still in the visible list and deployable. Derived (not a
+	// pruning effect) so the "Deploy N drafts" button stays reactive to the
+	// Workspace Drafts resource: deploy/discard drop items, and stale keys left in
 	// selectedItems are simply ignored here (and by deploySelected).
 	let selectedCount = $derived(
-		items.filter(
-			(i) => selectedItems.includes(i.key) && deploymentStatus[i.key]?.status !== 'deployed'
-		).length
+		visibleItems.filter((i) => selectedItems.includes(i.key) && isSelectable(i)).length
 	)
 
 	let allSelected = $derived(
-		items.length > 0 &&
-			items
-				.filter((i) => deploymentStatus[i.key]?.status !== 'deployed')
-				.every((i) => selectedItems.includes(i.key))
+		visibleItems.filter(isSelectable).length > 0 &&
+			visibleItems.filter(isSelectable).every((i) => selectedItems.includes(i.key))
 	)
 
 	function toggleItem(item: { key: string }) {
@@ -231,9 +280,7 @@
 	}
 
 	function selectAll() {
-		selectedItems = items
-			.filter((i) => deploymentStatus[i.key]?.status !== 'deployed')
-			.map((i) => i.key)
+		selectedItems = visibleItems.filter(isSelectable).map((i) => i.key)
 	}
 
 	function deselectAll() {
@@ -272,8 +319,9 @@
 	async function deploySelected() {
 		deploying = true
 		// Snapshot the items to deploy: deployDraft invalidates the Workspace Drafts
-		// resource, so `items` can change mid-loop — iterate a stable copy.
-		const toDeploy = items.filter((i) => selectedItems.includes(i.key))
+		// resource, so `items` can change mid-loop — iterate a stable copy. Guard on
+		// isSelectable so a non-writable row can never be deployed via a stale key.
+		const toDeploy = visibleItems.filter((i) => selectedItems.includes(i.key) && isSelectable(i))
 		let deployedAny = false
 		for (const item of toDeploy) {
 			deploymentStatus[item.key] = { status: 'loading' }
@@ -301,12 +349,34 @@
 	}
 
 	// --- Discard ---
+	// Only one discard is destructive: removing the last draft of a never-deployed
+	// item (draft_only, and no other user still holds a draft) permanently deletes
+	// the item, so it gets a confirmation. Every other discard just reverts to the
+	// deployed version or removes your own copy while another draft remains — those
+	// run immediately (the row already carries the ⚠️ for the multi-user case).
 	let discardTarget = $state<Row | undefined>(undefined)
 
-	async function confirmDiscard() {
-		const item = discardTarget
-		discardTarget = undefined
-		if (!item) return
+	function isDestructiveDiscard(item: Row): boolean {
+		// A deployed counterpart exists → discard just reverts, never deletes.
+		if (!item.draft_only) return false
+		// draft_only → discarding deletes the item, UNLESS another real user still
+		// holds a draft of it. Guard on `currentUsername`: if we don't yet know who
+		// "me" is, `otherDraftUsers` would count my own row as someone else's, so
+		// fall back to treating it as a delete (confirm) rather than risk a silent
+		// deletion.
+		if (!currentUsername) return true
+		return otherDraftUsers(item).length === 0
+	}
+
+	function onDiscardClick(item: Row) {
+		if (isDestructiveDiscard(item)) {
+			discardTarget = item
+		} else {
+			void doDiscard(item)
+		}
+	}
+
+	async function doDiscard(item: Row) {
 		const res = await discardDraft(
 			item.draftKind,
 			item.path,
@@ -321,6 +391,12 @@
 		} else {
 			sendUserToast(`Failed to discard ${item.path}: ${res.error}`, true)
 		}
+	}
+
+	function confirmDiscard() {
+		const item = discardTarget
+		discardTarget = undefined
+		if (item) void doDiscard(item)
 	}
 
 	// Editor URL for a draft item, scoped to the current workspace. Raw apps live
@@ -388,16 +464,33 @@
 <div class="flex flex-col gap-4">
 	<div class="bg-surface-tertiary p-4 rounded-md border">
 		<WorkspaceDeployLayout
-			{items}
+			items={visibleItems}
 			{selectedItems}
 			{deploymentStatus}
 			{allSelected}
-			selectablePredicate={(item) => deploymentStatus[item.key]?.status !== 'deployed'}
+			selectablePredicate={(item) => isSelectable(item as unknown as Row)}
+			selectBlockedReason={(item) => blockedReason(item as unknown as Row)}
 			onToggleItem={toggleItem}
 			onSelectAll={selectAll}
 			onDeselectAll={deselectAll}
-			emptyMessage={draftsLoading ? 'Loading drafts…' : 'No drafts in this workspace'}
+			emptyMessage={loading
+				? 'Loading drafts…'
+				: showAll
+					? 'No drafts in this workspace'
+					: 'No drafts you authored in this workspace'}
 		>
+			{#snippet selectAllActions()}
+				<Toggle
+					bind:checked={showAll}
+					size="xs"
+					options={{
+						right: 'Show all drafts',
+						rightTooltip:
+							"Show every user's drafts in this workspace, not just yours. Others' drafts are view-only — you can only deploy or discard your own."
+					}}
+				/>
+			{/snippet}
+
 			{#snippet header()}
 				{#if isFork}
 					<div class="flex flex-wrap gap-1 items-center bg-surface-tertiary pb-4">
@@ -443,28 +536,58 @@
 					{oldSummary}
 					{newSummary}
 					renamed={!draftItem.draft_only &&
-						oldSummary != null &&
-						newSummary != null &&
+						!!oldSummary &&
+						!!newSummary &&
 						oldSummary !== newSummary}
 				/>
 			{/snippet}
 
+			{#snippet itemPath(item)}
+				{@const draftItem = item as unknown as Row}
+				{#if draftItem.kind === 'resource' || draftItem.kind === 'variable' || draftItem.kind === 'resource_type'}
+					<!-- drawer-only items show their path as the title; keep this line empty -->
+				{:else if !draftItem.draft_only && draftItem.draft_path && draftItem.draft_path !== draftItem.path}
+					<!-- Path rename: a *deployed* item's draft moves it to a new path. Strike
+					     the deployed path and show the draft's target path. Draft-only items are
+					     excluded — their storage path is an auto-generated `draft_{uuid}` and
+					     `draft_path` is just the pretty name, not a rename. -->
+					<span class="line-through">{draftItem.path}</span>
+					{draftItem.draft_path}
+				{:else}
+					{draftItem.draft_path ?? draftItem.path}
+				{/if}
+			{/snippet}
+
 			{#snippet itemActions(item)}
 				{@const draftItem = item as unknown as Row}
+				{@const others = otherDraftUsers(draftItem)}
 				<Badge color="gray" size="xs">{kindLabel(draftItem.draftKind)}</Badge>
-				{#if draftItem.draft_only}
-					<Badge color="indigo" size="xs">New</Badge>
-				{/if}
-				{#if draftItem.legacy_draft}
-					<Tooltip>
-						<Badge color="yellow" size="xs">Legacy draft</Badge>
-						{#snippet text()}
-							A legacy draft predates the per-user drafts migration: it isn't tied to any user
-							(workspace-level, email NULL), so everyone with access to this path sees it.
+				<DraftBadge
+					is_draft={true}
+					draft_only={draftItem.draft_only}
+					draft_users={draftItem.draft_users ?? []}
+					{currentUsername}
+					workspace={currentWorkspaceId}
+					itemKind={draftItem.draftKind}
+					path={draftItem.path}
+					allowFork={false}
+				/>
+				{#if draftItem.mine && others.length > 0}
+					<Popover openOnHover debounceDelay={50}>
+						{#snippet trigger()}
+							<AlertTriangle size={16} class="text-yellow-500" />
 						{/snippet}
-					</Tooltip>
+						{#snippet content()}
+							<div class="text-xs p-3 max-w-xs text-primary">
+								{others.length} other {others.length === 1 ? 'user' : 'users'} ({others.join(', ')})
+								{others.length === 1 ? 'has' : 'have'} a draft of this item. Deploying only deploys your
+								draft; theirs are left untouched.
+							</div>
+						{/snippet}
+					</Popover>
 				{/if}
 				{#if deploymentStatus[draftItem.key]?.status !== 'deployed'}
+					{@const discardBlock = blockedReason(draftItem)}
 					<Button
 						unifiedSize="xs"
 						variant="subtle"
@@ -477,8 +600,10 @@
 						unifiedSize="xs"
 						variant="subtle"
 						destructive
+						disabled={!!discardBlock}
+						title={discardBlock}
 						startIcon={{ icon: Undo2 }}
-						onClick={() => (discardTarget = draftItem)}
+						onClick={() => onDiscardClick(draftItem)}
 					>
 						Discard draft
 					</Button>
@@ -503,23 +628,18 @@
 	<DiffDrawer bind:this={diffDrawer} {isFlow} />
 </div>
 
+<!-- Only the destructive discard (deleting the last draft of a never-deployed
+     item) opens this modal; non-destructive discards run without confirmation. -->
 <ConfirmationModal
 	open={discardTarget !== undefined}
-	title={discardTarget?.draft_only ? 'Delete item' : 'Discard draft'}
-	confirmationText={discardTarget?.draft_only ? 'Delete' : 'Discard'}
+	title="Delete item"
+	confirmationText="Delete"
 	onConfirmed={confirmDiscard}
 	onCanceled={() => (discardTarget = undefined)}
 >
-	{#if discardTarget?.draft_only}
-		<p>
-			<span class="font-mono font-medium text-primary">{discardTarget?.path}</span> exists only as a
-			draft. Discarding it will permanently delete the item. This cannot be undone.
-		</p>
-	{:else}
-		<p>
-			Discard the draft of
-			<span class="font-mono font-medium text-primary">{discardTarget?.path}</span>? The deployed
-			version is unaffected.
-		</p>
-	{/if}
+	<p>
+		<span class="font-mono font-medium text-primary"
+			>{discardTarget?.draft_path ?? discardTarget?.path}</span
+		> exists only as a draft. Discarding it will permanently delete the item. This cannot be undone.
+	</p>
 </ConfirmationModal>

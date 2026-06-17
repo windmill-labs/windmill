@@ -9,7 +9,7 @@
 use crate::db::{ApiAuthed, DB};
 
 use axum::{
-    extract::{Extension, Path},
+    extract::{Extension, Path, Query},
     routing::{get, post},
     Json, Router,
 };
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
-    user_drafts::{UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX},
+    user_drafts::{DraftUserRef, UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX},
     variables::{build_crypt, encrypt},
 };
 
@@ -50,6 +50,30 @@ pub struct DraftListItem {
     /// row exists at this (path, kind) — the DISTINCT ON prefers an owned row.
     pub legacy_draft: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
+    /// All draft authors at this `(path, kind)`, for the shared full-page-editor
+    /// kinds (script/flow/app/raw_app) only — feeds the home-page-style owner
+    /// circles on the review page. `None` for drawer kinds, which keep their
+    /// drafts private.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_users: Option<sqlx::types::Json<Vec<DraftUserRef>>>,
+    /// Whether the authed user may deploy/discard this draft — the same check
+    /// the deploy/discard endpoints enforce. Computed per row after the query,
+    /// so it defaults to `false` when read from the row.
+    #[sqlx(default)]
+    pub can_write: bool,
+    /// The listed row belongs to the authed user (own draft or the legacy
+    /// no-owner row) and is therefore actionable by them. Always `true` in the
+    /// default (own-drafts) listing; only meaningful with `all_users=true`,
+    /// where other users' rows surface as `false` (view-only — you can't deploy
+    /// someone else's draft).
+    pub mine: bool,
+}
+
+#[derive(Deserialize)]
+pub struct ListDraftsQuery {
+    /// List every draft in the workspace (all users), not just the authed
+    /// user's own + legacy rows. Other users' rows come back with `mine=false`.
+    pub all_users: Option<bool>,
 }
 
 /// Every draft the authed user has in this workspace, across all kinds — the
@@ -59,7 +83,9 @@ pub struct DraftListItem {
 async fn list_drafts(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
+    Query(query): Query<ListDraftsQuery>,
 ) -> Result<Json<Vec<DraftListItem>>> {
     // Operators have no drafts of their own (they can't write any, see
     // `require_can_write_path`), so this list is always empty for them. They
@@ -67,20 +93,58 @@ async fn list_drafts(
     if authed.is_operator {
         return Ok(Json(vec![]));
     }
-    let rows = sqlx::query_as::<_, DraftListItem>(&list_drafts_query())
+    let all_users = query.all_users.unwrap_or(false);
+    let rows = sqlx::query_as::<_, DraftListItem>(&list_drafts_query(all_users))
         .bind(&w_id)
         .bind(&authed.email)
         .fetch_all(&db)
         .await?;
-    Ok(Json(rows))
+    // Per-row permission gating:
+    //  - own drafts (incl. legacy no-owner rows, `mine = true`): the actionable
+    //    gate is write permission — run the exact check deploy/discard enforce so
+    //    the UI never offers an action that would 403.
+    //  - other users' drafts (only present with `all_users`, `mine = false`): the
+    //    UI never lets you act on them (`isSelectable` requires `mine`), so skip
+    //    the write probe (`can_write = false`) and instead require READ access —
+    //    otherwise the broadened listing would disclose the path/summary/authors
+    //    of items the caller can't see. Unreadable rows are dropped, mirroring the
+    //    `require_can_read_path` gate on `/drafts/get`.
+    let mut out = Vec::with_capacity(rows.len());
+    for mut row in rows {
+        if row.mine {
+            row.can_write =
+                match require_can_write_path(&authed, &db, &user_db, &w_id, row.kind, &row.path)
+                    .await
+                {
+                    Ok(()) => true,
+                    Err(Error::NotAuthorized(_)) => false,
+                    Err(e) => return Err(e),
+                };
+            out.push(row);
+        } else {
+            // `require_can_read_path` denies with `NotFound` (it hides existence)
+            // and, for some paths, `NotAuthorized` — both mean "not visible to the
+            // caller", so drop the row. Any other error is a real failure.
+            match require_can_read_path(&authed, &user_db, &w_id, row.kind, &row.path).await {
+                Ok(()) => {
+                    row.can_write = false;
+                    out.push(row);
+                }
+                Err(Error::NotFound(_)) | Err(Error::NotAuthorized(_)) => {}
+                Err(e) => return Err(e),
+            }
+        }
+    }
+    Ok(Json(out))
 }
 
 /// Build the `list_drafts` SQL, generating the `draft_only` CASE from
 /// `deployed_table()` (shared single source — can't drift from the access
 /// check). Table names come from the closed enum, never user input. Kinds
 /// with no path-keyed table get no arm and fall to `ELSE true`.
-/// `$1` = workspace_id, `$2` = email.
-fn list_drafts_query() -> String {
+/// `$1` = workspace_id, `$2` = email. With `all_users` the owner filter is
+/// dropped so every workspace draft is listed (others' rows get `mine=false`).
+fn list_drafts_query(all_users: bool) -> String {
     let mut case = String::from("CASE d.typ::text\n");
     for kind in UserDraftItemKind::ALL {
         let Some(table) = kind.deployed_table() else {
@@ -101,15 +165,35 @@ fn list_drafts_query() -> String {
         ));
     }
     case.push_str("  ELSE true\nEND");
-    // `(d.email = $2 OR d.email IS NULL)` lists the user's own drafts AND the
-    // legacy NULL-email rows; `DISTINCT ON (d.path, d.typ)` with `email IS NULL`
-    // last collapses a (path, kind) that has both to the owned row.
+    // Owner circles, mirroring the home-page list subquery (see apps.rs): every
+    // draft author at this (path, kind), legacy NULL-email row surfaced as a
+    // null username. Restricted to the shared full-page-editor kinds — drawer
+    // kinds keep their drafts private, so we never reveal their authors.
+    let draft_users = r#"CASE WHEN d.typ::text IN ('script', 'flow', 'app', 'raw_app') THEN (
+                      SELECT json_agg(json_build_object('username', COALESCE(u.username, CASE WHEN du.workspace_id = 'admins' THEN du.email END))
+                                      ORDER BY COALESCE(u.username, CASE WHEN du.workspace_id = 'admins' THEN du.email END) NULLS LAST)
+                      FROM draft du
+                      LEFT JOIN usr u ON u.workspace_id = du.workspace_id AND u.email = du.email
+                      WHERE du.workspace_id = d.workspace_id AND du.path = d.path AND du.typ = d.typ
+                    ) ELSE NULL END"#;
+    // Default lists the user's own drafts AND the legacy NULL-email rows; with
+    // `all_users` the filter is dropped to list every workspace draft.
+    let owner_filter = if all_users {
+        ""
+    } else {
+        " AND (d.email = $2 OR d.email IS NULL)"
+    };
+    // `DISTINCT ON (d.path, d.typ)` keeps one row per item; the ORDER BY
+    // priority below picks the user's own row first, then the legacy NULL row,
+    // then (only with `all_users`) another user's row. `mine`/`legacy_draft`
+    // describe that kept row.
     format!(
         r#"SELECT DISTINCT ON (d.path, d.typ)
                   d.path,
                   d.typ AS kind,
                   d.created_at,
                   d.value ->> 'summary' AS summary,
+                  {draft_users} AS draft_users,
                   -- Friendly typed path, by kind (mirrors the home-page list
                   -- endpoints): scripts bind the Path widget to `script.path`,
                   -- so it round-trips through the draft JSON's own `path`;
@@ -124,10 +208,12 @@ fn list_drafts_query() -> String {
                     d.path
                   ) AS draft_path,
                   (d.email IS NULL) AS legacy_draft,
+                  (d.email = $2 OR d.email IS NULL) AS mine,
                   {case} AS draft_only
            FROM draft d
-           WHERE d.workspace_id = $1 AND (d.email = $2 OR d.email IS NULL)
-           ORDER BY d.path, d.typ, (d.email IS NULL)"#
+           WHERE d.workspace_id = $1{owner_filter}
+           ORDER BY d.path, d.typ,
+                    CASE WHEN d.email = $2 THEN 0 WHEN d.email IS NULL THEN 1 ELSE 2 END"#
     )
 }
 

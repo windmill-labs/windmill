@@ -42,6 +42,7 @@ import {
 	type FrameworkKey
 } from '$lib/components/raw_apps/templates'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
+import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
 import {
 	applyEditableFlowJsonToFlow,
 	buildEditableFlowJson,
@@ -1078,38 +1079,6 @@ function getInlineRunnableContent(
 		)
 	}
 	return { content: runnable.inlineScript?.content ?? '', runnable }
-}
-
-function normalizeRawAppData(value: Record<string, any>): AppDraftValue['data'] {
-	if (value.data?.creation) {
-		return {
-			tables: value.data.tables ?? [],
-			datatable: value.data.creation.datatable,
-			schema: value.data.creation.schema
-		}
-	}
-	if (value.data) {
-		return value.data
-	}
-	if (value.datatables) {
-		return { ...DEFAULT_RAW_APP_DATA, tables: value.datatables }
-	}
-	if (value.dataTableRefs) {
-		return { ...DEFAULT_RAW_APP_DATA, tables: value.dataTableRefs }
-	}
-	return { ...DEFAULT_RAW_APP_DATA }
-}
-
-function appSourceToDraftValue(app: any, fallback?: any): AppDraftValue {
-	const value = (app.value ?? {}) as Record<string, any>
-	return {
-		summary: app.summary ?? '',
-		files: { ...(value.files ?? {}) },
-		runnables: { ...(value.runnables ?? {}) },
-		data: normalizeRawAppData(value),
-		policy: app.policy ?? fallback?.policy,
-		custom_path: app.custom_path ?? fallback?.custom_path
-	}
 }
 
 async function loadAppValueForRead(path: string, workspace: string): Promise<AppDraftValue> {
