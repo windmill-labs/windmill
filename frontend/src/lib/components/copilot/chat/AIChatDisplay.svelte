@@ -727,7 +727,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					</div>
 				{/if}
 			</div>
-			<ContextUsageIndicator />
+			<div class="flex px-1 mt-1">
+				<ContextUsageIndicator />
+			</div>
 		</div>
 		{#if (aiChatManager.mode === AIMode.NAVIGATOR || aiChatManager.mode === AIMode.ASK) && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
 			<div class="px-2 mt-4">
