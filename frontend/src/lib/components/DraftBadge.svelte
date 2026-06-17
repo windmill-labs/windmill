@@ -341,6 +341,7 @@
 		{workspace}
 		{itemKind}
 		{path}
+		ownDraftExists={!!currentUsername && draft_users.some((u) => u.username === currentUsername)}
 		onMigrated={() => onMigrated?.()}
 	/>
 {/if}

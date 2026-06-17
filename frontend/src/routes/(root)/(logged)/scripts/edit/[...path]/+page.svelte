@@ -293,9 +293,10 @@
 			// timestamp the backend can stale-check. `undefined` (no draft) clears
 			// it, making the next save take the "first push" branch.
 			draftSync.recordRemoteSync(backendScript.draft_saved_at as string | undefined)
-			if (backendScript.is_draft) {
-				loadedFromDraft = true
-			}
+			// Per-response, NOT sticky: navigating to another path in the same editor
+			// must reset this, else a later no-own-draft load wrongly enters overlay.
+			const hasOwnDraft = !!backendScript.is_draft
+			loadedFromDraft = hasOwnDraft
 			// Pass both timestamps through for DraftEditorModals' staleness compare:
 			// `created_at` is the latest deploy, `draft_saved_at` the draft's save.
 			draftSavedAt = backendScript.draft_saved_at as string | undefined
@@ -333,7 +334,7 @@
 					...(pendingLoad.value as object),
 					parent_hash: parentHash
 				} as EditableScript
-				if (loadedFromDraft) {
+				if (hasOwnDraft) {
 					OtherUserDraftLoad.beginOverlay({
 						workspace: $workspaceStore!,
 						itemKind: 'script',
@@ -439,6 +440,7 @@
 	path={page.params.path ?? ''}
 	{otherDraftsUsers}
 	draftOnly={(savedScript as any)?.no_deployed === true}
+	hasOwnDraft={loadedFromDraft}
 	onLoadFromServer={() => loadScript()}
 	getLocalDraft={() => draftSync.draft}
 	bind:othersModalOpen

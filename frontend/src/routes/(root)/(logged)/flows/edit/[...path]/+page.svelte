@@ -334,9 +334,10 @@
 		draftSync.recordRemoteSync(backendFlow.draft_saved_at as string | undefined)
 		// Re-evaluate per load: true for draft-only paths, false once deployed.
 		isNewFlow = !!backendFlow.no_deployed
-		if (backendFlow.is_draft) {
-			loadedFromDraft = true
-		}
+		// Per-response, NOT sticky: a later no-own-draft load in the same editor
+		// must reset this so it can't wrongly force overlay mode.
+		const hasOwnDraft = !!backendFlow.is_draft
+		loadedFromDraft = hasOwnDraft
 		// Pass both timestamps for DraftEditorModals' staleness compare: `edited_at`
 		// is the deploy time (from `flow_version.created_at`), `draft_saved_at` the draft's.
 		draftSavedAt = backendFlow.draft_saved_at as string | undefined
@@ -374,7 +375,7 @@
 			? ({ ...deployedFlow, ...(pendingLoad.value as object) } as Flow)
 			: effectiveFlow
 		flow = flowToRender
-		if (pendingLoad && loadedFromDraft) {
+		if (pendingLoad && hasOwnDraft) {
 			OtherUserDraftLoad.beginOverlay({
 				workspace: $workspaceStore!,
 				itemKind: 'flow',
@@ -482,6 +483,7 @@
 	path={flowDraftPath}
 	{otherDraftsUsers}
 	draftOnly={isNewFlow}
+	hasOwnDraft={loadedFromDraft}
 	onLoadFromServer={() => loadFlow()}
 	getLocalDraft={() => draftSync.draft}
 	bind:othersModalOpen

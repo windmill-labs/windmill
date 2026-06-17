@@ -256,9 +256,10 @@
 				summary: savedDraftApp.summary ?? backendApp.summary
 			} as typeof backendApp
 		}
-		if (backendApp.is_draft) {
-			loadedFromDraft = true
-		}
+		// Per-response, NOT sticky: a later no-own-draft load in the same editor
+		// must reset this so it can't wrongly force overlay mode.
+		const hasOwnDraft = !!backendApp.is_draft
+		loadedFromDraft = hasOwnDraft
 		// Pass both timestamps for DraftEditorModals' staleness compare: `created_at`
 		// is the deploy time, `draft_saved_at` the draft's. Skip `deployedAt` when
 		// `no_deployed` — no baseline to be older than.
@@ -285,7 +286,7 @@
 		}
 		if (pendingLoad) {
 			backendApp = { ...backendApp, value: pendingLoad.value as App } as typeof backendApp
-			if (loadedFromDraft) {
+			if (hasOwnDraft) {
 				// AppEditor `migrateApp`s the value in place on mount (see its
 				// `migratedDeployedBaseline`), so the draft cell settles to the
 				// MIGRATED app. Match it here, else the first post-mount mirror write
@@ -390,6 +391,7 @@
 	{path}
 	{otherDraftsUsers}
 	draftOnly={isNewApp}
+	hasOwnDraft={loadedFromDraft}
 	onLoadFromServer={async () => {
 		// AppEditor's `stateApp` is captured at mount and ignores prop changes,
 		// so `redraw++` remounts it against the fresh `app`.

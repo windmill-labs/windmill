@@ -30,6 +30,9 @@
 		/** No deployed row exists (never deployed): hides View Diff, since there's
 		 *  no deployed baseline to diff against. */
 		draftOnly?: boolean
+		/** We have our own draft at this path — "Migrate → Assign to self" of the
+		 *  legacy row would overwrite it, so it confirms first. */
+		hasOwnDraft?: boolean
 		/** Reload the editor in place so it picks up the staged "Load" — we're
 		 *  already on this item's edit route. */
 		onReload?: () => void | Promise<void>
@@ -43,6 +46,7 @@
 		path,
 		otherDraftsUsers,
 		draftOnly = false,
+		hasOwnDraft = false,
 		onReload,
 		isOpen = $bindable()
 	}: Props = $props()
@@ -207,6 +211,7 @@
 	{workspace}
 	{itemKind}
 	{path}
+	ownDraftExists={hasOwnDraft}
 	onMigrated={async () => {
 		isOpen = false
 		await onReload?.()

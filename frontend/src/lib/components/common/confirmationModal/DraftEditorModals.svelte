@@ -26,6 +26,9 @@
 		/** No deployed row exists: hides the OtherUsersDraftsModal's View Diff
 		 *  (nothing to diff the other user's draft against). */
 		draftOnly?: boolean
+		/** We have our own draft here — legacy "Assign to self" confirms before
+		 *  overwriting it. */
+		hasOwnDraft?: boolean
 		onLoadFromServer: () => void | Promise<void>
 		getLocalDraft: () => unknown
 		/** Bindable open-flag for the OtherUsersDraftsModal (route-owned). */
@@ -47,6 +50,7 @@
 		path,
 		otherDraftsUsers,
 		draftOnly = false,
+		hasOwnDraft = false,
 		onLoadFromServer,
 		getLocalDraft,
 		othersModalOpen = $bindable(),
@@ -94,6 +98,7 @@
 				{path}
 				{otherDraftsUsers}
 				{draftOnly}
+				{hasOwnDraft}
 				onReload={onLoadFromServer}
 				bind:isOpen={othersModalOpen}
 			/>
