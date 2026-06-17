@@ -58,7 +58,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # Node 22.19+ is required by the frontend's undici 8.x, which the
+          # Vitest bridge loads; Node 20 fails with markAsUncloneable.
+          node-version: "22"
 
       # CE build used only as the AI proxy (login, workspace, provider resource,
       # /ai/proxy). No worker execution or MCP needed — global tools/drafts run
