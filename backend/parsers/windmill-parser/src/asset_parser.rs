@@ -370,15 +370,6 @@ pub const ASSET_KINDS: &[(&str, AssetKind)] = &[
     ("volume://", AssetKind::Volume),
 ];
 
-// Strip an optional surrounding pair of double or single quotes. Returns
-// the inner string if quoted, or `None` otherwise. Used by the annotation
-// parser for cron expressions and key=value option values.
-fn unquote(s: &str) -> Option<&str> {
-    s.strip_prefix('"')
-        .and_then(|r| r.strip_suffix('"'))
-        .or_else(|| s.strip_prefix('\'').and_then(|r| r.strip_suffix('\'')))
-}
-
 // Tokenize a `key=value [key="quoted value"] ...` option string. Bare
 // values run until the next whitespace; quoted values consume until the
 // matching quote. Malformed pairs (missing `=` or empty key) are skipped
