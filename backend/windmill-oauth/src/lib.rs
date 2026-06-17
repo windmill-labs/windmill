@@ -909,12 +909,11 @@ pub async fn refresh_token_for_account<'c>(
         (info.client.to_owned(), None)
     };
 
-    // Account-level scopes override instance/registry-level scopes
-    // Client-credentials accounts default to the resolved CC config's scopes
-    // (`cc_scopes` for registry providers, the admin's instance scopes for custom
-    // ones) — never the instance client's authorization-code scopes, which are
-    // invalid in a 2-legged request. Authorization-code accounts use the instance
-    // client's scopes as before.
+    // Account-level scopes (when stored) override these defaults. Client-credentials
+    // accounts default to the resolved CC config's scopes (`cc_scopes` for registry
+    // providers, the admin's instance scopes for custom ones) — never the instance
+    // client's authorization-code scopes, which are invalid in a 2-legged request.
+    // Authorization-code accounts default to the instance client's scopes.
     let fallback_scopes = if is_client_credentials {
         cc_config
             .as_ref()

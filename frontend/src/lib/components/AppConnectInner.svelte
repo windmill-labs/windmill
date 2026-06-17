@@ -269,7 +269,7 @@
 	/** Step-1 "Others" selection: CC-capable resource types open the client-
 	 * credentials form with the user's own credentials — even when the instance
 	 * has shared ones (the "Instance-configured OAuth APIs" section is the entry
-	 * point for those). Every other type opens the raw manual form as before. */
+	 * point for those). Every other type opens the raw manual form. */
 	function selectFromOthers(key: string) {
 		connectClient = key
 		resourceType = key
@@ -677,21 +677,34 @@
 				throw Error(`Resource at path ${path} already exists. Delete it or pick another path`)
 			}
 
-			// Per-instance OAuth providers (Snowflake, ServiceNow, …): copy the
-			// admin-configured instance from the OAuth client's extra_params into the
-			// resource args, per the registry template's resource_mapping (e.g.
-			// ServiceNow -> instance_url: https://{instance}.service-now.com). Generic
-			// so a new per-instance provider needs only a registry entry.
+			// Per-instance OAuth providers (Snowflake, ServiceNow, …): fill the
+			// resource args from the connection's instance, per the registry
+			// template's resource_mapping (e.g. ServiceNow -> instance_url:
+			// https://{instance}.service-now.com). Bring-your-own carries the instance
+			// the user entered in `ccInstance` (raw, possibly a full host); the shared
+			// path carries it (already normalized) in the connect entry's extra_params.
+			// Prefer the user-entered one so the saved resource matches the exchange.
 			const connectTemplate = (oauthConnectRegistry as Record<string, any>)[resourceType]
 				?.connect_config_template
 			if (connectTemplate?.resource_mapping) {
 				const instanceKey = connectTemplate.extra_params_key ?? 'instance'
-				const found = extra_params.find(([key, _]) => key === instanceKey)
-				if (found) {
+				let instanceValue = extra_params.find(([key, _]) => key === instanceKey)?.[1] ?? ''
+				if (ccInstance.trim()) {
+					const stripSuffix = connectTemplate.strip_suffix as string | undefined
+					let v = ccInstance
+						.trim()
+						.replace(/^https?:\/\//, '')
+						.replace(/\/.*$/, '')
+					if (stripSuffix && v.endsWith(stripSuffix)) {
+						v = v.slice(0, -stripSuffix.length)
+					}
+					instanceValue = v.replace(/\.+$/, '')
+				}
+				if (instanceValue) {
 					for (const [argField, valueTemplate] of Object.entries(
 						connectTemplate.resource_mapping as Record<string, string>
 					)) {
-						args[argField] = valueTemplate.replaceAll('{instance}', found[1])
+						args[argField] = valueTemplate.replaceAll('{instance}', instanceValue)
 					}
 				}
 			}
