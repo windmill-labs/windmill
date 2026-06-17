@@ -632,14 +632,21 @@ export const UserDraft = {
 			// vanish when the editor unmounts mid-typing. Fire-and-forget —
 			// the POST rides the runner's own lifetime, which outlives this
 			// component, so destroying the cell here doesn't cancel it.
+			//
+			// `honorAutosaveToggle`: this unmount flush is an implicit autosave,
+			// so a toggle-aware handle whose auto-save is off must NOT persist on
+			// leave — the editor's UnsavedConfirmationModal warns the user instead.
 			for (const mk of acquired) {
 				const entry = entries.get(mk)
 				if (!entry) continue
-				void UserDraftDbSyncer.flush({
-					workspace: entry.workspace,
-					itemKind: entry.itemKind,
-					path: entry.path
-				})
+				void UserDraftDbSyncer.flush(
+					{
+						workspace: entry.workspace,
+						itemKind: entry.itemKind,
+						path: entry.path
+					},
+					{ honorAutosaveToggle: true }
+				)
 			}
 			for (const mk of acquired) releaseEntry(mk)
 			acquired.clear()
