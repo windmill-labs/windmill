@@ -94,27 +94,48 @@ async fn list_drafts(
         return Ok(Json(vec![]));
     }
     let all_users = query.all_users.unwrap_or(false);
-    let mut rows = sqlx::query_as::<_, DraftListItem>(&list_drafts_query(all_users))
+    let rows = sqlx::query_as::<_, DraftListItem>(&list_drafts_query(all_users))
         .bind(&w_id)
         .bind(&authed.email)
         .fetch_all(&db)
         .await?;
-    // `can_write` gates the deploy/discard controls on the review page. Run the
-    // exact check the deploy/discard endpoints enforce so the UI never offers an
-    // action that would 403 — `NotAuthorized` means "not writable", any other
-    // error is a real failure and propagates.
-    for row in &mut rows {
-        row.can_write = match require_can_write_path(
-            &authed, &db, &user_db, &w_id, row.kind, &row.path,
-        )
-        .await
-        {
-            Ok(()) => true,
-            Err(Error::NotAuthorized(_)) => false,
-            Err(e) => return Err(e),
-        };
+    // Per-row permission gating:
+    //  - own drafts (incl. legacy no-owner rows, `mine = true`): the actionable
+    //    gate is write permission — run the exact check deploy/discard enforce so
+    //    the UI never offers an action that would 403.
+    //  - other users' drafts (only present with `all_users`, `mine = false`): the
+    //    UI never lets you act on them (`isSelectable` requires `mine`), so skip
+    //    the write probe (`can_write = false`) and instead require READ access —
+    //    otherwise the broadened listing would disclose the path/summary/authors
+    //    of items the caller can't see. Unreadable rows are dropped, mirroring the
+    //    `require_can_read_path` gate on `/drafts/get`.
+    let mut out = Vec::with_capacity(rows.len());
+    for mut row in rows {
+        if row.mine {
+            row.can_write =
+                match require_can_write_path(&authed, &db, &user_db, &w_id, row.kind, &row.path)
+                    .await
+                {
+                    Ok(()) => true,
+                    Err(Error::NotAuthorized(_)) => false,
+                    Err(e) => return Err(e),
+                };
+            out.push(row);
+        } else {
+            // `require_can_read_path` denies with `NotFound` (it hides existence)
+            // and, for some paths, `NotAuthorized` — both mean "not visible to the
+            // caller", so drop the row. Any other error is a real failure.
+            match require_can_read_path(&authed, &user_db, &w_id, row.kind, &row.path).await {
+                Ok(()) => {
+                    row.can_write = false;
+                    out.push(row);
+                }
+                Err(Error::NotFound(_)) | Err(Error::NotAuthorized(_)) => {}
+                Err(e) => return Err(e),
+            }
+        }
     }
-    Ok(Json(rows))
+    Ok(Json(out))
 }
 
 /// Build the `list_drafts` SQL, generating the `draft_only` CASE from
