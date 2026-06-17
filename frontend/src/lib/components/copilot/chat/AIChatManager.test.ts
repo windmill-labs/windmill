@@ -425,7 +425,7 @@ describe('AIChatManager queued messages', () => {
 		replyWith('done')
 		// ...but the first turn is cancelled by the user
 		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
-			abortController.abort()
+			abortController.abort('user_cancelled')
 			throw new Error('aborted')
 		})
 
@@ -440,13 +440,30 @@ describe('AIChatManager queued messages', () => {
 		expect(userMessages).toContain('followup')
 	})
 
+	it('does NOT auto-send on a programmatic cancel (e.g. save-and-clear / teardown)', async () => {
+		const manager = createManager(createInputMock())
+		replyWith('done')
+		// the turn is aborted programmatically, not by the user pressing Esc/Stop
+		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
+			abortController.abort('saveAndClear')
+			throw new Error('aborted')
+		})
+
+		manager.queuedMessage = 'followup'
+		await manager.sendRequest({ instructions: 'first' })
+
+		// a non-user abort must not fire the queued message; it stays a card
+		expect(manager.queuedMessage).toBe('followup')
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
+	})
+
 	it('does not restore the cancelled prompt to the input when a queued message takes over', async () => {
 		const input = createInputMock()
 		const manager = createManager(input)
 		replyWith('done')
 		// cancel before any usable output → the rollback (restoreUnsentTurn) path
 		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
-			abortController.abort()
+			abortController.abort('user_cancelled')
 			throw new Error('aborted')
 		})
 
@@ -871,7 +888,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 		vi.mocked(runChatLoop).mockImplementation(async (config) => {
 			config.callbacks.onNewToken('Here is the partial ')
 			config.callbacks.onNewToken('answer')
-			config.abortController.abort('user_cancelled')
+			config.abortController.abort()
 			throw new Error('aborted')
 		})
 
@@ -896,7 +913,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 		vi.mocked(runChatLoop).mockImplementation(async (config) => {
 			config.callbacks.onReasoningStart?.()
 			config.callbacks.onReasoningDelta?.('still thinking...')
-			config.abortController.abort('user_cancelled')
+			config.abortController.abort()
 			throw new Error('aborted')
 		})
 
@@ -927,7 +944,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 		vi.mocked(runChatLoop).mockImplementation(async (config) => {
 			config.callbacks.onNewToken('Partial from Claude')
 			config.callbacks.onMessageEnd()
-			config.abortController.abort('user_cancelled')
+			config.abortController.abort()
 			throw new Error('aborted')
 		})
 
@@ -953,7 +970,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 			config.callbacks.onNewToken('The full answer')
 			config.addedMessages!.push({ role: 'assistant', content: 'The full answer' })
 			config.callbacks.onMessageEnd()
-			config.abortController.abort('user_cancelled')
+			config.abortController.abort()
 			throw new Error('aborted')
 		})
 

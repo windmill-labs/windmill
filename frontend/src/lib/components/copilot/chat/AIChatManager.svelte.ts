@@ -89,6 +89,10 @@ import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 // from mode switches, and the estimate's chars/4 error.
 const COMPACTION_TRIGGER_RATIO = 0.8
 const COMPACTION_TARGET_RATIO = 0.7
+// Abort reason for a deliberate user cancel (Esc / Stop). Programmatic cancels
+// (panel teardown, save-and-clear) pass their own reason, so the queued-message
+// flush can tell "the user wants to move on" from "the turn was torn down".
+const USER_CANCEL_REASON = 'user_cancelled'
 const AI_AUTONOMY_MODE_STORAGE_KEY = 'ai-chat-autonomy-mode'
 const LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
 const WEB_SEARCH_ERROR_HINT =
@@ -1366,7 +1370,7 @@ export class AIChatManager {
 				// When the user cancelled with a message queued, that message is
 				// about to auto-send (see the flush below) — drop the rolled-back
 				// prompt instead of restoring it to the input so the handoff is clean.
-				const willAutoSendQueued = wasAborted && !!this.queuedMessage
+				const willAutoSendQueued = this.wasCancelledByUser() && !!this.queuedMessage
 				this.restoreUnsentTurn(
 					displayLenAfterUser,
 					modelLenAfterUser,
@@ -1434,12 +1438,12 @@ export class AIChatManager {
 			this.loading = false
 		}
 		// Flush the queued message. Send it after a cleanly committed turn OR a
-		// user cancel (Esc / Stop) — in both cases the user is ready to move on,
-		// so it sends automatically. A genuine error (or an empty-response
-		// rollback) leaves it in place as a card so a failure isn't blindly
-		// repeated.
-		const turnCancelled = this.abortController?.signal.aborted ?? false
-		if ((turnCommittedCleanly || turnCancelled) && this.queuedMessage) {
+		// deliberate user cancel (Esc / Stop) — in both cases the user is ready
+		// to move on, so it sends automatically. A genuine error, an
+		// empty-response rollback, or a programmatic cancel (panel teardown,
+		// save-and-clear) leaves it in place as a card so it isn't fired into a
+		// failed or torn-down turn.
+		if ((turnCommittedCleanly || this.wasCancelledByUser()) && this.queuedMessage) {
 			const next = this.queuedMessage
 			this.queuedMessage = ''
 			const accepted = await this.sendRequest({ instructions: next })
@@ -1452,6 +1456,14 @@ export class AIChatManager {
 		return true
 	}
 
+	// True when the current turn's controller was aborted by a deliberate user
+	// cancel (Esc / Stop), as opposed to a programmatic cancel (panel teardown,
+	// save-and-clear) or no abort at all. Gates the queued-message auto-send.
+	private wasCancelledByUser(): boolean {
+		const signal = this.abortController?.signal
+		return !!signal?.aborted && signal.reason === USER_CANCEL_REASON
+	}
+
 	cancel = (reason?: string) => {
 		for (const confirmationCallback of this.confirmationCallbacks.values()) {
 			confirmationCallback(false)
@@ -1461,7 +1473,7 @@ export class AIChatManager {
 			resolveQuestion(undefined)
 		}
 		this.userQuestionCallbacks.clear()
-		const cancelReason = reason ?? 'user_cancelled'
+		const cancelReason = reason ?? USER_CANCEL_REASON
 		console.log('cancelling request:', {
 			reason: cancelReason,
 			abortController: this.abortController
