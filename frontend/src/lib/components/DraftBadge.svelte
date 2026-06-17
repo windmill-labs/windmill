@@ -11,10 +11,12 @@
 	import { Badge } from './common'
 	import Button from './common/button/Button.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
-	import { GitCompareArrows, Pencil } from 'lucide-svelte'
+	import MigrateLegacyDraftModal from './common/confirmationModal/MigrateLegacyDraftModal.svelte'
+	import { GitCompareArrows, Pencil, Wrench } from 'lucide-svelte'
 	import { DraftService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { goto } from '$lib/navigation'
+	import { invalidateAll } from '$app/navigation'
 	import { OtherUserDraftLoad, editRouteFor } from '$lib/components/otherUserDraftLoad.svelte'
 	import { fetchDeployedValueForDiff } from '$lib/components/otherUserDraftDiff'
 	import { userStore } from '$lib/stores'
@@ -115,6 +117,10 @@
 
 	let busyFor = $state<string | null>(null)
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
+	let migrateOpen = $state(false)
+
+	// Legacy (no-owner) drafts can only be resolved by workspace admins / superadmins.
+	const canMigrateLegacy = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin)
 
 	function ownerKey(owner: DraftUser): string {
 		return owner.username ?? '__legacy__'
@@ -283,6 +289,16 @@
 											Load
 										</Button>
 									{/if}
+									{#if !u.username && canMigrateLegacy}
+										<Button
+											variant="subtle"
+											size="xs3"
+											startIcon={{ icon: Wrench }}
+											on:click={() => (migrateOpen = true)}
+										>
+											Migrate
+										</Button>
+									{/if}
 								{/if}
 							</li>
 						{/each}
@@ -294,3 +310,13 @@
 {/if}
 
 <DiffDrawer bind:this={diffDrawer} isFlow={itemKind === 'flow'} />
+
+{#if workspace && itemKind && path}
+	<MigrateLegacyDraftModal
+		bind:isOpen={migrateOpen}
+		{workspace}
+		{itemKind}
+		{path}
+		onMigrated={() => invalidateAll()}
+	/>
+{/if}

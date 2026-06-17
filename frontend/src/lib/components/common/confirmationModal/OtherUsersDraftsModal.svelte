@@ -7,14 +7,16 @@
 	 */
 	import { DraftService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { Users, Pencil, GitCompareArrows } from 'lucide-svelte'
+	import { Users, Pencil, GitCompareArrows, Wrench } from 'lucide-svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
+	import MigrateLegacyDraftModal from './MigrateLegacyDraftModal.svelte'
 	import { fetchDeployedValueForDiff } from '$lib/components/otherUserDraftDiff'
 	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { displayDate } from '$lib/utils'
+	import { userStore } from '$lib/stores'
 
 	export type OtherDraftUser = { username?: string | null; draft_saved_at?: string }
 
@@ -46,6 +48,10 @@
 	}: Props = $props()
 	let busyFor = $state<string | null>(null)
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
+	let migrateOpen = $state(false)
+
+	// Legacy (no-owner) drafts can only be resolved by workspace admins / superadmins.
+	const canMigrateLegacy = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin)
 
 	function ownerLabel(owner: OtherDraftUser): string {
 		return owner.username ?? 'Legacy draft'
@@ -174,6 +180,16 @@
 					>
 						Load
 					</Button>
+					{#if !owner.username && canMigrateLegacy}
+						<Button
+							variant="default"
+							size="xs"
+							startIcon={{ icon: Wrench }}
+							on:click={() => (migrateOpen = true)}
+						>
+							Migrate
+						</Button>
+					{/if}
 				</li>
 			{/each}
 		</ul>
@@ -185,3 +201,14 @@
 </Modal2>
 
 <DiffDrawer bind:this={diffDrawer} isFlow={itemKind === 'flow'} />
+
+<MigrateLegacyDraftModal
+	bind:isOpen={migrateOpen}
+	{workspace}
+	{itemKind}
+	{path}
+	onMigrated={async () => {
+		isOpen = false
+		await onReload?.()
+	}}
+/>

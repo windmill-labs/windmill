@@ -26,6 +26,7 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_drafts))
         .route("/get/{kind}/{*path}", get(get_draft_for_user))
         .route("/update/{kind}/{*path}", post(update_draft))
+        .route("/migrate_legacy/{kind}/{*path}", post(migrate_legacy_draft))
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -277,6 +278,81 @@ async fn update_draft(
                 status: SaveDraftStatus::Saved,
                 current_timestamp: now,
             }))
+        }
+    }
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum MigrateLegacyDraftAction {
+    /// Discard the legacy row entirely.
+    Delete,
+    /// Move the legacy row's content onto the authed admin's own row, then
+    /// drop the legacy row — so it becomes a normal per-user draft.
+    AssignToSelf,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct MigrateLegacyDraftRequest {
+    pub action: MigrateLegacyDraftAction,
+}
+
+/// Resolve a LEGACY (workspace-level, `email IS NULL`) draft. These predate the
+/// per-user drafts migration and have no owner, so only workspace admins (and
+/// superadmins, which carry `is_admin` in a workspace) may delete one or claim
+/// it as their own.
+async fn migrate_legacy_draft(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, kind, path)): Path<(String, UserDraftItemKind, windmill_common::utils::StripPath)>,
+    Json(req): Json<MigrateLegacyDraftRequest>,
+) -> Result<String> {
+    if !authed.is_admin {
+        return Err(Error::NotAuthorized(
+            "only workspace admins can migrate legacy drafts".to_string(),
+        ));
+    }
+    let path = path.to_path();
+    match req.action {
+        MigrateLegacyDraftAction::Delete => {
+            sqlx::query!(
+                r#"DELETE FROM draft
+                   WHERE workspace_id = $1 AND path = $2 AND typ = $3 AND email IS NULL"#,
+                &w_id,
+                path,
+                kind as UserDraftItemKind,
+            )
+            .execute(&db)
+            .await?;
+            Ok(format!("Deleted legacy draft at {path}"))
+        }
+        MigrateLegacyDraftAction::AssignToSelf => {
+            // Take ownership: move the legacy value onto the admin's own row
+            // (replacing any existing own draft) and drop the legacy row, in one
+            // statement. `ON CONFLICT` matches the partial unique index that
+            // covers `email IS NOT NULL`.
+            let moved = sqlx::query_scalar!(
+                r#"WITH legacy AS (
+                       DELETE FROM draft
+                       WHERE workspace_id = $1 AND path = $2 AND typ = $3 AND email IS NULL
+                       RETURNING value
+                   )
+                   INSERT INTO draft (workspace_id, email, path, typ, value, created_at)
+                   SELECT $1, $4, $2, $3, value, now() FROM legacy
+                   ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL
+                   DO UPDATE SET value = EXCLUDED.value, created_at = now()
+                   RETURNING 1 as "one!""#,
+                &w_id,
+                path,
+                kind as UserDraftItemKind,
+                &authed.email,
+            )
+            .fetch_optional(&db)
+            .await?;
+            if moved.is_none() {
+                return Err(Error::NotFound(format!("no legacy draft at {path}")));
+            }
+            Ok(format!("Assigned legacy draft at {path} to you"))
         }
     }
 }
