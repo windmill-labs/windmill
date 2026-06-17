@@ -41,7 +41,6 @@
 	const confirmationModal = createAsyncConfirmationModal()
 
 	const hasPending = $derived(migrations.some((m) => m.status !== 'ran'))
-	const hasApplied = $derived(migrations.some((m) => m.status === 'ran'))
 
 	async function loadMigrations() {
 		loading = true
@@ -121,17 +120,18 @@
 		await runOnly(m.timestamp)
 	}
 
-	async function revertLast() {
+	async function revertOnly(version: number) {
 		busy = true
 		try {
 			const res = await WorkspaceService.rollbackDatatableMigrations({
 				workspace,
-				datatableName: datatable
+				datatableName: datatable,
+				only: version
 			})
 			sendUserToast(
 				res.rolled_back.length > 0
-					? `Rolled back ${res.rolled_back[0].name}`
-					: 'No applied migrations to roll back'
+					? `Reverted ${res.rolled_back[0].name}`
+					: 'Migration was not applied'
 			)
 			await loadMigrations()
 		} catch (e) {
@@ -139,6 +139,23 @@
 		} finally {
 			busy = false
 		}
+	}
+
+	// Revert a single migration. Warn first if later migrations have run, since
+	// they might depend on this one.
+	async function revertMigration(m: DatatableMigrationWithStatus) {
+		const laterApplied = migrations.filter(
+			(x) => x.timestamp > m.timestamp && x.status === 'ran'
+		).length
+		if (laterApplied > 0) {
+			const confirmed = await confirmationModal.ask({
+				title: 'Revert migration out of order',
+				confirmationText: 'Revert anyway',
+				children: `${laterApplied} later migration(s) have already been run and might depend on "${m.name}". Reverting it may break them. Revert anyway?`
+			})
+			if (!confirmed) return
+		}
+		await revertOnly(m.timestamp)
 	}
 
 	async function deleteMigration(m: DatatableMigrationWithStatus) {
@@ -234,6 +251,15 @@
 							variant="subtle"
 							size="xs"
 							iconOnly
+							startIcon={{ icon: Undo2 }}
+							title="Revert this migration"
+							disabled={busy || m.status !== 'ran'}
+							on:click={() => revertMigration(m)}
+						/>
+						<Button
+							variant="subtle"
+							size="xs"
+							iconOnly
 							color="red"
 							startIcon={{ icon: Trash2 }}
 							title="Delete migration"
@@ -254,26 +280,15 @@
 					newMigrationModal?.open()
 				}}>New</Button
 			>
-			<div class="flex gap-2">
-				<Button
-					variant="default"
-					size="sm"
-					startIcon={{ icon: Undo2 }}
-					disabled={busy || !hasApplied}
-					on:click={revertLast}
-				>
-					Revert last
-				</Button>
-				<Button
-					variant="accent"
-					size="sm"
-					startIcon={{ icon: Play }}
-					disabled={busy || !hasPending}
-					on:click={() => runUpTo(undefined)}
-				>
-					Run all
-				</Button>
-			</div>
+			<Button
+				variant="accent"
+				size="sm"
+				startIcon={{ icon: Play }}
+				disabled={busy || !hasPending}
+				on:click={() => runUpTo(undefined)}
+			>
+				Run all
+			</Button>
 		</div>
 	</div>
 </Modal2>

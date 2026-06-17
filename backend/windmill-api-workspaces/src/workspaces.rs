@@ -2532,12 +2532,22 @@ struct RollbackDatatableMigrationsResult {
     rolled_back: Vec<RolledBackMigration>,
 }
 
-/// Roll back the most recently applied migration on a given data table (one
-/// step): run its `code_down` and drop its `_wm_migrations` row, atomically.
+#[derive(Deserialize)]
+struct RollbackDatatableMigrationsQuery {
+    /// When set, roll back this specific applied migration version instead of
+    /// the most recently applied one.
+    only: Option<i64>,
+}
+
+/// Roll back a migration on a given data table: run its `code_down` and drop its
+/// `_wm_migrations` row, atomically. Without `only` this targets the most
+/// recently applied migration (one step); with `only` it targets that specific
+/// applied version.
 async fn rollback_datatable_migrations(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
+    Query(query): Query<RollbackDatatableMigrationsQuery>,
 ) -> JsonResult<RollbackDatatableMigrationsResult> {
     require_admin(authed.is_admin, &authed.username)?;
 
@@ -2574,15 +2584,26 @@ async fn rollback_datatable_migrations(
             Error::internal_err(format!("Failed to ensure _wm_migrations table: {}", e))
         })?;
 
-    let latest = client
-        .query_opt(
-            "SELECT version FROM _wm_migrations ORDER BY version DESC LIMIT 1",
-            &[],
-        )
-        .await
-        .map_err(|e| Error::internal_err(format!("Failed to read _wm_migrations: {}", e)))?;
+    // Resolve which applied version to roll back: a specific one when `only` is
+    // given (and actually applied), otherwise the most recently applied.
+    let target = match query.only {
+        Some(only) => client
+            .query_opt(
+                "SELECT version FROM _wm_migrations WHERE version = $1",
+                &[&only],
+            )
+            .await
+            .map_err(|e| Error::internal_err(format!("Failed to read _wm_migrations: {}", e)))?,
+        None => client
+            .query_opt(
+                "SELECT version FROM _wm_migrations ORDER BY version DESC LIMIT 1",
+                &[],
+            )
+            .await
+            .map_err(|e| Error::internal_err(format!("Failed to read _wm_migrations: {}", e)))?,
+    };
 
-    let version: i64 = match latest {
+    let version: i64 = match target {
         Some(row) => row.get::<_, i64>(0),
         None => {
             return Ok(Json(RollbackDatatableMigrationsResult {

@@ -4412,6 +4412,13 @@ paths:
           required: true
           schema:
             type: string
+        - name: only
+          in: query
+          required: false
+          description: roll back this specific applied migration version instead of the latest
+          schema:
+            type: integer
+            format: int64
       responses:
         "200":
           description: rolled back migrations
