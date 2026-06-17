@@ -27,6 +27,30 @@ function storeFrom(helpers: unknown): AttachedFilesStore | undefined {
 	return (helpers as AttachedFilesHelper | undefined)?.attachedFiles
 }
 
+/**
+ * For a specifically requested attached file, a message describing why it can't be read /
+ * searched yet (still indexing, locked, unavailable, errored) or that it isn't attached —
+ * or undefined when it's `ready`. Shared by read_file and search_files so both report the
+ * same accurate status instead of search_files claiming a non-ready file isn't attached.
+ */
+function notReadyMessage(store: AttachedFilesStore, file: string): string | undefined {
+	const entry = store.get(file)
+	if (entry?.status === 'ready') return undefined
+	if (entry?.status === 'indexing')
+		return `File "${file}" is still being indexed. Try again shortly.`
+	if (entry?.status === 'locked')
+		return `File "${file}" is locked after a reload. Ask the user to restore access (send a message, or click "Restore access").`
+	if (entry?.status === 'unavailable')
+		return `File "${file}" is no longer available (moved, deleted, or its local copy was evicted). Ask the user to re-link it.`
+	if (entry?.status === 'error')
+		return `File "${file}" failed to load: ${entry.error ?? 'unknown error'}.`
+	const names = store
+		.list()
+		.map((f) => f.name)
+		.join(', ')
+	return `No attached file named "${file}". Attached files: ${names || '(none)'}.`
+}
+
 function humanSize(bytes: number): string {
 	if (bytes < 1024) return `${bytes} B`
 	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -58,6 +82,12 @@ export const searchFilesTool: Tool<{}> = {
 			return 'No files are attached to this conversation.'
 		}
 		const parsed = searchFilesSchema.parse(args)
+		// Validate a specifically requested file against the full store first, so a non-ready
+		// target reports its real status (indexing/locked/…) instead of "not attached".
+		if (parsed.file) {
+			const notReady = notReadyMessage(store, parsed.file)
+			if (notReady) return notReady
+		}
 		const ready = store.readyFiles()
 		if (ready.length === 0) {
 			return 'Attached files are still being indexed. Try again shortly.'
@@ -111,26 +141,9 @@ export const readFileTool: Tool<{}> = {
 			return 'No files are attached to this conversation.'
 		}
 		const parsed = readFileSchema.parse(args)
-		const entry = store.get(parsed.file)
-		if (!entry || entry.status !== 'ready') {
-			if (entry?.status === 'indexing') {
-				return `File "${parsed.file}" is still being indexed. Try again shortly.`
-			}
-			if (entry?.status === 'locked') {
-				return `File "${parsed.file}" is locked after a reload. Ask the user to restore access (send a message, or click "Restore access").`
-			}
-			if (entry?.status === 'unavailable') {
-				return `File "${parsed.file}" is no longer available (moved, deleted, or its local copy was evicted). Ask the user to re-link it.`
-			}
-			if (entry?.status === 'error') {
-				return `File "${parsed.file}" failed to load: ${entry.error ?? 'unknown error'}.`
-			}
-			const names = store
-				.list()
-				.map((f) => f.name)
-				.join(', ')
-			return `No attached file named "${parsed.file}". Attached files: ${names || '(none)'}.`
-		}
+		const notReady = notReadyMessage(store, parsed.file)
+		if (notReady) return notReady
+		const entry = store.get(parsed.file)!
 		toolCallbacks.setToolStatus(toolId, { content: `Reading "${parsed.file}"...` })
 
 		try {
