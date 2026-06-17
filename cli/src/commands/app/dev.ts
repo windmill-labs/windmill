@@ -437,7 +437,11 @@ async function dev(opts: DevOptions, appFolder?: string) {
   const rawApp = (await yamlParseFile(rawAppPath)) as any;
   const appPath = rawApp?.custom_path ?? "u/unknown/newapp";
 
-  // Dynamically import esbuild only when the dev command is called
+  // Dynamically import esbuild only when the dev command is called.
+  // Native-only here (no esbuild-wasm fallback via getEsbuild): dev is a local
+  // interactive command that relies on context()/watch, whose semantics under
+  // wasm are untested. The host/binary-mismatch fallback covers the bundling
+  // paths that run on workers/CI via `wmill sync push`.
   const esbuild = await import("esbuild");
 
   const host = opts.host ?? DEFAULT_HOST;

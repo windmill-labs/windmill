@@ -144,6 +144,10 @@ export interface AppEditorProps {
 	path: string
 	policy: Policy
 	summary: string
+	/** Deployed app value the autosave `discardIf` compares against, so an
+	 * edit reverting to deployed clears the draft instead of leaving a no-op.
+	 * `undefined` for draft-only paths (no deployed baseline). */
+	deployedBaseline?: App | undefined
 	fromHub?: boolean
 	diffDrawer?: DiffDrawerI | undefined
 	savedApp?:

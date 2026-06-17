@@ -19,7 +19,7 @@
 	import { tick, untrack } from 'svelte'
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 	import { page } from '$app/state'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import {
@@ -45,6 +45,10 @@
 	}
 
 	let savedFlow: Flow | undefined = $state(undefined)
+	/** Deployed flow this load, the baseline the autosave `discardIf` compares
+	 * against. `undefined` for draft-only paths (no deployed) so a draft-only
+	 * item never self-destructs by "matching" a non-existent baseline. */
+	let deployedBaseline = $state<Flow | undefined>(undefined)
 	let otherDraftsUsers = $state<OtherDraftUser[]>([])
 	let loadedFromDraft = $state(false)
 	let othersModalOpen = $state(false)
@@ -67,7 +71,10 @@
 	const draftSync = usePageDraftSync<Flow>({
 		itemKind: 'flow',
 		path: () => flowDraftPath,
-		workspace: () => $workspaceStore
+		workspace: () => $workspaceStore,
+		// Autosaves landing back on the deployed flow become deletes, so reverting
+		// edits clears the draft instead of leaving a no-op behind.
+		discardIf: (val) => deployedBaseline !== undefined && draftValuesEqual(val, deployedBaseline)
 	})
 
 	function emptyFlow(): Flow {
@@ -138,6 +145,8 @@
 			loadedFromDraft = false
 			draftSavedAt = undefined
 			deployedAt = undefined
+			// Brand-new flow: no deployed baseline, so never discard-on-equal.
+			deployedBaseline = undefined
 			// Suspend autosave around the bootstrap cascade: the Path widget's
 			// `initPath → reset → bind:path` chain seeds a friendly auto-name that
 			// FlowBuilder mirrors into `flow.draft_path` — a programmatic write that
@@ -338,6 +347,11 @@
 			? ({ ...deployedFlow, ...draftFromBackend } as Flow)
 			: (deployedFlow as Flow)
 		savedFlow = structuredClone($state.snapshot(effectiveFlow)) as Flow
+		// Baseline for the autosave `discardIf`: the deployed flow WITHOUT the
+		// draft overlay (matches the unedited seed when no draft exists).
+		deployedBaseline = backendFlow.no_deployed
+			? undefined
+			: (structuredClone($state.snapshot(deployedFlow)) as Flow)
 		// Surface the saved `draft_path` to the Path widget so the topbar shows the
 		// pending name, not the `draft_{uuid}` URL. Else the widget seeds from the
 		// URL, the first edit clobbers `draft_path`, and the friendly name is lost.

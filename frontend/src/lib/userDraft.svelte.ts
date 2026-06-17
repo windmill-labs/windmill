@@ -186,11 +186,24 @@ function snapshotDraftValue<V>(value: V | undefined): V | undefined {
  * run-as directives, not draft content, and the editor round-trips them
  * asymmetrically (`preserve_…` rebuilt as `!!cfg.permissioned_as` on load
  * but `|| undefined` on build) — keeping them produces a phantom banner.
+ *
+ * The rest are server-managed read-time metadata that ride along on the
+ * loaded deployed payload but never appear in the editor's draft content, so
+ * comparing them would mask a true baseline match:
+ * `draft_saved_at` (the draft's own save time), `edited_at` (deploy time),
+ * `edited_by` (deploy author), `workspace_id`, `version_id` (deployed version),
+ * and `is_draft` (backend presence flag).
  */
 const DRAFT_COMPARE_IGNORED_FIELDS = [
 	'permissioned_as',
 	'preserve_permissioned_as',
-	'extra_perms'
+	'extra_perms',
+	'draft_saved_at',
+	'edited_at',
+	'edited_by',
+	'workspace_id',
+	'version_id',
+	'is_draft'
 ] as const
 
 /**
@@ -453,6 +466,8 @@ export const UserDraft = {
 		opts?: UserDraftOptions & {
 			/** See the `useMany` spec field. Default `false`. */
 			canBeDisabled?: boolean
+			/** See the `useMany` spec field. Captured once on first acquire. */
+			discardIf?: (val: V) => boolean
 		}
 	): UserDraftHandle<V> {
 		// Single-spec wrapper around `useMany`. `untrack` captures reactive
@@ -460,7 +475,13 @@ export const UserDraft = {
 		// workspace until unmount. For reactive `(kind, path)` use `useReactive`.
 		const handles = UserDraft.useMany<V>(() =>
 			untrack(() => [
-				{ itemKind, path, workspace: opts?.workspace, canBeDisabled: opts?.canBeDisabled }
+				{
+					itemKind,
+					path,
+					workspace: opts?.workspace,
+					canBeDisabled: opts?.canBeDisabled,
+					discardIf: opts?.discardIf
+				}
 			])
 		)
 		return handles[0]
@@ -479,6 +500,8 @@ export const UserDraft = {
 			path: string
 			workspace?: string
 			canBeDisabled?: boolean
+			/** See the `useMany` spec field. Captured per re-keyed acquire. */
+			discardIf?: (val: V) => boolean
 		}
 	): UserDraftHandle<V> {
 		const handles = UserDraft.useMany<V>(() => [getSpec()])

@@ -6,13 +6,18 @@
  * success — so it's idempotent without a sentinel; failed entries retry next
  * mount. Not workspace-gated: keys embed their own workspace and the token
  * covers all of them, so gating would orphan other-workspace entries.
- * Deliberately self-contained (no `userDraft.svelte.ts` import) so the
- * runtime module stays free of legacy decoders.
+ *
+ * Before uploading, each draft is compared against its deployed version
+ * (script / flow / app); a draft that's deep-equal to what's deployed carries
+ * no changes, so it's dropped instead of migrated (no error).
  */
 
-import { DraftService } from './gen'
+import { AppService, DraftService, FlowService, ScriptService } from './gen'
 import type { UserDraftItemKind } from './gen'
+import type { App } from './components/apps/types'
+import { migrateApp } from './components/apps/migrateApp'
 import { sendUserToast } from './toast'
+import { draftValuesEqual } from './userDraft.svelte'
 import {
 	openDraftMigrationErrorModal,
 	reportDraftMigrationError
@@ -121,6 +126,48 @@ function readPayload(key: string): { value: unknown; lastWrittenAt?: number } | 
 	}
 }
 
+/**
+ * Fetch the deployed value for a draft so the migration can drop a draft that
+ * carries no changes (deep-equal to what's already deployed) instead of
+ * uploading a no-op that would light up the "unsaved" badge. Returns the
+ * comparable deployed payload, or `undefined` when there's nothing to compare
+ * against: an unsupported kind, a pathless (minted `/add`) draft, or a fetch
+ * miss (404 — the path is draft-only, so the draft is genuinely new). `getDraft`
+ * is forced off so we compare against the deployed baseline, not our own draft.
+ */
+async function fetchDeployedValue(
+	workspace: string,
+	kind: UserDraftItemKind,
+	path: string
+): Promise<unknown | undefined> {
+	if (!path) return undefined
+	try {
+		switch (kind) {
+			case 'script':
+				return await ScriptService.getScriptByPath({ workspace, path, getDraft: false })
+			case 'flow':
+				return await FlowService.getFlowByPath({ workspace, path, getDraft: false })
+			case 'app': {
+				// The app autosave stores the inner `App`, not the `AppWithLastVersion`
+				// wrapper getAppByPath returns — compare against `.value`. Run
+				// `migrateApp` so the deployed value matches the editor-migrated draft
+				// (AppEditor `migrateApp`s `stateApp` on mount); without this an app
+				// whose deployed row predates those field migrations never dedups.
+				const app = await AppService.getAppByPath({ workspace, path, getDraft: false })
+				const value = (app as { value?: App }).value
+				if (value) migrateApp(value)
+				return value
+			}
+			default:
+				return undefined
+		}
+	} catch {
+		// No deployed item at this path (or the fetch failed) — nothing to dedup
+		// against, so the caller proceeds to upload the draft.
+		return undefined
+	}
+}
+
 function collectKeys(): string[] {
 	const keys: string[] = []
 	for (let i = 0; i < localStorage.length; i++) {
@@ -188,6 +235,19 @@ export async function migrateUserDraftsToDb(): Promise<void> {
 
 	for (const { key, parsed, path, value, lastWrittenAt } of toMigrate) {
 		try {
+			// Dedup: if the draft is deep-equal to the deployed version it carries
+			// no changes — drop it (no error) instead of uploading a no-op draft.
+			// Fetches against `parsed.path` (the real item path); minted `/add`
+			// drafts have `parsed.path === ''` and so are never deduped.
+			const deployed = await fetchDeployedValue(parsed.workspace, parsed.itemKind, parsed.path)
+			if (deployed !== undefined && draftValuesEqual(value, deployed)) {
+				try {
+					localStorage.removeItem(key)
+				} catch {
+					// Best-effort; a stale LS entry is harmless — it re-dedups next mount.
+				}
+				continue
+			}
 			const res = await DraftService.updateDraft({
 				workspace: parsed.workspace,
 				kind: parsed.itemKind,
