@@ -5,6 +5,7 @@ import * as windmill from "https://deno.land/x/windmill@v1.174.0/mod.ts";
 import * as api from "https://deno.land/x/windmill@v1.174.0/windmill-api/index.ts";
 import { Action, evaluate } from "./action.ts";
 import { getFlowPayload } from "./lib.ts";
+import { sampleJobParams, isPusherActive, type WorkloadConfig } from "./workloads/distribution.ts";
 
 async function getQueueCount() {
   return (
@@ -29,6 +30,9 @@ const promise = new Promise<{
   server: string;
   token: string;
   hideProgress: boolean;
+  workloadConfig?: WorkloadConfig;
+  i: number; // 0-based pusher index — used by phased workloads to gate
+             // which pushers are active in each phase (others idle).
 }>((resolve, _reject) => {
   self.onmessage = (evt) => {
     const sharedConfig = evt.data;
@@ -45,6 +49,8 @@ const promise = new Promise<{
       server: sharedConfig.server,
       token: sharedConfig.token,
       hideProgress: sharedConfig.hideProgress,
+      workloadConfig: sharedConfig.workloadConfig,
+      i: sharedConfig.i,
     };
     self.name = "Worker " + sharedConfig.i;
     resolve(config);
@@ -70,6 +76,19 @@ const updateStatusInterval = setInterval(() => {
 
 while (cont) {
   try {
+    // Phased workloads cap the number of active pushers per phase. Inactive
+    // pushers wait without sending jobs — this is how "low load" phases
+    // (warmup, cooldown) produce real low load even though all N workers
+    // were spawned at bench start.
+    const elapsed_s = (Date.now() - start_time) / 1000;
+    if (
+      config.workloadConfig &&
+      !isPusherActive(config.workloadConfig, config.i, elapsed_s)
+    ) {
+      await sleep(0.5);
+      continue;
+    }
+
     const queue_length = await getQueueCount();
     if (queue_length > 2500) {
       console.log(
@@ -116,10 +135,16 @@ while (cont) {
             },
           });
         } else {
+          // `random` pattern: sample per-job args from the workload config so
+          // each push carries its own (ram_mb, duration_ms, mode). Phased
+          // configs sample from the currently-active phase's distributions.
+          const args = (config.scriptPattern === "random" && config.workloadConfig)
+            ? sampleJobParams(config.workloadConfig, { elapsed_s })
+            : undefined;
           uuid = await windmill.JobService.runScriptByPath({
             workspace: config.workspace_id,
             path: "f/benchmarks/" + (config.scriptPattern || "deno"),
-            requestBody: {},
+            requestBody: args ?? {},
           });
         }
       } catch (e) {
