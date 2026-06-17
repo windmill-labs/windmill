@@ -7,6 +7,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
+	import { migrateApp } from '$lib/components/apps/migrateApp'
 	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -285,13 +286,20 @@
 		if (pendingLoad) {
 			backendApp = { ...backendApp, value: pendingLoad.value as App } as typeof backendApp
 			if (loadedFromDraft) {
+				// AppEditor `migrateApp`s the value in place on mount (see its
+				// `migratedDeployedBaseline`), so the draft cell settles to the
+				// MIGRATED app. Match it here, else the first post-mount mirror write
+				// would diverge from the raw value and trip the overwrite prompt
+				// before any edit. Mirrors raw_app's bundle-matching baseline.
+				const overlayBaseline = structuredClone($state.snapshot(pendingLoad.value)) as App
+				migrateApp(overlayBaseline)
 				OtherUserDraftLoad.beginOverlay({
 					workspace: $workspaceStore!,
 					itemKind: 'app',
 					path,
 					ownerLabel: pendingLoad.ownerLabel,
-					// AppEditor stores the bare App in the draft cell.
-					loadedValue: pendingLoad.value,
+					// AppEditor stores the bare (migrated) App in the draft cell.
+					loadedValue: overlayBaseline,
 					onResetToOwnDraft: async () => {
 						await loadApp({ getDraft: true })
 						redraw++
