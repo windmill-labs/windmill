@@ -14,6 +14,7 @@
 	import TriggerNode, { type TriggerNodeKind } from './TriggerNode.svelte'
 	import AddNode from './AddNode.svelte'
 	import AssetGraphEdge from './AssetGraphEdge.svelte'
+	import PanToNode from './PanToNode.svelte'
 	import { layoutAssetGraph } from './assetGraphLayout'
 	import { buildDownstreamMap } from './graphTraversal'
 	import type { AssetGraphResponse, AssetGraphSelection, NativeTriggerKind } from './types'
@@ -132,6 +133,12 @@
 		// Script paths of the expanded (pinned) run(s) — a soft blue ring that
 		// persists until collapsed.
 		selectedRunPaths?: string[]
+		// Graph-id (`${kind}:${path}`) of a node to smoothly pan into the
+		// center of the viewport — set by the page when a new draft node is
+		// created so the user's eye follows it. Opt-in: only the pipeline
+		// editor passes it, so the asset-graph page is unaffected. The page
+		// clears it once the pan has had time to settle.
+		panToNodeId?: string | undefined
 	}
 	let {
 		graph,
@@ -152,7 +159,8 @@
 		onOpenWebhook,
 		onOpenDataUpload,
 		hoveredPaths,
-		selectedRunPaths
+		selectedRunPaths,
+		panToNodeId
 	}: Props = $props()
 
 	// `${kind}:${path}` ids for the hovered / pinned runs (both script and flow
@@ -560,7 +568,11 @@
 			// class applies — a node is either a runnable or an asset).
 			const assetEmph = assetEmphasis.get(n.id)
 			const assetClass =
-				assetEmph === 'output' ? 'wm-asset-output' : assetEmph === 'input' ? 'wm-asset-input' : undefined
+				assetEmph === 'output'
+					? 'wm-asset-output'
+					: assetEmph === 'input'
+						? 'wm-asset-input'
+						: undefined
 			return {
 				id: n.id,
 				type: n.type,
@@ -810,6 +822,7 @@
 		--background-color={false}
 	>
 		<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
+		<PanToNode targetId={panToNodeId} {nodes} />
 		<Controls position="top-right" orientation="horizontal" showLock={false} class="!mr-10" />
 		<MiniMap
 			pannable

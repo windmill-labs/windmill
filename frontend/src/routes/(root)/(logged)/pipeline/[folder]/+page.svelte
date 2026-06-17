@@ -324,7 +324,8 @@
 			if (state && (Array.isArray(state.drafts) || typeof state.activeDraftPath === 'string')) {
 				return {
 					drafts: Array.isArray(state.drafts) ? state.drafts : [],
-					activeDraftPath: typeof state.activeDraftPath === 'string' ? state.activeDraftPath : undefined
+					activeDraftPath:
+						typeof state.activeDraftPath === 'string' ? state.activeDraftPath : undefined
 				}
 			}
 		} catch (e) {
@@ -441,7 +442,11 @@
 			try {
 				if (typeof localStorage !== 'undefined') {
 					if (isEmpty) localStorage.removeItem(key)
-					else localStorage.setItem(key, encodeState({ drafts: serialized, activeDraftPath: activePath }))
+					else
+						localStorage.setItem(
+							key,
+							encodeState({ drafts: serialized, activeDraftPath: activePath })
+						)
 				}
 			} catch (e) {
 				console.warn('failed to mirror pipeline state', e)
@@ -612,6 +617,21 @@
 		} as unknown as Script
 	}
 
+	// Graph-id of the node the canvas should smoothly pan to. Set when a new
+	// draft node is created; cleared on a timer once the relayout (the details
+	// pane opening resizes the canvas, shifting every node) has settled so the
+	// pan lands on the final position rather than a pre-resize one.
+	let panToNodeId = $state<string | undefined>(undefined)
+	let panToNodeTimer: ReturnType<typeof setTimeout> | undefined = undefined
+	function focusPipelineNode(id: string) {
+		panToNodeId = id
+		if (panToNodeTimer) clearTimeout(panToNodeTimer)
+		panToNodeTimer = setTimeout(() => {
+			if (panToNodeId === id) panToNodeId = undefined
+			panToNodeTimer = undefined
+		}, 600)
+	}
+
 	function openMaterializerDraft(
 		language: ScriptLang,
 		scriptPath: string,
@@ -631,6 +651,10 @@
 		drafts = next
 		activeDraftPath = scriptPath
 		selection = undefined
+
+		// Follow the new node with a smooth pan. The id matches the runnable
+		// node the canvas builds for a draft script (`script:<path>`).
+		focusPipelineNode(`script:${scriptPath}`)
 
 		// User filled the optional prompt on the path stage — fire off a
 		// chat request so the AI bootstraps the body. The seeded template
@@ -797,7 +821,8 @@
 		let assets: AssetWithAltAccessType[] = []
 		try {
 			const inferred = await inferAssets(script.language, script.content)
-			if (inferred?.status !== 'error') assets = (inferred?.assets ?? []) as AssetWithAltAccessType[]
+			if (inferred?.status !== 'error')
+				assets = (inferred?.assets ?? []) as AssetWithAltAccessType[]
 		} catch {
 			// Same fallback as above — an unparsable body deploys with no
 			// lineage rather than the stale snapshot.
@@ -2354,6 +2379,7 @@
 							onAddPipelineScript={mode === 'edit' ? handleAddPipelineScript : undefined}
 							onRunnableMenuRemove={mode === 'edit' ? handleRunnableMenuRemove : undefined}
 							onRunProducer={mode === 'edit' ? handleRunProducer : undefined}
+							{panToNodeId}
 						/>
 						{#if mode === 'edit'}
 							<!-- View mode surfaces activity as a full right pane
@@ -2437,6 +2463,13 @@
 											: undefined)
 									if (running && openPath) {
 										activeRunnable = { kind: 'script', path: openPath }
+										// Mark the tested runnable as launched-from-here so the
+										// folder poll's catch-up pulse won't re-flash its edge a
+										// poll-interval after a fast job already finished (the
+										// edge is animated zero-latency by `activeRunnable`, and
+										// the test loader clears that the instant it completes).
+										// Also upgrades to the fast poll so the badge lands sooner.
+										activeRunnables.arm(`script:${openPath}`)
 										// Editor Test path clears via its own callbacks, not
 										// the job-id effect — drop any stale tracked id so a
 										// prior canvas run's completion can't clear this hint.
