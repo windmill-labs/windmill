@@ -381,7 +381,12 @@
 				path: flowDraftPath,
 				ownerLabel: pendingLoad.ownerLabel,
 				loadedValue: flowToRender,
-				onResetToOwnDraft: () => loadFlow({ getDraft: true })
+				// Force a builder remount (like nav does) — FlowBuilder captures the
+				// flow at mount, so reloading alone leaves the foreign graph on screen.
+				onResetToOwnDraft: async () => {
+					renderEditor = false
+					await loadFlow({ getDraft: true })
+				}
 			})
 			// Seed so the bound value updates WITHOUT a POST (the lock blocks it
 			// anyway, but seeding avoids tripping the edit prompt).
