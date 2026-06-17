@@ -56,8 +56,21 @@ pub async fn clear_static_asset_usage<'e>(
     usage_path: &str,
     usage_kind: AssetUsageKind,
 ) -> error::Result<()> {
+    // Invalidate the per-workspace producer-writes cache that gates the
+    // asset-trigger dispatch hook (windmill-queue
+    // asset_dispatch::ASSET_PRODUCER_WRITES_CACHE), but only for script
+    // usage. The notify is unconditional (not gated on rows deleted) so a
+    // deploy where the script *gains* its first asset still invalidates;
+    // emitting it in the same statement keeps it atomic with the change and
+    // visible to pollers only on commit. Flow usage doesn't affect the
+    // script producer set, so the INSERT is skipped via the `$3 = 'script'`
+    // guard.
     sqlx::query!(
-        r#"DELETE FROM asset WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = $3"#,
+        r#"WITH del AS (
+             DELETE FROM asset WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = $3
+           )
+           INSERT INTO notify_event (channel, payload)
+           SELECT 'notify_asset_producer_change', $1 WHERE $3 = 'script'"#,
         workspace_id,
         usage_path,
         usage_kind as AssetUsageKind
@@ -72,8 +85,16 @@ pub async fn clear_static_asset_usage_by_script_hash<'e>(
     workspace_id: &str,
     script_hash: ScriptHash,
 ) -> error::Result<()> {
+    // Always script usage → unconditionally invalidate the producer-writes
+    // cache for this workspace (see clear_static_asset_usage), atomically
+    // with the delete.
     sqlx::query!(
-        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)",
+        r#"WITH del AS (
+             DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script'
+               AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)
+           )
+           INSERT INTO notify_event (channel, payload)
+           VALUES ('notify_asset_producer_change', $1)"#,
         workspace_id,
         script_hash.0
     )

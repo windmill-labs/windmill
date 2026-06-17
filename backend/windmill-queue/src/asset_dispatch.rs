@@ -49,6 +49,7 @@ use serde_json::value::RawValue;
 use sqlx::types::Json;
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
+use std::sync::Arc;
 use uuid::Uuid;
 use windmill_common::assets::{AssetKind, PARTITION_TOKEN};
 use windmill_common::error::{self, Result};
@@ -288,14 +289,18 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
         _ => return Ok(DispatchResult::default()),
     };
 
-    // Cheapest filter first: this hook runs on every top-level script
-    // completion, and the overwhelmingly common case is a script that
-    // writes no asset — one indexed query and out, before touching the
-    // job's args JSONB.
-    let writes = fetch_producer_writes(db, &job.workspace_id, runnable_path).await?;
-    if writes.is_empty() {
+    // Producer gate (cached): this hook fires on every top-level
+    // script/preview completion, and the overwhelmingly common case is a
+    // script that writes no asset. The per-workspace producer→writes map is
+    // cached and invalidated by a trigger on `asset`, so a non-producer
+    // completion costs one in-memory lookup and zero queries. The map is
+    // keyed on the deploy-time `asset` table by path, so an undeployed/new
+    // preview (no asset rows for its path) is a non-producer and never
+    // cascades — same as the previous per-completion lookup.
+    let producers = workspace_producer_writes(db, &job.workspace_id).await?;
+    let Some(writes) = producers.get(runnable_path).cloned() else {
         return Ok(DispatchResult::default());
-    }
+    };
 
     let args = fetch_args(db, &job.workspace_id, job.id).await?;
     if read_skip_arg(args.as_ref()) {
@@ -498,28 +503,55 @@ fn read_partition(
     serde_json::from_str::<String>(trigger_map?.get(PARTITION_ARG)?.get()).ok()
 }
 
-async fn fetch_producer_writes(
+lazy_static::lazy_static! {
+    /// Per-workspace map of producer script path → the assets it writes
+    /// (`usage_access_type IN ('w','rw')`). Serves both the producer gate
+    /// (is this path a producer?) and the writes themselves, so a completion
+    /// that isn't a producer costs a single in-memory lookup and zero
+    /// queries — the dispatch hook fires on every top-level script/preview
+    /// completion instance-wide, the overwhelming majority of which write no
+    /// asset. An empty map means the workspace has no asset producers (no
+    /// pipelines). Invalidated per workspace by `notify_asset_producer_change`
+    /// (a trigger on `asset`) through the polling notify system; until the
+    /// next poll a freshly-deployed producer may not cascade (sub-poll lag,
+    /// acceptable for a data pipeline).
+    pub static ref ASSET_PRODUCER_WRITES_CACHE:
+        quick_cache::sync::Cache<String, Arc<HashMap<String, Vec<(AssetKind, String)>>>> =
+        quick_cache::sync::Cache::new(1000);
+}
+
+/// Load (cached) the producer→writes map for a workspace. The single load
+/// query replaces the per-completion producer lookup; once cached, every
+/// completion in the workspace is served from memory until invalidation.
+async fn workspace_producer_writes(
     db: &Pool<Postgres>,
     workspace_id: &str,
-    runnable_path: &str,
-) -> Result<Vec<(AssetKind, String)>> {
+) -> Result<Arc<HashMap<String, Vec<(AssetKind, String)>>>> {
+    if let Some(map) = ASSET_PRODUCER_WRITES_CACHE.get(workspace_id) {
+        return Ok(map);
+    }
     let rows = sqlx::query!(
         r#"
         SELECT
+            usage_path AS "usage_path!",
             kind AS "kind!: AssetKind",
             path AS "path!"
         FROM asset
         WHERE workspace_id = $1
           AND usage_kind = 'script'
-          AND usage_path = $2
           AND usage_access_type IN ('w', 'rw')
         "#,
         workspace_id,
-        runnable_path,
     )
     .fetch_all(db)
     .await?;
-    Ok(rows.into_iter().map(|r| (r.kind, r.path)).collect())
+    let mut map: HashMap<String, Vec<(AssetKind, String)>> = HashMap::new();
+    for r in rows {
+        map.entry(r.usage_path).or_default().push((r.kind, r.path));
+    }
+    let map = Arc::new(map);
+    ASSET_PRODUCER_WRITES_CACHE.insert(workspace_id.to_string(), map.clone());
+    Ok(map)
 }
 
 /// A subscriber row resolved from `script_trigger`. Bundles the per-edge
