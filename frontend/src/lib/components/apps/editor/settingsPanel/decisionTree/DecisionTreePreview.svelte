@@ -23,11 +23,14 @@
 	import DecisionTreeGraphNode from '../DecisionTreeGraphNode.svelte'
 	import DecisionTreeGraphHeader from '../DecisionTreeGraphHeader.svelte'
 
-	import { type Writable } from 'svelte/store'
+	import { writable, type Writable } from 'svelte/store'
 	import type { AppComponent, DecisionTreeNode } from '../../component'
 	import { getContext, untrack } from 'svelte'
 	import type { AppViewerContext } from '$lib/components/apps/types'
 	import { deleteGridItem } from '../../appUtils'
+	import { setGraphContext } from '$lib/components/graph/graphContext'
+	import { SelectionManager } from '$lib/components/graph/selectionUtils.svelte'
+	import { createFlowDiffManager } from '$lib/components/flows/flowDiffManager.svelte'
 
 	interface Props {
 		nodes: DecisionTreeNode[]
@@ -54,6 +57,13 @@
 
 	const { app, runnableComponents, componentControl, debuggingComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
+
+	setGraphContext({
+		selectionManager: new SelectionManager(),
+		useDataflow: writable(false),
+		showAssets: writable(false),
+		diffManager: createFlowDiffManager()
+	})
 
 	function addSubGrid() {
 		const numberOfPanes = nodes.length
@@ -224,7 +234,7 @@
 						position: { x: -1, y: -1 },
 						data: {
 							node: {
-								label: `Branch ${(positionRelativeToParent  ?? 0) + 1}`,
+								label: `Branch ${(positionRelativeToParent ?? 0) + 1}`,
 								id: branchHeaderId,
 								allowed: undefined,
 								next: [],
