@@ -150,6 +150,7 @@
 			workspace={$workspaceStore ?? undefined}
 			itemKind="flow"
 			path={flow.path}
+			onMigrated={() => dispatch('change')}
 		/>
 		{#if flow.labels?.length}
 			<div class="flex items-center gap-0.5">

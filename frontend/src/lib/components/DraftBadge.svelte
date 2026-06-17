@@ -16,7 +16,6 @@
 	import { DraftService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { goto } from '$lib/navigation'
-	import { invalidateAll } from '$app/navigation'
 	import { OtherUserDraftLoad, editRouteFor } from '$lib/components/otherUserDraftLoad.svelte'
 	import { fetchDeployedValueForDiff } from '$lib/components/otherUserDraftDiff'
 	import { userStore } from '$lib/stores'
@@ -33,6 +32,9 @@
 		workspace?: string
 		itemKind?: UserDraftItemKind
 		path?: string
+		/** Called after an admin migrates (deletes / assigns) the legacy draft, so
+		 *  the parent row can refetch and drop the now-resolved legacy entry. */
+		onMigrated?: () => void
 	}
 
 	let {
@@ -42,7 +44,8 @@
 		currentUsername = undefined,
 		workspace = undefined,
 		itemKind = undefined,
-		path = undefined
+		path = undefined,
+		onMigrated = undefined
 	}: Props = $props()
 
 	// Authed user lands first; everyone else keeps the backend's ordering.
@@ -325,6 +328,6 @@
 		{workspace}
 		{itemKind}
 		{path}
-		onMigrated={() => invalidateAll()}
+		onMigrated={() => onMigrated?.()}
 	/>
 {/if}
