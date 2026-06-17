@@ -117,6 +117,16 @@ Local previews exist for every entity type and don't deploy:
 
 Argument shapes and per-language details live in the \`write-script-<lang>\`, \`write-flow\`, and \`raw-app\` skills.
 
+## Keeping metadata in sync
+
+After editing a script, flow inline script, or app runnable, its generated metadata can go stale. \`wmill-lock.yaml\` stores a content hash per item, so a change that **adds or removes an import** or **changes a script's arguments** invalidates that hash and leaves the \`.lock\` (resolved dependencies) and \`.script.yaml\` (the input schema that drives the auto-generated args UI) out of date. \`wmill generate-metadata\` regenerates them and refreshes the hashes. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files — it is **not** a deploy — but it re-resolves dependencies, which can bump unpinned versions (the same as deploying from the UI). So by default **offer it and run it once the user agrees**, rather than running it silently after every edit. YOU run the command (never tell the user to run it); the choice is only whether to confirm first.
+
+**Save the preference so you don't ask every session.** If the user wants metadata regenerated automatically after edits (or always confirmed first), record it in the **project-specific instructions** section of \`AGENTS.md\` (user-owned — never overwritten by \`wmill refresh prompts\`), e.g. a line like \`Metadata: auto (run wmill generate-metadata after edits)\` or \`Metadata: ask first\`. Read that line first on later sessions and follow it.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ## Deploying
 
 There are two ways local changes reach the workspace. Pick based on how the repo is wired, not habit.
