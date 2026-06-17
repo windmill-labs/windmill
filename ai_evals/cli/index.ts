@@ -25,7 +25,9 @@ import {
 import { runSuite } from "../core/runSuite";
 import { EVAL_MODES, type EvalMode } from "../core/types";
 import { DEFAULT_JUDGE_MODEL } from "../core/judge";
-import { createCliModeRunner } from "../modes/cli";
+// createCliModeRunner is imported lazily in runCliBenchmark so the non-cli modes
+// (global/flow/script/app) don't pull in the wmill CLI toolchain and its JSR deps
+// (e.g. @cliffy/*) just to load this entrypoint.
 import { runFrontendBenchmarkAdapter } from "../adapters/frontend/runtime";
 import { resolveWindmillBackendSettings } from "../core/windmillBackendSettings";
 import { assertWindmillBackendReachable } from "../adapters/frontend/windmillBackend";
@@ -279,6 +281,7 @@ async function runCliBenchmark(
   model: ReturnType<typeof getCliEvalModel>,
   runModel: string,
 ) {
+  const { createCliModeRunner } = await import("../modes/cli");
   const caseResults = await runSuite({
     modeRunner: createCliModeRunner(model),
     cases,
