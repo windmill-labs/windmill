@@ -248,11 +248,16 @@ export async function migrateUserDraftsToDb(): Promise<void> {
 				}
 				continue
 			}
+			// Preserve the draft's original age: stamp `created_at` with the LS
+			// write time (epoch 0 when unknown) so migrated drafts don't all
+			// resurface to the top as freshly created. Same value as `last_sync`,
+			// which still drives the conflict check.
+			const writtenAt = new Date(lastWrittenAt ?? 0).toISOString()
 			const res = await DraftService.updateDraft({
 				workspace: parsed.workspace,
 				kind: parsed.itemKind,
 				path,
-				requestBody: { value, last_sync: new Date(lastWrittenAt ?? 0).toISOString() }
+				requestBody: { value, last_sync: writtenAt, created_at: writtenAt }
 			})
 			if (res.status === 'conflict') {
 				console.info(

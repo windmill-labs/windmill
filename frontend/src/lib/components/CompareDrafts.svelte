@@ -588,14 +588,19 @@
 				{/if}
 				{#if deploymentStatus[draftItem.key]?.status !== 'deployed'}
 					{@const discardBlock = blockedReason(draftItem)}
-					<Button
-						unifiedSize="xs"
-						variant="subtle"
-						startIcon={{ icon: DiffIcon }}
-						onClick={() => showDiff(draftItem)}
-					>
-						Show diff
-					</Button>
+					<!-- Show diff fetches the *current user's* draft overlay, so it's only
+					     meaningful for your own/legacy rows. Another user's draft (view-only,
+					     `mine=false`) would diff against the wrong draft or 404 — hide it. -->
+					{#if draftItem.mine}
+						<Button
+							unifiedSize="xs"
+							variant="subtle"
+							startIcon={{ icon: DiffIcon }}
+							onClick={() => showDiff(draftItem)}
+						>
+							Show diff
+						</Button>
+					{/if}
 					<Button
 						unifiedSize="xs"
 						variant="subtle"
