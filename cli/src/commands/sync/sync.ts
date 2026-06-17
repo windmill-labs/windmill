@@ -4928,7 +4928,10 @@ export async function push(
       log.warn(`Failed to push shared UI folder: ${e}`);
     }
     try {
-      await pushDatatableMigrations(workspace.workspaceId);
+      await pushDatatableMigrations(workspace.workspaceId, {
+        yes: opts.yes,
+        jsonOutput: opts.jsonOutput,
+      });
     } catch (e) {
       log.warn(`Failed to push datatable migrations folder: ${e}`);
     }
@@ -4977,7 +4980,10 @@ export async function push(
       log.warn(`Failed to push shared UI folder: ${e}`);
     }
     try {
-      await pushDatatableMigrations(workspace.workspaceId);
+      await pushDatatableMigrations(workspace.workspaceId, {
+        yes: opts.yes,
+        jsonOutput: opts.jsonOutput,
+      });
     } catch (e) {
       log.warn(`Failed to push datatable migrations folder: ${e}`);
     }

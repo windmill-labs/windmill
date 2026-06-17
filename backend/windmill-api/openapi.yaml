@@ -4385,6 +4385,40 @@ paths:
                         name:
                           type: string
 
+  /w/{workspace}/workspaces/rollback_datatable_migrations/{datatable_name}:
+    post:
+      summary: roll back the most recently applied migration on a datatable
+      operationId: rollbackDatatableMigrations
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: rolled back migrations
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rolled_back]
+                properties:
+                  rolled_back:
+                    type: array
+                    items:
+                      type: object
+                      required: [version, name]
+                      properties:
+                        version:
+                          type: integer
+                          format: int64
+                        name:
+                          type: string
+
   /w/{workspace}/workspaces/list_datatable_migrations:
     get:
       summary: list datatable migrations for a workspace
@@ -27761,8 +27795,10 @@ components:
                     additionalProperties: true
     DatatableMigration:
       type: object
-      required: [timestamp, name, code_up]
+      required: [datatable, timestamp, name, code_up]
       properties:
+        datatable:
+          type: string
         timestamp:
           type: integer
           format: int64

@@ -9,6 +9,10 @@ import { GlobalOptions } from "../../types.ts";
 import { runCatalogQuery } from "../../utils/catalog.ts";
 import { psql as psqlDatatable } from "./psql.ts";
 import { serve as serveDatatable } from "./serve.ts";
+import {
+  rollbackMigrations,
+  runMigrations,
+} from "../datatable_migrations.ts";
 
 const DEFAULT_DATATABLE_NAME = "main";
 
@@ -41,6 +45,27 @@ async function run(
   await runCatalogQuery(opts, "datatable", name, sql);
 }
 
+async function migrateUp(opts: GlobalOptions, name?: string) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  await runMigrations(workspace.workspaceId, name ?? DEFAULT_DATATABLE_NAME);
+}
+
+async function migrateDown(opts: GlobalOptions, name?: string) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  await rollbackMigrations(workspace.workspaceId, name ?? DEFAULT_DATATABLE_NAME);
+}
+
+const migrateCommand = new Command()
+  .description("apply or roll back datatable migrations")
+  .command("up", "apply all pending migrations to a datatable")
+  .arguments("[name:string]")
+  .action(migrateUp as any)
+  .command("down", "roll back the most recent migration on a datatable")
+  .arguments("[name:string]")
+  .action(migrateDown as any);
+
 async function serve(
   opts: GlobalOptions & { port?: number; host?: string; password?: string },
 ) {
@@ -69,6 +94,7 @@ const command = new Command()
     "Output only the final result as JSON. Useful for scripting.",
   )
   .action(run as any)
+  .command("migrate", migrateCommand)
   .command(
     "serve",
     "Serve all datatables as a Postgres-wire endpoint (psql, DBeaver, pgAdmin); the client picks the datatable via the database name in its connection string",

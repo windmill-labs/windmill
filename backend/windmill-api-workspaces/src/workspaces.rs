@@ -130,6 +130,10 @@ pub fn workspaced_service() -> Router {
             "/run_datatable_migrations/{datatable_name}",
             post(run_datatable_migrations),
         )
+        .route(
+            "/rollback_datatable_migrations/{datatable_name}",
+            post(rollback_datatable_migrations),
+        )
         .route("/list_datatable_migrations", get(list_datatable_migrations))
         .route(
             "/update_datatable_migrations",
@@ -2416,8 +2420,9 @@ async fn run_datatable_migrations(
 
     let migrations = sqlx::query!(
         "SELECT timestamp, name, code_up FROM datatable_migrations \
-         WHERE workspace_id = $1 ORDER BY timestamp ASC",
-        &w_id
+         WHERE workspace_id = $1 AND datatable = $2 ORDER BY timestamp ASC",
+        &w_id,
+        &datatable_name,
     )
     .fetch_all(&db)
     .await?;
@@ -2484,8 +2489,124 @@ async fn run_datatable_migrations(
     Ok(Json(RunDatatableMigrationsResult { applied }))
 }
 
+#[derive(Serialize)]
+struct RolledBackMigration {
+    version: i64,
+    name: String,
+}
+
+#[derive(Serialize)]
+struct RollbackDatatableMigrationsResult {
+    rolled_back: Vec<RolledBackMigration>,
+}
+
+/// Roll back the most recently applied migration on a given data table (one
+/// step): run its `code_down` and drop its `_wm_migrations` row, atomically.
+async fn rollback_datatable_migrations(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, datatable_name)): Path<(String, String)>,
+) -> JsonResult<RollbackDatatableMigrationsResult> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    audit_log(
+        &db,
+        &authed,
+        "workspaces.rollback_datatable_migrations",
+        ActionKind::Update,
+        &w_id,
+        Some(datatable_name.as_str()),
+        None,
+    )
+    .await?;
+
+    // Connect to the data table's database
+    let db_resource = get_datatable_resource_from_db_unchecked(&db, &w_id, &datatable_name).await?;
+    let pg_db: PgDatabase = serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+    let (mut client, connection) = pg_db.connect(Some(&db)).await?;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+
+    client
+        .batch_execute(
+            "CREATE TABLE IF NOT EXISTS _wm_migrations (\
+                version BIGINT PRIMARY KEY, \
+                installed_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!("Failed to ensure _wm_migrations table: {}", e))
+        })?;
+
+    let latest = client
+        .query_opt(
+            "SELECT version FROM _wm_migrations ORDER BY version DESC LIMIT 1",
+            &[],
+        )
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to read _wm_migrations: {}", e)))?;
+
+    let version: i64 = match latest {
+        Some(row) => row.get::<_, i64>(0),
+        None => {
+            return Ok(Json(RollbackDatatableMigrationsResult {
+                rolled_back: vec![],
+            }))
+        }
+    };
+
+    let definition = sqlx::query!(
+        "SELECT name, code_down FROM datatable_migrations \
+         WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3",
+        &w_id,
+        &datatable_name,
+        version
+    )
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| {
+        Error::BadRequest(format!(
+            "Cannot roll back migration {version}: its definition no longer exists"
+        ))
+    })?;
+
+    let code_down = definition.code_down.ok_or_else(|| {
+        Error::BadRequest(format!(
+            "Cannot roll back migration {} ({}): it has no down migration",
+            version, definition.name
+        ))
+    })?;
+
+    // Run the down migration and forget its version atomically.
+    let tx = client
+        .transaction()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to start transaction: {}", e)))?;
+    tx.batch_execute(&code_down).await.map_err(|e| {
+        Error::internal_err(format!(
+            "Failed to roll back migration {} ({}): {}",
+            version, definition.name, e
+        ))
+    })?;
+    tx.execute("DELETE FROM _wm_migrations WHERE version = $1", &[&version])
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to drop migration record: {}", e)))?;
+    tx.commit().await.map_err(|e| {
+        Error::internal_err(format!("Failed to commit rollback of {}: {}", version, e))
+    })?;
+
+    Ok(Json(RollbackDatatableMigrationsResult {
+        rolled_back: vec![RolledBackMigration { version, name: definition.name }],
+    }))
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct DatatableMigration {
+    pub datatable: String,
     pub timestamp: i64,
     pub name: String,
     pub code_up: String,
@@ -2500,8 +2621,8 @@ async fn list_datatable_migrations(
 ) -> JsonResult<Vec<DatatableMigration>> {
     let migrations = sqlx::query_as!(
         DatatableMigration,
-        "SELECT timestamp, name, code_up, code_down FROM datatable_migrations \
-         WHERE workspace_id = $1 ORDER BY timestamp ASC",
+        "SELECT datatable, timestamp, name, code_up, code_down FROM datatable_migrations \
+         WHERE workspace_id = $1 ORDER BY datatable, timestamp ASC",
         &w_id
     )
     .fetch_all(&db)
@@ -2525,6 +2646,11 @@ async fn update_datatable_migrations(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
+    let datatables: Vec<String> = payload
+        .migrations
+        .iter()
+        .map(|m| m.datatable.clone())
+        .collect();
     let timestamps: Vec<i64> = payload.migrations.iter().map(|m| m.timestamp).collect();
     let names: Vec<String> = payload.migrations.iter().map(|m| m.name.clone()).collect();
     let code_ups: Vec<String> = payload
@@ -2548,9 +2674,10 @@ async fn update_datatable_migrations(
     .await?;
 
     sqlx::query!(
-        "INSERT INTO datatable_migrations (workspace_id, timestamp, name, code_up, code_down) \
-         SELECT $1, * FROM UNNEST($2::bigint[], $3::varchar[], $4::text[], $5::text[])",
+        "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) \
+         SELECT $1, * FROM UNNEST($2::varchar[], $3::bigint[], $4::varchar[], $5::text[], $6::text[])",
         &w_id,
+        &datatables,
         &timestamps,
         &names,
         &code_ups,
