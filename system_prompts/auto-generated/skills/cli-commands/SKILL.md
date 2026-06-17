@@ -194,7 +194,7 @@ folder related commands
 
 ### generate-metadata
 
-Generate metadata (locks, schemas) for all scripts, flows, and apps
+Regenerate stale local locks and script schemas and refresh wmill-lock.yaml content hashes (scripts, flows, apps). Writes local files only, not a deploy. Run it after edits that add or remove imports or change a script's arguments, so the lock, the auto-generated UI schema, and wmill-lock.yaml stay in sync.
 
 **Arguments:** `[folder:string]`
 
@@ -213,7 +213,7 @@ Generate metadata (locks, schemas) for all scripts, flows, and apps
 
 **Subcommands:**
 
-- `generate-metadata rehash [folder:string]`
+- `generate-metadata rehash [folder:string]` - Refresh wmill-lock.yaml content hashes from the on-disk .lock and .script.yaml without re-resolving dependencies or hitting the backend. Use when those files are already correct and only the hashes need updating: bootstrapping missing entries or recovering from hash drift.
   - `--skip-scripts` - Skip processing scripts
   - `--skip-flows` - Skip processing flows
   - `--skip-apps` - Skip processing apps
@@ -321,7 +321,7 @@ sync local with a remote instance or the opposite (push or pull)
   - `-o, --output-file <file:string>` - Write YAML to a file instead of stdout
   - `--show-secrets` - Include sensitive fields (license key, JWT secret) without prompting
   - `--instance <instance:string>` - Name of the instance, override the active instance
-- `instance connect-slack`
+- `instance connect-slack` - Non-interactively connect Slack at the instance level using a pre-minted bot token (xoxb-...). Produces the same artifacts as the UI OAuth flow: global_settings 'slack' row + encrypted f/slack_bot/global_bot_token variable and resource in the admins workspace.
   - `--bot-token <bot_token:string>` - Slack bot token (xoxb-...)
   - `--team-id <team_id:string>` - Slack team id
   - `--team-name <team_name:string>` - Slack team name
@@ -375,6 +375,8 @@ Validate Windmill flow, schedule, and trigger YAML files in a directory
 
 ### object-storage
 
+Object storage (S3) related commands. Operates on the workspace's default object storage; use --storage to target a configured secondary storage.
+
 **Alias:** `s3`
 
 **Subcommands:**
@@ -410,6 +412,8 @@ Validate Windmill flow, schedule, and trigger YAML files in a directory
   - `--csv-header` - Treat the first CSV row as a header
 
 ### protection-rules
+
+Sync workspace protection rules between protection-rules.yaml and Windmill. The file is keyed by workspace name; keys must match wmill.yaml 'workspaces'.
 
 **Subcommands:**
 
@@ -751,7 +755,7 @@ workspace related commands
   - `--bot-token <bot_token:string>` - Slack bot token (xoxb-...)
   - `--team-id <team_id:string>` - Slack team id
   - `--team-name <team_name:string>` - Slack team name
-- `workspace disconnect-slack`
+- `workspace disconnect-slack` - Clear slack_team_id / slack_name on the active workspace (marks the workspace as disconnected). Does NOT remove the bot token variable/resource/folder/group — delete those from the local sync folder and run 'wmill sync push' to tear them down. Does NOT remove the workspace-level OAuth override — set slack_oauth_client_id/_secret to '' in settings.yaml and push.
 
 
 

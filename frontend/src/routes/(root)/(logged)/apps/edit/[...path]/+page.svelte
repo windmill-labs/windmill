@@ -197,7 +197,14 @@
 		// there's no deployed row (draft-only path).
 		deployedBaseline = backendApp.no_deployed
 			? undefined
-			: (structuredClone(stateSnapshot(backendApp.value)) as App)
+			: // Carry the deployed summary onto the baseline: the autosave mirrors the
+				// summary onto the live App value, so the `discardIf` no-op comparison must
+				// see the deployed summary here too — otherwise a reverted-to-deployed draft
+				// never compares equal (and a summary-only edit still counts as a change).
+				({
+					...(structuredClone(stateSnapshot(backendApp.value)) as App),
+					summary: backendApp.summary
+				} as App)
 		// `other_drafts_users` only computed when `getDraft`; don't clobber the
 		// known list on a `getDraft:false` reload. See /scripts/edit's loader.
 		if (getDraft) {
@@ -220,7 +227,9 @@
 		isNewApp = !!backendApp.no_deployed
 		if (backendApp.no_deployed) {
 			backendApp = {
-				summary: '',
+				// Draft-only app: the summary rides on the autosaved App value
+				// (no deployed column to read it from).
+				summary: savedDraftApp?.summary ?? '',
 				value: (savedDraftApp ?? {}) as App,
 				path: page.params.path ?? '',
 				// `execution_mode` required; matches the new-app seed above.
@@ -237,7 +246,13 @@
 				no_deployed: true
 			} as unknown as typeof backendApp
 		} else if (savedDraftApp) {
-			backendApp = { ...backendApp, value: savedDraftApp } as typeof backendApp
+			// Deployed app with a draft: swap in the draft value and honor a draft
+			// summary edit (falls back to the deployed summary when the draft has none).
+			backendApp = {
+				...backendApp,
+				value: savedDraftApp,
+				summary: savedDraftApp.summary ?? backendApp.summary
+			} as typeof backendApp
 		}
 		if (backendApp.is_draft) {
 			loadedFromDraft = true

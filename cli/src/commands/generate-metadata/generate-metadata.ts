@@ -799,7 +799,7 @@ async function rehashCommand(
 }
 
 const command = new Command()
-  .description("Generate metadata (locks, schemas) for all scripts, flows, and apps")
+  .description("Regenerate stale local locks and script schemas and refresh wmill-lock.yaml content hashes (scripts, flows, apps). Writes local files only, not a deploy. Run it after edits that add or remove imports or change a script's arguments, so the lock, the auto-generated UI schema, and wmill-lock.yaml stay in sync.")
   .arguments("[folder:string]")
   .option("--yes", "Skip confirmation prompt")
   .option("--dry-run", "Show what would be updated without making changes")
@@ -823,9 +823,7 @@ const command = new Command()
     "rehash",
     new Command()
       .description(
-        "Trust on-disk content; rewrite wmill-lock.yaml hashes without backend " +
-        "trips or yaml/lock rewrites. Useful for bootstrapping missing lockfile " +
-        "entries or recovering from older-CLI hash drift."
+        "Refresh wmill-lock.yaml content hashes from the on-disk .lock and .script.yaml without re-resolving dependencies or hitting the backend. Use when those files are already correct and only the hashes need updating: bootstrapping missing entries or recovering from hash drift."
       )
       .arguments("[folder:string]")
       .option("--skip-scripts", "Skip processing scripts")
