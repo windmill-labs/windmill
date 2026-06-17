@@ -20,6 +20,19 @@ import {
 } from "./providerConfig";
 import { WindmillBackendClient } from "../../windmillBackend";
 
+// Frontend evals run the production chat code with no human present, but the
+// production system prompt assumes an interactive user. Without this, models
+// (especially cheaper ones) ask for confirmation, wait for approval, or stop to
+// present a plan instead of acting — burning the turn budget. We only forbid
+// those interactive stalls; genuine clarifying questions on ambiguous prompts
+// stay allowed, since some cases assert askUserQuestion is used.
+const EVAL_AUTONOMY_INSTRUCTIONS = [
+  "You are running inside an automated evaluation harness, not an interactive user session.",
+  "No human is available to answer follow-up questions or approve steps in real time.",
+  "When a request is clear and actionable, complete it directly: do not ask for confirmation, do not wait for approval, and do not stop to present a plan when you can make the change.",
+  "When a request is genuinely ambiguous or underspecified, ask a single clarifying question and wait for the answer instead of guessing or starting to build.",
+].join(" ");
+
 /**
  * Parameters for running a base evaluation.
  */
@@ -70,6 +83,15 @@ export async function runEval<THelpers, TOutput>(
     onToolCall,
   } = params;
   let shouldEmitMessageStart = true;
+
+  // Append the eval-autonomy guidance to whatever the production system prompt was.
+  const augmentedSystemMessage: ChatCompletionSystemMessageParam =
+    typeof systemMessage.content === "string"
+      ? {
+          ...systemMessage,
+          content: `${systemMessage.content}\n\n${EVAL_AUTONOMY_INSTRUCTIONS}`,
+        }
+      : systemMessage;
 
   const model = options.model ?? "gpt-4o";
   const maxIterations = options.maxIterations ?? 20;
@@ -140,7 +162,7 @@ export async function runEval<THelpers, TOutput>(
     try {
       const result = await runChatLoop({
         messages,
-        systemMessage,
+        systemMessage: augmentedSystemMessage,
         tools: wrappedTools,
         helpers,
         abortController,
