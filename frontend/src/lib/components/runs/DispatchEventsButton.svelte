@@ -1,8 +1,7 @@
 <script lang="ts">
-	import { resource } from 'runed'
-	import { JobService } from '$lib/gen'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DispatchEventsTable from './DispatchEventsTable.svelte'
+	import { useDispatchEvents } from './useDispatchEvents.svelte'
 	import { GitFork } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 
@@ -12,12 +11,11 @@
 	type Props = { workspace: string; jobId: string; class?: string }
 	let { workspace, jobId, class: klass = '' }: Props = $props()
 
-	const events = resource(
-		() => ({ workspace, jobId }),
-		async ({ workspace, jobId }) =>
-			workspace && jobId ? await JobService.listDispatchEvents({ workspace, id: jobId }) : []
+	const events = useDispatchEvents(
+		() => workspace,
+		() => jobId
 	)
-	const list = $derived(events.current ?? [])
+	const list = $derived(events.list)
 </script>
 
 {#if list.length > 0}

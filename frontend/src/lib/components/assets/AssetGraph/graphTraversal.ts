@@ -1,4 +1,5 @@
 import type { AssetGraphResponse } from './types'
+import { assetKey, buildAssetSubscribers, isWriteEdge } from './lib'
 
 // Execution-DAG traversal over the resolved asset graph (drafts included).
 //
@@ -13,31 +14,17 @@ import type { AssetGraphResponse } from './types'
 
 /** `producer script path` → set of subscriber script paths (one hop). */
 export function buildDownstreamMap(g: AssetGraphResponse): Map<string, Set<string>> {
-	const subscribersByAsset = new Map<string, Set<string>>()
-	for (const t of g.triggers ?? []) {
-		if (t.trigger_kind !== 'asset' || t.runnable_kind !== 'script') continue
-		const key = `${t.asset_kind}:${t.asset_path}`
-		const set = subscribersByAsset.get(key) ?? new Set<string>()
-		set.add(t.runnable_path)
-		subscribersByAsset.set(key, set)
-	}
+	const subscribersByAsset = buildAssetSubscribers(g)
 	const downstream = new Map<string, Set<string>>()
 	for (const e of g.edges ?? []) {
-		if (e.runnable_kind !== 'script') continue
-		const access = e.access_type ?? 'r'
-		if (access !== 'w' && access !== 'rw') continue
-		const subs = subscribersByAsset.get(`${e.asset_kind}:${e.asset_path}`)
+		if (!isWriteEdge(e)) continue
+		const subs = subscribersByAsset.get(assetKey(e))
 		if (!subs) continue
 		const merged = downstream.get(e.runnable_path) ?? new Set<string>()
 		for (const s of subs) if (s !== e.runnable_path) merged.add(s)
 		downstream.set(e.runnable_path, merged)
 	}
 	return downstream
-}
-
-/** Direct (one-hop) subscriber script paths of `scriptPath`. */
-export function getDownstreamSubscribers(g: AssetGraphResponse, scriptPath: string): string[] {
-	return Array.from(buildDownstreamMap(g).get(scriptPath) ?? [])
 }
 
 export type DownstreamClosure = {

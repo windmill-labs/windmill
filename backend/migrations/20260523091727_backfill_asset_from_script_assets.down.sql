@@ -1,6 +1,0 @@
--- No-op: the backfill is a one-shot data migration. We can't safely
--- distinguish backfilled rows from those a subsequent deploy inserted via
--- the normal `insert_static_asset_usage` path (same tuple, no marker), so
--- rolling back would risk deleting live data. Leaving the rows in place on
--- downgrade is harmless — they'll get rewritten on the next deploy of
--- each affected script.

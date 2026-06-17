@@ -211,13 +211,10 @@ pub fn parse_asset_trigger_ref(s: &str) -> Option<(AssetKind, String)> {
 pub fn trigger_spec_to_row(spec: &TriggerSpec) -> Option<(ScriptTriggerKind, String)> {
     match spec {
         TriggerSpec::Asset { asset_kind, path, .. } => {
-            let prefix = match asset_kind {
-                windmill_parser::asset_parser::AssetKind::S3Object => "s3://",
-                windmill_parser::asset_parser::AssetKind::Resource => "$res:",
-                windmill_parser::asset_parser::AssetKind::Ducklake => "ducklake://",
-                windmill_parser::asset_parser::AssetKind::DataTable => "datatable://",
-                windmill_parser::asset_parser::AssetKind::Volume => "volume://",
-            };
+            // Single source of truth for the canonical prefix lives on the
+            // common AssetKind; map the parser kind across first. The parser
+            // enum has no Variable variant, so canonical_prefix is always Some.
+            let prefix = asset_kind_from_parser(*asset_kind).canonical_prefix()?;
             Some((ScriptTriggerKind::Asset, format!("{}{}", prefix, path)))
         }
         // Schedule joins the native-trigger family — no script_trigger row

@@ -281,13 +281,12 @@ pub fn merge_assets(assets: Vec<ParseAssetsResult>) -> Vec<ParseAssetsResult> {
             .iter_mut()
             .find(|x| x.path == asset.path && x.kind == asset.kind)
         {
-            // merge access types
+            // merge access types — a None on either side means ambiguous
+            // usage (unknown access), which poisons the merge to None;
+            // otherwise delegate to the shared truth table.
             existing.access_type = match (asset.access_type, existing.access_type) {
                 (None, _) | (_, None) => None,
-                (Some(R), Some(W)) | (Some(W), Some(R)) => Some(RW),
-                (Some(RW), _) | (_, Some(RW)) => Some(RW),
-                (Some(R), Some(R)) => Some(R),
-                (Some(W), Some(W)) => Some(W),
+                (Some(a), Some(b)) => Some(merge_access_types(a, b)),
             };
             // merge columns: union the column sets and merge access types per column
             existing.columns = merge_column_maps(existing.columns.take(), asset.columns);
@@ -391,10 +390,11 @@ fn unquote(s: &str) -> Option<&str> {
 // `ident=` token — the same assumption `// partitioned` already makes.
 fn split_trailing_kv_opts(s: &str) -> (&str, BTreeMap<String, String>) {
     let mut split_at: Option<usize> = None;
-    let mut pos = 0usize;
     for tok in s.split_whitespace() {
-        let tok_start = s[pos..].find(tok).map(|o| pos + o).unwrap_or(pos);
-        pos = tok_start + tok.len();
+        // `split_whitespace` yields slices borrowed from `s`, so the exact
+        // byte offset is the pointer delta — substring search (`find`) would
+        // misfire when an earlier token also appears inside a later one.
+        let tok_start = tok.as_ptr() as usize - s.as_ptr() as usize;
         if let Some(eq) = tok.find('=') {
             let key = &tok[..eq];
             if !key.is_empty()
@@ -489,6 +489,20 @@ fn parse_kv_opts(s: &str) -> BTreeMap<String, String> {
 // multiple lines declare them, the first one is kept (last would be
 // reasonable too, but first matches the file-top convention developers
 // follow).
+// Try to consume `<kw>` as a complete word from `rest`. Returns the trailing
+// text after the keyword if it matched (empty or whitespace-bounded),
+// `None` otherwise. Prevents `partitioned` matching `partition`, `pipelines`
+// matching `pipeline`, etc. Mirrors `consumeKeyword` in
+// parsePipelineAnnotations.ts.
+fn consume_keyword<'a>(rest: &'a str, kw: &str) -> Option<&'a str> {
+    let after = rest.strip_prefix(kw)?;
+    if after.is_empty() || after.starts_with(|c: char| c.is_whitespace()) {
+        Some(after)
+    } else {
+        None
+    }
+}
+
 pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
     let mut out = PipelineAnnotations::default();
 
@@ -505,7 +519,7 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
         };
         let rest = rest.trim_start();
 
-        if let Some(after_kw) = rest.strip_prefix("pipeline") {
+        if let Some(after_kw) = consume_keyword(rest, "pipeline") {
             // Strict: keyword must be the only content on the line. Rejects
             // `pipeline broken`, `pipelines`, `pipeline-related`, etc.
             if after_kw.trim().is_empty() {
@@ -514,10 +528,7 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
             continue;
         }
 
-        if let Some(after_kw) = rest.strip_prefix("partitioned") {
-            if !after_kw.starts_with(|c: char| c.is_whitespace()) {
-                continue;
-            }
+        if let Some(after_kw) = consume_keyword(rest, "partitioned") {
             if out.partition.is_none() {
                 if let Some(spec) = parse_partitioned_spec(after_kw.trim()) {
                     out.partition = Some(spec);
@@ -526,10 +537,7 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
             continue;
         }
 
-        if let Some(after_kw) = rest.strip_prefix("freshness") {
-            if !after_kw.starts_with(|c: char| c.is_whitespace()) {
-                continue;
-            }
+        if let Some(after_kw) = consume_keyword(rest, "freshness") {
             let dur = after_kw.trim();
             if !dur.is_empty() && out.freshness.is_none() {
                 out.freshness = Some(FreshnessSpec { duration: dur.to_string() });
@@ -537,10 +545,7 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
             continue;
         }
 
-        if let Some(after_kw) = rest.strip_prefix("trigger") {
-            if !after_kw.starts_with(|c: char| c.is_whitespace()) {
-                continue;
-            }
+        if let Some(after_kw) = consume_keyword(rest, "trigger") {
             match after_kw.trim() {
                 "all" => out.join_mode = JoinMode::All,
                 "any" => out.join_mode = JoinMode::Any,
@@ -550,10 +555,7 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
             continue;
         }
 
-        if let Some(after_kw) = rest.strip_prefix("debounce") {
-            if !after_kw.starts_with(|c: char| c.is_whitespace()) {
-                continue;
-            }
+        if let Some(after_kw) = consume_keyword(rest, "debounce") {
             let dur = after_kw.trim();
             if !dur.is_empty() && out.debounce_default.is_none() {
                 out.debounce_default = Some(dur.to_string());
@@ -561,10 +563,7 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
             continue;
         }
 
-        if let Some(after_kw) = rest.strip_prefix("tag") {
-            if !after_kw.starts_with(|c: char| c.is_whitespace()) {
-                continue;
-            }
+        if let Some(after_kw) = consume_keyword(rest, "tag") {
             let name = after_kw.trim();
             if !name.is_empty() && out.tag.is_none() {
                 out.tag = Some(name.to_string());
@@ -572,10 +571,7 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
             continue;
         }
 
-        if let Some(after_kw) = rest.strip_prefix("retry") {
-            if !after_kw.starts_with(|c: char| c.is_whitespace()) {
-                continue;
-            }
+        if let Some(after_kw) = consume_keyword(rest, "retry") {
             if out.retry.is_none() {
                 if let Some(spec) = parse_retry_spec(after_kw.trim()) {
                     out.retry = Some(spec);
@@ -584,10 +580,7 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
             continue;
         }
 
-        if let Some(after_kw) = rest.strip_prefix("on") {
-            if !after_kw.starts_with(|c: char| c.is_whitespace()) {
-                continue;
-            }
+        if let Some(after_kw) = consume_keyword(rest, "on") {
             let spec_text = after_kw.trim();
             if spec_text.is_empty() {
                 continue;
@@ -1080,6 +1073,33 @@ mod pipeline_annotation_tests {
         let r = out.retry.expect("retry");
         assert_eq!(r.count, 3);
         assert_eq!(r.delay.as_deref(), Some("5s"));
+    }
+
+    #[test]
+    fn split_trailing_kv_opts_uses_exact_token_offset() {
+        // Regression for the token-offset computation in
+        // `split_trailing_kv_opts`. The asset ref's path token contains the
+        // exact text of the trailing `debounce=60s` opt as a substring, and
+        // the same `debounce=60s` text also appears a second time before the
+        // real opt. Offsetting by the `&str` slice's pointer is exact; a
+        // substring scan (`find`) is what this guards against regressing to.
+        let (ref_part, opts) = split_trailing_kv_opts("s3://lake/debounce=60s/raw debounce=60s");
+        assert_eq!(ref_part, "s3://lake/debounce=60s/raw");
+        assert_eq!(opts.get("debounce").map(String::as_str), Some("60s"));
+
+        // End-to-end through the annotation parser: the ref must parse to the
+        // full S3 path (not truncated at the embedded `debounce=`), and the
+        // per-edge debounce override must be picked up from the trailing opt.
+        let out = parse_pipeline_annotations("// on s3://lake/debounce=60s/raw debounce=90s");
+        assert_eq!(out.triggers.len(), 1);
+        match &out.triggers[0] {
+            TriggerSpec::Asset { asset_kind, path, debounce } => {
+                assert_eq!(*asset_kind, AssetKind::S3Object);
+                assert_eq!(path, "lake/debounce=60s/raw");
+                assert_eq!(debounce.as_deref(), Some("90s"));
+            }
+            other => panic!("expected asset trigger, got {other:?}"),
+        }
     }
 
     #[test]

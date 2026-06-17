@@ -2,7 +2,23 @@ import { readFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { parsePipelineAnnotations } from './parsePipelineAnnotations'
+import { parsePipelineAnnotations, type PipelineAnnotations } from './parsePipelineAnnotations'
+
+// Every field the TS parser produces, each with an assertion in the per-fixture
+// test below. Typed as `Record<keyof PipelineAnnotations, true>` so adding a
+// field to `PipelineAnnotations` is a compile error here until it's listed —
+// forcing the author to also wire up its parity assertion. (Deploy-only Rust
+// fields like join_mode / debounce_default are not part of this type, so they
+// correctly never appear here.)
+const ASSERTED_TS_FIELDS: Record<keyof PipelineAnnotations, true> = {
+	inPipeline: true,
+	triggerAssets: true,
+	nativeTriggers: true,
+	partition: true,
+	freshness: true,
+	tag: true,
+	retry: true
+}
 
 // Parser-parity guard: this TS parser (drives the live graph preview) and
 // the Rust `parse_pipeline_annotations` (drives deploy) must stay
@@ -14,8 +30,16 @@ import { parsePipelineAnnotations } from './parsePipelineAnnotations'
 // Rust counterpart: backend/parsers/windmill-parser/tests/
 // pipeline_annotations_parity.rs. Extend the corpus when the grammar
 // changes; a fixture passing on one side and failing on the other is
-// exactly the drift this exists to catch. Only fields both parsers produce
-// are compared (join_mode / debounce_default are deploy-only, Rust-side).
+// exactly the drift this exists to catch.
+//
+// Intentional divergence — the Rust parser is a superset. It also parses
+// `join_mode` and `debounce_default`, which are DEPLOY-ONLY: they affect how
+// the backend schedules cascade runs, never the rendered graph, so the TS
+// preview parser deliberately doesn't produce them and they are not compared
+// here. Every field the TS parser DOES produce is compared, and the
+// `ASSERTED_TS_FIELDS` exhaustiveness check above fails the suite if a new TS
+// field is added without a matching assertion — so a field can't be parsed on
+// the TS side yet silently skipped by this guard.
 
 type Fixture = {
 	name: string
@@ -46,6 +70,18 @@ const fixtures: Fixture[] = JSON.parse(readFileSync(fixturesPath, 'utf-8'))
 describe('parsePipelineAnnotations matches the shared Rust fixture corpus', () => {
 	it('corpus is non-empty', () => {
 		expect(fixtures.length).toBeGreaterThan(0)
+	})
+
+	it('every field the parser emits across the corpus has a parity assertion', () => {
+		const asserted = new Set(Object.keys(ASSERTED_TS_FIELDS))
+		const emitted = new Set<string>()
+		for (const f of fixtures) {
+			for (const k of Object.keys(parsePipelineAnnotations(f.code))) emitted.add(k)
+		}
+		expect(
+			[...emitted].filter((k) => !asserted.has(k)),
+			'unasserted parser fields'
+		).toEqual([])
 	})
 
 	for (const f of fixtures) {

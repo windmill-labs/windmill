@@ -530,7 +530,6 @@
 			: {
 					inPipeline: false,
 					triggerAssets: [],
-					schedules: [],
 					nativeTriggers: []
 				}
 	)

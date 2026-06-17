@@ -19,7 +19,6 @@
 	import PipelineActivityPanel from '$lib/components/assets/AssetGraph/PipelineActivityPanel.svelte'
 	import AssetGraphDetailsPane from '$lib/components/assets/AssetGraph/AssetGraphDetailsPane.svelte'
 	import PipelinePickerModal from '$lib/components/assets/AssetGraph/PipelinePickerModal.svelte'
-	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import {
 		extractWrites,
 		extractReads,
@@ -71,17 +70,9 @@
 		Telescope
 	} from 'lucide-svelte'
 	import {
-		EmailTriggerService,
-		GcpTriggerService,
 		JobService,
-		KafkaTriggerService,
-		MqttTriggerService,
-		NatsTriggerService,
 		OpenAPI,
-		PostgresTriggerService,
-		ScheduleService,
 		ScriptService,
-		SqsTriggerService,
 		type AssetKind,
 		type Script,
 		type ScriptLang
@@ -95,15 +86,7 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import { inferArgs, inferAssets } from '$lib/infer'
-	import KafkaTriggerEditor from '$lib/components/triggers/kafka/KafkaTriggerEditor.svelte'
-	import MqttTriggerEditor from '$lib/components/triggers/mqtt/MqttTriggerEditor.svelte'
-	import NatsTriggerEditor from '$lib/components/triggers/nats/NatsTriggerEditor.svelte'
-	import PostgresTriggerEditor from '$lib/components/triggers/postgres/PostgresTriggerEditor.svelte'
-	import SqsTriggerEditor from '$lib/components/triggers/sqs/SqsTriggerEditor.svelte'
-	import GcpTriggerEditor from '$lib/components/triggers/gcp/GcpTriggerEditor.svelte'
-	import EmailTriggerEditor from '$lib/components/triggers/email/EmailTriggerEditor.svelte'
-	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
-	import WebhookEditor from '$lib/components/triggers/webhook/WebhookEditor.svelte'
+	import PipelineTriggerEditors from '$lib/components/assets/AssetGraph/PipelineTriggerEditors.svelte'
 
 	// Variables and resources are declarative config, not pipeline assets —
 	// they're hub-shaped (referenced by most runnables) and would swamp the
@@ -128,10 +111,7 @@
 			selection = undefined
 			activeDraftPath = undefined
 			panelHidden = false
-			liveAnnotations = {
-				scriptPath: undefined,
-				annotations: { inPipeline: false, triggerAssets: [], nativeTriggers: [] }
-			}
+			liveAnnotations = EMPTY_LIVE_ANNOTATIONS
 		}
 		const url = new URL(page.url)
 		if (m === 'view') url.searchParams.delete('mode')
@@ -242,10 +222,7 @@
 			panelHidden = false
 			// Same reset as the pane's close button — clears the live
 			// annotation overlay of whichever script was open.
-			liveAnnotations = {
-				scriptPath: undefined,
-				annotations: { inPipeline: false, triggerAssets: [], nativeTriggers: [] }
-			}
+			liveAnnotations = EMPTY_LIVE_ANNOTATIONS
 		}
 	}
 
@@ -503,6 +480,24 @@
 		content: ''
 	})
 
+	// Canonical "empty" overlay literals, reused both as reset values for the
+	// live-* state above and as the no-overlay inputs to the deployed graph.
+	const EMPTY_LIVE_ASSETS = { scriptPath: undefined, assets: [] }
+	const EMPTY_LIVE_ANNOTATIONS = {
+		scriptPath: undefined,
+		annotations: { inPipeline: false, triggerAssets: [], nativeTriggers: [] }
+	}
+
+	// Reset every live editor overlay (annotations / body assets / content)
+	// back to empty, unconditionally. Used by the leave-edit path so a stale
+	// buffer for the previously-open script can't leak into the view graphs.
+	// (forgetPath resets these per-path instead — see there.)
+	function clearLiveOverlays() {
+		liveAnnotations = EMPTY_LIVE_ANNOTATIONS
+		liveBodyAssets = EMPTY_LIVE_ASSETS
+		liveContent = { scriptPath: undefined, content: '' }
+	}
+
 	// Only-add cache of (script_path → body content) populated lazily by
 	// `bodyFetchEffect` for every script in the current folder. We never
 	// remove entries: stale keys (renamed-away, deleted) are simply ignored
@@ -524,10 +519,15 @@
 	// Iteration is gated on `graphRes.current.runnables`, so a path that
 	// gets renamed / deleted disappears from the derived map as soon as
 	// the refetch lands — no manual rekey, no phantom edges.
-	let inferredWritesByPath = $derived.by(() => {
-		const out = new Map<string, Array<{ kind: AssetKind; path: string }>>()
+	// Single pass over the graph's scripts producing both the write- and
+	// read-asset maps (they only differ by extractWrites vs extractReads over
+	// the same `liveBodyAssets`-vs-cache asset source). Split into two derives
+	// below so consumers can depend on one without invalidating on the other.
+	let inferredAssetEdges = $derived.by(() => {
+		const writes = new Map<string, Array<{ kind: AssetKind; path: string }>>()
+		const reads = new Map<string, Array<{ kind: AssetKind; path: string }>>()
 		const g = graphRes.current
-		if (!g) return out
+		if (!g) return { writes, reads }
 		const liveAssetsForPath = (path: string) =>
 			liveBodyAssets.scriptPath === path ? liveBodyAssets.assets : inferredAssetsByPath.get(path)
 		for (const r of g.runnables) {
@@ -535,25 +535,14 @@
 			const assets = liveAssetsForPath(r.path)
 			if (!assets) continue
 			const w = extractWrites(assets)
-			if (w.length > 0) out.set(r.path, w)
+			if (w.length > 0) writes.set(r.path, w)
+			const rd = extractReads(assets)
+			if (rd.length > 0) reads.set(r.path, rd)
 		}
-		return out
+		return { writes, reads }
 	})
-	let inferredReadsByPath = $derived.by(() => {
-		const out = new Map<string, Array<{ kind: AssetKind; path: string }>>()
-		const g = graphRes.current
-		if (!g) return out
-		const liveAssetsForPath = (path: string) =>
-			liveBodyAssets.scriptPath === path ? liveBodyAssets.assets : inferredAssetsByPath.get(path)
-		for (const r of g.runnables) {
-			if (r.usage_kind !== 'script') continue
-			const assets = liveAssetsForPath(r.path)
-			if (!assets) continue
-			const reads = extractReads(assets)
-			if (reads.length > 0) out.set(r.path, reads)
-		}
-		return out
-	})
+	let inferredWritesByPath = $derived(inferredAssetEdges.writes)
+	let inferredReadsByPath = $derived(inferredAssetEdges.reads)
 	// Same derived shape for `// on kafka` etc. annotations. Live buffer
 	// wins for the open script; everyone else is parsed from the
 	// prefetched body content.
@@ -947,13 +936,10 @@
 			selection = undefined
 		}
 		if (liveAnnotations.scriptPath === path) {
-			liveAnnotations = {
-				scriptPath: undefined,
-				annotations: { inPipeline: false, triggerAssets: [], nativeTriggers: [] }
-			}
+			liveAnnotations = EMPTY_LIVE_ANNOTATIONS
 		}
 		if (liveBodyAssets.scriptPath === path) {
-			liveBodyAssets = { scriptPath: undefined, assets: [] }
+			liveBodyAssets = EMPTY_LIVE_ASSETS
 		}
 		if (liveContent.scriptPath === path) {
 			liveContent = { scriptPath: undefined, content: '' }
@@ -1135,6 +1121,16 @@
 	// Currently-open draft shape (if any) — fed into the details pane.
 	let activeDraft = $derived(activeDraftPath ? drafts.get(activeDraftPath) : undefined)
 
+	// Path of the script currently open in the details pane (draft or
+	// persisted selection), used wherever run-routing / overlay logic needs
+	// "the one script the user is editing right now".
+	let openScriptPath = $derived(
+		activeDraftPath ??
+			(selection?.kind === 'runnable' && selection.runnable_kind === 'script'
+				? selection.path
+				: undefined)
+	)
+
 	// Entering edit mode with a selection whose path has a draft (e.g. a
 	// deployed script whose unsaved edits were promoted on the switch to
 	// view) re-opens the draft, not the stale deployed version — same
@@ -1170,7 +1166,7 @@
 	// `handleDraftContentChange`, that creates a parent ↔ child feedback
 	// loop ("effect_update_depth_exceeded"). Named functions keep the
 	// prop reference stable so the $effects only re-fire on real
-	// content changes.
+	// content changes (e.g. handleContentChange below mutating drafts).
 	function handleAnnotationsChange(
 		scriptPath: string | undefined,
 		annotations: PipelineAnnotations
@@ -1365,12 +1361,7 @@
 		// pane, route through ScriptEditor's Test path — the test panel then
 		// shows logs/result and the user can cancel from there. Same UX as
 		// hitting the Test button directly.
-		const openPath =
-			activeDraftPath ??
-			(selection?.kind === 'runnable' && selection.runnable_kind === 'script'
-				? selection.path
-				: undefined)
-		if (openPath === producer.path) {
+		if (openScriptPath === producer.path) {
 			if (cascade) requestRunCascadeSignal++
 			else requestRunSignal++
 			return undefined
@@ -1441,11 +1432,7 @@
 	// drives the read-only pane's run form. Derived from the displayed
 	// graph's triggers so the drafts overlay picks up draft annotations too.
 	let openScriptHasDataUpload = $derived.by(() => {
-		const path =
-			activeDraftPath ??
-			(selection?.kind === 'runnable' && selection.runnable_kind === 'script'
-				? selection.path
-				: undefined)
+		const path = openScriptPath
 		if (!path) return false
 		return displayGraph.triggers.some(
 			(t) =>
@@ -1476,11 +1463,6 @@
 	// but with no drafts and no live editor buffer. resolveGraph is pure, so
 	// feeding it empty overlays is the cheapest way to share the logic.
 	const EMPTY_DRAFTS: Map<string, Draft> = new Map()
-	const EMPTY_LIVE_ASSETS = { scriptPath: undefined, assets: [] }
-	const EMPTY_LIVE_ANNOTATIONS = {
-		scriptPath: undefined,
-		annotations: { inPipeline: false, triggerAssets: [], nativeTriggers: [] }
-	}
 	let deployedGraph = $derived.by<AssetGraphResponse>(() =>
 		resolveGraph({
 			base: graphRes.current ?? EMPTY_GRAPH,
@@ -1504,15 +1486,14 @@
 	$effect(() => {
 		if (mode === 'edit') return
 		untrack(() => {
-			if (liveAnnotations.scriptPath != undefined || liveBodyAssets.scriptPath != undefined) {
-				liveAnnotations = {
-					scriptPath: undefined,
-					annotations: { inPipeline: false, triggerAssets: [], nativeTriggers: [] }
-				}
-				liveBodyAssets = { scriptPath: undefined, assets: [] }
-			}
-			if (liveContent.scriptPath != undefined) {
-				liveContent = { scriptPath: undefined, content: '' }
+			// Guard before reassigning so an already-empty overlay doesn't
+			// needlessly invalidate the graph derives every mode toggle.
+			if (
+				liveAnnotations.scriptPath != undefined ||
+				liveBodyAssets.scriptPath != undefined ||
+				liveContent.scriptPath != undefined
+			) {
+				clearLiveOverlays()
 			}
 		})
 	})
@@ -1685,9 +1666,15 @@
 	}
 	// Poll a launched cascade job to a terminal state. Modest fixed cadence —
 	// chains are short and the folder poll is already watching the same jobs
-	// for the canvas animation.
+	// for the canvas animation. Capped so a never-terminating job can't pin
+	// `cascadeRunningRoot` forever and wedge every future cascade: after the
+	// timeout we throw, which the orchestrator surfaces as a chain failure and
+	// `runDraftAwareCascade`'s finally clears the running-root guard.
+	const CASCADE_POLL_INTERVAL_MS = 1000
+	const CASCADE_JOB_TIMEOUT_MS = 30 * 60 * 1000
 	async function waitJobTerminal(jobId: string): Promise<'success' | 'failure'> {
-		while (true) {
+		const deadline = Date.now() + CASCADE_JOB_TIMEOUT_MS
+		while (Date.now() < deadline) {
 			try {
 				const r = await JobService.getCompletedJobResultMaybe({
 					workspace: $workspaceStore!,
@@ -1698,8 +1685,11 @@
 			} catch {
 				// transient — retry on the next tick
 			}
-			await new Promise((res) => setTimeout(res, 1000))
+			await new Promise((res) => setTimeout(res, CASCADE_POLL_INTERVAL_MS))
 		}
+		throw new Error(
+			`Timed out after ${Math.round(CASCADE_JOB_TIMEOUT_MS / 60000)}min waiting for job ${jobId} to finish`
+		)
 	}
 	// "Run + downstream" over a chain that includes drafts: the backend
 	// asset-trigger dispatcher only resolves deployed rows, so the page
@@ -1806,11 +1796,7 @@
 	// in `triggers`) other than self. Flows are excluded because V1 dispatch
 	// only fans out to scripts.
 	let editedScriptDownstreamCount = $derived.by(() => {
-		const editedPath =
-			activeDraftPath ??
-			(selection?.kind === 'runnable' && selection.runnable_kind === 'script'
-				? selection.path
-				: undefined)
+		const editedPath = openScriptPath
 		if (!editedPath) return 0
 		const writes = graphWithDraft.edges.filter(
 			(e) =>
@@ -1841,20 +1827,10 @@
 	// folder…" entry in the dropdown otherwise.
 	let pickerModalOpen = $state(false)
 
-	// Native trigger editors mounted inline so clicking a "missing"
-	// placeholder opens the matching drawer with `script_path` pre-filled
-	// — keeps pipeline drafts intact instead of navigating away. Each
-	// editor's wrapper lazily mounts its Inner only when `open=true`, so
-	// holding refs to all seven is cheap.
-	let kafkaEditor: KafkaTriggerEditor | undefined = $state()
-	let mqttEditor: MqttTriggerEditor | undefined = $state()
-	let natsEditor: NatsTriggerEditor | undefined = $state()
-	let postgresEditor: PostgresTriggerEditor | undefined = $state()
-	let sqsEditor: SqsTriggerEditor | undefined = $state()
-	let gcpEditor: GcpTriggerEditor | undefined = $state()
-	let emailEditor: EmailTriggerEditor | undefined = $state()
-	let scheduleEditor: ScheduleEditor | undefined = $state()
-	let webhookEditor: WebhookEditor | undefined = $state()
+	// Native trigger editor drawers live in <PipelineTriggerEditors>; the page
+	// drives them imperatively. The draft guards stay here because they depend
+	// on the drafts map.
+	let triggerEditors: PipelineTriggerEditors | undefined = $state()
 
 	// Webhooks have no trigger row to create — clicking the node opens a
 	// drawer with the endpoint URLs + the webhook-specific token creation
@@ -1868,7 +1844,7 @@
 			)
 			return
 		}
-		webhookEditor?.openDrawer(scriptPath, false)
+		triggerEditors?.openWebhook(scriptPath)
 	}
 
 	// Data upload is a UI-first entry point — no trigger row. Clicking the
@@ -1910,112 +1886,19 @@
 			)
 			return
 		}
-		switch (kind) {
-			case 'schedule':
-				return scheduleEditor?.openNew(false, scriptPath, undefined, scriptPath)
-			case 'kafka':
-				return kafkaEditor?.openNew(false, scriptPath)
-			case 'mqtt':
-				return mqttEditor?.openNew(false, scriptPath)
-			case 'nats':
-				return natsEditor?.openNew(false, scriptPath)
-			case 'postgres':
-				return postgresEditor?.openNew(false, scriptPath)
-			case 'sqs':
-				return sqsEditor?.openNew(false, scriptPath)
-			case 'gcp':
-				return gcpEditor?.openNew(false, scriptPath)
-			case 'email':
-				return emailEditor?.openNew(false, scriptPath)
-			// webhook has no dedicated editor.
-			default:
-				return
-		}
+		triggerEditors?.openNew(kind, scriptPath)
 	}
 
 	// Lock the script-picker to the related script so the user can't
 	// reassign the trigger off this pipeline from the canvas. The trigger
 	// can still be edited everywhere else (TriggersPanel, etc.) where the
 	// picker stays editable.
-	// Delete-trigger confirmation state. Kebab → Delete opens the standard
-	// ConfirmationModal; the actual delete is dispatched from onConfirmed
-	// so the dialog stays consistent with the rest of the app.
-	let triggerDeleteTarget = $state<{ kind: NativeTriggerKind; path: string } | undefined>(undefined)
-	let triggerDeleteLoading = $state(false)
-	let triggerDeleteOpen = $derived(triggerDeleteTarget != undefined)
-
 	function deleteAttachedTrigger(kind: NativeTriggerKind, triggerPath: string) {
-		triggerDeleteTarget = { kind, path: triggerPath }
-	}
-
-	async function confirmDeleteAttachedTrigger() {
-		if (!triggerDeleteTarget || !$workspaceStore) return
-		const { kind, path: triggerPath } = triggerDeleteTarget
-		const workspace = $workspaceStore
-		triggerDeleteLoading = true
-		try {
-			switch (kind) {
-				case 'schedule':
-					await ScheduleService.deleteSchedule({ workspace, path: triggerPath })
-					break
-				case 'kafka':
-					await KafkaTriggerService.deleteKafkaTrigger({ workspace, path: triggerPath })
-					break
-				case 'mqtt':
-					await MqttTriggerService.deleteMqttTrigger({ workspace, path: triggerPath })
-					break
-				case 'nats':
-					await NatsTriggerService.deleteNatsTrigger({ workspace, path: triggerPath })
-					break
-				case 'postgres':
-					await PostgresTriggerService.deletePostgresTrigger({ workspace, path: triggerPath })
-					break
-				case 'sqs':
-					await SqsTriggerService.deleteSqsTrigger({ workspace, path: triggerPath })
-					break
-				case 'gcp':
-					await GcpTriggerService.deleteGcpTrigger({ workspace, path: triggerPath })
-					break
-				case 'email':
-					await EmailTriggerService.deleteEmailTrigger({ workspace, path: triggerPath })
-					break
-				default:
-					return
-			}
-			sendUserToast(`Deleted ${kind} trigger "${triggerPath}"`)
-			triggerDeleteTarget = undefined
-			await graphRes.refetch()
-		} catch (e: any) {
-			sendUserToast(
-				`Could not delete ${kind} trigger "${triggerPath}": ${e?.body ?? e?.message ?? String(e)}`,
-				true
-			)
-		} finally {
-			triggerDeleteLoading = false
-		}
+		triggerEditors?.requestDelete(kind, triggerPath)
 	}
 
 	function openEditTriggerDrawer(kind: NativeTriggerKind, triggerPath: string, scriptPath: string) {
-		switch (kind) {
-			case 'schedule':
-				return scheduleEditor?.openEdit(triggerPath, false, scriptPath)
-			case 'kafka':
-				return kafkaEditor?.openEdit(triggerPath, false, scriptPath)
-			case 'mqtt':
-				return mqttEditor?.openEdit(triggerPath, false, scriptPath)
-			case 'nats':
-				return natsEditor?.openEdit(triggerPath, false, scriptPath)
-			case 'postgres':
-				return postgresEditor?.openEdit(triggerPath, false, scriptPath)
-			case 'sqs':
-				return sqsEditor?.openEdit(triggerPath, false, scriptPath)
-			case 'gcp':
-				return gcpEditor?.openEdit(triggerPath, false, scriptPath)
-			case 'email':
-				return emailEditor?.openEdit(triggerPath, false, scriptPath)
-			default:
-				return
-		}
+		triggerEditors?.openEdit(kind, triggerPath, scriptPath)
 	}
 
 	// Reuse the empty AssetGraphResponse so we can still render the canvas
@@ -2456,11 +2339,7 @@
 									// per-node Run button. The currently-edited script
 									// is whichever path is open in the pane (active
 									// draft, or the persisted-script selection).
-									const openPath =
-										activeDraftPath ??
-										(selection?.kind === 'runnable' && selection.runnable_kind === 'script'
-											? selection.path
-											: undefined)
+									const openPath = openScriptPath
 									if (running && openPath) {
 										activeRunnable = { kind: 'script', path: openPath }
 										// Mark the tested runnable as launched-from-here so the
@@ -2497,14 +2376,7 @@
 									// via the explicit "Discard" button in the pane.
 									selection = undefined
 									activeDraftPath = undefined
-									liveAnnotations = {
-										scriptPath: undefined,
-										annotations: {
-											inPipeline: false,
-											triggerAssets: [],
-											nativeTriggers: []
-										}
-									}
+									liveAnnotations = EMPTY_LIVE_ANNOTATIONS
 								}}
 								onHide={() => (panelHidden = true)}
 								onDiscard={() => {
@@ -2583,44 +2455,14 @@
 
 <PipelinePickerModal bind:open={pickerModalOpen} currentFolder={folder} {mode} />
 
-{#if mode === 'edit'}
-	<ConfirmationModal
-		open={triggerDeleteOpen}
-		loading={triggerDeleteLoading}
-		title={triggerDeleteTarget ? `Delete ${triggerDeleteTarget.kind} trigger` : 'Delete trigger'}
-		confirmationText="Delete"
-		onConfirmed={confirmDeleteAttachedTrigger}
-		onCanceled={() => {
-			if (!triggerDeleteLoading) triggerDeleteTarget = undefined
-		}}
-	>
-		{#if triggerDeleteTarget}
-			<p>
-				Delete <code class="font-mono">{triggerDeleteTarget.path}</code>? The
-				<code class="font-mono">// on {triggerDeleteTarget.kind}</code> annotation on the script stays
-				— the trigger will read as missing on the canvas until you recreate it or remove the annotation.
-			</p>
-		{/if}
-	</ConfirmationModal>
-
-	<!-- Native trigger editors mounted off-screen. Each only renders its
-	     inner drawer when `open=true` (set by openNew/openEdit), so this
-	     adds ~zero render cost while idle. `onUpdate` refreshes the graph
-	     so the new trigger row replaces the red missing placeholder.
-	     Edit-mode only: every entry point (create/edit/delete trigger) is
-	     gated off the canvas outside edit mode. -->
-	<KafkaTriggerEditor bind:this={kafkaEditor} onUpdate={() => graphRes.refetch()} />
-	<MqttTriggerEditor bind:this={mqttEditor} onUpdate={() => graphRes.refetch()} />
-	<NatsTriggerEditor bind:this={natsEditor} onUpdate={() => graphRes.refetch()} />
-	<PostgresTriggerEditor bind:this={postgresEditor} onUpdate={() => graphRes.refetch()} />
-	<SqsTriggerEditor bind:this={sqsEditor} onUpdate={() => graphRes.refetch()} />
-	<GcpTriggerEditor bind:this={gcpEditor} onUpdate={() => graphRes.refetch()} />
-	<EmailTriggerEditor bind:this={emailEditor} onUpdate={() => graphRes.refetch()} />
-	<ScheduleEditor bind:this={scheduleEditor} onUpdate={() => graphRes.refetch()} />
-{/if}
-<!-- Webhook drawer stays mounted in every mode — the webhook trigger node
-     is clickable in view mode too (informational: endpoint URLs/token). -->
-<WebhookEditor bind:this={webhookEditor} />
+<!-- Native trigger drawer wiring: create/edit/delete drawers (edit-mode
+     only) + the always-mounted webhook drawer. Driven imperatively from the
+     page via `triggerEditors`. -->
+<PipelineTriggerEditors
+	bind:this={triggerEditors}
+	mountTriggerEditors={mode === 'edit'}
+	onUpdate={() => graphRes.refetch()}
+/>
 
 {#if leaveModalOpen}
 	<!-- Three-button leave guard. Built inline rather than reusing

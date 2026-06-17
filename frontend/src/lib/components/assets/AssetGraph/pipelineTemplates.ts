@@ -1,5 +1,6 @@
 import type { ScriptLang, AssetKind } from '$lib/gen'
 import { random_adj } from '$lib/components/random_positive_adjetive'
+import { parseDbInputFromAssetSyntax } from '$lib/utils'
 
 // What kind of asset the new script will produce. Drives the random output
 // path scheme and the body skeleton. The output asset is NOT declared in a
@@ -77,8 +78,10 @@ const LANG_COMPATIBILITY: Record<ScriptLang, PipelineOutputKind[]> = {
 	csharp: ['none'],
 	graphql: ['none'],
 	bunnative: ['none'],
-	nativets: ['none']
-} as any
+	nativets: ['none'],
+	ruby: ['none'],
+	rlang: ['none']
+}
 
 export function compatibleOutputKinds(lang: ScriptLang): PipelineOutputKind[] {
 	return LANG_COMPATIBILITY[lang] ?? ['none']
@@ -182,9 +185,12 @@ function s3Key(path: string): string {
 }
 
 // Splits a datatable asset path (`<db>/<table>` or `<db>/<schema>.<table>`)
-// into its constituent parts. Mirrors `parseDbInputFromAssetSyntax` in
-// $lib/utils.ts: schema is omitted when the table lives in the default
-// (`public`) schema, prefixed with `<schema>.` only when explicit.
+// into its constituent parts. The `<schema>.<table>` grammar is owned by
+// `parseDbInputFromAssetSyntax` in $lib/utils.ts (which consumes a full
+// `datatable://…` URI): we delegate to it for the schema/table split so the
+// two stay in lockstep, and only keep the leading `<db>/` extraction here —
+// the util folds the db into `resourcePath`, which is awkward to read back,
+// and it has no slashless fallback (the SQL emitters tolerate a bare db).
 function parseDatatablePath(p: string): {
 	db: string
 	schema: string | undefined
@@ -193,10 +199,11 @@ function parseDatatablePath(p: string): {
 	const slash = p.indexOf('/')
 	if (slash < 0) return { db: p, schema: undefined, table: '' }
 	const db = p.slice(0, slash)
-	const tail = p.slice(slash + 1)
-	const dot = tail.indexOf('.')
-	if (dot < 0) return { db, schema: undefined, table: tail }
-	return { db, schema: tail.slice(0, dot), table: tail.slice(dot + 1) }
+	// `datatable://` URIs always parse to the `database` variant, so the
+	// `specificSchema`/`specificTable` accessors below are always present.
+	const parsed = parseDbInputFromAssetSyntax(`datatable://${p}`)
+	const schema = parsed?.type === 'database' ? parsed.specificSchema : undefined
+	return { db, schema, table: parsed?.specificTable ?? '' }
 }
 
 // Schema-qualified table reference for SQL emission. We always emit the

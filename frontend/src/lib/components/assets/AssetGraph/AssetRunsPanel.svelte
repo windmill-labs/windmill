@@ -404,6 +404,7 @@
 					<div class="text-3xs uppercase tracking-wide text-tertiary">Logs</div>
 					<LogViewer
 						jobId={selectedJob.id}
+						tag={selectedJob.tag}
 						duration={durationMs(selectedJob)}
 						mem={(selectedJob as any).mem_peak}
 						isLoading={jobLoaderLoading && !(selectedJob as any).logs}

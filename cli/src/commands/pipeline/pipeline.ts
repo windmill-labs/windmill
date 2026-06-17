@@ -10,8 +10,13 @@ import * as log from "../../core/log.ts";
 import { GlobalOptions } from "../../types.ts";
 
 // Mirrors the asset-graph endpoint payload (backend/windmill-api-assets).
-// Raw-fetched because these routes are newer than the checked-in generated
-// client; swap to the generated functions on the next client regen.
+// TODO: the checked-in generated client (cli/gen, last regenerated 2025-04)
+// predates these routes, so we raw-fetch and hand-roll the types. Once
+// `cli/gen` is regenerated (run `cli/gen_wm_client.sh`, which is currently
+// >700 openapi.yaml commits stale and would churn the whole client), replace
+// `apiGet` + these types with the generated `wmill.getAssetsGraph(...)`
+// (operationId getAssetsGraph) and `wmill.listPipelineFolders(...)`
+// (operationId listPipelineFolders).
 type GraphRunnable = {
   path: string;
   usage_kind: "script" | "flow" | "job";
@@ -92,6 +97,12 @@ function shortName(scriptPath: string): string {
   return scriptPath.split("/").pop() ?? scriptPath;
 }
 
+// Append to a multimap value, creating the bucket on first use. Avoids the
+// O(n^2) spread-rebuild pattern (`map.set(k, [...(map.get(k) ?? []), v])`).
+function pushTo<K, V>(map: Map<K, V[]>, key: K, val: V): void {
+  (map.get(key) ?? map.set(key, []).get(key)!).push(val);
+}
+
 async function show(
   opts: GlobalOptions & { json?: boolean },
   folder: string,
@@ -121,10 +132,7 @@ async function show(
   for (const e of graph.edges) {
     if (e.access_type === "w" || e.access_type === "rw") {
       const uri = assetUri(e.asset_kind, e.asset_path);
-      writesByScript.set(e.runnable_path, [
-        ...(writesByScript.get(e.runnable_path) ?? []),
-        uri,
-      ]);
+      pushTo(writesByScript, e.runnable_path, uri);
     }
   }
   const subsByAsset = new Map<string, string[]>();
@@ -137,17 +145,15 @@ async function show(
     if (t.trigger_kind === "asset") {
       const at = t as Extract<GraphTrigger, { trigger_kind: "asset" }>;
       const uri = assetUri(at.asset_kind, at.asset_path);
-      subsByAsset.set(uri, [...(subsByAsset.get(uri) ?? []), t.runnable_path]);
-      subsByScript.set(t.runnable_path, [
-        ...(subsByScript.get(t.runnable_path) ?? []),
-        uri,
-      ]);
+      pushTo(subsByAsset, uri, t.runnable_path);
+      pushTo(subsByScript, t.runnable_path, uri);
     } else {
       const nt = t as Exclude<GraphTrigger, { trigger_kind: "asset" }>;
-      nativeByScript.set(t.runnable_path, [
-        ...(nativeByScript.get(t.runnable_path) ?? []),
-        { kind: nt.trigger_kind, path: nt.path, missing: nt.missing },
-      ]);
+      pushTo(nativeByScript, t.runnable_path, {
+        kind: nt.trigger_kind,
+        path: nt.path,
+        missing: nt.missing,
+      });
     }
   }
 
@@ -205,9 +211,16 @@ async function show(
     .sort();
 
   // UI-first markers (data_upload, webhook) have no trigger row — the
-  // graph endpoint can't surface them, they live as `// on <kind>`
-  // annotations in the body. Roots are where sources matter, so fetch just
-  // those bodies and lift the marker kinds the canvas would show.
+  // graph endpoint's trigger enum (schedule/email/kafka/mqtt/nats/postgres/
+  // sqs/gcp) can't surface them, so they only exist as `// on <kind>`
+  // annotations in the script body. Roots are where sources matter, so fetch
+  // just those bodies and lift the marker kinds the canvas would show.
+  //
+  // DRIFT RISK: this regex + MARKER_KINDS is a divergent, partial copy of the
+  // canonical annotation parser. The proper fix is to have the graph endpoint
+  // emit these UI-only markers as trigger rows (a backend change), after which
+  // this whole Promise.all body-fetch can be deleted and read straight from
+  // the response. Until then, keep this list in sync with the canonical parser.
   const MARKER_KINDS = ["data_upload", "webhook", "email"];
   await Promise.all(
     roots.map(async (p) => {

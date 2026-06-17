@@ -35,6 +35,67 @@ export type ResolveGraphInput = {
 	annotatedNativeKindsByPath: Map<string, Set<NativeTriggerKind>>
 }
 
+/** Mutable bag the sequential passes accumulate the resolved graph into. */
+type Accumulator = {
+	runnables: AssetGraphResponse['runnables']
+	assets: AssetGraphResponse['assets']
+	edges: AssetGraphResponse['edges']
+	extraTriggers: AssetGraphResponse['triggers']
+}
+
+/**
+ * Native trigger kinds with a persisted (non-asset) trigger row pointing at
+ * `path`. These bind by script path and survive content edits, so they dedup
+ * against draft/live annotations to avoid showing a real source node next to a
+ * red "missing" placeholder for the same kind.
+ */
+function persistedNativeKinds(base: AssetGraphResponse, path: string): Set<string> {
+	return new Set(
+		base.triggers
+			.filter(
+				(t) =>
+					t.trigger_kind !== 'asset' && t.runnable_kind === 'script' && t.runnable_path === path
+			)
+			.map((t) => t.trigger_kind)
+	)
+}
+
+/** `kind:path` keys of persisted asset (`// on <asset>`) triggers for `path`. */
+function persistedAssetKeys(base: AssetGraphResponse, path: string): Set<string> {
+	return new Set(
+		base.triggers
+			.filter(
+				(t) =>
+					t.trigger_kind === 'asset' && t.runnable_kind === 'script' && t.runnable_path === path
+			)
+			.map((t) => (t.trigger_kind === 'asset' ? `${t.asset_kind}:${t.asset_path}` : ''))
+	)
+}
+
+/**
+ * Emit a red "missing" placeholder for each annotated native kind that has no
+ * matching attached trigger row. `opts.unsaved` marks editor-driven overlays
+ * (drafts / live buffer); deployed-but-unswept scripts pass `unsaved: false`.
+ */
+function pushMissingNativeTriggers(
+	extraTriggers: AssetGraphResponse['triggers'],
+	annotatedKinds: Iterable<NativeTriggerKind>,
+	attachedKinds: Set<string>,
+	path: string,
+	opts: { unsaved: boolean }
+) {
+	for (const kind of annotatedKinds) {
+		if (attachedKinds.has(kind)) continue
+		extraTriggers.push({
+			trigger_kind: kind,
+			runnable_kind: 'script',
+			runnable_path: path,
+			...(opts.unsaved ? { unsaved: true } : {}),
+			missing: true
+		})
+	}
+}
+
 /**
  * Merge the persisted base graph with the draft, session-inferred and
  * open-script live overlays into one `AssetGraphResponse`.
@@ -50,41 +111,61 @@ export type ResolveGraphInput = {
  * `graphWithDraft` `$derived`. See `resolveGraph.test.ts`.
  */
 export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
-	const {
-		base,
-		drafts,
-		liveBodyAssets,
-		liveAnnotations,
-		inferredWritesByPath,
-		inferredReadsByPath,
-		annotatedNativeKindsByPath
-	} = input
+	const { base } = input
+	const ctx = makeContext(input)
 
-	// Every draft contributes: a runnable, an output asset, a write edge,
-	// plus its own seeded schedule trigger (template includes `// on
-	// schedule "0 * * * *"` by default, picked up through live parse).
-	// We iterate the whole `drafts` map so multiple concurrent drafts
-	// all render as their own subgraph at once.
-	const runnables = [...base.runnables]
-	const assets = [...base.assets]
+	// Pass order mirrors the precedence comment, lowest → highest:
+	const acc = seedAccumulator(input, ctx)
+	seedDraftOverlays(acc, input)
+	applyLiveBufferOverlay(acc, input, ctx)
+	crossCheckSweptScripts(acc, input)
+	overlayInferredLineage(acc, input)
+
+	// Drop persisted ASSET triggers for drafted paths — those come from the
+	// deployed `// on <asset>` annotations, which the draft's live/parsed
+	// annotations now own. Native triggers (kafka/schedule/…) are kept: they
+	// bind by `script_path`, which the draft shares, so the attachment is still
+	// valid regardless of content edits.
+	const baseTriggers = base.triggers.filter((t) => {
+		if (t.trigger_kind !== 'asset') return true
+		if (ctx.isDrafted(t.runnable_kind, t.runnable_path)) return false
+		if (
+			t.runnable_kind === 'script' &&
+			t.runnable_path === ctx.openPath &&
+			ctx.staleForOpen(t.asset_kind, t.asset_path)
+		)
+			return false
+		return true
+	})
+	return {
+		...base,
+		assets: acc.assets,
+		runnables: acc.runnables,
+		edges: acc.edges,
+		triggers: [...baseTriggers, ...acc.extraTriggers]
+	}
+}
+
+type ResolveContext = {
+	draftedPaths: Set<string>
+	isDrafted: (kind: string, p: string) => boolean
+	openPath: string | undefined
+	staleForOpen: (kind: AssetKind, path: string) => boolean
+}
+
+/** Derive the shared "what's drafted / open / stale" predicates once. */
+function makeContext(input: ResolveGraphInput): ResolveContext {
+	const { drafts, liveBodyAssets, liveAnnotations } = input
+
 	// A drafted path's content-derived lineage is owned entirely by the draft
 	// overlay (live inference for the active draft, parsed annotations /
-	// snapshot for inactive ones). Drop the persisted base asset edges for those
+	// snapshot for inactive ones). Drop persisted base asset edges for those
 	// paths so it shows only the draft's I/O, not the union of the saved version
 	// and the in-flight edits. (Base asset triggers are dropped at the return;
 	// native triggers are kept — they bind by path.)
 	const draftedPaths = new Set(drafts.keys())
 	const isDrafted = (kind: string, p: string) => kind === 'script' && draftedPaths.has(p)
 
-	// Editing a *saved* script does NOT create a `drafts` entry — it stays an
-	// open selection with live overlays. So the draft filter above doesn't cover
-	// it: its persisted edges/triggers would linger next to the live edits (e.g.
-	// renaming an input leaves the old asset linked alongside the new one). For
-	// the open, live-inferred saved script, treat its current content as
-	// authoritative and drop persisted asset edges/triggers it no longer
-	// references. `liveRefKeys` unions the reliable `// on <asset>` annotations
-	// with the inferred body assets, so an unchanged selection drops nothing
-	// (every base asset is still referenced).
 	const openPath = liveBodyAssets.scriptPath
 	const openIsSavedEdit = openPath !== undefined && !draftedPaths.has(openPath)
 	const liveRefKeys = new Set<string>()
@@ -98,17 +179,39 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 	const staleForOpen = (kind: AssetKind, path: string) =>
 		openIsSavedEdit && !liveRefKeys.has(`${kind}:${path}`)
 
+	return { draftedPaths, isDrafted, openPath, staleForOpen }
+}
+
+/** Base graph plus the persisted edges that survive the draft/open filter. */
+function seedAccumulator(input: ResolveGraphInput, ctx: ResolveContext): Accumulator {
+	const { base } = input
 	const edges = base.edges.filter((e) => {
-		if (isDrafted(e.runnable_kind, e.runnable_path)) return false
+		if (ctx.isDrafted(e.runnable_kind, e.runnable_path)) return false
 		if (
 			e.runnable_kind === 'script' &&
-			e.runnable_path === openPath &&
-			staleForOpen(e.asset_kind, e.asset_path)
+			e.runnable_path === ctx.openPath &&
+			ctx.staleForOpen(e.asset_kind, e.asset_path)
 		)
 			return false
 		return true
 	})
-	const extraTriggers: AssetGraphResponse['triggers'] = []
+	return {
+		runnables: [...base.runnables],
+		assets: [...base.assets],
+		edges,
+		extraTriggers: []
+	}
+}
+
+/**
+ * Every draft contributes: a runnable, output asset(s), a write edge, live
+ * read lineage for the active draft, plus its seeded asset/native triggers
+ * (template includes `// on schedule …` by default). Iterates the whole
+ * `drafts` map so multiple concurrent drafts all render at once.
+ */
+function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
+	const { base, drafts, liveBodyAssets } = input
+	const { runnables, assets, edges, extraTriggers } = acc
 
 	for (const [path, d] of drafts) {
 		const parsed = parsePipelineAnnotations(d.script.content)
@@ -238,140 +341,110 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 		// they bind by path and are not dropped above. Dedup against those
 		// so the canvas doesn't show the real schedule node next to a red
 		// "missing" placeholder for the same kind.
-		const persistedNativeKinds = new Set(
-			base.triggers
-				.filter(
-					(t) =>
-						t.trigger_kind !== 'asset' &&
-						t.runnable_kind === 'script' &&
-						t.runnable_path === path
-				)
-				.map((t) => t.trigger_kind)
+		pushMissingNativeTriggers(
+			extraTriggers,
+			parsed.nativeTriggers.map((n) => n.kind),
+			persistedNativeKinds(base, path),
+			path,
+			{ unsaved: true }
 		)
-		for (const n of parsed.nativeTriggers) {
-			if (persistedNativeKinds.has(n.kind)) continue
-			extraTriggers.push({
-				trigger_kind: n.kind,
-				runnable_kind: 'script',
-				runnable_path: path,
-				unsaved: true,
-				missing: true
-			})
-		}
 	}
+}
 
-	// Live-parsed overlay for the currently-open script — takes precedence
-	// over the seeded-template triggers for the same path by swapping
-	// them out. Scoped to one path (only one pane is open at a time).
+/**
+ * Live-parsed overlay for the currently-open script — takes precedence over
+ * the seeded-template triggers for the same path by swapping them out. Scoped
+ * to one path (only one pane is open at a time).
+ */
+function applyLiveBufferOverlay(acc: Accumulator, input: ResolveGraphInput, ctx: ResolveContext) {
+	const { base, liveAnnotations } = input
+	const { assets, extraTriggers } = acc
 	const livePath = liveAnnotations.scriptPath
-	if (livePath) {
-		// When the open buffer is a draft, its base asset triggers were dropped
-		// above (draft-owned), so don't dedup live asset triggers against them —
-		// every live `// on <asset>` is emitted as unsaved. For a non-draft open
-		// script (viewing a saved one), keep deduping so live re-parse doesn't
-		// double the persisted triggers.
-		const persistedAssetKeys = draftedPaths.has(livePath)
-			? new Set<string>()
-			: new Set(
-					base.triggers
-						.filter(
-							(t) =>
-								t.trigger_kind === 'asset' &&
-								t.runnable_kind === 'script' &&
-								t.runnable_path === livePath
-						)
-						.map((t) => (t.trigger_kind === 'asset' ? `${t.asset_kind}:${t.asset_path}` : ''))
-				)
-		// Strip seeded triggers we computed above for the active draft;
-		// live annotations are authoritative for the open buffer.
-		for (let i = extraTriggers.length - 1; i >= 0; i--) {
-			if (extraTriggers[i].runnable_path === livePath) extraTriggers.splice(i, 1)
-		}
-		for (const a of liveAnnotations.annotations.triggerAssets) {
-			const key = `${a.kind}:${a.path}`
-			if (persistedAssetKeys.has(key)) continue
-			extraTriggers.push({
-				trigger_kind: 'asset',
-				asset_kind: a.kind,
-				asset_path: a.path,
-				runnable_kind: 'script',
-				runnable_path: livePath,
-				unsaved: true
-			})
-			// Synthesize the asset node so the new trigger edge has a
-			// target — without this, typing `// on s3:///...` adds an
-			// edge to a node that doesn't exist and the canvas silently
-			// drops it. Mirrors the draft branch above.
-			if (!assets.some((x) => x.kind === a.kind && x.path === a.path)) {
-				assets.push({ kind: a.kind, path: a.path })
-			}
-		}
-		// Native trigger annotations: kinds for which a matching trigger
-		// row was found in the backend response. If the live buffer
-		// declares `// on kafka` and at least one kafka_trigger row points
-		// at this script, the source node is already on the canvas — no
-		// overlay needed. Otherwise emit a "missing" placeholder so the
-		// user can either create the trigger row or remove the annotation.
-		const persistedNativeKinds = new Set(
-			base.triggers
-				.filter(
-					(t) =>
-						t.trigger_kind !== 'asset' &&
-						t.runnable_kind === 'script' &&
-						t.runnable_path === livePath
-				)
-				.map((t) => t.trigger_kind)
-		)
-		for (const n of liveAnnotations.annotations.nativeTriggers) {
-			if (persistedNativeKinds.has(n.kind)) continue
-			extraTriggers.push({
-				trigger_kind: n.kind,
-				runnable_kind: 'script',
-				runnable_path: livePath,
-				unsaved: true,
-				missing: true
-			})
+	if (!livePath) return
+
+	// When the open buffer is a draft, its base asset triggers were dropped
+	// above (draft-owned), so don't dedup live asset triggers against them —
+	// every live `// on <asset>` is emitted as unsaved. For a non-draft open
+	// script (viewing a saved one), keep deduping so live re-parse doesn't
+	// double the persisted triggers.
+	const assetKeys = ctx.draftedPaths.has(livePath)
+		? new Set<string>()
+		: persistedAssetKeys(base, livePath)
+	// Strip seeded triggers we computed above for the active draft;
+	// live annotations are authoritative for the open buffer.
+	for (let i = extraTriggers.length - 1; i >= 0; i--) {
+		if (extraTriggers[i].runnable_path === livePath) extraTriggers.splice(i, 1)
+	}
+	for (const a of liveAnnotations.annotations.triggerAssets) {
+		const key = `${a.kind}:${a.path}`
+		if (assetKeys.has(key)) continue
+		extraTriggers.push({
+			trigger_kind: 'asset',
+			asset_kind: a.kind,
+			asset_path: a.path,
+			runnable_kind: 'script',
+			runnable_path: livePath,
+			unsaved: true
+		})
+		// Synthesize the asset node so the new trigger edge has a
+		// target — without this, typing `// on s3:///...` adds an
+		// edge to a node that doesn't exist and the canvas silently
+		// drops it. Mirrors the draft branch above.
+		if (!assets.some((x) => x.kind === a.kind && x.path === a.path)) {
+			assets.push({ kind: a.kind, path: a.path })
 		}
 	}
+	// Native trigger annotations: kinds for which a matching trigger
+	// row was found in the backend response. If the live buffer
+	// declares `// on kafka` and at least one kafka_trigger row points
+	// at this script, the source node is already on the canvas — no
+	// overlay needed. Otherwise emit a "missing" placeholder so the
+	// user can either create the trigger row or remove the annotation.
+	pushMissingNativeTriggers(
+		extraTriggers,
+		liveAnnotations.annotations.nativeTriggers.map((n) => n.kind),
+		persistedNativeKinds(base, livePath),
+		livePath,
+		{ unsaved: true }
+	)
+}
 
-	// Cross-check for already-deployed scripts (not the open buffer): if a
-	// script's persisted body declares `// on kafka` but no matching
-	// kafka_trigger row points at it, surface a red placeholder. The
-	// annotated-kinds map is filled by the page-level prefetch sweep
-	// (one read per script in the folder); drafts and the active editor
-	// are handled by the loops above. Scripts that haven't been swept
-	// yet contribute nothing here — they'll surface on the next refetch.
-	const livePathExcl = livePath
+/**
+ * Cross-check for already-deployed scripts (not the open buffer): if a
+ * script's persisted body declares `// on kafka` but no matching kafka_trigger
+ * row points at it, surface a red placeholder. The annotated-kinds map is
+ * filled by the page-level prefetch sweep (one read per script in the folder);
+ * drafts and the active editor are handled by the earlier passes. Scripts not
+ * yet swept contribute nothing — they surface on the next refetch.
+ */
+function crossCheckSweptScripts(acc: Accumulator, input: ResolveGraphInput) {
+	const { base, drafts, liveAnnotations, annotatedNativeKindsByPath } = input
+	const livePath = liveAnnotations.scriptPath
 	for (const [scriptPath, kinds] of annotatedNativeKindsByPath) {
 		if (drafts.has(scriptPath)) continue
-		if (scriptPath === livePathExcl) continue
-		const attachedKinds = new Set(
-			base.triggers
-				.filter(
-					(t) =>
-						t.trigger_kind !== 'asset' &&
-						t.runnable_kind === 'script' &&
-						t.runnable_path === scriptPath
-				)
-				.map((t) => t.trigger_kind)
+		if (scriptPath === livePath) continue
+		pushMissingNativeTriggers(
+			acc.extraTriggers,
+			kinds,
+			persistedNativeKinds(base, scriptPath),
+			scriptPath,
+			{ unsaved: false }
 		)
-		for (const kind of kinds) {
-			if (attachedKinds.has(kind)) continue
-			extraTriggers.push({
-				trigger_kind: kind,
-				runnable_kind: 'script',
-				runnable_path: scriptPath,
-				missing: true
-			})
-		}
 	}
+}
 
-	// Live body-asset lineage for any persisted script inferred at least
-	// once this session (maps filled by `handleAssetsChange` + the load
-	// prefetch). Drafts are handled by the loop above. For scripts whose
-	// deploy didn't persist their body assets (e.g. older WASM at save
-	// time, or object-form writeS3File), this keeps the lineage edge on
-	// the canvas across selection changes — not just while selected.
+/**
+ * Live body-asset lineage for any persisted script inferred at least once this
+ * session (maps filled by `handleAssetsChange` + the load prefetch). Drafts
+ * are handled by `seedDraftOverlays`. For scripts whose deploy didn't persist
+ * their body assets (e.g. older WASM at save time, or object-form
+ * writeS3File), this keeps the lineage edge on the canvas across selection
+ * changes — not just while selected.
+ */
+function overlayInferredLineage(acc: Accumulator, input: ResolveGraphInput) {
+	const { base, drafts, inferredWritesByPath, inferredReadsByPath } = input
+	const { assets, edges } = acc
+
 	const overlayLineage = (
 		byPath: Map<string, Array<{ kind: AssetKind; path: string }>>,
 		access: 'w' | 'r'
@@ -407,22 +480,4 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 	}
 	overlayLineage(inferredWritesByPath, 'w')
 	overlayLineage(inferredReadsByPath, 'r')
-
-	// Drop persisted ASSET triggers for drafted paths — those come from the
-	// deployed `// on <asset>` annotations, which the draft's live/parsed
-	// annotations now own. Native triggers (kafka/schedule/…) are kept: they
-	// bind by `script_path`, which the draft shares, so the attachment is still
-	// valid regardless of content edits.
-	const baseTriggers = base.triggers.filter((t) => {
-		if (t.trigger_kind !== 'asset') return true
-		if (isDrafted(t.runnable_kind, t.runnable_path)) return false
-		if (
-			t.runnable_kind === 'script' &&
-			t.runnable_path === openPath &&
-			staleForOpen(t.asset_kind, t.asset_path)
-		)
-			return false
-		return true
-	})
-	return { ...base, assets, runnables, edges, triggers: [...baseTriggers, ...extraTriggers] }
 }

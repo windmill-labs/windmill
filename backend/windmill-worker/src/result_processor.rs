@@ -784,19 +784,11 @@ pub async fn process_completed_job(
             // by resolve_partition_for_job). Run identity is immutable —
             // the preprocessor must not change or drop it, or the asset
             // cascade would read no partition for this producer.
-            sqlx::query!(
-                "UPDATE v2_job
-                 SET args = CASE
-                              WHEN args ? 'partition'
-                              THEN $1 || jsonb_build_object('partition', args -> 'partition')
-                              ELSE $1
-                            END,
-                     preprocessed = TRUE
-                 WHERE id = $2",
-                Json(preprocessed_args) as Json<HashMap<String, Box<RawValue>>>,
-                job.id
+            windmill_common::partition::merge_args_preserving_partition(
+                db,
+                job.id,
+                preprocessed_args,
             )
-            .execute(db)
             .await?;
         }
 

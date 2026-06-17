@@ -7,6 +7,9 @@
 	type Props = { events: Event[]; workspace: string }
 	let { events, workspace }: Props = $props()
 
+	// These reason strings are produced verbatim by the backend asset-dispatch
+	// reason enum (backend asset_dispatch.rs) — keep them in sync if that enum
+	// changes; an unmatched reason falls through to the raw string.
 	function reasonLabel(reason: string | undefined): string {
 		switch (reason) {
 			case 'self_loop':

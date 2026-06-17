@@ -6,9 +6,18 @@
 -- `// on <kind> <ref>` lines (every non-integration trigger kind; their
 -- trigger_ref is the trigger row path, or empty for marker-only forms).
 --
+-- Per-edge columns that are in fact script-level properties (every row for
+-- a given runnable carries the same value, set once at deploy) but live on
+-- the edge so the dispatcher reads everything from a single query:
+--   join_all      `// trigger all` AND-join barrier (else OR, the default).
+--   debounce_s    `// on debounce=` (else script-level `// debounce`); only
+--                 asset-cascade edges carry one. NULL = no debounce.
+--   retry_*       `// retry <count> [<delay>]` cascade retry. NULL = none.
+--
 -- The idempotency guards (IF NOT EXISTS / duplicate_object) are load-bearing:
 -- this migration squashes several pre-release ones, so databases migrated
--- from the unsquashed history already contain the final objects.
+-- from the unsquashed history already contain the final objects and
+-- re-applying must be a no-op.
 DO $$ BEGIN
     CREATE TYPE SCRIPT_TRIGGER_KIND AS ENUM (
         'asset', 'schedule', 'webhook', 'email', 'kafka', 'mqtt', 'nats',
@@ -22,7 +31,11 @@ CREATE TABLE IF NOT EXISTS script_trigger (
   runnable_kind  ASSET_USAGE_KIND NOT NULL,
   runnable_path  VARCHAR(255) NOT NULL,
   trigger_kind   SCRIPT_TRIGGER_KIND NOT NULL,
-  trigger_ref    TEXT NOT NULL
+  trigger_ref    TEXT NOT NULL,
+  join_all       BOOLEAN NOT NULL DEFAULT FALSE,
+  debounce_s     INTEGER,
+  retry_count    SMALLINT,
+  retry_delay_s  INTEGER
 );
 
 -- Per-runnable lookup (wipe-on-deploy, list-triggers-for-script).

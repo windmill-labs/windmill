@@ -1,4 +1,5 @@
 import type { AssetGraphResponse } from './types'
+import { assetKey, isWriteEdge } from './lib'
 
 // Post-deploy graph verification: the canvas previews a draft's edges from
 // the *frontend* parsers (resolveGraph overlay); the deployed rows are
@@ -24,16 +25,14 @@ export type CascadeFacts = {
 export function extractCascadeFacts(g: AssetGraphResponse, scriptPath: string): CascadeFacts {
 	const writes = new Set<string>()
 	for (const e of g.edges ?? []) {
-		if (e.runnable_kind !== 'script' || e.runnable_path !== scriptPath) continue
-		const access = e.access_type ?? 'r'
-		if (access !== 'w' && access !== 'rw') continue
-		writes.add(`${e.asset_kind}:${e.asset_path}`)
+		if (e.runnable_path !== scriptPath || !isWriteEdge(e)) continue
+		writes.add(assetKey(e))
 	}
 	const subs = new Set<string>()
 	for (const t of g.triggers ?? []) {
 		if (t.trigger_kind !== 'asset') continue
 		if (t.runnable_kind !== 'script' || t.runnable_path !== scriptPath) continue
-		subs.add(`${t.asset_kind}:${t.asset_path}`)
+		subs.add(assetKey(t))
 	}
 	return { writes, subs }
 }

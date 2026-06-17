@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { AssetGraphResponse } from './types'
-import { computeDownstreamClosure, getDownstreamSubscribers } from './graphTraversal'
+import { buildDownstreamMap, computeDownstreamClosure } from './graphTraversal'
+
+/** Direct (one-hop) subscriber script paths of `scriptPath`. */
+function downstreamSubscribers(g: AssetGraphResponse, scriptPath: string): string[] {
+	return Array.from(buildDownstreamMap(g).get(scriptPath) ?? [])
+}
 
 // Minimal graph builder: `writes` are producer→asset write edges, `subs` are
 // `// on <asset>` subscriptions. All datatable/script for brevity.
@@ -37,7 +42,7 @@ describe('buildDownstreamMap', () => {
 				['c', 'x']
 			]
 		)
-		expect(getDownstreamSubscribers(g, 'a').sort()).toEqual(['b', 'c'])
+		expect(downstreamSubscribers(g, 'a').sort()).toEqual(['b', 'c'])
 	})
 
 	it('ignores read edges, flow subscribers and self-loops', () => {
@@ -57,8 +62,8 @@ describe('buildDownstreamMap', () => {
 			runnable_kind: 'flow',
 			runnable_path: 'f'
 		})
-		expect(getDownstreamSubscribers(g, 'a')).toEqual([])
-		expect(getDownstreamSubscribers(g, 'r')).toEqual([])
+		expect(downstreamSubscribers(g, 'a')).toEqual([])
+		expect(downstreamSubscribers(g, 'r')).toEqual([])
 	})
 
 	it('matches on asset kind as well as path', () => {
@@ -70,7 +75,7 @@ describe('buildDownstreamMap', () => {
 			runnable_kind: 'script',
 			runnable_path: 'b'
 		})
-		expect(getDownstreamSubscribers(g, 'a')).toEqual([])
+		expect(downstreamSubscribers(g, 'a')).toEqual([])
 	})
 })
 

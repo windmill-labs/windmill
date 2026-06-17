@@ -4,8 +4,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
-	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import PipelineLockedRunnableInfo from '$lib/components/triggers/PipelineLockedRunnableInfo.svelte'
+	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
 	import {
 		PostgresTriggerService,
 		type ErrorHandler,
@@ -672,25 +671,17 @@
 			</Label>
 			{#if !hideTarget}
 				<Section label="Runnable">
-					{#if fixedScriptPath != ''}
-						<PipelineLockedRunnableInfo path={fixedScriptPath} />
-					{:else}
-						<p class="text-xs text-primary">
-							Pick a script or flow to be triggered <Required required={true} />
-						</p>
-						<div class="flex flex-row mb-2">
-							<ScriptPicker
-								disabled={!can_write}
-								initialPath={initialScriptPath}
-								kinds={['script']}
-								allowFlow={true}
-								bind:itemKind
-								bind:scriptPath={script_path}
-								allowRefresh={can_write}
-								allowEdit={!$userStore?.operator}
-								clearable
-							/>
-
+					<TriggerRunnablePicker
+						{fixedScriptPath}
+						bind:itemKind
+						bind:scriptPath={script_path}
+						{initialScriptPath}
+						canWrite={can_write}
+						isOperator={!!$userStore?.operator}
+						promptText="Pick a script or flow to be triggered "
+						promptClass="text-xs text-primary"
+					>
+						{#snippet createButton()}
 							{#if emptyString(script_path) && is_flow === false}
 								<div class="flex">
 									<Button
@@ -711,8 +702,8 @@
 									</Button>
 								</div>
 							{/if}
-						</div>
-					{/if}
+						{/snippet}
+					</TriggerRunnablePicker>
 				</Section>
 			{/if}
 

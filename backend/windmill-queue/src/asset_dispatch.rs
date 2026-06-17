@@ -94,8 +94,8 @@ enum DispatchOutcome {
     Skipped,
 }
 
-/// Outcome-specific fields. `record_event` takes the four "always-present"
-/// columns positionally and bundles the rest here so each call site only
+/// Outcome-specific fields. Event constructors take the four "always-present"
+/// columns positionally and bundle the rest here so each call site only
 /// names what it actually carries.
 #[derive(Debug, Default)]
 struct EventOptions<'a> {
@@ -105,6 +105,46 @@ struct EventOptions<'a> {
     required_inputs: Option<i32>,
     debounce_s: Option<i32>,
     reason: Option<&'a str>,
+}
+
+/// One accumulated `dispatch_event` row. Owned (not borrowed) so the whole
+/// dispatch pass can collect rows and flush them in a single batched INSERT
+/// at the end, avoiding an N+1 (one INSERT per subscriber × asset write).
+#[derive(Debug)]
+struct EventRow {
+    subscriber_path: String,
+    asset_kind: AssetKind,
+    asset_path: String,
+    outcome: DispatchOutcome,
+    child_job_id: Option<Uuid>,
+    partition: Option<String>,
+    received_inputs: Option<i32>,
+    required_inputs: Option<i32>,
+    debounce_s: Option<i32>,
+    reason: Option<String>,
+}
+
+impl EventRow {
+    fn new(
+        subscriber_path: &str,
+        asset_kind: AssetKind,
+        asset_path: &str,
+        outcome: DispatchOutcome,
+        opts: EventOptions<'_>,
+    ) -> Self {
+        EventRow {
+            subscriber_path: subscriber_path.to_string(),
+            asset_kind,
+            asset_path: asset_path.to_string(),
+            outcome,
+            child_job_id: opts.child_job_id,
+            partition: opts.partition.map(str::to_string),
+            received_inputs: opts.received_inputs,
+            required_inputs: opts.required_inputs,
+            debounce_s: opts.debounce_s,
+            reason: opts.reason.map(str::to_string),
+        }
+    }
 }
 
 /// AND-join slot progress at the moment a partition-bearing input
@@ -120,19 +160,75 @@ struct JoinSlotStatus {
     required: i32,
 }
 
-/// Best-effort insert into `dispatch_event`. Never propagates — the
-/// dispatch contract is "logging failures must not retroactively fail
-/// the producer's job."
-async fn record_event(
+/// Outcome of evaluating an AND-join barrier for one (subscriber, input).
+/// The caller turns this into a `dispatch_event` row and decides whether to
+/// push, all in one place.
+enum JoinDecision {
+    /// Input does not advance the join (recorded as Skipped with `reason`).
+    Skip(&'static str),
+    /// Join advanced but is not yet complete (recorded as JoinPending).
+    Pending { received: i32, required: i32 },
+    /// All required inputs are present — push the subscriber.
+    Fire,
+}
+
+/// Evaluate the AND-join barrier for a partition-bearing subscriber input.
+/// Only a partition-bearing input carrying a concrete partition advances the
+/// join — a reference input or an unpartitioned producer must never fire a
+/// partitioned join (the case-3 silent-wrong guard). On `Err` the caller
+/// should log and skip without recording an event.
+async fn handle_join(
     db: &DB,
     workspace_id: &str,
-    producer_job_id: Uuid,
-    subscriber_path: &str,
-    asset_kind: AssetKind,
-    asset_path: &str,
-    outcome: DispatchOutcome,
-    opts: EventOptions<'_>,
-) {
+    sub_path: &str,
+    trigger_ref: &str,
+    partition: Option<&str>,
+) -> Result<JoinDecision> {
+    if !is_partition_bearing_ref(trigger_ref) {
+        tracing::debug!(
+            "AND subscriber {}: non-partition-bearing input {} does not fire the join",
+            sub_path,
+            trigger_ref
+        );
+        return Ok(JoinDecision::Skip("case3_non_partition_bearing"));
+    }
+    let Some(pv) = partition else {
+        tracing::warn!(
+            "AND subscriber {}: partition-bearing input {} arrived with no resolved \
+             partition; not dispatching (case-3 guard)",
+            sub_path,
+            trigger_ref
+        );
+        return Ok(JoinDecision::Skip("case3_missing_partition"));
+    };
+    match record_and_check_join_slot(db, workspace_id, sub_path, pv, trigger_ref).await? {
+        JoinSlotStatus { fired: false, received, required } => {
+            Ok(JoinDecision::Pending { received, required })
+        }
+        JoinSlotStatus { fired: true, .. } => Ok(JoinDecision::Fire),
+    }
+}
+
+/// Best-effort batched insert into `dispatch_event`. Never propagates — the
+/// dispatch contract is "logging failures must not retroactively fail the
+/// producer's job." All rows accumulated over a dispatch pass go in one
+/// INSERT (UNNEST) to avoid an N+1 across (subscriber × asset write).
+async fn flush_events(db: &DB, workspace_id: &str, producer_job_id: Uuid, events: &[EventRow]) {
+    if events.is_empty() {
+        return;
+    }
+    // Column-oriented arrays for UNNEST. Each Vec is one column across all rows.
+    let subscriber_paths: Vec<String> = events.iter().map(|e| e.subscriber_path.clone()).collect();
+    let asset_kinds: Vec<AssetKind> = events.iter().map(|e| e.asset_kind).collect();
+    let asset_paths: Vec<String> = events.iter().map(|e| e.asset_path.clone()).collect();
+    let outcomes: Vec<DispatchOutcome> = events.iter().map(|e| e.outcome).collect();
+    let child_job_ids: Vec<Option<Uuid>> = events.iter().map(|e| e.child_job_id).collect();
+    let partitions: Vec<Option<String>> = events.iter().map(|e| e.partition.clone()).collect();
+    let received_inputs: Vec<Option<i32>> = events.iter().map(|e| e.received_inputs).collect();
+    let required_inputs: Vec<Option<i32>> = events.iter().map(|e| e.required_inputs).collect();
+    let debounce_s: Vec<Option<i32>> = events.iter().map(|e| e.debounce_s).collect();
+    let reasons: Vec<Option<String>> = events.iter().map(|e| e.reason.clone()).collect();
+
     let res = sqlx::query!(
         r#"INSERT INTO dispatch_event (
              workspace_id, producer_job_id, subscriber_path,
@@ -140,26 +236,31 @@ async fn record_event(
              child_job_id, partition,
              received_inputs, required_inputs,
              debounce_s, reason
-           ) VALUES ($1, $2, $3, $4::ASSET_KIND, $5, $6::DISPATCH_OUTCOME,
-                     $7, $8, $9, $10, $11, $12)"#,
+           )
+           SELECT $1, $2, sp, ak, ap, oc, cj, pt, ri, rq, db, rs
+           FROM unnest(
+             $3::text[], $4::ASSET_KIND[], $5::text[], $6::DISPATCH_OUTCOME[],
+             $7::uuid[], $8::text[], $9::int[], $10::int[], $11::int[], $12::text[]
+           ) AS t(sp, ak, ap, oc, cj, pt, ri, rq, db, rs)"#,
         workspace_id,
         producer_job_id,
-        subscriber_path,
-        asset_kind as AssetKind,
-        asset_path,
-        outcome as DispatchOutcome,
-        opts.child_job_id,
-        opts.partition,
-        opts.received_inputs,
-        opts.required_inputs,
-        opts.debounce_s,
-        opts.reason,
+        &subscriber_paths,
+        asset_kinds as Vec<AssetKind>,
+        &asset_paths,
+        outcomes as Vec<DispatchOutcome>,
+        &child_job_ids as &[Option<Uuid>],
+        &partitions as &[Option<String>],
+        &received_inputs as &[Option<i32>],
+        &required_inputs as &[Option<i32>],
+        &debounce_s as &[Option<i32>],
+        &reasons as &[Option<String>],
     )
     .execute(db)
     .await;
     if let Err(e) = res {
         tracing::error!(
-            "failed to record dispatch_event for producer {}: {e:#}",
+            "failed to record {} dispatch_event row(s) for producer {}: {e:#}",
+            events.len(),
             producer_job_id
         );
     }
@@ -220,8 +321,13 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
     }
 
     let mut dispatched = Vec::new();
+    // Best-effort dispatch_event rows accumulated over the whole pass and
+    // flushed in one batched INSERT at the end (avoids an N+1 over
+    // subscriber × asset write). The mid-pass join-slot writes
+    // (record_and_check_join_slot) are a separate table and unaffected.
+    let mut events: Vec<EventRow> = Vec::new();
     for (asset_kind, asset_path) in writes {
-        let Some(prefix) = prefix_for(asset_kind) else {
+        let Some(prefix) = asset_kind.canonical_prefix() else {
             continue;
         };
         let trigger_ref = format!("{}{}", prefix, asset_path);
@@ -230,93 +336,51 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
             let Subscriber { path: sub_path, join_all, debounce_s, retry_count, retry_delay_s } =
                 sub;
             if sub_path == runnable_path {
-                record_event(
-                    db,
-                    &job.workspace_id,
-                    job.id,
+                events.push(EventRow::new(
                     &sub_path,
                     asset_kind,
                     &asset_path,
                     DispatchOutcome::Skipped,
                     EventOptions { reason: Some("self_loop"), ..Default::default() },
-                )
-                .await;
+                ));
                 continue;
             }
             if join_all {
-                // AND join barrier. Only a partition-bearing input
-                // (`// on …/{partition}/…`) carrying a concrete partition
-                // advances the join — a reference input or an
-                // unpartitioned producer must never fire a partitioned
-                // join (the case-3 silent-wrong guard).
-                if !is_partition_bearing_ref(&trigger_ref) {
-                    tracing::debug!(
-                        "AND subscriber {}: non-partition-bearing input {} does not fire the join",
-                        sub_path,
-                        trigger_ref
-                    );
-                    record_event(
-                        db,
-                        &job.workspace_id,
-                        job.id,
-                        &sub_path,
-                        asset_kind,
-                        &asset_path,
-                        DispatchOutcome::Skipped,
-                        EventOptions {
-                            reason: Some("case3_non_partition_bearing"),
-                            ..Default::default()
-                        },
-                    )
-                    .await;
-                    continue;
-                }
-                let Some(pv) = partition.as_deref() else {
-                    tracing::warn!(
-                        "AND subscriber {}: partition-bearing input {} arrived with no resolved \
-                         partition; not dispatching (case-3 guard)",
-                        sub_path,
-                        trigger_ref
-                    );
-                    record_event(
-                        db,
-                        &job.workspace_id,
-                        job.id,
-                        &sub_path,
-                        asset_kind,
-                        &asset_path,
-                        DispatchOutcome::Skipped,
-                        EventOptions {
-                            reason: Some("case3_missing_partition"),
-                            ..Default::default()
-                        },
-                    )
-                    .await;
-                    continue;
-                };
-                match record_and_check_join_slot(db, &job.workspace_id, &sub_path, pv, &trigger_ref)
-                    .await
+                match handle_join(
+                    db,
+                    &job.workspace_id,
+                    &sub_path,
+                    &trigger_ref,
+                    partition.as_deref(),
+                )
+                .await
                 {
-                    Ok(JoinSlotStatus { fired: false, received, required }) => {
-                        record_event(
-                            db,
-                            &job.workspace_id,
-                            job.id,
+                    Ok(JoinDecision::Skip(reason)) => {
+                        events.push(EventRow::new(
+                            &sub_path,
+                            asset_kind,
+                            &asset_path,
+                            DispatchOutcome::Skipped,
+                            EventOptions { reason: Some(reason), ..Default::default() },
+                        ));
+                        continue;
+                    }
+                    Ok(JoinDecision::Pending { received, required }) => {
+                        events.push(EventRow::new(
                             &sub_path,
                             asset_kind,
                             &asset_path,
                             DispatchOutcome::JoinPending,
                             EventOptions {
-                                partition: Some(pv),
+                                partition: partition.as_deref(),
                                 received_inputs: Some(received),
                                 required_inputs: Some(required),
                                 ..Default::default()
                             },
-                        )
-                        .await;
+                        ));
                         continue; // slot incomplete — wait for the rest
                     }
-                    Ok(JoinSlotStatus { fired: true, .. }) => {} // fall through to push
+                    Ok(JoinDecision::Fire) => {} // fall through to push
                     Err(e) => {
                         tracing::error!("join-slot check failed for {}: {e:#}", sub_path);
                         continue;
@@ -339,10 +403,7 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
             .await
             {
                 Ok(id) => {
-                    record_event(
-                        db,
-                        &job.workspace_id,
-                        job.id,
+                    events.push(EventRow::new(
                         &sub_path,
                         asset_kind,
                         &asset_path,
@@ -353,8 +414,7 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
                             debounce_s,
                             ..Default::default()
                         },
-                    )
-                    .await;
+                    ));
                     dispatched.push(id);
                 }
                 Err(e) => {
@@ -363,6 +423,8 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
             }
         }
     }
+
+    flush_events(db, &job.workspace_id, job.id, &events).await;
 
     if !dispatched.is_empty() {
         tracing::info!(
@@ -434,19 +496,6 @@ fn read_partition(
         }
     }
     serde_json::from_str::<String>(trigger_map?.get(PARTITION_ARG)?.get()).ok()
-}
-
-fn prefix_for(kind: AssetKind) -> Option<&'static str> {
-    match kind {
-        AssetKind::S3Object => Some("s3://"),
-        AssetKind::Resource => Some("$res:"),
-        AssetKind::Ducklake => Some("ducklake://"),
-        AssetKind::DataTable => Some("datatable://"),
-        AssetKind::Volume => Some("volume://"),
-        // Deprecated kind from before the parser was unified — has no
-        // canonical trigger ref and never produced trigger rows.
-        AssetKind::Variable => None,
-    }
 }
 
 async fn fetch_producer_writes(
@@ -763,7 +812,7 @@ async fn push_subscriber(
     let mut args: HashMap<String, Box<RawValue>> = HashMap::new();
     let trigger_payload = serde_json::json!({
         "kind": "asset",
-        "asset_kind": serde_json::to_value(&asset_kind).unwrap_or(serde_json::Value::Null),
+        "asset_kind": serde_json::to_value(&asset_kind).expect("AssetKind serializes"),
         "asset_path": asset_path,
         "producer_path": producer_path,
         "producer_job_id": producer.id.to_string(),

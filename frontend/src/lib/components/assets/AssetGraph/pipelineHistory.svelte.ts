@@ -46,6 +46,10 @@ export function usePipelineHistory(
 
 	async function load(ws: string, prefix: string, days: number) {
 		const myGen = ++gen
+		// A folder/days change (or unmount) bumps `gen`; once it diverges from
+		// this call's `myGen`, every write below this point belongs to a stale
+		// scope and must be dropped.
+		const isStale = () => gen !== myGen
 		loading = true
 		error = undefined
 		try {
@@ -64,7 +68,7 @@ export function usePipelineHistory(
 					perPage: PER_PAGE,
 					page: pages
 				})
-				if (gen !== myGen) return
+				if (isStale()) return
 				for (const j of rows) {
 					out.push({
 						id: j.id,
@@ -89,15 +93,15 @@ export function usePipelineHistory(
 			} catch (e) {
 				console.warn('failed to load pipeline dispatch edges', e)
 			}
-			if (gen !== myGen) return
+			if (isStale()) return
 			events = out
 			edges = edgeRows
 			truncated = sawFullPage
 		} catch (e: any) {
-			if (gen !== myGen) return
+			if (isStale()) return
 			error = e?.body ?? e?.message ?? String(e)
 		} finally {
-			if (gen === myGen) loading = false
+			if (!isStale()) loading = false
 		}
 	}
 

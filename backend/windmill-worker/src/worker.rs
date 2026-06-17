@@ -4385,14 +4385,7 @@ async fn resolve_partition_for_job(
     // Persist back so dispatch_asset_triggers (which reads the producer's
     // completed v2_job.args) propagates the same value down the cascade.
     if let Some(db) = conn.as_sql() {
-        sqlx::query!(
-            "UPDATE v2_job SET args = coalesce(args, '{}'::jsonb) \
-             || jsonb_build_object('partition', $1::text) WHERE id = $2",
-            value,
-            job.id,
-        )
-        .execute(db)
-        .await?;
+        windmill_common::partition::set_resolved_partition(db, job.id, &value).await?;
     } else {
         tracing::warn!(
             job_id = %job.id,

@@ -1,18 +1,16 @@
 <script lang="ts">
-	import { resource } from 'runed'
-	import { JobService } from '$lib/gen'
 	import DispatchEventsTable from './DispatchEventsTable.svelte'
+	import { useDispatchEvents } from './useDispatchEvents.svelte'
 
 	type Props = { workspace: string; jobId: string }
 	let { workspace, jobId }: Props = $props()
 
-	const events = resource(
-		() => ({ workspace, jobId }),
-		async ({ workspace, jobId }) =>
-			workspace && jobId ? await JobService.listDispatchEvents({ workspace, id: jobId }) : []
+	const events = useDispatchEvents(
+		() => workspace,
+		() => jobId
 	)
 
-	const list = $derived(events.current ?? [])
+	const list = $derived(events.list)
 </script>
 
 {#if list.length > 0}

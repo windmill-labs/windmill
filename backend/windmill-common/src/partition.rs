@@ -14,8 +14,14 @@
 //! - `dynamic key=<path>`: extracted from the triggering payload via a
 //!   minimal `$.a.b` JSON path (the realistic per-tenant/shard/event case).
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, NaiveDate, Utc};
 use chrono_tz::Tz;
+use serde_json::value::RawValue;
+use sqlx::types::Json;
+use sqlx::PgExecutor;
+use uuid::Uuid;
 use windmill_parser::asset_parser::{PartitionKind, PartitionSpec};
 
 use crate::error::{Error, Result};
@@ -23,6 +29,60 @@ use crate::error::{Error, Result};
 /// Well-known arg key the resolved partition value is injected under (also
 /// mirrored at `trigger.partition` for cascade propagation).
 pub const PARTITION_ARG: &str = "partition";
+
+/// Persist a freshly resolved `partition` into a job's `v2_job.args`,
+/// merging it on top of whatever args already exist.
+///
+/// INVARIANT: partition, once resolved, is immutable for the job's
+/// lifetime. This is the single place that *establishes* it (run-start
+/// resolution); every later args rewrite must preserve it — see
+/// [`merge_args_preserving_partition`]. Keeping both the set and the
+/// preserve here keeps the JSONB shape and the invariant in one module.
+pub async fn set_resolved_partition<'e>(
+    executor: impl PgExecutor<'e>,
+    job_id: Uuid,
+    value: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "UPDATE v2_job SET args = coalesce(args, '{}'::jsonb) \
+         || jsonb_build_object('partition', $1::text) WHERE id = $2",
+        value,
+        job_id,
+    )
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// Replace a job's `v2_job.args` with `new_args`, but carry forward any
+/// existing top-level `partition` key so a wholesale rewrite (e.g. the
+/// preprocessor swapping in preprocessed args) cannot clobber a resolved
+/// partition.
+///
+/// INVARIANT: partition, once resolved, is immutable for the job's
+/// lifetime (set by [`set_resolved_partition`]); this guards every later
+/// args rewrite against dropping it.
+pub async fn merge_args_preserving_partition<'e>(
+    executor: impl PgExecutor<'e>,
+    job_id: Uuid,
+    new_args: HashMap<String, Box<RawValue>>,
+) -> Result<()> {
+    sqlx::query!(
+        "UPDATE v2_job
+         SET args = CASE
+                      WHEN args ? 'partition'
+                      THEN $1 || jsonb_build_object('partition', args -> 'partition')
+                      ELSE $1
+                    END,
+             preprocessed = TRUE
+         WHERE id = $2",
+        Json(new_args) as Json<HashMap<String, Box<RawValue>>>,
+        job_id,
+    )
+    .execute(executor)
+    .await?;
+    Ok(())
+}
 
 fn default_format(kind: &PartitionKind) -> &'static str {
     match kind {
@@ -40,7 +100,7 @@ fn default_format(kind: &PartitionKind) -> &'static str {
 /// `spec.start` (anchor: older partitions are not backfilled). Errors on an
 /// invalid `tz` or `start` rather than silently materializing the wrong
 /// partition. `Dynamic` is rejected — use [`extract_dynamic_partition`].
-pub fn resolve_time_partition(spec: &PartitionSpec, at: DateTime<Utc>) -> Result<Option<String>> {
+fn resolve_time_partition(spec: &PartitionSpec, at: DateTime<Utc>) -> Result<Option<String>> {
     if matches!(spec.kind, PartitionKind::Dynamic { .. }) {
         return Err(Error::BadRequest(
             "resolve_time_partition called on a dynamic partition".to_string(),
@@ -74,7 +134,7 @@ pub fn resolve_time_partition(spec: &PartitionSpec, at: DateTime<Utc>) -> Result
 /// `$.a.b.c` dotted path (no brackets/wildcards/filters — that covers the
 /// realistic per-tenant/shard/event keys). The leaf must be a string,
 /// number or bool.
-pub fn extract_dynamic_partition(key: &str, payload: &serde_json::Value) -> Result<String> {
+fn extract_dynamic_partition(key: &str, payload: &serde_json::Value) -> Result<String> {
     let path = key.strip_prefix("$").unwrap_or(key);
     let path = path.strip_prefix('.').unwrap_or(path);
     let mut cur = payload;

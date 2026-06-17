@@ -3,9 +3,7 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import Required from '$lib/components/Required.svelte'
-	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import PipelineLockedRunnableInfo from '$lib/components/triggers/PipelineLockedRunnableInfo.svelte'
+	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
 	import {
 		EmailTriggerService,
 		type ErrorHandler,
@@ -240,8 +238,8 @@
 		return {
 			noDeployed: !!(s as any)?.no_deployed,
 			overlay: draftFromBackend
-			? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
-			: undefined
+				? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
+				: undefined
 		}
 	}
 
@@ -390,38 +388,27 @@
 
 			{#if !hideTarget}
 				<Section label="Target">
-					{#if fixedScriptPath != ''}
-						<PipelineLockedRunnableInfo path={fixedScriptPath} />
-					{:else}
-						<p class="text-xs mt-3 mb-1 text-primary">
-							Pick a script or flow to be triggered<Required required={true} />
-						</p>
-						<div class="flex flex-col gap-2">
-							<div class="flex flex-row mb-2">
-								<ScriptPicker
-									disabled={!can_write}
-									initialPath={initialScriptPath}
-									kinds={['script']}
-									allowFlow={true}
-									bind:itemKind
-									bind:scriptPath={script_path}
-									allowRefresh={can_write}
-									allowEdit={!$userStore?.operator}
-									clearable
-								/>
-
-								{#if emptyString(script_path)}
-									<Button
-										btnClasses="ml-4"
-										variant="accent"
-										size="xs"
-										href={itemKind === 'flow' ? '/flows/add?hub=72' : '/scripts/add?hub=hub%2F19813'}
-										target="_blank">Create from template</Button
-									>
-								{/if}
-							</div>
-						</div>
-					{/if}
+					<TriggerRunnablePicker
+						{fixedScriptPath}
+						bind:itemKind
+						bind:scriptPath={script_path}
+						{initialScriptPath}
+						canWrite={can_write}
+						isOperator={!!$userStore?.operator}
+						promptClass="text-xs mt-3 mb-1 text-primary"
+					>
+						{#snippet createButton()}
+							{#if emptyString(script_path)}
+								<Button
+									btnClasses="ml-4"
+									variant="accent"
+									size="xs"
+									href={itemKind === 'flow' ? '/flows/add?hub=72' : '/scripts/add?hub=hub%2F19813'}
+									target="_blank">Create from template</Button
+								>
+							{/if}
+						{/snippet}
+					</TriggerRunnablePicker>
 				</Section>
 			{/if}
 

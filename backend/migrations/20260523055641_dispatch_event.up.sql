@@ -9,13 +9,19 @@
 -- retention sweep (monitor.rs delete_expired_jobs_batch -> DELETE FROM
 -- v2_job WHERE id = ANY(...)) reaps these rows along with their producer.
 -- No separate cleanup path needed.
-CREATE TYPE DISPATCH_OUTCOME AS ENUM (
-  'dispatched',
-  'join_pending',
-  'skipped'
-);
+--
+-- Idempotency guards (duplicate_object / IF NOT EXISTS) are load-bearing:
+-- re-applying this migration after a squash must be a no-op.
+DO $$ BEGIN
+  CREATE TYPE DISPATCH_OUTCOME AS ENUM (
+    'dispatched',
+    'join_pending',
+    'skipped'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TABLE dispatch_event (
+CREATE TABLE IF NOT EXISTS dispatch_event (
   id              BIGSERIAL PRIMARY KEY,
   workspace_id    VARCHAR(50) NOT NULL REFERENCES workspace(id) ON DELETE CASCADE ON UPDATE CASCADE,
   producer_job_id UUID NOT NULL REFERENCES v2_job(id) ON DELETE CASCADE,
@@ -41,5 +47,17 @@ CREATE TABLE dispatch_event (
 
 -- Primary access pattern: list events for one producer (the job detail
 -- panel). Ordered scans by id give chronological order for free.
-CREATE INDEX idx_dispatch_event_producer
+CREATE INDEX IF NOT EXISTS idx_dispatch_event_producer
   ON dispatch_event (producer_job_id, id);
+
+-- Backs the asset-graph edge listing (jobs.rs list_asset_dispatch_edges):
+--   WHERE workspace_id = $1 AND subscriber_path LIKE 'prefix%'
+--         AND created_at >= $3
+--   ORDER BY created_at DESC, id DESC
+-- The (producer_job_id, id) index above doesn't help this access path, so
+-- without this one a high-volume dispatch_event seq-scans + sorts.
+-- text_pattern_ops makes the anchored LIKE prefix (built as `path_start || '%'`)
+-- index-usable regardless of the column collation; created_at DESC matches
+-- the ORDER BY so Postgres can satisfy ordering from the index.
+CREATE INDEX IF NOT EXISTS idx_dispatch_event_subscriber
+  ON dispatch_event (workspace_id, subscriber_path text_pattern_ops, created_at DESC);
