@@ -80,7 +80,7 @@
 	}
 </script>
 
-<Modal2 bind:isOpen title="New migration — {datatable}" fixedWidth="md" fixedHeight="lg">
+<Modal2 bind:isOpen title="New migration — {datatable}" fixedWidth="md" fixedHeight="adaptive">
 	<div class="flex flex-col gap-3 w-full grow min-h-0">
 		<TextInput
 			bind:value={name}

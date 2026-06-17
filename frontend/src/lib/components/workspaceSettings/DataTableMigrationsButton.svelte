@@ -1,12 +1,17 @@
 <script lang="ts">
 	import { Button } from '../common'
 	import Modal2 from '../common/modal/Modal2.svelte'
+	import Tabs from '../common/tabs/Tabs.svelte'
+	import Tab from '../common/tabs/Tab.svelte'
+	import TabContent from '../common/tabs/TabContent.svelte'
+	import SimpleEditor from '../SimpleEditor.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import { ChevronDown, Play, Trash2, Plus, Undo2, Loader2 } from 'lucide-svelte'
 	import { WorkspaceService, type DatatableMigrationWithStatus } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import NewDataTableMigrationModal from './NewDataTableMigrationModal.svelte'
+	import Portal from '$lib/components/Portal.svelte'
 
 	let {
 		workspace,
@@ -21,6 +26,17 @@
 	let busy = $state(false)
 
 	let newMigrationModal = $state<NewDataTableMigrationModal | undefined>(undefined)
+	let newMigrationOpen = $state(false)
+
+	let viewOpen = $state(false)
+	let viewMigration = $state<DatatableMigrationWithStatus | undefined>(undefined)
+	let viewTab = $state('up')
+
+	function openView(m: DatatableMigrationWithStatus) {
+		viewMigration = m
+		viewTab = 'up'
+		viewOpen = true
+	}
 
 	const confirmationModal = createAsyncConfirmationModal()
 
@@ -67,6 +83,42 @@
 		} finally {
 			busy = false
 		}
+	}
+
+	async function runOnly(version: number) {
+		busy = true
+		try {
+			const res = await WorkspaceService.runDatatableMigrations({
+				workspace,
+				datatableName: datatable,
+				only: version
+			})
+			sendUserToast(
+				res.applied.length > 0 ? `Applied ${res.applied[0].name}` : 'Migration already applied'
+			)
+			await loadMigrations()
+		} catch (e) {
+			sendUserToast(`Failed to run migration: ${e}`, true)
+		} finally {
+			busy = false
+		}
+	}
+
+	// Run a single migration. Warn first if earlier migrations haven't run, since
+	// this one might depend on them.
+	async function runMigration(m: DatatableMigrationWithStatus) {
+		const earlierPending = migrations.filter(
+			(x) => x.timestamp < m.timestamp && x.status !== 'ran'
+		).length
+		if (earlierPending > 0) {
+			const confirmed = await confirmationModal.ask({
+				title: 'Run migration out of order',
+				confirmationText: 'Run anyway',
+				children: `${earlierPending} earlier migration(s) have not been run yet. "${m.name}" might depend on them. Run it anyway?`
+			})
+			if (!confirmed) return
+		}
+		await runOnly(m.timestamp)
 	}
 
 	async function revertLast() {
@@ -129,17 +181,17 @@
 	}
 </script>
 
-<Button
-	variant="default"
-	size="sm"
-	{disabled}
-	startIcon={{ icon: ChevronDown }}
-	on:click={openList}
->
+<Button variant="default" size="sm" {disabled} endIcon={{ icon: ChevronDown }} on:click={openList}>
 	Migrations
 </Button>
 
-<Modal2 bind:isOpen={listOpen} title="Migrations — {datatable}" fixedWidth="md" fixedHeight="lg">
+<Modal2
+	bind:isOpen={listOpen}
+	title="Migrations — {datatable}"
+	fixedWidth="md"
+	fixedHeight="lg"
+	closeOnOutsideClick={!newMigrationOpen && !viewOpen && !confirmationModal.props.open}
+>
 	<div class="flex flex-col gap-2 w-full grow min-h-0">
 		{#if loadError}
 			<div class="text-xs text-red-500">
@@ -160,18 +212,23 @@
 							class="shrink-0 w-2.5 h-2.5 rounded-full {statusColor[m.status]}"
 							title={statusTitle[m.status]}
 						></div>
-						<div class="flex flex-col min-w-0 grow">
+						<button
+							type="button"
+							class="flex flex-col min-w-0 grow text-left rounded -mx-1 px-1 py-0.5 hover:bg-surface-hover"
+							title="View migration"
+							onclick={() => openView(m)}
+						>
 							<span class="text-sm text-primary truncate">{m.name}</span>
 							<span class="text-xs text-hint">{m.timestamp}</span>
-						</div>
+						</button>
 						<Button
 							variant="subtle"
 							size="xs"
 							iconOnly
 							startIcon={{ icon: Play }}
-							title="Run up to this migration"
+							title="Run this migration"
 							disabled={busy || m.status === 'ran'}
-							on:click={() => runUpTo(m.timestamp)}
+							on:click={() => runMigration(m)}
 						/>
 						<Button
 							variant="subtle"
@@ -192,7 +249,10 @@
 				variant="default"
 				size="sm"
 				startIcon={{ icon: Plus }}
-				on:click={() => newMigrationModal?.open()}>New</Button
+				on:click={() => {
+					newMigrationOpen = true
+					newMigrationModal?.open()
+				}}>New</Button
 			>
 			<div class="flex gap-2">
 				<Button
@@ -223,6 +283,38 @@
 	{workspace}
 	{datatable}
 	onCreated={loadMigrations}
+	onClose={() => (newMigrationOpen = false)}
 />
 
-<ConfirmationModal {...confirmationModal.props} />
+<Modal2
+	bind:isOpen={viewOpen}
+	title="Migration — {viewMigration?.name ?? ''}"
+	fixedWidth="md"
+	fixedHeight="lg"
+>
+	{#if viewMigration}
+		<div class="flex flex-col gap-3 w-full grow min-h-0">
+			<span class="text-xs text-hint">{viewMigration.timestamp}</span>
+			<Tabs bind:selected={viewTab} class="grow min-h-0">
+				<Tab value="up" label="Up" />
+				<Tab value="down" label="Down" />
+				{#snippet content()}
+					<TabContent value="up" class="h-80">
+						<SimpleEditor class="h-full" lang="sql" code={viewMigration?.code_up ?? ''} disabled />
+					</TabContent>
+					<TabContent value="down" class="h-80">
+						{#if viewMigration?.code_down}
+							<SimpleEditor class="h-full" lang="sql" code={viewMigration.code_down} disabled />
+						{:else}
+							<div class="p-6 text-center text-sm text-tertiary">No down migration</div>
+						{/if}
+					</TabContent>
+				{/snippet}
+			</Tabs>
+		</div>
+	{/if}
+</Modal2>
+
+<Portal>
+	<ConfirmationModal {...confirmationModal.props} />
+</Portal>
