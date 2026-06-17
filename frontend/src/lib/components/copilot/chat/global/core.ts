@@ -72,6 +72,7 @@ import {
 	type ToolCallbacks,
 	type ToolDisplayAction
 } from '../shared'
+import { searchDocsTool, readDocsPageTool } from '../docs/core'
 import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
 import { UserDraft } from '$lib/userDraft.svelte'
@@ -676,6 +677,13 @@ Rules:
 - get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.`
 		: ''
 }
+
+Documentation:
+- Use search_docs to look up how a Windmill feature works in the official documentation (a flag, concept, function, or "does Windmill support X") instead of guessing about product behavior. It returns matching doc snippets with their Source URL; call read_docs_page with a Source URL to read the full page (or a section, if it returns headings). Cite the Source URL when you rely on it.
+- Complete your response with precisions about how it works based on the documentation. Also drop a link to the relevant documentation if possible.
+- If the user asks about something that you are unsure about, say that you are not sure about the answer and suggest to ask the question to the windmill team.
+- If the first search returns nothing useful, retry with different or broader keywords before giving up.
+- If the documentation does not cover the user's question, say so clearly rather than inventing an answer, and suggest asking the Windmill team.
 
 Flows:
 - read_workspace_item returns compact flow JSON. Inline script bodies appear as "inline_script.<moduleId>".
@@ -1494,6 +1502,8 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	createSearchHubScriptsTool(false),
+	searchDocsTool,
+	readDocsPageTool,
 	{
 		def: createToolDef(
 			askUserQuestionSchema,

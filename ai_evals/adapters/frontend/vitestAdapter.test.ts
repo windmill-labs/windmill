@@ -434,5 +434,6 @@ benchmarkIt(
 			resetBenchmarkMockBackend()
 		}
 	},
-	600_000
+	// Full-suite runs (30+ cases at concurrency 2-3) routinely exceed 10 minutes.
+	7_200_000
 )
