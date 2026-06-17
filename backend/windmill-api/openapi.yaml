@@ -4577,6 +4577,44 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/upsert_datatable_migration/{datatable_name}:
+    post:
+      summary: insert or update a single datatable migration at an explicit version
+      operationId: upsertDatatableMigration
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [timestamp, name, code_up]
+              properties:
+                timestamp:
+                  type: integer
+                  format: int64
+                name:
+                  type: string
+                code_up:
+                  type: string
+                code_down:
+                  type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/generate_initial_datatable_migration/{datatable_name}:
     post:
       summary: snapshot the current schema as an already-installed initial migration

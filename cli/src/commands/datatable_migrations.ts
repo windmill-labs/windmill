@@ -3,12 +3,14 @@ import * as path from "node:path";
 import * as log from "../core/log.ts";
 import { colors } from "@cliffy/ansi/colors";
 import * as wmill from "../../gen/services.gen.ts";
-import type { DatatableMigration } from "../../gen/types.gen.ts";
-import { readTextFile, readTextFileSync } from "../utils/utils.ts";
+import { readTextFile } from "../utils/utils.ts";
 import { Confirm } from "@cliffy/prompt/confirm";
 
 // Migrations live under <cwd>/datatable_migrations/<datatable>/, one folder per
 // target data table, as `<timestamp>_<name>.up.sql` (and optional `.down.sql`).
+// They are synced as ordinary workspace files (see the workspace tarball export
+// and the `datatable_migration` handling in sync.ts); this module only holds the
+// `wmill datatable migrate` command helpers and the per-file push primitive.
 const MIGRATIONS_DIR = "datatable_migrations";
 
 // Migration names map directly onto file names and the DB `name` column.
@@ -103,121 +105,45 @@ export async function rollbackMigrations(
   }
 }
 
-function upFileName(m: { timestamp: number; name: string }): string {
-  return `${m.timestamp}_${m.name}.up.sql`;
-}
-
-function downFileName(m: { timestamp: number; name: string }): string {
-  return `${m.timestamp}_${m.name}.down.sql`;
-}
-
 /**
- * Parse a `<timestamp>_<name>.up.sql` / `.down.sql` file name into its
- * `{ timestamp, name, kind }` parts. Returns undefined for unrelated files.
+ * Sync a single migration to the workspace based on the current on-disk state of
+ * its `<datatable>/<timestamp>_<name>.up.sql` file: upsert it when the up file
+ * exists, otherwise delete it. Called by `wmill sync push` for each changed
+ * `datatable_migration` file.
  */
-function parseMigrationFileName(
-  file: string,
-): { timestamp: number; name: string; kind: "up" | "down" } | undefined {
-  const m = file.match(/^(\d+)_(.*)\.(up|down)\.sql$/);
-  if (!m) return undefined;
-  return { timestamp: Number(m[1]), name: m[2], kind: m[3] as "up" | "down" };
-}
-
-function sortMigrations(migrations: DatatableMigration[]): DatatableMigration[] {
-  return migrations.sort(
-    (a, b) =>
-      a.datatable.localeCompare(b.datatable) || a.timestamp - b.timestamp,
-  );
-}
-
-/**
- * Push the local <cwd>/datatable_migrations/ folder to the workspace, replacing
- * the remote set. Returns true if a push was performed, false if the folder is
- * missing or already up to date.
- */
-export async function pushDatatableMigrations(
+export async function pushMigrationFromDisk(
   workspace: string,
-  opts?: { yes?: boolean; jsonOutput?: boolean },
-): Promise<boolean> {
-  const localDir = path.join(process.cwd(), MIGRATIONS_DIR);
-  if (!fs.existsSync(localDir)) {
-    return false;
+  m: { datatable: string; timestamp: number; name: string },
+): Promise<void> {
+  const dir = path.join(process.cwd(), MIGRATIONS_DIR, m.datatable);
+  const base = `${m.timestamp}_${m.name}`;
+  const upPath = path.join(dir, `${base}.up.sql`);
+
+  if (!fs.existsSync(upPath)) {
+    log.info(colors.red(`Deleting datatable_migration ${m.datatable}/${base}`));
+    await wmill.deleteDatatableMigration({
+      workspace,
+      datatableName: m.datatable,
+      timestamp: m.timestamp,
+    });
+    return;
   }
 
-  // Each immediate subfolder is a target data table; read its migration files.
-  const migrations: DatatableMigration[] = [];
-  for (const datatable of fs.readdirSync(localDir)) {
-    const dtDir = path.join(localDir, datatable);
-    if (!fs.statSync(dtDir).isDirectory()) continue;
+  const code_up = await readTextFile(upPath);
+  const downPath = path.join(dir, `${base}.down.sql`);
+  const code_down = fs.existsSync(downPath) ? await readTextFile(downPath) : undefined;
 
-    // Group .up.sql / .down.sql files by their (timestamp, name) key.
-    const byKey = new Map<
-      string,
-      { timestamp: number; name: string; code_up?: string; code_down?: string }
-    >();
-    for (const file of fs.readdirSync(dtDir)) {
-      const parsed = parseMigrationFileName(file);
-      if (!parsed) continue;
-      const key = `${parsed.timestamp}_${parsed.name}`;
-      const entry =
-        byKey.get(key) ?? { timestamp: parsed.timestamp, name: parsed.name };
-      const content = await readTextFile(path.join(dtDir, file));
-      if (parsed.kind === "up") entry.code_up = content;
-      else entry.code_down = content;
-      byKey.set(key, entry);
-    }
-
-    for (const entry of byKey.values()) {
-      if (entry.code_up === undefined) {
-        log.warn(
-          colors.yellow(
-            `Skipping ${datatable}/${entry.timestamp}_${entry.name}: missing .up.sql file`,
-          ),
-        );
-        continue;
-      }
-      migrations.push({
-        datatable,
-        timestamp: entry.timestamp,
-        name: entry.name,
-        code_up: entry.code_up,
-        ...(entry.code_down !== undefined ? { code_down: entry.code_down } : {}),
-      });
-    }
-  }
-  sortMigrations(migrations);
-
-  // Skip if the remote set is already identical.
-  let remote: DatatableMigration[] = [];
-  try {
-    remote = await wmill.listDatatableMigrations({ workspace });
-  } catch {
-    // If the endpoint is missing or unauthorized, just attempt the push.
-  }
-  if (JSON.stringify(remote) === JSON.stringify(migrations)) {
-    log.info(colors.gray("Datatable migrations up to date"));
-    return false;
-  }
-
-  await wmill.updateDatatableMigrations({
+  log.info(colors.green(`Pushing datatable_migration ${m.datatable}/${base}`));
+  await wmill.upsertDatatableMigration({
     workspace,
-    requestBody: { migrations },
+    datatableName: m.datatable,
+    requestBody: {
+      timestamp: m.timestamp,
+      name: m.name,
+      code_up,
+      ...(code_down !== undefined ? { code_down } : {}),
+    },
   });
-  log.info(
-    colors.green(`Pushed ${migrations.length} datatable migration(s)`),
-  );
-
-  // Migrations newly introduced by this push (absent from the remote set before),
-  // keyed by (datatable, timestamp) since timestamps are unique only per table.
-  const remoteKeys = new Set(remote.map((m) => `${m.datatable}\0${m.timestamp}`));
-  const newMigrations = migrations.filter(
-    (m) => !remoteKeys.has(`${m.datatable}\0${m.timestamp}`),
-  );
-  if (newMigrations.length > 0) {
-    await offerToRunNewMigrations(workspace, newMigrations, opts);
-  }
-
-  return true;
 }
 
 /**
@@ -225,11 +151,13 @@ export async function pushDatatableMigrations(
  * offer to run them, equivalent to `wmill datatable migrate up` on each affected
  * data table.
  */
-async function offerToRunNewMigrations(
+export async function offerToRunNewMigrations(
   workspace: string,
-  newMigrations: DatatableMigration[],
+  newMigrations: { datatable: string; timestamp: number; name: string }[],
   opts?: { yes?: boolean; jsonOutput?: boolean },
 ): Promise<void> {
+  if (newMigrations.length === 0) return;
+
   log.info(colors.green("New migrations were pushed:"));
   for (const m of newMigrations) {
     log.info(colors.gray(`  ${m.datatable}: ${m.timestamp} ${m.name}`));
@@ -252,76 +180,5 @@ async function offerToRunNewMigrations(
 
   for (const datatable of new Set(newMigrations.map((m) => m.datatable))) {
     await runMigrations(workspace, datatable);
-  }
-}
-
-/**
- * Pull the workspace's datatable migrations into
- * <cwd>/datatable_migrations/<datatable>/ as `<timestamp>_<name>.up.sql` (and
- * `.down.sql` when a down migration exists). Files no longer present remotely
- * are removed locally.
- */
-export async function pullDatatableMigrations(
-  workspace: string,
-): Promise<boolean> {
-  const localDir = path.join(process.cwd(), MIGRATIONS_DIR);
-  let migrations: DatatableMigration[];
-  try {
-    migrations = await wmill.listDatatableMigrations({ workspace });
-  } catch (e) {
-    log.debug(`Skipping datatable migrations pull: ${e}`);
-    return false;
-  }
-
-  if (migrations.length === 0 && !fs.existsSync(localDir)) {
-    return false;
-  }
-
-  // Relative paths (`<datatable>/<file>`) that should exist after the pull.
-  const known = new Set<string>();
-  for (const m of migrations) {
-    const dtDir = path.join(localDir, m.datatable);
-    fs.mkdirSync(dtDir, { recursive: true });
-    const up = upFileName(m);
-    known.add(`${m.datatable}/${up}`);
-    writeIfChanged(path.join(dtDir, up), m.code_up);
-    if (m.code_down !== undefined && m.code_down !== null) {
-      const down = downFileName(m);
-      known.add(`${m.datatable}/${down}`);
-      writeIfChanged(path.join(dtDir, down), m.code_down);
-    }
-  }
-
-  // Delete locally-orphaned migration files across all datatable subfolders.
-  if (fs.existsSync(localDir)) {
-    for (const datatable of fs.readdirSync(localDir)) {
-      const dtDir = path.join(localDir, datatable);
-      if (!fs.statSync(dtDir).isDirectory()) continue;
-      for (const file of fs.readdirSync(dtDir)) {
-        if (!parseMigrationFileName(file)) continue;
-        if (!known.has(`${datatable}/${file}`)) {
-          try {
-            fs.unlinkSync(path.join(dtDir, file));
-          } catch {
-            // ignore
-          }
-        }
-      }
-    }
-  }
-
-  log.info(colors.green(`Pulled ${migrations.length} datatable migration(s)`));
-  return true;
-}
-
-function writeIfChanged(full: string, content: string): void {
-  let existing: string | undefined;
-  try {
-    existing = readTextFileSync(full);
-  } catch {
-    existing = undefined;
-  }
-  if (existing !== content) {
-    fs.writeFileSync(full, content, "utf-8");
   }
 }

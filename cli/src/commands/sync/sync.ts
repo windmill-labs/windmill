@@ -23,13 +23,15 @@ import {
   showDiff,
   extractNativeTriggerInfo,
   redactEncryptionKey,
+  isDatatableMigrationPath,
+  parseDatatableMigrationPath,
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
 import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
 import { pullSharedUi, pushSharedUi } from "../shared_ui.ts";
 import {
-  pullDatatableMigrations,
-  pushDatatableMigrations,
+  pushMigrationFromDisk,
+  offerToRunNewMigrations,
 } from "../datatable_migrations.ts";
 
 import {
@@ -2480,7 +2482,8 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
       !p.startsWith("g" + SEP) &&
       !p.startsWith("users" + SEP) &&
       !p.startsWith("groups" + SEP) &&
-      !p.startsWith("dependencies" + SEP)
+      !p.startsWith("dependencies" + SEP) &&
+      !p.startsWith("datatable_migrations" + SEP)
     );
   }
 
@@ -2491,6 +2494,11 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
 
   try {
     const typ = getTypeStrFromPath(p);
+    // Datatable migrations live under datatable_migrations/<datatable>/, outside
+    // the u/f/g namespaces, but are valid wmill files.
+    if (typ == "datatable_migration") {
+      return false;
+    }
     if (
       typ == "resource-type" ||
       typ == "settings" ||
@@ -2522,7 +2530,8 @@ export const isWhitelisted = (p: string) => {
     p == "ui" ||
     p == "users" ||
     p == "groups" ||
-    p == "dependencies"
+    p == "dependencies" ||
+    p == "datatable_migrations"
   );
 };
 
@@ -2617,6 +2626,11 @@ interface ChangeTracker {
 }
 
 async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
+  // Datatable migration .sql files are not scripts; they're synced via the
+  // dedicated datatable_migration handler in the push loop.
+  if (isDatatableMigrationPath(p)) {
+    return;
+  }
   const isScript = exts.some((e) => p.endsWith(e)) && !isFileResource(p) && !isFilesetResource(p);
   if (isScript) {
     if (isFlowPath(p)) {
@@ -3353,11 +3367,8 @@ export async function pull(
     log.warn(`Failed to pull shared UI folder: ${e}`);
   }
 
-  try {
-    await pullDatatableMigrations(workspace.workspaceId);
-  } catch (e) {
-    log.warn(`Failed to pull datatable migrations folder: ${e}`);
-  }
+  // Datatable migrations are part of the workspace export now, so they flow
+  // through the normal diff/apply above as `datatable_migration` items.
 
   // Git-sync deployment-callback mode stops here: branch checkout + pull have
   // happened, but commit + push are the caller's job. The hub script does
@@ -4246,6 +4257,21 @@ export async function push(
     // Cache git branch at the start to avoid repeated execSync calls per change
     const cachedWsNameForPush = wsNameForFiles || (isGitRepository() ? getCurrentGitBranch() : null);
 
+    // Datatable migrations are two files (.up.sql/.down.sql) for one record, so
+    // dedupe upsert/delete by (datatable, version) across the whole push.
+    const pushedMigrationKeys = new Set<string>();
+    // Migrations newly added by this push (an added .up.sql) — offered to run once
+    // the push has completed.
+    const newDatatableMigrations = changes
+      .filter((c) => c.name === "added")
+      .map((c) => parseDatatableMigrationPath(c.path))
+      .filter((p) => !!p && p.kind === "up")
+      .map((p) => ({
+        datatable: p!.datatable,
+        timestamp: p!.timestamp,
+        name: p!.name,
+      }));
+
     while (queue.length > 0 || pool.size > 0) {
       // Fill the pool until we reach the effective parallelism limit.
       // During the folder-meta phase this is 1 (sequential) so no item change
@@ -4273,6 +4299,20 @@ export async function push(
           }
 
           for await (const change of changes) {
+            // A datatable migration is one record across two files; upsert/delete
+            // it from disk once (deduped), regardless of which file changed.
+            if (isDatatableMigrationPath(change.path)) {
+              const parsed = parseDatatableMigrationPath(change.path);
+              if (parsed) {
+                const key = `${parsed.datatable}\0${parsed.timestamp}`;
+                if (!pushedMigrationKeys.has(key)) {
+                  pushedMigrationKeys.add(key);
+                  await pushMigrationFromDisk(workspace.workspaceId, parsed);
+                }
+              }
+              continue;
+            }
+
             let stateTarget = undefined;
             if (stateful) {
               try {
@@ -4928,12 +4968,12 @@ export async function push(
       log.warn(`Failed to push shared UI folder: ${e}`);
     }
     try {
-      await pushDatatableMigrations(workspace.workspaceId, {
+      await offerToRunNewMigrations(workspace.workspaceId, newDatatableMigrations, {
         yes: opts.yes,
         jsonOutput: opts.jsonOutput,
       });
     } catch (e) {
-      log.warn(`Failed to push datatable migrations folder: ${e}`);
+      log.warn(`Failed to run new datatable migrations: ${e}`);
     }
     if (opts.jsonOutput) {
       const result = {
@@ -4979,14 +5019,7 @@ export async function push(
     } catch (e) {
       log.warn(`Failed to push shared UI folder: ${e}`);
     }
-    try {
-      await pushDatatableMigrations(workspace.workspaceId, {
-        yes: opts.yes,
-        jsonOutput: opts.jsonOutput,
-      });
-    } catch (e) {
-      log.warn(`Failed to push datatable migrations folder: ${e}`);
-    }
+    // No changes pushed, so no new datatable migrations to run.
     if (opts.jsonOutput) {
       console.log(
         JSON.stringify(
