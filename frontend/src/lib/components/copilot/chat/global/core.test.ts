@@ -668,7 +668,6 @@ describe('global AI tools', () => {
 			value: { modules: [] },
 			schema: { x: 1 },
 			tag: 'flow-tag',
-			priority: 5,
 			dedicated_worker: true
 		} as any)
 
@@ -684,7 +683,6 @@ describe('global AI tools', () => {
 				value: { modules: [] },
 				schema: { x: 1 },
 				tag: 'flow-tag',
-				priority: 5,
 				dedicated_worker: true
 			})
 		})

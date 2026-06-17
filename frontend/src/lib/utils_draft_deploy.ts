@@ -317,8 +317,6 @@ export async function deployDraft(
 				value: d.value,
 				schema: d.schema,
 				tag: d.tag,
-				priority: d.priority,
-				timeout: d.timeout,
 				dedicated_worker: d.dedicated_worker,
 				ws_error_handler_muted: d.ws_error_handler_muted,
 				visible_to_runner_only: d.visible_to_runner_only,
