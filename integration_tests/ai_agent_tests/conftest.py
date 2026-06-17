@@ -18,6 +18,41 @@ load_dotenv(Path(__file__).parent / ".env")
 TEST_IMAGE_PATH = Path(__file__).parent / "test_image.webp"
 TEST_IMAGE_S3_KEY = "test_images/test_image.webp"
 
+# Env vars each provider needs before its parametrized cases can run. Cases for a
+# provider whose keys are absent are skipped instead of failed, so a CI run (or a
+# local dev) can exercise only the providers it has credentials for.
+PROVIDER_ENV_REQUIREMENTS: dict[str, list[str]] = {
+    "openai": ["OPENAI_API_KEY"],
+    "azure_openai": ["AZURE_OPENAI_API_KEY", "AZURE_OPENAI_BASE_URL"],
+    "anthropic": ["ANTHROPIC_API_KEY"],
+    "google_ai": ["GOOGLE_AI_API_KEY"],
+    "openrouter": ["OPENROUTER_API_KEY"],
+    "bedrock": ["BEDROCK_API_KEY"],
+    "bedrock_api_key": ["BEDROCK_API_KEY"],
+    "bedrock_iam": ["BEDROCK_IAM_ACCESS_KEY_ID", "BEDROCK_IAM_SECRET_ACCESS_KEY"],
+    "bedrock_iam_session": [
+        "BEDROCK_SESSION_ACCESS_KEY_ID",
+        "BEDROCK_SESSION_SECRET_ACCESS_KEY",
+        "BEDROCK_SESSION_TOKEN",
+    ],
+    "bedrock_env": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+}
+
+
+@pytest.fixture(autouse=True)
+def skip_provider_without_credentials(request):
+    """Skip a provider-parametrized case when that provider's keys are not set."""
+    callspec = getattr(request.node, "callspec", None)
+    if callspec is None:
+        return
+    provider = callspec.params.get("provider_config")
+    if not isinstance(provider, dict):
+        return
+    required = PROVIDER_ENV_REQUIREMENTS.get(provider.get("name"), [])
+    missing = [name for name in required if not os.environ.get(name)]
+    if missing:
+        pytest.skip(f"{provider['name']}: missing {', '.join(missing)}")
+
 
 class AIAgentTestClient:
     """HTTP client for testing AI agents via the preview_flow endpoint."""
