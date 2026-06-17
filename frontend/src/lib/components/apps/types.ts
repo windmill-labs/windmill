@@ -144,6 +144,10 @@ export interface AppEditorProps {
 	path: string
 	policy: Policy
 	summary: string
+	/** Deployed app value the autosave `discardIf` compares against, so an
+	 * edit reverting to deployed clears the draft instead of leaving a no-op.
+	 * `undefined` for draft-only paths (no deployed baseline). */
+	deployedBaseline?: App | undefined
 	fromHub?: boolean
 	diffDrawer?: DiffDrawerI | undefined
 	savedApp?:
@@ -203,6 +207,15 @@ export type App = {
 	 * clears the whole draft.
 	 */
 	draft_path?: string
+	/**
+	 * App summary persisted on the autosaved App so a draft round-trips it — the
+	 * autosave stores the bare App value, which otherwise drops the summary (it
+	 * normally lives in the `app` table column, set only on deploy). Mirrors
+	 * `draft_path`: draft-only metadata; the deployed summary column is
+	 * authoritative, and the Review & Deploy page reads it from the draft and
+	 * sends it as the summary on deploy.
+	 */
+	summary?: string
 }
 
 export type ConnectingInput = {

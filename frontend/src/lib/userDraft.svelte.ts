@@ -186,11 +186,24 @@ function snapshotDraftValue<V>(value: V | undefined): V | undefined {
  * run-as directives, not draft content, and the editor round-trips them
  * asymmetrically (`preserve_…` rebuilt as `!!cfg.permissioned_as` on load
  * but `|| undefined` on build) — keeping them produces a phantom banner.
+ *
+ * The rest are server-managed read-time metadata that ride along on the
+ * loaded deployed payload but never appear in the editor's draft content, so
+ * comparing them would mask a true baseline match:
+ * `draft_saved_at` (the draft's own save time), `edited_at` (deploy time),
+ * `edited_by` (deploy author), `workspace_id`, `version_id` (deployed version),
+ * and `is_draft` (backend presence flag).
  */
 const DRAFT_COMPARE_IGNORED_FIELDS = [
 	'permissioned_as',
 	'preserve_permissioned_as',
-	'extra_perms'
+	'extra_perms',
+	'draft_saved_at',
+	'edited_at',
+	'edited_by',
+	'workspace_id',
+	'version_id',
+	'is_draft'
 ] as const
 
 /**
@@ -453,6 +466,8 @@ export const UserDraft = {
 		opts?: UserDraftOptions & {
 			/** See the `useMany` spec field. Default `false`. */
 			canBeDisabled?: boolean
+			/** See the `useMany` spec field. Captured once on first acquire. */
+			discardIf?: (val: V) => boolean
 		}
 	): UserDraftHandle<V> {
 		// Single-spec wrapper around `useMany`. `untrack` captures reactive
@@ -460,7 +475,13 @@ export const UserDraft = {
 		// workspace until unmount. For reactive `(kind, path)` use `useReactive`.
 		const handles = UserDraft.useMany<V>(() =>
 			untrack(() => [
-				{ itemKind, path, workspace: opts?.workspace, canBeDisabled: opts?.canBeDisabled }
+				{
+					itemKind,
+					path,
+					workspace: opts?.workspace,
+					canBeDisabled: opts?.canBeDisabled,
+					discardIf: opts?.discardIf
+				}
 			])
 		)
 		return handles[0]
@@ -479,6 +500,13 @@ export const UserDraft = {
 			path: string
 			workspace?: string
 			canBeDisabled?: boolean
+			/** See the `useMany` spec field. Seeds the cell on first acquire
+			 *  without POSTing. Pass a STABLE reference (read it under `untrack`)
+			 *  — it's consumed once, so re-reading reactive state here only churns
+			 *  the reconcile. */
+			defaultValue?: V
+			/** See the `useMany` spec field. Captured per re-keyed acquire. */
+			discardIf?: (val: V) => boolean
 		}
 	): UserDraftHandle<V> {
 		const handles = UserDraft.useMany<V>(() => [getSpec()])
@@ -542,15 +570,19 @@ export const UserDraft = {
 			const next: UserDraftHandle<V>[] = []
 
 			for (const spec of specs) {
-				const ws = spec.workspace ?? resolveWorkspace()
-				const mk = mapKey(ws, spec.itemKind, spec.path)
+				// Resolve the workspace WITHOUT throwing: a reactive caller (e.g. an
+				// SDK editor mounted before login) may not have one yet. An absent
+				// workspace is handled like an empty path below, so the handle
+				// re-keys into a real entry once the workspace resolves.
+				const ws = spec.workspace ?? get(workspaceStore) ?? undefined
+				const mk = mapKey(ws ?? '', spec.itemKind, spec.path)
 
-				// Empty path = no draftable item (e.g. read-only
-				// historical-hash view that still binds an editor value).
+				// No workspace yet, or empty path = no draftable item (e.g. a
+				// read-only historical-hash view that still binds an editor value).
 				// Acquiring would mirror edits into an unroutable
 				// `POST /drafts/update/kind/` (permanent "Save failed").
 				// Hand out a detached, local-only handle instead.
-				if (!spec.path) {
+				if (!ws || !spec.path) {
 					seen.add(mk)
 					let handle = handleCache.get(mk)
 					// Drop the cached handle when the caller hands in a fresh
@@ -632,14 +664,21 @@ export const UserDraft = {
 			// vanish when the editor unmounts mid-typing. Fire-and-forget —
 			// the POST rides the runner's own lifetime, which outlives this
 			// component, so destroying the cell here doesn't cancel it.
+			//
+			// `honorAutosaveToggle`: this unmount flush is an implicit autosave,
+			// so a toggle-aware handle whose auto-save is off must NOT persist on
+			// leave — the editor's UnsavedConfirmationModal warns the user instead.
 			for (const mk of acquired) {
 				const entry = entries.get(mk)
 				if (!entry) continue
-				void UserDraftDbSyncer.flush({
-					workspace: entry.workspace,
-					itemKind: entry.itemKind,
-					path: entry.path
-				})
+				void UserDraftDbSyncer.flush(
+					{
+						workspace: entry.workspace,
+						itemKind: entry.itemKind,
+						path: entry.path
+					},
+					{ honorAutosaveToggle: true }
+				)
 			}
 			for (const mk of acquired) releaseEntry(mk)
 			acquired.clear()

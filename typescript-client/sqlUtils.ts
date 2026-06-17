@@ -138,14 +138,16 @@ function datatableProvider(name: string, schema?: string): SqlProvider {
   };
 }
 
-function ducklakeProvider(name: string): SqlProvider {
+function ducklakeProvider(name: string, schema?: string): SqlProvider {
   return {
     providerName: "ducklake",
     language: "duckdb",
     extraArgs: {},
     formatArgDecl: (argNum, argType) => `-- $arg${argNum} (${argType})`,
     formatArgUsage: (argNum) => `$arg${argNum}`,
-    preamble: () => `ATTACH 'ducklake://${name}' AS dl;USE dl;\n`,
+    // `USE dl."schema"` sets the active schema so unqualified tables resolve there.
+    preamble: () =>
+      `ATTACH 'ducklake://${name}' AS dl;USE dl${schema ? `."${schema}"` : ""};\n`,
   };
 }
 
@@ -364,7 +366,7 @@ export function datatable(name: string = "main"): DatatableSqlTemplateFunction {
 
 /**
  * Create a SQL template function for DuckDB/ducklake queries
- * @param name - DuckDB database name (default: "main")
+ * @param name - DuckDB database name, optionally with a schema as `name:schema` (default: "main")
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.ducklake()
@@ -374,9 +376,13 @@ export function datatable(name: string = "main"): DatatableSqlTemplateFunction {
  *   SELECT * FROM friends
  *     WHERE name = ${name} AND age = ${age}
  * `.fetch()
+ * @example
+ * // Target a specific schema within the ducklake
+ * let sql = wmill.ducklake("my_lake:analytics")
  */
 export function ducklake(name: string = "main"): SqlTemplateFunction {
-  return buildSqlTemplateFunction(ducklakeProvider(name));
+  let { name: n, schema } = parseName(name);
+  return buildSqlTemplateFunction(ducklakeProvider(n, schema));
 }
 
 // ---------------------------------------------------------------------------
