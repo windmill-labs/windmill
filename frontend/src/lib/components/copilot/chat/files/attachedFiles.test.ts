@@ -402,4 +402,24 @@ describe('AttachedFilesStore', () => {
 		await settle(store)
 		expect(store.folders[0].files.map((f) => f.relPath)).toEqual(['proj/new.ts'])
 	})
+
+	it('links an initially empty live folder (kept visible, persisted, refreshes)', async () => {
+		const { putItem } = await import('./attachedFilesDB')
+		const s = new AttachedFilesStore()
+		await s.restore('s1', true)
+		enumerateDirMock.mockResolvedValue([]) // folder is empty at link time
+		const res = await s.addFolder(dir)
+		await settle(s)
+		expect(res.added).toEqual([])
+		expect(s.folders).toEqual([{ name: 'proj', status: 'ready', files: [] }])
+		// persisted as a dir-handle so it survives a reload despite being empty
+		const persisted = (putItem as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0])
+		expect(persisted.some((r) => r.kind === 'dir-handle' && r.folder === 'proj')).toBe(true)
+
+		// a file added later is picked up — the source existed from the start.
+		enumerateDirMock.mockResolvedValue([{ file: file('app.ts', 'x\n'), path: 'proj/app.ts' }])
+		await s.refreshFolders()
+		await settle(s)
+		expect(s.folders[0].files.map((f) => f.relPath)).toEqual(['proj/app.ts'])
+	})
 })

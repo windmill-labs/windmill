@@ -217,7 +217,6 @@ export class AttachedFilesStore {
 
 		const files = await enumerateDir(dirHandle)
 		const sourceId = createLongHash()
-		let addedAny = false
 		for (const { file, path } of files) {
 			if (!(await this.#sniffText(file))) {
 				result.rejected.push({ name: path, reason: 'Not a text file' })
@@ -226,19 +225,20 @@ export class AttachedFilesStore {
 			const name = this.#uniqueName(path)
 			this.#pushIndexing({ name, file, folder, sourceId, handle: dirHandle, relPath: path })
 			result.added.push(name)
-			addedAny = true
 		}
-		if (addedAny) {
-			void this.#persist({
-				id: sourceId,
-				sessionId: this.sessionId ?? '',
-				kind: 'dir-handle',
-				name: folder,
-				folder,
-				handle: dirHandle,
-				addedAt: Date.now()
-			})
-		}
+		// Keep the folder represented even when it links empty (or all-binary): a placeholder
+		// carries the handle so the chip stays and refreshFolders picks up files added later.
+		// Persist unconditionally so an empty-at-link folder also survives a reload.
+		this.#ensureFolderRow(sourceId, folder, dirHandle)
+		void this.#persist({
+			id: sourceId,
+			sessionId: this.sessionId ?? '',
+			kind: 'dir-handle',
+			name: folder,
+			folder,
+			handle: dirHandle,
+			addedAt: Date.now()
+		})
 		return result
 	}
 
