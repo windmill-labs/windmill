@@ -9178,11 +9178,6 @@ paths:
                     type: array
                     items:
                       type: string
-                  token_url:
-                    type: string
-                    description: >-
-                      Resolved token endpoint, used to prefill and persist the
-                      token URL on client-credentials accounts
                   client_credentials_configured:
                     type: boolean
                     description: >-
