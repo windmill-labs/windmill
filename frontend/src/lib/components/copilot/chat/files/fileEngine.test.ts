@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { buildLineIndex, readFile, searchFiles, isTextFile, type FileEntry } from './fileEngine'
+import {
+	buildLineIndex,
+	readFile,
+	searchFiles,
+	isTextFile,
+	numberLines,
+	type FileEntry
+} from './fileEngine'
 
 function makeFile(content: string | Uint8Array, name = 'f.txt'): File {
 	return new File([content as BlobPart], name)
@@ -177,5 +184,29 @@ describe('isTextFile', () => {
 
 	it('rejects content with NUL bytes', async () => {
 		expect(await isTextFile(makeFile(new Uint8Array([104, 0, 105]), 'b.bin'))).toBe(false)
+	})
+})
+
+describe('numberLines', () => {
+	it('prefixes each line with its absolute 1-based number', () => {
+		expect(numberLines('l3\nl4\n', 3)).toBe('3→l3\n4→l4')
+	})
+
+	it('right-aligns numbers to a common width', () => {
+		expect(numberLines('a\nb', 9)).toBe(' 9→a\n10→b')
+	})
+
+	it('numbers a final line that has no trailing newline', () => {
+		expect(numberLines('only', 5)).toBe('5→only')
+	})
+
+	it('matches a readFile window (numbers the returned lines, no phantom line)', async () => {
+		const file = makeFile('l1\nl2\nl3')
+		const { lineIndex, lineCount } = await buildLineIndex(file)
+		const res = await readFile(
+			{ name: 'f.txt', file, lineIndex, lineCount },
+			{ startLine: 1, endLine: 2 }
+		)
+		expect(numberLines(res.text, res.startLine)).toBe('1→l1\n2→l2')
 	})
 })

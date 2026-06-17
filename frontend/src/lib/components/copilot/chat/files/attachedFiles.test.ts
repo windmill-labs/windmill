@@ -17,6 +17,22 @@ vi.mock('./fsAccess', () => ({
 	requestReadPermission: vi.fn(async () => 'granted')
 }))
 
+// buildLineIndex is real by default; a single test flips to 'manual' to control
+// completion ordering and exercise the stale-index race guard.
+type BuildResult = { lineIndex: number[]; lineCount: number }
+const buildDeferreds: Array<{ file: Blob; resolve: (r: BuildResult) => void }> = []
+let buildMode: 'real' | 'manual' = 'real'
+vi.mock('./fileEngine', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('./fileEngine')>()
+	return {
+		...actual,
+		buildLineIndex: (file: Blob) =>
+			buildMode === 'real'
+				? actual.buildLineIndex(file)
+				: new Promise<BuildResult>((resolve) => buildDeferreds.push({ file, resolve }))
+	}
+})
+
 import { AttachedFilesStore } from './attachedFiles.svelte'
 
 function file(name: string, content: string, lastModified = 1): File {
@@ -310,6 +326,32 @@ describe('AttachedFilesStore', () => {
 		expect(s.count).toBe(0)
 		const deleted = (deleteItem as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0])
 		for (const id of ids) expect(deleted).toContain(id)
+	})
+
+	it('a stale index completion does not corrupt a re-added same-named file', async () => {
+		buildMode = 'manual'
+		try {
+			const A = file('a.txt', 'AAA\n')
+			const B = file('a.txt', 'BBB\nBBB\nBBB\n')
+			await store.addFiles([A]) // row 'a.txt' (file A) → buildLineIndex(A) pending
+			store.removeFile('a.txt')
+			await store.addFiles([B]) // new row 'a.txt' (file B) → buildLineIndex(B) pending
+
+			// The old (stale) index for A resolves last — it must NOT touch the row now holding B.
+			buildDeferreds.find((d) => d.file === A)!.resolve({ lineIndex: [0], lineCount: 99 })
+			await Promise.resolve()
+			expect(store.get('a.txt')?.status).toBe('indexing')
+			expect(store.get('a.txt')?.lineCount).not.toBe(99)
+
+			// B's own index applies normally.
+			buildDeferreds.find((d) => d.file === B)!.resolve({ lineIndex: [0, 4, 8], lineCount: 3 })
+			await Promise.resolve()
+			expect(store.get('a.txt')?.status).toBe('ready')
+			expect(store.get('a.txt')?.lineCount).toBe(3)
+		} finally {
+			buildMode = 'real'
+			buildDeferreds.length = 0
+		}
 	})
 
 	it('removeFolder deletes the live folder record from storage (persisted session)', async () => {

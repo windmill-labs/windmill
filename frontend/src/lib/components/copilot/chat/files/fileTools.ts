@@ -9,7 +9,7 @@
 import { z } from 'zod'
 import type { ChatCompletionSystemMessageParam } from 'openai/resources/chat/completions.mjs'
 import { createToolDef, type Tool } from '../shared'
-import { readFile, searchFiles, FileReadError, type SearchHit } from './fileEngine'
+import { readFile, searchFiles, numberLines, FileReadError, type SearchHit } from './fileEngine'
 import type { AttachedFile, AttachedFilesStore } from './attachedFiles.svelte'
 
 /** Slice of the GLOBAL tool helpers that exposes the attached-files store. */
@@ -93,7 +93,7 @@ const readFileSchema = z.object({
 const readFileToolDef = createToolDef(
 	readFileSchema,
 	'read_file',
-	'Read a bounded window of lines from a user-attached file. Returns line-numbered context with a pagination note. Files are not in context, so use this to inspect their contents.'
+	'Read a bounded window of lines from a user-attached file. Returns each line prefixed with its 1-based number (`<n>→<content>`) plus a pagination note. Files are not in context, so use this to inspect their contents.'
 )
 
 export const readFileTool: Tool<{}> = {
@@ -131,7 +131,7 @@ export const readFileTool: Tool<{}> = {
 				startLine: parsed.start_line,
 				endLine: parsed.end_line
 			})
-			return res.text ? `${res.note}\n\n${res.text}` : res.note
+			return res.text ? `${res.note}\n\n${numberLines(res.text, res.startLine)}` : res.note
 		} catch (e) {
 			if (e instanceof FileReadError) {
 				return `Could not read "${parsed.file}": ${e.message}. The file may have been moved or deleted since it was attached.`

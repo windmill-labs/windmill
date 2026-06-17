@@ -504,14 +504,30 @@ export class AttachedFilesStore {
 	async #indexFile(name: string, file: File | Blob): Promise<void> {
 		try {
 			const { lineIndex, lineCount } = await buildLineIndex(file)
-			this.#patch(name, { lineIndex, lineCount, status: 'ready' })
+			this.#patchFile(name, file, { lineIndex, lineCount, status: 'ready' })
 		} catch (e) {
-			this.#patch(name, { status: 'error', error: e instanceof Error ? e.message : String(e) })
+			this.#patchFile(name, file, {
+				status: 'error',
+				error: e instanceof Error ? e.message : String(e)
+			})
 		}
 	}
 
 	#patch(name: string, changes: Partial<AttachedFile>): void {
 		this.files = this.files.map((f) => (f.name === name ? { ...f, ...changes } : f))
+	}
+	/**
+	 * Patch the row for `name` ONLY while it still holds the exact `file` we indexed.
+	 * `buildLineIndex` is async and unawaited; between its start and finish the row's
+	 * file can be swapped (remove + re-add a same-named file, or a folder refresh
+	 * re-indexing an edited file). Without the identity check a stale completion would
+	 * stamp the wrong lineIndex/lineCount on the new file, and read_file would then slice
+	 * the new Blob with the old offsets.
+	 */
+	#patchFile(name: string, file: File | Blob, changes: Partial<AttachedFile>): void {
+		this.files = this.files.map((f) =>
+			f.name === name && f.file === file ? { ...f, ...changes } : f
+		)
 	}
 	#patchSource(sourceId: string, changes: Partial<AttachedFile>): void {
 		this.files = this.files.map((f) => (f.sourceId === sourceId ? { ...f, ...changes } : f))

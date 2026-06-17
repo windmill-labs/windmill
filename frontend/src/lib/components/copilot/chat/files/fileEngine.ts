@@ -158,6 +158,19 @@ export async function readFile(
 	return { text, startLine: start, endLine: end, totalLines, truncated, note }
 }
 
+/**
+ * Prefix each line of a read window with its absolute 1-based number (`<n>→<content>`),
+ * so the model can quote/reference exact lines. `startLine` is the window's first line.
+ */
+export function numberLines(text: string, startLine: number): string {
+	const lines = text.split('\n')
+	// readFile's window ends with the trailing newline of its last line when more lines
+	// follow, so split yields a phantom empty element — drop it before numbering.
+	if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
+	const width = String(startLine + lines.length - 1).length
+	return lines.map((l, i) => `${String(startLine + i).padStart(width)}→${l}`).join('\n')
+}
+
 export interface SearchHit {
 	file: string
 	line: number
