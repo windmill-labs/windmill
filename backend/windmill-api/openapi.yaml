@@ -4351,6 +4351,40 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/workspaces/run_datatable_migrations/{datatable_name}:
+    post:
+      summary: run pending datatable migrations against a datatable
+      operationId: runDatatableMigrations
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: applied migrations
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [applied]
+                properties:
+                  applied:
+                    type: array
+                    items:
+                      type: object
+                      required: [version, name]
+                      properties:
+                        version:
+                          type: integer
+                          format: int64
+                        name:
+                          type: string
+
   /w/{workspace}/workspaces/create_pg_database:
     post:
       summary: create a new PostgreSQL database for a datatable

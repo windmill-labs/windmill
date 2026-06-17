@@ -126,6 +126,10 @@ pub fn workspaced_service() -> Router {
             get(get_datatable_table_schema),
         )
         .route("/edit_datatable_config", post(edit_datatable_config))
+        .route(
+            "/run_datatable_migrations/{datatable_name}",
+            post(run_datatable_migrations),
+        )
         .route("/git_sync_enabled", get(get_git_sync_enabled))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
@@ -2371,6 +2375,108 @@ async fn edit_datatable_config(
     tx.commit().await?;
 
     Ok(format!("Edit datatable config for workspace {}", &w_id))
+}
+
+#[derive(Serialize)]
+struct AppliedMigration {
+    version: i64,
+    name: String,
+}
+
+#[derive(Serialize)]
+struct RunDatatableMigrationsResult {
+    applied: Vec<AppliedMigration>,
+}
+
+/// Apply the workspace's pending data table migrations to a given data table.
+/// Applied versions are tracked in the data table's own `_wm_migrations` table,
+/// so only migrations not recorded there are run, in ascending `timestamp` order.
+async fn run_datatable_migrations(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, datatable_name)): Path<(String, String)>,
+) -> JsonResult<RunDatatableMigrationsResult> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    audit_log(
+        &db,
+        &authed,
+        "workspaces.run_datatable_migrations",
+        ActionKind::Update,
+        &w_id,
+        Some(datatable_name.as_str()),
+        None,
+    )
+    .await?;
+
+    let migrations = sqlx::query!(
+        "SELECT timestamp, name, code_up FROM datatable_migrations \
+         WHERE workspace_id = $1 ORDER BY timestamp ASC",
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?;
+
+    // Connect to the data table's database
+    let db_resource = get_datatable_resource_from_db_unchecked(&db, &w_id, &datatable_name).await?;
+    let pg_db: PgDatabase = serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+    let (mut client, connection) = pg_db.connect(Some(&db)).await?;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+
+    client
+        .batch_execute(
+            "CREATE TABLE IF NOT EXISTS _wm_migrations (\
+                version BIGINT PRIMARY KEY, \
+                installed_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!("Failed to ensure _wm_migrations table: {}", e))
+        })?;
+
+    let applied_versions: HashSet<i64> = client
+        .query("SELECT version FROM _wm_migrations", &[])
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to read _wm_migrations: {}", e)))?
+        .iter()
+        .map(|row| row.get::<_, i64>(0))
+        .collect();
+
+    let mut applied = Vec::new();
+    for m in migrations {
+        if applied_versions.contains(&m.timestamp) {
+            continue;
+        }
+        // Each migration is applied and recorded atomically so a failure leaves
+        // neither the schema change nor the version row behind.
+        let tx = client
+            .transaction()
+            .await
+            .map_err(|e| Error::internal_err(format!("Failed to start transaction: {}", e)))?;
+        tx.batch_execute(&m.code_up).await.map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to apply migration {} ({}): {}",
+                m.timestamp, m.name, e
+            ))
+        })?;
+        tx.execute(
+            "INSERT INTO _wm_migrations (version) VALUES ($1)",
+            &[&m.timestamp],
+        )
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to record migration: {}", e)))?;
+        tx.commit().await.map_err(|e| {
+            Error::internal_err(format!("Failed to commit migration {}: {}", m.timestamp, e))
+        })?;
+        applied.push(AppliedMigration { version: m.timestamp, name: m.name });
+    }
+
+    Ok(Json(RunDatatableMigrationsResult { applied }))
 }
 
 #[derive(Deserialize)]
