@@ -497,17 +497,56 @@ export const UserDraftDbSyncer = {
 	 * save" — Monaco may hold unmaterialized text; flush the editor
 	 * (`Editor.flushPendingChanges()`) and await `tick()` first so its
 	 * bind:code reaches our save() before this.
+	 *
+	 * `honorAutosaveToggle` makes the flush respect the "Enable auto-save"
+	 * preference: a toggle-aware autosave (`auto` + `canBeDisabled`) stays
+	 * parked while auto-save is off, so the edit is NOT persisted. The editor's
+	 * unmount uses it (leaving with auto-save off must not silently save —
+	 * the UnsavedConfirmationModal warns instead); explicit Ctrl/Cmd+S omits it
+	 * and always saves.
 	 */
-	async flush(query: UserDraftLastSyncQuery): Promise<void> {
+	async flush(
+		query: UserDraftLastSyncQuery,
+		opts?: { honorAutosaveToggle?: boolean }
+	): Promise<void> {
 		const key = draftKey(query.workspace, query.itemKind, query.path)
 		try {
-			const opts = pendingSaveOpts.get(key)
-			if (!opts) return
-			await this.save({ ...opts, immediate: true })
+			const parked = pendingSaveOpts.get(key)
+			if (!parked) return
+			if (opts?.honorAutosaveToggle && !autosaveEnabledState && parked.auto && parked.canBeDisabled)
+				return
+			await this.save({ ...parked, immediate: true })
 		} finally {
 			// Signal the indicator even on the no-op path so Ctrl/Cmd+S
 			// shows "Saved" even when the autosave already landed.
 			flushes.set(key, (flushes.get(key) ?? 0) + 1)
 		}
+	},
+
+	/**
+	 * Whether this draft has content edits parked but unsaved because auto-save
+	 * is off — the signal the full-page editors' UnsavedConfirmationModal uses
+	 * to warn before leaving. True only when auto-save is disabled AND a
+	 * toggle-aware (`auto` + `canBeDisabled`) write carrying content is parked;
+	 * a parked delete (`value: null` from deploy / discard / reset) is not
+	 * unsaved content. Read imperatively (e.g. in `beforeNavigate`), not
+	 * reactively.
+	 */
+	hasUnsavedDisabledChanges(query: UserDraftLastSyncQuery): boolean {
+		if (autosaveEnabledState) return false
+		const parked = pendingSaveOpts.get(draftKey(query.workspace, query.itemKind, query.path))
+		return !!parked && parked.auto === true && parked.canBeDisabled === true && parked.value != null
+	},
+
+	/**
+	 * Drop a draft's parked-but-unsaved autosave WITHOUT POSTing — the user
+	 * chose to discard the auto-save-off edits on leave. Also cancels any
+	 * queued debounce so turning auto-save back on can't resurrect them
+	 * (the `autosaveEnabled` setter re-schedules every parked entry).
+	 */
+	dropPending(query: UserDraftLastSyncQuery): void {
+		const key = draftKey(query.workspace, query.itemKind, query.path)
+		pendingSaveOpts.delete(key)
+		debouncer.cancel(key)
 	}
 }
