@@ -313,7 +313,18 @@
 			)
 			return
 		}
-		const dir = await pickDirectory()
+		let dir: FileSystemDirectoryHandle | undefined
+		try {
+			dir = await pickDirectory()
+		} catch (e) {
+			// The picker threw instead of opening — surface why (e.g. a browser/enterprise
+			// policy blocking the File System Access API) rather than appearing to do nothing.
+			sendUserToast(
+				`Couldn't open the folder picker: ${e instanceof Error ? e.message : String(e)}`,
+				true
+			)
+			return
+		}
 		if (dir) await addDirHandle(dir)
 	}
 

@@ -61,14 +61,22 @@ export function hasFileSystemAccess(): boolean {
 	)
 }
 
-/** Open the directory picker. Returns undefined if the user cancels. */
+/**
+ * Open the directory picker. Returns undefined if the user dismisses it.
+ * Any other failure (a policy that blocks the File System Access API, a lost
+ * user-activation, etc.) is rethrown — swallowing it makes the picker silently
+ * never open, which is indistinguishable from a no-op and impossible to debug.
+ */
 export async function pickDirectory(): Promise<FileSystemDirectoryHandle | undefined> {
 	const w = window as FSWindow
 	if (!w.showDirectoryPicker) return undefined
 	try {
 		return await w.showDirectoryPicker({ mode: 'read' })
-	} catch {
-		return undefined
+	} catch (e) {
+		// AbortError means the user dismissed the dialog (and, under browser automation,
+		// that CDP intercepted the chooser) — a no-op, not a failure.
+		if (e instanceof DOMException && e.name === 'AbortError') return undefined
+		throw e
 	}
 }
 
