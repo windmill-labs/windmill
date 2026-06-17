@@ -280,6 +280,56 @@ export async function searchFiles(
 	return { hits, truncated }
 }
 
+/**
+ * Run `searchFiles` off the main thread. A model-supplied regex can backtrack
+ * catastrophically (e.g. /^(a+)+$/) and `regex.test()` can't be interrupted — so we run
+ * it in a Worker and `terminate()` it on a timeout, keeping the tab responsive instead of
+ * frozen. Falls back to a main-thread search where Workers aren't available (best effort).
+ */
+export function searchFilesInWorker(
+	entries: FileEntry[],
+	pattern: string,
+	opts: { flags?: string; pathFilter?: string; maxHits?: number } = {},
+	timeoutMs = 3000
+): Promise<SearchResult> {
+	let worker: Worker
+	try {
+		worker = new Worker(new URL('./searchWorker.ts', import.meta.url), { type: 'module' })
+	} catch {
+		return searchFiles(entries, pattern, opts)
+	}
+	return new Promise<SearchResult>((resolve) => {
+		const finish = (r: SearchResult) => {
+			clearTimeout(timer)
+			worker.terminate()
+			resolve(r)
+		}
+		const timer = setTimeout(
+			() =>
+				finish({
+					hits: [],
+					truncated: false,
+					error: 'Search timed out — the pattern is too expensive. Try a simpler regex.'
+				}),
+			timeoutMs
+		)
+		worker.onmessage = (e: MessageEvent<SearchResult>) => finish(e.data)
+		worker.onerror = () => {
+			// Worker script failed to load/run — fall back to a main-thread search.
+			clearTimeout(timer)
+			worker.terminate()
+			searchFiles(entries, pattern, opts).then(resolve)
+		}
+		worker.postMessage({
+			files: entries.map((e) => ({ name: e.name, file: e.file })),
+			pattern,
+			flags: opts.flags,
+			pathFilter: opts.pathFilter,
+			maxHits: opts.maxHits
+		})
+	})
+}
+
 export class FileReadError extends Error {
 	constructor(
 		public fileName: string,

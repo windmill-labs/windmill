@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
 	buildLineIndex,
 	readFile,
 	searchFiles,
+	searchFilesInWorker,
 	isTextFile,
 	numberLines,
 	type FileEntry
@@ -199,6 +200,50 @@ describe('searchFiles', () => {
 		const entry = await makeEntry('match\nmatch\nmatch')
 		const res = await searchFiles([entry], 'match', { flags: 'g' })
 		expect(res.hits.map((h) => h.line)).toEqual([1, 2, 3])
+	})
+})
+
+describe('searchFilesInWorker', () => {
+	// A controllable stand-in for the search Worker — `reply`, `error`, or `hang` (never responds).
+	class MockWorker {
+		onmessage: ((e: MessageEvent) => void) | null = null
+		onerror: ((e: unknown) => void) | null = null
+		static mode: 'reply' | 'error' | 'hang' = 'reply'
+		static reply: unknown = { hits: [], truncated: false }
+		static terminated = false
+		constructor(_url: URL | string, _opts?: unknown) {}
+		postMessage(): void {
+			if (MockWorker.mode === 'reply')
+				queueMicrotask(() => this.onmessage?.({ data: MockWorker.reply } as MessageEvent))
+			else if (MockWorker.mode === 'error') queueMicrotask(() => this.onerror?.({}))
+			// 'hang' → never responds, exercising the timeout path.
+		}
+		terminate(): void {
+			MockWorker.terminated = true
+		}
+	}
+
+	beforeEach(() => {
+		MockWorker.terminated = false
+		vi.stubGlobal('Worker', MockWorker)
+	})
+	afterEach(() => vi.unstubAllGlobals())
+
+	const entry: FileEntry = { name: 'a.txt', file: makeFile('x'), lineIndex: [], lineCount: 0 }
+
+	it('resolves with the worker result and terminates the worker', async () => {
+		MockWorker.mode = 'reply'
+		MockWorker.reply = { hits: [{ file: 'a.txt', line: 1, text: 'x' }], truncated: false }
+		const res = await searchFilesInWorker([entry], 'x')
+		expect(res.hits).toEqual([{ file: 'a.txt', line: 1, text: 'x' }])
+		expect(MockWorker.terminated).toBe(true)
+	})
+
+	it('times out on a non-responding (pathological) pattern and terminates the worker', async () => {
+		MockWorker.mode = 'hang'
+		const res = await searchFilesInWorker([entry], '^(a+)+$', {}, 20)
+		expect(res.error).toContain('timed out')
+		expect(MockWorker.terminated).toBe(true)
 	})
 })
 

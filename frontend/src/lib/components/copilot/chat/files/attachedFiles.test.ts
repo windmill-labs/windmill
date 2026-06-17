@@ -245,6 +245,20 @@ describe('AttachedFilesStore', () => {
 		expect(rec).toMatchObject({ kind: 'snapshot', folder: 'proj', relPath: 'proj/a.ts' })
 	})
 
+	it('keeps same-basename files from different folder subdirs (dedup by path, not basename)', async () => {
+		// Two distinct files with the same basename, size and lastModified, different subdirs.
+		const res = await store.addFiles([
+			{ file: file('index.ts', 'a\n', 5), path: 'proj/a/index.ts' },
+			{ file: file('index.ts', 'a\n', 5), path: 'proj/b/index.ts' }
+		])
+		await settle(store)
+		expect(res.added.sort()).toEqual(['proj/a/index.ts', 'proj/b/index.ts'])
+		expect(store.folders[0].files.map((f) => f.relPath).sort()).toEqual([
+			'proj/a/index.ts',
+			'proj/b/index.ts'
+		])
+	})
+
 	it('skips junk paths (node_modules/.git/dotfiles) inside a snapshotted folder', async () => {
 		const res = await store.addFiles([
 			{ file: file('a.ts', 'x\n'), path: 'proj/a.ts' },

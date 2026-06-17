@@ -364,9 +364,13 @@ export class AttachedFilesStore {
 		return this.files.some(
 			(f) =>
 				f.name === desired ||
-				(f.file instanceof File &&
-					f.file.name === file.name &&
+				// Identical re-drop at the SAME relative path (its row name may have been
+				// auto-suffixed). Keyed on the path, NOT the basename — otherwise two distinct
+				// files sharing a basename under different folder subdirs (proj/a/index.ts vs
+				// proj/b/index.ts) would be wrongly deduped and silently dropped.
+				((f.relPath ?? f.name) === desired &&
 					f.size === file.size &&
+					f.file instanceof File &&
 					f.file.lastModified === file.lastModified)
 		)
 	}

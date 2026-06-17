@@ -9,7 +9,13 @@
 import { z } from 'zod'
 import type { ChatCompletionSystemMessageParam } from 'openai/resources/chat/completions.mjs'
 import { createToolDef, type Tool } from '../shared'
-import { readFile, searchFiles, numberLines, FileReadError, type SearchHit } from './fileEngine'
+import {
+	readFile,
+	searchFilesInWorker,
+	numberLines,
+	FileReadError,
+	type SearchHit
+} from './fileEngine'
 import type { AttachedFile, AttachedFilesStore } from './attachedFiles.svelte'
 
 /** Slice of the GLOBAL tool helpers that exposes the attached-files store. */
@@ -60,7 +66,8 @@ export const searchFilesTool: Tool<{}> = {
 			content: `Searching attached files for /${parsed.pattern}/...`
 		})
 
-		const result = await searchFiles(ready, parsed.pattern, {
+		// Run in a Worker so a pathological model-supplied regex can't freeze the tab.
+		const result = await searchFilesInWorker(ready, parsed.pattern, {
 			flags: parsed.ignore_case ? 'i' : '',
 			pathFilter: parsed.file
 		})
