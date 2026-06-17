@@ -381,7 +381,12 @@ export function getPrimaryKeys(tableMetadata?: TableMetadata): string[] {
 }
 
 export function dbSupportsSchemas(dbType: DbType): boolean {
-	return dbType === 'postgresql' || dbType === 'snowflake' || dbType === 'bigquery'
+	return (
+		dbType === 'postgresql' ||
+		dbType === 'snowflake' ||
+		dbType === 'bigquery' ||
+		dbType === 'duckdb'
+	)
 }
 
 export function datatypeHasLength(datatype: string): boolean {

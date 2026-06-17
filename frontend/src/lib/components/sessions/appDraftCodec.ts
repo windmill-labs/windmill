@@ -11,6 +11,11 @@ export type RawAppDraft = {
 	summary: string
 	policy?: any
 	custom_path?: string
+	// User-typed path while the app is parked at a `…/draft_<uuid>` storage path.
+	// Must round-trip through the draft so the home/review/Drafts lists render the
+	// friendly name (they read `value->>'draft_path'`) — and so editing the path
+	// in the editor changes the persisted draft and triggers an autosave.
+	draft_path?: string
 }
 
 // The shape `runtime.rawApp.val` actually holds (see SessionRuntime in
@@ -24,6 +29,7 @@ export type RuntimeRawApp = {
 	data: RawAppData
 	policy: any
 	custom_path?: string
+	draft_path?: string
 }
 
 // Strip runtime-only metadata (just `path`, the storage key) when persisting
@@ -36,7 +42,8 @@ export function runtimeRawAppToDraft(raw: RuntimeRawApp): RawAppDraft {
 		runnables: raw.runnables,
 		data: raw.data,
 		policy: raw.policy,
-		custom_path: raw.custom_path
+		custom_path: raw.custom_path,
+		draft_path: raw.draft_path
 	}
 }
 
@@ -50,6 +57,7 @@ export function applyDraftToRuntimeRawApp(raw: RuntimeRawApp, dv: RawAppDraft): 
 		runnables: dv.runnables,
 		data: dv.data,
 		policy: dv.policy ?? raw.policy,
-		custom_path: dv.custom_path ?? raw.custom_path
+		custom_path: dv.custom_path ?? raw.custom_path,
+		draft_path: dv.draft_path ?? raw.draft_path
 	}
 }

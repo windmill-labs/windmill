@@ -179,6 +179,9 @@ pub struct WithDraftQuery {
 pub struct OtherDraftUser {
     /// `None` represents a legacy workspace-level draft (no owner).
     pub username: Option<String>,
+    /// When this user's draft was last saved (the `draft.created_at` upsert
+    /// timestamp), surfaced in the fork modal as "Last updated".
+    pub draft_saved_at: DateTime<Utc>,
 }
 
 /// Response wrapper: the deployed entity untouched plus the authed user's
@@ -231,7 +234,8 @@ async fn fetch_other_drafts_users(
     // row keeps `username = None` (its `d.email` is NULL, so the CASE yields NULL).
     let rows = sqlx::query_as!(
         OtherDraftUser,
-        r#"SELECT COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) as "username?"
+        r#"SELECT COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) as "username?",
+                  d.created_at as "draft_saved_at!"
            FROM draft d
            LEFT JOIN usr u
                   ON u.workspace_id = d.workspace_id

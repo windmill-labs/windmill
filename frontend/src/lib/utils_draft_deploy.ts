@@ -35,6 +35,7 @@ import {
 } from '$lib/gen'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import type { DeployResult } from '$lib/utils_workspace_deploy'
+import { TRIGGER_RUNTIME_IGNORE } from '$lib/utils_deployable'
 import { deployRawAppDraft } from '$lib/rawAppDeploy'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
@@ -114,6 +115,53 @@ const EMPTY_DEPLOYED: Partial<Record<DraftKind, (draft: any) => unknown>> = {
 	app: () => ({ summary: '', value: {}, policy: {} })
 }
 
+// Schedule & trigger rows drop the same runtime/server-managed fields as the
+// fork/compare path so the diff shows only config changes — reuse that set
+// (the authoritative mirror of the backend `TRIGGER_COMPARE_IGNORE`).
+function stripScheduleTriggerRuntime(row: any): Record<string, unknown> {
+	if (!row || typeof row !== 'object') return {}
+	return Object.fromEntries(Object.entries(row).filter(([k]) => !TRIGGER_RUNTIME_IGNORE.has(k)))
+}
+
+/**
+ * Project a variable/resource/schedule/trigger value — given in either its
+ * deployed backend-row shape or its draft editor-state shape — onto one
+ * canonical field set, so the deployed and draft sides of a diff are comparable
+ * and read as labeled rows instead of structural noise (variable `variable.value`
+ * vs `value`, resource `args` vs `value`, schedule/trigger runtime fields). This
+ * matches the shaping the compare page applies via `getItemValue`. `isDraft`
+ * selects the editor-state field names; secret variable values are masked.
+ */
+function canonicalizeDraftDiffValue(kind: DraftKind, raw: any, isDraft: boolean): unknown {
+	if (!raw || typeof raw !== 'object') return raw ?? {}
+	if (kind === 'variable') {
+		// draft: { variable: { value, is_secret, description }, labels, wsSpecific }
+		// deployed row: { value, is_secret, description, labels, ws_specific }
+		const v = isDraft ? (raw.variable ?? {}) : raw
+		const is_secret = !!v.is_secret
+		return {
+			value: is_secret ? '<secret>' : (v.value ?? ''),
+			is_secret,
+			description: v.description ?? '',
+			labels: raw.labels ?? undefined,
+			ws_specific: (isDraft ? raw.wsSpecific : raw.ws_specific) ?? undefined
+		}
+	}
+	if (kind === 'resource') {
+		// draft: { args, description, resource_type, labels, wsSpecific }
+		// deployed row: { value, description, resource_type, labels, ws_specific }
+		return {
+			value: (isDraft ? raw.args : raw.value) ?? {},
+			description: raw.description ?? '',
+			resource_type: raw.resource_type ?? undefined,
+			labels: raw.labels ?? undefined,
+			ws_specific: (isDraft ? raw.wsSpecific : raw.ws_specific) ?? undefined
+		}
+	}
+	// schedule + triggers: same field names on both sides — drop runtime noise.
+	return stripScheduleTriggerRuntime(raw)
+}
+
 /**
  * Fetch the deployed value and the draft value for an item, for the DiffDrawer
  * (`mode: 'simple'`, original = deployed, current = draft). For a `draft_only`
@@ -181,15 +229,20 @@ export async function getDraftDiffValues(
 		const draftValue = r.draft ?? deployed
 		return { deployed: draftOnly ? EMPTY_DEPLOYED.app!(draftValue) : deployed, draft: draftValue }
 	} else {
-		// Variables / resources / schedules / triggers: the draft is the
-		// editor's flat config object and the deployed shape diffs cleanly
-		// as a plain object — one overlay GET covers both sides.
+		// Variables / resources / schedules / triggers: one overlay GET yields
+		// both sides, but the draft side is the editor's state shape while the
+		// deployed side is the backend row — they diverge enough to make a raw
+		// diff pure noise. Canonicalize both onto a shared field set (same shaping
+		// the compare page's `getItemValue` applies) so only real changes show.
 		const getter = OVERLAY_GETTERS[kind]
 		if (!getter) {
 			throw new Error(`Draft diff not supported for kind ${kind}`)
 		}
 		const { deployed, draft } = splitOverlay(await getter(workspace, path))
-		return { deployed: draftOnly ? {} : deployed, draft }
+		return {
+			deployed: draftOnly ? {} : canonicalizeDraftDiffValue(kind, deployed, false),
+			draft: canonicalizeDraftDiffValue(kind, draft, true)
+		}
 	}
 }
 
@@ -252,8 +305,11 @@ export async function deployDraft(
 			const r = (await FlowService.getFlowByPath({ workspace, path, getDraft: true })) as any
 			const d = r.draft ?? r
 			const requestBody = {
-				// Honor a renamed draft path; the URL `path` stays the existing item key.
-				path: d.path ?? path,
+				// Deploy at the draft's intended path: flow/app/raw-app drafts keep the
+				// user-typed path in `draft_path` (a never-deployed item is parked at a
+				// synthetic `u/{user}/draft_{uuid}` storage key). The URL `path` stays
+				// that storage key.
+				path: d.draft_path ?? d.path ?? path,
 				summary: d.summary ?? '',
 				description: d.description ?? '',
 				value: d.value,
@@ -274,30 +330,37 @@ export async function deployDraft(
 				await FlowService.updateFlow({ workspace, path, requestBody })
 			}
 			// Then deploy any draft trigger edits, so they aren't dropped with the draft.
-			await deployDraftTriggers(d.draft_triggers, workspace, d.path ?? path, draftOnly)
+			await deployDraftTriggers(
+				d.draft_triggers,
+				workspace,
+				d.draft_path ?? d.path ?? path,
+				draftOnly
+			)
 		} else if (kind === 'app') {
 			// `raw_app` is handled above; only visual apps reach here.
 			const r = (await AppService.getAppByPath({ workspace, path, getDraft: true })) as any
-			const d = r.draft ?? {
-				value: r.value,
-				summary: r.summary,
-				policy: r.policy,
-				path: r.path,
-				custom_path: r.custom_path
-			}
-			// custom_path requires admin on app update. Non-admins send undefined so
-			// the backend preserves the existing route (no RequireAdmin 403). For
-			// admins, fall back to the *deployed* route (`r.custom_path`) when the
-			// draft doesn't carry one — the visual-app draft value usually omits
-			// custom_path, and sending `''` would clear the existing route. An
-			// explicit '' in the draft still clears (`'' ?? x === ''`).
+			// A visual-app draft is stored as the *bare* app value (grid/theme/...,
+			// plus a `draft_path` when the path was renamed) — NOT wrapped in
+			// { value, summary, policy } like script/flow drafts. So the deploy value
+			// is the draft object itself; fall back to the deployed value when there's
+			// no draft. `draft_path` and `summary` are draft-only fields mirrored onto
+			// the App value (the editor drops them on deploy), so strip them from the
+			// value and apply them as the deploy path / summary column.
+			const draft = r.draft as Record<string, any> | undefined
+			const { draft_path: draftPath, summary: draftSummary, ...appValue } = draft ?? r.value ?? {}
+			// Policy isn't carried in the app draft, so it comes from the deployed app
+			// (or a default). custom_path requires admin on update; non-admins send
+			// undefined so the backend preserves the existing route. The draft has no
+			// custom_path, so admins fall back to the deployed route (`''` when none).
 			const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
 			const requestBody = {
-				value: d.value,
-				summary: d.summary ?? '',
-				policy: d.policy ?? { execution_mode: 'publisher' },
-				path: d.path ?? path,
-				custom_path: isAdmin ? (d.custom_path ?? r.custom_path) : undefined
+				value: appValue,
+				summary: draftSummary ?? r.summary ?? '',
+				policy: r.policy ?? { execution_mode: 'publisher' },
+				// Honor the draft's intended path; `draft_path` holds the user-typed path
+				// for a never-deployed app parked at a `u/{user}/draft_{uuid}` storage key.
+				path: draftPath ?? r.path ?? path,
+				custom_path: isAdmin ? (r.custom_path ?? '') : undefined
 			}
 			// Same as flows: draft-only apps have no app row → create;
 			// drafts on a deployed app update it.

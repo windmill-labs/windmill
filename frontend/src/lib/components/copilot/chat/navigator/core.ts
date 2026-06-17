@@ -4,6 +4,7 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/index.mjs'
 import { createSearchWorkspaceTool, createGetRunnableDetailsTool, type Tool } from '../shared'
+import { readDocsPageTool, searchDocsTool } from '../docs/core'
 import { ResourceService } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { get } from 'svelte/store'
@@ -16,13 +17,14 @@ Windmill is an open-source developer platform for building internal tools, API i
 You have access to these tools:
 1. View current buttons and inputs on the page (get_triggerable_components)
 2. Execute buttons and inputs (trigger_component)
-3. Get documentation for user requests (get_documentation)
-4. Change the AI mode to the one specified (change_mode)
-5. Search for scripts and flows in the workspace (search_workspace)
-6. Get detailed information about a specific script or flow (get_runnable_details)
+3. Search the documentation (search_docs)
+4. Read a documentation page (read_docs_page)
+5. Change the AI mode to the one specified (change_mode)
+6. Search for scripts and flows in the workspace (search_workspace)
+7. Get detailed information about a specific script or flow (get_runnable_details)
 
 INSTRUCTIONS:
-- When users ask about application features or concepts, first use get_documentation internally to retrieve accurate information about how to fulfill the user's request.
+- When users ask about application features or concepts, first use search_docs (with a few keywords) and, when a snippet is not enough, read_docs_page on a returned Source URL to retrieve accurate information about how to fulfill the user's request.
 - Then immediately use the available tools to guide the user through the application. Do not wait for the user's confirmation before taking action.
 - If you detect a confirmation modal that needs user confirmation, stop the navigation and let the user know that the action is pending confirmation.
 - Use get_triggerable_components to understand available options, and then trigger the components using trigger_component. Then wait a moment before rescanning the current page, and then continue with the next step. Do this 5 times max.
@@ -59,29 +61,11 @@ When you complete the user's request, do not say "I created..." or "I updated...
 
 Example of good behavior:
 - User: "How can I set my AI providers?"
-- You: <call get_documentation and fetch relevant documentation>
+- You: <call search_docs (and read_docs_page if needed) to fetch relevant documentation>
 - You: <call get_triggerable_components to find relevant components>
 - You: <trigger the components>
 - You: "<precisions about the request based on the documentation>"
 `
-
-const GET_DOCUMENTATION_TOOL: ChatCompletionTool = {
-	type: 'function',
-	function: {
-		name: 'get_documentation',
-		description: 'Get the documentation for the user request',
-		parameters: {
-			type: 'object',
-			properties: {
-				request: {
-					type: 'string',
-					description: 'The user request'
-				}
-			},
-			required: ['request']
-		}
-	}
-}
 
 // Tool definitions
 const GET_TRIGGERABLE_COMPONENTS_TOOL: ChatCompletionTool = {
@@ -234,47 +218,6 @@ function triggerComponent(args: { id: string; value: string }): string {
 	}
 }
 
-async function getDocumentation(args: { request: string }): Promise<string> {
-	const retrieval = await fetch('/api/inkeep', {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json'
-		},
-		body: JSON.stringify({
-			query: args.request
-		})
-	})
-
-	if (!retrieval.ok) {
-		const errorText = await retrieval.text()
-		throw new Error(errorText)
-	}
-
-	const data = await retrieval.json()
-	if (!data.choices?.[0]?.message?.content) {
-		return 'No documentation found for this request'
-	}
-
-	// Parse the raw response
-	const raw = data.choices[0].message.content
-	const parsed = JSON.parse(raw)
-
-	// Clean up the response to include only essential information
-	if (parsed.content && Array.isArray(parsed.content)) {
-		const cleanedContent = parsed.content.map((item: any) => ({
-			title: item.title,
-			url: item.url,
-			content: item.source?.content.map((c: any) => c.text).join('\n') || []
-		}))
-		// Limit the response to 30000 characters max
-		const stringified = JSON.stringify({ content: cleanedContent }).slice(0, 30000)
-
-		return stringified
-	}
-
-	return data.choices[0].message.content
-}
-
 async function getAvailableResources(args: { resource_type: string }): Promise<string> {
 	const resources = await ResourceService.listResource({
 		workspace: get(workspaceStore) as string,
@@ -318,27 +261,6 @@ const getCurrentPageNameTool: Tool<{}> = {
 	}
 }
 
-export const getDocumentationTool: Tool<{}> = {
-	def: GET_DOCUMENTATION_TOOL,
-	fn: async ({ args, toolId, toolCallbacks }) => {
-		toolCallbacks.setToolStatus(toolId, { content: 'Getting documentation...' })
-		try {
-			const docResult = await getDocumentation(args)
-			toolCallbacks.setToolStatus(toolId, { content: 'Retrieved documentation' })
-			return docResult
-		} catch (error) {
-			toolCallbacks.setToolStatus(toolId, {
-				content: 'Error getting documentation',
-				error: 'Error getting documentation'
-			})
-			console.error('Error getting documentation:', error)
-			const errorMessage =
-				error instanceof Error ? error.message : 'An error occurred while getting documentation'
-			return `Failed to get documentation: ${errorMessage}, pursuing with the user request...`
-		}
-	}
-}
-
 const getAvailableResourcesTool: Tool<{}> = {
 	def: GET_AVAILABLE_RESOURCES_TOOL,
 	fn: async ({ args, toolId, toolCallbacks }) => {
@@ -361,7 +283,8 @@ const getAvailableResourcesTool: Tool<{}> = {
 export const navigatorTools: Tool<{}>[] = [
 	getTriggerableComponentsTool,
 	triggerComponentTool,
-	getDocumentationTool,
+	searchDocsTool,
+	readDocsPageTool,
 	getCurrentPageNameTool,
 	getAvailableResourcesTool,
 	createSearchWorkspaceTool(),

@@ -335,7 +335,8 @@
 		hash?: string,
 		callbacks?: Callbacks,
 		flowPath?: string,
-		modules?: Record<string, import('$lib/gen').ScriptModule> | null
+		modules?: Record<string, import('$lib/gen').ScriptModule> | null,
+		tempScriptRefs?: Record<string, string>
 	): Promise<string> {
 		return abstractRun(
 			() =>
@@ -350,7 +351,8 @@
 						lock,
 						script_hash: hash,
 						flow_path: flowPath,
-						modules: modules ?? undefined
+						modules: modules ?? undefined,
+						temp_script_refs: tempScriptRefs
 					}
 				}),
 			callbacks

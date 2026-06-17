@@ -120,6 +120,35 @@ const liveEditorDrafts = new Map<string, LiveEditorDraft>()
  * Consumed by `acquireEntry`; cleared by the matching `restartSync`. */
 const pendingSuspensions = new Set<string>()
 
+/**
+ * Synchronous read-through cache for values written via `save` while no live
+ * editor entry exists. That branch persists through the debounced
+ * `UserDraftDbSyncer` (async, fire-and-forget), so without this a same-tab
+ * `save(...)` followed by `get(...)` would miss its own write: the global AI
+ * chat writes a draft then immediately reads it back to return the result and
+ * would otherwise throw "Could not read written draft". A live entry shadows
+ * the cache (the entry is authoritative) and a release drops the key; a delete
+ * (`remove`/`discard`) evicts it.
+ */
+const writtenCache = new Map<
+	string,
+	{ workspace: string; itemKind: UserDraftItemKind; path: string; val: unknown }
+>()
+
+function rememberWrite(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string,
+	val: unknown
+): void {
+	const mk = mapKey(workspace, itemKind, path)
+	if (val === undefined) {
+		writtenCache.delete(mk)
+	} else {
+		writtenCache.set(mk, { workspace, itemKind, path, val: snapshotDraftValue(val) })
+	}
+}
+
 function resolveWorkspace(opts?: UserDraftOptions): string {
 	const ws = opts?.workspace ?? get(workspaceStore)
 	if (!ws) {
@@ -157,11 +186,24 @@ function snapshotDraftValue<V>(value: V | undefined): V | undefined {
  * run-as directives, not draft content, and the editor round-trips them
  * asymmetrically (`preserve_…` rebuilt as `!!cfg.permissioned_as` on load
  * but `|| undefined` on build) — keeping them produces a phantom banner.
+ *
+ * The rest are server-managed read-time metadata that ride along on the
+ * loaded deployed payload but never appear in the editor's draft content, so
+ * comparing them would mask a true baseline match:
+ * `draft_saved_at` (the draft's own save time), `edited_at` (deploy time),
+ * `edited_by` (deploy author), `workspace_id`, `version_id` (deployed version),
+ * and `is_draft` (backend presence flag).
  */
 const DRAFT_COMPARE_IGNORED_FIELDS = [
 	'permissioned_as',
 	'preserve_permissioned_as',
-	'extra_perms'
+	'extra_perms',
+	'draft_saved_at',
+	'edited_at',
+	'edited_by',
+	'workspace_id',
+	'version_id',
+	'is_draft'
 ] as const
 
 /**
@@ -207,8 +249,10 @@ export const UserDraft = {
 			// and POSTs it.
 			entry.state.val = value
 		} else {
-			// No live handle: push straight to the syncer. The next editor
-			// mount re-fetches the draft from the backend.
+			// No live handle: remember the value so a same-tab read-after-write
+			// observes it synchronously (the syncer POST below is debounced),
+			// then persist. The next editor mount re-fetches from the backend.
+			rememberWrite(ws, itemKind, path, value)
 			void UserDraftDbSyncer.save({ workspace: ws, itemKind, path, value })
 		}
 	},
@@ -225,8 +269,10 @@ export const UserDraft = {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
-		if (!entry) return undefined
-		return snapshotDraftValue(entry.state.val as V | undefined)
+		if (entry) return snapshotDraftValue(entry.state.val as V | undefined)
+		const cached = writtenCache.get(mk)
+		if (cached) return snapshotDraftValue(cached.val as V | undefined)
+		return undefined
 	},
 
 	/**
@@ -237,8 +283,8 @@ export const UserDraft = {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
-		if (!entry) return false
-		return entry.state.val !== undefined
+		if (entry) return entry.state.val !== undefined
+		return writtenCache.get(mk)?.val !== undefined
 	},
 
 	remove(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
@@ -251,6 +297,7 @@ export const UserDraft = {
 			entry.skipNextSync = true
 			entry.state.val = undefined
 		}
+		writtenCache.delete(mk)
 		void UserDraftDbSyncer.save({ workspace: ws, itemKind, path, value: null })
 	},
 
@@ -319,15 +366,30 @@ export const UserDraft = {
 		const ws = resolveWorkspace(opts)
 		const itemKinds = opts?.itemKinds ?? USER_DRAFT_ITEM_KINDS
 		const out: UserDraftEntry<V>[] = []
+		const seen = new Set<string>()
 		for (const entry of entries.values()) {
 			if (entry.workspace !== ws || !itemKinds.includes(entry.itemKind)) continue
 			const val = untrack(() => entry.state.val as V | undefined)
 			if (val === undefined) continue
+			seen.add(mapKey(entry.workspace, entry.itemKind, entry.path))
 			out.push({
 				workspace: entry.workspace,
 				itemKind: entry.itemKind,
 				path: entry.path,
 				value: snapshotDraftValue(val)
+			})
+		}
+		// Drafts written without a live entry (e.g. global AI chat) live only in
+		// `writtenCache`; surface them too so the list matches what `get` returns.
+		for (const cached of writtenCache.values()) {
+			if (cached.workspace !== ws || !itemKinds.includes(cached.itemKind)) continue
+			const mk = mapKey(cached.workspace, cached.itemKind, cached.path)
+			if (seen.has(mk)) continue
+			out.push({
+				workspace: cached.workspace,
+				itemKind: cached.itemKind,
+				path: cached.path,
+				value: snapshotDraftValue(cached.val as V | undefined)
 			})
 		}
 		return out
@@ -391,6 +453,10 @@ export const UserDraft = {
 			entry.skipNextSync = true
 			entry.state.val = safeFallback
 		}
+		// The draft is deleted server-side (the `null` POST below); the fallback
+		// only resets the live handle's UI. Drop the cache so a no-entry read
+		// reports "no draft" rather than the discarded value.
+		writtenCache.delete(mk)
 		void UserDraftDbSyncer.save({ workspace: ws, itemKind, path, value: null, auto: opts?.auto })
 	},
 
@@ -400,6 +466,8 @@ export const UserDraft = {
 		opts?: UserDraftOptions & {
 			/** See the `useMany` spec field. Default `false`. */
 			canBeDisabled?: boolean
+			/** See the `useMany` spec field. Captured once on first acquire. */
+			discardIf?: (val: V) => boolean
 		}
 	): UserDraftHandle<V> {
 		// Single-spec wrapper around `useMany`. `untrack` captures reactive
@@ -407,7 +475,13 @@ export const UserDraft = {
 		// workspace until unmount. For reactive `(kind, path)` use `useReactive`.
 		const handles = UserDraft.useMany<V>(() =>
 			untrack(() => [
-				{ itemKind, path, workspace: opts?.workspace, canBeDisabled: opts?.canBeDisabled }
+				{
+					itemKind,
+					path,
+					workspace: opts?.workspace,
+					canBeDisabled: opts?.canBeDisabled,
+					discardIf: opts?.discardIf
+				}
 			])
 		)
 		return handles[0]
@@ -426,6 +500,13 @@ export const UserDraft = {
 			path: string
 			workspace?: string
 			canBeDisabled?: boolean
+			/** See the `useMany` spec field. Seeds the cell on first acquire
+			 *  without POSTing. Pass a STABLE reference (read it under `untrack`)
+			 *  — it's consumed once, so re-reading reactive state here only churns
+			 *  the reconcile. */
+			defaultValue?: V
+			/** See the `useMany` spec field. Captured per re-keyed acquire. */
+			discardIf?: (val: V) => boolean
 		}
 	): UserDraftHandle<V> {
 		const handles = UserDraft.useMany<V>(() => [getSpec()])
@@ -477,6 +558,11 @@ export const UserDraft = {
 		const handles = $state<UserDraftHandle<V>[]>([])
 		const acquired = new Set<string>()
 		const handleCache = new Map<string, UserDraftHandle<V>>()
+		// `defaultValue` reference last used to seed each detached (empty-path)
+		// handle. The reference is stable within an editing session but swapped
+		// for a fresh clone each time the caller restarts (e.g. reopening the
+		// new-item drawer) — so a change here means "re-seed", not "live edit".
+		const detachedSeeds = new Map<string, unknown>()
 
 		function reconcile() {
 			const specs = getSpecs()
@@ -484,19 +570,37 @@ export const UserDraft = {
 			const next: UserDraftHandle<V>[] = []
 
 			for (const spec of specs) {
-				const ws = spec.workspace ?? resolveWorkspace()
-				const mk = mapKey(ws, spec.itemKind, spec.path)
+				// Resolve the workspace WITHOUT throwing: a reactive caller (e.g. an
+				// SDK editor mounted before login) may not have one yet. An absent
+				// workspace is handled like an empty path below, so the handle
+				// re-keys into a real entry once the workspace resolves.
+				const ws = spec.workspace ?? get(workspaceStore) ?? undefined
+				const mk = mapKey(ws ?? '', spec.itemKind, spec.path)
 
-				// Empty path = no draftable item (e.g. read-only
-				// historical-hash view that still binds an editor value).
+				// No workspace yet, or empty path = no draftable item (e.g. a
+				// read-only historical-hash view that still binds an editor value).
 				// Acquiring would mirror edits into an unroutable
 				// `POST /drafts/update/kind/` (permanent "Save failed").
 				// Hand out a detached, local-only handle instead.
-				if (!spec.path) {
+				if (!ws || !spec.path) {
+					seen.add(mk)
 					let handle = handleCache.get(mk)
+					// Drop the cached handle when the caller hands in a fresh
+					// `defaultValue` reference (reopening the new-item drawer seeds a
+					// new clone) so the rebuilt handle re-seeds instead of replaying
+					// the previous session's edits. Stable reference within a session
+					// means live edits are never clobbered.
+					if (handle && detachedSeeds.get(mk) !== spec.defaultValue) {
+						handleCache.delete(mk)
+						handle = undefined
+					}
 					if (!handle) {
-						handle = makeDetachedHandle<V>()
+						// Seed with `defaultValue` so consumers (e.g. the new-variable
+						// drawer, whose path is empty until the user types one) get a
+						// populated cell to bind their form to instead of `undefined`.
+						handle = makeDetachedHandle<V>(spec.defaultValue)
 						handleCache.set(mk, handle)
+						detachedSeeds.set(mk, spec.defaultValue)
 					}
 					next.push(handle)
 					continue
@@ -530,6 +634,16 @@ export const UserDraft = {
 				}
 			}
 
+			// Detached handles (empty-path) live only in `handleCache` — they're
+			// never in `acquired`. Drop any that fell out of the specs so they
+			// don't leak and a later reappearance rebuilds from scratch.
+			for (const mk of [...handleCache.keys()]) {
+				if (!acquired.has(mk) && !seen.has(mk)) {
+					handleCache.delete(mk)
+					detachedSeeds.delete(mk)
+				}
+			}
+
 			// Skip no-op mutations (cached handles → reference-equal arrays).
 			// `untrack` so this effect doesn't subscribe to its own `handles`
 			// write — otherwise it self-loops (`effect_update_depth_exceeded`).
@@ -550,14 +664,21 @@ export const UserDraft = {
 			// vanish when the editor unmounts mid-typing. Fire-and-forget —
 			// the POST rides the runner's own lifetime, which outlives this
 			// component, so destroying the cell here doesn't cancel it.
+			//
+			// `honorAutosaveToggle`: this unmount flush is an implicit autosave,
+			// so a toggle-aware handle whose auto-save is off must NOT persist on
+			// leave — the editor's UnsavedConfirmationModal warns the user instead.
 			for (const mk of acquired) {
 				const entry = entries.get(mk)
 				if (!entry) continue
-				void UserDraftDbSyncer.flush({
-					workspace: entry.workspace,
-					itemKind: entry.itemKind,
-					path: entry.path
-				})
+				void UserDraftDbSyncer.flush(
+					{
+						workspace: entry.workspace,
+						itemKind: entry.itemKind,
+						path: entry.path
+					},
+					{ honorAutosaveToggle: true }
+				)
 			}
 			for (const mk of acquired) releaseEntry(mk)
 			acquired.clear()
@@ -695,6 +816,10 @@ function releaseEntry(mk: string): void {
 	if (!entry) return
 	entry.count--
 	if (entry.count <= 0) {
+		// The live entry was authoritative while mounted; once gone, drop any
+		// cached write for this key so a later read falls back to the server
+		// rather than a value the editor may have changed in the meantime.
+		writtenCache.delete(mk)
 		entry.destroyRoot?.()
 		entries.delete(mk)
 	}
@@ -705,8 +830,8 @@ function releaseEntry(mk: string): void {
  * `bind:` but is wired to nothing (no entry, no sync, no POSTs). For views
  * that bind an editor value with no draftable item behind it.
  */
-function makeDetachedHandle<V>(): UserDraftHandle<V> {
-	let val = $state<V | undefined>(undefined)
+function makeDetachedHandle<V>(defaultValue?: V): UserDraftHandle<V> {
+	let val = $state<V | undefined>(snapshotDraftValue(defaultValue))
 	return {
 		get draft(): V | undefined {
 			return val
@@ -742,4 +867,5 @@ function makeHandle<V>(
 export function __resetUserDraftForTesting(): void {
 	entries.clear()
 	liveEditorDrafts.clear()
+	writtenCache.clear()
 }

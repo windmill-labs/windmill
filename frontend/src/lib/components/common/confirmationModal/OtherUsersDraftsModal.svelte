@@ -12,8 +12,9 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { forkDraftToImport } from '$lib/components/forkDraftToImport'
+	import { displayDate } from '$lib/utils'
 
-	export type OtherDraftUser = { username?: string | null }
+	export type OtherDraftUser = { username?: string | null; draft_saved_at?: string }
 
 	type Props = {
 		workspace: string
@@ -102,15 +103,26 @@
 		<ul class="divide-y border-t border-b flex-1 overflow-y-auto">
 			{#each otherDraftsUsers as owner (ownerKey(owner))}
 				<li class="flex items-center gap-3 py-2">
-					<div class="flex-1 min-w-0 flex items-center gap-2">
-						<span class="text-sm font-medium text-primary truncate" class:italic={!owner.username}>
-							{ownerLabel(owner)}
-						</span>
-						{#if !owner.username}
-							<Tooltip>
-								Pre-migration workspace-scoped draft (no owner). Saved before drafts became per-user
-								— kept around so you can recover the content, but no current user owns it.
-							</Tooltip>
+					<div class="flex-1 min-w-0 flex flex-col">
+						<div class="flex items-center gap-2">
+							<span
+								class="text-sm font-medium text-primary truncate"
+								class:italic={!owner.username}
+							>
+								{ownerLabel(owner)}
+							</span>
+							{#if !owner.username}
+								<Tooltip>
+									Pre-migration workspace-scoped draft (no owner). Saved before drafts became
+									per-user — kept around so you can recover the content, but no current user owns
+									it.
+								</Tooltip>
+							{/if}
+						</div>
+						{#if owner.draft_saved_at}
+							<span class="text-2xs text-hint truncate">
+								Last updated: {displayDate(owner.draft_saved_at)}
+							</span>
 						{/if}
 					</div>
 					<Button

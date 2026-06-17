@@ -8,6 +8,8 @@
 	import { X } from 'lucide-svelte'
 	import List from '$lib/components/common/layout/List.svelte'
 	import { fade } from 'svelte/transition'
+	import { zIndexes } from '$lib/zIndexes'
+	import { chatState } from '$lib/components/copilot/chat/sharedChatState.svelte'
 
 	interface Props {
 		title: string
@@ -85,6 +87,11 @@
 	function fadeFast(node: HTMLElement) {
 		return fade(node, { duration: 200 })
 	}
+
+	// Elevate above the AI chat panel (zIndexes.aiChat) while chat is open so
+	// the dialog isn't hidden behind it; otherwise keep the default modal
+	// stacking just above disposables (zIndexes.disposables).
+	const overlayZIndex = $derived(chatState.size > 0 ? zIndexes.aiChat + 1 : zIndexes.disposables + 10)
 </script>
 
 <svelte:window onkeydown={handleKeyDown} />
@@ -92,7 +99,8 @@
 {#if isOpen}
 	<Portal name="always-mounted" {target}>
 		<div
-			class={'fixed top-0 bottom-0 left-0 right-0 transition-all z-[1110] overflow-auto bg-black bg-opacity-60 w-full h-full'}
+			class={'fixed top-0 bottom-0 left-0 right-0 transition-all overflow-auto bg-black bg-opacity-60 w-full h-full'}
+			style="z-index: {overlayZIndex}"
 			transition:fadeFast|local
 		>
 			<div class="flex min-h-full items-center justify-center p-8">

@@ -162,7 +162,13 @@
 		if (!selected.schemaKey && schemaKeys.length) {
 			let schemaKey =
 				initialSchemaKey ??
-				('public' in dbSchema.schema ? 'public' : 'dbo' in dbSchema.schema ? 'dbo' : schemaKeys[0])
+				('public' in dbSchema.schema
+					? 'public'
+					: 'dbo' in dbSchema.schema
+						? 'dbo'
+						: 'main' in dbSchema.schema
+							? 'main'
+							: schemaKeys[0])
 			let tableKey =
 				initialTableKey && dbSchema.schema?.[schemaKey]?.[initialTableKey]
 					? initialTableKey
