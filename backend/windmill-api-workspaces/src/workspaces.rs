@@ -152,6 +152,10 @@ pub fn workspaced_service() -> Router {
             delete(delete_datatable_migration),
         )
         .route(
+            "/upsert_datatable_migration/{datatable_name}",
+            post(upsert_datatable_migration),
+        )
+        .route(
             "/generate_initial_datatable_migration/{datatable_name}",
             post(generate_initial_datatable_migration),
         )
@@ -2512,9 +2516,15 @@ async fn run_datatable_migrations(
             .await
             .map_err(|e| Error::internal_err(format!("Failed to start transaction: {}", e)))?;
         tx.batch_execute(&m.code_up).await.map_err(|e| {
+            // Surface the underlying Postgres message (e.g. "syntax error at ...")
+            // rather than tokio_postgres's terse "db error".
+            let detail = e
+                .as_db_error()
+                .map(|d| d.message().to_string())
+                .unwrap_or_else(|| e.to_string());
             Error::internal_err(format!(
                 "Failed to apply migration {} ({}): {}",
-                m.timestamp, m.name, e
+                m.timestamp, m.name, detail
             ))
         })?;
         tx.execute(
@@ -2651,9 +2661,13 @@ async fn rollback_datatable_migrations(
         .await
         .map_err(|e| Error::internal_err(format!("Failed to start transaction: {}", e)))?;
     tx.batch_execute(&code_down).await.map_err(|e| {
+        let detail = e
+            .as_db_error()
+            .map(|d| d.message().to_string())
+            .unwrap_or_else(|| e.to_string());
         Error::internal_err(format!(
             "Failed to roll back migration {} ({}): {}",
-            version, definition.name, e
+            version, definition.name, detail
         ))
     })?;
     tx.execute("DELETE FROM _wm_migrations WHERE version = $1", &[&version])
@@ -2973,6 +2987,58 @@ async fn delete_datatable_migration(
     Ok(format!(
         "Deleted migration {} from {}",
         timestamp, datatable_name
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct UpsertDatatableMigration {
+    pub timestamp: i64,
+    pub name: String,
+    pub code_up: String,
+    #[serde(default)]
+    pub code_down: Option<String>,
+}
+
+/// Insert or update a single migration at an explicit version. Used by
+/// `wmill sync` to push a `datatable_migrations/<dt>/<version>_<name>.up.sql`
+/// (and `.down.sql`) file as the source of truth.
+async fn upsert_datatable_migration(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, datatable_name)): Path<(String, String)>,
+    Json(payload): Json<UpsertDatatableMigration>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    sqlx::query!(
+        "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) \
+         VALUES ($1, $2, $3, $4, $5, $6) \
+         ON CONFLICT (workspace_id, datatable, timestamp) DO UPDATE \
+         SET name = EXCLUDED.name, code_up = EXCLUDED.code_up, code_down = EXCLUDED.code_down",
+        &w_id,
+        &datatable_name,
+        payload.timestamp,
+        &payload.name,
+        &payload.code_up,
+        payload.code_down.as_deref(),
+    )
+    .execute(&db)
+    .await?;
+
+    audit_log(
+        &db,
+        &authed,
+        "workspaces.upsert_datatable_migration",
+        ActionKind::Update,
+        &w_id,
+        Some(datatable_name.as_str()),
+        None,
+    )
+    .await?;
+
+    Ok(format!(
+        "Upserted migration {} in {}",
+        payload.timestamp, datatable_name
     ))
 }
 
