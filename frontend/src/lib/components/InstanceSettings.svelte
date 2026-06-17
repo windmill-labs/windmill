@@ -313,9 +313,11 @@
 			if (oauths[name].connect_config?.extra_params?.[key] === v) continue
 			oauths[name].connect_config = {
 				scopes: [],
-				// CC-only templated providers (no auth_url) omit it; the backend
-				// treats an absent auth_url as the unused empty placeholder.
-				...(tmpl.auth_url ? { auth_url: tmpl.auth_url.replaceAll('{instance}', v) } : {}),
+				// CC-only templated providers have no auth_url; store an empty string
+				// (not omitted) so the instance-config parser still types the entry.
+				// The backend treats an empty auth_url as the unused placeholder for
+				// the client-credentials grant.
+				auth_url: tmpl.auth_url ? tmpl.auth_url.replaceAll('{instance}', v) : '',
 				token_url: tmpl.token_url.replaceAll('{instance}', v),
 				req_body_auth: tmpl.req_body_auth ?? false,
 				extra_params: { [key]: v },
