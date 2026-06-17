@@ -72,8 +72,8 @@
 			isOpen = false
 			sendUserToast(run ? 'Migration created and run' : 'Migration created')
 			onCreated?.()
-		} catch (e) {
-			sendUserToast(`Failed to create migration: ${e}`, true)
+		} catch (e: any) {
+			sendUserToast(`Failed to create migration: ${e?.body ?? e?.message ?? e}`, true)
 		} finally {
 			creating = false
 		}

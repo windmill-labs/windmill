@@ -56,8 +56,8 @@
 			})
 			migrations = res.migrations
 			loadError = res.error
-		} catch (e) {
-			sendUserToast(`Failed to load migrations: ${e}`, true)
+		} catch (e: any) {
+			sendUserToast(`Failed to load migrations: ${e?.body ?? e?.message ?? e}`, true)
 		} finally {
 			loading = false
 		}
@@ -82,8 +82,8 @@
 					: 'No pending migrations to run'
 			)
 			await loadMigrations()
-		} catch (e) {
-			sendUserToast(`Failed to run migrations: ${e}`, true)
+		} catch (e: any) {
+			sendUserToast(`Failed to run migrations: ${e?.body ?? e?.message ?? e}`, true)
 		} finally {
 			busy = false
 		}
@@ -101,8 +101,8 @@
 				res.applied.length > 0 ? `Applied ${res.applied[0].name}` : 'Migration already applied'
 			)
 			await loadMigrations()
-		} catch (e) {
-			sendUserToast(`Failed to run migration: ${e}`, true)
+		} catch (e: any) {
+			sendUserToast(`Failed to run migration: ${e?.body ?? e?.message ?? e}`, true)
 		} finally {
 			busy = false
 		}
@@ -139,8 +139,8 @@
 					: 'Migration was not applied'
 			)
 			await loadMigrations()
-		} catch (e) {
-			sendUserToast(`Failed to revert migration: ${e}`, true)
+		} catch (e: any) {
+			sendUserToast(`Failed to revert migration: ${e?.body ?? e?.message ?? e}`, true)
 		} finally {
 			busy = false
 		}
@@ -206,8 +206,8 @@
 				timestamp: m.timestamp
 			})
 			await loadMigrations()
-		} catch (e) {
-			sendUserToast(`Failed to delete migration: ${e}`, true)
+		} catch (e: any) {
+			sendUserToast(`Failed to delete migration: ${e?.body ?? e?.message ?? e}`, true)
 		} finally {
 			busy = false
 		}
