@@ -1,49 +1,3 @@
-<script module lang="ts">
-	// code may be composed of many sql statements separated by ';'
-	// this function splits them while taking into account that ';' may not
-	// be the end of a statement (string or escaped)
-	function splitSqlStatements(code: string) {
-		const statements: string[] = []
-		let currentStatement = ''
-		let inSingleQuote = false
-		let inDoubleQuote = false
-		let inBacktick = false
-
-		for (let i = 0; i < code.length; i++) {
-			const char = code[i]
-			const prevChar = i > 0 ? code[i - 1] : null
-
-			if (char === "'" && !inDoubleQuote && !inBacktick && prevChar !== '\\') {
-				inSingleQuote = !inSingleQuote
-			} else if (char === '"' && !inSingleQuote && !inBacktick && prevChar !== '\\') {
-				inDoubleQuote = !inDoubleQuote
-			} else if (char === '`' && !inSingleQuote && !inDoubleQuote && prevChar !== '\\') {
-				inBacktick = !inBacktick
-			}
-
-			if (char === ';' && !inSingleQuote && !inDoubleQuote && !inBacktick) {
-				statements.push(currentStatement.trim())
-				currentStatement = ''
-			} else {
-				currentStatement += char
-			}
-		}
-
-		if (currentStatement.trim()) {
-			statements.push(currentStatement.trim())
-		}
-
-		return statements
-	}
-
-	function pruneComments(code: string) {
-		return code
-			.replace(/--.*?(\r?\n|$)/g, '')
-			.replace(/\/\*[\s\S]*?\*\//g, '')
-			.trim()
-	}
-</script>
-
 <script lang="ts">
 	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
 	import Button from './common/button/Button.svelte'
@@ -57,6 +11,8 @@
 	import { getDatabaseArg, getDbType } from './dbOps'
 	import type { DbInput } from './dbTypes'
 	import { wrapDucklakeQuery } from './ducklake'
+	import { splitSqlStatements, pruneComments } from './sqlDdl'
+	import DdlMigrationGuard from './DdlMigrationGuard.svelte'
 
 	type Props = {
 		input: DbInput
@@ -65,6 +21,15 @@
 	}
 	let { input, onData, placeholderTableName }: Props = $props()
 	let dbType = $derived(getDbType(input))
+
+	// A datatable REPL targets `datatable://<name>`; surface DDL statements as
+	// migration prompts instead of running them ad-hoc.
+	let datatableName = $derived(
+		input.type === 'database' && input.resourcePath.startsWith('datatable://')
+			? input.resourcePath.slice('datatable://'.length).split('/')[0]
+			: undefined
+	)
+	let ddlGuard = $state<DdlMigrationGuard | undefined>(undefined)
 
 	const DEFAULT_SQL = 'SELECT * FROM _'
 	let code = $state(DEFAULT_SQL)
@@ -81,6 +46,16 @@
 	async function run({ doPostgresRowToJsonFix }: { doPostgresRowToJsonFix?: boolean } = {}) {
 		if (isRunning || !$workspaceStore) return
 		const READ_OPS = ['SELECT', 'WITH', 'SHOW', 'EXPLAIN', 'DESCRIBE']
+
+		// On a datatable, intercept DDL statements and offer to make them
+		// migrations; the user may strip some, leaving the rest to run.
+		if (datatableName && ddlGuard && !doPostgresRowToJsonFix) {
+			const res = await ddlGuard.guard(code)
+			if (!res.proceed) return
+			if (res.code !== code) code = res.code
+			if (pruneComments(code).trim() === '') return
+		}
+
 		isRunning = true
 		try {
 			const statements = splitSqlStatements(pruneComments(code))
@@ -197,3 +172,7 @@
 		/>
 	</Pane>
 </Splitpanes>
+
+{#if datatableName && $workspaceStore}
+	<DdlMigrationGuard bind:this={ddlGuard} workspace={$workspaceStore} datatable={datatableName} />
+{/if}

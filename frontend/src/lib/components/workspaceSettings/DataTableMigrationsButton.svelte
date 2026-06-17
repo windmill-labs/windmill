@@ -1,17 +1,12 @@
 <script lang="ts">
 	import { Button } from '../common'
 	import Modal2 from '../common/modal/Modal2.svelte'
-	import Tabs from '../common/tabs/Tabs.svelte'
-	import Tab from '../common/tabs/Tab.svelte'
-	import TabContent from '../common/tabs/TabContent.svelte'
-	import Toggle from '../Toggle.svelte'
-	import TextInput from '../text_input/TextInput.svelte'
-	import SimpleEditor from '../SimpleEditor.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import { ChevronDown, Play, Trash2, Plus, Undo2, Loader2 } from 'lucide-svelte'
 	import { WorkspaceService, type DatatableMigrationWithStatus } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import NewDataTableMigrationModal from './NewDataTableMigrationModal.svelte'
 
 	let {
 		workspace,
@@ -25,13 +20,7 @@
 	let loading = $state(false)
 	let busy = $state(false)
 
-	let newOpen = $state(false)
-	let newTab = $state('up')
-	let newName = $state('')
-	let newCodeUp = $state('')
-	let enableDown = $state(false)
-	let newCodeDown = $state('')
-	let creating = $state(false)
+	let newMigrationModal = $state<NewDataTableMigrationModal | undefined>(undefined)
 
 	const confirmationModal = createAsyncConfirmationModal()
 
@@ -128,52 +117,6 @@
 		}
 	}
 
-	function resetNew() {
-		newName = ''
-		newCodeUp = ''
-		newCodeDown = ''
-		enableDown = false
-		newTab = 'up'
-	}
-
-	function openNew() {
-		resetNew()
-		newOpen = true
-	}
-
-	async function create(run: boolean) {
-		if (newName.trim() === '') {
-			sendUserToast('Migration name is required', true)
-			return
-		}
-		creating = true
-		try {
-			const created = await WorkspaceService.createDatatableMigration({
-				workspace,
-				datatableName: datatable,
-				requestBody: {
-					name: newName.trim(),
-					code_up: newCodeUp,
-					code_down: enableDown ? newCodeDown : undefined
-				}
-			})
-			if (run) {
-				await WorkspaceService.runDatatableMigrations({
-					workspace,
-					datatableName: datatable,
-					upTo: created.timestamp
-				})
-			}
-			newOpen = false
-			sendUserToast(run ? 'Migration created and run' : 'Migration created')
-			await loadMigrations()
-		} catch (e) {
-			sendUserToast(`Failed to create migration: ${e}`, true)
-		} finally {
-			creating = false
-		}
-	}
-
 	const statusColor = {
 		ran: 'bg-green-500',
 		not_run: 'bg-orange-500',
@@ -245,7 +188,12 @@
 			{/if}
 		</div>
 		<div class="flex justify-between gap-2 pt-2">
-			<Button variant="default" size="sm" startIcon={{ icon: Plus }} on:click={openNew}>New</Button>
+			<Button
+				variant="default"
+				size="sm"
+				startIcon={{ icon: Plus }}
+				on:click={() => newMigrationModal?.open()}>New</Button
+			>
 			<div class="flex gap-2">
 				<Button
 					variant="default"
@@ -270,52 +218,11 @@
 	</div>
 </Modal2>
 
-<Modal2 bind:isOpen={newOpen} title="New migration" fixedWidth="md" fixedHeight="lg">
-	<div class="flex flex-col gap-3 w-full grow min-h-0">
-		<TextInput
-			bind:value={newName}
-			inputProps={{ placeholder: 'Migration name (e.g. add_index_to_customers)' }}
-		/>
-		<Tabs bind:selected={newTab} class="grow min-h-0">
-			<Tab value="up" label="Up" />
-			<Tab value="down" label="Down" />
-			{#snippet content()}
-				<TabContent value="up" class="h-80">
-					<SimpleEditor class="h-full" lang="sql" bind:code={newCodeUp} />
-				</TabContent>
-				<TabContent value="down" class="h-80">
-					<div class="flex flex-col gap-2 h-full">
-						<Toggle
-							bind:checked={enableDown}
-							options={{ right: 'Enable down migration' }}
-							size="sm"
-						/>
-						{#if enableDown}
-							<div class="grow min-h-0">
-								<SimpleEditor class="h-full" lang="sql" bind:code={newCodeDown} />
-							</div>
-						{/if}
-					</div>
-				</TabContent>
-			{/snippet}
-		</Tabs>
-		<div class="flex justify-end pt-2">
-			<Button
-				variant="accent"
-				size="sm"
-				disabled={creating}
-				on:click={() => create(true)}
-				dropdownItems={[
-					{
-						label: 'Create without running',
-						onClick: () => create(false)
-					}
-				]}
-			>
-				Create and run
-			</Button>
-		</div>
-	</div>
-</Modal2>
+<NewDataTableMigrationModal
+	bind:this={newMigrationModal}
+	{workspace}
+	{datatable}
+	onCreated={loadMigrations}
+/>
 
 <ConfirmationModal {...confirmationModal.props} />
