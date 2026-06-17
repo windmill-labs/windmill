@@ -118,6 +118,9 @@
 	}
 
 	let scopes: string[] = $state([])
+	/** The authorization-code default scopes (instance entry / registry), kept so
+	 * toggling back from client-credentials can restore them. */
+	let instanceScopes: string[] = $state([])
 	let extra_params: [string, string][] = []
 	let responseExtra: Record<string, string> = $state({})
 	let path: string = $state('')
@@ -213,14 +216,24 @@
 	function enableClientCredentials() {
 		manual = false
 		supportsClientCredentials = true
-		useClientCredentials = true
-		if (scopes.length === 0) {
-			// Client-credentials defaults to cc_scopes, never the authorization-code
-			// scopes (most providers reject member/consent scopes in a 2-legged
-			// request). Absent cc_scopes means no default; the user adds any
-			// provider-specific scopes themselves.
+		if (!useClientCredentials) {
+			// Switching into client-credentials: default to cc_scopes, never the
+			// authorization-code scopes (most providers reject member/consent scopes
+			// in a 2-legged request). Absent cc_scopes means no default; the user adds
+			// any provider-specific scopes themselves. Only reset on the transition so
+			// edits made while already in CC mode are preserved.
 			scopes = registryEntry()?.cc_scopes ?? []
 		}
+		useClientCredentials = true
+	}
+
+	/** Switch to the browser sign-in (authorization-code) grant, restoring its
+	 * default scopes when coming from the client-credentials grant. */
+	function selectAuthCodeGrant() {
+		if (useClientCredentials) {
+			scopes = instanceScopes
+		}
+		useClientCredentials = false
 	}
 
 	/** Static registry declares client-credentials support for `key`. */
@@ -453,18 +466,15 @@
 	async function getScopesAndParams() {
 		if (!connects?.includes(connectClient)) {
 			// No instance OAuth client (registry-declared CC-only provider):
-			// defaults come from the static registry instead. Client-credentials
-			// uses cc_scopes (auth-code scopes are invalid in a 2-legged request).
-			scopes = (useClientCredentials ? registryEntry()?.cc_scopes : registryEntry()?.scopes) ?? []
+			// defaults come from the static registry instead.
+			instanceScopes = registryEntry()?.scopes ?? []
+			scopes = useClientCredentials ? (registryEntry()?.cc_scopes ?? []) : instanceScopes
 			extra_params = []
 			supportsClientCredentials = registryCcCapable()
 			return
 		}
 		const connect = await OauthService.getOauthConnect({ client: connectClient })
-		// Bring-your-own client credentials default to the registry's cc_scopes; the
-		// instance entry's scopes are authorization-code scopes, invalid in a 2-legged
-		// request. Shared-instance and authorization-code flows keep the entry's scopes.
-		scopes = ccBringYourOwn ? (registryEntry()?.cc_scopes ?? []) : (connect.scopes ?? [])
+		instanceScopes = connect.scopes ?? []
 		extra_params = Object.entries(connect.extra_params ?? {}) as [string, string][]
 
 		/**
@@ -482,6 +492,11 @@
 		if (authCodeUnavailable) {
 			useClientCredentials = true
 		}
+		// Default scopes to the active grant: client-credentials uses the registry's
+		// cc_scopes (auth-code scopes are invalid in a 2-legged request), every other
+		// path keeps the instance entry's scopes. Applies to shared instance creds,
+		// not just bring-your-own. Switching grants resets to these defaults.
+		scopes = useClientCredentials ? (registryEntry()?.cc_scopes ?? []) : instanceScopes
 	}
 
 	async function getResourceTypeInfo() {
@@ -1079,7 +1094,7 @@
 									label={`Sign in through ${resourceType}`}
 									description="Opens a browser window to log in and authorize. Connects as you."
 									selected={!useClientCredentials}
-									onSelect={() => (useClientCredentials = false)}
+									onSelect={selectAuthCodeGrant}
 								/>
 								<RadioCard
 									label={useSharedInstanceCreds
