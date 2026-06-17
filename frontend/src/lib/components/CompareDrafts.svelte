@@ -15,7 +15,7 @@
 	import { AppService, FlowService, ScriptService, type WorkspaceItemDiff } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { getDraftDiffValues, deployDraft, discardDraft } from '$lib/utils_draft_deploy'
-	import { type DraftItem } from '$lib/workspaceDrafts.svelte'
+	import { type DraftItem, useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import type { Kind as LayoutKind } from '$lib/utils_deployable'
 	import { userStore } from '$lib/stores'
 
@@ -73,6 +73,10 @@
 		key: string
 		can_write: boolean
 		draft_users?: { username?: string | null }[]
+		/** The row is my own draft (or the legacy no-owner row) — only then is it
+		 * actionable. Other users' rows (shown when "Show all drafts" is on) are
+		 * view-only: you can't deploy/discard someone else's draft. */
+		mine: boolean
 	}
 	function getItemKey(kind: string, path: string): string {
 		return `${kind}:${path}`
@@ -103,12 +107,25 @@
 		return kind as LayoutKind
 	}
 
-	// The list (and the Draft Count) come from the shared Workspace Drafts module,
-	// owned by the page and passed in via `draftItems`; deploy/discard invalidate
-	// that resource, so the list refetches and deployed items drop off without a
-	// manual reload here.
+	// "Show all drafts" widens the list from my own (+ legacy) to every user's
+	// drafts in the workspace. Off by default. The default view reuses the page's
+	// shared Workspace Drafts resource (passed in via `draftItems`); the "all
+	// users" superset is fetched lazily here via its own resource — only while the
+	// toggle is on (workspace() is undefined otherwise, so no fetch) — and shares
+	// the same invalidation, so a deploy/discard refetches both.
+	let showAll = $state(false)
+	const allDrafts = useWorkspaceDrafts(
+		() => (showAll ? currentWorkspaceId : undefined),
+		() => true
+	)
+	const sourceItems = $derived(showAll ? allDrafts.items : draftItems)
+	const loading = $derived(showAll ? allDrafts.loading : draftsLoading)
+
+	// The list (and, in the default view, the Draft Count) come from the Workspace
+	// Drafts module; deploy/discard invalidate the resource, so the list refetches
+	// and deployed items drop off without a manual reload here.
 	const items: Row[] = $derived(
-		draftItems.map((d) => ({
+		sourceItems.map((d) => ({
 			...d,
 			key: getItemKey(d.kind, d.path),
 			kind: toLayoutKind(d.kind),
@@ -130,16 +147,25 @@
 			.filter((u): u is string => !!u && u !== currentUsername)
 	}
 
-	// "My drafts only" hides the legacy no-owner (workspace-level) rows, leaving
-	// strictly the drafts I authored. Off by default — the legacy rows may still
-	// need deploying.
-	let myDraftsOnly = $state(false)
-	const visibleItems = $derived(myDraftsOnly ? items.filter((i) => !i.legacy_draft) : items)
+	// The backend already returns exactly the rows for the current view (own +
+	// legacy, or every user's with "Show all drafts"), so there's no client-side
+	// filtering — `visibleItems` is just the mapped list.
+	const visibleItems = $derived(items)
 
-	// A row is actionable when it isn't already deployed this session and the user
-	// has write permission (the server enforces the same; this keeps the UI honest).
+	// A row is actionable when it isn't already deployed this session, the user has
+	// write permission, AND it's their own draft (you can't deploy someone else's
+	// draft — those show view-only in the "all drafts" view). The server enforces
+	// the same; this keeps the UI honest.
 	function isSelectable(item: Row): boolean {
-		return deploymentStatus[item.key]?.status !== 'deployed' && item.can_write
+		return deploymentStatus[item.key]?.status !== 'deployed' && item.can_write && item.mine
+	}
+
+	// Why a row can't be deployed/discarded (drives the disabled-checkbox tooltip
+	// and the Discard button's title). `undefined` ⇒ actionable.
+	function blockedReason(item: Row): string | undefined {
+		if (!item.mine) return 'This draft belongs to another user'
+		if (!item.can_write) return "You don't have write permission on this path"
+		return undefined
 	}
 
 	// The Draft Items list only carries the *deployed* summary, so the draft's
@@ -190,6 +216,7 @@
 		untrack(() => {
 			for (const item of current) {
 				if (
+					item.mine &&
 					!item.draft_only &&
 					(['script', 'flow', 'app'].includes(item.draftKind) || item.raw_app) &&
 					!summaryCache[item.key]
@@ -418,26 +445,24 @@
 			{deploymentStatus}
 			{allSelected}
 			selectablePredicate={(item) => isSelectable(item as unknown as Row)}
-			selectBlockedReason={(item) =>
-				(item as unknown as Row).can_write
-					? undefined
-					: "You don't have write permission on this path"}
+			selectBlockedReason={(item) => blockedReason(item as unknown as Row)}
 			onToggleItem={toggleItem}
 			onSelectAll={selectAll}
 			onDeselectAll={deselectAll}
-			emptyMessage={draftsLoading
+			emptyMessage={loading
 				? 'Loading drafts…'
-				: myDraftsOnly
-					? 'No drafts you authored in this workspace'
-					: 'No drafts in this workspace'}
+				: showAll
+					? 'No drafts in this workspace'
+					: 'No drafts you authored in this workspace'}
 		>
 			{#snippet selectAllActions()}
 				<Toggle
-					bind:checked={myDraftsOnly}
+					bind:checked={showAll}
 					size="xs"
 					options={{
-						right: 'Only my drafts',
-						rightTooltip: 'Hide legacy workspace drafts that have no owner'
+						right: 'Show all drafts',
+						rightTooltip:
+							"Show every user's drafts in this workspace, not just yours. Others' drafts are view-only — you can only deploy or discard your own."
 					}}
 				/>
 			{/snippet}
@@ -523,7 +548,7 @@
 					path={draftItem.path}
 					allowFork={false}
 				/>
-				{#if others.length > 0}
+				{#if draftItem.mine && others.length > 0}
 					<Popover openOnHover debounceDelay={50}>
 						{#snippet trigger()}
 							<AlertTriangle size={16} class="text-yellow-500" />
@@ -538,6 +563,7 @@
 					</Popover>
 				{/if}
 				{#if deploymentStatus[draftItem.key]?.status !== 'deployed'}
+					{@const discardBlock = blockedReason(draftItem)}
 					<Button
 						unifiedSize="xs"
 						variant="subtle"
@@ -550,10 +576,8 @@
 						unifiedSize="xs"
 						variant="subtle"
 						destructive
-						disabled={!draftItem.can_write}
-						title={!draftItem.can_write
-							? "You don't have write permission on this path"
-							: undefined}
+						disabled={!!discardBlock}
+						title={discardBlock}
 						startIcon={{ icon: Undo2 }}
 						onClick={() => (discardTarget = draftItem)}
 					>

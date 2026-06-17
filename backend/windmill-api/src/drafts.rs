@@ -9,7 +9,7 @@
 use crate::db::{ApiAuthed, DB};
 
 use axum::{
-    extract::{Extension, Path},
+    extract::{Extension, Path, Query},
     routing::{get, post},
     Json, Router,
 };
@@ -61,6 +61,19 @@ pub struct DraftListItem {
     /// so it defaults to `false` when read from the row.
     #[sqlx(default)]
     pub can_write: bool,
+    /// The listed row belongs to the authed user (own draft or the legacy
+    /// no-owner row) and is therefore actionable by them. Always `true` in the
+    /// default (own-drafts) listing; only meaningful with `all_users=true`,
+    /// where other users' rows surface as `false` (view-only — you can't deploy
+    /// someone else's draft).
+    pub mine: bool,
+}
+
+#[derive(Deserialize)]
+pub struct ListDraftsQuery {
+    /// List every draft in the workspace (all users), not just the authed
+    /// user's own + legacy rows. Other users' rows come back with `mine=false`.
+    pub all_users: Option<bool>,
 }
 
 /// Every draft the authed user has in this workspace, across all kinds — the
@@ -72,6 +85,7 @@ async fn list_drafts(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
+    Query(query): Query<ListDraftsQuery>,
 ) -> Result<Json<Vec<DraftListItem>>> {
     // Operators have no drafts of their own (they can't write any, see
     // `require_can_write_path`), so this list is always empty for them. They
@@ -79,7 +93,8 @@ async fn list_drafts(
     if authed.is_operator {
         return Ok(Json(vec![]));
     }
-    let mut rows = sqlx::query_as::<_, DraftListItem>(&list_drafts_query())
+    let all_users = query.all_users.unwrap_or(false);
+    let mut rows = sqlx::query_as::<_, DraftListItem>(&list_drafts_query(all_users))
         .bind(&w_id)
         .bind(&authed.email)
         .fetch_all(&db)
@@ -106,8 +121,9 @@ async fn list_drafts(
 /// `deployed_table()` (shared single source — can't drift from the access
 /// check). Table names come from the closed enum, never user input. Kinds
 /// with no path-keyed table get no arm and fall to `ELSE true`.
-/// `$1` = workspace_id, `$2` = email.
-fn list_drafts_query() -> String {
+/// `$1` = workspace_id, `$2` = email. With `all_users` the owner filter is
+/// dropped so every workspace draft is listed (others' rows get `mine=false`).
+fn list_drafts_query(all_users: bool) -> String {
     let mut case = String::from("CASE d.typ::text\n");
     for kind in UserDraftItemKind::ALL {
         let Some(table) = kind.deployed_table() else {
@@ -139,9 +155,17 @@ fn list_drafts_query() -> String {
                       LEFT JOIN usr u ON u.workspace_id = du.workspace_id AND u.email = du.email
                       WHERE du.workspace_id = d.workspace_id AND du.path = d.path AND du.typ = d.typ
                     ) ELSE NULL END"#;
-    // `(d.email = $2 OR d.email IS NULL)` lists the user's own drafts AND the
-    // legacy NULL-email rows; `DISTINCT ON (d.path, d.typ)` with `email IS NULL`
-    // last collapses a (path, kind) that has both to the owned row.
+    // Default lists the user's own drafts AND the legacy NULL-email rows; with
+    // `all_users` the filter is dropped to list every workspace draft.
+    let owner_filter = if all_users {
+        ""
+    } else {
+        " AND (d.email = $2 OR d.email IS NULL)"
+    };
+    // `DISTINCT ON (d.path, d.typ)` keeps one row per item; the ORDER BY
+    // priority below picks the user's own row first, then the legacy NULL row,
+    // then (only with `all_users`) another user's row. `mine`/`legacy_draft`
+    // describe that kept row.
     format!(
         r#"SELECT DISTINCT ON (d.path, d.typ)
                   d.path,
@@ -163,10 +187,12 @@ fn list_drafts_query() -> String {
                     d.path
                   ) AS draft_path,
                   (d.email IS NULL) AS legacy_draft,
+                  (d.email = $2 OR d.email IS NULL) AS mine,
                   {case} AS draft_only
            FROM draft d
-           WHERE d.workspace_id = $1 AND (d.email = $2 OR d.email IS NULL)
-           ORDER BY d.path, d.typ, (d.email IS NULL)"#
+           WHERE d.workspace_id = $1{owner_filter}
+           ORDER BY d.path, d.typ,
+                    CASE WHEN d.email = $2 THEN 0 WHEN d.email IS NULL THEN 1 ELSE 2 END"#
     )
 }
 

@@ -7898,6 +7898,11 @@ paths:
         - draft
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: all_users
+          in: query
+          description: List every draft in the workspace (all users), not just the current user's own + legacy rows. Other users' rows come back with `mine=false` (view-only).
+          schema:
+            type: boolean
       responses:
         "200":
           description: the user's drafts
@@ -7930,6 +7935,9 @@ paths:
                     can_write:
                       type: boolean
                       description: Whether the current user may deploy/discard this draft (same check the deploy/discard endpoints enforce).
+                    mine:
+                      type: boolean
+                      description: The row belongs to the current user (own draft or the legacy no-owner row) and is therefore actionable. Always true in the default listing; with `all_users=true`, other users' rows are false (view-only).
                     draft_users:
                       description: |
                         Draft authors at this (path, kind) — the legacy NULL-email row surfaced as a null username.
@@ -7942,7 +7950,7 @@ paths:
                           username:
                             type: string
                             nullable: true
-                  required: [kind, path, draft_only, legacy_draft, created_at, can_write]
+                  required: [kind, path, draft_only, legacy_draft, created_at, can_write, mine]
 
   /w/{workspace}/drafts/get/{kind}/{path}:
     get:
