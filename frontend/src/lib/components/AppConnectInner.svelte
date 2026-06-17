@@ -225,16 +225,25 @@
 		scopes = []
 	}
 
+	/** Default scopes for the client-credentials grant. Registry providers use
+	 * their `cc_scopes` (auth-code scopes are invalid in a 2-legged request);
+	 * custom (non-registry) providers configured at the instance level have no
+	 * registry entry, so they keep their admin-configured scopes (`instanceScopes`)
+	 * instead of being zeroed. */
+	function defaultCcScopes(): string[] {
+		const entry = registryEntry()
+		return entry ? (entry.cc_scopes ?? []) : instanceScopes
+	}
+
 	function enableClientCredentials() {
 		manual = false
 		supportsClientCredentials = true
 		if (!useClientCredentials) {
-			// Switching into client-credentials: default to cc_scopes, never the
-			// authorization-code scopes (most providers reject member/consent scopes
-			// in a 2-legged request). Absent cc_scopes means no default; the user adds
-			// any provider-specific scopes themselves. Only reset on the transition so
-			// edits made while already in CC mode are preserved.
-			scopes = registryEntry()?.cc_scopes ?? []
+			// Switching into client-credentials: default to the CC scopes (never the
+			// authorization-code scopes — most providers reject member/consent scopes
+			// in a 2-legged request). Only reset on the transition so edits made while
+			// already in CC mode are preserved.
+			scopes = defaultCcScopes()
 		}
 		useClientCredentials = true
 	}
@@ -488,7 +497,7 @@
 			// No instance OAuth client (registry-declared CC-only provider):
 			// defaults come from the static registry instead.
 			instanceScopes = registryEntry()?.scopes ?? []
-			scopes = useClientCredentials ? (registryEntry()?.cc_scopes ?? []) : instanceScopes
+			scopes = useClientCredentials ? defaultCcScopes() : instanceScopes
 			extra_params = []
 			supportsClientCredentials = registryCcCapable()
 			return
@@ -516,7 +525,7 @@
 		// cc_scopes (auth-code scopes are invalid in a 2-legged request), every other
 		// path keeps the instance entry's scopes. Applies to shared instance creds,
 		// not just bring-your-own. Switching grants resets to these defaults.
-		scopes = useClientCredentials ? (registryEntry()?.cc_scopes ?? []) : instanceScopes
+		scopes = useClientCredentials ? defaultCcScopes() : instanceScopes
 	}
 
 	async function getResourceTypeInfo() {
