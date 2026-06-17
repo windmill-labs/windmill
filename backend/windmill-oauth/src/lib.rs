@@ -123,11 +123,13 @@ pub struct OAuthSandboxOverride {
     pub userinfo_url: Option<String>,
 }
 
-/// Frontend metadata for a per-instance OAuth provider. The instance-settings
-/// UI renders one generic instance-name input and substitutes `{instance}` into
+/// Metadata for a per-instance OAuth provider. The instance-settings UI renders
+/// one generic instance-name input and substitutes `{instance}` into
 /// `auth_url`/`token_url` to build the per-client `connect_config`. Adding a new
 /// per-instance provider needs only a registry entry carrying this template —
-/// no frontend code change. The backend never reads it.
+/// no frontend code change. The client-credentials flow additionally reads
+/// `token_url`, `strip_suffix`, and `label` from it server-side (see
+/// `resolve_cc_token_url_input`) to host-pin the token exchange.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConnectConfigTemplate {
     /// Properly-cased provider name for the settings dropdown (e.g. "ServiceNow");

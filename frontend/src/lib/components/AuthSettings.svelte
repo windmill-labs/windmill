@@ -118,19 +118,25 @@
 		...windmillBuiltinsTemplated
 	]
 
+	/** Resolve a `<name>_sandbox` key to its parent registry entry (sandbox
+	 * variants inherit the parent's grant_types), matching the connect dialog. */
+	function canonicalRegistryKey(name: string): string {
+		return name.endsWith('_sandbox') ? name.slice(0, -'_sandbox'.length) : name
+	}
+
 	/** The static registry declares client credentials for this provider */
 	function registryCcCapable(name: string): boolean {
 		return (
-			(oauthConnectRegistry as Record<string, any>)[name]?.grant_types?.includes(
-				'client_credentials'
-			) ?? false
+			(oauthConnectRegistry as Record<string, any>)[
+				canonicalRegistryKey(name)
+			]?.grant_types?.includes('client_credentials') ?? false
 		)
 	}
 
 	/** The static registry supports authorization code for this provider. A
 	 * provider with no explicit grant_types defaults to authorization code. */
 	function registryAuthCodeCapable(name: string): boolean {
-		const reg = (oauthConnectRegistry as Record<string, any>)[name]
+		const reg = (oauthConnectRegistry as Record<string, any>)[canonicalRegistryKey(name)]
 		if (!reg) return false
 		return reg.grant_types ? reg.grant_types.includes('authorization_code') : true
 	}
