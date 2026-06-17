@@ -95,9 +95,9 @@ import {
 	type WorkspaceItem,
 	type WorkspaceItemType
 } from './workspaceItems'
-import { buildFlowDeployRequestBody, buildScriptDeployRequestBody } from './deployRequests'
 import { userStore } from '$lib/stores'
 import { get } from 'svelte/store'
+import { deployDraft as deployDraftToWorkspace } from '$lib/utils_draft_deploy'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	clearEphemeralSecretVariableDraftValue,
@@ -2471,7 +2471,7 @@ function finishDraftWrite(
 type WriteSpec<T, A> = {
 	probe: (workspace: string, path: string) => Promise<boolean>
 	fetchDeployed: (workspace: string, path: string) => Promise<T>
-	buildDraft: (base: T | undefined, args: A, path: string) => T
+	buildDraft: (base: T | undefined, args: A, path: string) => T | Promise<T>
 	beforePersist?: (workspace: string, args: A) => void
 }
 
@@ -2494,7 +2494,7 @@ async function writeDraft<T, A>(
 		existed = true
 	}
 
-	const draft = spec.buildDraft(base, args, path)
+	const draft = await spec.buildDraft(base, args, path)
 	spec.beforePersist?.(workspace, args)
 
 	const result = await persistGlobalDraft(workspace, type, path, draft, {
@@ -2518,8 +2518,8 @@ const SCRIPT_SPEC: WriteSpec<NewScript, ScriptDraftArgs> = {
 		const existing = await ScriptService.getScriptByPath({ workspace, path })
 		return { ...(existing as unknown as NewScript), parent_hash: existing.hash }
 	},
-	buildDraft: (base, args, path) =>
-		base
+	buildDraft: async (base, args, path) => {
+		const draft: NewScript = base
 			? {
 					...structuredClone(base),
 					path,
@@ -2537,6 +2537,18 @@ const SCRIPT_SPEC: WriteSpec<NewScript, ScriptDraftArgs> = {
 					language: args.language,
 					kind: 'script'
 				}
+		// Infer the arg schema from the content at save time, like the editor does,
+		// so the persisted draft is the single source of truth at deploy. Keep the
+		// previous schema (or empty) on failure rather than blanking it.
+		try {
+			const schema = emptySchema()
+			await inferArgs(draft.language, draft.content, schema)
+			draft.schema = schema
+		} catch (e) {
+			console.error('Failed to infer script schema before saving draft', e)
+		}
+		return draft
+	}
 }
 
 function writeScriptDraft(args: ScriptDraftArgs, ctx: WriteDraftCtx): Promise<string> {
@@ -3325,169 +3337,160 @@ async function deployDraft(
 
 	let actions: ToolDisplayAction[] | undefined
 
-	switch (type) {
-		case 'script': {
-			const existing = (await ScriptService.existsScriptByPath({ workspace, path }))
-				? await ScriptService.getScriptByPath({ workspace, path })
-				: undefined
-			const requestBody = buildScriptDeployRequestBody(path, draft, existing, deploymentMessage)
-			// Infer the arg schema from the content so it matches the code, like the editor does.
-			try {
-				const schema = emptySchema()
-				await inferArgs(requestBody.language, requestBody.content, schema)
-				requestBody.schema = schema
-			} catch (e) {
-				console.error('Failed to infer script schema before deploy', e)
-			}
-			await ScriptService.createScript({ workspace, requestBody })
-			break
+	if (type === 'script' || type === 'flow') {
+		// Promote the full persisted draft via the shared deploy module — the same
+		// "promote a draft to deployed" code the compare page's Review & Deploy uses.
+		// It deploys every field of the draft; the previous local builders dropped
+		// most config fields (tag, priority, schema, description, concurrency…),
+		// reading them from the already-deployed version instead. The other kinds
+		// below already deploy their draft value directly, so only script/flow need
+		// this. Scripts always create (with parent_hash); a flow on a deployed item
+		// updates, a draft-only flow (no flow row) is created.
+		const draftOnly =
+			type === 'flow' ? !(await FlowService.existsFlowByPath({ workspace, path })) : false
+		const result = await deployDraftToWorkspace(type, path, workspace, {
+			draftOnly,
+			deploymentMessage
+		})
+		if (!result.success) {
+			throw new Error(result.error ?? `Failed to deploy ${type} "${path}".`)
 		}
-		case 'flow': {
-			const flowDraft = draft.value as FlowDraftValue
-			const existing = (await FlowService.existsFlowByPath({ workspace, path }))
-				? await FlowService.getFlowByPath({ workspace, path })
-				: undefined
-			const requestBody = buildFlowDeployRequestBody(
-				path,
-				draft.summary,
-				flowDraft,
-				existing,
-				deploymentMessage
-			)
-			if (existing) {
-				await FlowService.updateFlow({ workspace, path, requestBody })
-			} else {
-				await FlowService.createFlow({ workspace, requestBody })
-			}
-			break
-		}
-		case 'schedule': {
-			const requestBody = draft.value as any
-			if (await ScheduleService.existsSchedule({ workspace, path })) {
-				await ScheduleService.updateSchedule({ workspace, path, requestBody })
-			} else {
-				await ScheduleService.createSchedule({ workspace, requestBody })
-			}
-			actions = [createOpenScheduleAction(path, requestBody.is_flow ? 'flow' : 'script')]
-			break
-		}
-		case 'trigger': {
-			const service = triggerServices[triggerKind!]
-			const requestBody = draft.value as { is_flow?: boolean }
-			if (await service.exists({ workspace, path })) {
-				await service.update({ workspace, path, requestBody })
-			} else {
-				await service.create({ workspace, requestBody })
-			}
-			actions = [
-				createOpenTriggerAction(triggerKind!, path, requestBody.is_flow ? 'flow' : 'script')
-			]
-			break
-		}
-		case 'resource': {
-			const requestBody = draft.value as any
-			if (await ResourceService.existsResource({ workspace, path })) {
-				await ResourceService.updateResource({ workspace, path, requestBody })
-			} else {
-				await ResourceService.createResource({ workspace, requestBody })
-			}
-			actions = [createOpenResourceAction(path)]
-			break
-		}
-		case 'variable': {
-			const requestBody = buildVariableDeployRequestBody(
-				workspace,
-				path,
-				draft.value as CreateVariable
-			)
-			if (await VariableService.existsVariable({ workspace, path })) {
-				await VariableService.updateVariable({ workspace, path, requestBody })
-			} else {
-				await VariableService.createVariable({ workspace, requestBody })
-			}
-			actions = [createOpenVariableAction(path)]
-			break
-		}
-		case 'app': {
-			const appDraft = draft.value as AppDraftValue
-			const appValue: AppDraftValue = {
-				...appDraft,
-				files: { ...(appDraft.files ?? {}) },
-				runnables: { ...(appDraft.runnables ?? {}) },
-				data: appDraft.data ?? { ...DEFAULT_RAW_APP_DATA }
-			}
-			await recomputeAppPolicy(appValue)
-			const policy = appValue.policy
-			if (!policy) {
-				throw new Error(`Draft app "${path}" has no policy to deploy.`)
-			}
-
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Bundling app "${path}"...`
-			})
-			const bundle = await bundleRawAppDraft({
-				workspace,
-				files: appValue.files,
-				onLog: (delta) => {
-					const lines = delta
-						.split('\n')
-						.map((line) => line.trim())
-						.filter(Boolean)
-					const latest = lines[lines.length - 1]
-					if (latest) {
-						toolCallbacks.setToolStatus(toolId, {
-							content: `Bundling app "${path}"... ${latest}`
-						})
-					}
+	} else {
+		switch (type) {
+			case 'schedule': {
+				const requestBody = draft.value as any
+				if (await ScheduleService.existsSchedule({ workspace, path })) {
+					await ScheduleService.updateSchedule({ workspace, path, requestBody })
+				} else {
+					await ScheduleService.createSchedule({ workspace, requestBody })
 				}
-			})
-
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Deploying app "${path}"...`
-			})
-			const rawAppValue = {
-				files: appValue.files,
-				runnables: appValue.runnables,
-				data: appValue.data ?? { ...DEFAULT_RAW_APP_DATA }
+				actions = [createOpenScheduleAction(path, requestBody.is_flow ? 'flow' : 'script')]
+				break
 			}
-			const summary = appValue.summary ?? draft.summary ?? ''
-			if (await AppService.existsApp({ workspace, path })) {
-				// Omit custom_path on update for now. The backend preserves it when absent, while
-				// sending it requires admin privileges; this chat deploy path does not yet mirror
-				// the raw app editor's user/admin-specific custom_path handling.
-				await AppService.updateAppRaw({
+			case 'trigger': {
+				const service = triggerServices[triggerKind!]
+				const requestBody = draft.value as { is_flow?: boolean }
+				if (await service.exists({ workspace, path })) {
+					await service.update({ workspace, path, requestBody })
+				} else {
+					await service.create({ workspace, requestBody })
+				}
+				actions = [
+					createOpenTriggerAction(triggerKind!, path, requestBody.is_flow ? 'flow' : 'script')
+				]
+				break
+			}
+			case 'resource': {
+				const requestBody = draft.value as any
+				if (await ResourceService.existsResource({ workspace, path })) {
+					await ResourceService.updateResource({ workspace, path, requestBody })
+				} else {
+					await ResourceService.createResource({ workspace, requestBody })
+				}
+				actions = [createOpenResourceAction(path)]
+				break
+			}
+			case 'variable': {
+				// The chat keeps secret draft values only in memory (the DB draft
+				// stores `''`); buildVariableDeployRequestBody re-injects the ephemeral
+				// secret, so this can't go through the DB-reading shared deployer.
+				const requestBody = buildVariableDeployRequestBody(
 					workspace,
 					path,
-					formData: {
-						app: {
-							path,
-							value: rawAppValue,
-							summary,
-							policy,
-							deployment_message: deploymentMessage
-						},
-						js: bundle.js,
-						css: bundle.css
-					}
-				})
-			} else {
-				await AppService.createAppRaw({
-					workspace,
-					formData: {
-						app: {
-							path,
-							value: rawAppValue,
-							summary,
-							policy,
-							deployment_message: deploymentMessage,
-							custom_path: appValue.custom_path
-						},
-						js: bundle.js,
-						css: bundle.css
-					}
-				})
+					draft.value as CreateVariable
+				)
+				if (await VariableService.existsVariable({ workspace, path })) {
+					await VariableService.updateVariable({ workspace, path, requestBody })
+				} else {
+					await VariableService.createVariable({ workspace, requestBody })
+				}
+				actions = [createOpenVariableAction(path)]
+				break
 			}
-			break
+			case 'app': {
+				// Raw apps store a flat AppDraftValue (files/runnables at top level),
+				// not the deployed app's nested `value` shape the shared raw-app
+				// deployer reads, so they deploy through the chat's own bundle path.
+				const appDraft = draft.value as AppDraftValue
+				const appValue: AppDraftValue = {
+					...appDraft,
+					files: { ...(appDraft.files ?? {}) },
+					runnables: { ...(appDraft.runnables ?? {}) },
+					data: appDraft.data ?? { ...DEFAULT_RAW_APP_DATA }
+				}
+				await recomputeAppPolicy(appValue)
+				const policy = appValue.policy
+				if (!policy) {
+					throw new Error(`Draft app "${path}" has no policy to deploy.`)
+				}
+
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Bundling app "${path}"...`
+				})
+				const bundle = await bundleRawAppDraft({
+					workspace,
+					files: appValue.files,
+					onLog: (delta) => {
+						const lines = delta
+							.split('\n')
+							.map((line) => line.trim())
+							.filter(Boolean)
+						const latest = lines[lines.length - 1]
+						if (latest) {
+							toolCallbacks.setToolStatus(toolId, {
+								content: `Bundling app "${path}"... ${latest}`
+							})
+						}
+					}
+				})
+
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Deploying app "${path}"...`
+				})
+				const rawAppValue = {
+					files: appValue.files,
+					runnables: appValue.runnables,
+					data: appValue.data ?? { ...DEFAULT_RAW_APP_DATA }
+				}
+				const summary = appValue.summary ?? draft.summary ?? ''
+				if (await AppService.existsApp({ workspace, path })) {
+					// Omit custom_path on update for now. The backend preserves it when absent, while
+					// sending it requires admin privileges; this chat deploy path does not yet mirror
+					// the raw app editor's user/admin-specific custom_path handling.
+					await AppService.updateAppRaw({
+						workspace,
+						path,
+						formData: {
+							app: {
+								path,
+								value: rawAppValue,
+								summary,
+								policy,
+								deployment_message: deploymentMessage
+							},
+							js: bundle.js,
+							css: bundle.css
+						}
+					})
+				} else {
+					await AppService.createAppRaw({
+						workspace,
+						formData: {
+							app: {
+								path,
+								value: rawAppValue,
+								summary,
+								policy,
+								deployment_message: deploymentMessage,
+								custom_path: appValue.custom_path
+							},
+							js: bundle.js,
+							css: bundle.css
+						}
+					})
+				}
+				break
+			}
 		}
 	}
 

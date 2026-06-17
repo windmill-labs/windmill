@@ -605,6 +605,92 @@ describe('global AI tools', () => {
 		expect(VariableService.updateVariable).not.toHaveBeenCalled()
 	})
 
+	it('deploys every field of a script draft (not just content/summary)', async () => {
+		// The deploy delegates to the shared deployer, which reads the full persisted
+		// draft via getScriptByPath(getDraft) and deploys all of it. Config fields
+		// (tag/priority/schema/description/concurrency) were previously dropped,
+		// sourced from the deployed version instead.
+		seedBackendDraft(
+			'script',
+			'f/scripts/full',
+			{ path: 'f/scripts/full', content: 'export async function main() {}', language: 'bun' },
+			{ workspace: WORKSPACE }
+		)
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			hash: 1234,
+			path: 'f/scripts/full',
+			summary: 'Full script',
+			description: 'desc',
+			content: 'export async function main() {}',
+			schema: { foo: 'bar' },
+			language: 'bun',
+			kind: 'script',
+			tag: 'custom-tag',
+			priority: 7,
+			concurrent_limit: 3,
+			draft_only: true
+		} as any)
+
+		await callGlobalTool('deploy_workspace_item', { type: 'script', path: 'f/scripts/full' })
+
+		expect(ScriptService.createScript).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({
+				path: 'f/scripts/full',
+				content: 'export async function main() {}',
+				summary: 'Full script',
+				description: 'desc',
+				schema: { foo: 'bar' },
+				language: 'bun',
+				tag: 'custom-tag',
+				priority: 7,
+				concurrent_limit: 3,
+				parent_hash: 1234
+			})
+		})
+		// Editor-only / server-managed draft keys must not leak into the deploy body.
+		const calls = vi.mocked(ScriptService.createScript).mock.calls
+		const body = calls[calls.length - 1][0].requestBody as any
+		expect(body.draft_only).toBeUndefined()
+	})
+
+	it('deploys every config field of a flow draft via createFlow', async () => {
+		seedBackendDraft(
+			'flow',
+			'f/flows/full',
+			{ summary: 'Full flow', description: 'flow desc', value: { modules: [] }, schema: {} },
+			{ workspace: WORKSPACE }
+		)
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
+			path: 'f/flows/full',
+			summary: 'Full flow',
+			description: 'flow desc',
+			value: { modules: [] },
+			schema: { x: 1 },
+			tag: 'flow-tag',
+			priority: 5,
+			dedicated_worker: true
+		} as any)
+
+		await callGlobalTool('deploy_workspace_item', { type: 'flow', path: 'f/flows/full' })
+
+		// No deployed flow row (existsFlowByPath defaults to false) → create.
+		expect(FlowService.createFlow).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({
+				path: 'f/flows/full',
+				summary: 'Full flow',
+				description: 'flow desc',
+				value: { modules: [] },
+				schema: { x: 1 },
+				tag: 'flow-tag',
+				priority: 5,
+				dedicated_worker: true
+			})
+		})
+		expect(FlowService.updateFlow).not.toHaveBeenCalled()
+	})
+
 	it('writes script drafts into UserDraft', async () => {
 		const content = 'export async function main() {\n\treturn "hello"\n}'
 
