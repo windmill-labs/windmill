@@ -279,18 +279,13 @@
 	// Per-instance OAuth providers (Snowflake, ServiceNow, …) keyed by name ->
 	// their registry connect_config_template. Adding a new one needs only a
 	// registry entry — no code here.
-	// Only templated providers with an `auth_url` are configured here (the
-	// authorization-code per-instance flow). Client-credentials-only templated
-	// providers (e.g. Coupa) are connected from the resource drawer instead.
+	// Every per-instance templated provider is configurable here: authorization-code
+	// ones (ServiceNow, Snowflake) provide an `auth_url`, client-credentials-only
+	// ones (Coupa) provide only a `token_url`. Both need the admin to enter their
+	// instance host so the shared credentials point at the right endpoint.
 	const connectConfigTemplates: Record<string, any> = Object.fromEntries(
 		Object.entries(oauthConnectRegistry)
-			.filter(
-				([, cfg]) =>
-					cfg &&
-					typeof cfg === 'object' &&
-					'connect_config_template' in cfg &&
-					(cfg as any).connect_config_template?.auth_url
-			)
+			.filter(([, cfg]) => cfg && typeof cfg === 'object' && 'connect_config_template' in cfg)
 			.map(([name, cfg]) => [name, (cfg as any).connect_config_template])
 	)
 
@@ -318,7 +313,9 @@
 			if (oauths[name].connect_config?.extra_params?.[key] === v) continue
 			oauths[name].connect_config = {
 				scopes: [],
-				auth_url: tmpl.auth_url.replaceAll('{instance}', v),
+				// CC-only templated providers (no auth_url) omit it; the backend
+				// treats an absent auth_url as the unused empty placeholder.
+				...(tmpl.auth_url ? { auth_url: tmpl.auth_url.replaceAll('{instance}', v) } : {}),
 				token_url: tmpl.token_url.replaceAll('{instance}', v),
 				req_body_auth: tmpl.req_body_auth ?? false,
 				extra_params: { [key]: v },

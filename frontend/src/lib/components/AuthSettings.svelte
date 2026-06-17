@@ -102,18 +102,13 @@
 	// carry a `connect_config_template`. Derived from the registry so adding a
 	// new one needs only a JSON entry — they get a builtin tile + the generic
 	// instance-name input below, with no frontend change.
-	// Only templated providers with an `auth_url` (an authorization-code flow) get
-	// a settings tile + instance input. Client-credentials-only templated providers
-	// (e.g. Coupa) are connected from the resource drawer, not configured here.
+	// Every per-instance templated provider gets a settings tile + instance input:
+	// authorization-code ones (ServiceNow) provide an `auth_url`, client-credentials-only
+	// ones (Coupa) provide only a `token_url`. The admin enters their instance host so
+	// the shared credentials point at the right endpoint.
 	const connectConfigTemplates: Record<string, any> = Object.fromEntries(
 		Object.entries(oauthConnectRegistry)
-			.filter(
-				([, cfg]) =>
-					cfg &&
-					typeof cfg === 'object' &&
-					'connect_config_template' in cfg &&
-					(cfg as any).connect_config_template?.auth_url
-			)
+			.filter(([, cfg]) => cfg && typeof cfg === 'object' && 'connect_config_template' in cfg)
 			.map(([name, cfg]) => [name, (cfg as any).connect_config_template])
 	)
 	const windmillBuiltinsTemplated = Object.keys(connectConfigTemplates)
@@ -130,6 +125,20 @@
 				'client_credentials'
 			) ?? false
 		)
+	}
+
+	/** The static registry supports authorization code for this provider. A
+	 * provider with no explicit grant_types defaults to authorization code. */
+	function registryAuthCodeCapable(name: string): boolean {
+		const reg = (oauthConnectRegistry as Record<string, any>)[name]
+		if (!reg) return false
+		return reg.grant_types ? reg.grant_types.includes('authorization_code') : true
+	}
+
+	/** Built-in provider that only supports client credentials (e.g. Coupa): no
+	 * authorization-code flow to choose, so the grant is fixed. */
+	function registryCcOnly(name: string): boolean {
+		return registryCcCapable(name) && !registryAuthCodeCapable(name)
 	}
 
 	/** Map the entry's grant_types to the single-select choice (so the segmented
@@ -165,7 +174,11 @@
 		if (oauths && name) {
 			// Create a new object to ensure the new item is added at the end
 			const newOauths = { ...oauths }
-			newOauths[name] = { id: '', secret: '', grant_types: ['authorization_code'] }
+			newOauths[name] = {
+				id: '',
+				secret: '',
+				grant_types: registryCcOnly(name) ? ['client_credentials'] : ['authorization_code']
+			}
 			oauths = newOauths
 			dropdownOpen = false
 		}
@@ -517,7 +530,7 @@
 											to let each user supply their own instead.
 										</Tooltip>
 									</span>
-									{#if registryCcCapable(k) || !windmillBuiltins.includes(k)}
+									{#if !windmillBuiltins.includes(k) || (registryCcCapable(k) && registryAuthCodeCapable(k))}
 										<ToggleButtonGroup
 											selected={grantChoice(k)}
 											onSelected={(v) => setGrantChoice(k, v)}
@@ -536,6 +549,10 @@
 												<ToggleButton value="both" label="Both" {item} />
 											{/snippet}
 										</ToggleButtonGroup>
+									{:else if registryCcCapable(k)}
+										<span class="text-xs text-secondary font-normal"
+											>Client credentials (server-to-server)</span
+										>
 									{:else}
 										<span class="text-xs text-secondary font-normal"
 											>Authorization code (browser sign-in)</span

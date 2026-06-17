@@ -84,6 +84,13 @@ pub struct OAuthConfig {
     pub token_url: String,
     pub userinfo_url: Option<String>,
     pub scopes: Option<Vec<String>>,
+    /// Default scopes for the client-credentials (2-legged) flow. These differ
+    /// from the authorization-code `scopes` for most providers (member/consent
+    /// scopes are invalid in a 2-legged token request), so CC never defaults to
+    /// `scopes`. Absent means no default scope — the caller supplies any
+    /// provider-specific scopes themselves.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cc_scopes: Option<Vec<String>>,
     pub extra_params: Option<HashMap<String, String>>,
     pub extra_params_callback: Option<HashMap<String, String>>,
     pub req_body_auth: Option<bool>,
@@ -372,7 +379,7 @@ pub async fn build_client_credentials_oauth_client(
     client_name: &str,
     client_id: &str,
     client_secret: &str,
-    cc_token_url_override: Option<&str>,
+    resolved_token_url: Option<&str>,
     connect_configs_json: &str,
 ) -> error::Result<(OClient, OAuthConfig)> {
     use windmill_common::global_settings::{load_value_from_global_settings, OAUTH_SETTING};
@@ -413,50 +420,42 @@ pub async fn build_client_credentials_oauth_client(
             c
         });
 
+    let from_instance = instance_connect_config.is_some();
     let mut connect_config = match instance_connect_config {
         Some(config) => config,
-        None => match resolve_from_registry(client_name)? {
-            Some(config) => config,
-            // Unknown provider: a token URL override is enough for client
-            // credentials (the auth URL is never used by this grant).
-            None if cc_token_url_override.is_some() => OAuthConfig {
-                auth_url: empty_auth(),
-                token_url: String::new(),
-                userinfo_url: None,
-                scopes: None,
-                extra_params: None,
-                extra_params_callback: None,
-                req_body_auth: None,
-                grant_types: default_grant_types(),
-                sandbox: None,
-                connect_config_template: None,
-            },
-            None => {
-                return Err(error::Error::BadRequest(format!(
-                    "No token URL available for '{}': not found in instance OAuth settings or \
-                     static config, and no token URL was provided",
-                    client_name
-                )))
-            }
-        },
+        None => resolve_from_registry(client_name)?.ok_or_else(|| {
+            error::Error::BadRequest(format!(
+                "No token URL available for '{}': not found in instance OAuth settings or static \
+                 config",
+                client_name
+            ))
+        })?,
     };
 
-    // The caller may redirect the exchange to its own token URL only when it also
-    // brings its own credentials. On the shared instance-credentials path (the
-    // caller omits creds and the admin's service-account secret is used below),
-    // honoring a caller-supplied token URL would let any authenticated user send
-    // the admin's secret to a server they control.
+    // Registry providers default their client-credentials scopes from `cc_scopes`,
+    // never the authorization-code `scopes` (which several providers reject for a
+    // 2-legged token request). Instance-configured entries keep their admin-set
+    // scopes untouched.
+    if !from_instance {
+        connect_config.scopes = connect_config.cc_scopes.clone();
+    }
+
     let caller_supplied_creds = !client_id.is_empty() && !client_secret.is_empty();
 
-    if let Some(override_url) = cc_token_url_override {
-        if !caller_supplied_creds {
-            return Err(error::Error::BadRequest(
-                "A client-credentials token URL may only be supplied together with \
-                 client_id and client_secret"
-                    .to_string(),
-            ));
-        }
-        connect_config.token_url = override_url.to_string();
+    // Apply the server-resolved concrete token URL. Instance-templated providers
+    // (e.g. Coupa) carry an empty or `{instance}`-templated token URL in their
+    // registry config; the resolved value (host-pinned for bring-your-own,
+    // persisted on the row for refresh) is what completes it. The caller never
+    // supplies a free-form token URL: this value always comes from
+    // `resolve_cc_token_url_input` or a previously-resolved persisted URL.
+    if let Some(url) = resolved_token_url {
+        connect_config.token_url = url.to_string();
+    }
+    if connect_config.token_url.is_empty() {
+        return Err(error::Error::BadRequest(format!(
+            "No token URL configured for '{}'",
+            client_name
+        )));
     }
 
     // Fall back to the instance entry's own credentials when the caller supplies
@@ -782,32 +781,33 @@ pub async fn refresh_token_for_account<'c>(
     connect_configs_json: &str,
 ) -> error::Result<String> {
     // Instance-configured client: required for authorization_code (the refresh
-    // token exchange uses the instance app's credentials), optional for
-    // client_credentials (the account row is self-contained).
+    // token exchange uses the instance app's credentials). For client_credentials
+    // it is resolved inside `build_client_credentials_oauth_client` instead.
     let oauth_client_info = oauth_clients.connects.get(&account.client).cloned();
 
     let is_client_credentials = account.grant_type == "client_credentials";
 
     let (mut client, cc_config) = if is_client_credentials {
-        match (&account.cc_client_id, &account.cc_client_secret) {
-            (Some(client_id), Some(client_secret)) => {
-                let (client, config) = build_client_credentials_oauth_client(
-                    db,
-                    &account.client,
-                    client_id,
-                    client_secret,
-                    account.cc_token_url.as_deref(),
-                    connect_configs_json,
-                )
-                .await?;
-                (client, Some(config))
-            }
-            _ => {
-                return Err(error::Error::BadRequest(
-                    "client_credentials flow requires cc_client_id and cc_client_secret to be stored in account".to_string()
-                ));
-            }
-        }
+        // Bring-your-own accounts store their own credentials (and resolved token
+        // URL) on the row. Shared instance accounts store none: passing empty
+        // credentials makes the builder re-resolve the admin's service-account
+        // credentials and token URL from the instance entry on every refresh, so a
+        // rotated or removed shared secret takes effect immediately (mirrors the
+        // authorization-code model, where the row never holds the app secret).
+        let (client_id, client_secret) = match (&account.cc_client_id, &account.cc_client_secret) {
+            (Some(id), Some(secret)) => (id.as_str(), secret.as_str()),
+            _ => ("", ""),
+        };
+        let (client, config) = build_client_credentials_oauth_client(
+            db,
+            &account.client,
+            client_id,
+            client_secret,
+            account.cc_token_url.as_deref(),
+            connect_configs_json,
+        )
+        .await?;
+        (client, Some(config))
     } else {
         let info = oauth_client_info
             .as_ref()
@@ -1066,6 +1066,7 @@ mod tests {
             token_url: "https://account.example.com/oauth/token".to_string(),
             userinfo_url: Some("https://account.example.com/userinfo".to_string()),
             scopes: Some(vec!["signature".to_string()]),
+            cc_scopes: None,
             extra_params: None,
             extra_params_callback: None,
             req_body_auth: None,

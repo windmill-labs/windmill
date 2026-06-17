@@ -123,6 +123,12 @@
       "vismanet_erp_interactive_api:delete",
       "vismanet_erp_interactive_api:read",
       "vismanet_erp_interactive_api:update"
+    ],
+    "cc_scopes": [
+      "vismanet_erp_service_api:create",
+      "vismanet_erp_service_api:delete",
+      "vismanet_erp_service_api:read",
+      "vismanet_erp_service_api:update"
     ]
   },
   "coupa": {
@@ -164,13 +170,15 @@
     "auth_url": "https://login.xero.com/identity/connect/authorize",
     "token_url": "https://identity.xero.com/connect/token",
     "grant_types": ["authorization_code", "client_credentials"],
-    "scopes": ["offline_access", "accounting.transactions"]
+    "scopes": ["offline_access", "accounting.transactions"],
+    "cc_scopes": ["accounting.transactions"]
   },
   "zoho": {
     "auth_url": "https://accounts.zoho.com/oauth/v2/auth",
     "token_url": "https://accounts.zoho.com/oauth/v2/token",
     "grant_types": ["authorization_code", "client_credentials"],
     "scopes": ["ZohoAssist.sessionapi.ALL"],
+    "cc_scopes": ["ZohoAssist.sessionapi.ALL"],
     "extra_params": {
       "access_type": "offline"
     }

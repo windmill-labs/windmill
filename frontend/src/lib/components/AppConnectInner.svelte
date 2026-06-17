@@ -215,7 +215,11 @@
 		supportsClientCredentials = true
 		useClientCredentials = true
 		if (scopes.length === 0) {
-			scopes = registryEntry()?.scopes ?? []
+			// Client-credentials defaults to cc_scopes, never the authorization-code
+			// scopes (most providers reject member/consent scopes in a 2-legged
+			// request). Absent cc_scopes means no default; the user adds any
+			// provider-specific scopes themselves.
+			scopes = registryEntry()?.cc_scopes ?? []
 		}
 	}
 
@@ -449,14 +453,18 @@
 	async function getScopesAndParams() {
 		if (!connects?.includes(connectClient)) {
 			// No instance OAuth client (registry-declared CC-only provider):
-			// defaults come from the static registry instead
-			scopes = registryEntry()?.scopes ?? []
+			// defaults come from the static registry instead. Client-credentials
+			// uses cc_scopes (auth-code scopes are invalid in a 2-legged request).
+			scopes = (useClientCredentials ? registryEntry()?.cc_scopes : registryEntry()?.scopes) ?? []
 			extra_params = []
 			supportsClientCredentials = registryCcCapable()
 			return
 		}
 		const connect = await OauthService.getOauthConnect({ client: connectClient })
-		scopes = connect.scopes ?? []
+		// Bring-your-own client credentials default to the registry's cc_scopes; the
+		// instance entry's scopes are authorization-code scopes, invalid in a 2-legged
+		// request. Shared-instance and authorization-code flows keep the entry's scopes.
+		scopes = ccBringYourOwn ? (registryEntry()?.cc_scopes ?? []) : (connect.scopes ?? [])
 		extra_params = Object.entries(connect.extra_params ?? {}) as [string, string][]
 
 		/**
