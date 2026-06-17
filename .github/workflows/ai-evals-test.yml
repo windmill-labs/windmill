@@ -5,7 +5,9 @@ name: AI Evals (global mode)
 # the eval harness or the global chat code change, since each run makes real
 # (paid) LLM calls. The backend is built from source purely as the AI proxy the
 # harness routes model calls through; the global tools/drafts run in-process in
-# the Vitest bridge against production frontend code.
+# the Vitest bridge against production frontend code. To avoid spending on every
+# commit, the PR side triggers only when a PR is marked ready for review (out of
+# draft) — not on `synchronize` — plus push to main and manual dispatch.
 on:
   workflow_dispatch:
   push:
@@ -15,7 +17,7 @@ on:
       - "frontend/src/lib/components/copilot/**"
       - ".github/workflows/ai-evals-test.yml"
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, reopened, ready_for_review]
     paths:
       - "ai_evals/**"
       - "frontend/src/lib/components/copilot/**"
@@ -27,6 +29,9 @@ concurrency:
 
 jobs:
   ai_evals_global:
+    # Skip draft PRs; the `opened`/`reopened` types would otherwise fire while
+    # still a draft. `ready_for_review` always arrives non-draft.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubicloud-standard-16
     services:
       postgres:

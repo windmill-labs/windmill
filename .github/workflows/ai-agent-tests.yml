@@ -2,7 +2,9 @@ name: AI Agent Integration Tests
 
 # Exercises the AI agent flow path (preview_flow with `aiagent` modules) against
 # real LLM providers. Runs only when AI-agent backend code or the tests change,
-# because each run makes real (paid) LLM calls.
+# because each run makes real (paid) LLM calls. To avoid spending on every commit,
+# the PR side triggers only when a PR is marked ready for review (out of draft) —
+# not on `synchronize` — plus push to main and manual dispatch.
 on:
   workflow_dispatch:
   push:
@@ -17,7 +19,7 @@ on:
       - "backend/windmill-common/src/flow_conversations.rs"
       - ".github/workflows/ai-agent-tests.yml"
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, reopened, ready_for_review]
     paths:
       - "integration_tests/ai_agent_tests/**"
       - "backend/windmill-ai/**"
@@ -34,6 +36,9 @@ concurrency:
 
 jobs:
   ai_agent_e2e:
+    # Skip draft PRs; the `opened`/`reopened` types would otherwise fire while
+    # still a draft. `ready_for_review` always arrives non-draft.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubicloud-standard-16
     services:
       postgres:
