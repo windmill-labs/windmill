@@ -649,23 +649,36 @@ pub async fn resolve_cc_token_url(
 ) -> error::Result<String> {
     use windmill_common::global_settings::{load_value_from_global_settings, OAUTH_SETTING};
 
-    let in_registry = serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json)
+    let supports_cc =
+        |grant_types: &[String]| grant_types.iter().any(|g| g == "client_credentials");
+
+    let registry_cfg = serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json)
         .ok()
-        .and_then(|m| resolve_registry_config(&m, client_name))
-        .is_some();
-    if in_registry {
+        .and_then(|m| resolve_registry_config(&m, client_name));
+    if let Some(cfg) = registry_cfg {
+        // Built-in provider: only honor it for client credentials if it actually
+        // declares that grant, so an authorization-code-only provider can't be
+        // driven through the CC API.
+        if !supports_cc(&cfg.grant_types) {
+            return Err(error::Error::BadRequest(format!(
+                "'{client_name}' is not enabled for the client_credentials grant"
+            )));
+        }
         return resolve_cc_token_url_input(connect_configs_json, client_name, caller_instance);
     }
 
     // Custom (non-registry) provider: the token URL comes from the admin's
     // instance connect_config (an admin-configured, trusted host), never the
-    // caller.
-    let instance_token_url = load_value_from_global_settings(db, OAUTH_SETTING)
+    // caller. The instance entry must also enable the client-credentials grant.
+    let entry: Option<OAuthClient> = load_value_from_global_settings(db, OAUTH_SETTING)
         .await?
         .as_ref()
         .and_then(|o| o.get(client_name))
-        .and_then(|v| serde_json::from_value::<OAuthClient>(v.clone()).ok())
-        .and_then(|e| e.connect_config)
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
+    let instance_token_url = entry
+        .as_ref()
+        .filter(|e| supports_cc(&e.grant_types))
+        .and_then(|e| e.connect_config.clone())
         .map(|c| c.token_url)
         .filter(|u| !u.is_empty());
     match instance_token_url {
@@ -682,7 +695,7 @@ pub async fn resolve_cc_token_url(
         Some(url) => Ok(url),
         None => Err(error::Error::BadRequest(format!(
             "Client credentials with your own credentials require '{client_name}' to be a built-in \
-             OAuth provider or configured at the instance level"
+             OAuth provider or an instance entry that enables the client_credentials grant"
         ))),
     }
 }
@@ -879,11 +892,22 @@ pub async fn refresh_token_for_account<'c>(
     };
 
     // Account-level scopes override instance/registry-level scopes
-    let fallback_scopes = oauth_client_info
-        .as_ref()
-        .map(|i| i.scopes.clone())
-        .or_else(|| cc_config.as_ref().and_then(|c| c.scopes.clone()))
-        .unwrap_or_default();
+    // Client-credentials accounts default to the resolved CC config's scopes
+    // (`cc_scopes` for registry providers, the admin's instance scopes for custom
+    // ones) — never the instance client's authorization-code scopes, which are
+    // invalid in a 2-legged request. Authorization-code accounts use the instance
+    // client's scopes as before.
+    let fallback_scopes = if is_client_credentials {
+        cc_config
+            .as_ref()
+            .and_then(|c| c.scopes.clone())
+            .unwrap_or_default()
+    } else {
+        oauth_client_info
+            .as_ref()
+            .map(|i| i.scopes.clone())
+            .unwrap_or_default()
+    };
     let effective_scopes = account
         .scopes
         .as_deref()
