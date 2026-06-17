@@ -343,8 +343,6 @@
 		}
 	}
 
-	const connectAndManual = ['gitlab']
-
 	run(() => {
 		isGoogleSignin =
 			step == 1 &&
@@ -385,11 +383,11 @@
 			workspace: effectiveWorkspace
 		})
 
+		// "Others" lists every resource type — including instance-configured OAuth
+		// providers — so any of them can also be connected with the user's own
+		// credentials or manually, not only via the shared instance setup (same as
+		// the authorization-code behavior).
 		connectsManual = availableRts
-			// "Others" keeps everything except providers whose instance entry has
-			// shared credentials (those belong under "Instance-configured"). A
-			// bring-your-own provider (instance entry, no shared creds) stays here.
-			.filter((x) => connectAndManual.includes(x) || !isSharedConnect(x))
 			.map(
 				(x) =>
 					({
