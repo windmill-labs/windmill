@@ -87,7 +87,8 @@ export class AttachedFilesStore {
 		return this.files
 	}
 	get(name: string): AttachedFile | undefined {
-		return this.files.find((f) => f.name === name)
+		// Resolve to a real file — a folder-root placeholder may share the folder's name.
+		return this.files.find((f) => f.name === name && !f.isFolderRoot)
 	}
 	readyFiles(): AttachedFile[] {
 		// Folder-root placeholders aren't real files — never expose them to the read/search tools.
@@ -127,9 +128,13 @@ export class AttachedFilesStore {
 	}
 
 	removeFile(name: string): void {
-		const f = this.files.find((x) => x.name === name)
-		this.files = this.files.filter((x) => x.name !== name)
-		if (f) void this.#deleteRecord(f.sourceId)
+		// Target the real file only — never a folder-root placeholder that happens to share
+		// the name (those are managed via removeFolder), else removing a same-named standalone
+		// file would also drop the folder's placeholder.
+		const f = this.files.find((x) => x.name === name && !x.isFolderRoot)
+		if (!f) return
+		this.files = this.files.filter((x) => !(x.name === name && !x.isFolderRoot))
+		void this.#deleteRecord(f.sourceId)
 	}
 
 	/** Remove every file linked as part of the given folder (and its persisted record). */
@@ -363,15 +368,18 @@ export class AttachedFilesStore {
 	#isDuplicate(desired: string, file: File): boolean {
 		return this.files.some(
 			(f) =>
-				f.name === desired ||
-				// Identical re-drop at the SAME relative path (its row name may have been
-				// auto-suffixed). Keyed on the path, NOT the basename — otherwise two distinct
-				// files sharing a basename under different folder subdirs (proj/a/index.ts vs
-				// proj/b/index.ts) would be wrongly deduped and silently dropped.
-				((f.relPath ?? f.name) === desired &&
-					f.size === file.size &&
-					f.file instanceof File &&
-					f.file.lastModified === file.lastModified)
+				// Folder-root placeholders aren't real files — they must not block attaching a
+				// standalone file that happens to share the folder's name.
+				!f.isFolderRoot &&
+				(f.name === desired ||
+					// Identical re-drop at the SAME relative path (its row name may have been
+					// auto-suffixed). Keyed on the path, NOT the basename — otherwise two distinct
+					// files sharing a basename under different folder subdirs (proj/a/index.ts vs
+					// proj/b/index.ts) would be wrongly deduped and silently dropped.
+					((f.relPath ?? f.name) === desired &&
+						f.size === file.size &&
+						f.file instanceof File &&
+						f.file.lastModified === file.lastModified))
 		)
 	}
 
@@ -573,13 +581,16 @@ export class AttachedFilesStore {
 	}
 
 	#uniqueName(original: string): string {
-		if (!this.files.some((f) => f.name === original)) return original
+		// Uniqueness is only among real files — folder-root placeholders may share a name
+		// with a standalone file and must not push it to a "(2)" suffix.
+		const taken = (n: string) => this.files.some((f) => f.name === n && !f.isFolderRoot)
+		if (!taken(original)) return original
 		const dot = original.lastIndexOf('.')
 		const base = dot > 0 ? original.slice(0, dot) : original
 		const ext = dot > 0 ? original.slice(dot) : ''
 		let n = 2
 		let candidate = `${base} (${n})${ext}`
-		while (this.files.some((f) => f.name === candidate)) {
+		while (taken(candidate)) {
 			n++
 			candidate = `${base} (${n})${ext}`
 		}

@@ -403,6 +403,24 @@ describe('AttachedFilesStore', () => {
 		expect(store.folders[0].files.map((f) => f.relPath)).toEqual(['proj/new.ts'])
 	})
 
+	it('an empty-folder placeholder does not collide with a same-named standalone file', async () => {
+		enumerateDirMock.mockResolvedValue([]) // empty folder "proj" → creates a placeholder named "proj"
+		await store.addFolder(dir)
+		await settle(store)
+
+		// A standalone file literally named "proj" must NOT be deduped by the placeholder.
+		const res = await store.addFiles([file('proj', 'hello\n')])
+		await settle(store)
+		expect(res.added).toEqual(['proj'])
+		expect(store.standalone.map((f) => f.name)).toEqual(['proj'])
+		expect(store.folders.map((f) => f.name)).toEqual(['proj'])
+
+		// Removing that standalone leaves the folder's placeholder intact.
+		store.removeFile('proj')
+		expect(store.standalone).toEqual([])
+		expect(store.folders).toEqual([{ name: 'proj', status: 'ready', files: [] }])
+	})
+
 	it('links an initially empty live folder (kept visible, persisted, refreshes)', async () => {
 		const { putItem } = await import('./attachedFilesDB')
 		const s = new AttachedFilesStore()
