@@ -35,6 +35,9 @@
 		/** Called after an admin migrates (deletes / assigns) the legacy draft, so
 		 *  the parent row can refetch and drop the now-resolved legacy entry. */
 		onMigrated?: () => void
+		/** Offer "Load" alongside "View Diff" on other users' rows. The deploy /
+		 * review page sets this false: loading into a fresh editor is moot there. */
+		allowFork?: boolean
 	}
 
 	let {
@@ -45,7 +48,8 @@
 		workspace = undefined,
 		itemKind = undefined,
 		path = undefined,
-		onMigrated = undefined
+		onMigrated = undefined,
+		allowFork = true
 	}: Props = $props()
 
 	// Authed user lands first; everyone else keeps the backend's ordering.
@@ -190,7 +194,15 @@
 </script>
 
 {#if showBadge}
-	<Popover openOnHover={true} debounceDelay={50} enableFlyTransition bind:isOpen={popoverOpen}>
+	<!-- inline-flex/items-center so the trigger button hugs the badge and lines up
+	     with sibling badges (a plain button is taller, dropping the pill ~2px). -->
+	<Popover
+		openOnHover={true}
+		debounceDelay={50}
+		enableFlyTransition
+		class="inline-flex items-center"
+		bind:isOpen={popoverOpen}
+	>
 		{#snippet trigger()}
 			<Badge small color="indigo">
 				{#if orderedUsers.length > 0}
@@ -284,8 +296,9 @@
 											View Diff
 										</Button>
 									{/if}
-									<!-- Operators can't edit items, so Load is hidden (View Diff stays, it's read-only). -->
-									{#if !$userStore?.operator}
+									<!-- Operators can't edit items, so Load is hidden (View Diff stays, it's
+									     read-only). `allowFork=false` (deploy/review page) hides it too. -->
+									{#if allowFork && !$userStore?.operator}
 										<Button
 											variant="subtle"
 											size="xs3"
