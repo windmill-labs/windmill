@@ -139,6 +139,18 @@ pub fn workspaced_service() -> Router {
             "/update_datatable_migrations",
             post(update_datatable_migrations),
         )
+        .route(
+            "/datatable_migrations_status/{datatable_name}",
+            get(datatable_migrations_status),
+        )
+        .route(
+            "/create_datatable_migration/{datatable_name}",
+            post(create_datatable_migration),
+        )
+        .route(
+            "/delete_datatable_migration/{datatable_name}/{timestamp}",
+            delete(delete_datatable_migration),
+        )
         .route("/git_sync_enabled", get(get_git_sync_enabled))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
@@ -2397,6 +2409,12 @@ struct RunDatatableMigrationsResult {
     applied: Vec<AppliedMigration>,
 }
 
+#[derive(Deserialize)]
+struct RunDatatableMigrationsQuery {
+    /// When set, only apply pending migrations up to and including this version.
+    up_to: Option<i64>,
+}
+
 /// Apply the workspace's pending data table migrations to a given data table.
 /// Applied versions are tracked in the data table's own `_wm_migrations` table,
 /// so only migrations not recorded there are run, in ascending `timestamp` order.
@@ -2404,6 +2422,7 @@ async fn run_datatable_migrations(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
+    Query(query): Query<RunDatatableMigrationsQuery>,
 ) -> JsonResult<RunDatatableMigrationsResult> {
     require_admin(authed.is_admin, &authed.username)?;
 
@@ -2459,6 +2478,10 @@ async fn run_datatable_migrations(
 
     let mut applied = Vec::new();
     for m in migrations {
+        // Migrations are ordered ascending, so once we pass `up_to` we're done.
+        if query.up_to.is_some_and(|up_to| m.timestamp > up_to) {
+            break;
+        }
         if applied_versions.contains(&m.timestamp) {
             continue;
         }
@@ -2703,6 +2726,212 @@ async fn update_datatable_migrations(
         "Updated {} datatable migration(s) for workspace {}",
         payload.migrations.len(),
         &w_id
+    ))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum DatatableMigrationRunStatus {
+    /// Recorded in the data table's `_wm_migrations` table.
+    Ran,
+    /// Defined but not yet applied.
+    NotRun,
+    /// Applied status could not be determined (connection failure).
+    Unknown,
+}
+
+#[derive(Serialize)]
+struct DatatableMigrationWithStatus {
+    timestamp: i64,
+    name: String,
+    code_up: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code_down: Option<String>,
+    status: DatatableMigrationRunStatus,
+}
+
+#[derive(Serialize)]
+struct DatatableMigrationsStatusResult {
+    migrations: Vec<DatatableMigrationWithStatus>,
+    /// Set when the applied status couldn't be read from the data table.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+/// Read the versions recorded in a data table's `_wm_migrations` table. A
+/// missing table means nothing has been applied yet (empty set, not an error).
+async fn read_applied_datatable_versions(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+) -> Result<HashSet<i64>> {
+    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+    let pg_db: PgDatabase = serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+    let (client, connection) = pg_db.connect(Some(db)).await?;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+
+    match client
+        .query("SELECT version FROM _wm_migrations", &[])
+        .await
+    {
+        Ok(rows) => Ok(rows.iter().map(|row| row.get::<_, i64>(0)).collect()),
+        // 42P01 = undefined_table: the data table has never been migrated yet.
+        Err(e) if e.as_db_error().map(|d| d.code().code()) == Some("42P01") => Ok(HashSet::new()),
+        Err(e) => Err(Error::internal_err(format!(
+            "Failed to read _wm_migrations: {}",
+            e
+        ))),
+    }
+}
+
+/// List a data table's migrations annotated with whether each has been applied.
+async fn datatable_migrations_status(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, datatable_name)): Path<(String, String)>,
+) -> JsonResult<DatatableMigrationsStatusResult> {
+    let defs = sqlx::query!(
+        "SELECT timestamp, name, code_up, code_down FROM datatable_migrations \
+         WHERE workspace_id = $1 AND datatable = $2 ORDER BY timestamp ASC",
+        &w_id,
+        &datatable_name,
+    )
+    .fetch_all(&db)
+    .await?;
+
+    let (applied, error) = match read_applied_datatable_versions(&db, &w_id, &datatable_name).await
+    {
+        Ok(set) => (Some(set), None),
+        Err(e) => (None, Some(e.to_string())),
+    };
+
+    let migrations = defs
+        .into_iter()
+        .map(|m| {
+            let status = match &applied {
+                Some(set) if set.contains(&m.timestamp) => DatatableMigrationRunStatus::Ran,
+                Some(_) => DatatableMigrationRunStatus::NotRun,
+                None => DatatableMigrationRunStatus::Unknown,
+            };
+            DatatableMigrationWithStatus {
+                timestamp: m.timestamp,
+                name: m.name,
+                code_up: m.code_up,
+                code_down: m.code_down,
+                status,
+            }
+        })
+        .collect();
+
+    Ok(Json(DatatableMigrationsStatusResult { migrations, error }))
+}
+
+#[derive(Deserialize)]
+pub struct CreateDatatableMigration {
+    pub name: String,
+    pub code_up: String,
+    #[serde(default)]
+    pub code_down: Option<String>,
+}
+
+/// Create a single migration for a data table. The version is generated
+/// server-side (current UTC `YYYYMMDDHHMMSS`), bumped past any existing version
+/// so it stays unique and monotonically increasing.
+async fn create_datatable_migration(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, datatable_name)): Path<(String, String)>,
+    Json(payload): Json<CreateDatatableMigration>,
+) -> JsonResult<DatatableMigration> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let now_ts: i64 = Utc::now()
+        .format("%Y%m%d%H%M%S")
+        .to_string()
+        .parse()
+        .map_err(|e| Error::internal_err(format!("Failed to build migration version: {}", e)))?;
+    let max_existing: Option<i64> = sqlx::query_scalar!(
+        "SELECT MAX(timestamp) FROM datatable_migrations WHERE workspace_id = $1 AND datatable = $2",
+        &w_id,
+        &datatable_name,
+    )
+    .fetch_one(&db)
+    .await?;
+    let timestamp = match max_existing {
+        Some(m) if m >= now_ts => m + 1,
+        _ => now_ts,
+    };
+
+    sqlx::query!(
+        "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) \
+         VALUES ($1, $2, $3, $4, $5, $6)",
+        &w_id,
+        &datatable_name,
+        timestamp,
+        &payload.name,
+        &payload.code_up,
+        payload.code_down.as_deref(),
+    )
+    .execute(&db)
+    .await?;
+
+    audit_log(
+        &db,
+        &authed,
+        "workspaces.create_datatable_migration",
+        ActionKind::Create,
+        &w_id,
+        Some(datatable_name.as_str()),
+        None,
+    )
+    .await?;
+
+    Ok(Json(DatatableMigration {
+        datatable: datatable_name,
+        timestamp,
+        name: payload.name,
+        code_up: payload.code_up,
+        code_down: payload.code_down,
+    }))
+}
+
+/// Delete a single migration definition from a data table.
+async fn delete_datatable_migration(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, datatable_name, timestamp)): Path<(String, String, i64)>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    sqlx::query!(
+        "DELETE FROM datatable_migrations \
+         WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3",
+        &w_id,
+        &datatable_name,
+        timestamp,
+    )
+    .execute(&db)
+    .await?;
+
+    audit_log(
+        &db,
+        &authed,
+        "workspaces.delete_datatable_migration",
+        ActionKind::Delete,
+        &w_id,
+        Some(datatable_name.as_str()),
+        None,
+    )
+    .await?;
+
+    Ok(format!(
+        "Deleted migration {} from {}",
+        timestamp, datatable_name
     ))
 }
 

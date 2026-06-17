@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM datatable_migrations WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5b67c3af6477d7029d118ac259a7535d4d962c328a060f33c07191ac3e033e82"
+}
