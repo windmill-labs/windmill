@@ -523,19 +523,7 @@
 									/>
 								</label>
 								<div class="flex flex-col gap-2 mb-2">
-									<span class="text-xs font-semibold text-emphasis">
-										These credentials are for
-										<Tooltip>
-											The grant type(s) this OAuth app's credentials are registered for; the same
-											Client ID and Secret are used for each selected flow.
-											<br /><br />
-											Authorization code: users sign in via a popup using this app.
-											<br /><br />
-											Client credentials: server-to-server. These credentials mint the token for every
-											connection and the secret stays on the server. Leave the Client ID and Secret empty
-											to let each user supply their own instead.
-										</Tooltip>
-									</span>
+									<span class="text-xs font-semibold text-emphasis">These credentials are for</span>
 									{#if !windmillBuiltins.includes(k) || (registryCcCapable(k) && registryAuthCodeCapable(k))}
 										<ToggleButtonGroup
 											selected={grantChoice(k)}
@@ -545,38 +533,38 @@
 												<ToggleButton
 													value="authorization_code"
 													label="Authorization code"
+													showTooltipIcon
+													tooltip="Users sign in through a browser popup using this app's Client ID and Secret."
 													{item}
 												/>
 												<ToggleButton
 													value="client_credentials"
 													label="Client credentials"
+													showTooltipIcon
+													tooltip={`Server-to-server. Fill Client ID and Secret to share one service account for every connection, or leave them empty so each user brings their own.${!windmillBuiltins.includes(k) ? ' A Token URL is required below.' : ''}`}
 													{item}
 												/>
-												<ToggleButton value="both" label="Both" {item} />
+												<ToggleButton
+													value="both"
+													label="Both"
+													showTooltipIcon
+													tooltip="Offer both flows; the same Client ID and Secret are used for each selected grant."
+													{item}
+												/>
 											{/snippet}
 										</ToggleButtonGroup>
 									{:else if registryCcCapable(k)}
-										<span class="text-xs text-secondary font-normal"
-											>Client credentials (server-to-server)</span
-										>
+										<span class="text-xs text-secondary font-normal flex items-center gap-1">
+											Client credentials (server-to-server)
+											<Tooltip
+												>Fill Client ID and Secret to share one service account, or leave them empty
+												so each user brings their own.</Tooltip
+											>
+										</span>
 									{:else}
 										<span class="text-xs text-secondary font-normal"
 											>Authorization code (browser sign-in)</span
 										>
-									{/if}
-									{#if grantChoice(k) !== 'authorization_code'}
-										<div class="text-xs text-secondary font-normal">
-											{#if oauths[k]?.['id'] || oauths[k]?.['secret']}
-												Shared: these credentials mint the token for every connection. Leave both
-												empty to let each user bring their own instead.
-											{:else}
-												Bring-your-own: each user enters their own Client ID and Secret when
-												connecting. Fill both above to share one service account instead.
-											{/if}
-											{#if !windmillBuiltins.includes(k)}
-												A Token URL is required below.
-											{/if}
-										</div>
 									{/if}
 								</div>
 								{#if k === 'azure_oauth'}
