@@ -8022,6 +8022,10 @@ paths:
                 legacy:
                   type: boolean
                   description: Delete-only. Target the legacy workspace-level row (email NULL) instead of the current user's row. Used to discard a legacy draft from the review page.
+                created_at:
+                  type: string
+                  format: date-time
+                  description: Upsert-only override for the stored creation timestamp. Normal saves omit it (stamped server-side); the localStorage→DB migration passes the draft's original write time so migrated drafts keep their age.
       responses:
         "200":
           description: save result
