@@ -96,7 +96,12 @@ async function getModeRunner(
 }
 
 function parseMode(value: string | undefined): FrontendBenchmarkMode {
-  if (value === "flow" || value === "app" || value === "script" || value === "global") {
+  if (
+    value === "flow" ||
+    value === "app" ||
+    value === "script" ||
+    value === "global"
+  ) {
     return value;
   }
   throw new Error(`Unsupported frontend benchmark mode: ${String(value)}`);
