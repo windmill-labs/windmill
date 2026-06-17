@@ -349,16 +349,34 @@
 	}
 
 	// --- Discard ---
+	// Only one discard is destructive: removing the last draft of a never-deployed
+	// item (draft_only, and no other user still holds a draft) permanently deletes
+	// the item, so it gets a confirmation. Every other discard just reverts to the
+	// deployed version or removes your own copy while another draft remains — those
+	// run immediately (the row already carries the ⚠️ for the multi-user case).
 	let discardTarget = $state<Row | undefined>(undefined)
-	// Other real users with a draft at the target path: discarding only removes
-	// MY draft (+ the legacy NULL row), so a draft_only item isn't truly deleted
-	// while they still hold one — reword the confirmation to say so.
-	const discardOthers = $derived(discardTarget ? otherDraftUsers(discardTarget) : [])
 
-	async function confirmDiscard() {
-		const item = discardTarget
-		discardTarget = undefined
-		if (!item) return
+	function isDestructiveDiscard(item: Row): boolean {
+		// A deployed counterpart exists → discard just reverts, never deletes.
+		if (!item.draft_only) return false
+		// draft_only → discarding deletes the item, UNLESS another real user still
+		// holds a draft of it. Guard on `currentUsername`: if we don't yet know who
+		// "me" is, `otherDraftUsers` would count my own row as someone else's, so
+		// fall back to treating it as a delete (confirm) rather than risk a silent
+		// deletion.
+		if (!currentUsername) return true
+		return otherDraftUsers(item).length === 0
+	}
+
+	function onDiscardClick(item: Row) {
+		if (isDestructiveDiscard(item)) {
+			discardTarget = item
+		} else {
+			void doDiscard(item)
+		}
+	}
+
+	async function doDiscard(item: Row) {
 		const res = await discardDraft(
 			item.draftKind,
 			item.path,
@@ -373,6 +391,12 @@
 		} else {
 			sendUserToast(`Failed to discard ${item.path}: ${res.error}`, true)
 		}
+	}
+
+	function confirmDiscard() {
+		const item = discardTarget
+		discardTarget = undefined
+		if (item) void doDiscard(item)
 	}
 
 	// Editor URL for a draft item, scoped to the current workspace. Raw apps live
@@ -579,7 +603,7 @@
 						disabled={!!discardBlock}
 						title={discardBlock}
 						startIcon={{ icon: Undo2 }}
-						onClick={() => (discardTarget = draftItem)}
+						onClick={() => onDiscardClick(draftItem)}
 					>
 						Discard draft
 					</Button>
@@ -604,29 +628,18 @@
 	<DiffDrawer bind:this={diffDrawer} {isFlow} />
 </div>
 
+<!-- Only the destructive discard (deleting the last draft of a never-deployed
+     item) opens this modal; non-destructive discards run without confirmation. -->
 <ConfirmationModal
 	open={discardTarget !== undefined}
-	title={discardTarget?.draft_only && discardOthers.length === 0 ? 'Delete item' : 'Discard draft'}
-	confirmationText={discardTarget?.draft_only && discardOthers.length === 0 ? 'Delete' : 'Discard'}
+	title="Delete item"
+	confirmationText="Delete"
 	onConfirmed={confirmDiscard}
 	onCanceled={() => (discardTarget = undefined)}
 >
-	{#if discardTarget?.draft_only && discardOthers.length === 0}
-		<p>
-			<span class="font-mono font-medium text-primary">{discardTarget?.path}</span> exists only as a
-			draft. Discarding it will permanently delete the item. This cannot be undone.
-		</p>
-	{:else if discardOthers.length > 0}
-		<p>
-			Discard your draft of
-			<span class="font-mono font-medium text-primary">{discardTarget?.path}</span>? Other users
-			still have a draft here, so the item won't be deleted.
-		</p>
-	{:else}
-		<p>
-			Discard the draft of
-			<span class="font-mono font-medium text-primary">{discardTarget?.path}</span>? The deployed
-			version is unaffected.
-		</p>
-	{/if}
+	<p>
+		<span class="font-mono font-medium text-primary"
+			>{discardTarget?.draft_path ?? discardTarget?.path}</span
+		> exists only as a draft. Discarding it will permanently delete the item. This cannot be undone.
+	</p>
 </ConfirmationModal>
