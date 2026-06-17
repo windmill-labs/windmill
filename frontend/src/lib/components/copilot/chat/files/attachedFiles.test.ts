@@ -11,6 +11,8 @@ vi.mock('./attachedFilesDB', () => ({
 const enumerateDirMock = vi.fn<(h: unknown) => Promise<{ file: File; path: string }[]>>()
 vi.mock('./fsAccess', () => ({
 	enumerateDir: (h: unknown) => enumerateDirMock(h),
+	isIgnoredPath: (p: string) =>
+		p.split('/').some((s) => s.startsWith('.') || ['node_modules', 'dist', '.git'].includes(s)),
 	queryReadPermission: vi.fn(async () => 'granted'),
 	requestReadPermission: vi.fn(async () => 'granted')
 }))
@@ -206,5 +208,121 @@ describe('AttachedFilesStore', () => {
 		await store.addFolder(dir)
 		store.removeFolder('proj')
 		expect(store.count).toBe(0)
+	})
+
+	it('snapshots a folder via addFiles (paths), grouping it and persisting folder + relPath', async () => {
+		const { putItem } = await import('./attachedFilesDB')
+		// A persisted (non-transient) session writes through to IndexedDB immediately.
+		const s = new AttachedFilesStore()
+		await s.restore('s1', true)
+		await s.addFiles([
+			{ file: file('a.ts', 'x\n'), path: 'proj/a.ts' },
+			{ file: file('b.ts', 'y\n'), path: 'proj/sub/b.ts' }
+		])
+		await settle(s)
+		expect(s.folders.map((f) => f.name)).toEqual(['proj'])
+		expect(s.folders[0].files.map((f) => f.relPath).sort()).toEqual(['proj/a.ts', 'proj/sub/b.ts'])
+		expect(s.standalone).toEqual([])
+		const rec = (putItem as ReturnType<typeof vi.fn>).mock.calls
+			.map((c) => c[0])
+			.find((r) => r.name === 'proj/a.ts')
+		expect(rec).toMatchObject({ kind: 'snapshot', folder: 'proj', relPath: 'proj/a.ts' })
+	})
+
+	it('skips junk paths (node_modules/.git/dotfiles) inside a snapshotted folder', async () => {
+		const res = await store.addFiles([
+			{ file: file('a.ts', 'x\n'), path: 'proj/a.ts' },
+			{ file: file('dep.js', 'z\n'), path: 'proj/node_modules/dep.js' },
+			{ file: file('cfg', 'w\n'), path: 'proj/.git/config' }
+		])
+		await settle(store)
+		expect(res.added).toEqual(['proj/a.ts'])
+		expect(store.folders[0].files).toHaveLength(1)
+	})
+
+	it('keeps an explicitly attached standalone dotfile (filter is folder-only)', async () => {
+		const res = await store.addFiles([file('.env', 'SECRET=1\n')])
+		await settle(store)
+		expect(res.added).toEqual(['.env'])
+		expect(store.standalone.map((f) => f.name)).toEqual(['.env'])
+	})
+
+	it('restores a snapshot folder grouped from its persisted folder/relPath', async () => {
+		const { getItemsForSession } = await import('./attachedFilesDB')
+		;(getItemsForSession as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+			{
+				id: 's-a',
+				sessionId: 's1',
+				kind: 'snapshot',
+				name: 'proj/a.ts',
+				folder: 'proj',
+				relPath: 'proj/a.ts',
+				blob: file('a.ts', 'x\n'),
+				addedAt: 0
+			},
+			{
+				id: 's-b',
+				sessionId: 's1',
+				kind: 'snapshot',
+				name: 'proj/b.ts',
+				folder: 'proj',
+				relPath: 'proj/b.ts',
+				blob: file('b.ts', 'y\n'),
+				addedAt: 0
+			}
+		])
+		const s2 = new AttachedFilesStore()
+		await s2.restore('s1', true)
+		await settle(s2)
+		expect(s2.folders.map((f) => f.name)).toEqual(['proj'])
+		expect(s2.folders[0].files).toHaveLength(2)
+		expect(s2.standalone).toEqual([])
+	})
+
+	it('imposes no file-count cap on a folder', async () => {
+		enumerateDirMock.mockResolvedValue(
+			Array.from({ length: 150 }, (_, i) => ({
+				file: file(`f${i}.ts`, 'x\n'),
+				path: `proj/f${i}.ts`
+			}))
+		)
+		await store.addFolder(dir)
+		await settle(store)
+		expect(store.folders[0].files.length).toBe(150)
+	})
+
+	it('removeFolder deletes every snapshot record from storage (persisted session)', async () => {
+		const { deleteItem } = await import('./attachedFilesDB')
+		const s = new AttachedFilesStore()
+		await s.restore('s1', true)
+		await s.addFiles([
+			{ file: file('a.ts', 'x\n'), path: 'proj/a.ts' },
+			{ file: file('b.ts', 'y\n'), path: 'proj/sub/b.ts' }
+		])
+		await settle(s)
+		const ids = s
+			.list()
+			.filter((f) => f.folder === 'proj')
+			.map((f) => f.sourceId)
+		expect(ids.length).toBe(2)
+		;(deleteItem as ReturnType<typeof vi.fn>).mockClear()
+		s.removeFolder('proj')
+		expect(s.count).toBe(0)
+		const deleted = (deleteItem as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0])
+		for (const id of ids) expect(deleted).toContain(id)
+	})
+
+	it('removeFolder deletes the live folder record from storage (persisted session)', async () => {
+		const { deleteItem } = await import('./attachedFilesDB')
+		const s = new AttachedFilesStore()
+		await s.restore('s1', true)
+		enumerateDirMock.mockResolvedValue([{ file: file('app.ts', 'x\n'), path: 'proj/app.ts' }])
+		await s.addFolder(dir)
+		await settle(s)
+		const sourceId = s.list().find((f) => f.folder === 'proj')?.sourceId
+		;(deleteItem as ReturnType<typeof vi.fn>).mockClear()
+		s.removeFolder('proj')
+		expect(s.count).toBe(0)
+		expect((deleteItem as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0])).toContain(sourceId)
 	})
 })

@@ -23,6 +23,8 @@ export interface PersistedAttachedItem {
 	name: string
 	/** Top-level folder (for grouping); equals `name` for dir-handle records. */
 	folder?: string
+	/** Folder-relative path (snapshot folder children) — restores the folder grouping/tree. */
+	relPath?: string
 	/** Live directory handle (for 'dir-handle'). */
 	handle?: FileSystemDirectoryHandle
 	/** Full-content copy (for 'snapshot'). */

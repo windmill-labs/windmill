@@ -25,9 +25,6 @@ const IGNORED_DIRS = new Set([
 	'.cache'
 ])
 
-/** Max files collected from a single folder, to avoid pathological directories. */
-export const MAX_FOLDER_FILES = 500
-
 function isIgnoredSegment(name: string): boolean {
 	return name.startsWith('.') || IGNORED_DIRS.has(name)
 }
@@ -101,8 +98,8 @@ export function isDirectoryHandle(h: FileSystemHandle): h is FileSystemDirectory
 
 /**
  * Recursively read a directory handle into a flat list of files with relative paths,
- * skipping junk (dotfiles/dotdirs, node_modules, …) and capping the count. Used both
- * on link and on live re-enumeration after a reload.
+ * skipping junk (dotfiles/dotdirs, node_modules, …). No file-count cap — the browser's
+ * memory/quota are the only limit. Used on link and on live re-enumeration after a reload.
  */
 export async function enumerateDir(
 	dir: FileSystemDirectoryHandle
@@ -112,7 +109,6 @@ export async function enumerateDir(
 	async function walk(handle: FileSystemDirectoryHandle, prefix: string): Promise<void> {
 		// @ts-ignore - values() is an async iterator in the File System Access API
 		for await (const entry of handle.values() as AsyncIterable<FileSystemHandle>) {
-			if (out.length >= MAX_FOLDER_FILES) return
 			const path = `${prefix}/${entry.name}`
 			if (isIgnoredPath(path)) continue
 			if (isFileHandle(entry)) {
@@ -125,6 +121,49 @@ export async function enumerateDir(
 
 	await walk(dir, dir.name)
 	return out
+}
+
+/**
+ * Recursively read dropped files AND folders via the legacy `webkitGetAsEntry` API —
+ * the fallback for browsers without the File System Access API (Firefox/Safari). Folder
+ * contents are snapshotted into the browser (no live handle). Each result `path` is
+ * folder-relative (`folder/sub/file` for a dropped folder, bare name for a loose file),
+ * junk paths skipped, no file-count cap.
+ *
+ * `webkitGetAsEntry()` is only valid synchronously during the drop event, so this MUST be
+ * called from the drop handler — its `.map(...)` runs before the first `await`, capturing
+ * the entries while the items are still live.
+ */
+export async function readDroppedEntries(
+	items: DataTransferItem[]
+): Promise<{ file: File; path: string }[]> {
+	const roots = items
+		.map((it) => it.webkitGetAsEntry?.() ?? null)
+		.filter((e): e is FileSystemEntry => !!e)
+	const out: { file: File; path: string }[] = []
+	for (const root of roots) await walkDropEntry(root, out)
+	return out
+}
+
+async function walkDropEntry(
+	entry: FileSystemEntry,
+	out: { file: File; path: string }[]
+): Promise<void> {
+	const path = entry.fullPath.replace(/^\//, '')
+	if (isIgnoredPath(path)) return
+	if (entry.isFile) {
+		const fileEntry = entry as FileSystemFileEntry
+		const file = await new Promise<File>((res, rej) => fileEntry.file(res, rej))
+		out.push({ file, path })
+	} else if (entry.isDirectory) {
+		const reader = (entry as FileSystemDirectoryEntry).createReader()
+		// readEntries yields in batches and returns [] once exhausted — loop until empty.
+		while (true) {
+			const batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej))
+			if (batch.length === 0) break
+			for (const child of batch) await walkDropEntry(child, out)
+		}
+	}
 }
 
 /** queryPermission without a user gesture; 'granted' | 'prompt' | 'denied'. Never rejects. */

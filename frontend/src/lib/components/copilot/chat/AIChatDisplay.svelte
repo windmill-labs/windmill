@@ -44,8 +44,13 @@
 	import { getModifierKey } from '$lib/utils'
 	import type { SelectedContext } from './app/core'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
-	import { MAX_ATTACHED_FILES, type FileToAttach } from './files/attachedFiles.svelte'
-	import { hasFileSystemAccess, pickDirectory, handlesFromDataTransfer } from './files/fsAccess'
+	import { type FileToAttach } from './files/attachedFiles.svelte'
+	import {
+		hasFileSystemAccess,
+		pickDirectory,
+		handlesFromDataTransfer,
+		readDroppedEntries
+	} from './files/fsAccess'
 	import { sendUserToast } from '$lib/toast'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
@@ -265,10 +270,12 @@
 	const TEXT_FILE_ACCEPT =
 		'text/*,.txt,.csv,.tsv,.json,.jsonl,.ndjson,.md,.markdown,.log,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.xml,.html,.htm,.css,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.rs,.go,.java,.kt,.c,.h,.cpp,.cc,.cs,.php,.sh,.bash,.zsh,.sql,.svelte,.vue,.dockerfile'
 	let fileInputEl = $state<HTMLInputElement | null>(null)
+	let folderInputEl = $state<HTMLInputElement | null>(null)
 	let dragDepth = $state(0)
 	const isDraggingFiles = $derived(dragDepth > 0)
-	// File System Access API → live re-grantable handles (files + folders). Otherwise the
-	// fallback path links individual files as snapshots (folders disabled).
+	// File System Access API → live re-grantable folder handles (refreshed each turn).
+	// Otherwise folders are snapshotted into the browser (via webkitdirectory / dropped-entry
+	// walk), same as files. Either way folders display identically.
 	const canUseFsAccess = hasFileSystemAccess()
 
 	function reportAddResult(added: string[], rejected: { name: string; reason: string }[]) {
@@ -278,16 +285,12 @@
 			sendUserToast(`Could not attach "${rejected[0].name}": ${rejected[0].reason}`, true)
 			return
 		}
-		// Otherwise (folders / multi-select): summarize to avoid a flood of toasts.
-		const overCap = rejected.filter((r) => r.reason.includes('limit')).length
-		const nonText = rejected.length - overCap
-		const parts: string[] = []
-		if (nonText) parts.push(`${nonText} non-text`)
-		if (overCap) parts.push(`${overCap} over the ${MAX_ATTACHED_FILES}-file limit`)
+		// Otherwise (folders / multi-select): summarize to avoid a flood of toasts. The only
+		// per-file rejection left is non-text content (binary files are skipped).
 		const lead = added.length
 			? `Attached ${added.length}, skipped ${rejected.length}`
 			: `Skipped ${rejected.length} file${rejected.length === 1 ? '' : 's'}`
-		sendUserToast(`${lead} (${parts.join(', ')}).`, added.length === 0)
+		sendUserToast(`${lead} (non-text).`, added.length === 0)
 	}
 
 	async function handleAddFiles(files: FileList | FileToAttach[]) {
@@ -307,10 +310,9 @@
 
 	async function linkFolder() {
 		if (!canUseFsAccess) {
-			sendUserToast(
-				"Folder linking isn't supported in this browser — try Chrome or Edge. You can still attach individual files.",
-				true
-			)
+			// No File System Access API → pick a folder via the directory input; its files are
+			// snapshotted into the browser (no live handle), grouped under the folder name.
+			folderInputEl?.click()
 			return
 		}
 		let dir: FileSystemDirectoryHandle | undefined
@@ -365,12 +367,13 @@
 				}
 			}
 		} else {
-			// Fallback: snapshot individual files; folders aren't supported here.
-			const hasFolder = dt.items
-				? Array.from(dt.items).some((it) => it.webkitGetAsEntry?.()?.isDirectory)
-				: false
-			if (hasFolder) sendUserToast("Folder linking isn't supported in this browser", true)
-			if (dt.files.length > 0) await handleAddFiles(dt.files)
+			// Fallback (no File System Access API): snapshot dropped files AND folders by walking
+			// the legacy webkitGetAsEntry tree. readDroppedEntries reads the entries synchronously
+			// (they're only valid during this event) before its first await; if it yields nothing
+			// (no entry API), fall back to the flat dt.files.
+			const entries = await readDroppedEntries(Array.from(dt.items ?? []))
+			if (entries.length > 0) await handleAddFiles(entries)
+			else if (dt.files.length > 0) await handleAddFiles(dt.files)
 		}
 	}
 
@@ -378,6 +381,14 @@
 		const input = e.currentTarget as HTMLInputElement
 		if (input.files && input.files.length > 0) void handleAddFiles(input.files)
 		input.value = '' // allow re-selecting the same file
+	}
+
+	function onFolderInputChange(e: Event) {
+		const input = e.currentTarget as HTMLInputElement
+		// webkitdirectory files carry webkitRelativePath (`folder/sub/file`); addFiles groups
+		// them under the folder and skips junk paths. Snapshot, like a dropped folder.
+		if (input.files && input.files.length > 0) void handleAddFiles(input.files)
+		input.value = ''
 	}
 	const availableAutonomyModeOptions = $derived.by(() =>
 		autonomyModeOptions.filter((option) =>
@@ -763,12 +774,13 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								items={() => [
 									{ displayName: 'Attach file', icon: FileText, action: () => linkFiles() },
 									{
-										displayName: 'Link folder',
+										// A real (live) link needs the File System Access API; without it the
+										// folder is only snapshotted, so call it "Add folder", not "Link folder".
+										displayName: canUseFsAccess ? 'Link folder' : 'Add folder',
 										icon: Folder,
-										disabled: !canUseFsAccess,
 										tooltip: canUseFsAccess
 											? 'Linked live — the assistant reads the folder’s current files from disk and refreshes each turn.'
-											: 'Folder linking needs the File System Access API, unavailable in this browser. Use a Chromium-based browser (Chrome, Edge, Arc), or attach individual files instead.',
+											: 'Loaded as a snapshot — the folder’s files are copied into your browser (they won’t auto-update). For a live link that refreshes from disk, use a Chromium-based browser (Chrome, Edge).',
 										action: () => linkFolder()
 									}
 								]}
@@ -806,6 +818,16 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								accept={TEXT_FILE_ACCEPT}
 								class="hidden no-default-style"
 								onchange={onFileInputChange}
+							/>
+							<!-- Fallback folder picker (no File System Access API): webkitdirectory selects a
+							     whole folder; its files carry webkitRelativePath and are snapshotted. -->
+							<input
+								bind:this={folderInputEl}
+								type="file"
+								multiple
+								webkitdirectory
+								class="hidden no-default-style"
+								onchange={onFolderInputChange}
 							/>
 						{/if}
 						{#if showAutonomyModeSelector}

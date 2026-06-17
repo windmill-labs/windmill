@@ -4,9 +4,11 @@
  * Persistence model (survives reload, keyed by session in ./attachedFilesDB):
  *  - FILES are always stored as a full-byte Blob snapshot — same on every browser,
  *    no permission re-grant, never "locked".
- *  - FOLDERS are linked via a live File System Access directory handle (one record),
- *    re-enumerated live on restore; available only where the API exists. Folder files
- *    are read through the handle (not copied), so they don't consume snapshot storage.
+ *  - FOLDERS link as a live File System Access directory handle where the API exists
+ *    (one record, re-enumerated live on restore — folder files are read through the
+ *    handle, not copied). Where it doesn't (Firefox/Safari), a dropped/picked folder's
+ *    files are snapshotted individually (each carrying its `folder`/`relPath`) so they
+ *    regroup into the same folder chip on restore.
  *
  * Storage is bounded by the real browser quota (writes that exceed it are caught and
  * the item simply isn't persisted — it stays usable for the session). Persistence is
@@ -22,7 +24,7 @@ import {
 	ensurePersistentStorage,
 	type PersistedAttachedItem
 } from './attachedFilesDB'
-import { enumerateDir, queryReadPermission, requestReadPermission } from './fsAccess'
+import { enumerateDir, isIgnoredPath, queryReadPermission, requestReadPermission } from './fsAccess'
 
 export type AttachedFileStatus = 'indexing' | 'ready' | 'error' | 'locked' | 'unavailable'
 
@@ -69,8 +71,6 @@ export interface AddFilesResult {
 
 /** A file to link: a raw File, or `{ file, path? }` (path = relative display name). */
 export type FileToAttach = File | { file: File; path?: string }
-
-export const MAX_ATTACHED_FILES = 100
 
 const EMPTY = new Blob([])
 
@@ -140,7 +140,12 @@ export class AttachedFilesStore {
 
 	// ---------------------------------------------------------------- linking
 
-	/** Link individual files — always stored as a Blob snapshot. */
+	/**
+	 * Link individual files — always stored as a Blob snapshot. Items carrying a folder
+	 * path (`folder/sub/file`, from a dropped/picked folder) are grouped into a folder and
+	 * have their junk paths (node_modules/.git/dotfiles) skipped; a loose single file is
+	 * kept as-is (so an explicitly attached `.env` isn't filtered out).
+	 */
 	async addFiles(input: FileList | FileToAttach[]): Promise<AddFilesResult> {
 		const result: AddFilesResult = { added: [], rejected: [] }
 
@@ -152,6 +157,9 @@ export class AttachedFilesStore {
 				file.name ||
 				'file'
 
+			const folder = desired.includes('/') ? desired.split('/')[0] : undefined
+			if (folder && isIgnoredPath(desired)) continue // skip junk inside folders
+
 			if (this.#isDuplicate(desired, file)) continue // silent no-op on re-link
 
 			const reason = await this.#preflight(file)
@@ -161,16 +169,18 @@ export class AttachedFilesStore {
 			}
 
 			const name = this.#uniqueName(desired)
-			const folder = desired.includes('/') ? desired.split('/')[0] : undefined
+			const relPath = folder ? desired : undefined
 			const sourceId = createLongHash()
 
-			this.#pushIndexing({ name, file, folder, sourceId })
+			this.#pushIndexing({ name, file, folder, sourceId, relPath })
 			result.added.push(name)
 			void this.#persist({
 				id: sourceId,
 				sessionId: this.sessionId ?? '',
 				kind: 'snapshot',
 				name,
+				folder,
+				relPath,
 				blob: file,
 				size: file.size,
 				lastModified: file.lastModified,
@@ -208,13 +218,6 @@ export class AttachedFilesStore {
 		const sourceId = createLongHash()
 		let addedAny = false
 		for (const { file, path } of files) {
-			if (this.files.length >= MAX_ATTACHED_FILES) {
-				result.rejected.push({
-					name: path,
-					reason: `Attached-file limit (${MAX_ATTACHED_FILES}) reached`
-				})
-				continue
-			}
 			if (!(await this.#sniffText(file))) {
 				result.rejected.push({ name: path, reason: 'Not a text file' })
 				continue
@@ -259,6 +262,7 @@ export class AttachedFilesStore {
 						name: item.name,
 						file: item.blob,
 						folder: item.folder,
+						relPath: item.relPath,
 						sourceId: item.id
 					})
 				} else {
@@ -368,9 +372,6 @@ export class AttachedFilesStore {
 
 	/** Returns a rejection reason, or undefined if the file may be linked. */
 	async #preflight(file: File): Promise<string | undefined> {
-		if (this.files.length >= MAX_ATTACHED_FILES) {
-			return `Attached-file limit (${MAX_ATTACHED_FILES}) reached`
-		}
 		if (!(await this.#sniffText(file))) return 'Not a text file'
 		return undefined
 	}
@@ -435,7 +436,6 @@ export class AttachedFilesStore {
 		const folder = dirHandle.name
 		const children = await enumerateDir(dirHandle)
 		for (const { file, path } of children) {
-			if (this.files.length >= MAX_ATTACHED_FILES) break
 			if (!(await this.#sniffText(file))) continue
 			const name = this.#uniqueName(path)
 			this.#pushIndexing({ name, file, folder, sourceId, handle: dirHandle, relPath: path })
@@ -481,7 +481,6 @@ export class AttachedFilesStore {
 			const cur = existing.get(path)
 			if (!cur) {
 				// newly added on disk
-				if (this.files.length >= MAX_ATTACHED_FILES) break
 				if (!(await this.#sniffText(file))) continue
 				const name = this.#uniqueName(path)
 				this.#pushIndexing({ name, file, folder, sourceId, handle, relPath: path })
