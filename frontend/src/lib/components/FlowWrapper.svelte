@@ -3,7 +3,7 @@
 	import AiChatLayout from './copilot/chat/AiChatLayout.svelte'
 	import type { FlowBuilderProps } from './flow_builder'
 	import FlowBuilder from './FlowBuilder.svelte'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { usePageDraftSync } from './usePageDraftSync.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import type { OpenFlow } from '$lib/gen'
 
@@ -37,55 +37,34 @@
 			''
 	)
 
-	// Autosave the SDK editor the same way the full-page editor does: route the
-	// bound store through a per-user UserDraft handle so edits persist as a draft
-	// and the AutosaveIndicator (which FlowBuilder gates on
-	// `liveEditorDraftStoragePath`) appears. Guarded on workspace + path: the SDK
-	// can mount before a workspace exists, and `useMany` would otherwise throw
-	// resolving the (absent) global workspace. `canBeDisabled` for the auto-save
-	// toggle, matching the full-page editor.
-	const draftHandles = UserDraft.useMany<OpenFlow>(() => {
-		const ws = $workspaceStore
-		return ws && draftStoragePath
-			? [{ itemKind: 'flow', path: draftStoragePath, workspace: ws, canBeDisabled: true }]
-			: []
+	// Reuse the full-page flow editor's draft orchestration so the SDK gets
+	// autosave + the AutosaveIndicator (gated by FlowBuilder on
+	// `liveEditorDraftStoragePath`) — and `recordRemoteSync`/`seedBaseline`/
+	// `discardIf` if it ever loads a server draft — from one code path. The SDK
+	// can mount before login, so `useReactive` hands out a detached local-only
+	// handle until `$workspaceStore` resolves (then it re-keys to a real entry).
+	// `defaultValue` seeds the handle from the consumer's loaded flow on first
+	// acquire (swallowed by the seed guard, never POSTs) — captured once so it
+	// doesn't churn the reconcile.
+	const initialFlow = untrack(() => oldFlowStore.val)
+	const draftSync = usePageDraftSync<OpenFlow>({
+		itemKind: 'flow',
+		path: () => draftStoragePath,
+		workspace: () => $workspaceStore,
+		defaultValue: initialFlow
 	})
-	const draftHandle = $derived(draftHandles[0])
 
-	// Bound store the builder reads/writes. Backed by the draft handle when one is
-	// live; falls back to the consumer-provided store before a workspace exists so
-	// the editor still works without autosave.
+	// Bound store the builder reads/writes, backed by the draft handle. Falls back
+	// to the consumer-provided value in the first-render window before the handle
+	// is acquired.
 	const flowStore = {
 		get val() {
-			return draftHandle?.draft ?? oldFlowStore.val
+			return draftSync.draft ?? oldFlowStore.val
 		},
 		set val(v: OpenFlow) {
-			if (draftHandle) {
-				draftHandle.draft = v
-			} else {
-				oldFlowStore.val = v
-			}
+			draftSync.draft = v
 		}
 	}
-
-	// Seed the handle once per acquired path from the consumer's loaded flow. The
-	// first cell write after acquire is swallowed by the syncer's seed guard, so
-	// this primes the baseline without POSTing — the user's first edit is the
-	// first real save. Skipped when a draft already lives in the cell (e.g. a
-	// remount onto an already-edited path) so it doesn't clobber pending edits.
-	let seededPath: string | undefined = undefined
-	$effect(() => {
-		const handle = draftHandle
-		const p = draftStoragePath
-		if (!handle || !p) return
-		untrack(() => {
-			if (seededPath === p) return
-			if (handle.draft === undefined) {
-				handle.draft = oldFlowStore.val
-			}
-			seededPath = p
-		})
-	})
 </script>
 
 {#if trialRender}
