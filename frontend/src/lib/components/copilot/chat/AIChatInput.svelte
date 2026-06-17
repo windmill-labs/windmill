@@ -6,6 +6,7 @@
 	import type { ContextElement } from './context'
 	import { AIMode } from './AIChatManager.svelte'
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
+	import { formatMention } from './mention'
 	import { twMerge } from 'tailwind-merge'
 	import { tick, untrack, type Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
@@ -199,7 +200,7 @@
 	/** Insert a plain @filename mention for an attached file (used by the @ menu Files category). */
 	export function insertFileMention(name: string) {
 		const sep = instructions.length === 0 || instructions.endsWith(' ') ? '' : ' '
-		instructions = `${instructions}${sep}@${name} `
+		instructions = `${instructions}${sep}${formatMention(name)} `
 		focusInput()
 	}
 

@@ -7,6 +7,7 @@
 	import { zIndexes } from '$lib/zIndexes'
 	import { twMerge } from 'tailwind-merge'
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
+	import { MENTION_RE, mentionTitle, formatMention } from './mention'
 	import { createFloatingActions, createVirtualElement } from 'svelte-floating-ui'
 	import { flip, offset, shift } from 'svelte-floating-ui/dom'
 	import {
@@ -52,10 +53,9 @@
 
 	const aiChatManager = getAiChatManager()
 
-	const MENTION_RE = /@[\w/.\-\[\]]+/g
 	function extractMentions(text: string): Set<string> {
 		const out = new Set<string>()
-		for (const m of text.matchAll(MENTION_RE)) out.add(m[0].slice(1))
+		for (const m of text.matchAll(MENTION_RE)) out.add(mentionTitle(m[0]))
 		return out
 	}
 
@@ -233,8 +233,8 @@
 			if (!att) return match
 			return `<span data-paste-id="${att.id}" class="rounded bg-surface-secondary text-secondary cursor-pointer pointer-events-auto">${match}</span>`
 		})
-		html = html.replace(/@[\w/.\-\[\]]+/g, (match) => {
-			const title = match.slice(1)
+		html = html.replace(MENTION_RE, (match) => {
+			const title = mentionTitle(match)
 			const inContext =
 				availableContext.find((c) => c.title === title) ||
 				selectedContext.find((c) => c.title === title) ||
@@ -739,9 +739,10 @@
 					showContextTooltip = showing
 				}}
 				onSelectFile={(name) => {
-					// Replace the in-progress `@word` with the chosen `@filename`.
+					// Replace the in-progress `@word` with the chosen mention (bracketed if the
+					// filename has spaces, so the highlighter captures it whole).
 					const index = value.lastIndexOf('@')
-					value = (index !== -1 ? value.substring(0, index) : value) + `@${name} `
+					value = (index !== -1 ? value.substring(0, index) : value) + `${formatMention(name)} `
 					showContextTooltip = false
 					setTimeout(() => textarea?.focus(), 0)
 				}}
