@@ -9,6 +9,7 @@
 	import AIChatInput from './AIChatInput.svelte'
 	import type { ContextElement } from './context'
 	import ToolExecutionDisplay from './ToolExecutionDisplay.svelte'
+	import CompactionBoundary from './CompactionBoundary.svelte'
 	import { messageDraft, segments } from './chatDraft'
 	import { lineCountLabel } from './pasteTokens'
 
@@ -50,6 +51,9 @@
 	}
 </script>
 
+{#if message.role === 'summary'}
+	<CompactionBoundary content={message.content} />
+{:else}
 <div
 	class={twMerge(
 		'mb-2 min-w-0',
@@ -149,4 +153,5 @@
 			Retry
 		</Button>
 	</div>
+{/if}
 {/if}

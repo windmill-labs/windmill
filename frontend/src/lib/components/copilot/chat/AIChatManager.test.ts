@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 	sendUserToast: vi.fn(),
 	getOpenaiClient: vi.fn(),
 	getAnthropicClient: vi.fn(),
+	getNonStreamingCompletion: vi.fn(),
 	runChatLoop: vi.fn()
 }))
 
@@ -60,7 +61,8 @@ vi.mock('../lib', () => ({
 		subscribe: () => () => undefined,
 		getOpenaiClient: mocks.getOpenaiClient,
 		getAnthropicClient: mocks.getAnthropicClient
-	}
+	},
+	getNonStreamingCompletion: mocks.getNonStreamingCompletion
 }))
 
 vi.mock('./api/apiTools', () => ({
@@ -769,6 +771,113 @@ describe('AIChatManager context compaction', () => {
 		manager.contextUsage = 1000
 		await manager.saveAndClear()
 		expect(manager.contextUsage).toBeUndefined()
+	})
+
+	// gpt-4o resolves to a known 128k window (modelConfig unmocked): trigger at
+	// ~102k, target ~90k. With a summary reserve of 8k the tail budget is ~76k.
+	const gpt4oModel = { provider: 'openai', model: 'gpt-4o' }
+
+	// Older prefix (4 messages, ~25k tokens each = 100k chars) plus a recent
+	// user+assistant pair that fits the tail budget. After the new user turn is
+	// pushed the budget keeps [recentQ, recentA, new] verbatim and summarizes the
+	// four old messages.
+	function seedForSummary(manager: AIChatManager) {
+		manager.messages = [
+			{ role: 'user', content: 'OLD1' + 'a'.repeat(100_000) },
+			{ role: 'assistant', content: 'OLD2' + 'b'.repeat(100_000) },
+			{ role: 'user', content: 'OLD3' + 'c'.repeat(100_000) },
+			{ role: 'assistant', content: 'OLD4' + 'd'.repeat(100_000) },
+			{ role: 'user', content: 'recentQ' + 'e'.repeat(80_000) },
+			{ role: 'assistant', content: 'recentA' + 'f'.repeat(80_000) }
+		]
+		manager.displayMessages = [
+			{ role: 'user', content: 'old1', index: 0 },
+			{ role: 'assistant', content: 'old2' },
+			{ role: 'user', content: 'old3', index: 2 },
+			{ role: 'assistant', content: 'old4' },
+			{ role: 'user', content: 'recentQ', index: 4 },
+			{ role: 'assistant', content: 'recentA' }
+		]
+		manager.instructions = 'next question'
+	}
+
+	it('summarizes the older prefix and keeps the recent tail verbatim', async () => {
+		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.getNonStreamingCompletion.mockResolvedValue(
+			'<analysis>scratchpad</analysis><summary>SUMMARY TEXT</summary>'
+		)
+		const manager = new AIChatManager()
+		seedForSummary(manager)
+
+		await manager.sendRequest()
+
+		// The prefix (the four OLD messages) was sent to the summarizer, followed
+		// by the summary-instruction user message.
+		expect(mocks.getNonStreamingCompletion).toHaveBeenCalledTimes(1)
+		const summaryReq = mocks.getNonStreamingCompletion.mock.calls[0][0]
+		expect(summaryReq).toHaveLength(5)
+		expect(summaryReq[0].content).toContain('OLD1')
+		expect(summaryReq[3].content).toContain('OLD4')
+		expect(summaryReq[4].content).toContain('detailed summary')
+
+		// The request that went out begins with the summary user message, then the
+		// recent tail verbatim, then the new question.
+		const sent = mocks.runChatLoop.mock.calls[0][0].messages
+		expect(sent).toHaveLength(4)
+		expect(sent[0].role).toBe('user')
+		expect(sent[0].content).toContain('SUMMARY TEXT')
+		expect(sent[0].content).toContain('continued from a previous conversation')
+		expect(sent[0].content).not.toContain('scratchpad')
+		expect(sent[1].content).toContain('recentQ')
+
+		// The display transcript replaces the summarized bubbles with one boundary
+		// and re-bases the surviving tail's restart indices onto the new history.
+		expect(manager.displayMessages[0]).toMatchObject({ role: 'summary', content: 'SUMMARY TEXT' })
+		const recentQDisplay = manager.displayMessages.find(
+			(m) => m.role === 'user' && m.content === 'recentQ'
+		)
+		expect(recentQDisplay && 'index' in recentQDisplay ? recentQDisplay.index : undefined).toBe(1)
+		// No report describes the new history, so the readable number re-estimates
+		// the now-small compacted context.
+		expect(manager.contextUsage).toBeUndefined()
+	})
+
+	it('falls back to drop-oldest when summarization fails', async () => {
+		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.getNonStreamingCompletion.mockRejectedValue(new Error('summary boom'))
+		const manager = new AIChatManager()
+		seedForSummary(manager)
+
+		await manager.sendRequest()
+
+		// Summarization was attempted, then the request still went out — via
+		// drop-oldest, so no summary boundary anywhere.
+		expect(mocks.getNonStreamingCompletion).toHaveBeenCalledTimes(1)
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
+		const sent = mocks.runChatLoop.mock.calls[0][0].messages
+		expect(sent[0].content).not.toContain('continued from a previous conversation')
+		expect(manager.displayMessages.some((m) => m.role === 'summary')).toBe(false)
+	})
+
+	it('skips summarization (drop-oldest) when the prefix is too small', async () => {
+		mocks.getCurrentModel.mockReturnValue(anthropicModel)
+		mocks.tryGetCurrentModel.mockReturnValue(anthropicModel)
+		const manager = new AIChatManager()
+		manager.messages = [
+			{ role: 'user', content: 'a'.repeat(400_000) },
+			{ role: 'assistant', content: 'b'.repeat(400_000) },
+			{ role: 'user', content: 'c'.repeat(400) }
+		]
+		manager.contextUsage = 850_000
+		manager.instructions = 'next question'
+
+		await manager.sendRequest()
+
+		// A two-message prefix isn't worth a summary round-trip.
+		expect(mocks.getNonStreamingCompletion).not.toHaveBeenCalled()
+		expect(manager.displayMessages.some((m) => m.role === 'summary')).toBe(false)
 	})
 })
 
