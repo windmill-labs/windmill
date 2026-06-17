@@ -43,7 +43,7 @@
 	}
 </script>
 
-<Modal2 bind:isOpen title="Migrate legacy draft — {path}" fixedWidth="sm">
+<Modal2 bind:isOpen title="Migrate legacy draft — {path}" fixedWidth="sm" fixedHeight='adaptive'>
 	<div class="flex flex-col w-full gap-4">
 		<div class="flex gap-3 items-start">
 			<Wrench size={20} class="text-blue-500 shrink-0 mt-0.5" />
