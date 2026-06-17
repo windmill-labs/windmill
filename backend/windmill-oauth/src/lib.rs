@@ -70,6 +70,10 @@ pub struct ClientWithScopes {
     /// Resolved token endpoint, exposed so the connect dialog can prefill and
     /// persist it on client-credentials accounts.
     pub token_url: String,
+    /// Whether the instance entry carries shared credentials (non-empty id +
+    /// secret). Providers without them are bring-your-own only — the connect
+    /// dialog lists them under "Others", not "Instance-configured".
+    pub has_shared_credentials: bool,
 }
 
 /// Map of OAuth client names to their configurations
@@ -624,6 +628,63 @@ pub fn resolve_cc_token_url_input(
         )));
     }
     Ok(template.replace("{instance}", value))
+}
+
+/// Resolve the concrete bring-your-own client-credentials token URL for any
+/// provider, never from a caller-supplied URL:
+/// - **Built-in registry providers** resolve from the registry via
+///   [`resolve_cc_token_url_input`] (host-pinned from the caller's instance name
+///   for instance-templated ones).
+/// - **Custom providers configured at the instance level** use the admin's
+///   `connect_config.token_url`. The caller has no instance template to fill, so
+///   an instance name is rejected.
+///
+/// This is the single entry point the connect/account-creation handlers should
+/// use so both resolve identically.
+pub async fn resolve_cc_token_url(
+    db: &DB,
+    client_name: &str,
+    caller_instance: Option<&str>,
+    connect_configs_json: &str,
+) -> error::Result<String> {
+    use windmill_common::global_settings::{load_value_from_global_settings, OAUTH_SETTING};
+
+    let in_registry = serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json)
+        .ok()
+        .and_then(|m| resolve_registry_config(&m, client_name))
+        .is_some();
+    if in_registry {
+        return resolve_cc_token_url_input(connect_configs_json, client_name, caller_instance);
+    }
+
+    // Custom (non-registry) provider: the token URL comes from the admin's
+    // instance connect_config (an admin-configured, trusted host), never the
+    // caller.
+    let instance_token_url = load_value_from_global_settings(db, OAUTH_SETTING)
+        .await?
+        .as_ref()
+        .and_then(|o| o.get(client_name))
+        .and_then(|v| serde_json::from_value::<OAuthClient>(v.clone()).ok())
+        .and_then(|e| e.connect_config)
+        .map(|c| c.token_url)
+        .filter(|u| !u.is_empty());
+    match instance_token_url {
+        Some(_)
+            if caller_instance
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false) =>
+        {
+            Err(error::Error::BadRequest(format!(
+                "An instance name only applies to built-in instance-templated providers, not \
+                 '{client_name}'"
+            )))
+        }
+        Some(url) => Ok(url),
+        None => Err(error::Error::BadRequest(format!(
+            "Client credentials with your own credentials require '{client_name}' to be a built-in \
+             OAuth provider or configured at the instance level"
+        ))),
+    }
 }
 
 /// Exchange authorization code for tokens

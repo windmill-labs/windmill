@@ -6479,7 +6479,18 @@ paths:
               schema:
                 type: array
                 items:
-                  type: string
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    supports_client_credentials:
+                      type: boolean
+                    has_shared_credentials:
+                      type: boolean
+                  required:
+                    - name
+                    - supports_client_credentials
+                    - has_shared_credentials
 
   /oauth/get_connect/{client}:
     get:

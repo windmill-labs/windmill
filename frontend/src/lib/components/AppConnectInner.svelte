@@ -74,6 +74,18 @@
 	let value: string = $state('')
 	let valueToken: TokenResponse | undefined = undefined
 	let connects: string[] | undefined = $state(undefined)
+	/** Per-provider instance-entry metadata, keyed by provider name. */
+	let connectsInfo: Record<
+		string,
+		{ supports_client_credentials: boolean; has_shared_credentials: boolean }
+	> = $state({})
+
+	/** An instance entry with shared credentials (admin id+secret): connect with
+	 * no input. Shown under "Instance-configured"; bring-your-own-only providers
+	 * (no shared creds) are shown under "Others" instead. */
+	function isSharedConnect(key: string): boolean {
+		return connectsInfo[key]?.has_shared_credentials ?? false
+	}
 
 	const SANDBOX_SUFFIX = '_sandbox'
 	function stripSandboxSuffix(name: string): string {
@@ -253,7 +265,11 @@
 		connectClient = key
 		resourceType = key
 		resetClientCredentialsState()
-		if (isCcCapable(key)) {
+		// Registry CC providers and instance-configured providers that declare the
+		// client-credentials grant (incl. custom providers set up with only a token
+		// URL and no shared creds) open the bring-your-own form. Everything else is
+		// a manual resource.
+		if (isCcCapable(key) || (connectsInfo[key]?.supports_client_credentials ?? false)) {
 			ccBringYourOwn = true
 			enableClientCredentials()
 		} else {
@@ -314,11 +330,14 @@
 	async function loadConnects() {
 		if (!connects) {
 			try {
-				connects = (await OauthService.listOauthConnects())
-					.filter((x) => x != 'supabase_wizard')
-					.sort((a, b) => a.localeCompare(b))
+				const list = (await OauthService.listOauthConnects())
+					.filter((x) => x.name != 'supabase_wizard')
+					.sort((a, b) => a.name.localeCompare(b.name))
+				connects = list.map((x) => x.name)
+				connectsInfo = Object.fromEntries(list.map((x) => [x.name, x]))
 			} catch (e) {
 				connects = []
+				connectsInfo = {}
 				console.error('Error loading OAuth connects', e)
 			}
 		}
@@ -367,7 +386,10 @@
 		})
 
 		connectsManual = availableRts
-			.filter((x) => connectAndManual.includes(x) || !Object.keys(connects ?? {}).includes(x))
+			// "Others" keeps everything except providers whose instance entry has
+			// shared credentials (those belong under "Instance-configured"). A
+			// bring-your-own provider (instance entry, no shared creds) stays here.
+			.filter((x) => connectAndManual.includes(x) || !isSharedConnect(x))
 			.map(
 				(x) =>
 					({
@@ -820,7 +842,7 @@
 	<SearchItems
 		{filter}
 		items={connects
-			? connects.map((key) => ({
+			? connects.filter(isSharedConnect).map((key) => ({
 					key
 				}))
 			: undefined}
@@ -870,7 +892,7 @@
 				{/each}
 			{/if}
 		</div>
-		{#if connects && connects.length == 0}
+		{#if connects && connects.filter(isSharedConnect).length == 0}
 			<div class="text-secondary text-xs w-full"
 				>No OAuth APIs have been set up on this instance. To add OAuth APIs, first sync the resource
 				types with the hub, then add OAuth configuration. See <a

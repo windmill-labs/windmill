@@ -564,6 +564,20 @@
 											>Authorization code (browser sign-in)</span
 										>
 									{/if}
+									{#if grantChoice(k) !== 'authorization_code'}
+										<div class="text-xs text-secondary font-normal">
+											{#if oauths[k]?.['id'] || oauths[k]?.['secret']}
+												Shared: these credentials mint the token for every connection. Leave both
+												empty to let each user bring their own instead.
+											{:else}
+												Bring-your-own: each user enters their own Client ID and Secret when
+												connecting. Fill both above to share one service account instead.
+											{/if}
+											{#if !windmillBuiltins.includes(k)}
+												A Token URL is required below.
+											{/if}
+										</div>
+									{/if}
 								</div>
 								{#if k === 'azure_oauth'}
 									<AzureOauthSettings bind:connect_config={oauths[k]['connect_config']} />
