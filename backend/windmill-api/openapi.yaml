@@ -10319,6 +10319,125 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/ai_skills/list:
+    get:
+      summary: list the workspace AI chat skills (name + description only)
+      operationId: listAiSkills
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: skill listing
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - name
+                    - description
+                  properties:
+                    name:
+                      type: string
+                    description:
+                      type: string
+
+  /w/{workspace}/ai_skills/get/{name}:
+    get:
+      summary: get a workspace AI chat skill including its instructions
+      operationId: getAiSkill
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: skill
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - name
+                  - description
+                  - instructions
+                properties:
+                  name:
+                    type: string
+                  description:
+                    type: string
+                  instructions:
+                    type: string
+
+  /w/{workspace}/ai_skills/upload:
+    post:
+      summary: upsert workspace AI chat skills (admin only)
+      operationId: uploadAiSkills
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - skills
+              properties:
+                skills:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - description
+                      - instructions
+                    properties:
+                      name:
+                        type: string
+                      description:
+                        type: string
+                      instructions:
+                        type: string
+      responses:
+        "200":
+          description: uploaded
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai_skills/delete/{name}:
+    delete:
+      summary: delete a workspace AI chat skill (admin only)
+      operationId: deleteAiSkill
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps/get_data/v/{secretWithExtension}:
     get:
       summary: get raw app data by
