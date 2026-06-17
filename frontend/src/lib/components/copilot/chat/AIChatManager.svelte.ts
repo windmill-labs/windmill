@@ -1586,8 +1586,11 @@ export class AIChatManager {
 		this.displayMessages = []
 		this.messages = []
 		this.contextUsage = undefined
-		// Linked files are session-scoped: they persist across conversations within the
-		// session (and across reloads), and are cleared only when the session is deleted.
+		// In an AI session, linked files are session-scoped: they persist across conversations
+		// (cleared only when the session is deleted). The ephemeral global side-panel chat has no
+		// session, so "New chat" must clear them — otherwise the next, unrelated conversation
+		// would still get the previous file roster and could read/search it.
+		if (!this.isSessionChat) this.attachedFiles.clear()
 	}
 
 	loadPastChat = async (id: string) => {
@@ -1596,6 +1599,9 @@ export class AIChatManager {
 			// Drop any message queued in the current conversation so it doesn't
 			// auto-send into the loaded one or linger as a card across the switch.
 			this.queuedMessage = ''
+			// Same isolation as saveAndClear: the ephemeral global chat's attachments belong to
+			// the conversation being left, not the one being loaded; sessions keep them.
+			if (!this.isSessionChat) this.attachedFiles.clear()
 			this.displayMessages = chat.displayMessages
 			this.messages = chat.actualMessages
 			this.contextUsage = normalizeContextUsage(chat.contextUsage)
