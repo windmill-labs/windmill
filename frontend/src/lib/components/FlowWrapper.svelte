@@ -41,8 +41,10 @@
 	// autosave + the AutosaveIndicator (gated by FlowBuilder on
 	// `liveEditorDraftStoragePath`) — and `recordRemoteSync`/`seedBaseline`/
 	// `discardIf` if it ever loads a server draft — from one code path. The SDK
-	// can mount before login, so `useReactive` hands out a detached local-only
-	// handle until `$workspaceStore` resolves (then it re-keys to a real entry).
+	// may mount before login, so `useReactive` hands out a detached local-only
+	// handle until `$workspaceStore` resolves (no throw). The builder itself is
+	// gated on the workspace below so no edits are made into that detached handle
+	// — they'd be lost when it re-keys to the real entry on login.
 	// `defaultValue` seeds the handle from the consumer's loaded flow on first
 	// acquire (swallowed by the seed guard, never POSTs) — captured once so it
 	// doesn't churn the reconcile.
@@ -70,13 +72,17 @@
 {#if trialRender}
 	<AiChatLayout noPadding={true} {disableAi}>
 		{#if light}<div class="bg-red-500 absolute z-10">Trial version</div>{/if}
-		<FlowBuilder
-			{flowStore}
-			{flowStateStore}
-			{disableAi}
-			{...props}
-			liveEditorDraftStoragePath={draftStoragePath || undefined}
-		/>
+		<!-- Gate on a resolved workspace: the draft handle is detached (local-only)
+		     until one exists, so editing before then would be lost on the re-key. -->
+		{#if $workspaceStore}
+			<FlowBuilder
+				{flowStore}
+				{flowStateStore}
+				{disableAi}
+				{...props}
+				liveEditorDraftStoragePath={draftStoragePath || undefined}
+			/>
+		{/if}
 	</AiChatLayout>
 {:else}
 	<div class="flex flex-col items-center justify-center h-screen">

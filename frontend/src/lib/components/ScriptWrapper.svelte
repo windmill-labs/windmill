@@ -16,8 +16,9 @@
 	// SDK) so the SDK gets autosave + the AutosaveIndicator (gated by ScriptBuilder
 	// on `userDraftPath`) from one code path. `defaultValue` seeds the handle from
 	// the consumer's script on first acquire (swallowed by the syncer's seed guard,
-	// never POSTs). `useReactive` tolerates mounting before login, handing out a
-	// detached local-only handle until `$workspaceStore` resolves.
+	// never POSTs). `useReactive` tolerates mounting before login (detached
+	// local-only handle, no throw); the builder is gated on the workspace below so
+	// edits aren't made into that detached handle and lost when it re-keys.
 	const initialScript = untrack(() => oldScript)
 	const draftSync = usePageDraftSync<ScriptBuilderProps['script']>({
 		itemKind: 'script',
@@ -28,7 +29,7 @@
 </script>
 
 <AiChatLayout noPadding {disableAi}>
-	{#if draftSync.draft}
+	{#if $workspaceStore && draftSync.draft}
 		<ScriptBuilder
 			bind:script={draftSync.draft}
 			userDraftPath={draftStoragePath}
