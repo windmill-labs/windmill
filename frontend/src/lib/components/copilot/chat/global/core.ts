@@ -3325,9 +3325,18 @@ async function deployDraft(
 		// below already deploy their draft value directly, so only script/flow need
 		// this. Scripts always create (with parent_hash); a flow on a deployed item
 		// updates, a draft-only flow (no flow row) is created.
+		// Address the draft by its STORAGE path: a draft_only item created in the
+		// editor lives at a synthetic `u/{user}/draft_{uuid}` key while its chosen
+		// path is held in the draft value. The shared deployer reads the draft via
+		// getScriptByPath/getFlowByPath at the path we pass (then deploys at the
+		// draft's own `path`), so passing the display/chosen path would 404. For a
+		// draft on a deployed item the storage path is just the item path.
+		const storagePath = getGlobalDraftStoragePath(workspace, type, path, triggerKind)
 		const draftOnly =
-			type === 'flow' ? !(await FlowService.existsFlowByPath({ workspace, path })) : false
-		const result = await deployDraftToWorkspace(type, path, workspace, {
+			type === 'flow'
+				? !(await FlowService.existsFlowByPath({ workspace, path: storagePath }))
+				: false
+		const result = await deployDraftToWorkspace(type, storagePath, workspace, {
 			draftOnly,
 			deploymentMessage
 		})

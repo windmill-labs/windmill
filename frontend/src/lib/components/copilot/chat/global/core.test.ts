@@ -689,6 +689,58 @@ describe('global AI tools', () => {
 		expect(FlowService.updateFlow).not.toHaveBeenCalled()
 	})
 
+	it('deploys an editor draft_only script at its chosen path, not its synthetic storage key', async () => {
+		// A new script created in the editor lives at a synthetic `u/{user}/draft_{uuid}`
+		// storage key while its chosen path is in the draft value. The chat addresses
+		// it by the chosen (display) path; deploy must resolve to the storage key so the
+		// shared deployer can read the draft via getScriptByPath, then deploy at the
+		// chosen path. Reading at the chosen path would 404.
+		const storageKey = 'u/admin/draft_abc123'
+		const chosenPath = 'f/team/chosen_path'
+		seedBackendDraft(
+			'script',
+			storageKey,
+			{
+				path: chosenPath,
+				summary: 'New script',
+				description: '',
+				content: 'export async function main() {}',
+				schema: {},
+				is_template: false,
+				language: 'bun',
+				kind: 'script'
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'script',
+			storagePath: storageKey,
+			effectivePath: chosenPath
+		})
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: chosenPath,
+			summary: 'New script',
+			description: '',
+			content: 'export async function main() {}',
+			schema: {},
+			language: 'bun',
+			kind: 'script'
+		} as any)
+
+		await callGlobalTool('deploy_workspace_item', { type: 'script', path: chosenPath })
+
+		// The draft is read at the STORAGE key (the chosen path would 404)…
+		expect(ScriptService.getScriptByPath).toHaveBeenCalledWith(
+			expect.objectContaining({ workspace: WORKSPACE, path: storageKey, getDraft: true })
+		)
+		// …and deployed at the chosen path.
+		expect(ScriptService.createScript).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({ path: chosenPath })
+		})
+	})
+
 	it('writes script drafts into UserDraft', async () => {
 		const content = 'export async function main() {\n\treturn "hello"\n}'
 
