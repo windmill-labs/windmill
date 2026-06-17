@@ -53,35 +53,35 @@
 	</header>
 
 	<div class="flex flex-row flex-wrap gap-8 items-start">
-		<ChipPreview label="Short, rich input (GLOBAL mode)" queued={['Now write a haiku about ice']} />
+		<ChipPreview label="Short, rich input (GLOBAL mode)" queued="Now write a haiku about ice" />
 		<ChipPreview
-			label="Three queued messages (separate cards)"
-			queued={['queued message one', 'queued message two', 'queued message three']}
+			label="Multi-line queued message (appended lines)"
+			queued={'queued line one\nqueued line two\nqueued line three'}
 		/>
-		<ChipPreview label="Long text (truncation)" queued={[LONG_TEXT]} />
+		<ChipPreview label="Long text (truncation)" queued={LONG_TEXT} />
 		<ChipPreview
 			label="With a draft in the input (X prepends)"
-			queued={['Add error handling to the second step']}
+			queued="Add error handling to the second step"
 			draft="and also rename the flow"
 		/>
 		<ChipPreview
 			label="Plain textarea (NAVIGATOR mode)"
 			mode={AIMode.NAVIGATOR}
-			queued={['Open the schedules page']}
+			queued="Open the schedules page"
 		/>
 		<ChipPreview
 			label="With @context badges"
-			queued={['Refactor it to use a transaction']}
+			queued="Refactor it to use a transaction"
 			context={SAMPLE_CONTEXT}
 		/>
 		<ChipPreview
 			label="With fork bar (session)"
-			queued={['Deploy the flow once you are done']}
+			queued="Deploy the flow once you are done"
 			bars={['fork']}
 		/>
 		<ChipPreview
 			label="Fork + draft bars + context (kitchen sink)"
-			queued={['queued message one', 'queued message two']}
+			queued={'queued line one\nqueued line two'}
 			bars={['fork', 'draft']}
 			context={SAMPLE_CONTEXT}
 			draft="and a draft in the input"

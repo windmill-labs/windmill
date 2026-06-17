@@ -355,79 +355,110 @@ describe('AIChatManager queued messages', () => {
 		return manager
 	}
 
-	it('queues trimmed messages in order and ignores blank input', () => {
+	it('queues a single trimmed message and ignores blank input', () => {
 		const manager = createManager()
 		manager.queueMessage('  first  ')
 		manager.queueMessage('   ')
-		manager.queueMessage('second')
-		expect(manager.queuedMessages).toEqual(['first', 'second'])
+		expect(manager.queuedMessage).toBe('first')
 	})
 
-	it('dequeues one message by index and restores it into the input', () => {
+	it('appends additional lines to the single queued message', () => {
+		const manager = createManager()
+		manager.queueMessage('first line')
+		manager.queueMessage('second line')
+		expect(manager.queuedMessage).toBe('first line\nsecond line')
+	})
+
+	it('dequeues the message and restores it into the input', () => {
 		const input = createInputMock()
 		const manager = createManager(input)
-		manager.queuedMessages = ['a', 'b', 'c']
+		manager.queuedMessage = 'line one\nline two'
 
-		manager.dequeueMessage(1)
+		manager.dequeueMessage()
 
-		expect(manager.queuedMessages).toEqual(['a', 'c'])
-		expect(input.prependText).toHaveBeenCalledWith('b')
+		expect(manager.queuedMessage).toBe('')
+		expect(input.prependText).toHaveBeenCalledWith('line one\nline two')
 	})
 
 	it('re-queues instead of dropping when the input is unmounted', () => {
 		const manager = createManager()
-		manager.queuedMessages = ['a', 'b']
+		manager.queuedMessage = 'keep me'
 
-		manager.dequeueMessage(1)
+		manager.dequeueMessage()
 
-		// no input to restore into → the message goes back to the queue front
-		expect(manager.queuedMessages).toEqual(['b', 'a'])
+		// no input to restore into → the message stays queued
+		expect(manager.queuedMessage).toBe('keep me')
 	})
 
-	it('auto-sends queued messages one per turn in FIFO order on success', async () => {
+	it('auto-sends the queued message on a clean completion', async () => {
 		replyWith('done')
 		const manager = createManager(createInputMock())
 
-		manager.queuedMessages = ['second', 'third']
+		manager.queuedMessage = 'followup'
 		await manager.sendRequest({ instructions: 'first' })
 
-		expect(mocks.runChatLoop).toHaveBeenCalledTimes(3)
-		expect(manager.queuedMessages).toEqual([])
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(2)
+		expect(manager.queuedMessage).toBe('')
 		const userMessages = manager.displayMessages
 			.filter((m) => m.role === 'user')
 			.map((m) => m.content)
-		expect(userMessages).toEqual(['first', 'second', 'third'])
+		expect(userMessages).toEqual(['first', 'followup'])
 	})
 
-	it('restores all queued text to the input instead of sending when the turn errors', async () => {
+	it('keeps the queued message as a card (not flushed to input) when the turn errors', async () => {
 		const input = createInputMock()
 		const manager = createManager(input)
 		mocks.runChatLoop.mockRejectedValue(new Error('provider down'))
 
-		manager.queuedMessages = ['second', 'third']
+		manager.queuedMessage = 'followup'
 		await manager.sendRequest({ instructions: 'first' })
 
 		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
-		expect(manager.queuedMessages).toEqual([])
-		expect(input.prependText).toHaveBeenCalledWith('second\n\nthird')
+		// stays a card, nothing flushed into the input
+		expect(manager.queuedMessage).toBe('followup')
+		expect(input.prependText).not.toHaveBeenCalled()
 	})
 
-	it('restores all queued text to the input when the turn is cancelled', async () => {
-		const input = createInputMock()
-		const manager = createManager(input)
-		mocks.runChatLoop.mockImplementation(async ({ abortController }: any) => {
+	it('auto-sends the queued message when the user cancels the turn (Esc/Stop)', async () => {
+		const manager = createManager(createInputMock())
+		// the followup turn completes cleanly...
+		replyWith('done')
+		// ...but the first turn is cancelled by the user
+		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
 			abortController.abort()
 			throw new Error('aborted')
 		})
 
-		manager.queuedMessages = ['second']
+		manager.queuedMessage = 'followup'
 		await manager.sendRequest({ instructions: 'first' })
 
-		expect(manager.queuedMessages).toEqual([])
-		expect(input.prependText).toHaveBeenCalledWith('second')
+		// cancel sends the queued message automatically
+		expect(manager.queuedMessage).toBe('')
+		const userMessages = manager.displayMessages
+			.filter((m) => m.role === 'user')
+			.map((m) => m.content)
+		expect(userMessages).toContain('followup')
 	})
 
-	it('restores a queued message whose auto-send is rejected by beforeSend', async () => {
+	it('does not restore the cancelled prompt to the input when a queued message takes over', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		replyWith('done')
+		// cancel before any usable output → the rollback (restoreUnsentTurn) path
+		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
+			abortController.abort()
+			throw new Error('aborted')
+		})
+
+		manager.queuedMessage = 'followup'
+		await manager.sendRequest({ instructions: 'the long cancelled prompt' })
+
+		// clean handoff: queued message sent, cancelled prompt NOT shoved back in
+		expect(manager.queuedMessage).toBe('')
+		expect(input.restoreInstructions).not.toHaveBeenCalled()
+	})
+
+	it('re-queues the message when its auto-send is rejected by beforeSend', async () => {
 		replyWith('done')
 		const input = createInputMock()
 		const manager = createManager(input)
@@ -437,12 +468,13 @@ describe('AIChatManager queued messages', () => {
 			.mockResolvedValueOnce(undefined)
 			.mockRejectedValueOnce(new Error('workspace commit failed'))
 
-		manager.queuedMessages = ['second']
+		manager.queuedMessage = 'followup'
 		await manager.sendRequest({ instructions: 'first' })
 
 		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
-		expect(manager.queuedMessages).toEqual([])
-		expect(input.prependText).toHaveBeenCalledWith('second')
+		// the rejected message stays a card rather than being lost or moved to input
+		expect(manager.queuedMessage).toBe('followup')
+		expect(input.prependText).not.toHaveBeenCalled()
 	})
 })
 

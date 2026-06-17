@@ -220,10 +220,11 @@ export class AIChatManager {
 	savedSize = $state<number>(0)
 	instructions = $state<string>('')
 	pendingPrompt = $state<string>('')
-	// Messages typed while a turn is streaming: auto-sent one per turn (in
-	// order) as turns complete successfully, all restored to the input on
-	// cancel/error. Ephemeral — never saved to displayMessages or history.
-	queuedMessages = $state<string[]>([])
+	// Message typed while a turn is streaming. There is only ever one queued
+	// message; pressing Enter again appends another line to it. Auto-sent when
+	// the turn finishes (clean completion or user cancel). Ephemeral — never
+	// saved to displayMessages or history.
+	queuedMessage = $state<string>('')
 	loading = $state<boolean>(false)
 	currentReply = $state<string>('')
 	currentReasoning = $state<string>('')
@@ -513,23 +514,24 @@ export class AIChatManager {
 		this.aiChatInput = aiChatInput
 	}
 
-	/** Queue a message typed while a turn is streaming. Each call adds a
-	 * distinct message, sent one per turn in FIFO order. */
+	/** Queue the message typed while a turn is streaming. There is only ever
+	 * one queued message; pressing Enter again appends the new text as another
+	 * line so it all goes out as a single message. */
 	queueMessage(text: string) {
 		const trimmed = text.trim()
 		if (!trimmed) {
 			return
 		}
-		this.queuedMessages = [...this.queuedMessages, trimmed]
+		this.queuedMessage = this.queuedMessage ? `${this.queuedMessage}\n${trimmed}` : trimmed
 	}
 
-	/** Remove one queued message and put its text back into the input. */
-	dequeueMessage(index: number) {
-		const message = this.queuedMessages[index]
-		if (message === undefined) {
+	/** Remove the queued message and put its text back into the input. */
+	dequeueMessage() {
+		if (!this.queuedMessage) {
 			return
 		}
-		this.queuedMessages = this.queuedMessages.filter((_, i) => i !== index)
+		const message = this.queuedMessage
+		this.queuedMessage = ''
 		this.restoreToInput(message)
 	}
 
@@ -540,7 +542,7 @@ export class AIChatManager {
 		if (this.aiChatInput) {
 			this.aiChatInput.prependText(text)
 		} else {
-			this.queuedMessages = [text, ...this.queuedMessages]
+			this.queuedMessage = text
 		}
 	}
 
@@ -824,16 +826,22 @@ export class AIChatManager {
 	}
 
 	// Roll a turn that produced nothing usable back out of the transcript and
-	// hand its text back to the composer for editing/resending.
+	// hand its text back to the composer for editing/resending. `restoreToInput`
+	// is false when a queued message is about to take over (a user cancel with
+	// something queued) — then the rolled-back prompt is dropped rather than
+	// shoved back into the input, so the handoff to the queued message is clean.
 	private restoreUnsentTurn = (
 		displayLenAfterUser: number,
 		modelLenAfterUser: number,
 		instructions: string,
-		pastes: PasteAttachment[]
+		pastes: PasteAttachment[],
+		restoreToInput: boolean = true
 	) => {
 		this.displayMessages = this.displayMessages.slice(0, displayLenAfterUser - 1)
 		this.messages = this.messages.slice(0, modelLenAfterUser - 1)
-		this.aiChatInput?.restoreInstructions(instructions, pastes)
+		if (restoreToInput) {
+			this.aiChatInput?.restoreInstructions(instructions, pastes)
+		}
 	}
 
 	private chatRequest = async ({
@@ -1355,7 +1363,17 @@ export class AIChatManager {
 				// (or only reasoning) — treat the turn as unsent (matches Claude Code).
 				// contextUsage is left as-is: the turn is rolled back, so the last
 				// report (pre-turn, possibly debited by compaction) still stands.
-				this.restoreUnsentTurn(displayLenAfterUser, modelLenAfterUser, sentInstructions, sentPastes)
+				// When the user cancelled with a message queued, that message is
+				// about to auto-send (see the flush below) — drop the rolled-back
+				// prompt instead of restoring it to the input so the handoff is clean.
+				const willAutoSendQueued = wasAborted && !!this.queuedMessage
+				this.restoreUnsentTurn(
+					displayLenAfterUser,
+					modelLenAfterUser,
+					sentInstructions,
+					sentPastes,
+					!willAutoSendQueued
+				)
 				if (this.displayMessages.length === 0) {
 					// saveChat no-ops on an empty transcript; the chat persisted earlier
 					// this turn would linger in history and resurface the rolled-back
@@ -1415,23 +1433,20 @@ export class AIChatManager {
 		} finally {
 			this.loading = false
 		}
-		// Flush the queue. Auto-send only after a cleanly committed turn —
-		// a cancel, error, or empty-response rollback leaves the turn half
-		// finished, so restore the queued text to the input instead. Only the
-		// first queued message is sent here: its own flush sends the next one
-		// when its turn completes, so messages go out one per turn in FIFO order.
-		if (this.queuedMessages.length > 0) {
-			if (turnCommittedCleanly) {
-				const [next, ...rest] = this.queuedMessages
-				this.queuedMessages = rest
-				const accepted = await this.sendRequest({ instructions: next })
-				if (accepted === false) {
-					this.restoreToInput(next)
-				}
-			} else {
-				const restored = this.queuedMessages.join('\n\n')
-				this.queuedMessages = []
-				this.restoreToInput(restored)
+		// Flush the queued message. Send it after a cleanly committed turn OR a
+		// user cancel (Esc / Stop) — in both cases the user is ready to move on,
+		// so it sends automatically. A genuine error (or an empty-response
+		// rollback) leaves it in place as a card so a failure isn't blindly
+		// repeated.
+		const turnCancelled = this.abortController?.signal.aborted ?? false
+		if ((turnCommittedCleanly || turnCancelled) && this.queuedMessage) {
+			const next = this.queuedMessage
+			this.queuedMessage = ''
+			const accepted = await this.sendRequest({ instructions: next })
+			if (accepted === false) {
+				// The auto-send bailed before becoming a turn (e.g. beforeSend
+				// failed); keep it as the queued message instead of losing it.
+				this.queuedMessage = next
 			}
 		}
 		return true

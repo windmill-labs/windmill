@@ -15,7 +15,7 @@
 		bars = [],
 		context = []
 	}: {
-		queued: string[]
+		queued: string
 		mode?: AIMode
 		draft?: string
 		label: string
@@ -32,7 +32,7 @@
 	const manager = new AIChatManager()
 	manager.mode = mode
 	manager.loading = true
-	manager.queuedMessages = queued
+	manager.queuedMessage = queued
 	setContext<AIChatManager>('aiChatManager', manager)
 
 	let selectedContext = $state(context)
