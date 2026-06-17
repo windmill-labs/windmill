@@ -600,6 +600,24 @@ pub fn resolve_cc_token_url_input(
         return Ok(template);
     }
 
+    // Structural host-pinning guard: only substitute when `{instance}` is the
+    // leftmost host label of a fixed-host template (`scheme://{instance}.fixed-host/…`).
+    // The hostname-label validation below keeps the value clean, but only this
+    // check guarantees the substituted value can never change the registrable
+    // domain — so a malformed template (e.g. `https://{instance}/token`) can't turn
+    // the caller's instance name into a full attacker-controlled host (SSRF /
+    // credential exfiltration). The template is a code-reviewed registry file, so a
+    // violation is a programming error.
+    let placeholder = "{instance}";
+    let idx = template.find(placeholder).unwrap();
+    let after = &template[idx + placeholder.len()..];
+    if !template[..idx].ends_with("://") || !after.starts_with('.') {
+        return Err(error::Error::InternalErr(format!(
+            "Invalid instance-templated token URL for '{client_name}': {{instance}} must be the \
+             leftmost host label (scheme://{{instance}}.fixed-host/…)"
+        )));
+    }
+
     let raw = caller_instance
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -1260,6 +1278,20 @@ mod tests {
             "auth_url": "https://connect.visma.com/connect/authorize",
             "token_url": "https://connect.visma.com/connect/token",
             "grant_types": ["authorization_code", "client_credentials"]
+        },
+        "bad_host_tpl": {
+            "grant_types": ["client_credentials"],
+            "connect_config_template": {
+                "label": "x", "placeholder": "x",
+                "token_url": "https://{instance}/token"
+            }
+        },
+        "bad_mid_tpl": {
+            "grant_types": ["client_credentials"],
+            "connect_config_template": {
+                "label": "x", "placeholder": "x",
+                "token_url": "https://api.{instance}.evil.com/token"
+            }
         }
     }"#;
 
@@ -1306,5 +1338,13 @@ mod tests {
     fn cc_token_url_rejects_custom_provider() {
         // No registry entry: bring-your-own client credentials are not allowed.
         assert!(resolve_cc_token_url_input(CC_REGISTRY, "my_custom_thing", Some("acme")).is_err());
+    }
+
+    #[test]
+    fn cc_token_url_rejects_template_not_in_subdomain_position() {
+        // `{instance}` must be the leftmost host label of a fixed-host template, so
+        // a malformed template can't let the instance value control the host.
+        assert!(resolve_cc_token_url_input(CC_REGISTRY, "bad_host_tpl", Some("evil.com")).is_err());
+        assert!(resolve_cc_token_url_input(CC_REGISTRY, "bad_mid_tpl", Some("evil")).is_err());
     }
 }
