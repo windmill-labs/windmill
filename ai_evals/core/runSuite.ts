@@ -225,7 +225,9 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
           checklist: input.evalCase.judgeChecklist,
           initial,
           expected: input.modeRunner.mode === "cli" ? undefined : expected,
-          actual: run.actual,
+          actual: input.modeRunner.prepareJudgeActual
+            ? input.modeRunner.prepareJudgeActual(run.actual)
+            : run.actual,
           model: input.judgeModel,
         });
 

@@ -29,6 +29,9 @@
 		workspace?: string
 		itemKind?: UserDraftItemKind
 		path?: string
+		/** Offer "Fork" alongside "View JSON" on other users' rows. The deploy
+		 * page sets this false: forking a new item is meaningless there. */
+		allowFork?: boolean
 	}
 
 	let {
@@ -38,7 +41,8 @@
 		currentUsername = undefined,
 		workspace = undefined,
 		itemKind = undefined,
-		path = undefined
+		path = undefined,
+		allowFork = true
 	}: Props = $props()
 
 	// Authed user lands first; everyone else keeps the backend's ordering.
@@ -163,7 +167,14 @@
 </script>
 
 {#if showBadge}
-	<Popover openOnHover={true} debounceDelay={50} enableFlyTransition>
+	<!-- inline-flex/items-center so the trigger button hugs the badge and lines up
+	     with sibling badges (a plain button is taller, dropping the pill ~2px). -->
+	<Popover
+		openOnHover={true}
+		debounceDelay={50}
+		enableFlyTransition
+		class="inline-flex items-center"
+	>
 		{#snippet trigger()}
 			<Badge small color="indigo">
 				{#if orderedUsers.length > 0}
@@ -244,7 +255,7 @@
 										View JSON
 									</Button>
 									<!-- Operators can't create items, so Fork is hidden (View JSON stays, it's read-only). -->
-									{#if !$userStore?.operator}
+									{#if allowFork && !$userStore?.operator}
 										<Button
 											variant="subtle"
 											size="xs3"

@@ -315,6 +315,205 @@ describe('AIChatManager persisted autonomy default', () => {
 	})
 })
 
+describe('AIChatManager queued messages', () => {
+	const model = { provider: 'openai', model: 'gpt-4o' }
+
+	// The turn-outcome handling rolls back turns with no usable output, so a
+	// "successful" send must produce a reply to take the clean-commit path
+	// (which is what gates the queued-message auto-send).
+	const replyWith = (reply: string) =>
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const message = { role: 'assistant' as const, content: reply }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+	beforeEach(() => {
+		localStorage.clear()
+		mocks.getCurrentModel.mockReturnValue(model)
+		mocks.tryGetCurrentModel.mockReturnValue(model)
+	})
+
+	function createInputMock() {
+		return {
+			prependText: vi.fn(),
+			restoreInstructions: vi.fn(),
+			focusInput: vi.fn()
+		}
+	}
+
+	function createManager(input?: ReturnType<typeof createInputMock>) {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.NAVIGATOR
+		if (input) {
+			manager.setAiChatInput(input as unknown as Parameters<typeof manager.setAiChatInput>[0])
+		}
+		return manager
+	}
+
+	it('queues a single trimmed message and ignores blank input', () => {
+		const manager = createManager()
+		manager.queueMessage('  first  ')
+		manager.queueMessage('   ')
+		expect(manager.queuedMessage).toBe('first')
+	})
+
+	it('appends additional lines to the single queued message', () => {
+		const manager = createManager()
+		manager.queueMessage('first line')
+		manager.queueMessage('second line')
+		expect(manager.queuedMessage).toBe('first line\nsecond line')
+	})
+
+	it('dequeues the message and restores it into the input', () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.queuedMessage = 'line one\nline two'
+
+		manager.dequeueMessage()
+
+		expect(manager.queuedMessage).toBe('')
+		expect(input.prependText).toHaveBeenCalledWith('line one\nline two')
+	})
+
+	it('re-queues instead of dropping when the input is unmounted', () => {
+		const manager = createManager()
+		manager.queuedMessage = 'keep me'
+
+		manager.dequeueMessage()
+
+		// no input to restore into → the message stays queued
+		expect(manager.queuedMessage).toBe('keep me')
+	})
+
+	it('auto-sends the queued message on a clean completion', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+
+		manager.queuedMessage = 'followup'
+		await manager.sendRequest({ instructions: 'first' })
+
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(2)
+		expect(manager.queuedMessage).toBe('')
+		const userMessages = manager.displayMessages
+			.filter((m) => m.role === 'user')
+			.map((m) => m.content)
+		expect(userMessages).toEqual(['first', 'followup'])
+	})
+
+	it('keeps the queued message as a card (not flushed to input) when the turn errors', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		mocks.runChatLoop.mockRejectedValue(new Error('provider down'))
+
+		manager.queuedMessage = 'followup'
+		await manager.sendRequest({ instructions: 'first' })
+
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
+		// stays a card, nothing flushed into the input
+		expect(manager.queuedMessage).toBe('followup')
+		expect(input.prependText).not.toHaveBeenCalled()
+	})
+
+	it('auto-sends the queued message when the user cancels the turn (Esc/Stop)', async () => {
+		const manager = createManager(createInputMock())
+		// the followup turn completes cleanly...
+		replyWith('done')
+		// ...but the first turn is cancelled by the user
+		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
+			abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		manager.queuedMessage = 'followup'
+		await manager.sendRequest({ instructions: 'first' })
+
+		// cancel sends the queued message automatically
+		expect(manager.queuedMessage).toBe('')
+		const userMessages = manager.displayMessages
+			.filter((m) => m.role === 'user')
+			.map((m) => m.content)
+		expect(userMessages).toContain('followup')
+	})
+
+	it('does NOT auto-send on a programmatic cancel (e.g. save-and-clear / teardown)', async () => {
+		const manager = createManager(createInputMock())
+		replyWith('done')
+		// the turn is aborted programmatically, not by the user pressing Esc/Stop
+		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
+			abortController.abort('saveAndClear')
+			throw new Error('aborted')
+		})
+
+		manager.queuedMessage = 'followup'
+		await manager.sendRequest({ instructions: 'first' })
+
+		// a non-user abort must not fire the queued message; it stays a card
+		expect(manager.queuedMessage).toBe('followup')
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
+	})
+
+	it('does not restore the cancelled prompt to the input when a queued message takes over', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		replyWith('done')
+		// cancel before any usable output → the rollback (restoreUnsentTurn) path
+		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
+			abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		manager.queuedMessage = 'followup'
+		await manager.sendRequest({ instructions: 'the long cancelled prompt' })
+
+		// clean handoff: queued message sent, cancelled prompt NOT shoved back in
+		expect(manager.queuedMessage).toBe('')
+		expect(input.restoreInstructions).not.toHaveBeenCalled()
+	})
+
+	it('re-queues the message when its auto-send is rejected by beforeSend', async () => {
+		replyWith('done')
+		const input = createInputMock()
+		const manager = createManager(input)
+		// first turn goes through, the queued auto-send is rejected
+		manager.beforeSend = vi
+			.fn()
+			.mockResolvedValueOnce(undefined)
+			.mockRejectedValueOnce(new Error('workspace commit failed'))
+
+		manager.queuedMessage = 'followup'
+		await manager.sendRequest({ instructions: 'first' })
+
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
+		// the rejected message stays a card rather than being lost or moved to input
+		expect(manager.queuedMessage).toBe('followup')
+		expect(input.prependText).not.toHaveBeenCalled()
+	})
+
+	it('drops the queued message when switching conversations (no cross-chat leak)', async () => {
+		const manager = createManager(createInputMock())
+
+		manager.queuedMessage = 'meant for chat A'
+		await manager.saveAndClear()
+		expect(manager.queuedMessage).toBe('')
+
+		manager.queuedMessage = 'still meant for chat A'
+		vi.spyOn(manager.historyManager, 'loadPastChat').mockReturnValue({
+			id: 'chat-b',
+			title: 'Chat B',
+			displayMessages: [],
+			actualMessages: [],
+			lastModified: 0
+		} as unknown as ReturnType<typeof manager.historyManager.loadPastChat>)
+		await manager.loadPastChat('chat-b')
+		expect(manager.queuedMessage).toBe('')
+	})
+})
+
 describe('AIChatManager context compaction', () => {
 	// claude-sonnet-4-6 resolves to a known 1M window (modelConfig is
 	// unmocked): compaction triggers at a projected 800k and drops head
@@ -708,7 +907,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 		vi.mocked(runChatLoop).mockImplementation(async (config) => {
 			config.callbacks.onNewToken('Here is the partial ')
 			config.callbacks.onNewToken('answer')
-			config.abortController.abort('user_cancelled')
+			config.abortController.abort()
 			throw new Error('aborted')
 		})
 
@@ -733,7 +932,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 		vi.mocked(runChatLoop).mockImplementation(async (config) => {
 			config.callbacks.onReasoningStart?.()
 			config.callbacks.onReasoningDelta?.('still thinking...')
-			config.abortController.abort('user_cancelled')
+			config.abortController.abort()
 			throw new Error('aborted')
 		})
 
@@ -764,7 +963,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 		vi.mocked(runChatLoop).mockImplementation(async (config) => {
 			config.callbacks.onNewToken('Partial from Claude')
 			config.callbacks.onMessageEnd()
-			config.abortController.abort('user_cancelled')
+			config.abortController.abort()
 			throw new Error('aborted')
 		})
 
@@ -790,7 +989,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 			config.callbacks.onNewToken('The full answer')
 			config.addedMessages!.push({ role: 'assistant', content: 'The full answer' })
 			config.callbacks.onMessageEnd()
-			config.abortController.abort('user_cancelled')
+			config.abortController.abort()
 			throw new Error('aborted')
 		})
 

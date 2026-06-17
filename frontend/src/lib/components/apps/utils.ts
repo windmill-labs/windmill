@@ -2,7 +2,14 @@ import type { Schema } from '$lib/common'
 
 import { twMerge } from 'tailwind-merge'
 import { type AppComponent } from './editor/component'
-import { isRunnableByName, isRunnableByPath, type AppInput, type InputType, type ResultAppInput, type StaticAppInput } from './inputType'
+import {
+	isRunnableByName,
+	isRunnableByPath,
+	type AppInput,
+	type InputType,
+	type ResultAppInput,
+	type StaticAppInput
+} from './inputType'
 import type { Output } from './rx'
 import type {
 	App,
@@ -11,30 +18,12 @@ import type {
 	HorizontalAlignment,
 	VerticalAlignment
 } from './types'
-import { gridColumns } from './gridUtils'
 import { allItems, BG_PREFIX } from './editor/appUtilsCore'
 
-export function migrateApp(app: App) {
-	;(app?.hiddenInlineScripts ?? []).forEach((x) => {
-		if (x.type == undefined) {
-			//@ts-ignore
-			x.type = 'inline'
-		}
-		//TODO: remove after migration is done
-		if (x.doNotRecomputeOnInputChanged != undefined) {
-			x.recomputeOnInputChanged = !x.doNotRecomputeOnInputChanged
-			x.doNotRecomputeOnInputChanged = undefined
-		}
-	})
-
-	allItems(app.grid, app.subgrids).forEach((x) => {
-		gridColumns.forEach((column: number) => {
-			if (x?.[column]?.fullHeight === undefined) {
-				x[column].fullHeight = false
-			}
-		})
-	})
-}
+// `migrateApp` moved to its own light module so non-editor callers can reuse it
+// without pulling the whole `apps/utils` graph; re-exported here for existing
+// `from '../utils'` importers.
+export { migrateApp } from './migrateApp'
 
 export function processSubcomponents(data: AppComponent, fn: (data: AppComponent) => void) {
 	if (data.type == 'tablecomponent' && Array.isArray(data.actionButtons)) {
@@ -133,7 +122,7 @@ export function isScriptByNameDefined(appInput: AppInput | undefined): boolean {
 		return false
 	}
 
-	if (appInput.type === 'runnable' &&  isRunnableByName(appInput.runnable)) {
+	if (appInput.type === 'runnable' && isRunnableByName(appInput.runnable)) {
 		return appInput.runnable?.name != undefined
 	}
 
@@ -402,10 +391,7 @@ export function getAllScriptNames(app: App): string[] {
 	const names = (allItems(app.grid, app?.subgrids) ?? []).reduce((acc, gridItem: GridItem) => {
 		const { componentInput } = gridItem.data
 
-		if (
-			componentInput?.type === 'runnable' &&
-			isRunnableByName(componentInput.runnable)
-		) {
+		if (componentInput?.type === 'runnable' && isRunnableByName(componentInput.runnable)) {
 			acc.push(componentInput.runnable.name)
 		}
 
