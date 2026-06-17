@@ -118,6 +118,9 @@
 	let busyFor = $state<string | null>(null)
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let migrateOpen = $state(false)
+	// The hover popover sits above the diff drawer / migrate modal (z-index), so
+	// close it before opening either or it would cover them.
+	let popoverOpen = $state(false)
 
 	// Legacy (no-owner) drafts can only be resolved by workspace admins / superadmins.
 	const canMigrateLegacy = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin)
@@ -148,6 +151,8 @@
 				fetchDraft(owner),
 				fetchDeployedValueForDiff(workspace, itemKind, path)
 			])
+			// Close the popover so it doesn't render over the drawer.
+			popoverOpen = false
 			diffDrawer?.openDrawer()
 			diffDrawer?.setDiff({
 				mode: 'simple',
@@ -182,7 +187,7 @@
 </script>
 
 {#if showBadge}
-	<Popover openOnHover={true} debounceDelay={50} enableFlyTransition>
+	<Popover openOnHover={true} debounceDelay={50} enableFlyTransition bind:isOpen={popoverOpen}>
 		{#snippet trigger()}
 			<Badge small color="indigo">
 				{#if orderedUsers.length > 0}
@@ -294,7 +299,10 @@
 											variant="subtle"
 											size="xs3"
 											startIcon={{ icon: Wrench }}
-											on:click={() => (migrateOpen = true)}
+											on:click={() => {
+												popoverOpen = false
+												migrateOpen = true
+											}}
 										>
 											Migrate
 										</Button>
