@@ -90,7 +90,8 @@ export class AttachedFilesStore {
 		return this.files.find((f) => f.name === name)
 	}
 	readyFiles(): AttachedFile[] {
-		return this.files.filter((f) => f.status === 'ready')
+		// Folder-root placeholders aren't real files — never expose them to the read/search tools.
+		return this.files.filter((f) => f.status === 'ready' && !f.isFolderRoot)
 	}
 	get count(): number {
 		return this.files.length
@@ -440,6 +441,7 @@ export class AttachedFilesStore {
 			const name = this.#uniqueName(path)
 			this.#pushIndexing({ name, file, folder, sourceId, handle: dirHandle, relPath: path })
 		}
+		this.#ensureFolderRow(sourceId, folder, dirHandle)
 	}
 
 	/**
@@ -451,7 +453,9 @@ export class AttachedFilesStore {
 	async refreshFolders(): Promise<void> {
 		const sources = new Map<string, { handle: FileSystemDirectoryHandle; folder: string }>()
 		for (const f of this.files) {
-			if (f.folder && f.handle && !f.isFolderRoot) {
+			// Include folder-root placeholders (an emptied folder keeps only its placeholder),
+			// else the source is lost and the folder never re-enumerates again.
+			if (f.folder && f.handle) {
 				sources.set(f.sourceId, { handle: f.handle, folder: f.folder })
 			}
 		}
@@ -498,6 +502,37 @@ export class AttachedFilesStore {
 		if (removed.length > 0) {
 			const names = new Set(removed.map((f) => f.name))
 			this.files = this.files.filter((f) => !names.has(f.name))
+		}
+		this.#ensureFolderRow(sourceId, folder, handle)
+	}
+
+	/**
+	 * Keep a linked folder represented even with no readable children: leave one
+	 * handle-carrying placeholder row so the chip stays visible AND `refreshFolders`
+	 * keeps the live source (without it, an emptied folder vanishes and never
+	 * re-enumerates). Drop the placeholder as soon as real children exist again.
+	 */
+	#ensureFolderRow(sourceId: string, folder: string, handle: FileSystemDirectoryHandle): void {
+		const hasChild = this.files.some((f) => f.sourceId === sourceId && !f.isFolderRoot)
+		const hasPlaceholder = this.files.some((f) => f.sourceId === sourceId && f.isFolderRoot)
+		if (!hasChild && !hasPlaceholder) {
+			this.files = [
+				...this.files,
+				{
+					name: folder,
+					file: EMPTY,
+					size: 0,
+					lineIndex: [],
+					lineCount: 0,
+					status: 'ready',
+					folder,
+					sourceId,
+					handle,
+					isFolderRoot: true
+				}
+			]
+		} else if (hasChild && hasPlaceholder) {
+			this.files = this.files.filter((f) => !(f.sourceId === sourceId && f.isFolderRoot))
 		}
 	}
 

@@ -367,4 +367,25 @@ describe('AttachedFilesStore', () => {
 		expect(s.count).toBe(0)
 		expect((deleteItem as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0])).toContain(sourceId)
 	})
+
+	it('an emptied live folder stays visible and refreshes when files return', async () => {
+		enumerateDirMock.mockResolvedValue([{ file: file('app.ts', 'x\n'), path: 'proj/app.ts' }])
+		await store.addFolder(dir)
+		await settle(store)
+		expect(store.folders.map((f) => f.name)).toEqual(['proj'])
+
+		// Folder emptied on disk → the last child is removed but the folder persists (placeholder).
+		enumerateDirMock.mockResolvedValue([])
+		await store.refreshFolders()
+		await settle(store)
+		expect(store.folders).toEqual([{ name: 'proj', status: 'ready', files: [] }])
+		expect(store.get('proj/app.ts')).toBeUndefined()
+		expect(store.readyFiles()).toEqual([]) // placeholder is never a tool target
+
+		// A file added back on disk is picked up — the live source survived the empty state.
+		enumerateDirMock.mockResolvedValue([{ file: file('new.ts', 'y\n'), path: 'proj/new.ts' }])
+		await store.refreshFolders()
+		await settle(store)
+		expect(store.folders[0].files.map((f) => f.relPath)).toEqual(['proj/new.ts'])
+	})
 })
