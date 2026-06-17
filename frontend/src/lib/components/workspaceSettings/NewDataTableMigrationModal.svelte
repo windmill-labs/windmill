@@ -63,11 +63,26 @@
 				}
 			})
 			if (run) {
-				await WorkspaceService.runDatatableMigrations({
-					workspace,
-					datatableName: datatable,
-					upTo: created.timestamp
-				})
+				try {
+					await WorkspaceService.runDatatableMigrations({
+						workspace,
+						datatableName: datatable,
+						only: created.timestamp
+					})
+				} catch (runErr: any) {
+					// The migration was created but failed to run; undo the insertion so
+					// the user can fix the SQL and retry from a clean state.
+					await WorkspaceService.deleteDatatableMigration({
+						workspace,
+						datatableName: datatable,
+						timestamp: created.timestamp
+					}).catch(() => {})
+					sendUserToast(
+						`Migration failed to run and was reverted: ${runErr?.body ?? runErr?.message ?? runErr}`,
+						true
+					)
+					return
+				}
 			}
 			isOpen = false
 			sendUserToast(run ? 'Migration created and run' : 'Migration created')
