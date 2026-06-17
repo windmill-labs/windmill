@@ -52,7 +52,8 @@
 				or assign it to yourself to keep editing it as your own draft.
 			</p>
 		</div>
-		<div class="flex flex-col gap-2">
+		<div class="flex gap-2 ml-auto">
+			<Button variant="default" size="sm" on:click={() => (isOpen = false)}>Cancel</Button>
 			<Button
 				variant="default"
 				destructive
@@ -62,7 +63,7 @@
 				disabled={busy !== null && busy !== 'delete'}
 				on:click={() => run('delete')}
 			>
-				Delete
+				Delete draft
 			</Button>
 			<Button
 				variant="default"
@@ -74,9 +75,6 @@
 			>
 				Assign to self
 			</Button>
-		</div>
-		<div class="flex justify-end">
-			<Button variant="default" size="sm" on:click={() => (isOpen = false)}>Cancel</Button>
 		</div>
 	</div>
 </Modal2>
