@@ -1562,6 +1562,55 @@ describe('global AI tools', () => {
 		})
 	})
 
+	it('deploys an editor raw app draft at its draft_path, not its synthetic storage key', async () => {
+		// An editor-created draft_only raw app lives at a synthetic storage key with
+		// its chosen path in `draft_path`; deploy must resolve to the storage key,
+		// read draft_path, and create the app there — not at the synthetic key.
+		const storageKey = 'u/admin/draft_app999'
+		const chosenPath = 'f/team/chosen_app'
+		seedBackendDraft(
+			'raw_app',
+			storageKey,
+			{
+				summary: 'Editor app',
+				files: { '/App.tsx': 'export default () => null' },
+				runnables: {},
+				data: { tables: [] },
+				draft_path: chosenPath
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'raw_app',
+			storagePath: storageKey,
+			effectivePath: chosenPath
+		})
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
+			draft: { draft_path: chosenPath }
+		} as any)
+
+		await callGlobalTool('deploy_workspace_item', { type: 'app', path: chosenPath })
+
+		// draft_path is read from the backend draft at the storage key…
+		expect(AppService.getAppByPath).toHaveBeenCalledWith(
+			expect.objectContaining({
+				workspace: WORKSPACE,
+				path: storageKey,
+				getDraft: true,
+				rawApp: true
+			})
+		)
+		// …and the app is created at the chosen path, not the synthetic key.
+		expect(AppService.createAppRaw).toHaveBeenCalledWith(
+			expect.objectContaining({
+				formData: expect.objectContaining({
+					app: expect.objectContaining({ path: chosenPath })
+				})
+			})
+		)
+	})
+
 	it('deploys an existing raw app draft by bundling files and updating the raw app', async () => {
 		vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
 		seedBackendDraft(

@@ -3441,16 +3441,35 @@ async function deployDraft(
 					data: appValue.data ?? { ...DEFAULT_RAW_APP_DATA }
 				}
 				const summary = appValue.summary ?? draft.summary ?? ''
-				if (await AppService.existsApp({ workspace, path })) {
+				// Deploy at the draft's chosen path. A draft_only raw app created in the
+				// editor lives at a synthetic `u/{user}/draft_{uuid}` storage key with its
+				// chosen path in the raw_app draft's `draft_path`; the chat's AppDraftValue
+				// doesn't carry it, so read it from the backend draft. For a chat-created app
+				// (real path, no draft_path) or a draft on a deployed app, the storage path
+				// is the deploy path. Same storage-path resolution as script/flow.
+				const storagePath = getGlobalDraftStoragePath(workspace, 'app', path)
+				let targetPath = storagePath
+				try {
+					const row = (await AppService.getAppByPath({
+						workspace,
+						path: storagePath,
+						getDraft: true,
+						rawApp: true
+					})) as { draft?: { draft_path?: string; path?: string }; draft_path?: string }
+					targetPath = row?.draft?.draft_path ?? row?.draft?.path ?? row?.draft_path ?? storagePath
+				} catch {
+					targetPath = storagePath
+				}
+				if (await AppService.existsApp({ workspace, path: targetPath })) {
 					// Omit custom_path on update for now. The backend preserves it when absent, while
 					// sending it requires admin privileges; this chat deploy path does not yet mirror
 					// the raw app editor's user/admin-specific custom_path handling.
 					await AppService.updateAppRaw({
 						workspace,
-						path,
+						path: targetPath,
 						formData: {
 							app: {
-								path,
+								path: targetPath,
 								value: rawAppValue,
 								summary,
 								policy,
@@ -3465,7 +3484,7 @@ async function deployDraft(
 						workspace,
 						formData: {
 							app: {
-								path,
+								path: targetPath,
 								value: rawAppValue,
 								summary,
 								policy,
