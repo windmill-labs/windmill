@@ -4,13 +4,23 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 
-	loadUser()
+	// Test-dev routes don't go through the (logged) layout, so the workspace store
+	// may be empty. Match what the React SDK does in main.tsx (and sdk_resource)
+	// and set it explicitly — without a workspace the FlowWrapper can't acquire a
+	// UserDraft handle, so autosave and its indicator stay off.
+	let workspace = $state($workspaceStore ?? 'admins')
 
-	async function loadUser() {
-		if ($workspaceStore) {
-			$userStore = await getUserExt($workspaceStore)
+	$effect(() => {
+		if (workspace && $workspaceStore !== workspace) {
+			workspaceStore.set(workspace)
 		}
-	}
+	})
+
+	$effect(() => {
+		if ($workspaceStore && !$userStore) {
+			getUserExt($workspaceStore).then((u) => ($userStore = u))
+		}
+	})
 
 	let flowStore = $state({
 		val: {
