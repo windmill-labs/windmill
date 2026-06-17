@@ -308,8 +308,11 @@ export class AttachedFilesStore {
 			if (perm !== 'granted') continue
 			try {
 				await this.#expandFolder(f.handle as FileSystemDirectoryHandle, f.sourceId)
-				// Children are in — drop the locked placeholder row.
+				// Children are in — drop the locked placeholder row, then restore a ready
+				// placeholder if the folder came back empty/all-binary (else dropping the only
+				// handle-bearing row would unlink the folder and stop it ever refreshing).
 				this.files = this.files.filter((x) => !(x.sourceId === f.sourceId && x.isFolderRoot))
+				this.#ensureFolderRow(f.sourceId, f.folder ?? f.name, f.handle as FileSystemDirectoryHandle)
 			} catch {
 				// Enumeration failed (folder moved/deleted on disk): drop any partially-added
 				// children and keep the placeholder so the chip shows "unavailable".

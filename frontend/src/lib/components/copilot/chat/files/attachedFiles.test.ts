@@ -216,6 +216,39 @@ describe('AttachedFilesStore', () => {
 		expect(s2.folders).toEqual([{ name: 'proj', status: 'unavailable', files: [] }])
 	})
 
+	it('regrant of an empty folder keeps it linked and refreshing (not unlinked)', async () => {
+		const { getItemsForSession } = await import('./attachedFilesDB')
+		;(getItemsForSession as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+			{
+				id: 'src1',
+				sessionId: 's1',
+				kind: 'dir-handle',
+				name: 'proj',
+				folder: 'proj',
+				handle: dir,
+				addedAt: 0
+			}
+		])
+		const { queryReadPermission } = await import('./fsAccess')
+		;(queryReadPermission as ReturnType<typeof vi.fn>).mockResolvedValueOnce('prompt')
+		const s2 = new AttachedFilesStore()
+		await s2.restore('s1', true)
+		expect(s2.lockedCount).toBe(1)
+
+		// Access re-granted, but the folder is currently empty — it must stay linked (ready
+		// placeholder), not vanish when the locked placeholder is dropped.
+		enumerateDirMock.mockResolvedValueOnce([])
+		await s2.regrantLocked()
+		expect(s2.folders).toEqual([{ name: 'proj', status: 'ready', files: [] }])
+		expect(s2.lockedCount).toBe(0)
+
+		// A file added afterward is picked up — the handle survived.
+		enumerateDirMock.mockResolvedValueOnce([{ file: file('app.ts', 'x\n'), path: 'proj/app.ts' }])
+		await s2.refreshFolders()
+		await settle(s2)
+		expect(s2.folders[0].files.map((f) => f.relPath)).toEqual(['proj/app.ts'])
+	})
+
 	it('removeFolder drops all of a folder’s files', async () => {
 		enumerateDirMock.mockResolvedValue([
 			{ file: file('app.ts', 'x\n'), path: 'proj/app.ts' },
