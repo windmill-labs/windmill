@@ -2413,6 +2413,10 @@ struct RunDatatableMigrationsResult {
 struct RunDatatableMigrationsQuery {
     /// When set, only apply pending migrations up to and including this version.
     up_to: Option<i64>,
+    /// When set, apply only this specific migration version (if not already
+    /// applied), ignoring any other pending migrations. Takes precedence over
+    /// `up_to`.
+    only: Option<i64>,
 }
 
 /// Apply the workspace's pending data table migrations to a given data table.
@@ -2478,8 +2482,13 @@ async fn run_datatable_migrations(
 
     let mut applied = Vec::new();
     for m in migrations {
-        // Migrations are ordered ascending, so once we pass `up_to` we're done.
-        if query.up_to.is_some_and(|up_to| m.timestamp > up_to) {
+        if let Some(only) = query.only {
+            // Run a single specific migration, skipping every other one.
+            if m.timestamp != only {
+                continue;
+            }
+        } else if query.up_to.is_some_and(|up_to| m.timestamp > up_to) {
+            // Migrations are ordered ascending, so once we pass `up_to` we're done.
             break;
         }
         if applied_versions.contains(&m.timestamp) {

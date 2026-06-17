@@ -4371,6 +4371,13 @@ paths:
           schema:
             type: integer
             format: int64
+        - name: only
+          in: query
+          required: false
+          description: apply only this specific migration version, ignoring others
+          schema:
+            type: integer
+            format: int64
       responses:
         "200":
           description: applied migrations
