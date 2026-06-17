@@ -130,6 +130,7 @@ After creating or editing a backend runnable — especially when its imports or 
 ```bash
 wmill generate-metadata
 ```
+After it runs, check the regenerated `.lock` diff and tell the user which dependency versions changed (e.g. `requests 2.31.0 → 2.32.0`), so they can catch an unwanted bump before deploying.
 
 ### Optional YAML configuration
 
