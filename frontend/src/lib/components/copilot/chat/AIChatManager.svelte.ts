@@ -73,8 +73,10 @@ import {
 import type { WorkspaceMutationTarget } from './workspaceTools'
 import {
 	globalToolsFor,
+	loadWorkspaceSkills,
 	prepareGlobalSystemMessage,
 	prepareGlobalUserMessage,
+	type AiSkillListItem,
 	type GlobalToolHelpers
 } from './global/core'
 import { isGlobalAiEnabled } from './global/gate'
@@ -295,6 +297,11 @@ export class AIChatManager {
 	// tool `helpers` in GLOBAL mode so the preview/deploy tools dispatch to THIS
 	// session rather than the UI-active one — keeps backgrounded sessions isolated.
 	sessionId: string | undefined = undefined
+
+	// Workspace AI skills (name + description) advertised in the GLOBAL system
+	// prompt. Loaded asynchronously when entering GLOBAL mode; the system message
+	// is rebuilt once they resolve.
+	private globalSkills: AiSkillListItem[] = []
 
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script:
@@ -672,18 +679,34 @@ export class AIChatManager {
 		} else if (mode === AIMode.GLOBAL) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareGlobalSystemMessage(customPrompt, {
-				previewTools: this.isSessionChat
+				previewTools: this.isSessionChat,
+				skills: this.globalSkills
 			})
 			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
 			this.helpers = {
 				...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
 				testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args)
 			} satisfies GlobalToolHelpers
+			void this.refreshGlobalSkills()
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAppSystemMessage(customPrompt)
 			this.tools = [...getAppTools()]
 			this.helpers = this.appAiChatHelpers
+		}
+	}
+
+	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
+	// the system message so the next chat-loop iteration advertises them. The chat
+	// loop re-reads `systemMessage` via a getter, so a late resolve still applies.
+	private refreshGlobalSkills = async () => {
+		const skills = await loadWorkspaceSkills(get(workspaceStore) ?? '')
+		this.globalSkills = skills
+		if (this.mode === AIMode.GLOBAL) {
+			this.systemMessage = prepareGlobalSystemMessage(getCombinedCustomPrompt(AIMode.GLOBAL), {
+				previewTools: this.isSessionChat,
+				skills
+			})
 		}
 	}
 
