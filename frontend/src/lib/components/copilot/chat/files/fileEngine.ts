@@ -144,18 +144,37 @@ export async function readFile(
 		cappedByChars = true
 	}
 
-	const moreLinesAfter = end < totalLines
-	const truncated = moreLinesAfter || cappedByChars
+	// When the char cap truncates the window short of `end`, the text holds fewer lines
+	// than requested — so the note must report the last line actually returned and resume
+	// at the next unread one (otherwise it claims lines it didn't return and skips them).
+	let lastLine = end
+	let resumeAt: number | undefined = end < totalLines ? end + 1 : undefined
+	if (cappedByChars) {
+		const completeLines = (text.match(/\n/g) || []).length
+		if (completeLines >= 1) {
+			// lines start..start+completeLines-1 are whole; the next line was cut mid-content.
+			lastLine = start + completeLines - 1
+			resumeAt = start + completeLines
+		} else {
+			// the cap fell inside line `start` itself — it can't be returned in full, so
+			// advance past it rather than re-truncating the same line forever.
+			lastLine = start
+			resumeAt = start + 1
+		}
+		if (resumeAt > totalLines) resumeAt = undefined
+	}
 
-	let note = `Showing lines ${start}-${end} of ${totalLines}.`
+	const truncated = cappedByChars || resumeAt !== undefined
+
+	let note = `Showing lines ${start}-${lastLine} of ${totalLines}.`
 	if (cappedByChars) {
 		note += ` Output truncated to ${maxChars} characters (line(s) very long).`
 	}
-	if (moreLinesAfter) {
-		note += ` Call read_file again with start_line=${end + 1} for more.`
+	if (resumeAt !== undefined) {
+		note += ` Call read_file again with start_line=${resumeAt} for more.`
 	}
 
-	return { text, startLine: start, endLine: end, totalLines, truncated, note }
+	return { text, startLine: start, endLine: lastLine, totalLines, truncated, note }
 }
 
 /**
@@ -230,6 +249,9 @@ export async function searchFiles(
 			await streamLines(entry.file, (line, lineNo) => {
 				// Bound backtracking on pathological long lines by only testing a prefix.
 				const scanned = line.length > lineScanCap ? line.slice(0, lineScanCap) : line
+				// `regex` may carry a caller-supplied `g`/`y` flag, which makes `.test()`
+				// stateful (it advances `lastIndex`) — reset so each line matches from 0.
+				regex.lastIndex = 0
 				if (regex.test(scanned)) {
 					hits.push({
 						file: entry.name,

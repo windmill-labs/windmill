@@ -106,6 +106,24 @@ describe('readFile', () => {
 		expect(res.text).toBe('')
 		expect(res.totalLines).toBe(0)
 	})
+
+	it('char-truncation inside the first line resumes the note at the next line', async () => {
+		// Line 1 exceeds maxChars; lines 2-3 follow. The window only returns line 1's prefix,
+		// so the note must report line 1 and point the model at line 2 (not claim lines 1-3).
+		const entry = await makeEntry('x'.repeat(20000) + '\nl2\nl3')
+		const res = await readFile(entry, { startLine: 1, endLine: 3, maxChars: 5000 })
+		expect(res.endLine).toBe(1)
+		expect(res.totalLines).toBe(3)
+		expect(res.truncated).toBe(true)
+		expect(res.note).toContain('start_line=2')
+	})
+
+	it('char-truncation after some whole lines resumes at the truncated line', async () => {
+		const entry = await makeEntry('a\nb\n' + 'x'.repeat(20000) + '\nd')
+		const res = await readFile(entry, { startLine: 1, endLine: 4, maxChars: 5000 })
+		expect(res.endLine).toBe(2) // a, b whole; line 3 (xxx) cut
+		expect(res.note).toContain('start_line=3')
+	})
 })
 
 describe('searchFiles', () => {
@@ -170,6 +188,14 @@ describe('searchFiles', () => {
 		const entry = await makeEntry(lines.join('\n'))
 		const res = await searchFiles([entry], 'TARGET')
 		expect(res.hits).toEqual([{ file: 'f.txt', line: 5000, text: 'TARGET' }])
+	})
+
+	it('a global flag does not drop matches via a stale lastIndex', async () => {
+		// `.test()` is stateful under the `g` flag; without resetting lastIndex, lines after
+		// the first match would be tested from a stale offset and silently miss.
+		const entry = await makeEntry('match\nmatch\nmatch')
+		const res = await searchFiles([entry], 'match', { flags: 'g' })
+		expect(res.hits.map((h) => h.line)).toEqual([1, 2, 3])
 	})
 })
 
