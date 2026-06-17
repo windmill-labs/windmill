@@ -362,7 +362,7 @@ export const readDocsPageTool: Tool<{}> = {
 		})
 		try {
 			if (!path.trim()) {
-				return 'No documentation page path was provided. Provide a `path` from list_docs_pages.'
+				return 'No documentation page path was provided. Provide a `path` — e.g. a `Source` URL returned by search_docs.'
 			}
 			const content = await fetchDocsPage(path)
 			toolCallbacks.setToolStatus(toolId, { content: 'Read documentation page' })
