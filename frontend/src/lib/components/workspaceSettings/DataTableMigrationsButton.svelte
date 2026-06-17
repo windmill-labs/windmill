@@ -7,7 +7,7 @@
 	import SimpleEditor from '../SimpleEditor.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
-	import { ChevronDown, Play, Trash2, Plus, Undo2, Loader2 } from 'lucide-svelte'
+	import { ChevronDown, Play, Trash2, Plus, Undo2, Loader2, Camera } from 'lucide-svelte'
 	import { WorkspaceService, type DatatableMigrationWithStatus } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import NewDataTableMigrationModal from './NewDataTableMigrationModal.svelte'
@@ -43,7 +43,12 @@
 	const hasPending = $derived(migrations.some((m) => m.status !== 'ran'))
 
 	async function loadMigrations() {
-		loading = true
+		// Only show the full-list spinner on the initial load. Refreshes after an
+		// action (run/revert/delete) update the keyed list in place to avoid a
+		// flicker, with the buttons already gated by `busy`.
+		if (migrations.length === 0) {
+			loading = true
+		}
 		try {
 			const res = await WorkspaceService.getDatatableMigrationsStatus({
 				workspace,
@@ -158,6 +163,28 @@
 		await revertOnly(m.timestamp)
 	}
 
+	async function generateInitial() {
+		const confirmed = await confirmationModal.ask({
+			title: 'Generate initial migration',
+			confirmationText: 'Generate',
+			children: `This snapshots the current schema of "${datatable}" with pg_dump as an "initial" migration and marks it as already applied, so it is never re-run on this data table. It has no down migration. Use this to start tracking migrations on an existing data table.`
+		})
+		if (!confirmed) return
+		busy = true
+		try {
+			await WorkspaceService.generateInitialDatatableMigration({
+				workspace,
+				datatableName: datatable
+			})
+			sendUserToast('Initial migration generated')
+			await loadMigrations()
+		} catch (e: any) {
+			sendUserToast(`Failed to generate initial migration: ${e?.body ?? e?.message ?? e}`, true)
+		} finally {
+			busy = false
+		}
+	}
+
 	async function deleteMigration(m: DatatableMigrationWithStatus) {
 		const body =
 			m.status === 'ran'
@@ -221,7 +248,18 @@
 					<Loader2 size={18} class="animate-spin" />
 				</div>
 			{:else if migrations.length === 0}
-				<div class="p-6 text-center text-sm text-tertiary">No migrations yet</div>
+				<div class="flex flex-col items-center gap-3 p-6 text-sm text-tertiary">
+					<span>No migrations yet</span>
+					<Button
+						variant="subtle"
+						size="xs"
+						startIcon={{ icon: Camera }}
+						disabled={busy}
+						on:click={generateInitial}
+					>
+						Generate initial migration
+					</Button>
+				</div>
 			{:else}
 				{#each migrations as m (m.timestamp)}
 					<div class="flex items-center gap-3 px-3 py-2">
