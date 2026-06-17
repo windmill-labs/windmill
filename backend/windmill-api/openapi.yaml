@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.726.1
+  version: 1.728.1
   title: Windmill API
 
   contact:
@@ -21220,6 +21220,13 @@ components:
                   Workspace username of the draft owner. `null` represents
                   the legacy workspace-level (NULL-email) row. Emails never
                   leave the server.
+              draft_saved_at:
+                type: string
+                format: date-time
+                description: |
+                  When this user's draft was last saved (`draft.created_at`),
+                  surfaced in the fork modal as "Last updated".
+            required: [draft_saved_at]
       required: [is_draft]
     UserDraftItemKind:
       type: string

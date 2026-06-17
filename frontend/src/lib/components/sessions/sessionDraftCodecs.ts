@@ -21,7 +21,8 @@ export function makeFlowCodec(runtime: SessionRuntime): DraftSyncCodec<Flow> {
 				...current,
 				value: incoming.value,
 				schema: incoming.schema ?? current.schema,
-				summary: incoming.summary ?? current.summary
+				summary: incoming.summary ?? current.summary,
+				description: incoming.description ?? current.description
 			}
 			// flowStateStore is keyed by module_id; after an AI write the set of
 			// module ids may differ, so rebuild the UI state. This wipes per-module
@@ -34,10 +35,32 @@ export function makeFlowCodec(runtime: SessionRuntime): DraftSyncCodec<Flow> {
 	}
 }
 
-export function makeScriptCodec(runtime: SessionRuntime): DraftSyncCodec<NewScript> {
+// `NewScript` has no `draft_path` of its own; the session editor parks a rename
+// there so the home/Drafts lists (which read `draft_path`) show the typed name.
+type ScriptDraft = NewScript & { draft_path?: string }
+
+export function makeScriptCodec(
+	runtime: SessionRuntime,
+	// The draft's storage key (the URL path). A never-deployed script is parked
+	// here at `…/draft_<uuid>` while the user's typed name lives in `script.path`.
+	storagePath: () => string
+): DraftSyncCodec<ScriptDraft> {
 	return {
 		itemKind: 'script',
-		sig: (d) => d.content ?? '',
+		// Must include every field write_script can set — not just content —
+		// else a summary-only/language-only change yields an identical signature
+		// and the inbound/outbound sync skips it (the chat's change is then
+		// invisible in the open editor and clobbered by the next content save).
+		// `draft_path` carries a rename: ScriptBuilder binds the Path widget
+		// straight to `script.path` (no separate draft field like flow/raw_app),
+		// so without it here a rename moves no signature and never autosaves.
+		sig: (d) =>
+			JSON.stringify({
+				content: d.content ?? '',
+				summary: d.summary,
+				language: d.language,
+				draft_path: d.draft_path
+			}),
 		debounceMs: DEBOUNCE_MS,
 		applyDraftToStore(incoming) {
 			const script = runtime.scriptStore.val
@@ -52,7 +75,16 @@ export function makeScriptCodec(runtime: SessionRuntime): DraftSyncCodec<NewScri
 			if (!script) return undefined
 			// Merge over the existing entry so fields the preview doesn't edit
 			// (set by the chat) survive a content-only save.
-			return { ...(current ?? script), ...script }
+			const merged: ScriptDraft = { ...(current ?? script), ...script }
+			// Surface a rename to the home/Drafts lists, which read `draft_path`
+			// (the typed `script.path` is the draft *value*'s path, not its storage
+			// key). Mirror flow/raw_app: set it only when the typed path differs
+			// from the storage key, and drop it once it matches again so a revert
+			// doesn't leave a stale friendly name behind.
+			const typed = script.path
+			if (typed && typed !== storagePath()) merged.draft_path = typed
+			else delete merged.draft_path
+			return merged
 		}
 	}
 }

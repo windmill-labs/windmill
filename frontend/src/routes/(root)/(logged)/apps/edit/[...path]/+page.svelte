@@ -37,6 +37,10 @@
 	/** No deployed app at the URL path. Drives the editor's deploy:
 	 * `createApp` vs `updateApp`. Flips false once a deploy lands here. */
 	let isNewApp = $state(false)
+	/** Deployed app value this load, the baseline AppEditor's autosave
+	 * `discardIf` compares against. `undefined` for draft-only paths so they
+	 * never self-destruct by matching a non-existent baseline. */
+	let deployedBaseline = $state<App | undefined>(undefined)
 	let otherDraftsUsers = $state<OtherDraftUser[]>([])
 	let loadedFromDraft = $state(false)
 	let othersModalOpen = $state(false)
@@ -66,6 +70,8 @@
 			loadedFromDraft = false
 			draftSavedAt = undefined
 			deployedAt = undefined
+			// Brand-new app: no deployed baseline, so never discard-on-equal.
+			deployedBaseline = undefined
 			// Capture every seeding param BEFORE stripping the URL flag.
 			const templatePath = page.url.searchParams.get('template')
 			const templateId = page.url.searchParams.get('template_id')
@@ -186,6 +192,12 @@
 			getDraft
 		})
 		if (tok !== loadAppToken) return
+		// Deployed App value for AppEditor's autosave `discardIf`, captured BEFORE
+		// the draft swap below replaces `backendApp.value`. `undefined` when
+		// there's no deployed row (draft-only path).
+		deployedBaseline = backendApp.no_deployed
+			? undefined
+			: (structuredClone(stateSnapshot(backendApp.value)) as App)
 		// `other_drafts_users` only computed when `getDraft`; don't clobber the
 		// known list on a `getDraft:false` reload. See /scripts/edit's loader.
 		if (getDraft) {
@@ -373,6 +385,7 @@
 				on:restore={onRestore}
 				summary={app.summary}
 				app={app.value}
+				{deployedBaseline}
 				newPath={app.value?.draft_path ?? app.path}
 				path={page.params.path ?? ''}
 				policy={app.policy}

@@ -236,7 +236,7 @@
 </script>
 
 <div
-	class="autosave-indicator-wrap relative flex items-center gap-1.5 text-primary min-w-[5.2rem] rounded-md"
+	class="autosave-indicator-wrap relative flex items-center gap-1.5 text-primary shrink-0 rounded-md"
 	aria-label="Autosave status"
 >
 	{#if flashActive}

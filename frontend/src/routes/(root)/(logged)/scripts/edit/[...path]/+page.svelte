@@ -17,7 +17,7 @@
 	import { get } from 'svelte/store'
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
 	import { discardDraftAfterDeploy, runResetToDeployed } from '$lib/userDraftToast'
 	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
@@ -66,11 +66,19 @@
 	// Page-level draft orchestration: autosave handle (re-keyed on nav via
 	// `draftPath`), live-editor-draft registry, `recordRemoteSync`, removal.
 	// `draftSync.draft` stays a stable lvalue for `bind:script`.
+	/** Deployed script this load (with `parent_hash` grafted to match the
+	 * unedited draft seed), the baseline the autosave `discardIf` compares
+	 * against. `undefined` for draft-only paths so they never self-destruct. */
+	let deployedBaseline = $state<EditableScript | undefined>(undefined)
+
 	const draftSync = usePageDraftSync<EditableScript>({
 		itemKind: 'script',
 		path: () => draftPath,
 		workspace: () => $workspaceStore,
-		effectivePath: () => draftSync.draft?.path ?? draftPath
+		effectivePath: () => draftSync.draft?.path ?? draftPath,
+		// Autosaves landing back on the deployed script become deletes, so
+		// reverting edits clears the draft instead of leaving a no-op behind.
+		discardIf: (val) => deployedBaseline !== undefined && draftValuesEqual(val, deployedBaseline)
 	})
 
 	// Seed from the URL so ScriptBuilder mounts with a populated `initialPath`
@@ -130,6 +138,8 @@
 			loadedFromDraft = false
 			draftSavedAt = undefined
 			deployedAt = undefined
+			// Brand-new script: no deployed baseline, so never discard-on-equal.
+			deployedBaseline = undefined
 			// Capture every seeding param BEFORE stripping the URL flag.
 			const templatePath = page.url.searchParams.get('template')
 			const hubPath = page.url.searchParams.get('hub')
@@ -260,6 +270,9 @@
 			})
 			if (tok !== loadScriptToken) return
 			savedScript = structuredClone($state.snapshot(scriptByHash))
+			// Historical-hash view is read-only relative to drafts (`draftPath` is
+			// '' → detached handle), so no baseline is needed.
+			deployedBaseline = undefined
 			draftSync.draft = { ...scriptByHash, parent_hash: hash, lock: undefined }
 		} else {
 			const backendScript = await ScriptService.getScriptByPath({
@@ -294,6 +307,12 @@
 				: (deployedScript as EditableScript)
 			savedScript = structuredClone($state.snapshot(effectiveScript))
 			const parentHash = topHash ?? backendScript.hash
+			// Baseline for the autosave `discardIf`: the deployed script with the
+			// same `parent_hash` graft the seed below applies, so the unedited draft
+			// compares equal. `undefined` when there's no deployed row.
+			deployedBaseline = backendScript.no_deployed
+				? undefined
+				: structuredClone($state.snapshot({ ...deployedScript, parent_hash: parentHash }))
 			// "Load another user's draft" handoff: show their value over the
 			// deployed metadata. If WE already have a draft → overlay mode (never
 			// saved until the user confirms overwriting their own draft).

@@ -17,6 +17,7 @@
 	import { Pen, Trash, Plus } from 'lucide-svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Row from '$lib/components/table/Row.svelte'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { untrack } from 'svelte'
 
 	type FolderW = Folder & { canWrite: boolean }
@@ -135,6 +136,7 @@
 				<Head>
 					<tr>
 						<Cell head first>Name</Cell>
+						<Cell head>Labels</Cell>
 						<Cell head class="w-20">Scripts</Cell>
 						<Cell head class="w-20">Flows</Cell>
 						<Cell head class="w-20">Apps</Cell>
@@ -149,7 +151,7 @@
 					{#if folders === undefined}
 						{#each new Array(4) as _}
 							<tr>
-								<td colspan="9">
+								<td colspan="10">
 									<Skeleton layout={[[2]]} />
 								</td>
 							</tr>
@@ -157,7 +159,7 @@
 					{:else}
 						{#if folders.length === 0}
 							<tr>
-								<Cell colspan="9">
+								<Cell colspan="10">
 									<div class="text-xs text-primary py-2 text-center">
 										No folders yet, create one
 									</div>
@@ -165,7 +167,7 @@
 							</tr>
 						{/if}
 
-						{#each folders as { name, extra_perms, owners, canWrite, summary } (name)}
+						{#each folders as { name, extra_perms, owners, canWrite, summary, labels } (name)}
 							<Row
 								hoverable
 								on:click={() => {
@@ -178,6 +180,27 @@
 									{#if summary}
 										<br />
 										<span class="text-2xs font-normal text-secondary">{summary}</span>
+									{/if}
+								</Cell>
+								<Cell>
+									{#if labels?.length}
+										<div class="flex items-center gap-0.5">
+											{#each labels.slice(0, 3) as label}
+												<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge
+												>
+											{/each}
+											{#if labels.length > 3}
+												<Badge
+													color="blue"
+													small
+													class="px-1"
+													title={labels
+														.slice(3)
+														.map((l) => 'Label: ' + l)
+														.join('\n')}>+{labels.length - 3}</Badge
+												>
+											{/if}
+										</div>
 									{/if}
 								</Cell>
 								<FolderUsageInfo {name} tabular />
