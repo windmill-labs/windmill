@@ -123,6 +123,9 @@ describe('readFile', () => {
 		const res = await readFile(entry, { startLine: 1, endLine: 4, maxChars: 5000 })
 		expect(res.endLine).toBe(2) // a, b whole; line 3 (xxx) cut
 		expect(res.note).toContain('start_line=3')
+		// the partial line 3 must NOT leak into the body — it would contradict the note
+		expect(res.text).toBe('a\nb\n')
+		expect(numberLines(res.text, res.startLine)).toBe('1→a\n2→b')
 	})
 })
 

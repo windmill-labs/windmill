@@ -153,8 +153,11 @@ export async function readFile(
 		const completeLines = (text.match(/\n/g) || []).length
 		if (completeLines >= 1) {
 			// lines start..start+completeLines-1 are whole; the next line was cut mid-content.
+			// Trim that partial line off the returned text so the body matches the note (and
+			// the model doesn't see a line the note says it'll get on the next read).
 			lastLine = start + completeLines - 1
 			resumeAt = start + completeLines
+			text = text.slice(0, text.lastIndexOf('\n') + 1)
 		} else {
 			// the cap fell inside line `start` itself — it can't be returned in full, so
 			// advance past it rather than re-truncating the same line forever.
