@@ -130,6 +130,11 @@ pub fn workspaced_service() -> Router {
             "/run_datatable_migrations/{datatable_name}",
             post(run_datatable_migrations),
         )
+        .route("/list_datatable_migrations", get(list_datatable_migrations))
+        .route(
+            "/update_datatable_migrations",
+            post(update_datatable_migrations),
+        )
         .route("/git_sync_enabled", get(get_git_sync_enabled))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
@@ -2477,6 +2482,101 @@ async fn run_datatable_migrations(
     }
 
     Ok(Json(RunDatatableMigrationsResult { applied }))
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct DatatableMigration {
+    pub timestamp: i64,
+    pub name: String,
+    pub code_up: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_down: Option<String>,
+}
+
+async fn list_datatable_migrations(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<DatatableMigration>> {
+    let migrations = sqlx::query_as!(
+        DatatableMigration,
+        "SELECT timestamp, name, code_up, code_down FROM datatable_migrations \
+         WHERE workspace_id = $1 ORDER BY timestamp ASC",
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(migrations))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateDatatableMigrations {
+    pub migrations: Vec<DatatableMigration>,
+}
+
+/// Replace the workspace's whole set of data table migrations with the provided
+/// list. Used by `wmill sync` to push the `datatable_migrations/` folder.
+async fn update_datatable_migrations(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(payload): Json<UpdateDatatableMigrations>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let timestamps: Vec<i64> = payload.migrations.iter().map(|m| m.timestamp).collect();
+    let names: Vec<String> = payload.migrations.iter().map(|m| m.name.clone()).collect();
+    let code_ups: Vec<String> = payload
+        .migrations
+        .iter()
+        .map(|m| m.code_up.clone())
+        .collect();
+    let code_downs: Vec<Option<String>> = payload
+        .migrations
+        .iter()
+        .map(|m| m.code_down.clone())
+        .collect();
+
+    let mut tx = db.begin().await?;
+
+    sqlx::query!(
+        "DELETE FROM datatable_migrations WHERE workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO datatable_migrations (workspace_id, timestamp, name, code_up, code_down) \
+         SELECT $1, * FROM UNNEST($2::bigint[], $3::varchar[], $4::text[], $5::text[])",
+        &w_id,
+        &timestamps,
+        &names,
+        &code_ups,
+        &code_downs as &[Option<String>],
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.update_datatable_migrations",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("count", payload.migrations.len().to_string().as_str())].into()),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!(
+        "Updated {} datatable migration(s) for workspace {}",
+        payload.migrations.len(),
+        &w_id
+    ))
 }
 
 #[derive(Deserialize)]

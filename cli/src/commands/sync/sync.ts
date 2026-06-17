@@ -27,6 +27,10 @@ import {
 import { downloadZip } from "./pull.ts";
 import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
 import { pullSharedUi, pushSharedUi } from "../shared_ui.ts";
+import {
+  pullDatatableMigrations,
+  pushDatatableMigrations,
+} from "../datatable_migrations.ts";
 
 import {
   exts,
@@ -3349,6 +3353,12 @@ export async function pull(
     log.warn(`Failed to pull shared UI folder: ${e}`);
   }
 
+  try {
+    await pullDatatableMigrations(workspace.workspaceId);
+  } catch (e) {
+    log.warn(`Failed to pull datatable migrations folder: ${e}`);
+  }
+
   // Git-sync deployment-callback mode stops here: branch checkout + pull have
   // happened, but commit + push are the caller's job. The hub script does
   // them in-process with `set_gpg_signing_secret` so the agent's pre-warmed
@@ -4917,6 +4927,11 @@ export async function push(
     } catch (e) {
       log.warn(`Failed to push shared UI folder: ${e}`);
     }
+    try {
+      await pushDatatableMigrations(workspace.workspaceId);
+    } catch (e) {
+      log.warn(`Failed to push datatable migrations folder: ${e}`);
+    }
     if (opts.jsonOutput) {
       const result = {
         success: true,
@@ -4960,6 +4975,11 @@ export async function push(
       await pushSharedUi(workspace.workspaceId);
     } catch (e) {
       log.warn(`Failed to push shared UI folder: ${e}`);
+    }
+    try {
+      await pushDatatableMigrations(workspace.workspaceId);
+    } catch (e) {
+      log.warn(`Failed to push datatable migrations folder: ${e}`);
     }
     if (opts.jsonOutput) {
       console.log(
