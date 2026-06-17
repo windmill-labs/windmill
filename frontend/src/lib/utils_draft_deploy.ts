@@ -339,28 +339,28 @@ export async function deployDraft(
 		} else if (kind === 'app') {
 			// `raw_app` is handled above; only visual apps reach here.
 			const r = (await AppService.getAppByPath({ workspace, path, getDraft: true })) as any
-			const d = r.draft ?? {
-				value: r.value,
-				summary: r.summary,
-				policy: r.policy,
-				path: r.path,
-				custom_path: r.custom_path
-			}
-			// custom_path requires admin on app update. Non-admins send undefined so
-			// the backend preserves the existing route (no RequireAdmin 403). For
-			// admins, fall back to the *deployed* route (`r.custom_path`) when the
-			// draft doesn't carry one — the visual-app draft value usually omits
-			// custom_path, and sending `''` would clear the existing route. An
-			// explicit '' in the draft still clears (`'' ?? x === ''`).
+			// A visual-app draft is stored as the *bare* app value (grid/theme/...,
+			// plus a `draft_path` when the path was renamed) — NOT wrapped in
+			// { value, summary, policy } like script/flow drafts. So the deploy value
+			// is the draft object itself; fall back to the deployed value when there's
+			// no draft. `draft_path` and `summary` are draft-only fields mirrored onto
+			// the App value (the editor drops them on deploy), so strip them from the
+			// value and apply them as the deploy path / summary column.
+			const draft = r.draft as Record<string, any> | undefined
+			const { draft_path: draftPath, summary: draftSummary, ...appValue } = draft ?? r.value ?? {}
+			// Policy isn't carried in the app draft, so it comes from the deployed app
+			// (or a default). custom_path requires admin on update; non-admins send
+			// undefined so the backend preserves the existing route. The draft has no
+			// custom_path, so admins fall back to the deployed route (`''` when none).
 			const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
 			const requestBody = {
-				value: d.value,
-				summary: d.summary ?? '',
-				policy: d.policy ?? { execution_mode: 'publisher' },
+				value: appValue,
+				summary: draftSummary ?? r.summary ?? '',
+				policy: r.policy ?? { execution_mode: 'publisher' },
 				// Honor the draft's intended path; `draft_path` holds the user-typed path
 				// for a never-deployed app parked at a `u/{user}/draft_{uuid}` storage key.
-				path: d.draft_path ?? d.path ?? path,
-				custom_path: isAdmin ? (d.custom_path ?? r.custom_path) : undefined
+				path: draftPath ?? r.path ?? path,
+				custom_path: isAdmin ? (r.custom_path ?? '') : undefined
 			}
 			// Same as flows: draft-only apps have no app row → create;
 			// drafts on a deployed app update it.

@@ -219,7 +219,9 @@
 		isNewApp = !!backendApp.no_deployed
 		if (backendApp.no_deployed) {
 			backendApp = {
-				summary: '',
+				// Draft-only app: the summary rides on the autosaved App value
+				// (no deployed column to read it from).
+				summary: savedDraftApp?.summary ?? '',
 				value: (savedDraftApp ?? {}) as App,
 				path: page.params.path ?? '',
 				// `execution_mode` required; matches the new-app seed above.
@@ -236,7 +238,13 @@
 				no_deployed: true
 			} as unknown as typeof backendApp
 		} else if (savedDraftApp) {
-			backendApp = { ...backendApp, value: savedDraftApp } as typeof backendApp
+			// Deployed app with a draft: swap in the draft value and honor a draft
+			// summary edit (falls back to the deployed summary when the draft has none).
+			backendApp = {
+				...backendApp,
+				value: savedDraftApp,
+				summary: savedDraftApp.summary ?? backendApp.summary
+			} as typeof backendApp
 		}
 		if (backendApp.is_draft) {
 			loadedFromDraft = true
