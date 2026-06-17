@@ -11,6 +11,47 @@ import { Confirm } from "@cliffy/prompt/confirm";
 // target data table, as `<timestamp>_<name>.up.sql` (and optional `.down.sql`).
 const MIGRATIONS_DIR = "datatable_migrations";
 
+// Migration names map directly onto file names and the DB `name` column.
+const MIGRATION_NAME_RE = /^[a-zA-Z0-9_-]+$/;
+
+/** Current UTC time as a YYYYMMDDHHMMSS migration version. */
+function migrationTimestamp(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}` +
+    `${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}`
+  );
+}
+
+/**
+ * Scaffold a new migration under datatable_migrations/<datatable>/ as empty
+ * `<timestamp>_<name>.up.sql` and `.down.sql` files. Purely local — no network.
+ */
+export function createMigration(datatable: string, name: string): void {
+  if (!MIGRATION_NAME_RE.test(name)) {
+    throw new Error(
+      `Invalid migration name '${name}': use only letters, digits, '_' and '-'`,
+    );
+  }
+  const dir = path.join(process.cwd(), MIGRATIONS_DIR, datatable);
+  fs.mkdirSync(dir, { recursive: true });
+
+  const timestamp = migrationTimestamp();
+  const base = `${timestamp}_${name}`;
+  const up = path.join(dir, `${base}.up.sql`);
+  const down = path.join(dir, `${base}.down.sql`);
+  fs.writeFileSync(up, `-- up migration: ${name}\n`, "utf-8");
+  fs.writeFileSync(down, `-- down migration: ${name}\n`, "utf-8");
+
+  log.info(
+    colors.green(`Created migration ${base} in ${MIGRATIONS_DIR}/${datatable}/`),
+  );
+  for (const f of [up, down]) {
+    log.info(colors.gray(`  ${path.relative(process.cwd(), f)}`));
+  }
+}
+
 /**
  * Apply the workspace's pending migrations to a data table (forwards migrations
  * recorded in `_wm_migrations`). Mirrors `wmill datatable migrate up`.

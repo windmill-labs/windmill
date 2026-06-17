@@ -10,6 +10,7 @@ import { runCatalogQuery } from "../../utils/catalog.ts";
 import { psql as psqlDatatable } from "./psql.ts";
 import { serve as serveDatatable } from "./serve.ts";
 import {
+  createMigration,
   rollbackMigrations,
   runMigrations,
 } from "../datatable_migrations.ts";
@@ -45,6 +46,13 @@ async function run(
   await runCatalogQuery(opts, "datatable", name, sql);
 }
 
+function migrateNew(
+  opts: GlobalOptions & { datatable?: string },
+  name: string,
+) {
+  createMigration(opts.datatable ?? DEFAULT_DATATABLE_NAME, name);
+}
+
 async function migrateUp(opts: GlobalOptions, name?: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -58,7 +66,14 @@ async function migrateDown(opts: GlobalOptions, name?: string) {
 }
 
 const migrateCommand = new Command()
-  .description("apply or roll back datatable migrations")
+  .description("manage datatable migrations")
+  .command("new", "scaffold a new migration (.up.sql / .down.sql files)")
+  .arguments("<name:string>")
+  .option(
+    "-d --datatable <datatable:string>",
+    "Target datatable (default: main)",
+  )
+  .action(migrateNew as any)
   .command("up", "apply all pending migrations to a datatable")
   .arguments("[name:string]")
   .action(migrateUp as any)
