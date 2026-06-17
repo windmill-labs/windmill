@@ -881,6 +881,7 @@
 			deleteWorkspaceForkModal = false
 		}}
 		on:confirmed={() => {
+			deleteWorkspaceForkModal = false
 			deleteFork()
 		}}
 	>

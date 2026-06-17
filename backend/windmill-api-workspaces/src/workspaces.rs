@@ -3661,6 +3661,30 @@ async fn check_fork_w_id_conflict(db: &DB, w_id: &str) -> Result<()> {
     }
 }
 
+/// A fork id is reusable: it is freed when a fork is deleted and can be claimed
+/// again under the same name. `workspace_diff` and `skip_workspace_diff_tally`
+/// are keyed by workspace id with no FK cascade, so a freshly created fork could
+/// inherit cached diff state from a previous occupant of its id — a stale skip
+/// row suppresses comparison entirely, and stale workspace_diff rows produce a
+/// spurious "changes not visible" warning that hides the deploy button. Clear
+/// both so a new fork always starts with clean diff state, regardless of how the
+/// id was freed.
+async fn purge_stale_fork_diff_state(db: &DB, fork_id: &str) -> Result<()> {
+    sqlx::query!(
+        "DELETE FROM workspace_diff WHERE source_workspace_id = $1 OR fork_workspace_id = $1",
+        fork_id
+    )
+    .execute(db)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM skip_workspace_diff_tally WHERE workspace_id = $1",
+        fork_id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 lazy_static::lazy_static! {
 
     pub static ref CREATE_WORKSPACE_REQUIRE_SUPERADMIN: bool = {
@@ -4864,6 +4888,7 @@ async fn create_workspace_fork_branch(
     // Fail before creating any git branch so a name conflict doesn't leave a
     // dangling branch on the synced repos.
     check_fork_w_id_conflict(&db, &nw.id).await?;
+    purge_stale_fork_diff_state(&db, &nw.id).await?;
 
     Ok(Json(
         handle_fork_branch_creation(&authed.email, &authed.username, &db, &w_id, &nw.id).await?,
@@ -5008,6 +5033,7 @@ async fn create_workspace_fork(
     // re-using a taken (possibly archived) fork id reports the actual
     // conflict instead of a misleading "maximum number of workspaces" error.
     check_fork_w_id_conflict(&db, &nw.id).await?;
+    purge_stale_fork_diff_state(&db, &nw.id).await?;
 
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;

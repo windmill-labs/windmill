@@ -13,10 +13,12 @@
 	import { page } from '$app/state'
 	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 	import { importStore } from '$lib/components/apps/store'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
 	import { armRestartOnFirstInteraction, runResetToDeployed } from '$lib/userDraftToast'
 	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
+	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import RawAppTemplatePicker, {
 		type RawAppTemplatePickerResult
@@ -63,6 +65,7 @@
 				summary: string
 				policy: any
 				custom_path?: string
+				no_deployed?: boolean
 		  }
 		| undefined = $state(undefined)
 	let redraw = $state(0)
@@ -71,13 +74,21 @@
 	 * React/Svelte + data config + optional AI prompt before the editor goes live. */
 	let templatePicker = $state(false)
 
+	/** Deployed raw-app bundle this load, the baseline the autosave `discardIf`
+	 * compares against. `undefined` for draft-only paths so they never
+	 * self-destruct by matching a non-existent baseline. */
+	let deployedBaseline = $state<RawAppDraft | undefined>(undefined)
+
 	// Page-level draft orchestration. `path` is a mount-scoped plain `let` (the
 	// editor remounts per path), so this re-keys only on workspace change.
 	// effectivePath omitted: the live-editor-draft entry is owned by RawAppEditor.
 	const draftSync = usePageDraftSync<RawAppDraft>({
 		itemKind: 'raw_app',
 		path: () => path,
-		workspace: () => $workspaceStore
+		workspace: () => $workspaceStore,
+		// Autosaves landing back on the deployed raw app become deletes, so
+		// reverting edits clears the draft instead of leaving a no-op behind.
+		discardIf: (val) => deployedBaseline !== undefined && draftValuesEqual(val, deployedBaseline)
 	})
 
 	// Persist the bundle whenever any of the four pieces of state changes.
@@ -97,30 +108,42 @@
 			summary,
 			policy,
 			custom_path: savedApp?.custom_path,
-			// Only persist when set, so the field disappears from the saved JSON
-			// once the typed path matches the baseline again (or on deploy).
-			...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
+			// Persist the typed path as `draft_path` only when it actually differs
+			// from the current path — a `draft_path` equal to the baseline is a
+			// no-op that would block the draft from deduping against the deployed
+			// app (which carries none). Drops back out on a revert or deploy.
+			...(pendingDraftPath && pendingDraftPath !== (savedApp?.path ?? '')
+				? { draft_path: pendingDraftPath }
+				: {})
 		} as RawAppDraft
 	})
 
-	function extractRawApp(app: any) {
-		runnables = app.value.runnables
-		// Support old formats and new format
-		if (app.value.data) {
-			const d = app.value.data
+	/** Normalize a raw-app `value` into the editor's `data` config, supporting
+	 * the old nested `creation` / `datatables` shapes. `undefined` when the
+	 * value carries no data config (caller keeps the current/default `data`). */
+	function extractDataConfig(value: any): RawAppData | undefined {
+		if (value?.data) {
+			const d = value.data
 			// Handle old nested creation format
 			if (d.creation) {
-				data = {
+				return {
 					tables: d.tables ?? [],
 					datatable: d.creation.datatable,
 					schema: d.creation.schema
 				}
-			} else {
-				data = d
 			}
-		} else if (app.value.datatables) {
-			data = { ...DEFAULT_DATA, tables: app.value.datatables }
+			return d
+		} else if (value?.datatables) {
+			return { ...DEFAULT_DATA, tables: value.datatables }
 		}
+		return undefined
+	}
+
+	function extractRawApp(app: any) {
+		runnables = app.value.runnables
+		// Support old formats and new format
+		const extractedData = extractDataConfig(app.value)
+		if (extractedData) data = extractedData
 		files = app.value.files
 		summary = app.summary
 		// lastVersion = app.version
@@ -157,6 +180,8 @@
 			loadedFromDraft = false
 			draftSavedAt = undefined
 			deployedAt = undefined
+			// Brand-new raw app: no deployed baseline, so never discard-on-equal.
+			deployedBaseline = undefined
 			// Suspend autosave across the bootstrap: the seed template and the
 			// picker's `onStart` are programmatic writes that must not POST as the
 			// first edit. Resume on first interaction (the template-card click or
@@ -258,6 +283,22 @@
 		// See /apps/edit's loader.
 		draftSavedAt = backendApp.draft_saved_at as string | undefined
 		deployedAt = backendApp.no_deployed ? undefined : (backendApp.created_at as string | undefined)
+		// Deployed baseline for the autosave `discardIf`, captured BEFORE the swap
+		// below mutates `backendApp`. Mirrors the bundle `$effect`'s shape (minus
+		// the edit-only `draft_path`) so an unedited draft compares equal.
+		// `undefined` when there's no deployed row.
+		deployedBaseline = backendApp.no_deployed
+			? undefined
+			: (structuredClone(
+					stateSnapshot({
+						files: backendApp.value?.files ?? {},
+						runnables: backendApp.value?.runnables ?? {},
+						data: extractDataConfig(backendApp.value) ?? { ...DEFAULT_DATA },
+						summary: backendApp.summary ?? '',
+						policy: backendApp.policy,
+						custom_path: backendApp.custom_path
+					})
+				) as RawAppDraft)
 		// The raw-app autosave stores a flat `RawAppDraft`, but this loader (and
 		// `extractRawApp`) needs the deployed shape with `files`/`runnables`/`data`
 		// under `.value` and the rest top-level. Re-wrap the saved draft (`.draft`):
@@ -308,7 +349,8 @@
 			value: backendApp_.value as any,
 			path: backendApp_.path,
 			policy: backendApp_.policy,
-			custom_path: backendApp_.custom_path
+			custom_path: backendApp_.custom_path,
+			no_deployed: backendApp_.no_deployed
 		}
 		// Extract the effective raw app into the editor's local pieces. The bundle
 		// $effect re-mirrors them into `draftSync.draft`; the first write is
@@ -401,6 +443,23 @@
 </script>
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
+<!-- Auto-save off: edits aren't persisted on leave, so warn before navigating
+	away (and on tab close). Inert while auto-save is on. -->
+<UnsavedConfirmationModal
+	showAutosaveTips
+	hasUnsavedChanges={() =>
+		UserDraftDbSyncer.hasUnsavedDisabledChanges({
+			workspace: $workspaceStore ?? '',
+			itemKind: 'raw_app',
+			path
+		})}
+	onDiscardChanges={() =>
+		UserDraftDbSyncer.dropPending({
+			workspace: $workspaceStore ?? '',
+			itemKind: 'raw_app',
+			path
+		})}
+/>
 <DraftEditorModals
 	workspace={$workspaceStore ?? ''}
 	itemKind="raw_app"

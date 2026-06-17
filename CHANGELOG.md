@@ -1,5 +1,50 @@
 # Changelog
 
+## [1.728.1](https://github.com/windmill-labs/windmill/compare/v1.728.0...v1.728.1) (2026-06-17)
+
+
+### Bug Fixes
+
+* **backend:** purge workspace_diff cache on workspace delete ([#9627](https://github.com/windmill-labs/windmill/issues/9627)) ([8a3f69d](https://github.com/windmill-labs/windmill/commit/8a3f69dda8f2088fb859ed8ed6e54458940423d0))
+* **cli:** fall back to esbuild-wasm on native host/binary mismatch ([#9629](https://github.com/windmill-labs/windmill/issues/9629)) ([86d1d16](https://github.com/windmill-labs/windmill/commit/86d1d160f0d3bd9faabdafada07e2956dd98445d))
+* **frontend:** persist session-editor draft path/summary edits + per-line diff tooltips ([#9622](https://github.com/windmill-labs/windmill/issues/9622)) ([e4bfeb2](https://github.com/windmill-labs/windmill/commit/e4bfeb29bc4e89669863b5f6396904a331167658))
+
+## [1.728.0](https://github.com/windmill-labs/windmill/compare/v1.727.0...v1.728.0) (2026-06-16)
+
+
+### Features
+
+* **frontend:** adapt AI-chat/sessions drafts to DB-backed model ([#9601](https://github.com/windmill-labs/windmill/issues/9601)) ([611c70a](https://github.com/windmill-labs/windmill/commit/611c70acd211cf4b8f8308da4a264c670a2f5f43))
+* **frontend:** consolidate draft-migration errors into a single toast + modal ([#9612](https://github.com/windmill-labs/windmill/issues/9612)) ([bc0d5bf](https://github.com/windmill-labs/windmill/commit/bc0d5bf241df3633921bd9d43d171e91034fbfcf))
+* **frontend:** dedup user drafts against the deployed baseline ([#9618](https://github.com/windmill-labs/windmill/issues/9618)) ([a2ce446](https://github.com/windmill-labs/windmill/commit/a2ce44645fdbfa98bf250fac2d15d2b5b26c4b47))
+
+
+### Bug Fixes
+
+* **frontend:** reset deleteWorkspaceForkModal on confirm in SidebarContent ([#9619](https://github.com/windmill-labs/windmill/issues/9619)) ([7cb5c6e](https://github.com/windmill-labs/windmill/commit/7cb5c6e749b2020dee5ee1499f0dc69c5109a6d8))
+* **frontend:** session Drafts drawer uses raw_app kind for the raw-app diff ([#9617](https://github.com/windmill-labs/windmill/issues/9617)) ([46288b6](https://github.com/windmill-labs/windmill/commit/46288b6143efae4dfdf6fe068b97a1e8831fce6a))
+* **nativets:** respect custom CA certs in in-process fetch runtime ([#9615](https://github.com/windmill-labs/windmill/issues/9615)) ([41562c7](https://github.com/windmill-labs/windmill/commit/41562c7d7c708d7d056d9b3d0c39b994a6f4a016))
+* **ResourceForm:** initialize JSON editor when resource type schema is unavailable ([#9611](https://github.com/windmill-labs/windmill/issues/9611)) ([5a24057](https://github.com/windmill-labs/windmill/commit/5a2405743b4622fc1021109114d007057abd5dfd))
+* show folder labels in the folder list table ([#9620](https://github.com/windmill-labs/windmill/issues/9620)) ([651fa13](https://github.com/windmill-labs/windmill/commit/651fa13ee80ff76e5a53ef1ed545b03ce6792294))
+* show last updated date per user in other-users-drafts modal ([#9614](https://github.com/windmill-labs/windmill/issues/9614)) ([f6104ce](https://github.com/windmill-labs/windmill/commit/f6104ce05c4005ffb9fe8112782d1ef6d3065300))
+
+## [1.727.0](https://github.com/windmill-labs/windmill/compare/v1.726.1...v1.727.0) (2026-06-16)
+
+
+### Features
+
+* support temp_script_refs in wmill dev for local relative imports ([#9554](https://github.com/windmill-labs/windmill/issues/9554)) ([33ac287](https://github.com/windmill-labs/windmill/commit/33ac287065742df53f363a5fe09f54f5584a85a6))
+
+
+### Bug Fixes
+
+* **cli:** harden legacy flow lock migration ordering and collision guard ([#9557](https://github.com/windmill-labs/windmill/issues/9557)) ([cd09870](https://github.com/windmill-labs/windmill/commit/cd098700c2cd8d7e9150f760938f4eaf34d188ec))
+* **cli:** include __mod/ folder in gitSyncIncludePattern for scripts ([#9606](https://github.com/windmill-labs/windmill/issues/9606)) ([252c1b3](https://github.com/windmill-labs/windmill/commit/252c1b35fc716c3486109d89615127c588bbe90a))
+* **frontend:** allow same-origin redirects in isValidLogoutRedirect ([#9568](https://github.com/windmill-labs/windmill/issues/9568)) ([8500435](https://github.com/windmill-labs/windmill/commit/8500435e82231e13a1b8a874fd0545f0a0a73fee))
+* **frontend:** make UserDraft read-after-write work without live entry ([#9609](https://github.com/windmill-labs/windmill/issues/9609)) ([51e82d7](https://github.com/windmill-labs/windmill/commit/51e82d7c6d30c66c84236feb743c09929934e564))
+* **frontend:** seed detached user-draft handles so new-item drawers render ([#9608](https://github.com/windmill-labs/windmill/issues/9608)) ([9e3c0de](https://github.com/windmill-labs/windmill/commit/9e3c0decf95378c66055d82215c15cd3bf4a69cb))
+* **frontend:** strip server-managed fields from value diffs ([#9599](https://github.com/windmill-labs/windmill/issues/9599)) ([c213801](https://github.com/windmill-labs/windmill/commit/c213801b5aee54d801c14b9eb31422f2a312ef7e))
+
 ## [1.726.1](https://github.com/windmill-labs/windmill/compare/v1.726.0...v1.726.1) (2026-06-15)
 
 
