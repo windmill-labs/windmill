@@ -2,7 +2,7 @@ import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { colors } from "@cliffy/ansi/colors";
 import { sep as SEP } from "node:path";
-import { GlobalOptions } from "../../types.ts";
+import { GlobalOptions, isDatatableMigrationPath } from "../../types.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
@@ -54,6 +54,8 @@ async function walkLocalScripts(
       (!isD && !exts.some((ext) => p.endsWith(ext))) ||
       ignore(p, isD) ||
       isFolderResourcePathAnyFormat(p) ||
+      // Datatable migration `.sql` files aren't Windmill scripts.
+      isDatatableMigrationPath(p) ||
       (isScriptModulePath(p) && !isModuleEntryPoint(p)),
     false,
     {},
@@ -221,6 +223,8 @@ function categorizeLocalFiles(
     } else if (
       exts.some((ext) => p.endsWith(ext)) &&
       !isFolderResourcePathAnyFormat(p) &&
+      // Datatable migration `.sql` files aren't Windmill scripts.
+      !isDatatableMigrationPath(p) &&
       !(isScriptModulePath(p) && !isModuleEntryPoint(p))
     ) {
       scripts.push(p);
