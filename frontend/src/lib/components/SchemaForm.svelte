@@ -12,8 +12,9 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { getResourceTypes } from './resourceTypesStore'
-	import { Plus } from 'lucide-svelte'
+	import { Plus, RotateCcw, Trash2 } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
+	import Badge from './common/badge/Badge.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { deepEqual } from 'fast-equals'
 	import {
@@ -43,6 +44,7 @@
 		noVariablePicker?: boolean
 		flexWrap?: boolean
 		noDelete?: boolean
+		displayExtraArgs?: boolean
 		prettifyHeader?: boolean
 		disablePortal?: boolean
 		showSchemaExplorer?: boolean
@@ -95,6 +97,7 @@
 		noVariablePicker = false,
 		flexWrap = false,
 		noDelete = false,
+		displayExtraArgs = false,
 		prettifyHeader = false,
 		disablePortal = false,
 		showSchemaExplorer = false,
@@ -139,6 +142,25 @@
 
 	let keys: string[] = $state([])
 
+	// `displayExtraArgs` disables the automatic removal of args that are absent from
+	// the schema. Instead they are surfaced as fields the user can keep or remove:
+	//  - kept (the default): the value stays in `args` and renders as an editable
+	//    field, so existing values are never silently dropped
+	//  - deleted: the user removed it; the value moves to `deletedArgs` (out of
+	//    `args`) and renders with a "Deleted" badge so the deletion can be reverted
+	let deletedArgs: Record<string, any> = $state({})
+
+	let extraArgKeys = $derived(
+		displayExtraArgs
+			? Array.from(
+					new Set([
+						...Object.keys(args ?? {}).filter((k) => !keys.includes(k)),
+						...Object.keys(deletedArgs)
+					])
+				).filter((k) => !keys.includes(k))
+			: []
+	)
+
 	function removeExtraKey() {
 		const nargs = {}
 		Object.keys(args ?? {}).forEach((key) => {
@@ -147,6 +169,30 @@
 			}
 		})
 		args = nargs
+	}
+
+	function inferArgType(value: any): string | undefined {
+		if (value === null || value === undefined) return undefined
+		if (Array.isArray(value)) return 'array'
+		const t = typeof value
+		if (t === 'string' || t === 'number' || t === 'boolean' || t === 'object') return t
+		return undefined
+	}
+
+	function deleteExtraArg(key: string) {
+		if (args && key in args) {
+			deletedArgs[key] = args[key]
+			delete args[key]
+		}
+		dispatch('change')
+	}
+
+	function revertExtraArg(key: string) {
+		if (!(key in deletedArgs)) return
+		if (!args) args = {}
+		args[key] = deletedArgs[key]
+		delete deletedArgs[key]
+		dispatch('change')
 	}
 
 	let pickForField: string | undefined = $state()
@@ -202,7 +248,7 @@
 		// 	}
 		// })
 
-		if (!noDelete && hasExtraKeys()) {
+		if (!noDelete && !displayExtraArgs && hasExtraKeys()) {
 			removeExtraKey()
 		}
 	}
@@ -245,6 +291,21 @@
 		schema?.order
 		Object.keys(schema?.properties ?? {})
 		schema && (untrack(() => reorder()), (hidden = {}))
+	})
+	// Drop surfaced-deletion state when `args` is replaced wholesale (e.g. the
+	// editor instance is reused for a different runnable). In-place edits from
+	// deleteExtraArg/revertExtraArg keep the same reference, so they don't reset.
+	let prevArgsRef: Record<string, any> | undefined = undefined
+	$effect.pre(() => {
+		args
+		untrack(() => {
+			if (displayExtraArgs && args !== prevArgsRef) {
+				prevArgsRef = args
+				if (Object.keys(deletedArgs).length > 0) {
+					deletedArgs = {}
+				}
+			}
+		})
 	})
 	$effect.pre(() => {
 		;[schema, args]
@@ -485,10 +546,95 @@
 				{/if}
 			</ResizeTransitionWrapper>
 		{/each}
-	{:else if !shouldHideNoInputs}
+	{:else if !shouldHideNoInputs && extraArgKeys.length == 0}
 		<div class="text-secondary text-xs">No inputs</div>
 	{/if}
 </div>
+{#if displayExtraArgs && extraArgKeys.length > 0 && args}
+	<div class="w-full flex flex-col gap-2 {className} {nestedClasses}">
+		{#each extraArgKeys as argName (argName)}
+			{@const isDeleted = argName in deletedArgs}
+			<div class="flex flex-row items-start gap-2 pb-2">
+				<div class="grow min-w-0 {isDeleted ? 'opacity-60' : ''}">
+					{#if isDeleted}
+						<ArgInput
+							{resourceTypes}
+							{prettifyHeader}
+							{lightHeaderFont}
+							{lightHeader}
+							label={argName}
+							value={deletedArgs[argName]}
+							type={inferArgType(deletedArgs[argName])}
+							disabled
+							{compact}
+							{disablePortal}
+							{onlyMaskPassword}
+							{displayType}
+						/>
+					{:else}
+						<ArgInput
+							{resourceTypes}
+							{prettifyHeader}
+							{lightHeaderFont}
+							{lightHeader}
+							label={argName}
+							bind:value={args[argName]}
+							type={inferArgType(args?.[argName])}
+							disabled={disabled || disabledArgs.includes(argName)}
+							{compact}
+							{disablePortal}
+							{onlyMaskPassword}
+							{displayType}
+							on:change={() => dispatch('change')}
+						/>
+					{/if}
+				</div>
+				<div class="flex flex-row items-center gap-1 pt-1 shrink-0">
+					{#if isDeleted}
+						<Badge
+							color="red"
+							small
+							baseClass="font-normal"
+							title="This field is not present in the runnable's schema and has been removed. Revert to keep it."
+						>
+							Deleted
+						</Badge>
+					{:else}
+						<Badge
+							color="gray"
+							small
+							baseClass="font-normal"
+							title="This field is not present in the runnable's schema. It is ignored at runtime."
+						>
+							Not in schema
+						</Badge>
+					{/if}
+					{#if !disabled}
+						{#if isDeleted}
+							<Button
+								variant="subtle"
+								unifiedSize="xs"
+								startIcon={{ icon: RotateCcw }}
+								on:click={() => revertExtraArg(argName)}
+							>
+								Revert
+							</Button>
+						{:else}
+							<Button
+								variant="subtle"
+								unifiedSize="xs"
+								iconOnly
+								startIcon={{ icon: Trash2 }}
+								title="Delete this field"
+								on:click={() => deleteExtraArg(argName)}
+							/>
+						{/if}
+					{/if}
+				</div>
+			</div>
+		{/each}
+	</div>
+{/if}
 {#if !noVariablePicker}
 	<ItemPicker
 		bind:this={itemPicker}
