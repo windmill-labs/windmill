@@ -15,12 +15,26 @@ on:
     paths:
       - "ai_evals/**"
       - "frontend/src/lib/components/copilot/**"
+      # The eval harness runs production frontend code in-process; these are the
+      # AI/draft-specific deps outside copilot/ that the global smoke exercises.
+      - "frontend/src/lib/userDraft.svelte.ts"
+      - "frontend/src/lib/userDraftDbSyncer.svelte.ts"
+      - "frontend/src/lib/infer.ts"
+      # Chat system prompts fed to the model ($system_prompts -> auto-generated).
+      - "system_prompts/**"
       - ".github/workflows/ai-evals-test.yml"
   pull_request:
     types: [opened, reopened, ready_for_review]
     paths:
       - "ai_evals/**"
       - "frontend/src/lib/components/copilot/**"
+      # The eval harness runs production frontend code in-process; these are the
+      # AI/draft-specific deps outside copilot/ that the global smoke exercises.
+      - "frontend/src/lib/userDraft.svelte.ts"
+      - "frontend/src/lib/userDraftDbSyncer.svelte.ts"
+      - "frontend/src/lib/infer.ts"
+      # Chat system prompts fed to the model ($system_prompts -> auto-generated).
+      - "system_prompts/**"
       - ".github/workflows/ai-evals-test.yml"
 
 concurrency:
