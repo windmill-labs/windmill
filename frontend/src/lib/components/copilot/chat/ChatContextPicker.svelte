@@ -58,8 +58,11 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	// Chat tree leaves carry either a workspace path (resolved to content
 	// at pick time) or a runtime ContextElement (added directly).
 	type ChatLeafData = WorkspaceItem | ContextElement
+	type DrillPickerHandle = {
+		handleKeydown: (e: KeyboardEvent) => void
+	}
 
-	let inner = $state<DrillPicker<ChatLeafData> | undefined>(undefined)
+	let inner = $state<DrillPickerHandle | undefined>(undefined)
 
 	export function handleKeydown(e: KeyboardEvent) {
 		inner?.handleKeydown(e)

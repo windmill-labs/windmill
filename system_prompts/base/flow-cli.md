@@ -39,11 +39,11 @@ Once the flow has real content, **offer** to open the visual preview as a one-se
 
 ## CLI Commands — running, previewing, deploying
 
-After writing, tell the user which command fits what they want to do:
+After writing, act on the user's intent instead of just listing commands. Run `wmill flow preview` yourself when it fits (see "After writing — offer to run, don't wait passively" below). `wmill generate-metadata` regenerates local lock/hash files (not a deploy) but re-resolves deps — offer it and run on agreement, unless the project's `AGENTS.md` opts into running metadata automatically. Only *name* `wmill sync push` (the deploy) so the user can approve it. The options:
 
 - `wmill flow preview <flow_path>` — **default when iterating on a local flow.** Runs the local `flow.yaml` against local inline scripts without deploying. Add `--remote` to use deployed workspace scripts for PathScript steps instead of local files. Add `--step <step_id>` to run only one module in isolation (see "Single-step vs whole-flow preview" below).
 - `wmill flow run <path>` — runs the flow **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- `wmill generate-metadata` — regenerate stale `.lock` and `.script.yaml` files. By default it scans **scripts, flows, and apps** across the workspace; pass `--skip-flows --skip-apps` (or run from a subdirectory) to limit the scope when you only care about the flow you edited.
+- `wmill generate-metadata` — regenerate stale local `.lock` files for the flow and its inline scripts and refresh their content hashes in `wmill-lock.yaml`. Writes local files only (not a deploy). Run it after editing inline scripts whose imports or arguments changed, so `wmill-lock.yaml` doesn't drift and add noise to git-sync/CI. By default it scans **scripts, flows, and apps** across the workspace but only regenerates stale ones; pass the flow's folder as an argument (or run from that subdirectory) to limit the scope to the flow you edited. Note a flow (or script) that imports a changed shared script is pulled in too — run `wmill generate-metadata --dry-run` to see exactly what is stale and why (`content changed` vs `depends on <path>`) before applying.
 - `wmill sync push` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -72,7 +72,7 @@ If the user hasn't already told you to run/test the flow, offer it as a one-sent
 
 If the user already asked to test/run/try the flow in their original request, skip the offer and just execute `wmill flow preview <path> -d '<args>'` directly — pick plausible args from the flow's input schema.
 
-`wmill flow preview` is safe to run yourself (it does not deploy). `wmill sync push` and `wmill generate-metadata` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+`wmill flow preview` is safe to run yourself (it does not deploy). `wmill generate-metadata` does not deploy either (it only writes local lock/hash files) but re-resolves deps — offer it and run on agreement, unless the project's `AGENTS.md` opts into automatic metadata. After running it, check the regenerated `.lock` diff and tell the user which inline-script dependency versions changed, so they can catch an unwanted bump before deploying. Only `wmill sync push` deploys; run it only when the user explicitly asks.
 
 ### Visual preview
 

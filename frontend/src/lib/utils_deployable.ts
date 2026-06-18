@@ -334,7 +334,7 @@ export async function getTriggersDeployData(
  * `TRIGGER_COMPARE_IGNORE` and `stripTriggerOrScheduleRuntimeFields` in the
  * shared deploy module.
  */
-const TRIGGER_RUNTIME_IGNORE = new Set([
+export const TRIGGER_RUNTIME_IGNORE = new Set([
 	'workspace_id',
 	'edited_by',
 	'edited_at',

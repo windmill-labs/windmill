@@ -21,13 +21,17 @@ const NSJAIL_CONFIG_RUN_POWERSHELL_CONTENT: &str =
 
 lazy_static::lazy_static! {
     static ref RE_POWERSHELL_IMPORTS: Regex = Regex::new(r#"^\s*Import-Module\s+(?:-Name\s+)?"?([^\s"]+)"?(?:\s+-RequiredVersion\s+"?([^\s"]+)"?)?"#).unwrap();
+    // Module names are interpolated into PowerShell string literals in the install
+    // script, so they must not contain anything that could break out of a quoted
+    // string. Restrict to characters valid in real module names.
+    static ref RE_SAFE_MODULE_NAME: Regex = Regex::new(r"^[a-zA-Z0-9._-]+$").unwrap();
 }
 
 use crate::{
     common::{
         build_args_map, build_command_with_isolation, get_reserved_variables, read_file,
-        read_file_content, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
-        MaybeLock, OccupancyMetrics,
+        read_file_content, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
+        start_child_process, MaybeLock, OccupancyMetrics,
     },
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry_with_workspace_override, DISABLE_NUSER, HOME_ENV,
@@ -264,12 +268,31 @@ struct ModuleRequest {
     version: Option<String>,
 }
 
+/// Reject module names that could break out of the PowerShell string literal they
+/// are interpolated into (e.g. a name containing a single quote), preventing command
+/// injection via crafted lock content or script imports (CWE-78).
+fn validate_module_name(name: &str) -> Result<(), Error> {
+    if !RE_SAFE_MODULE_NAME.is_match(name) {
+        return Err(Error::internal_err(format!(
+            "Invalid PowerShell module name '{}': only alphanumeric, '.', '_' and '-' are allowed",
+            name.chars().take(50).collect::<String>()
+        )));
+    }
+    Ok(())
+}
+
 /// Parse Import-Module statements from PowerShell code into module requests.
+/// Imports with an invalid module name are skipped with a warning rather than
+/// aborting the whole job.
 fn parse_script_imports(code: &str) -> Vec<ModuleRequest> {
     let mut modules = Vec::new();
     for line in code.lines() {
         for cap in RE_POWERSHELL_IMPORTS.captures_iter(line) {
             let name = cap.get(1).unwrap().as_str().to_string();
+            if let Err(e) = validate_module_name(&name) {
+                tracing::warn!("Skipping PowerShell import with unsafe module name: {e}");
+                continue;
+            }
             let version = cap.get(2).map(|m| m.as_str().to_string());
             modules.push(ModuleRequest { name, version });
         }
@@ -293,6 +316,7 @@ fn parse_modules_json(content: &str) -> Result<Vec<ModuleRequest>, Error> {
         })?;
     let mut result = Vec::new();
     for (name, version) in modules {
+        validate_module_name(name)?;
         let version = match version {
             serde_json::Value::String(v) if v != "*" => Some(v.clone()),
             _ => None,
@@ -511,13 +535,15 @@ pub async fn handle_powershell_job(
         let modules_list = modules_to_install
             .iter()
             .map(|module_req| {
+                // Defense-in-depth: escape single quotes so a name/version can never
+                // break out of the PowerShell string literal, even if validation is
+                // bypassed. Mirrors val_to_pwsh_param.
+                let name = module_req.name.replace("'", "''");
                 if let Some(version) = &module_req.version {
-                    format!(
-                        "@{{ Name = '{}'; Version = '{}' }}",
-                        module_req.name, version
-                    )
+                    let version = version.replace("'", "''");
+                    format!("@{{ Name = '{}'; Version = '{}' }}", name, version)
                 } else {
-                    format!("@{{ Name = '{}'; Version = $null }}", module_req.name)
+                    format!("@{{ Name = '{}'; Version = $null }}", name)
                 }
             })
             .collect::<Vec<_>>()
@@ -528,13 +554,17 @@ pub async fn handle_powershell_job(
             .replace("{job_id}", &job.id.to_string())
             .replace("{has_private_repo}", &format!("${has_private_repo}"))
             .replace("{has_credentials}", &format!("${has_credentials}"))
+            // Escape single quotes: these are interpolated into single-quoted
+            // PowerShell literals ($privateRepoUrl/$privateRepoPat) in the install
+            // script, so an unescaped quote in the configured repo URL/PAT would
+            // break out of the literal (same sink as the module names above).
             .replace(
                 "{private_repo_url}",
-                &powershell_repo_url.unwrap_or_default(),
+                &powershell_repo_url.unwrap_or_default().replace("'", "''"),
             )
             .replace(
                 "{private_repo_pat}",
-                &powershell_repo_pat.unwrap_or_default(),
+                &powershell_repo_pat.unwrap_or_default().replace("'", "''"),
             )
             .replace("{modules}", &modules_list);
         let mut cmd = Command::new(POWERSHELL_PATH.as_str());
@@ -1158,5 +1188,51 @@ Write-Host "Hello""#;
             .unwrap();
         versions.sort();
         assert_eq!(versions, vec!["1.0.0", "1.655.0"]);
+    }
+
+    // --- module name sanitization (CWE-78) tests ---
+
+    #[test]
+    fn test_validate_module_name_accepts_real_names() {
+        for name in [
+            "PSWriteColor",
+            "ImportExcel",
+            "Az.Accounts",
+            "My_Module-1.0",
+        ] {
+            assert!(validate_module_name(name).is_ok(), "{name} should be valid");
+        }
+    }
+
+    #[test]
+    fn test_validate_module_name_rejects_injection() {
+        for name in [
+            "Mod'; Remove-Item -Recurse / #",
+            "Mod' }; Invoke-Expression 'evil'; @{ Name = '",
+            "Mod with space",
+            "Mod\nImport-Module Evil",
+            "",
+        ] {
+            assert!(
+                validate_module_name(name).is_err(),
+                "{name:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_modules_json_rejects_unsafe_name() {
+        let json = r#"{"modules": {"Mod'; Remove-Item /": "1.0.0"}}"#;
+        assert!(parse_modules_json(json).is_err());
+    }
+
+    #[test]
+    fn test_parse_script_imports_skips_unsafe_name() {
+        // Quoted import lets the regex capture a name containing a single quote;
+        // it must be silently dropped while the safe import is kept.
+        let code = "Import-Module \"Bad'Name\"\nImport-Module PSWriteColor";
+        let modules = parse_script_imports(code);
+        assert_eq!(modules.len(), 1);
+        assert_eq!(modules[0].name, "PSWriteColor");
     }
 }

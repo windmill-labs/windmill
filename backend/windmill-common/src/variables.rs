@@ -59,6 +59,19 @@ pub struct ListableVariable {
     pub edited_at: Option<chrono::DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub edited_by: Option<String>,
+    /// True when this row is a per-user draft with no deployed variable
+    /// at the same path. Surfaced by `include_draft_only` so the frontend
+    /// can render a "Draft" badge and the editor can open from the draft
+    /// alone. `None`/omitted on rows fetched from the `variable` table.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub draft_only: Option<bool>,
+    /// True when the authed user has a per-user draft at this path —
+    /// layered over a deployed variable or a synthesized draft-only row.
+    /// Drives the `*` suffix on the variables page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub is_draft: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]

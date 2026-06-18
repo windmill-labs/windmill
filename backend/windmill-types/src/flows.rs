@@ -30,8 +30,6 @@ pub struct Flow {
     pub schema: Option<Schema>,
     pub extra_perms: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub dedicated_worker: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
@@ -83,7 +81,9 @@ pub struct ListableFlow {
     pub archived: bool,
     pub extra_perms: serde_json::Value,
     pub starred: bool,
-    pub has_draft: bool,
+    /// `Some(true)` only on synthesised draft-only rows; `None` on deployed rows.
+    /// See ListableScript in scripts.rs.
+    #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -93,6 +93,20 @@ pub struct ListableFlow {
     pub deployment_msg: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// True when the authed user has a draft for this flow (draft-only or layered
+    /// over the deployed row). See ListableScript in scripts.rs.
+    #[serde(default)]
+    pub is_draft: bool,
+    /// User-typed staged path from the draft JSON's `draft_path`; `None` = unchanged.
+    /// See ListableScript in scripts.rs.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_path: Option<String>,
+    /// Per-path draft owners driving the home-page avatar circles.
+    /// See ListableScript in scripts.rs.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_users: Option<sqlx::types::Json<Vec<crate::user_drafts::DraftUserRef>>>,
     /// Labels inherited from the parent folder, computed at read time.
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -107,7 +121,6 @@ pub struct NewFlow {
     #[serde(deserialize_with = "validate_flow_value")]
     pub value: Box<RawValue>,
     pub schema: Option<Schema>,
-    pub draft_only: Option<bool>,
     pub tag: Option<String>,
     pub dedicated_worker: Option<bool>,
     pub timeout: Option<i32>,
@@ -322,6 +335,7 @@ impl Step {
 pub struct StopAfterIf {
     pub expr: String,
     pub skip_if_stopped: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
     /// When stopping with an error (`error_message` set), embed the stopping
     /// step's own result inside the raised error object (as `error.result`)
@@ -338,7 +352,9 @@ pub struct RetryIf {
 #[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
 #[serde(default)]
 pub struct Retry {
+    #[serde(skip_serializing_if = "is_default")]
     pub constant: ConstantDelay,
+    #[serde(skip_serializing_if = "is_default")]
     pub exponential: ExponentialDelay,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry_if: Option<RetryIf>,
@@ -1280,5 +1296,48 @@ mod tests {
 
         let output = serde_json::to_string(&val).unwrap();
         assert!(!output.contains("tag"));
+    }
+
+    #[test]
+    fn retry_omits_default_constant_and_exponential() {
+        // A constant-only retry must not materialize a default exponential block
+        // on serialization (and vice-versa). Round-trips through Retry used to
+        // emit seconds:0 / random_factor:null, which the CLI linter rejected.
+        let input = json!({ "constant": { "attempts": 1, "seconds": 60 } });
+        let retry: Retry = serde_json::from_value(input).unwrap();
+
+        // Deserialization still fills in defaults in memory.
+        assert_eq!(retry.exponential, ExponentialDelay::default());
+
+        let output = serde_json::to_value(&retry).unwrap();
+        assert!(output.get("constant").is_some());
+        assert!(output.get("exponential").is_none());
+
+        // A fully-default retry serializes to an empty object.
+        let empty = serde_json::to_value(&Retry::default()).unwrap();
+        assert_eq!(empty, json!({}));
+    }
+
+    #[test]
+    fn stop_after_if_omits_null_error_message() {
+        let input = json!({ "expr": "result == 404", "skip_if_stopped": true });
+        let stop: StopAfterIf = serde_json::from_value(input).unwrap();
+        assert!(stop.error_message.is_none());
+
+        let output = serde_json::to_value(&stop).unwrap();
+        assert!(output.get("error_message").is_none());
+
+        // A set error message still round-trips.
+        let with_msg = StopAfterIf {
+            expr: "true".to_string(),
+            skip_if_stopped: false,
+            error_message: Some("boom".to_string()),
+            error_include_result: false,
+        };
+        let output = serde_json::to_value(&with_msg).unwrap();
+        assert_eq!(
+            output.get("error_message").and_then(|v| v.as_str()),
+            Some("boom")
+        );
     }
 }

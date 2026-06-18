@@ -602,7 +602,7 @@ export const mcpEndpointTools: EndpointTool[] = [
     {
         name: "createScript",
         description: "create script: Creates a new script when the path does not already exist.\nCreates a new version of an existing script when called with the same path and the current `parent_hash`",
-        instructions: "To create a script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed.",
+        instructions: "To create a NEW script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language, and leave parent_hash unset. For TypeScript, use 'bun' unless deno-specific APIs are needed. To UPDATE an existing script, do NOT delete and recreate it: call this tool with the same path and set parent_hash to the script's current hash, which you can read from the `hash` field returned by getScriptByPath. This creates a new version while preserving the script's history.",
         path: "/w/{workspace}/scripts/create",
         method: "POST",
         pathParamsSchema: undefined,
@@ -611,6 +611,9 @@ export const mcpEndpointTools: EndpointTool[] = [
         "type": "object",
         "properties": {
                 "path": {
+                        "type": "string"
+                },
+                "parent_hash": {
                         "type": "string"
                 },
                 "summary": {

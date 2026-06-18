@@ -48,7 +48,9 @@ use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
 use windmill_common::{
     error::{Error, JsonResult, Result},
-    global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
+    global_settings::{
+        AUTOMATE_USERNAME_CREATION_SETTING, DISABLE_WORKSPACE_INVITE_EMAILS_SETTING,
+    },
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
@@ -3661,6 +3663,30 @@ async fn check_fork_w_id_conflict(db: &DB, w_id: &str) -> Result<()> {
     }
 }
 
+/// A fork id is reusable: it is freed when a fork is deleted and can be claimed
+/// again under the same name. `workspace_diff` and `skip_workspace_diff_tally`
+/// are keyed by workspace id with no FK cascade, so a freshly created fork could
+/// inherit cached diff state from a previous occupant of its id — a stale skip
+/// row suppresses comparison entirely, and stale workspace_diff rows produce a
+/// spurious "changes not visible" warning that hides the deploy button. Clear
+/// both so a new fork always starts with clean diff state, regardless of how the
+/// id was freed.
+async fn purge_stale_fork_diff_state(db: &DB, fork_id: &str) -> Result<()> {
+    sqlx::query!(
+        "DELETE FROM workspace_diff WHERE source_workspace_id = $1 OR fork_workspace_id = $1",
+        fork_id
+    )
+    .execute(db)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM skip_workspace_diff_tally WHERE workspace_id = $1",
+        fork_id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 lazy_static::lazy_static! {
 
     pub static ref CREATE_WORKSPACE_REQUIRE_SUPERADMIN: bool = {
@@ -3844,10 +3870,15 @@ async fn create_workspace(
     Ok(format!("Created workspace {}", &nw.id))
 }
 
+// `authed_email` is the forker's email — `clone_drafts` only carries this
+// user's per-user drafts (and the legacy NULL-email workspace draft, if any)
+// across, since other users aren't added to the fork's `usr` table and
+// their drafts would dangle as orphans.
 async fn clone_workspace_data(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
+    authed_email: &str,
 ) -> Result<()> {
     // Clone workspace settings (merge with existing basic settings)
     update_workspace_settings(tx, source_workspace_id, target_workspace_id).await?;
@@ -3887,6 +3918,14 @@ async fn clone_workspace_data(
 
     // Clone raw apps
     clone_raw_apps(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone the forker's own per-user drafts (plus the legacy NULL-email
+    // workspace draft, if any) so they keep their pending edits in the
+    // fork. Other users' drafts are intentionally NOT cloned — they don't
+    // own a `usr` row in the fork (see `clone_workspace_full`) so their
+    // drafts would dangle and the home-page `draft_users` aggregate would
+    // surface them as duplicate legacy entries.
+    clone_drafts(tx, source_workspace_id, target_workspace_id, authed_email).await?;
 
     // Clone workspace runnable dependencies and dependency map
     clone_workspace_runnable_dependencies(tx, source_workspace_id, target_workspace_id).await?;
@@ -4364,7 +4403,7 @@ async fn clone_scripts(
         r#"INSERT INTO script (
             workspace_id, hash, path, parent_hashes, summary, description, content,
             created_by, created_at, archived, schema, deleted, is_template,
-            extra_perms, lock, lock_error_logs, language, kind, tag, draft_only,
+            extra_perms, lock, lock_error_logs, language, kind, tag,
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
@@ -4374,7 +4413,7 @@ async fn clone_scripts(
         SELECT
             $1, hash, path, parent_hashes, summary, description, content,
             created_by, created_at, archived, schema, deleted, is_template,
-            extra_perms, lock, lock_error_logs, language, kind, tag, draft_only,
+            extra_perms, lock, lock_error_logs, language, kind, tag,
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
@@ -4417,12 +4456,12 @@ async fn clone_flows(
     sqlx::query!(
         "INSERT INTO flow (
             workspace_id, path, summary, description, value, edited_by, edited_at,
-            archived, schema, extra_perms, dependency_job, draft_only, tag,
+            archived, schema, extra_perms, dependency_job, tag,
             ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
             concurrency_key, versions, on_behalf_of_email, lock_error_logs
         )
         SELECT $2, path, summary, description, value, edited_by, edited_at,
-               archived, schema, extra_perms, NULL, draft_only, tag,
+               archived, schema, extra_perms, NULL, tag,
                ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
                concurrency_key, ARRAY[]::bigint[], on_behalf_of_email, lock_error_logs
         FROM flow
@@ -4503,7 +4542,7 @@ async fn clone_apps(
 ) -> Result<HashMap<i64, i64>> {
     // Get all apps from source workspace
     let apps = sqlx::query!(
-        "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, draft_only, custom_path
+        "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, custom_path
          FROM app
          WHERE workspace_id = $1",
         source_workspace_id
@@ -4516,8 +4555,8 @@ async fn clone_apps(
     // Clone apps with new IDs
     for app in apps {
         let new_app_id = sqlx::query_scalar!(
-            "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, draft_only, custom_path)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, custom_path)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
              RETURNING id",
             target_workspace_id,
             app.path,
@@ -4525,7 +4564,6 @@ async fn clone_apps(
             app.policy,
             &Vec::<i64>::new(), // Start with empty versions array
             app.extra_perms,
-            app.draft_only,
             app.custom_path,
         )
         .fetch_one(&mut **tx)
@@ -4729,6 +4767,39 @@ async fn clone_raw_apps(
     Ok(())
 }
 
+/// Clone every per-user draft (and the legacy NULL-email workspace draft,
+/// if present) from the parent. The fork target is empty at create time so
+/// a plain INSERT is safe — no need to UPSERT against the partial unique
+/// indexes (`draft_pkey_with_user` / `draft_pkey_legacy`). `id` is the
+/// BIGSERIAL synthetic PK and is regenerated by the default; we don't list
+/// it in the column set. `created_at` is preserved so the per-tab
+/// `last_sync` baseline the editor reads (`?get_draft=true` → overlay's
+/// `draft_saved_at`) lines up with the parent's timeline — otherwise the
+/// fork's first POST from any open editor would race a stale `last_sync`
+/// and trip the conflict modal on every cloned draft.
+// Only `email = authed_email` and the legacy NULL row are cloned — see
+// `clone_workspace_data` for the rationale.
+async fn clone_drafts(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    authed_email: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO draft (workspace_id, path, typ, value, created_at, email)
+         SELECT $2, path, typ, value, created_at, email
+         FROM draft
+         WHERE workspace_id = $1 AND (email = $3 OR email IS NULL)",
+        source_workspace_id,
+        target_workspace_id,
+        authed_email,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
 async fn clone_workspace_runnable_dependencies(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -4819,6 +4890,7 @@ async fn create_workspace_fork_branch(
     // Fail before creating any git branch so a name conflict doesn't leave a
     // dangling branch on the synced repos.
     check_fork_w_id_conflict(&db, &nw.id).await?;
+    purge_stale_fork_diff_state(&db, &nw.id).await?;
 
     Ok(Json(
         handle_fork_branch_creation(&authed.email, &authed.username, &db, &w_id, &nw.id).await?,
@@ -4963,6 +5035,7 @@ async fn create_workspace_fork(
     // re-using a taken (possibly archived) fork id reports the actual
     // conflict instead of a misleading "maximum number of workspaces" error.
     check_fork_w_id_conflict(&db, &nw.id).await?;
+    purge_stale_fork_diff_state(&db, &nw.id).await?;
 
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
@@ -5023,7 +5096,7 @@ async fn create_workspace_fork(
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id).await?;
+    clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id, &authed.email).await?;
 
     // Clone triggers and schedules unconditionally, always with mode='disabled' /
     // enabled=false. Disabled rows have no side effects (no listener
@@ -5193,6 +5266,18 @@ async fn archive_workspace(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
+        Some(audit_params_refs.clone()),
+    )
+    .await?;
+    // Also record under the instance-level "admins" workspace so superadmins can
+    // discover who archived a workspace after it becomes hidden from the UI.
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.archive",
+        ActionKind::Update,
+        "admins",
+        Some(&w_id),
         Some(audit_params_refs),
     )
     .await?;
@@ -5254,9 +5339,35 @@ async fn unarchive_workspace(
         None,
     )
     .await?;
+    // Also record under the instance-level "admins" workspace so superadmins keep
+    // a durable trail of who unarchived a workspace.
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.unarchive",
+        ActionKind::Update,
+        "admins",
+        Some(&w_id),
+        None,
+    )
+    .await?;
     tx.commit().await?;
 
     Ok(format!("Unarchived workspace {}", &w_id))
+}
+
+/// Whether the instance is configured to suppress the email notifications sent
+/// when a user is invited or added to a workspace. Defaults to false (emails on).
+async fn workspace_invite_emails_disabled(db: &DB) -> Result<bool> {
+    Ok(
+        windmill_common::global_settings::load_value_from_global_settings(
+            db,
+            DISABLE_WORKSPACE_INVITE_EMAILS_SETTING,
+        )
+        .await?
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false),
+    )
 }
 
 async fn invite_user(
@@ -5317,16 +5428,18 @@ async fn invite_user(
 
     tx.commit().await?;
 
-    send_email_if_possible(
-        &format!("Invited to Windmill's workspace: {w_id}"),
-        &format!(
-            "You have been granted access to Windmill's workspace {w_id}
+    if !workspace_invite_emails_disabled(&db).await? {
+        send_email_if_possible(
+            &format!("Invited to Windmill's workspace: {w_id}"),
+            &format!(
+                "You have been granted access to Windmill's workspace {w_id}
 
 If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
-            (**BASE_URL.load()).clone()
-        ),
-        &nu.email,
-    );
+                (**BASE_URL.load()).clone()
+            ),
+            &nu.email,
+        );
+    }
 
     webhook.send_instance_event(InstanceEvent::UserInvitedWorkspace {
         email: nu.email.clone(),
@@ -5469,17 +5582,19 @@ async fn add_user(
     )
     .await?;
 
-    send_email_if_possible(
-        &format!("Added to Windmill's workspace: {w_id}"),
-        &format!(
-            "You have been granted access to Windmill's workspace {w_id} by {}
+    if !workspace_invite_emails_disabled(&db).await? {
+        send_email_if_possible(
+            &format!("Added to Windmill's workspace: {w_id}"),
+            &format!(
+                "You have been granted access to Windmill's workspace {w_id} by {}
 
 If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
-            authed.email,
-            (**BASE_URL.load()).clone()
-        ),
-        &nu.email,
-    );
+                authed.email,
+                (**BASE_URL.load()).clone()
+            ),
+            &nu.email,
+        );
+    }
 
     webhook.send_instance_event(InstanceEvent::UserAddedWorkspace {
         workspace: w_id.clone(),
@@ -6972,7 +7087,7 @@ async fn compare_two_apps(
          FROM app
          JOIN app_version
          ON app_version.id = app.versions[array_upper(app.versions, 1)]
-         WHERE app.workspace_id = $1 AND app.path = $2 AND COALESCE(app.draft_only, false) = false",
+         WHERE app.workspace_id = $1 AND app.path = $2",
         source_workspace_id,
         path
     )
@@ -6984,7 +7099,7 @@ async fn compare_two_apps(
          FROM app
          JOIN app_version
          ON app_version.id = app.versions[array_upper(app.versions, 1)]
-         WHERE app.workspace_id = $1 AND app.path = $2 AND COALESCE(app.draft_only, false) = false",
+         WHERE app.workspace_id = $1 AND app.path = $2",
         fork_workspace_id,
         path
     )
@@ -7430,7 +7545,7 @@ async fn get_cloud_quotas(
     let scripts_prunable = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM script s WHERE s.workspace_id = $1 AND s.hash NOT IN (
             SELECT DISTINCT ON (path) hash FROM script
-            WHERE workspace_id = $1 AND deleted = false AND draft_only IS NOT TRUE
+            WHERE workspace_id = $1 AND deleted = false
             ORDER BY path, created_at DESC
         )",
         &w_id
@@ -7525,7 +7640,7 @@ async fn prune_versions(
                 "DELETE FROM script
                 WHERE workspace_id = $1 AND hash NOT IN (
                     SELECT DISTINCT ON (path) hash FROM script
-                    WHERE workspace_id = $1 AND deleted = false AND draft_only IS NOT TRUE
+                    WHERE workspace_id = $1 AND deleted = false
                     ORDER BY path, created_at DESC
                 )",
             )

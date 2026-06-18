@@ -7,6 +7,13 @@ export function isValidLogoutRedirect(url: string): boolean {
 	}
 	try {
 		const parsed = new URL(url)
+		// Same-origin absolute URLs are always safe: the user can only be sent
+		// back to the site they're already on, which is never an open redirect.
+		// Mirrors toSameOriginRelativePath()'s same-origin handling, and lets a
+		// self-hosted instance redirect back to its own app after OAuth login.
+		if (typeof window !== 'undefined' && parsed.origin === window.location.origin) {
+			return true
+		}
 		const host = parsed.hostname
 		if (host === 'windmill.dev' || host.endsWith('.windmill.dev')) {
 			return true

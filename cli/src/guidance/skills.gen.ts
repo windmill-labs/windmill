@@ -51,7 +51,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -66,13 +66,23 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+\`wmill-lock.yaml\` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing \`main\`'s arguments** — invalidates that hash and leaves the \`.lock\`, the \`.script.yaml\` input schema, and the hash row out of date. Run \`wmill generate-metadata\` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by \`.script.yaml\`), and \`wmill-lock.yaml\` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's \`AGENTS.md\` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated \`.lock\` / \`.script.lock\` files and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying — even under \`Metadata: auto\`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, \`generate-metadata\` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run \`wmill generate-metadata --dry-run\` — it lists each stale item with a reason (\`content changed\` or \`depends on <path>\`) without changing anything — then narrow with a path argument (\`wmill generate-metadata f/foo\`) or \`--strict-folder-boundaries\`.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -141,7 +151,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -156,13 +166,23 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+\`wmill-lock.yaml\` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing \`main\`'s arguments** — invalidates that hash and leaves the \`.lock\`, the \`.script.yaml\` input schema, and the hash row out of date. Run \`wmill generate-metadata\` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by \`.script.yaml\`), and \`wmill-lock.yaml\` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's \`AGENTS.md\` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated \`.lock\` / \`.script.lock\` files and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying — even under \`Metadata: auto\`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, \`generate-metadata\` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run \`wmill generate-metadata --dry-run\` — it lists each stale item with a reason (\`content changed\` or \`depends on <path>\`) without changing anything — then narrow with a path argument (\`wmill generate-metadata f/foo\`) or \`--strict-folder-boundaries\`.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -224,7 +244,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -239,13 +259,23 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+\`wmill-lock.yaml\` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing \`main\`'s arguments** — invalidates that hash and leaves the \`.lock\`, the \`.script.yaml\` input schema, and the hash row out of date. Run \`wmill generate-metadata\` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by \`.script.yaml\`), and \`wmill-lock.yaml\` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's \`AGENTS.md\` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated \`.lock\` / \`.script.lock\` files and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying — even under \`Metadata: auto\`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, \`generate-metadata\` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run \`wmill generate-metadata --dry-run\` — it lists each stale item with a reason (\`content changed\` or \`depends on <path>\`) without changing anything — then narrow with a path argument (\`wmill generate-metadata f/foo\`) or \`--strict-folder-boundaries\`.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -291,6 +321,10 @@ import Stripe from "stripe";
 import { someFunction } from "some-package";
 \`\`\`
 
+## Prefer \`//native\` when the runtime allows it
+
+If a script only needs \`fetch\` and the JavaScript standard library — including when it uses \`windmill-client\` — prefer making it a **native** script: add \`//native\` as the first line and write it with the \`write-script-bunnative\` skill. Native scripts run on a lightweight V8 isolate, start faster, and parallelize heavily. \`windmill-client\` works on the native worker (its calls go over \`fetch\`), so needing the Windmill client is **not** a reason to avoid \`//native\`. Use the regular \`bun\` language only when the code (or a dependency) needs Node/Bun runtime APIs — \`node:*\` modules, the filesystem, child processes, or native addons.
+
 ## Windmill Client
 
 Import the windmill client for platform interactions:
@@ -299,7 +333,9 @@ Import the windmill client for platform interactions:
 import * as wmill from "windmill-client";
 \`\`\`
 
-See the SDK documentation for available methods.
+**Prefer \`windmill-client\` over raw \`fetch\` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you, so you don't hand-roll URLs or tokens. Reserve \`fetch\` for calling *external* HTTP APIs that aren't Windmill.
+
+The full \`windmill-client\` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method to use instead of guessing or falling back to \`fetch\`.
 
 ## Preprocessor Scripts
 
@@ -910,7 +946,7 @@ datatable(name: string = "main"): DatatableSqlTemplateFunction
 
 /**
  * Create a SQL template function for DuckDB/ducklake queries
- * @param name - DuckDB database name (default: "main")
+ * @param name - DuckDB database name, optionally with a schema as \`name:schema\` (default: "main")
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.ducklake()
@@ -920,6 +956,9 @@ datatable(name: string = "main"): DatatableSqlTemplateFunction
  *   SELECT * FROM friends
  *     WHERE name = \${name} AND age = \${age}
  * \`.fetch()
+ * @example
+ * // Target a specific schema within the ducklake
+ * let sql = wmill.ducklake("my_lake:analytics")
  */
 ducklake(name: string = "main"): SqlTemplateFunction
 `,
@@ -936,7 +975,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -951,13 +990,23 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+\`wmill-lock.yaml\` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing \`main\`'s arguments** — invalidates that hash and leaves the \`.lock\`, the \`.script.yaml\` input schema, and the hash row out of date. Run \`wmill generate-metadata\` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by \`.script.yaml\`), and \`wmill-lock.yaml\` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's \`AGENTS.md\` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated \`.lock\` / \`.script.lock\` files and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying — even under \`Metadata: auto\`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, \`generate-metadata\` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run \`wmill generate-metadata --dry-run\` — it lists each stale item with a reason (\`content changed\` or \`depends on <path>\`) without changing anything — then narrow with a path argument (\`wmill generate-metadata f/foo\`) or \`--strict-folder-boundaries\`.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -1012,7 +1061,9 @@ export async function main(url: string) {
 
 ## Windmill Client
 
-\`windmill-client\` is available for Windmill-specific primitives such as the S3 helpers below (\`loadS3File\`, \`loadS3FileStream\`, \`writeS3File\`, \`S3Object\`). Use \`fetch\` for plain HTTP.
+\`windmill-client\` works on the native worker (its calls go over \`fetch\`), so use it as the **preferred way to talk to Windmill** — reading resources/variables/states, running scripts and flows, and the S3 helpers below (\`loadS3File\`, \`loadS3FileStream\`, \`writeS3File\`, \`S3Object\`). It handles auth, the workspace, and the base URL for you. Reserve raw \`fetch\` for calling *external* HTTP APIs that aren't Windmill.
+
+The full \`windmill-client\` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method instead of hand-rolling a \`fetch\` against the Windmill API.
 
 ## Preprocessor Scripts
 
@@ -1626,7 +1677,7 @@ datatable(name: string = "main"): DatatableSqlTemplateFunction
 
 /**
  * Create a SQL template function for DuckDB/ducklake queries
- * @param name - DuckDB database name (default: "main")
+ * @param name - DuckDB database name, optionally with a schema as \`name:schema\` (default: "main")
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.ducklake()
@@ -1636,6 +1687,9 @@ datatable(name: string = "main"): DatatableSqlTemplateFunction
  *   SELECT * FROM friends
  *     WHERE name = \${name} AND age = \${age}
  * \`.fetch()
+ * @example
+ * // Target a specific schema within the ducklake
+ * let sql = wmill.ducklake("my_lake:analytics")
  */
 ducklake(name: string = "main"): SqlTemplateFunction
 `,
@@ -1652,7 +1706,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -1667,13 +1721,23 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+\`wmill-lock.yaml\` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing \`main\`'s arguments** — invalidates that hash and leaves the \`.lock\`, the \`.script.yaml\` input schema, and the hash row out of date. Run \`wmill generate-metadata\` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by \`.script.yaml\`), and \`wmill-lock.yaml\` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's \`AGENTS.md\` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated \`.lock\` / \`.script.lock\` files and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying — even under \`Metadata: auto\`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, \`generate-metadata\` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run \`wmill generate-metadata --dry-run\` — it lists each stale item with a reason (\`content changed\` or \`depends on <path>\`) without changing anything — then narrow with a path argument (\`wmill generate-metadata f/foo\`) or \`--strict-folder-boundaries\`.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -1734,7 +1798,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -1749,13 +1813,23 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+\`wmill-lock.yaml\` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing \`main\`'s arguments** — invalidates that hash and leaves the \`.lock\`, the \`.script.yaml\` input schema, and the hash row out of date. Run \`wmill generate-metadata\` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by \`.script.yaml\`), and \`wmill-lock.yaml\` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's \`AGENTS.md\` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated \`.lock\` / \`.script.lock\` files and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying — even under \`Metadata: auto\`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, \`generate-metadata\` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run \`wmill generate-metadata --dry-run\` — it lists each stale item with a reason (\`content changed\` or \`depends on <path>\`) without changing anything — then narrow with a path argument (\`wmill generate-metadata f/foo\`) or \`--strict-folder-boundaries\`.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -1813,7 +1887,9 @@ Import the windmill client for platform interactions:
 import * as wmill from "windmill-client";
 \`\`\`
 
-See the SDK documentation for available methods.
+**Prefer \`windmill-client\` over raw \`fetch\` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you. Reserve \`fetch\` for calling *external* HTTP APIs that aren't Windmill.
+
+The full \`windmill-client\` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method instead of guessing or falling back to \`fetch\`.
 
 ## Preprocessor Scripts
 
@@ -2424,7 +2500,7 @@ datatable(name: string = "main"): DatatableSqlTemplateFunction
 
 /**
  * Create a SQL template function for DuckDB/ducklake queries
- * @param name - DuckDB database name (default: "main")
+ * @param name - DuckDB database name, optionally with a schema as \`name:schema\` (default: "main")
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.ducklake()
@@ -2434,6 +2510,9 @@ datatable(name: string = "main"): DatatableSqlTemplateFunction
  *   SELECT * FROM friends
  *     WHERE name = \${name} AND age = \${age}
  * \`.fetch()
+ * @example
+ * // Target a specific schema within the ducklake
+ * let sql = wmill.ducklake("my_lake:analytics")
  */
 ducklake(name: string = "main"): SqlTemplateFunction
 `,
@@ -2450,7 +2529,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -2465,13 +2544,23 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+\`wmill-lock.yaml\` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing \`main\`'s arguments** — invalidates that hash and leaves the \`.lock\`, the \`.script.yaml\` input schema, and the hash row out of date. Run \`wmill generate-metadata\` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by \`.script.yaml\`), and \`wmill-lock.yaml\` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's \`AGENTS.md\` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated \`.lock\` / \`.script.lock\` files and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying — even under \`Metadata: auto\`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, \`generate-metadata\` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run \`wmill generate-metadata --dry-run\` — it lists each stale item with a reason (\`content changed\` or \`depends on <path>\`) without changing anything — then narrow with a path argument (\`wmill generate-metadata f/foo\`) or \`--strict-folder-boundaries\`.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -2566,7 +2655,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -2581,13 +2670,23 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+\`wmill-lock.yaml\` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing \`main\`'s arguments** — invalidates that hash and leaves the \`.lock\`, the \`.script.yaml\` input schema, and the hash row out of date. Run \`wmill generate-metadata\` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by \`.script.yaml\`), and \`wmill-lock.yaml\` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's \`AGENTS.md\` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated \`.lock\` / \`.script.lock\` files and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying — even under \`Metadata: auto\`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, \`generate-metadata\` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run \`wmill generate-metadata --dry-run\` — it lists each stale item with a reason (\`content changed\` or \`depends on <path>\`) without changing anything — then narrow with a path argument (\`wmill generate-metadata f/foo\`) or \`--strict-folder-boundaries\`.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -2665,7 +2764,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -2680,13 +2779,23 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+\`wmill-lock.yaml\` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing \`main\`'s arguments** — invalidates that hash and leaves the \`.lock\`, the \`.script.yaml\` input schema, and the hash row out of date. Run \`wmill generate-metadata\` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by \`.script.yaml\`), and \`wmill-lock.yaml\` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's \`AGENTS.md\` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated \`.lock\` / \`.script.lock\` files and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying — even under \`Metadata: auto\`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, \`generate-metadata\` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run \`wmill generate-metadata --dry-run\` — it lists each stale item with a reason (\`content changed\` or \`depends on <path>\`) without changing anything — then narrow with a path argument (\`wmill generate-metadata f/foo\`) or \`--strict-folder-boundaries\`.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -2751,7 +2860,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -2766,13 +2875,23 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+\`wmill-lock.yaml\` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing \`main\`'s arguments** — invalidates that hash and leaves the \`.lock\`, the \`.script.yaml\` input schema, and the hash row out of date. Run \`wmill generate-metadata\` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by \`.script.yaml\`), and \`wmill-lock.yaml\` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's \`AGENTS.md\` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated \`.lock\` / \`.script.lock\` files and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying — even under \`Metadata: auto\`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, \`generate-metadata\` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run \`wmill generate-metadata --dry-run\` — it lists each stale item with a reason (\`content changed\` or \`depends on <path>\`) without changing anything — then narrow with a path argument (\`wmill generate-metadata f/foo\`) or \`--strict-folder-boundaries\`.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -2830,7 +2949,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -2845,13 +2964,23 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+\`wmill-lock.yaml\` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing \`main\`'s arguments** — invalidates that hash and leaves the \`.lock\`, the \`.script.yaml\` input schema, and the hash row out of date. Run \`wmill generate-metadata\` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by \`.script.yaml\`), and \`wmill-lock.yaml\` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's \`AGENTS.md\` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated \`.lock\` / \`.script.lock\` files and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying — even under \`Metadata: auto\`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, \`generate-metadata\` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run \`wmill generate-metadata --dry-run\` — it lists each stale item with a reason (\`content changed\` or \`depends on <path>\`) without changing anything — then narrow with a path argument (\`wmill generate-metadata f/foo\`) or \`--strict-folder-boundaries\`.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -2912,7 +3041,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -2927,13 +3056,23 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+\`wmill-lock.yaml\` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing \`main\`'s arguments** — invalidates that hash and leaves the \`.lock\`, the \`.script.yaml\` input schema, and the hash row out of date. Run \`wmill generate-metadata\` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by \`.script.yaml\`), and \`wmill-lock.yaml\` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's \`AGENTS.md\` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated \`.lock\` / \`.script.lock\` files and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying — even under \`Metadata: auto\`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, \`generate-metadata\` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run \`wmill generate-metadata --dry-run\` — it lists each stale item with a reason (\`content changed\` or \`depends on <path>\`) without changing anything — then narrow with a path argument (\`wmill generate-metadata f/foo\`) or \`--strict-folder-boundaries\`.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -2995,7 +3134,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -3010,13 +3149,23 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+\`wmill-lock.yaml\` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing \`main\`'s arguments** — invalidates that hash and leaves the \`.lock\`, the \`.script.yaml\` input schema, and the hash row out of date. Run \`wmill generate-metadata\` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by \`.script.yaml\`), and \`wmill-lock.yaml\` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's \`AGENTS.md\` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated \`.lock\` / \`.script.lock\` files and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying — even under \`Metadata: auto\`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, \`generate-metadata\` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run \`wmill generate-metadata --dry-run\` — it lists each stale item with a reason (\`content changed\` or \`depends on <path>\`) without changing anything — then narrow with a path argument (\`wmill generate-metadata f/foo\`) or \`--strict-folder-boundaries\`.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -3093,7 +3242,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -3108,13 +3257,23 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+\`wmill-lock.yaml\` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing \`main\`'s arguments** — invalidates that hash and leaves the \`.lock\`, the \`.script.yaml\` input schema, and the hash row out of date. Run \`wmill generate-metadata\` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by \`.script.yaml\`), and \`wmill-lock.yaml\` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's \`AGENTS.md\` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated \`.lock\` / \`.script.lock\` files and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying — even under \`Metadata: auto\`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, \`generate-metadata\` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run \`wmill generate-metadata --dry-run\` — it lists each stale item with a reason (\`content changed\` or \`depends on <path>\`) without changing anything — then narrow with a path argument (\`wmill generate-metadata f/foo\`) or \`--strict-folder-boundaries\`.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -3174,7 +3333,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -3189,13 +3348,23 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+\`wmill-lock.yaml\` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing \`main\`'s arguments** — invalidates that hash and leaves the \`.lock\`, the \`.script.yaml\` input schema, and the hash row out of date. Run \`wmill generate-metadata\` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by \`.script.yaml\`), and \`wmill-lock.yaml\` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's \`AGENTS.md\` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated \`.lock\` / \`.script.lock\` files and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying — even under \`Metadata: auto\`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, \`generate-metadata\` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run \`wmill generate-metadata --dry-run\` — it lists each stale item with a reason (\`content changed\` or \`depends on <path>\`) without changing anything — then narrow with a path argument (\`wmill generate-metadata f/foo\`) or \`--strict-folder-boundaries\`.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -3270,7 +3439,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -3285,13 +3454,23 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+\`wmill-lock.yaml\` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing \`main\`'s arguments** — invalidates that hash and leaves the \`.lock\`, the \`.script.yaml\` input schema, and the hash row out of date. Run \`wmill generate-metadata\` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by \`.script.yaml\`), and \`wmill-lock.yaml\` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's \`AGENTS.md\` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated \`.lock\` / \`.script.lock\` files and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying — even under \`Metadata: auto\`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, \`generate-metadata\` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run \`wmill generate-metadata --dry-run\` — it lists each stale item with a reason (\`content changed\` or \`depends on <path>\`) without changing anything — then narrow with a path argument (\`wmill generate-metadata f/foo\`) or \`--strict-folder-boundaries\`.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -4136,7 +4315,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -4151,13 +4330,23 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+\`wmill-lock.yaml\` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing \`main\`'s arguments** — invalidates that hash and leaves the \`.lock\`, the \`.script.yaml\` input schema, and the hash row out of date. Run \`wmill generate-metadata\` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by \`.script.yaml\`), and \`wmill-lock.yaml\` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's \`AGENTS.md\` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated \`.lock\` / \`.script.lock\` files and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying — even under \`Metadata: auto\`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, \`generate-metadata\` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run \`wmill generate-metadata --dry-run\` — it lists each stale item with a reason (\`content changed\` or \`depends on <path>\`) without changing anything — then narrow with a path argument (\`wmill generate-metadata f/foo\`) or \`--strict-folder-boundaries\`.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -4262,7 +4451,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -4277,13 +4466,23 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+\`wmill-lock.yaml\` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing \`main\`'s arguments** — invalidates that hash and leaves the \`.lock\`, the \`.script.yaml\` input schema, and the hash row out of date. Run \`wmill generate-metadata\` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by \`.script.yaml\`), and \`wmill-lock.yaml\` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's \`AGENTS.md\` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated \`.lock\` / \`.script.lock\` files and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying — even under \`Metadata: auto\`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, \`generate-metadata\` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run \`wmill generate-metadata --dry-run\` — it lists each stale item with a reason (\`content changed\` or \`depends on <path>\`) without changing anything — then narrow with a path argument (\`wmill generate-metadata f/foo\`) or \`--strict-folder-boundaries\`.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -4378,7 +4577,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -4393,13 +4592,23 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+\`wmill-lock.yaml\` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing \`main\`'s arguments** — invalidates that hash and leaves the \`.lock\`, the \`.script.yaml\` input schema, and the hash row out of date. Run \`wmill generate-metadata\` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by \`.script.yaml\`), and \`wmill-lock.yaml\` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's \`AGENTS.md\` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated \`.lock\` / \`.script.lock\` files and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying — even under \`Metadata: auto\`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, \`generate-metadata\` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run \`wmill generate-metadata --dry-run\` — it lists each stale item with a reason (\`content changed\` or \`depends on <path>\`) without changing anything — then narrow with a path argument (\`wmill generate-metadata f/foo\`) or \`--strict-folder-boundaries\`.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -4494,11 +4703,11 @@ Once the flow has real content, **offer** to open the visual preview as a one-se
 
 ## CLI Commands — running, previewing, deploying
 
-After writing, tell the user which command fits what they want to do:
+After writing, act on the user's intent instead of just listing commands. Run \`wmill flow preview\` yourself when it fits (see "After writing — offer to run, don't wait passively" below). \`wmill generate-metadata\` regenerates local lock/hash files (not a deploy) but re-resolves deps — offer it and run on agreement, unless the project's \`AGENTS.md\` opts into running metadata automatically. Only *name* \`wmill sync push\` (the deploy) so the user can approve it. The options:
 
 - \`wmill flow preview <flow_path>\` — **default when iterating on a local flow.** Runs the local \`flow.yaml\` against local inline scripts without deploying. Add \`--remote\` to use deployed workspace scripts for PathScript steps instead of local files. Add \`--step <step_id>\` to run only one module in isolation (see "Single-step vs whole-flow preview" below).
 - \`wmill flow run <path>\` — runs the flow **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — regenerate stale \`.lock\` and \`.script.yaml\` files. By default it scans **scripts, flows, and apps** across the workspace; pass \`--skip-flows --skip-apps\` (or run from a subdirectory) to limit the scope when you only care about the flow you edited.
+- \`wmill generate-metadata\` — regenerate stale local \`.lock\` files for the flow and its inline scripts and refresh their content hashes in \`wmill-lock.yaml\`. Writes local files only (not a deploy). Run it after editing inline scripts whose imports or arguments changed, so \`wmill-lock.yaml\` doesn't drift and add noise to git-sync/CI. By default it scans **scripts, flows, and apps** across the workspace but only regenerates stale ones; pass the flow's folder as an argument (or run from that subdirectory) to limit the scope to the flow you edited. Note a flow (or script) that imports a changed shared script is pulled in too — run \`wmill generate-metadata --dry-run\` to see exactly what is stale and why (\`content changed\` vs \`depends on <path>\`) before applying.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -4527,7 +4736,7 @@ If the user hasn't already told you to run/test the flow, offer it as a one-sent
 
 If the user already asked to test/run/try the flow in their original request, skip the offer and just execute \`wmill flow preview <path> -d '<args>'\` directly — pick plausible args from the flow's input schema.
 
-\`wmill flow preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill flow preview\` is safe to run yourself (it does not deploy). \`wmill generate-metadata\` does not deploy either (it only writes local lock/hash files) but re-resolves deps — offer it and run on agreement, unless the project's \`AGENTS.md\` opts into automatic metadata. After running it, check the regenerated \`.lock\` diff and tell the user which inline-script dependency versions changed, so they can catch an unwanted bump before deploying. Only \`wmill sync push\` deploys; run it only when the user explicitly asks.
 
 ### Visual preview
 
@@ -4960,10 +5169,11 @@ The runnable ID is the filename without extension. For example, \`get_user.ts\` 
 | C#               | \`.cs\`        | \`myFunc.cs\`      |
 | Java             | \`.java\`      | \`myFunc.java\`    |
 
-After creating a runnable, tell the user they can generate lock files by running:
+After creating or editing a backend runnable — especially when its imports or arguments changed — its local lock and \`wmill-lock.yaml\` go stale. Offer to run \`wmill generate-metadata\` and run it once the user agrees (or automatically if the project's \`AGENTS.md\` opts into that) — YOU run it, don't just name it and wait. It writes local files only (not a deploy), and keeping the lock current avoids noise in git-sync/CI:
 \`\`\`bash
 wmill generate-metadata
 \`\`\`
+After it runs, check the regenerated \`.lock\` diff and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying.
 
 ### Optional YAML configuration
 
@@ -5051,15 +5261,16 @@ data:
 
 ## CLI Commands
 
-\`wmill app new\` is the exception: you run it yourself, with flags, per the "Creating a Raw App" section above.
+Two commands you run yourself, not the user:
+- \`wmill app new\` — run it with flags, per the "Creating a Raw App" section above.
+- \`wmill generate-metadata\` — (re)generates local lock files and refreshes \`wmill-lock.yaml\` content hashes; writes local files only (not a deploy). After adding or editing a runnable, offer it and run it on agreement — or automatically if the project's \`AGENTS.md\` opts into that (see "After creating a runnable" above).
 
-For everything else, tell the user which command fits their intent and let them run it — these touch the workspace or local lock files, and the user should consent each time:
+For the rest, tell the user which command fits their intent and let them run it — these deploy to the workspace, overwrite local files, or launch a long-running server, so the user should consent each time:
 
 | Command | Description |
 |---------|-------------|
 | \`wmill app dev\` | Start dev server with live reload (see the \`preview\` skill for the full open-the-app-in-the-IDE-pane procedure). |
 | \`wmill app generate-agents\` | Refresh AGENTS.md and DATATABLES.md |
-| \`wmill generate-metadata\` | Generate lock files for backend runnables |
 | \`wmill sync push\` | Deploy app to Windmill |
 | \`wmill sync pull\` | Pull latest from Windmill |
 
@@ -5592,7 +5803,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
 - \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill generate-metadata\` — regenerate the local \`.script.yaml\` (input schema) and \`.lock\` (resolved dependencies) for scripts you changed, and refresh their content hashes in \`wmill-lock.yaml\`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -5607,13 +5818,23 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+\`wmill-lock.yaml\` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing \`main\`'s arguments** — invalidates that hash and leaves the \`.lock\`, the \`.script.yaml\` input schema, and the hash row out of date. Run \`wmill generate-metadata\` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by \`.script.yaml\`), and \`wmill-lock.yaml\` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's \`AGENTS.md\` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated \`.lock\` / \`.script.lock\` files and tell the user which dependency versions changed (e.g. \`requests 2.31.0 → 2.32.0\`), so they can catch an unwanted bump before deploying — even under \`Metadata: auto\`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, \`generate-metadata\` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run \`wmill generate-metadata --dry-run\` — it lists each stale item with a reason (\`content changed\` or \`depends on <path>\`) without changing anything — then narrow with a path argument (\`wmill generate-metadata f/foo\`) or \`--strict-folder-boundaries\`.
+
+If the on-disk \`.lock\` and \`.script.yaml\` are already correct and only \`wmill-lock.yaml\` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use \`wmill generate-metadata rehash\` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
 
-\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill generate-metadata\` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's \`AGENTS.md\` opts in), per "Keep metadata in sync" above. Only \`wmill sync push\` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
@@ -6215,7 +6436,7 @@ folder related commands
 
 ### generate-metadata
 
-Generate metadata (locks, schemas) for all scripts, flows, and apps
+Regenerate stale local locks and script schemas and refresh wmill-lock.yaml content hashes (scripts, flows, apps). Writes local files only, not a deploy. Run it after edits that add or remove imports or change a script's arguments, so the lock, the auto-generated UI schema, and wmill-lock.yaml stay in sync.
 
 **Arguments:** \`[folder:string]\`
 
@@ -6234,7 +6455,7 @@ Generate metadata (locks, schemas) for all scripts, flows, and apps
 
 **Subcommands:**
 
-- \`generate-metadata rehash [folder:string]\`
+- \`generate-metadata rehash [folder:string]\` - Refresh wmill-lock.yaml content hashes from the on-disk .lock and .script.yaml without re-resolving dependencies or hitting the backend. Use when those files are already correct and only the hashes need updating: bootstrapping missing entries or recovering from hash drift.
   - \`--skip-scripts\` - Skip processing scripts
   - \`--skip-flows\` - Skip processing flows
   - \`--skip-apps\` - Skip processing apps
@@ -6342,7 +6563,7 @@ sync local with a remote instance or the opposite (push or pull)
   - \`-o, --output-file <file:string>\` - Write YAML to a file instead of stdout
   - \`--show-secrets\` - Include sensitive fields (license key, JWT secret) without prompting
   - \`--instance <instance:string>\` - Name of the instance, override the active instance
-- \`instance connect-slack\`
+- \`instance connect-slack\` - Non-interactively connect Slack at the instance level using a pre-minted bot token (xoxb-...). Produces the same artifacts as the UI OAuth flow: global_settings 'slack' row + encrypted f/slack_bot/global_bot_token variable and resource in the admins workspace.
   - \`--bot-token <bot_token:string>\` - Slack bot token (xoxb-...)
   - \`--team-id <team_id:string>\` - Slack team id
   - \`--team-name <team_name:string>\` - Slack team name
@@ -6396,6 +6617,8 @@ Validate Windmill flow, schedule, and trigger YAML files in a directory
 
 ### object-storage
 
+Object storage (S3) related commands. Operates on the workspace's default object storage; use --storage to target a configured secondary storage.
+
 **Alias:** \`s3\`
 
 **Subcommands:**
@@ -6432,6 +6655,8 @@ Validate Windmill flow, schedule, and trigger YAML files in a directory
 
 ### protection-rules
 
+Sync workspace protection rules between protection-rules.yaml and Windmill. The file is keyed by workspace name; keys must match wmill.yaml 'workspaces'.
+
 **Subcommands:**
 
 - \`protection-rules pull [workspace:string]\` - Pull protection rules from Windmill into protection-rules.yaml for a workspace
@@ -6456,12 +6681,12 @@ List all queues with their metrics
 
 ### refresh
 
-Refresh wmill-managed project files (AGENTS.cli.md, skills, tsconfig.wmill.json)
+Refresh wmill-managed project files (AGENTS.wmill.md, skills, tsconfig.wmill.json)
 
 **Subcommands:**
 
-- \`refresh prompts\` - Refresh AGENTS.cli.md and managed skills. User-owned AGENTS.md and CLAUDE.md are never overwritten unless you opt in.
-  - \`--yes\` - Non-interactive: append the @AGENTS.cli.md include to an existing AGENTS.md / CLAUDE.md without prompting. Without it, a non-interactive run leaves an unlinked file untouched.
+- \`refresh prompts\` - Refresh AGENTS.wmill.md and managed skills. User-owned AGENTS.md and CLAUDE.md are never overwritten unless you opt in.
+  - \`--yes\` - Non-interactive: append the @AGENTS.wmill.md include to an existing AGENTS.md / CLAUDE.md without prompting. Without it, a non-interactive run leaves an unlinked file untouched.
 - \`refresh tsconfig\` - Refresh the wmill-managed tsconfig.wmill.json (and Deno import map for Deno projects)
   - \`--yes\` - Non-interactive: wire an existing custom tsconfig.json/deno.json to the managed file without prompting (a previously-generated config is always migrated automatically).
 
@@ -6694,8 +6919,12 @@ variable related commands
 - \`variable push <file_path:string> <remote_path:string>\` - Push a local variable spec. This overrides any remote versions.
   - \`--plain-secrets\` - Push secrets as plain text
 - \`variable add <value:string> <remote_path:string>\` - Create a new variable on the remote. This will update the variable if it already exists.
+  - \`--yes\` - Skip confirmation prompt when updating an existing variable
+  - \`--secret\` - Mark the variable as secret (default when creating a new variable)
+  - \`--no-secret\` - Mark the variable as non-secret (when updating, the existing setting is preserved if neither --secret nor --no-secret is passed)
+  - \`--description <description:string>\` - Set the variable description (when updating, the existing description is preserved if not passed)
   - \`--plain-secrets\` - Push secrets as plain text
-  - \`--public\` - Legacy option, use --plain-secrets instead
+  - \`--public\` - Legacy option, use --no-secret instead
 
 ### version
 
@@ -6752,7 +6981,8 @@ workspace related commands
   - \`--create-workspace-name <workspace_name:string>\` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
   - \`--color <color:string>\` - Workspace color (hex code, e.g. #ff0000)
   - \`--datatable-behavior <behavior:string>\` - How to handle datatables: skip, schema_only, or schema_and_data (default: interactive prompt)
-  - \`-y --yes\` - Skip interactive prompts (defaults datatable behavior to 'skip')
+  - \`--from-branch <branch:string>\` - Non-interactive override for the 'turn my current working branch into the fork' workflow: base the fork on <branch> (its bound workspace is the parent) and rename the current branch onto wm-fork/<branch>/<id>. Usually unneeded — from a working branch \`wmill workspace fork\` offers this interactively; from a base branch it creates a fresh fork branch.
+  - \`-y --yes\` - Skip interactive prompts (defaults datatable behavior to 'skip'). On a non-base branch, requires --from-branch since the base branch can't be prompted for.
 - \`workspace delete-fork <fork_name:string>\` - Delete a forked workspace and git branch
   - \`-y --yes\` - Skip confirmation prompt
 - \`workspace merge\` - Compare and deploy changes between a fork and its parent workspace
@@ -6767,7 +6997,7 @@ workspace related commands
   - \`--bot-token <bot_token:string>\` - Slack bot token (xoxb-...)
   - \`--team-id <team_id:string>\` - Slack team id
   - \`--team-name <team_name:string>\` - Slack team name
-- \`workspace disconnect-slack\`
+- \`workspace disconnect-slack\` - Clear slack_team_id / slack_name on the active workspace (marks the workspace as disconnected). Does NOT remove the bot token variable/resource/folder/group — delete those from the local sync folder and run 'wmill sync push' to tear them down. Does NOT remove the workspace-level OAuth override — set slack_oauth_client_id/_secret to '' in settings.yaml and push.
 
 
 
@@ -6936,6 +7166,26 @@ properties:
     type: array
     items:
       type: string
+  draft_only:
+    type: boolean
+    description: 'True when this row is a per-user draft with no deployed
+
+      trigger at the same path. Set by list endpoints when
+
+      \`include_draft_only=true\` synthesizes the row from the
+
+      draft. Frontend renders a "Draft" badge.
+
+      '
+  is_draft:
+    type: boolean
+    description: 'True when the authed user has a per-user draft at this path
+
+      (over a deployed row or a synthesized draft-only row).
+
+      Frontend appends a \`*\` to the displayed name.
+
+      '
   azure_resource_path:
     type: string
   azure_mode:
@@ -7021,6 +7271,26 @@ properties:
     type: array
     items:
       type: string
+  draft_only:
+    type: boolean
+    description: 'True when this row is a per-user draft with no deployed
+
+      trigger at the same path. Set by list endpoints when
+
+      \`include_draft_only=true\` synthesizes the row from the
+
+      draft. Frontend renders a "Draft" badge.
+
+      '
+  is_draft:
+    type: boolean
+    description: 'True when the authed user has a per-user draft at this path
+
+      (over a deployed row or a synthesized draft-only row).
+
+      Frontend appends a \`*\` to the displayed name.
+
+      '
   local_part:
     type: string
   workspaced_local_part:
@@ -7086,6 +7356,26 @@ properties:
     type: array
     items:
       type: string
+  draft_only:
+    type: boolean
+    description: 'True when this row is a per-user draft with no deployed
+
+      trigger at the same path. Set by list endpoints when
+
+      \`include_draft_only=true\` synthesizes the row from the
+
+      draft. Frontend renders a "Draft" badge.
+
+      '
+  is_draft:
+    type: boolean
+    description: 'True when the authed user has a per-user draft at this path
+
+      (over a deployed row or a synthesized draft-only row).
+
+      Frontend appends a \`*\` to the displayed name.
+
+      '
   gcp_resource_path:
     type: string
     description: Path to the GCP resource containing service account credentials for
@@ -7187,6 +7477,26 @@ properties:
     type: array
     items:
       type: string
+  draft_only:
+    type: boolean
+    description: 'True when this row is a per-user draft with no deployed
+
+      trigger at the same path. Set by list endpoints when
+
+      \`include_draft_only=true\` synthesizes the row from the
+
+      draft. Frontend renders a "Draft" badge.
+
+      '
+  is_draft:
+    type: boolean
+    description: 'True when the authed user has a per-user draft at this path
+
+      (over a deployed row or a synthesized draft-only row).
+
+      Frontend appends a \`*\` to the displayed name.
+
+      '
   route_path:
     type: string
     description: The URL route path that will trigger this endpoint (e.g., 'api/myendpoint').
@@ -7321,6 +7631,26 @@ properties:
     type: array
     items:
       type: string
+  draft_only:
+    type: boolean
+    description: 'True when this row is a per-user draft with no deployed
+
+      trigger at the same path. Set by list endpoints when
+
+      \`include_draft_only=true\` synthesizes the row from the
+
+      draft. Frontend renders a "Draft" badge.
+
+      '
+  is_draft:
+    type: boolean
+    description: 'True when the authed user has a per-user draft at this path
+
+      (over a deployed row or a synthesized draft-only row).
+
+      Frontend appends a \`*\` to the displayed name.
+
+      '
   kafka_resource_path:
     type: string
     description: Path to the Kafka resource containing connection configuration
@@ -7424,6 +7754,26 @@ properties:
     type: array
     items:
       type: string
+  draft_only:
+    type: boolean
+    description: 'True when this row is a per-user draft with no deployed
+
+      trigger at the same path. Set by list endpoints when
+
+      \`include_draft_only=true\` synthesizes the row from the
+
+      draft. Frontend renders a "Draft" badge.
+
+      '
+  is_draft:
+    type: boolean
+    description: 'True when the authed user has a per-user draft at this path
+
+      (over a deployed row or a synthesized draft-only row).
+
+      Frontend appends a \`*\` to the displayed name.
+
+      '
   mqtt_resource_path:
     type: string
     description: Path to the MQTT resource containing broker connection configuration
@@ -7518,6 +7868,26 @@ properties:
     type: array
     items:
       type: string
+  draft_only:
+    type: boolean
+    description: 'True when this row is a per-user draft with no deployed
+
+      trigger at the same path. Set by list endpoints when
+
+      \`include_draft_only=true\` synthesizes the row from the
+
+      draft. Frontend renders a "Draft" badge.
+
+      '
+  is_draft:
+    type: boolean
+    description: 'True when the authed user has a per-user draft at this path
+
+      (over a deployed row or a synthesized draft-only row).
+
+      Frontend appends a \`*\` to the displayed name.
+
+      '
   nats_resource_path:
     type: string
     description: Path to the NATS resource containing connection configuration
@@ -7599,6 +7969,26 @@ properties:
     type: array
     items:
       type: string
+  draft_only:
+    type: boolean
+    description: 'True when this row is a per-user draft with no deployed
+
+      trigger at the same path. Set by list endpoints when
+
+      \`include_draft_only=true\` synthesizes the row from the
+
+      draft. Frontend renders a "Draft" badge.
+
+      '
+  is_draft:
+    type: boolean
+    description: 'True when the authed user has a per-user draft at this path
+
+      (over a deployed row or a synthesized draft-only row).
+
+      Frontend appends a \`*\` to the displayed name.
+
+      '
   postgres_resource_path:
     type: string
     description: Path to the PostgreSQL resource containing connection configuration
@@ -7781,6 +8171,22 @@ properties:
     type: array
     items:
       type: string
+  draft_only:
+    type: boolean
+    description: 'True when this row is a per-user draft with no deployed
+
+      schedule at the same path. Frontend renders a "Draft" badge.
+
+      '
+  is_draft:
+    type: boolean
+    description: 'True when the authed user has a per-user draft at this path
+
+      (over a deployed row or a synthesized draft-only row).
+
+      Frontend appends a \`*\` to the displayed name.
+
+      '
   inherited_labels:
     type: array
     items:
@@ -7812,6 +8218,26 @@ properties:
     type: array
     items:
       type: string
+  draft_only:
+    type: boolean
+    description: 'True when this row is a per-user draft with no deployed
+
+      trigger at the same path. Set by list endpoints when
+
+      \`include_draft_only=true\` synthesizes the row from the
+
+      draft. Frontend renders a "Draft" badge.
+
+      '
+  is_draft:
+    type: boolean
+    description: 'True when the authed user has a per-user draft at this path
+
+      (over a deployed row or a synthesized draft-only row).
+
+      Frontend appends a \`*\` to the displayed name.
+
+      '
   queue_url:
     type: string
     description: The full URL of the AWS SQS queue to poll for messages
@@ -7892,6 +8318,26 @@ properties:
     type: array
     items:
       type: string
+  draft_only:
+    type: boolean
+    description: 'True when this row is a per-user draft with no deployed
+
+      trigger at the same path. Set by list endpoints when
+
+      \`include_draft_only=true\` synthesizes the row from the
+
+      draft. Frontend renders a "Draft" badge.
+
+      '
+  is_draft:
+    type: boolean
+    description: 'True when the authed user has a per-user draft at this path
+
+      (over a deployed row or a synthesized draft-only row).
+
+      Frontend appends a \`*\` to the displayed name.
+
+      '
   url:
     type: string
     description: The WebSocket URL to connect to (can be a static URL or computed

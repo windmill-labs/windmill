@@ -2,6 +2,7 @@ import { writable, get } from 'svelte/store'
 import { workspaceAIClients } from './components/copilot/lib'
 import { type AIProviderModel, type AIProvider, WorkspaceService, type AIConfig } from './gen'
 import {
+	aiUserDisabled,
 	COPILOT_SESSION_MODEL_SETTING_NAME,
 	COPILOT_SESSION_PROVIDER_SETTING_NAME,
 	COPILOT_SESSION_REASONING_SETTING_NAME
@@ -37,6 +38,7 @@ export const copilotInfo = writable<{
 	aiModels: AIProviderModel[]
 	customPrompts?: Record<string, string>
 	maxTokensPerModel?: Record<string, number>
+	webSearchEnabledProviders?: Partial<Record<AIProvider, boolean>>
 }>({
 	enabled: false,
 	codeCompletionModel: undefined,
@@ -44,7 +46,17 @@ export const copilotInfo = writable<{
 	metadataModel: undefined,
 	aiModels: [],
 	customPrompts: {},
-	maxTokensPerModel: {}
+	maxTokensPerModel: {},
+	webSearchEnabledProviders: {}
+})
+
+// Apply the per-user opt-out live: toggling it flips `enabled` without re-fetching.
+// Only enable when providers exist (aiModels is populated whenever the config has any).
+aiUserDisabled.subscribe((disabled) => {
+	copilotInfo.update((info) => ({
+		...info,
+		enabled: info.aiModels.length > 0 && !disabled
+	}))
 })
 
 /** Strip the deprecated /thinking suffix from a configured model slot, if present. */
@@ -87,6 +99,12 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 				}))
 			)
 		)
+		const webSearchEnabledProviders = Object.fromEntries(
+			Object.entries(aiConfig.providers ?? {}).map(([provider, providerConfig]) => [
+				provider,
+				providerConfig.web_search_enabled !== false
+			])
+		) as Partial<Record<AIProvider, boolean>>
 
 		copilotSessionModel.update((model) => {
 			if (
@@ -99,7 +117,8 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 		})
 
 		copilotInfo.set({
-			enabled: true,
+			// Providers are configured; the per-user opt-out is the only thing that can gate it off.
+			enabled: !get(aiUserDisabled),
 			// Strip the deprecated /thinking suffix from the configured model slots too,
 			// otherwise a workspace whose default still carries it sends an invalid model id.
 			codeCompletionModel: stripModelSuffix(aiConfig.code_completion_model),
@@ -107,7 +126,8 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			metadataModel: stripModelSuffix(aiConfig.metadata_model),
 			aiModels: aiModels,
 			customPrompts: aiConfig.custom_prompts ?? {},
-			maxTokensPerModel: aiConfig.max_tokens_per_model ?? {}
+			maxTokensPerModel: aiConfig.max_tokens_per_model ?? {},
+			webSearchEnabledProviders
 		})
 	} else {
 		copilotSessionModel.set(undefined)
@@ -119,9 +139,17 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			metadataModel: undefined,
 			aiModels: [],
 			customPrompts: {},
-			maxTokensPerModel: {}
+			maxTokensPerModel: {},
+			webSearchEnabledProviders: {}
 		})
 	}
+}
+
+export function isWebSearchEnabledForProvider(provider: AIProvider | undefined): boolean {
+	if (!provider) {
+		return false
+	}
+	return get(copilotInfo).webSearchEnabledProviders?.[provider] ?? true
 }
 
 export function getCurrentModel(): ReasoningProviderModel {

@@ -179,6 +179,23 @@
 		}
 	}
 
+	// Restore composer contents after a rolled-back turn. No-op when the user
+	// already typed a new draft — restoring would clobber it.
+	export function restoreInstructions(value: string, restoredPastes: PasteAttachment[] = []) {
+		if (instructions.trim()) return
+		instructions = value
+		pastes = restoredPastes
+		focusInput()
+	}
+
+	/** Put text back into the textarea (queued-message delete, or restore
+	 * after a cancelled/errored turn), prepended to any draft so nothing
+	 * the user typed is lost. */
+	export function prependText(text: string) {
+		instructions = instructions.trim() ? `${text}\n\n${instructions}` : text
+		focusInput()
+	}
+
 	function clickOutside(node: HTMLElement) {
 		function handleClick(event: MouseEvent) {
 			if (node && !node.contains(event.target as Node)) {
@@ -261,6 +278,17 @@
 
 	function sendRequest() {
 		if (aiChatManager.loading) {
+			// Queue the message instead of silently discarding it — it is
+			// auto-sent when the streaming turn completes successfully.
+			// Editing-while-loading keeps the old discard behavior. Paste
+			// tokens are expanded into the queued text (the queue is plain
+			// strings), so the full content survives the auto-send.
+			if (editingMessageIndex === null && instructions.trim()) {
+				aiChatManager.queueMessage(expanded(chatDraft(instructions, pastes)))
+				contextTextareaComponent?.clearForSend()
+				instructions = ''
+				pastes = []
+			}
 			return
 		}
 		if (editingMessageIndex !== null) {

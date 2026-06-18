@@ -13,6 +13,8 @@ const remoteUrl =
 		? `http://localhost:${process.env.BACKEND_PORT}`
 		: 'https://app.windmill.dev/')
 
+const cookieDomain = process.env.ISOLATE_DEV_AUTH === '1' ? '' : 'localhost'
+
 // `enforce: 'pre'` so these headers are set before SvelteKit's sirv static
 // handler serves `static/` files and ends the response without calling next().
 let plugin = {
@@ -47,12 +49,12 @@ const config = {
 			'^/\\.well-known/.*': {
 				target: remoteUrl,
 				changeOrigin: true,
-				cookieDomainRewrite: 'localhost'
+				cookieDomainRewrite: cookieDomain
 			},
 			'^/api/w/[^/]+/s3_proxy/.*': {
 				target: remoteUrl,
 				changeOrigin: false, // Important for signature to be correct
-				cookieDomainRewrite: 'localhost',
+				cookieDomainRewrite: cookieDomain,
 				configure: (proxy, options) => {
 					proxy.on('proxyReq', (proxyReq, req, res) => {
 						// Prevent collapsing slashes during URL normalization
@@ -65,7 +67,7 @@ const config = {
 			'^/api/.*': {
 				target: remoteUrl,
 				changeOrigin: true,
-				cookieDomainRewrite: 'localhost'
+				cookieDomainRewrite: cookieDomain
 			},
 			'^/ws/.*': {
 				target: process.env.REMOTE_LSP ?? process.env.REMOTE_EXTRA ?? 'https://app.windmill.dev',

@@ -11,7 +11,7 @@
 	import { tick } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 
-	const VALID_FOLDER_NAME = /^[a-zA-Z_0-9]+$/
+	const VALID_FOLDER_NAME = /^[a-zA-Z_0-9-]+$/
 
 	let folders: { name: string; write: boolean }[] = $state([])
 	let filterText: string = $state('')
@@ -125,7 +125,7 @@
 		!newFolderName
 			? ''
 			: !VALID_FOLDER_NAME.test(newFolderName)
-				? 'Folder name can only contain alphanumeric characters and underscores'
+				? 'Folder name can only contain alphanumeric characters, underscores, and hyphens'
 				: folders.some((f) => f.name === newFolderName)
 					? 'A folder with this name already exists'
 					: ''

@@ -516,9 +516,31 @@ export type AssistantDisplayMessage = BaseDisplayMessage & {
 	role: 'assistant'
 	/** Summarized reasoning/thinking text streamed before the answer (Anthropic + compat providers). */
 	reasoning?: string
+	/**
+	 * True only on the synthetic live message appended while tokens stream
+	 * (see AIChat.svelte). Finalized messages never set it — without the flag,
+	 * a reasoning-only message (thinking that led straight to a tool call)
+	 * would look like it is still streaming forever.
+	 */
+	streaming?: boolean
 }
 
-export type DisplayMessage = UserDisplayMessage | ToolDisplayMessage | AssistantDisplayMessage
+/**
+ * Compaction boundary: replaces the summarized prefix in BOTH displayMessages
+ * and the API messages (where it is a plain user message). It carries no index
+ * because it is never a restart target — only the surviving tail's user
+ * messages are rewound to.
+ */
+export type SummaryDisplayMessage = {
+	role: 'summary'
+	content: string
+}
+
+export type DisplayMessage =
+	| UserDisplayMessage
+	| ToolDisplayMessage
+	| AssistantDisplayMessage
+	| SummaryDisplayMessage
 
 // A tool message whose askUserQuestion is still awaiting an answer: the AI loop
 // is paused on the user. Drives the question card's interactivity, the

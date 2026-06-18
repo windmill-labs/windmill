@@ -15,7 +15,15 @@
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
-	import { genWmillTs, type Runnable } from './utils'
+	import {
+		genWmillTs,
+		normalizeRawAppRuntimeLogs,
+		type Runnable,
+		type RawAppRuntimeLogEntry,
+		type RawAppRuntimeLogRequester,
+		type RawAppRunSummary,
+		type RawAppRunsProvider
+	} from './utils'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import RawAppSidebar from './RawAppSidebar.svelte'
 	import type { Modules } from './RawAppModules.svelte'
@@ -35,6 +43,7 @@
 	import { runScriptAndPollResult } from '../jobs/utils'
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import { sendUserToast } from '$lib/utils'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import {
 		buildDataTableWhitelist,
 		parseDataTableRef,
@@ -43,6 +52,7 @@
 		type RawAppData,
 		DEFAULT_DATA
 	} from './dataTableRefUtils'
+	import { randomUUID } from '$lib/utils/uuid'
 
 	interface Props {
 		files?: Record<string, string>
@@ -62,6 +72,8 @@
 					summary: string
 					policy: any
 					draft_only?: boolean
+					/** No deployed counterpart exists (draft-only); disables Diff. */
+					no_deployed?: boolean
 					custom_path?: string
 			  }
 			| undefined
@@ -69,9 +81,6 @@
 		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 		/** Fired after a successful deploy; the session preview reloads on it. */
 		onDeploy?: (e: { path: string }) => void
-		/** Fired after a successful server-draft save; the session refreshes its
-		 * draft-bar count on it (parity with the script/flow editors). */
-		onSaveDraft?: (e: { path: string }) => void
 		/** Initial collapsed state for the file/runnable sidebar. The user's
 		 * toggled preference is persisted under `sidebarStorageKey`; this prop
 		 * only seeds the very first open. */
@@ -81,6 +90,11 @@
 		 * preference. */
 		sidebarStorageKey?: string
 		liveEditorDraftStoragePath?: string
+		/** Indicator-only overrides forwarded to RawAppEditorHeader so the
+		 *  sessions preview's AutosaveIndicator watches the session's
+		 *  (workspace, path). Undefined on the full-page editor. */
+		autosaveWorkspace?: string
+		autosavePath?: string
 		/** Initial value for the "Split with Preview" tab-bar toggle. Defaults
 		 * to `true` (split mode, preview always pinned to the right). Set
 		 * `false` when the editor mounts inside a context that wants single-
@@ -89,6 +103,17 @@
 		 * still toggle the mode after mount; this prop only seeds the
 		 * initial state. */
 		defaultSplitWithPreview?: boolean
+		/** User-typed path when it differs from `savedApp.path`. The route injects
+		 *  it as `draft_path` so the home row shows the friendly name, not `draft_{uuid}`. */
+		pendingDraftPath?: string | undefined
+		// Threaded to the AutosaveIndicator's "Reset to deployed" button.
+		onResetToDeployed?: () => void | Promise<void>
+		// See ScriptBuilderProps — same indicator semantics.
+		loadedFromDraft?: boolean
+		othersDraftsCount?: number
+		onOpenOthersDrafts?: () => void
+		onRuntimeLogRequester?: (requester: RawAppRuntimeLogRequester | undefined) => void
+		onRunsProvider?: (provider: RawAppRunsProvider | undefined) => void
 	}
 
 	let {
@@ -104,11 +129,19 @@
 		diffDrawer = undefined,
 		onNavigate,
 		onDeploy = undefined,
-		onSaveDraft = undefined,
 		defaultSidebarCollapsed = false,
 		sidebarStorageKey = 'raw-app-sidebar-collapsed',
 		liveEditorDraftStoragePath = undefined,
-		defaultSplitWithPreview = true
+		autosaveWorkspace = undefined,
+		autosavePath = undefined,
+		defaultSplitWithPreview = true,
+		pendingDraftPath = $bindable(undefined),
+		onResetToDeployed,
+		loadedFromDraft = false,
+		othersDraftsCount = 0,
+		onOpenOthersDrafts,
+		onRuntimeLogRequester = undefined,
+		onRunsProvider = undefined
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
@@ -987,6 +1020,11 @@
 			return
 		}
 
+		if (fromPreview && e.data.type === 'runtimeLogsResponse') {
+			resolvePendingRuntimeLogRequest(e.data.requestId, normalizeRawAppRuntimeLogs(e.data.logs))
+			return
+		}
+
 		// Inspector events come exclusively from the preview iframe.
 		if (fromPreview && e.data.type === 'inspectorSelect') {
 			inspectorElement = e.data.element as InspectorElementInfo
@@ -1072,6 +1110,66 @@
 			)
 		})
 	}
+
+	const RUNTIME_LOGS_TIMEOUT_MS = 2000
+	type PendingRuntimeLogRequest = {
+		resolve: (entries: RawAppRuntimeLogEntry[] | undefined) => void
+		timer: ReturnType<typeof setTimeout>
+	}
+	const pendingRuntimeLogReqs = new Map<string, PendingRuntimeLogRequest>()
+
+	function resolvePendingRuntimeLogRequest(
+		requestId: string,
+		entries: RawAppRuntimeLogEntry[] | undefined
+	) {
+		const pending = pendingRuntimeLogReqs.get(requestId)
+		if (!pending) return
+		clearTimeout(pending.timer)
+		pendingRuntimeLogReqs.delete(requestId)
+		pending.resolve(entries)
+	}
+
+	const requestRuntimeLogs: RawAppRuntimeLogRequester = (limit) => {
+		const win = previewIframe?.contentWindow
+		if (!win || !previewIframeLoaded) return Promise.resolve(undefined)
+		const requestId = randomUUID()
+		return new Promise<RawAppRuntimeLogEntry[] | undefined>((resolve) => {
+			const timer = setTimeout(() => {
+				resolvePendingRuntimeLogRequest(requestId, undefined)
+			}, RUNTIME_LOGS_TIMEOUT_MS)
+			pendingRuntimeLogReqs.set(requestId, { resolve, timer })
+			win.postMessage({ type: 'getRuntimeLogs', requestId, limit }, '*')
+		})
+	}
+
+	const getRuns: RawAppRunsProvider = () => {
+		const out: RawAppRunSummary[] = []
+		for (const id of jobs) {
+			const j = jobsById[id]
+			if (!j) continue
+			const run: RawAppRunSummary = {
+				job_id: j.job ?? id,
+				component: j.component,
+				status: j.result !== undefined || j.duration_ms !== undefined ? 'completed' : 'running'
+			}
+			if (j.created_at !== undefined) run.created_at = j.created_at
+			if (j.started_at !== undefined) run.started_at = j.started_at
+			if (j.duration_ms !== undefined) run.duration_ms = j.duration_ms
+			out.push(run)
+		}
+		return out.reverse()
+	}
+
+	onMount(() => {
+		onRuntimeLogRequester?.(requestRuntimeLogs)
+		onRunsProvider?.(getRuns)
+		return () => {
+			onRuntimeLogRequester?.(undefined)
+			onRunsProvider?.(undefined)
+			for (const requestId of Array.from(pendingRuntimeLogReqs.keys()))
+				resolvePendingRuntimeLogRequest(requestId, undefined)
+		}
+	})
 
 	let darkMode: boolean = $state(false)
 	// Host's computed `text-xs` size in px. Windmill bumps :root to 18px at
@@ -1318,7 +1416,51 @@
 		return () => window.removeEventListener('keydown', onEscapeCapture, true)
 	})
 
+	// Force an immediate flush. No toast — the AutosaveIndicator narrates the
+	// result, and `flush` never rejects (postSave routes errors to the failures map).
+	function flushDraft() {
+		if (!$workspaceStore || !liveEditorDraftStoragePath) return
+		void UserDraftDbSyncer.flush({
+			workspace: $workspaceStore,
+			itemKind: 'raw_app',
+			path: liveEditorDraftStoragePath
+		})
+	}
+
+	// The VS Code workbench iframe's keydowns don't bubble out, so the window
+	// handler can't see Ctrl/Cmd+S while editing code. Attach a capture listener
+	// inside the iframe per load (it dies with the iframe, so no leak). No
+	// preventDefault: VS Code's own save still runs; we just flush alongside it.
+	function attachIframeSaveShortcut() {
+		const win = iframe?.contentWindow
+		if (!win) return
+		win.addEventListener(
+			'keydown',
+			(e: KeyboardEvent) => {
+				if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 's' || e.key === 'S')) {
+					flushDraft()
+				}
+			},
+			true
+		)
+	}
+
+	// Monaco swallows Ctrl/Cmd+S in inline editors; Editor/SimpleEditor
+	// re-broadcast it as `wm-monaco-save-shortcut` (untyped, hence manual listener).
+	$effect(() => {
+		window.addEventListener('wm-monaco-save-shortcut', flushDraft)
+		return () => window.removeEventListener('wm-monaco-save-shortcut', flushDraft)
+	})
+
 	function handleKeydown(e: KeyboardEvent) {
+		// Ctrl/Cmd + S — catch this BEFORE the input/Monaco guard below so
+		// the shortcut fires regardless of focus.
+		if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 's' || e.key === 'S')) {
+			e.preventDefault()
+			flushDraft()
+			return
+		}
+
 		// Skip when typing in an input, textarea, or Monaco editor.
 		const classes = (e.target as HTMLElement | null)?.className
 		if (
@@ -1361,6 +1503,7 @@
 		bind:jobsById
 		bind:savedApp
 		bind:summary
+		bind:pendingDraftPath
 		on:restore
 		on:savedNewAppPath
 		{policy}
@@ -1369,13 +1512,18 @@
 		{newPath}
 		appPath={path}
 		{liveEditorDraftStoragePath}
+		{autosaveWorkspace}
+		{autosavePath}
 		{files}
 		{data}
 		{runnables}
 		{getBundle}
 		{onNavigate}
 		{onDeploy}
-		{onSaveDraft}
+		{onResetToDeployed}
+		{loadedFromDraft}
+		{othersDraftsCount}
+		{onOpenOthersDrafts}
 		canUndo={historyManager.canUndo}
 		canRedo={historyManager.canRedo}
 		onUndo={handleUndo}
@@ -1514,6 +1662,7 @@
 												title="UI builder"
 												src="/ui_builder/index.html"
 												class="w-full h-full block"
+												onload={attachIframeSaveShortcut}
 											></iframe>
 										{/if}
 									</div>

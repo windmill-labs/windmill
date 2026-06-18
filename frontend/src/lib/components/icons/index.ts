@@ -26,6 +26,7 @@ import SendflakeIcon from './SendflakeIcon.svelte'
 import QRCodeIcon from './QRCodeIcon.svelte'
 import LinkedinIcon from './LinkedinIcon.svelte'
 import HubspotIcon from './HubspotIcon.svelte'
+import CoupaIcon from './CoupaIcon.svelte'
 import DatadogIcon from './DatadogIcon.svelte'
 import DatabricksIcon from './DatabricksIcon.svelte'
 import AdobeAcrobatSignIcon from './AdobeAcrobatSignIcon.svelte'
@@ -71,6 +72,7 @@ import GraphqlIcon from './GraphqlIcon.svelte'
 import NocoDbIcon from './NocoDbIcon.svelte'
 import AzureIcon from './AzureIcon.svelte'
 import OktaIcon from './OktaIcon.svelte'
+import OutreachIcon from './OutreachIcon.svelte'
 import Auth0Icon from './Auth0Icon.svelte'
 import MsSqlServerIcon from './MSSqlServerIcon.svelte'
 import AuthentikIcon from './AuthentikIcon.svelte'
@@ -250,6 +252,7 @@ export const APP_TO_ICON_COMPONENT = {
 	datadog: DatadogIcon,
 	databricks: DatabricksIcon,
 	netsuite: NetsuiteIcon,
+	coupa: CoupaIcon,
 	adobe_acrobat_sign: AdobeAcrobatSignIcon,
 	stripe: StripeIcon,
 	telegram: TelegramIcon,
@@ -295,6 +298,7 @@ export const APP_TO_ICON_COMPONENT = {
 	nocodb: NocoDbIcon,
 	azure: AzureIcon,
 	okta: OktaIcon,
+	outreach: OutreachIcon,
 	auth0: Auth0Icon,
 	authentik: AuthentikIcon,
 	authelia: AutheliaIcon,
@@ -514,6 +518,7 @@ export {
 	AzureIcon,
 	MicrosoftIcon,
 	OktaIcon,
+	OutreachIcon,
 	Auth0Icon,
 	AuthentikIcon,
 	AutheliaIcon,

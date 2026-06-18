@@ -12,7 +12,7 @@ use crate::{
     db::{ApiAuthed, DB},
     jobs::RunJobQuery,
     users::{require_owner_of_path, require_path_read_access_for_preview, OptAuthed},
-    utils::{check_scopes, WithStarredInfoQuery},
+    utils::{build_scope_path_predicate, check_scopes},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -58,6 +58,7 @@ use windmill_common::{
         get_payload_tag_from_prefixed_path, resolve_delete_after_secs, schedule_job_deletion,
         JobPayload, RawCode,
     },
+    user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
@@ -90,7 +91,6 @@ pub fn workspaced_service(raw_app_body_limit: usize) -> Router {
         .route("/list_search", get(list_search_apps))
         .route("/get/p/{*path}", get(get_app))
         .route("/get/lite/{*path}", get(get_app_lite))
-        .route("/get/draft/{*path}", get(get_app_w_draft))
         .route("/secret_of/{*path}", get(get_secret_id))
         .route(
             "/secret_of_latest_version/{*path}",
@@ -155,7 +155,9 @@ pub struct ListableApp {
     pub execution_mode: String,
     pub starred: bool,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub has_draft: bool,
+    /// `Some(true)` only on rows synthesised from the `draft` table; `None` for
+    /// deployed rows. See ListableScript in windmill-types/src/scripts.rs.
+    #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     #[sqlx(default)]
@@ -165,6 +167,20 @@ pub struct ListableApp {
     pub raw_app: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// True when the authed user has a draft for this app (draft-only or layered
+    /// over the deployed row). See ListableScript in windmill-types/src/scripts.rs.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_draft: bool,
+    /// User-typed staged path from the draft JSON's `draft_path`; `None` = unchanged.
+    /// See ListableScript in windmill-types/src/scripts.rs.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_path: Option<String>,
+    /// Per-path draft owners driving the home-page avatar circles.
+    /// See ListableScript in windmill-types/src/scripts.rs.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_users: Option<sqlx::types::Json<Vec<windmill_types::user_drafts::DraftUserRef>>>,
     /// Labels inherited from the parent folder, computed at read time.
     #[sqlx(default)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -212,20 +228,6 @@ pub struct AppWithLastVersionAndStarred {
     pub app: AppWithLastVersion,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub starred: Option<bool>,
-}
-
-#[derive(Serialize, Deserialize, FromRow)]
-pub struct AppWithLastVersionAndDraft {
-    #[sqlx(flatten)]
-    #[serde(flatten)]
-    pub app: AppWithLastVersion,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft: Option<sqlx::types::Json<Box<RawValue>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
-    /// Timestamp at which the most recent DB draft was created.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Serialize)]
@@ -306,7 +308,6 @@ pub struct CreateApp {
     pub summary: String,
     pub value: sqlx::types::Json<Box<RawValue>>,
     pub policy: Policy,
-    pub draft_only: Option<bool>,
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
     pub preserve_on_behalf_of: Option<bool>,
@@ -354,6 +355,8 @@ async fn list_search_apps(
     let n = 3;
     let mut tx = user_db.begin(&authed).await?;
 
+    let allowed = build_scope_path_predicate(&authed, "apps", "read");
+
     let rows = sqlx::query_as::<_, SearchApp>(
         "SELECT path, app_version.value from app LEFT JOIN app_version ON app_version.id = versions[array_upper(versions, 1)]  WHERE workspace_id = $1 LIMIT $2",
     )
@@ -362,6 +365,7 @@ async fn list_search_apps(
     .fetch_all(&mut *tx)
     .await?
     .into_iter()
+    .filter(|r| allowed(&r.path))
     .collect::<Vec<_>>();
     tx.commit().await?;
     Ok(Json(rows))
@@ -370,6 +374,7 @@ async fn list_search_apps(
 async fn list_apps(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListAppQuery>,
@@ -387,10 +392,15 @@ async fn list_apps(
             "app_version.created_at as edited_at",
             "app.extra_perms",
             "favorite.path IS NOT NULL as starred",
-            "draft.path IS NOT NULL as has_draft",
-            "draft_only",
             "app_version.raw_app",
             "app.labels",
+            "draft.path IS NOT NULL as is_draft",
+            // Per-path draft owners as a JSON array; see scripts.rs for the rationale
+            // (admins-workspace identity fallback, legacy NULL-email row).
+            "(SELECT json_agg(json_build_object('username', COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END)) ORDER BY COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) NULLS LAST) \
+              FROM draft d \
+              LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
+              WHERE d.workspace_id = app.workspace_id AND d.path = app.path AND d.typ = 'app') as draft_users",
             "folder_labels(app.workspace_id, app.path) as inherited_labels",
         ])
         .left()
@@ -400,14 +410,18 @@ async fn list_apps(
                 .bind(&authed.username),
         )
         .left()
+        // `app`/`raw_app` are separate draft kinds over one `app` table — match either
+        // for `is_draft`. DISTINCT in the subquery: a path with both kinds for the same
+        // user would otherwise fan the deployed row into two identical entries.
+        .join(
+            "(SELECT DISTINCT path, workspace_id FROM draft WHERE typ IN ('app', 'raw_app') AND email = ?) draft"
+                .bind(&authed.email),
+        )
+        .on("draft.path = app.path AND draft.workspace_id = app.workspace_id")
+        .left()
         .join("app_version")
         .on(
             "app_version.id = versions[array_upper(versions, 1)]"
-        )
-        .left()
-        .join("draft")
-        .on(
-            "draft.path = app.path AND draft.workspace_id = app.workspace_id AND draft.typ = 'app'"
         )
         .order_desc("favorite.path IS NOT NULL")
         .order_by("app_version.created_at", true)
@@ -426,10 +440,6 @@ async fn list_apps(
 
     if let Some(path_exact) = &lq.path_exact {
         sqlb.and_where_eq("app.path", "?".bind(path_exact));
-    }
-
-    if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
-        sqlb.and_where("app.draft_only IS NOT TRUE");
     }
 
     if let Some(label) = &lq.label {
@@ -451,11 +461,89 @@ async fn list_apps(
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query_as::<_, ListableApp>(&sql)
+    let mut rows = sqlx::query_as::<_, ListableApp>(&sql)
         .fetch_all(&mut *tx)
         .await?;
 
     tx.commit().await?;
+
+    // Append the authed user's `app`/`raw_app` drafts at paths with no deployed app;
+    // see scripts.rs.
+    if lq.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && offset == 0
+        && lq.path_start.is_none()
+        && lq.path_exact.is_none()
+        && lq.label.is_none()
+        && !lq.starred_only.unwrap_or(false)
+    {
+        // DISTINCT ON (path), newest first: collapse a path holding both `app` and
+        // `raw_app` drafts to one row (the home list keyed by `type/path` would crash
+        // on duplicates). `(email IS NULL)` last keeps the owned row over the legacy one.
+        let draft_only_rows = sqlx::query!(
+            r#"SELECT DISTINCT ON (path)
+                      path,
+                      value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+                      created_at,
+                      typ::text as "typ!"
+               FROM draft
+               WHERE workspace_id = $1
+                 AND typ IN ('app', 'raw_app')
+                 AND (email = $2 OR email IS NULL)
+                 AND NOT EXISTS (
+                     SELECT 1 FROM app a
+                     WHERE a.workspace_id = draft.workspace_id
+                       AND a.path = draft.path
+                 )
+               ORDER BY path, (email IS NULL), created_at DESC"#,
+            &w_id,
+            &authed.email,
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for row in draft_only_rows {
+            let v: serde_json::Value =
+                serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
+            // App/raw-app drafts are the bare editor value with no `path`, so the editor
+            // writes a separate `draft_path` only when it differs from deployed; see flows.rs.
+            let draft_path = v
+                .get("draft_path")
+                .and_then(|s| s.as_str())
+                .filter(|s| !s.is_empty() && *s != row.path.as_str())
+                .map(|s| s.to_string());
+            rows.push(ListableApp {
+                id: 0,
+                workspace_id: w_id.clone(),
+                path: row.path,
+                summary: v
+                    .get("summary")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                version: 0,
+                extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                execution_mode: String::new(),
+                starred: false,
+                edited_at: Some(row.created_at),
+                draft_only: Some(true),
+                deployment_msg: None,
+                raw_app: row.typ == "raw_app",
+                labels: None,
+                // No deployed row to inherit folder labels from.
+                inherited_labels: None,
+                is_draft: true,
+                draft_path,
+                // Synthesized rows are the authed user's own draft.
+                draft_users: Some(sqlx::types::Json(vec![DraftUserRef {
+                    username: Some(authed.username.clone()),
+                }])),
+            });
+        }
+    }
+
+    let allowed = build_scope_path_predicate(&authed, "apps", "read");
+    rows.retain(|r| allowed(&r.path));
 
     Ok(Json(rows))
 }
@@ -578,12 +666,25 @@ async fn get_raw_app_data(
 //     Ok(Json(version))
 // }
 
+// Fields inlined rather than flattened (axum query bool quirk); see GetScriptByPathQuery in scripts.rs.
+#[derive(Deserialize)]
+struct GetAppQuery {
+    with_starred_info: Option<bool>,
+    #[serde(default)]
+    get_draft: bool,
+    /// Picks the draft kind for a draft-only lookup (`/apps_raw/...` → true).
+    /// Ignored when a deployed row exists — its own `raw_app` column wins.
+    #[serde(default)]
+    raw_app: Option<bool>,
+}
+
 async fn get_app(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Query(query): Query<WithStarredInfoQuery>,
-) -> JsonResult<AppWithLastVersionAndStarred> {
+    Query(query): Query<GetAppQuery>,
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
@@ -597,9 +698,9 @@ async fn get_app(
             JOIN app_version
             ON app_version.id = app.versions[array_upper(app.versions, 1)]
             LEFT JOIN favorite
-            ON favorite.favorite_kind = 'app' 
-                AND favorite.workspace_id = app.workspace_id 
-                AND favorite.path = app.path 
+            ON favorite.favorite_kind = 'app'
+                AND favorite.workspace_id = app.workspace_id
+                AND favorite.path = app.path
                 AND favorite.usr = $3
             WHERE app.path = $1 AND app.workspace_id = $2",
         )
@@ -623,8 +724,27 @@ async fn get_app(
     };
     tx.commit().await?;
 
-    let app = not_found_if_none(app_o, "App", path)?;
-    Ok(Json(app))
+    // No deployed row + `get_draft`: fall back to the draft table; see scripts.rs.
+    // Draft kind comes from the deployed row's `raw_app` flag, or for a draft-only
+    // path from the caller's `raw_app` query param.
+    let kind = match &app_o {
+        Some(app) if app.app.raw_app => UserDraftItemKind::RawApp,
+        Some(_) => UserDraftItemKind::App,
+        None if query.raw_app.unwrap_or(false) => UserDraftItemKind::RawApp,
+        None => UserDraftItemKind::App,
+    };
+    let overlay = overlay_or_draft_only(
+        &db,
+        &w_id,
+        &authed.email,
+        kind,
+        path,
+        query.get_draft,
+        app_o,
+        || windmill_common::error::Error::NotFound(format!("App not found at path {path}")),
+    )
+    .await?;
+    Ok(Json(overlay))
 }
 
 async fn get_app_lite(
@@ -643,55 +763,6 @@ async fn get_app_lite(
         FROM app, app_version
         LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
         WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
-    )
-    .bind(path.to_owned())
-    .bind(&w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
-
-    tx.commit().await?;
-
-    let app = not_found_if_none(app_o, "App", path)?;
-    Ok(Json(app))
-}
-
-async fn get_app_w_draft(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<AppWithLastVersionAndDraft> {
-    let path = path.to_path();
-    check_scopes(&authed, || format!("apps:read:{}", path))?;
-    let mut tx = user_db.begin(&authed).await?;
-
-    let app_o = sqlx::query_as::<_, AppWithLastVersionAndDraft>(
-        r#"
-        SELECT
-            app.id,
-            app.path,
-            app.summary,
-            app.versions,
-            app.policy,
-            app.custom_path,
-            app.extra_perms,
-            app_version.value,
-            app_version.created_at,
-            app_version.created_by,
-            app.draft_only,
-            draft.value AS "draft",
-            draft.created_at AS "draft_created_at",
-            app_version.raw_app,
-            app.labels
-        FROM app
-        INNER JOIN app_version
-            ON app_version.id = app.versions[array_upper(app.versions, 1)]
-        LEFT JOIN draft
-            ON app.path = draft.path
-        AND draft.workspace_id = $2
-        AND draft.typ = 'app'
-        WHERE app.path = $1
-        AND app.workspace_id = $2
-    "#,
     )
     .bind(path.to_owned())
     .bind(&w_id)
@@ -1374,25 +1445,27 @@ async fn create_app_internal<'a>(
         }
     }
     // CLI / git-sync deploys ask us to preserve any existing user draft at this
-    // path instead of wiping it as part of the deploy.
+    // path instead of wiping it as part of the deploy. Only wipe the deployer's
+    // own draft (plus the legacy NULL-email row); see scripts.rs.
     if !app.skip_draft_deletion.unwrap_or(false) {
         sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ IN ('app', 'raw_app') \
+             AND (email = $3 OR email IS NULL)",
             &app.path,
-            &w_id
+            &w_id,
+            &authed.email,
         )
         .execute(&mut *tx)
         .await?;
     }
     let id = sqlx::query_scalar!(
         "INSERT INTO app
-            (workspace_id, path, summary, policy, versions, draft_only, custom_path, labels)
-            VALUES ($1, $2, $3, $4, '{}', $5, $6, $7) RETURNING id",
+            (workspace_id, path, summary, policy, versions, custom_path, labels)
+            VALUES ($1, $2, $3, $4, '{}', $5, $6) RETURNING id",
         w_id,
         app.path,
         app.summary,
         json!(app.policy),
-        app.draft_only,
         app.custom_path
             .as_ref()
             .map(|s| if s.is_empty() { None } else { Some(s) })
@@ -1598,15 +1671,16 @@ async fn delete_app(
     .await?;
 
     let trash_drafts: Vec<serde_json::Value> = sqlx::query_scalar(
-        "SELECT to_jsonb(t) FROM draft t WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
+        "SELECT to_jsonb(t) FROM draft t WHERE path = $1 AND workspace_id = $2 AND typ IN ('app', 'raw_app')",
     )
     .bind(path)
     .bind(&w_id)
     .fetch_all(&mut *tx)
     .await?;
 
+    // Both `app` and `raw_app` draft kinds back the same `app` table.
     sqlx::query!(
-        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
+        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ IN ('app', 'raw_app')",
         path,
         &w_id
     )
@@ -1827,7 +1901,6 @@ async fn update_app_internal<'a>(
         sqlb.and_where_eq("path", "?".bind(&path));
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
 
-        sqlb.set("draft_only", "NULL");
         if let Some(npath) = &ns.path {
             if npath != path {
                 require_owner_of_path(&authed, path)?;
@@ -2014,12 +2087,15 @@ async fn update_app_internal<'a>(
         }
     };
     // CLI / git-sync deploys ask us to preserve any existing user draft at this
-    // path instead of wiping it as part of the deploy.
+    // path instead of wiping it as part of the deploy. Only wipe the deployer's
+    // own draft (plus the legacy NULL-email row) — see create_app_internal.
     if !ns.skip_draft_deletion.unwrap_or(false) {
         sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ IN ('app', 'raw_app') \
+             AND (email = $3 OR email IS NULL)",
             path,
-            &w_id
+            &w_id,
+            &authed.email,
         )
         .execute(&mut *tx)
         .await?;
@@ -2333,6 +2409,15 @@ async fn execute_component(
                 &policy
             };
 
+            // Caller-supplied inline code (`raw_code`), with or without an
+            // `app_script` id. Its resolved `rawscript/<sha>` key must be present
+            // in the policy triggerables below — it must never resolve via the
+            // Viewer default fallback. Without `id` the caller supplies the code
+            // verbatim; with `id` it selects any `app_script` row by number (no
+            // app/workspace scoping), so both let a caller run code the publisher
+            // never pinned for this app.
+            let is_inline_raw_code = payload.raw_code.is_some();
+
             // Compute the path for the triggerables map:
             // - flow: `flow/<payload.path>`
             // - script: `script/<payload.path>`
@@ -2370,7 +2455,15 @@ async fn execute_component(
                 .get(path) // start with `path` in case we can avoid the next` format!`.
                 .or_else(|| triggerables_v2.get(&format!("{}:{}", payload.component, &path)))
                 .or(match policy.execution_mode {
-                    ExecutionMode::Viewer => Some(&policy_triggerables_default),
+                    // A Viewer app may invoke any deployed `script`/`flow` it
+                    // references (resolved as the caller), but caller-supplied
+                    // inline `raw_code` must match a publisher-pinned
+                    // `rawscript/<sha>` entry — otherwise an unauthorized caller
+                    // (e.g. an operator, barred from `/jobs/run/preview`) could
+                    // run code the publisher never pinned for this app.
+                    ExecutionMode::Viewer if !is_inline_raw_code => {
+                        Some(&policy_triggerables_default)
+                    }
                     _ => None,
                 })
                 .ok_or_else(|| Error::BadRequest(format!("Path {path} forbidden by policy")))?;
@@ -3262,18 +3355,6 @@ fn get_on_behalf_of(policy: &Policy) -> Result<(String, String)> {
         })?
         .to_string();
     Ok((permissioned_as, email))
-}
-
-pub async fn require_is_writer(authed: &ApiAuthed, path: &str, w_id: &str, db: DB) -> Result<()> {
-    return crate::users::require_is_writer(
-        authed,
-        path,
-        w_id,
-        db,
-        "SELECT extra_perms FROM app WHERE path = $1 AND workspace_id = $2",
-        "app",
-    )
-    .await;
 }
 
 async fn exists_app(
