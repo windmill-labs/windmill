@@ -783,6 +783,40 @@ describe('global AI tools', () => {
 		expect(getBackendDraft('raw_app', 'u/admin/live_app', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
+	it('does not echo the app value back to the model on write', async () => {
+		const sentinel = 'SENTINEL_DO_NOT_ECHO_DEADBEEF'
+		seedBackendDraft(
+			'raw_app',
+			'',
+			{
+				summary: 'Echo check',
+				files: { '/src/App.tsx': `export default function App() { return '${sentinel}' }` },
+				runnables: {},
+				data: { tables: [] }
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'raw_app',
+			storagePath: '',
+			effectivePath: 'u/admin/echo_app'
+		})
+
+		const raw = await callGlobalTool('write_app_file', {
+			path: 'u/admin/echo_app',
+			file_path: '/src/New.tsx',
+			content: 'export default function New() { return null }'
+		})
+
+		const parsed = JSON.parse(raw)
+		expect(parsed.success).toBe(true)
+		expect(parsed.item).toBeUndefined()
+		// Neither the pre-existing file body nor the just-written one is resent.
+		expect(raw).not.toContain(sentinel)
+		expect(raw).not.toContain('function New')
+	})
+
 	it('discards a draft without deleting the workspace item', async () => {
 		await callGlobalTool('write_script', {
 			path: 'f/scripts/discard-me',
