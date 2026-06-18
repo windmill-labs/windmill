@@ -1071,3 +1071,38 @@
     - inspects the revenue calculation behind the summary tile, the orders table, and the regional breakdown
     - identifies that the per-order revenue helper omits quantity and fixes it to multiply unit price by quantity
     - leaves the result as an AI draft only
+
+- id: global-test33-raw-app-rename-across-files
+  prompt: |-
+    In the dashboard app at `f/evals/global/analytics_dashboard`, rename the
+    `formatCurrency` helper to `formatMoney` everywhere it is defined, imported, and
+    called. Leave the separate `formatCurrencyPrecise` helper exactly as it is. Keep
+    the change as an AI draft only; do not deploy or save it.
+  # Find-all-usages rename: formatCurrency is defined once and called in 6 places
+  # spread across 4 component files (and imported in 4). Locating every usage is the
+  # exact task search_app is meant to make cheap — one grep returns all file:line
+  # rows instead of reading each component whole. valueExcludes "formatCurrency("
+  # asserts the definition and all call sites were renamed while tolerating the
+  # preserved formatCurrencyPrecise (which is never followed by "(").
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 22
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "export function formatMoney"
+          - "formatMoney("
+        valueExcludes:
+          - "formatCurrency("
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - renames the formatCurrency definition, imports, and all call sites to formatMoney
+    - leaves the unrelated formatCurrencyPrecise helper unchanged
+    - leaves the result as an AI draft only

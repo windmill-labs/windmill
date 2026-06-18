@@ -561,6 +561,34 @@ const readAppFileSchema = z.object({
 		)
 })
 
+const searchAppSchema = z.object({
+	path: z.string().describe('Workspace path of the app, e.g. f/folder/name.'),
+	query: z
+		.string()
+		.describe(
+			'Literal text to find across all of the app files (case-insensitive). Returns matching file:line rows, not file bodies — use it to locate a symbol or string, then read_app_file to inspect the relevant ranges.'
+		),
+	file_glob: z
+		.string()
+		.optional()
+		.describe(
+			'Optional path filter. A pattern without "/" matches the file name anywhere (e.g. "*.tsx"); a pattern with "/" matches the full path (e.g. "/components/*", "backend/**"). Supports * (any chars except /), ** (any chars), and ?.'
+		),
+	context_lines: z
+		.number()
+		.int()
+		.min(0)
+		.max(2)
+		.optional()
+		.describe('Lines of surrounding context to include around each match (0-2, default 0).'),
+	max_matches: z
+		.number()
+		.int()
+		.min(1)
+		.optional()
+		.describe('Maximum number of match rows to return (default 100, hard cap 200).')
+})
+
 const writeAppFileSchema = z.object({
 	path: z.string().describe('Workspace path of the app.'),
 	file_path: z
@@ -1431,6 +1459,7 @@ function getAppInstructions(): string {
 - Inline runnables only support \`bun\` or \`python3\` in chat. Path runnables (\`script\`/\`flow\`/\`hubscript\`) reference an existing item.
 - Use \`deploy_workspace_item\` after explicit user deploy intent. The deploy tool bundles JS/CSS before saving the raw app.
 - Use \`read_workspace_item\` with \`type: 'app'\` for a metadata summary (file paths and runnable list, no contents). Use \`read_app_file\` to read an individual file; large files are truncated to a head slice, so pass \`offset\`/\`limit\` or \`char_offset\`/\`char_limit\` to page through the rest rather than re-reading the whole file.
+- To find where a symbol or string lives across the app, call \`search_app\` (greps every frontend file and inline runnable, returns matching \`file:line\` rows) instead of reading files one by one — then \`read_app_file\` only the ranges you need. The loop is list (\`read_workspace_item\`) → locate (\`search_app\`) → inspect (\`read_app_file\` with \`offset\`/\`limit\`).
 - Note: the authoring reference below mentions the CLI on-disk layout (\`backend/<id>.<ext>\`, \`raw_app.yaml\`, \`sql_to_apply/\`). That layout is only relevant for the terminal workflow — in chat, apps are addressed via the tool surface above.
 
 # Windmill raw app authoring reference
@@ -1969,6 +1998,17 @@ export const globalTools: Tool<{}>[] = [
 		fn: async (ctx) => {
 			const parsed = readAppFileSchema.parse(ctx.args)
 			return readAppFile(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
+			searchAppSchema,
+			'search_app',
+			"Grep across all of a raw app's frontend files and inline backend runnables in one call. Returns matching file:line rows (capped), not file bodies — use it to locate a symbol or string before read_app_file instead of reading whole files one by one."
+		),
+		fn: async (ctx) => {
+			const parsed = searchAppSchema.parse(ctx.args)
+			return searchApp(parsed, ctx)
 		}
 	},
 	{
@@ -3124,6 +3164,163 @@ async function readAppFile(
 
 	toolCallbacks.setToolStatus(toolId, { content: `Read ${target.filePath}` })
 	return formatAppFileReadResult(target.filePath, slice)
+}
+
+// search_app caps: a single query must stay sparse and cheap even when it hits a
+// minified bundle or a 5k-line data module. Per-line and total-output caps bound
+// the result the same way read_app_file's char budget bounds one file read; the
+// match cap keeps a broad query from flooding context instead of locating it.
+const SEARCH_APP_DEFAULT_MAX_MATCHES = 100
+const SEARCH_APP_MAX_MATCHES_CEILING = 200
+const SEARCH_APP_MAX_LINE_CHARS = 200
+const SEARCH_APP_TOTAL_CHAR_BUDGET = 12_000
+
+type AppSearchableFile = { filePath: string; content: string }
+
+// The files search_app scans: frontend files (minus generated ones) plus inline
+// backend runnables, each addressed exactly as read_app_file expects so a match
+// row's path can be passed straight back to read_app_file.
+function collectSearchableAppFiles(value: AppDraftValue): AppSearchableFile[] {
+	const files: AppSearchableFile[] = []
+	for (const [filePath, content] of Object.entries(value.files)) {
+		if (GENERATED_APP_FILE_PATHS.has(filePath)) continue
+		if (typeof content === 'string') files.push({ filePath, content })
+	}
+	for (const [key, runnable] of Object.entries(value.runnables)) {
+		const persisted = runnable as PersistedRunnable | undefined
+		const content = persisted?.inlineScript?.content
+		if (typeof content !== 'string') continue
+		files.push({ filePath: `backend/${key}/main.${getInlineScriptExtension(persisted)}`, content })
+	}
+	return files
+}
+
+// Minimal glob: * = any chars except '/', ** = any chars, ? = single non-slash.
+// A pattern without '/' matches the file name only (ripgrep-style), so "*.tsx"
+// finds nested files; a pattern with '/' matches the full path.
+function appFileMatchesGlob(filePath: string, glob: string): boolean {
+	const hasSlash = glob.includes('/')
+	const subject = hasSlash ? filePath : filePath.slice(filePath.lastIndexOf('/') + 1)
+	const body = glob
+		.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+		.replace(/\*\*/g, ' ')
+		.replace(/\*/g, '[^/]*')
+		.replace(/ /g, '.*')
+		.replace(/\?/g, '[^/]')
+	try {
+		return new RegExp(`^${body}$`).test(subject)
+	} catch {
+		return false
+	}
+}
+
+type AppSearchMatch = { filePath: string; line: number; text: string }
+
+async function searchApp(
+	args: {
+		path: string
+		query: string
+		file_glob?: string
+		context_lines?: number
+		max_matches?: number
+	},
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const query = args.query
+	if (query.length === 0) {
+		throw new Error('search_app requires a non-empty query.')
+	}
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Searching app "${args.path}" for "${query}"...`
+	})
+
+	const value = await loadAppValueForRead(args.path, workspace)
+	const maxMatches = Math.min(
+		args.max_matches ?? SEARCH_APP_DEFAULT_MAX_MATCHES,
+		SEARCH_APP_MAX_MATCHES_CEILING
+	)
+	const contextLines = Math.max(0, Math.min(args.context_lines ?? 0, 2))
+	const needle = query.toLowerCase()
+
+	let files = collectSearchableAppFiles(value).sort((a, b) => a.filePath.localeCompare(b.filePath))
+	if (args.file_glob) {
+		files = files.filter((f) => appFileMatchesGlob(f.filePath, args.file_glob as string))
+	}
+
+	const matches: AppSearchMatch[] = []
+	let totalMatchCount = 0
+	let fileCount = 0
+	let truncated = false
+	for (const file of files) {
+		const lines = file.content.split('\n')
+		let fileHadMatch = false
+		for (let i = 0; i < lines.length; i++) {
+			if (!lines[i].toLowerCase().includes(needle)) continue
+			totalMatchCount++
+			if (matches.length >= maxMatches) {
+				truncated = true
+				continue
+			}
+			fileHadMatch = true
+			const lo = Math.max(0, i - contextLines)
+			const hi = Math.min(lines.length - 1, i + contextLines)
+			for (let j = lo; j <= hi; j++) {
+				matches.push({ filePath: file.filePath, line: j + 1, text: lines[j] })
+			}
+		}
+		if (fileHadMatch) fileCount++
+	}
+
+	if (totalMatchCount === 0) {
+		toolCallbacks.setToolStatus(toolId, { content: `No matches for "${query}"` })
+		return `[search_app] 0 matches for "${query}"${
+			args.file_glob ? ` in files matching "${args.file_glob}"` : ''
+		}. Try a broader or differently-spelled term, or drop the file_glob.`
+	}
+
+	const header = `[search_app] "${query}" — ${totalMatchCount} match${
+		totalMatchCount === 1 ? '' : 'es'
+	} in ${fileCount} file${fileCount === 1 ? '' : 's'}${
+		truncated ? ` (showing the first ${maxMatches}; narrow with file_glob or a more specific query)` : ''
+	}`
+
+	const out: string[] = [header]
+	let currentFile = ''
+	let budgetSpent = header.length
+	let budgetHit = false
+	const seen = new Set<string>()
+	for (const m of matches) {
+		// context windows of adjacent matches overlap — show each source line once.
+		const dedupeKey = `${m.filePath}:${m.line}`
+		if (seen.has(dedupeKey)) continue
+		seen.add(dedupeKey)
+		const text =
+			m.text.length > SEARCH_APP_MAX_LINE_CHARS
+				? `${m.text.slice(0, SEARCH_APP_MAX_LINE_CHARS)}… [line truncated]`
+				: m.text
+		const fileHeader = m.filePath === currentFile ? '' : `${m.filePath}\n`
+		const row = `${fileHeader}  ${m.line}: ${text}`
+		if (budgetSpent + row.length + 1 > SEARCH_APP_TOTAL_CHAR_BUDGET) {
+			budgetHit = true
+			break
+		}
+		if (fileHeader) currentFile = m.filePath
+		out.push(row)
+		budgetSpent += row.length + 1
+	}
+	if (budgetHit) {
+		out.push(
+			`… output truncated at the context budget — narrow with file_glob or a more specific query.`
+		)
+	}
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Found ${totalMatchCount} match${totalMatchCount === 1 ? '' : 'es'} in ${fileCount} file${
+			fileCount === 1 ? '' : 's'
+		}`
+	})
+	return out.join('\n')
 }
 
 async function writeAppFile(

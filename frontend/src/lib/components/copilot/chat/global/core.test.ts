@@ -1500,6 +1500,200 @@ describe('global AI tools', () => {
 		expect(actualChars).toBeLessThan(baselineChars * 0.5)
 	})
 
+	// A multi-file app: the revenue helper is referenced in three frontend files
+	// and one inline backend runnable; a generated file also mentions it (and must
+	// be excluded). Mirrors the analytics_dashboard fixture's "symbol spread".
+	const searchAppValue = () =>
+		({
+			path: 'f/apps/report',
+			summary: 'search app',
+			versions: [5],
+			value: {
+				files: {
+					'/lib/aggregations.ts':
+						'export function computeRevenue(o) {\n  return o.unitPrice\n}\n',
+					'/components/SummaryPanel.tsx':
+						'import { computeRevenue } from "../lib/aggregations"\nconst total = computeRevenue(order)\n',
+					'/components/OrdersTable.tsx': 'const r = computeRevenue(row)\n// renders revenue\n',
+					'/styles.css': '.revenue { color: green }\n',
+					'/wmill.d.ts': 'declare function computeRevenue(o: any): number\n'
+				},
+				runnables: {
+					computeSummary: {
+						type: 'inline',
+						inlineScript: {
+							language: 'bun',
+							content: 'export async function main() {\n  return computeRevenue\n}\n'
+						}
+					}
+				},
+				data: {}
+			}
+		}) as any
+
+	it('greps across frontend files and inline runnables, returning file:line rows', async () => {
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(searchAppValue())
+
+		const result = await callGlobalTool('search_app', {
+			path: 'f/apps/report',
+			query: 'computeRevenue'
+		})
+
+		// header counts every match across the (non-generated) files
+		expect(result).toContain('[search_app] "computeRevenue"')
+		// frontend rows use read_app_file's leading-slash addressing
+		expect(result).toContain('/lib/aggregations.ts')
+		expect(result).toContain('1: export function computeRevenue(o) {')
+		expect(result).toContain('/components/SummaryPanel.tsx')
+		// inline runnable rows use the backend/<key>/main.<ext> addressing
+		expect(result).toContain('backend/computeSummary/main.ts')
+		// generated files are never searched
+		expect(result).not.toContain('/wmill.d.ts')
+	})
+
+	it('matches case-insensitively', async () => {
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(searchAppValue())
+
+		const result = await callGlobalTool('search_app', {
+			path: 'f/apps/report',
+			query: 'COMPUTEREVENUE' // upper-case query still matches computeRevenue
+		})
+
+		expect(result).toContain('/lib/aggregations.ts')
+		expect(result).toContain('export function computeRevenue(o) {')
+	})
+
+	it('filters by a basename glob (matches nested files)', async () => {
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(searchAppValue())
+
+		const result = await callGlobalTool('search_app', {
+			path: 'f/apps/report',
+			query: 'computeRevenue',
+			file_glob: '*.tsx'
+		})
+
+		expect(result).toContain('/components/SummaryPanel.tsx')
+		expect(result).toContain('/components/OrdersTable.tsx')
+		expect(result).not.toContain('/lib/aggregations.ts')
+		expect(result).not.toContain('backend/computeSummary/main.ts')
+	})
+
+	it('filters by a path glob (e.g. backend/**)', async () => {
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(searchAppValue())
+
+		const result = await callGlobalTool('search_app', {
+			path: 'f/apps/report',
+			query: 'computeRevenue',
+			file_glob: 'backend/**'
+		})
+
+		expect(result).toContain('backend/computeSummary/main.ts')
+		expect(result).not.toContain('/lib/aggregations.ts')
+	})
+
+	it('reports zero matches with a hint instead of an empty result', async () => {
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(searchAppValue())
+
+		const result = await callGlobalTool('search_app', {
+			path: 'f/apps/report',
+			query: 'nonexistent_symbol_xyz'
+		})
+
+		expect(result).toContain('[search_app] 0 matches for "nonexistent_symbol_xyz"')
+	})
+
+	it('truncates very long matching lines to keep results sparse', async () => {
+		const longLine = `const x = "${'q'.repeat(5000)} computeRevenue"`
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
+			path: 'f/apps/report',
+			summary: 'app',
+			versions: [5],
+			value: { files: { '/min.js': longLine }, runnables: {}, data: {} }
+		} as any)
+
+		const result = await callGlobalTool('search_app', {
+			path: 'f/apps/report',
+			query: 'computeRevenue'
+		})
+
+		expect(result).toContain('[line truncated]')
+		expect(result.length).toBeLessThan(1000)
+	})
+
+	it('caps the number of match rows and says it truncated', async () => {
+		const manyLines = Array.from({ length: 500 }, (_, i) => `hit ${i}`).join('\n')
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
+			path: 'f/apps/report',
+			summary: 'app',
+			versions: [5],
+			value: { files: { '/big.tsx': manyLines }, runnables: {}, data: {} }
+		} as any)
+
+		const result = await callGlobalTool('search_app', {
+			path: 'f/apps/report',
+			query: 'hit',
+			max_matches: 50
+		})
+
+		expect(result).toContain('500 matches')
+		expect(result).toContain('showing the first 50')
+		// only 50 rows (+ header) made it into the body
+		expect(result.split('\n').filter((l) => /^\s+\d+: /.test(l)).length).toBe(50)
+	})
+
+	// Deterministic micro-benchmark: how much context a single search_app call
+	// saves over locating a symbol by reading the candidate files whole. Baseline
+	// is the conservative "read only the files that actually contain the symbol"
+	// path (a model without search must read at least those in full); the real
+	// saving is larger because, lacking search, a model often reads non-matching
+	// files too. Isolated from model nondeterminism so it can gate regressions.
+	it('micro-benchmark: search_app locates a symbol far cheaper than reading files', async () => {
+		const fileBodies: Record<string, string> = {}
+		// 8 component files, 3 of which reference the symbol, each ~120 lines.
+		for (let f = 0; f < 8; f++) {
+			const lines = Array.from({ length: 120 }, (_, i) =>
+				f < 3 && i === 60 ? `  return computeRevenue(order${f})` : `  const v${i} = ${i} // padding`
+			)
+			fileBodies[`/components/File${f}.tsx`] = lines.join('\n')
+		}
+		const appValue = {
+			path: 'f/apps/report',
+			summary: 'big app',
+			versions: [5],
+			value: {
+				files: fileBodies,
+				runnables: {},
+				data: {}
+			}
+		} as any
+
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(appValue)
+		const searchOut = await callGlobalTool('search_app', {
+			path: 'f/apps/report',
+			query: 'computeRevenue'
+		})
+
+		// Baseline: the bytes a model must pull to gather the same locations by
+		// reading each matching file in full.
+		const matchingFiles = Object.entries(fileBodies).filter(([, body]) =>
+			body.includes('computeRevenue')
+		)
+		const baselineChars = matchingFiles.reduce((sum, [, body]) => sum + body.length, 0)
+		const actualChars = searchOut.length
+		const reductionPct = Math.round((1 - actualChars / baselineChars) * 100)
+		// eslint-disable-next-line no-console
+		console.log(
+			`[search_app micro-benchmark] baseline=${baselineChars} chars (read ${matchingFiles.length} files whole), ` +
+				`actual=${actualChars} chars (one search), reduction=${reductionPct}%`
+		)
+
+		// The search surfaced exactly the 3 locations…
+		expect(matchingFiles.length).toBe(3)
+		expect((searchOut.match(/computeRevenue/g) ?? []).length).toBeGreaterThanOrEqual(3)
+		// …at a tiny fraction of reading those files whole.
+		expect(actualChars).toBeLessThan(baselineChars * 0.15)
+	})
+
 	it('does not persist a raw app draft when patch_app_file validation fails', async () => {
 		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
 			path: 'f/apps/report',
