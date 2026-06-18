@@ -428,21 +428,25 @@ export default class ContextManager {
 		displayMessages: DisplayMessage[],
 		dbSchemas: DBSchemas
 	): DisplayMessage[] {
-		return displayMessages.map((m) => ({
-			...m,
-			contextElements:
-				m.role !== 'tool' && m.contextElements
-					? m.contextElements.map((c) =>
-							c.type === 'db'
-								? {
-										type: 'db',
-										title: c.title,
-										schema: dbSchemas[c.title]
-									}
-								: c
-						)
-					: undefined
-		}))
+		return displayMessages.map((m) => {
+			// Only user/assistant messages carry contextElements; tool and summary
+			// messages pass through untouched.
+			if ((m.role === 'user' || m.role === 'assistant') && m.contextElements) {
+				return {
+					...m,
+					contextElements: m.contextElements.map((c) =>
+						c.type === 'db'
+							? {
+									type: 'db' as const,
+									title: c.title,
+									schema: dbSchemas[c.title]
+								}
+							: c
+					)
+				}
+			}
+			return m
+		})
 	}
 
 	setSelectedModuleContext(
