@@ -252,6 +252,12 @@ export interface ModeRunOutput<TActual> {
   toolCallDetails?: ToolCallDetail[];
   skillsInvoked: string[];
   tokenUsage?: BenchmarkTokenUsage | null;
+  /**
+   * Total input tokens occupying the context window on the LAST model request
+   * of the agentic loop (input + cache-creation + cache-read). Complements the
+   * cumulative `tokenUsage.prompt`, which sums every iteration's input.
+   */
+  finalContextTokens?: number | null;
 }
 
 export interface ModeRunContext {
@@ -319,6 +325,7 @@ export interface BenchmarkAttemptResult {
   judgeSummary: string | null;
   error: string | null;
   tokenUsage?: BenchmarkTokenUsage | null;
+  finalContextTokens?: number | null;
   artifactsPath?: string | null;
   artifactFiles?: BenchmarkArtifactFile[];
 }
@@ -349,6 +356,8 @@ export interface BenchmarkRunResult {
   totalPassedTokenUsage?: BenchmarkTokenUsage | null;
   averageTokenUsagePerAttempt?: BenchmarkTokenUsage | null;
   averageTokenUsagePerPassedAttempt?: BenchmarkTokenUsage | null;
+  averageFinalContextTokensPassed?: number | null;
+  maxFinalContextTokensPassed?: number | null;
   artifactsPath?: string | null;
   cases: BenchmarkCaseResult[];
 }
