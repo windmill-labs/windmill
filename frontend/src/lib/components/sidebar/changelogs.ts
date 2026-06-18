@@ -6,6 +6,72 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Quiet mode for workers',
+		href: 'https://www.windmill.dev/changelog/quiet-mode',
+		date: '2026-01-06'
+	},
+	{
+		label: 'DB manager alter table',
+		href: 'https://www.windmill.dev/changelog/db-manager-alter-table',
+		date: '2026-01-07'
+	},
+	{
+		label: 'Pydantic and dataclass type inference',
+		href: 'https://www.windmill.dev/changelog/pydantic-dataclass-support',
+		date: '2026-01-07'
+	},
+	{
+		label: 'Password reset via SMTP',
+		href: 'https://www.windmill.dev/changelog/password-reset',
+		date: '2026-01-09'
+	},
+	{
+		label: 'Workspace success handler',
+		href: 'https://www.windmill.dev/changelog/workspace-success-handler',
+		date: '2026-01-17'
+	},
+	{
+		label: 'Job metrics available on Community Edition',
+		href: 'https://www.windmill.dev/changelog/job-metrics-ce',
+		date: '2026-01-19'
+	},
+	{
+		label: 'DuckDB write to Azure Blob Storage',
+		href: 'https://www.windmill.dev/changelog/duckdb-azure-write',
+		date: '2026-01-20'
+	},
+	{
+		label: 'TypeScript client ESM build and tree-shaking',
+		href: 'https://www.windmill.dev/changelog/typescript-client-esm',
+		date: '2026-01-28'
+	},
+	{
+		label: 'QuickJS for flow expressions',
+		href: 'https://www.windmill.dev/changelog/quickjs-flow-eval',
+		date: '2026-01-29'
+	},
+	{
+		label: 'PocketID OAuth provider',
+		href: 'https://www.windmill.dev/changelog/pocketid-oauth',
+		date: '2026-01-30'
+	},
+	{
+		label: 'Assets page improvements',
+		href: 'https://www.windmill.dev/changelog/assets-improvements',
+		date: '2026-02-04'
+	},
+	{
+		label: 'Bun upgraded to v1.3.8',
+		href: 'https://www.windmill.dev/changelog/bun-1-3-8',
+		date: '2026-02-04'
+	},
+	{
+		label: 'Kafka trigger filters',
+		href: 'https://www.windmill.dev/changelog/kafka-trigger-filters',
+		date: '2026-02-04'
+	},
+
+	{
 		label: 'AWS Bedrock support for Windmill AI',
 		href: 'https://www.windmill.dev/changelog/aws-bedrock',
 		date: '2025-11-19'
