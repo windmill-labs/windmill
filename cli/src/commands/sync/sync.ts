@@ -3136,7 +3136,7 @@ export async function pull(
           change.path.endsWith(".json")
         ) {
           log.info(
-            `Editing ${getTypeStrFromPath(change.path)} ${targetPath}${
+            `Editing ${changeTypeLabel(change.path)}${targetPath}${
               targetPath !== change.path
                 ? colors.gray(` (workspace-specific override for ${change.path})`)
                 : ""
@@ -3154,7 +3154,7 @@ export async function pull(
         if (opts.stateful) {
           await mkdir(path.dirname(stateTarget), { recursive: true });
           log.info(
-            `Adding ${getTypeStrFromPath(change.path)} ${targetPath}${
+            `Adding ${changeTypeLabel(change.path)}${targetPath}${
               targetPath !== change.path
                 ? colors.gray(` (workspace-specific override for ${change.path})`)
                 : ""
@@ -3163,7 +3163,7 @@ export async function pull(
         }
         await writeFile(target, change.content, "utf-8");
         log.info(
-          `Writing ${getTypeStrFromPath(change.path)} ${targetPath}${
+          `Writing ${changeTypeLabel(change.path)}${targetPath}${
             targetPath !== change.path
               ? colors.gray(` (workspace-specific override for ${change.path})`)
               : ""
@@ -3175,7 +3175,7 @@ export async function pull(
       } else if (change.name === "deleted") {
         try {
           log.info(
-            `Deleting ${getTypeStrFromPath(change.path)} ${change.path}`,
+            `Deleting ${changeTypeLabel(change.path)}${change.path}`,
           );
           await rm(target);
           if (opts.stateful) {
@@ -3445,6 +3445,14 @@ export async function gitDeploy(
   } as any);
 }
 
+// Display label for a change's type, with a trailing space. Datatable migrations
+// are self-describing via their `migrations/datatable/...` path, so they get no
+// label prefix.
+function changeTypeLabel(p: string): string {
+  const t = getTypeStrFromPath(p);
+  return t === "datatable_migration" ? "" : `${t} `;
+}
+
 function prettyChanges(
   changes: Change[],
   specificItems?: SpecificItemsConfig,
@@ -3476,7 +3484,7 @@ function prettyChanges(
     if (change.name === "added") {
       log.info(
         colors.green(
-          `+ ${getTypeStrFromPath(change.path)} ` +
+          `+ ${changeTypeLabel(change.path)}` +
             displayPath +
             colors.gray(wsNote),
         ) + extraNote,
@@ -3484,7 +3492,7 @@ function prettyChanges(
     } else if (change.name === "deleted") {
       log.info(
         colors.red(
-          `- ${getTypeStrFromPath(change.path)} ` +
+          `- ${changeTypeLabel(change.path)}` +
             displayPath +
             colors.gray(wsNote),
         ),
@@ -3493,7 +3501,7 @@ function prettyChanges(
       const changeType = getTypeStrFromPath(change.path);
       log.info(
         colors.yellow(
-          `~ ${changeType} ` +
+          `~ ${changeTypeLabel(change.path)}` +
             displayPath +
             colors.gray(wsNote) +
             (change.codebase ? ` (codebase changed)` : ""),
