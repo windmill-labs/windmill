@@ -1046,10 +1046,12 @@
     regional breakdown. Investigate how each of those computes revenue, work out
     which calculation is wrong, and fix it. Keep the change as an AI draft only; do
     not deploy or save it.
-  # Cross-file investigation: the model reads the summary's aggregation helper, the
-  # orders table, and the regional breakdown (overlapping files), so it tends to
-  # revisit the aggregation file — exercising read_app_file re-read dedupe in a
-  # realistic run, not just the deterministic unit/micro-benchmark coverage.
+  # Cross-file investigation: forces the model through several overlapping files
+  # (the summary's aggregation helper, the orders table, the regional breakdown) —
+  # a realistic multi-file read load that exercises the read cap. Note: in practice
+  # both sonnet and haiku read each file once and keep it in context, so this does
+  # NOT trigger read_app_file re-read dedupe — that path is measured deterministically
+  # by the micro-benchmark in global/core.test.ts.
   initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
   runtime:
     maxTurns: 24
