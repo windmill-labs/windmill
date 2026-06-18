@@ -15,9 +15,10 @@
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { emptyApp } from '$lib/components/apps/editor/appUtils'
 	import { importStore } from '$lib/components/apps/store'
-	import { tick, untrack } from 'svelte'
+	import { onDestroy, tick, untrack } from 'svelte'
 	import { page } from '$app/state'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { stripNewDraftFlagOnSave } from '$lib/newDraftFlag'
 	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { runResetToDeployed } from '$lib/userDraftToast'
 
@@ -53,9 +54,14 @@
 	 * navigation races a draft-discard reload) bail at the next checkpoint
 	 * after their captured token no longer matches. */
 	let loadAppToken = 0
+	/** Drops the previous load's `new_draft` strip-on-save listener. */
+	let cleanupNewDraftFlag: (() => void) | undefined
+	onDestroy(() => cleanupNewDraftFlag?.())
 	async function loadApp(opts: { getDraft?: boolean } = {}): Promise<void> {
 		const getDraft = opts.getDraft ?? true
 		const tok = ++loadAppToken
+		cleanupNewDraftFlag?.()
+		cleanupNewDraftFlag = undefined
 		// `?new_draft=true` (from `/apps/add`'s redirect): a fresh, never-saved
 		// `draft_{uuid}` path. Skip the backend fetch (would 404) and seed empty
 		// with `path = ''` for the friendly auto-name. See /scripts/edit's loader.
@@ -74,16 +80,20 @@
 			deployedAt = undefined
 			// Brand-new app: no deployed baseline, so never discard-on-equal.
 			deployedBaseline = undefined
-			// Capture every seeding param BEFORE stripping the URL flag.
 			const templatePath = page.url.searchParams.get('template')
 			const templateId = page.url.searchParams.get('template_id')
 			const hubId = page.url.searchParams.get('hub')
 			// Explicit path seed: the fork-a-draft handoff re-homes the source
 			// path into the forker's namespace and passes it here.
 			const pathParam = page.url.searchParams.get('seed_path')
-			const url = new URL(window.location.href)
-			url.searchParams.delete('new_draft')
-			window.history.replaceState(window.history.state, '', url.toString())
+			// Keep `?new_draft=true` until the backend confirms the first autosave,
+			// so a refresh before any edit re-seeds here instead of 404-ing on the
+			// never-persisted `draft_{uuid}` path.
+			cleanupNewDraftFlag = stripNewDraftFlagOnSave({
+				workspace: $workspaceStore!,
+				itemKind: 'app',
+				path
+			})
 			// Backend's `Policy` requires `execution_mode` (empty object fails to
 			// deserialize on deploy); `publisher` is the default authoring mode.
 			const emptyPolicy = { execution_mode: 'publisher' } as any

@@ -181,6 +181,15 @@ const failures = new SvelteMap<string, string>()
 const flushes = new SvelteMap<string, number>()
 
 /**
+ * Per-key listeners fired when a save for that key LANDS on the server
+ * (`status === 'saved'` with a non-null value — the draft now exists
+ * server-side). Distinct from `save()` resolving, which only means the work
+ * was queued. Used to defer the `?new_draft` URL strip until the first
+ * autosave is confirmed (see `stripNewDraftFlagOnSave`).
+ */
+const saveListeners = new Map<string, Set<() => void>>()
+
+/**
  * Best-effort error → readable string. The generated client wraps HTTP
  * failures as `ApiError` (`body` / `statusText`); raw fetch errors are a
  * plain `Error`. Falls back to `String(e)` to avoid `[object Object]`.
@@ -246,6 +255,13 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		// newer `save()` that arrived during the POST replaces the entry
 		// and must survive for the next flush / debouncer round.
 		if (pendingSaveOpts.get(key) === opts) pendingSaveOpts.delete(key)
+		// Notify `onSaved` subscribers only for a real persisted draft, never a
+		// delete: stripping `?new_draft` after a `value: null` save would point a
+		// refresh at a row that no longer exists.
+		if (opts.value !== null) {
+			const listeners = saveListeners.get(key)
+			if (listeners) for (const l of [...listeners]) l()
+		}
 	} catch (e) {
 		console.error('UserDraftDbSyncer.save failed', e)
 		// Leave pending opts in place so the next attempt retries the same
@@ -456,6 +472,27 @@ export const UserDraftDbSyncer = {
 	/** Release a `lockSync`; subsequent saves go through normally. */
 	unlockSync(query: UserDraftLastSyncQuery): void {
 		syncLocked.delete(draftKey(query.workspace, query.itemKind, query.path))
+	},
+
+	/**
+	 * Subscribe to CONFIRMED, non-delete saves for a draft key — fired after
+	 * the POST lands on the server, not when `save()` queues it. Returns an
+	 * unsubscribe. Backs `stripNewDraftFlagOnSave`.
+	 */
+	onSaved(query: UserDraftLastSyncQuery, listener: () => void): () => void {
+		const key = draftKey(query.workspace, query.itemKind, query.path)
+		let set = saveListeners.get(key)
+		if (!set) {
+			set = new Set()
+			saveListeners.set(key, set)
+		}
+		set.add(listener)
+		return () => {
+			const s = saveListeners.get(key)
+			if (!s) return
+			s.delete(listener)
+			if (s.size === 0) saveListeners.delete(key)
+		}
 	},
 
 	/** Reactive conflict snapshot (if any) for a draft. */
