@@ -84,12 +84,17 @@
 	 * self-destruct by matching a non-existent baseline. */
 	let deployedBaseline = $state<RawAppDraft | undefined>(undefined)
 
-	// Page-level draft orchestration. `path` is a mount-scoped plain `let` (the
-	// editor remounts per path), so this re-keys only on workspace change.
+	// Page-level draft orchestration. Keyed on the REACTIVE `page.params.path`,
+	// not the mount-scoped `path` `let`: this page is not remounted on a
+	// same-route navigation, so the post-deploy `goto` (draft_{uuid} → the
+	// chosen path) must re-key the autosave handle onto the new path. Keying on
+	// the non-reactive `path` left the handle stuck on the old draft path, so
+	// edits to the just-deployed app autosaved to a dead key (autosave appeared
+	// broken). See /scripts/edit, which derives its draft path the same way.
 	// effectivePath omitted: the live-editor-draft entry is owned by RawAppEditor.
 	const draftSync = usePageDraftSync<RawAppDraft>({
 		itemKind: 'raw_app',
-		path: () => path,
+		path: () => page.params.path ?? '',
 		workspace: () => $workspaceStore,
 		// Autosaves landing back on the deployed raw app become deletes, so
 		// reverting edits clears the draft instead of leaving a no-op behind.
