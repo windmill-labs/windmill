@@ -15,13 +15,9 @@
 	// one describes the current history (one turn stale by nature), otherwise
 	// a live chars/4 estimate of the stored context.
 	let usedTokens = $derived(Math.round(aiChatManager.contextTokens))
-	// With a known window, only surface once the conversation actually fills it;
-	// without one there is no threshold to compare against, so always show.
-	let visible = $derived(
-		usedTokens > 0 &&
-			aiChatManager.messages.length > 0 &&
-			(contextWindow === undefined || usedTokens >= contextWindow * 0.5)
-	)
+	// Always surface usage once a conversation has started, at any fill level, so
+	// the user can watch context grow toward the compaction threshold.
+	let visible = $derived(usedTokens > 0 && aiChatManager.messages.length > 0)
 
 	function formatTokenCount(tokens: number): string {
 		if (tokens >= 1_000_000) {
@@ -35,11 +31,9 @@
 </script>
 
 {#if visible}
-	<div class="flex justify-end px-1">
-		<span class="text-[0.6rem] text-tertiary tabular-nums" aria-label="Context window usage">
-			context window usage: ~{formatTokenCount(usedTokens)}{contextWindow
-				? ` / ${formatTokenCount(contextWindow)}`
-				: ''}
-		</span>
-	</div>
+	<span class="text-[0.6rem] text-tertiary tabular-nums" aria-label="Context window usage">
+		Context usage: ~{formatTokenCount(usedTokens)}{contextWindow
+			? ` / ${formatTokenCount(contextWindow)}`
+			: ''}
+	</span>
 {/if}

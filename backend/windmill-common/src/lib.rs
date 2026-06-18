@@ -81,6 +81,20 @@ pub mod oidc_oss;
 #[cfg(feature = "private")]
 pub mod otel_ee;
 pub mod otel_oss;
+#[cfg(feature = "private")]
+pub mod partition_ee;
+pub mod partition_oss;
+#[cfg(feature = "private")]
+pub use partition_ee as partition;
+#[cfg(not(feature = "private"))]
+pub use partition_oss as partition;
+#[cfg(feature = "private")]
+pub mod pipeline_advanced_ee;
+pub mod pipeline_advanced_oss;
+#[cfg(feature = "private")]
+pub use pipeline_advanced_ee as pipeline_advanced;
+#[cfg(not(feature = "private"))]
+pub use pipeline_advanced_oss as pipeline_advanced;
 pub mod query_builders;
 pub mod queue;
 pub mod result_stream;

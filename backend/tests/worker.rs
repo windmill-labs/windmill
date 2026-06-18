@@ -4997,6 +4997,7 @@ async fn test_workflow_as_code(db: Pool<Postgres>) -> anyhow::Result<()> {
                 RunJob::from(JobPayload::Code(RawCode {
                     language: ScriptLang::Python3,
                     content: WORKFLOW_AS_CODE.into(),
+                    tag: None,
                     ..RawCode::default()
                 }))
                 .arg("n", json!(3))

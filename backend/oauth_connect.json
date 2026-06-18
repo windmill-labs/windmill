@@ -133,12 +133,27 @@
   },
   "coupa": {
     "grant_types": ["client_credentials"],
+    "cc_scopes": [
+      "core.supplier.read",
+      "core.supplier.write",
+      "core.purchase_order.read",
+      "core.purchase_order.write",
+      "core.requisition.read",
+      "core.requisition.write",
+      "core.invoice.read",
+      "core.invoice.write",
+      "core.contract.read",
+      "core.expense.read"
+    ],
     "connect_config_template": {
       "display_name": "Coupa",
       "label": "Coupa instance",
       "placeholder": "your-instance",
       "token_url": "https://{instance}.coupahost.com/oauth2/token",
-      "strip_suffix": ".coupahost.com"
+      "strip_suffix": ".coupahost.com",
+      "resource_mapping": {
+        "instance_url": "https://{instance}.coupahost.com"
+      }
     }
   },
   "sage_intacct": {
@@ -234,6 +249,23 @@
       "strip_suffix": ".service-now.com",
       "resource_mapping": {
         "instance_url": "https://{instance}.service-now.com"
+      }
+    }
+  },
+  "netsuite": {
+    "connect_config_template": {
+      "display_name": "NetSuite",
+      "label": "NetSuite Account ID",
+      "placeholder": "<account id> as in your NetSuite domain, e.g. 1234567 or 1234567-sb1",
+      "help_url": "https://docs.oracle.com/en/cloud/saas/netsuite/ns-online-help/chapter_157769826287.html",
+      "auth_url": "https://{instance}.app.netsuite.com/app/login/oauth2/authorize.nl",
+      "token_url": "https://{instance}.suitetalk.api.netsuite.com/services/rest/auth/oauth2/v1/token",
+      "req_body_auth": false,
+      "strip_suffix": ".app.netsuite.com",
+      "scopes": ["rest_webservices"],
+      "extra_params_key": "account_id",
+      "resource_mapping": {
+        "account_id": "{instance}"
       }
     }
   },
