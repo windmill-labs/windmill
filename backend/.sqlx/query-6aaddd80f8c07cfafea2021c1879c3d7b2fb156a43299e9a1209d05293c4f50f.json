@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dispatch_event (\n             workspace_id, producer_job_id, subscriber_path,\n             asset_kind, asset_path, outcome,\n             child_job_id, partition,\n             received_inputs, required_inputs,\n             debounce_s, reason\n           )\n           SELECT $1, $2, sp, ak, ap, oc, cj, pt, ri, rq, db, rs\n           FROM unnest(\n             $3::text[], $4::ASSET_KIND[], $5::text[], $6::DISPATCH_OUTCOME[],\n             $7::uuid[], $8::text[], $9::int[], $10::int[], $11::int[], $12::text[]\n           ) AS t(sp, ak, ap, oc, cj, pt, ri, rq, db, rs)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Uuid",
+        "TextArray",
+        {
+          "Custom": {
+            "name": "asset_kind[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "asset_kind",
+                  "kind": {
+                    "Enum": [
+                      "s3object",
+                      "resource",
+                      "variable",
+                      "ducklake",
+                      "datatable",
+                      "volume"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "TextArray",
+        {
+          "Custom": {
+            "name": "dispatch_outcome[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "dispatch_outcome",
+                  "kind": {
+                    "Enum": [
+                      "dispatched",
+                      "join_pending",
+                      "skipped"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "UuidArray",
+        "TextArray",
+        "Int4Array",
+        "Int4Array",
+        "Int4Array",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6aaddd80f8c07cfafea2021c1879c3d7b2fb156a43299e9a1209d05293c4f50f"
+}

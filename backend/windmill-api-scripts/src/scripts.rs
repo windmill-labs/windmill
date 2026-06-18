@@ -44,8 +44,9 @@ use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 
 use windmill_common::{
     assets::{
-        clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
-        insert_static_asset_usage, AssetUsageKind,
+        clear_script_triggers, clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
+        insert_script_trigger, insert_static_asset_usage, parse_duration_secs,
+        parse_pipeline_annotations, trigger_spec_to_row, AssetUsageKind, TriggerSpec,
     },
     error::{self, to_anyhow},
     min_version::{MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2},
@@ -1235,7 +1236,63 @@ async fn create_script_internal<'c>(
 
     let ci_test_refs =
         windmill_common::schema::parse_ci_test_annotation(&ns.content, &lang.as_comment_lit());
-    let auto_kind = if ci_test_refs.is_some() {
+    // `pipeline` wins over `test` and any client-supplied auto_kind. The
+    // bare `// pipeline` marker is the opt-in signal for pipeline
+    // membership; parsed writes tell us what is produced (we don't record
+    // them in auto_kind itself).
+    let pipeline_annotations = parse_pipeline_annotations(&ns.content);
+    // `// freshness` is parsed but enforcement is a not-yet-implemented
+    // enterprise feature (skeleton in windmill_common::pipeline_advanced).
+    // Surface a clear TODO at deploy rather than silently accepting an
+    // annotation that does nothing.
+    if pipeline_annotations.freshness.is_some() {
+        tracing::warn!(
+            "{}",
+            windmill_common::pipeline_advanced::freshness_enforcement_todo()
+        );
+    }
+    let in_pipeline = pipeline_annotations.in_pipeline;
+    // `// trigger all` → AND join barrier (else OR, the default).
+    let pipeline_join_all = !pipeline_annotations.join_mode.is_any();
+    // Script-level `// debounce <dur>` default; a per-`// on debounce=`
+    // overrides it (precedence resolved per edge below).
+    let pipeline_debounce_default = pipeline_annotations.debounce_default;
+    let pipeline_triggers = pipeline_annotations.triggers;
+    // `// tag <name>` overrides the caller-supplied tag at deploy. Source
+    // wins, matching the wipe-and-reinsert convention of other pipeline
+    // annotations. Applied before the dep-job tag selection below (which
+    // special-cases dedicated_worker / bunnative / `$args[`) so that path
+    // sees the annotation-overridden value.
+    if let Some(t) = pipeline_annotations.tag.clone() {
+        ns.tag = Some(t);
+    }
+    // `// retry <count> [<delay>]` is PARSED but PARKED: a retried subscriber
+    // is wrapped in a SingleStepFlow, whose run is a flow step and therefore
+    // ineligible for asset dispatch (asset_dispatch::is_eligible_kind) — so a
+    // retried subscriber would silently become a cascade dead-end (P1). We do
+    // not persist it to script_trigger; the cascade ignores retry until this
+    // is fixed. TODO(pipeline-retry): re-enable once cascade dispatch handles
+    // flow-wrapped producers.
+    if pipeline_annotations.retry.is_some() {
+        tracing::warn!(
+            "`// retry` on {} is not yet supported in the asset cascade and is ignored \
+             (a retried subscriber cannot trigger its downstream). TODO(pipeline-retry).",
+            ns.path
+        );
+    }
+    // Asset presence is server-authoritative: re-parse the deployed content
+    // (same parsers the frontend wasm wraps) and union with the client list.
+    // The `asset` rows written below drive the asset-trigger cascade, so a
+    // client deploying `assets: null` (e.g. broken wasm inference) must not
+    // silently kill the producer side while `// on` subscribers stay wired.
+    let effective_assets = crate::asset_inference::effective_script_assets(
+        &ns.language,
+        &ns.content,
+        ns.assets.take(),
+    );
+    let auto_kind = if in_pipeline {
+        Some("pipeline".to_string())
+    } else if ci_test_refs.is_some() {
         Some("test".to_string())
     } else {
         auto_kind
@@ -1312,7 +1369,9 @@ async fn create_script_internal<'c>(
             &authed,
         ),
         validate_schema,
-        ns.assets.as_ref().and_then(|a| serde_json::to_value(a).ok()),
+        effective_assets
+            .as_ref()
+            .and_then(|a| serde_json::to_value(a).ok()),
         guarded_debounce_key,
         guarded_debounce_delay_s,
         ns.cache_ignore_s3_path,
@@ -1551,10 +1610,63 @@ async fn create_script_internal<'c>(
     }
 
     clear_static_asset_usage(&mut *tx, &w_id, &script_path, AssetUsageKind::Script).await?;
-    for asset in ns.assets.as_ref().into_iter().flatten() {
+    for asset in effective_assets.as_ref().into_iter().flatten() {
         insert_static_asset_usage(&mut *tx, &w_id, &asset, &ns.path, AssetUsageKind::Script)
             .await?;
     }
+
+    // Pipeline trigger edges: wipe-and-reinsert per deploy so removing an
+    // `// on ...` annotation drops the edge. Only Asset / Schedule produce
+    // a row — native trigger marker annotations (`// on kafka`, etc.) are
+    // discovered by the graph endpoint directly from the per-kind trigger
+    // tables, so `trigger_spec_to_row` returns None for those.
+    clear_script_triggers(&mut *tx, &w_id, &ns.path, AssetUsageKind::Script).await?;
+    // On rename, also drop the OLD path's trigger rows. clear is keyed by
+    // path (no by-hash variant), and only `ns.path` is wiped above — without
+    // this, stale `// on` edges for the old path keep matching producers and
+    // would trigger a script later recreated at that path even if it has no
+    // annotation (P1). (Producer/asset rows for the old path are already
+    // cleared via clear_static_asset_usage_by_script_hash on the parent.)
+    if let Some(ref old) = p_path_opt {
+        if old != &ns.path {
+            clear_script_triggers(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;
+        }
+    }
+    for spec in &pipeline_triggers {
+        let Some((trigger_kind, trigger_ref)) = trigger_spec_to_row(spec) else {
+            continue;
+        };
+        // Effective debounce for this edge: per-`// on debounce=` wins,
+        // else the script-level `// debounce` default. Debounce only
+        // applies to asset-cascade edges; other trigger kinds get none.
+        let debounce_s = match spec {
+            TriggerSpec::Asset { debounce: Some(d), .. } => parse_duration_secs(d),
+            TriggerSpec::Asset { .. } => pipeline_debounce_default
+                .as_deref()
+                .and_then(parse_duration_secs),
+            _ => None,
+        };
+        insert_script_trigger(
+            &mut *tx,
+            &w_id,
+            AssetUsageKind::Script,
+            &ns.path,
+            trigger_kind,
+            &trigger_ref,
+            pipeline_join_all,
+            debounce_s,
+            // retry parked — see TODO(pipeline-retry) above.
+            None,
+            None,
+        )
+        .await?;
+    }
+
+    // Schedule annotations (`// on schedule`) are marker-only — the binding
+    // lives on the schedule row's own `script_path` field, which the user
+    // creates separately via the schedule editor. No script-create-time
+    // reconciliation is needed (and there are no "managed" schedules to
+    // upsert/delete anymore).
 
     let permissioned_as = username_to_permissioned_as(&authed.username);
     if let Some(parent_hash) = ns.parent_hash {
@@ -2548,6 +2660,10 @@ async fn archive_script_by_path(
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
 
     clear_static_asset_usage(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
+    // Pipeline event hygiene: an archived script must not be triggered by
+    // anything. Wipe declared `// on ...` edges (asset-event subscribers
+    // look these up).
+    clear_script_triggers(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
 
     audit_log(
         &mut *tx,
@@ -2625,6 +2741,9 @@ async fn archive_script_by_hash(
 
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
+    // Pipeline event hygiene: archived scripts must not be triggered by
+    // anything. Wipe declared `// on ...` edges.
+    clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
 
     audit_log(
         &mut *tx,
@@ -2685,6 +2804,10 @@ async fn delete_script_by_hash(
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
 
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
+    // Pipeline event hygiene: a deleted script must not be triggered by
+    // anything. Wipe declared `// on ...` edges. Idempotent — safe even if
+    // the script was never a pipeline member.
+    clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
 
     audit_log(
         &mut *tx,
@@ -2796,6 +2919,11 @@ async fn delete_script_by_path(
     )
     .execute(&mut *tx)
     .await?;
+
+    // Pipeline event hygiene: a deleted script must not be triggered by
+    // anything. Wipe declared `// on ...` edges. Idempotent — safe even if
+    // the script was never a pipeline member.
+    clear_script_triggers(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
 
     if !query.keep_captures.unwrap_or(false) {
         sqlx::query!(

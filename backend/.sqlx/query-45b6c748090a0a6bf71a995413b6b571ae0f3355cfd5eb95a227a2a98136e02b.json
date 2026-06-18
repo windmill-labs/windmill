@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path AS \"path!\" FROM flow WHERE workspace_id = $1 AND archived = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "45b6c748090a0a6bf71a995413b6b571ae0f3355cfd5eb95a227a2a98136e02b"
+}
