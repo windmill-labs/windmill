@@ -1349,9 +1349,49 @@ describe('global AI tools', () => {
 			file_path: '/min.tsx'
 		})
 
-		// 50k-char budget keeps only the first 30k line.
-		expect(result).toContain('[read_app_file] /min.tsx: lines 1-1 of 3.')
-		expect(result).toContain('offset=2')
+		expect(result).toContain(
+			'[read_app_file] /min.tsx: lines 1-3 of 3, chars 1-50000 of 90002 in this line window.'
+		)
+		expect(result).toContain('char_offset=50000')
+		expect(result.split('\n\n')[1]).toHaveLength(50_000)
+	})
+
+	it('caps a single-line generated file at the character budget', async () => {
+		const bigLine = 'x'.repeat(60_000)
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(
+			deployedAppWithFile('/generated.js', bigLine)
+		)
+
+		const result = await callGlobalTool('read_app_file', {
+			path: 'f/apps/report',
+			file_path: '/generated.js'
+		})
+
+		expect(result).toContain(
+			'[read_app_file] /generated.js: lines 1-1 of 1, chars 1-50000 of 60000 in this line window.'
+		)
+		expect(result).toContain('char_offset=50000')
+		expect(result.split('\n\n')[1]).toBe('x'.repeat(50_000))
+	})
+
+	it('can page through a single-line generated file with char_offset', async () => {
+		const bigLine = 'x'.repeat(60_000)
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(
+			deployedAppWithFile('/generated.js', bigLine)
+		)
+
+		const result = await callGlobalTool('read_app_file', {
+			path: 'f/apps/report',
+			file_path: '/generated.js',
+			char_offset: 50_000,
+			char_limit: 20_000
+		})
+
+		expect(result).toContain(
+			'[read_app_file] /generated.js: lines 1-1 of 1, chars 50001-60000 of 60000 in this line window.'
+		)
+		expect(result).not.toContain('char_offset=60000')
+		expect(result.split('\n\n')[1]).toBe('x'.repeat(10_000))
 	})
 
 	it('reports an offset past the end of the file plainly', async () => {
@@ -1391,6 +1431,32 @@ describe('global AI tools', () => {
 		)
 		expect(second).toContain('unchanged since you read it earlier')
 		expect(second).not.toContain('unchanged body')
+	})
+
+	it('does not return an unchanged stub when unread parts of the file changed', async () => {
+		const original = Array.from({ length: 2000 }, (_, i) => `line ${i + 1}`)
+		const changed = [...original]
+		changed[1799] = 'line 1800 changed outside the first read window'
+		vi.mocked(AppService.getAppByPath)
+			.mockResolvedValueOnce(deployedAppWithFile('/big.tsx', original.join('\n')))
+			.mockResolvedValueOnce(deployedAppWithFile('/big.tsx', changed.join('\n')))
+		const helpers = { appReadLedger: new Map(), isToolResultRetained: () => true }
+
+		await callGlobalTool(
+			'read_app_file',
+			{ path: 'f/apps/report', file_path: '/big.tsx' },
+			toolCallbacks,
+			helpers
+		)
+		const second = await callGlobalTool(
+			'read_app_file',
+			{ path: 'f/apps/report', file_path: '/big.tsx' },
+			toolCallbacks,
+			helpers
+		)
+
+		expect(second).not.toContain('unchanged since you read it earlier')
+		expect(second).toContain('[read_app_file] /big.tsx: lines 1-1500 of 2000.')
 	})
 
 	it('re-sends the body when the prior read is no longer in context', async () => {
