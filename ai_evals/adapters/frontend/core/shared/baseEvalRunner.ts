@@ -36,15 +36,6 @@ export interface RunEvalParams<THelpers, TOutput> {
   tools: ProductionTool<THelpers>[];
   /** Domain-specific helpers for tool execution */
   helpers: THelpers;
-  /**
-   * Optionally derive extra helper fields from the live conversation. Merged
-   * over `helpers` once `messages` exists, so the closures it returns can read
-   * the same array the chat loop mutates (e.g. the read-dedupe ledger and a
-   * "is this tool result still retained" predicate).
-   */
-  decorateHelpers?: (ctx: {
-    messages: ChatCompletionMessageParam[];
-  }) => Record<string, unknown>;
   /** API key for the provider */
   apiKey: string;
   /** Function to get the current output state. May be async — global mode reads
@@ -70,7 +61,6 @@ export async function runEval<THelpers, TOutput>(
     userMessage,
     tools,
     helpers,
-    decorateHelpers,
     apiKey,
     getOutput,
     options,
@@ -89,10 +79,6 @@ export async function runEval<THelpers, TOutput>(
   const modelProvider = resolveEvalModelProvider(model, provider);
 
   const messages: ChatCompletionMessageParam[] = [userMessage];
-  const effectiveHelpers = {
-    ...helpers,
-    ...(decorateHelpers?.({ messages }) ?? {}),
-  } as THelpers;
   let toolCallsCount = 0;
   const toolsCalled: string[] = [];
   const toolCallDetails: ToolCallDetail[] = [];
@@ -156,7 +142,7 @@ export async function runEval<THelpers, TOutput>(
         messages,
         systemMessage,
         tools: wrappedTools,
-        helpers: effectiveHelpers,
+        helpers,
         abortController,
         callbacks,
         modelProvider,

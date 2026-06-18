@@ -1409,83 +1409,12 @@ describe('global AI tools', () => {
 		).resolves.toBe('[read_app_file] /small.tsx: offset 50 is past the end of the file (10 lines).')
 	})
 
-	it('returns a stub when re-reading an unchanged file still in context', async () => {
-		vi.mocked(AppService.getAppByPath)
-			.mockResolvedValueOnce(deployedAppWithFile('/src/App.tsx', 'unchanged body'))
-			.mockResolvedValueOnce(deployedAppWithFile('/src/App.tsx', 'unchanged body'))
-		const helpers = { appReadLedger: new Map(), isToolResultRetained: () => true }
-
-		const first = await callGlobalTool(
-			'read_app_file',
-			{ path: 'f/apps/report', file_path: '/src/App.tsx' },
-			toolCallbacks,
-			helpers
-		)
-		expect(first).toBe('unchanged body')
-
-		const second = await callGlobalTool(
-			'read_app_file',
-			{ path: 'f/apps/report', file_path: '/src/App.tsx' },
-			toolCallbacks,
-			helpers
-		)
-		expect(second).toContain('unchanged since you read it earlier')
-		expect(second).not.toContain('unchanged body')
-	})
-
-	it('does not return an unchanged stub when unread parts of the file changed', async () => {
-		const original = Array.from({ length: 2000 }, (_, i) => `line ${i + 1}`)
-		const changed = [...original]
-		changed[1799] = 'line 1800 changed outside the first read window'
-		vi.mocked(AppService.getAppByPath)
-			.mockResolvedValueOnce(deployedAppWithFile('/big.tsx', original.join('\n')))
-			.mockResolvedValueOnce(deployedAppWithFile('/big.tsx', changed.join('\n')))
-		const helpers = { appReadLedger: new Map(), isToolResultRetained: () => true }
-
-		await callGlobalTool(
-			'read_app_file',
-			{ path: 'f/apps/report', file_path: '/big.tsx' },
-			toolCallbacks,
-			helpers
-		)
-		const second = await callGlobalTool(
-			'read_app_file',
-			{ path: 'f/apps/report', file_path: '/big.tsx' },
-			toolCallbacks,
-			helpers
-		)
-
-		expect(second).not.toContain('unchanged since you read it earlier')
-		expect(second).toContain('[read_app_file] /big.tsx: lines 1-1500 of 2000.')
-	})
-
-	it('re-sends the body when the prior read is no longer in context', async () => {
-		vi.mocked(AppService.getAppByPath)
-			.mockResolvedValueOnce(deployedAppWithFile('/src/App.tsx', 'body again'))
-			.mockResolvedValueOnce(deployedAppWithFile('/src/App.tsx', 'body again'))
-		const helpers = { appReadLedger: new Map(), isToolResultRetained: () => false }
-
-		await callGlobalTool(
-			'read_app_file',
-			{ path: 'f/apps/report', file_path: '/src/App.tsx' },
-			toolCallbacks,
-			helpers
-		)
-		const second = await callGlobalTool(
-			'read_app_file',
-			{ path: 'f/apps/report', file_path: '/src/App.tsx' },
-			toolCallbacks,
-			helpers
-		)
-		expect(second).toBe('body again')
-	})
-
-	// Deterministic micro-benchmark: measures how much context read_app_file saves
-	// over a realistic big-project read pattern, isolated from model nondeterminism.
-	// "Baseline" is the old behavior (whole file returned on every read, no dedupe);
-	// "actual" is the current cap + char-budget + per-range dedupe. Asserting the
+	// Deterministic micro-benchmark: measures how much context the read_app_file cap
+	// saves over a realistic big-project read pattern, isolated from model
+	// nondeterminism. "Baseline" is the old behavior (whole file returned on every
+	// read); "actual" is the current line cap + char budget + paging. Asserting the
 	// ratio also guards against a future change silently weakening the savings.
-	it('micro-benchmark: cap + dedupe cut returned context for a realistic read pattern', async () => {
+	it('micro-benchmark: the read cap cuts returned context for a realistic read pattern', async () => {
 		const bigContent = Array.from({ length: 5000 }, (_, i) => `const row${i} = ${i};`).join('\n')
 		const minified = 'a'.repeat(200_000) // single long line (e.g. a generated bundle)
 		const appValue = {
@@ -1499,30 +1428,23 @@ describe('global AI tools', () => {
 			'/min.js': minified.length
 		}
 
-		// A plausible debugging pass over a large app: read a big file, glance back
-		// at it, read a generated bundle, page deeper into the big file, glance back
-		// once more. The old tool returned every file in full each time.
+		// A plausible pass over a large app: read a big file head, page deeper into it,
+		// read a generated bundle, page deeper into the bundle. The old tool returned
+		// every file in full on every read.
 		const sequence = [
-			{ file_path: '/big.tsx' }, // 1. read big file head (line cap)
-			{ file_path: '/big.tsx' }, // 2. re-read same range (dedupe stub)
-			{ file_path: '/min.js' }, // 3. read minified bundle (char budget)
-			{ file_path: '/big.tsx', offset: 1501 }, // 4. page next chunk (fresh range)
-			{ file_path: '/big.tsx' } // 5. re-read head again (dedupe stub)
+			{ file_path: '/big.tsx' }, // 1. big file head (line cap)
+			{ file_path: '/big.tsx', offset: 1501 }, // 2. next line chunk
+			{ file_path: '/min.js' }, // 3. minified bundle head (char budget)
+			{ file_path: '/min.js', char_offset: 50_000 } // 4. next char chunk
 		]
 
-		const helpers = { appReadLedger: new Map(), isToolResultRetained: () => true }
 		let baselineChars = 0
 		let actualChars = 0
 		const perRead: number[] = []
 		for (const read of sequence) {
 			baselineChars += fullSize[read.file_path]
 			vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(appValue)
-			const out = await callGlobalTool(
-				'read_app_file',
-				{ path: 'f/apps/report', ...read },
-				toolCallbacks,
-				helpers
-			)
+			const out = await callGlobalTool('read_app_file', { path: 'f/apps/report', ...read })
 			actualChars += out.length
 			perRead.push(out.length)
 		}
@@ -1535,12 +1457,11 @@ describe('global AI tools', () => {
 				`(per-read ${perRead.join(', ')}), reduction=${reductionPct}%`
 		)
 
-		// Behavioral expectations that produce the savings:
+		// Each capped read is far smaller than the whole file it came from:
 		expect(perRead[0]).toBeLessThan(fullSize['/big.tsx']) // head slice < whole file
-		expect(perRead[1]).toBeLessThan(200) // re-read collapses to a stub
+		expect(perRead[1]).toBeLessThan(fullSize['/big.tsx']) // a paged line chunk too
 		expect(perRead[2]).toBeLessThan(51_000) // ~50k char budget + a short annotation
-		expect(perRead[2]).toBeLessThan(fullSize['/min.js']) // far below the 200k full file
-		expect(perRead[4]).toBeLessThan(200) // second re-read also a stub
+		expect(perRead[3]).toBeLessThan(51_000) // a paged char chunk too
 		// Overall: well under half the bytes the old tool would have returned.
 		expect(actualChars).toBeLessThan(baselineChars * 0.5)
 	})

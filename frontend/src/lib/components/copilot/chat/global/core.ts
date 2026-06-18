@@ -2139,18 +2139,8 @@ type WriteDraftCtx = {
 // session the user happens to be viewing.
 export type SessionToolHelpers = { sessionId?: string }
 
-// Per-conversation record of `read_app_file` results, keyed by
-// `${appPath}::${filePath}::${range}`. The full-file hash keeps cached range
-// stubs invalid when bytes outside the returned range changed.
-export type AppFileReadLedgerEntry = { fullHash: string; toolCallId: string; rangeLabel: string }
-export type AppFileReadLedger = Map<string, AppFileReadLedgerEntry>
-
 export type GlobalToolHelpers = SessionToolHelpers & {
 	testActiveFlow?: (args?: Record<string, any>) => Promise<string | undefined>
-	// Supplied by the chat manager and eval bridge so repeated unchanged reads
-	// can point at a retained prior tool result instead of resending the body.
-	appReadLedger?: AppFileReadLedger
-	isToolResultRetained?: (toolCallId: string) => boolean
 }
 
 function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {
@@ -3014,21 +3004,6 @@ async function initApp(
 const READ_APP_FILE_DEFAULT_LINE_LIMIT = 1500
 const READ_APP_FILE_CHAR_BUDGET = 50_000
 
-// cyrb53 — fast, dependency-free, collision-resistant enough to tell whether a
-// re-read would resend identical bytes.
-function hashAppFileContent(str: string): string {
-	let h1 = 0xdeadbeef
-	let h2 = 0x41c6ce57
-	for (let i = 0; i < str.length; i++) {
-		const ch = str.charCodeAt(i)
-		h1 = Math.imul(h1 ^ ch, 2654435761)
-		h2 = Math.imul(h2 ^ ch, 1597334677)
-	}
-	h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
-	h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
-	return (h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0')
-}
-
 type AppFileSlice = {
 	body: string
 	startLine: number
@@ -3077,16 +3052,6 @@ function sliceAppFileForRead(
 	}
 }
 
-function appReadLedgerFromCtx(ctx: { helpers?: unknown }): AppFileReadLedger | undefined {
-	return (ctx.helpers as GlobalToolHelpers | undefined)?.appReadLedger
-}
-
-function toolResultRetainedFromCtx(ctx: {
-	helpers?: unknown
-}): ((toolCallId: string) => boolean) | undefined {
-	return (ctx.helpers as GlobalToolHelpers | undefined)?.isToolResultRetained
-}
-
 function formatAppFileReadRangeLabel(slice: AppFileSlice): string {
 	const lineRange = `lines ${slice.startLine}-${slice.endLine} of ${slice.totalLines}`
 	if (slice.charStart === 0 && slice.charEnd === slice.lineWindowChars) {
@@ -3119,10 +3084,6 @@ function formatAppFileReadResult(filePath: string, slice: AppFileSlice): string 
 	return `[read_app_file] ${filePath}: ${formatAppFileReadRangeLabel(slice)}.${more}\n\n${slice.body}`
 }
 
-function appFileReadLedgerKey(appPath: string, filePath: string, slice: AppFileSlice): string {
-	return `${appPath}::${filePath}::${slice.startLine}:${slice.endLine}:${slice.charStart}:${slice.charEnd}`
-}
-
 async function readAppFile(
 	args: {
 		path: string
@@ -3132,7 +3093,7 @@ async function readAppFile(
 		char_offset?: number
 		char_limit?: number
 	},
-	ctx: WriteDraftCtx & { helpers?: unknown }
+	ctx: WriteDraftCtx
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
 	const target = resolveAppFileTarget(args.file_path)
@@ -3160,22 +3121,6 @@ async function readAppFile(
 		args.char_offset,
 		args.char_limit
 	)
-	const rangeLabel = slice.truncated
-		? formatAppFileReadRangeLabel(slice)
-		: `the full file (${slice.totalLines} lines)`
-
-	const ledger = appReadLedgerFromCtx(ctx)
-	const fullHash = hashAppFileContent(content)
-	if (ledger) {
-		const key = appFileReadLedgerKey(args.path, target.filePath, slice)
-		const prior = ledger.get(key)
-		const retained = toolResultRetainedFromCtx(ctx)
-		if (prior && prior.fullHash === fullHash && (retained?.(prior.toolCallId) ?? true)) {
-			toolCallbacks.setToolStatus(toolId, { content: `Read ${target.filePath} (unchanged)` })
-			return `[read_app_file] ${target.filePath} is unchanged since you read it earlier in this conversation (${prior.rangeLabel}); that content is still above. Pass offset/limit/char_offset to view a different range, or use the write/patch tools to modify it.`
-		}
-		ledger.set(key, { fullHash, toolCallId: toolId, rangeLabel })
-	}
 
 	toolCallbacks.setToolStatus(toolId, { content: `Read ${target.filePath}` })
 	return formatAppFileReadResult(target.filePath, slice)

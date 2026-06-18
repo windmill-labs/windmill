@@ -945,13 +945,14 @@
   skipJudge: true
 
 # --- Raw app on a large project (context-usage benchmark) ---
-# These two cases run against the deliberately large `analytics_dashboard` raw-app
+# These cases run against the deliberately large `analytics_dashboard` raw-app
 # fixture (~20 frontend files incl. a 5k-line data module, plus backend runnables).
 # They exist to measure how much context the global chat consumes when working in a
 # big raw app: test29 is a read-heavy debugging hunt, test30 is a small edit baseline.
 # tokenUsage is recorded per run, so the same cases re-run after a read-tool change
-# (offset/limit + read dedupe) quantify the optimization. skipJudge: the judge only
-# sees the drafts artifact and cannot run the app, so we validate deterministically.
+# (the read_app_file cap + offset/limit paging) quantify the optimization. skipJudge:
+# the judge only sees the drafts artifact and cannot run the app, so we validate
+# deterministically.
 
 - id: global-test29-raw-app-debug-large
   prompt: |-
@@ -1048,10 +1049,7 @@
     not deploy or save it.
   # Cross-file investigation: forces the model through several overlapping files
   # (the summary's aggregation helper, the orders table, the regional breakdown) —
-  # a realistic multi-file read load that exercises the read cap. Note: in practice
-  # both sonnet and haiku read each file once and keep it in context, so this does
-  # NOT trigger read_app_file re-read dedupe — that path is measured deterministically
-  # by the micro-benchmark in global/core.test.ts.
+  # a realistic multi-file read load that exercises the read_app_file cap.
   initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
   runtime:
     maxTurns: 24

@@ -66,11 +66,15 @@ Bounds per-read cost at the source so history grows slower and compaction fires
 less often. Because it caps at write time it never rewrites history → the prompt
 cache stays valid.
 
-### B. Dedupe re-reads
-Track, per conversation, the file content already returned. On a repeat
-`read_app_file` whose content is unchanged *and still present in context*, return
-a short stub instead of the full body. The "still present" check is keyed off the
-originating tool-call id so it self-heals after compaction (no stale stubs).
+### B. Dedupe re-reads *(built, benchmarked, then dropped)*
+Tracked, per conversation, the file content already returned, returning a short
+stub on a repeat read of an unchanged file still in context (keyed off the
+originating tool-call id so it self-heals after compaction). **Removed before
+shipping:** verified across sonnet/opus/gpt-5.5/haiku that no model re-reads a
+file within a conversation — they read each file once and keep it in context — so
+the dedupe never fired in any real run (the micro-benchmark forces a re-read to
+prove the mechanism works). It was a correct but unused guard, so it was dropped
+to keep the change focused; only the cap (A) ships.
 
 ### C. Replace drop-oldest with tool-result pruning *(later)*
 Instead of deleting whole oldest messages, stale the *contents* of old
@@ -101,33 +105,38 @@ Delegate "find/understand X across the app" to a sub-agent whose intermediate
 reads never touch the parent context; only its summary returns. Worth it only if
 A–E aren't enough.
 
-## This session
+## What shipped
 
-Implemented **A + B** in `global/core.ts` (+ minimal wiring in
-`AIChatManager.svelte.ts` for the per-conversation read ledger), and added a
-global raw-app eval harness (large `analytics_dashboard` fixture + cases
-`global-test29/30/31`) to measure it.
+**A only** (`read_app_file` cap + `offset`/`limit` line paging +
+`char_offset`/`char_limit` char paging) in `global/core.ts`, plus a global raw-app
+eval harness (large `analytics_dashboard` fixture + cases `global-test29/30/31/32`)
+and a deterministic micro-benchmark. **B was built and dropped** (see B above).
 
-## Measured results (sonnet, 3 attempts/case, ai_evals global mode)
+## Measured results (ai_evals global mode)
 
-| Case | What it does | Baseline | After A+B | Δ |
-|---|---|---|---|---|
-| test30 small-edit | rename a heading | 194,613 | (unaffected) | ~0 |
-| test29 debug | fix a bug in a small file | 210,247 | ~199,656¹ | ~0 (noise) |
-| test31 debug+inspect | inspect the 5k-line data module, then fix | 261,712 | 199,960 | **−23.6%** |
+The cap helps only when a model would read a large file in full — which is
+**model- and run-dependent**, so the LLM token deltas are noisy. The deterministic
+micro-benchmark (forces the read pattern, no model noise) is the source of truth:
+it shows the cap cuts returned bytes >50% on a realistic large-read pattern.
 
-¹ single attempt; the verbose trace shows test29 reads only 4 small files once,
-so A+B never triggers — the delta is run-to-run noise.
+| Model | test31 (large-file inspect) | Note |
+|---|---|---|
+| haiku | 376k → 199k (**−47%**) | always reads the big file whole → biggest win |
+| sonnet | 262k → 231k (−12%; −24% another run) | partial |
+| gpt-5.5 | −15% (read full) … +28% (self-limited) | swing is read-*choice* variance, not the cap |
+| opus | flat | reads selectively → cap inert |
 
-**Key finding — A+B helps exactly when reads are large/repeated, and not
-otherwise.** On small-file tasks the model reads a few hundred lines once
+**Key finding.** On small-file tasks the model reads a few hundred lines once
 (~4k tokens), so file content is ≈2% of the ~200k-token context; the rest is
 **fixed per-iteration overhead** (system prompt + ~28 tool schemas re-sent every
-turn). A+B only moves the needle when the model touches a large file: on test31
-it both caps the read and — because the tool description now advertises
-truncation — prompts the model to fetch `seedData.ts` with `limit:100` instead
-of all 5,051 lines, cutting ~24% of total context.
+turn). The cap only moves the needle when a model would otherwise dump a large
+file into context — a worst-case guardrail, not an everyday win. It never
+regresses correctness on any model.
 
-**Implication for next work.** For typical small-file tasks the dominant lever is
-**D (trim/defer the ~28 tool schemas + system prompt)**, not reads. C (tool-result
-pruning) and E (`search_app`) remain valuable for read-heavy/big-project flows.
+**Implication for next work.** The dominant lever for typical tasks is
+**D (trim/defer the ~28 tool schemas + system prompt)**, not reads. A separate
+investigation also found a **write-path bloat** (the app-draft write echoing the
+full app value per edit) that looks like a bigger source of context growth than
+reads. C (tool-result pruning) and E (`search_app`) remain options for
+read-heavy/big-project flows — though a standalone `search_app` A/B showed it did
+not improve token efficiency.

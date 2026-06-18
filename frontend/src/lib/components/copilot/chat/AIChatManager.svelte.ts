@@ -80,7 +80,6 @@ import {
 	globalToolsFor,
 	prepareGlobalSystemMessage,
 	prepareGlobalUserMessage,
-	type AppFileReadLedger,
 	type GlobalToolHelpers
 } from './global/core'
 import { isGlobalAiEnabled } from './global/gate'
@@ -283,11 +282,6 @@ export class AIChatManager {
 	})
 	tools = $state<Tool<any>[]>([])
 	helpers = $state<any | undefined>(undefined)
-	// Per-conversation read_app_file ledger, passed to the global tools so a
-	// repeat read of an unchanged file returns a stub instead of resending the
-	// body. Entries self-invalidate via isToolResultRetained, so it needs no
-	// explicit reset on compaction or a new conversation.
-	private appReadLedger: AppFileReadLedger = new Map()
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
 	flowOptions = $state<FlowOptions | undefined>(undefined)
@@ -424,17 +418,6 @@ export class AIChatManager {
 		)
 		return freed
 	}
-
-	// Whether a tool result (by its tool-call id) is still in the stored history.
-	// read_app_file's dedupe anchors each cached read to its tool-call id and
-	// checks this before returning an "unchanged" stub, so a read dropped by
-	// compaction is transparently re-sent rather than referenced as still-present.
-	private isToolResultRetained = (toolCallId: string): boolean =>
-		this.messages.some(
-			(m) =>
-				(m.role === 'tool' && m.tool_call_id === toolCallId) ||
-				(m.role === 'assistant' && (m.tool_calls ?? []).some((c) => c.id === toolCallId))
-		)
 
 	/**
 	 * Summary-based partial compaction. Summarizes the older PREFIX of the stored
@@ -832,9 +815,7 @@ export class AIChatManager {
 			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
 			this.helpers = {
 				...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
-				testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args),
-				appReadLedger: this.appReadLedger,
-				isToolResultRetained: this.isToolResultRetained
+				testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args)
 			} satisfies GlobalToolHelpers
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
