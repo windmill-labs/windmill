@@ -32,7 +32,7 @@
 
 {#if visible}
 	<span class="text-[0.6rem] text-tertiary tabular-nums" aria-label="Context window usage">
-		context window usage: ~{formatTokenCount(usedTokens)}{contextWindow
+		Context usage: ~{formatTokenCount(usedTokens)}{contextWindow
 			? ` / ${formatTokenCount(contextWindow)}`
 			: ''}
 	</span>
