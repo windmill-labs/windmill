@@ -161,27 +161,27 @@
 						<div class="flex gap-2">
 							<div class="relative">
 								{#if tableRow[1].resourceType === 'filesystem'}
-								<Select
-									items={[{ value: 'filesystem', label: 'Filesystem' }]}
-									value={'filesystem'}
-									disabled
-									id="storage-resource-type-select"
-									class="w-40"
-								/>
-							{:else}
-								<Select
-									items={[
-										{ value: 's3', label: 'S3' },
-										{ value: 'azure_blob', label: 'Azure Blob' },
-										{ value: 's3_aws_oidc', label: 'AWS OIDC' },
-										{ value: 'azure_workload_identity', label: 'Azure Workload Identity' },
-										{ value: 'gcloud_storage', label: 'Google Cloud Storage' }
-									]}
-									bind:value={tableRow[1].resourceType}
-									id="storage-resource-type-select"
-									class="w-40"
-								/>
-							{/if}
+									<Select
+										items={[{ value: 'filesystem', label: 'Filesystem' }]}
+										value={'filesystem'}
+										disabled
+										id="storage-resource-type-select"
+										class="w-40"
+									/>
+								{:else}
+									<Select
+										items={[
+											{ value: 's3', label: 'S3' },
+											{ value: 'azure_blob', label: 'Azure Blob' },
+											{ value: 's3_aws_oidc', label: 'AWS OIDC' },
+											{ value: 'azure_workload_identity', label: 'Azure Workload Identity' },
+											{ value: 'gcloud_storage', label: 'Google Cloud Storage' }
+										]}
+										bind:value={tableRow[1].resourceType}
+										id="storage-resource-type-select"
+										class="w-40"
+									/>
+								{/if}
 							</div>
 							<div class="flex flex-1">
 								{#if tableRow[1].resourceType === 'filesystem'}
@@ -195,6 +195,7 @@
 										class="flex-1"
 										bind:value={tableRow[1].resourcePath}
 										resourceType={tableRow[1].resourceType}
+										error={tableRow[0] === null && emptyString(tableRow[1].resourcePath)}
 									/>
 								{/if}
 							</div>
@@ -223,19 +224,15 @@
 									class="cursor-not-allowed"
 								>
 									{#snippet trigger()}
-
-											<ExploreAssetButton asset={{ kind: 's3object', path: '' }} disabled />
-
-																	{/snippet}
+										<ExploreAssetButton asset={{ kind: 's3object', path: '' }} disabled />
+									{/snippet}
 									{#snippet content()}
-
-											{#if emptyString(tableRow[1].resourcePath)}
-												Please select a storage resource
-											{:else if isDirty(tableRow[0])}
-												Please save your changes
-											{/if}
-
-																	{/snippet}
+										{#if emptyString(tableRow[1].resourcePath)}
+											Please select a storage resource
+										{:else if isDirty(tableRow[0])}
+											Please save your changes
+										{/if}
+									{/snippet}
 								</Popover>
 							{:else}
 								<ExploreAssetButton

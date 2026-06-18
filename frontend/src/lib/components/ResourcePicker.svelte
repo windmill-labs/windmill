@@ -31,6 +31,7 @@
 		datatableAsPgResource?: boolean
 		workspace?: string | undefined
 		disableChatOffset?: boolean
+		error?: boolean
 	}
 
 	let {
@@ -51,7 +52,8 @@
 		excludedValues = undefined,
 		datatableAsPgResource = false,
 		workspace = undefined,
-		disableChatOffset = false
+		disableChatOffset = false,
+		error = false
 	}: Props = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
@@ -221,6 +223,7 @@
 		<Select
 			{disabled}
 			{disablePortal}
+			{error}
 			bind:value={
 				() => value,
 				(v) => {
