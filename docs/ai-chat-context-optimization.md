@@ -103,6 +103,31 @@ A–E aren't enough.
 
 ## This session
 
-Implementing **A + B** in `global/core.ts` (+ minimal wiring in
-`AIChatManager.svelte.ts` for the per-conversation read ledger). C–F are
-follow-ups; **E (`search_app`) is the recommended next step.**
+Implemented **A + B** in `global/core.ts` (+ minimal wiring in
+`AIChatManager.svelte.ts` for the per-conversation read ledger), and added a
+global raw-app eval harness (large `analytics_dashboard` fixture + cases
+`global-test29/30/31`) to measure it.
+
+## Measured results (sonnet, 3 attempts/case, ai_evals global mode)
+
+| Case | What it does | Baseline | After A+B | Δ |
+|---|---|---|---|---|
+| test30 small-edit | rename a heading | 194,613 | (unaffected) | ~0 |
+| test29 debug | fix a bug in a small file | 210,247 | ~199,656¹ | ~0 (noise) |
+| test31 debug+inspect | inspect the 5k-line data module, then fix | 261,712 | 199,960 | **−23.6%** |
+
+¹ single attempt; the verbose trace shows test29 reads only 4 small files once,
+so A+B never triggers — the delta is run-to-run noise.
+
+**Key finding — A+B helps exactly when reads are large/repeated, and not
+otherwise.** On small-file tasks the model reads a few hundred lines once
+(~4k tokens), so file content is ≈2% of the ~200k-token context; the rest is
+**fixed per-iteration overhead** (system prompt + ~28 tool schemas re-sent every
+turn). A+B only moves the needle when the model touches a large file: on test31
+it both caps the read and — because the tool description now advertises
+truncation — prompts the model to fetch `seedData.ts` with `limit:100` instead
+of all 5,051 lines, cutting ~24% of total context.
+
+**Implication for next work.** For typical small-file tasks the dominant lever is
+**D (trim/defer the ~28 tool schemas + system prompt)**, not reads. C (tool-result
+pruning) and E (`search_app`) remain valuable for read-heavy/big-project flows.
