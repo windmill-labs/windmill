@@ -1038,3 +1038,36 @@
     - inspects both the sample order data module and the revenue aggregation logic
     - identifies the per-order revenue bug and fixes it to multiply unit price by quantity
     - leaves the result as an AI draft only
+
+- id: global-test32-raw-app-cross-file-consistency
+  prompt: |-
+    The raw app dashboard at `f/evals/global/analytics_dashboard` shows revenue
+    totals that disagree between the Revenue Summary tile, the orders table, and the
+    regional breakdown. Investigate how each of those computes revenue, work out
+    which calculation is wrong, and fix it. Keep the change as an AI draft only; do
+    not deploy or save it.
+  # Cross-file investigation: the model reads the summary's aggregation helper, the
+  # orders table, and the regional breakdown (overlapping files), so it tends to
+  # revisit the aggregation file — exercising read_app_file re-read dedupe in a
+  # realistic run, not just the deterministic unit/micro-benchmark coverage.
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 24
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "return order.unitPrice * order.quantity"
+  toolExpect:
+    requiredToolsUsed:
+      - read_app_file
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - inspects the revenue calculation behind the summary tile, the orders table, and the regional breakdown
+    - identifies that the per-order revenue helper omits quantity and fixes it to multiply unit price by quantity
+    - leaves the result as an AI draft only

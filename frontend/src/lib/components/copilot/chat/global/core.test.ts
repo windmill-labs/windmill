@@ -1480,6 +1480,71 @@ describe('global AI tools', () => {
 		expect(second).toBe('body again')
 	})
 
+	// Deterministic micro-benchmark: measures how much context read_app_file saves
+	// over a realistic big-project read pattern, isolated from model nondeterminism.
+	// "Baseline" is the old behavior (whole file returned on every read, no dedupe);
+	// "actual" is the current cap + char-budget + per-range dedupe. Asserting the
+	// ratio also guards against a future change silently weakening the savings.
+	it('micro-benchmark: cap + dedupe cut returned context for a realistic read pattern', async () => {
+		const bigContent = Array.from({ length: 5000 }, (_, i) => `const row${i} = ${i};`).join('\n')
+		const minified = 'a'.repeat(200_000) // single long line (e.g. a generated bundle)
+		const appValue = {
+			path: 'f/apps/report',
+			summary: 'big app',
+			versions: [5],
+			value: { files: { '/big.tsx': bigContent, '/min.js': minified }, runnables: {}, data: {} }
+		} as any
+		const fullSize: Record<string, number> = {
+			'/big.tsx': bigContent.length,
+			'/min.js': minified.length
+		}
+
+		// A plausible debugging pass over a large app: read a big file, glance back
+		// at it, read a generated bundle, page deeper into the big file, glance back
+		// once more. The old tool returned every file in full each time.
+		const sequence = [
+			{ file_path: '/big.tsx' }, // 1. read big file head (line cap)
+			{ file_path: '/big.tsx' }, // 2. re-read same range (dedupe stub)
+			{ file_path: '/min.js' }, // 3. read minified bundle (char budget)
+			{ file_path: '/big.tsx', offset: 1501 }, // 4. page next chunk (fresh range)
+			{ file_path: '/big.tsx' } // 5. re-read head again (dedupe stub)
+		]
+
+		const helpers = { appReadLedger: new Map(), isToolResultRetained: () => true }
+		let baselineChars = 0
+		let actualChars = 0
+		const perRead: number[] = []
+		for (const read of sequence) {
+			baselineChars += fullSize[read.file_path]
+			vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(appValue)
+			const out = await callGlobalTool(
+				'read_app_file',
+				{ path: 'f/apps/report', ...read },
+				toolCallbacks,
+				helpers
+			)
+			actualChars += out.length
+			perRead.push(out.length)
+		}
+
+		const reductionPct = Math.round((1 - actualChars / baselineChars) * 100)
+		// Surfaced when the suite runs so the benchmark is readable, not just asserted.
+		// eslint-disable-next-line no-console
+		console.log(
+			`[read_app_file micro-benchmark] baseline=${baselineChars} chars, actual=${actualChars} chars ` +
+				`(per-read ${perRead.join(', ')}), reduction=${reductionPct}%`
+		)
+
+		// Behavioral expectations that produce the savings:
+		expect(perRead[0]).toBeLessThan(fullSize['/big.tsx']) // head slice < whole file
+		expect(perRead[1]).toBeLessThan(200) // re-read collapses to a stub
+		expect(perRead[2]).toBeLessThan(51_000) // ~50k char budget + a short annotation
+		expect(perRead[2]).toBeLessThan(fullSize['/min.js']) // far below the 200k full file
+		expect(perRead[4]).toBeLessThan(200) // second re-read also a stub
+		// Overall: well under half the bytes the old tool would have returned.
+		expect(actualChars).toBeLessThan(baselineChars * 0.5)
+	})
+
 	it('does not persist a raw app draft when patch_app_file validation fails', async () => {
 		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
 			path: 'f/apps/report',
