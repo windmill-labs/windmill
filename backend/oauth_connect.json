@@ -138,7 +138,10 @@
       "label": "Coupa instance",
       "placeholder": "your-instance",
       "token_url": "https://{instance}.coupahost.com/oauth2/token",
-      "strip_suffix": ".coupahost.com"
+      "strip_suffix": ".coupahost.com",
+      "resource_mapping": {
+        "instance_url": "https://{instance}.coupahost.com"
+      }
     }
   },
   "sage_intacct": {
