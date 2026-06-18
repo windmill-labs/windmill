@@ -879,6 +879,39 @@ describe('AIChatManager context compaction', () => {
 		expect(mocks.getNonStreamingCompletion).not.toHaveBeenCalled()
 		expect(manager.displayMessages.some((m) => m.role === 'summary')).toBe(false)
 	})
+
+	it('does not drop-oldest compact when the user stops during summarization', async () => {
+		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
+		// The user hits Stop while the summary request is in flight: it aborts the
+		// turn's controller and rejects.
+		mocks.getNonStreamingCompletion.mockImplementation(
+			async (_msgs: any, ac: AbortController) => {
+				ac.abort('user_cancelled')
+				throw new Error('aborted')
+			}
+		)
+		// With the controller already aborted, the real request returns nothing;
+		// mirror that so the turn takes the cancel/rollback path.
+		mocks.runChatLoop.mockImplementation(async () => ({
+			addedMessages: [],
+			tokenUsage: { prompt: 0, completion: 0, total: 0 },
+			lastIterationUsage: null,
+			hitMaxIterations: false
+		}))
+		const manager = new AIChatManager()
+		seedForSummary(manager)
+
+		await manager.sendRequest()
+
+		// Summarization was attempted and aborted, but the abort must NOT trigger a
+		// destructive drop-oldest fallback: the full prefix survives and the unsent
+		// turn is rolled back to the pre-send history (the head pair is still there).
+		expect(mocks.getNonStreamingCompletion).toHaveBeenCalledTimes(1)
+		expect(manager.messages).toHaveLength(6)
+		expect(manager.messages[0].content).toContain('OLD1')
+		expect(manager.displayMessages.some((m) => m.role === 'summary')).toBe(false)
+	})
 })
 
 const assistantToolCall = (id: string): ChatCompletionMessageParam => ({

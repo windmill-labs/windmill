@@ -33,6 +33,16 @@ chronological thinking the model should not keep
 		const raw = '<analysis>x</analysis>\n\n\n\n<summary>a\n\n\n\nb</summary>'
 		expect(formatCompactSummary(raw)).toBe('a\n\nb')
 	})
+
+	it('strips every analysis block, not just the first, when the summary is untagged', () => {
+		const raw = '<analysis>first</analysis>\nkept one\n<analysis>second</analysis>\nkept two'
+		const formatted = formatCompactSummary(raw)
+		expect(formatted).not.toContain('first')
+		expect(formatted).not.toContain('second')
+		expect(formatted).not.toContain('<analysis>')
+		expect(formatted).toContain('kept one')
+		expect(formatted).toContain('kept two')
+	})
 })
 
 describe('buildSummaryMessageContent', () => {

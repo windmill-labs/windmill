@@ -1365,21 +1365,29 @@ export class AIChatManager {
 			) {
 				// Preferred path: summarize the older prefix, keep the recent tail.
 				const summarized = await this.summarizeAndCompact(contextWindow)
-				if (!summarized) {
-					// Fallback when summarization isn't worthwhile or fails: drop the
-					// oldest messages. A report stays meaningful only debited by what
-					// was dropped; the estimate path needs no bookkeeping — the next
-					// read re-estimates the compacted history. chars/4 can
-					// underestimate the freed tokens, which errs toward compacting
-					// again — never toward overflowing.
-					const freed = this.compactOldestMessages(
-						projectedContextTokens - contextWindow * COMPACTION_TARGET_RATIO
-					)
-					if (this.contextUsage !== undefined) {
-						this.contextUsage = Math.max(0, this.contextUsage - freed)
+				// A Stop during the in-flight summary aborts this turn's controller;
+				// summarizeAndCompact then returns false without touching history. Skip
+				// the drop-oldest fallback (and its save) — it would destructively
+				// compact a conversation the user only meant to cancel, and the request
+				// can't run on an aborted controller anyway. The cancel path below rolls
+				// the pushed turn back cleanly on its own.
+				if (!this.abortController?.signal.aborted) {
+					if (!summarized) {
+						// Fallback when summarization isn't worthwhile or fails: drop the
+						// oldest messages. A report stays meaningful only debited by what
+						// was dropped; the estimate path needs no bookkeeping — the next
+						// read re-estimates the compacted history. chars/4 can
+						// underestimate the freed tokens, which errs toward compacting
+						// again — never toward overflowing.
+						const freed = this.compactOldestMessages(
+							projectedContextTokens - contextWindow * COMPACTION_TARGET_RATIO
+						)
+						if (this.contextUsage !== undefined) {
+							this.contextUsage = Math.max(0, this.contextUsage - freed)
+						}
 					}
+					await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
 				}
-				await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
 			}
 			// Rollback anchors for restoreUnsentTurn: captured after compaction so
 			// they index into the (possibly compacted) stored history. The summary

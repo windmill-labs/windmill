@@ -100,7 +100,7 @@ export function getCompactionSummaryPrompt(): string {
  * well-formed-but-untagged summary is still usable.
  */
 export function formatCompactSummary(raw: string): string {
-	let formatted = raw.replace(/<analysis>[\s\S]*?<\/analysis>/i, '')
+	let formatted = raw.replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
 
 	const summaryMatch = formatted.match(/<summary>([\s\S]*?)<\/summary>/i)
 	if (summaryMatch) {

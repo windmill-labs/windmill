@@ -31,9 +31,9 @@
 </script>
 
 {#if visible}
-		<span class="text-[0.6rem] text-tertiary tabular-nums" aria-label="Context window usage">
-			context window usage: ~{formatTokenCount(usedTokens)}{contextWindow
-				? ` / ${formatTokenCount(contextWindow)}`
-				: ''}
-		</span>
+	<span class="text-[0.6rem] text-tertiary tabular-nums" aria-label="Context window usage">
+		context window usage: ~{formatTokenCount(usedTokens)}{contextWindow
+			? ` / ${formatTokenCount(contextWindow)}`
+			: ''}
+	</span>
 {/if}
