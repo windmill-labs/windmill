@@ -8054,6 +8054,41 @@ paths:
                     format: date-time
                 required: [status, current_timestamp]
 
+  /w/{workspace}/drafts/migrate_legacy/{kind}/{path}:
+    post:
+      summary: resolve a legacy (workspace-level) draft (admin only)
+      description: Delete a legacy draft (email NULL) or assign it to the authed admin as a per-user draft. Workspace admins / superadmins only.
+      operationId: migrateLegacyDraft
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/UserDraftItemKind"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum: [delete, assign_to_self]
+                  description: delete the legacy draft, or take ownership of it.
+              required: [action]
+      responses:
+        "200":
+          description: migration result
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/scripts/create:
     post:
       summary: create script

@@ -23,6 +23,7 @@
 	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
+	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 
 	type EditableScript = NewScript & { draft_triggers?: Trigger[] }
 
@@ -292,9 +293,10 @@
 			// timestamp the backend can stale-check. `undefined` (no draft) clears
 			// it, making the next save take the "first push" branch.
 			draftSync.recordRemoteSync(backendScript.draft_saved_at as string | undefined)
-			if (backendScript.is_draft) {
-				loadedFromDraft = true
-			}
+			// Per-response, NOT sticky: navigating to another path in the same editor
+			// must reset this, else a later no-own-draft load wrongly enters overlay.
+			const hasOwnDraft = !!backendScript.is_draft
+			loadedFromDraft = hasOwnDraft
 			// Pass both timestamps through for DraftEditorModals' staleness compare:
 			// `created_at` is the latest deploy, `draft_saved_at` the draft's save.
 			draftSavedAt = backendScript.draft_saved_at as string | undefined
@@ -307,23 +309,55 @@
 				? { ...deployedScript, ...draftFromBackend }
 				: (deployedScript as EditableScript)
 			savedScript = structuredClone($state.snapshot(effectiveScript))
+			const parentHash = topHash ?? backendScript.hash
 			// Baseline for the autosave `discardIf`: the deployed script with the
-			// same `parent_hash` graft the seed below applies, so the unedited
-			// draft compares equal. `undefined` when there's no deployed row.
+			// same `parent_hash` graft the seed below applies, so the unedited draft
+			// compares equal. `undefined` when there's no deployed row.
 			deployedBaseline = backendScript.no_deployed
 				? undefined
-				: structuredClone(
-						$state.snapshot({
-							...deployedScript,
-							parent_hash: topHash ?? backendScript.hash
-						})
-					)
-			// `parent_hash` is grafted on so the editor's compile reuses the
-			// deployed lock. The first cell write after `acquireEntry` is swallowed
-			// by the syncer's seed guard, so this load doesn't POST.
-			draftSync.draft = {
-				...effectiveScript,
-				parent_hash: topHash ?? backendScript.hash
+				: structuredClone($state.snapshot({ ...deployedScript, parent_hash: parentHash }))
+			// "Load another user's draft" handoff: show their value over the
+			// deployed metadata. If WE already have a draft → overlay mode (never
+			// saved until the user confirms overwriting their own draft).
+			const pendingLoad = getDraft
+				? OtherUserDraftLoad.takePending($workspaceStore!, 'script', draftPath)
+				: undefined
+			// Revisiting a path whose overlay was never confirmed/reset (e.g. the user
+			// navigated away mid-load): drop the stale lock so editing our own draft
+			// works again.
+			if (!pendingLoad && OtherUserDraftLoad.isActive($workspaceStore!, 'script', draftPath)) {
+				OtherUserDraftLoad.clear($workspaceStore!, 'script', draftPath)
+			}
+			if (pendingLoad) {
+				const loadedValue = {
+					...deployedScript,
+					...(pendingLoad.value as object),
+					parent_hash: parentHash
+				} as EditableScript
+				if (hasOwnDraft) {
+					OtherUserDraftLoad.beginOverlay({
+						workspace: $workspaceStore!,
+						itemKind: 'script',
+						path: draftPath,
+						ownerLabel: pendingLoad.ownerLabel,
+						loadedValue,
+						onResetToOwnDraft: () => loadScript({ getDraft: true })
+					})
+					// Seed so the bound value updates WITHOUT a POST (the lock would
+					// block it anyway, but seeding avoids tripping the edit prompt).
+					UserDraft.seed('script', draftPath, loadedValue, { workspace: $workspaceStore! })
+				} else {
+					// No own draft: adopt their value as ours (autosaves normally).
+					draftSync.draft = loadedValue
+				}
+			} else {
+				// `parent_hash` is grafted on so the editor's compile reuses the
+				// deployed lock. The first cell write after `acquireEntry` is swallowed
+				// by the syncer's seed guard, so this load doesn't POST.
+				draftSync.draft = {
+					...effectiveScript,
+					parent_hash: parentHash
+				}
 			}
 		}
 
@@ -405,6 +439,8 @@
 	itemKind="script"
 	path={page.params.path ?? ''}
 	{otherDraftsUsers}
+	draftOnly={(savedScript as any)?.no_deployed === true}
+	hasOwnDraft={loadedFromDraft}
 	onLoadFromServer={() => loadScript()}
 	getLocalDraft={() => draftSync.draft}
 	bind:othersModalOpen

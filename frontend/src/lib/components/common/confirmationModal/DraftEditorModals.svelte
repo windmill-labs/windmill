@@ -14,6 +14,8 @@
 	import DraftSyncConflictModal from './DraftSyncConflictModal.svelte'
 	import OtherUsersDraftsModal, { type OtherDraftUser } from './OtherUsersDraftsModal.svelte'
 	import StaleDraftModal from './StaleDraftModal.svelte'
+	import ConfirmationModal from './ConfirmationModal.svelte'
+	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { untrack } from 'svelte'
 
 	type Props = {
@@ -21,6 +23,12 @@
 		itemKind: UserDraftItemKind
 		path: string
 		otherDraftsUsers: OtherDraftUser[]
+		/** No deployed row exists: hides the OtherUsersDraftsModal's View Diff
+		 *  (nothing to diff the other user's draft against). */
+		draftOnly?: boolean
+		/** We have our own draft here — legacy "Assign to self" confirms before
+		 *  overwriting it. */
+		hasOwnDraft?: boolean
 		onLoadFromServer: () => void | Promise<void>
 		getLocalDraft: () => unknown
 		/** Bindable open-flag for the OtherUsersDraftsModal (route-owned). */
@@ -41,6 +49,8 @@
 		itemKind,
 		path,
 		otherDraftsUsers,
+		draftOnly = false,
+		hasOwnDraft = false,
 		onLoadFromServer,
 		getLocalDraft,
 		othersModalOpen = $bindable(),
@@ -87,6 +97,9 @@
 				{itemKind}
 				{path}
 				{otherDraftsUsers}
+				{draftOnly}
+				{hasOwnDraft}
+				onReload={onLoadFromServer}
 				bind:isOpen={othersModalOpen}
 			/>
 		{/key}
@@ -99,4 +112,16 @@
 			{onLoadLatestDeploy}
 		/>
 	{/if}
+	<ConfirmationModal
+		open={OtherUserDraftLoad.isOverwriteModalOpen(workspace, itemKind, path)}
+		title="Overwrite your current draft?"
+		confirmationText="Overwrite"
+		onConfirmed={() => OtherUserDraftLoad.confirmOverwrite(workspace, itemKind, path)}
+		onCanceled={() => OtherUserDraftLoad.dismissOverwriteModal(workspace, itemKind, path)}
+	>
+		<span class="text-sm">
+			You're editing another user's draft. Saving this edit will overwrite your own draft at this
+			path. Continue?
+		</span>
+	</ConfirmationModal>
 {/if}

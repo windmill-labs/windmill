@@ -2,7 +2,7 @@
 	/**
 	 * Home-page draft badge with per-user initial circles. Hover popover lists
 	 * each draft owner; when full context (workspace + itemKind + path) is
-	 * passed, OTHER users' rows get inline "View JSON" / "Fork" (forking
+	 * passed, OTHER users' rows get inline "View Diff" / "Load" (loading
 	 * yourself is meaningless, so own rows don't). draft_only → "Draft only"
 	 * (no deployed row), else "Draft". Renders nothing when there's no draft.
 	 */
@@ -10,11 +10,14 @@
 	import Tooltip from './meltComponents/Tooltip.svelte'
 	import { Badge } from './common'
 	import Button from './common/button/Button.svelte'
-	import Modal2 from './common/modal/Modal2.svelte'
-	import { Braces, GitFork } from 'lucide-svelte'
+	import DiffDrawer from './DiffDrawer.svelte'
+	import MigrateLegacyDraftModal from './common/confirmationModal/MigrateLegacyDraftModal.svelte'
+	import { GitCompareArrows, Pencil, Wrench } from 'lucide-svelte'
 	import { DraftService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { forkDraftToImport } from '$lib/components/forkDraftToImport'
+	import { goto } from '$lib/navigation'
+	import { OtherUserDraftLoad, editRouteFor } from '$lib/components/otherUserDraftLoad.svelte'
+	import { fetchDeployedValueForDiff } from '$lib/components/otherUserDraftDiff'
 	import { userStore } from '$lib/stores'
 
 	type DraftUser = { username?: string | null }
@@ -25,12 +28,15 @@
 		draft_users?: DraftUser[]
 		/** Authed user's username — pins their circle first and annotates `(you)`. */
 		currentUsername?: string | null
-		/** Context for the View JSON / Fork actions. Missing → text-only popover. */
+		/** Context for the View Diff / Load actions. Missing → text-only popover. */
 		workspace?: string
 		itemKind?: UserDraftItemKind
 		path?: string
-		/** Offer "Fork" alongside "View JSON" on other users' rows. The deploy
-		 * page sets this false: forking a new item is meaningless there. */
+		/** Called after an admin migrates (deletes / assigns) the legacy draft, so
+		 *  the parent row can refetch and drop the now-resolved legacy entry. */
+		onMigrated?: () => void
+		/** Offer "Load" alongside "View Diff" on other users' rows. The deploy /
+		 * review page sets this false: loading into a fresh editor is moot there. */
 		allowFork?: boolean
 	}
 
@@ -42,6 +48,7 @@
 		workspace = undefined,
 		itemKind = undefined,
 		path = undefined,
+		onMigrated = undefined,
 		allowFork = true
 	}: Props = $props()
 
@@ -116,9 +123,14 @@
 	)
 
 	let busyFor = $state<string | null>(null)
-	let jsonOpen = $state(false)
-	let jsonOwnerLabel = $state('')
-	let jsonValue = $state<unknown>(undefined)
+	let diffDrawer: DiffDrawer | undefined = $state(undefined)
+	let migrateOpen = $state(false)
+	// The hover popover sits above the diff drawer / migrate modal (z-index), so
+	// close it before opening either or it would cover them.
+	let popoverOpen = $state(false)
+
+	// Legacy (no-owner) drafts can only be resolved by workspace admins / superadmins.
+	const canMigrateLegacy = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin)
 
 	function ownerKey(owner: DraftUser): string {
 		return owner.username ?? '__legacy__'
@@ -138,12 +150,23 @@
 		).value
 	}
 
-	async function viewJson(owner: DraftUser) {
+	async function viewDiff(owner: DraftUser) {
+		if (!workspace || !itemKind || !path) return
 		busyFor = ownerKey(owner)
 		try {
-			jsonValue = await fetchDraft(owner)
-			jsonOwnerLabel = fullLabel(owner)
-			jsonOpen = true
+			const [draftValue, deployed] = await Promise.all([
+				fetchDraft(owner),
+				fetchDeployedValueForDiff(workspace, itemKind, path)
+			])
+			// Close the popover so it doesn't render over the drawer.
+			popoverOpen = false
+			diffDrawer?.openDrawer()
+			diffDrawer?.setDiff({
+				mode: 'simple',
+				title: `${fullLabel(owner)}'s draft vs deployed`,
+				original: deployed,
+				current: draftValue as any
+			})
 		} catch (e: any) {
 			sendUserToast(`Could not load draft: ${e.body ?? e.message}`, true)
 		} finally {
@@ -151,15 +174,19 @@
 		}
 	}
 
-	async function fork(owner: DraftUser) {
+	async function load(owner: DraftUser) {
 		if (!workspace || !itemKind || !path) return
 		busyFor = ownerKey(owner)
 		try {
 			const value = await fetchDraft(owner)
-			// Seed a brand-new own item from the fetched value (no server save).
-			forkDraftToImport(itemKind, value, path)
+			// Stage their value and open this item's editor. If we already have a
+			// draft here, the editor enters overlay mode (no save until the user
+			// confirms overwriting it).
+			OtherUserDraftLoad.stage(workspace, itemKind, value, path, fullLabel(owner), {
+				navigate: true
+			})
 		} catch (e: any) {
-			sendUserToast(`Could not fork draft: ${e.body ?? e.message}`, true)
+			sendUserToast(`Could not load draft: ${e.body ?? e.message}`, true)
 		} finally {
 			busyFor = null
 		}
@@ -174,6 +201,7 @@
 		debounceDelay={50}
 		enableFlyTransition
 		class="inline-flex items-center"
+		bind:isOpen={popoverOpen}
 	>
 		{#snippet trigger()}
 			<Badge small color="indigo">
@@ -243,28 +271,56 @@
 										</Tooltip>
 									{/if}
 								</span>
-								{#if actionsEnabled && !isSelf}
-									<Button
-										variant="subtle"
-										size="xs3"
-										startIcon={{ icon: Braces }}
-										disabled={busyFor !== null && busyFor !== ownerKey(u)}
-										loading={busyFor === ownerKey(u)}
-										on:click={() => viewJson(u)}
-									>
-										View JSON
-									</Button>
-									<!-- Operators can't create items, so Fork is hidden (View JSON stays, it's read-only). -->
+								{#if actionsEnabled && isSelf}
+									<!-- Own draft: jump straight into the editor. -->
+									{#if !$userStore?.operator && itemKind && path}
+										<Button
+											variant="subtle"
+											size="xs3"
+											startIcon={{ icon: Pencil }}
+											on:click={() => goto(editRouteFor(itemKind, path))}
+										>
+											Edit
+										</Button>
+									{/if}
+								{:else if actionsEnabled && !isSelf}
+									{#if !draft_only}
+										<Button
+											variant="subtle"
+											size="xs3"
+											startIcon={{ icon: GitCompareArrows }}
+											disabled={busyFor !== null && busyFor !== ownerKey(u)}
+											loading={busyFor === ownerKey(u)}
+											on:click={() => viewDiff(u)}
+										>
+											View Diff
+										</Button>
+									{/if}
+									<!-- Operators can't edit items, so Load is hidden (View Diff stays, it's
+									     read-only). `allowFork=false` (deploy/review page) hides it too. -->
 									{#if allowFork && !$userStore?.operator}
 										<Button
 											variant="subtle"
 											size="xs3"
-											startIcon={{ icon: GitFork }}
+											startIcon={{ icon: Pencil }}
 											disabled={busyFor !== null && busyFor !== ownerKey(u)}
 											loading={busyFor === ownerKey(u)}
-											on:click={() => fork(u)}
+											on:click={() => load(u)}
 										>
-											Fork
+											Load
+										</Button>
+									{/if}
+									{#if !u.username && canMigrateLegacy}
+										<Button
+											variant="subtle"
+											size="xs3"
+											startIcon={{ icon: Wrench }}
+											on:click={() => {
+												popoverOpen = false
+												migrateOpen = true
+											}}
+										>
+											Migrate
 										</Button>
 									{/if}
 								{/if}
@@ -277,27 +333,15 @@
 	</Popover>
 {/if}
 
-<Modal2
-	bind:isOpen={jsonOpen}
-	title="Draft JSON — {jsonOwnerLabel}"
-	fixedWidth="lg"
-	fixedHeight="lg"
->
-	{#snippet headerRight()}
-		<Button
-			variant="default"
-			size="xs"
-			on:click={() => {
-				navigator.clipboard?.writeText(JSON.stringify(jsonValue, null, 2))
-				sendUserToast('Copied to clipboard')
-			}}
-		>
-			Copy
-		</Button>
-	{/snippet}
-	<div class="w-full overflow-auto">
-		<pre class="text-xs whitespace-pre font-mono bg-surface-secondary rounded p-3"
-			>{JSON.stringify(jsonValue ?? {}, null, 2)}</pre
-		>
-	</div>
-</Modal2>
+<DiffDrawer bind:this={diffDrawer} isFlow={itemKind === 'flow'} />
+
+{#if workspace && itemKind && path}
+	<MigrateLegacyDraftModal
+		bind:isOpen={migrateOpen}
+		{workspace}
+		{itemKind}
+		{path}
+		ownDraftExists={!!currentUsername && draft_users.some((u) => u.username === currentUsername)}
+		onMigrated={() => onMigrated?.()}
+	/>
+{/if}

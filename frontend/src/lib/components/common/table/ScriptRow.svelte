@@ -199,6 +199,7 @@
 			workspace={$workspaceStore ?? undefined}
 			itemKind="script"
 			path={script.path}
+			onMigrated={() => dispatch('change')}
 		/>
 		{#if script.labels?.length}
 			<div class="flex items-center gap-0.5">
