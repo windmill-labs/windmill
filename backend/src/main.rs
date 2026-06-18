@@ -1646,6 +1646,13 @@ async fn process_notify_event(
             );
             windmill_common::variables::CUSTOM_ENVS_CACHE.remove(payload);
         }
+        "notify_asset_producer_change" => {
+            tracing::debug!(
+                "Asset producer change for workspace {}, invalidating producer-writes cache",
+                payload
+            );
+            windmill_queue::asset_dispatch::ASSET_PRODUCER_WRITES_CACHE.remove(payload);
+        }
         "notify_workspace_key_change" => {
             tracing::info!(
                 "Workspace key change detected, invalidating workspace key cache: {}",
