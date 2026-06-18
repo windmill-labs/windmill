@@ -75,12 +75,13 @@ async fn seed_asset_write(
     .bind(producer_path)
     .execute(db)
     .await?;
-    // The dispatcher caches the per-workspace producer set, normally
-    // invalidated at deploy via the notify_event poller. These tests seed
-    // `asset` rows directly and run no poller, so invalidate here to mirror
-    // what a deploy would do — otherwise a stale cache hides freshly-seeded
-    // producers and nothing dispatches.
-    windmill_queue::asset_dispatch::ASSET_PRODUCER_WRITES_CACHE.remove(WS);
+    // These tests use #[sqlx::test] isolated DBs that all share one workspace
+    // id, so the process-global producer cache (keyed by workspace) would
+    // clobber across DBs under concurrent test threads. Disable it so every
+    // dispatch reads the test's own DB. (Production invalidates via the
+    // notify_event poller instead.)
+    windmill_queue::asset_dispatch::ASSET_PRODUCER_CACHE_DISABLED
+        .store(true, std::sync::atomic::Ordering::Relaxed);
     Ok(())
 }
 

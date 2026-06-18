@@ -457,6 +457,14 @@ lazy_static::lazy_static! {
         quick_cache::sync::Cache::new(1000);
 }
 
+/// Test hook: disables the producer-writes cache so every dispatch reads the
+/// current DB. Integration tests use `#[sqlx::test]` isolated DBs that all
+/// share one workspace id, so a process-global cache keyed by workspace would
+/// clobber across DBs under concurrent test threads. Always `false` in
+/// production (the cache is invalidated via the notify_event poller instead).
+pub static ASSET_PRODUCER_CACHE_DISABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 /// Load (cached) the producer→writes map for a workspace. The single load
 /// query replaces the per-completion producer lookup; once cached, every
 /// completion in the workspace is served from memory until invalidation.
@@ -464,8 +472,11 @@ async fn workspace_producer_writes(
     db: &Pool<Postgres>,
     workspace_id: &str,
 ) -> Result<Arc<HashMap<String, Vec<(AssetKind, String)>>>> {
-    if let Some(map) = ASSET_PRODUCER_WRITES_CACHE.get(workspace_id) {
-        return Ok(map);
+    let use_cache = !ASSET_PRODUCER_CACHE_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
+    if use_cache {
+        if let Some(map) = ASSET_PRODUCER_WRITES_CACHE.get(workspace_id) {
+            return Ok(map);
+        }
     }
     let rows = sqlx::query!(
         r#"
@@ -487,7 +498,9 @@ async fn workspace_producer_writes(
         map.entry(r.usage_path).or_default().push((r.kind, r.path));
     }
     let map = Arc::new(map);
-    ASSET_PRODUCER_WRITES_CACHE.insert(workspace_id.to_string(), map.clone());
+    if use_cache {
+        ASSET_PRODUCER_WRITES_CACHE.insert(workspace_id.to_string(), map.clone());
+    }
     Ok(map)
 }
 
