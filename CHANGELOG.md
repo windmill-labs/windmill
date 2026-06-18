@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.730.0](https://github.com/windmill-labs/windmill/compare/v1.729.0...v1.730.0) (2026-06-18)
+
+
+### Features
+
+* **ai-chat:** summary-based conversation compaction ([#9645](https://github.com/windmill-labs/windmill/issues/9645)) ([5d553b8](https://github.com/windmill-labs/windmill/commit/5d553b81c06664aab61131a93b198575c088d12d))
+* Data Pipelines alpha ([#9193](https://github.com/windmill-labs/windmill/issues/9193)) ([7155a0b](https://github.com/windmill-labs/windmill/commit/7155a0bb96cf30bd878272a0f4c3c3b02341b261))
+
+
+### Bug Fixes
+
+* **ai-chat:** stop echoing app draft value in global chat write tool results ([#9658](https://github.com/windmill-labs/windmill/issues/9658)) ([2fed808](https://github.com/windmill-labs/windmill/commit/2fed808b9e716d9a44b34c7a073ec0d37374be05))
+* **backend:** include raw_app drafts in list_apps draft_users ([#9647](https://github.com/windmill-labs/windmill/issues/9647)) ([19bc005](https://github.com/windmill-labs/windmill/commit/19bc0052f1069d732231950a0ec958f675d57417))
+* **frontend:** keep ?new_draft flag until first save is confirmed ([#9656](https://github.com/windmill-labs/windmill/issues/9656)) ([9b6b7c3](https://github.com/windmill-labs/windmill/commit/9b6b7c3862d9988e5e91eaab2b967a23f41cdc0d))
+* **frontend:** re-key raw-app autosave on post-deploy navigation ([#9646](https://github.com/windmill-labs/windmill/issues/9646)) ([1058bde](https://github.com/windmill-labs/windmill/commit/1058bdeccdc4c403ef4599db0ee74a65a66c715f))
+* gate agent-worker global setting reads with a blocklist ([#9623](https://github.com/windmill-labs/windmill/issues/9623)) ([fdd82f0](https://github.com/windmill-labs/windmill/commit/fdd82f0c48f29805cd9e219649f27fba45c7fd92))
+* **workspaces:** add instance setting to disable workspace invite/add emails ([#9643](https://github.com/windmill-labs/windmill/issues/9643)) ([796230d](https://github.com/windmill-labs/windmill/commit/796230d90a7e6d1debc15e139ab708881e527862))
+
 ## [1.729.0](https://github.com/windmill-labs/windmill/compare/v1.728.1...v1.729.0) (2026-06-18)
 
 
