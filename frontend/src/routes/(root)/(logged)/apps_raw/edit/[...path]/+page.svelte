@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
+	import { onDestroy } from 'svelte'
+	import { stripNewDraftFlagOnSave } from '$lib/newDraftFlag'
 
 	import { AppService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -149,6 +151,9 @@
 	 * navigation races a draft-discard reload) bail at the next checkpoint
 	 * after their captured token no longer matches. */
 	let loadAppToken = 0
+	/** Drops the previous load's `new_draft` strip-on-save listener. */
+	let cleanupNewDraftFlag: (() => void) | undefined
+	onDestroy(() => cleanupNewDraftFlag?.())
 	/** No deployed row at the URL path; flips RawAppEditor's deploy from
 	 * `updateApp` to `createApp`. See /apps/edit's `isNewApp`. */
 	let isNewApp = $state(false)
@@ -160,6 +165,8 @@
 	async function loadApp(opts: { getDraft?: boolean } = {}): Promise<void> {
 		const getDraft = opts.getDraft ?? true
 		const tok = ++loadAppToken
+		cleanupNewDraftFlag?.()
+		cleanupNewDraftFlag = undefined
 		// `?new_draft=true` (from `/apps_raw/add`'s redirect): a fresh, never-saved
 		// `draft_{uuid}` path. Skip the backend fetch (would 404) and seed every
 		// piece of state RawAppEditor needs — rendering gates on `files`, so an
@@ -181,10 +188,15 @@
 			if ($workspaceStore) {
 				UserDraft.stopSync('raw_app', path, { workspace: $workspaceStore })
 				armRestartOnFirstInteraction($workspaceStore, 'raw_app', path)
+				// Keep `?new_draft=true` until the backend confirms the first autosave,
+				// so a refresh before any edit re-seeds here instead of 404-ing on the
+				// never-persisted `draft_{uuid}` path.
+				cleanupNewDraftFlag = stripNewDraftFlagOnSave({
+					workspace: $workspaceStore,
+					itemKind: 'raw_app',
+					path
+				})
 			}
-			const url = new URL(window.location.href)
-			url.searchParams.delete('new_draft')
-			window.history.replaceState(window.history.state, '', url.toString())
 			// Backend's `Policy` requires `execution_mode` (empty object fails to deserialize).
 			const defaultPolicy = {
 				on_behalf_of: $userStore?.username.includes('@')
