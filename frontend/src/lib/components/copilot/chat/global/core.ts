@@ -3071,6 +3071,10 @@ function toolResultRetainedFromCtx(
 // patch_app_file's exact-match stays trivial; truncated/windowed reads get a
 // one-line annotation describing the range (not part of the file).
 function formatAppFileReadResult(filePath: string, slice: AppFileSlice): string {
+	// offset past the last line: report it plainly instead of a backwards range.
+	if (slice.startLine > slice.totalLines) {
+		return `[read_app_file] ${filePath}: offset ${slice.startLine} is past the end of the file (${slice.totalLines} lines).`
+	}
 	if (!slice.truncated && slice.startLine === 1) {
 		return slice.body
 	}

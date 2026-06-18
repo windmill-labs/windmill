@@ -1294,6 +1294,126 @@ describe('global AI tools', () => {
 		expect(getBackendDraft('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
+	const deployedAppWithFile = (filePath: string, content: string) =>
+		({
+			path: 'f/apps/report',
+			summary: 'deployed app',
+			versions: [5],
+			value: { files: { [filePath]: content }, runnables: {}, data: {} }
+		}) as any
+
+	it('truncates a large frontend file to a head slice with a paging annotation', async () => {
+		const lines = Array.from({ length: 2000 }, (_, i) => `line ${i + 1}`)
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(
+			deployedAppWithFile('/big.tsx', lines.join('\n'))
+		)
+
+		const result = await callGlobalTool('read_app_file', {
+			path: 'f/apps/report',
+			file_path: '/big.tsx'
+		})
+
+		expect(result).toContain('[read_app_file] /big.tsx: lines 1-1500 of 2000.')
+		expect(result).toContain('offset=1501')
+		expect(result).toContain('line 1500')
+		expect(result).not.toContain('line 1501')
+	})
+
+	it('returns the requested window when offset and limit are given', async () => {
+		const lines = Array.from({ length: 2000 }, (_, i) => `line ${i + 1}`)
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(
+			deployedAppWithFile('/big.tsx', lines.join('\n'))
+		)
+
+		const result = await callGlobalTool('read_app_file', {
+			path: 'f/apps/report',
+			file_path: '/big.tsx',
+			offset: 5,
+			limit: 3
+		})
+
+		expect(result).toContain('[read_app_file] /big.tsx: lines 5-7 of 2000.')
+		expect(result).toContain('line 5\nline 6\nline 7')
+		expect(result).not.toContain('line 4')
+		expect(result).not.toContain('line 8')
+	})
+
+	it('truncates at the character budget for files with very long lines', async () => {
+		const bigLine = 'x'.repeat(30_000)
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(
+			deployedAppWithFile('/min.tsx', [bigLine, bigLine, bigLine].join('\n'))
+		)
+
+		const result = await callGlobalTool('read_app_file', {
+			path: 'f/apps/report',
+			file_path: '/min.tsx'
+		})
+
+		// 50k-char budget keeps only the first 30k line.
+		expect(result).toContain('[read_app_file] /min.tsx: lines 1-1 of 3.')
+		expect(result).toContain('offset=2')
+	})
+
+	it('reports an offset past the end of the file plainly', async () => {
+		const lines = Array.from({ length: 10 }, (_, i) => `line ${i + 1}`)
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(
+			deployedAppWithFile('/small.tsx', lines.join('\n'))
+		)
+
+		await expect(
+			callGlobalTool('read_app_file', {
+				path: 'f/apps/report',
+				file_path: '/small.tsx',
+				offset: 50
+			})
+		).resolves.toBe('[read_app_file] /small.tsx: offset 50 is past the end of the file (10 lines).')
+	})
+
+	it('returns a stub when re-reading an unchanged file still in context', async () => {
+		vi.mocked(AppService.getAppByPath)
+			.mockResolvedValueOnce(deployedAppWithFile('/src/App.tsx', 'unchanged body'))
+			.mockResolvedValueOnce(deployedAppWithFile('/src/App.tsx', 'unchanged body'))
+		const helpers = { appReadLedger: new Map(), isToolResultRetained: () => true }
+
+		const first = await callGlobalTool(
+			'read_app_file',
+			{ path: 'f/apps/report', file_path: '/src/App.tsx' },
+			toolCallbacks,
+			helpers
+		)
+		expect(first).toBe('unchanged body')
+
+		const second = await callGlobalTool(
+			'read_app_file',
+			{ path: 'f/apps/report', file_path: '/src/App.tsx' },
+			toolCallbacks,
+			helpers
+		)
+		expect(second).toContain('unchanged since you read it earlier')
+		expect(second).not.toContain('unchanged body')
+	})
+
+	it('re-sends the body when the prior read is no longer in context', async () => {
+		vi.mocked(AppService.getAppByPath)
+			.mockResolvedValueOnce(deployedAppWithFile('/src/App.tsx', 'body again'))
+			.mockResolvedValueOnce(deployedAppWithFile('/src/App.tsx', 'body again'))
+		const helpers = { appReadLedger: new Map(), isToolResultRetained: () => false }
+
+		await callGlobalTool(
+			'read_app_file',
+			{ path: 'f/apps/report', file_path: '/src/App.tsx' },
+			toolCallbacks,
+			helpers
+		)
+		const second = await callGlobalTool(
+			'read_app_file',
+			{ path: 'f/apps/report', file_path: '/src/App.tsx' },
+			toolCallbacks,
+			helpers
+		)
+		expect(second).toBe('body again')
+	})
+
 	it('does not persist a raw app draft when patch_app_file validation fails', async () => {
 		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
 			path: 'f/apps/report',
