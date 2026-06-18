@@ -133,6 +133,18 @@
   },
   "coupa": {
     "grant_types": ["client_credentials"],
+    "cc_scopes": [
+      "core.supplier.read",
+      "core.supplier.write",
+      "core.purchase_order.read",
+      "core.purchase_order.write",
+      "core.requisition.read",
+      "core.requisition.write",
+      "core.invoice.read",
+      "core.invoice.write",
+      "core.contract.read",
+      "core.expense.read"
+    ],
     "connect_config_template": {
       "display_name": "Coupa",
       "label": "Coupa instance",
