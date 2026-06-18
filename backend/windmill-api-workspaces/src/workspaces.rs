@@ -61,6 +61,12 @@ use windmill_git_sync::{
 };
 use windmill_types::s3::LargeFileStorage;
 
+use windmill_api_jobs::run_wait_result_internal;
+use windmill_common::jobs::{JobPayload, RawCode};
+use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, DebouncingSettings};
+use windmill_common::scripts::ScriptLang;
+use windmill_queue::{push, PushArgs, PushIsolationLevel};
+
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
@@ -2434,12 +2440,129 @@ struct RunDatatableMigrationsQuery {
     only: Option<i64>,
 }
 
+/// Build the `database` argument for a migration job. Resource-backed data
+/// tables pass a `$res:` reference (resolved + redacted by the worker); instance
+/// data tables have no resource, so the resolved credentials are passed.
+async fn datatable_database_arg(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+) -> Result<Box<serde_json::value::RawValue>> {
+    let config = sqlx::query_scalar!(
+        "SELECT ws.datatable->'datatables'->$2 FROM workspace_settings ws WHERE ws.workspace_id = $1",
+        w_id,
+        datatable_name,
+    )
+    .fetch_one(db)
+    .await?
+    .ok_or_else(|| Error::internal_err(format!("datatable {datatable_name} not found")))?;
+    let datatable: DataTable = serde_json::from_value(config)?;
+    match datatable.database.resource_type {
+        DataTableCatalogResourceType::Postgresql => Ok(to_raw_value(&format!(
+            "$res:{}",
+            datatable.database.resource_path
+        ))),
+        DataTableCatalogResourceType::Instance => {
+            let resolved =
+                get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+            Ok(to_raw_value(&resolved))
+        }
+    }
+}
+
+/// Run a migration's SQL as a normal Windmill `postgresql` job, permissioned as
+/// the requesting user and labelled `datatable_migration` for traceability, then
+/// wait for it. Errors if the job fails.
+async fn run_datatable_migration_job(
+    db: &DB,
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    database_arg: &Box<serde_json::value::RawValue>,
+    sql: &str,
+) -> Result<()> {
+    let mut args = HashMap::new();
+    args.insert("database".to_string(), database_arg.clone());
+    let push_args = PushArgs { extra: None, args: &args };
+
+    let (uuid, mut tx) = push(
+        db,
+        PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
+        w_id,
+        JobPayload::Code(RawCode {
+            content: sql.to_string(),
+            path: Some("datatable_migration".to_string()),
+            hash: None,
+            language: ScriptLang::Postgresql,
+            lock: None,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            tag: None,
+            concurrency_settings: ConcurrencySettingsWithCustom::default(),
+            debouncing_settings: DebouncingSettings::default(),
+            modules: None,
+        }),
+        push_args,
+        authed.display_username(),
+        &authed.email,
+        username_to_permissioned_as(&authed.username),
+        authed.token_prefix.as_deref(),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        None,
+        None,
+        None,
+        None,
+        Some(&authed.clone().into()),
+        false,
+        None,
+        None,
+        None,
+    )
+    .await?;
+
+    // Tag the job so migration runs are easy to find in the run history.
+    sqlx::query!(
+        "UPDATE v2_job SET labels = (
+                SELECT array_agg(DISTINCT l)
+                FROM unnest(coalesce(labels, ARRAY[]::TEXT[]) || $2) l
+            ) WHERE id = $1",
+        uuid,
+        &vec!["datatable_migration".to_string()],
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    let (result, success) =
+        run_wait_result_internal(db, uuid, w_id, None, false, &authed.username).await?;
+    if !success {
+        return Err(Error::internal_err(format!(
+            "migration job failed: {}",
+            result.get()
+        )));
+    }
+    Ok(())
+}
+
 /// Apply the workspace's pending data table migrations to a given data table.
-/// Applied versions are tracked in the data table's own `_wm_migrations` table,
-/// so only migrations not recorded there are run, in ascending `timestamp` order.
+/// Each migration runs as a normal Windmill `postgresql` job (permissioned as
+/// the requester, labelled `datatable_migration`); applied versions are then
+/// recorded in the data table's own `_wm_migrations` table, so only migrations
+/// not recorded there are run, in ascending `timestamp` order.
 async fn run_datatable_migrations(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
     Query(query): Query<RunDatatableMigrationsQuery>,
 ) -> JsonResult<RunDatatableMigrationsResult> {
@@ -2465,11 +2588,14 @@ async fn run_datatable_migrations(
     .fetch_all(&db)
     .await?;
 
-    // Connect to the data table's database
+    let database_arg = datatable_database_arg(&db, &w_id, &datatable_name).await?;
+
+    // The data table's `_wm_migrations` bookkeeping is read here and written
+    // after each job succeeds; the migration SQL itself runs in the job.
     let db_resource = get_datatable_resource_from_db_unchecked(&db, &w_id, &datatable_name).await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
-    let (mut client, connection) = pg_db.connect(Some(&db)).await?;
+    let (client, connection) = pg_db.connect(Some(&db)).await?;
     tokio::spawn(async move {
         if let Err(e) = connection.await {
             tracing::error!("Datatable connection error: {}", e);
@@ -2509,33 +2635,22 @@ async fn run_datatable_migrations(
         if applied_versions.contains(&m.timestamp) {
             continue;
         }
-        // Each migration is applied and recorded atomically so a failure leaves
-        // neither the schema change nor the version row behind.
-        let tx = client
-            .transaction()
+        run_datatable_migration_job(&db, &user_db, &authed, &w_id, &database_arg, &m.code_up)
             .await
-            .map_err(|e| Error::internal_err(format!("Failed to start transaction: {}", e)))?;
-        tx.batch_execute(&m.code_up).await.map_err(|e| {
-            // Surface the underlying Postgres message (e.g. "syntax error at ...")
-            // rather than tokio_postgres's terse "db error".
-            let detail = e
-                .as_db_error()
-                .map(|d| d.message().to_string())
-                .unwrap_or_else(|| e.to_string());
-            Error::internal_err(format!(
-                "Failed to apply migration {} ({}): {}",
-                m.timestamp, m.name, detail
-            ))
-        })?;
-        tx.execute(
-            "INSERT INTO _wm_migrations (version) VALUES ($1)",
-            &[&m.timestamp],
-        )
-        .await
-        .map_err(|e| Error::internal_err(format!("Failed to record migration: {}", e)))?;
-        tx.commit().await.map_err(|e| {
-            Error::internal_err(format!("Failed to commit migration {}: {}", m.timestamp, e))
-        })?;
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to apply migration {} ({}): {}",
+                    m.timestamp, m.name, e
+                ))
+            })?;
+        // Record the migration as installed once its job has succeeded.
+        client
+            .execute(
+                "INSERT INTO _wm_migrations (version) VALUES ($1) ON CONFLICT DO NOTHING",
+                &[&m.timestamp],
+            )
+            .await
+            .map_err(|e| Error::internal_err(format!("Failed to record migration: {}", e)))?;
         applied.push(AppliedMigration { version: m.timestamp, name: m.name });
     }
 
@@ -2560,13 +2675,15 @@ struct RollbackDatatableMigrationsQuery {
     only: Option<i64>,
 }
 
-/// Roll back a migration on a given data table: run its `code_down` and drop its
-/// `_wm_migrations` row, atomically. Without `only` this targets the most
-/// recently applied migration (one step); with `only` it targets that specific
-/// applied version.
+/// Roll back a migration on a given data table: run its `code_down` as a normal
+/// Windmill `postgresql` job (permissioned as the requester, labelled
+/// `datatable_migration`) then drop its `_wm_migrations` row. Without `only` this
+/// targets the most recently applied migration (one step); with `only` it
+/// targets that specific applied version.
 async fn rollback_datatable_migrations(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
     Query(query): Query<RollbackDatatableMigrationsQuery>,
 ) -> JsonResult<RollbackDatatableMigrationsResult> {
@@ -2583,11 +2700,12 @@ async fn rollback_datatable_migrations(
     )
     .await?;
 
-    // Connect to the data table's database
+    // The data table's `_wm_migrations` bookkeeping is read here and the version
+    // dropped after the job succeeds; the down SQL itself runs in the job.
     let db_resource = get_datatable_resource_from_db_unchecked(&db, &w_id, &datatable_name).await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
-    let (mut client, connection) = pg_db.connect(Some(&db)).await?;
+    let (client, connection) = pg_db.connect(Some(&db)).await?;
     tokio::spawn(async move {
         if let Err(e) = connection.await {
             tracing::error!("Datatable connection error: {}", e);
@@ -2655,27 +2773,21 @@ async fn rollback_datatable_migrations(
         ))
     })?;
 
-    // Run the down migration and forget its version atomically.
-    let tx = client
-        .transaction()
+    let database_arg = datatable_database_arg(&db, &w_id, &datatable_name).await?;
+    run_datatable_migration_job(&db, &user_db, &authed, &w_id, &database_arg, &code_down)
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to start transaction: {}", e)))?;
-    tx.batch_execute(&code_down).await.map_err(|e| {
-        let detail = e
-            .as_db_error()
-            .map(|d| d.message().to_string())
-            .unwrap_or_else(|| e.to_string());
-        Error::internal_err(format!(
-            "Failed to roll back migration {} ({}): {}",
-            version, definition.name, detail
-        ))
-    })?;
-    tx.execute("DELETE FROM _wm_migrations WHERE version = $1", &[&version])
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to roll back migration {} ({}): {}",
+                version, definition.name, e
+            ))
+        })?;
+
+    // Forget the version once its down job has succeeded.
+    client
+        .execute("DELETE FROM _wm_migrations WHERE version = $1", &[&version])
         .await
         .map_err(|e| Error::internal_err(format!("Failed to drop migration record: {}", e)))?;
-    tx.commit().await.map_err(|e| {
-        Error::internal_err(format!("Failed to commit rollback of {}: {}", version, e))
-    })?;
 
     Ok(Json(RollbackDatatableMigrationsResult {
         rolled_back: vec![RolledBackMigration { version, name: definition.name }],
