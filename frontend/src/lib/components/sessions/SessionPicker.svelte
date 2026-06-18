@@ -46,7 +46,6 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { visibleWorkspaceIds } from './sessionScope.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
-	import { copilotInfo } from '$lib/aiStore'
 	import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
@@ -318,9 +317,11 @@
 	)
 </script>
 
-{#if !globalEnabled || !$copilotInfo.enabled}
-	<!-- Sessions hidden until the global-ai dev gate is enabled, and whenever AI is
-	     unavailable (no provider configured or disabled in the user's AI settings). -->
+{#if !globalEnabled}
+	<!-- Sessions hidden until the global-ai dev gate is enabled. When AI is
+	     unavailable (no provider configured or disabled in the user's settings)
+	     the section still shows — the per-session chat input is disabled with an
+	     explanatory message, mirroring the sidebar AI chat. -->
 {:else if isCollapsed}
 	<div class="px-2 pt-3 pb-2 border-b border-light dark:border-gray-700">
 		<Menubar>

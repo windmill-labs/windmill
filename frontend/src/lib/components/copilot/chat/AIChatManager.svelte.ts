@@ -49,6 +49,7 @@ import { get } from 'svelte/store'
 import { BROWSER } from 'esm-env'
 import { workspaceStore, type DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
+import { readDocsPageTool, searchDocsTool } from './docs/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import {
 	createAppBackendRunnableContextElement,
@@ -89,6 +90,10 @@ import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 // from mode switches, and the estimate's chars/4 error.
 const COMPACTION_TRIGGER_RATIO = 0.8
 const COMPACTION_TARGET_RATIO = 0.7
+// Abort reason for a deliberate user cancel (Esc / Stop). Programmatic cancels
+// (panel teardown, save-and-clear) pass their own reason, so the queued-message
+// flush can tell "the user wants to move on" from "the turn was torn down".
+const USER_CANCEL_REASON = 'user_cancelled'
 const AI_AUTONOMY_MODE_STORAGE_KEY = 'ai-chat-autonomy-mode'
 const LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
 const WEB_SEARCH_ERROR_HINT =
@@ -220,6 +225,11 @@ export class AIChatManager {
 	savedSize = $state<number>(0)
 	instructions = $state<string>('')
 	pendingPrompt = $state<string>('')
+	// Message typed while a turn is streaming. There is only ever one queued
+	// message; pressing Enter again appends another line to it. Auto-sent when
+	// the turn finishes (clean completion or user cancel). Ephemeral — never
+	// saved to displayMessages or history.
+	queuedMessage = $state<string>('')
 	loading = $state<boolean>(false)
 	currentReply = $state<string>('')
 	currentReasoning = $state<string>('')
@@ -391,7 +401,7 @@ export class AIChatManager {
 		try {
 			this.apiTools = await loadApiTools()
 			if (this.mode === AIMode.API) {
-				this.tools = [...this.apiTools]
+				this.tools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
 			}
 		} catch (err) {
 			console.error('Error loading api tools', err)
@@ -507,6 +517,38 @@ export class AIChatManager {
 
 	setAiChatInput(aiChatInput: AIChatInput | null) {
 		this.aiChatInput = aiChatInput
+	}
+
+	/** Queue the message typed while a turn is streaming. There is only ever
+	 * one queued message; pressing Enter again appends the new text as another
+	 * line so it all goes out as a single message. */
+	queueMessage(text: string) {
+		const trimmed = text.trim()
+		if (!trimmed) {
+			return
+		}
+		this.queuedMessage = this.queuedMessage ? `${this.queuedMessage}\n${trimmed}` : trimmed
+	}
+
+	/** Remove the queued message and put its text back into the input. */
+	dequeueMessage() {
+		if (!this.queuedMessage) {
+			return
+		}
+		const message = this.queuedMessage
+		this.queuedMessage = ''
+		this.restoreToInput(message)
+	}
+
+	/** Put text the user typed back where they can see it: into the input
+	 * when it's mounted, otherwise back into the queue so it reappears with
+	 * the chat panel instead of being silently dropped. */
+	private restoreToInput(text: string) {
+		if (this.aiChatInput) {
+			this.aiChatInput.prependText(text)
+		} else {
+			this.queuedMessage = text
+		}
 	}
 
 	focusInput() {
@@ -625,7 +667,7 @@ export class AIChatManager {
 		} else if (mode === AIMode.API) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareApiSystemMessage(customPrompt)
-			this.tools = [...this.apiTools]
+			this.tools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
 			this.helpers = {}
 		} else if (mode === AIMode.GLOBAL) {
 			const customPrompt = getCombinedCustomPrompt(mode)
@@ -789,16 +831,22 @@ export class AIChatManager {
 	}
 
 	// Roll a turn that produced nothing usable back out of the transcript and
-	// hand its text back to the composer for editing/resending.
+	// hand its text back to the composer for editing/resending. `restoreToInput`
+	// is false when a queued message is about to take over (a user cancel with
+	// something queued) — then the rolled-back prompt is dropped rather than
+	// shoved back into the input, so the handoff to the queued message is clean.
 	private restoreUnsentTurn = (
 		displayLenAfterUser: number,
 		modelLenAfterUser: number,
 		instructions: string,
-		pastes: PasteAttachment[]
+		pastes: PasteAttachment[],
+		restoreToInput: boolean = true
 	) => {
 		this.displayMessages = this.displayMessages.slice(0, displayLenAfterUser - 1)
 		this.messages = this.messages.slice(0, modelLenAfterUser - 1)
-		this.aiChatInput?.restoreInstructions(instructions, pastes)
+		if (restoreToInput) {
+			this.aiChatInput?.restoreInstructions(instructions, pastes)
+		}
 	}
 
 	private chatRequest = async ({
@@ -1003,9 +1051,12 @@ export class AIChatManager {
 			isPreprocessor?: boolean
 		} = {}
 	) => {
+		// Returns whether the message was actually turned into a chat turn —
+		// the queue flush uses this to restore messages dropped by an early
+		// return instead of silently losing them.
 		const requestedMode = options.mode ?? this.mode
 		if (!isAIModeVisible(requestedMode)) {
-			return
+			return false
 		}
 		this.changeMode(requestedMode, undefined, {
 			lang: options.lang,
@@ -1015,7 +1066,7 @@ export class AIChatManager {
 			this.instructions = options.instructions
 		}
 		if (!this.instructions.trim()) {
-			return
+			return false
 		}
 		if (this.beforeSend) {
 			try {
@@ -1032,7 +1083,7 @@ export class AIChatManager {
 					}. Your message was not sent — please try again.`,
 					true
 				)
-				return
+				return false
 			}
 		}
 		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
@@ -1045,6 +1096,10 @@ export class AIChatManager {
 		// from saveChat) must not make the catch commit the turn a second time.
 		let turnOutcomeHandled = false
 		let webSearchUnavailable = false
+		// Gates the queued-message flush below: only a cleanly committed turn
+		// auto-sends the next queued message. Cancel, error, and empty-response
+		// rollbacks leave it false so queued text is restored to the input.
+		let turnCommittedCleanly = false
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
 			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
@@ -1313,7 +1368,17 @@ export class AIChatManager {
 				// (or only reasoning) — treat the turn as unsent (matches Claude Code).
 				// contextUsage is left as-is: the turn is rolled back, so the last
 				// report (pre-turn, possibly debited by compaction) still stands.
-				this.restoreUnsentTurn(displayLenAfterUser, modelLenAfterUser, sentInstructions, sentPastes)
+				// When the user cancelled with a message queued, that message is
+				// about to auto-send (see the flush below) — drop the rolled-back
+				// prompt instead of restoring it to the input so the handoff is clean.
+				const willAutoSendQueued = this.wasCancelledByUser() && !!this.queuedMessage
+				this.restoreUnsentTurn(
+					displayLenAfterUser,
+					modelLenAfterUser,
+					sentInstructions,
+					sentPastes,
+					!willAutoSendQueued
+				)
 				if (this.displayMessages.length === 0) {
 					// saveChat no-ops on an empty transcript; the chat persisted earlier
 					// this turn would linger in history and resurface the rolled-back
@@ -1340,6 +1405,10 @@ export class AIChatManager {
 					this.acceptPendingFlowEdits()
 				}
 				await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextUsage)
+				// Only this branch is a clean send: the queued-message flush below
+				// auto-sends the next message after it (set after saveChat so a
+				// persistence failure falls through to the restore path instead).
+				turnCommittedCleanly = true
 				if (isFirstUserTurn && this.afterFirstTurnSaved) {
 					void Promise.resolve(this.afterFirstTurnSaved()).catch((e) => {
 						console.error('AIChatManager afterFirstTurnSaved hook failed', e)
@@ -1369,6 +1438,31 @@ export class AIChatManager {
 		} finally {
 			this.loading = false
 		}
+		// Flush the queued message. Send it after a cleanly committed turn OR a
+		// deliberate user cancel (Esc / Stop) — in both cases the user is ready
+		// to move on, so it sends automatically. A genuine error, an
+		// empty-response rollback, or a programmatic cancel (panel teardown,
+		// save-and-clear) leaves it in place as a card so it isn't fired into a
+		// failed or torn-down turn.
+		if ((turnCommittedCleanly || this.wasCancelledByUser()) && this.queuedMessage) {
+			const next = this.queuedMessage
+			this.queuedMessage = ''
+			const accepted = await this.sendRequest({ instructions: next })
+			if (accepted === false) {
+				// The auto-send bailed before becoming a turn (e.g. beforeSend
+				// failed); keep it as the queued message instead of losing it.
+				this.queuedMessage = next
+			}
+		}
+		return true
+	}
+
+	// True when the current turn's controller was aborted by a deliberate user
+	// cancel (Esc / Stop), as opposed to a programmatic cancel (panel teardown,
+	// save-and-clear) or no abort at all. Gates the queued-message auto-send.
+	private wasCancelledByUser(): boolean {
+		const signal = this.abortController?.signal
+		return !!signal?.aborted && signal.reason === USER_CANCEL_REASON
 	}
 
 	cancel = (reason?: string) => {
@@ -1380,7 +1474,7 @@ export class AIChatManager {
 			resolveQuestion(undefined)
 		}
 		this.userQuestionCallbacks.clear()
-		const cancelReason = reason ?? 'user_cancelled'
+		const cancelReason = reason ?? USER_CANCEL_REASON
 		console.log('cancelling request:', {
 			reason: cancelReason,
 			abortController: this.abortController
@@ -1460,6 +1554,9 @@ export class AIChatManager {
 
 	saveAndClear = async () => {
 		this.cancel('saveAndClear')
+		// Drop any message queued in this conversation so it can't auto-send into
+		// the fresh chat or linger as a card across the switch.
+		this.queuedMessage = ''
 		await this.historyManager.save(this.displayMessages, this.messages, this.contextUsage)
 		this.displayMessages = []
 		this.messages = []
@@ -1469,6 +1566,9 @@ export class AIChatManager {
 	loadPastChat = async (id: string) => {
 		const chat = this.historyManager.loadPastChat(id)
 		if (chat) {
+			// Drop any message queued in the current conversation so it doesn't
+			// auto-send into the loaded one or linger as a card across the switch.
+			this.queuedMessage = ''
 			this.displayMessages = chat.displayMessages
 			this.messages = chat.actualMessages
 			this.contextUsage = normalizeContextUsage(chat.contextUsage)

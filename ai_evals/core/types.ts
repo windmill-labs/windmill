@@ -172,7 +172,10 @@ export interface ToolValidationSpec {
   toolCallArgs?: ToolCallArgumentRule[];
 }
 
-export type EvalValidationSpec = FlowValidationSpec | AppValidationSpec | GlobalValidationSpec;
+export type EvalValidationSpec =
+  | FlowValidationSpec
+  | AppValidationSpec
+  | GlobalValidationSpec;
 
 export interface EvalCase {
   id: string;
@@ -294,6 +297,12 @@ export interface ModeRunner<TInitial, TExpected, TActual> {
     context: ModeRunContext;
   }): Promise<BackendValidationResult | null>;
   buildArtifacts?(actual: TActual): BenchmarkArtifactFile[];
+  /**
+   * Optional transform applied to `actual` before it is handed to the LLM judge.
+   * Use it to strip fields the judge must stay blind to (e.g. which docs-tool
+   * arm produced an answer). When omitted, the judge receives `actual` as-is.
+   */
+  prepareJudgeActual?(actual: TActual): unknown;
 }
 
 export interface BenchmarkAttemptResult {

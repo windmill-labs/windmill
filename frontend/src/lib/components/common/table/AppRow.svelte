@@ -130,6 +130,7 @@
 			workspace={$workspaceStore ?? undefined}
 			itemKind={app.raw_app ? 'raw_app' : 'app'}
 			path={app.path}
+			onMigrated={() => dispatch('change')}
 		/>
 		{#if app.labels?.length}
 			<div class="flex items-center gap-0.5">
