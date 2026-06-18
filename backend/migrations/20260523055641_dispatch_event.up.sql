@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS dispatch_event (
   -- Effective debounce window applied to this dispatch (NULL = none).
   debounce_s      INTEGER,
   -- Free-text discriminator for 'skipped' outcomes (self_loop,
-  -- case3_non_partition_bearing, case3_missing_partition, depth_cap, ...).
+  -- case3_non_partition_bearing, case3_missing_partition, cycle_detected, ...).
   reason          TEXT,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
