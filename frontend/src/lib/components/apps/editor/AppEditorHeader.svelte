@@ -193,6 +193,20 @@
 		})
 	})
 
+	// Mirror the summary onto the autosaved App so a draft persists it (the
+	// autosave stores the bare App value, which has no summary of its own — it
+	// lives in the `app` table column, set only on deploy). Without this the
+	// summary is lost when reopening a draft or deploying it from the Review &
+	// Deploy page. Parallels `draft_path`.
+	$effect(() => {
+		const s = $summary
+		const a = $app
+		if (!a) return
+		untrack(() => {
+			if (a.summary !== s) a.summary = s
+		})
+	})
+
 	const { history, jobsDrawerOpen, refreshComponents } =
 		getContext<AppEditorContext>('AppEditorContext')
 

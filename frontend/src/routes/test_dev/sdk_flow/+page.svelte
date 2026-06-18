@@ -1,16 +1,10 @@
 <script lang="ts">
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import FlowWrapper from '$lib/components/FlowWrapper.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { getUserExt } from '$lib/user'
 
-	loadUser()
-
-	async function loadUser() {
-		if ($workspaceStore) {
-			$userStore = await getUserExt($workspaceStore)
-		}
-	}
+	// Auth (workspace + token + user) is wired by the shared TestDevHeader in the
+	// test_dev layout. Without a workspace FlowWrapper can't acquire a UserDraft
+	// handle, so autosave and its indicator stay off until you log in there.
 
 	let flowStore = $state({
 		val: {

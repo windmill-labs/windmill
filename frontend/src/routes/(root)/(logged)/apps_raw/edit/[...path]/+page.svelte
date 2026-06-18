@@ -11,11 +11,16 @@
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
-	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
+	import {
+		type RawAppData,
+		DEFAULT_DATA,
+		extractDataConfig
+	} from '$lib/components/raw_apps/dataTableRefUtils'
 	import { importStore } from '$lib/components/apps/store'
 	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
+	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { armRestartOnFirstInteraction, runResetToDeployed } from '$lib/userDraftToast'
 	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
@@ -121,24 +126,6 @@
 	/** Normalize a raw-app `value` into the editor's `data` config, supporting
 	 * the old nested `creation` / `datatables` shapes. `undefined` when the
 	 * value carries no data config (caller keeps the current/default `data`). */
-	function extractDataConfig(value: any): RawAppData | undefined {
-		if (value?.data) {
-			const d = value.data
-			// Handle old nested creation format
-			if (d.creation) {
-				return {
-					tables: d.tables ?? [],
-					datatable: d.creation.datatable,
-					schema: d.creation.schema
-				}
-			}
-			return d
-		} else if (value?.datatables) {
-			return { ...DEFAULT_DATA, tables: value.datatables }
-		}
-		return undefined
-	}
-
 	function extractRawApp(app: any) {
 		runnables = app.value.runnables
 		// Support old formats and new format
@@ -276,9 +263,10 @@
 		}
 		draftSync.recordRemoteSync(backendApp.draft_saved_at as string | undefined)
 		isNewApp = !!backendApp.no_deployed
-		if (backendApp.is_draft) {
-			loadedFromDraft = true
-		}
+		// Per-response, NOT sticky: a later no-own-draft load in the same editor
+		// must reset this so it can't wrongly force overlay mode.
+		const hasOwnDraft = !!backendApp.is_draft
+		loadedFromDraft = hasOwnDraft
 		// Deploy timestamp is `backendApp.created_at`; skip when `no_deployed`.
 		// See /apps/edit's loader.
 		draftSavedAt = backendApp.draft_saved_at as string | undefined
@@ -356,6 +344,47 @@
 		// $effect re-mirrors them into `draftSync.draft`; the first write is
 		// swallowed by `acquireEntry`'s seed guard, so no POST.
 		extractRawApp(backendApp)
+		// "Load another user's draft" handoff: their value is a flat RawAppDraft
+		// bundle. Override the local pieces with it; overlay mode (we have our own
+		// draft) hard-locks saves until the user confirms overwriting. The bundle
+		// $effect's write to `draftSync.draft` is blocked by the lock. See /scripts.
+		const pendingLoad = getDraft
+			? OtherUserDraftLoad.takePending($workspaceStore!, 'raw_app', path)
+			: undefined
+		// Revisiting a path whose overlay was never confirmed/reset: drop the stale
+		// lock so editing our own draft works again. See /scripts/edit's loader.
+		if (!pendingLoad && OtherUserDraftLoad.isActive($workspaceStore!, 'raw_app', path)) {
+			OtherUserDraftLoad.clear($workspaceStore!, 'raw_app', path)
+		}
+		if (pendingLoad) {
+			const v = pendingLoad.value as RawAppDraft
+			files = v.files ?? {}
+			runnables = v.runnables ?? {}
+			data = v.data ?? { ...DEFAULT_DATA }
+			summary = v.summary ?? ''
+			policy = v.policy ?? {}
+			newPath = v.draft_path ?? savedApp?.path ?? path
+			if (hasOwnDraft) {
+				OtherUserDraftLoad.beginOverlay({
+					workspace: $workspaceStore!,
+					itemKind: 'raw_app',
+					path,
+					ownerLabel: pendingLoad.ownerLabel,
+					// Mirror the bundle the persist-$effect produces from these pieces,
+					// so the cascade write that re-mirrors them isn't seen as an edit.
+					loadedValue: {
+						files,
+						runnables,
+						data,
+						summary,
+						policy,
+						custom_path: savedApp?.custom_path,
+						...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
+					} as RawAppDraft,
+					onResetToOwnDraft: () => loadApp({ getDraft: true })
+				})
+			}
+		}
 	}
 
 	run(() => {
@@ -465,6 +494,8 @@
 	itemKind="raw_app"
 	{path}
 	{otherDraftsUsers}
+	draftOnly={isNewApp}
+	hasOwnDraft={loadedFromDraft}
 	onLoadFromServer={() => loadApp()}
 	getLocalDraft={() => draftSync.draft}
 	bind:othersModalOpen

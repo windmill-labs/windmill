@@ -2113,7 +2113,12 @@ export function parseDbInputFromAssetSyntax(path: string): DbInput | null {
 	const [p2, _p3] = _p2.split('/')
 	const [p3, p4] = _p3.split('.')
 	return p1 === 'ducklake'
-		? { type: 'ducklake', ducklake: p2 || 'main', specificTable: p4 ?? p3 }
+		? {
+				type: 'ducklake',
+				ducklake: p2 || 'main',
+				specificTable: p4 ?? p3,
+				specificSchema: p4 ? p3 : undefined
+			}
 		: p1 === 'datatable'
 			? {
 					type: 'database',

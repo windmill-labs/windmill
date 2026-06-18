@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.728.1
+  version: 1.729.0
   title: Windmill API
 
   contact:
@@ -6288,9 +6288,9 @@ paths:
                 cc_client_secret:
                   type: string
                   description: "OAuth client secret for resource-level credentials (client_credentials flow only)"
-                cc_token_url:
+                cc_instance:
                   type: string
-                  description: "OAuth token URL override for resource-level authentication (client_credentials flow only)"
+                  description: "Instance name for built-in providers whose client-credentials token URL is instance-templated; substituted into the fixed-host registry template server-side (client_credentials flow only). The token URL is never caller-supplied."
                 mcp_server_url:
                   type: string
                   description: "MCP server URL for MCP OAuth token refresh"
@@ -6311,13 +6311,14 @@ paths:
               schema:
                 type: string
 
-  /oauth/connect_client_credentials/{client}:
+  /w/{workspace}/oauth/connect_client_credentials/{client}:
     post:
       summary: connect OAuth using client credentials
       operationId: connectClientCredentials
       tags:
         - oauth
       parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
         - name: client
           in: path
           description: OAuth client name
@@ -6338,16 +6339,13 @@ paths:
                     type: string
                 cc_client_id:
                   type: string
-                  description: "OAuth client ID for resource-level authentication"
+                  description: "OAuth client ID. Omit to use the credentials configured on the provider's instance OAuth entry."
                 cc_client_secret:
                   type: string
-                  description: "OAuth client secret for resource-level authentication"
-                cc_token_url:
+                  description: "OAuth client secret. Omit to use the credentials configured on the provider's instance OAuth entry."
+                cc_instance:
                   type: string
-                  description: "OAuth token URL override for resource-level authentication"
-              required:
-                - cc_client_id
-                - cc_client_secret
+                  description: "Instance name for built-in providers whose client-credentials token URL is instance-templated; substituted into the fixed-host registry template server-side. The token URL is never caller-supplied."
       responses:
         "200":
           description: OAuth token response
@@ -6481,7 +6479,18 @@ paths:
               schema:
                 type: array
                 items:
-                  type: string
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    supports_client_credentials:
+                      type: boolean
+                    has_shared_credentials:
+                      type: boolean
+                  required:
+                    - name
+                    - supports_client_credentials
+                    - has_shared_credentials
 
   /oauth/get_connect/{client}:
     get:
@@ -6514,6 +6523,9 @@ paths:
                     type: array
                     items:
                       type: string
+                  client_credentials_configured:
+                    type: boolean
+                    description: "The instance OAuth entry carries shared client-credentials, so the connect dialog can skip the bring-your-own form and run the exchange server-side"
 
   /teams/activities:
     post:
@@ -7898,6 +7910,11 @@ paths:
         - draft
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: all_users
+          in: query
+          description: List every draft in the workspace (all users), not just the current user's own + legacy rows. Other users' rows come back with `mine=false` (view-only).
+          schema:
+            type: boolean
       responses:
         "200":
           description: the user's drafts
@@ -7927,7 +7944,25 @@ paths:
                     created_at:
                       type: string
                       format: date-time
-                  required: [kind, path, draft_only, legacy_draft, created_at]
+                    can_write:
+                      type: boolean
+                      description: Whether the current user may deploy/discard this draft (same check the deploy/discard endpoints enforce).
+                    mine:
+                      type: boolean
+                      description: The row belongs to the current user (own draft or the legacy no-owner row) and is therefore actionable. Always true in the default listing; with `all_users=true`, other users' rows are false (view-only).
+                    draft_users:
+                      description: |
+                        Draft authors at this (path, kind) — the legacy NULL-email row surfaced as a null username.
+                        Populated only for the shared full-page-editor kinds (script/flow/app/raw_app); omitted for
+                        drawer kinds, which keep their drafts private. Feeds the Draft badge's owner-avatar circles.
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          username:
+                            type: string
+                            nullable: true
+                  required: [kind, path, draft_only, legacy_draft, created_at, can_write, mine]
 
   /w/{workspace}/drafts/get/{kind}/{path}:
     get:
@@ -7999,6 +8034,10 @@ paths:
                 legacy:
                   type: boolean
                   description: Delete-only. Target the legacy workspace-level row (email NULL) instead of the current user's row. Used to discard a legacy draft from the review page.
+                created_at:
+                  type: string
+                  format: date-time
+                  description: Upsert-only override for the stored creation timestamp. Normal saves omit it (stamped server-side); the localStorage→DB migration passes the draft's original write time so migrated drafts keep their age.
       responses:
         "200":
           description: save result
@@ -8014,6 +8053,41 @@ paths:
                     type: string
                     format: date-time
                 required: [status, current_timestamp]
+
+  /w/{workspace}/drafts/migrate_legacy/{kind}/{path}:
+    post:
+      summary: resolve a legacy (workspace-level) draft (admin only)
+      description: Delete a legacy draft (email NULL) or assign it to the authed admin as a per-user draft. Workspace admins / superadmins only.
+      operationId: migrateLegacyDraft
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/UserDraftItemKind"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum: [delete, assign_to_self]
+                  description: delete the legacy draft, or take ownership of it.
+              required: [action]
+      responses:
+        "200":
+          description: migration result
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/scripts/create:
     post:
