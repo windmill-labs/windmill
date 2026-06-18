@@ -126,10 +126,11 @@ The runnable ID is the filename without extension. For example, `get_user.ts` cr
 | C#               | `.cs`        | `myFunc.cs`      |
 | Java             | `.java`      | `myFunc.java`    |
 
-After creating a runnable, offer to generate its lock files as a one-sentence next step (e.g. "Want me to generate the lock files?") and run it yourself once they agree — don't just name the command and wait. If the user already asked you to finish/lock the app, run it directly. It writes local lock files (not a deploy), so offer rather than running silently:
+After creating or editing a backend runnable — especially when its imports or arguments changed — its local lock and `wmill-lock.yaml` go stale. Offer to run `wmill generate-metadata` and run it once the user agrees (or automatically if the project's `AGENTS.md` opts into that) — YOU run it, don't just name it and wait. It writes local files only (not a deploy), and keeping the lock current avoids noise in git-sync/CI:
 ```bash
 wmill generate-metadata
 ```
+After it runs, check the regenerated `.lock` diff and tell the user which dependency versions changed (e.g. `requests 2.31.0 → 2.32.0`), so they can catch an unwanted bump before deploying.
 
 ### Optional YAML configuration
 
@@ -219,7 +220,7 @@ data:
 
 Two commands you run yourself, not the user:
 - `wmill app new` — run it with flags, per the "Creating a Raw App" section above.
-- `wmill generate-metadata` — generates local lock files; offer it and run it on consent, per "After creating a runnable" above (it writes local lock files, not a deploy).
+- `wmill generate-metadata` — (re)generates local lock files and refreshes `wmill-lock.yaml` content hashes; writes local files only (not a deploy). After adding or editing a runnable, offer it and run it on agreement — or automatically if the project's `AGENTS.md` opts into that (see "After creating a runnable" above).
 
 For the rest, tell the user which command fits their intent and let them run it — these deploy to the workspace, overwrite local files, or launch a long-running server, so the user should consent each time:
 
