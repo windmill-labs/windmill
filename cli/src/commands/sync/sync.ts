@@ -32,6 +32,7 @@ import { pullSharedUi, pushSharedUi } from "../shared_ui.ts";
 import {
   pushMigrationFromDisk,
   offerToRunNewMigrations,
+  validateLocalMigrations,
 } from "../datatable_migrations.ts";
 
 import {
@@ -4192,6 +4193,24 @@ export async function push(
         `This workspace has folder default_permissioned_as rules that affect ${folderDefaultAnnotations.size} item(s) being pushed, ` +
         `but syncBehavior is not set in wmill.yaml. Add 'syncBehavior: v1' to enable ownership preservation on update and on_behalf_of stripping on pull.`
       ));
+    }
+
+    // Reject malformed datatable migrations (duplicate timestamps, orphan downs)
+    // before touching the remote, scanning only the data tables in this push.
+    const migrationDatatables = new Set(
+      changes
+        .map((c) => parseDatatableMigrationPath(c.path)?.datatable)
+        .filter((d): d is string => !!d),
+    );
+    if (migrationDatatables.size > 0) {
+      const migrationErrors = validateLocalMigrations(migrationDatatables);
+      if (migrationErrors.length > 0) {
+        log.error(
+          "Invalid datatable migrations, aborting push:\n" +
+            migrationErrors.map((e) => `  - ${e}`).join("\n"),
+        );
+        process.exit(1);
+      }
     }
 
     if (

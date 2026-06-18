@@ -106,6 +106,69 @@ export async function rollbackMigrations(
 }
 
 /**
+ * Validate the on-disk migration files for the given data tables (or all of
+ * them when `datatables` is omitted). Returns a list of human-readable problems;
+ * an empty list means the migrations are well-formed. Two states are invalid:
+ *  - two up (or two down) files sharing the same timestamp, which collide on the
+ *    `(datatable, timestamp)` identity used to upsert; and
+ *  - a `.down.sql` with no matching `.up.sql` (an up file is mandatory).
+ */
+export function validateLocalMigrations(datatables?: Set<string>): string[] {
+  const errors: string[] = [];
+  const root = path.join(process.cwd(), MIGRATIONS_DIR);
+  if (!fs.existsSync(root)) return errors;
+
+  for (const datatable of fs.readdirSync(root)) {
+    if (datatables && !datatables.has(datatable)) continue;
+    const dtDir = path.join(root, datatable);
+    if (!fs.statSync(dtDir).isDirectory()) continue;
+
+    const upNamesByTs = new Map<number, string[]>();
+    const downNamesByTs = new Map<number, string[]>();
+    const upBases = new Set<string>();
+    const downBases: { ts: number; name: string }[] = [];
+
+    for (const file of fs.readdirSync(dtDir)) {
+      const m = file.match(/^(\d+)_(.*)\.(up|down)\.sql$/);
+      if (!m) continue;
+      const ts = Number(m[1]);
+      const name = m[2];
+      if (m[3] === "up") {
+        (upNamesByTs.get(ts) ?? upNamesByTs.set(ts, []).get(ts)!).push(name);
+        upBases.add(`${ts}_${name}`);
+      } else {
+        (downNamesByTs.get(ts) ?? downNamesByTs.set(ts, []).get(ts)!).push(name);
+        downBases.push({ ts, name });
+      }
+    }
+
+    for (const [ts, names] of upNamesByTs) {
+      if (names.length > 1) {
+        errors.push(
+          `${datatable}: ${names.length} up migrations share timestamp ${ts} (${names.join(", ")})`,
+        );
+      }
+    }
+    for (const [ts, names] of downNamesByTs) {
+      if (names.length > 1) {
+        errors.push(
+          `${datatable}: ${names.length} down migrations share timestamp ${ts} (${names.join(", ")})`,
+        );
+      }
+    }
+    for (const d of downBases) {
+      if (!upBases.has(`${d.ts}_${d.name}`)) {
+        errors.push(
+          `${datatable}: ${d.ts}_${d.name}.down.sql has no matching ${d.ts}_${d.name}.up.sql`,
+        );
+      }
+    }
+  }
+
+  return errors;
+}
+
+/**
  * Sync a single migration to the workspace based on the current on-disk state of
  * its `<datatable>/<timestamp>_<name>.up.sql` file: upsert it when the up file
  * exists, otherwise delete it. Called by `wmill sync push` for each changed
