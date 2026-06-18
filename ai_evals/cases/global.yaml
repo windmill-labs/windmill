@@ -1009,3 +1009,32 @@
     - renames the main page heading to Revenue Overview
     - does not change other dashboard behavior
     - leaves the result as an AI draft only
+
+- id: global-test31-raw-app-debug-inspect-data
+  prompt: |-
+    The raw app dashboard at `f/evals/global/analytics_dashboard` is reporting
+    revenue totals that look too low. Inspect the app's files — both the sample
+    order data module and the revenue calculation — to work out whether the bug is
+    in the data or in the calculation, then fix the actual cause. Keep the change as
+    an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 22
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "return order.unitPrice * order.quantity"
+  toolExpect:
+    requiredToolsUsed:
+      - read_app_file
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - inspects both the sample order data module and the revenue aggregation logic
+    - identifies the per-order revenue bug and fixes it to multiply unit price by quantity
+    - leaves the result as an AI draft only
