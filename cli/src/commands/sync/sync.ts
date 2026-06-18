@@ -4999,8 +4999,10 @@ export async function push(
         yes: opts.yes,
         jsonOutput: opts.jsonOutput,
       });
-    } catch (e) {
-      log.warn(`Failed to run new datatable migrations: ${e}`);
+    } catch (e: any) {
+      log.warn(
+        `Failed to run new datatable migrations: ${e?.body ?? e?.message ?? e}`,
+      );
     }
     if (opts.jsonOutput) {
       const result = {

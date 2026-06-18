@@ -2546,10 +2546,18 @@ async fn run_datatable_migration_job(
     let (result, success) =
         run_wait_result_internal(db, uuid, w_id, None, false, &authed.username).await?;
     if !success {
-        return Err(Error::internal_err(format!(
-            "migration job failed: {}",
-            result.get()
-        )));
+        // On failure the job result is `{"error": {"name", "message", ...}}`;
+        // surface the executor's message (the Postgres error, e.g. `relation
+        // "foo" does not exist`) instead of the raw JSON envelope.
+        let detail = serde_json::from_str::<serde_json::Value>(result.get())
+            .ok()
+            .as_ref()
+            .and_then(|v| v.get("error"))
+            .and_then(|e| e.get("message"))
+            .and_then(|m| m.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| result.get().to_string());
+        return Err(Error::internal_err(detail));
     }
     Ok(())
 }
