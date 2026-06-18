@@ -1266,20 +1266,20 @@ async fn create_script_internal<'c>(
     if let Some(t) = pipeline_annotations.tag.clone() {
         ns.tag = Some(t);
     }
-    // `// retry <count> [<delay>]` — cascade-only retry. Same value on
-    // every script_trigger row for this runnable (like join_all), so we
-    // resolve once here. The delay is parser-light (raw string); we
-    // convert to seconds via the shared parser. Falls back to 0 (back-to-
-    // back) when the delay token is absent or unparseable.
-    let pipeline_retry: Option<(i16, i32)> = pipeline_annotations.retry.as_ref().map(|r| {
-        let count = r.count.min(i16::MAX as u32) as i16;
-        let delay_s = r
-            .delay
-            .as_deref()
-            .and_then(parse_duration_secs)
-            .unwrap_or(0);
-        (count, delay_s)
-    });
+    // `// retry <count> [<delay>]` is PARSED but PARKED: a retried subscriber
+    // is wrapped in a SingleStepFlow, whose run is a flow step and therefore
+    // ineligible for asset dispatch (asset_dispatch::is_eligible_kind) — so a
+    // retried subscriber would silently become a cascade dead-end (P1). We do
+    // not persist it to script_trigger; the cascade ignores retry until this
+    // is fixed. TODO(pipeline-retry): re-enable once cascade dispatch handles
+    // flow-wrapped producers.
+    if pipeline_annotations.retry.is_some() {
+        tracing::warn!(
+            "`// retry` on {} is not yet supported in the asset cascade and is ignored \
+             (a retried subscriber cannot trigger its downstream). TODO(pipeline-retry).",
+            ns.path
+        );
+    }
     // Asset presence is server-authoritative: re-parse the deployed content
     // (same parsers the frontend wasm wraps) and union with the client list.
     // The `asset` rows written below drive the asset-trigger cascade, so a
@@ -1621,6 +1621,17 @@ async fn create_script_internal<'c>(
     // discovered by the graph endpoint directly from the per-kind trigger
     // tables, so `trigger_spec_to_row` returns None for those.
     clear_script_triggers(&mut *tx, &w_id, &ns.path, AssetUsageKind::Script).await?;
+    // On rename, also drop the OLD path's trigger rows. clear is keyed by
+    // path (no by-hash variant), and only `ns.path` is wiped above — without
+    // this, stale `// on` edges for the old path keep matching producers and
+    // would trigger a script later recreated at that path even if it has no
+    // annotation (P1). (Producer/asset rows for the old path are already
+    // cleared via clear_static_asset_usage_by_script_hash on the parent.)
+    if let Some(ref old) = p_path_opt {
+        if old != &ns.path {
+            clear_script_triggers(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;
+        }
+    }
     for spec in &pipeline_triggers {
         let Some((trigger_kind, trigger_ref)) = trigger_spec_to_row(spec) else {
             continue;
@@ -1644,8 +1655,9 @@ async fn create_script_internal<'c>(
             &trigger_ref,
             pipeline_join_all,
             debounce_s,
-            pipeline_retry.map(|(c, _)| c),
-            pipeline_retry.map(|(_, d)| d),
+            // retry parked — see TODO(pipeline-retry) above.
+            None,
+            None,
         )
         .await?;
     }
