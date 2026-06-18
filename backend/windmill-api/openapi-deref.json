@@ -4118,10 +4118,6 @@
                   "parent_workspace_id": {
                     "type": "string",
                     "nullable": true
-                  },
-                  "skip_email": {
-                    "type": "boolean",
-                    "description": "Skip sending the invitation email notification"
                   }
                 },
                 "required": [
@@ -4178,10 +4174,6 @@
                   },
                   "operator": {
                     "type": "boolean"
-                  },
-                  "skip_email": {
-                    "type": "boolean",
-                    "description": "Skip sending the workspace access email notification"
                   }
                 },
                 "required": [

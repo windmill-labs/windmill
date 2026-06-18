@@ -48,7 +48,9 @@ use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
 use windmill_common::{
     error::{Error, JsonResult, Result},
-    global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
+    global_settings::{
+        AUTOMATE_USERNAME_CREATION_SETTING, DISABLE_WORKSPACE_INVITE_EMAILS_SETTING,
+    },
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
@@ -485,7 +487,6 @@ pub struct NewWorkspaceInvite {
     pub email: String,
     pub is_admin: bool,
     pub operator: bool,
-    pub skip_email: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -494,7 +495,6 @@ pub struct NewWorkspaceUser {
     pub username: Option<String>,
     pub is_admin: bool,
     pub operator: bool,
-    pub skip_email: Option<bool>,
 }
 
 // New format for error handler (grouped)
@@ -5330,6 +5330,20 @@ async fn unarchive_workspace(
     Ok(format!("Unarchived workspace {}", &w_id))
 }
 
+/// Whether the instance is configured to suppress the email notifications sent
+/// when a user is invited or added to a workspace. Defaults to false (emails on).
+async fn workspace_invite_emails_disabled(db: &DB) -> Result<bool> {
+    Ok(
+        windmill_common::global_settings::load_value_from_global_settings(
+            db,
+            DISABLE_WORKSPACE_INVITE_EMAILS_SETTING,
+        )
+        .await?
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false),
+    )
+}
+
 async fn invite_user(
     ApiAuthed { username, is_admin, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -5388,7 +5402,7 @@ async fn invite_user(
 
     tx.commit().await?;
 
-    if !nu.skip_email.unwrap_or(false) {
+    if !workspace_invite_emails_disabled(&db).await? {
         send_email_if_possible(
             &format!("Invited to Windmill's workspace: {w_id}"),
             &format!(
@@ -5542,7 +5556,7 @@ async fn add_user(
     )
     .await?;
 
-    if !nu.skip_email.unwrap_or(false) {
+    if !workspace_invite_emails_disabled(&db).await? {
         send_email_if_possible(
             &format!("Added to Windmill's workspace: {w_id}"),
             &format!(
