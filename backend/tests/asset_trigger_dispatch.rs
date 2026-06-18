@@ -14,7 +14,8 @@ use uuid::Uuid;
 use windmill_common::jobs::{JobKind, JobPayload};
 use windmill_common::runnable_settings::prefetch_cached_from_handle;
 use windmill_common::scripts::{ScriptHash, ScriptLang};
-use windmill_queue::asset_dispatch::{dispatch_asset_triggers, reap_stale_join_slots};
+use windmill_queue::asset_dispatch::dispatch_asset_triggers;
+use windmill_queue::cascade::reap_stale_join_slots;
 use windmill_queue::MiniCompletedJob;
 use windmill_test_utils::{initialize_tracing, ApiServer, RunJob};
 
