@@ -2715,7 +2715,7 @@ pub struct UpdateDatatableMigrations {
 }
 
 /// Replace the workspace's whole set of data table migrations with the provided
-/// list. Used by `wmill sync` to push the `datatable_migrations/` folder.
+/// list. Used by `wmill sync` to push the `migrations/datatable/` folder.
 async fn update_datatable_migrations(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -3000,7 +3000,7 @@ pub struct UpsertDatatableMigration {
 }
 
 /// Insert or update a single migration at an explicit version. Used by
-/// `wmill sync` to push a `datatable_migrations/<dt>/<version>_<name>.up.sql`
+/// `wmill sync` to push a `migrations/datatable/<dt>/<version>_<name>.up.sql`
 /// (and `.down.sql`) file as the source of truth.
 async fn upsert_datatable_migration(
     authed: ApiAuthed,

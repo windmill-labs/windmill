@@ -1503,7 +1503,7 @@ pub(crate) async fn tarball_workspace(
 
     {
         // Data table migrations live in the `datatable_migrations` table; surface
-        // them in the export as `datatable_migrations/<datatable>/<version>_<name>`
+        // them in the export as `migrations/datatable/<datatable>/<version>_<name>`
         // .up.sql (and .down.sql when present) so `wmill sync` treats them like any
         // other workspace item.
         let migrations = sqlx::query!(
@@ -1515,7 +1515,7 @@ pub(crate) async fn tarball_workspace(
         .await?;
         for m in migrations {
             let base = format!(
-                "datatable_migrations/{}/{}_{}",
+                "migrations/datatable/{}/{}_{}",
                 m.datatable, m.timestamp, m.name
             );
             archive

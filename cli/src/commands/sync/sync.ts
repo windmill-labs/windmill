@@ -2483,7 +2483,7 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
       !p.startsWith("users" + SEP) &&
       !p.startsWith("groups" + SEP) &&
       !p.startsWith("dependencies" + SEP) &&
-      !p.startsWith("datatable_migrations" + SEP)
+      !p.startsWith("migrations" + SEP)
     );
   }
 
@@ -2494,7 +2494,7 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
 
   try {
     const typ = getTypeStrFromPath(p);
-    // Datatable migrations live under datatable_migrations/<datatable>/, outside
+    // Datatable migrations live under migrations/datatable/<datatable>/, outside
     // the u/f/g namespaces, but are valid wmill files.
     if (typ == "datatable_migration") {
       return false;
@@ -2531,7 +2531,7 @@ export const isWhitelisted = (p: string) => {
     p == "users" ||
     p == "groups" ||
     p == "dependencies" ||
-    p == "datatable_migrations"
+    p == "migrations"
   );
 };
 

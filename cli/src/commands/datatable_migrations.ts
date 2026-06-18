@@ -6,12 +6,12 @@ import * as wmill from "../../gen/services.gen.ts";
 import { readTextFile } from "../utils/utils.ts";
 import { Confirm } from "@cliffy/prompt/confirm";
 
-// Migrations live under <cwd>/datatable_migrations/<datatable>/, one folder per
+// Migrations live under <cwd>/migrations/datatable/<datatable>/, one folder per
 // target data table, as `<timestamp>_<name>.up.sql` (and optional `.down.sql`).
 // They are synced as ordinary workspace files (see the workspace tarball export
 // and the `datatable_migration` handling in sync.ts); this module only holds the
 // `wmill datatable migrate` command helpers and the per-file push primitive.
-const MIGRATIONS_DIR = "datatable_migrations";
+const MIGRATIONS_DIR = path.join("migrations", "datatable");
 
 // Migration names map directly onto file names and the DB `name` column.
 const MIGRATION_NAME_RE = /^[a-zA-Z0-9_-]+$/;
@@ -27,7 +27,7 @@ function migrationTimestamp(): string {
 }
 
 /**
- * Scaffold a new migration under datatable_migrations/<datatable>/ as empty
+ * Scaffold a new migration under migrations/datatable/<datatable>/ as empty
  * `<timestamp>_<name>.up.sql` and `.down.sql` files. Purely local — no network.
  */
 export function createMigration(datatable: string, name: string): void {

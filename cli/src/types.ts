@@ -289,18 +289,23 @@ export function parseFromFile(p: string): any {
   }
 }
 /**
- * Parse a `datatable_migrations/<datatable>/<timestamp>_<name>.(up|down).sql`
+ * Parse a `migrations/datatable/<datatable>/<timestamp>_<name>.(up|down).sql`
  * path into its parts. Returns undefined for any other path.
  */
 export function parseDatatableMigrationPath(p: string):
   | { datatable: string; timestamp: number; name: string; kind: "up" | "down" }
   | undefined {
   const parts = p.split(SEP);
-  if (parts[0] !== "datatable_migrations" || parts.length !== 3) return undefined;
-  const m = parts[2].match(/^(\d+)_(.*)\.(up|down)\.sql$/);
+  if (
+    parts[0] !== "migrations" ||
+    parts[1] !== "datatable" ||
+    parts.length !== 4
+  )
+    return undefined;
+  const m = parts[3].match(/^(\d+)_(.*)\.(up|down)\.sql$/);
   if (!m) return undefined;
   return {
-    datatable: parts[1],
+    datatable: parts[2],
     timestamp: Number(m[1]),
     name: m[2],
     kind: m[3] as "up" | "down",
