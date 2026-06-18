@@ -18,6 +18,8 @@
 				return 'reference input — only {partition}-bearing edges advance the join'
 			case 'case3_missing_partition':
 				return 'producer ran without a resolved partition'
+			case 'cycle_detected':
+				return 'subscriber already ran upstream in this chain (cycle)'
 			default:
 				return reason ?? ''
 		}

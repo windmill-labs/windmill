@@ -19,14 +19,14 @@
 //!   - Producer is top-level (no `parent_job`, no `flow_step_id`).
 //!   - Producer succeeded.
 //!   - The producer's args do not contain `_wmill_skip_asset_dispatch: true`.
-//!   - Cascade depth (carried in args under `trigger.depth`) is below
-//!     `MAX_CHAIN_DEPTH`.
 //!
 //! Subscribers (V1):
 //!   - Only `script` runnables. Flow subscribers defer.
 //!   - The subscriber must have at least one non-archived script row.
 //!   - A subscriber is skipped if its path equals the producer's path
-//!     (avoids trivial self-loops).
+//!     (self-loop) or already appears in the cascade lineage
+//!     (`trigger.chain`) — cycle detection, which bounds the cascade
+//!     without capping legitimate depth.
 //!
 //! Args sent to subscribers:
 //!   ```json
@@ -37,7 +37,7 @@
 //!       "asset_path": "...",
 //!       "producer_path": "...",
 //!       "producer_job_id": "...",
-//!       "depth": 1
+//!       "chain": ["f/a/producer0", "f/a/producer1"]
 //!     }
 //!   }
 //!   ```
@@ -66,15 +66,20 @@ use windmill_common::DB;
 /// Set by the test panel when the user opts out of the cascade.
 pub const SKIP_ASSET_DISPATCH_ARG: &str = "_wmill_skip_asset_dispatch";
 
-/// Arg key holding the cascade trigger object (carries `depth`, `partition`,
+/// Arg key holding the cascade trigger object (carries `chain`, `partition`,
 /// producer metadata) injected into every dispatched subscriber.
 const TRIGGER_ARG: &str = "trigger";
 
-/// Reserved arg key (under `trigger.depth`) that carries cascade depth.
-const CHAIN_DEPTH_KEY: &str = "depth";
+/// Arg key (under `trigger.chain`) carrying the cascade lineage: the ordered
+/// list of producer paths already run in this chain. Used to detect cycles
+/// (a producer re-appearing) and stop only the cyclic edge — so deep but
+/// *acyclic* pipelines are never truncated.
+const CHAIN_KEY: &str = "chain";
 
-/// Cap cascade depth so a misconfigured ring doesn't fan out unbounded.
-const MAX_CHAIN_DEPTH: i64 = 5;
+/// Safety backstop on lineage length. Cycle detection already bounds an
+/// acyclic cascade (a path can't repeat), so this only guards against a
+/// runaway from a bug. Set far above any real pipeline depth.
+const MAX_CHAIN_LEN: usize = 1000;
 
 /// Returned to the caller (the worker's completed-job hook) so logs can
 /// reference the dispatched ids.
@@ -243,24 +248,28 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
     if read_skip_arg(args.as_ref()) {
         return Ok(DispatchResult::default());
     }
-    // Parse the cascade `trigger` object once; both depth and the
-    // propagated partition are read from it.
+    // Parse the cascade `trigger` object once; both the lineage chain and
+    // the propagated partition are read from it.
     let trigger_map = args
         .as_ref()
         .and_then(|a| a.get(TRIGGER_ARG))
         .and_then(|t| serde_json::from_str::<HashMap<String, Box<RawValue>>>(t.get()).ok());
-    let depth = read_chain_depth(trigger_map.as_ref());
+    let chain = read_chain(trigger_map.as_ref());
     let partition = read_partition(args.as_ref(), trigger_map.as_ref());
-    if depth >= MAX_CHAIN_DEPTH {
+    if chain.len() >= MAX_CHAIN_LEN {
         tracing::warn!(
-            "asset-trigger dispatch skipped: chain depth {} >= cap {} (job {}, path {})",
-            depth,
-            MAX_CHAIN_DEPTH,
+            "asset-trigger dispatch skipped: cascade lineage length {} >= backstop {} (job {}, path {})",
+            chain.len(),
+            MAX_CHAIN_LEN,
             job.id,
             runnable_path
         );
         return Ok(DispatchResult::default());
     }
+    // Lineage propagated to any subscriber pushed from this producer: the
+    // ancestors that already ran, plus this producer.
+    let mut next_chain = chain.clone();
+    next_chain.push(runnable_path.to_string());
 
     let mut dispatched = Vec::new();
     // Best-effort dispatch_event rows accumulated over the whole pass and
@@ -284,6 +293,20 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
                     &asset_path,
                     DispatchOutcome::Skipped,
                     EventOptions { reason: Some("self_loop"), ..Default::default() },
+                ));
+                continue;
+            }
+            // Cycle guard: a subscriber already in this producer's lineage
+            // would re-enter the chain (A→…→A), looping forever. Stop only
+            // this edge — sibling branches still dispatch, and acyclic chains
+            // of any depth are unaffected.
+            if chain.iter().any(|p| p == &sub_path) {
+                events.push(EventRow::new(
+                    &sub_path,
+                    asset_kind,
+                    &asset_path,
+                    DispatchOutcome::Skipped,
+                    EventOptions { reason: Some("cycle_detected"), ..Default::default() },
                 ));
                 continue;
             }
@@ -336,7 +359,7 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
                 asset_kind,
                 &asset_path,
                 runnable_path,
-                depth + 1,
+                &next_chain,
                 partition.as_deref(),
                 debounce_s,
                 retry_count,
@@ -416,11 +439,11 @@ fn read_skip_arg(args: Option<&HashMap<String, Box<RawValue>>>) -> bool {
         .unwrap_or(false)
 }
 
-fn read_chain_depth(trigger_map: Option<&HashMap<String, Box<RawValue>>>) -> i64 {
+fn read_chain(trigger_map: Option<&HashMap<String, Box<RawValue>>>) -> Vec<String> {
     trigger_map
-        .and_then(|m| m.get(CHAIN_DEPTH_KEY))
-        .and_then(|v| serde_json::from_str::<i64>(v.get()).ok())
-        .unwrap_or(0)
+        .and_then(|m| m.get(CHAIN_KEY))
+        .and_then(|v| serde_json::from_str::<Vec<String>>(v.get()).ok())
+        .unwrap_or_default()
 }
 
 /// The partition value the producer ran with, if any. Resolved once at the
@@ -561,7 +584,7 @@ async fn push_subscriber(
     asset_kind: AssetKind,
     asset_path: &str,
     producer_path: &str,
-    depth: i64,
+    chain: &[String],
     partition: Option<&str>,
     debounce_s: Option<i32>,
     retry_count: Option<i16>,
@@ -656,7 +679,7 @@ async fn push_subscriber(
         "asset_path": asset_path,
         "producer_path": producer_path,
         "producer_job_id": producer.id.to_string(),
-        CHAIN_DEPTH_KEY: depth,
+        CHAIN_KEY: chain,
         PARTITION_ARG: partition,
     });
     args.insert(TRIGGER_ARG.to_string(), to_raw_value(&trigger_payload));

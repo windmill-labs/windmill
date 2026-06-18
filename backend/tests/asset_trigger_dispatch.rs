@@ -4,7 +4,7 @@
 //! `result_processor` hook fire `dispatch_asset_triggers`, and then makes
 //! several follow-up calls into `dispatch_asset_triggers` against the same
 //! seeded graph to cover the eligibility branches (self-loop, skip arg,
-//! depth cap, flow subscriber, ineligible job kinds). Direct calls share
+//! cycle guard, flow subscriber, ineligible job kinds). Direct calls share
 //! the same workspace so we exercise the real query paths against real
 //! `asset` / `script_trigger` rows produced by deploy-equivalent seeding.
 
@@ -107,7 +107,7 @@ async fn seed_subscription(
 
 /// Insert a synthetic producer `v2_job` row used by the direct
 /// `dispatch_asset_triggers` calls in the edge-case section. `args` lets the
-/// test inject `_wmill_skip_asset_dispatch` or `trigger.depth` so the
+/// test inject `_wmill_skip_asset_dispatch` or `trigger.chain` so the
 /// dispatcher's arg-driven branches are exercised against real rows.
 async fn seed_producer_job(db: &Pool<Postgres>, args: serde_json::Value) -> anyhow::Result<Uuid> {
     let id = Uuid::new_v4();
@@ -283,8 +283,8 @@ async fn clear_dispatched(db: &Pool<Postgres>) -> anyhow::Result<()> {
 ///      seeded graph to cover the arg-driven and eligibility branches that
 ///      can't be reached by varying the producer's runtime args alone:
 ///        - skip arg suppresses dispatch
-///        - cascade depth caps fan-out
-///        - depth increments correctly just below the cap
+///        - a subscriber already in the lineage is skipped (cycle guard)
+///        - the lineage chain accumulates the producer path each hop
 ///        - self-loop subscriber is filtered
 ///        - producer with parent_job is ineligible
 ///        - producer with `Flow` kind is ineligible
@@ -346,7 +346,11 @@ async fn end_to_end_asset_dispatch(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(s3_trig["asset_kind"], "s3object");
     assert_eq!(s3_trig["asset_path"], "f/blob");
     assert_eq!(s3_trig["producer_path"], PRODUCER);
-    assert_eq!(s3_trig["depth"], 1, "depth starts at 1 on first hop");
+    assert_eq!(
+        s3_trig["chain"],
+        json!([PRODUCER]),
+        "lineage starts with the producer on the first hop"
+    );
     assert_eq!(s3_row.1.as_deref(), Some(PRODUCER));
 
     let res_row = by_path
@@ -365,22 +369,28 @@ async fn end_to_end_asset_dispatch(db: Pool<Postgres>) -> anyhow::Result<()> {
     let r = dispatch_asset_triggers(&db, &make_mini(id, PRODUCER)).await;
     assert_eq!(r.dispatched.len(), 0, "skip arg suppressed dispatch");
 
-    // depth at cap (MAX_CHAIN_DEPTH = 5) blocks further fan-out
-    let id = seed_producer_job(&db, json!({ "trigger": { "depth": 5 } })).await?;
+    // cycle guard: a subscriber already in the lineage is skipped, but its
+    // siblings still dispatch (only the cyclic edge is cut).
+    let id = seed_producer_job(&db, json!({ "trigger": { "chain": [SUB_S3] } })).await?;
     let r = dispatch_asset_triggers(&db, &make_mini(id, PRODUCER)).await;
-    assert_eq!(r.dispatched.len(), 0, "depth at cap blocked");
+    assert_eq!(
+        r.dispatched.len(),
+        1,
+        "cyclic subscriber (already in lineage) skipped; sibling still dispatched"
+    );
 
-    // depth just below cap fans out, new run carries depth + 1
+    // lineage accumulates: a fresh producer extends the chain with its own path
     clear_dispatched(&db).await?;
-    let id = seed_producer_job(&db, json!({ "trigger": { "depth": 4 } })).await?;
+    let id = seed_producer_job(&db, json!({ "trigger": { "chain": ["f/upstream"] } })).await?;
     let r = dispatch_asset_triggers(&db, &make_mini(id, PRODUCER)).await;
     assert_eq!(r.dispatched.len(), 2);
     let rows = fetch_dispatched(&db).await?;
     for row in &rows {
-        let depth = row.2.as_ref().unwrap()["trigger"]["depth"]
-            .as_i64()
-            .unwrap();
-        assert_eq!(depth, 5, "depth should increment to 5");
+        assert_eq!(
+            row.2.as_ref().unwrap()["trigger"]["chain"],
+            json!(["f/upstream", PRODUCER]),
+            "lineage accumulates the producer path"
+        );
     }
 
     // producer with parent_job (flow step) is ineligible
@@ -773,12 +783,12 @@ async fn fuller_partitioned_join_multihop_pipeline(db: Pool<Postgres>) -> anyhow
     seed_subscription(&db, DN, "script", "s3://lake/{partition}/c").await?;
 
     // Helper: assert exactly one dispatch to `path` carrying partition
-    // `part` at chain depth `depth`.
+    // `part`, with a cascade lineage of `chain_len` producer paths.
     async fn assert_hop(
         db: &Pool<Postgres>,
         path: &str,
         part: &str,
-        depth: i64,
+        chain_len: usize,
     ) -> anyhow::Result<()> {
         let rows = fetch_dispatched(db).await?;
         let hits: Vec<_> = rows.iter().filter(|r| r.0 == path).collect();
@@ -791,9 +801,9 @@ async fn fuller_partitioned_join_multihop_pipeline(db: Pool<Postgres>) -> anyhow
             "{path} trigger.partition"
         );
         assert_eq!(
-            args["trigger"]["depth"].as_i64(),
-            Some(depth),
-            "{path} chain depth"
+            args["trigger"]["chain"].as_array().map(|c| c.len()),
+            Some(chain_len),
+            "{path} lineage length"
         );
         Ok(())
     }
@@ -802,7 +812,7 @@ async fn fuller_partitioned_join_multihop_pipeline(db: Pool<Postgres>) -> anyhow
     let pa = seed_producer_job_path(
         &db,
         PA,
-        json!({ "partition": "day1", "trigger": { "depth": 1 } }),
+        json!({ "partition": "day1", "trigger": { "chain": ["s0"] } }),
     )
     .await?;
     let r = dispatch_asset_triggers(&db, &make_mini(pa, PA)).await;
@@ -813,7 +823,7 @@ async fn fuller_partitioned_join_multihop_pipeline(db: Pool<Postgres>) -> anyhow
     let pb = seed_producer_job_path(
         &db,
         PB,
-        json!({ "partition": "day1", "trigger": { "depth": 1 } }),
+        json!({ "partition": "day1", "trigger": { "chain": ["s0"] } }),
     )
     .await?;
     let r = dispatch_asset_triggers(&db, &make_mini(pb, PB)).await;
@@ -825,7 +835,7 @@ async fn fuller_partitioned_join_multihop_pipeline(db: Pool<Postgres>) -> anyhow
     let jn = seed_producer_job_path(
         &db,
         JN,
-        json!({ "partition": "day1", "trigger": { "depth": 2 } }),
+        json!({ "partition": "day1", "trigger": { "chain": ["s0", PB] } }),
     )
     .await?;
     let r = dispatch_asset_triggers(&db, &make_mini(jn, JN)).await;
@@ -837,7 +847,7 @@ async fn fuller_partitioned_join_multihop_pipeline(db: Pool<Postgres>) -> anyhow
     let cn = seed_producer_job_path(
         &db,
         CN,
-        json!({ "partition": "day1", "trigger": { "depth": 3 } }),
+        json!({ "partition": "day1", "trigger": { "chain": ["s0", PB, JN] } }),
     )
     .await?;
     let r = dispatch_asset_triggers(&db, &make_mini(cn, CN)).await;
@@ -850,7 +860,7 @@ async fn fuller_partitioned_join_multihop_pipeline(db: Pool<Postgres>) -> anyhow
     let pa2 = seed_producer_job_path(
         &db,
         PA,
-        json!({ "partition": "day2", "trigger": { "depth": 1 } }),
+        json!({ "partition": "day2", "trigger": { "chain": ["s0"] } }),
     )
     .await?;
     let r = dispatch_asset_triggers(&db, &make_mini(pa2, PA)).await;
