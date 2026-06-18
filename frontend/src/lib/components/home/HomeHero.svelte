@@ -86,10 +86,13 @@
 		}
 	}
 
+	// Mirror the row components' primary hrefs (ScriptRow / FlowRow / AppRow /
+	// RawAppRow) so a card lands on the same destination as its list row.
 	function hrefFor(it: LatestItem): string {
 		const ws = $workspaceStore
 		if (it.type === 'script') {
-			return it.draft_only
+			const isLib = it.auto_kind === 'lib' && it.kind !== 'preprocessor'
+			return it.draft_only || isLib
 				? `${base}/scripts/edit/${it.path}`
 				: `${base}/scripts/get/${it.hash}?workspace=${ws}`
 		}
@@ -98,10 +101,12 @@
 				? `${base}/flows/edit/${it.path}`
 				: `${base}/flows/get/${it.path}?workspace=${ws}`
 		}
-		const seg = it.raw_app ? '_raw' : ''
-		return it.draft_only
-			? `${base}/apps${seg}/edit/${it.path}`
-			: `${base}/apps${seg}/get/${it.path}`
+		if (it.type === 'raw_app') {
+			return it.draft_only
+				? `${base}/apps_raw/edit/${it.path}`
+				: `${base}/apps/get_raw/${it.version}/${it.path}`
+		}
+		return it.draft_only ? `${base}/apps/edit/${it.path}` : `${base}/apps/get/${it.path}`
 	}
 
 	function relativeTime(t?: number): string {

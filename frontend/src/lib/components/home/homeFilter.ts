@@ -72,6 +72,7 @@ export type LatestItem = {
 	starred?: boolean
 	hash?: string
 	draft_only?: boolean
-	raw_app?: boolean
-	workspace_id?: string
+	version?: number
+	auto_kind?: string
+	kind?: string
 }
