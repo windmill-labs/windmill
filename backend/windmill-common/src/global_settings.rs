@@ -105,69 +105,50 @@ pub const WORKSPACE_FAIRNESS_DURATION_SECS_SETTING: &str = "workspace_fairness_d
 pub const WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING: &str = "workspace_fairness_min_total_jobs";
 
 /// Global settings an agent worker (a remote worker connected over HTTP instead
-/// of to the database) may read through `GET /api/agent_workers/get_global_setting/{key}`.
+/// of to the database) must NEVER read through
+/// `GET /api/agent_workers/get_global_setting/{key}`. Every other key is served.
 ///
 /// SECURITY: that endpoint is authenticated only by an agent-worker JWT and
-/// returns the raw `global_settings` value for any requested key, so it must
-/// expose nothing but what an agent worker actually loads to run jobs. It must
-/// NEVER serve the instance identity/auth secrets (`jwt_secret`, `oauths`,
-/// `smtp_settings`, `scim_token`, `saml_metadata`, ...): handing those to a
-/// remote worker enables privilege escalation (e.g. forging a superadmin JWT
-/// from `jwt_secret`). None of them appear below because agent workers never
-/// load them over HTTP — the server reads them directly from the DB.
+/// returns the raw `global_settings` value for the requested key. Because the
+/// policy is deny-by-exception (anything not listed here is readable), every
+/// setting that holds an instance secret or credential an agent worker does not
+/// need MUST be listed below. Missing one discloses it to every agent worker —
+/// `jwt_secret` is the worst case (a token holder could forge a superadmin JWT),
+/// but `oauths`, `smtp_settings`, `secret_backend`, object-store credentials,
+/// etc. are instance-wide secrets too.
 ///
-/// This is exactly the set agent workers fetch in `monitor::initial_load` (the
-/// always-on, license-key and `worker_mode` paths). It does include the
-/// operational credentials a worker genuinely needs (image-registry auth, repo
-/// PAT, hub secret, license key) — those are already within an agent worker's
-/// trust boundary. If agent workers start loading a new setting over HTTP, add
-/// its key here, otherwise the worker's request is rejected with 403.
-pub const AGENT_WORKER_READABLE_SETTINGS: &[&str] = &[
-    // Loaded at startup regardless of worker mode.
-    EXPOSE_METRICS_SETTING,
-    EXPOSE_DEBUG_METRICS_SETTING,
-    CRITICAL_ALERT_MUTE_UI_SETTING,
-    CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
-    HUB_BASE_URL_SETTING,
-    HUB_API_SECRET_SETTING,
-    LICENSE_KEY_SETTING,
-    // Worker runtime knobs (agent workers run jobs).
-    KEEP_JOB_DIR_SETTING,
-    JOB_DEFAULT_TIMEOUT_SECS_SETTING,
-    JOB_ISOLATION_SETTING,
-    NSJAIL_TMPFS_SIZE_MB_SETTING,
-    NSJAIL_TMP_BACKING_SETTING,
-    SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
-    SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
-    SANDBOX_IMAGE_PULL_POLICY_SETTING,
-    SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING,
-    SANDBOX_REGISTRY_AUTH_SETTING,
-    // Dependency-manager and registry config used to install job dependencies.
-    EXTRA_PIP_INDEX_URL_SETTING,
-    PIP_INDEX_URL_SETTING,
-    UV_INDEX_STRATEGY_SETTING,
-    UV_EXCLUDE_NEWER_SETTING,
-    UV_PYTHON_INSTALL_MIRROR_SETTING,
-    BUN_INSTALL_MIN_RELEASE_AGE_SETTING,
-    NPM_CONFIG_REGISTRY_SETTING,
-    BUNFIG_INSTALL_SCOPES_SETTING,
-    NPMRC_SETTING,
-    INSTANCE_PYTHON_VERSION_SETTING,
-    NUGET_CONFIG_SETTING,
-    POWERSHELL_REPO_URL_SETTING,
-    POWERSHELL_REPO_PAT_SETTING,
-    MAVEN_REPOS_SETTING,
-    MAVEN_SETTINGS_XML_SETTING,
-    NO_DEFAULT_MAVEN_SETTING,
-    RUBY_REPOS_SETTING,
-    CARGO_REGISTRIES_SETTING,
-    WORKSPACE_REGISTRIES_SETTING,
+/// NOT blocked, on purpose: the operational credentials an agent worker loads to
+/// run jobs (`license_key`, `hub_api_secret`, `sandbox_registry_auth`,
+/// `powershell_repo_pat`, `npmrc`, ...). Those are already within an agent
+/// worker's trust boundary, and blocking them breaks worker startup or
+/// dependency installation. When adding a new setting that stores a secret the
+/// server keeps to itself, add it here.
+pub const AGENT_WORKER_BLOCKED_SETTINGS: &[&str] = &[
+    // Instance identity / auth secrets — disclosure enables privilege escalation
+    // or impersonation.
+    JWT_SECRET_SETTING,
+    OAUTH_SETTING,
+    SMTP_SETTING,
+    SCIM_TOKEN_SETTING,
+    SAML_METADATA_SETTING,
+    SECRET_BACKEND_SETTING,
+    GITHUB_ENTERPRISE_APP_SETTING,
+    OBJECT_STORE_CONFIG_SETTING,
+    AI_CONFIG_SETTING,
+    TEAMS_SETTING,
+    INDEXER_SETTING,
+    // Server-only configs that may embed credentials, webhook URLs or tokens and
+    // are never loaded by an agent worker.
+    CRITICAL_ERROR_CHANNELS_SETTING,
+    INSTANCE_EVENTS_WEBHOOK_SETTING,
+    OTEL_SETTING,
+    OTEL_TRACING_PROXY_SETTING,
 ];
 
 /// Whether an agent worker may read the given global setting over HTTP.
-/// See [`AGENT_WORKER_READABLE_SETTINGS`].
+/// Deny-by-exception: everything is readable except [`AGENT_WORKER_BLOCKED_SETTINGS`].
 pub fn is_setting_readable_by_agent_worker(name: &str) -> bool {
-    AGENT_WORKER_READABLE_SETTINGS.contains(&name)
+    !AGENT_WORKER_BLOCKED_SETTINGS.contains(&name)
 }
 
 use std::sync::atomic::AtomicBool;
@@ -337,15 +318,22 @@ mod tests {
 
     #[test]
     fn agent_workers_can_read_operational_settings() {
+        // Operational knobs and the credentials a worker needs to run jobs are
+        // intentionally NOT blocked. Deny-by-exception also means an arbitrary
+        // unlisted key is readable.
         for key in [
             NPMRC_SETTING,
             PIP_INDEX_URL_SETTING,
             JOB_ISOLATION_SETTING,
             LICENSE_KEY_SETTING,
+            HUB_API_SECRET_SETTING,
+            SANDBOX_REGISTRY_AUTH_SETTING,
+            POWERSHELL_REPO_PAT_SETTING,
+            "some_future_operational_setting",
         ] {
             assert!(
                 is_setting_readable_by_agent_worker(key),
-                "agent workers load '{key}' over HTTP; it must stay in the allowlist"
+                "'{key}' must remain readable by agent workers"
             );
         }
     }
@@ -361,10 +349,16 @@ mod tests {
             SMTP_SETTING,
             SCIM_TOKEN_SETTING,
             SAML_METADATA_SETTING,
-            AI_CONFIG_SETTING,
-            TEAMS_SETTING,
+            SECRET_BACKEND_SETTING,
             GITHUB_ENTERPRISE_APP_SETTING,
             OBJECT_STORE_CONFIG_SETTING,
+            AI_CONFIG_SETTING,
+            TEAMS_SETTING,
+            INDEXER_SETTING,
+            CRITICAL_ERROR_CHANNELS_SETTING,
+            INSTANCE_EVENTS_WEBHOOK_SETTING,
+            OTEL_SETTING,
+            OTEL_TRACING_PROXY_SETTING,
         ] {
             assert!(
                 !is_setting_readable_by_agent_worker(key),
