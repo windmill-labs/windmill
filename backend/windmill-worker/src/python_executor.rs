@@ -86,14 +86,14 @@ lazy_static::lazy_static! {
     };
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 #[derive(Debug)]
 struct PiptarUploadTask {
     venv_path: String,
     cache_dir: String,
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<PiptarUploadTask>) {
     use crate::global_cache::build_tar_and_push;
     use windmill_object_store::get_object_store;
@@ -139,10 +139,10 @@ pub fn has_relative_imports(content: &str) -> bool {
     RELATIVE_IMPORT_REGEX.is_match(content)
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use crate::global_cache::pull_from_tar;
 
-#[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_object_store::OBJECT_STORE_SETTINGS;
 
 use crate::{
@@ -2694,7 +2694,7 @@ pub async fn handle_python_reqs(
         let pids = pids.clone();
         let worker_dir = worker_dir.clone();
 
-        #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
         let py_version = py_version.clone();
 
         handles.push(task::spawn(async move {
