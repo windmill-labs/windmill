@@ -51,12 +51,11 @@ use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
-use windmill_common::assets::{AssetKind, PARTITION_TOKEN};
+use windmill_common::assets::AssetKind;
 use windmill_common::error::{self, Result};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::{JobKind, JobPayload, JobTriggerKind};
 use windmill_common::partition::PARTITION_ARG;
-use windmill_common::runnable_settings::DebouncingSettings;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::users::{get_email_from_permissioned_as, username_to_permissioned_as};
@@ -145,68 +144,6 @@ impl EventRow {
             debounce_s: opts.debounce_s,
             reason: opts.reason.map(str::to_string),
         }
-    }
-}
-
-/// AND-join slot progress at the moment a partition-bearing input
-/// arrived. `fired` = all required inputs are now present (the slot has
-/// been cleared and the subscriber will be dispatched). `received` /
-/// `required` are the counts observed inside the slot's transaction
-/// (monotonic up to that point), surfaced so the dispatch_event row can
-/// show partial progress like "2/3".
-#[derive(Debug, Clone, Copy)]
-struct JoinSlotStatus {
-    fired: bool,
-    received: i32,
-    required: i32,
-}
-
-/// Outcome of evaluating an AND-join barrier for one (subscriber, input).
-/// The caller turns this into a `dispatch_event` row and decides whether to
-/// push, all in one place.
-enum JoinDecision {
-    /// Input does not advance the join (recorded as Skipped with `reason`).
-    Skip(&'static str),
-    /// Join advanced but is not yet complete (recorded as JoinPending).
-    Pending { received: i32, required: i32 },
-    /// All required inputs are present — push the subscriber.
-    Fire,
-}
-
-/// Evaluate the AND-join barrier for a partition-bearing subscriber input.
-/// Only a partition-bearing input carrying a concrete partition advances the
-/// join — a reference input or an unpartitioned producer must never fire a
-/// partitioned join (the case-3 silent-wrong guard). On `Err` the caller
-/// should log and skip without recording an event.
-async fn handle_join(
-    db: &DB,
-    workspace_id: &str,
-    sub_path: &str,
-    trigger_ref: &str,
-    partition: Option<&str>,
-) -> Result<JoinDecision> {
-    if !is_partition_bearing_ref(trigger_ref) {
-        tracing::debug!(
-            "AND subscriber {}: non-partition-bearing input {} does not fire the join",
-            sub_path,
-            trigger_ref
-        );
-        return Ok(JoinDecision::Skip("case3_non_partition_bearing"));
-    }
-    let Some(pv) = partition else {
-        tracing::warn!(
-            "AND subscriber {}: partition-bearing input {} arrived with no resolved \
-             partition; not dispatching (case-3 guard)",
-            sub_path,
-            trigger_ref
-        );
-        return Ok(JoinDecision::Skip("case3_missing_partition"));
-    };
-    match record_and_check_join_slot(db, workspace_id, sub_path, pv, trigger_ref).await? {
-        JoinSlotStatus { fired: false, received, required } => {
-            Ok(JoinDecision::Pending { received, required })
-        }
-        JoinSlotStatus { fired: true, .. } => Ok(JoinDecision::Fire),
     }
 }
 
@@ -351,7 +288,7 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
                 continue;
             }
             if join_all {
-                match handle_join(
+                match crate::cascade::handle_join(
                     db,
                     &job.workspace_id,
                     &sub_path,
@@ -360,7 +297,7 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
                 )
                 .await
                 {
-                    Ok(JoinDecision::Skip(reason)) => {
+                    Ok(crate::cascade::JoinDecision::Skip(reason)) => {
                         events.push(EventRow::new(
                             &sub_path,
                             asset_kind,
@@ -370,7 +307,7 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
                         ));
                         continue;
                     }
-                    Ok(JoinDecision::Pending { received, required }) => {
+                    Ok(crate::cascade::JoinDecision::Pending { received, required }) => {
                         events.push(EventRow::new(
                             &sub_path,
                             asset_kind,
@@ -385,7 +322,7 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
                         ));
                         continue; // slot incomplete — wait for the rest
                     }
-                    Ok(JoinDecision::Fire) => {} // fall through to push
+                    Ok(crate::cascade::JoinDecision::Fire) => {} // fall through to push
                     Err(e) => {
                         tracing::error!("join-slot check failed for {}: {e:#}", sub_path);
                         continue;
@@ -604,128 +541,6 @@ async fn fetch_subscribers(
         .collect())
 }
 
-/// A `// on <asset>` whose stored ref carries the literal `{partition}`
-/// token is partition-bearing — its concrete partition is the AND-join
-/// key. Non-token asset refs are reference/presence-only inputs.
-fn is_partition_bearing_ref(trigger_ref: &str) -> bool {
-    trigger_ref.contains(PARTITION_TOKEN)
-}
-
-/// Record an AND input arrival for `(subscriber, partition)` and report
-/// whether every partition-bearing input is now present for that
-/// partition. The record -> count -> clear sequence runs in one
-/// transaction guarded by a transaction-scoped advisory lock keyed on the
-/// slot: the same subscriber's last two partition-bearing inputs can
-/// complete concurrently on different workers, and a check-then-act on a
-/// pooled connection would let both observe "complete" and dispatch
-/// twice. Serializing per `(workspace, subscriber, partition)` makes the
-/// gate fire exactly once; the lock is released on commit/rollback.
-/// Idempotent per input (PK conflict ignored); the slot is cleared on
-/// fire so later writes re-accumulate and can re-materialize.
-///
-/// `required` = the distinct partition-bearing inputs the subscriber
-/// declares (its `{partition}`-token `// on` lines). Reference inputs
-/// (no token) and non-asset triggers are presence-only and excluded.
-async fn record_and_check_join_slot(
-    db: &DB,
-    workspace_id: &str,
-    subscriber_path: &str,
-    partition: &str,
-    trigger_ref: &str,
-) -> Result<JoinSlotStatus> {
-    let mut tx = db.begin().await?;
-    let lock_key = format!("{workspace_id}|{subscriber_path}|{partition}");
-    sqlx::query!(
-        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
-        lock_key,
-    )
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query!(
-        r#"INSERT INTO join_pending_inputs
-             (workspace_id, subscriber_path, partition, trigger_ref)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT DO NOTHING"#,
-        workspace_id,
-        subscriber_path,
-        partition,
-        trigger_ref,
-    )
-    .execute(&mut *tx)
-    .await?;
-    let required = sqlx::query_scalar!(
-        r#"SELECT count(DISTINCT trigger_ref) AS "n!"
-           FROM script_trigger
-           WHERE workspace_id = $1
-             AND runnable_path = $2
-             AND trigger_kind = 'asset'
-             AND runnable_kind = 'script'
-             AND trigger_ref LIKE '%' || $3 || '%'"#,
-        workspace_id,
-        subscriber_path,
-        PARTITION_TOKEN,
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-    let received = sqlx::query_scalar!(
-        r#"SELECT count(DISTINCT trigger_ref) AS "n!"
-           FROM join_pending_inputs
-           WHERE workspace_id = $1 AND subscriber_path = $2 AND partition = $3"#,
-        workspace_id,
-        subscriber_path,
-        partition,
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-    let fire = required > 0 && received >= required;
-    if fire {
-        sqlx::query!(
-            r#"DELETE FROM join_pending_inputs
-               WHERE workspace_id = $1 AND subscriber_path = $2 AND partition = $3"#,
-            workspace_id,
-            subscriber_path,
-            partition,
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-    tx.commit().await?;
-    // i64 -> i32: the COUNT(DISTINCT trigger_ref) values are bounded by the
-    // number of `// on` lines on a single subscriber — fits trivially.
-    Ok(JoinSlotStatus { fired: fire, received: received as i32, required: required as i32 })
-}
-
-/// Default time a partial AND-join slot may sit with no new input before
-/// it is abandoned. A slot is normally cleared the moment the join fires;
-/// this only reaps slots whose inputs never all arrive (an upstream was
-/// removed/renamed, a one-off `dynamic` partition key, permanent skew).
-/// Conservative so a legitimately slow join is never reaped; a per-join
-/// configurable TTL via the annotation is a planned follow-up.
-pub const JOIN_SLOT_TTL_SECS: i64 = 60 * 24 * 60 * 60; // 60 days
-
-/// Reap abandoned AND-join slots. Keyed on the *slot's most recent row*
-/// (`HAVING max(received_at)`), never per-row, so a join whose inputs
-/// trickle in over a window longer than one input's age is not corrupted
-/// mid-accumulation. Called periodically from the monitor loop.
-pub async fn reap_stale_join_slots(db: &DB) -> Result<()> {
-    sqlx::query!(
-        "DELETE FROM join_pending_inputs jpi
-         USING (
-             SELECT workspace_id, subscriber_path, partition
-             FROM join_pending_inputs
-             GROUP BY workspace_id, subscriber_path, partition
-             HAVING max(received_at) <= now() - ($1::bigint::text || ' s')::interval
-         ) stale
-         WHERE jpi.workspace_id = stale.workspace_id
-           AND jpi.subscriber_path = stale.subscriber_path
-           AND jpi.partition = stale.partition",
-        JOIN_SLOT_TTL_SECS,
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
 async fn push_subscriber(
     db: &DB,
     producer: &MiniCompletedJob,
@@ -757,40 +572,20 @@ async fn push_subscriber(
     let tag = script.tag;
     let concurrency_settings = script.runnable_settings.concurrency_settings;
 
-    // Debounce is opt-in per subscriber edge (`// debounce` /
-    // `// on … debounce=`). When set, the window is keyed by
-    // (subscriber, partition) so distinct partitions never collapse and
-    // "latest within the window" falls out for free. When not set, the
-    // subscriber's own script-level debounce settings (if any) apply.
-    let debouncing_settings = match debounce_s {
-        Some(s) if s > 0 => DebouncingSettings {
-            debounce_key: Some(format!(
-                "asset-cascade:{}:{}",
-                subscriber_path,
-                partition.unwrap_or("")
-            )),
-            debounce_delay_s: Some(s),
-            ..DebouncingSettings::default()
-        },
-        _ => script.runnable_settings.debouncing_settings,
-    };
+    // Debounce / retry semantics are a `private` feature (see `cascade`).
+    // OSS degrades both: debounce falls back to the subscriber's own
+    // script-level settings, retry is never applied.
+    let debouncing_settings = crate::cascade::cascade_debouncing_settings(
+        subscriber_path,
+        partition,
+        debounce_s,
+        script.runnable_settings.debouncing_settings,
+    );
 
     // Retry is only available via the flow runtime — wrap the script in a
-    // one-step flow with `Retry { constant: { attempts, seconds } }` when
-    // the cascade declares `// retry`. The exponential delay and retry_if
-    // expression are intentionally unused: the annotation grammar is
-    // count-plus-constant-delay only (parser-light). Empty retry =
-    // unwrapped `ScriptHash` push, matching the previous behaviour.
-    let payload = if let Some(count) = retry_count.filter(|c| *c > 0) {
-        let delay = retry_delay_s.unwrap_or(0).max(0).min(u16::MAX as i32) as u16;
-        let retry = windmill_common::flows::Retry {
-            constant: windmill_common::flows::ConstantDelay {
-                attempts: count as u32,
-                seconds: delay,
-            },
-            exponential: windmill_common::flows::ExponentialDelay::default(),
-            retry_if: None,
-        };
+    // one-step flow when the cascade declares one. No retry =
+    // unwrapped `ScriptHash` push.
+    let payload = if let Some(retry) = crate::cascade::cascade_retry(retry_count, retry_delay_s) {
         JobPayload::SingleStepFlow {
             path: subscriber_path.to_string(),
             hash: Some(hash),
