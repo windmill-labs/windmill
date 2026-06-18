@@ -114,3 +114,30 @@ describe('HistoryManager legacy chat-history migration', () => {
 		expect(await countChats('copilot-chat-history::admin@test')).toBe(1)
 	})
 })
+
+describe('HistoryManager title across compaction', () => {
+	it('keeps the original title once a summary boundary leads the transcript', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const id = hm.getCurrentChatId()
+
+		// First save derives the title from the first user message.
+		await hm.save(
+			[{ role: 'user', content: 'original first question', index: 0 }] as DisplayMessage[],
+			[] as ChatCompletionMessageParam[]
+		)
+		expect(hm.getAllSavedChats().find((c) => c.id === id)?.title).toBe('original first question')
+
+		// After compaction the transcript leads with a summary boundary; deriving
+		// the title now would shift it to the surviving tail message. It must stay
+		// the title computed before compaction.
+		await hm.save(
+			[
+				{ role: 'summary', content: 'summary of the earlier conversation' },
+				{ role: 'user', content: 'a much later follow-up', index: 1 }
+			] as DisplayMessage[],
+			[] as ChatCompletionMessageParam[]
+		)
+		expect(hm.getAllSavedChats().find((c) => c.id === id)?.title).toBe('original first question')
+	})
+})
