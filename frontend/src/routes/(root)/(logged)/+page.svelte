@@ -1,13 +1,17 @@
 <script lang="ts">
 	import { AppService, FlowService, type OpenFlow, type Script } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { Alert, Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from '$lib/components/home/FlowIcon.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import CreateActionsFlow from '$lib/components/flows/CreateActionsFlow.svelte'
-	import CreateActionsScript from '$lib/components/scripts/CreateActionsScript.svelte'
+	import HomeCreateActions from '$lib/components/home/HomeCreateActions.svelte'
+	import HomeHero from '$lib/components/home/HomeHero.svelte'
+	import FilterSearchbar, {
+		useUrlSyncedFilterInstance
+	} from '$lib/components/FilterSearchbar.svelte'
+	import { buildHomeFilterSchema, type LatestItem } from '$lib/components/home/homeFilter'
 	import { getScriptByPath } from '$lib/scripts'
 	import type { HubItem } from '$lib/components/flows/pickers/model'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
@@ -20,32 +24,30 @@
 		GitFork,
 		Globe2,
 		Loader2,
-		Code,
+		Code2,
 		LayoutDashboard,
-		PlugZap
+		PlugZap,
+		SearchCode
 	} from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
 	import { base } from '$lib/base'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
-	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'
 	import PickHubApp from '$lib/components/flows/pickers/PickHubApp.svelte'
 	import { writable } from 'svelte/store'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
-	import { HOME_SHOW_HUB, HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
+	import { HOME_SHOW_HUB } from '$lib/consts'
 	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/state'
 	import { goto, replaceState } from '$app/navigation'
 	import ForkWorkspaceBanner from '$lib/components/ForkWorkspaceBanner.svelte'
 	import WorkspaceDraftsBanner from '$lib/components/WorkspaceDraftsBanner.svelte'
 	import WorkspaceTutorials from '$lib/components/WorkspaceTutorials.svelte'
-	import { onMount, setContext } from 'svelte'
+	import { getContext, onMount, setContext, untrack } from 'svelte'
 	import { tutorialsToDo } from '$lib/stores'
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 	import TutorialBanner from '$lib/components/home/TutorialBanner.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
-	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
-	import { z } from 'zod'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -55,11 +57,53 @@
 			: 'workspace'
 	)
 
-	let subtab: 'flow' | 'script' | 'app' = $state('script')
+	function selectTab(t: Tab) {
+		tab = t
+		if (typeof window !== 'undefined') window.location.hash = t
+	}
 
-	const searchParams = useSearchParams(z.object({ search: z.string().nullable() }))
-	const getFilter = () => searchParams.search ?? ''
-	const setFilter = (v: string) => (searchParams.search = v === '' ? null : v)
+	// Unified item-kind toggle (All / Scripts / Flows / Apps). Drives workspace
+	// filtering and, for the Hub tab, which picker is shown ('all' → scripts).
+	let itemKind: 'all' | 'script' | 'flow' | 'app' = $state(
+		(page.url.searchParams.get('kind') as 'all' | 'script' | 'flow' | 'app') ?? 'all'
+	)
+	let hubKind = $derived(itemKind === 'all' ? 'script' : itemKind)
+
+	// Meta surfaced by ItemsList (owners/labels for the filter schema, latest for
+	// the hero). Empty until the workspace list has loaded.
+	let homeMeta = $state<{
+		owners: string[]
+		labels: string[]
+		loading: boolean
+		latest: LatestItem[]
+	}>({ owners: [], labels: [], loading: true, latest: [] })
+
+	let filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined = $derived(
+		$userStore?.is_super_admin && $userStore.username.includes('@')
+			? 'only f/*'
+			: $userStore?.is_admin || $userStore?.is_super_admin
+				? 'u/username and f/*'
+				: undefined
+	)
+
+	let homeFilterSchema = $derived(
+		buildHomeFilterSchema({
+			owners: homeMeta.owners,
+			labels: homeMeta.labels,
+			showUserFoldersFilter: filterUserFoldersType !== undefined,
+			userFoldersLabel:
+				filterUserFoldersType === 'only f/*' ? 'Only f/*' : `Only u/${$userStore?.username} and f/*`
+		})
+	)
+	let filters = useUrlSyncedFilterInstance(untrack(() => homeFilterSchema))
+
+	const getFilter = () => filters.val._default_ ?? ''
+	const setFilter = (v: string) => (filters.val._default_ = v === '' ? undefined : v)
+
+	let presets = $derived([
+		...homeMeta.owners.map((o) => ({ name: o, value: `path:\\ ${o}` })),
+		...homeMeta.labels.map((l) => ({ name: l, value: `label:\\ ${l}` }))
+	])
 
 	let flowViewer: Drawer | undefined = $state(undefined)
 	let flowViewerFlow: { flow?: OpenFlow & { id?: number } } | undefined = $state(undefined)
@@ -116,6 +160,10 @@
 	})
 
 	let showCreateButtons = $state(false)
+
+	const openSearchWithPrefilledText: (t?: string) => void = getContext(
+		'openSearchWithPrefilledText'
+	)
 
 	onMount(() => {
 		// Check if there's a tutorial parameter in the URL
@@ -293,21 +341,17 @@
 			title="Home"
 			childrenWrapperDivClasses="flex-1 flex flex-row gap-4 flex-wrap justify-end items-center"
 		>
-			{#if $userStore?.operator}
-				<Button
-					variant="default"
-					unifiedSize="sm"
-					startIcon={{ icon: PlugZap }}
-					btnClasses="whitespace-nowrap"
-					onClick={() => homeConnectDrawer?.openDrawer?.()}
-				>
-					CLI / MCP
-				</Button>
-			{/if}
+			<Button
+				variant="default"
+				unifiedSize="md"
+				startIcon={{ icon: PlugZap }}
+				btnClasses="whitespace-nowrap"
+				onClick={() => homeConnectDrawer?.openDrawer?.()}
+			>
+				CLI / MCP
+			</Button>
 			{#if !$userStore?.operator && showCreateButtons}
-				<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
-				{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
-				{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
+				<HomeCreateActions />
 			{/if}
 		</PageHeader>
 
@@ -315,97 +359,89 @@
 
 		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 
-		{#if !$userStore?.operator}
-			<div class="flex w-full items-center gap-3 pb-2">
-				<div class="min-w-0 flex-1 overflow-auto scrollbar-hidden">
-					<Tabs values={['hub', 'workspace']} hashNavigation bind:selected={tab}>
-						<Tab value="workspace" label="Workspace" icon={Building} />
-						{#if HOME_SHOW_HUB}
-							<Tab value="hub" label="Hub" icon={Globe2} />
-						{/if}
-					</Tabs>
-				</div>
-
-				<Button
-					variant="default"
-					unifiedSize="sm"
-					startIcon={{ icon: PlugZap }}
-					btnClasses="whitespace-nowrap shrink-0"
-					onClick={() => homeConnectDrawer?.openDrawer?.()}
-				>
-					CLI / MCP
-				</Button>
-			</div>
+		{#if tab == 'workspace'}
+			<HomeHero latest={homeMeta.latest} />
 		{/if}
+
+		<!-- Unified toolbar: Workspace/Hub + kind toggles + filter searchbar -->
+		<div class="flex flex-wrap items-center gap-2 w-full pt-3 pb-2">
+			{#if !$userStore?.operator && HOME_SHOW_HUB}
+				<ToggleButtonGroup selected={tab} onSelected={(v) => selectTab(v as Tab)} noWFull>
+					{#snippet children({ item })}
+						<ToggleButton value="workspace" label="Workspace" icon={Building} {item} />
+						<ToggleButton value="hub" label="Hub" icon={Globe2} {item} />
+					{/snippet}
+				</ToggleButtonGroup>
+			{/if}
+			<ToggleButtonGroup
+				bind:selected={itemKind}
+				onSelected={(v) => setQuery(page.url, 'kind', v, window.location.hash)}
+				noWFull
+			>
+				{#snippet children({ item })}
+					<ToggleButton value="all" label="All" {item} />
+					<ToggleButton value="script" label="Scripts" icon={Code2} {item} />
+					<ToggleButton value="flow" label="Flows" icon={FlowIcon} selectedColor="#14b8a6" {item} />
+					<ToggleButton
+						value="app"
+						label="Apps"
+						icon={LayoutDashboard}
+						selectedColor="#fb923c"
+						{item}
+					/>
+				{/snippet}
+			</ToggleButtonGroup>
+			<div class="grow min-w-[12rem]">
+				<FilterSearchbar
+					schema={homeFilterSchema}
+					bind:value={filters.val}
+					{presets}
+					placeholder="Search scripts, flows & apps..."
+				/>
+			</div>
+			<Button
+				onClick={() => openSearchWithPrefilledText?.('#')}
+				variant="default"
+				unifiedSize="md"
+				endIcon={{ icon: SearchCode }}
+				btnClasses="whitespace-nowrap"
+			>
+				Content
+			</Button>
+			{#if tab == 'hub'}
+				<Button
+					startIcon={{ icon: ExternalLink }}
+					target="_blank"
+					href={$hubBaseUrlStore}
+					variant="default"
+					unifiedSize="md"
+				>
+					Hub
+				</Button>
+			{/if}
+		</div>
+
 		{#if tab == 'hub'}
 			<div class="flex flex-col gap-y-16">
 				<div class="flex flex-col pb-8">
-					{#snippet toggleKinds()}
-						<ToggleButtonGroup
-							bind:selected={subtab}
-							onSelected={(v) => {
-								setQuery(page.url, 'kind', v, window.location.hash)
-							}}
-							noWFull
-						>
-							{#snippet children({ item })}
-								<ToggleButton value="script" label="Scripts" icon={Code} {item} />
-								<ToggleButton
-									value="flow"
-									label="Flows"
-									icon={FlowIcon}
-									selectedColor="#14b8a6"
-									{item}
-								/>
-								<ToggleButton
-									value="app"
-									label="Apps"
-									icon={LayoutDashboard}
-									selectedColor="#fb923c"
-									{item}
-								/>
-							{/snippet}
-						</ToggleButtonGroup>
-						<Button
-							startIcon={{ icon: ExternalLink }}
-							target="_blank"
-							href={$hubBaseUrlStore}
-							variant="default"
-						>
-							Hub
-						</Button>
-					{/snippet}
-
-					{#if subtab == 'script'}
+					{#if hubKind == 'script'}
 						<PickHubScript
 							syncQuery
 							bind:filter={getFilter, setFilter}
 							on:pick={(e) => viewCode(e.detail)}
-						>
-							{#snippet children()}
-								{@render toggleKinds?.()}
-							{/snippet}
-						</PickHubScript>
-					{:else if subtab == 'flow'}
+						/>
+					{:else if hubKind == 'flow'}
 						<PickHubFlow
 							syncQuery
 							bind:filter={getFilter, setFilter}
 							on:pick={(e) => viewFlow(e.detail)}
-						>
-							{#snippet children()}
-								{@render toggleKinds?.()}
-							{/snippet}
-						</PickHubFlow>
-					{:else if subtab == 'app'}
+						/>
+					{:else if hubKind == 'app'}
 						<PickHubApp
 							syncQuery
 							bind:filter={getFilter, setFilter}
 							on:pick={(e) => viewApp(e.detail)}
-						>
-							{#snippet children()}
-								{@render toggleKinds?.()}
-							{/snippet}
-						</PickHubApp>
+						/>
 					{/if}
 				</div>
 			</div>
@@ -413,7 +449,12 @@
 	</div>
 
 	{#if tab == 'workspace'}
-		<ItemsList bind:filter={getFilter, setFilter} bind:subtab showEditButtons={showCreateButtons} />
+		<ItemsList
+			filterValue={filters.val}
+			{itemKind}
+			showEditButtons={showCreateButtons}
+			onMeta={(m) => (homeMeta = m)}
+		/>
 	{/if}
 </div>
 
