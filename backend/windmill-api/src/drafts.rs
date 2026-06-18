@@ -275,7 +275,17 @@ async fn update_draft(
 ) -> Result<Json<SaveDraftResponse>> {
     let email = &authed.email;
     let path = path.to_path();
-    require_can_write_path(&authed, &db, &user_db, &w_id, kind, path).await?;
+    // Saving a draft requires write permission on the underlying path. Deleting
+    // (discarding) one's OWN draft does not: the email-scoped row belongs to the
+    // authed user, so they can always discard it even after losing write access
+    // to the underlying item (e.g. a draft-only item whose folder perms changed).
+    // The DELETE below is scoped to `email = authed.email`, so it can only ever
+    // touch the caller's own row. Legacy (NULL-email) rows aren't owned by anyone
+    // — they keep the write gate.
+    let is_own_discard = req.value.is_none() && !req.legacy;
+    if !is_own_discard {
+        require_can_write_path(&authed, &db, &user_db, &w_id, kind, path).await?;
+    }
 
     let applied_at = if let Some(value) = &req.value {
         // Secret variable values must never sit in `draft.value` in plaintext
