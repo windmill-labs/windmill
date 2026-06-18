@@ -22,6 +22,7 @@
 	import { tick } from 'svelte'
 	import { inferArgs } from '$lib/infer'
 	import { emptySchema, sendUserToast } from '$lib/utils'
+	import type { Schema } from '$lib/common'
 	import type { AssetGraphSelection, PipelineMode } from './types'
 	import PipelineScriptView from './PipelineScriptView.svelte'
 	import { parsePipelineAnnotations, type PipelineAnnotations } from './parsePipelineAnnotations'
@@ -359,10 +360,10 @@
 	// it locally; saving calls ScriptService.createScript to deploy it.
 	let scriptRes = resource(
 		[() => workspace, () => selection, () => draftScript],
-		async ([ws, sel, draft], _prev, { signal }) => {
+		async ([ws, sel, draft]) => {
 			if (draft) return undefined
 			if (!sel || sel.kind !== 'runnable' || sel.runnable_kind !== 'script') return undefined
-			return await ScriptService.getScriptByPath({ workspace: ws, path: sel.path }, signal as any)
+			return await ScriptService.getScriptByPath({ workspace: ws, path: sel.path })
 		}
 	)
 
@@ -424,8 +425,7 @@
 				// already be loading the next script — fall back to the
 				// pristine copy captured at registration.
 				const latest = scriptRes.current
-				const orig =
-					latest && latest.path === captured.path ? latest : origAtRegister
+				const orig = latest && latest.path === captured.path ? latest : origAtRegister
 				if (!orig || orig.path !== captured.path) return
 				if ((captured.content ?? '') === (orig.content ?? '')) return
 			}
@@ -438,9 +438,7 @@
 			onDraftPersist?.(captured.path, {
 				content: captured.content ?? '',
 				writes,
-				script: isDraftRun
-					? undefined
-					: (structuredClone($state.snapshot(captured)) as Script)
+				script: isDraftRun ? undefined : (structuredClone($state.snapshot(captured)) as Script)
 			})
 		}
 	})
@@ -556,9 +554,9 @@
 		try {
 			script.schema = script.schema ?? emptySchema()
 			try {
-				const result = await inferArgs(script.language, script.content, script.schema)
+				const result = await inferArgs(script.language, script.content, script.schema as Schema)
 				;(script as any).auto_kind = result?.auto_kind || undefined
-				script.has_preprocessor = result?.has_preprocessor || undefined
+				script.has_preprocessor = result?.has_preprocessor ?? false
 			} catch {
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
@@ -1202,15 +1200,18 @@
 							<AlertTriangle class="text-amber-500 dark:text-amber-400" />
 						</div>
 						<div class="ml-4 flex-1">
-							<h3 class="text-lg font-medium text-primary">This script changed since you opened it</h3>
+							<h3 class="text-lg font-medium text-primary"
+								>This script changed since you opened it</h3
+							>
 							<div class="mt-2 text-sm text-secondary flex flex-col gap-2">
 								<p>
-									<span class="font-mono text-xs">{script?.path ?? ''}</span> was deployed by someone else
-									(or another tab) while you were editing, so saving on top of your version would fork its
-									lineage.
+									<span class="font-mono text-xs">{script?.path ?? ''}</span> was deployed by someone
+									else (or another tab) while you were editing, so saving on top of your version would
+									fork its lineage.
 								</p>
 								<p>
-									<span class="font-medium">Keep my version</span> deploys your changes on top of the latest.
+									<span class="font-medium">Keep my version</span> deploys your changes on top of
+									the latest.
 									<span class="font-medium">View latest</span> loads the newly-deployed version, discarding
 									your unsaved edits.
 								</p>
@@ -1218,7 +1219,12 @@
 						</div>
 					</div>
 					<div class="flex items-center gap-2 flex-row-reverse mt-4">
-						<Button disabled={resolvingConflict} onclick={overwriteWithMine} variant="accent" size="sm">
+						<Button
+							disabled={resolvingConflict}
+							onclick={overwriteWithMine}
+							variant="accent"
+							size="sm"
+						>
 							{#if resolvingConflict}
 								<Loader2 class="animate-spin" />
 							{/if}

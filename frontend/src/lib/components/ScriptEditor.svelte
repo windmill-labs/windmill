@@ -2082,7 +2082,7 @@
 </SplitPanesWrapper>
 
 {#snippet cancelTestButton(size: 'sm' | 'md', btnClasses: string)}
-	<Button on:click={jobLoader?.cancelJob} unifiedSize={size} {btnClasses}>
+	<Button on:click={() => jobLoader?.cancelJob()} unifiedSize={size} {btnClasses}>
 		<WindmillIcon
 			white={true}
 			class="mr-2 text-white"

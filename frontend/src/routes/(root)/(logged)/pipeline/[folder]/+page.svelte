@@ -80,6 +80,7 @@
 	import { resource } from 'runed'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { emptySchema, sendUserToast } from '$lib/utils'
+	import type { Schema } from '$lib/common'
 	import { beforeNavigate, goto } from '$app/navigation'
 	import { fade } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
@@ -794,9 +795,9 @@
 		const script = structuredClone($state.snapshot(draft.script) as Script)
 		script.schema = script.schema ?? emptySchema()
 		try {
-			const result = await inferArgs(script.language, script.content, script.schema)
+			const result = await inferArgs(script.language, script.content, script.schema as Schema)
 			;(script as any).auto_kind = result?.auto_kind || undefined
-			script.has_preprocessor = result?.has_preprocessor || undefined
+			script.has_preprocessor = result?.has_preprocessor ?? false
 		} catch {
 			// Inference failures don't block deploys (the same fallback the
 			// per-pane save uses). The createScript call is the real
