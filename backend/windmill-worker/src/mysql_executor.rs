@@ -1,49 +1,62 @@
 use std::{collections::HashMap, sync::Arc};
 
+use anyhow::anyhow;
 use base64::Engine;
-use futures::{future::BoxFuture, FutureExt};
+use futures::{future::BoxFuture, FutureExt, StreamExt};
 use itertools::Itertools;
 use mysql_async::{
     consts::ColumnType, prelude::*, FromValueError, OptsBuilder, Params, Row, SslOpts,
 };
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue, Value};
-use sqlx::types::Json;
+use std::str::FromStr;
 use tokio::sync::Mutex;
+use uuid::Uuid;
 use windmill_common::{
+    client::AuthedClient,
     error::{to_anyhow, Error},
-    jobs::QueuedJob,
-    worker::to_raw_value,
+    worker::{to_raw_value, Connection, SqlResultCollectionStrategy},
 };
 use windmill_parser_sql::{
-    parse_db_resource, parse_mysql_sig, parse_sql_blocks, parse_sql_statement_named_params,
-    RE_ARG_MYSQL_NAMED,
+    parse_db_resource, parse_mysql_sig, parse_s3_mode, parse_sql_blocks,
+    parse_sql_statement_named_params, RE_ARG_MYSQL_NAMED,
 };
 use windmill_queue::CanceledBy;
+use windmill_queue::MiniPulledJob;
 
 use crate::{
-    common::{build_args_map, OccupancyMetrics},
+    common::{
+        build_args_values, get_reserved_variables, s3_mode_args_to_worker_data,
+        s3_stream_and_upload_with_logs, OccupancyMetrics, S3ModeWorkerData,
+    },
     handle_child::run_future_with_polling_update_job_poller,
-    AuthedClientBackgroundTask,
+    sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
 };
 
 #[derive(Deserialize)]
-struct MysqlDatabase {
-    host: String,
-    user: Option<String>,
-    password: Option<String>,
-    port: Option<u16>,
-    database: String,
-    ssl: Option<bool>,
+pub struct MysqlDatabase {
+    pub host: String,
+    pub user: Option<String>,
+    pub password: Option<String>,
+    pub port: Option<u16>,
+    pub database: String,
+    pub ssl: Option<bool>,
 }
 
-pub fn do_mysql_inner<'a>(
+fn do_mysql_inner<'a>(
     query: &'a str,
     all_statement_values: &Params,
     conn: Arc<Mutex<mysql_async::Conn>>,
     column_order: Option<&'a mut Option<Vec<String>>>,
     skip_collect: bool,
-) -> windmill_common::error::Result<BoxFuture<'a, anyhow::Result<Box<RawValue>>>> {
+    first_row_only: bool,
+    s3: Option<S3ModeWorkerData>,
+    job_id: Uuid,
+    workspace_id: &'a str,
+    log_conn: &'a Connection,
+) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Vec<Box<RawValue>>>>>
+{
     let param_names = parse_sql_statement_named_params(query, ':')
         .into_iter()
         .map(|x| x.into_bytes())
@@ -68,14 +81,62 @@ pub fn do_mysql_inner<'a>(
                 .await
                 .map_err(to_anyhow)?;
 
-            Ok(to_raw_value(&Value::Array(vec![])))
+            Ok(vec![])
+        } else if let Some(ref s3) = s3 {
+            let query = query.to_string();
+            let rows_stream = async_stream::stream! {
+                let mut conn = conn.lock().await;
+                let mut result = match conn.exec_iter(query, statement_values).await.map_err(to_anyhow) {
+                    Ok(result) => result,
+                    Err(e) => {
+                        yield Err(anyhow!("Error executing query: {:?}", e));
+                        return;
+                    }
+                };
+                loop {
+                    let row = result.next().await;
+                    match row {
+                        Ok(Some(row)) => {
+                            yield Ok(convert_row_to_value(row));
+                        }
+                        Ok(None) => {
+                            break;
+                        }
+                        Err(e) => {
+                            yield Err(anyhow!("Error fetching row: {:?}", e));
+                            return;
+                        }
+                    }
+                }
+            };
+
+            s3_stream_and_upload_with_logs(
+                "MySQL",
+                rows_stream.boxed(),
+                s3,
+                job_id,
+                workspace_id,
+                log_conn,
+            )
+            .await?;
+
+            Ok(vec![to_raw_value(&s3.to_return_s3_obj())])
         } else {
-            let rows: Vec<Row> = conn
-                .lock()
-                .await
-                .exec(query, statement_values)
-                .await
-                .map_err(to_anyhow)?;
+            let rows: Vec<Row> = if first_row_only {
+                conn.lock()
+                    .await
+                    .exec_first(query, statement_values)
+                    .await
+                    .map_err(to_anyhow)?
+                    .into_iter()
+                    .collect()
+            } else {
+                conn.lock()
+                    .await
+                    .exec(query, statement_values)
+                    .await
+                    .map_err(to_anyhow)?
+            };
 
             if let Some(column_order) = column_order {
                 *column_order = Some(
@@ -90,12 +151,10 @@ pub fn do_mysql_inner<'a>(
                 );
             }
 
-            Ok(to_raw_value(
-                &rows
-                    .into_iter()
-                    .map(|x| convert_row_to_value(x))
-                    .collect::<Vec<serde_json::Value>>(),
-            ))
+            Ok(rows
+                .into_iter()
+                .map(|x| to_raw_value(&convert_row_to_value(x)))
+                .collect::<Vec<_>>())
         }
     };
 
@@ -103,52 +162,48 @@ pub fn do_mysql_inner<'a>(
 }
 
 pub async fn do_mysql(
-    job: &QueuedJob,
-    client: &AuthedClientBackgroundTask,
+    job: &MiniPulledJob,
+    client: &AuthedClient,
     query: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
+    parent_runnable_path: Option<String>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    let args = build_args_map(job, client, db).await?.map(Json);
-    let job_args = if args.is_some() {
-        args.as_ref()
-    } else {
-        job.args.as_ref()
-    };
+    let mut job_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
+    let s3 = parse_s3_mode(&query)?.map(|s3| s3_mode_args_to_worker_data(s3, client.clone(), job));
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
-        let val = client
-            .get_authed()
-            .await
-            .get_resource_value_interpolated::<serde_json::Value>(
-                &inline_db_res_path,
-                Some(job.id.to_string()),
-            )
-            .await?;
-
-        let as_raw = serde_json::from_value(val).map_err(|e| {
-            Error::InternalErr(format!("Error while parsing inline resource: {e:#}"))
-        })?;
-
-        Some(as_raw)
+        Some(
+            client
+                .get_resource_value_interpolated::<serde_json::Value>(
+                    &inline_db_res_path,
+                    Some(job.id.to_string()),
+                )
+                .await?,
+        )
     } else {
-        job_args.and_then(|x| x.get("database").cloned())
+        job_args.get("database").cloned()
     };
 
     let database = if let Some(db) = db_arg {
-        serde_json::from_str::<MysqlDatabase>(db.get())
+        serde_json::from_value::<MysqlDatabase>(db)
             .map_err(|e| Error::ExecutionErr(e.to_string()))?
     } else {
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
 
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
+    let collection_strategy = if annotations.return_last_result {
+        SqlResultCollectionStrategy::LastStatementAllRows
+    } else {
+        annotations.result_collection
+    };
 
     let opts = OptsBuilder::default()
         .db_name(Some(database.database))
@@ -171,6 +226,40 @@ pub async fn do_mysql(
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
+    // Materialize any `(s3object)` args into JSON text. mysql_async binds strings as
+    // VARBINARY/TEXT, which MySQL's `JSON_TABLE`/`JSON_EXTRACT` accept directly.
+    for arg in sig.iter() {
+        if arg.otyp.as_deref() != Some("s3object") {
+            continue;
+        }
+        let raw = job_args.remove(&arg.name).unwrap_or(Value::Null);
+        if matches!(raw, Value::Null) {
+            return Err(Error::BadRequest(format!(
+                "Missing S3Object value for arg `{}`",
+                arg.name
+            )));
+        }
+        let s3_obj: windmill_types::s3::S3Object = serde_json::from_value(raw).map_err(|e| {
+            Error::ExecutionErr(format!("Invalid S3Object for arg `{}`: {e}", arg.name))
+        })?;
+        let json_text =
+            crate::sql_s3_input::fetch_s3object_as_json_text(client, &job.workspace_id, &s3_obj)
+                .await
+                .map_err(|e| {
+                    Error::ExecutionErr(format!(
+                        "Failed to fetch S3 object for arg `{}`: {e}",
+                        arg.name
+                    ))
+                })?;
+        job_args.insert(arg.name.clone(), Value::String(json_text));
+    }
+
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+
+    let (query, args_to_skip) =
+        &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args, &reserved_variables)?;
+
     let using_named_params = RE_ARG_MYSQL_NAMED.captures_iter(query).count() > 0;
 
     let mut statement_values: Params = match using_named_params {
@@ -178,18 +267,17 @@ pub async fn do_mysql(
         false => Params::Positional(vec![]),
     };
     for arg in &sig {
+        if args_to_skip.contains(&arg.name) {
+            continue;
+        }
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "text".to_string());
         let arg_n = arg.name.clone();
         let mysql_v = match job_args
-            .and_then(|x| {
-                x.get(arg.name.as_str())
-                    .map(|x| serde_json::from_str::<serde_json::Value>(x.get()).ok())
-            })
-            .flatten()
-            .unwrap_or_else(|| json!(null))
+            .get(arg.name.as_str())
+            .unwrap_or_else(|| &json!(null))
         {
             Value::Null => mysql_async::Value::NULL,
-            Value::Bool(b) => mysql_async::Value::Int(if b { 1 } else { 0 }),
+            Value::Bool(b) => mysql_async::Value::Int(if *b { 1 } else { 0 }),
             Value::String(s)
                 if arg_t == "timestamp"
                     || arg_t == "datetime"
@@ -244,54 +332,47 @@ pub async fn do_mysql(
     }
 
     let pool = mysql_async::Pool::new(opts);
-    let conn = pool.get_conn().await.map_err(to_anyhow)?;
-    let conn_a = Arc::new(Mutex::new(conn));
+    let mysql_conn = pool.get_conn().await.map_err(to_anyhow)?;
+    let conn_a = Arc::new(Mutex::new(mysql_conn));
 
-    let queries = parse_sql_blocks(query);
+    let queries = parse_sql_blocks(query, false);
 
-    let result_f = if queries.len() > 1 {
-        let futures = queries
-            .iter()
-            .enumerate()
-            .map(|(i, x)| {
-                do_mysql_inner(
-                    x,
-                    &statement_values,
-                    conn_a.clone(),
-                    None,
-                    annotations.return_last_result && i < queries.len() - 1,
-                )
-            })
-            .collect::<windmill_common::error::Result<Vec<_>>>()?;
+    let conn_a_ref = &conn_a;
+    let result_f = async move {
+        let mut results = vec![];
+        for (i, query) in queries.iter().enumerate() {
+            let result = do_mysql_inner(
+                query,
+                &statement_values,
+                conn_a_ref.clone(),
+                if i == queries.len() - 1
+                    && s3.is_none()
+                    && collection_strategy.collect_last_statement_only(queries.len())
+                    && !collection_strategy.collect_scalar()
+                {
+                    Some(column_order)
+                } else {
+                    None
+                },
+                collection_strategy.collect_last_statement_only(queries.len())
+                    && i < queries.len() - 1,
+                collection_strategy.collect_first_row_only(),
+                s3.clone(),
+                job.id,
+                &job.workspace_id,
+                conn,
+            )?
+            .await?;
+            results.push(result);
+        }
 
-        let f = async {
-            let mut res: Vec<Box<RawValue>> = vec![];
-            for fut in futures {
-                let r = fut.await?;
-                res.push(r);
-            }
-            if annotations.return_last_result && res.len() > 0 {
-                Ok(res.pop().unwrap())
-            } else {
-                Ok(to_raw_value(&res))
-            }
-        };
-
-        f.boxed()
-    } else {
-        do_mysql_inner(
-            query,
-            &statement_values,
-            conn_a.clone(),
-            Some(column_order),
-            false,
-        )?
+        collection_strategy.collect(results)
     };
 
     let result = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         result_f,
@@ -306,31 +387,71 @@ pub async fn do_mysql(
 
     pool.disconnect().await.map_err(to_anyhow)?;
 
-    let raw_result = windmill_common::worker::to_raw_value(&json!(result));
-    *mem_peak = (raw_result.get().len() / 1000) as i32;
+    *mem_peak = (result.get().len() / 1000) as i32;
 
     // And then check that we got back the same string we sent over.
-    return Ok(raw_result);
+    return Ok(result);
 }
 
-fn string_date_to_mysql_date(s: &str) -> mysql_async::Value {
-    // 2023-12-01T16:18:00.000Z
-    let re = regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d+)Z").unwrap();
-    let caps = re.captures(s);
+// 2023-12-01T16:18:00.000Z
+static DATE_REGEX_TZ: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d+)Z").unwrap()
+});
+// 2025-04-21 10:08:00
+static DATE_REGEX: Lazy<regex::Regex> =
+    Lazy::new(|| regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})").unwrap());
+// 2025-01-05
+static DATE_REGEX_DATE_ONLY: Lazy<regex::Regex> =
+    Lazy::new(|| regex::Regex::new(r"^(\d{4})-(\d{2})-(\d{2})$").unwrap());
 
-    if let Some(caps) = caps {
-        mysql_async::Value::Date(
-            caps.get(1).unwrap().as_str().parse().unwrap_or_default(),
-            caps.get(2).unwrap().as_str().parse().unwrap_or_default(),
-            caps.get(3).unwrap().as_str().parse().unwrap_or_default(),
-            caps.get(4).unwrap().as_str().parse().unwrap_or_default(),
-            caps.get(5).unwrap().as_str().parse().unwrap_or_default(),
-            caps.get(6).unwrap().as_str().parse().unwrap_or_default(),
-            caps.get(7).unwrap().as_str().parse().unwrap_or_default(),
-        )
-    } else {
-        mysql_async::Value::Date(0, 0, 0, 0, 0, 0, 0)
+fn string_date_to_mysql_date(s: &str) -> mysql_async::Value {
+    // Try ISO format with timezone (most specific)
+    if let Some(caps) = DATE_REGEX_TZ.captures(s) {
+        return mysql_async::Value::Date(
+            get_capture_by_index(&caps, 1),
+            get_capture_by_index(&caps, 2),
+            get_capture_by_index(&caps, 3),
+            get_capture_by_index(&caps, 4),
+            get_capture_by_index(&caps, 5),
+            get_capture_by_index(&caps, 6),
+            get_capture_by_index(&caps, 7),
+        );
     }
+
+    // Try datetime without timezone
+    if let Some(caps) = DATE_REGEX.captures(s) {
+        return mysql_async::Value::Date(
+            get_capture_by_index(&caps, 1),
+            get_capture_by_index(&caps, 2),
+            get_capture_by_index(&caps, 3),
+            get_capture_by_index(&caps, 4),
+            get_capture_by_index(&caps, 5),
+            get_capture_by_index(&caps, 6),
+            0,
+        );
+    }
+
+    // Try date-only format (YYYY-MM-DD)
+    if let Some(caps) = DATE_REGEX_DATE_ONLY.captures(s) {
+        return mysql_async::Value::Date(
+            get_capture_by_index(&caps, 1),
+            get_capture_by_index(&caps, 2),
+            get_capture_by_index(&caps, 3),
+            0,
+            0,
+            0,
+            0,
+        );
+    }
+
+    // Fallback for invalid format
+    mysql_async::Value::Date(0, 0, 0, 0, 0, 0, 0)
+}
+
+fn get_capture_by_index<T: FromStr + Default>(caps: &regex::Captures, n: usize) -> T {
+    caps.get(n)
+        .and_then(|s| s.as_str().parse::<T>().ok())
+        .unwrap_or_default()
 }
 
 fn convert_row_to_value(row: Row) -> serde_json::Value {

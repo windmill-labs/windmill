@@ -14,15 +14,19 @@
 	import type { AppViewerContext, GridItem } from '../../types'
 	import { getAllSubgridsAndComponentIds } from '../appUtils'
 
-	export let item: GridItem
+	interface Props {
+		item: GridItem
+	}
+
+	let { item }: Props = $props()
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let groups: Array<{
 		name: string
 		path: string
-	}> = []
+	}> = $state([])
 
-	let loading: boolean = false
+	let loading: boolean = $state(false)
 
 	async function getGroups() {
 		loading = true
@@ -79,17 +83,17 @@
 		nameField = ''
 	}
 
-	let nameField: string = ''
+	let nameField: string = $state('')
 
 	getGroups()
 </script>
 
-<div id="group_portal" />
+<div id="group_portal"></div>
 
 <div class="p-2 flex flex-col items-start w-auto gap-2 relative">
 	<div class="w-full flex flex-row gap-2 items-center">
 		<input bind:value={nameField} placeholder={'Group name'} />
-		<Button on:click={() => addGroup(nameField)} color="dark" size="xs">Create group</Button>
+		<Button on:click={() => addGroup(nameField)} variant="accent" size="xs">Create group</Button>
 	</div>
 
 	{#if loading}
@@ -120,7 +124,7 @@
 							{/key}
 						{/each}
 					{:else}
-						<tr>Loading...</tr>
+						<tr><td>Loading...</td></tr>
 					{/if}
 				</tbody>
 			</DataTable>

@@ -1,6 +1,7 @@
 import type { ReadFileAs } from '../common/fileInput/model'
 import type { DecisionTreeNode, TypedComponent } from './editor/component'
-import type { InlineScript } from './types'
+import type { InlineScript } from './sharedTypes'
+export type { InlineScript } from './sharedTypes'
 
 export type InputType =
 	| 'integer'
@@ -41,6 +42,8 @@ export type InputType =
 	| 'snowflake_oauth'
 	| 'bigquery'
 	| 'oracledb'
+	| 'ducklake'
+	| 'datatable'
 	| 'app-path'
 
 // Connection to an output of another component
@@ -68,12 +71,28 @@ export type UserInput<U> = {
 	type: 'user'
 	value: U | undefined
 	allowUserResources?: boolean
+	sensitive?: boolean
 }
 
 // Input can be uploaded with a file selector
 export type UploadInput = {
 	type: 'upload'
 	value: string
+}
+
+export type UploadS3Input = {
+	type: 'uploadS3'
+	value: any
+}
+
+export type FileUploadData = {
+	name: string
+	size: number
+	progress: number
+	cancelled?: boolean
+	errorMessage?: string
+	path?: string
+	file?: File
 }
 
 export type EvalInput = {
@@ -87,6 +106,12 @@ export type EvalInputV2 = {
 	connections: InputConnectionEval[]
 	onDemandOnly?: boolean
 	allowUserResources?: boolean
+}
+
+// Context input, secure backend-resolved value (username, email, groups, workspace, author)
+export type CtxInput = {
+	type: 'ctx'
+	ctx: 'username' | 'email' | 'groups' | 'workspace' | 'author'
 }
 
 export type RowInput = {
@@ -116,16 +141,28 @@ export type RunnableByPath = {
 	path: string
 	schema: any
 	runType: 'script' | 'flow' | 'hubscript'
-	type: 'runnableByPath'
+	type: 'runnableByPath' | 'path'
+}
+
+export function isRunnableByPath(runnable: Runnable): runnable is RunnableByPath {
+	return runnable?.type == 'runnableByPath' || runnable?.type == 'path'
+}
+
+export function isRunnableByName(runnable: Runnable): runnable is RunnableByName {
+	return runnable?.type == 'runnableByName' || runnable?.type == 'inline'
 }
 
 export type RunnableByName = {
 	name: string
 	inlineScript: InlineScript | undefined
-	type: 'runnableByName'
+	type: 'runnableByName' | 'inline'
 }
 
 export type Runnable = RunnableByPath | RunnableByName | undefined
+
+export type RunnableWithFields = Runnable & {
+	fields?: Record<string, StaticAppInput | UserAppInput | CtxInput>
+}
 
 // Runnable input, set by the developer in the component panel
 export type ResultInput = {
@@ -149,6 +186,7 @@ export type AppInputSpec<T extends InputType, U, V extends InputType = never> = 
 	| EvalInput
 	| EvalInputV2
 	| UploadInput
+	| UploadS3Input
 	| ResultInput
 	| TemplateInput
 	| TemplateV2Input
@@ -173,6 +211,10 @@ type InputConfiguration<T extends InputType, V extends InputType> = {
 		 * @default false
 		 */
 		convertTo?: ReadFileAs
+	}
+	fileUploadS3?: {
+		accept: string
+		multiple?: boolean
 	}
 	noStatic?: boolean
 	onDemandOnly?: boolean
@@ -229,6 +271,8 @@ export type AppInput =
 	| AppInputSpec<'resource', string, 'snowflake_oauth'>
 	| AppInputSpec<'resource', string, 'bigquery'>
 	| AppInputSpec<'resource', string, 'oracledb'>
+	| AppInputSpec<'ducklake', string, 'ducklake'>
+	| AppInputSpec<'datatable', string, 'datatable'>
 	| AppInputSpec<'array', object[], 'number-tuple'>
 	| AppInputSpec<'app-path', string>
 
@@ -243,6 +287,8 @@ export type StaticAppInputOnDemand = Extract<StaticAppInput, { onDemandOnly: tru
 export type TemplateV2AppInput = Extract<AppInput, { type: 'templatev2' }>
 
 export type UploadAppInput = Extract<AppInput, { type: 'upload' }>
+export type UploadS3AppInput = Extract<AppInput, { type: 'uploadS3' }>
+export type CtxAppInput = CtxInput
 
 export type RichAppInput =
 	| AppInput

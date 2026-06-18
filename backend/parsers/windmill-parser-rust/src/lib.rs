@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use itertools::Itertools;
 use quote::ToTokens;
 use regex::Regex;
-use windmill_parser::{Arg, MainArgSignature, Typ};
+use windmill_parser::{to_snake_case, Arg, MainArgSignature, Typ};
 
 pub fn otyp_to_string(otyp: Option<String>) -> String {
     otyp.unwrap()
@@ -21,23 +21,25 @@ pub fn parse_rust_signature(code: &str) -> anyhow::Result<MainArgSignature> {
             .iter()
             .map(|param| {
                 let (otyp, typ, name) = parse_rust_typ(param);
-                Arg { name, otyp, typ, default: None, has_default: false, oidx: None }
+                Arg { name, otyp, typ, default: None, has_default: false, oidx: None, otyp_inferred: false }
             })
             .collect_vec();
         Ok(MainArgSignature {
             star_args: false,
             star_kwargs: false,
             args,
-            no_main_func: Some(false),
+            auto_kind: None,
             has_preprocessor: None,
+            ..Default::default()
         })
     } else {
         Ok(MainArgSignature {
             star_args: false,
             star_kwargs: false,
             args: vec![],
-            no_main_func: Some(true),
+            auto_kind: Some("lib".to_string()),
             has_preprocessor: None,
+            ..Default::default()
         })
     }
 }
@@ -108,7 +110,7 @@ fn parse_pat_type(p: Box<syn::Type>) -> Typ {
                             Typ::Unknown
                         }
                     }
-                    _ => Typ::Unknown,
+                    s => Typ::Resource(to_snake_case(s)),
                 }
             } else {
                 Typ::Unknown
@@ -426,23 +428,28 @@ fn main(
             ret.args[3].otyp,
             Some("Vec < Result < MyStruct , anyhow :: Error > >".to_string())
         );
-        assert_eq!(ret.args[3].typ, Typ::List(Box::new(Typ::Unknown)));
+        assert_eq!(
+            ret.args[3].typ,
+            Typ::List(Box::new(Typ::Resource("result".into())))
+        );
 
         let code = r#"
 // commenting comments
+struct CRes(());
 
 fn main(
     my_str_slice: &str,
     my_String: String,
     mut my_mut_ref_to_string: &mut String,
     my_string_vec: Vec<String>,
+    my_resource: CRes,
 ) -> Result<String, String> {
     println!("My int is {}", my_int);
 }"#;
 
         let ret = parse_rust_signature(code).unwrap();
 
-        assert_eq!(ret.args.len(), 4);
+        assert_eq!(ret.args.len(), 5);
 
         assert_eq!(ret.args[0].name, "my_str_slice");
         assert_eq!(ret.args[0].otyp, Some("& str".to_string()));
@@ -459,6 +466,10 @@ fn main(
         assert_eq!(ret.args[3].name, "my_string_vec");
         assert_eq!(ret.args[3].otyp, Some("Vec < String >".to_string()));
         assert_eq!(ret.args[3].typ, Typ::List(Box::new(Typ::Str(None))));
+
+        assert_eq!(ret.args[4].name, "my_resource");
+        assert_eq!(ret.args[4].otyp, Some("CRes".to_string()));
+        assert_eq!(ret.args[4].typ, Typ::Resource("c_res".to_owned()));
     }
 
     #[test]

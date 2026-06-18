@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { stopPropagation } from 'svelte/legacy'
+
+	import { getContext, untrack } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { initCss } from '../../utils'
@@ -10,20 +12,39 @@
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let componentContainerHeight: number
-	export let customCss:
-		| ComponentCustomCSS<'horizontalsplitpanescomponent' | 'verticalsplitpanescomponent'>
-		| undefined = undefined
-	export let horizontal: boolean = false
-	export let panes: number[]
-	export let render: boolean
+	interface Props {
+		id: string
+		componentContainerHeight: number
+		customCss?:
+			| ComponentCustomCSS<'horizontalsplitpanescomponent' | 'verticalsplitpanescomponent'>
+			| undefined
+		horizontal?: boolean
+		panes: number[]
+		render: boolean
+	}
+
+	let {
+		id,
+		componentContainerHeight,
+		customCss = undefined,
+		horizontal = false,
+		panes,
+		render
+	}: Props = $props()
 
 	const { app, focusedGrid, selectedComponent, componentControl, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
-	initOutput($worldStore, id, {})
+	initOutput($worldStore, untrack(() => id), {
+		selectedPaneIndex: 0
+	})
+
+	let everRender = $state(untrack(() => render))
+
+	$effect.pre(() => {
+		render && !everRender && (everRender = true)
+	})
 
 	function onFocus() {
 		$focusedGrid = {
@@ -32,9 +53,9 @@
 		}
 	}
 
-	let css = initCss($app.css?.containercomponent, customCss)
+	let css = $state(initCss($app.css?.containercomponent, untrack(() => customCss)))
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		left: () => {
 			if ($focusedGrid?.subGridIndex) {
 				const index = $focusedGrid?.subGridIndex ?? 0
@@ -59,13 +80,13 @@
 		}
 	}
 
-	let sumedup = panes.map((x) => (x / panes.reduce((a, b) => a + b, 0)) * 100)
-	$: {
+	let sumedup = $state(untrack(() => panes).map((x) => (x / panes.reduce((a, b) => a + b, 0)) * 100))
+	$effect.pre(() => {
 		let ns = panes.map((x) => (x / panes.reduce((a, b) => a + b, 0)) * 100)
 		if (!deepEqual(ns, sumedup)) {
 			sumedup = ns
 		}
-	}
+	})
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -82,47 +103,56 @@
 
 <InitializeComponent {id} />
 
-<div class="h-full w-full border" on:pointerdown={onFocus}>
-	{#key sumedup}
-		<Splitpanes {horizontal}>
-			{#each sumedup as paneSize, index (index)}
-				<Pane size={paneSize} minSize={20}>
-					<div
-						class="w-full h-full"
-						on:pointerdown|stopPropagation={() => {
-							$selectedComponent = [id]
-							$focusedGrid = {
-								parentComponentId: id,
-								subGridIndex: index
-							}
-						}}
-					>
-						{#if $app.subgrids?.[`${id}-${index}`]}
-							<SubGridEditor
-								visible={render}
-								{id}
-								shouldHighlight={$focusedGrid?.subGridIndex === index}
-								class={twMerge(
-									css?.container?.class,
-									horizontal ? 'wm-horizontal-split-panes' : 'wm-vertical-split-panes'
-								)}
-								style={css?.container?.style}
-								subGridId={`${id}-${index}`}
-								containerHeight={horizontal ? undefined : componentContainerHeight - 8}
-								on:focus={() => {
-									if (!$connectingInput.opened) {
-										$selectedComponent = [id]
-										$focusedGrid = {
-											parentComponentId: id,
-											subGridIndex: index
+{#if everRender}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="h-full w-full border" onpointerdown={onFocus}>
+		{#key sumedup}
+			<Splitpanes {horizontal}>
+				{#each sumedup as paneSize, index (index)}
+					<Pane size={paneSize} minSize={20}>
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div
+							class="w-full h-full"
+							onpointerdown={stopPropagation(() => {
+								$selectedComponent = [id]
+								$focusedGrid = {
+									parentComponentId: id,
+									subGridIndex: index
+								}
+							})}
+						>
+							{#if $app.subgrids?.[`${id}-${index}`]}
+								<SubGridEditor
+									visible={render}
+									{id}
+									shouldHighlight={$focusedGrid?.subGridIndex === index}
+									class={twMerge(
+										css?.container?.class,
+										horizontal ? 'wm-horizontal-split-panes' : 'wm-vertical-split-panes'
+									)}
+									style={css?.container?.style}
+									subGridId={`${id}-${index}`}
+									containerHeight={horizontal ? undefined : componentContainerHeight - 8}
+									onFocus={() => {
+										if (!$connectingInput.opened) {
+											$selectedComponent = [id]
+											$focusedGrid = {
+												parentComponentId: id,
+												subGridIndex: index
+											}
+											$worldStore.outputsById[id].selectedPaneIndex.set(index)
 										}
-									}
-								}}
-							/>
-						{/if}
-					</div>
-				</Pane>
-			{/each}
-		</Splitpanes>
-	{/key}
-</div>
+									}}
+								/>
+							{/if}
+						</div>
+					</Pane>
+				{/each}
+			</Splitpanes>
+		{/key}
+	</div>
+{:else}
+	{#each sumedup as _paneSize, index (index)}
+		<SubGridEditor visible={false} {id} subGridId={`${id}-${index}`} />
+	{/each}
+{/if}

@@ -1,44 +1,60 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import { getNonStreamingCompletion, type AiProviderTypes } from './lib'
+	import { getNonStreamingMetadataCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import type { Flow, InputTransform } from '$lib/gen'
-	import ManualPopover from '../ManualPopover.svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import type { PickableProperties } from '../flows/previousResults'
 	import YAML from 'yaml'
-	import { sliceModules } from '../flows/flowStateUtils'
+	import { sliceModules } from '../flows/flowStateUtils.svelte'
 	import { dfs } from '../flows/dfs'
 	import { yamlStringifyExceptKeys } from './utils'
 	import type { FlowCopilotContext } from './flow'
-	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
+	import { stepInputCompletionEnabled } from '$lib/stores'
 	import type { SchemaProperty } from '$lib/common'
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { copilotInfo } from '$lib/aiStore'
+	import { AIBtnClasses } from './chat/AIButtonStyle'
 
-	let generatedContent = ''
-	let loading = false
-	export let focused = false
-	export let arg: InputTransform | any
-	export let schemaProperty: SchemaProperty
-	export let pickableProperties: PickableProperties | undefined = undefined
-	export let argName: string
-	export let showPopup: boolean
+	let generatedContent = $state('')
+	let loading = $state(false)
+	interface Props {
+		focused?: boolean
+		arg: InputTransform | any
+		schemaProperty: SchemaProperty
+		pickableProperties?: PickableProperties | undefined
+		argName: string
+		btnClass?: string
+	}
 
-	let empty = false
-	$: empty =
-		Object.keys(arg ?? {}).length === 0 ||
-		(arg.type === 'static' && !arg.value) ||
-		(arg.type === 'javascript' && !arg.expr)
+	let {
+		focused = false,
+		arg,
+		schemaProperty,
+		pickableProperties = undefined,
+		argName,
+		btnClass = ''
+	}: Props = $props()
 
-	let btnFocused = false
+	let empty = $state(false)
+	run(() => {
+		empty =
+			Object.keys(arg ?? {}).length === 0 ||
+			(arg.type === 'static' && !arg.value) ||
+			(arg.type === 'javascript' && !arg.expr)
+	})
+
+	let btnFocused = $state(false)
 
 	let abortController = new AbortController()
-	let newFlowInput = ''
+	let newFlowInput = $state('')
 
-	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
 	const { stepInputsLoading, generatedExprs } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 
@@ -47,14 +63,14 @@
 			return
 		}
 		const properties = {
-			...($flowStore.schema?.properties as Record<string, SchemaProperty> | undefined),
+			...(flowStore.val.schema?.properties as Record<string, SchemaProperty> | undefined),
 			[newFlowInput]: schemaProperty
 		}
 		const required = [
-			...(($flowStore.schema?.required as string[] | undefined) ?? []),
+			...((flowStore.val.schema?.required as string[] | undefined) ?? []),
 			newFlowInput
 		]
-		$flowStore.schema = {
+		flowStore.val.schema = {
 			$schema: 'https://json-schema.org/draft/2020-12/schema',
 			properties,
 			required,
@@ -68,9 +84,9 @@
 		}
 		abortController = new AbortController()
 		loading = true
-		const flow: Flow = JSON.parse(JSON.stringify($flowStore))
+		const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
 		const idOrders = dfs(flow.value.modules, (x) => x.id)
-		const upToIndex = idOrders.indexOf($selectedId)
+		const upToIndex = idOrders.indexOf(selectionManager.getSelectedId())
 		if (upToIndex === -1) {
 			throw new Error('Could not find the selected id in the flow')
 		}
@@ -86,7 +102,7 @@
 			}
 			const isInsideLoop = availableData.flow_input && 'iter' in availableData.flow_input
 			const user = `I'm building a workflow which is a DAG of script steps.
-The current step is ${$selectedId}, you can find the details for the step and previous ones below:
+The current step is ${selectionManager.getSelectedId()}, you can find the details for the step and previous ones below:
 ${flowDetails}
 Determine for the input "${argName}", what to pass either from the previous results or the flow inputs. 
 All possibles inputs either start with results. or flow_input. and are followed by the key of the input.
@@ -107,16 +123,14 @@ If none of the available results are appropriate, are already used or are more a
 Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.
 Only return the expression without any wrapper.`
-			const aiProvider = $copilotInfo.ai_provider
-			generatedContent = await getNonStreamingCompletion(
+			generatedContent = await getNonStreamingMetadataCompletion(
 				[
 					{
 						role: 'user',
 						content: user
 					}
 				],
-				abortController,
-				aiProvider as AiProviderTypes
+				abortController
 			)
 
 			if (
@@ -131,7 +145,7 @@ Only return the expression without any wrapper.`
 			}
 		} catch (err) {
 			if (!abortController.signal.aborted) {
-				sendUserToast('Could not generate summary: ' + err, true)
+				sendUserToast('Could not generate step input: ' + err, true)
 			}
 		} finally {
 			loading = false
@@ -139,7 +153,7 @@ Only return the expression without any wrapper.`
 	}
 
 	export function onKeyUp(event: KeyboardEvent) {
-		if (!$copilotInfo.exists_ai_resource || !$stepInputCompletionEnabled) {
+		if (!$copilotInfo.enabled || !$stepInputCompletionEnabled) {
 			return
 		}
 		if (event.key === 'Tab') {
@@ -178,23 +192,35 @@ Only return the expression without any wrapper.`
 		}, 150)
 	}
 
-	$: if (!focused) {
-		cancelOnOutOfFocus()
-	}
+	$effect(() => {
+		if (!focused) {
+			untrack(() => {
+				cancelOnOutOfFocus()
+			})
+		}
+	})
 
-	$: if ($copilotInfo.exists_ai_resource && $stepInputCompletionEnabled && focused) {
-		automaticGeneration()
-	}
+	$effect(() => {
+		if ($copilotInfo.enabled && $stepInputCompletionEnabled && focused) {
+			untrack(() => {
+				automaticGeneration()
+			})
+		}
+	})
 
-	$: dispatch('showExpr', generatedContent)
+	$effect(() => {
+		dispatch('showExpr', generatedContent)
+	})
 
-	$: dispatch('showExpr', $generatedExprs?.[argName] || '')
+	$effect(() => {
+		dispatch('showExpr', $generatedExprs?.[argName] || '')
+	})
 
-	let out = true // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
-	let openInputsModal = false
+	let out = $state(true) // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
+	let openInputsModal = $state(false)
 </script>
 
-{#if $copilotInfo.exists_ai_resource && $stepInputCompletionEnabled}
+{#if $copilotInfo.enabled && $stepInputCompletionEnabled}
 	<FlowCopilotInputsModal
 		on:confirmed={async () => {
 			createFlowInput()
@@ -202,67 +228,54 @@ Only return the expression without any wrapper.`
 		bind:open={openInputsModal}
 		inputs={[newFlowInput]}
 	/>
-	<ManualPopover
-		showTooltip={showPopup && (generatedContent.length > 0 || !!$generatedExprs?.[argName])}
-		placement="bottom"
-		class="p-2"
-	>
-		<Button
-			size="xs"
-			color="light"
-			btnClasses={twMerge(
-				'text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700 dark:hover:bg-surface-hover',
-				!loading && generatedContent.length > 0
-					? 'bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-400 dark:bg-green-700 dark:hover:bg-green-700'
-					: ''
-			)}
-			on:click={() => {
-				if (!loading && generatedContent.length > 0) {
-					dispatch('setExpr', generatedContent)
-					if (newFlowInput) {
-						openInputsModal = true
-					}
-					generatedContent = ''
+	<Button
+		size="xs"
+		variant="default"
+		btnClasses={twMerge(
+			AIBtnClasses(!loading && generatedContent.length > 0 ? 'green' : 'default'),
+			btnClass
+		)}
+		on:click={() => {
+			if (!loading && generatedContent.length > 0) {
+				dispatch('setExpr', generatedContent)
+				if (newFlowInput) {
+					openInputsModal = true
 				}
-			}}
-			on:mouseenter={(ev) => {
-				if (out) {
-					out = false
-					generateStepInput()
-				}
-			}}
-			on:mouseleave={() => {
-				out = true
-				cancel()
-			}}
-			endIcon={{
-				icon:
-					loading || ($stepInputsLoading && empty)
-						? Loader2
-						: generatedContent.length > 0
+				generatedContent = ''
+			}
+		}}
+		on:mouseenter={(ev) => {
+			if (out) {
+				out = false
+				generateStepInput()
+			}
+		}}
+		on:mouseleave={() => {
+			out = true
+			cancel()
+		}}
+		endIcon={{
+			icon:
+				loading || ($stepInputsLoading && empty)
+					? Loader2
+					: generatedContent.length > 0
 						? Check
 						: Wand2,
-				classes: loading || ($stepInputsLoading && empty) ? 'animate-spin' : ''
-			}}
-			on:focus={() => {
-				btnFocused = true
-			}}
-			on:blur={() => {
-				btnFocused = false
-			}}
-		>
-			{#if focused}
-				{#if loading}
-					ESC
-				{:else if generatedContent.length > 0}
-					TAB
-				{/if}
+			classes: loading || ($stepInputsLoading && empty) ? 'animate-spin' : ''
+		}}
+		on:focus={() => {
+			btnFocused = true
+		}}
+		on:blur={() => {
+			btnFocused = false
+		}}
+	>
+		{#if focused}
+			{#if loading}
+				ESC
+			{:else if generatedContent.length > 0}
+				TAB
 			{/if}
-		</Button>
-		<svelte:fragment slot="content">
-			<div class="text-sm text-tertiary">
-				{generatedContent || $generatedExprs?.[argName]}
-			</div>
-		</svelte:fragment>
-	</ManualPopover>
+		{/if}
+	</Button>
 {/if}

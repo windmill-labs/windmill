@@ -1,36 +1,100 @@
 <script lang="ts">
 	import type { Job } from '$lib/gen'
 	import RunRow from './RunRow.svelte'
-	import VirtualList from 'svelte-tiny-virtual-list'
-	import { createEventDispatcher, onMount } from 'svelte'
+	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
+	import { createEventDispatcher } from 'svelte'
 	import Tooltip from '../Tooltip.svelte'
-	import { AlertTriangle } from 'lucide-svelte'
+	import {
+		AlertTriangle,
+		CircleXIcon,
+		Code2Icon,
+		ExternalLinkIcon,
+		RefreshCwIcon
+	} from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import './runs-grid.css'
+	import { useKeyPressed } from '$lib/svelte5Utils.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { isJobCancelable } from '$lib/utils'
-	//import InfiniteLoading from 'svelte-infinite-loading'
+	import RightClickPopover from '../RightClickPopover.svelte'
+	import DropdownMenu, { type Props as DropdownMenuProps } from '../DropdownMenu.svelte'
+	import { clickOutside, isJobCancelable, isJobReRunnable } from '$lib/utils'
+	import { goto } from '$lib/navigation'
+	import BarsStaggered from '../icons/BarsStaggered.svelte'
 
-	export let jobs: Job[] | undefined = undefined
-	export let externalJobs: Job[] = []
-	export let omittedObscuredJobs: boolean
-	export let showExternalJobs: boolean = false
-	export let isSelectingJobsToCancel: boolean = false
-	export let selectedIds: string[] = []
-	export let selectedWorkspace: string | undefined = undefined
-	export let activeLabel: string | null = null
-	// const loadMoreQuantity: number = 100
-	export let lastFetchWentToEnd = false
-
-	function getTime(job: Job): string | undefined {
-		return job['started_at'] ?? job['scheduled_for'] ?? job['created_at']
+	interface Props {
+		//import InfiniteLoading from 'svelte-infinite-loading'
+		jobs?: Job[] | undefined
+		externalJobs?: Job[]
+		omittedObscuredJobs: boolean
+		showExternalJobs?: boolean
+		selectedIds?: string[]
+		selectedWorkspace?: string | undefined
+		activeLabel?: string | null
+		// const loadMoreQuantity: number = 100
+		lastFetchWentToEnd?: boolean
+		perPage?: number
+		batchRerunOptionsIsOpen?: boolean
+		manualSelectionMode: undefined | 'cancel' | 'rerun'
+		onCancelJobs: (jobIds: string[]) => void
+		loadingExtra?: boolean
 	}
 
-	let containsLabel = false
-	function groupJobsByDay(jobs: Job[]): Record<string, Job[]> {
-		const groupedLogs: Record<string, Job[]> = {}
+	let {
+		jobs = undefined,
+		externalJobs = [],
+		omittedObscuredJobs,
+		showExternalJobs = false,
+		selectedIds = $bindable([]),
+		selectedWorkspace = $bindable(undefined),
+		activeLabel = null,
+		lastFetchWentToEnd = false,
+		perPage = 1000,
+		manualSelectionMode,
+		onCancelJobs,
+		batchRerunOptionsIsOpen = $bindable(),
+		loadingExtra = false
+	}: Props = $props()
 
-		if (!jobs) return groupedLogs
+	let hasClickFocus = $state(false)
+	const keysPressed = useKeyPressed(['Shift', 'Control', 'Meta', 'A', 'ArrowDown', 'ArrowUp'], {
+		onKeyDown(key, e) {
+			if (!hasClickFocus) return
+			if (key === 'A' && (keysPressed.Control || keysPressed.Meta)) {
+				if (batchRerunOptionsIsOpen) return
+				e.preventDefault()
+				e.stopPropagation()
+				selectedIds = flatJobs
+					? flatJobs
+							.filter((jobOrDate) => jobOrDate.type === 'job')
+							.map((jobOrDate) => jobOrDate.job.id)
+					: []
+			} else if ((key === 'ArrowDown' || key === 'ArrowUp') && selectedIds.length === 1) {
+				const idx = flatJobs?.findIndex(
+					(jobOrDate) => jobOrDate.type === 'job' && jobOrDate.job.id === selectedIds[0]
+				)
+				if (idx == undefined) return
+				let nextJob = flatJobs?.[idx + (key === 'ArrowDown' ? 1 : -1)]
+				if (nextJob?.type === 'date') nextJob = flatJobs?.[idx + (key === 'ArrowDown' ? 2 : -2)]
+				if (nextJob?.type !== 'job') return
+				selectedIds = [nextJob.job.id]
+				e.preventDefault()
+			}
+		}
+	})
+	let rightClickPopover: RightClickPopover | undefined = $state(undefined)
+
+	function getTime(job: Job): string | undefined {
+		return job['completed_at'] ?? job['started_at'] ?? job['scheduled_for'] ?? job['created_at']
+	}
+
+	function groupJobsByDay(jobs: Job[]): {
+		groupedJobs: Record<string, Job[]>
+		newContainsLabel: boolean | undefined
+	} {
+		const groupedJobs: Record<string, Job[]> = {}
+
+		if (!jobs) return { groupedJobs, newContainsLabel: undefined }
 
 		let newContainsLabel = false
 		for (const job of jobs) {
@@ -48,38 +112,31 @@
 					day: 'numeric'
 				})
 
-				if (!groupedLogs[day]) {
-					groupedLogs[day] = []
+				if (!groupedJobs[day]) {
+					groupedJobs[day] = []
 				}
 
-				groupedLogs[day].push(job)
+				groupedJobs[day].push(job)
 			}
 		}
-		containsLabel = newContainsLabel
 
-		for (const day in groupedLogs) {
-			groupedLogs[day].sort((a, b) => {
+		for (const day in groupedJobs) {
+			groupedJobs[day].sort((a, b) => {
 				return new Date(getTime(b)!).getTime() - new Date(getTime(a)!).getTime()
 			})
 		}
 
-		const sortedLogs: Record<string, Job[]> = {}
-		Object.keys(groupedLogs)
+		const sortedJobs: Record<string, Job[]> = {}
+		Object.keys(groupedJobs)
 			.sort((a, b) => {
 				return new Date(b).getTime() - new Date(a).getTime()
 			})
 			.forEach((key) => {
-				sortedLogs[key] = groupedLogs[key]
+				sortedJobs[key] = groupedJobs[key]
 			})
 
-		return sortedLogs
+		return { groupedJobs: sortedJobs, newContainsLabel }
 	}
-
-	$: groupedJobs = jobs
-		? showExternalJobs
-			? groupJobsByDay([...jobs, ...externalJobs])
-			: groupJobsByDay(jobs)
-		: undefined
 
 	type FlatJobs =
 		| {
@@ -104,25 +161,9 @@
 		return flatJobs
 	}
 
-	$: flatJobs = groupedJobs ? flattenJobs(groupedJobs) : undefined
-
-	let stickyIndices: number[] = []
-
-	$: {
-		stickyIndices = []
-		let index = 0
-		for (const entry of flatJobs ?? []) {
-			if (entry.type === 'date') {
-				stickyIndices.push(index)
-			}
-			index++
-		}
-	}
-
-	let tableHeight: number = 0
-	let header: number = 0
-	let containerWidth: number = 0
-	// const MAX_ITEMS = 1000
+	let tableHeight: number = $state(0)
+	let containerWidth: number = $state(0)
+	// const MAX_ITEMS = perPage
 
 	/*
 	function infiniteHandler({ detail: { loaded, error, complete } }) {
@@ -140,40 +181,24 @@
 	}
 	*/
 
-	let allSelected: boolean = false
-
-	function selectAll() {
-		if (allSelected) {
-			allSelected = false
-			selectedIds = []
-		} else {
-			allSelected = true
-			selectedIds = jobs?.filter(isJobCancelable).map((j) => j.id) ?? []
-		}
-	}
-	let cancelableJobCount: number = 0
-	$: isSelectingJobsToCancel && (allSelected = selectedIds.length === cancelableJobCount)
-	$: isSelectingJobsToCancel && (cancelableJobCount = jobs?.filter(isJobCancelable).length ?? 0)
-
-	function jobCountString(jobCount: number | undefined, lastFetchWentToEnd: boolean): string {
+	function jobCountString(
+		jobCount: number | undefined,
+		lastFetchWentToEnd: boolean,
+		hideLabel?: boolean
+	): string {
 		if (jobCount === undefined) {
 			return ''
 		}
 		const jc = jobCount
-		const isTruncated = jc >= 1000 && !lastFetchWentToEnd
+		const isTruncated = jc >= perPage && !lastFetchWentToEnd
 
-		return `${jc}${isTruncated ? '+' : ''} job${jc != 1 ? 's' : ''}`
+		if (hideLabel) return `${jc}${isTruncated ? '+' : ''}`
+		else return `${jc}${isTruncated ? '+' : ''} job${jc != 1 ? 's' : ''}`
 	}
 
-	function computeHeight() {
-		tableHeight = document.querySelector('#runs-table-wrapper')!.parentElement?.clientHeight ?? 0
-	}
-	onMount(() => {
-		computeHeight()
-	})
 	const dispatch = createEventDispatcher()
 
-	let scrollToIndex = 0
+	let scrollToIndex = $state(0)
 
 	export function scrollToRun(ids: string[]) {
 		if (flatJobs && ids.length > 0) {
@@ -185,154 +210,359 @@
 			}
 		}
 	}
+	let { groupedJobs, newContainsLabel } = $derived(
+		jobs
+			? showExternalJobs
+				? groupJobsByDay([...jobs, ...externalJobs])
+				: groupJobsByDay(jobs)
+			: { groupedJobs: undefined, newContainsLabel: undefined }
+	)
+
+	let containsLabel = $state(false)
+	$effect(() => {
+		if (newContainsLabel != undefined) {
+			containsLabel = newContainsLabel
+		}
+	})
+	let flatJobs = $derived(groupedJobs ? flattenJobs(groupedJobs) : undefined)
+	let stickyIndices = $derived.by(() => {
+		const nstickyIndices: number[] = []
+		let index = 0
+		for (const entry of flatJobs ?? []) {
+			if (entry.type === 'date') {
+				nstickyIndices.push(index)
+			}
+			index++
+		}
+		return nstickyIndices
+	})
+
+	let showTag = $derived(containerWidth > 700)
+	let selectedIdsPossibleActions = $derived.by(() => {
+		const cancellableJobIds: string[] = []
+		const rerunnableJobIds: string[] = []
+		for (const jobId of selectedIds) {
+			const job = flatJobs?.find(
+				(jobOrDate) => jobOrDate.type === 'job' && jobOrDate.job.id === jobId
+			)
+			if (job?.type === 'job') {
+				if (isJobCancelable(job.job)) cancellableJobIds.push(job.job.id)
+				if (isJobReRunnable(job.job)) rerunnableJobIds.push(job.job.id)
+			}
+		}
+		return { cancellableJobIds, rerunnableJobIds }
+	})
+	let hoveredDropdownAction: 'cancel' | 'rerun' | null = $state(null)
+
+	let dropdownActions: DropdownMenuProps['items'] = $derived.by(() => {
+		let rerunnable = selectedIdsPossibleActions.rerunnableJobIds.length
+		let cancellable = selectedIdsPossibleActions.cancellableJobIds.length
+		const actions: DropdownMenuProps['items'] = []
+		if (selectedIds.length === 1) {
+			actions.push({
+				label: 'Show run details',
+				icon: ExternalLinkIcon,
+				onClick: () => goto(`/run/${selectedIds[0]}`)
+			})
+			const job = flatJobs?.find(
+				(jobOrDate) => jobOrDate.type === 'job' && jobOrDate.job.id === selectedIds[0]
+			)
+			if (job?.type === 'job') {
+				if (job.job.job_kind === 'script') {
+					actions.push({
+						label: 'Go to script page',
+						icon: Code2Icon,
+						onClick: () => goto(`/scripts/get/${job.job.script_hash}`)
+					})
+				}
+				if (job.job.job_kind === 'flow') {
+					actions.push({
+						label: 'Go to flow page',
+						icon: BarsStaggered,
+						onClick: () => goto(`/flows/get/${job.job.script_path}`)
+					})
+				}
+			}
+		}
+		if (rerunnable)
+			actions.push({
+				label: 'Run again',
+				icon: RefreshCwIcon,
+				right: selectedIds.length >= 2 ? `${rerunnable}` : undefined,
+				onClick: () => {
+					selectedIds = selectedIdsPossibleActions.rerunnableJobIds
+					batchRerunOptionsIsOpen = true
+				},
+				onHover: (hover) => (hoveredDropdownAction = hover ? 'rerun' : null)
+			})
+		if (cancellable)
+			actions.push({
+				label: 'Cancel',
+				icon: CircleXIcon,
+				right: selectedIds.length >= 2 ? `${cancellable}` : undefined,
+				onClick: () => onCancelJobs?.(selectedIdsPossibleActions.cancellableJobIds),
+				onHover: (hover) => (hoveredDropdownAction = hover ? 'cancel' : null)
+			})
+		return actions
+	})
+
+	function jobIsSelectable(job: Job) {
+		if (
+			(rightClickPopover?.isOpen() && hoveredDropdownAction === 'cancel') ||
+			manualSelectionMode === 'cancel'
+		)
+			return isJobCancelable(job)
+		if (
+			(rightClickPopover?.isOpen() && hoveredDropdownAction === 'rerun') ||
+			manualSelectionMode === 'rerun' ||
+			batchRerunOptionsIsOpen
+		)
+			return isJobReRunnable(job)
+		return true
+	}
+
+	let selectableJobs = $derived(jobs?.filter(jobIsSelectable) ?? [])
 </script>
 
-<svelte:window on:resize={() => computeHeight()} />
-
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class="divide-y min-w-[640px] h-full"
+	class="divide-y h-full flex flex-col min-w-[650px]"
 	id="runs-table-wrapper"
+	onclick={() => (hasClickFocus = true)}
+	use:clickOutside={{ onClickOutside: () => (hasClickFocus = false) }}
 	bind:clientWidth={containerWidth}
 >
-	<div bind:clientHeight={header}>
-		{#if isSelectingJobsToCancel && cancelableJobCount != 0}
-			<!-- svelte-ignore a11y-click-events-have-key-events -->
-			<!-- svelte-ignore a11y-no-static-element-interactions -->
-			<div
-				class={twMerge(
-					'hover:bg-surface-hover bg-surface-primary cursor-pointer',
-					allSelected ? 'bg-blue-50 dark:bg-blue-900/50' : '',
-					'flex flex-row items-center sticky w-full p-2 pr-4 top-0 font-semibold border-t text-sm'
-				)}
-				on:click={selectAll}
-			>
-				<div class="px-2">
-					<input on:focus type="checkbox" checked={allSelected} />
+	<div>
+		<div
+			class="grid sticky top-0 w-full min-h-6 my-2 pr-4 items-end"
+			class:grid-runs-table={!containsLabel && !manualSelectionMode && showTag}
+			class:grid-runs-table-with-labels={containsLabel && !manualSelectionMode && showTag}
+			class:grid-runs-table-selection={!containsLabel && manualSelectionMode && showTag}
+			class:grid-runs-table-with-labels-selection={containsLabel && manualSelectionMode && showTag}
+			class:grid-runs-table-no-tag={!containsLabel && !manualSelectionMode && !showTag}
+			class:grid-runs-table-with-labels-no-tag={containsLabel && !manualSelectionMode && !showTag}
+			class:grid-runs-table-selection-no-tag={!containsLabel && manualSelectionMode && !showTag}
+			class:grid-runs-table-with-labels-selection-no-tag={containsLabel &&
+				manualSelectionMode &&
+				!showTag}
+		>
+			{#if manualSelectionMode}
+				{@const allSelected = selectedIds.length === selectableJobs?.length}
+				<div class="w-4 h-4 ml-4">
+					<input
+						type="checkbox"
+						bind:checked={
+							() => allSelected,
+							() => (selectedIds = allSelected ? [] : (selectableJobs.map((j) => j.id) ?? []))
+						}
+					/>
 				</div>
-				Select all
-			</div>
-		{/if}
-		<div class="flex flex-row bg-surface-secondary sticky top-0 w-full p-2 pr-4">
-			{#if showExternalJobs && externalJobs.length > 0}
-				<div class="w-1/12 text-2xs">
+			{/if}
+			<div class="text-2xs px-4 flex flex-row items-center gap-2 leading-3 whitespace-nowrap">
+				{#if showExternalJobs && externalJobs.length > 0}
 					<div class="flex flex-row">
 						{jobs
 							? jobCountString(jobs.length + externalJobs.length, lastFetchWentToEnd)
 							: ''}<Tooltip>{externalJobs.length} jobs obscured</Tooltip>
 					</div>
-				</div>
-			{:else if $workspaceStore !== 'admins' && omittedObscuredJobs}
-				<div class="w-1/12 text-2xs flex flex-row">
-					{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}
-					<Popover>
-						<AlertTriangle size={16} class="ml-0.5 text-yellow-500" />
-						<svelte:fragment slot="text">
-							Too specific filtering may have caused the omission of obscured jobs. This is done for
-							security reasons. To see obscured jobs, try removing some filters.
-						</svelte:fragment>
-					</Popover>
-				</div>
-			{:else}
-				<div class="w-1/12 text-2xs"
-					>{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}</div
-				>
-			{/if}
-			<div class="w-4/12 text-xs font-semibold" />
-			<div class="w-4/12 text-xs font-semibold">Path</div>
-			{#if containsLabel}
-				<div class="w-3/12 text-xs font-semibold">Label</div>
-			{/if}
-			<div class="w-3/12 text-xs font-semibold">Triggered by</div>
-		</div>
-	</div>
-	{#if jobs?.length == 0 && (!showExternalJobs || externalJobs?.length == 0)}
-		<tr>
-			<td colspan="4" class="text-center p-8">
-				<div class="text-xs text-secondary"> No jobs found for the selected filters. </div>
-			</td>
-		</tr>
-	{:else}
-		<VirtualList
-			width="100%"
-			height={tableHeight - header}
-			itemCount={flatJobs?.length ?? 3}
-			itemSize={42}
-			overscanCount={20}
-			{stickyIndices}
-			{scrollToIndex}
-			scrollToAlignment="center"
-			scrollToBehaviour="smooth"
-		>
-			<div slot="item" let:index let:style {style} class="w-full">
-				{#if flatJobs}
-					{@const jobOrDate = flatJobs[index]}
-
-					{#if jobOrDate}
-						{#if jobOrDate?.type === 'date'}
-							<div class="bg-surface-secondary py-2 border-b font-semibold text-xs pl-5">
-								{jobOrDate.date}
-							</div>
-						{:else}
-							<div class="flex flex-row items-center h-full w-full">
-								<RunRow
-									{containsLabel}
-									job={jobOrDate.job}
-									selected={jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
-									{isSelectingJobsToCancel}
-									on:select={() => {
-										const jobId = jobOrDate.job.id
-										if (isSelectingJobsToCancel) {
-											if (selectedIds.includes(jobOrDate.job.id)) {
-												selectedIds = selectedIds.filter((id) => id != jobId)
-											} else {
-												selectedIds.push(jobId)
-												selectedIds = selectedIds
-											}
-										} else {
-											selectedWorkspace = jobOrDate.job.workspace_id
-											selectedIds = [jobOrDate.job.id]
-											dispatch('select')
-										}
-									}}
-									{activeLabel}
-									on:filterByLabel
-									on:filterByPath
-									on:filterByUser
-									on:filterByFolder
-									on:filterByConcurrencyKey
-									on:filterBySchedule
-									{containerWidth}
-								/>
-							</div>
-						{/if}
-					{:else}
-						{JSON.stringify(jobOrDate)}
-					{/if}
-				{:else}
-					<div class="flex flex-row items-center h-full w-full">
-						<div class="w-1/12 text-2xs">...</div>
-						<div class="w-4/12 text-xs">...</div>
-						<div class="w-4/12 text-xs">...</div>
-						<div class="w-3/12 text-xs">...</div>
+				{:else if $workspaceStore !== 'admins' && omittedObscuredJobs}
+					<div class="flex flex-row">
+						{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}
+						<Popover>
+							<AlertTriangle size={16} class="ml-0.5 text-yellow-500" />
+							{#snippet text()}
+								Too specific filtering may have caused the omission of obscured jobs. This is done
+								for security reasons. To see obscured jobs, try removing some filters.
+							{/snippet}
+						</Popover>
 					</div>
+				{:else}
+					{@const jobCount = jobs
+						? jobCountString(jobs.length, lastFetchWentToEnd, selectedIds.length >= 2)
+						: ''}
+					{selectedIds.length >= 2 ? `${selectedIds.length}/` : ''}<wbr />
+					{jobCount}
 				{/if}
 			</div>
-			<div slot="footer"
-				>{#if !lastFetchWentToEnd && jobs && jobs.length >= 1000}
-					<button
-						class="text-xs text-blue-600 text-center w-full pb-2"
-						on:click={() => {
-							dispatch('loadExtra')
-						}}>Load next 1000 jobs</button
-					>
-				{/if}</div
+			<div></div>
+			<div class="text-xs font-semibold leading-3">Duration</div>
+			<div class="text-xs font-semibold leading-3">Path</div>
+			{#if containsLabel}
+				<div class="text-xs font-semibold leading-3">Label</div>
+			{/if}
+			<div class="text-xs font-semibold leading-3">Triggered by</div>
+			{#if showTag}
+				<div class="text-xs font-semibold leading-3">Tag</div>
+			{/if}
+			<div> </div>
+		</div>
+	</div>
+	<div
+		bind:clientHeight={tableHeight}
+		class="relative flex-1 border rounded-t-md overflow-clip bg-surface-tertiary [&>.virtual-list-wrapper::-webkit-scrollbar-track]:bg-surface-tertiary"
+	>
+		{#if jobs?.length == 0 && (!showExternalJobs || externalJobs?.length == 0)}
+			<div class="text-xs text-secondary p-8"> No jobs found for the selected filters. </div>
+		{:else}
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				class="absolute inset-0 -mt-3"
+				oncontextmenu={(e) => {
+					e.preventDefault()
+					rightClickPopover?.open(e)
+				}}
 			>
-		</VirtualList>
-	{/if}
+				<VirtualList
+					width="100%"
+					height={tableHeight}
+					itemCount={flatJobs?.length ?? 3}
+					itemSize={42}
+					overscanCount={20}
+					{stickyIndices}
+					{scrollToIndex}
+					scrollToAlignment="center"
+				>
+					{#snippet header()}{/snippet}
+					{#snippet item({ index, style })}
+						<div {style} class="w-full bg-surface-tertiary">
+							{#if flatJobs}
+								{@const jobOrDate = flatJobs[index]}
+								{#if jobOrDate}
+									{#if jobOrDate?.type === 'date'}
+										<div
+											class={twMerge(
+												'border-b py-1.5 font-semibold text-xs pl-4 h-[42px] flex items-end bg-surface-tertiary'
+											)}
+										>
+											{jobOrDate.date}
+										</div>
+									{:else}
+										{@const selected =
+											jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
+										{@const nonSelectable = !jobIsSelectable(jobOrDate.job)}
+										<!-- svelte-ignore a11y_click_events_have_key_events -->
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
+										<div
+											class={twMerge(
+												'flex flex-row items-center h-full w-full select-none transition-opacity',
+												nonSelectable || (rightClickPopover?.isOpen() && !selected)
+													? 'opacity-20'
+													: ''
+											)}
+										>
+											<RunRow
+												{manualSelectionMode}
+												{containsLabel}
+												{showTag}
+												job={jobOrDate.job}
+												{selected}
+												on:select={() => {
+													const jobId = jobOrDate.job.id
+													if (keysPressed.Shift && selectedIds.length > 0) {
+														if (nonSelectable) return
+														const lastSelectedId = selectedIds[selectedIds.length - 1]
+														const lastSelectedIndex = flatJobs?.findIndex(
+															(jobOrDate) =>
+																jobOrDate.type === 'job' && jobOrDate.job.id === lastSelectedId
+														)
+														if (lastSelectedIndex != undefined && flatJobs) {
+															const [start, end] =
+																index < lastSelectedIndex
+																	? [index, lastSelectedIndex]
+																	: [lastSelectedIndex, index]
+															const newSelectedIds = flatJobs
+																.slice(start, end + 1)
+																.filter((jobOrDate) => jobOrDate.type === 'job')
+																.map((jobOrDate) => jobOrDate.job.id)
+															selectedIds = Array.from(new Set([...selectedIds, ...newSelectedIds]))
+														}
+													} else if (
+														keysPressed.Control ||
+														keysPressed.Meta ||
+														manualSelectionMode
+													) {
+														if (nonSelectable) return
+														if (selectedIds.includes(jobOrDate.job.id)) {
+															selectedIds = selectedIds.filter((id) => id != jobId)
+														} else {
+															selectedIds.push(jobId)
+															selectedIds = selectedIds
+														}
+													} else {
+														if (batchRerunOptionsIsOpen) batchRerunOptionsIsOpen = false
+														if (
+															selectedIds.length !== 1 ||
+															selectedIds[0] !== jobOrDate.job.id ||
+															selectedWorkspace !== jobOrDate.job.workspace_id
+														) {
+															selectedWorkspace = jobOrDate.job.workspace_id
+															selectedIds = [jobOrDate.job.id]
+															dispatch('select')
+														} else {
+															selectedIds = []
+															selectedWorkspace = undefined
+															dispatch('select')
+														}
+													}
+												}}
+												{activeLabel}
+												on:filterByLabel
+												on:filterByPath
+												on:filterByUser
+												on:filterByFolder
+												on:filterByConcurrencyKey
+												on:filterBySchedule
+												on:filterByWorker
+												{containerWidth}
+											/>
+										</div>
+									{/if}
+								{:else}
+									{JSON.stringify(jobOrDate)}
+								{/if}
+							{:else}
+								<div class="flex flex-row items-center h-full w-full">
+									<div class="w-1/12 text-2xs">...</div>
+									<div class="w-4/12 text-xs">...</div>
+									<div class="w-4/12 text-xs">...</div>
+									<div class="w-3/12 text-xs">...</div>
+								</div>
+							{/if}
+						</div>
+					{/snippet}
+					{#snippet footer()}
+						<div
+							>{#if !lastFetchWentToEnd && jobs && jobs.length >= perPage}
+								<button
+									class="text-xs text-accent text-center w-full pb-2"
+									disabled={loadingExtra}
+									onclick={() => {
+										dispatch('loadExtra')
+									}}
+								>
+									{#if loadingExtra}
+										Loading...
+									{:else}
+										Load next {perPage} jobs
+									{/if}
+								</button>
+							{/if}</div
+						>
+					{/snippet}
+				</VirtualList>
+			</div>
+		{/if}
+	</div>
 </div>
 
+<RightClickPopover bind:this={rightClickPopover}>
+	<DropdownMenu closeCallback={() => rightClickPopover?.close()} items={dropdownActions} />
+</RightClickPopover>
+
 <style>
-	:global(.virtual-list-wrapper:hover::-webkit-scrollbar) {
+	:global(.virtual-list-wrapper::-webkit-scrollbar) {
 		width: 8px !important;
 		height: 8px !important;
 	}

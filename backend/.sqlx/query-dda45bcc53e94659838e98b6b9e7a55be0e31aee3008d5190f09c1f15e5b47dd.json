@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO group_\n            VALUES ($1, 'wm_deployers', 'Members can preserve the original author when deploying to this workspace')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dda45bcc53e94659838e98b6b9e7a55be0e31aee3008d5190f09c1f15e5b47dd"
+}

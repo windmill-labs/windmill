@@ -1,0 +1,3 @@
+ALTER TYPE native_trigger_service ADD VALUE IF NOT EXISTS 'github';
+ALTER TYPE TRIGGER_KIND ADD VALUE IF NOT EXISTS 'github';
+ALTER TYPE job_trigger_kind ADD VALUE IF NOT EXISTS 'github';

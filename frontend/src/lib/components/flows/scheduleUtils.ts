@@ -1,11 +1,13 @@
 import { ScheduleService, type Schedule, type TriggersCount } from '$lib/gen'
 import type { ScheduleTrigger } from '../triggers'
 import type { Writable } from 'svelte/store'
+import { writable } from 'svelte/store'
 import { get } from 'svelte/store'
 import { sendUserToast } from '$lib/utils'
+import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 
 // Load the schedule of a flow given its path and the workspace
-export async function loadFlowSchedule(path: string, workspace: string): Promise<ScheduleTrigger> {
+export async function loadSchedule(path: string, workspace: string): Promise<ScheduleTrigger> {
 	const existsSchedule = await ScheduleService.existsSchedule({
 		workspace,
 		path
@@ -21,7 +23,7 @@ export async function loadFlowSchedule(path: string, workspace: string): Promise
 	})
 
 	return {
-		summary: schedule.summary,
+		summary: schedule.summary ?? undefined,
 		enabled: schedule.enabled,
 		cron: schedule.schedule,
 		timezone: schedule.timezone,
@@ -37,16 +39,16 @@ export async function loadSchedules(
 	primarySchedule: Writable<ScheduleTrigger | false | undefined>,
 	initialPrimarySchedule: Writable<ScheduleTrigger | false | undefined>,
 	workspace: string,
-	triggersCount: Writable<TriggersCount | undefined>
+	triggersCount: Writable<TriggersCount | undefined>,
+	loadPrimarySchedule: boolean = false,
+	isDeployed: Writable<boolean | undefined> = writable(undefined)
 ) {
-	console.log('loading schedules for path', path)
 	if (!path || path == '') {
 		schedules.set([])
 		primarySchedule.update((ps) => (ps === undefined ? false : ps))
-		initialPrimarySchedule.set(structuredClone(get(primarySchedule)))
+		initialPrimarySchedule.set(structuredClone(stateSnapshot(get(primarySchedule))))
 		return
 	}
-	console.log('loading schedules for path', path)
 	try {
 		const allSchedules = await ScheduleService.listSchedules({
 			workspace,
@@ -54,17 +56,25 @@ export async function loadSchedules(
 			isFlow
 		})
 		const primary = allSchedules.find((s) => s.path == path)
-		let remotePrimarySchedule: ScheduleTrigger | false | undefined = primary
-			? {
-					summary: primary.summary,
-					args: primary.args ?? {},
-					cron: primary.schedule,
-					timezone: primary.timezone,
-					enabled: primary.enabled
-			  }
-			: false
+		if (primary) {
+			isDeployed.set(true)
+		}
+		let remotePrimarySchedule: ScheduleTrigger | false | undefined = undefined
+		if (loadPrimarySchedule && primary) {
+			remotePrimarySchedule = await loadSchedule(path, workspace)
+		} else {
+			remotePrimarySchedule = primary
+				? {
+						summary: primary.summary ?? undefined,
+						args: primary.args ?? {},
+						cron: primary.schedule,
+						timezone: primary.timezone,
+						enabled: primary.enabled
+					}
+				: false
+		}
 		primarySchedule.update((ps) => (ps === undefined || forceRefresh ? remotePrimarySchedule : ps))
-		initialPrimarySchedule.set(structuredClone(remotePrimarySchedule))
+		initialPrimarySchedule.set(structuredClone(stateSnapshot(remotePrimarySchedule)))
 
 		triggersCount.update((tc) => {
 			const primary = get(primarySchedule)
@@ -131,5 +141,64 @@ export async function saveSchedule(
 			})
 			sendUserToast(`Primary schedule created`)
 		}
+	}
+}
+
+export async function saveScheduleFromCfg(
+	scheduleCfg: Record<string, any>,
+	edit: boolean,
+	workspace: string
+): Promise<boolean> {
+	const requestBody = {
+		schedule: scheduleCfg.schedule,
+		timezone: scheduleCfg.timezone,
+		args: scheduleCfg.args,
+		on_failure: scheduleCfg.on_failure,
+		on_failure_times: scheduleCfg.on_failure_times,
+		on_failure_exact: scheduleCfg.on_failure_exact,
+		on_failure_extra_args: scheduleCfg.on_failure_extra_args,
+		on_recovery: scheduleCfg.on_recovery,
+		on_recovery_times: scheduleCfg.on_recovery_times,
+		on_recovery_extra_args: scheduleCfg.on_recovery_extra_args,
+		on_success: scheduleCfg.on_success,
+		on_success_extra_args: scheduleCfg.on_success_extra_args,
+		ws_error_handler_muted: scheduleCfg.ws_error_handler_muted,
+		retry: !scheduleCfg.is_flow ? scheduleCfg.retry : undefined,
+		summary: scheduleCfg.summary,
+		description: scheduleCfg.description,
+		no_flow_overlap: scheduleCfg.no_flow_overlap,
+		tag: scheduleCfg.tag,
+		paused_until: scheduleCfg.paused_until,
+		cron_version: scheduleCfg.cron_version,
+		dynamic_skip: scheduleCfg.dynamic_skip,
+		permissioned_as: scheduleCfg.permissioned_as,
+		preserve_permissioned_as: scheduleCfg.preserve_permissioned_as,
+		labels: scheduleCfg.labels
+	}
+	try {
+		if (edit) {
+			await ScheduleService.updateSchedule({
+				workspace,
+				path: scheduleCfg.path,
+				requestBody: requestBody
+			})
+			sendUserToast(`Schedule ${scheduleCfg.path} updated`)
+		} else {
+			await ScheduleService.createSchedule({
+				workspace,
+				requestBody: {
+					path: scheduleCfg.path,
+					script_path: scheduleCfg.script_path,
+					is_flow: scheduleCfg.is_flow,
+					...requestBody,
+					enabled: true
+				}
+			})
+			sendUserToast(`Schedule ${scheduleCfg.path} created`)
+		}
+		return true
+	} catch (error) {
+		sendUserToast(error.body || error.message, true)
+		return false
 	}
 }

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE schedule SET permissioned_as = $1 WHERE permissioned_as = ('u/' || $2) AND workspace_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2cd16a65b25c031c79a519f5a42bc4ce939661bbcdcb51dc75584ee287c343cd"
+}

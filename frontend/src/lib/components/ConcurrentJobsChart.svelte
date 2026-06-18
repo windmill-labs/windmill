@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { Line } from 'svelte-chartjs'
 	import 'chartjs-adapter-date-fns'
 	import zoomPlugin from 'chartjs-plugin-zoom'
 	import {
@@ -14,15 +13,24 @@
 		Tooltip
 	} from 'chart.js'
 	import type { CompletedJob, ExtendedJobs } from '$lib/gen'
-	import { createEventDispatcher } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
+	import { Line } from '$lib/components/chartjs-wrappers/chartJs'
 
-	export let extendedJobs: ExtendedJobs | undefined = undefined
-	export let maxIsNow: boolean = false
-	export let minTimeSet: string | undefined = undefined
-	export let maxTimeSet: string | undefined = undefined
+	interface Props {
+		extendedJobs?: ExtendedJobs | undefined
+		maxIsNow?: boolean
+		minTimeSet?: string | null
+		maxTimeSet?: string | null
+		onZoom: (zoom: { min: Date; max: Date }) => void
+	}
 
-	const dispatch = createEventDispatcher()
+	let {
+		extendedJobs = undefined,
+		maxIsNow = false,
+		minTimeSet = null,
+		maxTimeSet = null,
+		onZoom
+	}: Props = $props()
 
 	function calculateTimeSeries(extendedJobs: ExtendedJobs): AggregatedInterval[] {
 		const timeline = new Map<number, { count: number; id_started: string[]; id_ended: string[] }>()
@@ -57,7 +65,7 @@
 				}
 				const s = timeline.get(startTime)!
 				s.count += 1
-				s.id_started.push('unknoww')
+				s.id_started.push('unknown')
 				if (j.duration_ms != undefined) {
 					const jc = j as CompletedJob
 					const endTime = startTime + jc.duration_ms
@@ -103,9 +111,6 @@
 	}
 	type AggregatedInterval = { time: Date; count: number; msg?: string }
 
-	let intervals: AggregatedInterval[] | undefined = undefined
-	$: intervals = extendedJobs ? calculateTimeSeries(extendedJobs) : undefined
-
 	ChartJS.register(
 		Title,
 		Tooltip,
@@ -118,7 +123,75 @@
 		TimeScale
 	)
 
-	$: data = {
+	const zoomOptions = {
+		pan: {
+			enabled: true,
+			modifierKey: 'ctrl' as 'ctrl',
+			onPanComplete: ({ chart }) => {
+				onZoom({
+					min: addSeconds(new Date(chart.scales.x.min), -1),
+					max: addSeconds(new Date(chart.scales.x.max), 1)
+				})
+			}
+		},
+		zoom: {
+			drag: {
+				enabled: true
+			},
+			mode: 'x' as 'x',
+			onZoom: ({ chart }) => {
+				onZoom({
+					min: addSeconds(new Date(chart.scales.x.min), -1),
+					max: addSeconds(new Date(chart.scales.x.max), 1)
+				})
+			}
+		}
+	}
+
+	function minJobTime(intervals: AggregatedInterval[]): Date {
+		return intervals[0].time
+	}
+
+	function maxJobTime(intervals: AggregatedInterval[]): Date {
+		return intervals[intervals?.length - 1].time
+	}
+	function computeMinMaxTime(
+		intervals: AggregatedInterval[] | undefined,
+		minTimeSet: string | null,
+		maxTimeSet: string | null
+	) {
+		let minTimeSetDate = minTimeSet ? new Date(minTimeSet) : undefined
+		let maxTimeSetDate = maxTimeSet ? new Date(maxTimeSet) : undefined
+		if (minTimeSetDate && maxTimeSetDate) {
+			return { min: minTimeSetDate, max: maxTimeSetDate }
+		}
+
+		if (intervals == undefined || intervals?.length == 0) {
+			const minTime = minTimeSetDate ?? addSeconds(new Date(), -300)
+			const maxTime = maxTimeSetDate ?? getDbClockNow()
+			return { min: minTime, max: maxTime }
+		}
+
+		const maxJob = maxIsNow ? getDbClockNow() : maxJobTime(intervals)
+		const minJob = minJobTime(intervals)
+
+		const diff = (maxJob.getTime() - minJob.getTime()) / 20000
+
+		const minTime = minTimeSetDate ?? addSeconds(minJob, -diff)
+		const maxTime = maxIsNow
+			? (maxTimeSetDate ?? maxJob)
+			: (maxTimeSetDate ?? addSeconds(maxJob, diff))
+		return { min: minTime, max: maxTime }
+	}
+
+	function addSeconds(date: Date, seconds: number): Date {
+		date.setTime(date.getTime() + seconds * 1000)
+		return date
+	}
+
+	const intervals = $derived(extendedJobs ? calculateTimeSeries(extendedJobs) : undefined)
+
+	let data = $derived({
 		datasets: [
 			{
 				borderColor: '#4ade80',
@@ -135,82 +208,11 @@
 					})) ?? []
 			}
 		]
-	}
+	})
 
-	const zoomOptions = {
-		pan: {
-			enabled: true,
-			modifierKey: 'ctrl' as 'ctrl',
-			onPanComplete: ({ chart }) => {
-				dispatch('zoom', {
-					min: addSeconds(new Date(chart.scales.x.min), -1),
-					max: addSeconds(new Date(chart.scales.x.max), 1)
-				})
-			}
-		},
-		zoom: {
-			drag: {
-				enabled: true
-			},
-			mode: 'x' as 'x',
-			onZoom: ({ chart }) => {
-				dispatch('zoom', {
-					min: addSeconds(new Date(chart.scales.x.min), -1),
-					max: addSeconds(new Date(chart.scales.x.max), 1)
-				})
-			}
-		}
-	}
-	let minTime = addSeconds(new Date(), -300)
-	let maxTime = getDbClockNow()
+	const minMaxTimes = $derived(computeMinMaxTime(intervals, minTimeSet, maxTimeSet))
 
-	$: computeMinMaxTime(intervals, minTimeSet, maxTimeSet)
-
-	function minJobTime(intervals: AggregatedInterval[]): Date {
-		return intervals[0].time
-	}
-
-	function maxJobTime(intervals: AggregatedInterval[]): Date {
-		return intervals[intervals?.length - 1].time
-	}
-	function computeMinMaxTime(
-		intervals: AggregatedInterval[] | undefined,
-		minTimeSet: string | undefined,
-		maxTimeSet: string | undefined
-	) {
-		let minTimeSetDate = minTimeSet ? new Date(minTimeSet) : undefined
-		let maxTimeSetDate = maxTimeSet ? new Date(maxTimeSet) : undefined
-		if (minTimeSetDate && maxTimeSetDate) {
-			minTime = minTimeSetDate
-			maxTime = maxTimeSetDate
-			return
-		}
-
-		if (intervals == undefined || intervals?.length == 0) {
-			minTime = minTimeSetDate ?? addSeconds(new Date(), -300)
-			maxTime = maxTimeSetDate ?? getDbClockNow()
-			return
-		}
-
-		const maxJob = maxIsNow ? getDbClockNow() : maxJobTime(intervals)
-		const minJob = minJobTime(intervals)
-
-		const diff = (maxJob.getTime() - minJob.getTime()) / 20000
-
-		minTime = minTimeSetDate ?? addSeconds(minJob, -diff)
-		if (maxIsNow) {
-			maxTime = maxTimeSetDate ?? maxJob
-		} else {
-			maxTime = maxTimeSetDate ?? addSeconds(maxJob, diff)
-		}
-	}
-
-	function addSeconds(date: Date, seconds: number): Date {
-		date.setTime(date.getTime() + seconds * 1000)
-		return date
-	}
-
-	$: options = {
+	let options = $derived({
 		responsive: true,
 		maintainAspectRatio: false,
 		plugins: {
@@ -232,8 +234,9 @@
 				grid: {
 					display: false
 				},
-				min: minTime,
-				max: maxTime
+				min: minMaxTimes.min,
+				max: minMaxTimes.max,
+				ticks: { maxRotation: 0, minRotation: 0 }
 			},
 			y: {
 				grid: {
@@ -254,9 +257,9 @@
 			intersect: false,
 			mode: 'index'
 		}
-	} as any
+	} as any)
 </script>
 
-<div class="relative max-h-40">
+<div class="relative h-44">
 	<Line {data} {options} />
 </div>

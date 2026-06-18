@@ -22,7 +22,6 @@ def main():
 '',
 'f/system_relative/different_folder_script', 12347, 'python3', '');
 
-
 INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
 'test-workspace',
 'test-user',

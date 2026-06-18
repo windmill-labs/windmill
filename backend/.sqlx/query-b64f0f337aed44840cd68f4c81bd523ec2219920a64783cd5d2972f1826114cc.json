@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO ai_chat_usage (session_id, provider, model, mode) VALUES ($1, $2, $3, $4)\n         ON CONFLICT (session_id) DO UPDATE SET message_count = ai_chat_usage.message_count + 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b64f0f337aed44840cd68f4c81bd523ec2219920a64783cd5d2972f1826114cc"
+}

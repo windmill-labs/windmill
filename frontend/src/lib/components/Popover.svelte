@@ -1,25 +1,52 @@
 <script lang="ts">
+	/**
+	 * @deprecated Use `$lib/components/meltComponents/Popover.svelte` instead.
+	 * This legacy popover component will be removed in a future version.
+	 */
 	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
 	import type { PopoverPlacement } from './Popover.model'
 	import Portal from '$lib/components/Portal.svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	import { ExternalLink } from 'lucide-svelte'
+	import { untrack } from 'svelte'
 
-	export let placement: PopoverPlacement = 'bottom-end'
-	export let notClickable = false
-	export let popupClass = ''
-	export let disablePopup = false
-	export let disappearTimeout = 100
-	export let appearTimeout = 300
-	export let documentationLink: string | undefined = undefined
-	export let style: string | undefined = undefined
-	export let forceOpen = false
+	interface Props {
+		placement?: PopoverPlacement
+		notClickable?: boolean
+		popupClass?: string
+		disablePopup?: boolean
+		disappearTimeout?: number
+		appearTimeout?: number
+		documentationLink?: string | undefined
+		style?: string | undefined
+		forceOpen?: boolean
+		class?: string
+		children?: import('svelte').Snippet
+		text?: import('svelte').Snippet
+		onClick?: () => void
+	}
 
-	const [popperRef, popperContent] = createPopperActions({ placement })
+	let {
+		placement = 'bottom-end',
+		notClickable = false,
+		popupClass = '',
+		disablePopup = false,
+		disappearTimeout = 100,
+		appearTimeout = 300,
+		documentationLink = undefined,
+		style = undefined,
+		forceOpen = false,
+		class: classNames = '',
+		children,
+		text,
+		onClick
+	}: Props = $props()
+
+	const [popperRef, popperContent] = createPopperActions({ placement: untrack(() => placement) })
 
 	const popperOptions: PopperOptions<{}> = {
-		placement,
+		placement: untrack(() => placement),
 		strategy: 'fixed',
 		modifiers: [
 			{ name: 'offset', options: { offset: [8, 8] } },
@@ -32,9 +59,9 @@
 		]
 	}
 
-	let showTooltip = false
-	let timeout: NodeJS.Timeout | undefined = undefined
-	let inTimeout: NodeJS.Timeout | undefined = undefined
+	let showTooltip = $state(false)
+	let timeout: number | undefined = undefined
+	let inTimeout: number | undefined = undefined
 
 	function open() {
 		clearTimeout(timeout)
@@ -50,42 +77,45 @@
 		timeout = setTimeout(() => (showTooltip = false), disappearTimeout)
 	}
 
-	$: forceOpen ? open() : close()
+	$effect(() => {
+		;[forceOpen]
+		untrack(() => (forceOpen ? open() : close()))
+	})
 </script>
 
 {#if notClickable}
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<span {style} use:popperRef on:mouseenter={open} on:mouseleave={close} class={$$props.class}>
-		<slot />
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<span {style} use:popperRef onmouseenter={open} onmouseleave={close} class={classNames}>
+		{@render children?.()}
 	</span>
 {:else}
 	<button
 		{style}
 		use:popperRef
-		on:mouseenter={open}
-		on:mouseleave={close}
-		on:click
-		class={$$props.class}
+		onmouseenter={open}
+		onmouseleave={close}
+		onclick={onClick}
+		class={classNames}
 	>
-		<slot />
+		{@render children?.()}
 	</button>
 {/if}
 {#if showTooltip && !disablePopup}
 	<Portal name="popover">
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			use:popperContent={popperOptions}
-			on:mouseenter={open}
-			on:mouseleave={close}
+			onmouseenter={open}
+			onmouseleave={close}
 			class={twMerge(
-				'z-[5001] py-2 px-3 rounded-md text-sm font-normal !text-gray-300 bg-gray-800 whitespace-normal text-left',
+				'z-[5001] p-4 rounded-md text-xs font-normal bg-surface-secondary whitespace-normal text-left shadow-lg',
 				popupClass
 			)}
 		>
 			<div class="max-w-sm break-words">
-				<slot name="text" />
+				{@render text?.()}
 				{#if documentationLink}
-					<a href={documentationLink} target="_blank" class="text-blue-300 text-xs">
+					<a href={documentationLink} target="_blank">
 						<div class="flex flex-row gap-2 mt-4">
 							See documentation
 							<ExternalLink size="16" />

@@ -8,9 +8,13 @@
 	import Tooltip from './Tooltip.svelte'
 	import { Button, DrawerContent } from './common'
 
-	export let value: any
-	let jsonViewer: Drawer
-	let jsonViewerContent: any | undefined
+	interface Props {
+		value: any
+	}
+
+	let { value }: Props = $props()
+	let jsonViewer: Drawer | undefined = $state()
+	let jsonViewerContent: any | undefined = $state()
 
 	function isString(value: any) {
 		return typeof value === 'string' || value instanceof String
@@ -33,18 +37,18 @@
 
 <Drawer bind:this={jsonViewer} size="800px">
 	<DrawerContent title="Argument Details" on:close={jsonViewer.closeDrawer}>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button
 				on:click={() => copyToClipboard(JSON.stringify(jsonViewerContent, null, 4))}
-				color="light"
-				size="xs"
+				variant="subtle"
+				unifiedSize="md"
 				startIcon={{ icon: ClipboardCopy }}
 			>
 				Copy
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 		{#if isString(jsonViewerContent)}
-			<pre>{jsonViewerContent}</pre>
+			<pre class="text-xs whitespace-pre-wrap">{jsonViewerContent}</pre>
 		{:else}
 			<ObjectViewer pureViewer json={jsonViewerContent} />
 		{/if}
@@ -52,7 +56,7 @@
 </Drawer>
 
 {#if value == undefined || value == null}
-	<span class="text-tertiary">null</span>
+	<span class="text-primary">null</span>
 {:else if value === '<function call>'}
 	{'<function call>'}<Tooltip
 		>The arg was none and the default argument of the script is a function call, hence the actual
@@ -60,18 +64,26 @@
 	>
 {:else if isString(value) && value.startsWith('$res:')}
 	<button
-		class="text-xs text-blue-500"
-		on:click={async () => {
+		class="text-xs text-accent"
+		onclick={async () => {
 			await getResource(value.substring('$res:'.length))
-			jsonViewer.toggleDrawer()
+			jsonViewer?.toggleDrawer()
 		}}>{value}</button
 	>
 {:else if isString(value) && value.startsWith('$var:')}
 	<button
-		class="text-xs text-blue-500"
-		on:click={async () => {
-			await getVariable(value.substring('$res:'.length))
-			jsonViewer.toggleDrawer()
+		class="text-xs text-accent"
+		onclick={async () => {
+			await getVariable(value.substring('$var:'.length))
+			jsonViewer?.toggleDrawer()
+		}}>{value}</button
+	>
+{:else if isString(value) && value.startsWith('$jsonvar:')}
+	<button
+		class="text-xs text-accent"
+		onclick={async () => {
+			await getVariable(value.substring('$jsonvar:'.length))
+			jsonViewer?.toggleDrawer()
 		}}>{value}</button
 	>
 {:else if typeof value !== 'object'}
@@ -79,10 +91,10 @@
 		{truncate(JSON.stringify(value), 80)}
 		{#if JSON.stringify(value).length > 80}
 			<button
-				class="text-xs text-blue-500"
-				on:click={() => {
+				class="text-xs text-accent"
+				onclick={() => {
 					jsonViewerContent = value
-					jsonViewer.toggleDrawer()
+					jsonViewer?.toggleDrawer()
 				}}>See expanded</button
 			>
 		{/if}
@@ -91,14 +103,14 @@
 	<div class="relative">
 		{#if JSON.stringify(value).length > 120}
 			<button
-				class="text-xs absolute top-0 right-4 text-tertiary"
-				on:click={() => {
+				class="text-xs absolute top-0 right-8 text-primary"
+				onclick={() => {
 					jsonViewerContent = value
-					jsonViewer.toggleDrawer()
+					jsonViewer?.toggleDrawer()
 				}}><Expand size={18} /></button
 			>
 		{/if}
-		<div class="max-h-60 overflow-auto">
+		<div class="max-h-60 overflow-auto" style="scrollbar-gutter: stable">
 			<ObjectViewer collapsed={false} topBrackets={true} pureViewer={true} json={value} />
 		</div>
 	</div>

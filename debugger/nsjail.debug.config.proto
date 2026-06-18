@@ -1,0 +1,104 @@
+name: "debugger sandbox"
+
+mode: ONCE
+hostname: "debugger"
+log_level: ERROR
+
+disable_rl: true
+
+mount_proc: true
+
+clone_newnet: false
+clone_newuser: true
+clone_newcgroup: false
+
+skip_setsid: true
+keep_caps: false
+keep_env: true
+
+# System directories (read-only)
+mount {
+    src: "/bin"
+    dst: "/bin"
+    is_bind: true
+}
+
+mount {
+    src: "/lib"
+    dst: "/lib"
+    is_bind: true
+}
+
+mount {
+    src: "/lib64"
+    dst: "/lib64"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/usr"
+    dst: "/usr"
+    is_bind: true
+}
+
+mount {
+    src: "/etc"
+    dst: "/etc"
+    is_bind: true
+}
+
+mount {
+    src: "/sys/fs"
+    dst: "/sys/fs"
+    is_bind: true
+    mandatory: false
+}
+
+# Bind-mount /tmp from host (job directories are created here)
+mount {
+    src: "/tmp"
+    dst: "/tmp"
+    is_bind: true
+    rw: true
+}
+
+# Debugger scripts directory (for Python debugger server)
+mount {
+    src: "/debugger"
+    dst: "/debugger"
+    is_bind: true
+}
+
+# Device nodes
+mount {
+    src: "/dev/null"
+    dst: "/dev/null"
+    is_bind: true
+    rw: true
+}
+
+mount {
+    src: "/dev/random"
+    dst: "/dev/random"
+    is_bind: true
+}
+
+mount {
+    src: "/dev/urandom"
+    dst: "/dev/urandom"
+    is_bind: true
+}
+
+# Home directory (for bun cache etc)
+mount {
+    dst: "/root"
+    fstype: "tmpfs"
+    rw: true
+}
+
+iface_no_lo: true
+
+envar: "HOME=/root"
+envar: "TMPDIR=/tmp"
+envar: "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"

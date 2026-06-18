@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT file_path, log_ts, ok_lines, err_lines\n                         FROM log_file\n                         WHERE hostname = $1\n                           AND log_ts BETWEEN $2::timestamp - interval '90 seconds' AND $2::timestamp + interval '30 seconds'\n                         ORDER BY log_ts DESC\n                         LIMIT 10",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "file_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "log_ts",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 2,
+        "name": "ok_lines",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "err_lines",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "32de3e7e8d1378059766fcb22ddd7da34d98b6b62311fc20dd99722eeb47355a"
+}

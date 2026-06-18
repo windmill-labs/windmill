@@ -5,11 +5,14 @@
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 
-	export let disabled: boolean = false
-	export let label: string
-	export let lang: SupportedLanguage | 'docker' | 'javascript' | undefined = undefined
+	interface Props {
+		disabled?: boolean
+		label: string
+		lang?: SupportedLanguage | 'docker' | 'javascript' | 'claudesandbox' | undefined
+		id?: string | undefined
+	}
 
-	export let id: string | undefined = undefined
+	let { disabled = false, label, lang = undefined, id = undefined }: Props = $props()
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql', 'oracledb']
 </script>
@@ -20,8 +23,7 @@
 		on:click
 		size="sm"
 		spacingSize="md"
-		variant="border"
-		color="light"
+		variant="default"
 		disabled={disabled || (enterpriseLangs.includes(lang || '') && !$enterpriseLicense)}
 		{id}
 	>
@@ -30,8 +32,12 @@
 				<LanguageIcon {lang} />
 			{/if}
 			<span class="text-xs">{label}</span>
+			{#if lang === 'claudesandbox'}
+				<span class="text-primary !text-xs">(new)</span>
+			{/if}
 		</div>
 	</Button>
-	<svelte:fragment slot="text">{label} is only available with an enterprise license</svelte:fragment
-	>
+	{#snippet text()}
+		{label} is only available with an enterprise license
+	{/snippet}
 </Popover>

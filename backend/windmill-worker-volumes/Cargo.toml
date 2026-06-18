@@ -1,0 +1,29 @@
+[package]
+name = "windmill-worker-volumes"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_worker_volumes"
+path = "src/lib.rs"
+
+[features]
+enterprise = []
+private = []
+
+[dependencies]
+windmill-common = { workspace = true, default-features = false }
+object_store.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+bytes.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+regex.workspace = true
+lazy_static.workspace = true
+md-5.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

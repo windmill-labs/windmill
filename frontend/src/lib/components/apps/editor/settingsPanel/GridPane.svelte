@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../../types'
@@ -7,8 +10,12 @@
 	import PanelSection from './common/PanelSection.svelte'
 	import { Plus, Trash } from 'lucide-svelte'
 
-	export let panes: number[]
-	export let component: AppComponent
+	interface Props {
+		panes: number[]
+		component: AppComponent
+	}
+
+	let { panes = $bindable(), component = $bindable() }: Props = $props()
 
 	const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -48,12 +55,16 @@
 
 <PanelSection title={`panes ${panes.length > 0 ? `(${panes.length})` : ''}`}>
 	{#if panes.length == 0}
-		<span class="text-xs text-tertiary">No panes</span>
+		<span class="text-xs text-primary">No panes</span>
 	{/if}
 	<div class="w-full flex gap-2 flex-col">
-		{#each panes as value, index (index)}
+		{#each panes as _, index (index)}
 			<div class="w-full flex flex-row gap-1 items-center relative">
-				<input on:keydown|stopPropagation type="number" bind:value />
+				<input
+					onkeydown={stopPropagation(bubble('keydown'))}
+					type="number"
+					bind:value={panes[index]}
+				/>
 
 				<Button
 					size="xs"
@@ -66,13 +77,6 @@
 				/>
 			</div>
 		{/each}
-		<Button
-			size="xs"
-			color="light"
-			variant="border"
-			startIcon={{ icon: Plus }}
-			on:click={addTab}
-			iconOnly
-		/>
+		<Button size="xs" variant="default" startIcon={{ icon: Plus }} on:click={addTab} iconOnly />
 	</div>
 </PanelSection>

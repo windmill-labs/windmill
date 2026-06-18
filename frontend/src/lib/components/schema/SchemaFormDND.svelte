@@ -1,40 +1,74 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
-	import { dragHandle } from '@windmill-labs/svelte-dnd-action'
+	import { createEventDispatcher, untrack } from 'svelte'
+	import { dragHandle, TRIGGERS } from '@windmill-labs/svelte-dnd-action'
 	import SchemaForm from '../SchemaForm.svelte'
 	import { GripVertical } from 'lucide-svelte'
 	import type { Schema } from '$lib/common'
 	import { deepEqual } from 'fast-equals'
-	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
-	export let dndType: string | undefined = undefined
-	export let schema: Schema
-	export let args: Record<string, any> = {}
-	export let prettifyHeader: boolean = false
-	export let onlyMaskPassword: boolean = false
-	export let disablePortal: boolean = false
-	export let disabled: boolean = false
-	export let schemaSkippedValues: string[] = []
-	export let nestedParent: { label: string; nestedParent: any | undefined } | undefined = undefined
-	export let disableDnd: boolean = false
-	export let shouldDispatchChanges: boolean = false
-	export let diff: Record<string, SchemaDiff> = {}
-	export let nestedClasses = ''
-	export let isValid: boolean = true
+	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
+	import { generateRandomString, readFieldsRecursively, type DynamicInput } from '$lib/utils'
+	interface Props {
+		schema: Schema
+		args?: Record<string, any>
+		prettifyHeader?: boolean
+		onlyMaskPassword?: boolean
+		disablePortal?: boolean
+		disabled?: boolean
+		hiddenArgs?: string[]
+		nestedParent?: { label: string; nestedParent: any | undefined } | undefined
+		disableDnd?: boolean
+		shouldDispatchChanges?: boolean
+		diff?: Record<string, SchemaDiff>
+		nestedClasses?: string
+		isValid?: boolean
+		noVariablePicker?: boolean
+		helperScript?: DynamicInput.HelperScript
+		className?: string
+		dndType?: string
+		lightHeaderFont?: boolean
+	}
 
+	let {
+		schema = $bindable(),
+		args = $bindable(undefined),
+		prettifyHeader = false,
+		onlyMaskPassword = false,
+		disablePortal = false,
+		disabled = false,
+		hiddenArgs = [],
+		nestedParent = undefined,
+		disableDnd = false,
+		shouldDispatchChanges = false,
+		helperScript = undefined,
+		diff = {},
+		nestedClasses = '',
+		isValid = $bindable(true),
+		noVariablePicker = false,
+		className = '',
+		dndType = generateRandomString(),
+		lightHeaderFont
+	}: Props = $props()
+
+	$effect.pre(() => {
+		if (args == undefined) {
+			args = {}
+		}
+	})
 	const dispatch = createEventDispatcher()
 	const flipDurationMs = 200
 
-	let items = computeItems()
+	let items = $state(computeItems())
 
-	let dragDisabled = true
-	$: schema && dragDisabled && updateItems()
+	let dragDisabledState = $state(true)
 
 	function computeItems() {
 		return (
-			(schema?.order ?? Object.keys(schema?.properties ?? {}) ?? []).map((key) => ({
-				id: key,
-				value: key
-			})) ?? []
+			($state.snapshot(schema?.order) ?? Object.keys(schema?.properties ?? {}) ?? []).map(
+				(key) => ({
+					id: key,
+					value: key
+				})
+			) ?? []
 		)
 	}
 
@@ -45,34 +79,50 @@
 		}
 	}
 
-	function handleConsider(e) {
-		dragDisabled = false
-		const { items: newItems } = e.detail
+	let dragStartTime = 0
+	const DRAG_GRACE_PERIOD_MS = 200
 
-		items = newItems
+	function handleConsider(e) {
+		dragDisabledState = false
+		const { items: newItems, info } = e.detail
+
+		if (info.trigger === TRIGGERS.DRAG_STARTED) {
+			dragStartTime = Date.now()
+			items = $state.snapshot(newItems)
+			return
+		}
+
+		// Ignore reorders during grace period so small movements don't cause jumps
+		if (Date.now() - dragStartTime < DRAG_GRACE_PERIOD_MS) {
+			return
+		}
+
+		items = $state.snapshot(newItems)
 	}
 
 	function handleFinalize(e) {
 		const { items: newItems } = e.detail
-
-		dragDisabled = true
-		items = newItems
-
-		dispatch(
-			'reorder',
-			items.map((item) => item.value)
-		)
+		dragDisabledState = true
+		items = $state.snapshot(newItems)
+		const newOrder = items.map((item) => item.value)
+		dispatch('reorder', newOrder)
 	}
+	$effect(() => {
+		readFieldsRecursively(schema)
+		dragDisabledState && untrack(() => updateItems())
+	})
 </script>
 
+<!-- <pre class="text-xs">3 {JSON.stringify(schema, null, 2)}</pre> -->
 <!-- {JSON.stringify(schema)}
 {dragDisabled} -->
 <!-- {JSON.stringify(items)} -->
-<!-- svelte-ignore a11y-no-static-element-interactions -->
-<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+
 <SchemaForm
 	{nestedClasses}
-	{schemaSkippedValues}
+	{hiddenArgs}
 	on:click
 	on:change
 	on:reorder
@@ -86,6 +136,8 @@
 	{onlyMaskPassword}
 	{disablePortal}
 	{disabled}
+	{helperScript}
+	{className}
 	bind:schema
 	dndConfig={disableDnd
 		? undefined
@@ -93,19 +145,22 @@
 				items,
 				flipDurationMs,
 				dropTargetStyle: {},
-				type: dndType ?? 'top-level'
-		  }}
+				type: dndType,
+				morphDisabled: true
+			}}
 	{items}
 	{diff}
 	{nestedParent}
 	{shouldDispatchChanges}
 	bind:isValid
+	{noVariablePicker}
+	{lightHeaderFont}
 >
-	<svelte:fragment slot="actions">
+	{#snippet actions()}
 		{#if !disableDnd}
-			<div class="w-4 h-8 cursor-move ml-2 handle" aria-label="drag-handle" use:dragHandle>
+			<div class="w-4 h-6 cursor-move ml-2 handle mt-[9px]" aria-label="drag-handle" use:dragHandle>
 				<GripVertical size={16} />
 			</div>
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 </SchemaForm>

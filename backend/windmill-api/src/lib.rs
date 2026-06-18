@@ -7,40 +7,48 @@
  */
 
 use crate::db::ApiAuthed;
-#[cfg(feature = "enterprise")]
-use crate::ee::ExternalJwks;
 #[cfg(feature = "embedding")]
 use crate::embeddings::load_embeddings_db;
 #[cfg(feature = "oauth2")]
-use crate::oauth2_ee::AllClients;
-#[cfg(feature = "oauth2")]
-use crate::oauth2_ee::SlackVerifier;
+use crate::oauth2_oss::SlackVerifier;
 #[cfg(feature = "smtp")]
-use crate::smtp_server_ee::SmtpServer;
+use crate::smtp_server_oss::SmtpServer;
+#[cfg(feature = "enterprise")]
+use windmill_api_auth::ee_oss::ExternalJwks;
+use windmill_store::resources::public_service;
+
+#[cfg(feature = "mcp")]
+use crate::mcp::{extract_and_store_workspace_id, setup_mcp_server};
+use crate::triggers::start_all_listeners;
+use tower_http::catch_panic::CatchPanicLayer;
 
 use crate::tracing_init::MyOnFailure;
 use crate::{
+    s3_log_batching::{s3_proxy_log_middleware, FLUSH_INTERVAL_MS},
     tracing_init::{MyMakeSpan, MyOnResponse},
     users::OptAuthed,
     webhook_util::WebhookShared,
 };
+#[cfg(feature = "agent_worker_server")]
+use windmill_api_agent_workers::AgentCache;
 
 use anyhow::Context;
 use argon2::Argon2;
+use axum::body::Body;
 use axum::extract::DefaultBodyLimit;
-use axum::{middleware::from_extractor, routing::get, routing::post, Extension, Router};
+use axum::http::HeaderValue;
+use axum::response::Response;
+use axum::serve::ListenerExt;
+use axum::{middleware::from_extractor, routing::get, routing::post, Extension, Json, Router};
 use db::DB;
-use http::HeaderValue;
-use reqwest::Client;
-#[cfg(feature = "oauth2")]
-use std::collections::HashMap;
+use tokio::task::JoinHandle;
 use windmill_common::global_settings::load_value_from_global_settings;
 use windmill_common::global_settings::EMAIL_DOMAIN_SETTING;
 use windmill_common::worker::HUB_CACHE_DIR;
 
 use std::fs::DirBuilder;
+use std::sync::Arc;
 use std::time::Duration;
-use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::RwLock;
 use tower::ServiceBuilder;
 use tower_cookies::CookieManagerLayer;
@@ -50,79 +58,145 @@ use tower_http::{
 };
 use windmill_common::db::UserDB;
 use windmill_common::worker::CLOUD_HOSTED;
-use windmill_common::{utils::GIT_VERSION, BASE_URL, INSTANCE_NAME};
+#[allow(unused_imports)]
+pub(crate) use windmill_common::BASE_URL;
+use windmill_common::{utils::GIT_VERSION, INSTANCE_NAME};
 
-use crate::scim_ee::has_scim_token;
+use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
 
 mod ai;
 mod apps;
-mod args;
+pub mod args;
 mod audit;
-mod auth;
+pub mod auth;
+#[cfg(all(feature = "private", feature = "parquet"))]
+pub mod azure_proxy_ee;
+mod azure_proxy_oss;
 mod capture;
 mod concurrency_groups;
-mod configs;
 mod db;
+mod db_health;
 mod drafts;
+
+#[cfg(feature = "private")]
 pub mod ee;
+pub mod ee_oss;
 pub mod embeddings;
 mod favorite;
-mod flows;
+pub mod flows;
+mod folder_history;
 mod folders;
 mod granular_acls;
+mod group_history;
 mod groups;
-#[cfg(feature = "http_trigger")]
-mod http_triggers;
-mod indexer_ee;
-mod inputs;
+mod health;
+#[cfg(feature = "private")]
+pub mod indexer_ee;
+mod indexer_oss;
+#[cfg(feature = "private")]
+mod inkeep_ee;
+mod inkeep_oss;
 mod integration;
-#[cfg(feature = "postgres_trigger")]
-mod postgres_triggers;
+mod internal_db;
+mod live_migrations;
+#[cfg(all(feature = "private", feature = "parquet"))]
+pub mod s3_proxy_ee;
+mod s3_proxy_oss;
+mod workspace_dependencies;
 
+mod approvals;
+#[cfg(all(feature = "enterprise", feature = "private"))]
+pub mod apps_ee;
 #[cfg(feature = "enterprise")]
-mod apps_ee;
+mod apps_oss;
+#[cfg(all(feature = "enterprise", feature = "private"))]
+pub mod git_sync_ee;
+#[cfg(feature = "enterprise")]
+mod git_sync_oss;
+#[cfg(all(feature = "parquet", feature = "private"))]
+pub mod job_helpers_ee;
 #[cfg(feature = "parquet")]
-mod job_helpers_ee;
+mod job_helpers_oss;
 pub mod job_metrics;
 pub mod jobs;
-#[cfg(all(feature = "enterprise", feature = "kafka"))]
-mod kafka_triggers_ee;
-#[cfg(all(feature = "enterprise", feature = "nats"))]
-mod nats_triggers_ee;
-#[cfg(feature = "oauth2")]
+pub mod jobs_export;
+#[cfg(all(feature = "oauth2", feature = "private"))]
 pub mod oauth2_ee;
-mod oidc_ee;
+#[cfg(feature = "oauth2")]
+pub mod oauth2_oss;
+#[cfg(feature = "private")]
+pub mod oidc_ee;
+mod oidc_oss;
+mod path_autocomplete;
 mod raw_apps;
 mod resources;
-mod saml_ee;
-mod schedule;
-mod scim_ee;
+#[cfg(feature = "private")]
+pub mod saml_ee;
+mod saml_oss;
+#[cfg(feature = "private")]
+pub mod scim_ee;
+mod scim_oss;
 mod scripts;
+mod secret_backend_ext;
 mod service_logs;
-mod settings;
 mod slack_approvals;
+#[cfg(all(feature = "smtp", feature = "private"))]
+pub mod smtp_server_ee;
 #[cfg(feature = "smtp")]
-mod smtp_server_ee;
+mod smtp_server_oss;
+#[cfg(feature = "private")]
+pub mod teams_approvals_ee;
+mod teams_approvals_oss;
+mod workspace_shared_ui;
+
+#[cfg(feature = "native_trigger")]
+pub mod native_triggers;
+mod offboarding;
+mod public_app_layer;
+mod public_app_rate_limit;
+mod s3_log_batching;
 mod static_assets;
-mod stripe_ee;
-#[cfg(feature = "enterprise")]
-mod teams_ee;
+#[cfg(all(feature = "stripe", feature = "enterprise", feature = "private"))]
+pub mod stripe_ee;
+#[cfg(all(feature = "stripe", feature = "enterprise"))]
+mod stripe_oss;
+#[cfg(feature = "private")]
+pub mod teams_cache_ee;
+mod teams_cache_oss;
+#[cfg(feature = "private")]
+pub mod teams_ee;
+mod teams_oss;
+mod token;
 mod tracing_init;
-mod triggers;
+mod trash;
+pub mod triggers;
 mod users;
-mod users_ee;
+#[cfg(feature = "private")]
+pub mod users_ee;
+mod users_oss;
 mod utils;
 mod variables;
-mod webhook_util;
-#[cfg(feature = "websocket")]
-mod websocket_triggers;
-mod workers;
+#[cfg(feature = "private")]
+pub mod volumes_ee;
+mod volumes_oss;
+pub mod webhook_util;
 mod workspaces;
-mod workspaces_ee;
+#[cfg(feature = "private")]
+pub mod workspaces_ee;
 mod workspaces_export;
-mod workspaces_extra;
 
+#[cfg(feature = "mcp")]
+mod mcp_tools;
+
+#[cfg(feature = "mcp")]
+mod mcp;
+#[cfg(all(feature = "mcp", feature = "private"))]
+mod mcp_oauth_ee;
+#[cfg(feature = "mcp")]
+mod mcp_oauth_oss;
+
+pub use apps::EditApp;
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
 
 lazy_static::lazy_static! {
@@ -133,33 +207,29 @@ lazy_static::lazy_static! {
     pub static ref SAML_METADATA: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
 
-    pub static ref COOKIE_DOMAIN: Option<String> = std::env::var("COOKIE_DOMAIN").ok();
-
-    pub static ref IS_SECURE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-
-    pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
-        .user_agent("windmill/beta")
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(30))
-        .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok())
-        .build().unwrap();
-
-
+    // COOKIE_DOMAIN and IS_SECURE are now in windmill_common::utils
 }
+
+pub use windmill_common::utils::HTTP_CLIENT_PERMISSIVE as HTTP_CLIENT;
+
+pub use windmill_common::utils::{COOKIE_DOMAIN, IS_SECURE};
+
+pub use windmill_api_debug::reload_debug_signing_key;
+
+#[cfg(feature = "oauth2")]
+pub use windmill_oauth::OAUTH_CLIENTS;
 
 #[cfg(feature = "oauth2")]
 lazy_static::lazy_static! {
-    pub static ref OAUTH_CLIENTS: Arc<RwLock<AllClients>> = Arc::new(RwLock::new(AllClients {
-        logins: HashMap::new(),
-        connects: HashMap::new(),
-        slack: None
-    }));
-
-
     pub static ref SLACK_SIGNING_SECRET: Option<SlackVerifier> = std::env::var("SLACK_SIGNING_SECRET")
         .ok()
         .map(|x| SlackVerifier::new(x).unwrap());
 
+    // Comma-separated Slack v2 OAuth bot scopes requested when connecting a workspace.
+    // Must be a subset of the bot scopes declared in the Slack app manifest. Default matches
+    // Windmill's recommended manifest at docs.windmill.dev/docs/misc/setup_oauth.
+    pub static ref SLACK_OAUTH_SCOPES: String = std::env::var("SLACK_OAUTH_SCOPES")
+        .unwrap_or_else(|_| "commands,chat:write,chat:write.public,channels:join,files:write,app_mentions:read,im:history,im:read".to_string());
 }
 
 // Compliance with cloud events spec.
@@ -191,23 +261,94 @@ type IndexReader = ();
 type ServiceLogIndexReader = ();
 
 #[cfg(feature = "tantivy")]
-type IndexReader = windmill_indexer::completed_runs_ee::IndexReader;
+type IndexReader = windmill_indexer::completed_runs_oss::IndexReader;
 #[cfg(feature = "tantivy")]
-type ServiceLogIndexReader = windmill_indexer::service_logs_ee::ServiceLogIndexReader;
+type ServiceLogIndexReader = windmill_indexer::service_logs_oss::ServiceLogIndexReader;
+
+/// Worker name derived from the agent JWT token, used to authenticate volume operations.
+/// Defined unconditionally so volume endpoint handlers can reference it regardless of
+/// whether agent_worker_server is enabled (the extension is only populated on the agent path).
+#[derive(Clone)]
+pub struct AgentWorkerName(pub String);
+
+/// Middleware that injects a synthetic `ApiAuthed` and JWT-derived worker name
+/// into request extensions.
+///
+/// Used for volume proxy endpoints under the agent_workers path, where the
+/// agent JWT auth layer has already validated the request. The volume handlers
+/// need `ApiAuthed` to resolve the workspace S3 client, but the agent JWT
+/// format is incompatible with the standard auth extractor.
+///
+/// The worker name is extracted from the JWT claims rather than trusting
+/// self-reported values in request bodies/query params.
+#[cfg(feature = "agent_worker_server")]
+async fn inject_agent_authed(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let mut request = request;
+
+    // Extract worker name from agent JWT via AgentCache
+    // (OSS returns None; EE decodes the JWT and returns the worker name)
+    {
+        let extracted = {
+            let token = request
+                .headers()
+                .get(axum::http::header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.strip_prefix("Bearer ").map(|t| t.to_string()));
+            let cache = request.extensions().get::<Arc<AgentCache>>().cloned();
+            let db = request.extensions().get::<DB>().cloned();
+            match (token, cache, db) {
+                (Some(token), Some(cache), Some(db)) => Some((token, cache, db)),
+                _ => None,
+            }
+        };
+
+        if let Some((token, cache, db)) = extracted {
+            if let Some(worker_name) = cache.extract_worker_name(&token, &db).await {
+                request
+                    .extensions_mut()
+                    .insert(AgentWorkerName(worker_name));
+            }
+        }
+    }
+
+    request
+        .extensions_mut()
+        .insert(windmill_api_auth::OptJobAuthed {
+            authed: ApiAuthed {
+                email: "agent-worker@windmill.dev".to_string(),
+                username: "agent-worker".to_string(),
+                is_admin: true,
+                is_operator: false,
+                groups: Vec::new(),
+                folders: Vec::new(),
+                scopes: None,
+                username_override: None,
+                token_prefix: None,
+                read_only: false,
+            },
+            job_id: None,
+        });
+    next.run(request).await
+}
 
 pub async fn run_server(
     db: DB,
     job_index_reader: Option<IndexReader>,
     log_index_reader: Option<ServiceLogIndexReader>,
-    addr: SocketAddr,
-    mut rx: tokio::sync::broadcast::Receiver<()>,
+    listener: tokio::net::TcpListener,
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<String>,
     server_mode: bool,
-    #[cfg(feature = "smtp")] base_internal_url: String,
+    mcp_mode: bool,
+    _base_internal_url: String,
+    name: Option<String>,
 ) -> anyhow::Result<()> {
     let user_db = UserDB::new(db.clone());
 
-    for x in [HUB_CACHE_DIR] {
+    for x in [&*HUB_CACHE_DIR] {
         DirBuilder::new()
             .recursive(true)
             .create(x)
@@ -224,6 +365,9 @@ pub async fn run_server(
     ));
     let argon2 = Arc::new(Argon2::default());
 
+    // Initialize debug signing key for debugger authentication
+    windmill_api_debug::init_debug_signing_key().await;
+
     let disable_response_logs = std::env::var("DISABLE_RESPONSE_LOGS")
         .ok()
         .map(|x| x == "true")
@@ -237,21 +381,31 @@ pub async fn run_server(
         .layer(Extension(log_index_reader))
         // .layer(Extension(index_writer))
         .layer(CookieManagerLayer::new())
-        .layer(Extension(WebhookShared::new(rx.resubscribe(), db.clone())))
+        .layer(Extension(WebhookShared::new(
+            killpill_rx.resubscribe(),
+            db.clone(),
+        )))
         .layer(DefaultBodyLimit::max(
             REQUEST_SIZE_LIMIT.read().await.clone(),
         ));
 
+    let request_size_limit = REQUEST_SIZE_LIMIT.read().await.clone();
+
     let cors = CorsLayer::new()
-        .allow_methods([http::Method::GET, http::Method::POST])
+        .allow_methods([http::Method::GET, http::Method::POST, http::Method::DELETE])
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
         .allow_origin(Any);
 
-    let sp_extension = Arc::new(saml_ee::build_sp_extension().await?);
+    let sp_extension = Arc::new(saml_oss::build_sp_extension().await?);
 
     if server_mode {
         #[cfg(feature = "embedding")]
         load_embeddings_db(&db);
+
+        #[cfg(feature = "cloud")]
+        if *CLOUD_HOSTED {
+            windmill_queue::init_usage_buffer(db.clone());
+        }
 
         let mut start_smtp_server = false;
         if let Some(smtp_settings) =
@@ -268,10 +422,13 @@ pub async fn run_server(
             {
                 let smtp_server = Arc::new(SmtpServer {
                     db: db.clone(),
-                    user_db: user_db,
+                    user_db: user_db.clone(),
                     auth_cache: auth_cache.clone(),
-                    base_internal_url: base_internal_url.clone(),
+                    base_internal_url: _base_internal_url.clone(),
                 });
+                let addr = listener
+                    .local_addr()
+                    .unwrap_or_else(|_| std::net::SocketAddr::from(([127, 0, 0, 1], 0)));
                 if let Err(err) = smtp_server.start_listener_thread(addr).await {
                     tracing::error!("Error starting SMTP server: {err:#}");
                 }
@@ -286,7 +443,7 @@ pub async fn run_server(
     let job_helpers_service = {
         #[cfg(feature = "parquet")]
         {
-            job_helpers_ee::workspaced_service()
+            job_helpers_oss::workspaced_service()
         }
 
         #[cfg(not(feature = "parquet"))]
@@ -295,54 +452,88 @@ pub async fn run_server(
         }
     };
 
-    let kafka_triggers_service = {
-        #[cfg(all(feature = "enterprise", feature = "kafka"))]
-        {
-            kafka_triggers_ee::workspaced_service()
-        }
-
-        #[cfg(not(all(feature = "enterprise", feature = "kafka")))]
-        {
-            Router::new()
-        }
-    };
-
-    let nats_triggers_service = {
-        #[cfg(all(feature = "enterprise", feature = "nats"))]
-        {
-            nats_triggers_ee::workspaced_service()
-        }
-
-        #[cfg(not(all(feature = "enterprise", feature = "nats")))]
-        {
-            Router::new()
-        }
-    };
-
-    if !*CLOUD_HOSTED {
-        #[cfg(feature = "websocket")]
-        {
-            let ws_killpill_rx = rx.resubscribe();
-            websocket_triggers::start_websockets(db.clone(), ws_killpill_rx);
-        }
-
-        #[cfg(all(feature = "enterprise", feature = "kafka"))]
-        {
-            let kafka_killpill_rx = rx.resubscribe();
-            kafka_triggers_ee::start_kafka_consumers(db.clone(), kafka_killpill_rx);
-        }
-
-        #[cfg(all(feature = "enterprise", feature = "nats"))]
-        {
-            let nats_killpill_rx = rx.resubscribe();
-            nats_triggers_ee::start_nats_consumers(db.clone(), nats_killpill_rx);
-        }
-        #[cfg(feature = "postgres_trigger")]
-        {
-            let db_killpill_rx = rx.resubscribe();
-            postgres_triggers::start_database(db.clone(), db_killpill_rx);
-        }
+    // Initialize HTTP trigger refresh loop
+    #[cfg(feature = "http_trigger")]
+    {
+        let http_killpill_rx = killpill_rx.resubscribe();
+        triggers::http::refresh_routers_loop(&db, http_killpill_rx).await;
     }
+
+    let triggers_service = triggers::generate_trigger_routers();
+
+    if !*CLOUD_HOSTED && server_mode && !mcp_mode {
+        start_all_listeners(db.clone(), &killpill_rx);
+    }
+
+    if server_mode {
+        health::start_health_check_loop(db.clone(), killpill_rx.resubscribe());
+    }
+
+    let port = listener.local_addr().map(|x| x.port()).unwrap_or(8000);
+    let ip = listener
+        .local_addr()
+        .map(|x| x.ip().to_string())
+        .unwrap_or("localhost".to_string());
+
+    // Setup MCP server
+    #[allow(unused_variables)]
+    let (mcp_router, gateway_mcp_router, mcp_cancellation_token) = {
+        #[cfg(feature = "mcp")]
+        if server_mode || mcp_mode {
+            use mcp::{
+                add_www_authenticate_header, add_www_authenticate_header_gateway,
+                extract_workspace_from_token,
+            };
+            let (mcp_router, mcp_cancellation_token) =
+                setup_mcp_server(db.clone(), user_db, _base_internal_url.clone()).await?;
+            // Workspace-scoped MCP router
+            let workspaced_mcp_router = mcp_router
+                .clone()
+                .route_layer(from_extractor::<ApiAuthed>())
+                .layer(axum::middleware::from_fn(add_www_authenticate_header))
+                .layer(axum::middleware::from_fn(extract_and_store_workspace_id));
+            // Gateway MCP router — resolves workspace from token
+            let gateway_mcp_router = mcp_router
+                .route_layer(from_extractor::<ApiAuthed>())
+                .layer(axum::middleware::from_fn(
+                    add_www_authenticate_header_gateway,
+                ))
+                .layer(axum::middleware::from_fn(extract_workspace_from_token));
+            (
+                workspaced_mcp_router,
+                gateway_mcp_router,
+                Some(mcp_cancellation_token),
+            )
+        } else {
+            (Router::new(), Router::new(), None)
+        }
+
+        #[cfg(not(feature = "mcp"))]
+        (Router::new(), Router::new(), Option::<()>::None)
+    };
+
+    let mcp_list_tools_service = {
+        #[cfg(feature = "mcp")]
+        {
+            mcp::list_tools_service()
+        }
+
+        #[cfg(not(feature = "mcp"))]
+        {
+            Router::new()
+        }
+    };
+
+    #[cfg(feature = "agent_worker_server")]
+    let (agent_workers_router, agent_workers_bg_processor, agent_workers_job_completed_tx) =
+        if server_mode {
+            windmill_api_agent_workers::workspaced_service(db.clone(), _base_internal_url.clone())
+        } else {
+            (Router::new(), vec![], None)
+        };
+
+    #[cfg(feature = "agent_worker_server")]
+    let agent_cache = Arc::new(AgentCache::new());
 
     // build our application with a route
     let app = Router::new()
@@ -350,118 +541,193 @@ pub async fn run_server(
             "/api",
             Router::new()
                 .nest(
-                    "/w/:workspace_id",
+                    "/w/{workspace_id}",
                     Router::new()
                         // Reordered alphabetically
                         .nest("/acls", granular_acls::workspaced_service())
-                        .nest("/apps", apps::workspaced_service())
+                        .nest("/apps", apps::workspaced_service(request_size_limit * 5))
+                        .nest("/assets", windmill_api_assets::workspaced_service())
                         .nest("/audit", audit::workspaced_service())
                         .nest("/capture", capture::workspaced_service())
                         .nest(
                             "/concurrency_groups",
                             concurrency_groups::workspaced_service(),
                         )
-                        .nest("/embeddings", embeddings::workspaced_service())
                         .nest("/drafts", drafts::workspaced_service())
+                        .nest("/embeddings", embeddings::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
+                        .nest(
+                            "/workspace_dependencies",
+                            workspace_dependencies::workspaced_service(),
+                        )
+                        .nest(
+                            "/flow_conversations",
+                            windmill_api_flow_conversations::workspaced_service(),
+                        )
                         .nest("/folders", folders::workspaced_service())
+                        .nest("/folders_history", folder_history::workspaced_service())
                         .nest("/groups", groups::workspaced_service())
-                        .nest("/inputs", inputs::workspaced_service())
+                        .nest("/groups_history", group_history::workspaced_service())
+                        .nest("/inputs", windmill_api_inputs::workspaced_service())
+                        .nest("/internal_db", internal_db::workspaced_service())
+                        .route("/labels/list", get(list_workspace_labels))
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
                         .nest("/jobs", jobs::workspaced_service())
+                        .nest("/debug", windmill_api_debug::workspaced_service())
+                        .nest("/native_triggers", {
+                            #[cfg(feature = "native_trigger")]
+                            {
+                                native_triggers::handler::generate_native_trigger_routers().merge(
+                                    native_triggers::workspace_integrations::workspaced_service(),
+                                )
+                            }
+                            #[cfg(not(feature = "native_trigger"))]
+                            {
+                                axum::Router::new()
+                            }
+                        })
                         .nest("/oauth", {
                             #[cfg(feature = "oauth2")]
                             {
-                                oauth2_ee::workspaced_service()
+                                oauth2_oss::workspaced_service()
                             }
 
                             #[cfg(not(feature = "oauth2"))]
                             Router::new()
                         })
+                        .nest("/mcp/oauth/server", {
+                            #[cfg(feature = "mcp")]
+                            {
+                                // Only /approve requires authentication (called by frontend)
+                                mcp::oauth_server::workspaced_authed_service()
+                            }
+
+                            #[cfg(not(feature = "mcp"))]
+                            Router::new()
+                        })
                         .nest("/ai", ai::workspaced_service())
+                        .nest("/npm_proxy", windmill_api_npm_proxy::workspaced_service())
+                        .nest(
+                            "/path_autocomplete",
+                            path_autocomplete::workspaced_service(),
+                        )
                         .nest("/raw_apps", raw_apps::workspaced_service())
                         .nest("/resources", resources::workspaced_service())
-                        .nest("/schedules", schedule::workspaced_service())
+                        .nest("/shared_ui", workspace_shared_ui::workspaced_service())
+                        .nest("/schedules", windmill_api_schedule::workspaced_service())
                         .nest("/scripts", scripts::workspaced_service())
+                        .nest("/trash", trash::workspaced_service())
                         .nest(
                             "/users",
                             users::workspaced_service().layer(Extension(argon2.clone())),
                         )
                         .nest("/variables", variables::workspaced_service())
+                        .nest("/volumes", volumes_oss::workspaced_service())
+                        .nest("/workers", windmill_api_workers::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
-                        .nest("/oidc", oidc_ee::workspaced_service())
-                        .nest("/http_triggers", {
+                        .nest(
+                            "/deployment_request",
+                            windmill_api_workspaces::deployment_requests::workspaced_service(),
+                        )
+                        .nest("/oidc", oidc_oss::workspaced_service())
+                        .nest("/openapi", {
                             #[cfg(feature = "http_trigger")]
                             {
-                                http_triggers::workspaced_service()
+                                windmill_api_openapi::openapi_service()
                             }
 
                             #[cfg(not(feature = "http_trigger"))]
-                            Router::new()
-                        })
-                        .nest("/websocket_triggers", {
-                            #[cfg(feature = "websocket")]
                             {
-                                websocket_triggers::workspaced_service()
+                                Router::new()
                             }
-
-                            #[cfg(not(feature = "websocket"))]
-                            Router::new()
                         })
-                        .nest("/kafka_triggers", kafka_triggers_service)
-                        .nest("/nats_triggers", nats_triggers_service)
-                        .nest("/postgres_triggers", {
-                            #[cfg(feature = "postgres_trigger")]
-                            {
-                                postgres_triggers::workspaced_service()
-                            }
-
-                            #[cfg(not(feature = "postgres_trigger"))]
-                            Router::new()
-                        }),
+                        .merge(triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
                     "/users",
                     users::global_service().layer(Extension(argon2.clone())),
                 )
-                .nest("/settings", settings::global_service())
-                .nest("/workers", workers::global_service())
+                .nest("/settings", windmill_api_settings::global_service())
+                .nest("/workers", windmill_api_workers::global_service())
                 .nest("/service_logs", service_logs::global_service())
-                .nest("/configs", configs::global_service())
+                .nest("/configs", windmill_api_configs::global_service())
                 .nest("/scripts", scripts::global_service())
                 .nest("/integrations", integration::global_service())
                 .nest("/groups", groups::global_service())
                 .nest("/flows", flows::global_service())
                 .nest("/apps", apps::global_service().layer(cors.clone()))
-                .nest("/schedules", schedule::global_service())
+                .nest("/schedules", windmill_api_schedule::global_service())
                 .nest("/embeddings", embeddings::global_service())
-                .route_layer(from_extractor::<ApiAuthed>())
-                .route_layer(from_extractor::<users::Tokened>())
-                .nest("/jobs", jobs::global_root_service())
-                .nest(
-                    "/srch/w/:workspace_id/index",
-                    indexer_ee::workspaced_service(),
-                )
-                .nest("/srch/index", indexer_ee::global_service())
-                .nest("/oidc", oidc_ee::global_service())
+                .nest("/ai", ai::global_service())
+                .nest("/inkeep", inkeep_oss::global_service())
+                .nest("/indexer", indexer_oss::management_service())
+                .nest("/mcp/w/{workspace_id}/list_tools", mcp_list_tools_service)
+                .nest("/db_health", db_health::global_service())
+                .nest("/health/detailed", health::detailed_service())
                 .nest(
                     "/saml",
-                    saml_ee::global_service().layer(Extension(Arc::clone(&sp_extension))),
+                    saml_oss::authed_service().layer(Extension(Arc::clone(&sp_extension))),
+                )
+                .nest("/mcp/gateway/oauth/server", {
+                    #[cfg(feature = "mcp")]
+                    {
+                        mcp::oauth_server::gateway_authed_service()
+                    }
+
+                    #[cfg(not(feature = "mcp"))]
+                    Router::new()
+                })
+                .route_layer(from_extractor::<ApiAuthed>())
+                .route_layer(from_extractor::<users::Tokened>())
+                // Workspace-scoped OAuth endpoints that don't require authentication
+                // (authorize and token are called by MCP client before user is authenticated)
+                .nest("/w/{workspace_id}/mcp/oauth/server", {
+                    #[cfg(feature = "mcp")]
+                    {
+                        mcp::oauth_server::workspaced_unauthed_service()
+                    }
+
+                    #[cfg(not(feature = "mcp"))]
+                    Router::new()
+                })
+                // Gateway OAuth endpoints (authorize + token) — no auth required
+                .nest("/mcp/gateway/oauth/server", {
+                    #[cfg(feature = "mcp")]
+                    {
+                        mcp::oauth_server::gateway_unauthed_service().layer(cors.clone())
+                    }
+
+                    #[cfg(not(feature = "mcp"))]
+                    Router::new()
+                })
+                .nest("/jobs", jobs::global_root_service())
+                .nest(
+                    "/srch/w/{workspace_id}/index",
+                    indexer_oss::workspaced_service(),
+                )
+                .nest("/srch/index", indexer_oss::global_service())
+                .nest("/oidc", oidc_oss::global_service())
+                .nest("/debug", windmill_api_debug::global_service())
+                .nest(
+                    "/saml",
+                    saml_oss::global_service().layer(Extension(Arc::clone(&sp_extension))),
                 )
                 .nest(
                     "/scim",
-                    scim_ee::global_service()
+                    scim_oss::global_service()
                         .route_layer(axum::middleware::from_fn(has_scim_token)),
                 )
+                .nest("/tokens", token::global_service())
                 .nest("/concurrency_groups", concurrency_groups::global_service())
                 .nest("/scripts_u", scripts::global_unauthed_service())
+                .nest("/settings_u", windmill_api_settings::unauthed_service())
                 .nest("/apps_u", {
                     #[cfg(feature = "enterprise")]
                     {
-                        apps_ee::global_unauthed_service()
+                        apps_oss::global_unauthed_service()
                     }
 
                     #[cfg(not(feature = "enterprise"))]
@@ -470,20 +736,66 @@ pub async fn run_server(
                     }
                 })
                 .nest(
-                    "/w/:workspace_id/apps_u",
+                    "/w/{workspace_id}/apps_u",
                     apps::unauthed_service()
                         .layer(from_extractor::<OptAuthed>())
                         .layer(cors.clone()),
                 )
+                .layer(from_extractor::<OptAuthed>())
+                // Deprecated, here for backwards compatibility: user should use /mcp/w/{workspace_id}/mcp instead
                 .nest(
-                    "/w/:workspace_id/jobs_u",
+                    "/mcp/w/{workspace_id}/sse",
+                    mcp_router.clone().layer(cors.clone()),
+                )
+                .nest(
+                    "/mcp/w/{workspace_id}/mcp",
+                    mcp_router.clone().layer(cors.clone()),
+                )
+                .nest("/mcp/gateway", gateway_mcp_router.layer(cors.clone()))
+                .nest("/agent_workers", {
+                    #[cfg(feature = "agent_worker_server")]
+                    {
+                        if let Some(agent_workers_job_completed_tx) =
+                            agent_workers_job_completed_tx.clone()
+                        {
+                            windmill_api_agent_workers::global_service(
+                                agent_workers_job_completed_tx,
+                            )
+                            .layer(Extension(agent_cache.clone()))
+                        } else {
+                            Router::new()
+                        }
+                    }
+                    #[cfg(not(feature = "agent_worker_server"))]
+                    {
+                        Router::new()
+                    }
+                })
+                .nest("/w/{workspace_id}/agent_workers", {
+                    #[cfg(feature = "agent_worker_server")]
+                    {
+                        agent_workers_router
+                            .nest(
+                                "/volumes",
+                                volumes_oss::agent_workspaced_service()
+                                    .layer(axum::middleware::from_fn(inject_agent_authed)),
+                            )
+                            .layer(Extension(agent_cache.clone()))
+                    }
+                    #[cfg(not(feature = "agent_worker_server"))]
+                    {
+                        Router::new()
+                    }
+                })
+                .nest(
+                    "/w/{workspace_id}/jobs_u",
                     jobs::workspace_unauthed_service().layer(cors.clone()),
                 )
                 .route("/slack", post(slack_approvals::slack_app_callback_handler))
                 .nest("/teams", {
                     #[cfg(feature = "enterprise")]
                     {
-                        teams_ee::teams_service()
+                        teams_oss::teams_service()
                     }
 
                     #[cfg(not(feature = "enterprise"))]
@@ -492,17 +804,42 @@ pub async fn run_server(
                     }
                 })
                 .route(
-                    "/w/:workspace_id/jobs/slack_approval/:job_id",
+                    "/w/{workspace_id}/jobs/slack_approval/{job_id}",
                     get(slack_approvals::request_slack_approval),
                 )
+                .route(
+                    "/w/{workspace_id}/jobs/teams_approval/{job_id}",
+                    get(teams_approvals_oss::request_teams_approval),
+                )
+                .nest("/w/{workspace_id}/github_app", {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        git_sync_oss::workspaced_service()
+                    }
+
+                    #[cfg(not(feature = "enterprise"))]
+                    Router::new()
+                })
+                .nest("/github_app", {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        git_sync_oss::global_service()
+                    }
+
+                    #[cfg(not(feature = "enterprise"))]
+                    Router::new()
+                })
                 .nest(
-                    "/w/:workspace_id/resources_u",
-                    resources::public_service().layer(cors.clone()),
+                    "/w/{workspace_id}/resources_u",
+                    public_service().layer(cors.clone()),
                 )
                 .nest(
-                    "/w/:workspace_id/capture_u",
+                    "/w/{workspace_id}/capture_u",
                     capture::workspaced_unauthed_service().layer(cors.clone()),
                 )
+                .nest("/w/{workspace_id}/s3_proxy", {
+                    s3_proxy_oss::workspaced_unauthed_service()
+                })
                 .nest(
                     "/auth",
                     users::make_unauthed_service().layer(Extension(argon2)),
@@ -510,74 +847,255 @@ pub async fn run_server(
                 .nest("/oauth", {
                     #[cfg(feature = "oauth2")]
                     {
-                        oauth2_ee::global_service().layer(Extension(Arc::clone(&sp_extension)))
+                        oauth2_oss::global_service().layer(Extension(Arc::clone(&sp_extension)))
                     }
 
                     #[cfg(not(feature = "oauth2"))]
                     Router::new()
                 })
-                .nest(
-                    "/r",
+                .nest("/mcp/oauth", {
+                    #[cfg(feature = "mcp")]
                     {
-                        #[cfg(feature = "http_trigger")]
-                        {
-                            http_triggers::routes_global_service()
-                        }
-
-                        #[cfg(not(feature = "http_trigger"))]
-                        {
-                            Router::new()
-                        }
+                        mcp_oauth_oss::global_service()
                     }
-                    .layer(from_extractor::<OptAuthed>()),
-                )
+
+                    #[cfg(not(feature = "mcp"))]
+                    Router::new()
+                })
+                .nest("/mcp/oauth/server", {
+                    #[cfg(feature = "mcp")]
+                    {
+                        mcp::oauth_server::global_service().layer(cors.clone())
+                    }
+
+                    #[cfg(not(feature = "mcp"))]
+                    Router::new()
+                })
+                .nest("/r", {
+                    #[cfg(feature = "http_trigger")]
+                    {
+                        triggers::http::handler::http_route_trigger_handler()
+                    }
+
+                    #[cfg(not(feature = "http_trigger"))]
+                    {
+                        Router::new()
+                    }
+                })
+                .nest("/gcp/w/{workspace_id}", {
+                    #[cfg(all(
+                        feature = "enterprise",
+                        feature = "gcp_trigger",
+                        feature = "private"
+                    ))]
+                    {
+                        triggers::gcp::handler_oss::gcp_push_route_handler()
+                    }
+                    #[cfg(not(all(
+                        feature = "enterprise",
+                        feature = "gcp_trigger",
+                        feature = "private"
+                    )))]
+                    {
+                        Router::new()
+                    }
+                })
+                .nest("/azure/w/{workspace_id}", {
+                    #[cfg(all(
+                        feature = "enterprise",
+                        feature = "azure_trigger",
+                        feature = "private"
+                    ))]
+                    {
+                        triggers::azure::handler_oss::azure_push_route_handler()
+                    }
+                    #[cfg(not(all(
+                        feature = "enterprise",
+                        feature = "azure_trigger",
+                        feature = "private"
+                    )))]
+                    {
+                        Router::new()
+                    }
+                })
                 .route("/version", get(git_v))
+                .nest("/health/status", health::status_service())
+                .route("/min_keep_alive_version", get(min_keep_alive_version))
                 .route("/uptodate", get(is_up_to_date))
                 .route("/ee_license", get(ee_license))
                 .route("/openapi.yaml", get(openapi))
                 .route("/openapi.json", get(openapi_json)),
         )
+        // Clients must use workspace-scoped OAuth metadata at:
+        // /.well-known/oauth-authorization-server/api/w/{workspace_id}/mcp/oauth/server
+        // This is discovered via /.well-known/oauth-protected-resource?workspace_id=...
+        .route(
+            "/.well-known/oauth-authorization-server/api/w/{workspace_id}/mcp/oauth/server",
+            {
+                #[cfg(feature = "mcp")]
+                {
+                    get(mcp::oauth_server::workspaced_oauth_metadata)
+                }
+                #[cfg(not(feature = "mcp"))]
+                {
+                    get(|| async { axum::http::StatusCode::NOT_FOUND })
+                }
+            },
+        )
+        // RFC 9728 path-based discovery: /.well-known/oauth-protected-resource/api/mcp/w/{workspace_id}/mcp
+        .route(
+            "/.well-known/oauth-protected-resource/api/mcp/w/{workspace_id}/mcp",
+            {
+                #[cfg(feature = "mcp")]
+                {
+                    get(mcp::oauth_server::protected_resource_metadata_by_path)
+                }
+                #[cfg(not(feature = "mcp"))]
+                {
+                    get(|| async { axum::http::StatusCode::NOT_FOUND })
+                }
+            },
+        )
+        // Gateway OAuth well-known endpoints
+        .route(
+            "/.well-known/oauth-authorization-server/api/mcp/gateway/oauth/server",
+            {
+                #[cfg(feature = "mcp")]
+                {
+                    get(mcp::oauth_server::gateway_oauth_metadata)
+                }
+                #[cfg(not(feature = "mcp"))]
+                {
+                    get(|| async { axum::http::StatusCode::NOT_FOUND })
+                }
+            },
+        )
+        .route("/.well-known/oauth-protected-resource/api/mcp/gateway", {
+            #[cfg(feature = "mcp")]
+            {
+                get(mcp::oauth_server::gateway_protected_resource_metadata)
+            }
+            #[cfg(not(feature = "mcp"))]
+            {
+                get(|| async { axum::http::StatusCode::NOT_FOUND })
+            }
+        })
+        // JWKS endpoint for HashiCorp Vault JWT authentication (must be outside /api prefix)
+        .route("/.well-known/jwks.json", {
+            #[cfg(all(feature = "private", feature = "enterprise", feature = "openidconnect"))]
+            {
+                get(crate::oidc_oss::jwks)
+            }
+            #[cfg(not(all(
+                feature = "private",
+                feature = "enterprise",
+                feature = "openidconnect"
+            )))]
+            {
+                get(windmill_api_settings::get_jwks)
+            }
+        })
         .fallback(static_assets::static_handler)
         .layer(middleware_stack);
 
     let app = if disable_response_logs {
         app
     } else {
-        app.layer(
-            TraceLayer::new_for_http()
-                .on_response(MyOnResponse {})
-                .make_span_with(MyMakeSpan {})
-                .on_request(())
-                .on_failure(MyOnFailure {}),
-        )
+        tokio::spawn(async {
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_millis(FLUSH_INTERVAL_MS));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                crate::s3_log_batching::flush_s3_batches();
+            }
+        });
+
+        app.layer(axum::middleware::from_fn(s3_proxy_log_middleware))
+            .layer(
+                TraceLayer::new_for_http()
+                    .on_response(MyOnResponse {})
+                    .make_span_with(MyMakeSpan {})
+                    .on_request(())
+                    .on_failure(MyOnFailure {}),
+            )
     };
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    let port = listener.local_addr().map(|x| x.port()).unwrap_or(8000);
-    let ip = listener
-        .local_addr()
-        .map(|x| x.ip().to_string())
-        .unwrap_or("localhost".to_string());
+    let app = if let Some(domain) = public_app_layer::PUBLIC_APP_DOMAIN.as_ref() {
+        tracing::info!("Public app domain filter enabled for domain: {}", domain);
+        app.layer(axum::middleware::from_fn(
+            public_app_layer::public_app_domain_filter,
+        ))
+    } else {
+        app
+    };
 
+    // Seed the per-request LogContext task-local. Registered outside
+    // TraceLayer so MyOnResponse::on_response's `"response"` log fires inside
+    // the scope and gets method/uri/workspace_id/email attached by the EE
+    // LogContextBridge.
+    let app = app.layer(axum::middleware::from_fn(
+        tracing_init::log_context_middleware,
+    ));
+
+    let app = app.layer(CatchPanicLayer::custom(|err| {
+        tracing::error!("panic in handler, returning 500: {:?}", err);
+        Response::builder()
+            .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::from("Internal Server Error"))
+            .unwrap()
+    }));
+
+    if let Some(name) = name.as_ref() {
+        tracing::info!("server starting for name={name}");
+    }
+    let listener = listener.tap_io(move |tcp_stream| {
+        let _ = tcp_stream.set_nodelay(!server_mode);
+    });
     let server = axum::serve(listener, app.into_make_service());
 
     tracing::info!(
         instance = %*INSTANCE_NAME,
-        "server started on port={} and addr={}",
+        "server started on port={} and addr={} {}",
         port,
-        ip
+        ip,
+        name.map(|x| format!("name={x}")).unwrap_or_default()
     );
 
-    port_tx
-        .send(format!("http://localhost:{}", port))
-        .expect("Failed to send port");
+    if let Err(e) = port_tx.send(format!("http://localhost:{}", port)) {
+        tracing::error!("Failed to send port: {e:#}");
+        return Err(anyhow::anyhow!("Failed to send port, exiting early: {e:#}"));
+    }
+
+    // Announce this server is ready so coordinated restarts can detect a healthy peer.
+    if let Err(e) = announce_server_started(&db).await {
+        tracing::warn!("Failed to announce server started: {e:#}");
+    }
 
     let server = server.with_graceful_shutdown(async move {
-        rx.recv().await.ok();
+        killpill_rx.recv().await.ok();
+        #[cfg(feature = "agent_worker_server")]
+        if let Some(agent_workers_job_completed_tx) = agent_workers_job_completed_tx {
+            if let Err(e) = agent_workers_job_completed_tx.kill().await {
+                tracing::error!("Error killing agent workers: {e:#}");
+            }
+        }
         tracing::info!("Graceful shutdown of server");
+
+        #[cfg(feature = "mcp")]
+        if let Some(mcp_cancellation_token) = mcp_cancellation_token {
+            mcp_cancellation_token.cancel();
+            tracing::info!("MCP server shutdown");
+        }
     });
 
     server.await?;
+    #[cfg(feature = "agent_worker_server")]
+    for (i, bg_processor) in agent_workers_bg_processor.into_iter().enumerate() {
+        tracing::info!("server off. shutting down agent worker bg processor {i}");
+        bg_processor.await?;
+        tracing::info!("agent worker bg processor {i} shut down");
+    }
     Ok(())
 }
 
@@ -618,31 +1136,152 @@ async fn git_v() -> String {
     format!("CE {GIT_VERSION}")
 }
 
+async fn min_keep_alive_version() -> Json<serde_json::Value> {
+    let worker = windmill_common::min_version::MIN_KEEP_ALIVE_VERSION;
+    let agent = windmill_common::min_version::AGENT_MIN_KEEP_ALIVE_VERSION;
+    Json(serde_json::json!({
+        "worker": format!("{}.{}.{}", worker.0, worker.1, worker.2),
+        "agent": format!("{}.{}.{}", agent.0, agent.1, agent.2)
+    }))
+}
+
 #[cfg(not(feature = "enterprise"))]
 async fn ee_license() -> &'static str {
     ""
 }
 
+async fn list_workspace_labels(
+    Extension(db): Extension<DB>,
+    axum::extract::Path(w_id): axum::extract::Path<String>,
+) -> windmill_common::error::JsonResult<Vec<String>> {
+    let labels = sqlx::query_scalar!(
+        "SELECT DISTINCT unnest(labels) as \"label!\" FROM (
+            SELECT labels FROM script WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM flow WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM resource WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM variable WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM schedule WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM app WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM folder WHERE workspace_id = $1 AND labels IS NOT NULL
+        ) t ORDER BY 1",
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(axum::Json(labels))
+}
+
 #[cfg(feature = "enterprise")]
 async fn ee_license() -> String {
-    use windmill_common::ee::{LICENSE_KEY_ID, LICENSE_KEY_VALID};
+    use windmill_common::ee_oss::{LICENSE_KEY_ID, LICENSE_KEY_VALID};
 
-    if *LICENSE_KEY_VALID.read().await {
-        LICENSE_KEY_ID.read().await.clone()
+    if LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed) {
+        (**LICENSE_KEY_ID.load()).clone()
     } else {
         "".to_string()
     }
 }
 
-async fn openapi() -> &'static str {
-    include_str!("../openapi-deref.yaml")
+async fn openapi() -> Response {
+    Response::builder()
+        .header("content-type", "application/yaml")
+        .body(Body::from(include_str!("../openapi-deref.yaml")))
+        .unwrap()
 }
 
-async fn openapi_json() -> &'static str {
-    include_str!("../openapi-deref.json")
+async fn openapi_json() -> Response {
+    Response::builder()
+        .header("content-type", "application/json")
+        .body(Body::from(include_str!("../openapi-deref.json")))
+        .unwrap()
 }
 
-pub async fn migrate_db(db: &DB) -> anyhow::Result<()> {
-    db::migrate(db).await?;
+pub async fn migrate_db(
+    db: &DB,
+    killpill_rx: tokio::sync::broadcast::Receiver<()>,
+) -> anyhow::Result<Option<JoinHandle<()>>> {
+    db::migrate(db, killpill_rx)
+        .await
+        .map_err(|e| anyhow::anyhow!("Error migrating db: {e:#}"))
+}
+
+pub async fn wait_for_db_migrations(
+    db: &DB,
+    killpill_rx: tokio::sync::broadcast::Receiver<()>,
+) -> anyhow::Result<()> {
+    db::wait_for_migrations(db, killpill_rx)
+        .await
+        .map_err(|e| anyhow::anyhow!("Error waiting for db migrations: {e:#}"))
+}
+
+const SERVER_HEARTBEAT_TASK: &str = "server_heartbeat";
+
+/// Write a server-started heartbeat to `background_task_state` so that
+/// other instances waiting to restart can detect this server is healthy.
+async fn announce_server_started(db: &DB) -> anyhow::Result<()> {
+    use windmill_common::INSTANCE_NAME;
+
+    let instance = INSTANCE_NAME.as_str();
+
+    sqlx::query(
+        "INSERT INTO background_task_state (name, value, running, owner, started_at, updated_at)
+         VALUES ($1, '\"started\"'::jsonb, true, $2, NOW(), NOW())
+         ON CONFLICT (name)
+         DO UPDATE SET updated_at = NOW(), running = true, owner = $2",
+    )
+    .bind(format!("{SERVER_HEARTBEAT_TASK}:{instance}"))
+    .bind(instance)
+    .execute(db)
+    .await?;
+
+    tracing::info!("Announced server started for instance {instance}");
     Ok(())
+}
+
+/// Check whether any server instance (other than ourselves) has announced
+/// itself as started after `not_before` (i.e. after the restart was initiated).
+pub async fn check_any_server_started(db: &DB, not_before: chrono::DateTime<chrono::Utc>) -> bool {
+    use windmill_common::INSTANCE_NAME;
+
+    let my_instance = INSTANCE_NAME.as_str();
+    let prefix = format!("{SERVER_HEARTBEAT_TASK}:");
+
+    sqlx::query_scalar!(
+        "SELECT EXISTS(
+            SELECT 1 FROM background_task_state
+            WHERE name LIKE $1
+              AND owner != $2
+              AND running = true
+              AND updated_at > $3
+        ) AS \"exists!\"",
+        format!("{prefix}%"),
+        my_instance,
+        not_before
+    )
+    .fetch_one(db)
+    .await
+    .unwrap_or(false)
+}
+
+/// Delete `server_heartbeat:*` rows that have not been refreshed in a long
+/// time. Each server startup generates a fresh random `INSTANCE_NAME` and
+/// inserts a new row keyed by `server_heartbeat:{instance}`; because that
+/// row is only written once (on startup) and never updated thereafter, the
+/// table grows by one row per server restart and is otherwise never pruned.
+///
+/// The row is only consulted by `check_any_server_started`, which itself
+/// filters on `updated_at > not_before` (the moment a restart was initiated),
+/// so rows older than the cutoff cannot influence any restart decision and
+/// are safe to delete.
+pub async fn cleanup_stale_server_heartbeats(db: &DB) -> anyhow::Result<u64> {
+    let prefix = format!("{SERVER_HEARTBEAT_TASK}:");
+    let res = sqlx::query!(
+        "DELETE FROM background_task_state
+         WHERE name LIKE $1
+           AND updated_at < NOW() - INTERVAL '7 days'",
+        format!("{prefix}%"),
+    )
+    .execute(db)
+    .await?;
+    Ok(res.rows_affected())
 }

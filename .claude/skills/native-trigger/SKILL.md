@@ -1,0 +1,1 @@
+../../../.agents/skills/native-trigger/SKILL.md

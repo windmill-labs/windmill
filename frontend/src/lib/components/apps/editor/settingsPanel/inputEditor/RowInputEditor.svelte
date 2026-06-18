@@ -1,7 +1,11 @@
 <script lang="ts">
 	import type { RowAppInput } from '../../../inputType'
 
-	export let componentInput: RowAppInput | undefined
+	interface Props {
+		componentInput: RowAppInput | undefined
+	}
+
+	let { componentInput = $bindable() }: Props = $props()
 </script>
 
 {#if componentInput}

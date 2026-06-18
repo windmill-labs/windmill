@@ -1,16 +1,15 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
-	import { columnConfiguration, gridColumns, isFixed, toggleFixed } from '../gridUtils'
+	import { gridColumns, isFixed, toggleFixed } from '../gridUtils'
 	import { twMerge } from 'tailwind-merge'
 
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import Component from './component/Component.svelte'
-	import { push } from '$lib/history'
+	import { push } from '$lib/history.svelte'
 	import {
 		dfs,
 		expandGriditem,
-		findGridItem,
 		findGridItemParentGrid,
 		insertNewGridItem,
 		isContainer,
@@ -20,7 +19,6 @@
 	import { deepEqual } from 'fast-equals'
 	import ComponentWrapper from './component/ComponentWrapper.svelte'
 	import { classNames } from '$lib/utils'
-	import { BG_PREFIX } from '../utils'
 	import GridEditorMenu from './GridEditorMenu.svelte'
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -28,8 +26,13 @@
 	import { Loader2 } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import type { Policy } from '$lib/gen'
+	import { BG_PREFIX, findGridItem } from './appUtilsCore'
 
-	export let policy: Policy
+	interface Props {
+		policy: Policy
+	}
+
+	let { policy }: Props = $props()
 
 	const {
 		selectedComponent,
@@ -46,13 +49,17 @@
 
 	const { history, componentActive } = getContext<AppEditorContext>('AppEditorContext')
 
-	let previousSelectedIds: string[] | undefined = undefined
-	$: if (!deepEqual(previousSelectedIds, $selectedComponent)) {
-		previousSelectedIds = $selectedComponent
-		$allIdsInPath = ($selectedComponent ?? [])
-			.flatMap((id) => dfs($app.grid, id, $app.subgrids ?? {}))
-			.filter((x) => x != undefined) as string[]
-	}
+	let previousSelectedIds: string[] | undefined = $state(undefined)
+	$effect(() => {
+		if (!deepEqual(previousSelectedIds, $selectedComponent)) {
+			untrack(() => {
+				previousSelectedIds = $selectedComponent
+				$allIdsInPath = ($selectedComponent ?? [])
+					.flatMap((id) => dfs($app.grid, id, $app.subgrids ?? {}))
+					.filter((x) => x != undefined) as string[]
+			})
+		}
+	})
 
 	function handleLock(id: string) {
 		const gridItem = findGridItem($app, id)
@@ -73,8 +80,7 @@
 
 	export function moveComponentBetweenSubgrids(
 		componentId: string,
-		parentComponentId: string,
-		subGridIndex: number,
+		subgrid: { parentComponentId: string; subGridIndex: number } | undefined,
 		position?: { x: number; y: number }
 	) {
 		// Find the component in the source subgrid
@@ -98,7 +104,7 @@
 		insertNewGridItem(
 			$app,
 			(id) => ({ ...gridItem.data, id }),
-			{ parentComponentId: parentComponentId, subGridIndex: subGridIndex },
+			subgrid,
 			Object.fromEntries(gridColumns.map((column) => [column, gridItem[column]])),
 			component.id,
 			position,
@@ -109,12 +115,14 @@
 		)
 
 		// Update the app state
-		$app = { ...$app }
+		$app = $app
 
-		$selectedComponent = [parentComponentId]
-		$focusedGrid = {
-			parentComponentId,
-			subGridIndex
+		if (subgrid) {
+			$selectedComponent = [subgrid.parentComponentId]
+			$focusedGrid = subgrid
+		} else {
+			$selectedComponent = [componentId]
+			$focusedGrid = undefined
 		}
 	}
 </script>
@@ -135,27 +143,35 @@
 				</div>
 				{#if $bgRuns.length > 0}
 					<Popover notClickable>
-						<span class="!text-2xs text-tertiary inline-flex gap-1 items-center"
+						<span class="!text-2xs text-primary inline-flex gap-1 items-center"
 							><Loader2 size={10} class="animate-spin" /> {$bgRuns.length}
 						</span>
-						<span slot="text"
-							><div class="flex flex-col">
-								{#each $bgRuns as bgRun}
-									<div class="flex gap-2 items-center">
-										<div class="text-2xs text-tertiary">{bgRun}</div>
-									</div>
-								{/each}
-							</div></span
-						>
+						{#snippet text()}
+							<span
+								><div class="flex flex-col">
+									{#each $bgRuns as bgRun}
+										<div class="flex gap-2 items-center">
+											<div class="text-2xs text-primary">{bgRun}</div>
+										</div>
+									{/each}
+								</div></span
+							>
+						{/snippet}
 					</Popover>
 				{:else}
-					<span class="w-9" />
+					<span class="w-9"></span>
 				{/if}
 			</div>
 			<div class="flex text-2xs gap-8 items-center">
 				<div class="py-2 pr-2 text-secondary flex gap-1 items-center">
 					Hide bar on view
-					<Toggle size="xs" bind:checked={$app.norefreshbar} />
+					<Toggle
+						size="xs"
+						bind:checked={
+							() => $app.norefreshbar ?? false,
+							(v) => ($app.norefreshbar !== undefined || v) && ($app.norefreshbar = v)
+						}
+					/>
 				</div>
 				<div>
 					{policy.on_behalf_of ? `Author ${policy.on_behalf_of_email}` : ''}
@@ -167,7 +183,8 @@
 			</div>
 		</div>
 	</div>
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		style={$app.css?.['app']?.['grid']?.style}
 		class={twMerge(
@@ -175,7 +192,7 @@
 			$app.css?.['app']?.['grid']?.class ?? '',
 			'wm-app-grid !static h-full w-full'
 		)}
-		on:pointerdown={() => {
+		onpointerdown={() => {
 			$selectedComponent = undefined
 			$focusedGrid = undefined
 		}}
@@ -189,27 +206,15 @@
 				allIdsInPath={$allIdsInPath}
 				selectedIds={$selectedComponent}
 				items={$app.grid}
-				on:redraw={(e) => {
+				onRedraw={(grid) => {
 					push(history, $app)
-					$app.grid = e.detail
+					$app.grid = grid
 				}}
 				root
-				let:dataItem
-				let:hidden
-				let:overlapped
-				let:moveMode
-				let:componentDraggedId
-				cols={columnConfiguration}
-				on:dropped={(e) => {
-					const { id, overlapped, x, y } = e.detail
-
-					const overlappedComponent = findGridItem($app, overlapped)
+				onDropped={({ id, overlapped, x, y }) => {
+					const overlappedComponent = overlapped ? findGridItem($app, overlapped) : undefined
 
 					if (overlappedComponent && !isContainer(overlappedComponent.data.type)) {
-						return
-					}
-
-					if (!overlapped) {
 						return
 					}
 
@@ -219,57 +224,71 @@
 
 					moveComponentBetweenSubgrids(
 						id,
-						overlapped,
-						subGridIndexKey(overlappedComponent?.data?.type, overlapped, $worldStore),
+						overlapped
+							? {
+									parentComponentId: overlapped,
+									subGridIndex: subGridIndexKey(
+										overlappedComponent?.data?.type,
+										overlapped,
+										$worldStore
+									)
+								}
+							: undefined,
 						{ x, y }
 					)
 				}}
 				disableMove={!!$connectingInput.opened}
 			>
-				<ComponentWrapper
-					id={dataItem.id}
-					type={dataItem.data.type}
-					class={classNames(
-						'h-full w-full center-center outline outline-surface-secondary',
-						Boolean($selectedComponent?.includes(dataItem.id)) ? 'active-grid-item' : ''
-					)}
-				>
-					<GridEditorMenu
+				{#snippet children({ dataItem, overlapped, componentDraggedId })}
+					<ComponentWrapper
 						id={dataItem.id}
-						on:expand={() => {
-							push(history, $app)
-							$selectedComponent = [dataItem.id]
-							expandGriditem($app.grid, dataItem.id, $breakpoint)
-							$app = $app
-						}}
-						on:lock={() => {
-							handleLock(dataItem.id)
-						}}
-						on:fillHeight={() => {
-							handleFillHeight(dataItem.id)
-						}}
-						locked={isFixed(dataItem)}
-						fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
+						type={dataItem.data.type}
+						class={classNames(
+							'h-full w-full center-center outline outline-surface-secondary',
+							Boolean($selectedComponent?.includes(dataItem.id)) ? 'active-grid-item' : ''
+						)}
 					>
-						<Component
-							{hidden}
-							render={true}
-							component={dataItem.data}
-							selected={Boolean($selectedComponent?.includes(dataItem.id))}
-							locked={isFixed(dataItem)}
-							fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
+						<GridEditorMenu
+							id={dataItem.id}
+							on:expand={() => {
+								push(history, $app)
+								$selectedComponent = [dataItem.id]
+								expandGriditem($app.grid, dataItem.id, $breakpoint)
+								$app = $app
+							}}
 							on:lock={() => {
 								handleLock(dataItem.id)
 							}}
 							on:fillHeight={() => {
 								handleFillHeight(dataItem.id)
 							}}
-							{overlapped}
-							{moveMode}
-							{componentDraggedId}
-						/>
-					</GridEditorMenu>
-				</ComponentWrapper>
+							locked={isFixed(dataItem)}
+							fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
+						>
+							<Component
+								render={true}
+								component={dataItem.data}
+								selected={Boolean($selectedComponent?.includes(dataItem.id))}
+								locked={isFixed(dataItem)}
+								fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
+								on:lock={() => {
+									handleLock(dataItem.id)
+								}}
+								on:fillHeight={() => {
+									handleFillHeight(dataItem.id)
+								}}
+								on:expand={() => {
+									push(history, $app)
+									$selectedComponent = [dataItem.id]
+									expandGriditem($app.grid, dataItem.id, $breakpoint)
+									$app = $app
+								}}
+								{overlapped}
+								{componentDraggedId}
+							/>
+						</GridEditorMenu>
+					</ComponentWrapper>
+				{/snippet}
 			</Grid>
 		</div>
 	</div>

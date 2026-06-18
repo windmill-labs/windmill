@@ -13,7 +13,7 @@
       "Left": [
         "Bool",
         "Varchar",
-        "Json",
+        "Jsonb",
         "Int4",
         "Bool",
         "Text"

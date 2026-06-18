@@ -1,37 +1,38 @@
 <script lang="ts">
 	import { createEventDispatcher, getContext } from 'svelte'
-	import type { App, AppViewerContext } from '../types'
-	import { BG_PREFIX, allItems } from '../utils'
-	import { findComponentSettings, findGridItem } from './appUtils'
+	import type { App, AppViewerContext, GridItem } from '../types'
+	import { findGridItemWithLocation, allItemsWithLocation } from './appUtils'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
 	import BackgroundScriptSettings from './settingsPanel/script/BackgroundScriptSettings.svelte'
 	import EventHandlerItem from './settingsPanel/EventHandlerItem.svelte'
+	import type { TableAction } from './component'
+	import { BG_PREFIX } from './appUtilsCore'
 
 	const { selectedComponent, app, stateId, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let firstComponent = $selectedComponent?.[0]
-
-	$: $selectedComponent?.[0] != firstComponent && (firstComponent = $selectedComponent?.[0])
-
-	$: hiddenInlineScript = $app?.hiddenInlineScripts
-		?.map((x, i) => ({ script: x, index: i }))
-		.find(({ script, index }) => $selectedComponent?.includes(BG_PREFIX + index))
-
-	$: componentSettings = findComponentSettings($app, firstComponent)
-	$: tableActionSettings = findTableActionSettings($app, firstComponent)
-	$: menuItemsSettings = findMenuItemsSettings($app, firstComponent)
+	let firstComponent = $derived($selectedComponent?.[0])
 
 	function findTableActionSettings(app: App, id: string | undefined) {
-		return allItems(app.grid, app.subgrids)
-			.map((x) => {
+		return allItemsWithLocation(app.grid, app.subgrids)
+			.map((itemWithLocation) => {
+				const x = itemWithLocation.item
 				if (x?.data?.type === 'tablecomponent') {
 					if (x?.data?.actionButtons) {
-						const tableAction = x.data.actionButtons.find((x) => x.id === id)
-						if (tableAction) {
-							return { item: { data: tableAction, id: tableAction.id }, parent: x.data.id }
+						const tableActionIdx = x.data.actionButtons.findIndex((x) => x.id === id)
+						if (tableActionIdx > -1) {
+							const tableAction = x.data.actionButtons[tableActionIdx]
+							return {
+								item: { data: tableAction, id: tableAction.id },
+								parent: x.data.id,
+								gridItemLocation: itemWithLocation.location,
+								location: {
+									key: 'actionButtons',
+									index: tableActionIdx
+								}
+							}
 						}
 					}
 				} else if (
@@ -42,9 +43,18 @@
 					x?.data?.type === 'aggridinfinitecomponentee'
 				) {
 					if (x?.data?.actions) {
-						const tableAction = x.data.actions.find((x) => x.id === id)
-						if (tableAction) {
-							return { item: { data: tableAction, id: tableAction.id }, parent: x.data.id }
+						const tableActionIdx = x.data.actions.findIndex((x) => x.id === id)
+						if (tableActionIdx > -1) {
+							const tableAction = x.data.actions[tableActionIdx]
+							return {
+								item: { data: tableAction, id: tableAction.id },
+								parent: x.data.id,
+								gridItemLocation: itemWithLocation.location,
+								location: {
+									key: 'actions',
+									index: tableActionIdx
+								}
+							}
 						}
 					}
 				}
@@ -53,13 +63,20 @@
 	}
 
 	function findMenuItemsSettings(app: App, id: string | undefined) {
-		return allItems(app.grid, app.subgrids)
-			.map((x) => {
+		return allItemsWithLocation(app.grid, app.subgrids)
+			.map((itemWithLocation) => {
+				const x = itemWithLocation.item
 				if (x?.data?.type === 'menucomponent') {
 					if (x?.data?.menuItems) {
-						const menuItem = x.data.menuItems.find((x) => x.id === id)
-						if (menuItem) {
-							return { item: { data: menuItem, id: menuItem.id }, parent: x.data.id }
+						const menuItemIdx = x.data.menuItems.findIndex((x) => x.id === id)
+						if (menuItemIdx > -1) {
+							const menuItem = x.data.menuItems[menuItemIdx]
+							return {
+								item: { data: menuItem, id: menuItem.id },
+								parent: x.data.id,
+								index: menuItemIdx,
+								gridItemLocation: itemWithLocation.location
+							}
 						}
 					}
 				}
@@ -67,46 +84,101 @@
 			.find((x) => x)
 	}
 
+	function itemHasActions(
+		item: GridItem | undefined
+	): item is GridItem & { data: { actions: TableAction[] } } {
+		return (
+			item?.data?.type === 'aggridcomponent' ||
+			item?.data?.type === 'aggridcomponentee' ||
+			item?.data?.type === 'dbexplorercomponent' ||
+			item?.data?.type === 'aggridinfinitecomponent' ||
+			item?.data?.type === 'aggridinfinitecomponentee'
+		)
+	}
+
 	const dispatch = createEventDispatcher()
+
+	let hiddenInlineScript = $derived(
+		$app?.hiddenInlineScripts
+			?.map((x, i) => ({ script: x, index: i }))
+			.find(({ script, index }) => $selectedComponent?.includes(BG_PREFIX + index))
+	)
+	let gridItemWithLocation = $derived(findGridItemWithLocation($app, firstComponent))
+	let tableActionSettings = $derived(findTableActionSettings($app, firstComponent))
+	let menuItemsSettings = $derived(findMenuItemsSettings($app, firstComponent))
 </script>
 
-{#if componentSettings}
-	{#key componentSettings?.item?.id}
-		<ComponentPanel
-			bind:componentSettings
-			onDelete={() => {
-				dispatch('delete')
-			}}
-		/>
-	{/key}
+{#if gridItemWithLocation}
+	{#if gridItemWithLocation.location.type === 'grid'}
+		{#each $app.grid as gridItem, gridItemIndex (gridItem.data.id)}
+			{#if gridItem.data.id === gridItemWithLocation.item.id}
+				<ComponentPanel
+					bind:item={$app.grid[gridItemIndex]}
+					parent={gridItemWithLocation.parent}
+					onDelete={() => {
+						dispatch('delete')
+					}}
+				/>
+			{/if}
+		{/each}
+	{:else if gridItemWithLocation.location.type === 'subgrid' && $app.subgrids}
+		{#each $app.subgrids[gridItemWithLocation.location.subgridKey] as subgridItem, subgridItemIndex (subgridItem.data.id)}
+			{#if subgridItem.data.id === gridItemWithLocation.item.id}
+				<ComponentPanel
+					bind:item={$app.subgrids[gridItemWithLocation.location.subgridKey][subgridItemIndex]}
+					parent={gridItemWithLocation.parent}
+					onDelete={() => {
+						dispatch('delete')
+					}}
+				/>
+			{/if}
+		{/each}
+	{/if}
 {:else if tableActionSettings}
 	{#key tableActionSettings?.item?.data?.id}
 		<ComponentPanel
 			noGrid
-			bind:componentSettings={tableActionSettings}
+			bind:item={tableActionSettings.item}
+			parent={tableActionSettings.parent}
 			duplicateMoveAllowed={false}
 			onDelete={() => {
 				if (tableActionSettings) {
-					const parent = findGridItem($app, tableActionSettings.parent)
-					if (!parent) return
-
+					const item = findGridItemWithLocation($app, tableActionSettings.parent)
+					if (!item) return
+					const { item: parent, location } = item
 					if (parent.data.type === 'tablecomponent') {
-						parent.data.actionButtons = parent.data.actionButtons.filter(
+						const newActionButtons = parent.data.actionButtons.filter(
 							(x) => x.id !== tableActionSettings?.item.id
 						)
+						if (location.type === 'grid') {
+							const { gridItemIndex } = location
+							if ($app.grid[gridItemIndex]?.data?.type === 'tablecomponent') {
+								$app.grid[gridItemIndex].data.actionButtons = newActionButtons
+							}
+						} else if (location.type === 'subgrid') {
+							const { subgridKey, subgridItemIndex } = location
+							if (
+								$app.subgrids?.[subgridKey]?.[subgridItemIndex]?.data?.type === 'tablecomponent'
+							) {
+								$app.subgrids[subgridKey][subgridItemIndex].data.actionButtons = newActionButtons
+							}
+						}
 					}
-
-					if (
-						(parent.data.type === 'aggridcomponent' ||
-							parent.data.type === 'aggridcomponentee' ||
-							parent.data.type === 'dbexplorercomponent' ||
-							parent.data.type === 'aggridinfinitecomponent' ||
-							parent.data.type === 'aggridinfinitecomponentee') &&
-						Array.isArray(parent.data.actions)
-					) {
-						parent.data.actions = parent.data.actions.filter(
+					if (itemHasActions(parent) && Array.isArray(parent.data.actions)) {
+						const newActions = parent.data.actions.filter(
 							(x) => x.id !== tableActionSettings?.item.id
 						)
+						if (location.type === 'grid') {
+							const { gridItemIndex } = location
+							if (itemHasActions($app.grid[gridItemIndex])) {
+								$app.grid[gridItemIndex].data.actions = newActions
+							}
+						} else {
+							const { subgridKey, subgridItemIndex } = location
+							if (itemHasActions($app.subgrids?.[subgridKey]?.[subgridItemIndex])) {
+								$app.subgrids[subgridKey][subgridItemIndex].data.actions = newActions
+							}
+						}
 					}
 				}
 			}}
@@ -116,17 +188,28 @@
 	{#key menuItemsSettings?.item?.id}
 		<ComponentPanel
 			noGrid
-			bind:componentSettings={menuItemsSettings}
-			duplicateMoveAllowed={false}
+			bind:item={menuItemsSettings.item}
+			parent={menuItemsSettings.parent}
 			onDelete={() => {
 				if (menuItemsSettings) {
-					const parent = findGridItem($app, menuItemsSettings.parent)
-					if (!parent) return
-
+					const item = findGridItemWithLocation($app, menuItemsSettings.parent)
+					if (!item) return
+					const { item: parent, location } = item
 					if (parent.data.type === 'menucomponent') {
-						parent.data.menuItems = parent.data.menuItems.filter(
+						const newItems = parent.data.menuItems.filter(
 							(x) => x.id !== menuItemsSettings?.item.id
 						)
+						if (location.type === 'grid') {
+							const { gridItemIndex } = location
+							if ($app.grid[gridItemIndex]?.data?.type === 'menucomponent') {
+								$app.grid[gridItemIndex].data.menuItems = newItems
+							}
+						} else if (location.type === 'subgrid') {
+							const { subgridKey, subgridItemIndex } = location
+							if ($app.subgrids?.[subgridKey]?.[subgridItemIndex]?.data?.type === 'menucomponent') {
+								$app.subgrids[subgridKey][subgridItemIndex].data.menuItems = newItems
+							}
+						}
 					}
 				}
 			}}
@@ -135,8 +218,15 @@
 {:else if hiddenInlineScript}
 	{@const id = BG_PREFIX + hiddenInlineScript.index}
 	{#key id}
-		<BackgroundScriptSettings bind:runnable={hiddenInlineScript.script} {id} />
-
+		<BackgroundScriptSettings
+			bind:runnable={
+				() => hiddenInlineScript.script,
+				(r) => {
+					$app.hiddenInlineScripts[hiddenInlineScript.index] = r
+				}
+			}
+			{id}
+		/>
 		{#if Object.keys(hiddenInlineScript.script.fields ?? {}).length > 0}
 			<div class="mb-8">
 				<PanelSection title={`Inputs`}>
@@ -145,7 +235,14 @@
 							displayType
 							{id}
 							shouldCapitalize={false}
-							bind:inputSpecs={hiddenInlineScript.script.fields}
+							bind:inputSpecs={
+								() => hiddenInlineScript.script.fields,
+								(is) => {
+									if ($app.hiddenInlineScripts[hiddenInlineScript.index]) {
+										$app.hiddenInlineScripts[hiddenInlineScript.index].fields = is
+									}
+								}
+							}
 							userInputEnabled={false}
 							recomputeOnInputChanged={hiddenInlineScript.script.recomputeOnInputChanged}
 							showOnDemandOnlyToggle
@@ -163,9 +260,16 @@
 				title="on success"
 				tooltip="This event is triggered when the script runs successfully."
 				items={Object.keys($runnableComponents).filter((_id) => _id !== id)}
-				bind:value={hiddenInlineScript.script.recomputeIds}
+				bind:value={
+					() => hiddenInlineScript.script.recomputeIds ?? [],
+					(v) => {
+						if ($app.hiddenInlineScripts[hiddenInlineScript.index]) {
+							$app.hiddenInlineScripts[hiddenInlineScript.index].recomputeIds = v
+						}
+					}
+				}
 			/>
 		</PanelSection>
-		<div class="grow shrink" />
+		<div class="grow shrink"></div>
 	{/key}
 {/if}

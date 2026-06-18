@@ -1,5 +1,12 @@
 version: "3.7"
 
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "${LOG_MAX_SIZE:-20m}"
+    max-file: "${LOG_MAX_FILE:-10}"
+    compress: "true"
+
 services:
   db:
     deploy:
@@ -12,8 +19,6 @@ services:
       - db_data:/var/lib/postgresql/data
     expose:
       - 5432
-    ports:
-      - 5432:5432
     environment:
       POSTGRES_PASSWORD: changeme
       POSTGRES_DB: windmill
@@ -22,6 +27,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    logging: *default-logging
 
   windmill_server:
     image: ${WM_IMAGE}
@@ -41,6 +47,8 @@ services:
     volumes:
       - worker_logs:/tmp/windmill/logs
 
+    logging: *default-logging
+
   windmill_worker:
     image: ${WM_IMAGE}
     pull_policy: always
@@ -48,23 +56,36 @@ services:
       replicas: 3
       resources:
         limits:
-          cpus: "1"
           memory: 2048M
           # for GB, use syntax '2Gi'
     restart: unless-stopped
+    # Uncomment to enable PID namespace isolation (recommended for security)
+    # Requires privileged mode for --mount-proc flag
+    # See: https://www.windmill.dev/docs/advanced/security_isolation
+    privileged: true
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - MODE=worker
       - WORKER_GROUP=default
+      # If running with non-root/non-windmill UID (e.g., user: "1001:1001"),
+      # add: - HOME=/tmp
+      - FAVOR_UNSHARE_PID=true
     depends_on:
       db:
         condition: service_healthy
     # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
     volumes:
-      # mount the docker socket to allow to run docker containers from within the workers
-      - /var/run/docker.sock:/var/run/docker.sock
       - worker_dependency_cache:/tmp/windmill/cache
       - worker_logs:/tmp/windmill/logs
+      ## Sandboxed containers (`# sandbox <image>`) run daemonless via crane + nsjail
+      ## inside the worker itself — no Docker socket or dind sidecar required.
+      ## For the legacy full-compat docker (a bare `# docker`, trusted users only),
+      ## mount the host Docker socket by uncommenting the line below. WARNING: this
+      ## grants user scripts full access to the host Docker daemon (host filesystem
+      ## access and privilege escalation) — only use it if you fully trust all users.
+      # - /var/run/docker.sock:/var/run/docker.sock
+
+    logging: *default-logging
 
   ## This worker is specialized for "native" jobs. Native jobs run in-process and thus are much more lightweight than other jobs
   windmill_worker_native:
@@ -75,21 +96,24 @@ services:
       replicas: 1
       resources:
         limits:
-          cpus: "1"
           memory: 2048M
           # for GB, use syntax '2Gi'
     restart: unless-stopped
+    # Uncomment to enable PID namespace isolation (recommended for security)
+    # Requires privileged mode for --mount-proc flag
+    # See: https://www.windmill.dev/docs/advanced/security_isolation
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - MODE=worker
       - WORKER_GROUP=native
-      - NUM_WORKERS=8
+      - NATIVE_MODE=true
       - SLEEP_QUEUE=200
     depends_on:
       db:
         condition: service_healthy
     volumes:
       - worker_logs:/tmp/windmill/logs
+    logging: *default-logging
   # This worker is specialized for reports or scraping jobs. It is assigned the "reports" worker group which has an init script that installs chromium and can be targeted by using the "chromium" worker tag.
   # windmill_worker_reports:
   #   image: ${WM_IMAGE}
@@ -98,21 +122,23 @@ services:
   #     replicas: 1
   #     resources:
   #       limits:
-  #         cpus: "1"
   #         memory: 2048M
   #         # for GB, use syntax '2Gi'
   #   restart: unless-stopped
+  #   # Uncomment to enable PID namespace isolation (recommended for security)
+  #   # Requires privileged mode for --mount-proc flag
+  #   # See: https://www.windmill.dev/docs/advanced/security_isolation
+  #   privileged: true
   #   environment:
   #     - DATABASE_URL=${DATABASE_URL}
   #     - MODE=worker
   #     - WORKER_GROUP=reports
+  #     - FAVOR_UNSHARE_PID=true
   #   depends_on:
   #     db:
   #       condition: service_healthy
   #   # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
   #   volumes:
-  #     # mount the docker socket to allow to run docker containers from within the workers
-  #     - /var/run/docker.sock:/var/run/docker.sock
   #     - worker_dependency_cache:/tmp/windmill/cache
   #     - worker_logs:/tmp/windmill/logs
 
@@ -124,9 +150,9 @@ services:
       replicas: 0 # set to 1 to enable full-text job and log search
     restart: unless-stopped
     expose:
-      - 8001
+      - 8002
     environment:
-      - PORT=8001
+      - PORT=8002
       - DATABASE_URL=${DATABASE_URL}
       - MODE=indexer
     depends_on:
@@ -135,23 +161,32 @@ services:
     volumes:
       - windmill_index:/tmp/windmill/search
       - worker_logs:/tmp/windmill/logs
+    logging: *default-logging
 
-  lsp:
-    image: ghcr.io/windmill-labs/windmill-lsp:latest
+  # Combined extra services: LSP, Multiplayer, and Debugger
+  # Each service can be enabled/disabled via environment variables:
+  #   - ENABLE_LSP=true (default) - Language Server Protocol for code intelligence
+  #   - ENABLE_MULTIPLAYER=false - Real-time collaboration (Enterprise Edition)
+  #   - ENABLE_DEBUGGER=false - Interactive debugging via DAP WebSocket
+  windmill_extra:
+    image: ghcr.io/windmill-labs/windmill-extra:latest
     pull_policy: always
     restart: unless-stopped
     expose:
-      - 3001
+      - 3001 # LSP
+      - 3002 # Multiplayer
+      - 3003 # Debugger
+    environment:
+      - ENABLE_LSP=true
+      - ENABLE_MULTIPLAYER=false # Set to true to enable multiplayer (Enterprise Edition)
+      - ENABLE_DEBUGGER=true # Set to true to enable debugger
+      - DEBUGGER_PORT=3003 # Debugger service port
+      - ENABLE_NSJAIL=false # Set to true for nsjail sandboxing (requires privileged: true)
+      - REQUIRE_SIGNED_DEBUG_REQUESTS=false # Set to true to require JWT tokens for debug sessions
+      - WINDMILL_BASE_URL=http://windmill_server:8000
     volumes:
       - lsp_cache:/pyls/.cache
-
-  multiplayer:
-    image: ghcr.io/windmill-labs/windmill-multiplayer:latest
-    deploy:
-      replicas: 0 # Set to 1 to enable multiplayer, only available on Enterprise Edition
-    restart: unless-stopped
-    expose:
-      - 3002
+    logging: *default-logging
 
   caddy:
     image: ghcr.io/windmill-labs/caddy-l4:latest
@@ -170,11 +205,13 @@ services:
       - BASE_URL=":80"
       # - BASE_URL=":443" # uncomment and comment line above to enable HTTPS via custom certificate and key files
       # - BASE_URL=mydomain.com # Uncomment and comment line above to enable HTTPS handling by Caddy
+    logging: *default-logging
 
 volumes:
   db_data: null
   worker_dependency_cache: null
   worker_logs: null
+  worker_memory: null
   windmill_index: null
   lsp_cache: null
   caddy_data: null

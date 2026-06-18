@@ -1,0 +1,945 @@
+- id: global-test1-script-create
+  prompt: |-
+    Create a draft Bun script at `f/evals/global/greet_user`.
+    It should take a string `name` input and return `Hello, ${name}!`.
+    Leave it as an AI draft only; do not deploy or save it.
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/greet_user
+        language: bun
+        valueIncludes:
+          - name
+          - Hello
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates a Bun script draft at f/evals/global/greet_user
+    - the script accepts a name input
+    - the script returns a greeting containing Hello, the provided name, and an exclamation mark
+    - the result stays as an AI draft and is not deployed or saved to the workspace
+
+- id: global-test2-script-edit-existing
+  prompt: |-
+    Update the existing workspace script at `f/evals/global/format_greeting`.
+    Keep it as a Bun script, but change the greeting so the provided name is uppercased and the returned message ends with an exclamation mark.
+    Leave the result as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/format_greeting_script.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/format_greeting
+        language: bun
+        valueIncludes:
+          - toUpperCase
+          - "!"
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates an AI draft for the existing f/evals/global/format_greeting script
+    - preserves the script as Bun
+    - uppercases the provided name in the greeting
+    - returns a message ending with an exclamation mark
+    - does not deploy or save the draft to the workspace
+
+- id: global-test3-flow-create
+  prompt: |-
+    Create a draft flow at `f/evals/global/sum_numbers`.
+    It should take two numeric inputs, `a` and `b`, and return their sum.
+    Leave it as an AI draft only; do not deploy or save it.
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        path: f/evals/global/sum_numbers
+        valueIncludes:
+          - modules
+          - rawscript
+          - flow_input.a
+          - flow_input.b
+  toolExpect:
+    requiredToolsUsed:
+      - write_flow
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: write_flow
+        field: modules
+        stringStartsWithAnyOf:
+          - "["
+  judgeChecklist:
+    - creates a flow draft at f/evals/global/sum_numbers
+    - the flow accepts numeric inputs a and b
+    - the flow returns the sum of a and b
+    - the result stays as an AI draft and is not deployed or saved to the workspace
+
+- id: global-test4-multi-artifact-notification-job
+  prompt: |-
+    Set up a draft stale-trial notification job.
+    Create a Bun script at `f/evals/global/check_stale_trials` that accepts `max_age_days`, uses mocked inline trial account data, and returns the stale trial account IDs.
+    Also create a weekday 09:00 UTC schedule at `f/evals/global/check_stale_trials_weekday` for that script with `max_age_days` set to 14.
+    Add an HTTP POST trigger at `f/evals/global/check_stale_trials_manual` with route path `evals/check-stale-trials` that runs the same script manually.
+    Leave everything as AI drafts only; do not deploy or save anything to the workspace.
+  runtime:
+    maxTurns: 12
+  validate:
+    draftCountExactly: 3
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/check_stale_trials
+        language: bun
+        valueIncludes:
+          - max_age_days
+          - trial
+      - type: schedule
+        path: f/evals/global/check_stale_trials_weekday
+        valueIncludes:
+          - f/evals/global/check_stale_trials
+          - UTC
+          - "14"
+      - type: trigger
+        triggerKind: http
+        path: f/evals/global/check_stale_trials_manual
+        valueIncludes:
+          - evals/check-stale-trials
+          - f/evals/global/check_stale_trials
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+      - write_schedule
+      - write_trigger
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates a Bun script draft for stale trial accounts
+    - creates a weekday 09:00 UTC schedule draft for the script with max_age_days set to 14
+    - creates an HTTP POST trigger draft with route path evals/check-stale-trials for the same script
+    - leaves all artifacts as drafts only and does not deploy
+
+- id: global-test5-existing-flow-inline-code-edit
+  prompt: |-
+    Update the existing flow at `f/evals/global/process_invoice`.
+    Only change the `calculate_total` inline code so it applies 8% tax and returns an object containing `subtotal`, `tax`, and `total`.
+    Leave the updated flow as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/process_invoice_flow.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        path: f/evals/global/process_invoice
+        valueIncludes:
+          - calculate_total
+          - tax
+          - total
+  toolExpect:
+    requiredToolsUsed:
+      - read_workspace_item
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - reads the existing process_invoice flow before editing it
+    - updates the calculate_total inline code to apply 8% tax
+    - returns subtotal, tax, and total from the updated flow logic
+    - leaves the result as an AI draft only
+
+- id: global-test6-secret-variable-draft
+  prompt: |-
+    Create a secret variable draft at `f/evals/global/slack_bot_token`.
+    Use the placeholder value `xoxb-redacted-test-token` and description `Slack bot token for eval notifications`.
+    Do not create any resource or deploy anything.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: variable
+        path: f/evals/global/slack_bot_token
+        valueIncludes:
+          - Slack bot token
+          - "true"
+    forbiddenDrafts:
+      - type: resource
+        path: f/evals/global/slack_bot_token
+  toolExpect:
+    requiredToolsUsed:
+      - write_variable
+    forbiddenToolsUsed:
+      - write_resource
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: write_variable
+        field: value
+        stringStartsWithAnyOf:
+          - xoxb-redacted-test-token
+  skipJudge: true
+  judgeChecklist:
+    - creates exactly one secret variable draft at f/evals/global/slack_bot_token
+    - uses the requested placeholder value and description
+    - does not create a resource or deploy anything
+
+- id: global-test7-ambiguous-app-asks-question
+  prompt: |-
+    Create a new raw app for triaging support tickets.
+  runtime:
+    maxTurns: 4
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - askUserQuestion
+    forbiddenToolsUsed:
+      - init_app
+      - write_app_file
+      - write_app_runnable
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+
+- id: global-test8-human-script-infer-path-language
+  prompt: |-
+    I need a small helper that formats a customer-facing welcome line.
+    It should take a person's name and return "Welcome aboard, <name>!".
+    Please just stage it as a draft for now.
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        valueIncludes:
+          - Welcome aboard
+          - name
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates a single script draft for a welcome-line helper
+    - accepts a person's name as input
+    - returns a message containing Welcome aboard, the provided name, and an exclamation mark
+    - chooses a reasonable workspace path and script language without needing the user to specify them
+    - leaves the result as an AI draft only
+
+- id: global-test9-human-weekday-trial-job
+  prompt: |-
+    Can you set up a draft daily job that checks a few hard-coded trial accounts and returns the ones whose trial has ended?
+    It should run every weekday morning around 9 in UTC with a 30 day cutoff.
+    Keep it as draft work only.
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 2
+    requiredDrafts:
+      - type: script
+        pathIncludes:
+          - trial
+        valueIncludes:
+          - trial
+          - "30"
+      - type: schedule
+        pathIncludes:
+          - trial
+        valueIncludes:
+          - UTC
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+      - write_schedule
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates a script draft that checks hard-coded trial accounts
+    - returns the accounts whose trial has ended based on a 30 day cutoff
+    - creates a schedule draft for weekday mornings around 09:00 UTC
+    - links the schedule to the generated script
+    - leaves both artifacts as drafts only
+
+- id: global-test10-human-secret-variable
+  prompt: |-
+    I need a placeholder Slack bot token stored securely for future notification work.
+    Use xoxb-redacted-test-token and note that it is for eval notifications.
+    Only prepare a draft.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: variable
+        pathIncludes:
+          - slack
+        valueIncludes:
+          - eval notifications
+          - "true"
+  toolExpect:
+    requiredToolsUsed:
+      - write_variable
+    forbiddenToolsUsed:
+      - write_resource
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: write_variable
+        field: value
+        stringStartsWithAnyOf:
+          - xoxb-redacted-test-token
+  skipJudge: true
+  judgeChecklist:
+    - creates a single secret variable draft for the Slack bot token placeholder
+    - uses the requested placeholder value
+    - includes a note or description that it is for eval notifications
+    - does not create a resource or deploy anything
+
+- id: global-test11-human-existing-flow-informal-edit
+  prompt: |-
+    There is an invoice processing flow in this workspace.
+    Can you adjust its total calculation so it adds 8% tax and returns subtotal, tax, and total?
+    Keep the change as a draft.
+  initial: ai_evals/fixtures/frontend/global/initial/process_invoice_flow.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        pathIncludes:
+          - invoice
+        valueIncludes:
+          - calculate_total
+          - tax
+          - total
+  toolExpect:
+    requiredToolsUsed:
+      - read_workspace_item
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - finds and edits the existing invoice processing flow without the user providing its exact path
+    - updates the total calculation to apply 8% tax
+    - returns subtotal, tax, and total from the updated flow logic
+    - leaves the result as an AI draft only
+
+- id: global-test12-current-live-script-edit
+  prompt: |-
+    The script I have open formats greetings.
+    Can you update this script so it uppercases the name before greeting them and ends with an exclamation mark?
+    Keep it as draft work.
+  initial: ai_evals/fixtures/frontend/global/initial/current_greeting_live_script.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/current_greeting
+        language: bun
+        valueIncludes:
+          - toUpperCase
+          - "!"
+    forbiddenDrafts:
+      - type: script
+        path: f/evals/global/format_greeting
+      - type: script
+        path: f/evals/global/format_greeting_archive
+  toolExpect:
+    requiredToolsUsed:
+      - read_workspace_item
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - resolves "this script" to the active live editor script instead of another similarly named workspace script
+    - updates the greeting logic to uppercase the provided name
+    - returns a greeting ending with an exclamation mark
+    - leaves the result as a draft only
+
+- id: global-test13-current-live-flow-edit
+  prompt: |-
+    I have the invoice flow open.
+    In the current flow, update the total calculation to add 8% tax and return subtotal, tax, and total.
+    Keep the change as a draft.
+  initial: ai_evals/fixtures/frontend/global/initial/current_invoice_live_flow.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        path: f/evals/global/current_invoice_flow
+        valueIncludes:
+          - calculate_total
+          - tax
+          - total
+    forbiddenDrafts:
+      - type: flow
+        path: f/evals/global/process_invoice
+      - type: flow
+        path: f/evals/global/process_refund
+  toolExpect:
+    requiredToolsUsed:
+      - read_workspace_item
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - resolves "current flow" to the active live editor flow
+    - does not edit the similarly named deployed invoice or refund flows
+    - updates the calculate_total logic to apply 8% tax
+    - returns subtotal, tax, and total from the updated flow logic
+    - leaves the result as a draft only
+
+- id: global-test14-current-without-live-editor-asks-question
+  prompt: |-
+    Please update this script so it returns `ok`.
+    Keep it as a draft.
+  runtime:
+    maxTurns: 4
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    forbiddenToolsUsed:
+      - write_script
+      - edit_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - asks which script to update when the user refers to "this script" without selected or active editor context
+    - does not guess a path or create a new script draft
+
+- id: global-test15-human-postgres-resource
+  prompt: |-
+    I'm wiring the eval reporting database into this workspace.
+    Can you stage a Postgres connection for it in the shared evals/global folder?
+    Use host `reports-db.internal`, port 5432, database `evals_reporting`, user `report_reader`, and password `pg-redacted-reporting-password`.
+    Keep the credentials safe.
+    This is just draft work for now.
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 2
+    requiredDrafts:
+      - type: variable
+        pathStartsWith: f/evals/global/
+        pathIncludes:
+          - evals
+          - global
+          - report
+          - password
+        valueIncludes:
+          - "true"
+          - report
+      - type: resource
+        pathStartsWith: f/evals/global/
+        pathIncludes:
+          - evals
+          - global
+          - report
+        valueIncludes:
+          - postgres
+          - reports-db.internal
+          - "5432"
+          - evals_reporting
+          - report_reader
+          - "$var:"
+        valueExcludes:
+          - pg-redacted-reporting-password
+  toolExpect:
+    requiredToolsUsed:
+      - write_variable
+      - search_resource_types
+      - write_resource
+    forbiddenToolsUsed:
+      - write_schedule
+      - write_trigger
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: write_variable
+        field: value
+        stringStartsWithAnyOf:
+          - pg-redacted-reporting-password
+  skipJudge: true
+  judgeChecklist:
+    - creates a Postgres resource draft for the eval reporting database
+    - creates a secret variable draft for the database password
+    - puts the drafts in sensible eval/global reporting-related paths
+    - uses the requested host, port, database, and user
+    - references the secret variable from the resource instead of embedding the password
+    - leaves the work as a draft only
+
+- id: global-test16-human-visible-variable
+  prompt: |-
+    We keep reusing a 30 day trial cutoff in eval notification jobs.
+    Can you stage that as a normal workspace variable in the shared evals/global folder, with a short description so people know what it controls?
+    It is not a secret.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: variable
+        pathStartsWith: f/evals/global/
+        pathIncludes:
+          - evals
+          - global
+          - trial
+        valueIncludes:
+          - "30"
+          - "false"
+          - trial
+  toolExpect:
+    requiredToolsUsed:
+      - write_variable
+    forbiddenToolsUsed:
+      - write_resource
+      - write_schedule
+      - write_trigger
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates exactly one non-secret variable draft for the trial cutoff
+    - stores the value 30
+    - chooses a sensible eval/global path related to trials or notifications
+    - includes a useful description of what the value controls
+    - does not create resources, schedules, triggers, or deployed workspace changes
+
+- id: global-test17-human-schedule-existing-helper
+  prompt: |-
+    The workspace already has a report digest helper.
+    Can you stage a weekday 8:30 AM UTC run for it with `dry_run` turned on?
+    I only want the schedule draft for review.
+  initial: ai_evals/fixtures/frontend/global/initial/report_digest_script.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: schedule
+        pathIncludes:
+          - digest
+        valueIncludes:
+          - f/evals/global/send_report_digest
+          - UTC
+          - dry_run
+          - "true"
+  toolExpect:
+    requiredToolsUsed:
+      - list_workspace_items
+      - write_schedule
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - write_resource
+      - write_variable
+      - write_trigger
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - finds the existing report digest helper rather than creating a new script or flow
+    - creates one schedule draft for that helper
+    - schedules it for weekdays around 08:30 UTC
+    - passes dry_run as true
+    - leaves only the schedule draft for review
+
+- id: global-test18-human-slack-resource-with-secret
+  prompt: |-
+    I'm preparing Slack notifications for eval failures.
+    Can you stage a Slack connection in the shared evals/global folder?
+    The bot token is `xoxb-redacted-test-token`; keep it safe.
+    Don't deploy anything yet.
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 2
+    requiredDrafts:
+      - type: variable
+        pathStartsWith: f/evals/global/
+        pathIncludes:
+          - evals
+          - global
+          - slack
+          - token
+        valueIncludes:
+          - "true"
+      - type: resource
+        pathStartsWith: f/evals/global/
+        pathIncludes:
+          - evals
+          - global
+          - slack
+        valueIncludes:
+          - slack
+          - "$var:"
+        valueExcludes:
+          - xoxb-redacted-test-token
+  toolExpect:
+    requiredToolsUsed:
+      - write_variable
+      - search_resource_types
+      - write_resource
+    forbiddenToolsUsed:
+      - write_schedule
+      - write_trigger
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: write_variable
+        field: value
+        stringStartsWithAnyOf:
+          - xoxb-redacted-test-token
+  skipJudge: true
+  judgeChecklist:
+    - creates a secret variable draft for the Slack bot token placeholder
+    - creates a Slack resource draft that references the secret variable instead of embedding the token
+    - keeps both drafts under a sensible eval/global Slack-related path
+    - does not create schedules, triggers, or deployed workspace changes
+
+- id: global-test19-datatable-not-configured-asks-to-set-up
+  prompt: |-
+    Here are two newsletter signups: alice@example.com and bob@example.com.
+    Save them into a workspace data table for me.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_datatables
+    forbiddenToolsUsed:
+      - exec_datatable_sql
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - checks which data tables exist in the workspace before acting
+    - recognizes that no data table is configured in this workspace
+    - explains that a data table must first be set up by the user in the workspace settings (Data Tables) and is not created via SQL
+    - does not run SQL, write a script, or invent a data table to work around the missing configuration
+    - tells the user to configure a data table and then try again
+
+- id: global-test20-datatable-no-hallucinated-main
+  prompt: |-
+    Pull the latest rows from the orders table in our data table so I can see recent orders.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_datatables
+    forbiddenToolsUsed:
+      - exec_datatable_sql
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - checks which data tables exist in the workspace before querying
+    - recognizes that no data table is configured in this workspace
+    - does not assume a data table named "main" (or any other name) exists
+    - does not run SQL against a guessed data table or fabricate order rows
+    - tells the user they need to set up a data table in the workspace settings first
+
+- id: global-test21-datatable-list-summarize
+  prompt: |-
+    What tables do we have in our workspace data table? Just give me the list.
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_datatables
+    forbiddenToolsUsed:
+      - get_datatable_table_schema
+      - exec_datatable_sql
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - lists the tables available in the workspace data table (orders and customers)
+    - answers from the data table listing rather than fabricating table names
+    - does not fetch column details or run SQL just to produce a table list
+
+- id: global-test22-datatable-inspect-columns
+  prompt: |-
+    What columns does the orders table have in our workspace data table?
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - get_datatable_table_schema
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - inspects the orders table schema in the workspace data table
+    - reports the orders columns (such as id, customer_id, total, status, created_at)
+    - answers from the retrieved schema rather than guessing the columns
+
+- id: global-test23-datatable-query-select
+  prompt: |-
+    Show me the orders in our workspace data table, including their status and total.
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - exec_datatable_sql
+    forbiddenToolsUsed:
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: exec_datatable_sql
+        field: sql
+        stringIncludesAnyOf:
+          - select
+  skipJudge: true
+  judgeChecklist:
+    - runs a SELECT query against the orders table in the workspace data table
+    - reports the orders returned by the query back to the user instead of fabricating data
+    - does not tell the user to set up a data table, since one already exists
+
+- id: global-test24-datatable-create-table
+  prompt: |-
+    Add a new table called refunds to our workspace data table, with an order id and a refund amount.
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - exec_datatable_sql
+    forbiddenToolsUsed:
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: exec_datatable_sql
+        field: sql
+        stringIncludesAnyOf:
+          - create table
+  skipJudge: true
+  judgeChecklist:
+    - creates the refunds table with a plain CREATE TABLE statement on the data table
+    - includes an order id and a refund amount column
+    - treats creating the table as a normal SQL statement and does not claim a separate registration step is needed
+    - does not write a script to create the table
+
+- id: global-test25-datatable-mutate-rows
+  prompt: |-
+    Mark order number 2 as shipped in our workspace data table.
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
+  runtime:
+    # Headroom for inspect-schema -> UPDATE -> verify; the in-memory engine now
+    # persists the write, so verification confirms on the first try (no loop).
+    maxTurns: 12
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - exec_datatable_sql
+    forbiddenToolsUsed:
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: exec_datatable_sql
+        field: sql
+        stringIncludesAnyOf:
+          - update
+          - insert into
+  skipJudge: true
+  judgeChecklist:
+    - runs an UPDATE on the orders table setting the status of order id 2 to shipped
+    - targets only order number 2 rather than rewriting the whole table
+    - confirms the change back to the user
+
+- id: global-test26-datatable-script-sdk
+  prompt: |-
+    Write a script that reads our workspace data table and returns the total revenue across all orders.
+    Leave it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        valueIncludes:
+          - wmill.datatable(
+  toolExpect:
+    requiredToolsUsed:
+      - get_instructions
+      - write_script
+    forbiddenToolsUsed:
+      - exec_datatable_sql
+      - deploy_workspace_item
+      - delete_workspace_item
+  # The judge has no datatable SDK reference and wrongly penalizes correct
+  # wmill.datatable() tagged-template usage, so rely on the deterministic checks:
+  # required get_instructions + write_script, forbidden exec_datatable_sql, and a
+  # draft that contains wmill.datatable(.
+  skipJudge: true
+  judgeChecklist:
+    - writes a script (not a chat-time SQL execution) that reads the workspace data table at runtime
+    - uses the wmill.datatable() SDK to query the orders table and sum the order totals
+    - returns the total revenue from the script
+    - leaves the result as an AI draft and does not deploy or save it
+
+- id: global-test27-list-recent-runs
+  prompt: |-
+    What are the most recent runs in this workspace? Give me a quick rundown of what ran and whether it succeeded.
+  initial: ai_evals/fixtures/frontend/global/initial/jobs_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_runs
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+      - write_script
+  # Read-only job inspection produces no draft, so the global judge (which only
+  # sees the drafts artifact) would score it empty — validate via tool use.
+  skipJudge: true
+  judgeChecklist:
+    - lists the recent runs from the workspace rather than fabricating them
+    - summarizes each run's path and success/failure from the returned data
+
+- id: global-test28-fetch-failed-run-logs
+  prompt: |-
+    The run with id 01920000-0000-7000-8000-0000000000f1 failed. Pull its logs and tell me what went wrong.
+  initial: ai_evals/fixtures/frontend/global/initial/jobs_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - get_job_logs
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+      - write_script
+    toolCallArgs:
+      - tool: get_job_logs
+        field: id
+        stringIncludesAnyOf:
+          - 01920000-0000-7000-8000-0000000000f1
+  # Same as above — no draft is produced, so rely on the deterministic tool-use
+  # and argument checks rather than the judge.
+  skipJudge: true
+  judgeChecklist:
+    - fetches the logs for the requested job id
+    - explains the failure from the returned logs (connection refused to the upstream API)
+
+# --- Documentation search (search_docs) ---
+# Pure product-knowledge questions: the assistant should consult the docs via
+# search_docs and answer conversationally, not draft or mutate anything. No
+# draft is produced, so the global judge is skipped and we validate tool use.
+
+- id: global-docs-ai-agent-step
+  prompt: |-
+    Does Windmill support a flow step where an LLM decides which of my scripts to call based on the input?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_docs
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+
+- id: global-docs-retry-step
+  prompt: |-
+    How does automatic retry work for a flow step that calls a flaky API?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_docs
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+
+- id: global-docs-key-value-store
+  prompt: |-
+    Can I use a Redis-style key-value store from my Windmill scripts, and how?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_docs
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+
+- id: global-docs-cron-schedule-format
+  prompt: |-
+    How do Windmill's cron schedules work, and what format does the schedule expression use?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_docs
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true

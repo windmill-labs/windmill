@@ -8,47 +8,71 @@
 
 	type ConvertedFile = string | ArrayBuffer | null
 
-	let c = ''
-	export { c as class }
-	export let style = ''
-	export let accept = '*'
-	export let multiple = false
-	export let convertTo: ReadFileAs | undefined = undefined
-	export let hideIcon = false
-	export let iconSize = 36
-	export let returnFileNames = false
-	export let submittedText: string | undefined = undefined
-	export let defaultFile: string | undefined = undefined
-	export let disabled: boolean | undefined = undefined
-
 	const dispatch = createEventDispatcher()
-	let input: HTMLInputElement
-	export let files: File[] | undefined = undefined
+	let input: HTMLInputElement | undefined = $state()
+	type FileWithPath = File & { path?: string }
+	interface Props {
+		class?: string
+		style?: string
+		accept?: string
+		multiple?: boolean
+		convertTo?: ReadFileAs | undefined
+		hideIcon?: boolean
+		iconSize?: number
+		returnFileNames?: boolean
+		submittedText?: string | undefined
+		defaultFile?: string | string[] | undefined
+		disabled?: boolean | undefined
+		folderOnly?: boolean
+		files?: FileWithPath[] | undefined
+		selectedTitle?: import('svelte').Snippet
+		children?: import('svelte').Snippet
+		[key: string]: any
+	}
 
-	async function onChange(fileList: FileList | null) {
+	let {
+		class: c = '',
+		style = '',
+		accept = '*',
+		multiple = false,
+		convertTo = undefined,
+		hideIcon = false,
+		iconSize = 24,
+		returnFileNames = false,
+		submittedText = undefined,
+		defaultFile = undefined,
+		disabled = undefined,
+		folderOnly = false,
+		files = $bindable(undefined),
+		selectedTitle,
+		children,
+		...rest
+	}: Props = $props()
+
+	let pointerStartX = $state(0)
+	let pointerStartY = $state(0)
+
+	function handlePointerDown(e: PointerEvent) {
+		pointerStartX = e.clientX
+		pointerStartY = e.clientY
+	}
+
+	async function onChange(fileList: FileWithPath[] | null) {
 		if (!fileList || !fileList.length) {
 			files = undefined
 			dispatch('change', files)
 			return
 		}
 
-		if (!multiple || !files) {
-			files = []
-		}
-		for (let i = 0; i < fileList.length; i++) {
-			const file = fileList.item(i)
-			if (file) {
-				files.push(file)
-			}
-		}
-
-		if (!files.length) {
-			files = undefined
+		if (multiple && files) {
+			files = [...files, ...fileList]
+		} else {
+			files = fileList
 		}
 
 		// Needs to be reset so the same file can be selected
 		// multiple times in a row
-		input.value = ''
+		if (input) input.value = ''
 
 		dispatchChange()
 	}
@@ -86,15 +110,70 @@
 		}
 	}
 
-	function handleDrop(event: DragEvent) {
+	async function handleFile(fileEntry: FileSystemFileEntry): Promise<FileWithPath> {
+		return new Promise((resolve, reject) => {
+			fileEntry.file(resolve, reject)
+		})
+	}
+
+	async function handleDirectory(
+		dirEntry: FileSystemDirectoryEntry,
+		path: string
+	): Promise<FileWithPath[]> {
+		const files: FileWithPath[] = []
+		const dirReader = dirEntry.createReader()
+
+		async function readEntries() {
+			return new Promise<FileWithPath[]>((resolve) => {
+				dirReader.readEntries(async (entries) => {
+					if (entries.length === 0) {
+						resolve(files)
+						return
+					}
+
+					const filePromises = entries.map(async (entry) => {
+						return traverseFileTree(entry, path + dirEntry.name + '/')
+					})
+					const nestedFiles = await Promise.all(filePromises)
+					files.push(...nestedFiles.flat())
+					// readEntries only return up to 100 files
+					// continue reading if more files exist
+					resolve(await readEntries())
+				})
+			})
+		}
+
+		return readEntries()
+	}
+
+	async function traverseFileTree(entry: FileSystemEntry, path = ''): Promise<FileWithPath[]> {
+		if (entry.isFile) {
+			const file = await handleFile(entry as FileSystemFileEntry)
+			file.path = path + file.name
+			return [file]
+		} else if (entry.isDirectory) {
+			return handleDirectory(entry as FileSystemDirectoryEntry, path)
+		}
+		return []
+	}
+
+	async function handleDrop(event: DragEvent) {
 		event.preventDefault()
 		if (event.dataTransfer) {
-			if (event.dataTransfer.files && event.dataTransfer.files.length) {
-				if (!multiple && event.dataTransfer.files.length > 1) {
-					sendUserToast('Only one file can be uploaded at a time')
-					return
-				} else {
-					onChange(event.dataTransfer.files)
+			if (folderOnly) {
+				const item = event.dataTransfer.items[0]?.webkitGetAsEntry()
+				if (item) {
+					const files = await traverseFileTree(item, '')
+					onChange(files)
+				}
+			} else {
+				if (event.dataTransfer.files && event.dataTransfer.files.length) {
+					if (!multiple && event.dataTransfer.files.length > 1) {
+						sendUserToast('Only one file can be uploaded at a time')
+						return
+					} else {
+						onChange(Array.from(event.dataTransfer.files))
+					}
 				}
 			}
 		}
@@ -111,9 +190,8 @@
 		files = files
 		if (convertTo && files) {
 			const promises = files.map(convertFile)
-			let converted: ConvertedFile[] | { name: string; data: ConvertedFile }[] = await Promise.all(
-				promises
-			)
+			let converted: ConvertedFile[] | { name: string; data: ConvertedFile }[] =
+				await Promise.all(promises)
 			if (returnFileNames) {
 				converted = converted.map((c, i) => ({ name: files![i].name, data: c }))
 			}
@@ -131,27 +209,38 @@
 
 <button
 	class={twMerge(
-		`relative center-center flex-col text-center font-medium text-tertiary 
-		border border-dashed border-gray-400 hover:border-blue-500 
-		focus-within:border-blue-300 hover:bg-blue-50 dark:hover:bg-frost-900  
-		duration-200 rounded-component p-1`,
+		`relative center-center flex flex-col gap-x-2 gap-y-1 justify-center items-center flex-wrap text-center font-normal text-hint text-xs rounded-md
+		bg-surface-secondary
+		border border-dashed border-nord-400 dark:border-nord-300 hover:border-nord-900 dark:hover:border-nord-900
+		focus-within:border-blue-300 hover:bg-blue-50 dark:hover:bg-frost-900
+		duration-200 px-1 py-8`,
 		c
 	)}
-	on:dragover={handleDragOver}
-	on:drop={handleDrop}
+	ondragover={handleDragOver}
+	ondrop={handleDrop}
+	onpointerdown={handlePointerDown}
+	onclick={(e) => {
+		const deltaX = Math.abs(e.clientX - pointerStartX)
+		const deltaY = Math.abs(e.clientY - pointerStartY)
+		if (deltaX > 5 || deltaY > 5) {
+			e.preventDefault()
+			e.stopPropagation()
+			return
+		}
+	}}
 	{style}
 	{disabled}
 >
 	{#if !hideIcon && !files}
-		<FileUp size={iconSize} class="mb-2" />
+		<FileUp size={iconSize} />
 	{/if}
 	{#if files}
 		<div class="w-full max-h-full overflow-auto px-6">
-			<slot name="selected-title">
+			{#if selectedTitle}{@render selectedTitle()}{:else}
 				<div class="text-center mb-2 px-2">
 					{submittedText ? submittedText : `Selected file${files.length > 1 ? 's' : ''}`}:
 				</div>
-			</slot>
+			{/if}
 			<ul class="relative z-20 max-w-[500px] bg-surface rounded-lg overflow-hidden mx-auto">
 				{#each files as { name }, i}
 					<li
@@ -161,38 +250,36 @@
 						<span class="pr-2 ellipsize">{name}</span>
 						<Button
 							size="xs"
-							color="red"
-							variant="border"
+							variant="default"
 							iconOnly
 							btnClasses="bg-transparent"
 							startIcon={{ icon: Trash }}
 							on:click={() => removeFile(i)}
+							destructive
 						/>
 					</li>
 				{/each}
 			</ul>
 		</div>
-	{:else}
-		<slot>
-			<span>Drag and drop {multiple ? 'files' : 'a file'}</span>
-		</slot>
+	{:else if children}{@render children()}{:else}
+		<span>Drag and drop {folderOnly ? 'a folder' : multiple ? 'files' : 'a file'}</span>
 	{/if}
 	<input
 		class="!absolute !inset-0 !z-10 !opacity-0 !cursor-pointer"
 		type="file"
+		{...{ webkitdirectory: folderOnly }}
 		title={files ? `${files.length} file${files.length > 1 ? 's' : ''} chosen` : 'No file chosen'}
 		bind:this={input}
-		on:change={({ currentTarget }) => {
-			onChange(currentTarget.files)
+		onchange={({ currentTarget }) => {
+			onChange(currentTarget.files ? Array.from(currentTarget.files) : null)
 		}}
 		{accept}
 		{multiple}
-		{...$$restProps}
+		{...rest}
 	/>
-
-	{#if defaultFile}
-		<div class="w-full border-dashed border-t-2 text-2xs pt-1 text-tertiary mt-2">
-			Default file: <span class="text-blue-500">{defaultFile}</span>
+	{#if defaultFile && (!Array.isArray(defaultFile) || defaultFile.length > 0)}
+		<div class="w-full border-dashed border-t-2 text-2xs pt-1 text-primary mt-2">
+			Default file: <span class="text-nord-900">{defaultFile}</span>
 		</div>
 	{/if}
 </button>

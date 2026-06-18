@@ -4,17 +4,23 @@
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import { cleanInputs } from '../utils'
+	import { cleanFlow } from '../utils.svelte'
+
+	interface Props {
+		drawer: Drawer | undefined
+	}
+
+	let { drawer = $bindable() }: Props = $props()
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	export let drawer: Drawer | undefined
+	let flow = $derived(flowStore.val)
 </script>
 
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent title="OpenFlow" on:close={() => drawer?.toggleDrawer()}>
-		{#if $flowStore}
-			<FlowViewer flow={cleanInputs($flowStore)} tab="raw" />
+		{#if flow}
+			<FlowViewer flow={cleanFlow(flow)} initTab="raw" />
 		{/if}
 	</DrawerContent>
 </Drawer>

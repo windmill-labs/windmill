@@ -1,0 +1,149 @@
+{
+  "permissions": {
+    "additionalDirectories": [
+      "../windmill-ee-private"
+    ],
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(grep:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(less:*)",
+      "Bash(more:*)",
+      "Bash(find:*)",
+      "Bash(wc:*)",
+      "Bash(diff:*)",
+      "Bash(file:*)",
+      "Bash(stat:*)",
+      "Bash(tree:*)",
+      "Bash(pwd)",
+      "Bash(which:*)",
+      "Bash(whereis:*)",
+      "Bash(echo:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git branch:*)",
+      "Bash(git show:*)",
+      "Bash(git blame:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo build --release:*)",
+      "Bash(sh wm-ts-nav/nav:*)",
+      "Bash(wm-ts-nav/nav:*)",
+      "Bash(./wm-ts-nav/nav:*)",
+      "Bash(wm-ts-nav/target/release/wm-ts-nav:*)",
+      "Bash(./wm-ts-nav/target/release/wm-ts-nav:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(npm run generate-backend-client:*)",
+      "Bash(npm run check:*)",
+      "Bash(git push:*)",
+      "Bash(git reset:*)",
+      "Bash(git revert:*)",
+      "Bash(git checkout:*)",
+      "Bash(git merge:*)",
+      "Bash(git rebase:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Read(/tmp/**)",
+      "Write(/tmp/**)",
+      "Edit(/tmp/**)",
+      "Bash(rm:/tmp/*)",
+      "Bash(rm:/tmp/**)",
+      "Bash(rmdir:/tmp/*)",
+      "Bash(mkdir:/tmp/*)",
+      "Bash(mkdir:/tmp/**)",
+      "Bash(cp:/tmp/*)",
+      "Bash(cp:/tmp/**)",
+      "Bash(mv:/tmp/*)",
+      "Bash(mv:/tmp/**)",
+      "Bash(touch:/tmp/*)",
+      "Bash(touch:/tmp/**)",
+      "Bash(chmod:/tmp/*)",
+      "Bash(chmod:/tmp/**)",
+      "Bash(tar * /tmp/*)",
+      "Bash(unzip * /tmp/*)"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/secrets/**)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Read(**/credentials.json)",
+      "Read(**/.secret*)",
+      "Read(**/.secrets*)",
+      "Read(**/*.secret)",
+      "Read(**/*.secrets)",
+      "Edit(.env)",
+      "Edit(.env.*)",
+      "Edit(**/.env)",
+      "Edit(**/.env.*)"
+    ],
+    "ask": [
+      "Bash(rm:*)",
+      "Bash(rmdir:*)",
+      "Bash(mv:*)",
+      "Bash(chmod:*)",
+      "Bash(chown:*)",
+      "Bash(truncate:*)",
+      "Bash(shred:*)",
+      "Bash(unlink:*)",
+      "mcp__claude_ai_Stripe",
+      "mcp__claude_ai_Gmail",
+      "mcp__claude_ai_Google_Calendar",
+      "mcp__claude_ai_Google_Drive",
+      "mcp__claude_ai_Slack",
+      "mcp__claude_ai_Linear"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-main-branch.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/format-frontend.sh",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/format-backend.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/notify-user.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "typescript-lsp@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true
+  }
+}

@@ -5,11 +5,21 @@
 	import Alert from './common/alert/Alert.svelte'
 	import { createEventDispatcher } from 'svelte'
 
-	export let email: string
-	export let username: string
-	export let isConflict = false
+	interface Props {
+		email: string;
+		username: string;
+		isConflict?: boolean;
+		noPadding?: boolean;
+	}
 
-	let loading = false
+	let {
+		email,
+		username = $bindable(),
+		isConflict = false,
+		noPadding = false
+	}: Props = $props();
+
+	let loading = $state(false)
 
 	let usernameInfo:
 		| {
@@ -19,7 +29,7 @@
 					username: string
 				}[]
 		  }
-		| undefined = undefined
+		| undefined = $state(undefined)
 
 	function handleKeyUp(event: KeyboardEvent) {
 		const key = event.key
@@ -46,7 +56,7 @@
 		loading = true
 		try {
 			const automateUsernameCreation =
-				(await SettingService.getGlobal({ key: 'automate_username_creation' })) ?? false
+				(await SettingService.getGlobal({ key: 'automate_username_creation' })) ?? true
 
 			if (!automateUsernameCreation) {
 				sendUserToast(
@@ -71,20 +81,18 @@
 	}
 </script>
 
-<div class="flex flex-col max-w-2xl p-2">
-	{#if isConflict} 
-	<span class="text-sm mb-2 leading-6 font-semibold"
-		>Fix username conflict</span
-	>
+<div class="flex flex-col max-w-2xl {noPadding ? '' : 'p-4'}">
+	{#if isConflict}
+		<span class="text-sm mb-2 leading-6 font-semibold text-emphasis">Fix username conflict</span>
 	{/if}
 
-	<span class="text-sm font-semibold mb-1 leading-6"
+	<span class="text-xs font-semibold text-emphasis mb-1 leading-6"
 		>{isConflict ? 'Auto-generated instance username' : 'New username'}</span
 	>
 	<input
 		type="text"
 		class="mb-4"
-		on:keyup={handleKeyUp}
+		onkeyup={handleKeyUp}
 		bind:value={username}
 		disabled={isConflict}
 	/>
@@ -121,9 +129,8 @@
 	</Alert>
 
 	<Button
-		variant="contained"
-		color="blue"
-		size="xs"
+		variant="default"
+		unifiedSize="md"
 		on:click={() => {
 			renameUser().then(() => {
 				dispatch('close')

@@ -2,142 +2,163 @@
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
 
-	import { Button, FileInput } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
-	import { LayoutDashboard, Loader2, Plus } from 'lucide-svelte'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Tab from '$lib/components/common/tabs/Tab.svelte'
+	import Modal from '$lib/components/common/modal/Modal.svelte'
+	import { LayoutDashboard, Loader2, Plus, Code2 } from 'lucide-svelte'
 	import { importStore } from '../apps/store'
-	import { RawAppService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-	import Path from '../Path.svelte'
-	import Tooltip from '../Tooltip.svelte'
 	import YAML from 'yaml'
 
 	let drawer: Drawer | undefined = undefined
-	let rawAppDrawer: Drawer | undefined = undefined
-	let pendingRaw: string = ''
-	let pendingCode: string = ''
-	let summary: string = ''
-	let path: string = ''
-	let pathError: string = ''
+	let pendingRaw: string = $state('')
 
-	let importType: 'yaml' | 'json' = 'yaml'
+	let importType: 'yaml' | 'json' = $state('yaml')
+	let appKind: 'lowcode' | 'fullcode' = $state('lowcode')
+
+	let appTypeModalOpen = $state(false)
 
 	async function importRaw() {
-		$importStore = importType === 'yaml' ? YAML.parse(pendingRaw) : JSON.parse(pendingRaw)
-		await goto('/apps/add?nodraft=true')
+		const parsed = importType === 'yaml' ? YAML.parse(pendingRaw) : JSON.parse(pendingRaw)
+		if (appKind === 'fullcode') {
+			// Navigation to /apps_raw/add triggers a full page reload (for cross-origin isolation),
+			// so the in-memory importStore would be lost. Use sessionStorage instead.
+			sessionStorage.setItem('rawAppImport', JSON.stringify(parsed))
+			await goto('/apps_raw/add')
+		} else {
+			$importStore = parsed
+			await goto('/apps/add')
+		}
 		drawer?.closeDrawer?.()
 	}
 
-	async function importRawApp() {
-		await RawAppService.createRawApp({
-			workspace: $workspaceStore!,
-			requestBody: {
-				path,
-				summary,
-				value: pendingCode
-			}
-		})
-		await goto(`/apps/get_raw/0/${path}`)
-		rawAppDrawer?.closeDrawer?.()
+	function openAppTypeModal() {
+		appTypeModalOpen = true
+	}
+
+	function selectLowCode() {
+		appTypeModalOpen = false
+		goto(`${base}/apps/add`)
+	}
+
+	function selectFullCode() {
+		appTypeModalOpen = false
+		goto(`${base}/apps_raw/add`)
 	}
 </script>
 
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
-	<Button
-		size="sm"
-		spacingSize="xl"
-		startIcon={{ icon: Plus }}
-		href="{base}/apps/add?nodraft=true"
-		color="marine"
-		dropdownItems={[
-			{
-				label: 'Import low-code app from YAML',
-				onClick: () => {
-					drawer?.toggleDrawer?.()
-					importType = 'yaml'
+		<Button
+			id="create-app-button"
+			aiId="apps-create-actions-app"
+			aiDescription="Create a new app"
+			unifiedSize="lg"
+			startIcon={{ icon: Plus }}
+			endIcon={{ icon: LayoutDashboard }}
+			on:click={openAppTypeModal}
+			variant="accent"
+			dropdownItems={[
+				{
+					label: 'Import low-code app',
+					onClick: () => {
+						appKind = 'lowcode'
+						importType = 'yaml'
+						drawer?.toggleDrawer?.()
+					}
+				},
+				{
+					label: 'Import full-code app',
+					onClick: () => {
+						appKind = 'fullcode'
+						importType = 'yaml'
+						drawer?.toggleDrawer?.()
+					}
 				}
-			},
-			{
-				label: 'Import low-code app from JSON',
-				onClick: () => {
-					drawer?.toggleDrawer?.()
-					importType = 'json'
-				}
-			},
-			{
-				label: 'Import app in React/Vue/Svelte',
-				onClick: () => rawAppDrawer?.toggleDrawer?.()
-			}
-		]}
-	>
-		<div class="flex flex-row items-center">
-			App <LayoutDashboard class="ml-1.5" size={18} />
-		</div>
-	</Button>
-</div>
+			]}
+		>
+			<div class="flex flex-row items-center"> App </div>
+		</Button>
+	</div>
 
-<!-- Raw JSON -->
+<!-- App Type Selection Modal -->
+<Modal bind:open={appTypeModalOpen} title="Choose your app builder">
+	<div class="flex flex-col gap-4 pr-4">
+		<div class="grid grid-cols-2 gap-8">
+			<!-- Low-code option -->
+			<button
+				class="flex flex-col items-center gap-3 p-6 rounded-lg border-2 border-gray-200 dark:border-gray-700 hover:border-orange-500 dark:hover:border-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-all cursor-pointer group"
+				onclick={selectLowCode}
+			>
+				<div
+					class="w-32 h-32 rounded-xl bg-orange-100 dark:bg-orange-900/40 flex items-center justify-center group-hover:bg-orange-200 dark:group-hover:bg-orange-800/50 transition-colors"
+				>
+					<LayoutDashboard size={32} class="text-orange-600 dark:text-orange-400" />
+				</div>
+				<div class="text-center">
+					<h3 class="font-semibold text-primary">Low-code App</h3>
+					<p class="text-xs text-tertiary mt-1">
+						Drag-and-drop UI builder with 60+ powerful components.
+
+						<br /><br />
+						Better for simple apps or apps that require minimal customization.
+					</p>
+				</div>
+			</button>
+
+			<button
+				class="relative flex flex-col items-center gap-3 p-6 rounded-lg border-2 border-gray-200 dark:border-gray-700 hover:border-purple-500 dark:hover:border-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-all cursor-pointer group"
+				onclick={selectFullCode}
+			>
+				<div
+					class="w-32 h-32 rounded-xl bg-purple-100 dark:bg-purple-900/40 flex items-center justify-center group-hover:bg-purple-200 dark:group-hover:bg-purple-800/50 transition-colors"
+				>
+					<Code2 size={32} class="text-purple-600 dark:text-purple-400" />
+				</div>
+				<div class="text-center">
+					<h3 class="font-semibold text-primary">Full-code App</h3>
+					<p class="text-xs text-tertiary mt-1">
+						Build with React or Svelte with full control and a powerful AI agent.
+
+					<br /><br />
+					Better for complex apps or apps that require full flexibility and control.
+					</p>
+				</div>
+			</button>
+		</div>
+	</div>
+</Modal>
+
+<!-- Import Drawer -->
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent
-		title={'Import low-code app from ' + (importType === 'yaml' ? 'YAML' : 'JSON')}
+		title={appKind === 'fullcode' ? 'Import full-code app' : 'Import low-code app'}
 		on:close={() => drawer?.toggleDrawer?.()}
 	>
-		{#await import('$lib/components/SimpleEditor.svelte')}
-			<Loader2 class="animate-spin" />
-		{:then Module}
-			<Module.default
-				bind:code={pendingRaw}
-				lang={importType}
-				class="h-full"
-				fixedOverflowWidgets={false}
-			/>
-		{/await}
-		<svelte:fragment slot="actions">
+		<Tabs bind:selected={importType}>
+			<Tab value="yaml" label="YAML" />
+			<Tab value="json" label="JSON" />
+			{#snippet content()}
+				<div class="relative pt-2 h-full">
+					{#key importType}
+						{#await import('$lib/components/SimpleEditor.svelte')}
+							<Loader2 class="animate-spin" />
+						{:then Module}
+							<Module.default
+								bind:code={pendingRaw}
+								lang={importType}
+								class="h-full"
+								fixedOverflowWidgets={false}
+							/>
+						{/await}
+					{/key}
+				</div>
+			{/snippet}
+		</Tabs>
+		{#snippet actions()}
 			<Button size="sm" on:click={importRaw}>Import</Button>
-		</svelte:fragment>
-	</DrawerContent>
-</Drawer>
-
-<!-- Raw JSON -->
-<Drawer bind:this={rawAppDrawer} size="800px">
-	<DrawerContent
-		title="Import app in React/Vue/Svelte"
-		on:close={() => rawAppDrawer?.toggleDrawer?.()}
-	>
-		<Path bind:error={pathError} bind:path initialPath="" namePlaceholder={'app'} kind="resource" />
-		<h2 class="border-b pb-1 mt-10 mb-4">Summary</h2>
-
-		<input
-			type="text"
-			bind:value={summary}
-			placeholder="Short summary to be displayed when listed"
-		/>
-
-		<h2 class="border-b pb-1 mt-10 mb-4"
-			>IIFE JS code <Tooltip
-				documentationLink="https://www.windmill.dev/docs/react_vue_svelte_apps/react"
-				>Bundle that contains an IIFE code that will mount itself to a "root" element. Any framework
-				or vanilla JS can be used to create an app and templates are provided for the major
-				frameworks: React/Vue/Svelte. In those frontend apps, it is possible to inline scripts
-				directly to be executed by windmill backend which makes it a convenient way of building apps
-				with both frontend and backend all-in-one.</Tooltip
-			></h2
-		>
-		<FileInput
-			accept={'.js'}
-			multiple={false}
-			convertTo={'text'}
-			iconSize={24}
-			class="text-sm py-4"
-			on:change={({ detail }) => {
-				pendingCode = detail?.[0]
-			}}
-		/>
-
-		<svelte:fragment slot="actions">
-			<Button disabled={pathError != ''} size="sm" on:click={importRawApp}>Import</Button>
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

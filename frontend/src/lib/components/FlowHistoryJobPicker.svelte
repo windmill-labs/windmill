@@ -1,36 +1,59 @@
 <script lang="ts">
 	import { HistoryIcon } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import PopoverV2 from '$lib/components/meltComponents/Popover.svelte'
 	import HistoricInputs from './HistoricInputs.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { JobService } from '$lib/gen'
+	import { Button } from './common'
 
-	export let path: string
-	export let selected: string | undefined = undefined
+	interface Props {
+		path: string
+		selected?: string | undefined
+		selectInitial?: boolean
+		loading?: boolean
+		newFlow?: boolean
+	}
+
+	let {
+		path,
+		selected = undefined,
+		selectInitial = false,
+		loading = $bindable(false),
+		newFlow = false
+	}: Props = $props()
 	const dispatch = createEventDispatcher()
 
 	async function loadInitial() {
+		loading = true
 		let jobs = await JobService.listJobs({
 			workspace: $workspaceStore!,
 			scriptPathExact: path,
 			jobKinds: ['flow', 'flowpreview'].join(','),
-			page: 1,
 			perPage: 1
 		})
 		if (jobs.length > 0) {
-			dispatch('select', { jobId: jobs[0].id, initial: true })
+			if (selectInitial) {
+				dispatch('select', { jobId: jobs[0].id, initial: true })
+			}
+		} else {
+			dispatch('nohistory')
 		}
+		loading = false
 	}
 
-	$: $workspaceStore && loadInitial()
+	$effect(() => {
+		if ($workspaceStore && !newFlow) {
+			untrack(() => loadInitial())
+		}
+	})
 </script>
 
 <PopoverV2 closeButton={false}>
-	<svelte:fragment slot="trigger">
-		<HistoryIcon size={14} />
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{#snippet trigger()}
+		<Button variant="default" startIcon={{ icon: HistoryIcon }}>History</Button>
+	{/snippet}
+	{#snippet content()}
 		<div class="p-2 h-[400px] overflow-hidden w-80 border shadow-sm">
 			<HistoricInputs
 				on:select={(e) => {
@@ -45,5 +68,5 @@
 				runnableType={'FlowPath'}
 			/>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </PopoverV2>

@@ -11,12 +11,18 @@ import time
 import warnings
 import json
 from json import JSONDecodeError
-from typing import Dict, Any, Union, Literal
+from typing import Callable, Dict, Any, Union, Literal, Optional
+import re
 
 import httpx
 
 from .s3_reader import S3BufferedReader, bytes_generator
-from .s3_types import Boto3ConnectionSettings, DuckDbConnectionSettings, PolarsConnectionSettings, S3Object
+from .s3_types import (
+    Boto3ConnectionSettings,
+    DuckDbConnectionSettings,
+    PolarsConnectionSettings,
+    S3Object,
+)
 
 _client: "Windmill | None" = None
 
@@ -26,8 +32,22 @@ JobStatus = Literal["RUNNING", "WAITING", "COMPLETED"]
 
 
 class Windmill:
+    """Windmill client for interacting with the Windmill API."""
+
     def __init__(self, base_url=None, token=None, workspace=None, verify=True):
-        base = base_url or os.environ.get("BASE_INTERNAL_URL") or os.environ.get("WM_BASE_URL")
+        """Initialize the Windmill client.
+
+        Args:
+            base_url: API base URL (defaults to BASE_INTERNAL_URL or WM_BASE_URL env)
+            token: Authentication token (defaults to WM_TOKEN env)
+            workspace: Workspace ID (defaults to WM_WORKSPACE env)
+            verify: Whether to verify SSL certificates
+        """
+        base = (
+            base_url
+            or os.environ.get("BASE_INTERNAL_URL")
+            or os.environ.get("WM_BASE_URL")
+        )
 
         self.base_url = f"{base}/api"
         self.token = token or os.environ.get("WM_TOKEN")
@@ -40,16 +60,59 @@ class Windmill:
         self.workspace = workspace or os.environ.get("WM_WORKSPACE")
         self.path = os.environ.get("WM_JOB_PATH")
 
-        assert self.workspace, f"workspace required as an argument or as WM_WORKSPACE environment variable"
+        self.mocked_api = self.get_mocked_api()
+
+        assert self.workspace, (
+            f"workspace required as an argument or as WM_WORKSPACE environment variable"
+        )
+
+    def worker_has_internal_server(self) -> bool:
+        return bool(
+            re.match(r"^https?://(localhost|127\.0\.0\.1)(:|/|$)", self.base_url or "")
+        )
+
+    def get_mocked_api(self) -> Optional[dict]:
+        mocked_path = os.environ.get("WM_MOCKED_API_FILE")
+        if not mocked_path:
+            return None
+        logger.info("Using mocked API from %s", mocked_path)
+        mocked_api = {"variables": {}, "resources": {}}
+        try:
+            with open(mocked_path, "r") as f:
+                incoming_mocked_api = json.load(f)
+            mocked_api = {**mocked_api, **incoming_mocked_api}
+        except Exception as e:
+            logger.warning(
+                "Error parsing mocked API file at path %s Using empty mocked API.",
+                mocked_path,
+            )
+            logger.debug(e)
+        return mocked_api
 
     def get_client(self) -> httpx.Client:
+        """Get the HTTP client instance.
+
+        Returns:
+            Configured httpx.Client for API requests
+        """
         return httpx.Client(
             base_url=self.base_url,
             headers=self.headers,
             verify=self.verify,
+            timeout=httpx.Timeout(900.0),
         )
 
     def get(self, endpoint, raise_for_status=True, **kwargs) -> httpx.Response:
+        """Make an HTTP GET request to the Windmill API.
+
+        Args:
+            endpoint: API endpoint path
+            raise_for_status: Whether to raise an exception on HTTP errors
+            **kwargs: Additional arguments passed to httpx.get
+
+        Returns:
+            HTTP response object
+        """
         endpoint = endpoint.lstrip("/")
         resp = self.client.get(f"/{endpoint}", **kwargs)
         if raise_for_status:
@@ -62,6 +125,16 @@ class Windmill:
         return resp
 
     def post(self, endpoint, raise_for_status=True, **kwargs) -> httpx.Response:
+        """Make an HTTP POST request to the Windmill API.
+
+        Args:
+            endpoint: API endpoint path
+            raise_for_status: Whether to raise an exception on HTTP errors
+            **kwargs: Additional arguments passed to httpx.post
+
+        Returns:
+            HTTP response object
+        """
         endpoint = endpoint.lstrip("/")
         resp = self.client.post(f"/{endpoint}", **kwargs)
         if raise_for_status:
@@ -74,6 +147,14 @@ class Windmill:
         return resp
 
     def create_token(self, duration=dt.timedelta(days=1)) -> str:
+        """Create a new authentication token.
+
+        Args:
+            duration: Token validity duration (default: 1 day)
+
+        Returns:
+            New authentication token string
+        """
         endpoint = "/users/tokens/create"
         payload = {
             "label": f"refresh {time.time()}",
@@ -88,21 +169,57 @@ class Windmill:
         args: dict = None,
         scheduled_in_secs: int = None,
     ) -> str:
-        """Create a script job and return its job id."""
+        """Create a script job and return its job id.
+        
+        .. deprecated:: Use run_script_by_path_async or run_script_by_hash_async instead.
+        """
+        logging.warning(
+            "run_script_async is deprecated. Use run_script_by_path_async or run_script_by_hash_async instead.",
+        )
         assert not (path and hash_), "path and hash_ are mutually exclusive"
+        return self._run_script_async_internal(path=path, hash_=hash_, args=args, scheduled_in_secs=scheduled_in_secs)
+
+    def _run_script_async_internal(
+        self,
+        path: str = None,
+        hash_: str = None,
+        args: dict = None,
+        scheduled_in_secs: int = None,
+    ) -> str:
+        """Internal helper for running scripts asynchronously."""
         args = args or {}
         params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
         if os.environ.get("WM_JOB_ID"):
             params["parent_job"] = os.environ.get("WM_JOB_ID")
         if os.environ.get("WM_ROOT_FLOW_JOB_ID"):
             params["root_job"] = os.environ.get("WM_ROOT_FLOW_JOB_ID")
+        
         if path:
             endpoint = f"/w/{self.workspace}/jobs/run/p/{path}"
         elif hash_:
             endpoint = f"/w/{self.workspace}/jobs/run/h/{hash_}"
         else:
             raise Exception("path or hash_ must be provided")
+        
         return self.post(endpoint, json=args, params=params).text
+
+    def run_script_by_path_async(
+        self,
+        path: str,
+        args: dict = None,
+        scheduled_in_secs: int = None,
+    ) -> str:
+        """Create a script job by path and return its job id."""
+        return self._run_script_async_internal(path=path, args=args, scheduled_in_secs=scheduled_in_secs)
+
+    def run_script_by_hash_async(
+        self,
+        hash_: str,
+        args: dict = None,
+        scheduled_in_secs: int = None,
+    ) -> str:
+        """Create a script job by hash and return its job id."""
+        return self._run_script_async_internal(hash_=hash_, args=args, scheduled_in_secs=scheduled_in_secs)
 
     def run_flow_async(
         self,
@@ -138,17 +255,97 @@ class Windmill:
         cleanup: bool = True,
         assert_result_is_not_none: bool = False,
     ) -> Any:
-        """Run script synchronously and return its result."""
+        """Run script synchronously and return its result.
+        
+        .. deprecated:: Use run_script_by_path or run_script_by_hash instead.
+        """
+        logging.warning(
+            "run_script is deprecated. Use run_script_by_path or run_script_by_hash instead.",
+        )
+        assert not (path and hash_), "path and hash_ are mutually exclusive"
+        return self._run_script_internal(
+            path=path, hash_=hash_, args=args, timeout=timeout, verbose=verbose,
+            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none
+        )
+
+    def _run_script_internal(
+        self,
+        path: str = None,
+        hash_: str = None,
+        args: dict = None,
+        timeout: dt.timedelta | int | float | None = None,
+        verbose: bool = False,
+        cleanup: bool = True,
+        assert_result_is_not_none: bool = False,
+    ) -> Any:
+        """Internal helper for running scripts synchronously."""
         args = args or {}
 
         if verbose:
-            logger.info(f"running `{path}` synchronously with {args = }")
+            if path:
+                logger.info(f"running `{path}` synchronously with {args = }")
+            elif hash_:
+                logger.info(f"running script with hash `{hash_}` synchronously with {args = }")
 
         if isinstance(timeout, dt.timedelta):
             timeout = timeout.total_seconds()
 
-        job_id = self.run_script_async(path=path, hash_=hash_, args=args)
-        return self.wait_job(job_id, timeout, verbose, cleanup, assert_result_is_not_none)
+        job_id = self._run_script_async_internal(path=path, hash_=hash_, args=args)
+        return self.wait_job(
+            job_id, timeout, verbose, cleanup, assert_result_is_not_none
+        )
+
+    def run_script_by_path(
+        self,
+        path: str,
+        args: dict = None,
+        timeout: dt.timedelta | int | float | None = None,
+        verbose: bool = False,
+        cleanup: bool = True,
+        assert_result_is_not_none: bool = False,
+    ) -> Any:
+        """Run script by path synchronously and return its result."""
+        return self._run_script_internal(
+            path=path, args=args, timeout=timeout, verbose=verbose,
+            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none
+        )
+
+    def run_script_by_hash(
+        self,
+        hash_: str,
+        args: dict = None,
+        timeout: dt.timedelta | int | float | None = None,
+        verbose: bool = False,
+        cleanup: bool = True,
+        assert_result_is_not_none: bool = False,
+    ) -> Any:
+        """Run script by hash synchronously and return its result."""
+        return self._run_script_internal(
+            hash_=hash_, args=args, timeout=timeout, verbose=verbose,
+            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none
+        )
+
+    def run_inline_script_preview(
+        self,
+        content: str,
+        language: str,
+        args: dict = None,
+    ) -> Any:
+        """Run a script on the current worker without creating a job.
+
+        On agent workers (no internal server), falls back to running a normal
+        preview job and waiting for the result.
+        """
+        if self.worker_has_internal_server():
+            endpoint = f"/w/{self.workspace}/jobs/run_inline/preview"
+        else:
+            endpoint = f"/w/{self.workspace}/jobs/run_wait_result/preview"
+        body = {
+            "content": content,
+            "language": language,
+            "args": args or {},
+        }
+        return self.post(endpoint, json=body).json()
 
     def wait_job(
         self,
@@ -158,6 +355,22 @@ class Windmill:
         cleanup: bool = True,
         assert_result_is_not_none: bool = False,
     ):
+        """Wait for a job to complete and return its result.
+
+        Args:
+            job_id: ID of the job to wait for
+            timeout: Maximum time to wait (seconds or timedelta)
+            verbose: Enable verbose logging
+            cleanup: Register cleanup handler to cancel job on exit
+            assert_result_is_not_none: Raise exception if result is None
+
+        Returns:
+            Job result when completed
+
+        Raises:
+            TimeoutError: If timeout is reached
+            Exception: If job fails
+        """
         def cancel_job():
             logger.warning(f"cancelling job: {job_id}")
             self.post(
@@ -174,7 +387,9 @@ class Windmill:
             timeout = timeout.total_seconds()
 
         while True:
-            result_res = self.get(f"/w/{self.workspace}/jobs_u/completed/get_result_maybe/{job_id}", True).json()
+            result_res = self.get(
+                f"/w/{self.workspace}/jobs_u/completed/get_result_maybe/{job_id}", True
+            ).json()
 
             started = result_res["started"]
             completed = result_res["completed"]
@@ -208,6 +423,27 @@ class Windmill:
                 logger.info(f"sleeping 0.5 seconds for {job_id = }")
 
             time.sleep(0.5)
+
+    def cancel_job(self, job_id: str, reason: str = None) -> str:
+        """Cancel a specific job by ID.
+
+        Args:
+            job_id: UUID of the job to cancel
+            reason: Optional reason for cancellation
+
+        Returns:
+            Response message from the cancel endpoint
+        """
+        logger.info(f"cancelling job: {job_id}")
+
+        payload = {"reason": reason or "cancelled via cancel_job method"}
+
+        response = self.post(
+            f"/w/{self.workspace}/jobs_u/queue/cancel/{job_id}",
+            json=payload,
+        )
+
+        return response.text
 
     def cancel_running(self) -> dict:
         """Cancel currently running executions of the same script."""
@@ -243,16 +479,52 @@ class Windmill:
         return result
 
     def get_job(self, job_id: str) -> dict:
+        """Get job details by ID.
+
+        Args:
+            job_id: UUID of the job
+
+        Returns:
+            Job details dictionary
+        """
         return self.get(f"/w/{self.workspace}/jobs_u/get/{job_id}").json()
 
     def get_root_job_id(self, job_id: str | None = None) -> dict:
+        """Get the root job ID for a flow hierarchy.
+
+        Args:
+            job_id: Job ID (defaults to current WM_JOB_ID)
+
+        Returns:
+            Root job ID
+        """
         job_id = job_id or os.environ.get("WM_JOB_ID")
         return self.get(f"/w/{self.workspace}/jobs_u/get_root_job_id/{job_id}").json()
 
-    def get_id_token(self, audience: str) -> str:
-        return self.post(f"/w/{self.workspace}/oidc/token/{audience}").text
+    def get_id_token(self, audience: str, expires_in: int | None = None) -> str:
+        """Get an OIDC JWT token for authentication to external services.
+
+        Args:
+            audience: Token audience (e.g., "vault", "aws")
+            expires_in: Optional expiration time in seconds
+
+        Returns:
+            JWT token string
+        """
+        params = {}
+        if expires_in is not None:
+            params["expires_in"] = expires_in
+        return self.post(f"/w/{self.workspace}/oidc/token/{audience}", params=params).text
 
     def get_job_status(self, job_id: str) -> JobStatus:
+        """Get the status of a job.
+
+        Args:
+            job_id: UUID of the job
+
+        Returns:
+            Job status: "RUNNING", "WAITING", or "COMPLETED"
+        """
         job = self.get_job(job_id)
         job_type = job.get("type", "")
         assert job_type, f"{job} is not a valid job"
@@ -267,6 +539,15 @@ class Windmill:
         job_id: str,
         assert_result_is_not_none: bool = True,
     ) -> Any:
+        """Get the result of a completed job.
+
+        Args:
+            job_id: UUID of the completed job
+            assert_result_is_not_none: Raise exception if result is None
+
+        Returns:
+            Job result
+        """
         result = self.get(f"/w/{self.workspace}/jobs_u/completed/get_result/{job_id}")
         result_text = result.text
         if assert_result_is_not_none and result_text is None:
@@ -277,13 +558,42 @@ class Windmill:
             return result_text
 
     def get_variable(self, path: str) -> str:
-        """Get variable from Windmill"""
+        """Get a variable value by path.
+
+        Args:
+            path: Variable path in Windmill
+
+        Returns:
+            Variable value as string
+        """
+        path = parse_variable_syntax(path) or path
+        if self.mocked_api is not None:
+            variables = self.mocked_api["variables"]
+            try:
+                result = variables[path]
+                return result
+            except KeyError:
+                logger.info(
+                    f"MockedAPI present, but variable not found at {path}, falling back to real API"
+                )
         return self.get(f"/w/{self.workspace}/variables/get_value/{path}").json()
 
     def set_variable(self, path: str, value: str, is_secret: bool = False) -> None:
-        """Set variable from Windmill"""
+        """Set a variable value by path, creating it if it doesn't exist.
+
+        Args:
+            path: Variable path in Windmill
+            value: Variable value to set
+            is_secret: Whether the variable should be secret (default: False)
+        """
+        path = parse_variable_syntax(path) or path
+        if self.mocked_api is not None:
+            self.mocked_api["variables"][path] = value
+            return
         # check if variable exists
-        r = self.get(f"/w/{self.workspace}/variables/get/{path}", raise_for_status=False)
+        r = self.get(
+            f"/w/{self.workspace}/variables/get/{path}", raise_for_status=False
+        )
         if r.status_code == 404:
             # create variable
             self.post(
@@ -306,10 +616,43 @@ class Windmill:
         self,
         path: str,
         none_if_undefined: bool = False,
+        interpolated: bool = True
     ) -> dict | None:
-        """Get resource from Windmill"""
+        """Get a resource value by path.
+
+        Args:
+            path: Resource path in Windmill
+            none_if_undefined: Return None instead of raising if not found
+            interpolated: if variables and resources are fully unrolled
+
+        Returns:
+            Resource value dictionary or None
+        """
+        path = parse_resource_syntax(path) or path
+        if self.mocked_api is not None:
+            resources = self.mocked_api["resources"]
+            try:
+                result = resources[path]
+                return result
+            except KeyError:
+                # NOTE: should mocked_api respect `none_if_undefined`?
+                if none_if_undefined:
+                    logger.info(
+                        f"resource not found at ${path}, but none_if_undefined is True, so returning None"
+                    )
+                    return None
+                logger.info(
+                    f"MockedAPI present, but resource not found at ${path}, falling back to real API"
+                )
         try:
-            return self.get(f"/w/{self.workspace}/resources/get_value_interpolated/{path}").json()
+            if interpolated:
+                return self.get(
+                    f"/w/{self.workspace}/resources/get_value_interpolated/{path}"
+                ).json()
+            else:
+                return self.get(
+                    f"/w/{self.workspace}/resources/get_value/{path}"
+                ).json()
         except Exception as e:
             if none_if_undefined:
                 return None
@@ -322,8 +665,22 @@ class Windmill:
         path: str,
         resource_type: str,
     ):
+        """Set a resource value by path, creating it if it doesn't exist.
+
+        Args:
+            value: Resource value to set
+            path: Resource path in Windmill
+            resource_type: Resource type for creation
+        """
+        path = parse_resource_syntax(path) or path
+        if self.mocked_api is not None:
+            self.mocked_api["resources"][path] = value
+            return
+
         # check if resource exists
-        r = self.get(f"/w/{self.workspace}/resources/get/{path}", raise_for_status=False)
+        r = self.get(
+            f"/w/{self.workspace}/resources/get/{path}", raise_for_status=False
+        )
         if r.status_code == 404:
             # create resource
             self.post(
@@ -341,10 +698,62 @@ class Windmill:
                 json={"value": value},
             )
 
-    def set_state(self, value: Any):
-        self.set_resource(value, path=self.state_path, resource_type="state")
+    def list_resources(
+        self,
+        resource_type: str = None,
+        page: int = None,
+        per_page: int = None,
+    ) -> list[dict]:
+        """List resources from Windmill workspace.
+        
+        Args:
+            resource_type: Optional resource type to filter by (e.g., "postgresql", "mysql", "s3")
+            page: Optional page number for pagination
+            per_page: Optional number of results per page
+            
+        Returns:
+            List of resource dictionaries
+        """
+        params = {}
+        if resource_type is not None:
+            params["resource_type"] = resource_type
+        if page is not None:
+            params["page"] = page
+        if per_page is not None:
+            params["per_page"] = per_page
+            
+        return self.get(
+            f"/w/{self.workspace}/resources/list",
+            params=params if params else None,
+        ).json()
+    
+    def set_state(self, value: Any, path: str | None = None) -> None:
+        """Set the workflow state.
+
+        Args:
+            value: State value to set
+            path: Optional state resource path override.
+        """
+        self.set_resource(value, path=path or self.state_path, resource_type="state")
+
+    def get_state(self, path: str | None = None) -> Any:
+        """Get the workflow state.
+
+        Args:
+            path: Optional state resource path override.
+
+        Returns:
+            State value or None if not set
+        """
+        return self.get_resource(path=path or self.state_path, none_if_undefined=True, interpolated=True)
 
     def set_progress(self, value: int, job_id: Optional[str] = None):
+        """Set job progress percentage (0-99).
+
+        Args:
+            value: Progress percentage
+            job_id: Job ID (defaults to current WM_JOB_ID)
+        """
         workspace = get_workspace()
         flow_id = os.environ.get("WM_FLOW_JOB_ID")
         job_id = job_id or os.environ.get("WM_JOB_ID")
@@ -362,6 +771,14 @@ class Windmill:
         )
 
     def get_progress(self, job_id: Optional[str] = None) -> Any:
+        """Get job progress percentage.
+
+        Args:
+            job_id: Job ID (defaults to current WM_JOB_ID)
+
+        Returns:
+            Progress value (0-100) or None if not set
+        """
         workspace = get_workspace()
         job_id = job_id or os.environ.get("WM_JOB_ID")
 
@@ -377,14 +794,21 @@ class Windmill:
     def set_flow_user_state(self, key: str, value: Any) -> None:
         """Set the user state of a flow at a given key"""
         flow_id = self.get_root_job_id()
-        r = self.post(f"/w/{self.workspace}/jobs/flow/user_states/{flow_id}/{key}", json=value, raise_for_status=False)
+        r = self.post(
+            f"/w/{self.workspace}/jobs/flow/user_states/{flow_id}/{key}",
+            json=value,
+            raise_for_status=False,
+        )
         if r.status_code == 404:
             print(f"Job {flow_id} does not exist or is not a flow")
 
     def get_flow_user_state(self, key: str) -> Any:
         """Get the user state of a flow at a given key"""
         flow_id = self.get_root_job_id()
-        r = self.get(f"/w/{self.workspace}/jobs/flow/user_states/{flow_id}/{key}", raise_for_status=False)
+        r = self.get(
+            f"/w/{self.workspace}/jobs/flow/user_states/{flow_id}/{key}",
+            raise_for_status=False,
+        )
         if r.status_code == 404:
             print(f"Job {flow_id} does not exist or is not a flow")
             return None
@@ -393,6 +817,11 @@ class Windmill:
 
     @property
     def version(self):
+        """Get the Windmill server version.
+
+        Returns:
+            Version string
+        """
         return self.get("version").text
 
     def get_duckdb_connection_settings(
@@ -403,14 +832,19 @@ class Windmill:
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
         initiate an S3 connection from DuckDB
         """
+        s3_resource_path = parse_resource_syntax(s3_resource_path) or s3_resource_path
         try:
             raw_obj = self.post(
                 f"/w/{self.workspace}/job_helpers/v2/duckdb_connection_settings",
-                json={} if s3_resource_path == "" else {"s3_resource_path": s3_resource_path},
+                json={}
+                if s3_resource_path == ""
+                else {"s3_resource_path": s3_resource_path},
             ).json()
             return DuckDbConnectionSettings(raw_obj)
         except JSONDecodeError as e:
-            raise Exception("Could not generate DuckDB S3 connection settings from the provided resource") from e
+            raise Exception(
+                "Could not generate DuckDB S3 connection settings from the provided resource"
+            ) from e
 
     def get_polars_connection_settings(
         self,
@@ -420,14 +854,19 @@ class Windmill:
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
         initiate an S3 connection from Polars
         """
+        s3_resource_path = parse_resource_syntax(s3_resource_path) or s3_resource_path
         try:
             raw_obj = self.post(
                 f"/w/{self.workspace}/job_helpers/v2/polars_connection_settings",
-                json={} if s3_resource_path == "" else {"s3_resource_path": s3_resource_path},
+                json={}
+                if s3_resource_path == ""
+                else {"s3_resource_path": s3_resource_path},
             ).json()
             return PolarsConnectionSettings(raw_obj)
         except JSONDecodeError as e:
-            raise Exception("Could not generate Polars S3 connection settings from the provided resource") from e
+            raise Exception(
+                "Could not generate Polars S3 connection settings from the provided resource"
+            ) from e
 
     def get_boto3_connection_settings(
         self,
@@ -437,16 +876,21 @@ class Windmill:
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
         initiate an S3 connection using boto3
         """
+        s3_resource_path = parse_resource_syntax(s3_resource_path) or s3_resource_path
         try:
             s3_resource = self.post(
                 f"/w/{self.workspace}/job_helpers/v2/s3_resource_info",
-                json={} if s3_resource_path == "" else {"s3_resource_path": s3_resource_path},
+                json={}
+                if s3_resource_path == ""
+                else {"s3_resource_path": s3_resource_path},
             ).json()
             return self.__boto3_connection_settings(s3_resource)
         except JSONDecodeError as e:
-            raise Exception("Could not generate Boto3 S3 connection settings from the provided resource") from e
+            raise Exception(
+                "Could not generate Boto3 S3 connection settings from the provided resource"
+            ) from e
 
-    def load_s3_file(self, s3object: S3Object, s3_resource_path: str | None) -> bytes:
+    def load_s3_file(self, s3object: S3Object | str, s3_resource_path: str | None) -> bytes:
         """
         Load a file from the workspace s3 bucket and returns its content as bytes.
 
@@ -458,10 +902,13 @@ class Windmill:
         file_content = my_obj_content.decode("utf-8")
         '''
         """
+        s3object = parse_s3_object(s3object)
         with self.load_s3_file_reader(s3object, s3_resource_path) as file_reader:
             return file_reader.read()
 
-    def load_s3_file_reader(self, s3object: S3Object, s3_resource_path: str | None) -> BufferedReader:
+    def load_s3_file_reader(
+        self, s3object: S3Object | str, s3_resource_path: str | None
+    ) -> BufferedReader:
         """
         Load a file from the workspace s3 bucket and returns the bytes stream.
 
@@ -469,10 +916,11 @@ class Windmill:
         from wmill import S3Object
 
         s3_obj = S3Object(s3="/path/to/my_file.txt")
-        with wmill.load_s3_file(s3object, s3_resource_path) as file_reader:
+        with wmill.load_s3_file_reader(s3object, s3_resource_path) as file_reader:
             print(file_reader.read())
         '''
         """
+        s3object = parse_s3_object(s3object)
         reader = S3BufferedReader(
             f"{self.workspace}",
             self.client,
@@ -484,7 +932,7 @@ class Windmill:
 
     def write_s3_file(
         self,
-        s3object: S3Object | None,
+        s3object: S3Object | str | None,
         file_content: BufferedReader | bytes,
         s3_resource_path: str | None,
         content_type: str | None = None,
@@ -507,6 +955,7 @@ class Windmill:
             client.write_s3_file(s3_obj, my_file)
         '''
         """
+        s3object = parse_s3_object(s3object)
         # httpx accepts either bytes or "a bytes generator" as content. If it's a BufferedReader, we need to convert it to a generator
         if isinstance(file_content, BufferedReader):
             content_payload = bytes_generator(file_content)
@@ -520,7 +969,11 @@ class Windmill:
             query_params["file_key"] = s3object["s3"]
         if s3_resource_path is not None and s3_resource_path != "":
             query_params["s3_resource_path"] = s3_resource_path
-        if s3object is not None and "storage" in s3object and s3object["storage"] is not None:
+        if (
+            s3object is not None
+            and "storage" in s3object
+            and s3object["storage"] is not None
+        ):
             query_params["storage"] = s3object["storage"]
         if content_type is not None:
             query_params["content_type"] = content_type
@@ -531,7 +984,10 @@ class Windmill:
             # need a vanilla client b/c content-type is not application/json here
             response = httpx.post(
                 f"{self.base_url}/w/{self.workspace}/job_helpers/upload_s3_file",
-                headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/octet-stream"},
+                headers={
+                    "Authorization": f"Bearer {self.token}",
+                    "Content-Type": "application/octet-stream",
+                },
                 params=query_params,
                 content=content_payload,
                 verify=self.verify,
@@ -539,41 +995,208 @@ class Windmill:
             ).json()
         except Exception as e:
             raise Exception("Could not write file to S3") from e
-        return S3Object(s3=response["file_key"])
+        return S3Object(s3=response["file_key"], storage=s3object.get("storage") if s3object else None)
+
+    def delete_s3_object(
+        self,
+        s3object: S3Object | str,
+        s3_resource_path: str | None = None,
+    ) -> None:
+        """
+        Permanently delete a file from the workspace S3 bucket.
+
+        '''python
+        from wmill import S3Object
+
+        s3_obj = S3Object(s3="/path/to/my_file.txt")
+        client.delete_s3_object(s3_obj)
+        '''
+        """
+        s3object = parse_s3_object(s3object)
+        query_params: Dict[str, Any] = {"file_key": s3object["s3"]}
+        if s3_resource_path is not None and s3_resource_path != "":
+            query_params["s3_resource_path"] = s3_resource_path
+        if "storage" in s3object and s3object["storage"] is not None:
+            query_params["storage"] = s3object["storage"]
+        try:
+            resp = self.client.delete(
+                f"/w/{self.workspace}/job_helpers/delete_s3_file",
+                params=query_params,
+            )
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as err:
+            error = f"{err.request.url}: {err.response.status_code}, {err.response.text}"
+            logger.error(error)
+            raise Exception(error)
+        except Exception as e:
+            raise Exception("Could not delete file from S3") from e
+
+    def sign_s3_objects(self, s3_objects: list[S3Object | str]) -> list[S3Object]:
+        """Sign S3 objects for use by anonymous users in public apps.
+
+        Args:
+            s3_objects: List of S3 objects to sign
+
+        Returns:
+            List of signed S3 objects
+        """
+        return self.post(
+            f"/w/{self.workspace}/apps/sign_s3_objects", json={"s3_objects": list(map(parse_s3_object, s3_objects))}
+        ).json()
+
+    def sign_s3_object(self, s3_object: S3Object | str) -> S3Object:
+        """Sign a single S3 object for use by anonymous users in public apps.
+
+        Args:
+            s3_object: S3 object to sign
+
+        Returns:
+            Signed S3 object
+        """
+        return self.post(
+            f"/w/{self.workspace}/apps/sign_s3_objects",
+            json={"s3_objects": [s3_object]},
+        ).json()[0]
+
+    def get_presigned_s3_public_urls(
+        self,
+        s3_objects: list[S3Object | str],
+        base_url: str | None = None,
+    ) -> list[str]:
+        """
+        Generate presigned public URLs for an array of S3 objects.
+        If an S3 object is not signed yet, it will be signed first.
+
+        Args:
+            s3_objects: List of S3 objects to sign
+            base_url: Optional base URL for the presigned URLs (defaults to WM_BASE_URL)
+
+        Returns:
+            List of signed public URLs
+
+        Example:
+            >>> s3_objs = [S3Object(s3="/path/to/file1.txt"), S3Object(s3="/path/to/file2.txt")]
+            >>> urls = client.get_presigned_s3_public_urls(s3_objs)
+        """
+        base_url = base_url or self._get_public_base_url()
+
+        s3_objs = [parse_s3_object(s3_obj) for s3_obj in s3_objects]
+
+        # Sign all S3 objects that need to be signed in one go
+        s3_objs_to_sign: list[tuple[S3Object, int]] = [
+            (s3_obj, index)
+            for index, s3_obj in enumerate(s3_objs)
+            if s3_obj.get("presigned") is None
+        ]
+
+        if s3_objs_to_sign:
+            signed_s3_objs = self.sign_s3_objects(
+                [s3_obj for s3_obj, _ in s3_objs_to_sign]
+            )
+            for i, (_, original_index) in enumerate(s3_objs_to_sign):
+                s3_objs[original_index] = parse_s3_object(signed_s3_objs[i])
+
+        signed_urls: list[str] = []
+        for s3_obj in s3_objs:
+            s3 = s3_obj.get("s3", "")
+            presigned = s3_obj.get("presigned", "")
+            storage = s3_obj.get("storage", "_default_")
+            signed_url = f"{base_url}/api/w/{self.workspace}/s3_proxy/{storage}/{s3}?{presigned}"
+            signed_urls.append(signed_url)
+
+        return signed_urls
+
+    def get_presigned_s3_public_url(
+        self,
+        s3_object: S3Object | str,
+        base_url: str | None = None,
+    ) -> str:
+        """
+        Generate a presigned public URL for an S3 object.
+        If the S3 object is not signed yet, it will be signed first.
+
+        Args:
+            s3_object: S3 object to sign
+            base_url: Optional base URL for the presigned URL (defaults to WM_BASE_URL)
+
+        Returns:
+            Signed public URL
+
+        Example:
+            >>> s3_obj = S3Object(s3="/path/to/file.txt")
+            >>> url = client.get_presigned_s3_public_url(s3_obj)
+        """
+        urls = self.get_presigned_s3_public_urls([s3_object], base_url)
+        return urls[0]
+
+    def _get_public_base_url(self) -> str:
+        """Get the public base URL from environment or default to localhost"""
+        return os.environ.get("WM_BASE_URL", "http://localhost:3000")
 
     def __boto3_connection_settings(self, s3_resource) -> Boto3ConnectionSettings:
         endpoint_url_prefix = "https://" if s3_resource["useSSL"] else "http://"
-        return Boto3ConnectionSettings(
-            {
-                "endpoint_url": "{}{}".format(endpoint_url_prefix, s3_resource["endPoint"]),
-                "region_name": s3_resource["region"],
-                "use_ssl": s3_resource["useSSL"],
-                "aws_access_key_id": s3_resource["accessKey"],
-                "aws_secret_access_key": s3_resource["secretKey"],
-                # no need for path_style here as boto3 is clever enough to determine which one to use
-            }
-        )
+        endpoint = s3_resource["endPoint"]
+        port = s3_resource.get("port")
+        if port:
+            endpoint_url = "{}{}:{}".format(endpoint_url_prefix, endpoint, port)
+        else:
+            endpoint_url = "{}{}".format(endpoint_url_prefix, endpoint)
+        settings = {
+            "endpoint_url": endpoint_url,
+            "region_name": s3_resource["region"],
+            "use_ssl": s3_resource["useSSL"],
+            "aws_access_key_id": s3_resource["accessKey"],
+            "aws_secret_access_key": s3_resource["secretKey"],
+            # no need for path_style here as boto3 is clever enough to determine which one to use
+        }
+        # Include session token for OIDC/STS temporary credentials
+        if s3_resource.get("token"):
+            settings["aws_session_token"] = s3_resource["token"]
+        return Boto3ConnectionSettings(settings)
 
     def whoami(self) -> dict:
+        """Get the current user information.
+
+        Returns:
+            User details dictionary
+        """
         return self.get("/users/whoami").json()
 
     @property
     def user(self) -> dict:
+        """Get the current user information (alias for whoami).
+
+        Returns:
+            User details dictionary
+        """
         return self.whoami()
 
     @property
     def state_path(self) -> str:
-        state_path = os.environ.get("WM_STATE_PATH_NEW", os.environ.get("WM_STATE_PATH"))
+        """Get the state resource path from environment.
+
+        Returns:
+            State path string
+        """
+        state_path = os.environ.get(
+            "WM_STATE_PATH_NEW", os.environ.get("WM_STATE_PATH")
+        )
         if state_path is None:
             raise Exception("State path not found")
         return state_path
 
     @property
     def state(self) -> Any:
-        return self.get_resource(path=self.state_path, none_if_undefined=True)
+        """Get the workflow state.
+
+        Returns:
+            State value or None if not set
+        """
+        return self.get_resource(path=self.state_path, none_if_undefined=True, interpolated=True)
 
     @state.setter
     def state(self, value: Any) -> None:
+        """Set the workflow state."""
         self.set_state(value)
 
     @staticmethod
@@ -616,12 +1239,26 @@ class Windmill:
         with open(f"/shared/{path}", "r", encoding="utf-8") as f:
             return json.load(f)
 
-    def get_resume_urls(self, approver: str = None) -> dict:
+    def get_resume_urls(self, approver: str = None, flow_level: bool = None) -> dict:
+        """Get URLs needed for resuming a flow after suspension.
+
+        Args:
+            approver: Optional approver name
+            flow_level: If True, generate resume URLs for the parent flow instead of the
+                specific step. This allows pre-approvals that can be consumed by any later
+                suspend step in the same flow.
+
+        Returns:
+            Dictionary with approvalPage, resume, and cancel URLs
+        """
         nonce = random.randint(0, 1000000000)
         job_id = os.environ.get("WM_JOB_ID") or "NO_ID"
+        params = {"approver": approver}
+        if flow_level is not None:
+            params["flow_level"] = flow_level
         return self.get(
             f"/w/{self.workspace}/jobs/resume_urls/{job_id}/{nonce}",
-            params={"approver": approver},
+            params=params,
         ).json()
 
     def request_interactive_slack_approval(
@@ -635,7 +1272,7 @@ class Windmill:
     ) -> None:
         """
         Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
-        
+
         **[Enterprise Edition Only]** To include form fields in the Slack approval request, use the "Advanced -> Suspend -> Form" functionality.
         Learn more at: https://www.windmill.dev/docs/flows/flow_approval#form
 
@@ -651,10 +1288,10 @@ class Windmill:
         :type default_args_json: dict, optional
         :param dynamic_enums_json: Optional dictionary overriding the enum default values of enum form fields.
         :type dynamic_enums_json: dict, optional
-        
+
         :raises Exception: If the function is not called within a flow or flow preview.
         :raises Exception: If the required flow job or flow step environment variables are not set.
-        
+
         :return: None
 
         **Usage Example:**
@@ -709,6 +1346,49 @@ class Windmill:
         """
         return self.get(f"/w/{self.workspace}/users/username_to_email/{username}").text
 
+    def send_teams_message(
+        self,
+        conversation_id: str,
+        text: str,
+        success: bool = True,
+        card_block: dict = None,
+    ):
+        """
+        Send a message to a Microsoft Teams conversation with conversation_id, where success is used to style the message
+        """
+        return self.post(
+            f"/teams/activities",
+            json={
+                "conversation_id": conversation_id,
+                "text": text,
+                "success": success,
+                "card_block": card_block,
+            },
+        )
+
+    def datatable(self, name: str = "main"):
+        """Get a DataTable client for SQL queries.
+
+        Args:
+            name: Database name (default: "main")
+
+        Returns:
+            DataTableClient instance
+        """
+        return DataTableClient(self, name)
+
+    def ducklake(self, name: str = "main"):
+        """Get a DuckLake client for DuckDB queries.
+
+        Args:
+            name: Database name (default: "main")
+
+        Returns:
+            DucklakeClient instance
+        """
+        return DucklakeClient(self, name)
+
+
 
 def init_global_client(f):
     @functools.wraps(f)
@@ -741,11 +1421,24 @@ def deprecate(in_favor_of: str):
 
 @init_global_client
 def get_workspace() -> str:
+    """Get the current workspace ID.
+
+    Returns:
+        Workspace ID string
+    """
     return _client.workspace
 
 
 @init_global_client
 def get_root_job_id(job_id: str | None = None) -> str:
+    """Get the root job ID for a flow hierarchy.
+
+    Args:
+        job_id: Job ID (defaults to current WM_JOB_ID)
+
+    Returns:
+        Root job ID
+    """
     return _client.get_root_job_id(job_id)
 
 
@@ -761,6 +1454,16 @@ def run_script_async(
     args: Dict[str, Any] = None,
     scheduled_in_secs: int = None,
 ) -> str:
+    """Create a script job and return its job ID.
+
+    Args:
+        hash_or_path: Script hash or path (determined by presence of '/')
+        args: Script arguments
+        scheduled_in_secs: Delay before execution in seconds
+
+    Returns:
+        Job ID string
+    """
     is_path = "/" in hash_or_path
     hash_ = None if is_path else hash_or_path
     path = hash_or_path if is_path else None
@@ -782,6 +1485,17 @@ def run_flow_async(
     # lead to incorrectness and failures
     do_not_track_in_parent: bool = True,
 ) -> str:
+    """Create a flow job and return its job ID.
+
+    Args:
+        path: Flow path
+        args: Flow arguments
+        scheduled_in_secs: Delay before execution in seconds
+        do_not_track_in_parent: Whether to track in parent job (default: True)
+
+    Returns:
+        Job ID string
+    """
     return _client.run_flow_async(
         path=path,
         args=args,
@@ -799,6 +1513,19 @@ def run_script_sync(
     cleanup: bool = True,
     timeout: dt.timedelta = None,
 ) -> Any:
+    """Run a script synchronously by hash and return its result.
+
+    Args:
+        hash: Script hash
+        args: Script arguments
+        verbose: Enable verbose logging
+        assert_result_is_not_none: Raise exception if result is None
+        cleanup: Register cleanup handler to cancel job on exit
+        timeout: Maximum time to wait
+
+    Returns:
+        Script result
+    """
     return _client.run_script(
         hash_=hash,
         args=args,
@@ -815,8 +1542,41 @@ def run_script_by_path_async(
     args: Dict[str, Any] = None,
     scheduled_in_secs: Union[None, int] = None,
 ) -> str:
-    return _client.run_script_async(
+    """Create a script job by path and return its job ID.
+
+    Args:
+        path: Script path
+        args: Script arguments
+        scheduled_in_secs: Delay before execution in seconds
+
+    Returns:
+        Job ID string
+    """
+    return _client.run_script_by_path_async(
         path=path,
+        args=args,
+        scheduled_in_secs=scheduled_in_secs,
+    )
+
+
+@init_global_client
+def run_script_by_hash_async(
+    hash_: str,
+    args: Dict[str, Any] = None,
+    scheduled_in_secs: Union[None, int] = None,
+) -> str:
+    """Create a script job by hash and return its job ID.
+
+    Args:
+        hash_: Script hash
+        args: Script arguments
+        scheduled_in_secs: Delay before execution in seconds
+
+    Returns:
+        Job ID string
+    """
+    return _client.run_script_by_hash_async(
+        hash_=hash_,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
     )
@@ -831,6 +1591,19 @@ def run_script_by_path_sync(
     cleanup: bool = True,
     timeout: dt.timedelta = None,
 ) -> Any:
+    """Run a script synchronously by path and return its result.
+
+    Args:
+        path: Script path
+        args: Script arguments
+        verbose: Enable verbose logging
+        assert_result_is_not_none: Raise exception if result is None
+        cleanup: Register cleanup handler to cancel job on exit
+        timeout: Maximum time to wait
+
+    Returns:
+        Script result
+    """
     return _client.run_script(
         path=path,
         args=args,
@@ -851,12 +1624,44 @@ def get_id_token(audience: str) -> str:
 
 @init_global_client
 def get_job_status(job_id: str) -> JobStatus:
+    """Get the status of a job.
+
+    Args:
+        job_id: UUID of the job
+
+    Returns:
+        Job status: "RUNNING", "WAITING", or "COMPLETED"
+    """
     return _client.get_job_status(job_id)
 
 
 @init_global_client
+def get_job(job_id: str) -> dict:
+    """Get full job details by ID.
+
+    Args:
+        job_id: UUID of the job
+
+    Returns:
+        Job details dictionary
+    """
+    return _client.get_job(job_id=job_id)
+
+
+@init_global_client
 def get_result(job_id: str, assert_result_is_not_none=True) -> Dict[str, Any]:
-    return _client.get_result(job_id=job_id, assert_result_is_not_none=assert_result_is_not_none)
+    """Get the result of a completed job.
+
+    Args:
+        job_id: UUID of the completed job
+        assert_result_is_not_none: Raise exception if result is None
+
+    Returns:
+        Job result
+    """
+    return _client.get_result(
+        job_id=job_id, assert_result_is_not_none=assert_result_is_not_none
+    )
 
 
 @init_global_client
@@ -887,24 +1692,30 @@ def boto3_connection_settings(s3_resource_path: str = "") -> Boto3ConnectionSett
 
 
 @init_global_client
-def load_s3_file(s3object: S3Object, s3_resource_path: str | None = None) -> bytes:
+def load_s3_file(s3object: S3Object | str, s3_resource_path: str | None = None) -> bytes:
     """
     Load the entire content of a file stored in S3 as bytes
     """
-    return _client.load_s3_file(s3object, s3_resource_path if s3_resource_path != "" else None)
+    return _client.load_s3_file(
+        s3object, s3_resource_path if s3_resource_path != "" else None
+    )
 
 
 @init_global_client
-def load_s3_file_reader(s3object: S3Object, s3_resource_path: str | None = None) -> BufferedReader:
+def load_s3_file_reader(
+    s3object: S3Object | str, s3_resource_path: str | None = None
+) -> BufferedReader:
     """
     Load the content of a file stored in S3
     """
-    return _client.load_s3_file_reader(s3object, s3_resource_path if s3_resource_path != "" else None)
+    return _client.load_s3_file_reader(
+        s3object, s3_resource_path if s3_resource_path != "" else None
+    )
 
 
 @init_global_client
 def write_s3_file(
-    s3object: S3Object | None,
+    s3object: S3Object | str | None,
     file_content: BufferedReader | bytes,
     s3_resource_path: str | None = None,
     content_type: str | None = None,
@@ -919,7 +1730,95 @@ def write_s3_file(
     and content_type: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Type
 
     """
-    return _client.write_s3_file(s3object, file_content, s3_resource_path if s3_resource_path != "" else None, content_type, content_disposition)
+    return _client.write_s3_file(
+        s3object,
+        file_content,
+        s3_resource_path if s3_resource_path != "" else None,
+        content_type,
+        content_disposition,
+    )
+
+
+@init_global_client
+def delete_s3_object(
+    s3object: S3Object | str,
+    s3_resource_path: str | None = None,
+) -> None:
+    """
+    Permanently delete a file from the workspace S3 bucket.
+    """
+    return _client.delete_s3_object(
+        s3object,
+        s3_resource_path if s3_resource_path != "" else None,
+    )
+
+
+@init_global_client
+def sign_s3_objects(s3_objects: list[S3Object | str]) -> list[S3Object]:
+    """
+    Sign S3 objects to be used by anonymous users in public apps
+    Returns a list of signed s3 tokens
+    """
+    return _client.sign_s3_objects(s3_objects)
+
+
+@init_global_client
+def sign_s3_object(s3_object: S3Object| str) -> S3Object:
+    """
+    Sign S3 object to be used by anonymous users in public apps
+    Returns a signed s3 object
+    """
+    return _client.sign_s3_object(s3_object)
+
+
+@init_global_client
+def get_presigned_s3_public_urls(
+    s3_objects: list[S3Object | str],
+    base_url: str | None = None,
+) -> list[str]:
+    """
+    Generate presigned public URLs for an array of S3 objects.
+    If an S3 object is not signed yet, it will be signed first.
+
+    Args:
+        s3_objects: List of S3 objects to sign
+        base_url: Optional base URL for the presigned URLs (defaults to WM_BASE_URL)
+
+    Returns:
+        List of signed public URLs
+
+    Example:
+        >>> import wmill
+        >>> from wmill import S3Object
+        >>> s3_objs = [S3Object(s3="/path/to/file1.txt"), S3Object(s3="/path/to/file2.txt")]
+        >>> urls = wmill.get_presigned_s3_public_urls(s3_objs)
+    """
+    return _client.get_presigned_s3_public_urls(s3_objects, base_url)
+
+
+@init_global_client
+def get_presigned_s3_public_url(
+    s3_object: S3Object | str,
+    base_url: str | None = None,
+) -> str:
+    """
+    Generate a presigned public URL for an S3 object.
+    If the S3 object is not signed yet, it will be signed first.
+
+    Args:
+        s3_object: S3 object to sign
+        base_url: Optional base URL for the presigned URL (defaults to WM_BASE_URL)
+
+    Returns:
+        Signed public URL
+
+    Example:
+        >>> import wmill
+        >>> from wmill import S3Object
+        >>> s3_obj = S3Object(s3="/path/to/file.txt")
+        >>> url = wmill.get_presigned_s3_public_url(s3_obj)
+    """
+    return _client.get_presigned_s3_public_url(s3_object, base_url)
 
 
 @init_global_client
@@ -931,21 +1830,21 @@ def whoami() -> dict:
 
 
 @init_global_client
-@deprecate("Windmill().state")
-def get_state() -> Any:
+def get_state(path: str | None = None) -> Any:
     """
     Get the state
     """
-    return _client.state
+    return _client.get_state(path=path)
 
 
 @init_global_client
 def get_resource(
     path: str,
     none_if_undefined: bool = False,
+    interpolated: bool = True
 ) -> dict | None:
     """Get resource from Windmill"""
-    return _client.get_resource(path, none_if_undefined)
+    return _client.get_resource(path, none_if_undefined, interpolated)
 
 
 @init_global_client
@@ -957,11 +1856,41 @@ def set_resource(path: str, value: Any, resource_type: str = "any") -> None:
 
 
 @init_global_client
-def set_state(value: Any) -> None:
+def list_resources(
+    resource_type: str = None,
+    page: int = None,
+    per_page: int = None,
+) -> list[dict]:
+    """List resources from Windmill workspace.
+    
+    Args:
+        resource_type: Optional resource type to filter by (e.g., "postgresql", "mysql", "s3")
+        page: Optional page number for pagination
+        per_page: Optional number of results per page
+        
+    Returns:
+        List of resource dictionaries
+        
+    Example:
+        >>> # Get all resources
+        >>> all_resources = wmill.list_resources()
+        
+        >>> # Get only PostgreSQL resources
+        >>> pg_resources = wmill.list_resources(resource_type="postgresql")
+    """
+    return _client.list_resources(
+        resource_type=resource_type,
+        page=page,
+        per_page=per_page,
+    )
+
+
+@init_global_client
+def set_state(value: Any, path: str | None = None) -> None:
     """
     Set the state
     """
-    return _client.set_state(value)
+    return _client.set_state(value, path=path)
 
 
 @init_global_client
@@ -1043,12 +1972,29 @@ def set_flow_user_state(key: str, value: Any) -> None:
 
 @init_global_client
 def get_state_path() -> str:
+    """Get the state resource path from environment.
+
+    Returns:
+        State path string
+    """
     return _client.state_path
 
 
 @init_global_client
-def get_resume_urls(approver: str = None) -> dict:
-    return _client.get_resume_urls(approver)
+def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict:
+    """Get URLs needed for resuming a flow after suspension.
+
+    Args:
+        approver: Optional approver name
+        flow_level: If True, generate resume URLs for the parent flow instead of the
+            specific step. This allows pre-approvals that can be consumed by any later
+            suspend step in the same flow.
+
+    Returns:
+        Dictionary with approvalPage, resume, and cancel URLs
+    """
+    return _client.get_resume_urls(approver, flow_level)
+
 
 @init_global_client
 def request_interactive_slack_approval(
@@ -1068,6 +2014,39 @@ def request_interactive_slack_approval(
         dynamic_enums_json=dynamic_enums_json,
     )
 
+
+@init_global_client
+def send_teams_message(
+    conversation_id: str, text: str, success: bool, card_block: dict = None
+):
+    """Send a message to a Microsoft Teams conversation.
+
+    Args:
+        conversation_id: Teams conversation ID
+        text: Message text
+        success: Whether to style as success message
+        card_block: Optional adaptive card block
+
+    Returns:
+        HTTP response from Teams
+    """
+    return _client.send_teams_message(conversation_id, text, success, card_block)
+
+
+@init_global_client
+def cancel_job(job_id: str, reason: str = None) -> str:
+    """Cancel a specific job by ID.
+
+    Args:
+        job_id: UUID of the job to cancel
+        reason: Optional reason for cancellation
+
+    Returns:
+        Response message from the cancel endpoint
+    """
+    return _client.cancel_job(job_id, reason)
+
+
 @init_global_client
 def cancel_running() -> dict:
     """Cancel currently running executions of the same script."""
@@ -1084,7 +2063,10 @@ def run_script(
     cleanup: bool = True,
     assert_result_is_not_none: bool = True,
 ) -> Any:
-    """Run script synchronously and return its result."""
+    """Run script synchronously and return its result.
+    
+    .. deprecated:: Use run_script_by_path or run_script_by_hash instead.
+    """
     return _client.run_script(
         path=path,
         hash_=hash_,
@@ -1097,6 +2079,58 @@ def run_script(
 
 
 @init_global_client
+def run_script_by_path(
+    path: str,
+    args: dict = None,
+    timeout: dt.timedelta | int | float = None,
+    verbose: bool = False,
+    cleanup: bool = True,
+    assert_result_is_not_none: bool = True,
+) -> Any:
+    """Run script by path synchronously and return its result."""
+    return _client.run_script_by_path(
+        path=path,
+        args=args,
+        verbose=verbose,
+        assert_result_is_not_none=assert_result_is_not_none,
+        cleanup=cleanup,
+        timeout=timeout,
+    )
+
+
+@init_global_client
+def run_script_by_hash(
+    hash_: str,
+    args: dict = None,
+    timeout: dt.timedelta | int | float = None,
+    verbose: bool = False,
+    cleanup: bool = True,
+    assert_result_is_not_none: bool = True,
+) -> Any:
+    """Run script by hash synchronously and return its result."""
+    return _client.run_script_by_hash(
+        hash_=hash_,
+        args=args,
+        verbose=verbose,
+        assert_result_is_not_none=assert_result_is_not_none,
+        cleanup=cleanup,
+        timeout=timeout,
+    )
+
+@init_global_client
+def run_inline_script_preview(
+    content: str,
+    language: str,
+    args: dict = None,
+) -> Any:
+    """Run a script on the current worker without creating a job"""
+    return _client.run_inline_script_preview(
+        content=content,
+        language=language,
+        args=args,
+    )
+
+@init_global_client
 def username_to_email(username: str) -> str:
     """
     Get email from workspace username
@@ -1106,51 +2140,849 @@ def username_to_email(username: str) -> str:
     return _client.username_to_email(username)
 
 
-def task(*args, **kwargs):
-    from inspect import signature
+@init_global_client
+def datatable(name: str = "main") -> DataTableClient:
+    """Get a DataTable client for SQL queries.
 
-    def f(func, tag: str | None = None):
-        if os.environ.get("WM_JOB_ID") is None or os.environ.get("MAIN_OVERRIDE") == func.__name__:
+    Args:
+        name: Database name (default: "main")
 
-            def inner(*args, **kwargs):
-                return func(*args, **kwargs)
+    Returns:
+        DataTableClient instance
+    """
+    return _client.datatable(name)
 
-            return inner
-        else:
+@init_global_client
+def ducklake(name: str = "main") -> DucklakeClient:
+    """Get a DuckLake client for DuckDB queries.
 
-            def inner(*args, **kwargs):
+    Args:
+        name: Database name (default: "main")
+
+    Returns:
+        DucklakeClient instance
+    """
+    return _client.ducklake(name)
+
+def parse_resource_syntax(s: str) -> Optional[str]:
+    """Parse resource syntax from string."""
+    if s is None:
+        return None
+    if s.startswith("$res:"):
+        return s[5:]
+    if s.startswith("res://"):
+        return s[6:]
+    return None
+
+def parse_s3_object(s3_object: S3Object | str) -> S3Object:
+    """Parse S3 object from string or S3Object format."""
+    if isinstance(s3_object, str):
+        match = re.match(r'^s3://([^/]*)/(.*)$', s3_object)
+        if match:
+            return S3Object(s3=match.group(2) or "", storage=match.group(1) or None)
+        return S3Object(s3="")
+    else:
+        return s3_object
+
+    
+
+def parse_variable_syntax(s: str) -> Optional[str]:
+    """Parse variable syntax from string."""
+    if s.startswith("var://"):
+        return s[6:]
+    return None
+
+
+def append_to_result_stream(text: str) -> None:
+    """Append a text to the result stream.
+    
+    Args:
+        text: text to append to the result stream
+    """
+    print("WM_STREAM: {}".format(text.replace(chr(10), '\\n')))
+
+def stream_result(stream) -> None:
+    """Stream to the result stream.
+    
+    Args:
+        stream: stream to stream to the result stream
+    """
+    for text in stream:
+        append_to_result_stream(text)
+
+class DataTableClient:
+    """Client for executing SQL queries against Windmill DataTables."""
+
+    def __init__(self, client: Windmill, name: str):
+        """Initialize DataTableClient.
+
+        Args:
+            client: Windmill client instance
+            name: DataTable name
+        """
+        self.client = client
+        self.name, self.schema = parse_sql_client_name(name)
+    def query(self, sql: str, *args) -> SqlQuery:
+        """Execute a SQL query against the DataTable.
+
+        Args:
+            sql: SQL query string with $1, $2, etc. placeholders
+            *args: Positional arguments to bind to query placeholders
+
+        Returns:
+            SqlQuery instance for fetching results
+        """
+        if self.schema is not None:
+            sql = f'SET search_path TO "{self.schema}";\n' + sql
+
+        args_dict = {}
+        args_def = ""
+        for i, arg in enumerate(args):
+            args_dict[f"arg{i+1}"] = arg
+            args_def += f"-- ${i+1} arg{i+1} ({infer_sql_type(arg)})\n"
+        sql = args_def + sql
+        return SqlQuery(
+            sql,
+            lambda sql: self.client.run_inline_script_preview(
+                content=sql,
+                language="postgresql",
+                args={"database": f"datatable://{self.name}", **args_dict},
+            )
+        )
+
+class DucklakeClient:
+    """Client for executing DuckDB queries against Windmill DuckLake."""
+
+    def __init__(self, client: Windmill, name: str):
+        """Initialize DucklakeClient.
+
+        Args:
+            client: Windmill client instance
+            name: DuckLake database name
+        """
+        self.client = client
+        self.name = name 
+
+    def query(self, sql: str, **kwargs):
+        """Execute a DuckDB query against the DuckLake database.
+
+        Args:
+            sql: SQL query string with $name placeholders
+            **kwargs: Named arguments to bind to query placeholders
+
+        Returns:
+            SqlQuery instance for fetching results
+        """
+        args_dict = {}
+        args_def = ""
+        for key, value in kwargs.items():
+            args_dict[key] = value
+            args_def += f"-- ${key} ({infer_sql_type(value)})\n"
+        attach = f"ATTACH 'ducklake://{self.name}' AS dl;USE dl;\n"
+        sql = args_def + attach + sql
+        return SqlQuery(
+            sql,
+            lambda sql: self.client.run_inline_script_preview(
+                content=sql,
+                language="duckdb",
+                args=args_dict,
+            )
+        )
+
+class SqlQuery:
+    """Query result handler for DataTable and DuckLake queries."""
+
+    def __init__(self, sql: str, fetch_fn):
+        """Initialize SqlQuery.
+
+        Args:
+            sql: SQL query string
+            fetch_fn: Function to execute the query
+        """
+        self.sql = sql
+        self.fetch_fn = fetch_fn
+
+    def fetch(self, result_collection: str | None = None):
+        """Execute query and fetch results.
+
+        Args:
+            result_collection: Optional result collection mode
+
+        Returns:
+            Query results
+        """
+        sql = self.sql
+        if result_collection is not None:
+            sql = f'-- result_collection={result_collection}\n{sql}'
+        return self.fetch_fn(sql)
+
+    def fetch_one(self):
+        """Execute query and fetch first row of results.
+
+        Returns:
+            First row of query results
+        """
+        return self.fetch(result_collection="last_statement_first_row")
+
+    def fetch_one_scalar(self):
+        """Execute query and fetch first row of results. Return result as a scalar value.
+
+        Returns:
+            First row of query result as a scalar value
+        """
+        return self.fetch(result_collection="last_statement_first_row_scalar")
+
+    def execute(self):
+        """Execute query and don't return any results.
+        """
+        self.fetch_one()
+
+def infer_sql_type(value) -> str:
+    """
+    DuckDB executor requires explicit argument types at declaration
+    These types exist in both DuckDB and Postgres
+    Check that the types exist if you plan to extend this function for other SQL engines.
+    """
+    if isinstance(value, bool):
+        # Check bool before int since bool is a subclass of int in Python
+        return "BOOLEAN"
+    elif isinstance(value, int):
+        return "BIGINT"
+    elif isinstance(value, float):
+        return "FLOAT8"
+    elif value is None:
+        return "TEXT"
+    elif isinstance(value, str):
+        return "TEXT"
+    elif isinstance(value, dict) or isinstance(value, list):
+        return "JSON"
+    else:
+        return "TEXT"
+
+def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]:
+    name = name
+    schema = None
+    if ":" in name:
+        name, schema = name.split(":", 1)
+    if not name:
+        name = "main"
+    return name, schema
+
+
+# ── Workflow-as-Code SDK ──────────────────────────────────────────────
+
+import asyncio as _asyncio
+import contextvars as _contextvars
+
+
+class _StepSuspend(BaseException):
+    """Raised to suspend workflow execution. Inherits from BaseException
+    so it is not caught by bare `except Exception:` blocks."""
+
+    def __init__(self, dispatch_info: dict):
+        self.dispatch_info = dispatch_info
+
+
+class TaskError(Exception):
+    """Raised when a WAC task step failed.
+
+    Attributes:
+        step_key: The checkpoint key of the failed step.
+        child_job_id: The UUID of the failed child job.
+        result: The error result from the child job.
+    """
+
+    def __init__(self, message: str, *, step_key: str = "", child_job_id: str = "", result=None):
+        super().__init__(message)
+        self.step_key = step_key
+        self.child_job_id = child_job_id
+        self.result = result
+
+
+_workflow_ctx: _contextvars.ContextVar["WorkflowCtx"] = _contextvars.ContextVar(
+    "_workflow_ctx"
+)
+
+
+class WorkflowCtx:
+    """Internal context for workflow replay/suspension.
+
+    Not user-facing — set implicitly by ``@workflow`` via contextvars.
+    """
+
+    def __init__(self, checkpoint: dict | None = None):
+        checkpoint = checkpoint or {}
+        self._completed: dict = checkpoint.get("completed_steps", {})
+        self._counters: dict[str, int] = {}
+        self._pending: list = []
+        self._executing_key: str | None = checkpoint.get("_executing_key")
+        # Reuse a single httpx.AsyncClient across all fast-path step() calls
+        # in this workflow invocation. Instantiating a fresh client per call
+        # allocates a new connection pool each time — on localhost this adds
+        # ~15ms per step, dominating the end-to-end cost. Lazily built so no
+        # client is created for workflows that never hit the fast path.
+        self._inline_http_client: "httpx.AsyncClient | None" = None
+        # Serializes fast-path POSTs across concurrent step() calls within
+        # one workflow invocation. Wraps only the HTTP call, not fn() — so
+        # `asyncio.gather(step("a", fn_a), step("b", fn_b))` still runs the
+        # two fn() bodies in parallel, only the API requests are ordered.
+        # This closes the first-write race window against `SELECT FOR UPDATE`
+        # on a not-yet-created `v2_job_status` row: concurrent POSTs would
+        # both see None and both overwrite each other's checkpoint because
+        # the helper writes the whole serialized `_checkpoint` object, not
+        # a single `completed_steps[key]`. Lazily built so the ctx can be
+        # constructed outside an event loop (tests do this).
+        self._inline_lock: "_asyncio.Lock | None" = None
+
+    def _alloc_key(self, name: str = "step") -> str:
+        """Name-based key: ``double`` for first call, ``double_2``, ``double_3`` for subsequent."""
+        n = self._counters.get(name, 0) + 1
+        self._counters[name] = n
+        return name if n == 1 else f"{name}_{n}"
+
+    def _next_step(self, name: str, script: str, func=None, dispatch_type: str = "inline", _task_options: Optional[dict] = None, **kwargs):
+        """Return an awaitable that either resolves from cache or suspends."""
+        key = self._alloc_key(name or script or "step")
+
+        if key in self._completed:
+            val = self._completed[key]
+            if isinstance(val, dict) and val.get("__wmill_error"):
+                raise TaskError(
+                    val.get("message", f"Task '{name}' failed"),
+                    step_key=val.get("step_key", ""),
+                    child_job_id=val.get("child_job_id", ""),
+                    result=val.get("result"),
+                )
+            return self._resolved(val)
+
+        if self._executing_key is not None:
+            if key == self._executing_key:
+                return self._execute_directly(func, **kwargs)
+            else:
+                return self._never_resolve()
+
+        print(f"\n--- WAC: {key} ---")
+        info = {"name": name or key, "script": script or key, "args": kwargs, "key": key, "dispatch_type": dispatch_type}
+        if _task_options:
+            for opt_key in ("timeout", "tag", "cache_ttl", "priority", "concurrent_limit", "concurrency_key", "concurrency_time_window_s"):
+                if opt_key in _task_options and _task_options[opt_key] is not None:
+                    info[opt_key] = _task_options[opt_key]
+        self._pending.append(info)
+        return self._suspend()
+
+    async def _resolved(self, value):
+        return value
+
+    async def _execute_directly(self, func, **kwargs):
+        result = func(**kwargs)
+        if _asyncio.iscoroutine(result):
+            result = await result
+        raise _StepSuspend({"mode": "step_complete", "steps": [], "result": result})
+
+    async def _never_resolve(self):
+        await _asyncio.Future()
+
+    async def _suspend(self):
+        steps = list(self._pending)
+        self._pending.clear()
+        raise _StepSuspend(
+            {
+                "mode": "parallel" if len(steps) > 1 else "sequential",
+                "steps": steps,
+            }
+        )
+
+    async def _wait_for_approval(
+        self, timeout: int = 1800, form: dict | None = None, self_approval: bool = True
+    ):
+        key = self._alloc_key("approval")
+
+        if key in self._completed:
+            return self._completed[key]
+
+        if self._executing_key is not None:
+            await _asyncio.Future()
+
+        print(f"\n--- WAC: wait_for_approval({key}) ---")
+        raise _StepSuspend({
+            "mode": "approval",
+            "key": key,
+            "timeout": timeout,
+            "form": form,
+            "self_approval_disabled": not self_approval,
+            "steps": [],
+        })
+
+    async def _sleep(self, seconds: int):
+        key = self._alloc_key("sleep")
+
+        if key in self._completed:
+            return
+
+        if self._executing_key is not None:
+            await _asyncio.Future()
+
+        print(f"\n--- WAC: sleep({key}, {seconds}s) ---")
+        raise _StepSuspend({
+            "mode": "sleep",
+            "key": key,
+            "seconds": max(1, int(seconds)),
+            "steps": [],
+        })
+
+    async def _run_inline_step(self, name: str, fn):
+        import json as _json_mod
+        import time as _time_mod
+        from datetime import datetime as _dt, timezone as _tz
+
+        key = self._alloc_key(name or "step")
+
+        if key in self._completed:
+            val = self._completed[key]
+            if isinstance(val, dict) and val.get("__wmill_error"):
+                raise TaskError(
+                    val.get("message", f"Step '{name}' failed"),
+                    step_key=val.get("step_key", ""),
+                    child_job_id=val.get("child_job_id", ""),
+                    result=val.get("result"),
+                )
+            return val
+
+        if self._executing_key is not None:
+            await _asyncio.Future()
+
+        print(f"\n--- WAC: {key} ---")
+        started_at = _dt.now(_tz.utc).isoformat()
+        print(f"WM_WAC_STEP: {_json_mod.dumps({'key': key, 'started_at': started_at})}")
+        t0 = _time_mod.monotonic()
+        result = fn()
+        if _asyncio.iscoroutine(result):
+            result = await result
+        duration_ms = int((_time_mod.monotonic() - t0) * 1000)
+
+        # Fast path: POST the delta to the new per-job API endpoint and return
+        # the result directly, letting the workflow subprocess continue into
+        # the next step() without unwinding. On any failure — network, auth,
+        # timeout, source-hash mismatch, old backend without the endpoint —
+        # fall through to raising _StepSuspend so the worker takes the legacy
+        # suspend-and-replay path. Gated by WM_WAC_INLINE_FAST_PATH (default
+        # on) so the old behavior stays reachable for A/B testing and rollback.
+        _fast_path_flag = os.environ.get("WM_WAC_INLINE_FAST_PATH", "1").strip().lower()
+        _fast_path_enabled = _fast_path_flag not in ("0", "false", "off", "no")
+        _job_id = os.environ.get("WM_JOB_ID")
+        _workspace = os.environ.get("WM_WORKSPACE")
+        _base = os.environ.get("BASE_INTERNAL_URL")
+        _token = os.environ.get("WM_TOKEN")
+        if _fast_path_enabled and _job_id and _workspace and _base and _token:
+            try:
+                if self._inline_lock is None:
+                    self._inline_lock = _asyncio.Lock()
+                # Lock wraps only the POST, not fn() above — concurrent
+                # step() calls run fn() in parallel, then serialize on
+                # the API request.
+                async with self._inline_lock:
+                    if self._inline_http_client is None:
+                        self._inline_http_client = httpx.AsyncClient(
+                            timeout=httpx.Timeout(10.0),
+                            headers={
+                                "Authorization": f"Bearer {_token}",
+                                "Content-Type": "application/json",
+                            },
+                        )
+                    _resp = await self._inline_http_client.post(
+                        f"{_base}/api/w/{_workspace}/jobs/wac/inline_checkpoint/{_job_id}",
+                        json={
+                            "key": key,
+                            "result": result,
+                            "started_at": started_at,
+                            "duration_ms": duration_ms,
+                        },
+                    )
+                    _resp.raise_for_status()
+                return result
+            except Exception as _e:
+                logger.info(
+                    "WAC v2 inline fast path failed for key %s, falling back to suspend: %s",
+                    key,
+                    _e,
+                )
+                # fall through to the legacy suspend path
+
+        raise _StepSuspend({
+            "mode": "inline_checkpoint",
+            "steps": [],
+            "key": key,
+            "result": result,
+            "started_at": started_at,
+            "duration_ms": duration_ms,
+        })
+
+
+def task(
+    _func=None,
+    *,
+    path: Optional[str] = None,
+    tag: Optional[str] = None,
+    timeout: Optional[int] = None,
+    cache_ttl: Optional[int] = None,
+    priority: Optional[int] = None,
+    concurrency_limit: Optional[int] = None,
+    concurrency_key: Optional[str] = None,
+    concurrency_time_window_s: Optional[int] = None,
+):
+    """Decorator that marks a function as a workflow task.
+
+    Works in both WAC v1 (sync, HTTP-based dispatch) and WAC v2
+    (async, checkpoint/replay) modes:
+
+    - **v2 (inside @workflow)**: dispatches as a checkpoint step.
+    - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
+    - **Standalone**: executes the function body directly.
+
+    Usage::
+
+        @task
+        async def extract_data(url: str): ...
+
+        @task(path="f/external_script", timeout=600, tag="gpu")
+        async def run_external(x: int): ...
+    """
+    from inspect import signature as _sig
+
+    _task_opts = {
+        "timeout": timeout,
+        "tag": tag,
+        "cache_ttl": cache_ttl,
+        "priority": priority,
+        "concurrent_limit": concurrency_limit,
+        "concurrency_key": concurrency_key,
+        "concurrency_time_window_s": concurrency_time_window_s,
+    }
+    # Remove None values
+    _task_opts = {k: v for k, v in _task_opts.items() if v is not None} or None
+
+    def decorator(func) -> Callable[..., Any]:
+        task_path = path
+        task_name = func.__name__
+
+        _params_list = list(_sig(func).parameters)
+
+        def _merge_args(args, kwargs):
+            merged = dict(kwargs)
+            for i, arg in enumerate(args):
+                if i < len(_params_list):
+                    key = _params_list[i]
+                    if key not in merged:
+                        merged[key] = arg
+                else:
+                    merged[f"arg{i}"] = arg
+            return merged
+
+        def wrapper(*args, **kwargs):
+            # WAC v2: inside a @workflow context
+            ctx = _workflow_ctx.get(None)
+            if ctx is not None:
+                script = task_path if task_path else task_name
+                merged = _merge_args(args, kwargs)
+                return ctx._next_step(task_name, script, func, _task_options=_task_opts, **merged)
+
+            # WAC v1: running inside a Windmill job but not in a @workflow
+            if (
+                os.environ.get("WM_JOB_ID") is not None
+                and os.environ.get("MAIN_OVERRIDE") != func.__name__
+            ):
                 global _client
                 if _client is None:
                     _client = Windmill()
                 w_id = os.environ.get("WM_WORKSPACE")
                 job_id = os.environ.get("WM_JOB_ID")
-                f_name = func.__name__
-                json = kwargs
-                params = list(signature(func).parameters)
-                for i, arg in enumerate(args):
-                    if i < len(params):
-                        p = params[i]
-                        key = p
-                        if key not in kwargs:
-                            json[key] = arg
-
-                params = {}
+                json_args = _merge_args(args, kwargs)
+                api_params = {}
                 if tag is not None:
-                    params["tag"] = tag
-                r = _client.post(
-                    f"/w/{w_id}/jobs/run/workflow_as_code/{job_id}/{f_name}",
-                    json={"args": json},
-                    params=params,
+                    api_params["tag"] = tag
+                resp = _client.post(
+                    f"/w/{w_id}/jobs/run/workflow_as_code/{job_id}/{func.__name__}",
+                    json={"args": json_args},
+                    params=api_params,
                 )
-                job_id = r.text
-                print(f"Executing task {func.__name__} on job {job_id}")
-                r = _client.wait_job(job_id)
-                print(f"Task {func.__name__} ({job_id}) completed")
-                return r
+                child_job_id = resp.text
+                print(f"Executing task {func.__name__} on job {child_job_id}")
+                job_result = _client.wait_job(child_job_id)
+                print(f"Task {func.__name__} ({child_job_id}) completed")
+                return job_result
 
-            return inner
+            # Standalone — execute directly
+            return func(*args, **kwargs)
 
-    if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
-        return f(args[0], None)
-    else:
-        return lambda x: f(x, kwargs.get("tag"))
+        wrapper._is_task = True
+        wrapper._task_path = task_path
+        return wrapper
+
+    if _func is not None:
+        # @task without parentheses
+        return decorator(_func)
+    # @task() or @task(path="...", tag="...")
+    return decorator
+
+
+def task_script(
+    path: str,
+    *,
+    timeout: Optional[int] = None,
+    tag: Optional[str] = None,
+    cache_ttl: Optional[int] = None,
+    priority: Optional[int] = None,
+    concurrency_limit: Optional[int] = None,
+    concurrency_key: Optional[str] = None,
+    concurrency_time_window_s: Optional[int] = None,
+):
+    """Create a task that dispatches to a separate Windmill script.
+
+    Usage::
+
+        extract = task_script("f/data/extract", timeout=600)
+
+        @workflow
+        async def main():
+            data = await extract(url="https://...")
+    """
+    name = path.rsplit("/", 1)[-1]
+    _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s}.items() if v is not None} or None
+
+    def wrapper(**kwargs):
+        ctx = _workflow_ctx.get(None)
+        if ctx is not None:
+            return ctx._next_step(name, path, dispatch_type="script", _task_options=_opts, **kwargs)
+        raise RuntimeError(f'task_script("{path}") can only be called inside a @workflow')
+
+    wrapper.__name__ = name
+    wrapper._is_task = True
+    wrapper._task_path = path
+    return wrapper
+
+
+def task_flow(
+    path: str,
+    *,
+    timeout: Optional[int] = None,
+    tag: Optional[str] = None,
+    cache_ttl: Optional[int] = None,
+    priority: Optional[int] = None,
+    concurrency_limit: Optional[int] = None,
+    concurrency_key: Optional[str] = None,
+    concurrency_time_window_s: Optional[int] = None,
+):
+    """Create a task that dispatches to a separate Windmill flow.
+
+    Usage::
+
+        pipeline = task_flow("f/etl/pipeline", priority=10)
+
+        @workflow
+        async def main():
+            result = await pipeline(input=data)
+    """
+    name = path.rsplit("/", 1)[-1]
+    _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s}.items() if v is not None} or None
+
+    def wrapper(**kwargs):
+        ctx = _workflow_ctx.get(None)
+        if ctx is not None:
+            return ctx._next_step(name, path, dispatch_type="flow", _task_options=_opts, **kwargs)
+        raise RuntimeError(f'task_flow("{path}") can only be called inside a @workflow')
+
+    wrapper.__name__ = name
+    wrapper._is_task = True
+    wrapper._task_path = path
+    return wrapper
+
+
+def workflow(func):
+    """Decorator marking an async function as a workflow-as-code entry point.
+
+    The function must be **deterministic**: given the same inputs it must call
+    tasks in the same order on every replay. Branching on task results is fine
+    (results are replayed from checkpoint), but branching on external state
+    (current time, random values, external API calls) must use ``step()`` to
+    checkpoint the value so replays see the same result.
+    """
+    func._is_workflow = True
+    return func
+
+
+async def step(name: str, fn):
+    """Execute ``fn`` inline and checkpoint the result.
+
+    On replay the cached value is returned without re-executing ``fn``.
+    Use for lightweight deterministic operations (timestamps, random IDs,
+    config reads) that should not incur the overhead of a child job.
+    """
+    ctx: WorkflowCtx | None = _workflow_ctx.get(None)
+    if ctx is not None:
+        return await ctx._run_inline_step(name, fn)
+    result = fn()
+    if _asyncio.iscoroutine(result):
+        result = await result
+    return result
+
+
+async def sleep(seconds: int):
+    """Server-side sleep — suspend the workflow for the given duration without holding a worker.
+
+    Inside a @workflow, the parent job suspends and auto-resumes after ``seconds``.
+    Outside a workflow, falls back to ``asyncio.sleep``.
+    """
+    ctx: WorkflowCtx | None = _workflow_ctx.get(None)
+    if ctx is not None:
+        return await ctx._sleep(seconds)
+    await _asyncio.sleep(seconds)
+
+
+async def wait_for_approval(
+    timeout: int = 1800,
+    form: dict | None = None,
+    self_approval: bool = True,
+) -> dict:
+    """Suspend the workflow and wait for an external approval.
+
+    Use ``get_resume_urls()`` (wrapped in ``step()``) to obtain
+    resume/cancel/approval URLs before calling this function.
+
+    Returns a dict with ``value`` (form data), ``approver``, and ``approved``.
+
+    Args:
+        timeout: Approval timeout in seconds (default 1800).
+        form: Optional form schema for the approval page.
+        self_approval: Whether the user who triggered the flow can approve it (default True).
+
+    Example::
+
+        urls = await step("urls", lambda: get_resume_urls())
+        await step("notify", lambda: send_email(urls["approvalPage"]))
+        result = await wait_for_approval(timeout=3600)
+    """
+    ctx: WorkflowCtx | None = _workflow_ctx.get(None)
+    if ctx is not None:
+        return await ctx._wait_for_approval(timeout=timeout, form=form, self_approval=self_approval)
+    raise RuntimeError("wait_for_approval can only be called inside a @workflow")
+
+
+async def parallel(items, fn, *, concurrency: Optional[int] = None):
+    """Process items in parallel with optional concurrency control.
+
+    Each item is processed by calling ``fn(item)``, which should be a @task.
+    Items are dispatched in batches of ``concurrency`` (default: all at once).
+
+    Example::
+
+        @task
+        async def process(item: str):
+            ...
+
+        results = await parallel(items, process, concurrency=5)
+    """
+    if not items:
+        return []
+    batch_size = concurrency if concurrency and concurrency > 0 else len(items)
+    results = []
+    for i in range(0, len(items), batch_size):
+        batch = items[i : i + batch_size]
+        batch_results = await _asyncio.gather(*(fn(item) for item in batch))
+        results.extend(batch_results)
+    return results
+
+
+async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
+    ctx = WorkflowCtx(checkpoint)
+    token = _workflow_ctx.set(ctx)
+    try:
+        result = await func(**input_args)
+        # Flush any unawaited tasks (e.g. forgotten await on last statement)
+        if ctx._pending:
+            steps = list(ctx._pending)
+            ctx._pending.clear()
+            return {
+                "type": "dispatch",
+                "mode": "parallel" if len(steps) > 1 else "sequential",
+                "steps": steps,
+            }
+        return {"type": "complete", "result": result}
+    except _StepSuspend as e:
+        info = e.dispatch_info
+        mode = info.get("mode")
+        if mode == "step_complete":
+            return {"type": "complete", "result": info.get("result")}
+        if mode == "inline_checkpoint":
+            out = {
+                "type": "inline_checkpoint",
+                "key": info["key"],
+                "result": info.get("result"),
+            }
+            if "started_at" in info:
+                out["started_at"] = info["started_at"]
+            if "duration_ms" in info:
+                out["duration_ms"] = info["duration_ms"]
+            return out
+        if mode == "approval":
+            return {
+                "type": "approval",
+                "key": info["key"],
+                "timeout": info.get("timeout"),
+                "form": info.get("form"),
+            }
+        if mode == "sleep":
+            return {
+                "type": "sleep",
+                "key": info["key"],
+                "seconds": info.get("seconds"),
+            }
+        return {"type": "dispatch", **info}
+    finally:
+        # Close the lazily-built fast-path httpx client so we don't emit
+        # asyncio ResourceWarning('unclosed transport') on shutdown and don't
+        # leak connection pools when this coroutine is driven from a
+        # long-lived loop (tests, REPL, embedded callers).
+        #
+        # Wrapped in its own try/finally so that asyncio.CancelledError
+        # (which is a BaseException since Python 3.8) during aclose() does
+        # not skip the _workflow_ctx.reset(token) below.
+        try:
+            if ctx._inline_http_client is not None:
+                try:
+                    await ctx._inline_http_client.aclose()
+                except Exception:
+                    pass
+                ctx._inline_http_client = None
+        finally:
+            _workflow_ctx.reset(token)
+
+
+def _run_workflow(func, checkpoint: dict, input_args: dict):
+    """Synchronous wrapper that runs the workflow coroutine to completion
+    or until it suspends."""
+    return _asyncio.run(_run_workflow_async(func, checkpoint, input_args))
+
+
+@init_global_client
+def commit_kafka_offsets(
+    trigger_path: str,
+    topic: str,
+    partition: int,
+    offset: int,
+) -> None:
+    """Commit Kafka offsets for a trigger with auto_commit disabled.
+
+    Args:
+        trigger_path: Path to the Kafka trigger (from event['wm_trigger']['trigger_path'])
+        topic: Kafka topic name (from event['topic'])
+        partition: Partition number (from event['partition'])
+        offset: Message offset to commit (from event['offset'])
+    """
+    _client.post(
+        f"/w/{_client.workspace}/kafka_triggers/commit_offsets/{trigger_path}",
+        json={
+            "topic": topic,
+            "partition": partition,
+            "offset": offset,
+        },
+    )

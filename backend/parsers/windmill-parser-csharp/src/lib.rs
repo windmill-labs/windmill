@@ -7,7 +7,7 @@ use anyhow::anyhow;
 use tree_sitter::Node;
 use windmill_parser::Arg;
 use windmill_parser::MainArgSignature;
-use windmill_parser::Typ;
+use windmill_parser::{ObjectType, Typ};
 
 #[derive(Debug)]
 pub struct CsharpMainSigMeta {
@@ -37,7 +37,11 @@ pub fn parse_csharp_sig_meta(code: &str) -> anyhow::Result<CsharpMainSigMeta> {
 
     // Traverse the AST to find the Main method signature
     let main_sig = find_main_signature(root_node, code);
-    let no_main_func = Some(main_sig.is_none());
+    let auto_kind = if main_sig.is_none() {
+        Some("lib".to_string())
+    } else {
+        None
+    };
     let mut is_async = false;
     let mut is_public = false;
     let mut returns_void = false;
@@ -73,7 +77,7 @@ pub fn parse_csharp_sig_meta(code: &str) -> anyhow::Result<CsharpMainSigMeta> {
                         }
                     }
                     let (otyp, typ, name) = parse_csharp_typ(p_list_node, code)?;
-                    args.push(Arg { name, otyp, typ, default, has_default: false, oidx: None });
+                    args.push(Arg { name, otyp, typ, default, has_default: false, oidx: None, otyp_inferred: false });
                 }
             }
         }
@@ -84,7 +88,8 @@ pub fn parse_csharp_sig_meta(code: &str) -> anyhow::Result<CsharpMainSigMeta> {
         star_kwargs: false,
         args,
         has_preprocessor: None,
-        no_main_func,
+        auto_kind,
+        ..Default::default()
     };
 
     Ok(CsharpMainSigMeta { is_async, returns_void, class_name, main_sig, is_public })
@@ -112,7 +117,7 @@ fn find_typ<'a>(typ_node: Node<'a>, code: &str) -> anyhow::Result<Typ> {
                 Ok("double") | Ok("System.Double") => Ok(Typ::Float),
                 Ok("bool") | Ok("System.Boolean") => Ok(Typ::Bool),
                 Ok("decimal") | Ok("System.Decimal") => Ok(Typ::Float),
-                Ok("object") => Ok(Typ::Object(vec![])), // TODO: Complete the object type
+                Ok("object") => Ok(Typ::Object(ObjectType::new(None, Some(vec![])))), // TODO: Complete the object type
                 Ok(s) => Err(anyhow!("Unknown type `{s}`")),
                 Err(e) => Err(anyhow!("Error getting type name: {}", e)),
             }

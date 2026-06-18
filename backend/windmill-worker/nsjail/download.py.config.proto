@@ -5,10 +5,21 @@ hostname: "python"
 log_level: ERROR
 time_limit: 900
 
-rlimit_as: 2048
+# uv's --compile-bytecode spawns a bytecode-compile thread pool sized to the
+# host's CPU count. Each thread reserves virtual address space for its stack, so
+# on high-core machines the aggregate overruns a low rlimit_as and installs fail
+# intermittently with "OS can't spawn worker thread: Resource temporarily
+# unavailable (os error 11)" / "memory allocation failed". A low cap (was 2048)
+# is the address-space companion to the fd exhaustion fixed below; raised well
+# above the run sandbox's 4096 to give the compile pool headroom on large nodes.
+rlimit_as: 8192
 rlimit_cpu: 1000
 rlimit_fsize: 1024
-rlimit_nofile: 64
+# uv's --compile-bytecode spawns a Python interpreter that compiles .py files
+# with parallelism scaling to the host's CPU count, opening many fds at once.
+# A low cap (was 64) is exhausted on high-core machines -> "Too many open files".
+# Matches the runtime configs (run.python3/run.ansible) which already use 10000.
+rlimit_nofile: 10000
 
 envar: "HOME=/user"
 envar: "LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH"
@@ -18,9 +29,11 @@ cwd: "/tmp"
 clone_newnet: false
 clone_newuser: {CLONE_NEWUSER}
 
+skip_setsid: true
 keep_caps: true
 keep_env: true
 mount_proc: true
+
 
 mount {
     src: "/bin"
@@ -53,6 +66,30 @@ mount {
 	is_bind: true
 }
 
+# Container runtimes bind exactly these 3 files as separate submounts over
+# /etc; nsjail's ro remount of /etc is non-recursive so they stay writable.
+# Load-bearing -- do not remove as redundant with the /etc bind above.
+mount {
+    src: "/etc/resolv.conf"
+    dst: "/etc/resolv.conf"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/etc/hosts"
+    dst: "/etc/hosts"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/etc/hostname"
+    dst: "/etc/hostname"
+    is_bind: true
+    mandatory: false
+}
+
 mount {
 	src: "/dev/null"
 	dst: "/dev/null"
@@ -60,12 +97,7 @@ mount {
 	rw: true
 }
 
-mount {
-	dst: "/tmp"
-	fstype: "tmpfs"
-	rw: true
-    options: "size=500000000"
-}
+{TMP_MOUNT_BLOCK}
 
 
 mount {
@@ -75,11 +107,12 @@ mount {
 }
 
 mount {
-    src: "{CACHE_DIR}"
-    dst: "{CACHE_DIR}"
+    src: "{TARGET_DIR}"
+    dst: "{TARGET_DIR}"
     is_bind: true
     rw: true
 }
+
 mount {
     src: "{PY_INSTALL_DIR}"
     dst: "{PY_INSTALL_DIR}"
@@ -96,4 +129,13 @@ exec_bin {
  	path: "/bin/sh"
  	arg: "/download_deps.sh"
 }
+
+mount {
+    src: "{TRACING_PROXY_CA_CERT_PATH}"
+    dst: "{TRACING_PROXY_CA_CERT_PATH}"
+    is_bind: true
+    mandatory: false
+}
+
+#{DEV}
 

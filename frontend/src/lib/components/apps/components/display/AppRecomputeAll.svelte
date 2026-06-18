@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import {
 		type AppViewerContext,
@@ -14,27 +14,54 @@
 	import RecomputeAllWrapper from '../../editor/RecomputeAllWrapper.svelte'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 
-	export let id: string
-	export let initializing: boolean | undefined = false
-	export let customCss: ComponentCustomCSS<'jobiddisplaycomponent'> | undefined = undefined
-	export let configuration: RichConfigurations
-	export let render: boolean
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
+	interface Props {
+		id: string
+		initializing?: boolean | undefined
+		customCss?: ComponentCustomCSS<'jobiddisplaycomponent'> | undefined
+		configuration: RichConfigurations
+		render: boolean
+		horizontalAlignment?: 'left' | 'center' | 'right' | undefined
+	}
 
-	const { app, worldStore, policy } = getContext<AppViewerContext>('AppViewerContext')
+	let {
+		id,
+		initializing = $bindable(undefined),
+		customCss = undefined,
+		configuration,
+		render,
+		horizontalAlignment = undefined
+	}: Props = $props()
 
-	let resolvedConfig = initConfig(
-		components['recomputeallcomponent'].initialData.configuration,
-		configuration
+	const { app, worldStore, policy, recomputeAllContext } =
+		getContext<AppViewerContext>('AppViewerContext')
+
+	let resolvedConfig = $state(
+		initConfig(components['recomputeallcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	initOutput($worldStore, id, {
+	initOutput($worldStore, untrack(() => id), {
 		loading: undefined
 	})
 
 	initializing = false
 
-	let css = initCss($app.css?.recomputeallcomponent, customCss)
+	let css = $state(initCss($app.css?.recomputeallcomponent, untrack(() => customCss)))
+
+	function handleRefreshInterval() {
+		if (resolvedConfig.defaultRefreshInterval !== undefined) {
+			const newInterval =
+				typeof resolvedConfig.defaultRefreshInterval === 'number'
+					? resolvedConfig.defaultRefreshInterval * 1000
+					: parseInt(resolvedConfig.defaultRefreshInterval) * 1000
+
+			if (newInterval !== $recomputeAllContext.interval && newInterval) {
+				$recomputeAllContext.setInter?.(newInterval)
+			}
+		}
+	}
+	$effect(() => {
+		resolvedConfig.defaultRefreshInterval && untrack(() => handleRefreshInterval())
+	})
 </script>
 
 {#each Object.keys(components['recomputeallcomponent'].initialData.configuration) as key (key)}

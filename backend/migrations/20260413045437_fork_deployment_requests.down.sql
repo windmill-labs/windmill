@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS workspace_fork_deployment_request_comment;
+DROP TABLE IF EXISTS workspace_fork_deployment_request_assignee;
+DROP TABLE IF EXISTS workspace_fork_deployment_request;

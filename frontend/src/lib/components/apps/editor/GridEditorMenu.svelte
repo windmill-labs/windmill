@@ -1,7 +1,8 @@
-<script context="module" lang="ts">
+<script module lang="ts">
 	import { writable } from 'svelte/store'
 	import Popover from '../../Popover.svelte'
 
+	import { handleCut, handleCopy } from './component/componentCallbacks.svelte'
 	interface ContextMenuRegistry {
 		id: string
 		close: () => void
@@ -24,7 +25,6 @@
 		Scissors,
 		Trash
 	} from 'lucide-svelte'
-	import ComponentCallbacks from './component/ComponentCallbacks.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
 	import DeleteComponent from './settingsPanel/DeleteComponent.svelte'
@@ -34,12 +34,9 @@
 
 	import { twMerge } from 'tailwind-merge'
 
-	let contextMenuVisible = false
-	let menuX = 0
-	let menuY = 0
-
-	export let locked: boolean = false
-	export let fullHeight: boolean = false
+	let contextMenuVisible = $state(false)
+	let menuX = $state(0)
+	let menuY = $state(0)
 
 	function handleRightClick(event: MouseEvent) {
 		event.preventDefault()
@@ -69,21 +66,39 @@
 		}
 	}
 
-	export let id: string
-	let componentCallbacks: ComponentCallbacks | undefined = undefined
+	interface Props {
+		locked?: boolean
+		fullHeight?: boolean
+		id: string
+		children?: import('svelte').Snippet
+	}
 
-	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
-	const { movingcomponents, stylePanel } = getContext<AppEditorContext>('AppEditorContext')
+	let { locked = false, fullHeight = false, id, children }: Props = $props()
 
+	const { selectedComponent, focusedGrid, componentControl, app } = getContext<AppViewerContext>(
+		'AppViewerContext'
+	) as AppViewerContext
+	const { movingcomponents, stylePanel, jobsDrawerOpen, history } = getContext<AppEditorContext>(
+		'AppEditorContext'
+	) as AppEditorContext
+	const ctx = {
+		history,
+		app,
+		selectedComponent,
+		focusedGrid,
+		componentControl,
+		movingcomponents,
+		jobsDrawerOpen
+	}
 	const dispatch = createEventDispatcher()
 
-	let deleteComponent: DeleteComponent | undefined = undefined
+	let deleteComponent: DeleteComponent | undefined = $state(undefined)
 
 	const menuItems = [
 		{
 			label: () => 'Cut',
 			onClick: () => {
-				componentCallbacks?.handleCut(new KeyboardEvent('keydown'))
+				handleCut(new KeyboardEvent('keydown'), ctx)
 			},
 			icon: Scissors,
 			shortcut: `${getModifierKey()}X`,
@@ -92,7 +107,7 @@
 		{
 			label: () => 'Copy',
 			onClick: () => {
-				componentCallbacks?.handleCopy(new KeyboardEvent('keydown'))
+				handleCopy(new KeyboardEvent('keydown'), ctx)
 			},
 			icon: Copy,
 			shortcut: `${getModifierKey()}C`
@@ -155,26 +170,25 @@
 	]
 </script>
 
-<ComponentCallbacks bind:this={componentCallbacks} />
 <DeleteComponent bind:this={deleteComponent} />
 
-<svelte:window on:click={handleClickOutside} />
+<svelte:window onclick={handleClickOutside} />
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<!-- svelte-ignore a11y-no-static-element-interactions -->
-<div on:click={closeContextMenu} on:contextmenu={handleRightClick} class="h-full w-full">
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<slot />
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div onclick={closeContextMenu} oncontextmenu={handleRightClick} class="h-full w-full">
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	{@render children?.()}
 
 	{#if contextMenuVisible}
 		<Portal name="grid-editor">
 			<div style="position: fixed; top: {menuY}px; left: {menuX}px; z-index:6000;">
 				<div class="rounded-md bg-surface border shadow-md divide-y w-64">
 					<div class="p-1" use:clickOutside={false}>
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
 						{#each menuItems as item}
-							<!-- svelte-ignore a11y-no-static-element-interactions -->
-							<!-- svelte-ignore a11y-click-events-have-key-events -->
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<!-- svelte-ignore a11y_click_events_have_key_events -->
 
 							<Popover
 								notClickable
@@ -183,8 +197,8 @@
 								disablePopup={!item.tooltip}
 								appearTimeout={800}
 							>
-								<svelte:fragment slot="text"
-									>{item.tooltip?.text}
+								{#snippet text()}
+									{item.tooltip?.text}
 									{#if item.tooltip?.link}
 										<a href={item.tooltip.link} target="_blank" class="text-blue-300 text-xs">
 											<div class="flex flex-row gap-2 mt-4">
@@ -192,8 +206,8 @@
 												<ExternalLink size="16" />
 											</div>
 										</a>
-									{/if}</svelte:fragment
-								>
+									{/if}
+								{/snippet}
 
 								<button
 									class={twMerge(
@@ -203,14 +217,13 @@
 										item.color === 'blue' && 'text-blue-500',
 										item.disabled && 'opacity-50 cursor-not-allowed'
 									)}
-									on:click={() => {
+									onclick={() => {
 										item.onClick()
 										closeContextMenu()
 									}}
 									disabled={item.disabled}
 								>
-									<!-- svelte-ignore missing-declaration -->
-									<svelte:component this={item.icon} class="w-4 h-4" />
+									<item.icon class="w-4 h-4" />
 
 									<span class="ml-2 text-xs">{item.label()}</span>
 									{#if item.shortcut}

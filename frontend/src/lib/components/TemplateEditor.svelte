@@ -1,24 +1,39 @@
+<script module>
+	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+	import {
+		javascriptDefaults,
+		getJavaScriptWorker
+	} from '@codingame/monaco-vscode-standalone-typescript-language-features'
+</script>
+
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 	import {
 		convertKind,
 		createDocumentationString,
-		createHash,
 		displayPartsToString,
 		editorConfig,
+		registerWebviewPaste,
 		updateOptions
 	} from '$lib/editorUtils'
+	import { editorFontSize } from '$lib/editorFontSize.svelte'
+	import { createHash } from '$lib/editorLangUtils'
+
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import { editor as meditor, Uri as mUri, languages, Range, KeyMod, KeyCode } from 'monaco-editor'
-	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
 	import type { AppViewerContext } from './apps/types'
 	import { writable } from 'svelte/store'
-	import '@codingame/monaco-vscode-standalone-languages'
-	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+	// import '@codingame/monaco-vscode-standalone-languages'
 
-	import { initializeVscode } from './vscode'
+	// import '@codingame/monaco-vscode-standalone-typescript-language-features'
+
+	import { initializeVscode, MONACO_Y_PADDING } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
-	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
+	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
+	import { setMonacoJsonOptions } from './monacoLanguagesOptions'
+	import { inputBorderClass } from './text_input/TextInput.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export const conf = {
 		wordPattern:
@@ -349,8 +364,9 @@
 		}
 	}
 
-	let divEl: HTMLDivElement | null = null
-	let editor: meditor.IStandaloneCodeEditor
+	let divEl: HTMLDivElement | null = $state(null)
+	let editor: meditor.IStandaloneCodeEditor | undefined = $state(undefined)
+	let pasteCleanup: (() => void) | undefined = undefined
 	let model: meditor.ITextModel
 
 	const { componentControl, selectedComponent } = getContext<AppViewerContext>(
@@ -361,19 +377,38 @@
 		$componentControl[$selectedComponent[0]] = {
 			...$componentControl[$selectedComponent[0]],
 			setCode: (value: string) => {
-				code = value
 				setCode(value)
 			}
 		}
 	}
 
-	export let code: string = ''
-	export let hash: string = createHash()
-	export let automaticLayout = true
-	export let extraLib: string = ''
-	export let autoHeight = true
-	export let fixedOverflowWidgets = true
-	export let fontSize = 16
+	interface Props {
+		code?: string
+		hash?: string
+		automaticLayout?: boolean
+		extraLib?: string
+		autoHeight?: boolean
+		fixedOverflowWidgets?: boolean
+		fontSize?: number
+		loadAsync?: boolean
+		class?: string | undefined
+	}
+
+	let {
+		code = $bindable(),
+		hash = createHash(),
+		automaticLayout = true,
+		extraLib = '',
+		autoHeight = true,
+		fixedOverflowWidgets = true,
+		fontSize,
+		loadAsync = false,
+		class: clazz = ''
+	}: Props = $props()
+
+	let effectiveFontSize = $derived(fontSize ?? editorFontSize.regular)
+
+	let yPadding = MONACO_Y_PADDING
 
 	if (typeof code != 'string') {
 		code = ''
@@ -382,9 +417,7 @@
 	const lang = 'template'
 	const dispatch = createEventDispatcher()
 
-	const uri = `file:///${hash}.ts`
-
-	buildWorkerDefinition()
+	const uri = `file:///${untrack(() => hash)}.ts`
 
 	export function insertAtCursor(code: string): void {
 		if (editor) {
@@ -393,45 +426,33 @@
 	}
 
 	export function setCode(ncode: string): void {
-		code = ncode
-		if (editor) {
-			editor.setValue(ncode)
+		if (code != ncode) {
+			code = ncode
 		}
+		editor?.setValue(ncode)
 	}
 
+	let valueAfterDispose: string | undefined = undefined
 	export function getCode(): string {
+		if (valueAfterDispose != undefined) {
+			return valueAfterDispose
+		}
 		return editor?.getValue() ?? ''
 	}
 
 	let cip
 	let extraModel
 
-	let width = 0
 	// let widgets: HTMLElement | undefined = document.getElementById('monaco-widgets-root') ?? undefined
 
-	let initialized = false
+	let initialized = $state(false)
 
-	let jsLoader: NodeJS.Timeout | undefined = undefined
-
+	let jsLoader: number | undefined = undefined
+	let timeoutModel: number | undefined = undefined
 	async function loadMonaco() {
-		console.log('init template')
+		setMonacoJsonOptions()
 		await initializeVscode('templateEditor')
-		console.log('initialized')
 		initialized = true
-		languages.typescript.javascriptDefaults.setCompilerOptions({
-			target: languages.typescript.ScriptTarget.Latest,
-			allowNonTsExtensions: true,
-			noSemanticValidation: false,
-			noLib: true,
-			moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-		})
-
-		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-			noSemanticValidation: false,
-			noSyntaxValidation: false,
-			noSuggestionDiagnostics: false,
-			diagnosticCodesToIgnore: [1108]
-		})
 
 		languages.register({ id: 'template' })
 
@@ -442,35 +463,66 @@
 
 		languages.setLanguageConfiguration('template', conf)
 
-		model = meditor.createModel(code, lang, mUri.parse(uri))
+		model = meditor.createModel(code ?? '', lang, mUri.parse(uri))
 
 		model.updateOptions(updateOptions)
 
-		editor = meditor.create(divEl as HTMLDivElement, {
-			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
-			model,
-			// overflowWidgetsDomNode: widgets,
-			// lineNumbers: 'on',
-			lineDecorationsWidth: 6,
-			lineNumbersMinChars: 2,
-			fontSize,
-			suggestOnTriggerCharacters: true
-		})
+		try {
+			editor = meditor.create(divEl as HTMLDivElement, {
+				...editorConfig(code ?? '', lang, automaticLayout, fixedOverflowWidgets, false),
+				model,
+				// overflowWidgetsDomNode: widgets,
+				// lineNumbers: 'on',
+				lineDecorationsWidth: 0,
+				lineNumbersMinChars: 2,
+				fontSize: effectiveFontSize,
+				suggestOnTriggerCharacters: true,
+				renderLineHighlight: 'none',
+				lineNumbers: 'off',
+
+				...(yPadding !== undefined ? { padding: { bottom: yPadding, top: yPadding } } : {})
+			})
+		} catch (e) {
+			console.error('Error loading monaco:', e)
+			return
+		}
+
+		// In VSCode webview (iframe), clipboard operations need special handling
+		// because the webview has restricted clipboard API access
+		if (window.parent !== window) {
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyC, function () {
+				document.execCommand('copy')
+			})
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyX, function () {
+				document.execCommand('cut')
+			})
+			// Paste is scoped to this editor's container instead of a global
+			// Ctrl+V keybinding, which would leak across editor instances.
+			pasteCleanup?.()
+			pasteCleanup = registerWebviewPaste(divEl, () => editor)
+		}
 
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
 
-			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {})
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {})
 
-			editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {})
+			editor?.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {})
 		})
 
-		let timeoutModel: NodeJS.Timeout | undefined = undefined
+		function updateCode() {
+			const ncode = getCode()
+			if (code == ncode) {
+				return
+			}
+			code = ncode
+			dispatch('change', { code: ncode })
+		}
+
 		editor.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
-				code = getCode()
-				dispatch('change', { code })
+				updateCode()
 			}, 200)
 		})
 
@@ -478,13 +530,10 @@
 
 		if (autoHeight) {
 			const updateHeight = () => {
-				const contentHeight = Math.min(1000, editor.getContentHeight())
+				const contentHeight = Math.min(1000, editor?.getContentHeight() ?? 0)
 				if (divEl) {
-					divEl.style.height = `${contentHeight + 2}px`
+					divEl.style.height = `${contentHeight}px`
 				}
-				try {
-					editor.layout({ width, height: contentHeight })
-				} catch {}
 			}
 			editor.onDidContentSizeChange(updateHeight)
 			updateHeight()
@@ -492,17 +541,19 @@
 
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
+			isFocus = true
 		})
 
 		editor.onDidBlurEditorText(() => {
 			dispatch('blur')
-			code = getCode()
+			isFocus = false
+			updateCode()
 		})
 
 		jsLoader = setTimeout(async () => {
 			jsLoader = undefined
 			try {
-				const worker = await languages.typescript.getJavaScriptWorker()
+				const worker = await getJavaScriptWorker()
 				const client = await worker(extraModel.uri)
 
 				cip = languages.registerCompletionItemProvider('template', {
@@ -557,7 +608,7 @@
 					resolveCompletionItem: async (item: languages.CompletionItem, token: any) => {
 						extraModel.setValue('`' + model.getValue() + '`')
 
-						const myItem = <any>item
+						const myItem = item as any
 						const position = myItem.position
 						const offset = myItem.offset
 
@@ -569,7 +620,7 @@
 						if (!details) {
 							return myItem
 						}
-						return <any>{
+						return {
 							uri: model.uri,
 							position: position,
 							label: details.name,
@@ -578,7 +629,7 @@
 							documentation: {
 								value: createDocumentationString(details)
 							}
-						}
+						} as any
 					}
 				})
 			} catch (e) {
@@ -591,15 +642,26 @@
 		editor?.focus()
 	}
 
-	let mounted = false
+	let isFocus = $state(false)
+	let mounted = $state(false)
+	let loadTimeout: number | undefined = undefined
 	onMount(async () => {
-		if (BROWSER) {
-			await loadMonaco()
-			mounted = true
+		try {
+			if (BROWSER) {
+				if (loadAsync) {
+					loadTimeout = setTimeout(async () => {
+						await loadMonaco()
+						mounted = true
+					}, 0)
+				} else {
+					await loadMonaco()
+					mounted = true
+				}
+			}
+		} catch (e) {
+			console.error('Error loading monaco:', e)
 		}
 	})
-
-	$: mounted && extraLib && initialized && loadExtraLib()
 
 	function loadExtraLib() {
 		const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
@@ -610,28 +672,48 @@
 				filePath: 'windmill.d.ts'
 			})
 		}
-		languages.typescript.javascriptDefaults.setExtraLibs(libs)
+		javascriptDefaults.setExtraLibs(libs)
 	}
 
 	onDestroy(() => {
 		try {
+			valueAfterDispose = getCode()
+			pasteCleanup?.()
 			jsLoader && clearTimeout(jsLoader)
+			timeoutModel && clearTimeout(timeoutModel)
+			loadTimeout && clearTimeout(loadTimeout)
 			model && model.dispose()
 			editor && editor.dispose()
 			cip && cip.dispose()
 			extraModel && extraModel.dispose()
 		} catch (err) {}
 	})
+	$effect(() => {
+		mounted && extraLib && initialized && untrack(() => loadExtraLib())
+	})
+
+	$effect(() => {
+		const next = effectiveFontSize
+		if (editor) {
+			editor.updateOptions({ fontSize: next })
+		}
+	})
 </script>
 
 <EditorTheme />
 
 <div
-	bind:this={divEl}
-	style="height: 18px;"
-	class="{$$props.class ?? ''} border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip"
-	bind:clientWidth={width}
-/>
+	class={twMerge(inputBorderClass({ forceFocus: isFocus }), 'rounded-md overflow-auto pl-2', clazz)}
+>
+	{#if !editor}
+		<FakeMonacoPlaceHolder autoheight showNumbers={false} {code} fontSize={effectiveFontSize} />
+	{/if}
+	<div
+		bind:this={divEl}
+		style="height: 18px;"
+		class="template nonmain-editor rounded-md overflow-clip {!editor ? 'hidden' : ''}"
+	></div>
+</div>
 
 <style>
 	:global(.template .mtk20) {

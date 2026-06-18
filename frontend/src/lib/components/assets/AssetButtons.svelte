@@ -1,0 +1,78 @@
+<script lang="ts">
+	import { untrack } from 'svelte'
+	import { AlertTriangle, Edit2 } from 'lucide-svelte'
+	import { Button } from '../common'
+	import ExploreAssetButton, { assetCanBeExplored } from '../ExploreAssetButton.svelte'
+	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
+	import type { Asset } from '$lib/gen'
+	import Popover from '../meltComponents/Popover.svelte'
+
+	type Props = {
+		s3FilePicker?: any | undefined
+		resourceEditorDrawer?: ResourceEditorDrawer | undefined
+		resourceDataCache: Record<string, string | undefined>
+		asset: Asset
+		ducklakeNotFound?: boolean
+		datatableNotFound?: boolean
+		onClick?: () => void
+	}
+	let {
+		s3FilePicker,
+		resourceEditorDrawer,
+		resourceDataCache,
+		asset,
+		ducklakeNotFound = false,
+		datatableNotFound = false,
+		onClick
+	}: Props = $props()
+
+	let truncatedPath = untrack(() => asset).path.split('?table=')[0]
+	let resourceDataCacheValue = $derived(resourceDataCache[truncatedPath])
+</script>
+
+<div class="flex gap-2 items-center">
+	{#if asset.kind === 'resource' && resourceDataCacheValue !== undefined}
+		<Button
+			startIcon={{ icon: Edit2 }}
+			variant="default"
+			unifiedSize="md"
+			iconOnly
+			on:click={() => (resourceEditorDrawer?.initEdit(truncatedPath), onClick?.())}
+		/>
+	{/if}
+	{#if (asset.kind === 'resource' && resourceDataCacheValue === undefined) || ducklakeNotFound || datatableNotFound}
+		<Popover contentClasses="px-3 py-2">
+			{#snippet trigger()}
+				<Button
+					startIcon={{ icon: AlertTriangle }}
+					variant="default"
+					unifiedSize="md"
+					btnClasses="text-red-500"
+					iconOnly
+				/>
+			{/snippet}
+			{#snippet content()}
+				<span class="text-sm">Not found</span>
+				{#if ducklakeNotFound}
+					<Button wrapperClasses="mt-1" href="/workspace_settings?tab=ducklake">
+						Go to Ducklake settings
+					</Button>
+				{:else if datatableNotFound}
+					<Button wrapperClasses="mt-1" href="/workspace_settings?tab=windmill_data_tables">
+						Go to Data Table settings
+					</Button>
+				{:else if asset.kind === 'resource' && resourceDataCacheValue === undefined}
+					<Button wrapperClasses="mt-1" href="/resources">Go to Resources</Button>
+				{/if}
+			{/snippet}
+		</Popover>
+	{:else if assetCanBeExplored(asset, { resource_type: resourceDataCacheValue })}
+		<ExploreAssetButton
+			{asset}
+			{s3FilePicker}
+			onClick={() => onClick?.()}
+			noText
+			_resourceMetadata={{ resource_type: resourceDataCacheValue }}
+		/>
+	{/if}
+</div>

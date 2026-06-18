@@ -1,67 +1,103 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
-	import { Tab } from '@rgossiaux/svelte-headlessui'
-	import type { ToggleButtonContext } from './ToggleButtonGroup.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import Popover from '$lib/components/Popover.svelte'
-
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
+	import { type ToggleGroupElements, type ToggleGroupItemProps, melt } from '@melt-ui/svelte'
 	import { Info } from 'lucide-svelte'
+	import { ButtonType } from '$lib/components/common/button/model'
 
-	export let value: any
-	export let label: string | undefined = undefined
-	export let iconOnly: boolean = false
-	export let tooltip: string | undefined = undefined
-	export let icon: any | undefined = undefined
-	export let disabled: boolean = false
-	export let selectedColor: string = '#3b82f6'
-	export let small = false
-	export let light = false
-	export let iconProps: Record<string, any> = {}
-	export let showTooltipIcon: boolean = false
-	export let documentationLink: string | undefined = undefined
-	export let id: string | undefined = undefined
+	interface Props {
+		label?: string | undefined
+		iconOnly?: boolean
+		tooltip?: string | undefined
+		icon?: any | undefined
+		disabled?: boolean
+		selectedColor?: string | undefined
+		small?: boolean
+		size?: 'sm' | 'md' | 'lg'
+		iconProps?: Record<string, any>
+		showTooltipIcon?: boolean
+		documentationLink?: string | undefined
+		id?: string | undefined
+		item: ToggleGroupElements['item']
+		value: ToggleGroupItemProps
+		class?: string
+	}
 
-	const { select, selected } = getContext<ToggleButtonContext>('ToggleButtonGroup')
+	let {
+		label = undefined,
+		iconOnly = false,
+		tooltip = undefined,
+		icon = undefined,
+		disabled = false,
+		selectedColor = undefined,
+		small = false,
+		size = undefined,
+		iconProps = {},
+		showTooltipIcon = false,
+		documentationLink = undefined,
+		id = undefined,
+		item,
+		value,
+		class: className = ''
+	}: Props = $props()
+
+	// Handle backward compatibility: small prop maps to size="sm"
+	const actualSize = $derived(size ?? (small ? 'sm' : 'md'))
+
+	// Direct access to unified sizing
+	const horizontalPadding = $derived(
+		iconOnly
+			? ButtonType.UnifiedIconOnlySizingClasses[actualSize]
+			: ButtonType.UnifiedSizingClasses[actualSize]
+	)
+	const height = $derived(ButtonType.UnifiedHeightClasses[actualSize])
+	const iconSize = $derived(ButtonType.UnifiedIconSizes[actualSize])
 </script>
 
-<Popover
-	notClickable
+<Tooltip
 	class={twMerge('flex', disabled ? 'cursor-not-allowed' : 'cursor-pointer')}
 	disablePopup={tooltip === undefined}
-	disappearTimeout={0}
 	{documentationLink}
 >
-	<div {id} class="flex">
-		<Tab
-			{disabled}
-			class={twMerge(
-				' rounded-md transition-all text-xs flex gap-1 flex-row items-center',
-				small ? 'px-1.5 py-0.5 text-2xs' : 'px-2 py-1',
-				light ? 'font-medium' : '',
-				$selected === value
-					? 'bg-surface shadow-md'
-					: 'bg-surface-secondary hover:bg-surface-hover',
-				$$props.class
-			)}
-			on:click={() => select(value)}
-		>
-			{#if icon}
-				<svelte:component
-					this={icon}
-					size={small ? 12 : 14}
-					color={$selected === value ? selectedColor : '#9CA3AF'}
-					{...iconProps}
-				/>
-			{/if}
-			{#if label && !iconOnly}
-				{label}
-			{/if}
-			{#if showTooltipIcon}
-				<Info size={14} class="text-gray-400" />
-			{/if}
-		</Tab>
-	</div>
-	<svelte:fragment slot="text">
+	<button
+		{id}
+		{disabled}
+		class={twMerge(
+			'group rounded-md transition-all font-normal flex gap-1 flex-row items-center justify-center border text-xs',
+			horizontalPadding,
+			height,
+			'text-primary data-[state=on]:text-primary',
+			'data-[state=on]:bg-surface-tertiary data-[state=off]:border-transparent data-[state=on]:border-border-normal/30',
+			'bg-surface-transparent hover:bg-surface-hover',
+			disabled ? '!shadow-none' : '',
+			className
+		)}
+		use:melt={$item(value)}
+		style={selectedColor ? `--selected-color: ${selectedColor}` : ''}
+	>
+		{#if icon}
+			{@const SvelteComponent = icon}
+			<SvelteComponent
+				size={iconSize}
+				{...iconProps}
+				class={twMerge(
+					'text-primary',
+					selectedColor
+						? 'group-data-[state=on]:text-[var(--selected-color)]'
+						: 'group-data-[state=on]:text-blue-500 dark:group-data-[state=on]:text-nord-800',
+					iconProps.class
+				)}
+			/>
+		{/if}
+		{#if label && !iconOnly}
+			{label}
+		{/if}
+		{#if showTooltipIcon}
+			<Info size={iconSize} class="text-gray-400" />
+		{/if}
+	</button>
+
+	{#snippet text()}
 		{tooltip}
-	</svelte:fragment>
-</Popover>
+	{/snippet}
+</Tooltip>

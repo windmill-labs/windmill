@@ -2,7 +2,7 @@ import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
 import * as windmill from "https://deno.land/x/windmill@v1.174.0/mod.ts";
 import * as api from "https://deno.land/x/windmill@v1.174.0/windmill-api/index.ts";
 
-export const VERSION = "v1.456.0";
+export const VERSION = "v1.729.0";
 
 export async function login(email: string, password: string): Promise<string> {
   return await windmill.UserService.login({
@@ -49,7 +49,7 @@ async function waitForDedicatedWorker(workspace: string, path: string) {
 
 export async function createBenchScript(
   scriptPattern: string,
-  workspace: string
+  workspace: string,
 ) {
   const path = `f/benchmarks/${scriptPattern}`;
   const exists = await windmill.ScriptService.existsScriptByPath({
@@ -93,11 +93,14 @@ export async function createBenchScript(
     language = "deno";
   } else if (scriptPattern === "nativets") {
     scriptContent =
-      'export async function main(){ return (await fetch(BASE_URL + "/api/version")).text() }';
-    language = "nativets";
+      '//native\nexport async function main(){ return (await fetch(BASE_URL + "/api/version")).text() }';
+    language = "bunnative";
+  } else if (scriptPattern === "dedicated_nativets") {
+    scriptContent = "//native\nexport function main(){ return 42; }";
+    language = "bunnative";
   } else {
     throw new Error(
-      "Could not create script for script pattern " + scriptPattern
+      "Could not create script for script pattern " + scriptPattern,
     );
   }
 
@@ -109,7 +112,8 @@ export async function createBenchScript(
       summary: scriptPattern + " benchmark",
       description: "",
       language: language as api.NewScript.language,
-      dedicated_worker: scriptPattern === "dedicated",
+      dedicated_worker:
+        scriptPattern === "dedicated" || scriptPattern === "dedicated_nativets",
       schema: {
         $schema: "https://json-schema.org/draft/2020-12/schema",
         properties: schemaProperties,
@@ -123,8 +127,121 @@ export async function createBenchScript(
 
   console.log("Created benchmark script at path", path);
 
-  if (scriptPattern === "dedicated") {
+  if (scriptPattern === "dedicated" || scriptPattern === "dedicated_nativets") {
     await waitForDedicatedWorker(workspace, path);
+  }
+}
+
+// WAC v2 benchmark script content patterns
+const WAC_SCRIPTS: Record<string, string> = {
+  wac_seq_2: [
+    'import { task, workflow } from "windmill-client";',
+    "const step_a = task(async () => { return 1; });",
+    "const step_b = task(async () => { return 2; });",
+    "export const main = workflow(async () => {",
+    "  const a = await step_a();",
+    "  const b = await step_b();",
+    "  return { a, b };",
+    "});",
+  ].join("\n"),
+
+  wac_par_2: [
+    'import { task, workflow } from "windmill-client";',
+    "const step_a = task(async () => { return 1; });",
+    "const step_b = task(async () => { return 2; });",
+    "export const main = workflow(async () => {",
+    "  const [a, b] = await Promise.all([step_a(), step_b()]);",
+    "  return { a, b };",
+    "});",
+  ].join("\n"),
+
+  wac_seq_3: [
+    'import { task, workflow } from "windmill-client";',
+    "const step_a = task(async () => { return 1; });",
+    "const step_b = task(async () => { return 2; });",
+    "const step_c = task(async () => { return 3; });",
+    "export const main = workflow(async () => {",
+    "  const a = await step_a();",
+    "  const b = await step_b();",
+    "  const c = await step_c();",
+    "  return { a, b, c };",
+    "});",
+  ].join("\n"),
+
+  wac_inline_2: [
+    'import { step, workflow } from "windmill-client";',
+    "export const main = workflow(async () => {",
+    '  const a = await step("a", () => 1);',
+    '  const b = await step("b", () => 2);',
+    "  return { a, b };",
+    "});",
+  ].join("\n"),
+};
+
+export const WAC_KINDS = Object.keys(WAC_SCRIPTS);
+
+// Number of child jobs created per workflow instance (used to compute throughput)
+// For task(): each task creates a child job. For step(): no child job.
+// Total completed jobs per workflow = nSteps + 1 (children + parent)
+export const STEPS_PER_WORKFLOW: Record<string, number> = {
+  wac_seq_2: 2,
+  wac_par_2: 2,
+  wac_seq_3: 3,
+  wac_inline_2: 0, // inline steps don't create child jobs
+  flow_seq_2_bun: 2,
+  flow_par_2_bun: 2,
+  flow_seq_3_bun: 3,
+};
+
+export async function createWacBenchScript(
+  wacPattern: string,
+  workspace: string,
+) {
+  const scriptContent = WAC_SCRIPTS[wacPattern];
+  if (!scriptContent) {
+    throw new Error("Unknown WAC pattern: " + wacPattern);
+  }
+
+  const path = `f/benchmarks/${wacPattern}`;
+  const exists = await windmill.ScriptService.existsScriptByPath({
+    workspace,
+    path,
+  });
+
+  if (exists) {
+    await windmill.ScriptService.deleteScriptByPath({
+      workspace,
+      path,
+    });
+  }
+
+  const hash = await windmill.ScriptService.createScript({
+    workspace,
+    requestBody: {
+      path,
+      content: scriptContent,
+      summary: wacPattern + " WAC v2 benchmark",
+      description: "",
+      language: "bun" as api.NewScript.language,
+      schema: {
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        properties: {},
+        required: [],
+        type: "object",
+      },
+    },
+  });
+
+  await waitForDeployment(workspace, hash);
+  console.log("Created WAC v2 benchmark script at path", path);
+}
+
+export async function loadJsonConfig<T>(configPath: string): Promise<T> {
+  if (configPath.startsWith("http")) {
+    const response = await fetch(configPath);
+    return await response.json();
+  } else {
+    return JSON.parse(await Deno.readTextFile(configPath));
   }
 }
 
@@ -246,11 +363,122 @@ export const getFlowPayload = (flowPattern: string): api.FlowPreview => {
               input_transforms: {},
               language: api.RawScript.language.BASH,
               type: "rawscript",
-              content: "# let's bloat that bash script, 3.. 2.. 1.. BOOM\n".repeat(25000) + "echo \"$WM_FLOW_JOB_ID\"\n",
+              content:
+                "# let's bloat that bash script, 3.. 2.. 1.. BOOM\n".repeat(
+                  100,
+                ) +
+                `if [[ -z $\{WM_FLOW_JOB_ID+x\} ]]; then\necho "not set"\nelif [[ -z "$WM_FLOW_JOB_ID" ]]; then\necho "empty"\nelse\necho "$WM_FLOW_JOB_ID"\nfi`,
             },
-          }
+          },
         ],
-      }
+      },
+    };
+  } else if (flowPattern == "flow_seq_2_bun") {
+    return {
+      path: "flow_seq_2_bun",
+      args: {},
+      value: {
+        modules: [
+          {
+            id: "a",
+            value: {
+              input_transforms: {},
+              language: "bun" as api.RawScript.language,
+              type: "rawscript",
+              content: "export function main() { return 1; }",
+            },
+          },
+          {
+            id: "b",
+            value: {
+              input_transforms: {},
+              language: "bun" as api.RawScript.language,
+              type: "rawscript",
+              content: "export function main() { return 2; }",
+            },
+          },
+        ],
+      },
+    };
+  } else if (flowPattern == "flow_par_2_bun") {
+    return {
+      path: "flow_par_2_bun",
+      args: {},
+      value: {
+        modules: [
+          {
+            id: "a",
+            value: {
+              type: "branchall",
+              parallel: true,
+              branches: [
+                {
+                  modules: [
+                    {
+                      id: "b",
+                      value: {
+                        input_transforms: {},
+                        language: "bun" as api.RawScript.language,
+                        type: "rawscript",
+                        content: "export function main() { return 1; }",
+                      },
+                    },
+                  ],
+                },
+                {
+                  modules: [
+                    {
+                      id: "c",
+                      value: {
+                        input_transforms: {},
+                        language: "bun" as api.RawScript.language,
+                        type: "rawscript",
+                        content: "export function main() { return 2; }",
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    };
+  } else if (flowPattern == "flow_seq_3_bun") {
+    return {
+      path: "flow_seq_3_bun",
+      args: {},
+      value: {
+        modules: [
+          {
+            id: "a",
+            value: {
+              input_transforms: {},
+              language: "bun" as api.RawScript.language,
+              type: "rawscript",
+              content: "export function main() { return 1; }",
+            },
+          },
+          {
+            id: "b",
+            value: {
+              input_transforms: {},
+              language: "bun" as api.RawScript.language,
+              type: "rawscript",
+              content: "export function main() { return 2; }",
+            },
+          },
+          {
+            id: "c",
+            value: {
+              input_transforms: {},
+              language: "bun" as api.RawScript.language,
+              type: "rawscript",
+              content: "export function main() { return 3; }",
+            },
+          },
+        ],
+      },
     };
   } else {
     return {

@@ -3,6 +3,7 @@ name: "python run script"
 mode: ONCE
 hostname: "python"
 log_level: ERROR
+time_limit: {TIMEOUT}
 
 rlimit_as: 4096
 rlimit_cpu: 1000
@@ -14,6 +15,7 @@ cwd: "/tmp"
 clone_newnet: false
 clone_newuser: {CLONE_NEWUSER}
 
+skip_setsid: true
 keep_caps: false
 keep_env: true
 mount_proc: true
@@ -52,12 +54,7 @@ mount {
 	rw: true
 }
 
-mount {
-	dst: "/tmp"
-	fstype: "tmpfs"
-	rw: true
-    options: "size=500000000"
-}
+{TMP_MOUNT_BLOCK}
 
 mount {
     src: "{JOB_DIR}/{MAIN}.py"
@@ -86,6 +83,13 @@ mount {
 }
 
 mount {
+    src: "{JOB_DIR}/checkpoint.json"
+    dst: "/tmp/checkpoint.json"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
     src: "{JOB_DIR}/result.json"
     dst: "/tmp/result.json"
     rw: true
@@ -96,6 +100,30 @@ mount {
     src: "/etc"
     dst: "/etc"
 	is_bind: true
+}
+
+# Container runtimes bind exactly these 3 files as separate submounts over
+# /etc; nsjail's ro remount of /etc is non-recursive so they stay writable.
+# Load-bearing -- do not remove as redundant with the /etc bind above.
+mount {
+    src: "/etc/resolv.conf"
+    dst: "/etc/resolv.conf"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/etc/hosts"
+    dst: "/etc/hosts"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/etc/hostname"
+    dst: "/etc/hostname"
+    is_bind: true
+    mandatory: false
 }
 
 mount {
@@ -140,4 +168,11 @@ envar: "LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH"
 envar: "PYTHONPATH={ADDITIONAL_PYTHON_PATHS}"
 envar: "HOME=/tmp"
 
+mount {
+    src: "{TRACING_PROXY_CA_CERT_PATH}"
+    dst: "{TRACING_PROXY_CA_CERT_PATH}"
+    is_bind: true
+    mandatory: false
+}
 
+#{DEV}

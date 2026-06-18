@@ -3,6 +3,7 @@ name: "ansible run script"
 mode: ONCE
 hostname: "ansible"
 log_level: ERROR
+time_limit: {TIMEOUT}
 
 rlimit_as: 4096
 rlimit_cpu: 1000
@@ -14,8 +15,10 @@ cwd: "/tmp"
 clone_newnet: false
 clone_newuser: {CLONE_NEWUSER}
 
+skip_setsid: true
 keep_caps: false
 keep_env: true
+mount_proc: true
 
 mount {
     src: "/bin"
@@ -33,6 +36,13 @@ mount {
 mount {
     src: "/lib64"
     dst: "/lib64"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/root/.local/share/uv/tools/ansible"
+    dst: "/root/.local/share/uv/tools/ansible"
     is_bind: true
     mandatory: false
 }
@@ -57,12 +67,7 @@ mount {
     is_bind: false
 }
 
-mount {
-    dst: "/tmp"
-    fstype: "tmpfs"
-    rw: true
-    options: "size=800000000"
-}
+{TMP_MOUNT_BLOCK}
 
 mount {
     src: "{JOB_DIR}/main.yml"
@@ -93,6 +98,7 @@ mount {
     src: "{JOB_DIR}/ansible_collections/"
     dst: "/tmp/ansible_collections/"
     is_bind: true
+    mandatory: false
 }
 
 mount {
@@ -114,6 +120,30 @@ mount {
 	is_bind: true
 }
 
+# Container runtimes bind exactly these 3 files as separate submounts over
+# /etc; nsjail's ro remount of /etc is non-recursive so they stay writable.
+# Load-bearing -- do not remove as redundant with the /etc bind above.
+mount {
+    src: "/etc/resolv.conf"
+    dst: "/etc/resolv.conf"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/etc/hosts"
+    dst: "/etc/hosts"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/etc/hostname"
+    dst: "/etc/hostname"
+    is_bind: true
+    mandatory: false
+}
+
 mount {
     src: "/dev/random"
     dst: "/dev/random"
@@ -125,6 +155,13 @@ mount {
     dst: "/dev/urandom"
     is_bind: true
 }
+
+mount {
+    src: "{PY_INSTALL_DIR}"
+    dst: "{PY_INSTALL_DIR}"
+    is_bind: true
+}
+
 
 {SHARED_MOUNT}
 

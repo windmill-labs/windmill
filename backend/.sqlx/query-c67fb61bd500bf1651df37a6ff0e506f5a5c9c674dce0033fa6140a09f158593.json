@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH t1 AS (UPDATE http_trigger SET script_path = $1 WHERE script_path = $2 AND workspace_id = $3 AND is_flow = $4) UPDATE email_trigger SET script_path = $1 WHERE script_path = $2 AND workspace_id = $3 AND is_flow = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c67fb61bd500bf1651df37a6ff0e506f5a5c9c674dce0033fa6140a09f158593"
+}

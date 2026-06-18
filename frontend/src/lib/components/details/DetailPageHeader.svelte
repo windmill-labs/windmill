@@ -1,13 +1,12 @@
 <script lang="ts">
 	import { Badge, Button } from '$lib/components/common'
 
-	import Menu from '$lib/components/details/Menu.svelte'
-	import MenuItem from '$lib/components/common/menu/MenuItem.svelte'
-	import { classNames } from '$lib/utils'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import ErrorHandlerToggleButton from './ErrorHandlerToggleButton.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { userStore } from '$lib/stores'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, tick } from 'svelte'
+	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import type { TriggerContext } from '../triggers'
 	import { Calendar } from 'lucide-svelte'
 
@@ -25,78 +24,98 @@
 		color?: 'red'
 	}
 
-	const { triggersCount, selectedTrigger } = getContext<TriggerContext>('TriggerContext')
+	const { triggersCount, triggersState } = $state(getContext<TriggerContext>('TriggerContext'))
 
-	export let mainButtons: MainButton[] = []
-	export let menuItems: MenuItemButton[] = []
-	export let title: string
-	export let tag: string | undefined
+	interface Props {
+		mainButtons?: MainButton[]
+		menuItems?: MenuItemButton[]
+		summary?: string
+		path?: string
+		tag: string | undefined
+		errorHandlerKind: 'flow' | 'script'
+		scriptOrFlowPath: string
+		errorHandlerMuted: boolean | undefined
+		labels?: string[] | undefined
+		inheritedLabels?: string[] | undefined
+		onSaved?: (newPath: string) => void
+		children?: import('svelte').Snippet
+		trigger_badges?: import('svelte').Snippet
+	}
 
-	export let errorHandlerKind: 'flow' | 'script'
-	export let scriptOrFlowPath: string
-	export let errorHandlerMuted: boolean | undefined
+	let {
+		mainButtons = [],
+		menuItems = [],
+		summary,
+		path,
+		tag,
+		errorHandlerKind,
+		scriptOrFlowPath,
+		errorHandlerMuted = $bindable(),
+		labels = $bindable(),
+		inheritedLabels = undefined,
+		onSaved,
+		children,
+		trigger_badges
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 </script>
 
-<div class="border-b p-2 shadow-md">
+<div class="border-b">
 	<div class="mx-auto">
-		<div class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 items-center">
+		<div
+			class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 items-center min-h-12"
+		>
 			<div class="grow px-2 inline-flex items-center gap-4 min-w-0">
-				<div
-					class={twMerge(
-						'text-lg min-w-24 font-bold truncate',
-						$userStore?.operator ? 'pl-10' : ''
-					)}
-				>
-					{title}
-				</div>{#if tag}
+				<div class={twMerge('min-w-0', $userStore?.operator ? 'pl-10' : '')}>
+					<SummaryPathDisplay
+						{summary}
+						{path}
+						bind:labels
+						{inheritedLabels}
+						{onSaved}
+						kind={errorHandlerKind}
+					/>
+				</div>
+				{#if tag}
 					<Badge>tag: {tag}</Badge>
 				{/if}
-				<slot />
-				{#if $triggersCount?.primary_schedule}
+				{@render children?.()}
+				{#if triggersState?.triggers?.some((t) => t.isPrimary && !t.isDraft)}
+					{@const primarySchedule = triggersState.triggers.findIndex(
+						(t) => t.isPrimary && !t.isDraft
+					)}
 					<Button
 						btnClasses="inline-flex"
 						startIcon={{ icon: Calendar }}
 						variant="contained"
 						color="light"
 						size="xs"
-						on:click={() => {
-							$selectedTrigger = 'schedules'
-							dispatch('triggerDetail')
+						on:click={async () => {
+							dispatch('seeTriggers')
+							await tick()
+							triggersState.selectedTriggerIndex = primarySchedule
 						}}
 					>
 						{$triggersCount?.primary_schedule?.schedule ?? ''}
 					</Button>
 				{/if}
-				<slot name="trigger-badges" />
+				{@render trigger_badges?.()}
 			</div>
-			<div class="flex gap-1 md:gap-2 items-center">
+			<div class="flex gap-1 items-center pr-4">
 				{#if menuItems.length > 0}
-					<Menu>
-						<svelte:fragment slot="items">
-							{#each menuItems as { label, Icon, onclick, color } (label)}
-								<MenuItem
-									on:click={() => {
-										const div = document.querySelector('[id^="headlessui-menu-items"]')
-										div?.parentElement?.remove()
-
-										onclick()
-									}}
-								>
-									<div
-										class={classNames(
-											'text-xs flex items-center gap-2 flex-row-2 ',
-											color === 'red' ? 'text-red-500' : ''
-										)}
-									>
-										<Icon class="h-4" />
-										{label}
-									</div>
-								</MenuItem>
-							{/each}
-						</svelte:fragment>
-					</Menu>
+					{#key menuItems}
+						<DropdownV2
+							items={menuItems.map((item) => ({
+								displayName: item.label,
+								icon: item.Icon,
+								action: item.onclick,
+								type: item.color === 'red' ? 'delete' : 'action'
+							}))}
+							placement="bottom-end"
+							size="md"
+						/>
+					{/key}
 				{/if}
 				<ErrorHandlerToggleButton
 					kind={errorHandlerKind}
@@ -107,17 +126,15 @@
 					<Button
 						{...btn.buttonProps}
 						startIcon={{ icon: btn.buttonProps.startIcon }}
-						on:click={btn.buttonProps.onClick}
-						btnClasses="hidden md:flex items-center gap-1"
+						btnClasses="hidden md:flex items-center gap-1 whitespace-nowrap"
 					>
 						{btn.label}
 					</Button>
 					<Button
 						{...btn.buttonProps}
 						startIcon={{ icon: btn.buttonProps.startIcon }}
-						on:click={btn.buttonProps.onClick}
 						iconOnly
-						btnClasses="flex md:hidden items-center gap-1"
+						btnClasses="flex md:hidden items-center gap-1 whitespace-nowrap"
 					>
 						{btn.label}
 					</Button>

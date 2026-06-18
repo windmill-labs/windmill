@@ -5,22 +5,26 @@
 	import { Tab, Tabs, Button } from './common'
 	import { copyToClipboard } from '../utils'
 
-	import { ArrowDown, Clipboard } from 'lucide-svelte'
+	import { ArrowDown, Copy } from 'lucide-svelte'
 	import YAML from 'yaml'
 	import { yaml } from 'svelte-highlight/languages'
 	import HighlightTheme from './HighlightTheme.svelte'
-	import { filteredContentForExport } from './flows/utils'
+	import { filteredContentForExport } from './flows/utils.svelte'
 
-	export let flow: {
-		summary: string
-		description?: string
-		value: FlowValue
-		schema?: any
+	interface Props {
+		flow: {
+			summary: string
+			description?: string
+			value: FlowValue
+			schema?: any
+		}
 	}
 
-	$: flowFiltered = filteredContentForExport(flow)
+	let { flow }: Props = $props()
 
-	let rawType: 'json' | 'yaml' = 'yaml'
+	let flowFiltered = $derived(filteredContentForExport(flow))
+
+	let rawType: 'json' | 'yaml' = $state('yaml')
 
 	function trimStringToLines(inputString: string, maxLines: number = 100): string {
 		const lines = inputString?.split('\n') ?? []
@@ -29,7 +33,7 @@
 		return linesToKeep.join('\n')
 	}
 
-	let code: string = ''
+	let code: string = $state('')
 
 	function computeCode() {
 		const str =
@@ -44,11 +48,13 @@
 		code = str
 	}
 
-	let shouldDisplayLoadMore = false
+	let shouldDisplayLoadMore = $state(false)
 
-	$: flowFiltered && rawType && computeCode()
+	$effect(() => {
+		flowFiltered && rawType && computeCode()
+	})
 
-	let maxLines = 100
+	let maxLines = $state(100)
 </script>
 
 <HighlightTheme />
@@ -60,9 +66,9 @@
 			maxLines = 100
 		}}
 	>
-		<Tab value="yaml">YAML</Tab>
-		<Tab value="json">JSON</Tab>
-		<svelte:fragment slot="content">
+		<Tab value="yaml" label="YAML" />
+		<Tab value="json" label="JSON" />
+		{#snippet content()}
 			<div class="relative pt-2">
 				<Button
 					on:click={() =>
@@ -74,7 +80,7 @@
 					color="light"
 					variant="border"
 					size="xs"
-					startIcon={{ icon: Clipboard }}
+					startIcon={{ icon: Copy }}
 					btnClasses="absolute top-2 right-2 w-min z-20"
 					iconOnly
 				/>
@@ -105,7 +111,7 @@
 					</Button>
 				{/if}
 			</div>
-		</svelte:fragment>
+		{/snippet}
 	</Tabs>
 </div>
 

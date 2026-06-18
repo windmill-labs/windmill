@@ -2,19 +2,23 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleWrapper from './FlowModuleWrapper.svelte'
+	import type { FlowModule } from '$lib/gen'
 
-	export let noEditor = false
+	interface Props {
+		noEditor?: boolean;
+		savedModule?: FlowModule | undefined;
+	}
 
-	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	let { noEditor = false, savedModule = undefined }: Props = $props();
+
+	const { flowStore } = $state(getContext<FlowEditorContext>('FlowEditorContext'))
 </script>
 
-{#if $flowStore.value.preprocessor_module}
+{#if flowStore.val.value.preprocessor_module}
 	<FlowModuleWrapper
 		{noEditor}
-		bind:flowModule={$flowStore.value.preprocessor_module}
-		on:delete={() => {
-			$flowStore.value.preprocessor_module = undefined
-		}}
+		bind:flowModule={flowStore.val.value.preprocessor_module}
 		previousModule={undefined}
+		{savedModule}
 	/>
 {/if}

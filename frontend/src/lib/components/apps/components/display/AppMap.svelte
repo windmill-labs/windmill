@@ -1,20 +1,23 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { stopPropagation } from 'svelte/legacy'
+
+	import { getContext, untrack } from 'svelte'
 	import { initCss } from '../../utils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { twMerge } from 'tailwind-merge'
 	import { Map, View, Feature } from 'ol'
-	import { useGeographic } from 'ol/proj'
-	import { OSM, Vector as VectorSource } from 'ol/source'
-	import { Vector as VectorLayer, Tile as TileLayer } from 'ol/layer'
-	import { Point } from 'ol/geom'
-	import { defaults as defaultControls } from 'ol/control'
-	import { findGridItem, initConfig, initOutput } from '../../editor/appUtils'
+	import { useGeographic } from 'ol/proj.js'
+	import { OSM, Vector as VectorSource } from 'ol/source.js'
+	import { Vector as VectorLayer, Tile as TileLayer } from 'ol/layer.js'
+	import { Point } from 'ol/geom.js'
+	import { defaults as defaultControls } from 'ol/control.js'
+	import { initConfig, initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
-	import { Style, Circle, Fill, Stroke, Text } from 'ol/style'
+	import { Style, Circle, Fill, Stroke, Text } from 'ol/style.js'
+	import { findGridItem } from '../../editor/appUtilsCore'
 	interface Marker {
 		lon: number
 		lat: number
@@ -29,41 +32,32 @@
 		MARKER: 'Marker'
 	} as const
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'mapcomponent'> | undefined = undefined
-	export let render: boolean
-	export let extraKey: string | undefined = undefined
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'mapcomponent'> | undefined
+		render: boolean
+		extraKey?: string | undefined
+	}
+
+	let { id, configuration, customCss = undefined, render, extraKey = undefined }: Props = $props()
 
 	const { app, worldStore, selectedComponent, connectingInput, focusedGrid, mode } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	const resolvedConfig = initConfig(
-		components['mapcomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['mapcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		mapRegion: {
 			topLeft: { lat: 0, lon: 0 },
 			bottomRight: { lat: 0, lon: 0 }
 		}
 	})
 
-	let map: Map | undefined = undefined
-	let mapElement: HTMLDivElement | undefined = undefined
-
-	$: if (map && resolvedConfig.longitude && resolvedConfig.latitude) {
-		map.getView().setCenter([resolvedConfig.longitude, resolvedConfig.latitude])
-	}
-
-	$: if (map && resolvedConfig.zoom) {
-		map.getView().setZoom(resolvedConfig.zoom)
-	}
-
-	$: if (map && resolvedConfig.markers) {
-		updateMarkers()
-	}
+	let map: Map | undefined = $state(undefined)
+	let mapElement: HTMLDivElement | undefined = $state(undefined)
 
 	function selectComponent() {
 		if (!$connectingInput.opened) {
@@ -141,32 +135,6 @@
 		createMarkerLayers()?.forEach((l) => map?.addLayer(l))
 	}
 
-	$: if (!render) {
-		map = undefined
-		mapElement = undefined
-	}
-
-	$: if (!map && mapElement) {
-		useGeographic()
-		map = new Map({
-			target: mapElement,
-			layers: [
-				new TileLayer({
-					source: new OSM()
-				}),
-				...(createMarkerLayers() || [])
-			],
-			view: new View({
-				center: [resolvedConfig.longitude ?? 0, resolvedConfig.latitude ?? 0],
-				zoom: resolvedConfig.zoom ?? 2
-			}),
-			controls: defaultControls({
-				attribution: false
-			})
-		})
-		updateRegionOutput()
-	}
-
 	let previousLock: boolean | undefined = undefined
 
 	function updateInteractions(map: Map) {
@@ -183,9 +151,7 @@
 		map.changed()
 	}
 
-	$: map && resolvedConfig && updateInteractions(map)
-
-	let css = initCss($app.css?.mapcomponent, customCss)
+	let css = $state(initCss($app.css?.mapcomponent, untrack(() => customCss)))
 
 	function updateRegionOutput() {
 		if (map && !resolvedConfig.lock) {
@@ -229,6 +195,52 @@
 			$app = $app
 		}
 	}
+	$effect(() => {
+		if (!render) {
+			map = undefined
+			mapElement = undefined
+		}
+	})
+	$effect(() => {
+		if (!map && mapElement) {
+			useGeographic()
+			map = new Map({
+				target: mapElement,
+				layers: [
+					new TileLayer({
+						source: new OSM()
+					}),
+					...(createMarkerLayers() || [])
+				],
+				view: new View({
+					center: [resolvedConfig.longitude ?? 0, resolvedConfig.latitude ?? 0],
+					zoom: resolvedConfig.zoom ?? 2
+				}),
+				controls: defaultControls({
+					attribution: false
+				})
+			})
+			updateRegionOutput()
+		}
+	})
+	$effect(() => {
+		if (map && resolvedConfig.longitude && resolvedConfig.latitude) {
+			map.getView().setCenter([resolvedConfig.longitude, resolvedConfig.latitude])
+		}
+	})
+	$effect(() => {
+		if (map && resolvedConfig.zoom) {
+			map.getView().setZoom(resolvedConfig.zoom)
+		}
+	})
+	$effect(() => {
+		if (map && resolvedConfig.markers) {
+			updateMarkers()
+		}
+	})
+	$effect(() => {
+		map && resolvedConfig && updateInteractions(map)
+	})
 </script>
 
 {#each Object.entries(components['mapcomponent'].initialData.configuration) as [key, initialConfig] (key)}
@@ -256,20 +268,22 @@
 
 {#if render}
 	<div class="relative h-full w-full component-wrapper">
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			on:pointermove={updateRegionOutput}
-			on:wheel={updateRegionOutput}
-			on:touchmove={updateRegionOutput}
-			on:pointerdown|stopPropagation={selectComponent}
+			onpointermove={updateRegionOutput}
+			onwheel={updateRegionOutput}
+			ontouchmove={updateRegionOutput}
+			onpointerdown={stopPropagation(selectComponent)}
 			bind:this={mapElement}
 			class={twMerge(`w-full h-full`, css?.map?.class, 'wm-map')}
 			style={css?.map?.style ?? ''}
-		/>
+		></div>
 
 		{#if $mode !== 'preview'}
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class="absolute bottom-0 left-0 px-1 py-0.5 bg-indigo-500 text-white text-2xs"
-				on:pointerdown={handleSyncRegion}
+				onpointerdown={handleSyncRegion}
 			>
 				Set region
 			</div>

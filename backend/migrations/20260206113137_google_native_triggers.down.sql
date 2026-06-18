@@ -1,0 +1,11 @@
+-- Note: PostgreSQL does not support removing enum values directly.
+-- This down migration is a placeholder. To fully reverse, you would need to:
+-- 1. Create a new enum type without the values
+-- 2. Update all columns to use the new type
+-- 3. Drop the old type
+-- 4. Rename the new type
+
+-- For now, we just document what was added:
+-- Removed from native_trigger_service: 'google'
+-- Removed from TRIGGER_KIND: 'google'
+-- Removed from job_trigger_kind: 'google'

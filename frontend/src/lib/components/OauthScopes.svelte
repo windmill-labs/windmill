@@ -2,20 +2,29 @@
 	import { Button } from './common'
 	import { Minus, Plus } from 'lucide-svelte'
 
-	export let scopes: string[] = []
+	interface Props {
+		scopes?: string[]
+	}
+
+	let { scopes = $bindable() }: Props = $props()
+
+	$effect.pre(() => {
+		if (!scopes) {
+			scopes = []
+		}
+	})
 </script>
 
 {#if scopes && Array.isArray(scopes)}
-	{#each scopes as v}
+	{#each scopes as v, i}
 		<div class="flex flex-row max-w-md mb-2">
-			<input type="text" bind:value={v} />
+			<input type="text" bind:value={scopes[i]} />
 			<Button
-				variant="border"
-				color="light"
+				variant="default"
 				size="xs"
 				btnClasses="mx-6"
 				on:click={() => {
-					scopes = scopes.filter((el) => el != v)
+					scopes = scopes?.filter((el) => el != v)
 				}}
 				startIcon={{ icon: Minus }}
 				iconOnly
@@ -26,18 +35,17 @@
 
 <div class="flex items-center mt-1">
 	<Button
-		variant="border"
-		color="light"
+		variant="default"
 		hover="yo"
-		size="sm"
-		endIcon={{ icon: Plus }}
+		size="xs"
+		startIcon={{ icon: Plus }}
 		on:click={() => {
 			scopes = (scopes ?? []).concat('')
 		}}
 	>
 		Add item
 	</Button>
-	<span class="ml-2 text-sm text-tertiary">
+	<span class="ml-2 text-xs text-primary font-normal">
 		({(scopes ?? []).length} item{(scopes ?? []).length > 1 ? 's' : ''})
 	</span>
 </div>

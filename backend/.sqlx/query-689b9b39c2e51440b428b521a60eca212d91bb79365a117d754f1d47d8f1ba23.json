@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = ANY($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "689b9b39c2e51440b428b521a60eca212d91bb79365a117d754f1d47d8f1ba23"
+}

@@ -1,49 +1,49 @@
-<script context="module">
-	let cssClassesLoaded = writable(false)
-	let tailwindClassesLoaded = writable(false)
+<script module>
+	let cssClassesLoaded = $state(false)
+	let tailwindClassesLoaded = $state(false)
 
 	import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-json-language-features'
 	import '@codingame/monaco-vscode-standalone-css-language-features'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
-
-	languages.typescript.javascriptDefaults.setCompilerOptions({
-		target: languages.typescript.ScriptTarget.Latest,
-		allowNonTsExtensions: true,
-		noSemanticValidation: false,
-		noLib: true,
-		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-	})
-	languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-		noSemanticValidation: false,
-		noSyntaxValidation: false,
-		noSuggestionDiagnostics: false,
-		diagnosticCodesToIgnore: [1108]
-	})
-	languages.json.jsonDefaults.setDiagnosticsOptions({
-		validate: true,
-		allowComments: false,
-		schemas: [],
-		enableSchemaRequest: true
-	})
-	languages.json.jsonDefaults.setModeConfiguration({
-		documentRangeFormattingEdits: false,
-		documentFormattingEdits: true,
-		hovers: true,
-		completionItems: true,
-		documentSymbols: true,
-		tokens: true,
-		colors: true,
-		foldingRanges: true,
-		selectionRanges: true,
-		diagnostics: true
-	})
+	import '@codingame/monaco-vscode-standalone-html-language-features'
+	import { javascriptDefaults } from '@codingame/monaco-vscode-standalone-typescript-language-features'
 </script>
 
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
-	import { createHash, editorConfig, langToExt, updateOptions } from '$lib/editorUtils'
+	import { editorConfig, updateOptions } from '$lib/editorUtils'
+	import { editorFontSize } from '$lib/editorFontSize.svelte'
+	import { createHash } from '$lib/editorLangUtils'
+
+	// import {
+	// 	editor as meditor,
+	// 	KeyCode,
+	// 	KeyMod,
+	// 	Uri as mUri,
+	// 	languages,
+	// 	type IRange,
+	// 	type IDisposable
+	// } from 'monaco-editor'
+
+	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
+
+	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
+
+	import libStdContent from '$lib/es6.d.ts.txt?raw'
+	import domContent from '$lib/dom.d.ts.txt?raw'
+	import {
+		initializeVscode,
+		keepModelAroundToAvoidDisposalOfWorkers,
+		MONACO_Y_PADDING
+	} from './vscode'
+	import EditorTheme from './EditorTheme.svelte'
+	import { vimMode, relativeLineNumbers } from '$lib/stores'
+	import { initVim } from './monaco_keybindings'
+	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
+	import { editorPositionMap } from '$lib/utils'
+	import { langToExt } from '$lib/editorLangUtils'
 	import {
 		editor as meditor,
 		KeyCode,
@@ -51,53 +51,93 @@
 		Uri as mUri,
 		languages,
 		type IRange,
-		type IDisposable
+		type IDisposable,
+		type IPosition
 	} from 'monaco-editor'
-
-	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
-
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
-
-	import libStdContent from '$lib/es6.d.ts.txt?raw'
-	import domContent from '$lib/dom.d.ts.txt?raw'
-	import { initializeVscode } from './vscode'
-	import EditorTheme from './EditorTheme.svelte'
-	import { writable } from 'svelte/store'
-	import { vimMode } from '$lib/stores'
-	import { initVim } from './monaco_keybindings'
-	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
+	import { setMonacoJavascriptOptions, setMonacoJsonOptions } from './monacoLanguagesOptions'
+	import { twMerge } from 'tailwind-merge'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
 	let divEl: HTMLDivElement | null = null
-	let editor: meditor.IStandaloneCodeEditor
+	let editor = $state<meditor.IStandaloneCodeEditor | null>(null)
 	let model: meditor.ITextModel
+	let pasteListenerCleanup: (() => void) | undefined = undefined
 
-	export let lang: string
-	export let code: string = ''
-	export let hash: string = createHash()
-	export let cmdEnterAction: (() => void) | undefined = undefined
-	export let formatAction: (() => void) | undefined = undefined
-	export let automaticLayout = true
-	export let extraLib: string = ''
-	export let placeholder: string = ''
+	let statusDiv = $state<Element | null>(null)
+	let width = $state(0)
+	let initialized = $state(false)
+	let placeholderVisible = $state(false)
+	let mounted = $state(false)
 
-	export let shouldBindKey: boolean = true
-	export let autoHeight = false
-	export let fixedOverflowWidgets = true
-	export let small = false
-	export let domLib = false
-	export let autofocus = false
-	export let allowVim = false
-	export let tailwindClasses: string[] = []
+	let valueAfterDispose: string | undefined = undefined
+	let {
+		lang,
+		code = $bindable(),
+		hash = createHash(),
+		cmdEnterAction,
+		formatAction,
+		automaticLayout = true,
+		extraLib = '',
+		placeholder = '',
+		disableSuggestions = false,
+		disableLinting = false,
+		hideLineNumbers = false,
+		shouldBindKey = true,
+		autoHeight = false,
+		fixedOverflowWidgets = true,
+		small = false,
+		domLib = false,
+		autofocus = false,
+		allowVim = false,
+		tailwindClasses = [],
+		class: className = '',
+		loadAsync = false,
+		key,
+		disabled = false,
+		minHeight = 1000,
+		renderLineHighlight = 'none',
+		suggestion
+	}: {
+		lang: string
+		code?: string
+		hash?: string
+		cmdEnterAction?: () => void
+		formatAction?: () => void
+		automaticLayout?: boolean
+		extraLib?: string
+		placeholder?: string
+		disableSuggestions?: boolean
+		disableLinting?: boolean
+		hideLineNumbers?: boolean
+		shouldBindKey?: boolean
+		autoHeight?: boolean
+		fixedOverflowWidgets?: boolean
+		small?: boolean
+		domLib?: boolean
+		autofocus?: boolean
+		allowVim?: boolean
+		tailwindClasses?: string[]
+		class?: string
+		loadAsync?: boolean
+		initialCursorPos?: IPosition
+		key?: string
+		disabled?: boolean
+		minHeight?: number
+		renderLineHighlight?: 'all' | 'line' | 'gutter' | 'none'
+		suggestion?: string
+	} = $props()
+
+	let yPadding = MONACO_Y_PADDING
 
 	const dispatch = createEventDispatcher()
 
-	const uri = `file:///${hash}.${langToExt(lang)}`
-
-	buildWorkerDefinition()
+	const uri = `file:///${untrack(() => hash)}.${langToExt(untrack(() => lang))}`
 
 	export function getCode(): string {
+		if (valueAfterDispose != undefined) {
+			return valueAfterDispose
+		}
 		return editor?.getValue() ?? ''
 	}
 
@@ -107,14 +147,29 @@
 		}
 	}
 
-	export function setCode(ncode: string): void {
-		code = ncode
-		if (editor) {
-			editor.setValue(ncode)
+	export function setCode(ncode: string, formatCode?: boolean): void {
+		if (ncode != code) {
+			code = ncode
+		}
+		editor?.setValue(ncode)
+		if (formatCode) {
+			format()
 		}
 	}
 
-	let placeholderVisible = false
+	export function formatCode(): void {
+		format()
+	}
+
+	function updateCode() {
+		const ncode = getCode()
+		if (code == ncode) {
+			return
+		}
+		code = ncode
+		dispatch('change', { code: ncode })
+	}
+
 	function updatePlaceholderVisibility(value: string) {
 		if (!value) {
 			placeholderVisible = true
@@ -125,11 +180,11 @@
 
 	export function format() {
 		if (editor) {
-			code = getCode()
+			updateCode()
 			editor.getAction('editor.action.formatDocument')?.run()
 			if (formatAction) {
 				formatAction()
-				code = getCode()
+				updateCode()
 			}
 		}
 	}
@@ -166,23 +221,24 @@
 	export function hide(): void {
 		divEl?.classList.add('hidden')
 	}
-
-	let suggestion = ''
-	export function setSuggestion(value: string): void {
-		suggestion = value
-	}
-
-	let width = 0
-	let initialized = false
-
-	let disableTabCond: meditor.IContextKey<boolean> | undefined
-	$: disableTabCond?.set(!code && !!suggestion)
-
-	let statusDiv: Element | null = null
-
 	let vimDisposable: IDisposable | undefined = undefined
-	$: allowVim && editor && $vimMode && statusDiv && onVimMode()
-	$: !$vimMode && vimDisposable && onVimDisable()
+
+	$effect(() => {
+		if (allowVim && editor !== null && $vimMode && statusDiv) {
+			untrack(() => onVimMode())
+		}
+	})
+
+	$effect(() => {
+		if (!$vimMode && vimDisposable) {
+			untrack(() => onVimDisable())
+		}
+	})
+	$effect(() => {
+		editor?.updateOptions({
+			lineNumbers: $relativeLineNumbers ? 'relative' : 'on'
+		})
+	})
 
 	function onVimDisable() {
 		vimDisposable?.dispose()
@@ -196,34 +252,70 @@
 		}
 	}
 
+	function updateModelAndOptions() {
+		const model = editor?.getModel()
+		if (model) {
+			// Switch language if it changed
+			if (model.getLanguageId() !== lang) {
+				const currentCode = model.getValue()
+				const uri = `file:///${hash}.${langToExt(lang)}`
+				const oldModel = model
+				const newModel = meditor.createModel(currentCode, lang, mUri.parse(uri))
+				editor?.setModel(newModel)
+				oldModel.dispose()
+			}
+
+			// Update editor options for suggestions, validation decorations, and line numbers
+			editor?.updateOptions({
+				quickSuggestions: disableSuggestions
+					? { other: false, comments: false, strings: false }
+					: { other: true, comments: true, strings: true },
+				suggestOnTriggerCharacters: !disableSuggestions,
+				wordBasedSuggestions: disableSuggestions ? 'off' : 'matchingDocuments',
+				parameterHints: { enabled: !disableSuggestions },
+				suggest: {
+					showIcons: !disableSuggestions,
+					showSnippets: !disableSuggestions,
+					showKeywords: !disableSuggestions,
+					showWords: !disableSuggestions,
+					snippetsPreventQuickSuggestions: disableSuggestions
+				},
+				lineNumbers: hideLineNumbers ? 'off' : 'on',
+				lineDecorationsWidth: hideLineNumbers ? 0 : 6,
+				lineNumbersMinChars: hideLineNumbers ? 0 : 2,
+				// Hide validation squiggles and decorations
+				renderValidationDecorations: disableLinting ? 'off' : 'on',
+				// Hide the validation margin indicators
+				hideCursorInOverviewRuler: disableLinting,
+				overviewRulerBorder: !disableLinting,
+				overviewRulerLanes: disableLinting ? 0 : 3
+			})
+		}
+	}
+
+	$effect(() => {
+		if (editor !== null && (lang || disableLinting || disableSuggestions || hideLineNumbers)) {
+			untrack(() => updateModelAndOptions())
+		}
+	})
+
+	let fontSize = $derived(small ? editorFontSize.small : editorFontSize.regular)
+
+	$effect(() => {
+		const next = fontSize
+		if (editor) {
+			editor.updateOptions({ fontSize: next })
+		}
+	})
+
 	async function loadMonaco() {
+		setMonacoJsonOptions()
+		setMonacoJavascriptOptions()
 		await initializeVscode()
 		initialized = true
 
-		// if (lang === 'javascript') {
-		// 	languages.typescript.javascriptDefaults.setCompilerOptions({
-		// 		target: languages.typescript.ScriptTarget.Latest,
-		// 		allowNonTsExtensions: true,
-		// 		noSemanticValidation: false,
-		// 		noLib: true,
-		// 		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-		// 	})
-		// 	languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-		// 		noSemanticValidation: false,
-		// 		noSyntaxValidation: false,
-		// 		noSuggestionDiagnostics: false,
-		// 		diagnosticCodesToIgnore: [1108]
-		// 	})
-		// } else if (lang === 'json') {
-		// 	languages.json.jsonDefaults.setDiagnosticsOptions({
-		// 		validate: true,
-		// 		allowComments: false,
-		// 		schemas: [],
-		// 		enableSchemaRequest: true
-		// 	})
-		// }
 		try {
-			model = meditor.createModel(code, lang, mUri.parse(uri))
+			model = meditor.createModel(code ?? '', lang, mUri.parse(uri))
 		} catch (err) {
 			console.log('model already existed', err)
 			const nmodel = meditor.getModel(mUri.parse(uri))
@@ -239,36 +331,98 @@
 		if (!divEl) {
 			return
 		}
-		editor = meditor.create(divEl as HTMLDivElement, {
-			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
-			model,
-			lineDecorationsWidth: 6,
-			lineNumbersMinChars: 2,
-			// overflowWidgetsDomNode: widgets,
-			fontSize: small ? 12 : 14
-		})
+		try {
+			editor = meditor.create(divEl as HTMLDivElement, {
+				...editorConfig(
+					code ?? '',
+					lang,
+					automaticLayout,
+					fixedOverflowWidgets,
+					$relativeLineNumbers
+				),
+				model,
+				...(yPadding !== undefined ? { padding: { bottom: yPadding, top: yPadding } } : {}),
+				renderLineHighlight,
+				lineDecorationsWidth: 0,
+				lineNumbersMinChars: 2,
+				fontSize: fontSize,
+				quickSuggestions: disableSuggestions
+					? { other: false, comments: false, strings: false }
+					: { other: true, comments: true, strings: true },
+				suggestOnTriggerCharacters: !disableSuggestions,
+				wordBasedSuggestions: disableSuggestions ? 'off' : 'matchingDocuments',
+				parameterHints: { enabled: !disableSuggestions },
+				suggest: {
+					showIcons: !disableSuggestions,
+					showSnippets: !disableSuggestions,
+					showKeywords: !disableSuggestions,
+					showWords: !disableSuggestions,
+					snippetsPreventQuickSuggestions: disableSuggestions
+				}
+			})
+			if (key && editorPositionMap?.[key]) {
+				editor.setPosition(editorPositionMap[key])
+				editor.revealPositionInCenterIfOutsideViewport(editorPositionMap[key])
+			}
+		} catch (e) {
+			console.error('Error loading monaco:', e)
+			return
+		}
+		keepModelAroundToAvoidDisposalOfWorkers()
 
-		let timeoutModel: NodeJS.Timeout | undefined = undefined
+		// In VSCode webview (iframe), clipboard operations need special handling
+		// because the webview has restricted clipboard API access
+		if (window.parent !== window) {
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyC, function () {
+				document.execCommand('copy')
+			})
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyX, function () {
+				document.execCommand('cut')
+			})
+			// Paste is intercepted via a keydown listener scoped to THIS editor's
+			// DOM node. `editor.addCommand` registers a *global* keybinding in the
+			// shared standalone services, so with multiple SimpleEditor instances
+			// the last-registered handler wins and paste lands in the wrong editor.
+			// The native `paste` event can't be used either: in the VSCode webview
+			// `clipboardData` is empty, so the only way to read the clipboard is to
+			// focus a real <input> and run `document.execCommand('paste')`.
+			const pasteTarget = divEl
+			const onPasteKeydown = (e: KeyboardEvent) => {
+				const isPaste = (e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'v' || e.key === 'V')
+				if (!isPaste) return
+				if (!editor || !editor.hasTextFocus()) return
+				e.preventDefault()
+				e.stopPropagation()
+				inputEl?.focus()
+				document.execCommand('paste')
+			}
+			pasteTarget?.addEventListener('keydown', onPasteKeydown, true)
+			pasteListenerCleanup = () => pasteTarget?.removeEventListener('keydown', onPasteKeydown, true)
+		}
+
+		let timeoutModel: number | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
-			suggestion = ''
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
-				code = getCode()
-				dispatch('change', { code })
+				updateCode()
 			}, 200)
+		})
+		editor.onDidChangeCursorPosition((event) => {
+			if (key) editorPositionMap[key] = event.position
 		})
 
 		editor.onDidFocusEditorText(() => {
+			if (!editor) return
 			dispatch('focus')
 			loadExtraLib()
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
-				code = getCode()
+				updateCode()
 				shouldBindKey && format && format()
+				// See Editor.svelte — re-broadcast the swallowed shortcut for
+				// page-level draft-flush handlers.
+				window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut'))
 			})
-
-			disableTabCond = editor.createContextKey('disableTabCond', !code)
-			editor.addCommand(KeyCode.Tab, function () {}, 'disableTabCond')
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {
 				// CMD + slash (toggle comment) on some EU keyboards
@@ -278,7 +432,8 @@
 
 		if (autoHeight) {
 			const updateHeight = () => {
-				const contentHeight = Math.min(1000, editor.getContentHeight())
+				if (!editor) return
+				const contentHeight = Math.min(minHeight, editor.getContentHeight())
 				if (divEl) {
 					divEl.style.height = `${contentHeight}px`
 				}
@@ -292,13 +447,17 @@
 		}
 
 		editor.onDidFocusEditorText(() => {
+			if (!editor) return
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
-				code = getCode()
+				updateCode()
 				shouldBindKey && format && format()
+				// See Editor.svelte — re-broadcast the swallowed shortcut for
+				// page-level draft-flush handlers.
+				window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut'))
 			})
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {
-				code = getCode()
+				updateCode()
 				shouldBindKey && cmdEnterAction && cmdEnterAction()
 			})
 			dispatch('focus')
@@ -306,22 +465,23 @@
 
 		editor.onDidBlurEditorText(() => {
 			dispatch('blur')
-			code = getCode()
+			updateCode()
 		})
 
-		if (lang === 'css' && !$cssClassesLoaded) {
-			$cssClassesLoaded = true
+		if (lang === 'css' && !cssClassesLoaded) {
+			cssClassesLoaded = true
 			addCSSClassCompletions()
 		}
 
-		if (lang === 'tailwindcss' && !$tailwindClassesLoaded) {
+		if (lang === 'tailwindcss' && !tailwindClassesLoaded) {
 			languages.register({ id: 'tailwindcss' })
-			$tailwindClassesLoaded = true
+			tailwindClassesLoaded = true
 			addTailwindClassCompletions()
 		}
 
 		if (placeholder) {
 			editor.onDidChangeModelContent(() => {
+				if (!editor) return
 				const value = editor.getValue()
 				updatePlaceholderVisibility(value)
 			})
@@ -361,37 +521,51 @@
 	}
 
 	function addTailwindClassCompletions() {
+		// Define a custom word definition for Tailwind classes
+		languages.setMonarchTokensProvider('tailwindcss', {
+			tokenizer: {
+				root: [[/[a-zA-Z0-9-]+/, 'tailwind-class']]
+			}
+		})
+
 		languages.registerCompletionItemProvider('tailwindcss', {
+			triggerCharacters: ['-'],
 			provideCompletionItems: function (model, position, context, token) {
-				const word = model.getWordUntilPosition(position)
+				const wordUntilPosition = model.getWordUntilPosition(position)
+				const lineContent = model.getLineContent(position.lineNumber)
+
+				// Get the text from the start of the line to the cursor
+				const textUntilPosition = lineContent.substring(0, position.column - 1)
+				// Find the last space before the cursor
+				const lastSpaceIndex = textUntilPosition.lastIndexOf(' ')
+				const startColumn = lastSpaceIndex === -1 ? 1 : lastSpaceIndex + 2
+
 				const range = {
 					startLineNumber: position.lineNumber,
-					startColumn: word.startColumn,
+					startColumn: startColumn,
 					endLineNumber: position.lineNumber,
-					endColumn: word.endColumn
+					endColumn: position.column
 				}
 
-				if (word && word.word) {
-					const currentWord = word.word
+				const currentWord = wordUntilPosition.word
 
-					const suggestions = tailwindClasses
-						.filter((className) => className.includes(currentWord))
-						.map((className) => ({
-							label: className,
-							kind: languages.CompletionItemKind.Class,
-							insertText: className,
-							documentation: 'Custom CSS class',
-							range: range
-						}))
+				const suggestions = tailwindClasses
+					.filter((className) => className.includes(currentWord))
+					.map((className) => ({
+						label: className,
+						kind: languages.CompletionItemKind.Class,
+						insertText: className,
+						documentation: 'Tailwind CSS class',
+						range: range,
+						preselect: true
+					}))
 
-					return { suggestions }
-				}
-
-				return { suggestions: [] }
+				return { suggestions }
 			}
 		})
 	}
 
+	let previousExtraLib: string | undefined = undefined
 	function loadExtraLib() {
 		if (lang == 'javascript') {
 			const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
@@ -405,28 +579,41 @@
 					content: extraLib,
 					filePath: 'windmill.d.ts'
 				})
+				if (previousExtraLib == extraLib) {
+					return
+				}
+				previousExtraLib = extraLib
 			}
-			languages.typescript.javascriptDefaults.setExtraLibs(libs)
+			javascriptDefaults.setExtraLibs(libs)
 		}
 	}
 
-	let mounted = false
 	onMount(async () => {
 		if (BROWSER) {
-			mounted = true
-			await loadMonaco()
-			if (autofocus) {
-				setTimeout(() => {
-					focus()
+			if (loadAsync) {
+				setTimeout(async () => {
+					await loadMonaco()
+					mounted = true
+					if (autofocus) setTimeout(() => focus(), 0)
 				}, 0)
+			} else {
+				await loadMonaco()
+				mounted = true
+				if (autofocus) setTimeout(() => focus(), 0)
 			}
 		}
 	})
 
-	$: mounted && extraLib && initialized && loadExtraLib()
+	$effect(() => {
+		if (mounted && extraLib && initialized) {
+			untrack(() => loadExtraLib())
+		}
+	})
 
 	onDestroy(() => {
 		try {
+			valueAfterDispose = getCode()
+			pasteListenerCleanup?.()
 			vimDisposable?.dispose()
 			model && model.dispose()
 			editor && editor.dispose()
@@ -442,27 +629,73 @@
 		}
 	}
 
-	updatePlaceholderVisibility(code)
+	updatePlaceholderVisibility(code ?? '')
+
+	// Hidden input used as the paste sink in the VSCode webview: focusing it and
+	// running `document.execCommand('paste')` fills `pasteValue`, which is then
+	// inserted into this editor's model below. This is an inline equivalent of
+	// `registerWebviewPaste` in $lib/editorUtils (used by Editor/TemplateEditor/
+	// DiffEditor) — kept inline here because it relies on Svelte bindings; keep
+	// the two implementations in sync.
+	let inputEl = $state<HTMLInputElement | null>(null)
+	let pasteValue = $state('')
+	$effect(() => {
+		if (inputEl && pasteValue) {
+			untrack(() => {
+				const selection = editor?.getSelection()
+				if (editor && selection) {
+					editor.executeEdits('paste', [
+						{
+							range: selection,
+							text: pasteValue,
+							forceMoveMarkers: true
+						}
+					])
+					editor.focus()
+				}
+				pasteValue = ''
+			})
+		}
+	})
 </script>
 
+{#if parent.window !== window}
+	<input
+		style="height: 0; width: 0; opacity: 0; position: absolute; top: 0; left: 0; z-index: -1;"
+		type="text"
+		aria-hidden="true"
+		tabindex="-1"
+		bind:this={inputEl}
+		bind:value={pasteValue}
+	/>
+{/if}
 <EditorTheme />
-{#if editor && suggestion && code.length === 0}
-	<div
-		class="absolute top-[0.05rem] left-[2.05rem] z-10 text-sm text-[#0007] italic font-mono dark:text-[#ffffff56] text-ellipsis overflow-hidden whitespace-nowrap"
-		style={`max-width: calc(${width}px - 2.05rem)`}
-	>
-		{suggestion}
-	</div>
+{#if !editor || suggestion}
+	<FakeMonacoPlaceHolder
+		code={suggestion || code}
+		autoheight
+		lineNumbersWidth={hideLineNumbers ? 0 : (23 * fontSize) / 14}
+		lineNumbersOffset={fontSize == 14 ? -8 : -11}
+		{fontSize}
+		showNumbers={!hideLineNumbers}
+	/>
 {/if}
 <div
 	bind:this={divEl}
-	class="relative {$$props.class ?? ''} editor simple-editor {!allowVim ? 'nonmain-editor' : ''}"
+	class={twMerge(
+		'relative editor simple-editor',
+		className,
+		suggestion ? 'absolute opacity-0 pointer-events-none' : '',
+		!editor ? 'hidden' : '',
+		disabled ? 'disabled' : '',
+		!allowVim ? 'nonmain-editor' : ''
+	)}
 	bind:clientWidth={width}
 >
 	{#if placeholder}
 		<div
 			id="placeholder"
-			class="absolute left-[24px] text-gray-500 text-sm pointer-events-none font-mono z-10 {placeholderVisible
+			class="absolute text-gray-500 text-sm pointer-events-none font-mono z-10 {placeholderVisible
 				? ''
 				: 'hidden'}"
 		>
@@ -470,13 +703,14 @@
 		</div>
 	{/if}
 </div>
-{#if allowVim && $vimMode}
-	<div class="fixed bottom-0 z-30" bind:this={statusDiv} />
+
+{#if allowVim && vimMode}
+	<div class="fixed bottom-0 z-30" bind:this={statusDiv}></div>
 {/if}
 
 <style lang="postcss">
 	.editor {
-		@apply rounded-lg p-0;
+		@apply rounded-md p-0;
 	}
 
 	.small-editor {

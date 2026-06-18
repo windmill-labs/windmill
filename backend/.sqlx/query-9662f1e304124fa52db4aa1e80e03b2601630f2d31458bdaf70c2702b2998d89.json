@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE volume SET lease_until = NULL, leased_by = NULL\n         WHERE workspace_id = $1 AND name = $2 AND leased_by = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9662f1e304124fa52db4aa1e80e03b2601630f2d31458bdaf70c2702b2998d89"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE job_logs SET logs = '##DELETED##' WHERE job_id = ANY($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "954e832d2587506a4bb0cb3a4fb45658026de7da4680eca1ea6b08f4b5e33800"
+}

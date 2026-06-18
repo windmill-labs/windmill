@@ -1,40 +1,49 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
 	import { format, isValid, parse } from 'date-fns'
-	import { sendUserToast } from '$lib/toast'
+	import { createBubbler } from 'svelte/legacy'
 
-	export let value: string | undefined = undefined
-	export let autofocus: boolean | null = false
-	export let minDate: string | undefined = undefined
-	export let maxDate: string | undefined = undefined
-	export let dateFormat: string | undefined = 'dd-MM-yyyy'
-	export let disabled: boolean = false
+	const bubble = createBubbler()
 
-	let date: string | undefined = computeDate(value)
+	interface Props {
+		value?: string | null | undefined
+		autofocus?: boolean | null
+		minDate?: string | undefined
+		maxDate?: string | undefined
+		dateFormat?: string | undefined
+		disabled?: boolean
+	}
 
-	const dispatch = createEventDispatcher()
+	let {
+		value = $bindable(undefined),
+		autofocus = false,
+		minDate = undefined,
+		maxDate = undefined,
+		dateFormat = 'dd-MM-yyyy',
+		disabled = false
+	}: Props = $props()
 
 	const defaultDateFormat = 'dd-MM-yyyy'
 	const defaultHtmlDateFormat = 'yyyy-MM-dd'
-	function computeDate(value: string | undefined) {
-		if (dateFormat === undefined) {
-			dateFormat = defaultDateFormat
-		}
-		if (value && value.length > 0) {
+
+	// Ensure we always have a valid format (prop can be undefined or empty string)
+	function getFormat() {
+		return dateFormat && dateFormat.length > 0 ? dateFormat : defaultDateFormat
+	}
+
+	const dispatch = createEventDispatcher()
+
+	function computeDate(v: string | null | undefined, formatStr: string) {
+		if (v && v.length > 0) {
 			try {
-				let date = parse(value, dateFormat, new Date())
-				if (date.toString() === 'Invalid Date') {
+				let parsedDate = parse(v, formatStr, new Date())
+				if (parsedDate.toString() === 'Invalid Date') {
 					console.debug('falling back to default html date format')
-					date = parse(value, defaultHtmlDateFormat, new Date())
+					parsedDate = parse(v, defaultHtmlDateFormat, new Date())
 				}
-				const res = format(date, defaultHtmlDateFormat)
-				return res
+				return format(parsedDate, defaultHtmlDateFormat)
 			} catch (error) {
-				sendUserToast(
-					`Failed to parse date: ${value} with format ${dateFormat} and ${defaultHtmlDateFormat}`,
-					true
-				)
-				console.error(`Failed to parse date: ${value}`, error)
+				console.error(`Failed to parse date: ${v} with format ${formatStr}`, error)
 				return undefined
 			}
 		} else {
@@ -42,26 +51,17 @@
 		}
 	}
 
+	let date: string | undefined = $derived(computeDate(value, getFormat()))
+
 	function updateValue(newDate: string | undefined) {
 		if (newDate && isValid(new Date(newDate))) {
-			if (dateFormat === undefined) {
-				dateFormat = defaultDateFormat
-			}
-
 			try {
-				let dateFromValue: Date | undefined = newDate ? new Date(newDate + 'T00:00:00') : undefined
-
-				if (dateFromValue === undefined) {
-					return
-				}
-
-				const parsedDate = format(dateFromValue, dateFormat)
+				const dateFromValue = new Date(newDate + 'T00:00:00')
+				const parsedDate = format(dateFromValue, getFormat())
 				value = parsedDate
-
 				dispatch('change', value)
 			} catch (error) {
 				console.error('Failed to parse date:', error)
-				return
 			}
 		}
 	}
@@ -69,19 +69,29 @@
 	let randomId = 'datetarget-' + Math.random().toString(36).substring(7)
 </script>
 
-<div class="flex flex-row gap-1 items-center w-full" id={randomId} on:pointerdown on:focus>
-	<!-- svelte-ignore a11y-autofocus -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+	class="flex flex-row gap-1 items-center w-full"
+	id={randomId}
+	onpointerdown={bubble('pointerdown')}
+	onfocus={bubble('focus')}
+>
+	<!-- svelte-ignore a11y_autofocus -->
 	<input
 		{disabled}
 		type="date"
-		bind:value={date}
+		value={date}
 		{autofocus}
 		class="!w-full app-editor-input"
 		min={minDate}
 		max={maxDate}
-		on:change={() => {
-			if (date) {
-				updateValue(date)
+		onchange={(e) => {
+			const newDate = e.currentTarget.value
+			if (newDate) {
+				updateValue(newDate)
+			} else {
+				value = null
+				dispatch('change', value)
 			}
 		}}
 	/>

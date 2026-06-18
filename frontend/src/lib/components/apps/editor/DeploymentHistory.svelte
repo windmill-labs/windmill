@@ -1,26 +1,57 @@
 <script lang="ts">
+	import { stopPropagation, createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
-	import { classNames, displayDate, emptyString } from '$lib/utils'
+	import {
+		classNames,
+		cleanValueProperties,
+		displayDate,
+		emptyString,
+		orderedYamlStringify,
+		replaceFalseWithUndefined,
+		type Value
+	} from '$lib/utils'
 	import { AppService, type AppWithLastVersion, type AppHistory } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Skeleton } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { Pencil, ArrowRight, X, Loader2 } from 'lucide-svelte'
+	import Select from '$lib/components/select/Select.svelte'
 
-	export let appPath: string | undefined
-	let loading: boolean = false
+	interface Props {
+		appPath: string | undefined
+	}
 
-	let versions: AppHistory[] = []
+	type HistoryApp = AppWithLastVersion & { value: any }
 
-	let selectedVersion: AppHistory | undefined = undefined
-	let selected: (AppWithLastVersion & { value: any }) | undefined = undefined
+	let { appPath }: Props = $props()
+	let loading: boolean = $state(false)
 
-	let deploymentMsgUpdateMode = false
-	let deploymentMsgUpdate: string | undefined = undefined
+	let versions: AppHistory[] = $state([])
 
-	$: selectedVersion !== undefined && loadValue(selectedVersion.version)
+	let selectedVersion: AppHistory | undefined = $state(undefined)
+	let selected: HistoryApp | undefined = $state(undefined)
+	let previousVersion: HistoryApp | undefined = $state(undefined)
+	let selectedVersionIndex: number | undefined = $state(undefined)
+	let previousVersionId: number | undefined = $state(undefined)
+	let versionCache: Record<number, HistoryApp> = $state({})
+
+	let deploymentMsgUpdateMode = $state(false)
+	let deploymentMsgUpdate: string | undefined = $state(undefined)
+
+	async function getVersionApp(version: number): Promise<HistoryApp> {
+		const cached = versionCache[version]
+		if (cached) {
+			return cached
+		}
+
+		const app = await AppService.getAppByVersion({ workspace: $workspaceStore!, id: version })
+		versionCache[version] = app
+		return app
+	}
 
 	async function loadVersions() {
 		if (appPath === undefined) {
@@ -35,10 +66,18 @@
 		loading = false
 	}
 
-	async function loadValue(version: number) {
-		let app = await AppService.getAppByVersion({ workspace: $workspaceStore!, id: version })
+	async function loadSelectedVersion(version: number) {
+		const app = await getVersionApp(version)
+		if (selectedVersion?.version === version) {
+			selected = app
+		}
+	}
 
-		selected = app
+	async function loadPreviousVersion(version: number) {
+		const app = await getVersionApp(version)
+		if (previousVersionId === version) {
+			previousVersion = app
+		}
 	}
 
 	async function updateDeploymentMsg(appId: number | undefined, appVersion: number | undefined) {
@@ -63,8 +102,68 @@
 		loadVersions()
 	}
 
+	function toComparableVersionValue(app: HistoryApp): Value {
+		return app.value as Value
+	}
+
+	function toVersionLabel(version: AppHistory): string {
+		return emptyString(version.deployment_msg) ? `Version ${version.version}` : version.deployment_msg!
+	}
+
+	let availableVersions = $derived(
+		selectedVersionIndex !== undefined ? versions.slice(selectedVersionIndex + 1) : []
+	)
+
+	let compareVersionItems = $derived(
+		availableVersions.map((version) => ({
+			label: toVersionLabel(version),
+			value: version.version
+		}))
+	)
+
+	let selectedVersionYaml = $derived.by(() => {
+		if (!selected) return undefined
+		return orderedYamlStringify(
+			replaceFalseWithUndefined(cleanValueProperties(toComparableVersionValue(selected)))
+		)
+	})
+
+	let previousVersionYaml = $derived.by(() => {
+		if (!previousVersion) return undefined
+		return orderedYamlStringify(
+			replaceFalseWithUndefined(cleanValueProperties(toComparableVersionValue(previousVersion)))
+		)
+	})
+
 	const dispatch = createEventDispatcher()
 	loadVersions()
+	$effect(() => {
+		selectedVersion?.version !== undefined &&
+			untrack(() => {
+				selectedVersion && loadSelectedVersion(selectedVersion.version!)
+			})
+	})
+	$effect(() => {
+		if (previousVersionId === undefined) {
+			previousVersion = undefined
+			return
+		}
+
+		const version = previousVersionId
+		untrack(() => {
+			loadPreviousVersion(version)
+		})
+	})
+	$effect(() => {
+		if (availableVersions.length === 0) {
+			previousVersionId = undefined
+			return
+		}
+
+		if (!availableVersions.some((version) => version.version === previousVersionId)) {
+			previousVersionId = availableVersions[0]?.version
+		}
+	})
 </script>
 
 <Splitpanes class="!overflow-visible">
@@ -74,28 +173,30 @@
 				{#if !loading}
 					{#if versions.length > 0}
 						<div class="flex gap-2 flex-col">
-							{#each versions ?? [] as version}
-								<!-- svelte-ignore a11y-click-events-have-key-events -->
-								<!-- svelte-ignore a11y-no-static-element-interactions -->
+							{#each versions ?? [] as version, versionIndex}
+								<!-- svelte-ignore a11y_click_events_have_key_events -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
 								<div
 									class={classNames(
 										'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
 										selectedVersion?.version == version.version ? 'bg-blue-100 text-blue-600' : ''
 									)}
-									on:click={() => {
+									onclick={() => {
 										selectedVersion = version
+										selectedVersionIndex = versionIndex
+										previousVersionId = versions[versionIndex + 1]?.version
 										deploymentMsgUpdateMode = false
 										deploymentMsgUpdate = undefined
 									}}
 								>
 									<span class="text-xs truncate">
-										{#if emptyString(version.deployment_msg)}Version {version.version}{:else}{version.deployment_msg}{/if}
+										{toVersionLabel(version)}
 									</span>
 								</div>
 							{/each}
 						</div>
 					{:else}
-						<div class="text-sm text-tertiary">No items</div>
+						<div class="text-sm text-primary">No items</div>
 					{/if}
 				{:else}
 					<Skeleton layout={[[40], [40], [40], [40], [40]]} />
@@ -108,17 +209,18 @@
 			{#if selectedVersion}
 				{#if selected}
 					<div class="flex flex-col justify-between">
-						<span class="flex flex-row text-sm p-1 text-tertiary">
+						<span class="flex flex-row text-sm p-1 text-primary">
 							{#if deploymentMsgUpdateMode}
 								<div class="flex w-full">
 									<input
 										type="text"
 										bind:value={deploymentMsgUpdate}
 										class="!w-auto grow"
-										on:click|stopPropagation={() => {}}
-										on:keydown|stopPropagation
-										on:keypress|stopPropagation={({ key }) => {
-											if (key === 'Enter')
+										onclick={stopPropagation(() => {})}
+										onkeydown={stopPropagation(bubble('keydown'))}
+										onkeypress={(e) => {
+											e.stopPropagation()
+											if (e.key === 'Enter')
 												updateDeploymentMsg(selected?.id, selectedVersion?.version)
 										}}
 									/>
@@ -155,7 +257,7 @@
 									Deployed {displayDate(selected.created_at)} by {selected.created_by}
 								{/if}
 								<button
-									on:click={() => {
+									onclick={() => {
 										deploymentMsgUpdate = selectedVersion?.deployment_msg
 										deploymentMsgUpdateMode = true
 									}}
@@ -170,7 +272,10 @@
 						<div class="flex p-1 gap-2">
 							<Button
 								size="xs"
-								on:click={() => window.open(`/apps/add?template_id=${selectedVersion?.version}`)}
+								on:click={() =>
+									window.open(
+										`${selected?.raw_app ? '/apps_raw' : '/apps'}/add?template_id=${selectedVersion?.version}`
+									)}
 							>
 								Restore as fork
 							</Button>
@@ -180,16 +285,48 @@
 						</div>
 					</div>
 
-					{#await import('$lib/components/apps/editor/AppPreview.svelte')}
-						<Loader2 class="animate-spin" />
-					{:then Module}
-						<Module.default noBackend app={selected.value} context={{}} />
-					{/await}
+					<div class="flex flex-col gap-2">
+						{#if availableVersions.length > 0}
+							<div class="flex flex-row items-center gap-2 py-2">
+								<div class="text-xs">Compare with:</div>
+								<Select
+									items={compareVersionItems}
+									bind:value={previousVersionId}
+									class="w-56"
+									size="sm"
+								/>
+							</div>
+
+							<div class="h-[calc(100vh-260px)] min-h-[420px]">
+								{#if previousVersionYaml && selectedVersionYaml}
+									{#await import('$lib/components/DiffEditor.svelte')}
+										<Loader2 class="animate-spin" />
+									{:then Module}
+										<Module.default
+											open={true}
+											automaticLayout
+											className="h-full"
+											defaultLang="yaml"
+											defaultOriginal={previousVersionYaml}
+											defaultModified={selectedVersionYaml}
+											readOnly
+										/>
+									{/await}
+								{:else}
+									<Loader2 class="animate-spin" />
+								{/if}
+							</div>
+						{:else}
+							<div class="text-sm p-2 text-primary">
+								No older deployment is available to compare with this version.
+							</div>
+						{/if}
+					</div>
 				{:else}
 					<Skeleton layout={[[40]]} />
 				{/if}
 			{:else}
-				<div class="text-sm p-2 text-tertiary">Select a deployment version to see its details</div>
+				<div class="text-sm p-2 text-primary">Select a deployment version to see its details</div>
 			{/if}
 		</div>
 	</Pane>

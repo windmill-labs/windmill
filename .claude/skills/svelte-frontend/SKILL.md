@@ -1,0 +1,1 @@
+../../../.agents/skills/svelte-frontend/SKILL.md

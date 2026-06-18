@@ -1,24 +1,32 @@
 <script lang="ts">
 	import type { AppViewerContext } from '$lib/components/apps/types'
-	import { allItems } from '$lib/components/apps/utils'
 	import { Pencil } from 'lucide-svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { getContext } from 'svelte'
 	import IdEditorInput from '$lib/components/IdEditorInput.svelte'
-	import { Popup } from '$lib/components/common'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import { allItems } from '../../appUtilsCore'
 
 	const { app, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
-	export let id: string
+	interface Props {
+		id: string
+		onChange: ({ oldId, newId }: { oldId: string; newId: string }) => void
+		onClose?: () => void
+	}
 
-	const dispatch = createEventDispatcher()
+	let { id, onChange, onClose }: Props = $props()
 
-	$: reservedIds = allItems($app.grid, $app.subgrids).map((item) => item.id)
+	let reservedIds = $derived(allItems($app.grid, $app.subgrids).map((item) => item.id))
 </script>
 
-<Popup let:close floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}>
-	<svelte:fragment slot="button">
+<Popover
+	floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
+	closeOnOtherPopoverOpen
+	contentClasses="p-4"
+>
+	{#snippet trigger()}
 		<button
-			on:click={() => {
+			onclick={() => {
 				$selectedComponent = [id]
 			}}
 			title="Edit ID"
@@ -27,14 +35,17 @@
 		>
 			<Pencil size={14} />
 		</button>
-	</svelte:fragment>
-	<IdEditorInput
-		initialId={id}
-		on:close={() => close(null)}
-		on:save={(e) => {
-			dispatch('save', e.detail)
-			close(null)
-		}}
-		{reservedIds}
-	/>
-</Popup>
+	{/snippet}
+	{#snippet content({ close })}
+		<IdEditorInput
+			initialId={id}
+			{onClose}
+			onSave={(e) => {
+				onChange(e)
+				onClose?.()
+			}}
+			reservedPrefixes={['bg_', 'unused-']}
+			{reservedIds}
+		/>
+	{/snippet}
+</Popover>

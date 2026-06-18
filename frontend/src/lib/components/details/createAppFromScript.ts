@@ -1,3 +1,5 @@
+import { ccomponents } from '../apps/editor/component'
+
 export function createAppFromScript(path: string, schema: Record<string, any> | undefined) {
 	return {
 		grid: [
@@ -22,7 +24,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 					type: 'verticalsplitpanescomponent',
 					configuration: {},
 					panes: [50, 50],
-					customCss: {},
+					customCss: structuredClone(ccomponents['verticalsplitpanescomponent'].customCss),
 					numberOfSubgrids: 2,
 					id: 'a'
 				},
@@ -54,7 +56,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 							style: ''
 						}
 					},
-					actions: [],
+					actions: undefined,
 					numberOfSubgrids: 1,
 					id: 'topbar'
 				},
@@ -103,7 +105,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 							fieldType: 'schema',
 							value: schema
 						},
-						customCss: {},
+						customCss: structuredClone(ccomponents['schemaformcomponent'].customCss),
 						id: 'c'
 					},
 					id: 'c'
@@ -145,8 +147,14 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 								value: false
 							},
 							disabled: {
-								type: 'eval',
-								expr: '!c.valid'
+								type: 'evalv2',
+								expr: '!c.valid',
+								connections: [
+									{
+										componentId: 'c',
+										id: 'valid'
+									}
+								]
 							},
 							beforeIcon: {
 								type: 'static',
@@ -276,7 +284,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 							fieldType: 'any',
 							fields: convertSchemaToFields(schema),
 							runnable: {
-								type: 'runnableByPath',
+								type: 'path',
 								path: path,
 								runType: 'script',
 								schema: schema,
@@ -285,7 +293,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 							autoRefresh: true,
 							recomputeOnInputChanged: true
 						},
-						customCss: {},
+						customCss: structuredClone(ccomponents['buttoncomponent'].customCss),
 						recomputeIds: [],
 						horizontalAlignment: 'right',
 						verticalAlignment: 'center',
@@ -321,7 +329,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 							}
 						},
 						tabs: ['Result', 'Logs'],
-						customCss: {},
+						customCss: structuredClone(ccomponents['tabscomponent'].customCss),
 						numberOfSubgrids: 2,
 						id: 'b',
 						disabledTabs: [
@@ -369,7 +377,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 								path: 'result'
 							}
 						},
-						customCss: {},
+						customCss: structuredClone(ccomponents['displaycomponent'].customCss),
 						id: 'e'
 					},
 					id: 'e'
@@ -404,7 +412,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 								}
 							}
 						},
-						customCss: {},
+						customCss: structuredClone(ccomponents['jobidlogcomponent'].customCss),
 						id: 'f'
 					},
 					id: 'f'
@@ -478,7 +486,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 								style: ''
 							}
 						},
-						actions: [],
+						actions: undefined,
 						horizontalAlignment: 'left',
 						verticalAlignment: 'center',
 						id: 'title'
@@ -511,7 +519,6 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 								class: ''
 							}
 						},
-						actions: [],
 						menuItems: [],
 						horizontalAlignment: 'right',
 						verticalAlignment: 'center',
@@ -584,7 +591,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 					type: 'verticalsplitpanescomponent',
 					configuration: {},
 					panes: [50, 50],
-					customCss: {},
+					customCss: structuredClone(ccomponents['verticalsplitpanescomponent'].customCss),
 					numberOfSubgrids: 2,
 					id: 'a'
 				},
@@ -616,7 +623,6 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 							style: ''
 						}
 					},
-					actions: [],
 					numberOfSubgrids: 1,
 					id: 'topbar'
 				},
@@ -665,7 +671,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 							fieldType: 'schema',
 							value: schema
 						},
-						customCss: {},
+						customCss: structuredClone(ccomponents['schemaformcomponent'].customCss),
 						id: 'c'
 					},
 					id: 'c'
@@ -707,8 +713,14 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 								value: false
 							},
 							disabled: {
-								type: 'eval',
-								expr: '!c.valid'
+								type: 'evalv2',
+								expr: '!c.valid',
+								connections: [
+									{
+										componentId: 'c',
+										id: 'valid'
+									}
+								]
 							},
 							beforeIcon: {
 								type: 'static',
@@ -838,7 +850,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 							fieldType: 'any',
 							fields: convertSchemaToFields(schema),
 							runnable: {
-								type: 'runnableByPath',
+								type: 'path',
 								path: path,
 								runType: 'flow',
 								schema: schema,
@@ -847,7 +859,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 							autoRefresh: false,
 							recomputeOnInputChanged: false
 						},
-						customCss: {},
+						customCss: structuredClone(ccomponents['buttoncomponent'].customCss),
 						recomputeIds: [],
 						horizontalAlignment: 'right',
 						verticalAlignment: 'center',
@@ -883,7 +895,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 							}
 						},
 						tabs: ['Result', 'Logs'],
-						customCss: {},
+						customCss: structuredClone(ccomponents['tabscomponent'].customCss),
 						numberOfSubgrids: 2,
 						id: 'b',
 						disabledTabs: [
@@ -932,7 +944,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 								}
 							}
 						},
-						customCss: {},
+						customCss: structuredClone(ccomponents['jobidflowstatuscomponent'].customCss),
 						id: 'e'
 					},
 					id: 'e'
@@ -967,7 +979,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 								}
 							}
 						},
-						customCss: {},
+						customCss: structuredClone(ccomponents['jobidlogcomponent'].customCss),
 						id: 'f'
 					},
 					id: 'f'
@@ -1041,7 +1053,6 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 								style: ''
 							}
 						},
-						actions: [],
 						horizontalAlignment: 'left',
 						verticalAlignment: 'center',
 						id: 'title'
@@ -1074,7 +1085,6 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 								class: ''
 							}
 						},
-						actions: [],
 						menuItems: [],
 						horizontalAlignment: 'right',
 						verticalAlignment: 'center',

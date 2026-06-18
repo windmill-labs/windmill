@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
@@ -12,29 +12,37 @@
 	import { initCss } from '../../utils'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let render: boolean
-	export let customCss: ComponentCustomCSS<'selectstepcomponent'> | undefined = undefined
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		horizontalAlignment?: 'left' | 'center' | 'right' | undefined
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		render: boolean
+		customCss?: ComponentCustomCSS<'selectstepcomponent'> | undefined
+	}
+
+	let {
+		id,
+		configuration,
+		horizontalAlignment = undefined,
+		verticalAlignment = undefined,
+		render,
+		customCss = undefined
+	}: Props = $props()
 
 	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
-	const resolvedConfig = initConfig(
-		components['selectstepcomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['selectstepcomponent'].initialData.configuration, untrack(() => configuration))
 	)
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined as string | undefined
 	})
 
-	let selected: string = ''
-	let selectedIndex: number = 0
+	let selected: string = $state('')
+	let selectedIndex: number = $state(0)
 
-	$: resolvedConfig.defaultValue != undefined && setDefaultValue()
-
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: string) {
 			selected = nvalue
 			selectedIndex = resolvedConfig.items.findIndex((item) => getValue(item) === nvalue)
@@ -80,8 +88,13 @@
 		return typeof item == 'string' ? item : item.label
 	}
 
-	let css = initCss($app.css?.selectstepcomponent, customCss)
-	$: selected && handleSelection(selected)
+	let css = $state(initCss($app.css?.selectstepcomponent, untrack(() => customCss)))
+	$effect(() => {
+		resolvedConfig.defaultValue != undefined && untrack(() => setDefaultValue())
+	})
+	$effect(() => {
+		selected && untrack(() => handleSelection(selected))
+	})
 </script>
 
 {#each Object.keys(components['selectstepcomponent'].initialData.configuration) as key (key)}
@@ -112,7 +125,8 @@
 	class={twMerge(css?.container?.class, 'wm-select-step')}
 	style={css?.container?.style}
 >
-	<div class="w-full" on:pointerdown={onPointerDown}>
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="w-full" onpointerdown={onPointerDown}>
 		<Stepper
 			tabs={(resolvedConfig?.items ?? []).map((item) => getLabel(item))}
 			hasValidations={false}

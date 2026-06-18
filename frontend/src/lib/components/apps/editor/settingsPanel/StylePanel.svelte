@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Tab, TabContent } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { AppViewerContext, ComponentCssProperty } from '../../types'
 	import { ccomponents, components } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
@@ -16,26 +16,67 @@
 	import CssMigrationModal from './CSSMigrationModal.svelte'
 	import CssPropertyWrapper from './CssPropertyWrapper.svelte'
 	import { onMount } from 'svelte'
-	import { findComponentSettings } from '../appUtils'
+	import { findGridItemWithLocation, type GridItemWithLocation } from '../appUtils'
 
 	const { app, cssEditorOpen, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
-	$: component = findComponentSettings($app, $selectedComponent?.[0])?.item?.data
+	let tab: 'local' | 'global' = $state('local')
+	let overrideGlobalCSS: (() => void) | undefined = $state(undefined)
+	let overrideLocalCSS: (() => void) | undefined = $state(undefined)
 
-	let tab: 'local' | 'global' = 'local'
-	let overrideGlobalCSS: (() => void) | undefined = undefined
-	let overrideLocalCSS: (() => void) | undefined = undefined
-	$: type = component?.type
-	let migrationModal: CssMigrationModal | undefined = undefined
+	let componentWithLocation: GridItemWithLocation | undefined = $derived(
+		findGridItemWithLocation($app, $selectedComponent?.[0] ?? '')
+	)
+	let component = $derived(componentWithLocation?.item.data)
+	let type = $derived(component?.type)
 
-	$: customCssByComponentType =
+	function updateComponentData(
+		loc: GridItemWithLocation,
+		updater: (data: typeof loc.item.data) => typeof loc.item.data
+	) {
+		const { location } = loc
+		if (location.type === 'subgrid') {
+			const item = $app.subgrids?.[location.subgridKey]?.[location.subgridItemIndex]
+			if (item) {
+				item.data = updater(item.data)
+			}
+		} else {
+			const item = $app.grid[location.gridItemIndex]
+			if (item) {
+				item.data = updater(item.data)
+			}
+		}
+		app.set($app)
+	}
+
+	$effect.pre(() => {
+		if (
+			(componentWithLocation && component?.customCss === undefined) ||
+			(Object.keys(component?.customCss ?? {}).length === 0 &&
+				Object.keys(ccomponents[component?.type ?? '']?.customCss ?? {}).length > 0)
+		) {
+			untrack(() => {
+				if (componentWithLocation) {
+					updateComponentData(componentWithLocation, (data) => ({
+						...data,
+						customCss: structuredClone(ccomponents[component?.type ?? '']?.customCss ?? {})
+					}))
+				}
+			})
+		}
+	})
+
+	let migrationModal: CssMigrationModal | undefined = $state(undefined)
+
+	let customCssByComponentType = $derived(
 		component?.type && $app.css
 			? Object.entries($app.css[component.type] || {}).map(([id, v]) => ({
 					id,
 					forceStyle: v?.style != undefined,
 					forceClass: v?.['class'] != undefined
-			  }))
+				}))
 			: undefined
+	)
 
 	function copyLocalToGlobal(name: string, value: ComponentCssProperty | undefined) {
 		if (!value) {
@@ -47,7 +88,7 @@
 
 			if (hasStyleValue($app.css?.[type]?.[name])) {
 				overrideGlobalCSS = () => {
-					$app.css![type]![name] = JSON.parse(JSON.stringify(value))
+					$app.css![type]![name] = structuredClone(value)
 					app.set($app)
 				}
 			} else {
@@ -55,7 +96,7 @@
 					initGlobalCss()
 				}
 
-				$app.css![type]![name] = JSON.parse(JSON.stringify(value))
+				$app.css![type]![name] = structuredClone(value)
 				app.set($app)
 				sendUserToast('Global CSS copied')
 			}
@@ -68,12 +109,10 @@
 		} else {
 			if (hasStyleValue(value)) {
 				overrideLocalCSS = () => {
-					component!.customCss![id] = JSON.parse(JSON.stringify(value))
-					app.set($app)
+					updateCssProperty(id, structuredClone(value))
 				}
 			} else {
-				component!.customCss![id] = JSON.parse(JSON.stringify(value))
-				app.set($app)
+				updateCssProperty(id, structuredClone(value))
 				sendUserToast('Local CSS copied')
 			}
 		}
@@ -95,9 +134,20 @@
 			components[component.type] &&
 			$app.css[component.type] === undefined
 		) {
-			$app.css[component.type] = JSON.parse(JSON.stringify(components[component.type].customCss))
+			$app.css[component.type] = structuredClone(components[component.type].customCss)
 			app.set($app)
 		}
+	}
+
+	function updateCssProperty(name: string, cssValue: ComponentCssProperty | undefined) {
+		if (!componentWithLocation || !cssValue) return
+		updateComponentData(componentWithLocation, (data) => ({
+			...data,
+			customCss: {
+				...(data?.customCss ?? {}),
+				[name]: cssValue
+			}
+		}))
 	}
 
 	function getSelector(key: string) {
@@ -118,9 +168,8 @@
 		<div class="px-2 flex gap-1 flex-col w-full pb-4">
 			{#if !$cssEditorOpen}
 				<Button
-					color="light"
 					size="xs2"
-					variant="border"
+					variant="default"
 					on:click={() => {
 						$cssEditorOpen = true
 					}}
@@ -133,14 +182,13 @@
 					</div>
 				</Button>
 			{:else}
-				<div />
+				<div></div>
 			{/if}
 
 			{#if $enterpriseLicense !== undefined}
 				<Button
-					color="light"
 					size="xs2"
-					variant="border"
+					variant="default"
 					on:click={() => {
 						migrationModal?.open()
 					}}
@@ -151,31 +199,35 @@
 		</div>
 
 		<Tabs bind:selected={tab}>
-			<Tab value="local" size="xs">
-				<div class="flex flex-row gap-2 items-center">
-					ID
-					<Badge color="indigo" size="xs">
-						{component?.id}
-					</Badge>
+			<Tab value="local">
+				{#snippet extra()}
+					<div class="flex flex-row gap-2 items-center">
+						ID
+						<Badge color="indigo" size="xs">
+							{component?.id}
+						</Badge>
 
-					<Tooltip light>
-						You can customise the CSS and the classes of this component instance. These
-						customisations will only be applied to this component. You can also apply
-						custom classes set on the Global styling panel.
-					</Tooltip>
-				</div>
+						<Tooltip light>
+							You can customise the CSS and the classes of this component instance. These
+							customisations will only be applied to this component. You can also apply custom
+							classes set on the Global styling panel.
+						</Tooltip>
+					</div>
+				{/snippet}
 			</Tab>
-			<Tab value="global" size="xs">
-				<div class="flex flex-row gap-2 items-center">
-					Global: {type ? ccomponents[type].name : ''}
+			<Tab value="global">
+				{#snippet extra()}
+					<div class="flex flex-row gap-2 items-center">
+						Global: {type ? ccomponents[type].name : ''}
 
-					<Tooltip light>
-						You can customise the CSS and the classes of all components of this type. These
-						customisations will be applied to all components of this type.
-					</Tooltip>
-				</div>
+						<Tooltip light>
+							You can customise the CSS and the classes of all components of this type. These
+							customisations will be applied to all components of this type.
+						</Tooltip>
+					</div>
+				{/snippet}
 			</Tab>
-			<svelte:fragment slot="content">
+			{#snippet content()}
 				<TabContent value="local">
 					{#if component && component.customCss !== undefined}
 						<div class="flex-col flex gap-4 divide-y">
@@ -189,8 +241,10 @@
 										{name}
 										wmClass={getSelector(name)}
 										componentType={component.type}
-										bind:value={component.customCss[name]}
-										on:change={() => app.set($app)}
+										value={component.customCss[name]}
+										on:change={(e) => {
+											updateCssProperty(name, e.detail)
+										}}
 										shouldDisplayRight={hasStyleValue(component.customCss[name])}
 										on:right={() => {
 											copyLocalToGlobal(name, component?.customCss?.[name])
@@ -202,6 +256,8 @@
 								</div>
 							{/each}
 						</div>
+					{:else}
+						<div class="text-sm text-secondary mx-2">No local CSS to display</div>
 					{/if}
 				</TabContent>
 				<TabContent value="global">
@@ -229,7 +285,7 @@
 						{/each}
 					{/if}
 				</TabContent>
-			</svelte:fragment>
+			{/snippet}
 		</Tabs>
 
 		<ConfirmationModal

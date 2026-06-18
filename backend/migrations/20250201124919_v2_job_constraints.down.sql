@@ -1,0 +1,4 @@
+-- Add down migration script here
+ALTER TABLE v2_job ALTER COLUMN workspace_id DROP NOT NULL;
+ALTER TABLE v2_job ALTER COLUMN tag DROP DEFAULT;
+ALTER TABLE v2_job ALTER COLUMN tag DROP NOT NULL;

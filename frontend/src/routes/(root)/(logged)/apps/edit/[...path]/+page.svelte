@@ -1,194 +1,361 @@
 <script lang="ts">
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
-	import { AppService, type AppWithLastVersion, DraftService } from '$lib/gen'
+	import { AppService, type AppWithLastVersion } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { page } from '$app/stores'
-	import { cleanValueProperties, decodeState, type Value } from '$lib/utils'
-	import { afterNavigate, replaceState } from '$app/navigation'
+	import { replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
-	import { sendUserToast, type ToastAction } from '$lib/toast'
+	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
+	import { migrateApp } from '$lib/components/apps/migrateApp'
+	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
+	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
+	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
+	import { emptyApp } from '$lib/components/apps/editor/appUtils'
+	import { importStore } from '$lib/components/apps/store'
+	import { tick, untrack } from 'svelte'
+	import { page } from '$app/state'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
+	import { runResetToDeployed } from '$lib/userDraftToast'
 
-	let app = undefined as (AppWithLastVersion & { draft_only?: boolean; value: any }) | undefined
+	let app = $state(undefined as (AppWithLastVersion & { value: any }) | undefined)
+	let appEditor: AppEditor | undefined = $state(undefined)
+	/** Seeded from a hub app this load; AppEditor relaxes a few authoring affordances. */
+	let fromHub = $state(false)
 	let savedApp:
 		| {
 				value: App
-				draft?: any
 				path: string
 				summary: string
 				policy: any
-				draft_only?: boolean
 				custom_path?: string
 		  }
-		| undefined = undefined
-	let redraw = 0
-	let path = $page.params.path
+		| undefined = $state(undefined)
+	let redraw = $state(0)
+	let path = page.params.path ?? ''
+	/** No deployed app at the URL path. Drives the editor's deploy:
+	 * `createApp` vs `updateApp`. Flips false once a deploy lands here. */
+	let isNewApp = $state(false)
+	/** Deployed app value this load, the baseline AppEditor's autosave
+	 * `discardIf` compares against. `undefined` for draft-only paths so they
+	 * never self-destruct by matching a non-existent baseline. */
+	let deployedBaseline = $state<App | undefined>(undefined)
+	let otherDraftsUsers = $state<OtherDraftUser[]>([])
+	let loadedFromDraft = $state(false)
+	let othersModalOpen = $state(false)
+	let draftSavedAt = $state<string | undefined>(undefined)
+	let deployedAt = $state<string | undefined>(undefined)
 
-	let nodraft = $page.url.searchParams.get('nodraft')
-
-	afterNavigate(() => {
-		if (nodraft) {
-			let url = new URL($page.url.href)
-			url.search = ''
-			replaceState(url.toString(), $page.state)
-		}
-	})
-	const initialState = nodraft ? undefined : localStorage.getItem(`app-${$page.params.path}`)
-	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
-
-	async function loadApp(): Promise<void> {
-		const app_w_draft = await AppService.getAppByPathWithDraft({
-			path,
-			workspace: $workspaceStore!
-		})
-		const app_w_draft_ = structuredClone(app_w_draft)
-		savedApp = {
-			summary: app_w_draft_.summary,
-			value: app_w_draft_.value as App,
-			path: app_w_draft_.path,
-			policy: app_w_draft_.policy,
-			draft_only: app_w_draft_.draft_only,
-			draft:
-				app_w_draft_.draft?.['summary'] !== undefined // backward compatibility for old drafts missing metadata
-					? app_w_draft_.draft
-					: app_w_draft_.draft
-					? {
-							summary: app_w_draft_.summary,
-							value: app_w_draft_.draft,
-							path: app_w_draft_.path,
-							policy: app_w_draft_.policy,
-							custom_path: app_w_draft_.custom_path
-					  }
-					: undefined,
-			custom_path: app_w_draft_.custom_path
-		}
-
-		if (stateLoadedFromUrl) {
-			const reloadAction = async () => {
-				stateLoadedFromUrl = undefined
-				await loadApp()
-				redraw++
+	/** Increments per `loadApp` call. Stale loads (e.g. when picker
+	 * navigation races a draft-discard reload) bail at the next checkpoint
+	 * after their captured token no longer matches. */
+	let loadAppToken = 0
+	async function loadApp(opts: { getDraft?: boolean } = {}): Promise<void> {
+		const getDraft = opts.getDraft ?? true
+		const tok = ++loadAppToken
+		// `?new_draft=true` (from `/apps/add`'s redirect): a fresh, never-saved
+		// `draft_{uuid}` path. Skip the backend fetch (would 404) and seed empty
+		// with `path = ''` for the friendly auto-name. See /scripts/edit's loader.
+		if (page.url.searchParams.get('new_draft') === 'true') {
+			// Suspend autosave across the bootstrap: the seed assignment and
+			// AppEditor's `firstMirror` are programmatic writes that must not POST
+			// as the first edit. AppEditor lifts it in `onMount`.
+			UserDraft.stopSync('app', page.params.path ?? '')
+			// Deploy must `createApp` at the user-typed path, not `updateApp` at the URL.
+			isNewApp = true
+			// Page reused across same-route nav: clear the previous path's
+			// draft-presence state so it doesn't bleed onto the fresh draft.
+			otherDraftsUsers = []
+			loadedFromDraft = false
+			draftSavedAt = undefined
+			deployedAt = undefined
+			// Brand-new app: no deployed baseline, so never discard-on-equal.
+			deployedBaseline = undefined
+			// Capture every seeding param BEFORE stripping the URL flag.
+			const templatePath = page.url.searchParams.get('template')
+			const templateId = page.url.searchParams.get('template_id')
+			const hubId = page.url.searchParams.get('hub')
+			// Explicit path seed: the fork-a-draft handoff re-homes the source
+			// path into the forker's namespace and passes it here.
+			const pathParam = page.url.searchParams.get('seed_path')
+			const url = new URL(window.location.href)
+			url.searchParams.delete('new_draft')
+			window.history.replaceState(window.history.state, '', url.toString())
+			// Backend's `Policy` requires `execution_mode` (empty object fails to
+			// deserialize on deploy); `publisher` is the default authoring mode.
+			const emptyPolicy = { execution_mode: 'publisher' } as any
+			// One-shot import handoff via $importStore (YAML/JSON or "Build app").
+			// Wrapped exports carry { summary, value, policy }; bare ones are the App value.
+			const importRaw = $importStore
+			if (importRaw) {
+				$importStore = undefined
+				sendUserToast('Loaded from YAML/JSON')
 			}
-			const actions: ToastAction[] = []
-			if (stateLoadedFromUrl) {
-				actions.push({
-					label: 'Discard browser autosave and reload',
-					callback: reloadAction
-				})
-
-				const draftOrDeployed = cleanValueProperties(savedApp.draft || savedApp)
-				const urlScript = {
-					...draftOrDeployed,
-					value: stateLoadedFromUrl
+			// Seed priority: YAML/JSON import > template > template-version > hub > empty.
+			let seedSummary = ''
+			let seedValue = emptyApp() as any
+			let seedPolicy = emptyPolicy
+			if (importRaw) {
+				if ('value' in importRaw) {
+					seedSummary = importRaw.summary ?? ''
+					seedValue = importRaw.value
+					seedPolicy = importRaw.policy ?? emptyPolicy
+				} else {
+					seedValue = importRaw
 				}
-				actions.push({
-					label: 'Show diff',
-					callback: async () => {
-						diffDrawer.openDrawer()
-						diffDrawer.setDiff({
-							mode: 'simple',
-							original: draftOrDeployed,
-							current: urlScript,
-							title: `${savedApp?.draft ? 'Latest saved draft' : 'Deployed'} <> Autosave`,
-							button: { text: 'Discard autosave', onClick: reloadAction }
-						})
+			} else if (templatePath) {
+				try {
+					const template = await AppService.getAppByPath({
+						workspace: $workspaceStore!,
+						path: templatePath
+					})
+					if (tok !== loadAppToken) return
+					seedValue = template.value
+					sendUserToast('App loaded from template')
+				} catch (err: any) {
+					if (tok !== loadAppToken) return
+					console.error('Error loading template', err)
+					sendUserToast('Error loading template: ' + (err.body ?? err.message), true)
+				}
+			} else if (templateId) {
+				try {
+					const template = await AppService.getAppByVersion({
+						workspace: $workspaceStore!,
+						id: parseInt(templateId)
+					})
+					if (tok !== loadAppToken) return
+					seedValue = template.value
+					sendUserToast('App loaded from template')
+				} catch (err: any) {
+					if (tok !== loadAppToken) return
+					console.error('Error loading template', err)
+					sendUserToast('Error loading template: ' + (err.body ?? err.message), true)
+				}
+			} else if (hubId) {
+				try {
+					const hub = await AppService.getHubAppById({ id: Number(hubId) })
+					if (tok !== loadAppToken) return
+					seedValue = {
+						hiddenInlineScripts: [],
+						unusedInlineScripts: [],
+						fullscreen: false,
+						...((hub.app.value ?? {}) as any)
 					}
-				})
-			}
-
-			sendUserToast('App restored from browser storage', false, actions)
-			app_w_draft.value = stateLoadedFromUrl
-			app = app_w_draft
-		} else if (app_w_draft.draft) {
-			if (app_w_draft.summary !== undefined) {
-				// backward compatibility for old drafts missing metadata
-				app = {
-					...app_w_draft,
-					...app_w_draft.draft
-				}
-			} else {
-				app = {
-					...app_w_draft,
-					value: app_w_draft.draft as any
+					seedSummary = hub.app.summary
+					fromHub = true
+					sendUserToast('App loaded from Hub')
+				} catch (err: any) {
+					if (tok !== loadAppToken) return
+					console.error('Error loading hub app', err)
+					sendUserToast('Error loading hub app: ' + (err.body ?? err.message), true)
 				}
 			}
-
-			if (!app_w_draft.draft_only) {
-				const reloadAction = () => {
-					stateLoadedFromUrl = undefined
-					app = app_w_draft
-					redraw++
-				}
-
-				const deployed = cleanValueProperties(app_w_draft as Value)
-				const draft = cleanValueProperties(app ?? {})
-				sendUserToast('app loaded from latest saved draft', false, [
-					{
-						label: 'Discard draft and load from latest deployed version',
-						callback: reloadAction
-					},
-					{
-						label: 'Show diff',
-						callback: async () => {
-							diffDrawer.openDrawer()
-							diffDrawer.setDiff({
-								mode: 'simple',
-								original: deployed,
-								current: draft,
-								title: 'Deployed <> Draft',
-								button: { text: 'Discard draft', onClick: reloadAction }
-							})
-						}
-					}
-				])
+			app = {
+				summary: seedSummary,
+				value: seedValue,
+				path: pathParam ?? '',
+				policy: seedPolicy,
+				custom_path: undefined,
+				versions: [] as any,
+				id: 0 as any,
+				extra_perms: {},
+				created_at: new Date().toISOString(),
+				created_by: '',
+				raw_app: false
+			} as unknown as AppWithLastVersion & { value: any }
+			savedApp = {
+				summary: seedSummary,
+				value: seedValue,
+				path: pathParam ?? '',
+				policy: seedPolicy
 			}
-		} else {
-			app = app_w_draft
-		}
-	}
-
-	$: {
-		if ($workspaceStore) {
-			loadApp()
-		}
-	}
-
-	async function restoreDraft() {
-		if (!savedApp || !savedApp.draft) {
-			sendUserToast('Could not restore to draft', true)
+			// Tutorial links ("/apps/add?tutorial=...") land here via the
+			// redirect; fire once AppEditor has mounted and the runnable
+			// panel the tour points at exists.
+			const tutorialParam = page.url.searchParams.get('tutorial')
+			if (tutorialParam) {
+				await tick()
+				let attempts = 0
+				while (attempts < 20 && !document.querySelector('#app-editor-runnable-panel')) {
+					await new Promise((resolve) => setTimeout(resolve, 100))
+					attempts++
+				}
+				if (tok !== loadAppToken) return
+				appEditor?.triggerTutorial()
+			}
 			return
 		}
-		diffDrawer.closeDrawer()
-		goto(`/apps/edit/${savedApp.draft.path}`)
-		await loadApp()
+		let backendApp = await AppService.getAppByPath({
+			path: page.params.path ?? '',
+			workspace: $workspaceStore!,
+			getDraft
+		})
+		if (tok !== loadAppToken) return
+		// Deployed App value for AppEditor's autosave `discardIf`, captured BEFORE
+		// the draft swap below replaces `backendApp.value`. `undefined` when
+		// there's no deployed row (draft-only path).
+		deployedBaseline = backendApp.no_deployed
+			? undefined
+			: // Carry the deployed summary onto the baseline: the autosave mirrors the
+				// summary onto the live App value, so the `discardIf` no-op comparison must
+				// see the deployed summary here too — otherwise a reverted-to-deployed draft
+				// never compares equal (and a summary-only edit still counts as a change).
+				({
+					...(structuredClone(stateSnapshot(backendApp.value)) as App),
+					summary: backendApp.summary
+				} as App)
+		// `other_drafts_users` only computed when `getDraft`; don't clobber the
+		// known list on a `getDraft:false` reload. See /scripts/edit's loader.
+		if (getDraft) {
+			otherDraftsUsers = (backendApp.other_drafts_users ?? []) as OtherDraftUser[]
+		}
+		if ($workspaceStore && path) {
+			UserDraftDbSyncer.recordRemoteSync(
+				{ workspace: $workspaceStore, itemKind: 'app', path },
+				backendApp.draft_saved_at
+			)
+		}
+		// The app autosave stores a raw `App`, but this loader (and AppEditor's
+		// `app={app.value}` prop) needs the `AppWithLastVersion` wrapper. Wrap the
+		// saved draft (`.draft`) back into that shape:
+		//   - `no_deployed`: no deployed row — synthesize a wrapper with empty
+		//     deployed-metadata defaults and the saved App as `.value`.
+		//   - deployed + draft: keep deployed metadata, swap in the saved App.
+		const savedDraftApp = (backendApp as any).draft as App | undefined
+		// Re-evaluate per load: true for draft-only paths, false once deployed.
+		isNewApp = !!backendApp.no_deployed
+		if (backendApp.no_deployed) {
+			backendApp = {
+				// Draft-only app: the summary rides on the autosaved App value
+				// (no deployed column to read it from).
+				summary: savedDraftApp?.summary ?? '',
+				value: (savedDraftApp ?? {}) as App,
+				path: page.params.path ?? '',
+				// `execution_mode` required; matches the new-app seed above.
+				policy: { execution_mode: 'publisher' } as any,
+				custom_path: undefined,
+				versions: undefined as any,
+				id: 0 as any,
+				extra_perms: {},
+				created_at: new Date().toISOString(),
+				created_by: '',
+				raw_app: false,
+				is_draft: true,
+				draft_saved_at: backendApp.draft_saved_at,
+				no_deployed: true
+			} as unknown as typeof backendApp
+		} else if (savedDraftApp) {
+			// Deployed app with a draft: swap in the draft value and honor a draft
+			// summary edit (falls back to the deployed summary when the draft has none).
+			backendApp = {
+				...backendApp,
+				value: savedDraftApp,
+				summary: savedDraftApp.summary ?? backendApp.summary
+			} as typeof backendApp
+		}
+		// Per-response, NOT sticky: a later no-own-draft load in the same editor
+		// must reset this so it can't wrongly force overlay mode.
+		const hasOwnDraft = !!backendApp.is_draft
+		loadedFromDraft = hasOwnDraft
+		// Pass both timestamps for DraftEditorModals' staleness compare: `created_at`
+		// is the deploy time, `draft_saved_at` the draft's. Skip `deployedAt` when
+		// `no_deployed` — no baseline to be older than.
+		draftSavedAt = backendApp.draft_saved_at as string | undefined
+		deployedAt = backendApp.no_deployed ? undefined : (backendApp.created_at as string | undefined)
+		const backendApp_ = structuredClone(stateSnapshot(backendApp))
+		savedApp = {
+			summary: backendApp_.summary,
+			value: backendApp_.value as App,
+			path: backendApp_.path,
+			policy: backendApp_.policy,
+			custom_path: backendApp_.custom_path
+		}
+		// "Load another user's draft" handoff: render their value. Overlay mode (we
+		// have our own draft) hard-locks saves until the user confirms overwriting
+		// it (AppEditor's own autosave is blocked by the lock). See /scripts/edit.
+		const pendingLoad = getDraft
+			? OtherUserDraftLoad.takePending($workspaceStore!, 'app', path)
+			: undefined
+		// Revisiting a path whose overlay was never confirmed/reset: drop the stale
+		// lock so editing our own draft works again. See /scripts/edit's loader.
+		if (!pendingLoad && OtherUserDraftLoad.isActive($workspaceStore!, 'app', path)) {
+			OtherUserDraftLoad.clear($workspaceStore!, 'app', path)
+		}
+		if (pendingLoad) {
+			backendApp = { ...backendApp, value: pendingLoad.value as App } as typeof backendApp
+			if (hasOwnDraft) {
+				// AppEditor `migrateApp`s the value in place on mount (see its
+				// `migratedDeployedBaseline`), so the draft cell settles to the
+				// MIGRATED app. Match it here, else the first post-mount mirror write
+				// would diverge from the raw value and trip the overwrite prompt
+				// before any edit. Mirrors raw_app's bundle-matching baseline.
+				const overlayBaseline = structuredClone($state.snapshot(pendingLoad.value)) as App
+				migrateApp(overlayBaseline)
+				OtherUserDraftLoad.beginOverlay({
+					workspace: $workspaceStore!,
+					itemKind: 'app',
+					path,
+					ownerLabel: pendingLoad.ownerLabel,
+					// AppEditor stores the bare (migrated) App in the draft cell.
+					loadedValue: overlayBaseline,
+					onResetToOwnDraft: async () => {
+						await loadApp({ getDraft: true })
+						redraw++
+					}
+				})
+			}
+		}
+		// Assign the fresh response onto `app`. The path-change $effect sets
+		// `app = undefined` first, unmounting AppEditor and releasing the UserDraft
+		// entry, so the remount starts fresh — no local discard is needed here
+		// (and `UserDraft.discard` would POST `value: null`, a spurious autosave).
+		app = backendApp
+	}
+
+	$effect(() => {
+		// Re-run on workspace OR path change so navigating from one app editor
+		// to another (e.g. via the workspace picker) reloads the new app.
+		const currentPath = page.params.path
+		if ($workspaceStore && currentPath !== undefined) {
+			untrack(() => {
+				// Clear the app so AppEditor unmounts; it will remount once loadApp
+				// completes with fresh data, re-initializing its internal stores.
+				app = undefined
+				path = currentPath
+				loadApp()
+			})
+		}
+	})
+
+	async function reloadDeployed() {
+		UserDraft.remove('app', path)
+		await loadApp({ getDraft: false })
 		redraw++
 	}
 
 	async function restoreDeployed() {
-		if (!savedApp) {
+		if (!savedApp || !$workspaceStore) {
 			sendUserToast('Could not restore to deployed', true)
 			return
 		}
-		diffDrawer.closeDrawer()
-		if (savedApp.draft) {
-			await DraftService.deleteDraft({
-				workspace: $workspaceStore!,
-				kind: 'app',
-				path: savedApp.path
-			})
-		}
-		goto(`/apps/edit/${savedApp.path}`)
-		await loadApp()
-		redraw++
+		diffDrawer?.closeDrawer()
+		await runResetToDeployed({
+			workspace: $workspaceStore,
+			itemKind: 'app',
+			path,
+			onResetToDeployed: reloadDeployed
+		})
 	}
 
-	let diffDrawer: DiffDrawer
+	let diffDrawer: DiffDrawer | undefined = $state()
 
 	function onRestore(ev: any) {
 		sendUserToast('App restored from previous deployment')
 		app = ev.detail
-		const app_ = structuredClone(app!)
+		const app_ = structuredClone(stateSnapshot(app!))
 		savedApp = {
 			summary: app_.summary,
 			value: app_.value as App,
@@ -200,30 +367,81 @@
 	}
 </script>
 
-<DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
+<DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
+<!-- Auto-save off: edits aren't persisted on leave, so warn before navigating
+	away (and on tab close). Inert while auto-save is on. -->
+<UnsavedConfirmationModal
+	showAutosaveTips
+	hasUnsavedChanges={() =>
+		UserDraftDbSyncer.hasUnsavedDisabledChanges({
+			workspace: $workspaceStore ?? '',
+			itemKind: 'app',
+			path
+		})}
+	onDiscardChanges={() =>
+		UserDraftDbSyncer.dropPending({
+			workspace: $workspaceStore ?? '',
+			itemKind: 'app',
+			path
+		})}
+/>
+<DraftEditorModals
+	workspace={$workspaceStore ?? ''}
+	itemKind="app"
+	{path}
+	{otherDraftsUsers}
+	draftOnly={isNewApp}
+	hasOwnDraft={loadedFromDraft}
+	onLoadFromServer={async () => {
+		// AppEditor's `stateApp` is captured at mount and ignores prop changes,
+		// so `redraw++` remounts it against the fresh `app`.
+		await loadApp()
+		redraw++
+	}}
+	getLocalDraft={() => app?.value}
+	bind:othersModalOpen
+	{draftSavedAt}
+	{deployedAt}
+	onLoadLatestDeploy={async () => {
+		if (!$workspaceStore) return
+		await runResetToDeployed({
+			workspace: $workspaceStore,
+			itemKind: 'app',
+			path,
+			onResetToDeployed: reloadDeployed
+		})
+	}}
+/>
 
 {#key redraw}
 	{#if app}
 		<div class="h-screen">
 			<AppEditor
-				on:savedNewAppPath={(event) => {
-					goto(`/apps/edit/${event.detail}`)
+				bind:this={appEditor}
+				{fromHub}
+				onSavedNewAppPath={(url) => {
+					goto(`/apps/edit/${url}`)
 					if (app) {
-						app.path = event.detail
+						app.path = url
 					}
 				}}
 				on:restore={onRestore}
 				summary={app.summary}
 				app={app.value}
-				newPath={app.path}
-				path={$page.params.path}
+				{deployedBaseline}
+				newPath={app.value?.draft_path ?? app.path}
+				path={page.params.path ?? ''}
 				policy={app.policy}
 				bind:savedApp
 				{diffDrawer}
 				version={app.versions ? app.versions[app.versions.length - 1] : undefined}
-				newApp={false}
-				replaceStateFn={(path) => replaceState(path, $page.state)}
+				newApp={isNewApp}
+				replaceStateFn={(path) => replaceState(path, page.state)}
 				gotoFn={(path, opt) => goto(path, opt)}
+				onResetToDeployed={reloadDeployed}
+				{loadedFromDraft}
+				othersDraftsCount={otherDraftsUsers.length}
+				onOpenOthersDrafts={() => (othersModalOpen = true)}
 			/>
 		</div>
 	{/if}

@@ -3,7 +3,8 @@
 		computeSharableHash as computeSharableHash,
 		defaultIfEmptyString,
 		emptyString,
-		truncateHash
+		truncateHash,
+		sendUserToast
 	} from '$lib/utils'
 
 	import type { Schema } from '$lib/common'
@@ -12,69 +13,147 @@
 	import SharedBadge from './SharedBadge.svelte'
 
 	import TimeAgo from './TimeAgo.svelte'
-	import Popup from './common/popup/Popup.svelte'
-	import { autoPlacement } from '@floating-ui/core'
-	import { Calendar, CornerDownLeft } from 'lucide-svelte'
+	import Popover from './meltComponents/Popover.svelte'
+	import { Calendar, Check, CornerDownLeft } from 'lucide-svelte'
 	import RunFormAdvancedPopup from './RunFormAdvancedPopup.svelte'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { replaceState } from '$app/navigation'
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
+	import { untrack } from 'svelte'
+	import { processSecretArgs } from './secretArgUtils'
+	import PowerShellCommonParams from './PowerShellCommonParams.svelte'
 
-	export let runnable:
-		| {
-				summary?: string
-				schema?: Schema | any
-				description?: string
-				path?: string
-				is_template?: boolean
-				hash?: string
-				kind?: string
-				can_write?: boolean
-				created_at?: string
-				created_by?: string
-				extra_perms?: Record<string, boolean>
-		  }
-		| undefined
-	export let runAction: (
-		scheduledForStr: string | undefined,
-		args: Record<string, any>,
-		invisible_to_owner: boolean | undefined,
-		overrideTag: string | undefined
-	) => void
-	export let buttonText = 'Run'
-	export let schedulable = true
-	export let detailed = true
-	export let autofocus = false
-	export let topButton = false
-	export let loading = false
-	export let noVariablePicker = false
-	export let viewKeybinding = false
+	let reloadArgs = $state(0)
+	let jsonEditor: JsonInputs | undefined = $state(undefined)
+	let schemaHeight = $state(0)
+	let showInputSelectedBadge = $state(false)
+	let savedPreviousArgs: Record<string, any> | undefined = $state(undefined)
+	let psCommonParams: Record<string, any> = $state({})
 
-	export let scheduledForStr: string | undefined
-	export let invisible_to_owner: boolean | undefined
-	export let overrideTag: string | undefined
-
-	export let args: Record<string, any> = {}
-	export let jsonView = false
-
-	let reloadArgs = 0
-	let blockPopupOpen = false
-	let jsonEditor: JsonInputs | undefined = undefined
-	let schemaHeight = 0
+	function extractPsCommonParams(allArgs: Record<string, any>): {
+		scriptArgs: Record<string, any>
+		commonParams: Record<string, any>
+	} {
+		const scriptArgs: Record<string, any> = {}
+		const commonParams: Record<string, any> = {}
+		for (const [k, v] of Object.entries(allArgs)) {
+			if (k.startsWith('_wm_ps_')) {
+				commonParams[k] = v
+			} else {
+				scriptArgs[k] = v
+			}
+		}
+		return { scriptArgs, commonParams }
+	}
 
 	export async function setArgs(nargs: Record<string, any>) {
-		args = nargs
+		const { scriptArgs, commonParams } = extractPsCommonParams(nargs)
+		args = scriptArgs
+		psCommonParams = commonParams
 		reloadArgs++
 	}
 
-	export function run() {
-		runAction(scheduledForStr, args, invisible_to_owner, overrideTag)
+	export async function run(overrideScheduledForStr?: string | undefined | null) {
+		let processedArgs: Record<string, any>
+		try {
+			processedArgs = await processSecretArgs(
+				enforceDisabledDefaults(args ?? {}, true),
+				runnable?.schema
+			)
+		} catch (e) {
+			sendUserToast('Failed to process sensitive args: ' + e, true)
+			return
+		}
+		if (showPsCommonParams) {
+			for (const [k, v] of Object.entries(psCommonParams)) {
+				if (v !== undefined && v !== false && v !== '') {
+					processedArgs[k] = v
+				}
+			}
+		}
+		runAction(
+			overrideScheduledForStr === null ? undefined : (overrideScheduledForStr ?? scheduledForStr),
+			processedArgs,
+			invisible_to_owner,
+			overrideTag
+		)
 	}
 
-	export let isValid = true
+	interface Props {
+		runnable:
+			| {
+					summary?: string
+					schema?: Schema | any
+					description?: string
+					path?: string
+					is_template?: boolean
+					hash?: string
+					kind?: string
+					language?: string
+					can_write?: boolean
+					created_at?: string
+					created_by?: string
+					extra_perms?: Record<string, boolean>
+			  }
+			| undefined
+		runAction: (
+			scheduledForStr: string | undefined,
+			args: Record<string, any>,
+			invisible_to_owner: boolean | undefined,
+			overrideTag: string | undefined
+		) => void
+		buttonText?: string
+		schedulable?: boolean
+		detailed?: boolean
+		autofocus?: boolean
+		loading?: boolean
+		noVariablePicker?: boolean
+		viewKeybinding?: boolean
+		scheduledForStr: string | undefined
+		invisible_to_owner: boolean | undefined
+		overrideTag: string | undefined
+		args?: Record<string, any>
+		jsonView?: boolean
+		isValid?: boolean
+	}
 
-	$: onArgsChange(args)
-	let debounced: NodeJS.Timeout | undefined = undefined
+	let {
+		runnable,
+		runAction,
+		buttonText = 'Run',
+		schedulable = true,
+		detailed = true,
+		autofocus = false,
+		loading = false,
+		noVariablePicker = false,
+		viewKeybinding = false,
+		scheduledForStr = $bindable(),
+		invisible_to_owner = $bindable(),
+		overrideTag = $bindable(),
+		args = $bindable(),
+		jsonView = false,
+		isValid = $bindable(true)
+	}: Props = $props()
+
+	let showPsCommonParams = $derived(
+		runnable?.language === 'powershell' && runnable?.schema?.['x-windmill-ps-cmd-binding'] === true
+	)
+
+	$effect.pre(() => {
+		if (args == undefined) {
+			args = {}
+		}
+		// Extract _wm_ps_* keys from args on initial load (e.g. "Run again" via URL hash)
+		if (args && Object.keys(args).some((k) => k.startsWith('_wm_ps_'))) {
+			const { scriptArgs, commonParams } = extractPsCommonParams(args)
+			args = scriptArgs
+			psCommonParams = commonParams
+		}
+	})
+
+	let debounced: number | undefined = undefined
 
 	function onArgsChange(args: any) {
 		try {
@@ -84,7 +163,7 @@
 				nurl.hash = computeSharableHash(args)
 
 				try {
-					replaceState(nurl.toString(), $page.state)
+					replaceState(nurl.toString(), page.state)
 				} catch (e) {
 					console.error(e)
 				}
@@ -94,11 +173,88 @@
 		}
 	}
 
+	function enforceDisabledDefaults(
+		args: Record<string, any>,
+		notify: boolean = false
+	): Record<string, any> {
+		const schema = runnable?.schema
+		if (!schema?.properties) return args
+		const result = { ...args }
+		const resetKeys: string[] = []
+		for (const [key, prop] of Object.entries(schema.properties) as [string, any][]) {
+			if (prop?.disabled && 'default' in prop) {
+				if (notify && result[key] !== prop.default) {
+					resetKeys.push(key)
+				}
+				result[key] = prop.default
+			}
+		}
+		if (resetKeys.length > 0) {
+			sendUserToast(
+				`Disabled field${resetKeys.length > 1 ? 's' : ''} ${resetKeys.map((k) => `'${k}'`).join(', ')} reset to default value${resetKeys.length > 1 ? 's' : ''}`
+			)
+		}
+		return result
+	}
+
 	export function setCode(code: string) {
 		jsonEditor?.setCode(code)
 	}
+	$effect(() => {
+		Object.keys(args ?? {}).forEach((key) => {
+			args?.[key]
+		})
+		untrack(() => onArgsChange(args))
+	})
 </script>
 
+<!-- Standalone triggerable registration for the run form -->
+<div
+	style="display: none"
+	use:triggerableByAI={{
+		id: `run-form-${runnable?.path ?? ''}`,
+		description: `Form to fill the inputs to run ${runnable?.summary && runnable?.summary.length > 0 ? runnable?.summary : runnable?.path}.
+	## Script description: ${runnable?.description ?? ''}.
+	## Schema used: ${JSON.stringify(runnable?.schema)}.
+	## Current args: ${JSON.stringify(args)}}`,
+		callback: (value) => {
+			savedPreviousArgs = args
+			setArgs(JSON.parse(value ?? '{}'))
+			showInputSelectedBadge = true
+		},
+		showAnimation: false
+	}}
+></div>
+
+{#snippet acceptButton()}
+	<Button
+		startIcon={{
+			icon: Check
+		}}
+		size="xs2"
+		btnClasses="border border-gray-200 dark:border-gray-600 !bg-surface text-primary"
+		on:click={() => {
+			showInputSelectedBadge = false
+			savedPreviousArgs = undefined
+		}}
+	>
+		Accept
+	</Button>
+{/snippet}
+
+{#if showInputSelectedBadge}
+	<InputSelectedBadge
+		inputSelected="ai"
+		labelColor="text-violet-800 dark:text-primary"
+		className="dark:!bg-violet-800 !bg-violet-200 !border-violet-200 dark:!border-violet-800"
+		{acceptButton}
+		onReject={() => {
+			setArgs(savedPreviousArgs ?? {})
+			savedPreviousArgs = undefined
+			showInputSelectedBadge = false
+		}}
+	/>
+{/if}
 <div class="max-w-3xl">
 	{#if detailed}
 		{#if runnable}
@@ -113,7 +269,7 @@
 						{/if}
 
 						<div class="flex items-center gap-2">
-							<span class="text-sm text-tertiary">
+							<span class="text-sm text-primary">
 								{#if runnable}
 									Edited <TimeAgo agoOnlyIfRecent date={runnable.created_at || ''} /> by {runnable.created_by ||
 										'unknown'}
@@ -139,45 +295,43 @@
 				</div>
 			</div>
 		{:else}
-			<h1>Loading...</h1>
+			<h1
+				use:triggerableByAI={{
+					id: 'run-form-loading',
+					description: 'Run form is loading, should scan the page until this is gone'
+				}}>Loading...</h1
+			>
 		{/if}
 	{/if}
-	{#if topButton}
-		<Button
-			btnClasses="!px-6 !py-1 w-full"
-			disabled={!isValid || jsonView}
-			on:click={() => runAction(undefined, args, invisible_to_owner, overrideTag)}
-		>
-			{buttonText}
-		</Button>
-	{/if}
 	{#if runnable?.schema}
-		<div class="my-2" />
-		{#if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
-			<div class="text-sm py-4 italic">No arguments</div>
-		{:else if jsonView}
-			<div class="py-2" style="height: {schemaHeight}px" data-schema-picker>
+		{#if jsonView}
+			<div
+				class="py-2"
+				style="height: {!schemaHeight || schemaHeight < 600 ? 600 : schemaHeight}px"
+				data-schema-picker
+			>
 				<JsonInputs
 					bind:this={jsonEditor}
 					on:select={(e) => {
 						if (e.detail) {
-							args = e.detail
+							args = enforceDisabledDefaults(e.detail)
 						}
 					}}
 					updateOnBlur={false}
 					placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
 				/>
 			</div>
+		{:else if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
+			<div class="text-sm italic">{`This ${runnable.kind ?? 'runnable'} takes no arguments`}</div>
 		{:else}
 			{#key reloadArgs}
 				<div bind:clientHeight={schemaHeight}>
 					<SchemaForm
-						helperScript={runnable.hash
-							? {
-									type: 'hash',
-									hash: runnable.hash
-							  }
-							: undefined}
+						helperScript={{
+							source: 'deployed',
+							path: runnable.path!,
+							runnable_kind: runnable.hash ? 'script' : 'flow'
+						}}
 						prettifyHeader
 						{noVariablePicker}
 						{autofocus}
@@ -189,54 +343,44 @@
 			{/key}
 		{/if}
 	{:else}
-		<div class="text-xs text-tertiary">No arguments</div>
+		<div class="text-xs text-primary">No arguments</div>
+	{/if}
+	{#if showPsCommonParams}
+		<div class="mt-4">
+			<PowerShellCommonParams bind:args={psCommonParams} />
+		</div>
 	{/if}
 	{#if schedulable}
-		<div class="mt-10" />
-		<div class="flex gap-2 items-start flex-wrap justify-between mt-2 md:mt-6 mb-6">
+		<div class="flex gap-2 items-start flex-wrap justify-between mt-2 md:mt-6">
 			<div class="flex-row-reverse flex-wrap flex w-full gap-4">
 				<Button
+					id="run-form-run-button"
 					{loading}
-					color="dark"
-					btnClasses="!px-6 !py-1 !h-8 inline-flex gap-2"
-					disabled={!isValid || jsonView}
-					on:click={() => runAction(scheduledForStr, args, invisible_to_owner, overrideTag)}
+					variant="accent"
+					unifiedSize="md"
+					btnClasses="!inline-flex"
+					disabled={!isValid && !jsonView}
+					on:click={() => run()}
 					shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 				>
 					{scheduledForStr ? 'Schedule to run later' : buttonText}
 				</Button>
 				<div>
-					<Popup
-						floatingConfig={{
-							middleware: [
-								autoPlacement({
-									allowedPlacements: [
-										'bottom-start',
-										'bottom-end',
-										'top-start',
-										'top-end',
-										'top',
-										'bottom'
-									]
-								})
-							]
-						}}
-						let:close
-						blockOpen={blockPopupOpen}
-					>
-						<svelte:fragment slot="button">
-							<Button nonCaptureEvent startIcon={{ icon: Calendar }} size="xs" color="light">
+					<Popover placement="bottom" closeButton usePointerDownOutside>
+						{#snippet trigger()}
+							<Button nonCaptureEvent startIcon={{ icon: Calendar }} unifiedSize="md" color="light">
 								Advanced
 							</Button>
-						</svelte:fragment>
-						<RunFormAdvancedPopup
-							bind:scheduledForStr
-							bind:invisible_to_owner
-							bind:overrideTag
-							bind:runnable
-							on:close={() => close(null)}
-						/>
-					</Popup>
+						{/snippet}
+						{#snippet content()}
+							<RunFormAdvancedPopup
+								bind:scheduledForStr
+								bind:invisible_to_owner
+								bind:overrideTag
+								{runnable}
+							/>
+						{/snippet}
+					</Popover>
 				</div>
 			</div>
 			{#if overrideTag}
@@ -250,11 +394,12 @@
 				</div>
 			{/if}
 		</div>
-	{:else if !topButton}
+	{:else}
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
-			disabled={!isValid || jsonView}
-			on:click={() => runAction(undefined, args, invisible_to_owner, overrideTag)}
+			variant="accent"
+			disabled={!isValid && !jsonView}
+			on:click={() => run(null)}
 			shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 		>
 			{buttonText}

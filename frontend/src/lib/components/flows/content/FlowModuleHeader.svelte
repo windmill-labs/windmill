@@ -5,16 +5,15 @@
 	import {
 		Bed,
 		Database,
-		ExternalLink,
 		Gauge,
 		GitFork,
 		Pen,
 		PhoneIncoming,
 		RefreshCcw,
 		Repeat,
-		Save,
 		Square,
-		Voicemail
+		Pin,
+		Save
 	} from 'lucide-svelte'
 	import Popover from '../../Popover.svelte'
 	import type { FlowEditorContext } from '../types'
@@ -23,97 +22,95 @@
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import FlowModuleWorkerTagSelect from './FlowModuleWorkerTagSelect.svelte'
 
-	export let module: FlowModule
-	export let tag: string | undefined
-	const { scriptEditorDrawer } = getContext<FlowEditorContext>('FlowEditorContext')
+	interface Props {
+		module: FlowModule
+		tag: string | undefined
+	}
+
+	let { module, tag }: Props = $props()
+	const { scriptEditorDrawer, flowEditorDrawer } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 
-	$: moduleRetry = module.retry?.constant || module.retry?.exponential
+	let popoverClasses =
+		'center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600'
 </script>
 
-<div class="flex flex-row space-x-1">
+<div class="flex flex-row gap-2 whitespace-nowrap">
 	{#if module.value.type === 'script' || module.value.type === 'rawscript' || module.value.type == 'flow'}
-		{#if moduleRetry}
-			<Popover
-				placement="bottom"
-				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
-				on:click={() => dispatch('toggleRetry')}
-			>
+		{#if module.retry?.constant || module.retry?.exponential}
+			<Popover placement="bottom" class={popoverClasses} onClick={() => dispatch('toggleRetry')}>
 				<Repeat size={14} />
-				<svelte:fragment slot="text">Retries</svelte:fragment>
+				{#snippet text()}
+					Retries
+				{/snippet}
 			</Popover>
 		{/if}
 		{#if module?.value?.['concurrent_limit'] != undefined}
 			<Popover
 				placement="bottom"
-				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
-				on:click={() => dispatch('toggleConcurrency')}
+				class={popoverClasses}
+				onClick={() => dispatch('toggleConcurrency')}
 			>
 				<Gauge size={14} />
-				<svelte:fragment slot="text">Concurrency Limits</svelte:fragment>
+				{#snippet text()}
+					Concurrency Limits
+				{/snippet}
 			</Popover>
 		{/if}
 		{#if module.cache_ttl != undefined}
-			<Popover
-				placement="bottom"
-				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
-				on:click={() => dispatch('toggleCache')}
-			>
+			<Popover placement="bottom" class={popoverClasses} onClick={() => dispatch('toggleCache')}>
 				<Database size={14} />
-				<svelte:fragment slot="text">Cache</svelte:fragment>
+				{#snippet text()}
+					Cache
+				{/snippet}
 			</Popover>
 		{/if}
 		{#if module.stop_after_if || module.stop_after_all_iters_if}
 			<Popover
 				placement="bottom"
-				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
-				on:click={() => dispatch('toggleStopAfterIf')}
+				class={popoverClasses}
+				onClick={() => dispatch('toggleStopAfterIf')}
 			>
 				<Square size={14} />
-				<svelte:fragment slot="text">Early stop/break</svelte:fragment>
+				{#snippet text()}
+					Early stop/break
+				{/snippet}
 			</Popover>
 		{/if}
 		{#if module.suspend}
-			<Popover
-				placement="bottom"
-				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
-				on:click={() => dispatch('toggleSuspend')}
-			>
+			<Popover placement="bottom" class={popoverClasses} onClick={() => dispatch('toggleSuspend')}>
 				<PhoneIncoming size={14} />
-				<svelte:fragment slot="text">Suspend</svelte:fragment>
+				{#snippet text()}
+					Suspend
+				{/snippet}
 			</Popover>
 		{/if}
 		{#if module.sleep}
-			<Popover
-				placement="bottom"
-				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
-				on:click={() => dispatch('toggleSleep')}
-			>
+			<Popover placement="bottom" class={popoverClasses} onClick={() => dispatch('toggleSleep')}>
 				<Bed size={14} />
-				<svelte:fragment slot="text">Sleep</svelte:fragment>
+				{#snippet text()}
+					Sleep
+				{/snippet}
 			</Popover>
 		{/if}
 		{#if module.mock?.enabled}
-			<Popover
-				placement="bottom"
-				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
-				on:click={() => dispatch('toggleMock')}
-			>
-				<Voicemail size={14} />
-				<svelte:fragment slot="text">Mock</svelte:fragment>
+			<Popover placement="bottom" class={popoverClasses} onClick={() => dispatch('togglePin')}>
+				<Pin size={14} />
+				{#snippet text()}
+					This step is pinned
+				{/snippet}
 			</Popover>
 		{/if}
 	{/if}
 	{#if module.value.type === 'script'}
-		<div class="w-2" />
-
 		{#if !module.value.path.startsWith('hub/') && customUi?.scriptEdit != false}
 			<Button
-				size="xs"
-				color="light"
-				on:click={async () => {
+				unifiedSize="sm"
+				variant="subtle"
+				onClick={async () => {
 					if (module.value.type == 'script') {
 						const hash = module.value.hash ?? (await getLatestHashForScript(module.value.path))
 						$scriptEditorDrawer?.openDrawer(hash, () => {
@@ -124,21 +121,25 @@
 				}}
 				startIcon={{ icon: Pen }}
 				iconOnly={false}
-				tooltip={module.value.hash != undefined
-					? 'Script is locked with a specific hash'
-					: undefined}
 				disabled={module.value.hash != undefined}
 			>
 				Edit
 			</Button>
 		{/if}
 		{#if customUi?.tagEdit != false}
-			<FlowModuleWorkerTagSelect nullTag={tag} bind:tag={module.value.tag_override} />
+			<FlowModuleWorkerTagSelect
+				isPreprocessor={module.id == 'preprocessor'}
+				placeholder={customUi?.tagSelectPlaceholder}
+				noLabel={customUi?.tagSelectNoLabel}
+				nullTag={tag}
+				tag={module.value.tag_override}
+				on:change={(e) => dispatch('tagChange', e.detail)}
+			/>
 		{/if}
 		{#if customUi?.scriptFork != false}
 			<Button
-				size="xs"
-				color="light"
+				unifiedSize="sm"
+				variant="subtle"
 				on:click={() => dispatch('fork')}
 				startIcon={{ icon: GitFork }}
 				iconOnly={false}
@@ -146,24 +147,26 @@
 				Fork
 			</Button>
 		{/if}
-	{/if}
-	{#if module.value.type === 'flow'}
+	{:else if module.value.type === 'flow'}
 		<Button
-			size="xs"
-			color="light"
+			unifiedSize="sm"
+			variant="subtle"
 			on:click={async () => {
 				if (module.value.type == 'flow') {
-					window.open(`/flows/edit/${module.value.path}`, '_blank', 'noopener,noreferrer')
+					$flowEditorDrawer?.openDrawer(module.value.path, () => {
+						dispatch('reload')
+						sendUserToast('Flow has been updated')
+					})
 				}
 			}}
 			startIcon={{ icon: Pen }}
 			iconOnly={false}
 		>
-			Edit <ExternalLink size={12} />
+			Edit
 		</Button>
 		<Button
-			size="xs"
-			color="light"
+			unifiedSize="sm"
+			variant="subtle"
 			on:click={async () => {
 				dispatch('reload')
 			}}
@@ -173,12 +176,30 @@
 			iconOnly={true}
 		/>
 	{/if}
-	<div class="px-0.5" />
+
+	{#if module.value.type === 'aiagent' && customUi?.tagEdit != false}
+		<FlowModuleWorkerTagSelect
+			isPreprocessor={false}
+			placeholder={customUi?.tagSelectPlaceholder}
+			noLabel={customUi?.tagSelectNoLabel}
+			nullTag={tag}
+			tag={module.value.tag}
+			on:change={(e) => dispatch('tagChange', e.detail)}
+		/>
+	{/if}
+
 	{#if module.value.type === 'rawscript'}
-		<FlowModuleWorkerTagSelect bind:tag={module.value.tag} />
+		<FlowModuleWorkerTagSelect
+			isPreprocessor={module.id == 'preprocessor'}
+			placeholder={customUi?.tagSelectPlaceholder}
+			noLabel={customUi?.tagSelectNoLabel}
+			nullTag={tag}
+			tag={module.value.tag}
+			on:change={(e) => dispatch('tagChange', e.detail)}
+		/>
 		<Button
-			size="xs"
-			color="light"
+			unifiedSize="sm"
+			variant="subtle"
 			startIcon={{ icon: Save }}
 			on:click={() => dispatch('createScriptFromInlineScript')}
 			iconOnly={false}

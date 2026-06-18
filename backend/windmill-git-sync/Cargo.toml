@@ -9,7 +9,9 @@ name = "windmill_git_sync"
 path = "./src/lib.rs"
 
 [features]
+private = ["windmill-common/private"]
 enterprise = ["windmill-queue/enterprise", "windmill-common/enterprise"]
+all_sqlx_features = ["enterprise"]
 default = []
 
 [dependencies]
@@ -21,3 +23,4 @@ tracing.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-queue.workspace = true
 regex = "1.10.3"
+tokio = { workspace = true, features = ["full"] }

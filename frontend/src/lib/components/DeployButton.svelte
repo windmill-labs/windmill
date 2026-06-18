@@ -1,0 +1,82 @@
+<script lang="ts">
+	import { Button } from '$lib/components/common'
+	import { Save, CornerDownLeft } from 'lucide-svelte'
+	import { createEventDispatcher } from 'svelte'
+
+	const {
+		loading = false,
+		loadingSave = false,
+		dropdownItems = []
+	}: {
+		loading?: boolean
+		loadingSave?: boolean
+		dropdownItems?: Array<{
+			label: string
+			onClick: () => void
+		}>
+	} = $props()
+
+	const dispatch = createEventDispatcher()
+
+	let msgInput: HTMLInputElement | undefined = $state(undefined)
+	let hideDropdown = $state(false)
+	let deploymentMsg = $state('')
+	let dropdownOpen = $state(false)
+</script>
+
+<Button
+	disabled={loading}
+	loading={loadingSave}
+	variant="accent"
+	unifiedSize="md"
+	startIcon={{ icon: Save }}
+	on:click={() => dispatch('save')}
+	{dropdownItems}
+	tooltipPopover={{
+		placement: 'bottom-end',
+		openDelay: dropdownOpen ? 200 : 0,
+		closeDelay: 0,
+		portal: 'body'
+	}}
+	on:tooltipOpen={async ({ detail }) => {
+		if (detail) {
+			// Use setTimeout to ensure DOM is updated
+			setTimeout(() => {
+				msgInput?.focus()
+			}, 0)
+			hideDropdown = true
+		} else {
+			hideDropdown = false
+		}
+	}}
+	{hideDropdown}
+	on:dropdownOpen={({ detail }) => {
+		dropdownOpen = detail
+	}}
+>
+	Deploy
+	{#snippet tooltip()}
+		<div class="flex flex-row gap-2 w-80 p-4 bg-surface rounded-lg shadow-lg dark:border z-[5001]">
+			<input
+				type="text"
+				placeholder="Deployment message"
+				bind:value={deploymentMsg}
+				onkeydown={async (e) => {
+					if (e.key === 'Enter') {
+						dispatch('save', deploymentMsg)
+					}
+				}}
+				bind:this={msgInput}
+			/>
+			<Button
+				unifiedSize="md"
+				variant="accent"
+				on:click={async () => dispatch('save', deploymentMsg)}
+				endIcon={{ icon: CornerDownLeft }}
+				loading={loadingSave}
+			>
+				Deploy
+			</Button>
+		</div>
+	{/snippet}
+</Button>

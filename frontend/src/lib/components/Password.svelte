@@ -1,50 +1,122 @@
 <script lang="ts">
-	// @ts-nocheck
-	import { onMount } from 'svelte'
-	export let password: string | undefined
-	export let placeholder = '******'
-	export let disabled = false
-	export let required = false
-	export let small = false
+	import { createBubbler } from 'svelte/legacy'
+	import { tick } from 'svelte'
+	import Button from './common/button/Button.svelte'
+	import TextInput from './text_input/TextInput.svelte'
+	import { Eye, EyeClosed } from 'lucide-svelte'
 
-	$: red = required && (password == '' || password == undefined)
+	const bubble = createBubbler()
+	interface Props {
+		password: string | undefined
+		placeholder?: string
+		disabled?: boolean
+		required?: boolean
+		small?: boolean
+		minRows?: number
+		id?: string
+		onKeyDown?: (event: KeyboardEvent) => void
+		onBlur?: (event: FocusEvent) => void
+	}
 
-	let hideValue = true
+	let {
+		password = $bindable(),
+		placeholder = '******',
+		disabled = false,
+		required = false,
+		small = false,
+		minRows,
+		id,
+		onKeyDown,
+		onBlur
+	}: Props = $props()
 
-	let randomId = (Math.random() * 10e15).toString(16)
+	let red = $derived(required && (password == '' || password == undefined))
+	let hideValue = $state(true)
+	let forceMultiline = $state(false)
+	let isMultiline = $derived(
+		forceMultiline || (minRows != null && minRows > 1) || (password?.includes('\n') ?? false)
+	)
+
+	let textareaRef: TextInput<'textarea'> | undefined = $state()
+
+	function insertAndSwitchToMultiline(input: HTMLInputElement, text: string) {
+		const start = input.selectionStart
+		const end = input.selectionEnd
+		if (start != null && end != null) {
+			password = (password ?? '').substring(0, start) + text + (password ?? '').substring(end)
+		} else {
+			// selectionStart/End are null for type="password" inputs
+			password = (password ?? '') + text
+		}
+		forceMultiline = true
+		tick().then(() => textareaRef?.focus())
+	}
 </script>
 
 <div class="relative w-full {small ? 'max-w-lg' : ''}">
-	<div class="absolute inset-y-0 right-0 flex items-center px-2">
-		<input bind:checked={hideValue} class="!hidden" id={randomId} type="checkbox" />
-		<label
-			class="bg-surface-secondary hover:bg-gray-400 rounded px-2 py-1 text-sm text-tertiary font-mono cursor-pointer"
-			for={randomId}>{hideValue ? 'show' : 'hide'}</label
-		>
+	<div class="absolute {isMultiline ? 'top-1' : 'inset-y-0'} right-1 flex items-center z-10">
+		<Button
+			unifiedSize="sm"
+			onClick={() => (hideValue = !hideValue)}
+			iconOnly
+			startIcon={{ icon: hideValue ? Eye : EyeClosed }}
+			variant="subtle"
+			wrapperClasses="bg-surface-input"
+		/>
 	</div>
-	{#if hideValue}
-		<input
-			class="block {small ? '!text-2xs' : 'w-full'} px-2 py-1 {red
-				? '!border-red-500'
-				: ''} text-sm h-9"
-			type="password"
+	{#if isMultiline}
+		<TextInput
+			bind:this={textareaRef}
+			size="md"
+			error={red}
 			bind:value={password}
-			on:keydown
-			autocomplete="new-password"
-			{placeholder}
-			{disabled}
+			underlyingInputEl="textarea"
+			inputProps={{
+				id,
+				disabled,
+				placeholder,
+				rows: minRows ?? 3,
+				autocomplete: 'new-password',
+				onblur: (e) => onBlur?.(e),
+				onkeydown: (e) => {
+					onKeyDown?.(e)
+					bubble('keydown')(e)
+				},
+				style: hideValue ? '-webkit-text-security: disc' : ''
+			}}
+			class="pr-8"
+			unifiedHeight={false}
 		/>
 	{:else}
-		<input
-			class="block {small ? '!text-2xs' : 'w-full'} px-2 py-1 {red
-				? '!border-red-500'
-				: ''} text-sm h-9"
-			type="text"
+		<TextInput
+			size="md"
+			error={red}
 			bind:value={password}
-			on:keydown
-			autocomplete="new-password"
-			{placeholder}
-			{disabled}
+			inputProps={{
+				id,
+				disabled,
+				placeholder,
+				autocomplete: 'new-password',
+				onblur: (e) => onBlur?.(e),
+				onkeydown: (e) => {
+					if (e.key === 'Enter') {
+						e.preventDefault()
+						insertAndSwitchToMultiline(e.currentTarget as HTMLInputElement, '\n')
+						return
+					}
+					onKeyDown?.(e)
+					bubble('keydown')(e)
+				},
+				onpaste: (e) => {
+					const text = e.clipboardData?.getData('text')
+					if (text?.includes('\n')) {
+						e.preventDefault()
+						insertAndSwitchToMultiline(e.currentTarget as HTMLInputElement, text)
+					}
+				},
+				type: hideValue ? 'password' : 'text'
+			}}
+			class="pr-8"
 		/>
 	{/if}
 </div>

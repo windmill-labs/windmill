@@ -18,10 +18,14 @@
 	import YAML from 'yaml'
 	import { twMerge } from 'tailwind-merge'
 	import ContentSearchInnerItem from './ContentSearchInnerItem.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 
 	const dispatch = createEventDispatcher()
-	export let search: string = ''
+	interface Props {
+		search?: string
+	}
+
+	let { search = $bindable('') }: Props = $props()
 
 	export async function open(nsearch?: string) {
 		await Promise.all([loadScripts(), loadResources(), loadApps(), loadFlows()])
@@ -46,19 +50,19 @@
 		flows = await FlowService.listSearchFlow({ workspace: $workspaceStore ?? '' })
 	}
 
-	let searchKind: 'all' | 'scripts' | 'flows' | 'apps' | 'resources' = 'all'
+	let searchKind: 'all' | 'scripts' | 'flows' | 'apps' | 'resources' = $state('all')
 
-	let scripts: undefined | { path: string; content: string }[] = undefined
-	let filteredScriptItems: { path: string; content: string; marked: any }[] = []
+	let scripts: undefined | { path: string; content: string }[] = $state(undefined)
+	let filteredScriptItems: { path: string; content: string; marked: any }[] = $state([])
 
-	let resources: undefined | { path: string; value: any }[] = undefined
-	let filteredResourceItems: { path: string; value: any; marked: any }[] = []
+	let resources: undefined | { path: string; value: any }[] = $state(undefined)
+	let filteredResourceItems: { path: string; value: any; marked: any }[] = $state([])
 
-	let flows: undefined | { path: string; value: any }[] = undefined
-	let filteredFlowItems: { path: string; value: any; marked: any }[] = []
+	let flows: undefined | { path: string; value: any }[] = $state(undefined)
+	let filteredFlowItems: { path: string; value: any; marked: any }[] = $state([])
 
-	let apps: undefined | { path: string; value: any }[] = undefined
-	let filteredAppItems: { path: string; value: any; marked: any }[] = []
+	let apps: undefined | { path: string; value: any }[] = $state(undefined)
+	let filteredAppItems: { path: string; value: any; marked: any }[] = $state([])
 
 	function getCounts(n: number) {
 		return ` (${n})`
@@ -73,23 +77,34 @@
 			.replace(/'/g, '&#39;')
 	}
 
-	$: counts =
+	let showNbScripts = $state(10)
+	let showNbApps = $state(10)
+	let showNbResources = $state(10)
+	let showNbFlows = $state(10)
+
+	function resetShows() {
+		showNbScripts = 10
+		showNbApps = 10
+		showNbResources = 10
+		showNbFlows = 10
+	}
+	let counts = $derived(
 		search == '' ||
-		!scripts ||
-		!resources ||
-		!flows ||
-		!apps ||
-		!filteredAppItems ||
-		!filteredFlowItems ||
-		!filteredResourceItems ||
-		!filteredScriptItems
+			!scripts ||
+			!resources ||
+			!flows ||
+			!apps ||
+			!filteredAppItems ||
+			!filteredFlowItems ||
+			!filteredResourceItems ||
+			!filteredScriptItems
 			? {
 					all: '',
 					apps: '',
 					flows: '',
 					resources: '',
 					scripts: ''
-			  }
+				}
 			: {
 					all: getCounts(
 						filteredAppItems.length +
@@ -101,21 +116,11 @@
 					resources: getCounts(filteredResourceItems.length),
 					flows: getCounts(filteredFlowItems.length),
 					scripts: getCounts(filteredScriptItems.length)
-			  }
-
-	let showNbScripts = 10
-	let showNbApps = 10
-	let showNbResources = 10
-	let showNbFlows = 10
-
-	$: search && resetShows()
-
-	function resetShows() {
-		showNbScripts = 10
-		showNbApps = 10
-		showNbResources = 10
-		showNbFlows = 10
-	}
+				}
+	)
+	$effect(() => {
+		search && untrack(() => resetShows())
+	})
 </script>
 
 <SearchItems
@@ -157,32 +162,40 @@
 <div class="flex flex-col gap-2">
 	<div class="flex gap-2 flex-wrap sticky top-0 left-0 right-0 bg-surface">
 		<div class="p-2">
-			<ToggleButtonGroup bind:selected={searchKind} class="h-10 ">
-				<ToggleButton small light value="all" label={'All' + counts.all} />
-				<ToggleButton small light value="scripts" icon={Code2} label={'Scripts' + counts.scripts} />
-				<ToggleButton
-					small
-					light
-					value="resources"
-					icon={Boxes}
-					label={'Resources' + counts.resources}
-				/>
-				<ToggleButton
-					small
-					light
-					value="flows"
-					label={'Flows' + counts.flows}
-					icon={FlowIcon}
-					selectedColor="#14b8a6"
-				/>
-				<ToggleButton
-					small
-					light
-					value="apps"
-					label={'Apps' + counts.apps}
-					icon={LayoutDashboard}
-					selectedColor="#fb923c"
-				/>
+			<ToggleButtonGroup bind:selected={searchKind}>
+				{#snippet children({ item })}
+					<ToggleButton small value="all" label={'All' + counts.all} {item} />
+					<ToggleButton
+						small
+						value="scripts"
+						icon={Code2}
+						label={'Scripts' + counts.scripts}
+						{item}
+					/>
+					<ToggleButton
+						small
+						value="resources"
+						icon={Boxes}
+						label={'Resources' + counts.resources}
+						{item}
+					/>
+					<ToggleButton
+						small
+						value="flows"
+						label={'Flows' + counts.flows}
+						icon={FlowIcon}
+						selectedColor="#14b8a6"
+						{item}
+					/>
+					<ToggleButton
+						small
+						value="apps"
+						label={'Apps' + counts.apps}
+						icon={LayoutDashboard}
+						selectedColor="#fb923c"
+						{item}
+					/>
+				{/snippet}
 			</ToggleButtonGroup>
 		</div>
 	</div>
@@ -217,13 +230,13 @@
 
 	<div class={twMerge('p-2')}>
 		{#if !$enterpriseLicense}
-			<div class="py-1" />
+			<div class="py-1"></div>
 
 			<Alert title="Content Search is an EE feature" type="warning">
 				Without EE, content search will only search among 10 scripts, 3 flows, 3 apps and 3
 				resources.
 			</Alert>
-			<div class="py-1" />
+			<div class="py-1"></div>
 		{/if}
 
 		{#if search.trim().length > 0}
@@ -235,15 +248,11 @@
 							href={`/scripts/get/${item.path}`}
 							on:close
 						>
-							<svelte:fragment slot="actions">
+							{#snippet actions()}
 								<Button
 									href={`/scripts/get/${item.path}`}
-									color="light"
-									size="xs"
 									startIcon={{ icon: ExternalLink }}
-									on:click={() => {
-										dispatch('close')
-									}}
+									on:click={() => dispatch('close')}
 								>
 									Open
 								</Button>
@@ -251,13 +260,11 @@
 								<Button
 									href={`/scripts/edit/${item.path}?no_draft=true`}
 									target="_blank"
-									color="light"
-									size="xs"
 									startIcon={{ icon: Edit }}
 								>
 									Edit
 								</Button>
-							</svelte:fragment>
+							{/snippet}
 							<pre class="text-xs border rounded-md p-2 overflow-auto max-h-40 w-full"
 								><code>{@html item.marked}</code>
 							</pre>
@@ -266,13 +273,8 @@
 					{#if filteredScriptItems.length > showNbScripts}
 						<Button
 							color="light"
-							size="xs"
-							on:click={() => {
-								showNbScripts += 30
-							}}
-							startIcon={{
-								icon: ArrowDown
-							}}
+							on:click={() => (showNbScripts += 30)}
+							startIcon={{ icon: ArrowDown }}
 						>
 							Show more scripts ({showNbScripts} of {filteredScriptItems.length})
 						</Button>
@@ -285,17 +287,11 @@
 							href={`/resources#${item.path}`}
 							on:close
 						>
-							<svelte:fragment slot="actions">
-								<Button
-									href={`/resources#${item.path}`}
-									color="light"
-									target="_blank"
-									size="xs"
-									startIcon={{ icon: Edit }}
-								>
+							{#snippet actions()}
+								<Button href={`/resources#${item.path}`} target="_blank" startIcon={{ icon: Edit }}>
 									Edit
 								</Button>
-							</svelte:fragment>
+							{/snippet}
 							<pre class="text-xs border rounded-md p-2 overflow-auto max-h-40 w-full"
 								><code>{@html item.marked}</code></pre
 							>
@@ -305,12 +301,8 @@
 						<Button
 							color="light"
 							size="xs"
-							on:click={() => {
-								showNbResources += 30
-							}}
-							startIcon={{
-								icon: ArrowDown
-							}}
+							on:click={() => (showNbResources += 30)}
+							startIcon={{ icon: ArrowDown }}
 						>
 							Show more resources ({showNbResources} of {filteredResourceItems.length})
 						</Button>
@@ -323,28 +315,22 @@
 							href={`/flows/get/${item.path}`}
 							on:close
 						>
-							<svelte:fragment slot="actions">
+							{#snippet actions()}
 								<Button
 									href={`/flows/get/${item.path}`}
-									color="light"
-									size="xs"
 									startIcon={{ icon: ExternalLink }}
-									on:click={() => {
-										dispatch('close')
-									}}
+									on:click={() => dispatch('close')}
 								>
 									Open
 								</Button>
 								<Button
 									href={`/flows/edit/${item.path}?no_draft=true`}
-									color="light"
 									target="_blank"
-									size="xs"
 									startIcon={{ icon: Edit }}
 								>
 									Edit
 								</Button>
-							</svelte:fragment>
+							{/snippet}
 
 							<pre class="text-xs border p-2 overflow-auto max-h-40 w-full"
 								><code>{@html item.marked}</code></pre
@@ -355,12 +341,8 @@
 						<Button
 							color="light"
 							size="xs"
-							on:click={() => {
-								showNbFlows += 30
-							}}
-							startIcon={{
-								icon: ArrowDown
-							}}
+							on:click={() => (showNbFlows += 30)}
+							startIcon={{ icon: ArrowDown }}
 						>
 							Show more flows ({showNbFlows} of {filteredFlowItems.length})
 						</Button>
@@ -373,28 +355,18 @@
 							href={`/apps/get/${item.path}`}
 							on:close
 						>
-							<svelte:fragment slot="actions">
+							{#snippet actions()}
 								<Button
 									href={`/apps/get/${item.path}`}
-									color="light"
-									size="xs"
 									startIcon={{ icon: ExternalLink }}
-									on:click={() => {
-										dispatch('close')
-									}}
+									on:click={() => dispatch('close')}
 								>
 									Open
 								</Button>
-								<Button
-									href={`/apps/edit/${item.path}?no_draft=true`}
-									color="light"
-									target="_blank"
-									size="xs"
-									startIcon={{ icon: Edit }}
-								>
+								<Button href={`/apps/edit/${item.path}`} target="_blank" startIcon={{ icon: Edit }}>
 									Edit
 								</Button>
-							</svelte:fragment>
+							{/snippet}
 
 							<pre class="text-xs border p-2 overflow-auto max-h-40 w-full"
 								><code>{@html item.marked}</code></pre
@@ -405,12 +377,8 @@
 						<Button
 							color="light"
 							size="xs"
-							on:click={() => {
-								showNbApps += 30
-							}}
-							startIcon={{
-								icon: ArrowDown
-							}}
+							on:click={() => (showNbApps += 30)}
+							startIcon={{ icon: ArrowDown }}
 						>
 							Show more apps ({showNbApps} of {filteredAppItems.length})
 						</Button>
@@ -419,7 +387,7 @@
 			</div>
 		{:else}
 			<div class="flex justify-center items-center h-48">
-				<div class="text-tertiary text-center">
+				<div class="text-primary text-center">
 					<div class="text-2xl font-bold">Empty Search Filter</div>
 					<div class="text-sm"
 						>Start writing, search everywhere a path is referenced for instance</div

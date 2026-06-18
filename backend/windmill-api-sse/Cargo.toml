@@ -1,0 +1,21 @@
+[package]
+name = "windmill-api-sse"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_api_sse"
+path = "src/lib.rs"
+
+[features]
+default = []
+enterprise = []
+
+[dependencies]
+windmill-common = { workspace = true, default-features = false }
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+uuid.workspace = true
+lazy_static.workspace = true

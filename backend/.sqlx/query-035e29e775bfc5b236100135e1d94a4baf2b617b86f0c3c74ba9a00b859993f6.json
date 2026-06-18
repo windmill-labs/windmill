@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO job_delete_schedule (job_id, workspace_id, delete_at) VALUES ($1, $2, now() + make_interval(secs => $3::double precision)) ON CONFLICT (job_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "035e29e775bfc5b236100135e1d94a4baf2b617b86f0c3c74ba9a00b859993f6"
+}

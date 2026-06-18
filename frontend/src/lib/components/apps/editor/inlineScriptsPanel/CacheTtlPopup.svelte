@@ -1,13 +1,20 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { Button, Popup, SecondsInput } from '$lib/components/common'
-	import { autoPlacement } from '@floating-ui/core'
+	import { Button, SecondsInput } from '$lib/components/common'
 	import { Database } from 'lucide-svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import { autoPlacement } from '@floating-ui/core'
+	import type { ComponentProps } from 'svelte'
 
-	export let cache_ttl: number | undefined
+	interface Props {
+		cache_ttl: number | undefined
+		btnProps?: ComponentProps<typeof Button>
+	}
+
+	let { cache_ttl = $bindable(), btnProps }: Props = $props()
 </script>
 
-<Popup
+<Popover
 	floatingConfig={{
 		middleware: [
 			autoPlacement({
@@ -15,22 +22,25 @@
 			})
 		]
 	}}
+	closeButton
+	contentClasses="block text-primary p-4"
 >
-	<svelte:fragment slot="button">
+	{#snippet trigger()}
 		<Button
 			nonCaptureEvent={true}
 			btnClasses={Boolean(cache_ttl)
 				? 'bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600'
-				: 'bg-surface text-primay hover:bg-hover'}
+				: 'bg-surface text-primary hover:bg-hover'}
 			color="light"
 			variant="contained"
 			size="xs2"
 			iconOnly
 			startIcon={{ icon: Database }}
 			title="Cache settings"
+			{...btnProps}
 		/>
-	</svelte:fragment>
-	<div class="block text-primary">
+	{/snippet}
+	{#snippet content()}
 		<Toggle
 			checked={Boolean(cache_ttl)}
 			on:change={() => {
@@ -44,7 +54,7 @@
 				right: 'Cache the results for each possible inputs'
 			}}
 		/>
-		<div class="mb-4">
+		<div class="mt-6">
 			<span class="text-xs font-bold">How long to keep cache valid</span>
 
 			{#if cache_ttl}
@@ -53,5 +63,5 @@
 				<SecondsInput disabled />
 			{/if}
 		</div>
-	</div>
-</Popup>
+	{/snippet}
+</Popover>

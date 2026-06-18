@@ -1,18 +1,24 @@
 <script lang="ts">
 	import { Filter } from 'lucide-svelte'
-	import { Popup, Button } from '../common'
+	import { Button } from '../common'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	interface Props {
+		filters?: import('svelte').Snippet
+	}
+
+	let { filters }: Props = $props()
 </script>
 
-<Popup
+<Popover
 	floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-	containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+	contentClasses="p-4 flex flex-col w-80 pt-8 bg-surface"
 >
-	<svelte:fragment slot="button">
-		<Button color="dark" size="xs" nonCaptureEvent={true} startIcon={{ icon: Filter }}>
+	{#snippet trigger()}
+		<Button variant="accent" unifiedSize="md" nonCaptureEvent={true} startIcon={{ icon: Filter }}>
 			Filters
 		</Button>
-	</svelte:fragment>
-	<div class="flex flex-col w-80">
-		<slot name="filters" />
-	</div>
-</Popup>
+	{/snippet}
+	{#snippet content()}
+		{@render filters?.()}
+	{/snippet}
+</Popover>

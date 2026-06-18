@@ -8,70 +8,93 @@
 	import Alert from './common/alert/Alert.svelte'
 	import EditableSchemaDrawer from './schema/EditableSchemaDrawer.svelte'
 	import type { SchemaProperty } from '$lib/common'
+	import Toggle from './Toggle.svelte'
+	import { tick } from 'svelte'
+	import Select from './select/Select.svelte'
 
-	export let canEditResourceType: boolean = false
-	export let itemsType:
-		| {
-				type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
-				contentEncoding?: 'base64'
-				enum?: string[]
-				resourceType?: string
-				properties?: { [name: string]: SchemaProperty }
-		  }
-		| undefined
+	interface Props {
+		canEditResourceType?: boolean
+		originalType?: string | undefined
+		itemsType:
+			| {
+					type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
+					contentEncoding?: 'base64'
+					enum?: string[]
+					resourceType?: string
+					properties?: { [name: string]: SchemaProperty }
+			  }
+			| undefined
+		nonEmpty?: boolean | undefined
+	}
 
-	let selected: 'string' | 'number' | 'object' | 'bytes' | 'enum' | 'resource' | undefined =
+	let {
+		canEditResourceType = false,
+		originalType = undefined,
+		itemsType = $bindable(),
+		nonEmpty = $bindable()
+	}: Props = $props()
+
+	let selected:
+		| 'string'
+		| 'number'
+		| 'object'
+		| 'bytes'
+		| 'enum'
+		| 'resource'
+		| 's3object'
+		| undefined = $state(
 		itemsType?.type != 'string'
-			? itemsType?.type
+			? itemsType?.type == 'object' && itemsType?.resourceType == 's3object'
+				? 's3object'
+				: itemsType?.type
 			: Array.isArray(itemsType?.enum)
-			? 'enum'
-			: 'string'
-
-	let schema = {
-		properties: itemsType?.properties || {},
-		order: Object.keys(itemsType?.properties || {}),
-		required: Object.values(itemsType?.properties || {}).map((p) => p.required)
-	}
-
-	function updateItemsType() {
-		itemsType = {
-			...itemsType,
-			properties: schema.properties,
-			type: 'object'
-		}
-	}
+				? 'enum'
+				: itemsType?.contentEncoding == 'base64'
+					? 'bytes'
+					: 'string'
+	)
 </script>
 
-{#if canEditResourceType}
+{#if canEditResourceType || originalType == 'string[]' || originalType == 'object[]'}
 	<Label label="Items type">
-		<select
-			bind:value={selected}
-			on:change={() => {
-				if (selected == 'enum') {
-					itemsType = { type: 'string', enum: [] }
-				} else if (selected == 'string') {
-					itemsType = { type: 'string' }
-				} else if (selected == 'number') {
-					itemsType = { type: 'number' }
-				} else if (selected == 'object') {
-					itemsType = { ...itemsType, type: 'object' }
-				} else if (selected == 'bytes') {
-					itemsType = { type: 'string', contentEncoding: 'base64' }
-				} else if (selected == 'resource') {
-					itemsType = { type: 'resource', resourceType: itemsType?.resourceType }
-				} else {
-					itemsType = undefined
+		<Select
+			bind:value={
+				() => selected,
+				(v) => {
+					selected = v
+					if (selected == 'enum') {
+						itemsType = { type: 'string', enum: [] }
+					} else if (selected == 'string') {
+						itemsType = { type: 'string' }
+					} else if (selected == 'number') {
+						itemsType = { type: 'number' }
+					} else if (selected == 'object') {
+						itemsType = { ...itemsType, type: 'object' }
+					} else if (selected == 'bytes') {
+						itemsType = { type: 'string', contentEncoding: 'base64' }
+					} else if (selected == 'resource') {
+						itemsType = { type: 'resource', resourceType: itemsType?.resourceType }
+					} else if (selected == 's3object') {
+						itemsType = { type: 'object', resourceType: 's3object' }
+					} else {
+						itemsType = undefined
+					}
 				}
-			}}
-			id="array-type-narrowing"
-		>
-			<option value="string"> Items are strings</option>
-			<option value="enum">Items are strings from an enum</option>
-			<option value="object"> Items are objects (JSON)</option>
-			<option value="resource"> Items are resources</option>
-			<option value="number">Items are numbers</option>
-			<option value="bytes">Items are bytes</option>
-		</select>
+			}
+			items={[
+				{ value: 'string', label: "Items are strings or objects with a 'label/value' field" },
+				{ value: 'enum', label: 'Items are strings from an enum' },
+				...(originalType != 'string[]'
+					? [
+							{ value: 's3object', label: 'Items are S3 objects' },
+							{ value: 'object', label: 'Items are objects (JSON)' },
+							{ value: 'resource', label: 'Items are resources' },
+							{ value: 'number', label: 'Items are numbers' },
+							{ value: 'bytes', label: 'Items are bytes' }
+						]
+					: [])
+			] as { value: string; label: string }[]}
+		/>
 	</Label>
 {:else if itemsType?.resourceType}
 	<Label label="Resource type">
@@ -102,16 +125,17 @@
 	<label for="input" class="text-secondary text-xs">
 		Enums
 		<div class="flex flex-col gap-1">
-			{#each itemsType?.enum || [] as e}
+			{#each itemsType?.enum || [] as _, index}
 				<div class="flex flex-row max-w-md gap-1 items-center">
-					<input id="input" type="text" bind:value={e} />
+					<input id="input" type="text" bind:value={itemsType.enum[index]} />
 					<div>
 						<button
 							transition:fade|local={{ duration: 100 }}
 							class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
-							on:click={() => {
-								if (itemsType?.enum) {
-									itemsType.enum = (itemsType.enum || []).filter((el) => el !== e)
+							onclick={() => {
+								if (itemsType && itemsType.enum) {
+									const enumValue = itemsType.enum[index]
+									itemsType.enum = itemsType.enum.filter((el) => el !== enumValue)
 								}
 							}}
 						>
@@ -121,39 +145,76 @@
 				</div>
 			{/each}
 		</div>
-		<div class="flex flex-row mb-1 mt-2">
-			<Button
-				color="light"
-				variant="border"
-				size="sm"
-				on:click={() => {
-					if (itemsType?.enum) {
-						let enum_ = itemsType.enum
-						let choice = `choice ${enum_?.length ? enum_?.length + 1 : 1}`
-						itemsType.enum = itemsType.enum ? itemsType.enum.concat(choice) : [choice]
-					}
-				}}
-			>
-				<Plus size={14} />
-			</Button>
-			<Button
-				color="light"
-				variant="border"
-				size="sm"
-				btnClasses="ml-2"
-				on:click={() => itemsType?.enum && (itemsType.enum = undefined)}
-			>
-				Clear
-			</Button>
-		</div>
+		<Toggle
+			size="sm"
+			class="mt-8"
+			bind:checked={nonEmpty}
+			options={{ right: 'Require non-empty array' }}
+		/>
+		{#if canEditResourceType || originalType == 'string[]' || originalType == 'object[]'}
+			<div class="flex flex-row mb-1 mt-2">
+				<Button
+					variant="default"
+					size="sm"
+					on:click={() => {
+						if (itemsType?.enum) {
+							let enum_ = itemsType.enum
+							let choice = `choice ${enum_?.length ? enum_?.length + 1 : 1}`
+							itemsType.enum = itemsType.enum ? itemsType.enum.concat(choice) : [choice]
+						}
+					}}
+				>
+					<Plus size={14} />
+				</Button>
+				<Button
+					variant="default"
+					size="sm"
+					btnClasses="ml-2"
+					on:click={() => itemsType?.enum && (itemsType.enum = undefined)}
+				>
+					Clear
+				</Button>
+			</div>
+		{/if}
 	</label>
 {/if}
 
 {#if selected === 'object'}
-	<EditableSchemaDrawer
-		bind:schema
-		on:change={() => {
-			updateItemsType()
-		}}
+	<Toggle
+		bind:checked={
+			() => {
+				return itemsType?.properties != undefined
+			},
+			(v) => {
+				tick().then(() => {
+					if (v) {
+						itemsType = { type: 'object', properties: {} }
+					} else {
+						itemsType = { type: 'object', properties: undefined }
+					}
+				})
+			}
+		}
+		options={{ left: 'JSON', right: 'Custom Object' }}
 	/>
+	{#if itemsType?.properties != undefined}
+		<EditableSchemaDrawer
+			bind:schema={
+				() => {
+					return {
+						properties: itemsType?.properties || {},
+						order: Object.keys(itemsType?.properties || {}),
+						required: Object.values(itemsType?.properties || {}).map((p) => p.required)
+					}
+				},
+				(schema) => {
+					itemsType = {
+						...itemsType,
+						properties: schema.properties,
+						type: 'object'
+					}
+				}
+			}
+		/>
+	{/if}
 {/if}

@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT tested_item_path, has_wildcard as \"has_wildcard!\" FROM ci_test_reference WHERE workspace_id = 'test-workspace'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tested_item_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "has_wildcard!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "d557ffaf47fa8780796249aeef29b31f9b8d51813473859df5fc316a46c99550"
+}

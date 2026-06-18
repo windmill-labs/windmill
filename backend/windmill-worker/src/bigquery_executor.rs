@@ -1,25 +1,29 @@
 use std::collections::HashMap;
 
 use futures::future::BoxFuture;
-use futures::{FutureExt, TryFutureExt};
+use futures::{FutureExt, StreamExt};
 use reqwest::Client;
 use serde_json::{json, value::RawValue, Value};
+use uuid::Uuid;
+use windmill_common::client::AuthedClient;
 use windmill_common::error::to_anyhow;
-use windmill_common::jobs::QueuedJob;
+use windmill_common::worker::{Connection, SqlResultCollectionStrategy};
 use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::{
-    parse_bigquery_sig, parse_db_resource, parse_sql_blocks, parse_sql_statement_named_params,
+    parse_bigquery_sig, parse_db_resource, parse_s3_mode, parse_sql_blocks,
+    parse_sql_statement_named_params,
 };
 use windmill_queue::CanceledBy;
 
 use serde::Deserialize;
 
-use crate::common::{build_http_client, OccupancyMetrics};
-use crate::handle_child::run_future_with_polling_update_job_poller;
-use crate::{
-    common::{build_args_values, resolve_job_timeout},
-    AuthedClientBackgroundTask,
+use crate::common::{build_args_values, resolve_job_timeout};
+use crate::common::{
+    build_http_client, get_reserved_variables, s3_mode_args_to_worker_data,
+    s3_stream_and_upload_with_logs, OccupancyMetrics, S3ModeWorkerData,
 };
+use crate::handle_child::run_future_with_polling_update_job_poller;
+use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 
 use gcp_auth::{AuthenticationManager, CustomServiceAccount};
 
@@ -30,6 +34,16 @@ struct BigqueryResponse {
     totalRows: Option<Value>,
     schema: Option<BigqueryResponseSchema>,
     jobComplete: bool,
+    pageToken: Option<String>,
+    jobReference: Option<BigQueryResponseJobReference>,
+}
+
+#[allow(non_snake_case)]
+#[derive(Deserialize, Clone)]
+struct BigQueryResponseJobReference {
+    jobId: String,
+    projectId: String,
+    location: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -72,8 +86,14 @@ fn do_bigquery_inner<'a>(
     timeout_ms: u64,
     column_order: Option<&'a mut Option<Vec<String>>>,
     skip_collect: bool,
+    first_row_only: bool,
     http_client: &'a Client,
-) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
+    s3: Option<S3ModeWorkerData>,
+    job_id: Uuid,
+    workspace_id: &'a str,
+    log_conn: &'a Connection,
+) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Vec<Box<RawValue>>>>>
+{
     let param_names = parse_sql_statement_named_params(query, '@');
 
     let statement_values = all_statement_values
@@ -98,7 +118,7 @@ fn do_bigquery_inner<'a>(
             .json(&json!({
                 "query": query,
                 "useLegacySql": false,
-                "maxResults": 10000,
+                "maxResults": if first_row_only { 1 } else { 10000 },
                 "timeoutMs": timeout_ms,
                 "queryParameters": statement_values,
             }))
@@ -111,7 +131,7 @@ fn do_bigquery_inner<'a>(
         match response.error_for_status_ref() {
             Ok(_) => {
                 if skip_collect {
-                    return Ok(to_raw_value(&Value::Array(vec![])));
+                    return Ok(vec![]);
                 } else {
                     let result = response.json::<BigqueryResponse>().await.map_err(|e| {
                         Error::ExecutionErr(format!(
@@ -119,70 +139,87 @@ fn do_bigquery_inner<'a>(
                             e.to_string()
                         ))
                     })?;
+                    let rows = handle_bigquery_response(&result, &s3, column_order).await?;
 
-                    if !result.jobComplete {
-                        return Err(Error::ExecutionErr(
-                            "BigQuery API did not answer query in time".to_string(),
-                        ));
+                    if let Some(s3) = s3 {
+                        let cloned_s3 = s3.clone();
+                        let cloned_http_client = http_client.clone();
+                        let cloned_token = token.to_string();
+                        let rows_stream = async_stream::stream! {
+                            for row in rows.iter() {
+                                yield Ok::<_, windmill_common::error::Error>(row.clone());
+                            }
+                            let mut next_page_token = result.pageToken;
+                            let Some(job_reference) = result.jobReference.clone() else {
+                                return;
+                            };
+                            while let Some(ref next_page_token_value) = next_page_token {
+                                let response2 = cloned_http_client
+                                    .get(
+                                        format!("https://bigquery.googleapis.com/bigquery/v2/projects/{}/queries/{}", job_reference.projectId, job_reference.jobId),
+                                    )
+                                    .bearer_auth(cloned_token.as_str())
+                                    .query(&[
+                                        ("pageToken", next_page_token_value.as_str()),
+                                        ("maxResults", "10000"),
+                                        ("timeoutMs", timeout_ms.to_string().as_str()),
+                                        ("location", job_reference.location.as_ref().unwrap_or(&"US".to_string()).as_str()),
+                                    ])
+                                    .send()
+                                    .await
+                                    .map_err(|e| {
+                                        Error::ExecutionErr(format!("Could not send query to BigQuery API: {}", e))
+                                    })?;
+
+                                if let Err(e) = response2.error_for_status_ref() {
+                                    match response2.json::<BigqueryErrorResponse>().await {
+                                        Ok(bq_err) => {
+                                            yield Err(Error::ExecutionErr(format!(
+                                                "Error from BigQuery API: {}",
+                                                bq_err.error.message
+                                            )))
+                                            .map_err(to_anyhow)?;
+                                            return;
+                                    },
+                                        Err(_) => {
+                                            yield Err(Error::ExecutionErr(format!(
+                                                "Error from BigQuery API could not be parsed: {}",
+                                                e.to_string()
+                                            )))
+                                            .map_err(to_anyhow)?;
+                                            return;
+                                        },
+                                    }
+                                }
+
+                                let result2 = response2.json::<BigqueryResponse>().await.map_err(|e| {
+                                    Error::ExecutionErr(format!(
+                                        "BigQuery API response could not be parsed: {}",
+                                        e.to_string()
+                                    ))
+                                })?;
+                                let rows = handle_bigquery_response(&result2, &Some(cloned_s3.clone()), None).await?;
+                                for row in rows.into_iter() {
+                                    yield Ok::<_, windmill_common::error::Error>(row);
+                                }
+                                next_page_token = result2.pageToken;
+                            }
+                        };
+
+                        s3_stream_and_upload_with_logs(
+                            "BigQuery",
+                            rows_stream.boxed(),
+                            &s3,
+                            job_id,
+                            workspace_id,
+                            log_conn,
+                        )
+                        .await?;
+
+                        return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);
                     }
 
-                    if result.rows.is_none() || result.rows.as_ref().unwrap().len() == 0 {
-                        return Ok(serde_json::from_str("[]").unwrap());
-                    }
-
-                    if result.schema.is_none() {
-                        return Err(Error::ExecutionErr(
-                            "Incomplete response from BigQuery API".to_string(),
-                        ));
-                    }
-
-                    if result
-                        .totalRows
-                        .unwrap_or(json!(""))
-                        .as_str()
-                        .unwrap_or("")
-                        .parse::<i64>()
-                        .unwrap_or(0)
-                        > 10000
-                    {
-                        return Err(Error::ExecutionErr(
-                        "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows".to_string(),
-                    ));
-                    }
-
-                    if let Some(column_order) = column_order {
-                        *column_order = Some(
-                            result
-                                .schema
-                                .as_ref()
-                                .unwrap()
-                                .fields
-                                .iter()
-                                .map(|x| x.name.clone())
-                                .collect::<Vec<String>>(),
-                        );
-                    }
-
-                    let rows = result
-                        .rows
-                        .unwrap()
-                        .iter()
-                        .map(|row| {
-                            let mut row_map = serde_json::Map::new();
-                            row.f
-                                .iter()
-                                .zip(result.schema.as_ref().unwrap().fields.iter())
-                                .for_each(|(field, schema)| {
-                                    row_map.insert(
-                                        schema.name.clone(),
-                                        parse_val(&field.v, &schema.r#type, &schema),
-                                    );
-                                });
-                            Value::from(row_map)
-                        })
-                        .collect::<Vec<_>>();
-
-                    Ok(to_raw_value(&rows))
+                    Ok(rows.iter().map(to_raw_value).collect::<Vec<_>>())
                 }
             }
             Err(e) => match response.json::<BigqueryErrorResponse>().await {
@@ -203,26 +240,101 @@ fn do_bigquery_inner<'a>(
     Ok(result_f.boxed())
 }
 
+async fn handle_bigquery_response<'a>(
+    result: &BigqueryResponse,
+    s3: &Option<S3ModeWorkerData>,
+    column_order: Option<&'a mut Option<Vec<String>>>,
+) -> windmill_common::error::Result<Vec<Value>> {
+    if !result.jobComplete {
+        return Err(Error::ExecutionErr(
+            "BigQuery API did not answer query in time".to_string(),
+        ));
+    }
+
+    if result.rows.is_none() || result.rows.as_ref().unwrap().len() == 0 {
+        return Ok(serde_json::from_str("[]").unwrap());
+    }
+
+    if result.schema.is_none() {
+        return Err(Error::ExecutionErr(
+            "Incomplete response from BigQuery API".to_string(),
+        ));
+    }
+
+    if s3.is_none()
+        && result
+            .totalRows
+            .as_ref()
+            .unwrap_or(&json!(""))
+            .as_str()
+            .unwrap_or("")
+            .parse::<i64>()
+            .unwrap_or(0)
+            > 10000
+    {
+        return Err(Error::ExecutionErr(
+            "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows or use S3 streaming for larger datasets: https://windmill.dev/docs/core_concepts/sql_to_s3_streaming"
+                .to_string(),
+        ));
+    }
+
+    if let Some(column_order) = column_order {
+        *column_order = Some(
+            result
+                .schema
+                .as_ref()
+                .unwrap()
+                .fields
+                .iter()
+                .map(|x| x.name.clone())
+                .collect::<Vec<String>>(),
+        );
+    }
+
+    let rows = result
+        .rows
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            let mut row_map = serde_json::Map::new();
+            row.f
+                .iter()
+                .zip(result.schema.as_ref().unwrap().fields.iter())
+                .for_each(|(field, schema)| {
+                    row_map.insert(
+                        schema.name.clone(),
+                        parse_val(&field.v, &schema.r#type, &schema),
+                    );
+                });
+            Value::from(row_map)
+        })
+        .collect::<Vec<_>>();
+    Ok(rows)
+}
+
+use windmill_queue::MiniPulledJob;
+
 pub async fn do_bigquery(
-    job: &QueuedJob,
-    client: &AuthedClientBackgroundTask,
+    job: &MiniPulledJob,
+    client: &AuthedClient,
     query: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
+    parent_runnable_path: Option<String>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    let bigquery_args = build_args_values(job, client, db).await?;
+    let mut bigquery_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
+    let s3 = parse_s3_mode(&query)?.map(|s3| s3_mode_args_to_worker_data(s3, client.clone(), job));
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
         Some(
             client
-                .get_authed()
-                .await
                 .get_resource_value_interpolated::<serde_json::Value>(
                     &inline_db_res_path,
                     Some(job.id.to_string()),
@@ -240,6 +352,11 @@ pub async fn do_bigquery(
     };
 
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
+    let collection_strategy = if annotations.return_last_result {
+        SqlResultCollectionStrategy::LastStatementAllRows
+    } else {
+        annotations.result_collection
+    };
 
     let service_account = CustomServiceAccount::from_json(&database)
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
@@ -252,7 +369,7 @@ pub async fn do_bigquery(
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
     let (timeout_duration, _, _) =
-        resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout).await;
+        resolve_job_timeout(&conn, &job.workspace_id, job.id, job.timeout).await;
     let timeout_ms = timeout_duration.as_millis() as u64;
     let http_client = build_http_client(timeout_duration)?;
 
@@ -261,15 +378,71 @@ pub async fn do_bigquery(
         .await
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
-    let queries = parse_sql_blocks(query);
+    // Validate before it is interpolated into request URLs as a path segment
+    // (https://bigquery.googleapis.com/.../projects/<project_id>/...).
+    if project_id.is_empty()
+        || !project_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':'))
+    {
+        return Err(Error::ExecutionErr(format!(
+            "Invalid BigQuery project id '{}': only alphanumeric, '.', '-', '_' and ':' allowed",
+            project_id.chars().take(64).collect::<String>()
+        )));
+    }
 
-    let mut statement_values: HashMap<String, Value> = HashMap::new();
-
-    let sig = parse_bigquery_sig(&query)
+    let mut sig = parse_bigquery_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
+    // Materialize any `(s3object)` args into JSON text and rewrite the arg type to
+    // STRING. The user wraps the parameter with `JSON_EXTRACT_ARRAY(@p)` (or similar)
+    // in their SQL.
+    for arg in sig.iter_mut() {
+        if arg.otyp.as_deref() != Some("s3object") {
+            continue;
+        }
+        let raw = bigquery_args.remove(&arg.name).unwrap_or(Value::Null);
+        if matches!(raw, Value::Null) {
+            return Err(Error::BadRequest(format!(
+                "Missing S3Object value for arg `{}`",
+                arg.name
+            )));
+        }
+        let s3_obj: windmill_types::s3::S3Object = serde_json::from_value(raw).map_err(|e| {
+            Error::ExecutionErr(format!("Invalid S3Object for arg `{}`: {e}", arg.name))
+        })?;
+        let json_text =
+            crate::sql_s3_input::fetch_s3object_as_json_text(client, &job.workspace_id, &s3_obj)
+                .await
+                .map_err(|e| {
+                    Error::ExecutionErr(format!(
+                        "Failed to fetch S3 object for arg `{}`: {e}",
+                        arg.name
+                    ))
+                })?;
+        bigquery_args.insert(arg.name.clone(), Value::String(json_text));
+        arg.otyp = Some("string".to_string());
+    }
+
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+
+    let (query, args_to_skip) = &sanitize_and_interpolate_unsafe_sql_args(
+        query,
+        &sig,
+        &bigquery_args,
+        &reserved_variables,
+    )?;
+
+    let queries = parse_sql_blocks(query, false);
+
+    let mut statement_values: HashMap<String, Value> = HashMap::new();
+
     for arg in &sig {
+        if args_to_skip.contains(&arg.name) {
+            continue;
+        }
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "string".to_string());
         let arg_n = arg.clone().name;
         let arg_v = bigquery_args.get(&arg.name).cloned().unwrap_or(json!(""));
@@ -311,59 +484,47 @@ pub async fn do_bigquery(
         statement_values.insert(arg_n, bigquery_v);
     }
 
-    let result_f = if queries.len() > 1 {
-        let futures = queries
-            .iter()
-            .enumerate()
-            .map(|(i, x)| {
-                do_bigquery_inner(
-                    x,
-                    &statement_values,
-                    &project_id,
-                    token.as_str(),
-                    timeout_ms,
-                    None,
-                    annotations.return_last_result && i < queries.len() - 1,
-                    &http_client,
-                )
-            })
-            .collect::<windmill_common::error::Result<Vec<_>>>()?;
+    let result_f = async move {
+        let mut results = vec![];
+        for (i, q) in queries.iter().enumerate() {
+            let result = do_bigquery_inner(
+                q,
+                &statement_values,
+                &project_id,
+                token.as_str(),
+                timeout_ms,
+                if i == queries.len() - 1
+                    && s3.is_none()
+                    && collection_strategy.collect_last_statement_only(queries.len())
+                    && !collection_strategy.collect_scalar()
+                {
+                    Some(column_order)
+                } else {
+                    None
+                },
+                collection_strategy.collect_last_statement_only(queries.len())
+                    && i < queries.len() - 1,
+                collection_strategy.collect_first_row_only(),
+                &http_client,
+                s3.clone(),
+                job.id,
+                &job.workspace_id,
+                conn,
+            )?
+            .await?;
+            results.push(result);
+        }
 
-        let f = async {
-            let mut res: Vec<Box<RawValue>> = vec![];
-
-            for fut in futures {
-                let r = fut.await?;
-                res.push(r);
-            }
-            if annotations.return_last_result && res.len() > 0 {
-                Ok(res.pop().unwrap())
-            } else {
-                Ok(to_raw_value(&res))
-            }
-        };
-
-        f.boxed()
-    } else {
-        do_bigquery_inner(
-            query,
-            &statement_values,
-            &project_id,
-            token.as_str(),
-            timeout_ms,
-            Some(column_order),
-            false,
-            &http_client,
-        )?
+        collection_strategy.collect(results)
     };
 
     let r = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
-        result_f.map_err(to_anyhow),
+        result_f,
         worker_name,
         &job.workspace_id,
         &mut Some(occupancy_metrics),

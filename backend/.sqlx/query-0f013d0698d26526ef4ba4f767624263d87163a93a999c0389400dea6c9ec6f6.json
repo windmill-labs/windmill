@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO flow_node (workspace_id, hash, path, lock, code, flow, hash_v2)\n         SELECT $2,\n                (SELECT COALESCE(MAX(hash), 0) FROM flow_node) + row_number() OVER () AS new_hash,\n                source_fn.path, source_fn.lock, source_fn.code, source_fn.flow, source_fn.hash_v2\n         FROM flow_node source_fn\n         WHERE source_fn.workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0f013d0698d26526ef4ba4f767624263d87163a93a999c0389400dea6c9ec6f6"
+}

@@ -10,35 +10,73 @@ path = "src/lib.rs"
 
 [features]
 default = []
-enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise"]
-stripe = ["dep:async-stripe"]
-enterprise_saml = ["dep:samael"]
+private = ["windmill-audit/private", "windmill-common/private", "windmill-api-auth/private", "windmill-store/private", "windmill-api-users/private", "windmill-api-workspaces/private", "windmill-api-groups/private", "windmill-api-configs/private", "windmill-api-settings/private", "windmill-api-agent-workers?/private", "windmill-trigger-kafka?/private", "windmill-trigger-postgres?/private", "windmill-trigger-mqtt?/private", "windmill-trigger-websocket?/private", "windmill-trigger-nats?/private", "windmill-trigger-sqs?/private", "windmill-trigger-gcp?/private", "windmill-trigger-azure?/private", "windmill-trigger-email?/private", "windmill-git-sync/private", "windmill-autoscaling?/private"]
+enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker?/enterprise", "windmill-api-auth/enterprise", "windmill-store/enterprise", "windmill-api-jobs/enterprise", "windmill-api-scripts/enterprise", "windmill-api-flows/enterprise", "windmill-api-users/enterprise", "windmill-api-workspaces/enterprise", "windmill-api-groups/enterprise", "windmill-api-configs/enterprise", "windmill-api-settings/enterprise", "windmill-api-schedule/enterprise", "windmill-api-agent-workers?/enterprise", "windmill-trigger/enterprise", "windmill-trigger-kafka?/enterprise", "windmill-trigger-postgres?/enterprise", "windmill-trigger-mqtt?/enterprise", "windmill-trigger-websocket?/enterprise", "windmill-trigger-email?/enterprise", "windmill-trigger-nats?/enterprise", "windmill-trigger-sqs?/enterprise", "windmill-trigger-gcp?/enterprise", "windmill-trigger-azure?/enterprise", "windmill-trigger-http?/enterprise", "windmill-native-triggers?/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise"]
+stripe = []
+run_inline = ["dep:windmill-worker", "windmill-api-configs/run_inline"]
+agent_worker_server = ["dep:windmill-worker", "dep:windmill-api-agent-workers"]
+enterprise_saml = ["dep:samael", "dep:libxml"]
 benchmark = []
-embedding = ["dep:tinyvector", "dep:hf-hub", "dep:tokenizers", "dep:candle-core", "dep:candle-transformers", "dep:candle-nn"]
-parquet = ["dep:datafusion", "dep:object_store", "dep:url", "windmill-common/parquet"]
-prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus"]
-openidconnect = ["dep:openidconnect"]
+embedding = ["windmill-api-embeddings/embedding"]
+parquet = ["dep:datafusion", "windmill-common/parquet", "windmill-object-store/parquet", "windmill-worker?/parquet", "windmill-api-users/parquet", "windmill-api-settings/parquet", "windmill-api-workspaces/parquet", "dep:aws-sigv4", "dep:aws-sdk-config"]
+prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker?/prometheus", "windmill-api-scripts/prometheus"]
+openidconnect = ["dep:openidconnect", "windmill-common/openidconnect", "windmill-store/openidconnect"]
 tantivy = ["dep:windmill-indexer"]
-kafka = ["dep:rdkafka"]
-nats = ["dep:async-nats", "dep:nkeys"]
-websocket = ["dep:tokio-tungstenite"]
-smtp = ["dep:mail-parser", "dep:openssl", "windmill-common/smtp"]
-license = ["dep:rsa"]
+kafka = ["dep:windmill-trigger-kafka", "windmill-store/kafka"]
+kafka-gssapi = ["kafka", "windmill-trigger-kafka/kafka-gssapi"]
+nats = ["dep:windmill-trigger-nats", "windmill-store/nats"]
+websocket = ["dep:windmill-trigger-websocket"]
+smtp = ["dep:mail-parser", "dep:openssl", "windmill-common/smtp", "dep:windmill-trigger-email"]
+license = ["dep:rsa", "windmill-api-settings/license"]
 zip = ["dep:async_zip"]
-oauth2 = ["dep:async-oauth2"]
-http_trigger = ["dep:matchit"]
+oauth2 = ["dep:windmill-oauth", "windmill-store/oauth2"]
+http_trigger = ["dep:matchit", "dep:windmill-trigger-http", "windmill-store/http_trigger", "dep:windmill-api-openapi"]
 static_frontend = ["dep:rust-embed"]
-postgres_trigger = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:thiserror", "dep:rust_decimal", "dep:rust-postgres-native-tls"]
+postgres_trigger = ["dep:windmill-trigger-postgres", "windmill-store/postgres_trigger"]
+mqtt_trigger = ["dep:windmill-trigger-mqtt", "windmill-store/mqtt_trigger"]
+native_trigger = ["dep:windmill-native-triggers", "windmill-native-triggers/native_trigger", "dep:strum", "oauth2"]
+sqs_trigger = ["dep:windmill-trigger-sqs", "windmill-store/sqs_trigger"]
+gcp_trigger = ["dep:windmill-trigger-gcp", "windmill-store/gcp_trigger"]
+azure_trigger = ["dep:windmill-trigger-azure", "windmill-store/azure_trigger"]
+cloud = ["windmill-common/cloud", "windmill-api-auth/cloud", "windmill-store/cloud", "windmill-api-workspaces/cloud"]
+mcp = ["dep:windmill-mcp", "windmill-mcp/server", "windmill-mcp/auth", "windmill-api-auth/mcp", "windmill-store/mcp"]
+bedrock = ["windmill-ai/bedrock"]
+python = ["windmill-dep-map/python", "dep:windmill-parser-py", "dep:windmill-parser-py-imports", "windmill-api-scripts/python", "windmill-api-configs/python", "windmill-api-agent-workers?/python", "windmill-trigger/python", "windmill-common/python"]
+no_auth = ["windmill-api-auth/no_auth", "windmill-store/no_auth", "windmill-api-users/no_auth"]
+quickjs = ["windmill-jseval/quickjs"]
 
 [dependencies]
+windmill-ai = { workspace = true, default-features = false }
+windmill-mcp = { workspace = true, optional = true }
+windmill-api-auth.workspace = true
+windmill-api-scripts.workspace = true
+windmill-api-flows.workspace = true
+windmill-api-users.workspace = true
+windmill-api-workspaces.workspace = true
+windmill-api-groups.workspace = true
+windmill-api-sse.workspace = true
+windmill-api-jobs.workspace = true
+windmill-trigger.workspace = true
+windmill-store.workspace = true
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
+windmill-types.workspace = true
+windmill-object-store.workspace = true
 windmill-audit.workspace = true
 windmill-parser.workspace = true
+windmill-parser-sql.workspace = true
+windmill-parser-sql-asset.workspace = true
 windmill-parser-ts.workspace = true
+windmill-parser-py = { workspace = true, optional = true }
+windmill-parser-py-imports = { workspace = true, optional = true }
 windmill-git-sync.workspace = true
 windmill-indexer = { workspace = true, optional = true }
+windmill-autoscaling = { workspace = true, optional = true }
+windmill-worker = { workspace = true, optional = true }
+windmill-worker-volumes.workspace = true
+windmill-dep-map.workspace = true
 tokio.workspace = true
+tokio-stream.workspace = true
 anyhow.workspace = true
 argon2.workspace = true
 axum.workspace = true
@@ -52,7 +90,7 @@ itertools.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 sqlx.workspace = true
-async-oauth2 = { workspace = true, optional = true }
+windmill-oauth = { workspace = true, optional = true }
 tracing.workspace = true
 sql-builder.workspace = true
 serde_json.workspace = true
@@ -62,12 +100,14 @@ hex.workspace = true
 base64.workspace = true
 base32.workspace = true
 serde_urlencoded.workspace = true
+serde_yml.workspace = true
 cron.workspace = true
 mime_guess.workspace = true
 rust-embed = { workspace = true, optional = true }
 tracing-subscriber.workspace = true
 quick_cache.workspace = true
 rand.workspace = true
+ed25519-dalek.workspace = true
 time.workspace = true
 native-tls.workspace = true
 tokio-native-tls.workspace = true
@@ -76,45 +116,68 @@ mail-parser = { workspace = true, features = ["serde_support"], optional = true 
 magic-crypt.workspace = true
 tempfile.workspace = true
 tokio-util.workspace = true
-tokio-tar.workspace = true
+astral-tokio-tar.workspace = true
+tokio-postgres.workspace = true
+postgres-native-tls.workspace = true
 hmac.workspace = true
 cookie.workspace = true
 sha2.workspace = true
 urlencoding.workspace = true
-async-stripe = { workspace = true, optional = true }
 lazy_static.workspace = true
 prometheus = { workspace = true, optional = true }
 async_zip = { workspace = true, optional = true }
 regex.workspace = true
 bytes.workspace = true
+url.workspace = true
 samael = { workspace = true, optional = true }
+libxml = { workspace = true, optional = true }
 async-recursion.workspace = true
 rsa = { workspace = true, optional = true}
 uuid.workspace = true
-tinyvector = { workspace = true, optional = true}
-hf-hub  = { workspace = true, optional = true}
-tokenizers = { workspace = true, optional = true}
-candle-core = { workspace = true, optional = true}
-candle-transformers = { workspace = true, optional = true}
-candle-nn = { workspace = true, optional = true}
 datafusion = { workspace = true, optional = true}
-object_store = { workspace = true, optional = true}
 openidconnect = { workspace = true, optional = true}
-url = { workspace = true, optional = true}
 jsonwebtoken = { workspace = true }
 matchit = { workspace = true, optional = true }
-tokio-tungstenite = { workspace = true, optional = true}
-rdkafka = { workspace = true, optional = true }
-async-nats = { workspace = true, optional = true }
-nkeys = { workspace = true, optional = true }
+windmill-trigger-kafka = { workspace = true, optional = true }
+windmill-trigger-postgres = { workspace = true, optional = true }
+windmill-trigger-mqtt = { workspace = true, optional = true }
+windmill-trigger-websocket = { workspace = true, optional = true }
+windmill-trigger-email = { workspace = true, optional = true }
+windmill-trigger-nats = { workspace = true, optional = true }
+windmill-trigger-sqs = { workspace = true, optional = true }
+windmill-trigger-gcp = { workspace = true, optional = true }
+windmill-trigger-azure = { workspace = true, optional = true }
+windmill-trigger-http = { workspace = true, optional = true }
+windmill-native-triggers = { workspace = true, optional = true }
+windmill-alerting.workspace = true
+windmill-api-agent-workers = { workspace = true, optional = true }
+windmill-api-assets.workspace = true
+windmill-api-configs = { workspace = true }
+windmill-api-debug.workspace = true
+windmill-api-embeddings.workspace = true
+windmill-api-flow-conversations.workspace = true
+windmill-api-inputs.workspace = true
+windmill-api-npm-proxy.workspace = true
+windmill-api-openapi = { workspace = true, optional = true }
+windmill-api-schedule.workspace = true
+windmill-api-settings = { workspace = true }
+windmill-api-workers.workspace = true
 const_format.workspace = true
 pin-project.workspace = true
 http.workspace = true
+indexmap.workspace = true
 async-stream.workspace = true
 ulid.workspace = true
-rust-postgres = { workspace = true, optional = true }
-pg_escape = { workspace = true, optional = true }
-byteorder = { workspace = true, optional = true }
-thiserror = { workspace = true, optional = true }
-rust_decimal = { workspace = true, optional = true }
-rust-postgres-native-tls = { workspace = true, optional = true}
+rustls = { workspace = true }
+
+aws-sigv4 = { workspace = true, optional = true }
+aws-sdk-config = { workspace = true, optional = true }
+async-trait.workspace = true
+eventsource-stream.workspace = true
+windmill-jseval.workspace = true
+tar.workspace = true
+flate2.workspace = true
+strum = { workspace = true, optional = true }
+dashmap.workspace = true
+
+[build-dependencies]

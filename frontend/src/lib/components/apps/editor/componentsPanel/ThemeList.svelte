@@ -19,14 +19,14 @@
 	const { previewTheme, app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let cssString: string | undefined = $app?.theme?.type === 'inlined' ? $app.theme.css : undefined
-	$: type = $app?.theme?.type
+	let type = $derived($app?.theme?.type)
 
 	let themes: Array<{
 		name: string
 		path: string
-	}> = []
+	}> = $state([])
 
-	let loading: boolean = false
+	let loading: boolean = $state(false)
 
 	async function getThemes() {
 		loading = true
@@ -62,8 +62,8 @@
 		}
 	}
 
-	let nameField: string = ''
-	let previewThemePath: string | undefined = undefined
+	let nameField: string = $state('')
+	let previewThemePath: string | undefined = $state(undefined)
 
 	onMount(() => {
 		getThemes()
@@ -77,7 +77,7 @@
 
 <div class="p-2 flex flex-col items-start w-auto gap-2 relative">
 	{#if $enterpriseLicense === undefined}
-		<div class="absolute top-0 left-0 w-full h-full bg-gray-50 opacity-50 z-10 bottom-0" />
+		<div class="absolute top-0 left-0 w-full h-full bg-gray-50 opacity-50 z-10 bottom-0"></div>
 		<Alert
 			type="warning"
 			title="Themes are available in the enterprise edition."
@@ -98,7 +98,7 @@
 		<Button
 			disabled={type != 'inlined' || nameField == ''}
 			on:click={() => addTheme(nameField)}
-			color="dark"
+			variant="accent"
 			size="xs">Create theme</Button
 		>
 	</div>
@@ -113,8 +113,7 @@
 		<div class="flex flex-row justify-end items-center w-full h-10">
 			{#if $previewTheme != undefined}
 				<Button
-					color="dark"
-					variant="border"
+					variant="default"
 					size="xs"
 					on:click={() => {
 						previewTheme.set(undefined)
@@ -149,7 +148,7 @@
 							{/key}
 						{/each}
 					{:else}
-						<tr>Loading...</tr>
+						<tr><td>Loading...</td></tr>
 					{/if}
 				</tbody>
 			</DataTable>

@@ -1,35 +1,41 @@
 <script lang="ts">
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import { getNonStreamingCompletion, type AiProviderTypes } from './lib'
+	import { getNonStreamingMetadataCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import type { Flow, InputTransform } from '$lib/gen'
 	import ManualPopover from '../ManualPopover.svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import type { PickableProperties } from '../flows/previousResults'
 	import YAML from 'yaml'
-	import { sliceModules } from '../flows/flowStateUtils'
+	import { sliceModules } from '../flows/flowStateUtils.svelte'
 	import { dfs } from '../flows/dfs'
 	import { yamlStringifyExceptKeys } from './utils'
-	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
+	import { stepInputCompletionEnabled } from '$lib/stores'
+	import { copilotInfo } from '$lib/aiStore'
 	import { twMerge } from 'tailwind-merge'
 
-	let generatedContent = ''
-	let loading = false
-	export let focused = false
-	export let arg: InputTransform | any
-	export let pickableProperties: PickableProperties | undefined = undefined
+	let generatedContent = $state('')
+	let loading = $state(false)
+	interface Props {
+		focused?: boolean
+		arg: InputTransform | any
+		pickableProperties?: PickableProperties | undefined
+	}
 
-	let btnFocused = false
-	let empty = false
-	$: empty =
+	let { focused = false, arg, pickableProperties = undefined }: Props = $props()
+
+	let btnFocused = $state(false)
+
+	let empty = $derived(
 		Object.keys(arg ?? {}).length === 0 ||
-		(arg.type === 'static' && !arg.value) ||
-		(arg.type === 'javascript' && !arg.expr)
+			(arg.type === 'static' && !arg.value) ||
+			(arg.type === 'javascript' && !arg.expr)
+	)
 
 	let abortController = new AbortController()
-	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	async function generateIteratorExpr() {
 		if (generatedContent.length > 0 || loading) {
@@ -37,9 +43,9 @@
 		}
 		abortController = new AbortController()
 		loading = true
-		const flow: Flow = JSON.parse(JSON.stringify($flowStore))
+		const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
 		const idOrders = dfs(flow.value.modules, (x) => x.id)
-		const upToIndex = idOrders.indexOf($selectedId)
+		const upToIndex = idOrders.indexOf(selectionManager.getSelectedId())
 		if (upToIndex === -1) {
 			throw new Error('Could not find the selected id in the flow')
 		}
@@ -54,7 +60,7 @@
 				flow_input: pickableProperties?.flow_input
 			}
 			const user = `I'm building a workflow which is a DAG of script steps.
-The current step is ${$selectedId} and represents a for-loop. You can find the details of all the steps below:
+The current step is ${selectionManager.getSelectedId()} and represents a for-loop. You can find the details of all the steps below:
 ${flowDetails}
 Determine the iterator expression to pass either from the previous results or the flow inputs. Here's a summary of the available data:
 <available>
@@ -62,20 +68,18 @@ ${YAML.stringify(availableData)}</available>
 Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.
 Only output the expression, do not explain or discuss.`
-			const aiProvider = $copilotInfo.ai_provider
-			generatedContent = await getNonStreamingCompletion(
+			generatedContent = await getNonStreamingMetadataCompletion(
 				[
 					{
 						role: 'user',
 						content: user
 					}
 				],
-				abortController,
-				aiProvider as AiProviderTypes
+				abortController
 			)
 		} catch (err) {
 			if (!abortController.signal.aborted) {
-				sendUserToast('Could not generate summary: ' + err, true)
+				sendUserToast('Could not generate iterator expression: ' + err, true)
 			}
 		} finally {
 			loading = false
@@ -83,7 +87,7 @@ Only output the expression, do not explain or discuss.`
 	}
 
 	export function onKeyUp(event: KeyboardEvent) {
-		if (!$copilotInfo.exists_ai_resource || !$stepInputCompletionEnabled) {
+		if (!$copilotInfo.enabled || !$stepInputCompletionEnabled) {
 			return
 		}
 		if (event.key === 'Tab') {
@@ -114,31 +118,41 @@ Only output the expression, do not explain or discuss.`
 		}, 150)
 	}
 
-	$: if (!focused) {
-		cancelOnOutOfFocus()
-	}
+	$effect(() => {
+		if (!focused) {
+			untrack(() => {
+				cancelOnOutOfFocus()
+			})
+		}
+	})
 
-	$: if ($copilotInfo.exists_ai_resource && $stepInputCompletionEnabled && focused) {
-		automaticGeneration()
-	}
+	$effect(() => {
+		if ($copilotInfo.enabled && $stepInputCompletionEnabled && focused) {
+			untrack(() => {
+				automaticGeneration()
+			})
+		}
+	})
 
 	function cancel() {
 		abortController.abort()
 		generatedContent = ''
 	}
 
-	$: dispatch('showExpr', generatedContent)
+	$effect(() => {
+		dispatch('showExpr', generatedContent)
+	})
 
-	let out = true // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
+	let out = $state(true) // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
 </script>
 
-{#if $copilotInfo.exists_ai_resource && $stepInputCompletionEnabled}
+{#if $copilotInfo.enabled && $stepInputCompletionEnabled}
 	<ManualPopover showTooltip={!empty && generatedContent.length > 0} placement="bottom" class="p-2">
 		<Button
 			size="xs"
 			color="light"
 			btnClasses={twMerge(
-				'text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700 dark:hover:bg-surface-hover',
+				'text-ai bg-violet-100 dark:bg-gray-700 dark:hover:bg-surface-hover',
 				!loading && generatedContent.length > 0
 					? 'bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-400 dark:bg-green-700 dark:hover:bg-green-700'
 					: ''
@@ -178,10 +192,10 @@ Only output the expression, do not explain or discuss.`
 				{/if}
 			{/if}
 		</Button>
-		<svelte:fragment slot="content">
-			<div class="text-sm text-tertiary">
+		{#snippet content()}
+			<div class="text-sm text-primary">
 				{generatedContent}
 			</div>
-		</svelte:fragment>
+		{/snippet}
 	</ManualPopover>
 {/if}

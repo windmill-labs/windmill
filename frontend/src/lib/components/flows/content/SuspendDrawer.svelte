@@ -6,23 +6,26 @@
 	import DrawerContent from '../../common/drawer/DrawerContent.svelte'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 
-	let drawer: Drawer
+	let drawer: Drawer | undefined = $state()
 
-	export let text: string = 'Approval Help'
+	interface Props {
+		text?: string
+	}
+
+	let { text = 'Approval Help' }: Props = $props()
 </script>
 
 <Button
 	size="xs"
-	variant="border"
-	color="light"
+	variant="default"
 	on:click={() => {
-		drawer.openDrawer()
+		drawer?.openDrawer()
 	}}
 	>{text} <HelpCircle size={12} />
 </Button>
 
 <Drawer bind:this={drawer}>
-	<DrawerContent title="Suspend/Approval/Prompt help" on:close={drawer.closeDrawer}>
+	<DrawerContent title="Suspend/Approval/Prompt help" on:close={drawer?.closeDrawer}>
 		<div class="flex flex-col gap-y-6 text-xs text-primary font-normal">
 			<Section label="Form/Payload">
 				To add a form, go to the <b>Form</b> tab, inside the Advanced {'->'} Suspend tab, and add a form.
@@ -35,28 +38,10 @@
 				prompt to the operator when running the flow. Additionally, adding the cancel url will also
 				render a cancel button, providing the operator with an option to cancel the step. e.g:
 				<Tabs selected="bun" class="pt-4">
-					<Tab value="bun">TypeScript (Bun)</Tab>
-					<Tab value="deno">TypeScript (Deno)</Tab>
-					<Tab value="python">Python</Tab>
+					<Tab value="bun" label="TypeScript (Bun)" />
+					<Tab value="python" label="Python" />
 
-					<svelte:fragment slot="content">
-						<TabContent value="deno" class="p-2">
-							<HighlightCode
-								language={'deno'}
-								code={`import * as wmill from "npm:windmill-client@^1.158.2"
-    
-export async function main() {
-    const urls = await wmill.getResumeUrls("approver1")
-
-    return {
-        resume: urls['resume'],
-        cancel: urls['cancel'], 
-        default_args: {}, // optional, see below
-        enums: {} // optional, see below
-    }
-}`}
-							/>
-						</TabContent>
+					{#snippet content()}
 						<TabContent value="bun" class="p-2">
 							<HighlightCode
 								language={'deno'}
@@ -90,7 +75,7 @@ def main():
                                     `}
 							/>
 						</TabContent>
-					</svelte:fragment>
+					{/snippet}
 				</Tabs>
 			</Section>
 			<Section label="Default args">

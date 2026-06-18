@@ -4,74 +4,108 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 
 	import { Loader2, Save } from 'lucide-svelte'
+	import WsSpecificVersions from './WsSpecificVersions.svelte'
+	import { workspaceStore } from '$lib/stores'
+	import LocalDraftBanner from './LocalDraftBanner.svelte'
 
-	let drawer: Drawer
-	let canSave = true
-	let resource_type: string | undefined = undefined
-	let defaultValues: Record<string, any> | undefined = undefined
+	let {
+		workspace = undefined,
+		disableChatOffset = false
+	}: { workspace?: string; disableChatOffset?: boolean } = $props()
 
-	let resourceEditor: { editResource: () => void; createResource: () => void } | undefined =
-		undefined
+	let drawer: Drawer | undefined = $state()
+	let canSave = $state(true)
+	let resource_type: string | undefined = $state(undefined)
+	let defaultValues: Record<string, any> | undefined = $state(undefined)
 
-	let path: string | undefined = undefined
+	let resourceEditor:
+		| {
+				save: () => void
+				localDraftDeployed: () => unknown
+				localDraftCurrent: () => unknown
+				discardLocalDraft: () => void
+		  }
+		| undefined = $state(undefined)
+	let hasLocalDraft = $state(false)
+	let canWriteSelected = $state(true)
 
-	let newResource = false
+	let path: string | undefined = $state(undefined)
+	let selected: string | undefined = $state(undefined)
+
+	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
+
 	export async function initEdit(p: string): Promise<void> {
 		resource_type = undefined
-		newResource = false
 		path = p
-		drawer.openDrawer?.()
+		selected = effectiveWorkspace
+		drawer?.openDrawer?.()
 	}
 
 	export async function initNew(
 		resourceType: string,
 		nDefaultValues?: Record<string, any>
 	): Promise<void> {
-		newResource = true
 		path = undefined
 		resource_type = resourceType
 		defaultValues = nDefaultValues
-		drawer.openDrawer?.()
+		selected = effectiveWorkspace
+		drawer?.openDrawer?.()
 	}
 
-	let mode: 'edit' | 'new' = newResource ? 'new' : 'edit'
-
-	$: path ? (mode = 'edit') : (mode = 'new')
+	let mode: 'edit' | 'new' = $derived(!path ? 'new' : 'edit')
 </script>
 
-<Drawer bind:this={drawer} size="800px">
+<Drawer bind:this={drawer} size="50rem" {disableChatOffset}>
 	<DrawerContent
-		title={mode == 'edit' ? 'Edit ' + path : 'Add a resourcee'}
-		on:close={drawer.closeDrawer}
+		title={mode == 'edit' ? 'Edit ' + path : 'Add a resource'}
+		on:close={drawer?.closeDrawer}
 	>
 		{#await import('./ResourceEditor.svelte')}
 			<Loader2 class="animate-spin" />
 		{:then Module}
 			<Module.default
-				{newResource}
 				{path}
 				{resource_type}
 				{defaultValues}
+				{workspace}
 				on:refresh
 				bind:this={resourceEditor}
 				bind:canSave
+				bind:selected
+				onDraftStateChange={(v) => (hasLocalDraft = v)}
+				onCanWriteChange={(v) => (canWriteSelected = v)}
 			/>
 		{/await}
-		<svelte:fragment slot="actions">
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={hasLocalDraft}
+				getDeployed={() => resourceEditor?.localDraftDeployed()}
+				getCurrent={() => resourceEditor?.localDraftCurrent()}
+				onDiscard={() => resourceEditor?.discardLocalDraft()}
+				disabled={!canWriteSelected}
+			/>
+		{/snippet}
+		{#snippet actions()}
+			{#if mode == 'edit' && path && effectiveWorkspace}
+				<WsSpecificVersions
+					kind="resource"
+					workspaceId={effectiveWorkspace}
+					initialPath={path}
+					bind:selected
+				/>
+			{/if}
 			<Button
+				variant="accent"
+				unifiedSize="md"
 				startIcon={{ icon: Save }}
 				on:click={() => {
-					if (mode == 'edit') {
-						resourceEditor?.editResource()
-					} else {
-						resourceEditor?.createResource()
-					}
-					drawer.closeDrawer()
+					resourceEditor?.save()
+					drawer?.closeDrawer()
 				}}
 				disabled={!canSave}
 			>
 				Save
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

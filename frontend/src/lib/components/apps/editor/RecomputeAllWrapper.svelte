@@ -1,26 +1,20 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../types'
-	import { dfs } from './appUtils'
-	import { deepEqual } from 'fast-equals'
 	import { Loader2 } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import RecomputeAllButton from './RecomputeAllButton.svelte'
 
-	export let containerClass: string | undefined = undefined
-	export let containerStyle: string | undefined = undefined
-
-	const { selectedComponent, app, connectingInput, allIdsInPath, bgRuns, recomputeAllContext } =
-		getContext<AppViewerContext>('AppViewerContext')
-
-	let previousSelectedIds: string[] | undefined = undefined
-	$: if (!deepEqual(previousSelectedIds, $selectedComponent)) {
-		previousSelectedIds = $selectedComponent
-		$allIdsInPath = ($selectedComponent ?? [])
-			.flatMap((id) => dfs($app.grid, id, $app.subgrids ?? {}))
-			.filter((x) => x != undefined) as string[]
+	interface Props {
+		containerClass?: string | undefined
+		containerStyle?: string | undefined
 	}
+
+	let { containerClass = undefined, containerStyle = undefined }: Props = $props()
+
+	const { connectingInput, bgRuns, recomputeAllContext } =
+		getContext<AppViewerContext>('AppViewerContext')
 </script>
 
 <div
@@ -30,18 +24,20 @@
 	<div class="w-9">
 		{#if $bgRuns.length > 0}
 			<Popover notClickable>
-				<span class="!text-2xs text-tertiary inline-flex gap-1 items-center"
+				<span class="!text-2xs text-primary inline-flex gap-1 items-center"
 					><Loader2 size={10} class="animate-spin" /> {$bgRuns.length}
 				</span>
-				<span slot="text"
-					><div class="flex flex-col">
-						{#each $bgRuns as bgRun}
-							<div class="flex gap-2 items-center">
-								<div class="text-2xs">{bgRun}</div>
-							</div>
-						{/each}
-					</div></span
-				>
+				{#snippet text()}
+					<span
+						><div class="flex flex-col">
+							{#each $bgRuns as bgRun}
+								<div class="flex gap-2 items-center">
+									<div class="text-2xs">{bgRun}</div>
+								</div>
+							{/each}
+						</div></span
+					>
+				{/snippet}
 			</Popover>
 		{/if}
 	</div>
@@ -50,7 +46,7 @@
 			<RecomputeAllButton
 				interval={$recomputeAllContext.interval}
 				componentNumber={$recomputeAllContext.componentNumber ?? 0}
-				on:click={() => $recomputeAllContext.onClick?.()}
+				on:click={() => $recomputeAllContext.onRefresh?.()}
 				on:setInter={(e) => {
 					$recomputeAllContext.setInter?.(e.detail)
 				}}

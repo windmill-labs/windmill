@@ -2,34 +2,44 @@
 	import { ScheduleService } from '$lib/gen'
 	import { emptyString, formatCron, sendUserToast } from '$lib/utils'
 	import Badge from './Badge.svelte'
-	// @ts-ignore
-	import Multiselect from 'svelte-multiselect'
 	import { Button } from './common'
-	import Select from '../components/apps/svelte-select/lib/index'
 	import timezones from './timezones'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
-	import { onMount } from 'svelte'
 	import CronBuilder from './CronBuilder.svelte'
 	import Label from './Label.svelte'
 	import CronGen from './copilot/CronGen.svelte'
-	import DarkModeObserver from './DarkModeObserver.svelte'
+	import Select from './select/Select.svelte'
+	import MultiSelect from './select/MultiSelect.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
+	import { untrack } from 'svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
-	export let schedule: string
-	// export let offset: number = -60 * Math.floor(new Date().getTimezoneOffset() / 60)
-	export let timezone: string // = Intl.DateTimeFormat().resolvedOptions().timeZone
-	export let disabled = false
-	export let validCRON = true
-	export let cronVersion: string = 'v2'
+	interface Props {
+		schedule: string
+		// export let offset: number = -60 * Math.floor(new Date().getTimezoneOffset() / 60)
+		timezone: string // = Intl.DateTimeFormat().resolvedOptions().timeZone
+		disabled?: boolean
+		validCRON?: boolean
+		cronVersion?: string
+	}
 
-	let preview: string[] = []
+	let {
+		schedule = $bindable(),
+		timezone = $bindable(),
+		disabled = false,
+		validCRON = $bindable(true),
+		cronVersion = $bindable('v2')
+	}: Props = $props()
+
+	let preview: string[] = $state([])
 	// If the user has already entered a cron string, switching to the basic tab will override it.
-	let executeEvery: 'second' | 'minute' | 'hour' | 'day-month' | 'month' | 'day-week' = 'minute'
+	let executeEvery: 'second' | 'minute' | 'hour' | 'day-month' | 'month' | 'day-week' =
+		$state('minute')
 
-	let seconds = 30
-	let minutes = 30
-	let hours = 1
+	let seconds = $state(30)
+	let minutes = $state(30)
+	let hours = $state(1)
 	const daysOfMonthOptions: number[] = Array.from(Array(31).keys()).map((i) => i + 1)
-	let daysOfMonth: number[] = []
+	let daysOfMonth: number[] = $state([])
 	// let lastDayOfMonth = false
 	const monthsOfYearOptions: string[] = [
 		'January',
@@ -45,7 +55,7 @@
 		'November',
 		'December'
 	]
-	let monthsOfYear: string[] = []
+	let monthsOfYear: string[] = $state([])
 	const daysOfWeekOptions: string[] = [
 		'Sunday',
 		'Monday',
@@ -55,10 +65,8 @@
 		'Friday',
 		'Saturday'
 	]
-	let daysOfWeek: string[] = []
-	let UTCTime: string = ''
-
-	$: !emptyString(schedule) && handleScheduleInput(schedule, timezone)
+	let daysOfWeek: string[] = $state([])
+	let UTCTime: string = $state('')
 
 	async function handleScheduleInput(input: string, timezone: string): Promise<void> {
 		try {
@@ -76,9 +84,60 @@
 		}
 	}
 
-	let nschedule = ''
+	let nschedule = $state('')
 
-	$: {
+	function formatDate(timezone) {
+		try {
+			return new Intl.DateTimeFormat('en-GB', {
+				weekday: 'short',
+				day: '2-digit',
+				month: 'short',
+				year: 'numeric',
+				hour: 'numeric',
+				minute: 'numeric',
+				second: 'numeric',
+				timeZone: timezone,
+				timeZoneName: 'short'
+			}).format
+		} catch (ee) {
+			sendUserToast(
+				`Invalid timezone: ${timezone}. Update your browser's timezone preference`,
+				true
+			)
+			return new Intl.DateTimeFormat('en-GB', {
+				weekday: 'short',
+				day: '2-digit',
+				month: 'short',
+				year: 'numeric',
+				hour: 'numeric',
+				minute: 'numeric',
+				second: 'numeric',
+				timeZone: 'Europe/Paris',
+				timeZoneName: 'short'
+			}).format
+		}
+	}
+
+	const items = Object.keys(timezones)
+		.map((key) => {
+			return Object.keys(timezones[key])
+				.map((subKey) => {
+					return {
+						value: subKey,
+						label: subKey,
+						group: timezones[key][subKey][1] as string
+					}
+				})
+				.flat()
+		})
+		.flat()
+	$effect(() => {
+		schedule
+		untrack(() => {
+			!emptyString(schedule) && handleScheduleInput(schedule, timezone)
+		})
+	})
+	$effect(() => {
 		// CRON string format
 		// sec  min   hour      day of month   month     day of week   year
 		// 0    30    9,12,15   1,15           May-Aug   Mon,Wed,Fri   2018/2
@@ -136,275 +195,208 @@
 		} else if (executeEvery === 'day-week') {
 			nschedule = `0 ${s_AtUTCMinutes} ${s_AtUTCHours} * * ${s_daysOfWeek}`
 		}
-	}
-
-	$: dateFormatter = formatDate(timezone)
-
-	function formatDate(timezone) {
-		try {
-			return new Intl.DateTimeFormat('en-GB', {
-				weekday: 'short',
-				day: '2-digit',
-				month: 'short',
-				year: 'numeric',
-				hour: 'numeric',
-				minute: 'numeric',
-				second: 'numeric',
-				timeZone: timezone,
-				timeZoneName: 'short'
-			}).format
-		} catch (ee) {
-			sendUserToast(
-				`Invalid timezone: ${timezone}. Update your browser's timezone preference`,
-				true
-			)
-			return new Intl.DateTimeFormat('en-GB', {
-				weekday: 'short',
-				day: '2-digit',
-				month: 'short',
-				year: 'numeric',
-				hour: 'numeric',
-				minute: 'numeric',
-				second: 'numeric',
-				timeZone: 'Europe/Paris',
-				timeZoneName: 'short'
-			}).format
-		}
-	}
-	let darkMode: boolean = false
-
-	function onThemeChange() {
-		if (document.documentElement.classList.contains('dark')) {
-			darkMode = true
-		} else {
-			darkMode = false
-		}
-	}
-
-	onMount(() => {
-		onThemeChange()
 	})
-
-	const items = Object.keys(timezones)
-		.map((key) => {
-			return Object.keys(timezones[key])
-				.map((subKey) => {
-					return {
-						value: subKey,
-						label: subKey,
-						group: timezones[key][subKey][1]
-					}
-				})
-				.flat()
-		})
-		.flat()
+	let dateFormatter = $derived(formatDate(timezone))
 </script>
-
-<DarkModeObserver on:change={onThemeChange} />
 
 <div class="w-full flex space-x-8">
 	<div class="w-full flex flex-col gap-4">
-		<Label label="Cron" class="font-semibold" primary={true}>
-			<svelte:fragment slot="error">
-				{#if !validCRON}
-					<div class="text-red-600 text-xs"> Invalid cron syntax </div>
+		<div class="flex flex-col gap-1">
+			<label for="cron-schedule" class="text-xs font-semibold text-emphasis">Cron</label>
+
+			<div class="flex flex-row gap-2 items-center">
+				<TextInput
+					inputProps={{
+						type: 'text',
+						id: 'cron-schedule',
+						name: 'cron-schedule',
+						placeholder: '0 0 */1 * * *',
+						disabled: disabled
+					}}
+					bind:value={schedule}
+					error={!validCRON}
+				/>
+				{#if !disabled}
+					<div class="flex flex-row gap-2 shrink-0">
+						{@render cronBuilder()}
+						<CronGen bind:schedule bind:cronVersion />
+					</div>
 				{/if}
-			</svelte:fragment>
-			<div class="flex flex-row-reverse text-2xs text-tertiary -mt-1 hover:underline">
+			</div>
+			{#if !validCRON}
+				<div class="text-red-600 text-2xs"> Invalid cron syntax </div>
+			{/if}
+			<div class="flex flex-row-reverse text-2xs text-secondary hover:underline">
 				<a
-					class="text-tertiary"
+					class="text-primary"
 					href="https://www.windmill.dev/docs/core_concepts/scheduling#cron-syntax"
 					target="_blank">Croner</a
 				>
 			</div>
-			<input
-				class="inline-block"
-				type="text"
-				id="cron-schedule"
-				name="cron-schedule"
-				placeholder="0 0 */1 * * *"
-				bind:value={schedule}
-				{disabled}
-			/>
-		</Label>
-		<Label label="Timezone" class="font-semibold" primary>
+		</div>
+		<Label label="Timezone">
 			{#if disabled}
 				<div>
 					<Badge><span class="text-primary dark:text-primary-inverse">{timezone}</span></Badge>
 				</div>
 			{:else}
 				<Select
-					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-					containerStyles={'border-color: lightgray;' +
-						(darkMode
-							? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-							: SELECT_INPUT_DEFAULT_STYLE.containerStyles)}
 					{items}
+					class="w-full"
+					bind:value={timezone}
 					groupBy={(item) => item.group}
-					on:change={(w) => {
-						timezone = w.detail.label
+					sortBy={(a, b) => {
+						if (a.group[0] === '+' && b.group[0] === '-') return -1
+						if (a.group[0] === '-' && b.group[0] === '+') return 1
+						return a.group.localeCompare(b.group)
 					}}
-					value={timezone}
 				/>
 			{/if}
 		</Label>
-
-		{#if !disabled}
-			<div class="flex flex-row gap-2 mb-2">
-				<CronBuilder let:close>
-					<div class="w-full flex flex-col">
-						<div class="w-full flex flex-col gap-1">
-							<div class="text-secondary text-sm leading-none">Execute schedule every</div>
-
-							<div class="w-full flex gap-4">
-								<div class="w-full flex flex-col gap-1">
-									<select
-										{disabled}
-										name="execute_every"
-										id="execute_every"
-										bind:value={executeEvery}
-									>
-										<option value="second">Second(s)</option>
-										<option value="minute">Minute(s)</option>
-										<option value="hour">Hour(s)</option>
-										<option value="day-month">Day of the month</option>
-										<option value="month">Month(s)</option>
-										<option value="day-week">Day of the week</option>
-									</select>
-								</div>
-
-								<div class="w-full flex flex-col gap-1 justify-center">
-									{#if executeEvery == 'second'}
-										<input {disabled} type="number" min="0" max="59" bind:value={seconds} />
-										<small>Valid range 0-59</small>
-									{:else if executeEvery == 'minute'}
-										<input {disabled} type="number" min="0" max="59" bind:value={minutes} />
-										<small>Valid range 0-59</small>
-									{:else if executeEvery == 'hour'}
-										<input {disabled} type="number" min="0" max="23" bind:value={hours} />
-										<small>Valid range 0-23</small>
-									{:else if executeEvery == 'day-month'}
-										<!-- <div class="w-full flex">
-									<label for="lastDayOfMonth" class="w-full flex items-center gap-2">
-										<div class="flex">
-											<input type="checkbox" id="lastDayOfMonth" bind:checked={lastDayOfMonth} />
-										</div>
-										<small> Last day of the month </small>
-									</label>
-								</div> -->
-									{/if}
-								</div>
-							</div>
-						</div>
-
-						<div class="w-full flex flex-col gap-4">
-							{#if executeEvery == 'month'}
-								<div class="w-full flex flex-col">
-									<Multiselect
-										{disabled}
-										bind:selected={monthsOfYear}
-										options={monthsOfYearOptions}
-										selectedOptionsDraggable={false}
-										placeholder="Every month"
-										ulOptionsClass={'!bg-surface-secondary'}
-									/>
-								</div>
-							{/if}
-
-							{#if executeEvery == 'day-week'}
-								<div class="w-full flex flex-col">
-									<Multiselect
-										{disabled}
-										bind:selected={daysOfWeek}
-										options={daysOfWeekOptions}
-										selectedOptionsDraggable={false}
-										placeholder="Every day"
-										ulOptionsClass={'!bg-surface-secondary'}
-									/>
-								</div>
-							{/if}
-
-							{#if executeEvery == 'day-month' || executeEvery == 'month'}
-								<div class="w-full flex flex-col gap-1">
-									{#if executeEvery == 'month'}
-										<small class="font-bold">On day of the month</small>
-									{/if}
-									<div class="w-full flex gap-4">
-										<div class="w-full flex">
-											<Multiselect
-												{disabled}
-												bind:selected={daysOfMonth}
-												options={daysOfMonthOptions}
-												selectedOptionsDraggable={false}
-												placeholder="Every day"
-												ulOptionsClass={'!bg-surface-secondary'}
-											/>
-										</div>
-
-										<!-- {#if executeEvery == 'month'}
-									<div class="w-full flex">
-										<label for="lastDayOfMonth" class="w-full flex items-center gap-2">
-											<div class="flex">
-												<input type="checkbox" id="lastDayOfMonth" bind:checked={lastDayOfMonth} />
-											</div>
-											<small> Last day of the month </small>
-										</label>
-									</div>
-								{/if} -->
-									</div>
-									<small>Schedule will only execute on valid calendar days</small>
-								</div>
-							{/if}
-
-							{#if executeEvery == 'day-month' || executeEvery == 'month' || executeEvery == 'day-week'}
-								<div class="w-full flex flex-col gap-1">
-									<small class="font-bold">At Time</small>
-									<input
-										{disabled}
-										type="time"
-										name="atUTCTime"
-										id="atUTCTime"
-										bind:value={UTCTime}
-									/>
-								</div>
-							{/if}
-						</div>
-
-						<div class="w-full flex flex-col gap-1">
-							<div class="text-secondary text-sm leading-none">Preview New Cron</div>
-
-							<div class="flex p-2 px-4 rounded-md bg-surface-secondary">
-								<span>{nschedule}</span>
-							</div>
-						</div>
-					</div>
-
-					<div class="mt-4">
-						<Button
-							color="dark"
-							size="xs"
-							on:click={() => {
-								schedule = nschedule
-								close(null)
-							}}
-						>
-							Set cron schedule
-						</Button>
-					</div>
-				</CronBuilder>
-				<CronGen bind:schedule bind:cronVersion />
-			</div>
-		{/if}
 	</div>
 
 	<div class="w-full flex flex-col space-y-2">
-		<div class="text-sm font-semibold leading-none">Estimated upcoming events ({timezone})</div>
+		<div class="text-xs font-semibold text-emphasis leading-none"
+			>Estimated upcoming events ({timezone})</div
+		>
 		<div class="flex flex-col space-y-2">
-			<div class="flex flex-col rounded-md p-4 border text-tertiary bg-surface-secondary gap-0.5">
+			<div class="flex flex-col rounded-md p-4 border text-primary gap-0.5">
 				{#each preview as date}
-					<span class="text-sm">{dateFormatter(new Date(date))}</span>
+					<span class="text-xs">{dateFormatter(new Date(date))}</span>
 				{/each}
 			</div>
 		</div>
 	</div>
 </div>
+
+{#snippet cronBuilder()}
+	<CronBuilder>
+		{#snippet children({ close })}
+			<div class="w-full flex flex-col gap-6">
+				<div class="w-full flex flex-col gap-1">
+					<div class="text-emphasis font-semibold text-xs leading-none">Execute schedule every</div>
+
+					<div class="w-full flex gap-4">
+						<div class="w-full flex flex-col gap-1 mb-2">
+							<select {disabled} name="execute_every" id="execute_every" bind:value={executeEvery}>
+								<option value="second">Second(s)</option>
+								<option value="minute">Minute(s)</option>
+								<option value="hour">Hour(s)</option>
+								<option value="day-month">Day of the month</option>
+								<option value="month">Month(s)</option>
+								<option value="day-week">Day of the week</option>
+							</select>
+						</div>
+
+						<div class="w-full flex flex-col gap-1 justify-center">
+							{#if executeEvery == 'second'}
+								<input {disabled} type="number" min="0" max="59" bind:value={seconds} />
+								<small class="text-secondary text-2xs">Valid range 0-59</small>
+							{:else if executeEvery == 'minute'}
+								<input {disabled} type="number" min="0" max="59" bind:value={minutes} />
+								<small class="text-secondary text-2xs">Valid range 0-59</small>
+							{:else if executeEvery == 'hour'}
+								<input {disabled} type="number" min="0" max="23" bind:value={hours} />
+								<small class="text-secondary text-2xs">Valid range 0-23</small>
+							{:else if executeEvery == 'day-month'}
+								<!-- <div class="w-full flex">
+						<label for="lastDayOfMonth" class="w-full flex items-center gap-2">
+							<div class="flex">
+								<input type="checkbox" id="lastDayOfMonth" bind:checked={lastDayOfMonth} />
+							</div>
+							<small> Last day of the month </small>
+						</label>
+					</div> -->
+							{/if}
+						</div>
+					</div>
+				</div>
+
+				{#if executeEvery == 'month'}
+					<div class="w-full flex flex-col">
+						<MultiSelect
+							disablePortal
+							{disabled}
+							bind:value={monthsOfYear}
+							items={safeSelectItems(monthsOfYearOptions)}
+							placeholder="Every month"
+						/>
+					</div>
+				{/if}
+
+				{#if executeEvery == 'day-week'}
+					<div class="w-full flex flex-col">
+						<MultiSelect
+							disablePortal
+							{disabled}
+							bind:value={daysOfWeek}
+							items={safeSelectItems(daysOfWeekOptions)}
+							placeholder="Every day"
+						/>
+					</div>
+				{/if}
+
+				{#if executeEvery == 'day-month' || executeEvery == 'month'}
+					<div class="w-full flex flex-col gap-1">
+						{#if executeEvery == 'month'}
+							<small class="text-secondary text-2xs font-normal">On day of the month</small>
+						{/if}
+						<div class="w-full flex gap-4">
+							<div class="w-full flex">
+								<MultiSelect
+									disablePortal
+									{disabled}
+									bind:value={daysOfMonth}
+									items={safeSelectItems(daysOfMonthOptions)}
+									placeholder="Every day"
+								/>
+							</div>
+
+							<!-- {#if executeEvery == 'month'}
+						<div class="w-full flex">
+							<label for="lastDayOfMonth" class="w-full flex items-center gap-2">
+								<div class="flex">
+									<input type="checkbox" id="lastDayOfMonth" bind:checked={lastDayOfMonth} />
+								</div>
+								<small> Last day of the month </small>
+							</label>
+						</div>
+					{/if} -->
+						</div>
+						<small class="text-secondary text-2xs font-normal"
+							>Schedule will only execute on valid calendar days</small
+						>
+					</div>
+				{/if}
+
+				{#if executeEvery == 'day-month' || executeEvery == 'month' || executeEvery == 'day-week'}
+					<div class="w-full flex flex-col gap-1">
+						<small class="font-semibold text-emphasis text-xs">At time</small>
+						<input {disabled} type="time" name="atUTCTime" id="atUTCTime" bind:value={UTCTime} />
+					</div>
+				{/if}
+
+				<div class="w-full flex flex-col gap-1">
+					<div class="text-emphasis font-semibold text-xs">Preview New Cron</div>
+
+					<div class="flex p-2 px-4 rounded-md bg-surface-secondary text-xs text-primary">
+						<span>{nschedule}</span>
+					</div>
+				</div>
+			</div>
+
+			<div class="mt-8">
+				<Button
+					variant="accent"
+					size="xs"
+					on:click={() => {
+						schedule = nschedule
+						close()
+					}}
+				>
+					Set cron schedule
+				</Button>
+			</div>
+		{/snippet}
+	</CronBuilder>
+{/snippet}

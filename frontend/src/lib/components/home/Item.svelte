@@ -11,24 +11,34 @@
 	import { createEventDispatcher } from 'svelte'
 	import { ArrowBigUp } from 'lucide-svelte'
 
-	export let item
-	export let depth: number = 0
-
 	const dispatch = createEventDispatcher()
 
-	let deleteConfirmedCallback: (() => void) | undefined = undefined
-	let shareModal: ShareModal
-	let moveDrawer: MoveDrawer
-	let deploymentDrawer: DeployWorkspaceDrawer
+	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
+	let shareModal: any | undefined = $state()
+	let moveDrawer: any | undefined = $state()
+	let deploymentDrawer: any | undefined = $state()
 
-	let menuOpen: boolean = false
-	export let showCode: (path: string, summary: string) => void
+	let menuOpen: boolean = $state(false)
+	interface Props {
+		item: any
+		depth?: number
+		showCode: (path: string, summary: string) => void
+		showEditButton?: boolean
+		keyboardSelected?: boolean
+	}
+
+	let {
+		item,
+		depth = 0,
+		showCode,
+		showEditButton = true,
+		keyboardSelected = false
+	}: Props = $props()
 </script>
 
 {#if item.type == 'script'}
 	<ScriptRow
 		bind:deleteConfirmedCallback
-		starred={item.starred ?? false}
 		marked={item.marked}
 		on:change={() => dispatch('scriptChanged')}
 		script={item}
@@ -42,11 +52,12 @@
 		{depth}
 		bind:menuOpen
 		{showCode}
+		{showEditButton}
+		{keyboardSelected}
 	/>
 {:else if item.type == 'flow'}
 	<FlowRow
 		bind:deleteConfirmedCallback
-		starred={item.starred ?? false}
 		marked={item.marked}
 		on:change={() => dispatch('flowChanged')}
 		flow={item}
@@ -59,11 +70,12 @@
 		{deploymentDrawer}
 		{depth}
 		bind:menuOpen
+		{showEditButton}
+		{keyboardSelected}
 	/>
 {:else if item.type == 'app'}
 	<AppRow
 		bind:deleteConfirmedCallback
-		starred={item.starred ?? false}
 		marked={item.marked}
 		on:change={() => dispatch('appChanged')}
 		app={item}
@@ -72,19 +84,18 @@
 		{deploymentDrawer}
 		{depth}
 		bind:menuOpen
+		{showEditButton}
+		{keyboardSelected}
 	/>
 {:else if item.type == 'raw_app'}
 	<RawAppRow
-		bind:deleteConfirmedCallback
-		starred={item.starred ?? false}
 		marked={item.marked}
-		on:change={() => dispatch('rawAppChanged')}
 		app={item}
-		{moveDrawer}
 		{shareModal}
 		{deploymentDrawer}
 		{depth}
 		bind:menuOpen
+		{keyboardSelected}
 	/>
 {/if}
 
@@ -93,6 +104,7 @@
 		open={Boolean(deleteConfirmedCallback)}
 		title="Remove"
 		confirmationText="Remove"
+		trashbin
 		on:canceled={() => {
 			deleteConfirmedCallback = undefined
 		}}

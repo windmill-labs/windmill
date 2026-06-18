@@ -2,8 +2,12 @@
 	import type { GridItem } from '$lib/components/apps/types'
 	import Output from './Output.svelte'
 
-	export let gridItem: GridItem
-	export let render: boolean
+	interface Props {
+		gridItem: GridItem
+		render: boolean
+	}
+
+	let { gridItem, render }: Props = $props()
 </script>
 
 <div class="my-1">

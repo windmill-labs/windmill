@@ -15,9 +15,9 @@
 	let customcomponents: Array<{
 		name: string
 		path: string
-	}> = []
+	}> = $state([])
 
-	let loading: boolean = false
+	let loading: boolean = $state(false)
 
 	async function getCustomComponents() {
 		loading = true
@@ -44,7 +44,7 @@
 							}
 						},
 						name: nameField,
-						js: await files[0].text()
+						js: await files?.[0]?.text?.()
 					}
 				}
 			})
@@ -53,7 +53,7 @@
 		} catch (e) {
 			sendUserToast(
 				'Component creation failed. Is the file uploaded, did you give it a name ? Do you have write privilege on folder app_custom: ' +
-					e.body ?? e,
+					(e.body ?? e),
 				true
 			)
 		}
@@ -61,15 +61,13 @@
 		nameField = ''
 	}
 
-	let nameField: string = ''
-	let reactVersion: string = '18.2.0'
-	let files: FileList
-	let useReact = true
+	let nameField: string = $state('')
+	let reactVersion: string = $state('18.2.0')
+	let files: FileList | undefined = $state()
+	let useReact = $state(true)
 
 	getCustomComponents()
 </script>
-
-<div id="cc_portal" />
 
 <div class="p-2 flex flex-col items-start w-auto gap-2 relative">
 	<div class="w-full flex flex-col gap-y-2 pb-8">
@@ -90,7 +88,7 @@
 				/></div
 			></div
 		>
-		<Button on:click={() => addCustomComponent(nameField)} color="dark" size="xs"
+		<Button on:click={() => addCustomComponent(nameField)} variant="accent" size="xs"
 			>Add Custom Component</Button
 		>
 	</div>
@@ -124,7 +122,7 @@
 							{/key}
 						{/each}
 					{:else}
-						<tr>Loading...</tr>
+						<!-- <tr>Loading...</tr> -->
 					{/if}
 				</tbody>
 			</DataTable>

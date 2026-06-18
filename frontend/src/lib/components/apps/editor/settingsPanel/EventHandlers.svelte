@@ -6,8 +6,12 @@
 
 	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
-	export let item: GridItem
-	export let ownId: string
+	interface Props {
+		item: GridItem
+		ownId: string
+	}
+
+	let { item = $bindable(), ownId }: Props = $props()
 
 	const componentsWithEventHandler = [
 		'modalcomponent',
@@ -23,7 +27,20 @@
 		'conditionalwrapper',
 		'fileinputcomponent',
 		's3fileinputcomponent',
-		'steppercomponent'
+		'steppercomponent',
+		'dateinputcomponent',
+		'datetimeinputcomponent',
+		'timeinputcomponent',
+		'numberinputcomponent',
+		'textinputcomponent',
+		'textareainputcomponent',
+		'passwordinputcomponent',
+		'emailinputcomponent',
+		'aggridcomponent',
+		'aggridcomponentee',
+		'aggridinfinitecomponent',
+		'aggridinfinitecomponentee',
+		'dbexplorercomponent'
 	]
 </script>
 
@@ -49,20 +66,37 @@
 				bind:value={item.data.onCloseRecomputeIds}
 			/>
 		{/if}
-		{#if (`recomputeIds` in item.data && Array.isArray(item.data.recomputeIds)) || item.data.type === 'buttoncomponent' || item.data.type === 'formcomponent' || item.data.type === 'formbuttoncomponent' || item.data.type === 'checkboxcomponent'}
-			<EventHandlerItem
-				title="on success"
-				tooltip="Select components to recompute after this runnable has successfully run"
-				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
-				bind:value={item.data.recomputeIds}
-			/>
+		{#if (`recomputeIds` in item.data && Array.isArray(item.data.recomputeIds)) || item.data.type === 'buttoncomponent' || item.data.type === 'formbuttoncomponent'}
+			{#if item.data.type == 'checkboxcomponent'}
+				<EventHandlerItem
+					title="on change"
+					tooltip="When the value change, regardless of the source"
+					items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
+					bind:value={item.data.recomputeIds}
+				/>
+			{:else}
+				<EventHandlerItem
+					title="on success"
+					tooltip="Select components to recompute after this runnable has successfully run"
+					items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
+					bind:value={item.data.recomputeIds}
+				/>
+			{/if}
 		{/if}
 		{#if item.data.type === 'checkboxcomponent'}
 			<EventHandlerItem
 				title="on toggle"
-				tooltip="Contrary to onSuccess, this will only trigger recompute when a human toggle the change, not if it set by a default value or by setValue"
+				tooltip="When a human toggle the checkbox"
 				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
 				bind:value={item.data.onToggle}
+			/>
+		{/if}
+		{#if item.data.type === 'dateinputcomponent' || item.data.type === 'datetimeinputcomponent' || item.data.type === 'timeinputcomponent' || item.data.type === 'numberinputcomponent' || item.data.type === 'textinputcomponent' || item.data.type === 'textareainputcomponent' || item.data.type === 'passwordinputcomponent' || item.data.type === 'emailinputcomponent' || item.data.type === 'aggridcomponent' || item.data.type === 'aggridcomponentee' || item.data.type === 'aggridinfinitecomponent' || item.data.type === 'aggridinfinitecomponentee' || item.data.type === 'dbexplorercomponent'}
+			<EventHandlerItem
+				title="on change"
+				tooltip="When a human change the value of the input"
+				items={Object.keys($runnableComponents).filter((id) => id !== ownId)}
+				bind:value={item.data.onChange}
 			/>
 		{/if}
 		{#if item.data.type === 'resourceselectcomponent' || item.data.type === 'selectcomponent' || item.data.type == 'userresourcecomponent'}

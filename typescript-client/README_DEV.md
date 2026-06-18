@@ -1,13 +1,8 @@
 # Generate windmill-client bundle
 
 ```bash
-./node_modules/.bin/esbuild  src/index.ts --bundle --outfile=windmill.js  --format=esm --platform=node
+npx tsdown --format esm --format cjs --dts
 ```
-
-# Generate d.ts bundle
-
-node_modules/dts-bundle-generator/dist/bin/dts-bundle-generator.js -o
-windmill.d.ts types/in dex.d.ts
 
 # Develop client locally
 

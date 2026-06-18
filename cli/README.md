@@ -107,3 +107,65 @@ To enable zsh completions add the following line to your `~/.zshrc`:
 ```
 source <(wmill completions zsh)
 ```
+
+## Development
+
+### AI Guidance Variants
+
+`wmill init` can now materialize alternate AI guidance bundles without changing
+the generated defaults in the repo, but this is exposed as internal env-var
+overrides rather than public CLI flags.
+
+Examples:
+
+```bash
+WMILL_INIT_AI_SKILLS_SOURCE=/path/to/custom/skills wmill init --use-default
+WMILL_INIT_AI_SKILLS_SOURCE=/path/to/custom/skills WMILL_INIT_AI_AGENTS_SOURCE=/path/to/AGENTS.md wmill init --use-default
+WMILL_INIT_AI_SKILLS_SOURCE=/path/to/custom/skills WMILL_INIT_AI_CLAUDE_SOURCE=/path/to/CLAUDE.md wmill init --use-default
+```
+
+This is the same guidance-writing path used by the benchmark CLI under
+`ai_evals/`, so the benchmark harness and `wmill init` now generate the same
+project guidance shape:
+
+- `AGENTS.md`
+- `CLAUDE.md`
+- `.agents/skills/*`
+- `.claude/skills/*`
+
+### Testing with a local `windmill-yaml-validator`
+
+To test local changes to the validator before publishing, use `npm link`:
+
+```bash
+# In windmill-yaml-validator/
+npm run build
+npm link
+
+# In cli/
+npm link windmill-yaml-validator
+```
+
+### Running Tests
+
+**Prerequisites:**
+- PostgreSQL running locally (default: `postgres://postgres:changeme@localhost:5432`)
+- Rust toolchain installed
+
+**Run tests locally (full features):**
+
+```bash
+bun test test/
+```
+
+**Run tests in CI mode (minimal features, skips EE tests):**
+
+```bash
+CI_MINIMAL_FEATURES=true bun test test/
+```
+
+| Variable | Description |
+|----------|-------------|
+| `CI_MINIMAL_FEATURES` | Set to `true` to skip EE-dependent tests |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `EE_LICENSE_KEY` | Enterprise license key for EE features |

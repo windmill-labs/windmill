@@ -2,7 +2,7 @@
 	import { WorkerService } from '$lib/gen'
 	import { Alert } from './common'
 
-	let ips: string[] | undefined = undefined
+	let ips: string[] | undefined = $state(undefined)
 
 	WorkerService.listWorkers({ pingSince: 300 }).then((workers) => {
 		ips = [
@@ -18,9 +18,9 @@
 </script>
 
 {#if ips}
-	<div class="mt-4" />
+	<div class="mt-4"></div>
 	<Alert size="xs" type="info" title="IPs to whitelist">
-		<span class="text-tertiary">If necessary, the workers IPs to whitelist are:</span>
+		<span class="text-primary">If necessary, the workers IPs to whitelist are:</span>
 		{ips.join(', ')}
 	</Alert>
 {/if}

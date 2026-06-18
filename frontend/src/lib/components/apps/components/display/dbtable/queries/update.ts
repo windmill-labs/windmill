@@ -1,18 +1,26 @@
+/**
+ * LEGACY: These query builders generate full SQL on the frontend.
+ * They exist only for backwards compatibility with Database Studio (dbexplorercomponent) apps
+ * whose policies were generated with expanded SQL digests.
+ *
+ * New code (Database Manager) should use WM_INTERNAL_DB markers instead,
+ * which are expanded server-side by the Rust query_builders module.
+ * See: dbOps.ts → dbTableOpsWithPreviewScripts()
+ */
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
-import { getLanguageByResourceType, type ColumnDef, buildParameters, type DbType } from '../utils'
+import { wrapDucklakeQuery } from '../../../../../ducklake'
+import type { DbInput, DbType } from '$lib/components/dbTypes'
+import { getLanguageByResourceType, type ColumnDef, buildParameters } from '../utils'
 
-function updateWithAllValues(
+export function makeUpdateQuery(
 	table: string,
-	column: ColumnDef,
-	columns: ColumnDef[],
+	column: { datatype: string; field: string },
+	columns: { datatype: string; field: string }[],
 	dbType: DbType
 ) {
 	let query = buildParameters(
 		[
-			{
-				field: 'value_to_update',
-				datatype: column.datatype
-			},
+			{ field: 'value_to_update', datatype: column.datatype },
 			...(dbType === 'snowflake' ? columns.flatMap((c) => [c, c]) : columns)
 		],
 		dbType
@@ -65,27 +73,40 @@ function updateWithAllValues(
 			query += `\nUPDATE ${table} SET ${column.field} = @value_to_update \nWHERE ${conditions}`
 			return query
 		}
+		case 'duckdb': {
+			const conditions = columns
+				.map((c) => `($${c.field} IS NULL AND ${c.field} IS NULL OR ${c.field} = $${c.field})`)
+				.join('\n    AND ')
+			query += `\nUPDATE ${table} SET ${column.field} = $value_to_update \nWHERE ${conditions}`
+			return query
+		}
 		default:
 			throw new Error('Unsupported database type')
 	}
 }
 
 export function getUpdateInput(
-	resource: string,
+	dbInput: DbInput,
 	table: string,
 	column: ColumnDef,
-	columns: ColumnDef[],
-	dbType: DbType
+	columns: ColumnDef[]
 ): AppInput | undefined {
-	if (!resource || !table) {
+	if (
+		(dbInput.type == 'ducklake' && !dbInput.ducklake) ||
+		(dbInput.type == 'database' && !dbInput.resourcePath) ||
+		!table
+	) {
 		return undefined
 	}
+	const dbType = dbInput.type === 'ducklake' ? 'duckdb' : dbInput.resourceType
+	let query = makeUpdateQuery(table, column, columns, dbType)
+	if (dbInput.type === 'ducklake') query = wrapDucklakeQuery(query, dbInput.ducklake)
 
 	const updateRunnable: RunnableByName = {
 		name: 'AppDbExplorer',
-		type: 'runnableByName',
+		type: 'inline',
 		inlineScript: {
-			content: updateWithAllValues(table, column, columns, dbType),
+			content: query,
 			language: getLanguageByResourceType(dbType),
 			schema: {
 				$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -98,14 +119,19 @@ export function getUpdateInput(
 
 	const updateQuery: AppInput = {
 		runnable: updateRunnable,
-		fields: {
-			database: {
-				type: 'static',
-				value: resource,
-				fieldType: 'object',
-				format: `resource-${dbType}`
-			}
-		},
+		fields:
+			dbInput.type === 'database'
+				? {
+						database: {
+							type: 'static',
+							value: dbInput.resourcePath.startsWith('datatable://')
+								? dbInput.resourcePath
+								: `$res:${dbInput.resourcePath}`,
+							fieldType: 'object',
+							format: `resource-${dbType}`
+						}
+					}
+				: {},
 		type: 'runnable',
 		fieldType: 'object'
 	}

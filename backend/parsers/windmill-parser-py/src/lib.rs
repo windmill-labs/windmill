@@ -11,24 +11,89 @@ use std::collections::HashMap;
 use itertools::Itertools;
 
 use serde_json::json;
-use windmill_parser::{json_to_typ, Arg, MainArgSignature, Typ};
+use windmill_parser::{json_to_typ, Arg, MainArgSignature, ObjectType, Typ};
 
 use rustpython_parser::{
     ast::{
-        Constant, Expr, ExprConstant, ExprDict, ExprList, ExprName, Stmt, StmtFunctionDef, Suite,
+        Constant, Expr, ExprAttribute, ExprConstant, ExprDict, ExprList, ExprName, Stmt,
+        StmtAssign, StmtAsyncFunctionDef, StmtClassDef, StmtFunctionDef, Suite,
     },
     Parse,
 };
 
+pub mod pydantic_parser;
+
 const FUNCTION_CALL: &str = "<function call>";
+
+/// Get the simple type name from an expression (e.g. `str`, `int`).
+fn simple_type_name(e: &Expr) -> Option<&str> {
+    match e {
+        Expr::Name(ExprName { id, .. }) => Some(id.as_ref()),
+        _ => None,
+    }
+}
+
+/// If `e` is `list[T]` or `List[T]`, return the inner expression `T`.
+fn list_elem_expr(e: &Expr) -> Option<&Expr> {
+    match e {
+        Expr::Subscript(x) => match x.value.as_ref() {
+            Expr::Name(ExprName { id, .. }) if id == "list" || id == "List" => {
+                Some(x.slice.as_ref())
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Detect `T | list[T]` or `list[T] | T` union patterns.
+/// Returns the original type string (e.g. "str | list[str]") for use as `otyp`.
+fn detect_py_union_array_otyp(e: &Expr) -> Option<String> {
+    let Expr::BinOp(x) = e else { return None };
+    // T | list[T]
+    if let (Some(scalar), Some(elem)) = (simple_type_name(&x.left), list_elem_expr(&x.right)) {
+        if let Some(elem_name) = simple_type_name(elem) {
+            if scalar == elem_name {
+                return Some(format!("{} | list[{}]", scalar, elem_name));
+            }
+        }
+    }
+    // list[T] | T
+    if let (Some(elem), Some(scalar)) = (list_elem_expr(&x.left), simple_type_name(&x.right)) {
+        if let Some(elem_name) = simple_type_name(elem) {
+            if scalar == elem_name {
+                return Some(format!("list[{}] | {}", elem_name, scalar));
+            }
+        }
+    }
+    None
+}
+
+/// Cheap string-based check to see if code might contain Pydantic models or dataclasses.
+/// Returns true if we should do full AST parsing for type detection, false otherwise.
+/// This avoids expensive parsing for the common case where scripts don't use these features.
+fn should_parse_for_models(code: &str) -> bool {
+    code.contains("BaseModel")
+        || code.contains("from pydantic")
+        || code.contains("import pydantic")
+        || code.contains("@dataclass")
+        || code.contains("from dataclasses")
+        || code.contains("import dataclasses")
+}
 
 fn filter_non_main(code: &str, main_name: &str) -> String {
     let def_main = format!("def {}(", main_name);
+    let async_def_main = format!("async def {}(", main_name);
     let mut filtered_code = String::new();
     let mut code_iter = code.split("\n");
     let mut remaining: String = String::new();
     while let Some(line) = code_iter.next() {
-        if line.starts_with(&def_main) {
+        if line.starts_with(&async_def_main) {
+            filtered_code += &async_def_main;
+            remaining += line.strip_prefix(&async_def_main).unwrap();
+            remaining += &code_iter.join("\n");
+            break;
+        } else if line.starts_with(&def_main) {
             filtered_code += &def_main;
             remaining += line.strip_prefix(&def_main).unwrap();
             remaining += &code_iter.join("\n");
@@ -57,53 +122,316 @@ fn filter_non_main(code: &str, main_name: &str) -> String {
     return filtered_code;
 }
 
+/// Data extracted from parsing the Python code
+struct CodeMetadata {
+    enums: HashMap<String, EnumInfo>,
+    descriptions: HashMap<String, String>,
+}
+
+/// Information about an Enum class
+struct EnumInfo {
+    values: Vec<String>,
+    members: HashMap<String, String>,
+}
+
+fn has_enum_keyword(code: &str) -> bool {
+    code.contains("Enum")
+}
+
+/// Extract only class and function definitions from code (prepass filtering)
+fn filter_relevant_statements(code: &str) -> String {
+    let mut result = Vec::new();
+    let mut lines = code.lines().peekable();
+
+    while let Some(line) = lines.next() {
+        let trimmed = line.trim_start();
+
+        if trimmed.starts_with("class ") || trimmed.starts_with("def ") {
+            result.push(line);
+            let base_indent = line.len() - trimmed.len();
+
+            while let Some(&next_line) = lines.peek() {
+                let next_trimmed = next_line.trim_start();
+                let next_indent = next_line.len() - next_trimmed.len();
+
+                if next_trimmed.is_empty() || next_indent > base_indent {
+                    result.push(lines.next().unwrap());
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    result.join("\n")
+}
+
+/// Extract Enum definitions and docstring descriptions lazily.
+/// Only parses AST if relevant keywords are present.
+fn extract_code_metadata(code: &str, main_name: &str) -> CodeMetadata {
+    let mut enums = HashMap::new();
+    let mut descriptions = HashMap::new();
+
+    let has_enum = has_enum_keyword(code);
+    let has_docstring = code.contains("Args:");
+
+    if !has_enum && !has_docstring {
+        return CodeMetadata { enums, descriptions };
+    }
+
+    let filtered_code = filter_relevant_statements(code);
+
+    let ast = match Suite::parse(&filtered_code, "main.py") {
+        Ok(ast) => ast,
+        Err(_) => return CodeMetadata { enums, descriptions },
+    };
+
+    for stmt in ast {
+        match stmt {
+            Stmt::ClassDef(StmtClassDef { name, body, bases, .. }) if has_enum => {
+                let is_enum = bases.iter().any(|base| {
+                    matches!(base, Expr::Name(ExprName { id, .. })
+                        if id == "Enum" || id == "IntEnum" || id == "StrEnum"
+                        || id == "Flag" || id == "IntFlag")
+                });
+
+                if is_enum {
+                    let mut values = Vec::new();
+                    let mut members = HashMap::new();
+
+                    for item in body {
+                        if let Stmt::Assign(StmtAssign { targets, value, .. }) = item {
+                            if let Some(Expr::Name(ExprName { id: target_name, .. })) =
+                                targets.first()
+                            {
+                                if !target_name.starts_with('_') {
+                                    if let Expr::Constant(ExprConstant {
+                                        value: Constant::Str(val),
+                                        ..
+                                    }) = value.as_ref()
+                                    {
+                                        values.push(val.to_string());
+                                        members.insert(target_name.to_string(), val.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if !values.is_empty() {
+                        enums.insert(name.to_string(), EnumInfo { values, members });
+                    }
+                }
+            }
+            Stmt::FunctionDef(StmtFunctionDef { name: func_name, body, .. }) if has_docstring => {
+                if &func_name == main_name {
+                    if let Some(Stmt::Expr(expr_stmt)) = body.first() {
+                        if let Expr::Constant(ExprConstant {
+                            value: Constant::Str(docstring),
+                            ..
+                        }) = expr_stmt.value.as_ref()
+                        {
+                            descriptions = parse_docstring_args(docstring);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    CodeMetadata { enums, descriptions }
+}
+
+/// Parse docstring Args: section (format: "param_name (type): Description")
+fn parse_docstring_args(docstring: &str) -> HashMap<String, String> {
+    let mut descriptions = HashMap::new();
+    let mut in_args_section = false;
+    let mut base_indent: Option<usize> = None;
+
+    for line in docstring.lines() {
+        let trimmed = line.trim();
+
+        if trimmed == "Args:" {
+            in_args_section = true;
+            base_indent = None;
+            continue;
+        }
+
+        if in_args_section {
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            let indent = line.len() - line.trim_start().len();
+
+            if base_indent.is_none() && !trimmed.is_empty() {
+                base_indent = Some(indent);
+            }
+
+            if let Some(base) = base_indent {
+                if indent < base && trimmed.ends_with(':') {
+                    break;
+                }
+            }
+
+            if let Some(colon_pos) = trimmed.find(':') {
+                let before_colon = &trimmed[..colon_pos];
+                let description = trimmed[colon_pos + 1..].trim();
+
+                if let Some(paren_pos) = before_colon.find('(') {
+                    let param_name = before_colon[..paren_pos].trim();
+                    descriptions.insert(param_name.to_string(), description.to_string());
+                } else {
+                    descriptions.insert(before_colon.trim().to_string(), description.to_string());
+                }
+            }
+        }
+    }
+
+    descriptions
+}
+
+/// skip_params is a micro optimization for when we just want to find the main
+/// function without parsing all the params.
 pub fn parse_python_signature(
     code: &str,
     override_main: Option<String>,
+    skip_params: bool,
 ) -> anyhow::Result<MainArgSignature> {
     let main_name = override_main.unwrap_or("main".to_string());
 
     let has_preprocessor = !filter_non_main(code, "preprocessor").is_empty();
 
-    let filtered_code = filter_non_main(code, &main_name);
-    if filtered_code.is_empty() {
+    // Optimization: Parse code only once
+    // - If models detected: parse full code, extract main from it, keep AST for type detection
+    // - If no models: parse only the filtered main function
+    let (params, module) = if should_parse_for_models(code) {
+        // Parse full code once for both Pydantic detection and signature extraction
+        let ast = Suite::parse(code, "main.py")
+            .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?;
+
+        // Extract main function from full AST
+        let params = ast.iter().find_map(|x| match x {
+            Stmt::FunctionDef(StmtFunctionDef { name, args, .. }) if name == &main_name => {
+                Some(args.as_ref().clone())
+            }
+            Stmt::AsyncFunctionDef(StmtAsyncFunctionDef { name, args, .. })
+                if name == &main_name =>
+            {
+                Some(args.as_ref().clone())
+            }
+            _ => None,
+        });
+
+        // Keep AST for Pydantic/dataclass detection
+        (params, Some(ast))
+    } else {
+        // No models detected - parse only the filtered main function
+        let filtered_code = filter_non_main(code, &main_name);
+        if filtered_code.is_empty() {
+            (None, None)
+        } else {
+            let ast = Suite::parse(&filtered_code, "main.py")
+                .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?;
+
+            let params = ast.into_iter().find_map(|x| match x {
+                Stmt::FunctionDef(StmtFunctionDef { name, args, .. }) if &name == &main_name => {
+                    Some(*args)
+                }
+                Stmt::AsyncFunctionDef(StmtAsyncFunctionDef { name, args, .. })
+                    if &name == &main_name =>
+                {
+                    Some(*args)
+                }
+                _ => None,
+            });
+
+            (params, None)
+        }
+    };
+
+    // Mirror the runtime detector `is_wac_v2_py` in `windmill-worker/src/wac_executor.rs`:
+    // a wmill import + an `@workflow` decorator is sufficient. `@task` is optional —
+    // a workflow that only uses inline `step()` calls still goes through the WAC runner,
+    // and labelling it as `wac` here is what aligns the editor badge with execution.
+    let is_wac_v2 = (code.contains("@workflow") || code.contains("workflow("))
+        && (code.contains("import wmill") || code.contains("from wmill"));
+
+    // Check if main function was found
+    if params.is_none() {
         return Ok(MainArgSignature {
             star_args: false,
             star_kwargs: false,
             args: vec![],
-            no_main_func: Some(true),
+            auto_kind: if is_wac_v2 {
+                Some("wac".to_string())
+            } else {
+                Some("lib".to_string())
+            },
             has_preprocessor: Some(has_preprocessor),
+            ..Default::default()
         });
     }
-    let ast = Suite::parse(&filtered_code, "main.py")
-        .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?;
 
-    let param = ast.into_iter().find_map(|x| match x {
-        Stmt::FunctionDef(StmtFunctionDef { name, args, .. }) if &name == &main_name => Some(*args),
-        _ => None,
-    });
-    if let Some(params) = param {
-        //println!("{:?}", params);
+    if !skip_params && params.is_some() {
+        let params = params.unwrap();
         let def_arg_start = params.args.len() - params.defaults().count();
+
+        // Two-pass approach for lazy metadata extraction:
+        // Pass 1: Parse types without enum info to determine if metadata is needed
+        // Pass 2: Re-parse unknown types with metadata only if necessary
+        // This ensures zero overhead for scripts without enums/docstrings
+
+        let empty_enums = HashMap::new();
+        let module_ref = module.as_ref().map(|m| m.as_slice());
+        let args_first_pass: Vec<_> = params
+            .args
+            .iter()
+            .enumerate()
+            .map(|(i, x)| {
+                let arg_name = x.as_arg().arg.to_string();
+                let (typ, has_default) = x
+                    .as_arg()
+                    .annotation
+                    .as_ref()
+                    .map_or((Typ::Unknown, false), |e| {
+                        parse_expr(e, &empty_enums, module_ref)
+                    });
+                (i, arg_name, typ, has_default)
+            })
+            .collect();
+
+        // Determine if we need to extract metadata from the code
+        let has_potential_enums = args_first_pass
+            .iter()
+            .any(|(_, _, typ, _)| matches!(typ, Typ::Resource(_)));
+
+        let metadata = if has_potential_enums || code.contains("Args:") {
+            extract_code_metadata(code, &main_name)
+        } else {
+            CodeMetadata { enums: HashMap::new(), descriptions: HashMap::new() }
+        };
+
+        // Build final args, re-parsing Resource types as enums if metadata was extracted
         Ok(MainArgSignature {
             star_args: params.vararg.is_some(),
             star_kwargs: params.kwarg.is_some(),
-            args: params
-                .args
-                .iter()
-                .enumerate()
-                .map(|(i, x)| {
-                    let mut typ = x
-                        .as_arg()
-                        .annotation
-                        .as_ref()
-                        .map_or(Typ::Unknown, |e| parse_expr(e));
+            args: args_first_pass
+                .into_iter()
+                .map(|(i, arg_name, mut typ, mut has_default)| {
+                    if matches!(typ, Typ::Resource(_)) && !metadata.enums.is_empty() {
+                        if let Some(annotation) = params.args[i].as_arg().annotation.as_ref() {
+                            (typ, has_default) =
+                                parse_expr(annotation, &metadata.enums, module_ref);
+                        }
+                    }
 
                     let default = if i >= def_arg_start {
                         params
                             .defaults()
                             .nth(i - def_arg_start)
-                            .map(to_value)
+                            .map(|expr| to_value(expr, &metadata.enums))
                             .flatten()
                     } else {
                         None
@@ -120,7 +448,7 @@ pub fn parse_python_signature(
                         && default.is_some()
                         && default != Some(json!(FUNCTION_CALL))
                     {
-                        typ = json_to_typ(default.as_ref().unwrap());
+                        typ = json_to_typ(default.as_ref().unwrap(), false);
                     }
 
                     // if the type is still a list of unknowns after checking the default, we set it to a list of strings to not break past behavior
@@ -131,41 +459,86 @@ pub fn parse_python_signature(
                         _ => {}
                     }
 
+                    // Detect T | list[T] union types and set otyp for
+                    // debounce accumulation support. Falls back to docstring
+                    // description if no union array pattern is found.
+                    let union_otyp = params.args[i]
+                        .as_arg()
+                        .annotation
+                        .as_ref()
+                        .and_then(|ann| detect_py_union_array_otyp(ann.as_ref()));
+
                     Arg {
-                        otyp: None,
-                        name: x.as_arg().arg.to_string(),
+                        otyp: union_otyp.or_else(|| {
+                            metadata.descriptions.get(&arg_name).map(|d| d.to_string())
+                        }),
+                        name: arg_name,
                         typ,
-                        has_default: default.is_some(),
+                        has_default: has_default || default.is_some(),
                         default,
                         oidx: None,
+                    otyp_inferred: false,
                     }
                 })
                 .collect(),
-            no_main_func: Some(false),
+            auto_kind: if is_wac_v2 {
+                Some("wac".to_string())
+            } else {
+                None
+            },
             has_preprocessor: Some(has_preprocessor),
+            ..Default::default()
         })
     } else {
         Ok(MainArgSignature {
             star_args: false,
             star_kwargs: false,
             args: vec![],
-            no_main_func: Some(true),
+            auto_kind: if is_wac_v2 {
+                Some("wac".to_string())
+            } else if params.is_none() {
+                Some("lib".to_string())
+            } else {
+                None
+            },
             has_preprocessor: Some(has_preprocessor),
+            ..Default::default()
         })
     }
 }
 
-fn parse_expr(e: &Box<Expr>) -> Typ {
+fn parse_expr(
+    e: &Box<Expr>,
+    enums: &HashMap<String, EnumInfo>,
+    module: Option<&[Stmt]>,
+) -> (Typ, bool) {
     match e.as_ref() {
-        Expr::Name(ExprName { id, .. }) => parse_typ(id.as_ref()),
+        Expr::Name(ExprName { id, .. }) => (parse_typ(id.as_ref(), enums, module), false),
         Expr::Attribute(x) => {
-            if x.value
-                .as_name_expr()
-                .is_some_and(|x| x.id.as_str() == "wmill")
-            {
-                parse_typ(x.attr.as_str())
+            if let Some(name) = x.value.as_name_expr() {
+                match name.id.as_str() {
+                    "wmill" => (parse_typ(x.attr.as_str(), enums, module), false),
+                    "datetime" => {
+                        let full_name = format!("datetime.{}", x.attr.as_str());
+                        (parse_typ(&full_name, enums, module), false)
+                    }
+                    _ => (Typ::Unknown, false),
+                }
             } else {
-                Typ::Unknown
+                (Typ::Unknown, false)
+            }
+        }
+        Expr::BinOp(x) => {
+            if matches!(
+                x.right.as_ref(),
+                Expr::Constant(ExprConstant { value: Constant::None, .. })
+            ) {
+                (parse_expr(&x.left, enums, module).0, true)
+            } else if detect_py_union_array_otyp(e.as_ref()).is_some() {
+                // T | list[T] — parsed type is Unknown; otyp is set separately
+                (Typ::Unknown, false)
+            } else {
+                (Typ::Unknown, false)
             }
         }
         Expr::Subscript(x) => match x.value.as_ref() {
@@ -190,37 +563,67 @@ fn parse_expr(e: &Box<Expr>) -> Typ {
                         }
                         _ => None,
                     };
-                    Typ::Str(values)
+                    (Typ::Str(values), false)
                 }
-                "List" => Typ::List(Box::new(parse_expr(&x.slice))),
-                _ => Typ::Unknown,
+                "List" | "list" => (
+                    Typ::List(Box::new(parse_expr(&x.slice, enums, module).0)),
+                    false,
+                ),
+                "Optional" => (parse_expr(&x.slice, enums, module).0, true),
+                _ => (Typ::Unknown, false),
             },
-            _ => Typ::Unknown,
+            _ => (Typ::Unknown, false),
         },
-        _ => Typ::Unknown,
+        _ => (Typ::Unknown, false),
     }
 }
 
-fn parse_typ(id: &str) -> Typ {
+fn parse_typ(id: &str, enums: &HashMap<String, EnumInfo>, module: Option<&[Stmt]>) -> Typ {
+    if let Some(enum_info) = enums.get(id) {
+        return Typ::Str(Some(enum_info.values.clone()));
+    }
+
     match id {
         "str" => Typ::Str(None),
         "float" => Typ::Float,
         "int" => Typ::Int,
         "bool" => Typ::Bool,
-        "dict" => Typ::Object(vec![]),
+        "dict" => Typ::Object(ObjectType::new(None, Some(vec![]))),
         "list" => Typ::List(Box::new(Typ::Unknown)),
         "bytes" => Typ::Bytes,
         "datetime" => Typ::Datetime,
         "datetime.datetime" => Typ::Datetime,
+        "date" => Typ::Date,
+        "datetime.date" => Typ::Date,
         "Sql" | "sql" => Typ::Sql,
         x @ _ if x.starts_with("DynSelect_") => {
             Typ::DynSelect(x.strip_prefix("DynSelect_").unwrap().to_string())
         }
-        _ => Typ::Resource(id.to_string()),
+        x @ _ if x.starts_with("DynMultiselect_") => {
+            Typ::DynMultiselect(x.strip_prefix("DynMultiselect_").unwrap().to_string())
+        }
+        _ => {
+            // Check if it's a Pydantic model or dataclass
+            if let Some(module) = module {
+                if let Some(object_type) = pydantic_parser::detect_model_type(id, module) {
+                    return Typ::Object(object_type);
+                }
+            }
+
+            // Fallback to Resource if not a model
+            Typ::Resource(map_resource_name(id))
+        }
     }
 }
 
-fn to_value<R>(et: &Expr<R>) -> Option<serde_json::Value> {
+fn map_resource_name(x: &str) -> String {
+    match x {
+        "S3Object" => "s3_object".to_string(),
+        _ => x.to_string(),
+    }
+}
+
+fn to_value<R>(et: &Expr<R>, enums: &HashMap<String, EnumInfo>) -> Option<serde_json::Value> {
     match et {
         Expr::Constant(ExprConstant { value, .. }) => Some(constant_to_value(value)),
         Expr::Dict(ExprDict { keys, values, .. }) => {
@@ -230,21 +633,37 @@ fn to_value<R>(et: &Expr<R>) -> Option<serde_json::Value> {
                 .map(|(k, v)| {
                     let key = k
                         .as_ref()
-                        .map(to_value)
+                        .map(|e| to_value(e, enums))
                         .flatten()
                         .and_then(|x| match x {
                             serde_json::Value::String(s) => Some(s),
                             _ => None,
                         })
                         .unwrap_or_else(|| "no_key".to_string());
-                    (key, to_value(&v))
+                    (key, to_value(&v, enums))
                 })
                 .collect::<HashMap<String, _>>();
             Some(json!(v))
         }
         Expr::List(ExprList { elts, .. }) => {
-            let v = elts.into_iter().map(|x| to_value(&x)).collect::<Vec<_>>();
+            let v = elts
+                .into_iter()
+                .map(|x| to_value(&x, enums))
+                .collect::<Vec<_>>();
             Some(json!(v))
+        }
+        Expr::Attribute(ExprAttribute { value, attr, .. }) => {
+            // Handle Enum.MEMBER: returns enum value ("red") not member name ("RED")
+            if let Expr::Name(ExprName { id: enum_name, .. }) = value.as_ref() {
+                if let Some(enum_info) = enums.get(enum_name.as_str()) {
+                    if let Some(enum_value) = enum_info.members.get(attr.as_str()) {
+                        return Some(json!(enum_value));
+                    }
+                }
+                Some(json!(attr.as_str()))
+            } else {
+                None
+            }
         }
         Expr::Call { .. } => Some(json!(FUNCTION_CALL)),
         _ => None,
@@ -287,7 +706,7 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
 ";
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -298,15 +717,17 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
                         name: "name".to_string(),
-                        typ: Typ::Unknown,
+                        typ: Typ::Datetime,
                         default: Some(json!("<function call>")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -314,7 +735,8 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         typ: Typ::Bytes,
                         default: Some(json!("<function call>")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -322,7 +744,8 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         typ: Typ::Str(None),
                         default: Some(json!("wewe")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -330,7 +753,8 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         typ: Typ::Int,
                         default: Some(json!(21)),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -338,7 +762,8 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         typ: Typ::List(Box::new(Typ::Int)),
                         default: Some(json!([1, 2])),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -346,11 +771,13 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         typ: Typ::Bool,
                         default: Some(json!(true)),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                 ],
-                no_main_func: Some(false),
-                has_preprocessor: Some(false)
+                auto_kind: None,
+                has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
 
@@ -376,7 +803,7 @@ def main(test1: str,
 ";
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -387,15 +814,17 @@ def main(test1: str,
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
                         name: "name".to_string(),
-                        typ: Typ::Unknown,
+                        typ: Typ::Datetime,
                         default: Some(json!("<function call>")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -403,7 +832,8 @@ def main(test1: str,
                         typ: Typ::Bytes,
                         default: Some(json!("<function call>")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -411,11 +841,13 @@ def main(test1: str,
                         typ: Typ::Resource("postgresql".to_string()),
                         default: Some(json!("$res:g/all/resource")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     }
                 ],
-                no_main_func: Some(false),
-                has_preprocessor: Some(false)
+                auto_kind: None,
+                has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
 
@@ -436,7 +868,7 @@ def main(test1: str,
 ";
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -447,15 +879,17 @@ def main(test1: str,
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
                         name: "s3o".to_string(),
-                        typ: Typ::Resource("S3Object".to_string()),
+                        typ: Typ::Resource("s3_object".to_string()),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -463,7 +897,8 @@ def main(test1: str,
                         typ: Typ::Str(None),
                         default: Some(json!("test")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -471,11 +906,13 @@ def main(test1: str,
                         typ: Typ::Bytes,
                         default: Some(json!("<function call>")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     }
                 ],
-                no_main_func: Some(false),
-                has_preprocessor: Some(false)
+                auto_kind: None,
+                has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
 
@@ -493,7 +930,7 @@ def main(test1: Literal["foo", "bar"], test2: List[Literal["foo", "bar"]]): retu
 "#;
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -504,7 +941,8 @@ def main(test1: Literal["foo", "bar"], test2: List[Literal["foo", "bar"]]): retu
                         typ: Typ::Str(Some(vec!["foo".to_string(), "bar".to_string()])),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -515,11 +953,13 @@ def main(test1: Literal["foo", "bar"], test2: List[Literal["foo", "bar"]]): retu
                         ])))),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     }
                 ],
-                no_main_func: Some(false),
-                has_preprocessor: Some(false)
+                auto_kind: None,
+                has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
 
@@ -537,7 +977,7 @@ def main(test1: DynSelect_foo): return
 "#;
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -547,10 +987,12 @@ def main(test1: DynSelect_foo): return
                     typ: Typ::DynSelect("foo".to_string()),
                     default: None,
                     has_default: false,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 }],
-                no_main_func: Some(false),
-                has_preprocessor: Some(false)
+                auto_kind: None,
+                has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
 
@@ -568,13 +1010,14 @@ def hello(): return
 "#;
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
                 args: vec![],
-                no_main_func: Some(true),
-                has_preprocessor: Some(false)
+                auto_kind: Some("lib".to_string()),
+                has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
 
@@ -596,16 +1039,55 @@ def main(): return
 "#;
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
                 args: vec![],
-                no_main_func: Some(false),
-                has_preprocessor: Some(true)
+                auto_kind: None,
+                has_preprocessor: Some(true),
+                ..Default::default()
             }
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_wac_step_only() -> anyhow::Result<()> {
+        // A WAC script that uses inline step() instead of @task should still be
+        // detected as auto_kind = "wac" — the runtime path treats @task as
+        // optional, and the editor badge needs to match.
+        let code = r#"
+from wmill import workflow, step
+
+@workflow
+async def main(x: str):
+    return await step("k", lambda: x.upper())
+"#;
+        let sig = parse_python_signature(code, None, false)?;
+        assert_eq!(sig.auto_kind, Some("wac".to_string()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_wac_main_decorator() -> anyhow::Result<()> {
+        // Reproducer for issue #8945: a workflow-as-code script using the
+        // standard `@workflow async def main(...)` template must be detected
+        // as auto_kind = "wac", not None.
+        let code = r#"
+from wmill import task, workflow
+
+@task()
+async def process(x: str) -> str:
+    return x
+
+@workflow
+async def main(x: str):
+    return await process(x)
+"#;
+        let sig = parse_python_signature(code, None, false)?;
+        assert_eq!(sig.auto_kind, Some("wac".to_string()));
         Ok(())
     }
 
@@ -617,10 +1099,10 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
 "#;
         println!(
             "{}",
-            serde_json::to_string(&parse_python_signature(code, None)?)?
+            serde_json::to_string(&parse_python_signature(code, None, false)?)?
         );
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -631,7 +1113,8 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
                         typ: Typ::List(Box::new(Typ::Str(None))),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -639,7 +1122,8 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
                         typ: Typ::List(Box::new(Typ::Int)),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -647,7 +1131,8 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
                         typ: Typ::List(Box::new(Typ::Int)),
                         default: Some(json!([1, 2, 3, 4])),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -655,7 +1140,8 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
                         typ: Typ::List(Box::new(Typ::Int)),
                         default: Some(json!([1, 2, 3, 4])),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -663,14 +1149,134 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
                         typ: Typ::List(Box::new(Typ::Str(None))),
                         default: Some(json!(["a", "b"])),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     }
                 ],
-                no_main_func: Some(false),
-                has_preprocessor: Some(false)
+                auto_kind: None,
+                has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_sig_9() -> anyhow::Result<()> {
+        let code = r#"
+from typing import Optional
+def main(a: str, b: Optional[str], c: str | None): return
+"#;
+        println!(
+            "{}",
+            serde_json::to_string(&parse_python_signature(code, None, false)?)?
+        );
+        assert_eq!(
+            parse_python_signature(code, None, false)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        otyp: None,
+                        name: "a".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: None,
+                    otyp_inferred: false,
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "b".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: true,
+                        oidx: None,
+                    otyp_inferred: false,
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "c".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: true,
+                        oidx: None,
+                    otyp_inferred: false,
+                    },
+                ],
+                auto_kind: None,
+                has_preprocessor: Some(false),
+                ..Default::default()
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_union_array_type() -> anyhow::Result<()> {
+        let code = r#"
+def main(items: str | list[str], numbers: list[int] | int, plain: str):
+    pass
+"#;
+        let result = parse_python_signature(code, None, false)?;
+        assert_eq!(result.args.len(), 3);
+
+        // str | list[str] → otyp set, typ Unknown
+        assert_eq!(result.args[0].name, "items");
+        assert_eq!(result.args[0].otyp, Some("str | list[str]".to_string()));
+        assert_eq!(result.args[0].typ, Typ::Unknown);
+
+        // list[int] | int → otyp set, typ Unknown
+        assert_eq!(result.args[1].name, "numbers");
+        assert_eq!(result.args[1].otyp, Some("list[int] | int".to_string()));
+        assert_eq!(result.args[1].typ, Typ::Unknown);
+
+        // plain str → no otyp
+        assert_eq!(result.args[2].name, "plain");
+        assert_eq!(result.args[2].otyp, None);
+        assert_eq!(result.args[2].typ, Typ::Str(None));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_sig_enum() -> anyhow::Result<()> {
+        let code = r#"
+from enum import Enum
+
+class Color(str, Enum):
+    RED = 'red'
+    GREEN = 'green'
+    BLUE = 'blue'
+
+def main(color: Color = Color.RED):
+    """
+    Test enum parsing
+
+    Args:
+        color (Color): Color selection from Color enum
+    """
+    return {"color": color}
+"#;
+        let result = parse_python_signature(code, None, false)?;
+        assert_eq!(result.args.len(), 1);
+        assert_eq!(result.args[0].name, "color");
+        assert_eq!(
+            result.args[0].typ,
+            Typ::Str(Some(vec![
+                "red".to_string(),
+                "green".to_string(),
+                "blue".to_string()
+            ]))
+        );
+        assert_eq!(result.args[0].default, Some(json!("red")));
+        assert_eq!(
+            result.args[0].otyp,
+            Some("Color selection from Color enum".to_string())
+        );
         Ok(())
     }
 }

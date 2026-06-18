@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import 'chartjs-adapter-date-fns'
-	import { Line } from 'svelte-chartjs'
+	import { Line } from '$lib/components/chartjs-wrappers/chartJs'
 
 	import {
 		Chart as ChartJS,
@@ -20,8 +22,9 @@
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import Alert from './common/alert/Alert.svelte'
+	import { Section } from './common'
 
-	let loading: boolean = true
+	let loading: boolean = $state(true)
 
 	const colorTuples = [
 		['#7EB26D', 'rgba(126, 178, 109, 0.2)'],
@@ -63,12 +66,12 @@
 		LogarithmicScale
 	)
 
-	let countData: ChartData<'line', Point[], undefined> | undefined = undefined
-	let delayData: ChartData<'line', Point[], undefined> | undefined = undefined
+	let countData: ChartData<'line', Point[], undefined> | undefined = $state(undefined)
+	let delayData: ChartData<'line', Point[], undefined> | undefined = $state(undefined)
 
-	let minDate = new Date()
+	let minDate = $state(new Date())
 
-	let noMetrics = false
+	let noMetrics = $state(false)
 
 	function fillData(
 		data: {
@@ -164,102 +167,115 @@
 				})
 		}
 
-		minDate = new Date(Math.min(...countData.datasets.map((d) => new Date(d.data[0].x).getTime())))
+		minDate = new Date(
+			Math.min(
+				...countData.datasets
+					.map((x) => x.data[0].x)
+					.filter((x) => x != null)
+					.map((d) => new Date(d).getTime())
+			)
+		)
 
 		loading = false
 	}
 
 	loadMetrics()
 
-	let darkMode = false
+	let darkMode = $state(false)
 
-	$: ChartJS.defaults.color = darkMode ? '#ccc' : '#666'
-	$: ChartJS.defaults.borderColor = darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+	run(() => {
+		ChartJS.defaults.color = darkMode ? '#ccc' : '#666'
+	});
+	run(() => {
+		ChartJS.defaults.borderColor = darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+	});
 </script>
 
 <DarkModeObserver bind:darkMode />
 
-{#if loading}
-	<Skeleton layout={[[20]]} />
-{:else if noMetrics}
-	<p class="text-secondary">No jobs delayed by more than 3 seconds in the last 14 days</p>
-{:else}
-	<div class="flex flex-col gap-4">
-		{#if countData}
-			<Line
-				data={countData}
-				options={{
-					animation: false,
-					plugins: {
-						title: {
-							display: true,
-							text: 'Number of delayed jobs per tag (> 3s)'
-						}
-					},
-					scales: {
-						x: {
-							type: 'time',
-							min: minDate.toISOString(),
-							max: new Date().toISOString()
-						},
-						y: {
+<Section label="Queue metrics">
+	{#if loading}
+		<Skeleton layout={[[20]]} />
+	{:else if noMetrics}
+		<p class="text-secondary">No jobs delayed by more than 3 seconds in the last 14 days</p>
+	{:else}
+		<div class="flex flex-col gap-4">
+			{#if countData}
+				<Line
+					data={countData}
+					options={{
+						animation: false,
+						plugins: {
 							title: {
 								display: true,
-								text: 'count'
+								text: 'Number of delayed jobs per tag (> 3s)'
 							}
-						}
-					}
-				}}
-			/>
-		{/if}
-		{#if delayData}
-			<Line
-				data={delayData}
-				options={{
-					animation: false,
-					plugins: {
-						title: {
-							display: true,
-							text: 'Queue delay per tag (> 3s)'
 						},
-						tooltip: {
-							callbacks: {
-								label: function (context) {
-									// @ts-ignore
-									if (context.raw.y === 1) {
-										return context.dataset.label + ': 0'
-									} else {
-										// @ts-ignore
-										return context.dataset.label + ': ' + context.raw.y
-									}
+						scales: {
+							x: {
+								type: 'time',
+								min: minDate.toISOString(),
+								max: new Date().toISOString()
+							},
+							y: {
+								title: {
+									display: true,
+									text: 'count'
 								}
 							}
 						}
-					},
-					scales: {
-						x: {
-							type: 'time',
-							min: minDate.toISOString(),
-							max: new Date().toISOString()
-						},
-
-						y: {
-							type: 'logarithmic',
+					}}
+				/>
+			{/if}
+			{#if delayData}
+				<Line
+					data={delayData}
+					options={{
+						animation: false,
+						plugins: {
 							title: {
 								display: true,
-								text: 'delay (s)'
+								text: 'Queue delay per tag (> 3s)'
 							},
-							ticks: {
-								callback: (value, _) => (value === 1 ? '0' : value)
+							tooltip: {
+								callbacks: {
+									label: function (context) {
+										// @ts-ignore
+										if (context.raw.y === 1) {
+											return context.dataset.label + ': 0'
+										} else {
+											// @ts-ignore
+											return context.dataset.label + ': ' + context.raw.y
+										}
+									}
+								}
+							}
+						},
+						scales: {
+							x: {
+								type: 'time',
+								min: minDate.toISOString(),
+								max: new Date().toISOString()
+							},
+
+							y: {
+								type: 'logarithmic',
+								title: {
+									display: true,
+									text: 'delay (s)'
+								},
+								ticks: {
+									callback: (value, _) => (value === 1 ? '0' : value)
+								}
 							}
 						}
-					}
-				}}
-			/>
-		{/if}
-		<Alert title="Info">
-			Only tags for jobs that have been delayed by more than 3 seconds in the last 14 days are
-			included in the graph.
-		</Alert>
-	</div>
-{/if}
+					}}
+				/>
+			{/if}
+			<Alert title="Info">
+				Only tags for jobs that have been delayed by more than 3 seconds in the last 14 days are
+				included in the graph.
+			</Alert>
+		</div>
+	{/if}
+</Section>

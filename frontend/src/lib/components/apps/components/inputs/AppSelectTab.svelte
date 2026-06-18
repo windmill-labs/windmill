@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onDestroy } from 'svelte'
+	import { getContext, onDestroy, untrack } from 'svelte'
 
 	import type {
 		AppViewerContext,
@@ -18,39 +18,53 @@
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'selecttabcomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		horizontalAlignment?: 'left' | 'center' | 'right' | undefined
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		customCss?: ComponentCustomCSS<'selecttabcomponent'> | undefined
+		render: boolean
+	}
+
+	let {
+		id,
+		configuration,
+		horizontalAlignment = undefined,
+		verticalAlignment = undefined,
+		customCss = undefined,
+		render
+	}: Props = $props()
 
 	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
-	const resolvedConfig = initConfig(
-		components['selecttabcomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['selecttabcomponent'].initialData.configuration, untrack(() => configuration))
 	)
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined as string | undefined
 	})
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
-	let selected: string = ''
-	$: selected === '' && resolvedConfig && setDefaultValue()
+	let selected: string = $state('')
 
 	onDestroy(() => {
 		listInputs?.remove(id)
 	})
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: string) {
 			selected = nvalue
 		},
 		setTab(index) {
 			selected = resolvedConfig.items?.[index]?.value
+		},
+		setSelectedIndex(index) {
+			if (index >= 0 && index < resolvedConfig.items?.length) {
+				selected = resolvedConfig.items?.[index]?.value
+			}
 		}
 	}
 
@@ -69,8 +83,13 @@
 		}
 	}
 
-	$: selected && handleSelection(selected)
-	let css = initCss($app.css?.selecttabcomponent, customCss)
+	let css = $state(initCss($app.css?.selecttabcomponent, untrack(() => customCss)))
+	$effect.pre(() => {
+		selected === '' && resolvedConfig.defaultValue && untrack(() => setDefaultValue())
+	})
+	$effect.pre(() => {
+		selected && untrack(() => handleSelection(selected))
+	})
 </script>
 
 {#each Object.keys(components['selecttabcomponent'].initialData.configuration) as key (key)}
@@ -108,10 +127,8 @@
 					style={css?.allTabs?.style}
 					selectedClass={twMerge(css?.selectedTab?.class, 'wm-select-tab-selected')}
 					selectedStyle={css?.selectedTab?.style}
-					size={resolvedConfig?.tabSize}
-				>
-					<span class="font-semibold text-md">{item.label}</span>
-				</Tab>
+					label={item.label}
+				/>
 			{/each}
 		</Tabs>
 	</div>

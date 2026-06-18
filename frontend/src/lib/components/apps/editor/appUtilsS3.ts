@@ -1,7 +1,6 @@
 import type { AppInput, EvalInputV2 } from '../inputType'
-import type { App } from '../types'
-import { collectOneOfFields } from './appUtils'
-
+import type { App, RichConfigurations } from '../types'
+import { collectOneOfFields } from './appUtilsCore'
 function filenameExprToRegex(template: string) {
 	const filenameEscaped = template.replaceAll('${file.name}', '<file_name>') // replace filename with placeholder
 	const escapedTemplate = filenameEscaped
@@ -9,6 +8,10 @@ function filenameExprToRegex(template: string) {
 		.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') // escape regex special characters
 	const regexPattern = escapedTemplate.replaceAll('<file_name>', '[^/]+') // replace filename placeholder with regex pattern
 	return `^${regexPattern}$`
+}
+
+function defaultIfEmptyString(str: string | undefined, dflt: string): string {
+	return str === undefined || str === null || str === '' ? dflt : str!
 }
 
 function staticToRegex(str: string) {
@@ -51,12 +54,12 @@ export function computeS3FileInputPolicy(s3Config: any, app: App) {
 			? resourceInput.value
 				? [removeResourcePrefix(resourceInput.value)]
 				: []
-			: collectOneOfFields(
+			: (collectOneOfFields(
 					{
 						s3_resource: resourceInput
 					},
 					app
-			  ).s3_resource?.map((s) => removeResourcePrefix(s)) ?? []
+				).s3_resource?.map((s) => removeResourcePrefix(s)) ?? [])
 		: []
 
 	const allow_user_resources =
@@ -78,5 +81,87 @@ export function computeS3FileInputPolicy(s3Config: any, app: App) {
 		allowed_resources,
 		allow_user_resources,
 		file_key_regex
+	}
+}
+
+export function isPartialS3Object(
+	input: unknown
+): input is { s3: string; storage?: string; presigned?: string } {
+	return input != undefined && typeof input === 'object' && typeof input['s3'] === 'string'
+}
+
+function computeForceViewerPolicies({
+	isEditor,
+	configuration
+}: {
+	isEditor: boolean
+	configuration: RichConfigurations
+}) {
+	if (!isEditor) {
+		return undefined
+	}
+	const policy = computeS3FileViewerPolicy(configuration)
+	return policy
+}
+
+export async function getS3File({
+	source,
+	storage,
+	presigned,
+	appPath,
+	username,
+	workspace,
+	token,
+	isEditor,
+	configuration
+}: {
+	source: string | undefined
+	storage?: string
+	presigned?: string
+	appPath: string
+	username: string | undefined
+	workspace: string
+	token: string | undefined
+	isEditor: boolean
+	configuration: RichConfigurations
+}) {
+	if (!source) return ''
+	const appPathOrUser = defaultIfEmptyString(appPath, `u/${username ?? 'unknown'}/newapp`)
+	const params = new URLSearchParams()
+	params.append('s3', source)
+	if (storage) {
+		params.append('storage', storage)
+	}
+
+	if (token && token != '') {
+		params.append('token', token)
+	}
+	const forceViewerPolicies = computeForceViewerPolicies({ isEditor, configuration })
+	if (forceViewerPolicies) {
+		params.append('force_viewer_allowed_s3_keys', JSON.stringify([forceViewerPolicies]))
+	}
+
+	return `/api/w/${workspace}/apps_u/download_s3_file/${appPathOrUser}?${params.toString()}${presigned ? `&${presigned}` : ''}`
+}
+
+export function computeS3FileViewerPolicy(config: RichConfigurations) {
+	if (config.source.type === 'uploadS3' && isPartialS3Object(config.source.value)) {
+		return {
+			s3_path: config.source.value.s3,
+			storage: config.source.value.storage
+		}
+	} else if (
+		config.source.type === 'static' &&
+		typeof config.source.value === 'string' &&
+		((config.sourceKind?.type === 'static' &&
+			config.sourceKind?.value === 's3 (workspace storage)') ||
+			config.source.value.startsWith('s3://'))
+	) {
+		return {
+			s3_path: config.source.value.replace('s3://', ''),
+			storage: undefined
+		}
+	} else {
+		return undefined
 	}
 }

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO usage (id, is_workspace, month_, usage)\n                    VALUES ($1, $2, $3, $4)\n                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Bool",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cabc79429825b5f4861e4ba2001a5f235f39558dee88cbb486d7ac988d0a44d1"
+}

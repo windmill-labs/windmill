@@ -3,20 +3,21 @@
 	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
-	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
+	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
-	import { ScriptService, type Script, DraftService } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { ScriptService, type Script } from '$lib/gen'
+	import { hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
-	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { copyToClipboard, DELETE, isOwner } from '$lib/utils'
+	import { capitalize, copyToClipboard, isOwner } from '$lib/utils'
 	import { isDeployable } from '$lib/utils_deployable'
 
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
@@ -32,27 +33,60 @@
 		GitFork,
 		List,
 		Pen,
-		Share,
+		Shield,
 		Trash,
-		History
+		History,
+		Globe2,
+		FileText
 	} from 'lucide-svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
+	import WacExportDrawer from '$lib/components/scripts/WacExportDrawer.svelte'
 	import { Drawer, DrawerContent } from '..'
 	import NoMainFuncBadge from '$lib/components/NoMainFuncBadge.svelte'
+	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
+	import { scriptToHubUrl } from '$lib/hub'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
 
-	export let script: Script & { canWrite: boolean; use_codebase: boolean }
-	export let marked: string | undefined
-	export let starred: boolean
-	export let shareModal: ShareModal
-	export let moveDrawer: MoveDrawer
-	export let deploymentDrawer: DeployWorkspaceDrawer
-	export let deleteConfirmedCallback: (() => void) | undefined
-	export let errorHandlerMuted: boolean
-	export let showCode: (path: string, summary: string) => void
-	export let depth: number = 0
-	export let menuOpen: boolean = false
+	interface Props {
+		script: Script & {
+			canWrite: boolean
+			use_codebase: boolean
+			is_draft?: boolean
+			draft_path?: string
+			draft_users?: { username?: string | null }[]
+		}
+		marked: string | undefined
+		shareModal: ShareModal
+		moveDrawer: MoveDrawer
+		deploymentDrawer: DeployWorkspaceDrawer
+		deleteConfirmedCallback: (() => void) | undefined
+		errorHandlerMuted: boolean
+		showCode: (path: string, summary: string) => void
+		depth?: number
+		menuOpen?: boolean
+		showEditButton?: boolean
+		keyboardSelected?: boolean
+	}
+
+	let {
+		script,
+		marked,
+		shareModal,
+		moveDrawer,
+		deploymentDrawer,
+		deleteConfirmedCallback = $bindable(),
+		errorHandlerMuted,
+		showCode,
+		depth = 0,
+		menuOpen = $bindable(false),
+		showEditButton = $bindable(true),
+		keyboardSelected = false
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -77,93 +111,167 @@
 	}
 
 	async function deleteScript(path: string): Promise<void> {
-		await ScriptService.deleteScriptByPath({ workspace: $workspaceStore!, path })
+		// Draft-only items have no deployed row to delete — the regular
+		// route would 404. Route the delete through the syncer so the
+		// per-user draft row is removed instead.
+		if (script.draft_only) {
+			await UserDraftDbSyncer.save({
+				workspace: $workspaceStore!,
+				itemKind: 'script',
+				path,
+				value: null,
+				immediate: true
+			})
+		} else {
+			await ScriptService.deleteScriptByPath({ workspace: $workspaceStore!, path })
+		}
 		dispatch('change')
-		sendUserToast(`Delete script ${path}`)
+		sendUserToast(`Deleted script ${path}`)
 	}
-	let scheduleEditor: ScheduleEditor
+	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
 
 	const dlt: 'delete' = 'delete'
-	let versionsDrawerOpen: boolean = false
+	let versionsDrawerOpen: boolean = $state(false)
+	let wacExportDrawer: WacExportDrawer | undefined = $state(undefined)
 </script>
 
 {#if menuOpen}
-	<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
+	<ScheduleEditor onUpdate={() => goto('/schedules')} bind:this={scheduleEditor} />
 {/if}
 
 <Row
-	href={script.draft_only
+	aiId={`script-run-button-${script.path}`}
+	aiDescription={`Button to access the form to run the script ${script.summary ?? script.path}`}
+	href={script.draft_only || (script.auto_kind === 'lib' && script.kind !== 'preprocessor')
 		? `${base}/scripts/edit/${script.path}`
 		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"
 	{marked}
-	path={script.path}
-	summary={script.summary}
-	{starred}
+	path={script.draft_path ?? script.path}
+	summary={script.is_draft
+		? `${script.summary || script.draft_path || script.path}*`
+		: script.summary}
 	{errorHandlerMuted}
 	workspaceId={$workspaceStore ?? ''}
-	on:change
 	canFavorite={!script.draft_only}
 	{depth}
+	{keyboardSelected}
 >
-	<svelte:fragment slot="badges">
+	{#snippet badges()}
 		{#if script.lock_error_logs}
 			<Badge color="red" baseClass="border border-red-200">Deployment failed</Badge>
 		{/if}
 
 		{#if script.archived}
-			<Badge color="red" baseClass="border">archived</Badge>
+			<Badge color="red" baseClass="border">Archived</Badge>
 		{/if}
 
-		{#if script.no_main_func}
+		{#if script.auto_kind === 'lib' && script.kind !== 'preprocessor'}
 			<NoMainFuncBadge />
 		{/if}
+		{#if script.auto_kind === 'wac'}
+			<Popover notClickable>
+				{#snippet text()}
+					Workflow-as-Code
+				{/snippet}
+				<Badge small color="indigo" baseClass="border border-indigo-200">wac</Badge>
+			</Popover>
+		{/if}
+		{#if script.auto_kind === 'test'}
+			<Popover notClickable>
+				{#snippet text()}
+					CI test script
+				{/snippet}
+				<Badge small color="yellow" baseClass="border">CI test</Badge>
+			</Popover>
+		{/if}
+		{#if script.kind !== 'script'}
+			<Badge color="blue" baseClass="border"
+				>{script.kind === 'failure' ? 'Error handler' : capitalize(script.kind)}</Badge
+			>
+		{/if}
 		<SharedBadge canWrite={script.canWrite} extraPerms={script.extra_perms} />
-		<DraftBadge has_draft={script.has_draft} draft_only={script.draft_only} />
+		<DraftBadge
+			is_draft={script.is_draft}
+			draft_only={script.draft_only}
+			draft_users={script.draft_users}
+			currentUsername={$userStore?.username}
+			workspace={$workspaceStore ?? undefined}
+			itemKind="script"
+			path={script.path}
+			onMigrated={() => dispatch('change')}
+		/>
+		{#if script.labels?.length}
+			<div class="flex items-center gap-0.5">
+				{#each script.labels.slice(0, 3) as label}
+					<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
+				{/each}
+				{#if script.labels.length > 3}
+					<Badge
+						color="blue"
+						small
+						class="px-1"
+						title={script.labels
+							.slice(3)
+							.map((l) => 'Label: ' + l)
+							.join('\n')}>+{script.labels.length - 3}</Badge
+					>
+				{/if}
+			</div>
+		{/if}
+		<InheritedLabels labels={script.inherited_labels} />
 		<div class="w-8 center-center">
-			<LanguageIcon lang={script.language} width={12} height={12} />
+			<LanguageIcon lang={script.language} width={16} height={16} />
 		</div>
-	</svelte:fragment>
+	{/snippet}
 
-	<svelte:fragment slot="actions">
+	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
 			{#if !$userStore?.operator}
-				{#if script.use_codebase}
-					<Badge
-						>bundle<Tooltip
-							>This script is deployed as a bundle and can only be deployed from the CLI for now</Tooltip
-						></Badge
-					>
-				{:else if script.canWrite && !script.archived}
-					<div>
-						<Button
-							color="light"
-							size="xs"
-							variant="border"
-							startIcon={{ icon: Pen }}
-							href="{base}/scripts/edit/{script.path}"
+				{#if showEditButton}
+					{#if script.use_codebase}
+						<Badge
+							>bundle<Tooltip
+								>This script is deployed as a bundle and can only be deployed from the CLI for now</Tooltip
+							></Badge
 						>
-							Edit
-						</Button>
-					</div>
-				{:else if !script.draft_only}
+					{:else if script.canWrite && !script.archived}
+						<div>
+							<Button
+								aiId={`edit-script-button-${script.summary?.length > 0 ? script.summary : script.path}`}
+								aiDescription={`Edits the script ${script.summary?.length > 0 ? script.summary : script.path}`}
+								variant="subtle"
+								wrapperClasses="w-20"
+								unifiedSize="md"
+								startIcon={{ icon: Pen }}
+								href="{base}/scripts/edit/{script.path}"
+							>
+								Edit
+							</Button>
+						</div>
+					{/if}
+				{/if}
+				{#if !isCloudHosted() && !isRuleActive('DisableWorkspaceForking') && (!showEditButton || !script.canWrite)}
 					<div>
 						<Button
-							color="light"
-							size="xs"
-							variant="border"
+							variant={!showEditButton ? 'default' : 'subtle'}
+							wrapperClasses="w-32"
+							unifiedSize="md"
 							startIcon={{ icon: GitFork }}
-							href="{base}/scripts/add?template={script.path}"
+							href={buildForkEditUrl('script', script.path)}
 						>
-							Fork
+							Edit in fork
 						</Button>
 					</div>
 				{/if}
 			{/if}
 		</span>
 		<Dropdown
+			aiId={`script-row-dropdown-${script.summary?.length > 0 ? script.summary : script.path}`}
+			aiDescription={`Open dropdown for script ${script.summary?.length > 0 ? script.summary : script.path} options`}
 			items={async () => {
 				let owner = isOwner(script.path, $userStore, $workspaceStore)
+				const canEdit = script.canWrite && showEditButton
 				if (script.draft_only) {
 					return [
 						{
@@ -188,7 +296,7 @@
 								}
 							},
 							type: dlt,
-							disabled: !script.canWrite
+							disabled: !canEdit
 						}
 					]
 				}
@@ -200,11 +308,33 @@
 							showCode(script.path, script.summary)
 						}
 					},
+					...(script.auto_kind === 'wac'
+						? [
+								{
+									displayName: 'View JSON/YAML',
+									icon: FileText,
+									action: async () => {
+										const fullScript = await ScriptService.getScriptByPath({
+											workspace: $workspaceStore!,
+											path: script.path
+										})
+										wacExportDrawer?.open(fullScript)
+									}
+								}
+							]
+						: []),
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
 						href: `${base}/scripts/add?template=${script.path}`,
+						disabled: !showEditButton,
 						hide: $userStore?.operator
+					},
+					{
+						displayName: 'Edit in workspace fork',
+						icon: GitFork,
+						href: buildForkEditUrl('script', script.path),
+						hide: $userStore?.operator || isCloudHosted() || isRuleActive('DisableWorkspaceForking')
 					},
 					{
 						displayName: 'Move/Rename',
@@ -212,7 +342,7 @@
 						action: () => {
 							moveDrawer.openDrawer(script.path, script.summary, 'script')
 						},
-						disabled: !owner || script.archived,
+						disabled: !owner || script.archived || !canEdit,
 						hide: $userStore?.operator
 					},
 					...(isDeployable('script', script.path, await getDeployUiSettings())
@@ -226,7 +356,7 @@
 									disabled: script.archived,
 									hide: $userStore?.operator
 								}
-						  ]
+							]
 						: []),
 					{
 						displayName: 'View runs',
@@ -250,14 +380,14 @@
 						displayName: 'Schedule',
 						icon: Calendar,
 						action: () => {
-							scheduleEditor.openNew(false, script.path)
+							scheduleEditor?.openNew(false, script.path)
 						},
 						disabled: script.archived,
 						hide: $userStore?.operator
 					},
 					{
-						displayName: owner ? 'Share' : 'See Permissions',
-						icon: Share,
+						displayName: 'Permissions',
+						icon: Shield,
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(script.path, 'script')
 						},
@@ -272,6 +402,29 @@
 						}
 					},
 					{
+						displayName: 'Publish to Hub',
+						icon: Globe2,
+						action: async () => {
+							const scriptData = await ScriptService.getScriptByPath({
+								workspace: $workspaceStore!,
+								path: script.path
+							})
+							window.open(
+								scriptToHubUrl(
+									scriptData.content,
+									scriptData.summary,
+									scriptData.description ?? '',
+									scriptData.kind,
+									scriptData.language,
+									scriptData.schema,
+									scriptData.lock ?? '',
+									$hubBaseUrlStore
+								).toString(),
+								'_blank'
+							)
+						}
+					},
+					{
 						displayName: script.archived ? 'Unarchive' : 'Archive',
 						icon: Archive,
 						action: () => {
@@ -280,29 +433,10 @@
 								: script.path && archiveScript(script.path)
 						},
 						type: 'delete',
-						disabled: !owner,
+						disabled: !owner || !canEdit,
 						hide: $userStore?.operator
 					},
 
-					...(script.has_draft
-						? [
-								{
-									displayName: 'Delete Draft',
-									icon: Trash,
-									action: async () => {
-										await DraftService.deleteDraft({
-											workspace: $workspaceStore ?? '',
-											path: script.path,
-											kind: 'script'
-										})
-										dispatch('change')
-									},
-									type: DELETE,
-									disabled: !owner,
-									hide: $userStore?.operator
-								}
-						  ]
-						: []),
 					...($userStore?.is_admin || $userStore?.is_super_admin
 						? [
 								{
@@ -318,10 +452,10 @@
 										}
 									},
 									type: dlt,
-									disabled: !script.canWrite,
+									disabled: !canEdit,
 									hide: $userStore?.operator
 								}
-						  ]
+							]
 						: [])
 				]
 			}}
@@ -329,7 +463,7 @@
 				menuOpen = true
 			}}
 		/>
-	</svelte:fragment>
+	{/snippet}
 </Row>
 
 {#if script}
@@ -348,3 +482,5 @@
 		</DrawerContent>
 	</Drawer>
 {/if}
+
+<WacExportDrawer bind:this={wacExportDrawer} />

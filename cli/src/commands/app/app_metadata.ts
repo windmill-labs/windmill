@@ -1,0 +1,1159 @@
+import path from "node:path";
+import { mkdir, readdir } from "node:fs/promises";
+import { colors } from "@cliffy/ansi/colors";
+import * as log from "../../core/log.ts";
+import { sep as SEP } from "node:path";
+import { yamlParseFile } from "../../utils/yaml.ts";
+import { stringify as yamlStringify } from "yaml";
+import { GlobalOptions } from "../../types.ts";
+import {
+  readLockfile,
+  checkifMetadataUptodate,
+  blueColor,
+  clearGlobalLock,
+  updateMetadataGlobalLock,
+  inferSchema,
+  getRawWorkspaceDependencies,
+  normalizeLockPath,
+  filterWorkspaceDependencies,
+  filterWorkspaceDependenciesForScripts,
+  InlineScriptInfo,
+} from "../../utils/metadata.ts";
+import {
+  ScriptLanguage,
+  workspaceDependenciesLanguages,
+} from "../../utils/script_common.ts";
+import { generateHash, getHeaders, readTextFile, writeIfChanged } from "../../utils/utils.ts";
+import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
+import { exts } from "../script/script.ts";
+import { FSFSElement, yamlOptions, yamlSortedEntries } from "../sync/sync.ts";
+import { Workspace } from "../workspace/workspace.ts";
+import {
+  AppFile as RawAppFile,
+  loadRunnablesFromBackend,
+  writeRunnableToBackend,
+} from "./raw_apps.ts";
+import { replaceInlineScripts, AppFile as NormalAppFile } from "./app.ts";
+import {
+  EXTENSION_TO_LANGUAGE,
+  getLanguageFromExtension,
+  newPathAssigner,
+  newRawAppPathAssigner,
+  SupportedLanguage,
+} from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
+import { mergeConfigWithConfigFile, SyncOptions } from "../../core/conf.ts";
+import { resolveWorkspace } from "../../core/context.ts";
+import { requireLogin } from "../../core/auth.ts";
+import { getNonDottedPaths } from "../../utils/resource_folders.ts";
+import { extractRelativeImports } from "../../utils/relative_imports.ts";
+import { DoubleLinkedDependencyTree } from "../../utils/dependency_tree.ts";
+import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
+
+const TOP_HASH = "__app_hash";
+export const APP_BACKEND_FOLDER = "backend";
+
+// Union type for app files that can be either raw or normal apps
+type AppFile = RawAppFile | NormalAppFile;
+
+/**
+ * Generates a hash for all inline scripts in an app directory
+ */
+/**
+ * Check if an app folder is up-to-date against the lockfile.
+ *
+ * Mirrors the flow staleness check: when the top hash mismatches (e.g. due to
+ * the legacy unsorted-keys top-hash formula), accept the entry if every
+ * per-file hash still matches individually.
+ *
+ * Same false-negative as flows: removing a runnable on a legacy lockfile
+ * looks "up-to-date" until the next push rewrites the top hash. See
+ * isFlowDirectlyStale for the rationale.
+ */
+async function isAppDirectlyStale(
+  appFolder: string,
+  hashes: Record<string, string>,
+  conf: Awaited<ReturnType<typeof readLockfile>>,
+): Promise<boolean> {
+  if (await checkifMetadataUptodate(appFolder, hashes[TOP_HASH], conf, TOP_HASH)) {
+    return false;
+  }
+  const fileEntries = Object.entries(hashes).filter(([k]) => k !== TOP_HASH);
+  if (fileEntries.length === 0) return true;
+  for (const [k, h] of fileEntries) {
+    if (!(await checkifMetadataUptodate(appFolder, h, conf, k))) return true;
+  }
+  return false;
+}
+
+async function generateAppHash(
+  rawReqs: Record<string, string> | undefined,
+  folder: string,
+  rawApp: boolean,
+  defaultTs: "bun" | "deno" | undefined
+): Promise<Record<string, string>> {
+  const runnablesFolder = rawApp
+    ? path.join(folder, APP_BACKEND_FOLDER)
+    : folder;
+  const hashes: Record<string, string> = {};
+
+  try {
+    const elems = await FSFSElement(runnablesFolder, [], true);
+    for await (const f of elems.getChildren()) {
+      // For normal apps, skip non-script files (metadata files like app.yaml)
+      // For raw apps, all files in backend/ are scripts
+      if (!rawApp) {
+        const isMetadataFile = f.path.endsWith("app.yaml") || f.path.endsWith("app.json");
+        if (isMetadataFile) {
+          continue;
+        }
+      }
+      if (exts.some((e) => f.path.endsWith(e))) {
+        // Embed lock into hash
+        // Normalize path to ensure OS-independent hashing
+        const relativePath = normalizeLockPath(f.path.replace(runnablesFolder + SEP, ""));
+        hashes[relativePath] = await generateHash(
+          (await f.getContentText()) + JSON.stringify(rawReqs)
+        );
+      }
+    }
+  } catch (error: any) {
+    // If runnables folder doesn't exist, that's okay
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  // Sort keys so the top hash is deterministic regardless of filesystem readdir order
+  const sortedHashes: Record<string, string> = {};
+  for (const k of Object.keys(hashes).sort()) {
+    sortedHashes[k] = hashes[k];
+  }
+  return { ...sortedHashes, [TOP_HASH]: await generateHash(JSON.stringify(sortedHashes)) };
+}
+
+/**
+ * Result of generating app locks, including which scripts were updated
+ */
+export interface AppLocksResult {
+  path: string;
+  updatedScripts: string[];
+}
+
+/**
+ * Updates locks for inline scripts in an app.
+ * Returns the path if dry-run, or AppLocksResult with updated scripts if actual update occurred.
+ */
+export async function generateAppLocksInternal(
+  appFolder: string,
+  rawApp: boolean,
+  dryRun: boolean,
+  workspace: Workspace,
+  opts: GlobalOptions & {
+    defaultTs?: "bun" | "deno";
+    rehashOnly?: boolean;
+  },
+  justUpdateMetadataLock?: boolean,
+  noStaleMessage?: boolean,
+  tree?: DoubleLinkedDependencyTree
+): Promise<string | AppLocksResult | void> {
+  if (appFolder.endsWith(SEP)) {
+    appFolder = appFolder.substring(0, appFolder.length - 1);
+  }
+
+  // Rehash-only fast path: write canonical hashes from disk, skip backend.
+  // Short-circuit before reading app.yaml / readLockfile since generateAppHash
+  // walks the folder itself.
+  // Uses empty workspace deps `{}` to match the tree-mode write path. See
+  // the matching comment in flow_metadata.ts for the legacy-mode caveat.
+  if (opts.rehashOnly) {
+    const hashes = await generateAppHash({}, appFolder, rawApp, opts.defaultTs);
+    await clearGlobalLock(appFolder);
+    for (const [k, v] of Object.entries(hashes)) {
+      await updateMetadataGlobalLock(appFolder, v, k);
+    }
+    return;
+  }
+
+  const remote_path = appFolder.replaceAll(SEP, "/");
+
+  if (!justUpdateMetadataLock && !noStaleMessage) {
+    log.info(`Generating locks for app ${appFolder} at ${remote_path}`);
+  }
+
+  // Read the app file first to filter workspace dependencies
+  const appFilePath = path.join(
+    appFolder,
+    rawApp ? "raw_app.yaml" : "app.yaml"
+  );
+  const appFile = (await yamlParseFile(appFilePath)) as AppFile;
+
+  const appValue = rawApp ? (appFile as RawAppFile).runnables : (appFile as NormalAppFile).value;
+  const folderNormalized = appFolder.replaceAll(SEP, "/");
+
+  let filteredDeps: Record<string, string> = {};
+  const conf = await readLockfile();
+
+  // Tree-based dependency tracking
+  if (tree) {
+    if (dryRun) {
+      const hashes = await generateAppHash({}, appFolder, rawApp, opts.defaultTs);
+      const isDirectlyStale = await isAppDirectlyStale(appFolder, hashes, conf);
+
+      // For raw apps in new format, runnables are in separate files under backend/
+      let treeAppValue = structuredClone(appValue);
+      if (rawApp) {
+        const runnablesPath = path.join(appFolder, APP_BACKEND_FOLDER);
+        const runnablesFromFiles = await loadRunnablesFromBackend(runnablesPath);
+        if (Object.keys(runnablesFromFiles).length > 0) {
+          treeAppValue = runnablesFromFiles;
+        }
+      }
+
+      // First pass: add inline scripts as separate nodes, then add app node importing them
+      const inlineScriptPaths: string[] = [];
+      await traverseAndProcessInlineScripts(treeAppValue, async (inlineScript, context) => {
+        if (!inlineScript.content || !inlineScript.language) {
+          return inlineScript;
+        }
+
+        let content = inlineScript.content;
+        // Resolve !inline references
+        if (typeof content === "string" && content.startsWith("!inline ")) {
+          const filePath = appFolder + SEP + content.replace("!inline ", "");
+          try {
+            content = await readTextFile(filePath);
+          } catch {
+            return inlineScript;
+          }
+        }
+
+        const treePath = folderNormalized + "/" + context.path.join("/");
+        const language = inlineScript.language as ScriptLanguage;
+        const imports = await extractRelativeImports(content, treePath, language);
+        await tree.addNode(treePath, content, language, "", imports, "inline_script", folderNormalized, appFolder, false);
+        inlineScriptPaths.push(treePath);
+
+        return inlineScript;
+      });
+
+      await tree.addNode(folderNormalized, "", "bun", "", inlineScriptPaths, "app", folderNormalized, appFolder, isDirectlyStale, rawApp);
+      return;
+    }
+    // Second pass: get mismatched workspace deps from tree
+    // TODO: pass raw workspace deps more precisely to every inline script lock generation call
+    // (currently we pass the union of all mismatched deps filtered for the whole app)
+    filteredDeps = await filterWorkspaceDependenciesForApp(appValue, tree.getMismatchedWorkspaceDeps(), appFolder);
+  } else {
+    // Legacy behaviour
+    const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
+    filteredDeps = await filterWorkspaceDependenciesForApp(appValue, rawWorkspaceDependencies, appFolder);
+
+    const hashes = await generateAppHash(filteredDeps, appFolder, rawApp, opts.defaultTs);
+    const isDirectlyStale = await isAppDirectlyStale(appFolder, hashes, conf);
+
+    if (!isDirectlyStale) {
+      if (!noStaleMessage) {
+        log.info(
+          colors.green(`App ${remote_path} metadata is up-to-date, skipping`)
+        );
+      }
+      return;
+    } else if (dryRun) {
+      return remote_path;
+    }
+  }
+
+  if (Object.keys(filteredDeps).length > 0 && !noStaleMessage) {
+    log.info(
+      (await blueColor())(
+        `Found workspace dependencies (${workspaceDependenciesLanguages
+          .map((l) => l.filename)
+          .join("/")}) for ${appFolder}, using them`
+      )
+    );
+  }
+
+  let updatedScripts: string[] = [];
+
+  if (!justUpdateMetadataLock) {
+    const hashes = await generateAppHash(filteredDeps, appFolder, rawApp, opts.defaultTs);
+
+    const changedScripts = [];
+    // Find hashes that do not correspond to previous hashes
+    for (const [scriptPath, hash] of Object.entries(hashes)) {
+      if (scriptPath == TOP_HASH) {
+        continue;
+      }
+      if (!(await checkifMetadataUptodate(appFolder, hash, conf, scriptPath))) {
+        changedScripts.push(scriptPath);
+      }
+    }
+
+    // Get temp_script_refs from tree for relative import resolution
+    const tempScriptRefs = tree?.getTempScriptRefs(folderNormalized);
+
+    // In tree mode, the tree already verified this app is stale (possibly via dependency change).
+    // Per-script hashes only detect content changes, not transitive dependency changes,
+    // so we must regenerate locks for all inline scripts regardless.
+    if (changedScripts.length > 0 || tree) {
+      if (!noStaleMessage) {
+        log.info(
+          `Recomputing locks of ${changedScripts.join(", ")} in ${appFolder}`
+        );
+      }
+
+      if (rawApp) {
+        const runnablesPath = path.join(appFolder, APP_BACKEND_FOLDER);
+
+        // Load runnables from separate files (new format) or fall back to raw_app.yaml (old format)
+        const rawAppFile = appFile as RawAppFile;
+        let runnables = await loadRunnablesFromBackend(runnablesPath);
+        if (Object.keys(runnables).length === 0 && rawAppFile.runnables) {
+          // Fall back to old format
+          runnables = rawAppFile.runnables;
+        }
+
+        // Replace inline scripts for changed runnables
+        replaceInlineScripts(runnables, runnablesPath + SEP, false);
+
+        // Update the app runnables with new locks (writes to separate files)
+        updatedScripts = await updateRawAppRunnables(
+          workspace,
+          runnables,
+          remote_path,
+          appFolder,
+          filteredDeps,
+          opts.defaultTs,
+          noStaleMessage,
+          tempScriptRefs
+        );
+        // Note: updateRawAppRunnables now writes each runnable to its own file
+      } else {
+        const normalAppFile = appFile as NormalAppFile;
+
+        // Replace inline scripts for normal apps
+        replaceInlineScripts(normalAppFile.value, appFolder + SEP, false);
+
+        // Update the app value with new locks
+        const result = await updateAppInlineScripts(
+          workspace,
+          normalAppFile.value,
+          remote_path,
+          appFolder,
+          filteredDeps,
+          opts.defaultTs,
+          noStaleMessage,
+          tempScriptRefs
+        );
+        normalAppFile.value = result.value;
+        updatedScripts = result.updatedScripts;
+
+        // Write the updated app file (only for normal apps, raw apps use separate files)
+        writeIfChanged(
+          appFilePath,
+          yamlStringify(appFile as Record<string, any>, yamlOptions)
+        );
+      }
+    } else if (!noStaleMessage) {
+      log.info(colors.gray(`No scripts changed in ${appFolder}`));
+    }
+  }
+
+  // In tree mode, workspace deps are tracked via the tree — exclude from hash
+  const depsForHash = tree ? {} : filteredDeps;
+  const finalHashes = await generateAppHash(
+    depsForHash,
+    appFolder,
+    rawApp,
+    opts.defaultTs
+  );
+  await clearGlobalLock(appFolder);
+  for (const [scriptPath, hash] of Object.entries(finalHashes)) {
+    await updateMetadataGlobalLock(appFolder, hash, scriptPath);
+  }
+  if (!noStaleMessage) {
+    log.info(colors.green(`App ${remote_path} lockfiles updated`));
+  }
+
+  return { path: remote_path, updatedScripts };
+}
+
+/**
+ * Callback type for processing inline scripts found during traversal
+ */
+type InlineScriptProcessor = (
+  inlineScript: any,
+  context: {
+    path: string[];
+    parentKey: string;
+    parentObject: any;
+  }
+) => Promise<any>;
+
+/**
+ * Filters raw workspace dependencies for an app by traversing all inline scripts,
+ * filtering deps for each based on language and annotations, then computing the union.
+ */
+export async function filterWorkspaceDependenciesForApp(
+  appValue: any,
+  rawWorkspaceDependencies: Record<string, string>,
+  folder: string
+): Promise<Record<string, string>> {
+  // Collect all inline scripts (use clone to avoid any mutations)
+  const scripts: InlineScriptInfo[] = [];
+
+  await traverseAndProcessInlineScripts(structuredClone(appValue), async (inlineScript) => {
+    if (inlineScript.content && inlineScript.language) {
+      scripts.push({
+        content: inlineScript.content,
+        language: inlineScript.language as ScriptLanguage,
+      });
+    }
+    return inlineScript;
+  });
+
+  return await filterWorkspaceDependenciesForScripts(scripts, rawWorkspaceDependencies, folder, SEP);
+}
+
+/**
+ * Traverses an app structure (either app.value for normal apps or app.runnables for raw apps)
+ * and processes all inline scripts found, returning the updated structure
+ */
+async function traverseAndProcessInlineScripts(
+  obj: any,
+  processor: InlineScriptProcessor,
+  currentPath: string[] = []
+): Promise<any> {
+  if (!obj || typeof obj !== "object") {
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return await Promise.all(
+      obj.map((item, index) =>
+        traverseAndProcessInlineScripts(item, processor, [
+          ...currentPath,
+          `[${index}]`,
+        ])
+      )
+    );
+  }
+
+  const result: Record<string, any> = {};
+
+  // Iterate in YAML output order so the path-assigner inside `processor`
+  // sees keys in the same order they appear on disk — matches
+  // extractInlineScriptsForApps and keeps auto-numbered names stable.
+  for (const [key, value] of yamlSortedEntries(obj)) {
+    if (key === "inlineScript" && typeof value === "object") {
+      // Found an inline script - process it
+      result[key] = await processor(value, {
+        path: currentPath,
+        parentKey: key,
+        parentObject: obj,
+      });
+    } else {
+      // Recursively process nested objects
+      result[key] = await traverseAndProcessInlineScripts(value, processor, [
+        ...currentPath,
+        key,
+      ]);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Updates locks for all runnables in a raw app, generating locks inline script by inline script.
+ * Writes each runnable to its own YAML file in the backend folder (new format).
+ * Also writes content and lock files to the runnables folder.
+ * Returns the list of runnable IDs that had their locks updated.
+ */
+async function updateRawAppRunnables(
+  workspace: Workspace,
+  runnables: Record<string, any>,
+  remotePath: string,
+  appFolder: string,
+  rawDeps?: Record<string, string>,
+  defaultTs: "bun" | "deno" = "bun",
+  noStaleMessage?: boolean,
+  tempScriptRefs?: Record<string, string>
+): Promise<string[]> {
+  const updatedRunnables: string[] = [];
+  const runnablesFolder = path.join(appFolder, APP_BACKEND_FOLDER);
+
+  // Ensure runnables folder exists
+  try {
+    await mkdir(runnablesFolder, { recursive: true });
+  } catch {
+    // Folder may already exist
+  }
+
+  const pathAssigner = newRawAppPathAssigner(defaultTs);
+
+  for (const [runnableId, runnable] of Object.entries(runnables)) {
+    // Only process inline scripts (runnableByName/inline with inlineScript)
+    if (
+      (runnable?.type !== "runnableByName" && runnable?.type !== "inline") ||
+      !runnable?.inlineScript
+    ) {
+      // Write non-inline runnables to their own file as-is
+      writeRunnableToBackend(runnablesFolder, runnableId, runnable);
+      continue;
+    }
+
+    const inlineScript = runnable.inlineScript;
+    const language = inlineScript.language as SupportedLanguage;
+    const content = inlineScript.content;
+
+    if (!content || !language) {
+      writeRunnableToBackend(runnablesFolder, runnableId, runnable);
+      continue;
+    }
+
+    // Skip if content is still an !inline reference (should have been replaced by replaceInlineScripts)
+    if (typeof content === "string" && content.startsWith("!inline ")) {
+      log.warn(
+        colors.yellow(
+          `Runnable ${runnableId} content is still an !inline reference, skipping`
+        )
+      );
+      writeRunnableToBackend(runnablesFolder, runnableId, runnable);
+      continue;
+    }
+
+    // Skip frontend scripts - they don't need locks
+    if (language === "frontend") {
+      // Still need to write the runnable YAML file
+      // Use runnableId (the dict key) for file naming, consistent with
+      // extractInlineScriptsForApps in sync.ts which also uses the key.
+      // Using runnable.name would create duplicate files when name != key.
+      const [basePathO, ext] = pathAssigner.assignPath(
+        runnableId,
+        language
+      );
+      const basePath = basePathO.replaceAll(SEP, "/");
+      const contentPath = path.join(runnablesFolder, `${basePath}${ext}`);
+      writeIfChanged(contentPath, content);
+
+      // Write simplified runnable YAML - just type: 'inline' plus metadata
+      // inlineScript is not needed since content/language can be derived from files
+      const simplifiedRunnable: Record<string, any> = { type: "inline" };
+      for (const [key, value] of Object.entries(runnable)) {
+        if (key !== "inlineScript" && key !== "type") {
+          simplifiedRunnable[key] = value;
+        }
+      }
+      writeRunnableToBackend(runnablesFolder, runnableId, simplifiedRunnable);
+      continue;
+    }
+
+    if (!noStaleMessage) {
+      log.info(
+        colors.gray(`Generating lock for runnable ${runnableId} (${language})`)
+      );
+    }
+
+    try {
+      const lock = await generateInlineScriptLock(
+        workspace,
+        content,
+        language,
+        `${remotePath}/${runnableId}`,
+        rawDeps,
+        tempScriptRefs
+      );
+
+      // Determine file extension for this language
+      // Use runnableId (the dict key) for file naming, consistent with
+      // extractInlineScriptsForApps in sync.ts which also uses the key.
+      // Using runnable.name would create duplicate files when name != key.
+      const [basePathO, ext] = pathAssigner.assignPath(
+        runnableId,
+        language
+      );
+      const basePath = basePathO.replaceAll(SEP, "/");
+      const contentPath = path.join(runnablesFolder, `${basePath}${ext}`);
+      const lockPath = path.join(runnablesFolder, `${basePath}lock`);
+
+      // Write content to file
+      writeIfChanged(contentPath, content);
+
+      // Write lock to file if it exists
+      if (lock && lock !== "") {
+        writeIfChanged(lockPath, lock);
+      }
+
+      // Write simplified runnable YAML - just type: 'inline' plus metadata
+      // inlineScript is not needed since content/lock/language can be derived from files
+      const simplifiedRunnable: Record<string, any> = { type: "inline" };
+      for (const [key, value] of Object.entries(runnable)) {
+        if (key !== "inlineScript" && key !== "type") {
+          simplifiedRunnable[key] = value;
+        }
+      }
+
+      // Write the runnable to its own YAML file
+      writeRunnableToBackend(runnablesFolder, runnableId, simplifiedRunnable);
+
+      updatedRunnables.push(runnableId);
+
+      if (!noStaleMessage) {
+        log.info(
+          colors.gray(
+            `  Written ${runnableId}.yaml, ${basePath}${ext}${lock ? ` and ${basePath}lock` : ""}`
+          )
+        );
+      }
+    } catch (error: any) {
+      log.error(
+        colors.red(
+          `Failed to generate lock for runnable ${runnableId}: ${error.message}`
+        )
+      );
+      // Write the original runnable even if lock generation fails
+      writeRunnableToBackend(runnablesFolder, runnableId, runnable);
+    }
+  }
+
+  return updatedRunnables;
+}
+
+/**
+ * Updates locks for all inline scripts in a normal app, similar to updateRawAppRunnables
+ * but for the app.value structure instead of app.runnables.
+ * Returns a tuple of [updated app value, list of script names that were updated].
+ */
+async function updateAppInlineScripts(
+  workspace: Workspace,
+  appValue: any,
+  remotePath: string,
+  appFolder: string,
+  rawDeps?: Record<string, string>,
+  defaultTs: "bun" | "deno" = "bun",
+  noStaleMessage?: boolean,
+  tempScriptRefs?: Record<string, string>
+): Promise<{ value: any; updatedScripts: string[] }> {
+  const pathAssigner = newPathAssigner(defaultTs, { skipInlineScriptSuffix: getNonDottedPaths() });
+  const updatedScripts: string[] = [];
+
+  const processor: InlineScriptProcessor = async (inlineScript, context) => {
+    const language = inlineScript.language as SupportedLanguage;
+    const content = inlineScript.content;
+
+    if (!content || !language) {
+      return inlineScript;
+    }
+
+    // Skip if content is still an !inline reference (should have been replaced by replaceInlineScripts)
+    if (typeof content === "string" && content.startsWith("!inline ")) {
+      log.warn(
+        colors.yellow(
+          `Inline script at ${context.path.join(
+            "."
+          )} is still an !inline reference, skipping`
+        )
+      );
+      return inlineScript;
+    }
+
+    // Get the name from the parent object (following extractInlineScriptsForApps pattern)
+    // For normal apps, the name is stored in the component's "name" property
+    const scriptName = context.parentObject?.["name"] || "unnamed";
+    const scriptPath = `${remotePath}/${context.path.join("/")}`;
+
+    try {
+      let lock: string | undefined;
+      if (language !== "frontend") {
+        if (!noStaleMessage) {
+          log.info(
+            colors.gray(
+              `Generating lock for inline script "${scriptName}" at ${context.path.join(
+                "."
+              )} (${language})`
+            )
+          );
+        }
+
+        lock = await generateInlineScriptLock(
+          workspace,
+          content,
+          language,
+          scriptPath,
+          rawDeps,
+          tempScriptRefs
+        );
+      }
+      // Determine file extension for this language (following extractInlineScriptsForApps pattern)
+      const [basePathO, ext] = pathAssigner.assignPath(scriptName, language);
+      const basePath = basePathO.replaceAll(SEP, "/");
+      const contentPath = path.join(appFolder, `${basePath}${ext}`);
+      const lockPath = path.join(appFolder, `${basePath}lock`);
+
+      // Write content to file
+      writeIfChanged(contentPath, content);
+
+      // Write lock to file if it exists
+      if (lock && lock !== "") {
+        writeIfChanged(lockPath, lock);
+      }
+
+      // Update the inline script with !inline references
+      const inlineContentRef = `!inline ${basePath}${ext}`;
+      const inlineLockRef =
+        lock && lock !== "" ? `!inline ${basePath}lock` : "";
+
+      if (!noStaleMessage) {
+        log.info(
+          colors.gray(
+            `  Written ${basePath}${ext}${lock ? ` and ${basePath}lock` : ""}`
+          )
+        );
+      }
+
+      // Track that this script was updated (only for non-frontend scripts that needed locks)
+      if (language !== "frontend") {
+        updatedScripts.push(scriptName);
+      }
+
+      return {
+        ...inlineScript,
+        content: inlineContentRef,
+        ...(lock ? { lock: inlineLockRef } : {}),
+      };
+    } catch (error: any) {
+      log.error(
+        colors.red(
+          `Failed to generate lock for inline script at ${context.path.join(
+            "."
+          )}: ${error.message}`
+        )
+      );
+      // Return original on error
+      return inlineScript;
+    }
+  };
+
+  const updatedValue = await traverseAndProcessInlineScripts(appValue, processor);
+  return { value: updatedValue, updatedScripts };
+}
+
+/**
+ * Generates a lock for a single inline script using the dependencies endpoint
+ */
+async function generateInlineScriptLock(
+  workspace: Workspace,
+  content: string,
+  language: string,
+  scriptPath: string,
+  rawWorkspaceDependencies: Record<string, string> | undefined,
+  tempScriptRefs?: Record<string, string>
+): Promise<string> {
+  // Filter workspace dependencies to only include those matching this script's language and annotations
+  const filteredDeps = rawWorkspaceDependencies
+    ? filterWorkspaceDependencies(rawWorkspaceDependencies, content, language as ScriptLanguage)
+    : undefined;
+
+  const extraHeaders = getHeaders();
+
+  const queueResponse = await fetch(
+    `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/dependencies_async`,
+    {
+      method: "POST",
+      headers: {
+        Cookie: `token=${workspace.token}`,
+        "Content-Type": "application/json",
+        ...extraHeaders,
+      },
+      body: JSON.stringify({
+        raw_scripts: [
+          {
+            raw_code: content,
+            language: language,
+            script_path: scriptPath,
+          },
+        ],
+        raw_workspace_dependencies:
+          filteredDeps && Object.keys(filteredDeps).length > 0
+            ? filteredDeps
+            : null,
+        entrypoint: scriptPath,
+        ...(tempScriptRefs && Object.keys(tempScriptRefs).length > 0
+          ? { temp_script_refs: tempScriptRefs }
+          : {}),
+      }),
+    }
+  );
+
+  await detectAuthGatewayChallenge(
+    queueResponse,
+    `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/dependencies_async`,
+  );
+
+  if (!queueResponse.ok) {
+    const text = await queueResponse.text();
+    throw new Error(
+      `Dependency generation failed: ${queueResponse.status} ${queueResponse.statusText}\n${text}`
+    );
+  }
+
+  const jobId = (await queueResponse.text()).trim();
+
+  let completion;
+  try {
+    completion = await pollJobWithQueueLogging(
+      workspace.workspaceId,
+      jobId,
+      { label: `deps ${scriptPath}` },
+    );
+  } catch (e: any) {
+    throw new Error(
+      `Failed to poll dependencies job ${jobId}: ${e?.message ?? e}`
+    );
+  }
+
+  const result = completion.result as any;
+  if (!completion.success) {
+    const message =
+      result?.error?.message ??
+      (typeof result === "string" ? result : JSON.stringify(result, null, 2));
+    throw new Error(`Failed to generate lockfile: ${message}`);
+  }
+
+  const lock = result?.lock;
+  if (lock === undefined) {
+    throw new Error(
+      `Failed to generate lockfile: ${JSON.stringify(result, null, 2)}`
+    );
+  }
+  return lock ?? "";
+}
+
+/**
+ * Result of schema inference for a runnable
+ */
+export interface InferredSchemaResult {
+  runnableId: string;
+  schema: any;
+}
+
+/**
+ * Infers schema for a single runnable from its file content.
+ * Used by dev server to update schema in memory (for wmill.d.ts generation).
+ * Does NOT write to the runnable YAML file - schema is kept in memory only.
+ *
+ * @param appFolder - The folder containing the raw app
+ * @param runnableFilePath - The path to the changed runnable file (relative to runnables folder)
+ * @returns The runnable ID and inferred schema, or undefined if inference failed/not applicable
+ */
+export async function inferRunnableSchemaFromFile(
+  appFolder: string,
+  runnableFilePath: string,
+  defaultTs: "bun" | "deno" = "bun",
+): Promise<InferredSchemaResult | undefined> {
+  // Extract runnable ID from file path (e.g., "myRunnable.ts" -> "myRunnable",
+  // "fetch_data.bun.ts" -> "fetch_data")
+  const fileName = path.basename(runnableFilePath);
+
+  // Skip lock files and yaml files (runnable metadata)
+  if (fileName.endsWith(".lock") || fileName.endsWith(".yaml")) {
+    return undefined;
+  }
+
+  // Match the longest known extension so compound extensions like "bun.ts" or
+  // "pg.sql" win over the trailing single-segment extension.
+  let runnableId: string | undefined;
+  let ext: string | undefined;
+  for (const knownExt of Object.keys(EXTENSION_TO_LANGUAGE)) {
+    if (
+      fileName.endsWith("." + knownExt) &&
+      (!ext || knownExt.length > ext.length)
+    ) {
+      ext = knownExt;
+      runnableId = fileName.slice(0, -(knownExt.length + 1));
+    }
+  }
+  if (!runnableId || !ext) {
+    return undefined;
+  }
+
+  // Read the runnable from its separate YAML file (new format)
+  const runnableFilePath2 = path.join(
+    appFolder,
+    APP_BACKEND_FOLDER,
+    `${runnableId}.yaml`
+  );
+
+  let runnable: any;
+  try {
+    runnable = await yamlParseFile(runnableFilePath2);
+  } catch {
+    // Fall back to reading from raw_app.yaml (old format)
+    try {
+      const appFilePath = path.join(appFolder, "raw_app.yaml");
+      const appFile = (await yamlParseFile(appFilePath)) as RawAppFile;
+      if (!appFile.runnables?.[runnableId]) {
+        log.warn(
+          colors.yellow(`Runnable ${runnableId} not found in backend folder or raw_app.yaml`)
+        );
+        return undefined;
+      }
+      runnable = appFile.runnables[runnableId];
+    } catch {
+      // No YAML at all - in the new backend-folder format a code-only runnable
+      // (no .yaml sibling) is treated as inline. We can still infer its schema.
+      runnable = { type: "inline" };
+    }
+  }
+
+  // Determine language and current schema. Two cases:
+  // - Old format: the YAML carries an `inlineScript` block with language + schema
+  // - New format: the YAML only declares `type: inline` and the language is
+  //   derived from the code file's extension (the inlineScript is reconstructed
+  //   from sibling files at load time).
+  let language: SupportedLanguage | undefined;
+  let currentSchema: any;
+  if (runnable?.inlineScript) {
+    language = runnable.inlineScript.language as SupportedLanguage;
+    currentSchema = runnable.inlineScript.schema;
+  } else if (
+    runnable?.type === "inline" ||
+    runnable?.type === "runnableByName"
+  ) {
+    language = getLanguageFromExtension(ext, defaultTs);
+  } else {
+    // Path-based runnable or unknown type - schema lives at the script/flow path
+    return undefined;
+  }
+
+  if (!language) {
+    log.warn(
+      colors.yellow(
+        `Could not determine language for ${runnableId} (ext: ${ext})`
+      )
+    );
+    return undefined;
+  }
+
+  // Read the actual content from the file
+  const fullFilePath = path.join(
+    appFolder,
+    APP_BACKEND_FOLDER,
+    runnableFilePath
+  );
+  let content: string;
+  try {
+    content = await readTextFile(fullFilePath);
+  } catch {
+    log.warn(colors.yellow(`Could not read file: ${fullFilePath}`));
+    return undefined;
+  }
+
+  const remotePath = appFolder.replaceAll(SEP, "/");
+
+  try {
+    const schemaResult = await inferSchema(
+      language as ScriptLanguage,
+      content,
+      currentSchema,
+      `${remotePath}/${runnableId}`
+    );
+
+    log.info(colors.green(`  Inferred schema for ${runnableId}`));
+    return {
+      runnableId: runnableId,
+      schema: schemaResult.schema,
+    };
+  } catch (schemaError: any) {
+    log.warn(
+      colors.yellow(
+        `Failed to infer schema for ${runnableId}: ${schemaError.message}`
+      )
+    );
+    return undefined;
+  }
+}
+
+/**
+ * Infers schemas for every inline runnable code file in the app's backend
+ * folder. Used at `wmill app dev` startup so the initial wmill.d.ts has typed
+ * args without waiting for a file change to trigger the watcher.
+ *
+ * Returns a map of runnableId -> schema. Files that fail inference or are not
+ * inline runnables are silently skipped - their entries will fall back to
+ * `args: {}` in the generated d.ts.
+ */
+export async function inferAllInlineSchemas(
+  appFolder: string,
+  defaultTs: "bun" | "deno" = "bun",
+): Promise<Record<string, any>> {
+  const schemas: Record<string, any> = {};
+  const backendPath = path.join(appFolder, APP_BACKEND_FOLDER);
+
+  let entries: Array<{ name: string; isFile: () => boolean }>;
+  try {
+    entries = await readdir(backendPath, { withFileTypes: true });
+  } catch {
+    // No backend folder (e.g. old-format app using raw_app.yaml only)
+    return schemas;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const fileName = entry.name;
+    if (fileName.endsWith(".yaml") || fileName.endsWith(".lock")) continue;
+
+    const result = await inferRunnableSchemaFromFile(
+      appFolder,
+      fileName,
+      defaultTs,
+    );
+    if (result) {
+      schemas[result.runnableId] = result.schema;
+    }
+  }
+
+  return schemas;
+}
+
+export function getAppFolders(elems: Record<string, any>, extension: string) {
+  return Object.keys(elems)
+    .filter((p) => p.endsWith(SEP + extension))
+    .map((p) => p.substring(0, p.length - (SEP + extension).length));
+}
+
+export async function generateLocksCommand(
+  opts: GlobalOptions & {
+    yes?: boolean;
+    dryRun?: boolean;
+    defaultTs?: "bun" | "deno";
+  } & SyncOptions,
+  appPath: string | undefined
+) {
+  const { generateAppLocksInternal } = await import("./app_metadata.ts");
+  const { elementsToMap, FSFSElement } = await import("../sync/sync.ts");
+  const { ignoreF } = await import("../sync/sync.ts");
+  const { Confirm } = await import("@cliffy/prompt/confirm");
+
+  if (appPath == "") {
+    appPath = undefined;
+  }
+
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  opts = await mergeConfigWithConfigFile(opts);
+
+  if (appPath) {
+    //TODO: Generate metadata for a specific raw app but handle normal apps to
+    throw new Error("Not implemented");
+    // Generate metadata for a specific app
+    // await generateAppLocksInternal(
+    //   appPath,
+    //   true,
+    //   false,
+    //   workspace,
+    //   opts,
+    //   false,
+    //   false
+    // );
+  } else {
+    // Generate metadata for all apps
+    const ignore = await ignoreF(opts);
+    const elems = await elementsToMap(
+      await FSFSElement(process.cwd(), [], true),
+      (p, isD) => {
+        return (
+          ignore(p, isD) ||
+          (!isD &&
+            !p.endsWith(SEP + "raw_app.yaml") &&
+            !p.endsWith(SEP + "app.yaml"))
+        );
+      },
+      false,
+      {}
+    );
+
+    const rawAppFolders = getAppFolders(elems, "raw_app.yaml");
+    const appFolders = getAppFolders(elems, "app.yaml");
+
+    let hasAny = false;
+    log.info(
+      `Checking metadata for all apps (${appFolders.length}) and raw apps (${rawAppFolders.length})`
+    );
+    for (const appFolder of rawAppFolders) {
+      const candidate = await generateAppLocksInternal(
+        appFolder,
+        true,
+        true,
+        workspace,
+        opts,
+        false,
+        true
+      );
+      if (candidate) {
+        hasAny = true;
+        log.info(colors.green(`+ ${candidate}`));
+      }
+    }
+
+    for (const appFolder of appFolders) {
+      const candidate = await generateAppLocksInternal(
+        appFolder,
+        false,
+        true,
+        workspace,
+        opts,
+        false,
+        true
+      );
+      if (candidate) {
+        hasAny = true;
+        log.info(colors.green(`+ ${candidate}`));
+      }
+    }
+
+    if (hasAny) {
+      if (opts.dryRun) {
+        log.info(colors.gray(`Dry run complete.`));
+        return;
+      }
+      if (
+        !opts.yes &&
+        !(await Confirm.prompt({
+          message: "Update the metadata of the above apps?",
+          default: true,
+        }))
+      ) {
+        return;
+      }
+    } else {
+      log.info(colors.green.bold("No metadata to update"));
+      return;
+    }
+
+    for (const appFolder of rawAppFolders) {
+      await generateAppLocksInternal(
+        appFolder,
+        true,
+        false,
+        workspace,
+        opts,
+        false,
+        true
+      );
+    }
+
+    for (const appFolder of appFolders) {
+      await generateAppLocksInternal(
+        appFolder,
+        false,
+        false,
+        workspace,
+        opts,
+        false,
+        true
+      );
+    }
+  }
+}

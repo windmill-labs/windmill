@@ -9,9 +9,8 @@
 <div class="flex flex-row gap-2 justify-end w-full pt-6 pb-2">
 	<Button
 		size="xs"
-		color="light"
 		startIcon={{ icon: CheckCircle }}
-		variant="border"
+		variant="default"
 		btnClasses="font-normal"
 		on:click={() => {
 			dispatch('skipThis')
@@ -21,10 +20,9 @@
 	</Button>
 	<Button
 		size="xs"
-		color="light"
 		startIcon={{ icon: CheckCircle }}
 		btnClasses="font-normal"
-		variant="border"
+		variant="default"
 		on:click={() => {
 			dispatch('skipAll')
 		}}

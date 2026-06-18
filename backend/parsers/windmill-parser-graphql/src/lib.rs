@@ -9,7 +9,7 @@ use regex_lite::Regex;
 
 use serde_json::json;
 
-use windmill_parser::{Arg, MainArgSignature, Typ};
+use windmill_parser::{Arg, MainArgSignature, ObjectType, Typ};
 
 pub fn parse_graphql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_graphql_file(&code)?;
@@ -19,8 +19,9 @@ pub fn parse_graphql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             star_args: false,
             star_kwargs: false,
             args,
-            no_main_func: None,
+            auto_kind: None,
             has_preprocessor: None,
+            ..Default::default()
         })
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
@@ -63,6 +64,7 @@ fn parse_graphql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             otyp: Some(typ.unwrap()),
             has_default,
             oidx: None,
+            otyp_inferred: false,
         });
     }
 
@@ -75,7 +77,7 @@ pub fn parse_graphql_typ(typ: &str) -> Typ {
         "Int" => Typ::Int,
         "Boolean" => Typ::Bool,
         "Float" => Typ::Float,
-        _ => Typ::Object(vec![]),
+        _ => Typ::Object(ObjectType::new(None, Some(vec![]))),
     }
 }
 
@@ -106,7 +108,8 @@ query($i: Int, $arr: [String]!, $wahoo: String = "wahoo") {
                         typ: Typ::Int,
                         default: None,
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("[String]".to_string()),
@@ -114,7 +117,8 @@ query($i: Int, $arr: [String]!, $wahoo: String = "wahoo") {
                         typ: Typ::List(Box::new(Typ::Str(None))),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("String".to_string()),
@@ -122,11 +126,13 @@ query($i: Int, $arr: [String]!, $wahoo: String = "wahoo") {
                         typ: Typ::Str(None),
                         default: Some(json!("wahoo")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     }
                 ],
-                no_main_func: None,
-                has_preprocessor: None
+                auto_kind: None,
+                has_preprocessor: None,
+                ..Default::default()
             }
         );
 

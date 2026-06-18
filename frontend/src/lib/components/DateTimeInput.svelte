@@ -1,67 +1,116 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
+	import { createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { Button } from './common'
 	import { Clock, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import TextInput from './text_input/TextInput.svelte'
 	// import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	// import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
-	export let value: string | undefined = undefined
+	interface Props {
+		// import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+		value?: string | null | undefined
+		clearable?: boolean
+		autofocus?: boolean | null
+		useDropdown?: boolean
+		minDate?: string | undefined
+		maxDate?: string | undefined
+		disabled?: boolean | undefined
+		inputClass?: string | undefined
+		/**
+		 * 'naive' will ignore timezone and return a date without timezone
+		 * 'local' will use the local timezone of the user
+		 */
+		timezone?: 'naive' | 'local'
+	}
 
-	export let clearable: boolean = false
-	export let autofocus: boolean | null = false
-	export let useDropdown: boolean = false
-	export let minDate: string | undefined = undefined
-	export let maxDate: string | undefined = undefined
-	export let disabled: boolean | undefined = undefined
-	export let inputClass: string | undefined = undefined
+	let {
+		value = $bindable(undefined),
+		clearable = false,
+		autofocus = false,
+		useDropdown = false,
+		minDate = undefined,
+		maxDate = undefined,
+		disabled = undefined,
+		inputClass = undefined,
+		timezone = 'local'
+	}: Props = $props()
 
-	let date: string | undefined = undefined
-	let time: string | undefined = undefined
+	let date: string | undefined = $state(undefined)
+	let time: string | undefined = $state(undefined)
 
 	// let format: 'local' | 'utc' = 'local'
 
-	function parseValue(value: string | undefined = undefined) {
+	function parseValue(value: string | null | undefined = undefined) {
 		let dateFromValue: Date | undefined = value ? new Date(value) : undefined
-		date = isValidDate(dateFromValue)
-			? `${dateFromValue!.getFullYear().toString()}-${(dateFromValue!.getMonth() + 1)
-					.toString()
-					.padStart(2, '0')}-${dateFromValue!.getDate().toString().padStart(2, '0')}`
-			: undefined
+		if (!isValidDate(dateFromValue)) {
+			date = undefined
+			time = '12:00'
+			return
+		}
 
-		time = isValidDate(dateFromValue)
-			? `${dateFromValue!.getHours().toString().padStart(2, '0')}:${dateFromValue!
-					.getMinutes()
-					.toString()
-					.padStart(2, '0')}`
-			: '12:00'
+		let year = timezone === 'local' ? dateFromValue?.getFullYear() : dateFromValue?.getUTCFullYear()
+		let month = timezone === 'local' ? dateFromValue?.getMonth() : dateFromValue?.getUTCMonth()
+		let day = timezone === 'local' ? dateFromValue?.getDate() : dateFromValue?.getUTCDate()
+		let hours = timezone === 'local' ? dateFromValue.getHours() : dateFromValue.getUTCHours()
+		let minutes = timezone === 'local' ? dateFromValue.getMinutes() : dateFromValue.getUTCMinutes()
+
+		date = `${year.toString()}-${(month + 1)
+			.toString()
+			.padStart(2, '0')}-${day.toString().padStart(2, '0')}`
+
+		time = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
 	}
 
-	$: parseValue(value)
+	$effect(() => {
+		value
+		untrack(() => {
+			parseValue(value)
+		})
+	})
 
-	let initialDate = date
-	let initialTime = time
+	let initialDate = untrack(() => date)
+	let initialTime = untrack(() => time)
 
 	function parseDateAndTime(date: string | undefined, time: string | undefined) {
+		// Handle cleared date - if date is empty string (user cleared) but value still has a value
+		if (date === '' && value) {
+			value = null
+			dispatchIfMounted('change', value)
+			return
+		}
+
 		if (date && time && (initialDate != date || initialTime != time)) {
-			let newDate = new Date(`${date}T${time}`)
-			if (newDate.toString() != 'Invalid Date') {
-				value = newDate.toISOString()
-				dispatch('change', value)
-			}
+			let newDate = new Date(timezone === 'local' ? `${date}T${time}` : `${date}T${time}Z`)
+			if (newDate.toString() === 'Invalid Date') return
+			if (newDate.getFullYear() < 1900) return
+			value = newDate.toISOString()
+			dispatchIfMounted('change', value)
 		}
 	}
 
-	$: parseDateAndTime(date, time)
+	$effect(() => {
+		;[date, time]
+		untrack(() => {
+			parseDateAndTime(date, time)
+		})
+	})
 
-	function isValidDate(d: Date | undefined): boolean {
+	function isValidDate(d: Date | undefined): d is Date {
 		return d instanceof Date && !isNaN(d as any)
 	}
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function setTimeLater(mins: number) {
 		let newDate = new Date()
+		if (timezone === 'naive') {
+			newDate.setMinutes(newDate.getMinutes() - newDate.getTimezoneOffset())
+		}
 		newDate.setMinutes(newDate.getMinutes() + mins)
 		value = newDate.toISOString()
 		dispatch('change', value)
@@ -70,27 +119,26 @@
 	let randomId = 'datetarget-' + Math.random().toString(36).substring(7)
 </script>
 
-<div class="flex flex-row gap-1 items-center w-full" id={randomId} on:pointerdown on:focus>
-	<!-- svelte-ignore a11y-autofocus -->
-	<input
-		type="date"
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+	class="flex flex-row gap-1 items-center w-full relative"
+	id={randomId}
+	onpointerdown={bubble('pointerdown')}
+	onfocus={bubble('focus')}
+>
+	<!-- svelte-ignore a11y_autofocus -->
+	<TextInput
+		inputProps={{ type: 'date', autofocus, disabled, min: minDate, max: maxDate }}
 		bind:value={date}
-		{autofocus}
-		{disabled}
-		class={twMerge('h-8 text-sm !w-3/4 ', inputClass)}
-		min={minDate}
-		max={maxDate}
+		class={twMerge('!w-3/4 ', inputClass)}
 	/>
-	<input
-		type="time"
+	<TextInput
+		inputProps={{ type: 'time', disabled }}
 		bind:value={time}
-		class={twMerge('h-8 text-sm !w-1/4 min-w-[100px] ', inputClass)}
-		{disabled}
+		class={twMerge('!w-1/4 min-w-[100px] !max-h-full', inputClass)}
 	/>
 	<Button
-		variant="border"
-		color="light"
-		wrapperClasses="h-8"
+		variant="default"
 		startIcon={{
 			icon: Clock
 		}}
@@ -123,7 +171,7 @@
 							setTimeLater(7 * 60 * 24)
 						}
 					}
-			  ]
+				]
 			: undefined}
 		on:click={() => {
 			setTimeLater(0)
@@ -133,22 +181,22 @@
 	</Button>
 	{#if clearable}
 		<Button
-			variant="border"
-			color="light"
-			wrapperClasses="h-8"
+			variant="default"
+			unifiedSize="md"
+			wrapperClasses="h-full"
 			{disabled}
+			iconOnly
+			endIcon={{ icon: X }}
 			on:click={() => {
-				value = undefined
+				value = null
 				dispatch('clear')
 			}}
-		>
-			<X size={14} />
-		</Button>
+		></Button>
 	{/if}
 	<!-- <div>
-		<ToggleButtonGroup bind:selected={format}>
-			<ToggleButton light small value={'local'} label="local" />
-			<ToggleButton light small value={'utc'} label="utc" />
+		<ToggleButtonGroup bind:selected={format} let:item>
+			<ToggleButton light small value={'local'} label="local" {item} />
+			<ToggleButton light small value={'utc'} label="utc" {item} />
 		</ToggleButtonGroup>
 	</div> -->
 </div>

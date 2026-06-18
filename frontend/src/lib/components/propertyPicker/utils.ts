@@ -1,11 +1,24 @@
-function filterByKey(obj: Object, key: string): any {
+function filterObject(obj: any, key: string, filterValue: boolean): any {
+	const keyLower = key.toLowerCase()
 	if (typeof obj !== 'object' || obj === null) {
-		return undefined
+		if (!filterValue || obj === undefined || obj === null) {
+			return undefined
+		} else {
+			return obj.toString().toLowerCase().includes(keyLower) ? obj : undefined
+		}
 	} else if (Array.isArray(obj)) {
 		let a = obj
-			.map((k, o) =>
-				typeof o == 'object' ? filterByKey(o, key) : String(k - 1).includes(key) ? o : undefined
-			)
+			.map((o, k) => {
+				// match index
+				if (String(k).toLowerCase().includes(keyLower)) {
+					return o
+				}
+				return typeof o == 'object'
+					? filterObject(o, key, filterValue)
+					: filterValue && String(o).toLowerCase().includes(keyLower)
+						? o
+						: undefined
+			})
 			.filter((v) => v !== undefined)
 		if (a.length === 0) {
 			return undefined
@@ -15,7 +28,9 @@ function filterByKey(obj: Object, key: string): any {
 	} else {
 		let o = Object.fromEntries(
 			Object.entries(obj)
-				.map(([k, v]) => (k.includes(key) ? [k, v] : [k, filterByKey(v, key)]))
+				.map(([k, v]) =>
+					k.toLowerCase().includes(keyLower) ? [k, v] : [k, filterObject(v, key, filterValue)]
+				)
 				.filter(([k, v]) => v !== undefined)
 		)
 		if (Object.keys(o).length === 0) {
@@ -29,7 +44,14 @@ export function keepByKey(json: Object | undefined, key: string): Object {
 	if (!json) {
 		return {}
 	}
-	return filterByKey(json, key) ?? {}
+	return filterObject(json, key, false) ?? {}
+}
+
+export function keepByKeyOrValue(json: Object | undefined, key: string): Object {
+	if (!json) {
+		return {}
+	}
+	return filterObject(json, key, true) ?? {}
 }
 
 // https://stackoverflow.com/questions/23377217/way-to-test-if-a-string-is-valid-identifier-name-in-javascript

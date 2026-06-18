@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import type { AppInput } from '../../inputType'
@@ -14,35 +14,46 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { User } from 'lucide-svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let recomputeIds: string[] | undefined = undefined
-	export let extraQueryParams: Record<string, any> = {}
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'formcomponent'> | undefined = undefined
-	export let render: boolean
-	export let errorHandledByComponent: boolean | undefined = false
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		recomputeIds?: string[] | undefined
+		extraQueryParams?: Record<string, any>
+		horizontalAlignment?: 'left' | 'center' | 'right' | undefined
+		customCss?: ComponentCustomCSS<'formcomponent'> | undefined
+		render: boolean
+		errorHandledByComponent?: boolean | undefined
+	}
 
-	$: errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
+	let {
+		id,
+		componentInput,
+		configuration,
+		recomputeIds = undefined,
+		extraQueryParams = {},
+		horizontalAlignment = undefined,
+		customCss = undefined,
+		render,
+		errorHandledByComponent = $bindable(false)
+	}: Props = $props()
 
 	export const staticOutputs: string[] = ['loading', 'result', 'jobId']
 
 	const { app, worldStore, stateId, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false,
 		jobId: undefined
 	})
 
-	const resolvedConfig = initConfig(
-		components['formcomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['formcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: string) {
 			wrapper?.setArgs(nvalue)
 		},
@@ -57,22 +68,26 @@
 		}
 	}
 
-	let runnableComponent: RunnableComponent
-	let loading = false
+	let runnableComponent: RunnableComponent | undefined = $state()
+	let loading = $state(false)
 
-	$: noInputs =
+	let css = $state(initCss($app.css?.formcomponent, untrack(() => customCss)))
+
+	let wrapper: RunnableWrapper | undefined = $state()
+	$effect(() => {
+		errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
+	})
+	let noInputs = $derived(
 		$stateId != undefined &&
-		(componentInput?.type != 'runnable' || Object.keys(componentInput?.fields ?? {}).length == 0)
-
-	let css = initCss($app.css?.formcomponent, customCss)
-
-	let wrapper: RunnableWrapper
+			(componentInput?.type != 'runnable' || Object.keys(componentInput?.fields ?? {}).length == 0)
+	)
 </script>
 
-{#each Object.keys(components['formcomponent'].initialData.configuration) as key (key)}
+{#each Object.entries(components['formcomponent'].initialData.configuration) as [key, initialConfig] (key)}
 	<ResolveConfig
 		{id}
 		{key}
+		{initialConfig}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
 	/>
@@ -87,7 +102,6 @@
 		componentStyle={$app.css?.formcomponent}
 	/>
 {/each}
-
 <RunnableWrapper
 	{recomputeIds}
 	{render}
@@ -98,6 +112,10 @@
 	{id}
 	doOnSuccess={resolvedConfig.onSuccess}
 	doOnError={resolvedConfig.onError}
+	clearFormInputs={{
+		selected: resolvedConfig.clearFormInputs.selected,
+		onClear: () => runnableComponent?.setArgs({})
+	}}
 	{errorHandledByComponent}
 	{extraQueryParams}
 	autoRefresh={false}
@@ -136,8 +154,9 @@
 						on:click={() => {
 							runnableComponent?.runComponent()
 						}}
-						size={resolvedConfig.size}
+						extendedSize={resolvedConfig.size}
 						color={resolvedConfig.color}
+						variant="contained"
 					>
 						{resolvedConfig.label}
 					</Button>

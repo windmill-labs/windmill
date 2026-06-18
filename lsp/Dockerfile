@@ -1,5 +1,5 @@
-FROM python:3.11-slim as python-base
-FROM node:19-slim as node-base
+FROM python:3.12-slim as python-base
+FROM node:22-slim as node-base
 
 FROM python-base
 COPY --from=node-base /usr/local /usr/local
@@ -9,7 +9,7 @@ ENV PIPENV_VENV_IN_PROJECT=1
 ENV XDG_CACHE_HOME=/pyls/.cache
 
 RUN apt-get update \
-    && apt-get install -y shellcheck wget \
+    && apt-get install -y shellcheck wget git ca-certificates \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && pip install pipenv
@@ -21,13 +21,13 @@ RUN set -eux; \
     url=; \
     case "$arch" in \
     'amd64') \
-    targz='go1.22.5.linux-amd64.tar.gz'; \
+    targz='go1.26.0.linux-amd64.tar.gz'; \
     ;; \
     'arm64') \
-    targz='go1.22.5.linux-arm64.tar.gz'; \
+    targz='go1.26.0.linux-arm64.tar.gz'; \
     ;; \
     'armhf') \
-    targz='go1.22.5.linux-armv6l.tar.gz'; \
+    targz='go1.26.0.linux-armv6l.tar.gz'; \
     ;; \
     *) echo >&2 "error: unsupported architecture '$arch' (likely packaging update needed)"; exit 1 ;; \
     esac; \
@@ -37,9 +37,9 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GOBIN=/usr/local/go/bin
 RUN /usr/local/go/bin/go install -v golang.org/x/tools/gopls@latest
 
-RUN pip3 install tornado python-lsp-jsonrpc ruff-lsp
+RUN pip3 install tornado python-lsp-jsonrpc ruff
 
-COPY --from=denoland/deno:2.1.2 --chmod=755 /usr/bin/deno /usr/bin/deno
+COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
 
 RUN mkdir -p /pyls/.cache
 
@@ -59,4 +59,4 @@ RUN chmod -R a+rX /usr/local && \
 
 EXPOSE 3001
 
-CMD ["sh", "-c", "if [ -d /root/.cache ]; then export XDG_CACHE_HOME=/root/.cache && cp -r /pyls/.cache /root/.cache; fi && python3 pyls_launcher.py"]
+CMD ["sh", "-c", "if [ -n \"$NETRC\" ]; then echo \"$NETRC\" > /root/.netrc && chmod 600 /root/.netrc; fi && if [ -d /root/.cache ]; then export XDG_CACHE_HOME=/root/.cache && cp -r /pyls/.cache /root/.cache; fi && python3 pyls_launcher.py"]

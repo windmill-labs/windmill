@@ -1,28 +1,39 @@
 <script lang="ts">
 	import { components } from '../component'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { AppViewerContext, GridItem } from '../../types'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
 	import { connectOutput } from '../appUtils'
 	import SubGridOutput from './SubGridOutput.svelte'
 	import OutputHeader from './components/OutputHeader.svelte'
 	import TableActionsOutput from './components/TableActionsOutput.svelte'
-	import { BG_PREFIX } from '../../utils'
 	// @ts-ignore
 	import MenuItemsOutput from './components/MenuItemsOutput.svelte'
+	import { BG_PREFIX } from '../appUtilsCore'
 
-	export let gridItem: GridItem
-	export let first: boolean = false
-	export let nested: boolean = false
-	export let expanded: boolean = false
-	export let renderRec: boolean = true
+	interface Props {
+		gridItem: GridItem
+		first?: boolean
+		nested?: boolean
+		expanded?: boolean
+		renderRec?: boolean
+	}
+
+	let {
+		gridItem,
+		first = false,
+		nested = false,
+		expanded = false,
+		renderRec = true
+	}: Props = $props()
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
-	const name = getComponentNameById(gridItem.id)
+	const name = getComponentNameById(untrack(() => gridItem).id)
 
-	$: nameOverrides =
+	let nameOverrides = $derived(
 		gridItem?.data?.type === 'decisiontreecomponent'
 			? gridItem.data.nodes.map((n, i) => `${n.label} (Tab index ${i})`)
 			: undefined
+	)
 
 	function getComponentNameById(componentId: string) {
 		if (gridItem?.data?.type) {
@@ -36,27 +47,30 @@
 		}
 	}
 
-	$: subGrids = Array.from({ length: gridItem.data?.numberOfSubgrids ?? 0 }).map(
-		(_, i) => `${gridItem.id}-${i}`
+	let subGrids = $derived(
+		Array.from({ length: gridItem.data?.numberOfSubgrids ?? 0 }).map(
+			(_, i) => `${gridItem.id}-${i}`
+		)
 	)
 </script>
 
 <OutputHeader
 	render={renderRec}
-	let:render
 	id={gridItem.id}
 	name={getComponentNameById(gridItem.id)}
 	{first}
 	{nested}
 >
-	<ComponentOutputViewer
-		{render}
-		componentId={gridItem.id}
-		on:select={({ detail }) => {
-			connectOutput(connectingInput, gridItem?.data?.type, gridItem.data.id, detail)
-		}}
-	/>
-	<SubGridOutput {render} {name} {nameOverrides} {expanded} {subGrids} parentId={gridItem.id} />
-	<TableActionsOutput {render} {gridItem} />
-	<MenuItemsOutput {render} {gridItem} />
+	{#snippet children({ render })}
+		<ComponentOutputViewer
+			{render}
+			componentId={gridItem.id}
+			on:select={({ detail }) => {
+				connectOutput(connectingInput, gridItem?.data?.type, gridItem.data.id, detail)
+			}}
+		/>
+		<SubGridOutput {render} {name} {nameOverrides} {expanded} {subGrids} parentId={gridItem.id} />
+		<TableActionsOutput {render} {gridItem} />
+		<MenuItemsOutput {render} {gridItem} />
+	{/snippet}
 </OutputHeader>

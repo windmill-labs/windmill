@@ -11,15 +11,19 @@
 	import S3FilePicker from './S3FilePicker.svelte'
 	import FileUpload from './common/fileUpload/FileUpload.svelte'
 
-	export let value: any
-	export let editor: SimpleEditor | undefined = undefined
+	interface Props {
+		value: any
+		editor?: SimpleEditor | undefined
+	}
+
+	let { value = $bindable(), editor = $bindable(undefined) }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
-	let s3FilePicker: S3FilePicker
-	let s3FileUploadRawMode: false
+	let s3FilePicker: S3FilePicker | undefined = $state()
+	let s3FileUploadRawMode: boolean | undefined = $state()
 	let el: HTMLTextAreaElement | undefined = undefined
-	let rawValue: string | undefined = undefined
+	let rawValue: string | undefined = $state(undefined)
 
 	function evalValueToRaw() {
 		rawValue = JSON.stringify(value, null, 2)
@@ -39,7 +43,7 @@
 <S3FilePicker
 	bind:this={s3FilePicker}
 	bind:selectedFileKey={value}
-	on:close={() => {
+	onClose={() => {
 		rawValue = JSON.stringify(value, null, 2)
 		editor?.setCode(rawValue)
 	}}
@@ -66,18 +70,6 @@
 				bind:value
 			/>
 		{/await}
-		<Button
-			variant="border"
-			color="light"
-			size="xs"
-			btnClasses="mt-1"
-			on:click={() => {
-				s3FilePicker?.open?.(value)
-			}}
-			startIcon={{ icon: Pipette }}
-		>
-			Choose an object from the catalog
-		</Button>
 	{:else}
 		<FileUpload
 			allowMultiple={false}
@@ -95,4 +87,14 @@
 			defaultValue={value?.s3}
 		/>
 	{/if}
+	<Button
+		variant="default"
+		unifiedSize="sm"
+		on:click={() => {
+			s3FilePicker?.open?.(value)
+		}}
+		startIcon={{ icon: Pipette }}
+	>
+		Choose an object from the catalog
+	</Button>
 </div>

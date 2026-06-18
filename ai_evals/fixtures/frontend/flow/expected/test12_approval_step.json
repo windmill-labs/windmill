@@ -1,0 +1,44 @@
+{
+  "value": {
+    "modules": [
+      {
+        "id": "request_approval",
+        "suspend": {
+          "required_events": 1,
+          "resume_form": {
+            "schema": {
+              "approver_comment": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "value": {
+          "type": "rawscript"
+        }
+      },
+      {
+        "id": "finalize_purchase",
+        "value": {
+          "type": "rawscript"
+        }
+      }
+    ]
+  },
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "requester_email": {
+        "type": "string"
+      },
+      "amount": {
+        "type": "number"
+      }
+    },
+    "required": [
+      "requester_email",
+      "amount"
+    ]
+  }
+}

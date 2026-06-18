@@ -1,7 +1,11 @@
 <script lang="ts">
 	import { Loader2 } from 'lucide-svelte'
 
-	export let count: number | undefined = undefined
+	interface Props {
+		count?: number | undefined;
+	}
+
+	let { count = undefined }: Props = $props();
 </script>
 
 {#if count && count > 0}

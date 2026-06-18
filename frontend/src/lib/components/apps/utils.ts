@@ -2,7 +2,14 @@ import type { Schema } from '$lib/common'
 
 import { twMerge } from 'tailwind-merge'
 import { type AppComponent } from './editor/component'
-import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
+import {
+	isRunnableByName,
+	isRunnableByPath,
+	type AppInput,
+	type InputType,
+	type ResultAppInput,
+	type StaticAppInput
+} from './inputType'
 import type { Output } from './rx'
 import type {
 	App,
@@ -11,40 +18,38 @@ import type {
 	HorizontalAlignment,
 	VerticalAlignment
 } from './types'
-import { gridColumns } from './gridUtils'
+import { allItems, BG_PREFIX } from './editor/appUtilsCore'
 
-export const BG_PREFIX = 'bg_'
+// `migrateApp` moved to its own light module so non-editor callers can reuse it
+// without pulling the whole `apps/utils` graph; re-exported here for existing
+// `from '../utils'` importers.
+export { migrateApp } from './migrateApp'
 
-export function migrateApp(app: App) {
-	;(app?.hiddenInlineScripts ?? []).forEach((x) => {
-		if (x.type == undefined) {
-			//@ts-ignore
-			x.type = 'runnableByName'
+export function processSubcomponents(data: AppComponent, fn: (data: AppComponent) => void) {
+	if (data.type == 'tablecomponent' && Array.isArray(data.actionButtons)) {
+		for (let c of data.actionButtons) {
+			fn(c)
 		}
-		//TODO: remove after migration is done
-		if (x.doNotRecomputeOnInputChanged != undefined) {
-			x.recomputeOnInputChanged = !x.doNotRecomputeOnInputChanged
-			x.doNotRecomputeOnInputChanged = undefined
-		}
-	})
-
-	allItems(app.grid, app.subgrids).forEach((x) => {
-		gridColumns.forEach((column: number) => {
-			if (x?.[column]?.fullHeight === undefined) {
-				x[column].fullHeight = false
-			}
-		})
-	})
-}
-
-export function allItems(
-	grid: GridItem[],
-	subgrids: Record<string, GridItem[]> | undefined
-): GridItem[] {
-	if (subgrids == undefined) {
-		return grid
 	}
-	return [...grid, ...Object.values(subgrids).flat()]
+
+	if (
+		(data.type == 'aggridcomponent' ||
+			data.type == 'aggridcomponentee' ||
+			data.type == 'dbexplorercomponent' ||
+			data.type == 'aggridinfinitecomponent' ||
+			data.type == 'aggridinfinitecomponentee') &&
+		Array.isArray(data.actions)
+	) {
+		for (let c of data.actions ?? []) {
+			fn(c)
+		}
+	}
+
+	if (data.type === 'menucomponent' && Array.isArray(data.menuItems)) {
+		for (let c of data.menuItems) {
+			fn(c)
+		}
+	}
 }
 
 export function schemaToInputsSpec(
@@ -117,7 +122,7 @@ export function isScriptByNameDefined(appInput: AppInput | undefined): boolean {
 		return false
 	}
 
-	if (appInput.type === 'runnable' && appInput.runnable?.type == 'runnableByName') {
+	if (appInput.type === 'runnable' && isRunnableByName(appInput.runnable)) {
 		return appInput.runnable?.name != undefined
 	}
 
@@ -129,7 +134,7 @@ export function isScriptByPathDefined(appInput: AppInput | undefined): boolean {
 		return false
 	}
 
-	if (appInput.type === 'runnable' && appInput.runnable?.type == 'runnableByPath') {
+	if (appInput.type === 'runnable' && isRunnableByPath(appInput.runnable)) {
 		return Boolean(appInput.runnable?.path)
 	}
 
@@ -164,12 +169,54 @@ export function toStatic(
 	return { app: newApp, summary }
 }
 
+// function hasCycle(path, obj, seen = new Set()) {
+// 	if (obj && typeof obj === 'object') {
+// 		if (seen.has(obj)) {
+// 			console.log('cycle detected', path)
+// 			return true // cycle detected
+// 		}
+// 		seen.add(obj)
+// 		for (const key in obj) {
+// 			if (hasCycle(path + '.' + key, obj[key], seen)) {
+// 				return true
+// 			}
+// 		}
+// 		seen.delete(obj) // backtrack for other branches
+// 	}
+// 	return false
+// }
+
+export function deepCloneWithFunctions(obj) {
+	if (obj === null || typeof obj !== 'object') return obj
+	if (typeof obj === 'function') return obj
+
+	if (Array.isArray(obj)) {
+		return obj.map(deepCloneWithFunctions)
+	}
+
+	const cloned = {}
+	for (const key in obj) {
+		cloned[key] = deepCloneWithFunctions(obj[key])
+	}
+	return cloned
+}
+
 export function buildExtraLib(
 	components: Record<string, Record<string, Output<any>>>,
 	idToExclude: string,
 	state: Record<string, any>,
 	goto: boolean
 ): string {
+	// console.log(
+	// 	Object.entries(components).map(([k, v]) => [
+	// 		k,
+	// 		Object.values(v).map((x) => x.peak()),
+	// 		hasCycle(
+	// 			k,
+	// 			Object.values(v).map((x) => x.peak())
+	// 		)
+	// 	])
+	// )
 	const cs = Object.entries(components)
 		.filter(([k, v]) => k != idToExclude && k != 'state')
 		.map(([k, v]) => [k, Object.fromEntries(Object.entries(v).map(([k, v]) => [k, v.peak()]))])
@@ -231,6 +278,12 @@ declare function setTab(id: string, index: number): void;
 */
 declare function recompute(id: string): void;
 
+/** recompute all components runnables and background runnables
+ * Make sure to disable the toggle "Run on start and app refresh" in the 
+ * settings panel to avoid circular recomputes
+*/
+declare function globalRecompute(): void;
+
 /** get the ag grid api from an AgGridTable
  * @param id component's id
 */
@@ -248,7 +301,7 @@ declare function setValue(id: string, value: any): void;
  */
 declare function setSelectedIndex(id: string, index: number): void;
 
-/** close a drawer or modal
+/** open a drawer or modal
   * @param id component's id
  */
 declare function open(id: string): void;
@@ -280,6 +333,12 @@ declare function validateAll(id: string): void;
  * @param id component's id
  */
 declare function clearFiles(id: string): void;
+
+/** Send a message to a chat component
+ * @param id component's id
+ * @param message message to send
+ */
+declare function sendMessage(id: string, message: string): void;
 
 /**  Display a toast message
  * @param message message to display
@@ -329,20 +388,17 @@ declare const result: any;
 }
 
 export function getAllScriptNames(app: App): string[] {
-	const names = allItems(app.grid, app?.subgrids).reduce((acc, gridItem: GridItem) => {
+	const names = (allItems(app.grid, app?.subgrids) ?? []).reduce((acc, gridItem: GridItem) => {
 		const { componentInput } = gridItem.data
 
-		if (
-			componentInput?.type === 'runnable' &&
-			componentInput?.runnable?.type === 'runnableByName'
-		) {
+		if (componentInput?.type === 'runnable' && isRunnableByName(componentInput.runnable)) {
 			acc.push(componentInput.runnable.name)
 		}
 
 		if (gridItem.data.type === 'tablecomponent') {
 			gridItem.data.actionButtons.forEach((actionButton) => {
 				if (actionButton.componentInput?.type === 'runnable') {
-					if (actionButton.componentInput.runnable?.type === 'runnableByName') {
+					if (isRunnableByName(actionButton?.componentInput?.runnable)) {
 						acc.push(actionButton.componentInput.runnable.name)
 					}
 				}
@@ -358,7 +414,7 @@ export function getAllScriptNames(app: App): string[] {
 		) {
 			gridItem.data.actions?.forEach((actionButton) => {
 				if (actionButton.componentInput?.type === 'runnable') {
-					if (actionButton.componentInput.runnable?.type === 'runnableByName') {
+					if (isRunnableByName(actionButton.componentInput.runnable)) {
 						acc.push(actionButton.componentInput.runnable.name)
 					}
 				}
@@ -368,7 +424,7 @@ export function getAllScriptNames(app: App): string[] {
 		if (gridItem.data.type === 'menucomponent') {
 			gridItem.data.menuItems.forEach((menuItem) => {
 				if (menuItem.componentInput?.type === 'runnable') {
-					if (menuItem.componentInput.runnable?.type === 'runnableByName') {
+					if (isRunnableByName(menuItem.componentInput.runnable)) {
 						acc.push(menuItem.componentInput.runnable.name)
 					}
 				}
@@ -378,7 +434,7 @@ export function getAllScriptNames(app: App): string[] {
 		return acc
 	}, [] as string[])
 
-	const unusedNames = app.unusedInlineScripts.map((x) => x.name)
+	const unusedNames = app.unusedInlineScripts?.map((x) => x.name) ?? []
 	const backgroundNames = app.hiddenInlineScripts?.map((x) => x.name) ?? []
 
 	return [...names, ...unusedNames, ...backgroundNames]

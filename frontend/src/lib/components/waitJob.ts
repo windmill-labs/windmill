@@ -5,8 +5,8 @@ import { get } from 'svelte/store'
 const ITERATIONS_BEFORE_SLOW_REFRESH = 10
 const ITERATIONS_BEFORE_SUPER_SLOW_REFRESH = 100
 
-export async function waitJob(id: string) {
-	const workspace = get(workspaceStore)
+export async function waitJob(id: string, forceWorkspace?: string) {
+	const workspace = forceWorkspace || get(workspaceStore)
 
 	if (!id) {
 		return
@@ -42,10 +42,10 @@ export async function waitJob(id: string) {
 				}
 			} catch (err) {
 				errorIteration += 1
-
 				if (errorIteration === 5) {
 					try {
 						await cancelJob(id, workspace!)
+						return
 					} catch (err) {
 						console.error(err)
 					}

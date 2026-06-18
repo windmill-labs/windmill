@@ -2,95 +2,87 @@
 	import { Loader2 } from 'lucide-svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import LogViewer from './LogViewer.svelte'
-	import { JobService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-	import DrawerContent from './common/drawer/DrawerContent.svelte'
-	import { Drawer } from './common'
-	import AllFlowLogs from './AllFlowLogs.svelte'
-	import type { DurationStatus } from './graph'
-	import type { Writable } from 'svelte/store'
+	import type { CompletedJob, Job } from '$lib/gen'
+	import AiAgentLogViewer from './AIAgentLogViewer.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import type { AgentTool } from './flows/agentToolUtils'
 
-	export let waitingForExecutor: boolean = false
-	export let result: any
-	export let logs: string | undefined
-	export let col: boolean = false
-	export let noBorder = false
-	export let loading: boolean
-	export let filename: string | undefined = undefined
-	export let jobId: string | undefined = undefined
-	export let tag: string | undefined = undefined
-	export let workspaceId: string | undefined = undefined
-	export let refreshLog: boolean = false
-	export let durationStates: Writable<Record<string, DurationStatus>> | undefined
-	export let downloadLogs = true
-
-	let lastJobId: string | undefined = undefined
-	let drawer: Drawer | undefined = undefined
-
-	$: jobId != lastJobId && diffJobId()
-
-	async function diffJobId() {
-		if (jobId != lastJobId) {
-			lastJobId = jobId
-			logs = undefined
-			logOffset = 0
-			getLogs()
+	interface Props {
+		waitingForExecutor?: boolean
+		result: any
+		result_stream?: string
+		logs: string | undefined
+		col?: boolean
+		loading: boolean
+		filename?: string | undefined
+		jobId?: string | undefined
+		tag?: string | undefined
+		workspaceId?: string | undefined
+		refreshLog?: boolean
+		downloadLogs?: boolean
+		tagLabel?: string | undefined
+		aiAgentStatus?: {
+			tools: AgentTool[]
+			agentJob: Partial<CompletedJob> & Pick<CompletedJob, 'id'> & { type: 'CompletedJob' }
+			storedToolCallJobs?: Record<number, Job>
+			onToolJobLoaded?: (job: Job, idx: number) => void
 		}
 	}
 
-	let logOffset = 0
-	async function getLogs() {
-		if (jobId) {
-			const getUpdate = await JobService.getJobUpdates({
-				workspace: workspaceId ?? $workspaceStore!,
-				id: jobId,
-				running: loading ?? false,
-				logOffset: logOffset == 0 ? (logs?.length ? logs?.length + 1 : 0) : logOffset
-			})
-			logs = (logs ?? '').concat(getUpdate.new_logs ?? '')
-			logOffset = getUpdate.log_offset ?? 0
-		}
-		if (refreshLog) {
-			setTimeout(() => {
-				if (refreshLog) {
-					getLogs()
-				}
-			}, 1000)
-		}
-	}
+	let {
+		waitingForExecutor = false,
+		result,
+		result_stream,
+		logs,
+		col = false,
+		loading,
+		filename = undefined,
+		jobId = undefined,
+		tag = undefined,
+		workspaceId = undefined,
+		downloadLogs = true,
+		tagLabel = undefined,
+		aiAgentStatus = undefined
+	}: Props = $props()
 </script>
 
-<Drawer bind:this={drawer}>
-	<DrawerContent title="Explore all steps' logs" on:close={drawer.closeDrawer}
-		><AllFlowLogs states={durationStates} /></DrawerContent
-	>
-</Drawer>
 <div
-	class:border={!noBorder}
-	class="grid {!col
-		? 'grid-cols-2'
-		: 'grid-rows-2'} shadow border border-tertiary-inverse grow overflow-hidden"
+	class={twMerge(
+		'grow overflow-hidden text-xs',
+		!col ? 'grid grid-cols-2 gap-2' : 'flex flex-col max-h-screen gap-6 overflow-hidden'
+	)}
 >
-	<div class="bg-surface {col ? '' : 'max-h-80'} p-1 overflow-auto relative">
-		<span class="text-tertiary">Result</span>
-		{#if result !== undefined}
-			<DisplayResult {workspaceId} {jobId} {filename} {result} />
-		{:else if loading}
-			<Loader2 class="animate-spin" />
-		{:else}
-			<div class="text-gray-400">No result (result is undefined)</div>
-		{/if}
-	</div>
-	<div class="overflow-auto {col ? '' : 'max-h-80'} relative">
-		<div class="absolute z-40 text-xs top-0 left-1"
-			><button class="" on:click={drawer.openDrawer}>explore all steps' logs</button></div
+	<div class="relative flex flex-col gap-1">
+		<span class="text-emphasis text-xs font-semibold">Result</span>
+		<div
+			class="{col
+				? 'max-h-1/2 grow'
+				: 'max-h-80'} overflow-auto rounded-md grow min-h-0 border bg-surface-tertiary p-2"
 		>
-		<LogViewer
-			download={downloadLogs}
-			content={logs ?? ''}
-			{jobId}
-			isLoading={waitingForExecutor}
-			{tag}
-		/>
+			{#if result !== undefined || result_stream !== undefined}
+				<DisplayResult {workspaceId} {jobId} {filename} {result} {result_stream} growVertical />
+			{:else if loading}
+				<Loader2 class="animate-spin" />
+			{:else}
+				<div class="text-secondary">No result (result is undefined)</div>
+			{/if}
+		</div>
+	</div>
+	<div class="relative flex flex-col gap-1">
+		<span class="text-emphasis text-xs font-semibold">Logs</span>
+		{#if aiAgentStatus}
+			<AiAgentLogViewer {...aiAgentStatus} {workspaceId} noPadding />
+		{:else}
+			<div class="rounded-md grow min-h-0 border bg-surface-tertiary overflow-hidden">
+				<LogViewer
+					{tagLabel}
+					download={downloadLogs}
+					content={logs ?? ''}
+					{jobId}
+					isLoading={waitingForExecutor}
+					{tag}
+				/>
+			</div>
+		{/if}
 	</div>
 </div>

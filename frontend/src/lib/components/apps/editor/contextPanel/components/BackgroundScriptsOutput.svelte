@@ -2,7 +2,7 @@
 	import type { AppViewerContext } from '$lib/components/apps/types'
 	import { getContext } from 'svelte'
 	import BackgroundScriptOutput from './BackgroundScriptOutput.svelte'
-	import { BG_PREFIX } from '$lib/components/apps/utils'
+	import { BG_PREFIX } from '../../appUtilsCore'
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 </script>

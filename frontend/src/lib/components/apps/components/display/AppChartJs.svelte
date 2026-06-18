@@ -1,47 +1,57 @@
 <script lang="ts">
-	import { Chart } from 'svelte-chartjs'
+	import { Chart } from '$lib/components/chartjs-wrappers/chartJs'
 	import { Chart as ChartJS, registerables, type ChartOptions } from 'chart.js'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'chartjscomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		initializing?: boolean | undefined
+		customCss?: ComponentCustomCSS<'chartjscomponent'> | undefined
+		render: boolean
+	}
+
+	let {
+		id,
+		componentInput,
+		configuration,
+		initializing = $bindable(undefined),
+		customCss = undefined,
+		render
+	}: Props = $props()
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false
 	})
 
 	ChartJS.register(...registerables)
 
-	let result: undefined = undefined
+	let result: undefined = $state(undefined)
 
-	const resolvedConfig = initConfig(
-		components['chartjscomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['chartjscomponent'].initialData.configuration, untrack(() => configuration))
 	)
-	$: options = {
+	let options = $derived({
 		responsive: true,
 		animation: false,
 		maintainAspectRatio: false,
 		...(resolvedConfig.options ?? {})
-	} as ChartOptions
+	} as ChartOptions)
 
-	let css = initCss($app.css?.chartjscomponent, customCss)
+	let css = $state(initCss($app.css?.chartjscomponent, untrack(() => customCss)))
 </script>
 
 {#each Object.keys(components['chartjscomponent'].initialData.configuration) as key (key)}

@@ -6,392 +6,138 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{
-    fmt::{self, Display},
-    hash::{Hash, Hasher},
-};
+pub use windmill_types::scripts::*;
 
 use crate::{
     error::{to_anyhow, Error},
+    runnable_settings::{self},
     utils::http_get_from_hub,
-    DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
+    workspace_dependencies::WorkspaceDependenciesAnnotatedRefs,
+    DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION,
 };
 
 use crate::worker::HUB_CACHE_DIR;
 use anyhow::Context;
-use serde::de::Error as _;
-use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
+use backon::ConstantBuilder;
+use backon::{BackoffBuilder, Retryable};
+use regex::Regex;
 
 use crate::utils::StripPath;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
-#[sqlx(type_name = "SCRIPT_LANG", rename_all = "lowercase")]
-#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
-pub enum ScriptLang {
-    Nativets,
-    Deno,
-    Python3,
-    Go,
-    Bash,
-    Powershell,
-    Postgresql,
-    Bun,
-    Bunnative,
-    Mysql,
-    Bigquery,
-    Snowflake,
-    Graphql,
-    Mssql,
-    OracleDB,
-    Php,
-    Rust,
-    Ansible,
-    CSharp,
-}
-
-impl ScriptLang {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ScriptLang::Bun => "bun",
-            ScriptLang::Bunnative => "bunnative",
-            ScriptLang::Nativets => "nativets",
-            ScriptLang::Deno => "deno",
-            ScriptLang::Python3 => "python3",
-            ScriptLang::Go => "go",
-            ScriptLang::Bash => "bash",
-            ScriptLang::Powershell => "powershell",
-            ScriptLang::Postgresql => "postgresql",
-            ScriptLang::Mysql => "mysql",
-            ScriptLang::Bigquery => "bigquery",
-            ScriptLang::Snowflake => "snowflake",
-            ScriptLang::Mssql => "mssql",
-            ScriptLang::Graphql => "graphql",
-            ScriptLang::OracleDB => "oracledb",
-            ScriptLang::Php => "php",
-            ScriptLang::Rust => "rust",
-            ScriptLang::Ansible => "ansible",
-            ScriptLang::CSharp => "csharp",
-        }
+pub fn extract_workspace_dependencies_annotated_refs(
+    lang: &ScriptLang,
+    code: &str,
+    runnable_path: &str,
+) -> Option<WorkspaceDependenciesAnnotatedRefs<String>> {
+    use ScriptLang::*;
+    lazy_static::lazy_static! {
+        static ref RE_PYTHON: Regex = Regex::new(r"^\#\s?(\S+)\s*$").unwrap();
+    }
+    match lang {
+        // TODO: Maybe use regex
+        Bun | Bunnative | Nativets => WorkspaceDependenciesAnnotatedRefs::parse(
+            "//",
+            "package_json",
+            code,
+            None,
+            runnable_path,
+        ),
+        Python3 => WorkspaceDependenciesAnnotatedRefs::parse(
+            "#",
+            "requirements",
+            code,
+            Some(&RE_PYTHON),
+            runnable_path,
+        ),
+        Go => WorkspaceDependenciesAnnotatedRefs::parse("//", "go_mod", code, None, runnable_path),
+        Php => WorkspaceDependenciesAnnotatedRefs::parse(
+            "//",
+            "composer_json",
+            code,
+            None,
+            runnable_path,
+        ),
+        Powershell => WorkspaceDependenciesAnnotatedRefs::parse(
+            "#",
+            "modules_json",
+            code,
+            None,
+            runnable_path,
+        ),
+        _ => return None,
     }
 }
 
-#[derive(Eq, PartialEq, Debug, Hash, Clone, Copy, sqlx::Type)]
-#[sqlx(transparent)]
-pub struct ScriptHash(pub i64);
+pub async fn prefetch_cached_script(
+    script: Script<ScriptRunnableSettingsHandle>,
+    db: &DB,
+) -> crate::error::Result<Script<ScriptRunnableSettingsInline>> {
+    let rs = runnable_settings::from_handle(script.runnable_settings.runnable_settings_handle, db)
+        .await?;
+    let (debouncing_settings, concurrency_settings) =
+        runnable_settings::prefetch_cached(&rs, db).await?;
 
-#[derive(PartialEq, sqlx::Type)]
-#[sqlx(transparent, no_pg_array)]
-pub struct ScriptHashes(pub Vec<i64>);
-
-impl Display for ScriptHash {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", to_hex_string(&self.0))
-    }
-}
-impl Serialize for ScriptHash {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(to_hex_string(&self.0).as_str())
-    }
-}
-impl<'de> Deserialize<'de> for ScriptHash {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<ScriptHash, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        let i = to_i64(&s).map_err(|e| D::Error::custom(format!("{}", e)))?;
-        Ok(ScriptHash(i))
-    }
-}
-
-impl Serialize for ScriptHashes {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
-        for element in &self.0 {
-            seq.serialize_element(&ScriptHash(*element))?;
-        }
-        seq.end()
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Hash, sqlx::Type)]
-#[sqlx(type_name = "SCRIPT_KIND", rename_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
-pub enum ScriptKind {
-    Trigger,
-    Failure,
-    Script,
-    Approval,
-    Preprocessor,
-}
-
-impl Display for ScriptKind {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        fmt.write_str(match self {
-            ScriptKind::Trigger => "trigger",
-            ScriptKind::Failure => "failure",
-            ScriptKind::Script => "script",
-            ScriptKind::Approval => "approval",
-            ScriptKind::Preprocessor => "preprocessor",
-        })?;
-        Ok(())
-    }
+    Ok(Script {
+        workspace_id: script.workspace_id,
+        hash: script.hash,
+        path: script.path,
+        parent_hashes: script.parent_hashes,
+        summary: script.summary,
+        description: script.description,
+        content: script.content,
+        created_by: script.created_by,
+        created_at: script.created_at,
+        archived: script.archived,
+        schema: script.schema,
+        deleted: script.deleted,
+        is_template: script.is_template,
+        extra_perms: script.extra_perms,
+        lock: script.lock,
+        lock_error_logs: script.lock_error_logs,
+        language: script.language,
+        kind: script.kind,
+        tag: script.tag,
+        envs: script.envs,
+        dedicated_worker: script.dedicated_worker,
+        ws_error_handler_muted: script.ws_error_handler_muted,
+        priority: script.priority,
+        cache_ttl: script.cache_ttl,
+        cache_ignore_s3_path: script.cache_ignore_s3_path,
+        timeout: script.timeout,
+        delete_after_use: script.delete_after_use,
+        delete_after_secs: script.delete_after_secs,
+        restart_unless_cancelled: script.restart_unless_cancelled,
+        visible_to_runner_only: script.visible_to_runner_only,
+        auto_kind: script.auto_kind,
+        codebase: script.codebase,
+        has_preprocessor: script.has_preprocessor,
+        on_behalf_of_email: script.on_behalf_of_email,
+        assets: script.assets,
+        modules: script.modules,
+        labels: script.labels,
+        inherited_labels: script.inherited_labels,
+        runnable_settings: ScriptRunnableSettingsInline {
+            concurrency_settings: concurrency_settings.maybe_fallback(
+                script.runnable_settings.concurrency_key,
+                script.runnable_settings.concurrent_limit,
+                script.runnable_settings.concurrency_time_window_s,
+            ),
+            debouncing_settings: debouncing_settings.maybe_fallback(
+                script.runnable_settings.debounce_key,
+                script.runnable_settings.debounce_delay_s,
+            ),
+        },
+    })
 }
 
-pub const PREVIEW_IS_CODEBASE_HASH: i64 = -42;
-pub const PREVIEW_IS_TAR_CODEBASE_HASH: i64 = -43;
-
-#[derive(Serialize, sqlx::FromRow)]
-pub struct Script {
-    pub workspace_id: String,
-    pub hash: ScriptHash,
-    pub path: String,
-    pub parent_hashes: Option<ScriptHashes>,
-    pub summary: String,
-    pub description: String,
-    pub content: String,
-    pub created_by: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub archived: bool,
-    pub schema: Option<Schema>,
-    pub deleted: bool,
-    pub is_template: bool,
-    pub extra_perms: serde_json::Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub lock: Option<String>,
-    pub lock_error_logs: Option<String>,
-    pub language: ScriptLang,
-    pub kind: ScriptKind,
-    pub tag: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub envs: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrent_limit: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_time_window_s: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dedicated_worker: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ws_error_handler_muted: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub priority: Option<i16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cache_ttl: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timeout: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub delete_after_use: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub restart_unless_cancelled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub visible_to_runner_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub no_main_func: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub codebase: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub has_preprocessor: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub on_behalf_of_email: Option<String>,
-}
-
-#[derive(Serialize, sqlx::FromRow)]
-pub struct ScriptWithStarred {
-    #[sqlx(flatten)]
-    #[serde(flatten)]
-    pub script: Script,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub starred: Option<bool>,
-}
-
-#[derive(Serialize, sqlx::FromRow)]
-pub struct ListableScript {
-    pub hash: ScriptHash,
-    pub path: String,
-    pub summary: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub archived: bool,
-    pub extra_perms: serde_json::Value,
-    pub language: ScriptLang,
-    pub starred: bool,
-    pub tag: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub has_draft: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
-    pub has_deploy_errors: bool,
-    pub ws_error_handler_muted: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub no_main_func: Option<bool>,
-    #[serde(skip_serializing_if = "is_false")]
-    pub use_codebase: bool,
-    #[sqlx(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub deployment_msg: Option<String>,
-}
-
-fn is_false(x: &bool) -> bool {
-    return !x;
-}
-
-#[derive(Serialize)]
-pub struct ScriptHistory {
-    pub script_hash: ScriptHash,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub deployment_msg: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub struct ScriptHistoryUpdate {
-    pub deployment_msg: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug, sqlx::Type)]
-#[sqlx(transparent)]
-#[serde(transparent)]
-pub struct Schema(pub sqlx::types::Json<Box<serde_json::value::RawValue>>);
-
-impl Hash for Schema {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.get().hash(state);
-    }
-}
-
-#[derive(Serialize, Deserialize, Hash)]
-pub struct NewScript {
-    pub path: String,
-    pub parent_hash: Option<ScriptHash>,
-    pub summary: String,
-    pub description: String,
-    pub content: String,
-    pub schema: Option<Schema>,
-    pub is_template: Option<bool>,
-    #[serde(default = "Option::default")]
-    #[serde(deserialize_with = "lock_deserialize")]
-    pub lock: Option<String>,
-    pub language: ScriptLang,
-    pub kind: Option<ScriptKind>,
-    pub tag: Option<String>,
-    pub draft_only: Option<bool>,
-    pub envs: Option<Vec<String>>,
-    pub concurrent_limit: Option<i32>,
-    pub concurrency_time_window_s: Option<i32>,
-    pub cache_ttl: Option<i32>,
-    pub dedicated_worker: Option<bool>,
-    pub ws_error_handler_muted: Option<bool>,
-    pub priority: Option<i16>,
-    pub timeout: Option<i32>,
-    pub delete_after_use: Option<bool>,
-    pub restart_unless_cancelled: Option<bool>,
-    pub deployment_message: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_key: Option<String>,
-    pub visible_to_runner_only: Option<bool>,
-    pub no_main_func: Option<bool>,
-    pub codebase: Option<String>,
-    pub has_preprocessor: Option<bool>,
-    pub on_behalf_of_email: Option<String>,
-}
-
-fn lock_deserialize<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: serde::de::Deserializer<'de>,
-{
-    struct StringOrArrayVisitor;
-
-    impl<'de> serde::de::Visitor<'de> for StringOrArrayVisitor {
-        type Value = Option<String>;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("either a string or an array of strings")
-        }
-
-        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
-        {
-            Ok(Some(v.to_string()))
-        }
-
-        fn visit_none<E>(self) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
-        {
-            Ok(None)
-        }
-
-        fn visit_unit<E>(self) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
-        {
-            Ok(None)
-        }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-        where
-            A: serde::de::SeqAccess<'de>,
-        {
-            let mut split_lock: Vec<String> = vec![];
-            loop {
-                if let Ok(Some(elem)) = seq.next_element::<String>() {
-                    split_lock.push(elem);
-                } else {
-                    break;
-                }
-            }
-            let lock = split_lock.join("\n");
-            return Ok(Some(lock));
-        }
-    }
-    deserializer.deserialize_any(StringOrArrayVisitor)
-}
-
-#[derive(Deserialize)]
-pub struct ListScriptQuery {
-    pub path_start: Option<String>,
-    pub path_exact: Option<String>,
-    pub created_by: Option<String>,
-    pub first_parent_hash: Option<ScriptHash>,
-    pub last_parent_hash: Option<ScriptHash>,
-    pub parent_hash: Option<ScriptHash>,
-    pub show_archived: Option<bool>,
-    pub order_by: Option<String>,
-    pub order_desc: Option<bool>,
-    pub is_template: Option<bool>,
-    pub kinds: Option<String>,
-    pub starred_only: Option<bool>,
-    pub include_without_main: Option<bool>,
-    pub include_draft_only: Option<bool>,
-    pub with_deployment_msg: Option<bool>,
-}
-
-pub fn to_i64(s: &str) -> crate::error::Result<i64> {
-    let v = hex::decode(s)?;
-    if v.len() < 8 {
-        return Err(crate::error::Error::BadRequest(format!(
-            "hex string did not decode to an u64: {s}",
-        )));
-    }
-    let nb: u64 = u64::from_be_bytes(
-        v[0..8]
-            .try_into()
-            .map_err(|_| hex::FromHexError::InvalidStringLength)?,
-    );
-    Ok(nb as i64)
-}
-
-pub fn to_hex_string(i: &i64) -> String {
-    hex::encode(i.to_be_bytes())
+pub async fn prefetch_cached_script_with_starred(
+    sws: ScriptWithStarred<ScriptRunnableSettingsHandle>,
+    db: &DB,
+) -> crate::error::Result<ScriptWithStarred<ScriptRunnableSettingsInline>> {
+    Ok(ScriptWithStarred {
+        script: prefetch_cached_script(sws.script, db).await?,
+        starred: sws.starred,
+    })
 }
 
 pub async fn get_hub_script_by_path(
@@ -404,8 +150,9 @@ pub async fn get_hub_script_by_path(
         .strip_prefix("hub/")
         .ok_or_else(|| Error::BadRequest("Impossible to remove prefix hex".to_string()))?;
 
-    let hub_base_url = HUB_BASE_URL.read().await.clone();
+    let hub_base_url = (**HUB_BASE_URL.load()).clone();
 
+    //
     let result = http_get_from_hub(
         http_client,
         &format!("{}/raw/{}.ts", hub_base_url, path),
@@ -414,6 +161,8 @@ pub async fn get_hub_script_by_path(
         Some(db),
     )
     .await?
+    .error_for_status()
+    .map_err(to_anyhow)?
     .text()
     .await
     .map_err(to_anyhow);
@@ -425,7 +174,7 @@ pub async fn get_hub_script_by_path(
                 && path
                     .split("/")
                     .next()
-                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
+                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < PRIVATE_HUB_MIN_VERSION))
             {
                 tracing::info!(
                     "Not found on private hub, fallback to default hub for {}",
@@ -439,6 +188,8 @@ pub async fn get_hub_script_by_path(
                     Some(db),
                 )
                 .await?
+                .error_for_status()
+                .map_err(to_anyhow)?
                 .text()
                 .await
                 .map_err(to_anyhow)?;
@@ -464,13 +215,13 @@ pub async fn get_full_hub_script_by_path(
     let mut path_iterator = path.split("/");
     let version = path_iterator
         .next()
-        .ok_or_else(|| Error::InternalErr(format!("expected hub path to have version number")))?;
-    let cache_path = format!("{HUB_CACHE_DIR}/{version}");
+        .ok_or_else(|| Error::internal_err(format!("expected hub path to have version number")))?;
+    let cache_path = format!("{}/{version}", *HUB_CACHE_DIR);
     let script;
     if tokio::fs::metadata(&cache_path).await.is_err() {
         script = get_full_hub_script_by_path_inner(path, http_client, db).await?;
         if let Err(e) = crate::worker::write_file(
-            HUB_CACHE_DIR,
+            &HUB_CACHE_DIR,
             &version,
             &serde_json::to_string(&script).map_err(to_anyhow)?,
         ) {
@@ -491,58 +242,196 @@ async fn get_full_hub_script_by_path_inner(
     http_client: &reqwest::Client,
     db: Option<&DB>,
 ) -> crate::error::Result<HubScript> {
-    let hub_base_url = HUB_BASE_URL.read().await.clone();
+    let hub_base_url = (**HUB_BASE_URL.load()).clone();
 
-    let result = http_get_from_hub(
-        http_client,
-        &format!("{}/raw2/{}", hub_base_url, path),
-        true,
-        None,
-        db,
-    )
-    .await?
-    .json::<HubScript>()
-    .await
-    .context("Decoding hub response to script");
+    let response = (|| async {
+        let response = http_get_from_hub(
+            http_client,
+            &format!("{}/raw2/{}", hub_base_url, path),
+            true,
+            None,
+            db,
+        )
+        .await
+        .and_then(|r| r.error_for_status().map_err(|e| to_anyhow(e).into()));
 
-    match result {
-        Ok(result) => Ok(result),
-        Err(e) => {
-            if hub_base_url != DEFAULT_HUB_BASE_URL
-                && path
-                    .split("/")
-                    .next()
-                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
-            {
-                tracing::info!(
-                    "Not found on private hub, fallback to default hub for {}",
-                    path
-                );
-                let value = http_get_from_hub(
-                    http_client,
-                    &format!("{}/raw2/{}", DEFAULT_HUB_BASE_URL, path),
-                    true,
-                    None,
-                    db,
-                )
-                .await?
-                .json::<HubScript>()
-                .await
-                .context("Decoding hub response to script")?;
-
-                Ok(value)
-            } else {
-                Err(e)?
+        match response {
+            Ok(response) => Ok(response),
+            Err(e) => {
+                if hub_base_url != DEFAULT_HUB_BASE_URL
+                    && path.split("/").next().is_some_and(|x| {
+                        x.parse::<i32>().is_ok_and(|x| x < PRIVATE_HUB_MIN_VERSION)
+                    })
+                {
+                    // TODO: should only fallback to default hub if status is 404 (hub returns 500 currently)
+                    tracing::info!(
+                        "Not found on private hub, fallback to default hub for {}",
+                        path
+                    );
+                    http_get_from_hub(
+                        http_client,
+                        &format!("{}/raw2/{}", DEFAULT_HUB_BASE_URL, path),
+                        true,
+                        None,
+                        db,
+                    )
+                    .await?
+                    .error_for_status()
+                    .map_err(|e| to_anyhow(e).into())
+                } else {
+                    Err(e)
+                }
             }
         }
-    }
+    })
+    .retry(
+        ConstantBuilder::default()
+            .with_delay(std::time::Duration::from_secs(5))
+            .with_max_times(2)
+            .build(),
+    )
+    .notify(|err, dur| {
+        tracing::warn!(
+            "Could not get hub script at path {path}, retrying in {dur:#?}, err: {err:#?}"
+        );
+    })
+    .sleep(tokio::time::sleep)
+    .await?;
+
+    let script = response
+        .json::<HubScript>()
+        .await
+        .context(format!("Decoding hub response for script at path {path}"))?;
+
+    Ok(script)
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct HubScript {
-    pub content: String,
-    pub lockfile: Option<String>,
-    pub language: ScriptLang,
-    pub schema: Box<serde_json::value::RawValue>,
-    pub summary: Option<String>,
+pub async fn fetch_script_for_update<'a>(
+    path: &str,
+    w_id: &str,
+    e: impl sqlx::Executor<'a, Database = sqlx::Postgres>,
+) -> crate::error::Result<Option<Script<ScriptRunnableSettingsHandle>>> {
+    sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
+        &format!(
+            "SELECT {} FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
+            SCRIPT_COLUMNS,
+        ),
+    )
+    .bind(path)
+    .bind(w_id)
+    .fetch_optional(e)
+    .await
+    .map_err(crate::error::Error::from)
+}
+
+pub struct ClonedScript {
+    pub old_script: NewScript,
+    pub new_hash: i64,
+}
+// TODO: What if dependency job fails, there is script with NULL in the lock
+pub async fn clone_script<'c>(
+    path: &str,
+    w_id: &str,
+    deployment_message: Option<String>,
+    db: &DB,
+) -> crate::error::Result<ClonedScript> {
+    let mut tx = db.begin().await?;
+    let s = if let Some(s) = fetch_script_for_update(path, w_id, &mut *tx).await? {
+        s
+    } else {
+        return Err(crate::error::Error::NotFound(format!(
+            "Non-archived script with path '{}' not found",
+            path
+        )));
+    };
+
+    let rs =
+        runnable_settings::from_handle(s.runnable_settings.runnable_settings_handle, db).await?;
+    let (debouncing_settings, concurrency_settings) =
+        runnable_settings::prefetch_cached(&rs, db).await?;
+
+    let ns = NewScript {
+        path: s.path.clone(),
+        parent_hash: Some(s.hash),
+        summary: s.summary,
+        description: s.description,
+        content: s.content,
+        schema: s.schema,
+        is_template: s.is_template,
+        lock: None,
+        language: s.language,
+        kind: Some(s.kind),
+        tag: s.tag,
+        envs: s.envs,
+        concurrency_settings: concurrency_settings.maybe_fallback(
+            s.runnable_settings.concurrency_key,
+            s.runnable_settings.concurrent_limit,
+            s.runnable_settings.concurrency_time_window_s,
+        ),
+        debouncing_settings: debouncing_settings.maybe_fallback(
+            s.runnable_settings.debounce_key,
+            s.runnable_settings.debounce_delay_s,
+        ),
+        cache_ttl: s.cache_ttl,
+        cache_ignore_s3_path: s.cache_ignore_s3_path,
+        dedicated_worker: s.dedicated_worker,
+        ws_error_handler_muted: s.ws_error_handler_muted,
+        priority: s.priority,
+        timeout: s.timeout,
+        delete_after_use: s.delete_after_use,
+        delete_after_secs: s.delete_after_secs,
+        restart_unless_cancelled: s.restart_unless_cancelled,
+        deployment_message,
+        visible_to_runner_only: s.visible_to_runner_only,
+        auto_kind: s.auto_kind,
+        codebase: s.codebase,
+        has_preprocessor: s.has_preprocessor,
+        on_behalf_of_email: s.on_behalf_of_email,
+        preserve_on_behalf_of: None,
+        assets: s.assets,
+        modules: s.modules,
+        auto_parent: None,
+        labels: s.labels,
+        skip_draft_deletion: None,
+    };
+
+    let new_hash = hash_script(&ns);
+
+    tracing::debug!(
+        "cloning script at path {} from '{}' to '{}'",
+        s.path,
+        *s.hash,
+        new_hash
+    );
+
+    sqlx::query!("
+    INSERT INTO script
+    (workspace_id, hash, path, parent_hashes, summary, description, content, \
+    created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
+    envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
+    dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
+    delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
+    codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels)
+
+    SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
+            content, created_by, schema, is_template, extra_perms, NULL, language, kind, tag, \
+            envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
+            dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
+            delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
+            codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels
+
+    FROM script WHERE hash = $2 AND workspace_id = $3;
+            ", new_hash, s.hash.0, w_id).execute(&mut *tx).await?;
+
+    // Archive base.
+    sqlx::query!(
+        "UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2",
+        *s.hash,
+        w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(ClonedScript { old_script: ns, new_hash })
 }

@@ -5,7 +5,6 @@ type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 	type?: U
 	time?: number
 	starred?: boolean
-	has_draft?: boolean
 }
 
 type TableScript = TableItem<Script, 'script'>
@@ -86,7 +85,7 @@ export function groupItems(items: ItemType[] | undefined): (ItemType | FolderIte
 		if ('folderName' in a && 'username' in b) {
 			return 1
 		}
-		return (a['username'] ?? a['folderName']).localeCompare(b['username'] ?? b['folderName'])
+		return (a['username'] ?? a['folderName'] ?? '').localeCompare(b['username'] ?? b['folderName'])
 	})
 
 	sortGroup(root)

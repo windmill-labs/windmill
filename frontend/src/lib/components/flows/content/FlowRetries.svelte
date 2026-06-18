@@ -1,16 +1,68 @@
 <script lang="ts">
-	import type { Retry } from '$lib/gen'
+	import type { Retry, FlowModule } from '$lib/gen'
 	import { SecondsInput } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { enterpriseLicense } from '$lib/stores'
-	import { AlertTriangle } from 'lucide-svelte'
+	import { untrack, getContext } from 'svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import PropPickerWrapper from '$lib/components/flows/propPicker/PropPickerWrapper.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import Section from '$lib/components/Section.svelte'
+	import type { FlowEditorContext } from '../types'
+	import { getStepPropPicker } from '../previousResults'
+	import { NEVER_TESTED_THIS_FAR } from '../models'
+	import { validateRetryConfig } from '$lib/utils'
+	import EEOnly from '$lib/components/EEOnly.svelte'
 
-	export let flowModuleRetry: Retry | undefined
-	export let disabled: boolean = false
+	interface Props {
+		flowModuleRetry: Retry | undefined
+		disabled?: boolean
+		flowModule?: FlowModule
+	}
 
-	let delayType: 'disabled' | 'constant' | 'exponential'
-	let loaded = false
+	let {
+		flowModule = $bindable(),
+		flowModuleRetry = $bindable(),
+		disabled = false
+	}: Props = $props()
+
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStateStore, flowStore, previewArgs } = flowEditorContext || {
+		flowStateStore: null,
+		flowStore: null,
+		previewArgs: null
+	}
+
+	let delayType = $state() as 'disabled' | 'constant' | 'exponential' | undefined
+	let loaded = $state(false)
+
+	let editor: SimpleEditor | undefined = $state(undefined)
+	let stepPropPicker = $derived(
+		flowModule && flowStateStore?.val && flowStore?.val && previewArgs?.val
+			? getStepPropPicker(
+					flowStateStore.val,
+					undefined,
+					undefined,
+					flowModule.id,
+					flowStore.val,
+					previewArgs.val,
+					false
+				)
+			: null
+	)
+
+	let isRetryConditionEnabled = $derived(Boolean(flowModuleRetry?.retry_if))
+	let result = $derived(
+		flowModule && flowStateStore?.val
+			? (flowStateStore.val[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR)
+			: NEVER_TESTED_THIS_FAR
+	)
+
+	let validationError = $derived.by(() => {
+		return validateRetryConfig(flowModuleRetry)
+	})
 
 	function setConstantRetries() {
 		flowModuleRetry = {
@@ -39,8 +91,8 @@
 			(flowModuleRetry?.constant?.attempts ?? 0) > 0
 				? 'constant'
 				: (flowModuleRetry?.exponential?.attempts ?? 0) > 0
-				? 'exponential'
-				: 'disabled'
+					? 'exponential'
+					: 'disabled'
 		loaded = true
 	}
 
@@ -48,16 +100,20 @@
 		delayType = 'disabled'
 	}
 
-	$: flowModuleRetry === undefined && resetDelayType()
-	$: !loaded && initialLoad()
+	$effect(() => {
+		flowModuleRetry === undefined && resetDelayType()
+	})
+	$effect(() => {
+		!loaded && untrack(() => initialLoad())
+	})
 
 	const u32Max = 4294967295
 </script>
 
-<div class="h-full flex flex-col {$$props.class ?? ''}">
+<div class="flex flex-col gap-4">
 	<ToggleButtonGroup
 		bind:selected={delayType}
-		class={`h-10 ${disabled ? 'disabled' : ''}`}
+		class={`${disabled ? 'disabled' : ''}`}
 		on:selected={(e) => {
 			flowModuleRetry = undefined
 			if (e.detail === 'constant') {
@@ -69,10 +125,98 @@
 			}
 		}}
 	>
-		<ToggleButton light value="disabled" label="Disabled" />
-		<ToggleButton light value="constant" label="Constant" />
-		<ToggleButton light value="exponential" label="Exponential" />
+		{#snippet children({ item })}
+			<ToggleButton value="disabled" label="Disabled" {item} />
+			<ToggleButton value="constant" label="Constant" {item} />
+			<ToggleButton value="exponential" label="Exponential" {item} />
+		{/snippet}
 	</ToggleButtonGroup>
+
+	{#if delayType === 'constant' || delayType === 'exponential'}
+		<Section label="Retry Condition" class="w-full">
+			{#snippet header()}
+				<Tooltip>
+					Optional condition to determine when to retry. If not specified, will retry on any failure
+					within the configured attempt limits.
+				</Tooltip>
+			{/snippet}
+
+			<Toggle
+				checked={isRetryConditionEnabled}
+				on:change={() => {
+					if (!flowModuleRetry) {
+						return
+					}
+					if (isRetryConditionEnabled && flowModuleRetry.retry_if) {
+						const { retry_if, ...rest } = flowModuleRetry
+						flowModuleRetry = rest
+					} else {
+						flowModuleRetry = {
+							...flowModuleRetry,
+							retry_if: {
+								expr: 'error && error.name !== "PERMANENT_FAILURE"'
+							}
+						}
+					}
+				}}
+				options={{
+					right: 'Only retry if condition is met'
+				}}
+			/>
+
+			<div
+				class="w-full border rounded-md p-2 mt-2 flex flex-col {flowModuleRetry?.retry_if
+					? ''
+					: 'bg-surface-secondary'}"
+			>
+				{#if flowModuleRetry?.retry_if}
+					<span class="mt-2 text-xs font-bold">Retry condition expression</span>
+					<span class="text-xs text-primary mb-2"
+						>Expression should return true to retry, false to skip retry</span
+					>
+					<div class="border rounded-md overflow-auto w-full">
+						{#if stepPropPicker}
+							<PropPickerWrapper
+								noPadding
+								notSelectable
+								pickableProperties={stepPropPicker.pickableProperties}
+								{result}
+								on:select={({ detail }) => {
+									editor?.insertAtCursor(detail)
+									editor?.focus()
+								}}
+							>
+								<SimpleEditor
+									bind:this={editor}
+									lang="javascript"
+									bind:code={flowModuleRetry.retry_if.expr}
+									class="h-full"
+									extraLib={`declare const result = ${JSON.stringify(result)};` +
+										`\ndeclare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input || {})};`}
+								/>
+							</PropPickerWrapper>
+						{:else}
+							<SimpleEditor
+								bind:this={editor}
+								lang="javascript"
+								bind:code={flowModuleRetry.retry_if.expr}
+								class="few-lines-editor"
+								extraLib={`declare const result = ${JSON.stringify(result)};`}
+							/>
+						{/if}
+					</div>
+				{:else}
+					<span class="mt-2 text-xs font-bold">Retry condition expression</span>
+					<span class="text-xs text-primary mb-2"
+						>Expression should return true to retry, false to skip retry</span
+					>
+					<textarea disabled rows="3" class="min-h-[80px]"></textarea>
+				{/if}
+			</div>
+		</Section>
+	{/if}
+
+	{#if delayType === 'constant' || delayType === 'exponential'}
 	<div class="flex h-[calc(100%-22px)]">
 		<div class="w-1/2 h-full overflow-auto pr-2">
 			{#if delayType === 'constant'}
@@ -86,12 +230,12 @@
 						/>
 						<button
 							class="text-xs"
-							on:click={() =>
+							onclick={() =>
 								flowModuleRetry?.constant && (flowModuleRetry.constant.attempts = u32Max)}
 							>max</button
 						>
 					</div>
-					<div class="text-xs font-bold !mt-2">Delay</div>
+					<div class="text-xs font-bold !mt-4">Delay</div>
 					<SecondsInput bind:seconds={flowModuleRetry.constant.seconds} />
 				{/if}
 			{:else if delayType === 'exponential'}
@@ -101,23 +245,34 @@
 						<input max="100" bind:value={flowModuleRetry.exponential.attempts} type="number" />
 						<button
 							class="text-xs"
-							on:click={() =>
+							onclick={() =>
 								flowModuleRetry?.exponential && (flowModuleRetry.exponential.attempts = 100)}
 							>max</button
 						>
 					</div>
 					<div class="text-xs font-bold !mt-2">Multiplier</div>
-					<span class="text-xs text-tertiary">delay = multiplier * base ^ (number of attempt)</span>
+					<span class="text-xs text-primary">delay = multiplier * base ^ (number of attempt)</span>
 					<input bind:value={flowModuleRetry.exponential.multiplier} type="number" />
 					<div class="text-xs font-bold !mt-2">Base (in seconds)</div>
-					<input bind:value={flowModuleRetry.exponential.seconds} type="number" step="1" />
+					<input
+						bind:value={flowModuleRetry.exponential.seconds}
+						type="number"
+						step="1"
+						min="0"
+						class={validationError ? 'border-red-500' : ''}
+					/>
+					{#if validationError}
+						<span class="text-xs text-red-500">{validationError}</span>
+					{:else}
+						<span class="text-xs text-tertiary"
+							>Must be ≥ 1. A base of 0 would cause immediate retries.</span
+						>
+					{/if}
 					<div class="text-xs font-bold !mt-2">Randomization factor (percentage)</div>
 					<div class="flex w-full gap-4">
 						{#if !$enterpriseLicense}
-							<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap">
-								<AlertTriangle size={16} />
-								EE only
-							</div>{/if}
+							<EEOnly />
+						{/if}
 						<input
 							disabled={!$enterpriseLicense}
 							type="range"
@@ -142,23 +297,24 @@
 		</div>
 		<div class="w-1/2 h-full overflow-auto pl-2">
 			{#if true}
-				{@const { attempts: cAttempts, seconds: cSeconds } = flowModuleRetry?.constant || {}}
-				{@const {
-					attempts: eAttempts,
-					seconds: eSeconds,
-					multiplier,
-					random_factor
-				} = flowModuleRetry?.exponential || {}}
-				{@const cArray = Array.from({ length: Math.min(cAttempts || 0, 100) }, () => cSeconds)}
-				{@const eArray = Array.from(
-					{ length: Math.min(eAttempts || 0, 100) },
-					(_, i) => (multiplier || 0) * (eSeconds || 0) ** (i + cArray.length + 1)
-				)}
-				{@const array = [...cArray, ...eArray]}
-				<div class="bg-surface-secondary border rounded px-4 py-2">
-					<div class="text-xs font-medium mb-2">Retry attempts</div>
-					{#if array.length > 0}
-						<table class="text-xs">
+			{@const { attempts: cAttempts, seconds: cSeconds } = flowModuleRetry?.constant || {}}
+			{@const {
+				attempts: eAttempts,
+				seconds: eSeconds,
+				multiplier,
+				random_factor
+			} = flowModuleRetry?.exponential || {}}
+			{@const cArray = Array.from({ length: Math.min(cAttempts || 0, 100) }, () => cSeconds)}
+			{@const eArray = Array.from(
+				{ length: Math.min(eAttempts || 0, 100) },
+				(_, i) => (multiplier || 0) * (eSeconds || 0) ** (i + cArray.length + 1)
+			)}
+			{@const array = [...cArray, ...eArray]}
+			<div class="bg-surface-secondary border rounded px-4 py-2">
+				<div class="text-xs font-medium mb-2">Retry attempts</div>
+				{#if array.length > 0}
+					<table class="text-xs">
+						<thead>
 							<tr>
 								<td class="font-semibold pr-1 pb-1">1:</td>
 								<td class="pb-1"
@@ -168,13 +324,16 @@
 										seconds){/if}</td
 								>
 							</tr>
+						</thead>
+						<tbody>
 							{#each array.slice(1, 100) as delay, i}
 								{@const index = i + 2}
 								<tr>
 									<td class="font-semibold pr-1 align-top">{index}:</td>
 									<td class="pb-1 whitespace-nowrap">
 										{delay} second{delay === 1 ? '' : 's'}
-										{#if (random_factor ?? 0) > 0}(+/- {((delay ?? 0) * (random_factor ?? 0)) / 100}
+										{#if (random_factor ?? 0) > 0}(+/- {((delay ?? 0) * (random_factor ?? 0)) /
+												100}
 											seconds){/if}
 										after attempt #{index - 1}
 										{#if i > cArray.length - 2}
@@ -191,12 +350,12 @@
 									<td class="pb-1">...</td>
 								</tr>
 							{/if}
-						</table>
-					{:else}
-						<div class="text-xs">No retries</div>
-					{/if}
-				</div>
+						</tbody>
+					</table>
+				{/if}
+			</div>
 			{/if}
 		</div>
 	</div>
+	{/if}
 </div>

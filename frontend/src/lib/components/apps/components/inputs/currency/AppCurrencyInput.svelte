@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { stopPropagation } from 'svelte/legacy'
+
 	import { initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
-	import { getContext, onDestroy } from 'svelte'
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type {
 		AppViewerContext,
@@ -17,18 +19,28 @@
 	import { components } from '$lib/components/apps/editor/component'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'currencycomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		customCss?: ComponentCustomCSS<'currencycomponent'> | undefined
+		render: boolean
+	}
+
+	let {
+		id,
+		configuration,
+		verticalAlignment = undefined,
+		customCss = undefined,
+		render
+	}: Props = $props()
 
 	const { app, worldStore, selectedComponent, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: null as number | null
 	})
 
@@ -36,16 +48,19 @@
 		listInputs?.remove(id)
 	})
 
-	let resolvedConfig = initConfig(
-		components['currencycomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['currencycomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	let value: number | undefined = resolvedConfig.defaultValue
+	let initValue = outputs?.result.peak()
+	let value: number | undefined = $state(
+		!iterContext && initValue != undefined ? initValue : resolvedConfig.defaultValue
+	)
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: number) {
 			value = nvalue
+			outputs?.result.set(value ?? null)
 		}
 	}
 
@@ -56,16 +71,27 @@
 		}
 	}
 
+	let initialHandleDefault = true
+
 	function handleDefault(dflt: number | undefined) {
+		if (initialHandleDefault) {
+			initialHandleDefault = false
+			if (value != undefined) {
+				return
+			}
+		}
 		value = dflt
 		handleInput()
 	}
 
-	$: value != undefined && handleInput()
-
-	$: handleDefault(resolvedConfig.defaultValue)
-
-	let css = initCss($app.css?.currencycomponent, customCss)
+	let css = $state(initCss($app.css?.currencycomponent, untrack(() => customCss)))
+	$effect(() => {
+		resolvedConfig.defaultValue
+		untrack(() => handleDefault(resolvedConfig.defaultValue))
+	})
+	$effect(() => {
+		value != undefined && untrack(() => handleInput())
+	})
 </script>
 
 {#each Object.keys(components['currencycomponent'].initialData.configuration) as key (key)}
@@ -93,7 +119,8 @@
 	{#key resolvedConfig.isNegativeAllowed}
 		{#key resolvedConfig.locale}
 			{#key resolvedConfig.currency}
-				<div class="w-full" on:pointerdown|stopPropagation={() => ($selectedComponent = [id])}>
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="w-full" onpointerdown={stopPropagation(() => ($selectedComponent = [id]))}>
 					<CurrencyInput
 						inputClasses={{
 							formatted: twMerge(

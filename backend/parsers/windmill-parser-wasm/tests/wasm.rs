@@ -1,9 +1,10 @@
 use serde_json::json;
 use wasm_bindgen_test::wasm_bindgen_test;
-use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
+use windmill_parser::{Arg, MainArgSignature, ObjectProperty, ObjectType, Typ};
 use windmill_parser_bash::parse_powershell_sig;
 use windmill_parser_ts::{parse_deno_signature, parse_expr_for_ids, parse_expr_for_imports};
 
+#[allow(dead_code)]
 #[wasm_bindgen_test]
 fn test_parse_deno_sig() -> anyhow::Result<()> {
     let code = "
@@ -18,7 +19,7 @@ export function main(test1?: string, test2: string = \"burkina\",
 }
 ";
     assert_eq!(
-        parse_deno_signature(code, false, None)?,
+        parse_deno_signature(code, false, false, None)?,
         MainArgSignature {
             star_args: false,
             star_kwargs: false,
@@ -114,10 +115,10 @@ export function main(test1?: string, test2: string = \"burkina\",
                 Arg {
                     otyp: None,
                     name: "min_object".to_string(),
-                    typ: Typ::Object(vec![
+                    typ: Typ::Object(ObjectType::new(None, Some(vec![
                         ObjectProperty { key: "a".to_string(), typ: Box::new(Typ::Str(None)) },
                         ObjectProperty { key: "b".to_string(), typ: Box::new(Typ::Float) }
-                    ]),
+                    ]))),
                     default: None,
                     has_default: false,
                     oidx: None
@@ -139,13 +140,16 @@ export function main(test1?: string, test2: string = \"burkina\",
                     oidx: None
                 }
             ],
-            no_main_func: Some(false),
-            has_preprocessor: Some(false)
+            auto_kind: None,
+            has_preprocessor: Some(false),
+            ..Default::default()
         }
     );
 
     Ok(())
 }
+
+#[allow(dead_code)]
 #[wasm_bindgen_test]
 fn test_parse_deno_sig_implicit_types() -> anyhow::Result<()> {
     let code = "
@@ -159,7 +163,7 @@ export function main(test2 = \"burkina\",
 }
 ";
     assert_eq!(
-        parse_deno_signature(code, false, None)?,
+        parse_deno_signature(code, false, false, None)?,
         MainArgSignature {
             star_args: false,
             star_kwargs: false,
@@ -207,23 +211,25 @@ export function main(test2 = \"burkina\",
                 Arg {
                     otyp: None,
                     name: "min_object".to_string(),
-                    typ: Typ::Object(vec![
+                    typ: Typ::Object(ObjectType::new(None, Some(vec![
                         ObjectProperty { key: "a".to_string(), typ: Box::new(Typ::Str(None)) },
                         ObjectProperty { key: "b".to_string(), typ: Box::new(Typ::Int) }
-                    ]),
+                    ]))),
                     default: Some(json!({"a": "test", "b": 42})),
                     has_default: true,
                     oidx: None
                 }
             ],
-            no_main_func: Some(false),
-            has_preprocessor: Some(false)
+            auto_kind: None,
+            has_preprocessor: Some(false),
+            ..Default::default()
         }
     );
 
     Ok(())
 }
 
+#[allow(dead_code)]
 #[wasm_bindgen_test]
 fn test_parse_deno_types() -> anyhow::Result<()> {
     let code = "
@@ -236,7 +242,7 @@ export function main(foo: FooBar, {a, b}: FooBar, {c, d}: FooBar = {a: \"foo\", 
 }
 ";
     assert_eq!(
-        parse_deno_signature(code, false, None)?,
+        parse_deno_signature(code, false, false, None)?,
         MainArgSignature {
             star_args: false,
             star_kwargs: false,
@@ -266,14 +272,16 @@ export function main(foo: FooBar, {a, b}: FooBar, {c, d}: FooBar = {a: \"foo\", 
                     oidx: None
                 }
             ],
-            no_main_func: Some(false),
-            has_preprocessor: Some(false)
+            auto_kind: None,
+            has_preprocessor: Some(false),
+            ..Default::default()
         }
     );
 
     Ok(())
 }
 
+#[allow(dead_code)]
 #[wasm_bindgen_test]
 fn test_parse_enum_list() -> anyhow::Result<()> {
     let code = "
@@ -282,7 +290,7 @@ export function main(foo: (\"foo\" | \"bar\")[]) {
 }
 ";
     assert_eq!(
-        parse_deno_signature(code, false, None)?,
+        parse_deno_signature(code, false, false, None)?,
         MainArgSignature {
             star_args: false,
             star_kwargs: false,
@@ -297,14 +305,16 @@ export function main(foo: (\"foo\" | \"bar\")[]) {
                 has_default: false,
                 oidx: None
             }],
-            no_main_func: Some(false),
-            has_preprocessor: Some(false)
+            auto_kind: None,
+            has_preprocessor: Some(false),
+            ..Default::default()
         }
     );
 
     Ok(())
 }
 
+#[allow(dead_code)]
 #[wasm_bindgen_test]
 fn test_parse_extract_ident() -> anyhow::Result<()> {
     let code = "
@@ -324,6 +334,7 @@ fn test_parse_extract_ident() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 #[wasm_bindgen_test]
 fn test_parse_imports() -> anyhow::Result<()> {
     let code = "
@@ -332,7 +343,7 @@ fn test_parse_imports() -> anyhow::Result<()> {
     import { bar } from \"bar/foo/d\";
     import { bar as baroof } from \"bar\";
 ";
-    let mut l = parse_expr_for_imports(code)?;
+    let mut l = parse_expr_for_imports(code, false)?;
     l.sort();
     assert_eq!(
         l,
@@ -347,18 +358,20 @@ fn test_parse_imports() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 #[wasm_bindgen_test]
 fn test_parse_imports_dts() -> anyhow::Result<()> {
     let code = "
 export type foo = number
 ";
-    let mut l = parse_expr_for_imports(code)?;
+    let mut l = parse_expr_for_imports(code, false)?;
     l.sort();
     assert_eq!(l, vec![] as Vec<String>);
 
     Ok(())
 }
 
+#[allow(dead_code)]
 #[wasm_bindgen_test]
 fn test_parse_powershell_sig() -> anyhow::Result<()> {
     let code = "
@@ -437,8 +450,9 @@ Write-Output 'Testing...'
                     oidx: None
                 }
             ],
-            no_main_func: None,
-            has_preprocessor: None
+            auto_kind: None,
+            has_preprocessor: None,
+            ..Default::default()
         }
     );
 

@@ -1,103 +1,66 @@
 <script lang="ts">
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { PostgresTriggerService, type PostgresTrigger } from '$lib/gen'
-	import { UnplugIcon } from 'lucide-svelte'
-
-	import { canWrite, sendUserToast } from '$lib/utils'
-	import { getContext } from 'svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { Alert, Button, Skeleton } from '$lib/components/common'
-	import type { TriggerContext } from '$lib/components/triggers'
-	import PostgresTriggerEditor from './PostgresTriggerEditor.svelte'
+	import { Alert } from '$lib/components/common'
+	import PostgresTriggerEditorInner from './PostgresTriggerEditorInner.svelte'
+	import Description from '$lib/components/Description.svelte'
+	import { onMount } from 'svelte'
 
-	export let isFlow: boolean
-	export let path: string
-	export let newItem: boolean = false
+	let {
+		isFlow,
+		path,
+		selectedTrigger,
+		isDeployed = false,
+		isEditor = false,
+		defaultValues = undefined,
+		newDraft = false,
+		customLabel = undefined,
+		...props
+	} = $props()
 
-	let postgresTriggerEditor: PostgresTriggerEditor
+	let postgresTriggerEditor: PostgresTriggerEditorInner | undefined = $state(undefined)
 
-	$: path && loadTriggers()
-
-	const { triggersCount } = getContext<TriggerContext>('TriggerContext')
-
-	let databaseTriggers: (PostgresTrigger & { canWrite: boolean })[] | undefined = undefined
-	export async function loadTriggers() {
-		try {
-			databaseTriggers = (
-				await PostgresTriggerService.listPostgresTriggers({
-					workspace: $workspaceStore ?? '',
-					path,
-					isFlow
-				})
-			).map((x) => {
-				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
-			})
-			$triggersCount = { ...($triggersCount ?? {}), postgres_count: databaseTriggers?.length }
-		} catch (err) {
-			sendUserToast(`Could not load postgres triggers ${err.body}`, true)
+	async function openPostgresTriggerEditor(isFlow: boolean, isDraft: boolean) {
+		if (isDraft) {
+			postgresTriggerEditor?.openNew(isFlow, path, defaultValues, newDraft)
+		} else {
+			postgresTriggerEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}
 	}
+
+	onMount(() => {
+		postgresTriggerEditor && openPostgresTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
+	})
+
+	const cloudDisabled = $derived(isCloudHosted())
 </script>
 
-<PostgresTriggerEditor
-	on:update={() => {
-		loadTriggers()
-	}}
-	bind:this={postgresTriggerEditor}
-/>
-
 <div class="flex flex-col gap-4">
-	{#if !newItem}
-		{#if isCloudHosted()}
-			<Alert title="Not compatible with multi-tenant cloud" type="warning">
-				Postgres triggers are disabled in the multi-tenant cloud.
-			</Alert>
-		{:else if $userStore?.is_admin || $userStore?.is_super_admin}
-			<Button
-				on:click={() => postgresTriggerEditor?.openNew(isFlow, path)}
-				variant="border"
-				color="light"
-				size="xs"
-				startIcon={{ icon: UnplugIcon }}
-			>
-				New Postgres trigger
-			</Button>
-		{:else}
-			<Alert title="Only workspace admins can create routes" type="warning" size="xs" />
-		{/if}
-	{/if}
-
-	{#if databaseTriggers}
-		{#if databaseTriggers.length == 0}
-			<div class="text-xs text-secondary"> No Postgres triggers </div>
-		{:else}
-			<div class="flex flex-col divide-y pt-2">
-				{#each databaseTriggers as databaseTriggers (databaseTriggers.path)}
-					<div class="grid grid-cols-5 text-2xs items-center py-2">
-						<div class="col-span-2 truncate">{databaseTriggers.path}</div>
-						<div class="flex justify-end">
-							<button
-								on:click={() => postgresTriggerEditor?.openEdit(databaseTriggers.path, isFlow)}
-								class="px-2"
-							>
-								{#if databaseTriggers.canWrite}
-									Edit
-								{:else}
-									View
-								{/if}
-							</button>
-						</div>
-					</div>
-				{/each}
-			</div>
-		{/if}
-	{:else}
-		<Skeleton layout={[[8]]} />
-	{/if}
-
-	{#if newItem}
-		<Alert title="Triggers disabled" type="warning" size="xs">
-			Deploy the {isFlow ? 'flow' : 'script'} to add Postgres triggers.
-		</Alert>
-	{/if}
+	<PostgresTriggerEditorInner
+		bind:this={postgresTriggerEditor}
+		useDrawer={false}
+		hideTarget
+		hideTooltips={!isDeployed || cloudDisabled}
+		allowDraft={true}
+		trigger={selectedTrigger}
+		{isEditor}
+		{isDeployed}
+		{cloudDisabled}
+		{customLabel}
+		{...props}
+	>
+		{#snippet description()}
+			{#if cloudDisabled}
+				<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
+					Postgres triggers are disabled in the multi-tenant cloud.
+				</Alert>
+			{:else}
+				<Description link="https://www.windmill.dev/docs/core_concepts/postgres_triggers">
+					Windmill can connect to a Postgres database and trigger runnables (scripts, flows) in
+					response to database transactions (INSERT, UPDATE, DELETE) on specified tables, schemas,
+					or the entire database. Listening is done using Postgres's logical replication streaming
+					protocol, ensuring efficient and low-latency triggering.
+				</Description>
+			{/if}
+		{/snippet}
+	</PostgresTriggerEditorInner>
 </div>

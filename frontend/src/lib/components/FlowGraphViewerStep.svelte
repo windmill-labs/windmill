@@ -15,19 +15,25 @@
 
 	import { twMerge } from 'tailwind-merge'
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
-	import { Copy } from 'lucide-svelte'
+	import { Copy, Expand } from 'lucide-svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
+	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 
-	export let schema: any | undefined = undefined
+	interface Props {
+		schema?: any | undefined
+		stepDetail?: FlowModule | string | undefined
+		jobScriptHash?: string | undefined
+		hideDefaultInputs?: boolean
+	}
 
-	export let stepDetail: FlowModule | string | undefined = undefined
-	let codeViewer: Drawer
+	let { schema = undefined, stepDetail = undefined, jobScriptHash = undefined, hideDefaultInputs = false }: Props = $props()
+	let codeViewer: Drawer | undefined = $state()
 </script>
 
 <HighlightTheme />
 
 <Drawer bind:this={codeViewer} size="900px">
-	<DrawerContent title={'Expanded Code'} on:close={codeViewer.closeDrawer}>
+	<DrawerContent title={'Expanded Code'} on:close={codeViewer?.closeDrawer}>
 		{#if stepDetail && typeof stepDetail != 'string'}
 			{#if stepDetail.value.type == 'script'}
 				<div class="mb-4">
@@ -40,33 +46,29 @@
 						<IconedPath path={stepDetail?.value?.path ?? ''} />
 					</a>
 				</div>
-				<div class="text-2xs mb-4 mt-2">
-					<h3 class="mb-2">Step Inputs</h3>
+				<div class="text-xs mb-4 mt-2">
+					<h3 class="mb-1 text-xs font-semibold text-emphasis">Step inputs</h3>
 
 					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 				</div>
-				{#if stepDetail.value.path.startsWith('hub/')}
-					<div class="mt-6">
-						<h3 class="mb-2">Code</h3>
-						<iframe
-							class="w-full h-full text-sm"
-							title="embedded script from hub"
-							frameborder="0"
-							src="{$hubBaseUrlStore}/embed/script/{stepDetail.value?.path?.substring(4)}"
-						/>
-					</div>
-				{/if}
+				<div class="mt-6">
+					<h3 class="mb-1 mt-6 text-xs font-semibold text-emphasis">Code</h3>
+					<FlowModuleScript path={stepDetail.value.path} hash={jobScriptHash} />
+				</div>
 			{:else if stepDetail.value.type == 'rawscript'}
 				<div class="text-2xs mb-4 mt-2">
-					<h3 class="mb-2">Step Inputs</h3>
+					<h3 class="mb-1 text-xs font-semibold text-emphasis">Step inputs</h3>
 					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 				</div>
 
-				<h3 class="mb-2">Code</h3>
-				<span class="!text-xs">
+				<div class="mb-1 mt-6 flex items-center gap-1">
+					<h3 class="text-xs font-semibold text-emphasis">Code</h3>
+					<LanguageIcon lang={stepDetail.value.language} size={14} />
+				</div>
+				<div class="!text-xs rounded-md p-2 border bg-surface-input">
 					<HighlightCode language={stepDetail.value.language} code={stepDetail.value.content} />
-				</span>
-				<h3 class="mt-4 mb-2">Lockfile</h3>
+				</div>
+				<h3 class="mt-8 mb-1 text-xs font-normal text-primary">Lockfile</h3>
 				<div>
 					{#if stepDetail.value.lock}
 						<pre class="bg-surface-secondary text-sm p-2 h-full overflow-auto w-full"
@@ -84,10 +86,10 @@
 <div class={twMerge('p-2 overflow-y-scroll')}>
 	{#if stepDetail == undefined}
 		<div>
-			<p class="font-medium text-secondary text-center pt-4 pb-8">
+			<p class="text-secondary text-xs italic px-2 pt-2">
 				Click on a step to see its details
 			</p>
-			{#if schema}
+			{#if schema && !hideDefaultInputs}
 				<h3 class="mb-2 font-semibold">Flow Inputs</h3>
 				<SchemaViewer {schema} />
 			{/if}
@@ -110,7 +112,7 @@
 				{/if}
 				<span
 					class={twMerge(
-						'font-medium text-lg',
+						'font-semibold text-emphasis text-sm',
 						stepDetail.id !== 'failure' && stepDetail.id !== 'preprocessor' ? 'ml-2' : ''
 					)}
 				>
@@ -121,6 +123,7 @@
 					{:else if stepDetail.value.type == 'forloopflow'}
 						For loop {#if stepDetail.value.parallel}(parallel){/if}
 						{#if stepDetail.value.skip_failures}(skip failures){/if}
+						{#if stepDetail.value.squash}(squash){/if}
 					{:else if stepDetail.value.type == 'branchall'}
 						Run all branches {#if stepDetail.value.parallel}(parallel){/if}
 					{:else if stepDetail.value.type == 'branchone'}
@@ -128,7 +131,8 @@
 					{:else if stepDetail.value.type == 'flow'}
 						Inner flow
 					{:else if stepDetail.value.type == 'whileloopflow'}
-						While loop
+						While loop {#if stepDetail.value.skip_failures}(skip failures){/if}
+						{#if stepDetail.value.squash}(squash){/if}
 					{:else if stepDetail.id === 'failure'}
 						Error handler
 					{:else if stepDetail.id === 'preprocessor'}
@@ -137,6 +141,8 @@
 						Inline {stepDetail.value.language} script
 					{:else if stepDetail.value.type == 'script'}
 						Workspace script
+					{:else if stepDetail.value.type == 'aiagent'}
+						AI Agent
 					{/if}
 				</span>
 			</div>
@@ -160,33 +166,39 @@
 		{:else if stepDetail.value.type == 'rawscript'}
 			{#if stepDetail.id !== 'preprocessor'}
 				<div class="text-xs">
-					<h3 class="mb-2 font-semibold mt-2">Step Inputs</h3>
+					<h3 class="mb-1 font-semibold mt-2 text-xs text-emphasis">Step inputs</h3>
 					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 				</div>
 			{/if}
 
 			<div>
-				<div class="mb-2 mt-4 flex justify-between items-center">
-					<h3 class="font-semibold">Code</h3>
-					<Button size="xs2" color="light" variant="contained" on:click={codeViewer.openDrawer}>
-						Expand
-					</Button>
+				<div class="mb-1 mt-6 flex justify-between items-center">
+					<div class="flex items-center gap-2">
+						<h3 class="font-semibold text-xs text-emphasis">Code</h3>
+						<LanguageIcon lang={stepDetail.value.language} width={14} height={14} />
+					</div>
+					<Button
+						unifiedSize="sm"
+						variant="subtle"
+						onClick={codeViewer?.openDrawer}
+						startIcon={{ icon: Expand }}>Expand</Button
+					>
 				</div>
-				<div class="border p-2 rounded-md">
+				<div class="border p-2 rounded-md bg-surface-input">
 					<HighlightCode
 						language={stepDetail.value.language}
 						code={stepDetail.value.content}
-						class="whitespace-pre-wrap"
+						className="whitespace-pre-wrap"
 					/>
 				</div>
-				<h3 class="mb-2 mt-4">Lockfile</h3>
+				<h3 class="mb-1 mt-6 text-xs font-semibold text-emphasis">Lockfile</h3>
 				<div>
 					{#if stepDetail.value.lock}
-						<pre class="bg-surface-secondary text-xs p-2 h-full overflow-auto w-full"
+						<pre class="bg-surface-input rounded-md border text-xs p-2 h-full overflow-auto w-full"
 							>{stepDetail.value.lock}</pre
 						>
 					{:else}
-						<p class="bg-surface-secondary text-sm p-2 rounded">
+						<p class="bg-surface-secondary text-xs italic p-2 rounded">
 							There is no lockfile for this inline script
 						</p>
 					{/if}
@@ -194,35 +206,32 @@
 			</div>
 		{:else if stepDetail.value.type == 'script'}
 			{#if stepDetail.id !== 'preprocessor'}
-				<div class="text-2xs">
-					<h3 class="mb-2 font-semibold mt-2">Step Inputs</h3>
+				<div class="text-xs">
+					<h3 class="mb-1 font-semibold mt-2 text-xs text-emphasis">Step inputs</h3>
 					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 				</div>
 			{/if}
-			{#if stepDetail.value.path.startsWith('hub/')}
-				<div class="flex flex-col grow">
-					<div class="mb-2 flex justify-between items-center">
-						<h3 class="font-semibold">Code</h3>
-						<Button size="xs2" color="light" variant="contained" on:click={codeViewer.openDrawer}>
-							Expand
-						</Button>
-					</div>
-					<iframe
-						class="w-full grow text-sm h-full"
-						title="embedded script from hub"
-						frameborder="0"
-						src="{$hubBaseUrlStore}/embed/script/{stepDetail.value?.path?.substring(4)}"
-					/>
-				</div>
-			{:else}
-				<FlowModuleScript path={stepDetail.value.path} />
-			{/if}
+			<div class="mb-1 mt-6 flex justify-between items-center">
+				<h3 class="font-semibold text-xs text-emphasis">Code</h3>
+				<Button
+					unifiedSize="sm"
+					variant="subtle"
+					onClick={codeViewer?.openDrawer}
+					startIcon={{ icon: Expand }}>Expand</Button
+				>
+			</div>
+			<FlowModuleScript path={stepDetail.value.path} hash={jobScriptHash} />
+		{:else if stepDetail.value.type == 'aiagent'}
+			<div class="text-xs">
+				<h3 class="mb-1 font-semibold mt-2 text-xs text-emphasis">Step inputs</h3>
+				<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
+			</div>
 		{:else if stepDetail.value.type == 'forloopflow'}
 			<div>
 				<p class="font-medium text-secondary pb-2"> Iterator expression: </p>
 				{#if stepDetail.value.iterator.type == 'static'}
 					<ObjectViewer json={stepDetail.value.iterator.value} />
-				{:else}
+				{:else if stepDetail.value.iterator.type == 'javascript'}
 					<span class="text-xs">
 						<Highlight language={typescript} code={cleanExpr(stepDetail.value.iterator.expr)} />
 					</span>
@@ -259,7 +268,7 @@
 			<div class="flex-col flex gap-2">
 				<div class="flex flex-row gap-4 text-sm p-2">
 					<Badge large={true} color="blue">Default branch</Badge>
-					<p class="italic text-tertiary"
+					<p class="italic text-primary"
 						>If none of the predicates' expressions evaluated in-order match, this branch is chosen</p
 					>
 				</div>
@@ -276,11 +285,14 @@
 				{/each}
 			</div>
 		{:else if stepDetail.value.type == 'flow'}
-			<div class="text-sm mb-1 flex justify-end flex-row">
+			<div class="text-sm mb-1 flex justify-between flex-row items-center">
+				<span class="text-xs font-normal text-secondary"
+					>Flow path: <span class="text-emphasis">{stepDetail.value.path}</span>
+				</span>
 				<Button
-					size="xs2"
+					unifiedSize="sm"
 					startIcon={{ icon: Copy }}
-					color="light"
+					variant="subtle"
 					on:click={() => {
 						if (typeof stepDetail !== 'string') {
 							const val = stepDetail?.value

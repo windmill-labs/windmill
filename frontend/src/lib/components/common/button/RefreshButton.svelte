@@ -1,12 +1,19 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import { Button, ButtonType } from '$lib/components/common'
 	import { RefreshCw } from 'lucide-svelte'
 
 	import Popover from '$lib/components/Popover.svelte'
 
-	export let loading: boolean
+	interface Props {
+		loading: boolean
+		size?: ButtonType.UnifiedSize
+		variant?: ButtonType.Variant
+		onClick?: () => void
+	}
 
-	let buttonHover = false
+	let { loading, size = 'md', onClick, variant = 'subtle' }: Props = $props()
+
+	let buttonHover = $state(false)
 </script>
 
 <Popover>
@@ -14,13 +21,13 @@
 		on:mouseenter={() => (buttonHover = true)}
 		on:mouseleave={() => (buttonHover = false)}
 		color="light"
-		size="xs2"
-		variant="border"
-		on:click
-	>
-		<RefreshCw class={loading ? 'animate-spin ' : ''} size="14" />
-	</Button>
-	<svelte:fragment slot="text">
+		unifiedSize={size}
+		{variant}
+		iconOnly
+		{onClick}
+		startIcon={{ icon: RefreshCw, props: { class: loading ? 'animate-spin' : '' } }}
+	></Button>
+	{#snippet text()}
 		{#if loading}
 			{#if buttonHover}
 				Stop Refreshing
@@ -30,5 +37,5 @@
 		{:else}
 			Refresh
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 </Popover>

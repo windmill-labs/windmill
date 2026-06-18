@@ -1,19 +1,24 @@
 <script lang="ts">
-	import { getContext, onMount } from 'svelte'
+	import { getContext, onMount, untrack } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 
 	import type { AppViewerContext, HiddenRunnable } from '../../types'
 	import RunnableComponent from './RunnableComponent.svelte'
 	import InitializeComponent from './InitializeComponent.svelte'
+	import { isRunnableByName, isRunnableByPath } from '../../inputType'
 
-	export let id: string
-	export let runnable: HiddenRunnable
+	interface Props {
+		id: string
+		runnable: HiddenRunnable
+		children?: import('svelte').Snippet
+	}
+
+	let { id, runnable, children }: Props = $props()
 
 	const { worldStore, staticExporter, noBackend, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let result: any = noBackend ? runnable.noBackendValue : undefined
-
+	let result: any = $state(noBackend ? untrack(() => runnable).noBackendValue : undefined)
 	export function onSuccess() {
 		if (runnable.recomputeIds) {
 			runnable.recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb()))
@@ -26,16 +31,15 @@
 		}
 	})
 
-	let outputs = initOutput($worldStore, id, {
-		result: result,
+	let outputs = initOutput($worldStore, untrack(() => id), {
+		result: untrack(() => result),
 		loading: false,
 		jobId: undefined
 	})
 </script>
 
-{#if runnable && (runnable.type == 'runnableByPath' || (runnable.type == 'runnableByName' && runnable.inlineScript != undefined))}
+{#if runnable && (isRunnableByPath(runnable) || (isRunnableByName(runnable) && runnable.inlineScript != undefined))}
 	<RunnableComponent
-		hasChildrens={false}
 		render={false}
 		{id}
 		fields={runnable.fields}
@@ -46,10 +50,10 @@
 		{runnable}
 		wrapperClass="hidden"
 		recomputableByRefreshButton={runnable.autoRefresh ?? true}
-		on:success={onSuccess}
+		onSuccess={(_r) => onSuccess()}
 		{outputs}
 	>
-		<slot />
+		{@render children?.()}
 	</RunnableComponent>
 {:else}
 	<InitializeComponent {id} />

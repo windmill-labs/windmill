@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { Button, ClearableInput, Menu } from '../../../common'
 	import Popover from '../../../Popover.svelte'
 	import ColorInput from '../settingsPanel/inputEditor/ColorInput.svelte'
@@ -12,15 +12,21 @@
 		type StylePropertyValue
 	} from './quickStyleProperties'
 
-	export let prop: StyleStoreValue['style'][number]['prop']
-	export let value: string | undefined
-	export let inline = false
+	interface Props {
+		prop: StyleStoreValue['style'][number]['prop']
+		value: string | undefined
+		inline?: boolean
+		onChange?: (value: string) => void
+	}
+
+	let { prop, value = $bindable(), inline = false, onChange }: Props = $props()
 	const styleStore = getContext<StyleStore>(STYLE_STORE_KEY)
-	const dispatch = createEventDispatcher()
-	const key = prop.key
-	const type = prop.value?.['type']
-	let unit: (typeof StylePropertyUnits)[number] = StylePropertyUnits[0]
-	let internalValue: number | string
+	const key = untrack(() => prop).key
+	const type = untrack(() => prop).value?.['type']
+	let unit: (typeof StylePropertyUnits)[number] = $state(StylePropertyUnits[0])
+	let internalValue: number | string = $derived(
+		getInteralValue(value, prop.value as StylePropertyValue)
+	)
 
 	function getInteralValue(value: string | undefined, propValue: StylePropertyValue) {
 		if (!value) {
@@ -34,22 +40,22 @@
 		}
 		return ''
 	}
-	$: internalValue = getInteralValue(value, prop.value as StylePropertyValue)
-	$: dispatch('change', value)
 
 	function updateValue(next: number) {
 		value = next ? next + unit : ''
+		onChange?.(value ?? '')
 	}
 
 	function updateUnit(next: (typeof StylePropertyUnits)[number]) {
 		value = value?.replace(unit, next) || ''
 		unit = next
+		onChange?.(value ?? '')
 	}
 </script>
 
 <div class={inline && type !== StylePropertyType.color ? '' : 'w-full'}>
 	{#if prop.value['title']}
-		<div class="font-medium text-xs text-tertiary">
+		<div class="font-medium text-xs text-primary">
 			{prop.value['title']}
 		</div>
 	{/if}
@@ -59,15 +65,16 @@
 			{#each $styleStore.topColors as color}
 				<Popover placement="bottom" notClickable disappearTimeout={0} class="flex">
 					<Button
-						color="light"
 						size="xs"
-						variant="border"
+						variant="default"
 						btnClasses="!p-0 !w-[34px] !h-[34px]"
 						aria-label="Set {key} to {color}"
 						style={`background-color: ${color};`}
 						on:click={() => (value = color)}
 					/>
-					<svelte:fragment slot="text">{color}</svelte:fragment>
+					{#snippet text()}
+						{color}
+					{/snippet}
 				</Popover>
 			{/each}
 		{:else if type === StylePropertyType.number}
@@ -89,37 +96,39 @@
 				on:change={({ detail }) => updateValue(detail)}
 			>
 				<Menu
-					let:close
 					noMinW
 					wrapperClasses="h-full bg-surface rounded-r-md border-y border-r pr-0.5"
 					popupClasses="!mt-0"
 				>
-					<button
-						slot="trigger"
-						type="button"
-						class="font-normal text-xs px-1 py-1.5 w-8 rounded mt-0.5 duration-200 hover:bg-gray-200/90"
-					>
-						{unit}
-					</button>
-					<ul class="bg-surface rounded border py-1 overflow-auto">
-						{#each StylePropertyUnits as u}
-							<li class="w-full">
-								<Button
-									type="button"
-									color="light"
-									size="xs"
-									variant="contained"
-									btnClasses="!justify-start !rounded-none !w-full !px-3 !py-1.5"
-									on:click={() => {
-										updateUnit(u)
-										close()
-									}}
-								>
-									{u}
-								</Button>
-							</li>
-						{/each}
-					</ul>
+					{#snippet trigger()}
+						<button
+							type="button"
+							class="font-normal text-xs px-1 py-1.5 w-8 rounded mt-0.5 duration-200 hover:bg-gray-200/90"
+						>
+							{unit}
+						</button>
+					{/snippet}
+					{#snippet children({ close })}
+						<ul class="bg-surface rounded border py-1 overflow-auto">
+							{#each StylePropertyUnits as u}
+								<li class="w-full">
+									<Button
+										type="button"
+										color="light"
+										size="xs"
+										variant="contained"
+										btnClasses="!justify-start !rounded-none !w-full !px-3 !py-1.5"
+										on:click={() => {
+											updateUnit(u)
+											close()
+										}}
+									>
+										{u}
+									</Button>
+								</li>
+							{/each}
+						</ul>
+					{/snippet}
 				</Menu>
 			</ClearableInput>
 		{:else if type === StylePropertyType.text}
@@ -142,10 +151,12 @@
 						{#if typeof option.icon === 'string'}
 							{option.icon}
 						{:else}
-							<svelte:component this={option.icon} size={18} />
+							<option.icon size={18} />
 						{/if}
 					</Button>
-					<svelte:fragment slot="text">{option.text}</svelte:fragment>
+					{#snippet text()}
+						{option.text}
+					{/snippet}
 				</Popover>
 			{:else}
 				<ClearableInput inputClass="min-w-[32px]" bind:value />

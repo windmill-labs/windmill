@@ -1,88 +1,220 @@
 <script lang="ts">
-	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
+	import { preventDefault, stopPropagation } from 'svelte/legacy'
+
 	import Popover from '$lib/components/Popover.svelte'
-	import { classNames } from '$lib/utils'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { classNames, type Item, type StateStore } from '$lib/utils'
 	import {
-		AlertTriangle,
 		Bed,
 		Database,
 		Gauge,
-		Move,
+		EllipsisVertical,
 		PhoneIncoming,
 		Repeat,
 		Square,
 		SkipForward,
-		Voicemail,
-		X
+		Pin,
+		X,
+		Play,
+		Loader2,
+		TriangleAlert,
+		Timer,
+		Maximize2
 	} from 'lucide-svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import type { FlowEditorContext, FlowInput } from '../types'
-	import { get, type Writable } from 'svelte/store'
+	import type { FlowEditorContext } from '../types'
 	import { twMerge } from 'tailwind-merge'
 	import IdEditorInput from '$lib/components/IdEditorInput.svelte'
 	import { dfs } from '../dfs'
+	import { dfs as dfsPreviousResults } from '../previousResults'
 	import { Drawer } from '$lib/components/common'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { getDependeeAndDependentComponents } from '../flowExplorer'
-	import { replaceId } from '../flowStore'
+	import { replaceId } from '../flowStore.svelte'
 	import FlowModuleSchemaItemViewer from './FlowModuleSchemaItemViewer.svelte'
-	import FlowPropPicker from '$lib/components/flows/propPicker/FlowPropPicker.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
-	export let selected: boolean = false
-	export let deletable: boolean = false
-	export let retry: boolean = false
-	export let cache: boolean = false
-	export let earlyStop: boolean = false
-	export let skip: boolean = false
-	export let suspend: boolean = false
-	export let sleep: boolean = false
-	export let mock: boolean = false
-	export let bold: boolean = false
-	export let id: string | undefined = undefined
-	export let label: string
-	export let path: string = ''
-	export let modType: string | undefined = undefined
-	export let bgColor: string = ''
-	export let concurrency: boolean = false
-	export let retries: number | undefined = undefined
-	export let warningMessage: string | undefined = undefined
-	export let isTrigger: boolean = false
-	let pickableIds: Record<string, any> | undefined = undefined
+	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
+	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
+	import type { FlowState } from '$lib/components/flows/flowState'
+	import { Button } from '$lib/components/common'
+	import ModuleTest from '$lib/components/ModuleTest.svelte'
+	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
+	import type { Job } from '$lib/gen'
+	import {
+		getNodeColorClasses,
+		aiActionToNodeState,
+		type FlowNodeState
+	} from '$lib/components/graph'
+	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
+	import DiffActionBar from './DiffActionBar.svelte'
+	import { getGraphContext } from '$lib/components/graph/graphContext'
+	import MoveHandleButton from '$lib/components/graph/MoveHandleButton.svelte'
 
-	const { flowInputsStore } = getContext<{ flowInputsStore: Writable<FlowInput | undefined> }>(
-		'FlowGraphContext'
-	)
+	interface Props {
+		selected?: boolean
+		deletable?: boolean
+		moduleAction: ModuleActionInfo | undefined
+		retry?: boolean
+		cache?: boolean
+		earlyStop?: boolean
+		skip?: boolean
+		suspend?: boolean
+		sleep?: boolean
+		mock?:
+			| {
+					enabled?: boolean
+					return_value?: unknown
+			  }
+			| undefined
+		bold?: boolean
+		id?: string | undefined
+		label: string
+		path?: string
+		nodeState?: FlowNodeState
+		concurrency?: boolean
+		// TODO: Implement for this one. See how concurrency is implemented.
+		debouncing?: boolean
+		retries?: number | undefined
+		warningMessage?: string | undefined
+		isTrigger?: boolean
+		editMode?: boolean
+		alwaysShowOutputPicker?: boolean
+		loopStatus?: { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' } | undefined
+		icon?: import('svelte').Snippet
+		onTestUpTo?: ((id: string) => void) | undefined
+		inputTransform?: Record<string, any> | undefined
+		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
+		onEditInput?: (moduleId: string, key: string) => void
+		flowJob?: Job | undefined
+		isOwner?: boolean
+		enableTestRun?: boolean
+		maximizeSubflow?: () => void
+		menuItems?: Item[]
+	}
 
-	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	let {
+		selected = false,
+		deletable = false,
+		moduleAction = undefined,
+		retry = false,
+		cache = false,
+		earlyStop = false,
+		skip = false,
+		suspend = false,
+		sleep = false,
+		mock = { enabled: false },
+		bold = false,
+		id = undefined,
+		label,
+		path = '',
+		nodeState,
+		concurrency = false,
+		debouncing = false,
+		retries = undefined,
+		warningMessage = undefined,
+		isTrigger = false,
+		editMode = false,
+		alwaysShowOutputPicker = false,
+		loopStatus = undefined,
+		icon,
+		onTestUpTo,
+		inputTransform,
+		onUpdateMock,
+		onEditInput,
+		flowJob,
+		enableTestRun = false,
+		maximizeSubflow = undefined,
+		menuItems = undefined
+	}: Props = $props()
+
+	// AI action colors take priority over execution state
+	let effectiveState = $derived(aiActionToNodeState(moduleAction?.action) ?? nodeState)
+	let colorClasses = $derived(getNodeColorClasses(effectiveState, selected))
+
+	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
+	const flowInputsStore = flowEditorContext?.flowInputsStore
+	const flowStore = flowEditorContext?.flowStore
+
+	const flowGraphContext = getGraphContext()
+	const diffManager = flowGraphContext?.diffManager
+	const moveManager = flowGraphContext?.moveManager
+
+	// Hide per-node action buttons when multiple nodes are selected (multi-select mode)
+	let isMultiSelected = $derived((flowGraphContext?.selectionManager?.selectedIds?.length ?? 0) > 1)
+
+	let pickableIds: Record<string, any> | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
-
-	const { currentStepStore: copilotCurrentStepStore } =
-		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 
 	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
 	const flowPropPickerConfig = propPickerContext?.flowPropPickerConfig
 	const pickablePropertiesFiltered = propPickerContext?.pickablePropertiesFiltered
 
-	$: pickableIds = $pickablePropertiesFiltered?.priorIds
+	$effect(() => {
+		pickableIds = $pickablePropertiesFiltered?.priorIds
+	})
 
-	let editId = false
+	let editId = $state(false)
 
-	let newId: string = id ?? ''
+	let newId: string = $state(untrack(() => id) ?? '')
 
-	let hover = false
+	let moduleTest: ModuleTest | undefined = $state(undefined)
+	let testIsLoading = $state(false)
+	let hover = $state(false)
+	let connectingData: any | undefined = $state(undefined)
+	let outputPicker: OutputPicker | undefined = $state(undefined)
+	let testJob: any | undefined = $state(undefined)
+	let outputPickerBarOpen = $state(false)
+	let dropdownOpen = $state(false)
+
+	let flowStateStore = $derived(flowEditorContext?.flowStateStore)
+
+	let stepHistoryLoader = getStepHistoryLoaderContext()
+
+	function updateConnectingData(
+		id: string | undefined,
+		pickableIds: Record<string, any> | undefined,
+		flowPropPickerConfig: any | undefined,
+		flowStateStore: StateStore<FlowState> | undefined
+	) {
+		if (!id) return
+		connectingData =
+			flowPropPickerConfig && pickableIds && Object.keys(pickableIds).includes(id)
+				? pickableIds[id]
+				: (flowStateStore?.val?.[id]?.previewResult ?? {})
+	}
+	$effect(() => {
+		updateConnectingData(id, pickableIds, $flowPropPickerConfig, flowStateStore)
+	})
+
+	let isConnectingCandidate = $derived(
+		!!id && !!$flowPropPickerConfig && !!pickableIds && Object.keys(pickableIds).includes(id)
+	)
+
+	let isMoving = $derived(!!moveManager?.dragging || !!moveManager?.movingModuleId)
+
+	const outputPickerVisible = $derived(
+		editMode && (isConnectingCandidate || alwaysShowOutputPicker) && !!id && !isMoving
+	)
+
+	const icon_render = $derived(icon)
+
+	let testRunDropdownOpen = $state(false)
+
+	let outputPickerInner: OutputPickerInner | undefined = $state(undefined)
+	let historyOpen = $derived.by(() => outputPickerInner?.getHistoryOpen?.() ?? false)
 </script>
 
 {#if deletable && id && editId}
-	{@const flowStore = flowEditorContext?.flowStore ? get(flowEditorContext?.flowStore) : undefined}
+	{@const flowStore = flowEditorContext?.flowStore ?? undefined}
 	{@const getDeps = getDependeeAndDependentComponents(
 		id,
-		flowStore?.value.modules ?? [],
-		flowStore?.value.failure_module
+		flowStore?.val?.value.modules ?? [],
+		flowStore?.val?.value.failure_module
 	)}
 	<Drawer bind:open={editId}>
-		<DrawerContent title="Edit Step Id {id}" on:close={() => (editId = false)}>
+		<DrawerContent title="Edit step id {id}" on:close={() => (editId = false)}>
 			<div>
 				<IdEditorInput
 					buttonText="Edit Id "
@@ -90,19 +222,19 @@
 					label=""
 					initialId={id}
 					acceptUnderScores
-					reservedIds={dfs(flowStore?.value.modules ?? [], (x) => x.id)}
+					reservedIds={dfs(flowStore?.val?.value.modules ?? [], (x) => x.id)}
 					bind:value={newId}
-					on:save={(e) => {
-						dispatch('changeId', { id, newId: e.detail, deps: getDeps?.dependents ?? {} })
+					onSave={({ oldId, newId }) => {
+						dispatch('changeId', { id: oldId, newId, deps: getDeps?.dependents ?? {} })
 						editId = false
 					}}
-					on:close={() => {
+					onClose={() => {
 						editId = false
 					}}
 				/>
 				<div class="mt-8">
 					<h3>Step Inputs Replacements</h3>
-					<div class="text-2xs text-tertiary pt-0.5">
+					<div class="text-2xs text-primary pt-0.5">
 						Replace all occurrences of `results.<span class="font-bold">{id}</span>` with{' '}
 						results.<span class="font-bold">{newId}</span> in the step inputs of all steps that depend
 						on it.
@@ -123,7 +255,7 @@
 								</div>
 							{/each}
 						{:else}
-							<div class="text-2xs text-tertiary"> No dependents </div>
+							<div class="text-2xs text-primary"> No dependents </div>
 						{/if}
 					</div>
 				</div>
@@ -132,162 +264,243 @@
 	</Drawer>
 {/if}
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<!-- svelte-ignore a11y-no-static-element-interactions -->
-<div
-	class={classNames(
-		'w-full module flex rounded-sm cursor-pointer max-w-full',
-		selected ? 'outline outline-offset-0  outline-2  outline-slate-500 dark:outline-gray-400' : '',
-		'flex relative',
-		$copilotCurrentStepStore === id ? 'z-[901]' : ''
-	)}
-	style="width: 275px; height: 34px; background-color: {bgColor};"
-	on:mouseenter={() => (hover = true)}
-	on:mouseleave={() => (hover = false)}
-	on:click|preventDefault|stopPropagation
->
-	<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
-		{#if retry}
-			<Popover notClickable>
-				<div
-					transition:fade|local={{ duration: 200 }}
-					class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
-				>
-					{#if retries}<span class="text-red-400 mr-2">{retries}</span>{/if}
-					<Repeat size={12} />
-				</div>
-				<svelte:fragment slot="text">Retries</svelte:fragment>
-			</Popover>
-		{/if}
-
-		{#if concurrency}
-			<Popover notClickable>
-				<div
-					transition:fade|local={{ duration: 200 }}
-					class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
-				>
-					<Gauge size={12} />
-				</div>
-				<svelte:fragment slot="text">Concurrency Limits</svelte:fragment>
-			</Popover>
-		{/if}
-		{#if cache}
-			<Popover notClickable>
-				<div
-					transition:fade|local={{ duration: 200 }}
-					class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
-				>
-					<Database size={12} />
-				</div>
-				<svelte:fragment slot="text">Cached</svelte:fragment>
-			</Popover>
-		{/if}
-		{#if earlyStop}
-			<Popover notClickable>
-				<div
-					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-				>
-					<Square size={12} />
-				</div>
-				<svelte:fragment slot="text"
-					>{isTrigger
-						? 'Stop early if there are no new events'
-						: 'Early stop/break'}</svelte:fragment
-				>
-			</Popover>
-		{/if}
-		{#if skip}
-			<Popover notClickable>
-				<div
-					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-				>
-					<SkipForward size={12} />
-				</div>
-				<svelte:fragment slot="text">Skip</svelte:fragment>
-			</Popover>
-		{/if}
-		{#if suspend}
-			<Popover notClickable>
-				<div
-					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-				>
-					<PhoneIncoming size={12} />
-				</div>
-				<svelte:fragment slot="text">Suspend</svelte:fragment>
-			</Popover>
-		{/if}
-		{#if sleep}
-			<Popover notClickable>
-				<div
-					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-				>
-					<Bed size={12} />
-				</div>
-				<svelte:fragment slot="text">Sleep</svelte:fragment>
-			</Popover>
-		{/if}
-		{#if mock}
-			<Popover notClickable>
-				<div
-					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-				>
-					<Voicemail size={12} />
-				</div>
-				<svelte:fragment slot="text">Mocked</svelte:fragment>
-			</Popover>
-		{/if}
-	</div>
-
-	<FlowModuleSchemaItemViewer {label} {path} {id} {deletable} {bold} bind:editId {hover}>
-		<svelte:fragment slot="icon">
-			<slot name="icon" />
-		</svelte:fragment>
-	</FlowModuleSchemaItemViewer>
-
-	{#if id && $flowPropPickerConfig && pickableIds && Object.keys(pickableIds).includes(id)}
-		<div class="absolute -bottom-[14px] right-[21px] translate-x-[50%] center-center">
-			<FlowPropPicker
-				json={{
-					[id]: pickableIds[id]
-				}}
-				prefix={'results'}
-			/>
-		</div>
+{#if deletable && id && flowStore && outputPickerVisible}
+	{@const flowStoreVal = flowStore.val}
+	{@const mod = flowStoreVal?.value ? dfsPreviousResults(id, flowStoreVal, false)[0] : undefined}
+	{#if mod && flowStateStore?.val?.[id]}
+		<ModuleTest
+			bind:this={moduleTest}
+			{mod}
+			bind:testIsLoading
+			bind:testJob
+			onJobDone={() => {
+				outputPickerInner?.setJobPreview?.()
+			}}
+		/>
 	{/if}
+{/if}
 
-	{#if deletable}
-		<button
-			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
-	outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-red-400 hover:text-white
-	 {hover || selected ? '' : '!hidden'}"
-			title="Delete"
-			on:click|preventDefault|stopPropagation={(event) =>
-				dispatch('delete', { event, id, type: modType })}
-		>
-			<X class="mx-[3px]" size={12} strokeWidth={2} />
-		</button>
-
-		{#if id !== 'preprocessor'}
-			<button
-				class="absolute -top-[10px] right-[60px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
-outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-blue-400 hover:text-white
- {hover ? '' : '!hidden'}"
-				on:click|preventDefault|stopPropagation={(event) => dispatch('move')}
-				title="Move"
-			>
-				<Move class="mx-[3px]" size={12} strokeWidth={2} />
-			</button>
+<div class="relative">
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		class={classNames(
+			'w-full module flex rounded-md cursor-pointer max-w-full drop-shadow-sm',
+			colorClasses.bg
+		)}
+		style="width: 275px; height: 34px;"
+		onmouseenter={() => (hover = true)}
+		onmouseleave={() => (hover = false)}
+		onpointerdown={stopPropagation(preventDefault((e) => dispatch('pointerdown', e)))}
+	>
+		{#if id}
+			<DiffActionBar moduleId={id} {moduleAction} {diffManager} {flowStore} />
 		{/if}
+		<div
+			class={classNames('absolute z-0 rounded-md outline-offset-0', colorClasses.outline)}
+			style={`width: 275px; height: 34px;`}
+		></div>
+		<div
+			class="absolute text-sm right-2 flex flex-row gap-1 z-10 transition-all duration-100"
+			style={`bottom: ${outputPickerBarOpen ? '-38px' : '-12px'}`}
+		>
+			{#if retry}
+				<Popover notClickable>
+					<div
+						transition:fade|local={{ duration: 200 }}
+						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
+					>
+						{#if retries}<span class="text-red-400 mr-2">{retries}</span>{/if}
+						<Repeat size={12} />
+					</div>
+					{#snippet text()}
+						Retries
+					{/snippet}
+				</Popover>
+			{/if}
 
-		{#if (id && Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}).length > 0) || Boolean(warningMessage)}
-			<div class="absolute -top-[10px] -left-[10px]">
-				<Popover>
-					<svelte:fragment slot="text">
+			{#if concurrency}
+				<Popover notClickable>
+					<div
+						transition:fade|local={{ duration: 200 }}
+						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
+					>
+						<Gauge size={12} />
+					</div>
+					{#snippet text()}
+						Concurrency Limits
+					{/snippet}
+				</Popover>
+			{/if}
+			{#if debouncing}
+				<Popover notClickable>
+					<div
+						transition:fade|local={{ duration: 200 }}
+						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
+					>
+						<Timer size={12} />
+					</div>
+					{#snippet text()}
+						Debouncing
+					{/snippet}
+				</Popover>
+			{/if}
+			{#if cache}
+				<Popover notClickable>
+					<div
+						transition:fade|local={{ duration: 200 }}
+						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
+					>
+						<Database size={12} />
+					</div>
+					{#snippet text()}
+						Cached
+					{/snippet}
+				</Popover>
+			{/if}
+			{#if earlyStop}
+				<Popover notClickable>
+					<div
+						transition:fade|local={{ duration: 200 }}
+						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+					>
+						<Square size={12} />
+					</div>
+					{#snippet text()}
+						{isTrigger ? 'Stop early if there are no new events' : 'Early stop/break'}
+					{/snippet}
+				</Popover>
+			{/if}
+			{#if skip}
+				<Popover notClickable>
+					<div
+						transition:fade|local={{ duration: 200 }}
+						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+					>
+						<SkipForward size={12} />
+					</div>
+					{#snippet text()}
+						Skip
+					{/snippet}
+				</Popover>
+			{/if}
+			{#if suspend}
+				<Popover notClickable>
+					<div
+						transition:fade|local={{ duration: 200 }}
+						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+					>
+						<PhoneIncoming size={12} />
+					</div>
+					{#snippet text()}
+						Suspend
+					{/snippet}
+				</Popover>
+			{/if}
+			{#if sleep}
+				<Popover notClickable>
+					<div
+						transition:fade|local={{ duration: 200 }}
+						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+					>
+						<Bed size={12} />
+					</div>
+					{#snippet text()}
+						Sleep
+					{/snippet}
+				</Popover>
+			{/if}
+			{#if mock?.enabled}
+				<Popover notClickable>
+					<button
+						transition:fade|local={{ duration: 200 }}
+						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+						onclick={() => {
+							outputPicker?.toggleOpen()
+						}}
+						data-popover
+					>
+						<Pin size={12} />
+					</button>
+					{#snippet text()}
+						Pinned
+					{/snippet}
+				</Popover>
+			{/if}
+		</div>
+
+		<div class="flex flex-col w-full">
+			<FlowModuleSchemaItemViewer
+				{label}
+				{path}
+				{id}
+				{bold}
+				bind:editId
+				disableEditId={isMultiSelected}
+				{colorClasses}
+			>
+				{#snippet icon()}
+					{@render icon_render?.()}
+				{/snippet}
+			</FlowModuleSchemaItemViewer>
+
+			{#if outputPickerVisible && !isMultiSelected}
+				<OutputPicker
+					bind:this={outputPicker}
+					{selected}
+					{hover}
+					{isConnectingCandidate}
+					{historyOpen}
+					{inputTransform}
+					id={id ?? ''}
+					bind:bottomBarOpen={outputPickerBarOpen}
+					{loopStatus}
+					{onEditInput}
+				>
+					{#snippet children({ allowCopy, isConnecting, selectConnection })}
+						<OutputPickerInner
+							{allowCopy}
+							prefix={'results'}
+							connectingData={isConnecting ? connectingData : undefined}
+							{mock}
+							{testJob}
+							moduleId={id}
+							onSelect={selectConnection}
+							{onUpdateMock}
+							{path}
+							{loopStatus}
+							rightMargin
+							historyOffset={{ mainAxis: 12, crossAxis: -9 }}
+							clazz="p-1"
+							isLoading={testIsLoading ||
+								(id ? stepHistoryLoader?.stepStates[id]?.loadingJobs : false)}
+							initial={id ? stepHistoryLoader?.stepStates[id]?.initial : undefined}
+							bind:this={outputPickerInner}
+						/>
+					{/snippet}
+				</OutputPicker>
+			{/if}
+		</div>
+
+		{#if deletable && !isMoving}
+			{#if maximizeSubflow !== undefined}
+				{@render buttonMaximizeSubflow?.()}
+			{/if}
+			{#if (id && Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}).length > 0) || Boolean(warningMessage)}
+				<Popover
+					style="will-change: transform;"
+					class={twMerge(
+						'absolute -translate-y-[100%] top-1 -left-1',
+						'flex items-center justify-center rounded-b-none rounded-md p-1 shadow-md  duration-0 ',
+						id &&
+							Object.values($flowInputsStore?.[id]?.flowStepWarnings || {})?.some(
+								(x) => x.type === 'error'
+							)
+							? 'border-red-600 text-red-600 bg-red-100 hover:bg-red-300'
+							: ' text-yellow-600 bg-yellow-100 hover:bg-yellow-300'
+					)}
+				>
+					{#snippet text()}
 						<ul class="list-disc px-2">
 							{#if id}
 								{#each Object.values($flowInputsStore?.[id]?.flowStepWarnings || {}) as m}
@@ -297,25 +510,143 @@ outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration
 								{/each}
 							{/if}
 						</ul>
-					</svelte:fragment>
-					<div
-						class={twMerge(
-							'flex items-center justify-center h-full w-full rounded-md p-0.5 border  duration-150 ',
-							id &&
-								Object.values($flowInputsStore?.[id]?.flowStepWarnings || {})?.some(
-									(x) => x.type === 'error'
-								)
-								? 'border-red-600 text-red-600 bg-red-100 hover:bg-red-300'
-								: 'border-yellow-600 text-yellow-600 bg-yellow-100 hover:bg-yellow-300'
-						)}
-					>
-						<AlertTriangle size={14} strokeWidth={2} />
-					</div>
+					{/snippet}
+
+					<TriangleAlert size={12} strokeWidth={2} />
 				</Popover>
-			</div>
+			{/if}
+
+			{#if !isMultiSelected && id !== 'preprocessor' && moveManager && id}
+				<div
+					class="absolute -translate-y-[100%] top-2 right-5 h-7 p-1 min-w-7"
+					style="will-change: transform;"
+				>
+					<MoveHandleButton
+						{moveManager}
+						moduleId={id}
+						singleNode
+						visible={hover || selected || dropdownOpen}
+						onClickMove={() => dispatch('move')}
+						class="trash group-hover:block"
+					/>
+				</div>
+			{/if}
+
+			{#if !isMultiSelected && menuItems && menuItems.length > 0}
+				<div
+					class="absolute -translate-y-[100%] top-2 -right-2 h-7 p-1 min-w-7"
+					style="will-change: transform;"
+				>
+					<DropdownV2
+						items={menuItems}
+						placement="bottom-end"
+						bind:open={dropdownOpen}
+						fixedHeight={false}
+						usePointerDownOutside
+					>
+						{#snippet buttonReplacement()}
+							<button
+								class={twMerge(
+									'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary',
+									hover || selected || dropdownOpen ? 'block' : '!hidden',
+									'shadow-md rounded-md',
+									'group-hover:block'
+								)}
+								onpointerdown={stopPropagation(preventDefault(() => {}))}
+								title="Actions"
+							>
+								<EllipsisVertical size={12} />
+							</button>
+						{/snippet}
+					</DropdownV2>
+				</div>
+			{/if}
+		{:else if maximizeSubflow !== undefined}
+			{@render buttonMaximizeSubflow?.()}
 		{/if}
+	</div>
+
+	{#if editMode && enableTestRun && flowJob?.type !== 'QueuedJob' && !isMoving}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="absolute top-1/2 -translate-y-1/2 -translate-x-[100%] -left-[0] flex items-center w-fit px-1 h-9 min-w-9"
+			onmouseenter={() => (hover = true)}
+			onmouseleave={() => (hover = false)}
+		>
+			{#if !isMultiSelected && (hover || selected || testRunDropdownOpen) && outputPickerVisible}
+				<div class="bg-surface rounded-md" transition:fade={{ duration: 100 }} data-run-button={id}>
+					{#if !testIsLoading}
+						<Button
+							size="xs"
+							title="Run"
+							variant="default"
+							btnClasses="px-1 py-1.5 bg-surface"
+							on:click={() => {
+								outputPicker?.toggleOpen(true)
+								moduleTest?.loadArgsAndRunTest()
+							}}
+							dropdownItems={[
+								{
+									label: 'Test up to here',
+									onClick: () => {
+										if (id) {
+											onTestUpTo?.(id)
+										}
+									}
+								}
+							]}
+							dropdownBtnClasses="!w-3 px-0.5"
+							bind:dropdownOpen={testRunDropdownOpen}
+						>
+							{#if testIsLoading}
+								<Loader2 size={12} class="animate-spin" />
+							{:else}
+								<Play size={12} />
+							{/if}
+						</Button>
+					{:else}
+						<Button
+							size="xs"
+							color="red"
+							variant="contained"
+							btnClasses="!h-[25.5px] !w-[36px] !p-1.5 gap-0.5"
+							on:click={async () => {
+								moduleTest?.cancelJob()
+							}}
+						>
+							<Loader2 size={10} class="animate-spin mr-0.5" />
+							<X size={14} />
+						</Button>
+					{/if}
+				</div>
+			{/if}
+		</div>
 	{/if}
 </div>
+
+{#snippet buttonMaximizeSubflow()}
+	<div class="absolute -translate-y-[100%] top-2 right-12 h-7 p-1">
+		<button
+			title="Expand subflow"
+			class={twMerge(
+				'center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary p-1',
+				'shadow-md rounded-md',
+				!isMultiSelected && (hover || selected) ? 'opacity-100' : 'opacity-50'
+			)}
+			onclick={(e) => {
+				e.stopPropagation()
+				e.preventDefault()
+				maximizeSubflow?.()
+			}}
+			onpointerdown={(e) => {
+				e.stopPropagation()
+				e.preventDefault()
+			}}
+		>
+			<Maximize2 size={12} />
+		</button>
+	</div>
+{/snippet}
 
 <style>
 	.module:hover .trash {

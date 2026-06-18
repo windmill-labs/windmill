@@ -1,31 +1,38 @@
+// Import only the services actually used in this file (not re-exported)
+// This enables tree-shaking - importing setClient won't pull in all services
 import {
   ResourceService,
   VariableService,
   JobService,
   HelpersService,
+  AppService,
   MetricsService,
   OidcService,
   UserService,
-} from "./index";
-import { OpenAPI } from "./index";
+  KafkaTriggerService,
+} from "./services.gen";
+import { OpenAPI } from "./core/OpenAPI";
 // import type { DenoS3LightClientSettings } from "./index";
-import { DenoS3LightClientSettings, type S3Object } from "./s3Types";
+import {
+  DenoS3LightClientSettings,
+  S3ObjectRecord,
+  type S3Object,
+} from "./s3Types";
 
 export {
-  AdminService,
-  AuditService,
-  FlowService,
-  GranularAclService,
-  GroupService,
-  JobService,
-  ResourceService,
-  VariableService,
-  ScriptService,
-  ScheduleService,
-  SettingsService,
-  UserService,
-  WorkspaceService,
-} from "./index";
+  type S3Object,
+  type S3ObjectRecord,
+  type S3ObjectURI,
+} from "./s3Types";
+export {
+  datatable,
+  ducklake,
+  type SqlTemplateFunction,
+  type DatatableSqlTemplateFunction,
+} from "./sqlUtils";
+
+// Services are NOT re-exported here to enable tree-shaking
+// Import services directly from "windmill-client" or use the default export
 
 export type Sql = string;
 export type Email = string;
@@ -36,6 +43,15 @@ export const SHARED_FOLDER = "/shared";
 
 let mockedApi: MockedApi | undefined = undefined;
 
+export function workerHasInternalServer(): boolean {
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(OpenAPI.BASE ?? "");
+}
+
+/**
+ * Initialize the Windmill client with authentication token and base URL
+ * @param token - Authentication token (defaults to WM_TOKEN env variable)
+ * @param baseUrl - API base URL (defaults to BASE_INTERNAL_URL or BASE_URL env variable)
+ */
 export function setClient(token?: string, baseUrl?: string) {
   if (baseUrl === undefined) {
     baseUrl =
@@ -49,6 +65,10 @@ export function setClient(token?: string, baseUrl?: string) {
   OpenAPI.WITH_CREDENTIALS = true;
   OpenAPI.TOKEN = token;
   OpenAPI.BASE = baseUrl + "/api";
+}
+
+function getPublicBaseUrl(): string {
+  return getEnv("WM_BASE_URL") ?? "http://localhost:3000";
 }
 
 const getEnv = (key: string) => {
@@ -78,7 +98,7 @@ export async function getResource(
   path?: string,
   undefinedIfEmpty?: boolean
 ): Promise<any> {
-  path = path ?? getStatePath();
+  path = parseResourceSyntax(path) ?? path ?? getStatePath();
   const mockedApi = await getMockedApi();
   if (mockedApi) {
     if (mockedApi.resources[path]) {
@@ -122,7 +142,25 @@ export async function getRootJobId(jobId?: string): Promise<string> {
   return await JobService.getRootJobId({ workspace, id: jobId });
 }
 
+/**
+ * @deprecated Use runScriptByPath or runScriptByHash instead
+ */
 export async function runScript(
+  path: string | null = null,
+  hash_: string | null = null,
+  args: Record<string, any> | null = null,
+  verbose: boolean = false
+): Promise<any> {
+  console.warn(
+    "runScript is deprecated. Use runScriptByPath or runScriptByHash instead."
+  );
+  if (path && hash_) {
+    throw new Error("path and hash_ are mutually exclusive");
+  }
+  return _runScriptInternal(path, hash_, args, verbose);
+}
+
+async function _runScriptInternal(
   path: string | null = null,
   hash_: string | null = null,
   args: Record<string, any> | null = null,
@@ -131,13 +169,75 @@ export async function runScript(
   args = args || {};
 
   if (verbose) {
-    console.info(`running \`${path}\` synchronously with args:`, args);
+    if (path) {
+      console.info(`running \`${path}\` synchronously with args:`, args);
+    } else if (hash_) {
+      console.info(
+        `running script with hash \`${hash_}\` synchronously with args:`,
+        args
+      );
+    }
   }
 
-  const jobId = await runScriptAsync(path, hash_, args);
+  const jobId = await _runScriptAsyncInternal(path, hash_, args);
   return await waitJob(jobId, verbose);
 }
 
+/**
+ * Run a script synchronously by its path and wait for the result
+ * @param path - Script path in Windmill
+ * @param args - Arguments to pass to the script
+ * @param verbose - Enable verbose logging
+ * @returns Script execution result
+ */
+export async function runScriptByPath(
+  path: string,
+  args: Record<string, any> | null = null,
+  verbose: boolean = false
+): Promise<any> {
+  return _runScriptInternal(path, null, args, verbose);
+}
+
+/**
+ * Run a script synchronously by its hash and wait for the result
+ * @param hash_ - Script hash in Windmill
+ * @param args - Arguments to pass to the script
+ * @param verbose - Enable verbose logging
+ * @returns Script execution result
+ */
+export async function runScriptByHash(
+  hash_: string,
+  args: Record<string, any> | null = null,
+  verbose: boolean = false
+): Promise<any> {
+  return _runScriptInternal(null, hash_, args, verbose);
+}
+
+/**
+ * Append a text to the result stream
+ * @param text text to append to the result stream
+ */
+export function appendToResultStream(text: string) {
+  console.log("WM_STREAM: " + text.replace(/\n/g, "\\n"));
+}
+
+/**
+ * Stream to the result stream
+ * @param stream stream to stream to the result stream
+ */
+export async function streamResult(stream: AsyncIterable<string>) {
+  for await (const text of stream) {
+    appendToResultStream(text);
+  }
+}
+
+/**
+ * Run a flow synchronously by its path and wait for the result
+ * @param path - Flow path in Windmill
+ * @param args - Arguments to pass to the flow
+ * @param verbose - Enable verbose logging
+ * @returns Flow execution result
+ */
 export async function runFlow(
   path: string | null = null,
   args: Record<string, any> | null = null,
@@ -153,6 +253,12 @@ export async function runFlow(
   return await waitJob(jobId, verbose);
 }
 
+/**
+ * Wait for a job to complete and return its result
+ * @param jobId - ID of the job to wait for
+ * @param verbose - Enable verbose logging
+ * @returns Job result when completed
+ */
 export async function waitJob(
   jobId: string,
   verbose: boolean = false
@@ -189,63 +295,94 @@ export async function waitJob(
   }
 }
 
+/**
+ * Get the result of a completed job
+ * @param jobId - ID of the completed job
+ * @returns Job result
+ */
 export async function getResult(jobId: string): Promise<any> {
   const workspace = getWorkspace();
   return await JobService.getCompletedJobResult({ workspace, id: jobId });
 }
 
+/**
+ * Get the result of a job if completed, or its current status
+ * @param jobId - ID of the job
+ * @returns Object with started, completed, success, and result properties
+ */
 export async function getResultMaybe(jobId: string): Promise<any> {
   const workspace = getWorkspace();
   return await JobService.getCompletedJobResultMaybe({ workspace, id: jobId });
 }
 const STRIP_COMMENTS =
   /(\/\/.*$)|(\/\*[\s\S]*?\*\/)|(\s*=[^,\)]*(('(?:\\'|[^'\r\n])*')|("(?:\\"|[^"\r\n])*"))|(\s*=[^,\)]*))/gm;
-const ARGUMENT_NAMES = /([^\s,]+)/g;
 function getParamNames(func: Function): string[] {
   const fnStr = func.toString().replace(STRIP_COMMENTS, "");
-  let result: string[] | null = fnStr
-    .slice(fnStr.indexOf("(") + 1, fnStr.indexOf(")"))
-    .match(ARGUMENT_NAMES);
-  if (result === null) result = [];
-  return result;
+  // Find the matching closing paren for the parameter list, handling nesting
+  const openIdx = fnStr.indexOf("(");
+  if (openIdx === -1) return [];
+  let depth = 1;
+  let closeIdx = openIdx + 1;
+  for (; closeIdx < fnStr.length && depth > 0; closeIdx++) {
+    if (fnStr[closeIdx] === "(") depth++;
+    else if (fnStr[closeIdx] === ")") depth--;
+  }
+  const paramStr = fnStr.slice(openIdx + 1, closeIdx - 1).trim();
+  if (!paramStr) return [];
+  // Split on commas at depth 0 (skip nested parens, angle brackets, braces)
+  const params: string[] = [];
+  let current = "";
+  let d = 0;
+  for (const ch of paramStr) {
+    if ("(<{".includes(ch)) d++;
+    else if (")>}".includes(ch)) d--;
+    if (ch === "," && d === 0) {
+      params.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) params.push(current.trim());
+  // Extract the parameter name from each param (strip type annotations, destructuring, rest)
+  return params.map((p) => {
+    // Remove rest operator
+    p = p.replace(/^\.\.\./, "");
+    // For destructured params like { url, depth }: Config, use a positional fallback
+    if (p.startsWith("{") || p.startsWith("[")) return "";
+    // Strip type annotation (e.g. "x: number" -> "x", "x?: string" -> "x")
+    const colonIdx = p.indexOf(":");
+    if (colonIdx !== -1) p = p.slice(0, colonIdx);
+    return p.replace(/\?$/, "").trim();
+  }).filter(Boolean);
 }
 
-export function task<P, T>(f: (_: P) => T): (_: P) => Promise<T> {
-  return async (...y) => {
-    const args: Record<string, any> = {};
-    const paramNames = getParamNames(f);
-    y.forEach((x, i) => (args[paramNames[i]] = x));
-    let req = await fetch(
-      `${OpenAPI.BASE}/w/${getWorkspace()}/jobs/run/workflow_as_code/${getEnv(
-        "WM_JOB_ID"
-      )}/${f.name}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getEnv("WM_TOKEN")}`,
-        },
-        body: JSON.stringify({ args }),
-      }
-    );
-    let jobId = await req.text();
-    console.log(`Started task ${f.name} as job ${jobId}`);
-    let r = await waitJob(jobId);
-    console.log(`Task ${f.name} (${jobId}) completed`);
-    return r;
-  };
-}
-
+/**
+ * @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
+ */
 export async function runScriptAsync(
   path: string | null,
   hash_: string | null,
   args: Record<string, any> | null,
   scheduledInSeconds: number | null = null
 ): Promise<string> {
+  console.warn(
+    "runScriptAsync is deprecated. Use runScriptByPathAsync or runScriptByHashAsync instead."
+  );
   // Create a script job and return its job id.
   if (path && hash_) {
     throw new Error("path and hash_ are mutually exclusive");
   }
+  return _runScriptAsyncInternal(path, hash_, args, scheduledInSeconds);
+}
+
+async function _runScriptAsyncInternal(
+  path: string | null = null,
+  hash_: string | null = null,
+  args: Record<string, any> | null = null,
+  scheduledInSeconds: number | null = null
+): Promise<string> {
+  // Create a script job and return its job id.
   args = args || {};
   const params: Record<string, any> = {};
 
@@ -271,6 +408,7 @@ export async function runScriptAsync(
   } else {
     throw new Error("path or hash_ must be provided");
   }
+
   let url = new URL(OpenAPI.BASE + endpoint);
   url.search = new URLSearchParams(params).toString();
 
@@ -284,6 +422,44 @@ export async function runScriptAsync(
   }).then((res) => res.text());
 }
 
+/**
+ * Run a script asynchronously by its path
+ * @param path - Script path in Windmill
+ * @param args - Arguments to pass to the script
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @returns Job ID of the created job
+ */
+export async function runScriptByPathAsync(
+  path: string,
+  args: Record<string, any> | null = null,
+  scheduledInSeconds: number | null = null
+): Promise<string> {
+  return _runScriptAsyncInternal(path, null, args, scheduledInSeconds);
+}
+
+/**
+ * Run a script asynchronously by its hash
+ * @param hash_ - Script hash in Windmill
+ * @param args - Arguments to pass to the script
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @returns Job ID of the created job
+ */
+export async function runScriptByHashAsync(
+  hash_: string,
+  args: Record<string, any> | null = null,
+  scheduledInSeconds: number | null = null
+): Promise<string> {
+  return _runScriptAsyncInternal(null, hash_, args, scheduledInSeconds);
+}
+
+/**
+ * Run a flow asynchronously by its path
+ * @param path - Flow path in Windmill
+ * @param args - Arguments to pass to the flow
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param doNotTrackInParent - If false, tracks state in parent job (only use when fully awaiting the job)
+ * @returns Job ID of the created job
+ */
 export async function runFlowAsync(
   path: string | null,
   args: Record<string, any> | null,
@@ -345,6 +521,10 @@ export async function resolveDefaultResource(obj: any): Promise<any> {
   }
 }
 
+/**
+ * Get the state file path from environment variables
+ * @returns State path string
+ */
 export function getStatePath(): string {
   const state_path = getEnv("WM_STATE_PATH_NEW") ?? getEnv("WM_STATE_PATH");
   if (state_path === undefined) {
@@ -364,7 +544,7 @@ export async function setResource(
   path?: string,
   initializeToTypeIfNotExist?: string
 ): Promise<void> {
-  path = path ?? getStatePath();
+  path = parseResourceSyntax(path) ?? path ?? getStatePath();
   const mockedApi = await getMockedApi();
   if (mockedApi) {
     mockedApi.resources[path] = value;
@@ -401,9 +581,10 @@ export async function setInternalState(state: any): Promise<void> {
 /**
  * Set the state
  * @param state state to set
+ * @param path Optional state resource path override. Defaults to `getStatePath()`.
  */
-export async function setState(state: any): Promise<void> {
-  await setResource(state, undefined, "state");
+export async function setState(state: any, path?: string): Promise<void> {
+  await setResource(state, path ?? getStatePath(), "state");
 }
 
 /**
@@ -453,8 +634,8 @@ export async function getProgress(jobId?: any): Promise<number | null> {
 }
 
 /**
- * Set a flow user state 
- * @param key key of the state 
+ * Set a flow user state
+ * @param key key of the state
  * @param value value of the state
 
  */
@@ -508,25 +689,6 @@ export async function getFlowUserState(
   }
 }
 
-// /**
-//  * Set the shared state
-//  * @param state state to set
-//  */
-// export async function setSharedState(
-//   state: any,
-//   path = "state.json"
-// ): Promise<void> {
-//   await Deno.writeTextFile(SHARED_FOLDER + "/" + path, JSON.stringify(state));
-// }
-
-// /**
-//  * Get the shared state
-//  * @param state state to set
-//  */
-// export async function getSharedState(path = "state.json"): Promise<any> {
-//   return JSON.parse(await Deno.readTextFile(SHARED_FOLDER + "/" + path));
-// }
-
 /**
  * Get the internal state
  * @deprecated use getState instead
@@ -537,9 +699,10 @@ export async function getInternalState(): Promise<any> {
 
 /**
  * Get the state shared across executions
+ * @param path Optional state resource path override. Defaults to `getStatePath()`.
  */
-export async function getState(): Promise<any> {
-  return await getResource(getStatePath(), true);
+export async function getState(path?: string): Promise<any> {
+  return await getResource(path ?? getStatePath(), true);
 }
 
 /**
@@ -548,6 +711,7 @@ export async function getState(): Promise<any> {
  * @returns variable value
  */
 export async function getVariable(path: string): Promise<string> {
+  path = parseVariableSyntax(path) ?? path;
   const mockedApi = await getMockedApi();
   if (mockedApi) {
     if (mockedApi.variables[path]) {
@@ -581,6 +745,7 @@ export async function setVariable(
   isSecretIfNotExist?: boolean,
   descriptionIfNotExist?: string
 ): Promise<void> {
+  path = parseVariableSyntax(path) ?? path;
   const mockedApi = await getMockedApi();
   if (mockedApi) {
     mockedApi.variables[path] = value;
@@ -606,6 +771,11 @@ export async function setVariable(
   }
 }
 
+/**
+ * Build a PostgreSQL connection URL from a database resource
+ * @param path - Path to the database resource
+ * @returns PostgreSQL connection URL string
+ */
 export async function databaseUrlFromResource(path: string): Promise<string> {
   const resource = await getResource(path);
   return `postgresql://${resource.user}:${resource.password}@${resource.host}:${resource.port}/${resource.dbname}?sslmode=${resource.sslmode}`;
@@ -632,14 +802,21 @@ export async function databaseUrlFromResource(path: string): Promise<string> {
 //   });
 // }
 
+/**
+ * Get S3 client settings from a resource or workspace default
+ * @param s3_resource_path - Path to S3 resource (uses workspace default if undefined)
+ * @param workspace - Workspace to read from (defaults to the `WM_WORKSPACE` env var)
+ * @returns S3 client configuration settings
+ */
 export async function denoS3LightClientSettings(
-  s3_resource_path: string | undefined
+  s3_resource_path: string | undefined,
+  workspace: string | undefined = undefined
 ): Promise<DenoS3LightClientSettings> {
-  const workspace = getWorkspace();
   const s3Resource = await HelpersService.s3ResourceInfo({
-    workspace: workspace,
+    workspace: workspace ?? getWorkspace(),
     requestBody: {
-      s3_resource_path: s3_resource_path,
+      s3_resource_path:
+        parseResourceSyntax(s3_resource_path) ?? s3_resource_path,
     },
   });
   let settings: DenoS3LightClientSettings = {
@@ -657,12 +834,19 @@ export async function denoS3LightClientSettings(
  * const text = new TextDecoder().decode(fileContentStream)
  * console.log(text);
  * ```
+ *
+ * @param workspace - Workspace to read from (defaults to the `WM_WORKSPACE` env var)
  */
 export async function loadS3File(
   s3object: S3Object,
-  s3ResourcePath: string | undefined = undefined
+  s3ResourcePath: string | undefined = undefined,
+  workspace: string | undefined = undefined
 ): Promise<Uint8Array | undefined> {
-  const fileContentBlob = await loadS3FileStream(s3object, s3ResourcePath);
+  const fileContentBlob = await loadS3FileStream(
+    s3object,
+    s3ResourcePath,
+    workspace
+  );
   if (fileContentBlob === undefined) {
     return undefined;
   }
@@ -698,26 +882,29 @@ export async function loadS3File(
  * // if the content is plain text, the blob can be read directly:
  * console.log(await fileContentBlob.text());
  * ```
+ *
+ * @param workspace - Workspace to read from (defaults to the `WM_WORKSPACE` env var)
  */
 export async function loadS3FileStream(
   s3object: S3Object,
-  s3ResourcePath: string | undefined = undefined
+  s3ResourcePath: string | undefined = undefined,
+  workspace: string | undefined = undefined
 ): Promise<Blob | undefined> {
+  let s3Obj = s3object && parseS3Object(s3object);
   let params: Record<string, string> = {};
-  params["file_key"] = s3object.s3;
+  params["file_key"] = s3Obj.s3;
   if (s3ResourcePath !== undefined) {
     params["s3_resource_path"] = s3ResourcePath;
   }
-  if (s3object.storage !== undefined) {
-    params["storage"] = s3object.storage;
+  if (s3Obj.storage !== undefined) {
+    params["storage"] = s3Obj.storage;
   }
   const queryParams = new URLSearchParams(params);
+  const w = workspace ?? getWorkspace();
 
   // We use raw fetch here b/c OpenAPI generated client doesn't handle Blobs nicely
-  const fileContentBlob = await fetch(
-    `${
-      OpenAPI.BASE
-    }/w/${getWorkspace()}/job_helpers/download_s3_file?${queryParams}`,
+  const response = await fetch(
+    `${OpenAPI.BASE}/w/${w}/job_helpers/download_s3_file?${queryParams}`,
     {
       method: "GET",
       headers: {
@@ -725,7 +912,16 @@ export async function loadS3FileStream(
       },
     }
   );
-  return fileContentBlob.blob();
+
+  // Check if the response was successful
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `Failed to load S3 file: ${response.status} ${response.statusText} - ${errorText}`
+    );
+  }
+
+  return response.blob();
 }
 
 /**
@@ -736,13 +932,16 @@ export async function loadS3FileStream(
  * const fileContentAsUtf8Str = (await s3object.toArray()).toString('utf-8')
  * console.log(fileContentAsUtf8Str)
  * ```
+ *
+ * @param workspace - Workspace to write to (defaults to the `WM_WORKSPACE` env var)
  */
 export async function writeS3File(
   s3object: S3Object | undefined,
   fileContent: string | Blob,
   s3ResourcePath: string | undefined = undefined,
   contentType: string | undefined = undefined,
-  contentDisposition: string | undefined = undefined
+  contentDisposition: string | undefined = undefined,
+  workspace: string | undefined = undefined
 ): Promise<S3Object> {
   let fileContentBlob: Blob;
   if (typeof fileContent === "string") {
@@ -753,27 +952,136 @@ export async function writeS3File(
     fileContentBlob = fileContent as Blob;
   }
 
+  let s3Obj = s3object && parseS3Object(s3object);
+
   const response = await HelpersService.fileUpload({
-    workspace: getWorkspace(),
-    fileKey: s3object?.s3,
+    workspace: workspace ?? getWorkspace(),
+    fileKey: s3Obj?.s3,
     fileExtension: undefined,
     s3ResourcePath: s3ResourcePath,
     requestBody: fileContentBlob,
-    storage: s3object?.storage,
+    storage: s3Obj?.storage,
     contentType,
     contentDisposition,
   });
   return {
     s3: response.file_key,
+    ...(s3Obj?.storage && { storage: s3Obj?.storage }),
   };
+}
+
+/**
+ * Permanently delete a file from S3 by key.
+ *
+ * ```typescript
+ * await wmill.deleteS3File({ s3: "path/to/file.txt" })
+ * ```
+ *
+ * @param s3object - S3 object identifying the file to delete (must have `s3` set)
+ * @param workspace - Workspace to delete from (defaults to the `WM_WORKSPACE` env var)
+ */
+export async function deleteS3File(
+  s3object: S3Object,
+  workspace: string | undefined = undefined
+): Promise<void> {
+  const s3Obj = parseS3Object(s3object);
+  if (!s3Obj.s3) {
+    throw new Error("deleteS3File: s3 key is required");
+  }
+  await HelpersService.deleteS3File({
+    workspace: workspace ?? getWorkspace(),
+    fileKey: s3Obj.s3,
+    storage: s3Obj.storage,
+  });
+}
+
+/**
+ * Sign S3 objects to be used by anonymous users in public apps
+ * @param s3objects s3 objects to sign
+ * @returns signed s3 objects
+ */
+export async function signS3Objects(
+  s3objects: S3Object[]
+): Promise<S3Object[]> {
+  const signedKeys = await AppService.signS3Objects({
+    workspace: getWorkspace(),
+    requestBody: {
+      s3_objects: s3objects.map(parseS3Object),
+    },
+  });
+  return signedKeys;
+}
+/**
+ * Sign S3 object to be used by anonymous users in public apps
+ * @param s3object s3 object to sign
+ * @returns signed s3 object
+ */
+export async function signS3Object(s3object: S3Object): Promise<S3Object> {
+  const [signedObject] = await signS3Objects([s3object]);
+  return signedObject;
+}
+
+/**
+ * Generate a presigned public URL for an array of S3 objects.
+ * If an S3 object is not signed yet, it will be signed first.
+ * @param s3Objects s3 objects to sign
+ * @returns list of signed public URLs
+ */
+export async function getPresignedS3PublicUrls(
+  s3Objects: S3Object[],
+  { baseUrl }: { baseUrl?: string } = {}
+): Promise<string[]> {
+  baseUrl ??= getPublicBaseUrl();
+
+  const s3Objs = s3Objects.map(parseS3Object);
+
+  // Sign all S3 objects that need to be signed in one go
+  const s3ObjsToSign: (readonly [S3ObjectRecord, number])[] = s3Objs
+    .map((s3Obj, index) => [s3Obj, index] as const)
+    .filter(([s3Obj, _]) => s3Obj.presigned === undefined);
+  if (s3ObjsToSign.length > 0) {
+    const signedS3Objs = await signS3Objects(
+      s3ObjsToSign.map(([s3Obj, _]) => s3Obj)
+    );
+    for (let i = 0; i < s3ObjsToSign.length; i++) {
+      const [_, originalIndex] = s3ObjsToSign[i];
+      s3Objs[originalIndex] = parseS3Object(signedS3Objs[i]);
+    }
+  }
+
+  const signedUrls: string[] = [];
+  for (const s3Obj of s3Objs) {
+    const { s3, presigned, storage = "_default_" } = s3Obj;
+    const signedUrl = `${baseUrl}/api/w/${getWorkspace()}/s3_proxy/${storage}/${s3}?${presigned}`;
+    signedUrls.push(signedUrl);
+  }
+  return signedUrls;
+}
+
+/**
+ * Generate a presigned public URL for an S3 object. If the S3 object is not signed yet, it will be signed first.
+ * @param s3Object s3 object to sign
+ * @returns signed public URL
+ */
+export async function getPresignedS3PublicUrl(
+  s3Objects: S3Object,
+  { baseUrl }: { baseUrl?: string } = {}
+): Promise<string> {
+  const [s3Object] = await getPresignedS3PublicUrls([s3Objects], { baseUrl });
+  return s3Object;
 }
 
 /**
  * Get URLs needed for resuming a flow after this step
  * @param approver approver name
+ * @param flowLevel if true, generate resume URLs for the parent flow instead of the specific step.
+ *                  This allows pre-approvals that can be consumed by any later suspend step in the same flow.
  * @returns approval page UI URL, resume and cancel API URLs for resuming the flow
  */
-export async function getResumeUrls(approver?: string): Promise<{
+export async function getResumeUrls(
+  approver?: string,
+  flowLevel?: boolean
+): Promise<{
   approvalPage: string;
   resume: string;
   cancel: string;
@@ -784,6 +1092,7 @@ export async function getResumeUrls(approver?: string): Promise<{
     workspace,
     resumeId: nonce,
     approver,
+    flowLevel,
     id: getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
   });
 }
@@ -802,20 +1111,35 @@ export function getResumeEndpoints(approver?: string): Promise<{
 /**
  * Get an OIDC jwt token for auth to external services (e.g: Vault, AWS) (ee only)
  * @param audience audience of the token
+ * @param expiresIn Optional number of seconds until the token expires
  * @returns jwt token
  */
-export async function getIdToken(audience: string): Promise<string> {
+export async function getIdToken(
+  audience: string,
+  expiresIn?: number
+): Promise<string> {
   const workspace = getWorkspace();
   return await OidcService.getOidcToken({
     workspace,
     audience,
+    expiresIn,
   });
 }
 
+/**
+ * Convert a base64-encoded string to Uint8Array
+ * @param data - Base64-encoded string
+ * @returns Decoded Uint8Array
+ */
 export function base64ToUint8Array(data: string): Uint8Array {
   return Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
 }
 
+/**
+ * Convert a Uint8Array to base64-encoded string
+ * @param arrayBuffer - Uint8Array to encode
+ * @returns Base64-encoded string
+ */
 export function uint8ArrayToBase64(arrayBuffer: Uint8Array): string {
   let base64 = "";
   const encodings =
@@ -888,6 +1212,17 @@ interface SlackApprovalOptions {
   approver?: string;
   defaultArgsJson?: Record<string, any>;
   dynamicEnumsJson?: Record<string, any>;
+  resumeButtonText?: string;
+  cancelButtonText?: string;
+}
+
+interface TeamsApprovalOptions {
+  teamName: string;
+  channelName: string;
+  message?: string;
+  approver?: string;
+  defaultArgsJson?: Record<string, any>;
+  dynamicEnumsJson?: Record<string, any>;
 }
 
 /**
@@ -903,6 +1238,8 @@ interface SlackApprovalOptions {
  * @param {string} [options.approver] - Optional user ID or name of the approver for the request.
  * @param {DefaultArgs} [options.defaultArgsJson] - Optional object defining or overriding the default arguments to a form field.
  * @param {Enums} [options.dynamicEnumsJson] - Optional object overriding the enum default values of an enum form field.
+ * @param {string} [options.resumeButtonText] - Optional text for the resume button.
+ * @param {string} [options.cancelButtonText] - Optional text for the cancel button.
  *
  * @returns {Promise<void>} Resolves when the Slack approval request is successfully sent.
  *
@@ -918,6 +1255,8 @@ interface SlackApprovalOptions {
  *   approver: "approver123",
  *   defaultArgsJson: { key1: "value1", key2: 42 },
  *   dynamicEnumsJson: { foo: ["choice1", "choice2"], bar: ["optionA", "optionB"] },
+ *   resumeButtonText: "Resume",
+ *   cancelButtonText: "Cancel",
  * });
  * ```
  *
@@ -930,6 +1269,8 @@ export async function requestInteractiveSlackApproval({
   approver,
   defaultArgsJson,
   dynamicEnumsJson,
+  resumeButtonText,
+  cancelButtonText,
 }: SlackApprovalOptions): Promise<void> {
   const workspace = getWorkspace();
   const flowJobId = getEnv("WM_FLOW_JOB_ID");
@@ -954,6 +1295,8 @@ export async function requestInteractiveSlackApproval({
     flowStepId: string;
     defaultArgsJson?: string;
     dynamicEnumsJson?: string;
+    resumeButtonText?: string;
+    cancelButtonText?: string;
   } = {
     slackResourcePath,
     channelId,
@@ -975,7 +1318,106 @@ export async function requestInteractiveSlackApproval({
     params.dynamicEnumsJson = JSON.stringify(dynamicEnumsJson);
   }
 
+  if (resumeButtonText) {
+    params.resumeButtonText = resumeButtonText;
+  }
+  if (cancelButtonText) {
+    params.cancelButtonText = cancelButtonText;
+  }
+
   await JobService.getSlackApprovalPayload({
+    workspace,
+    ...params,
+    id: getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
+  });
+}
+
+/**
+ * Sends an interactive approval request via Teams, allowing optional customization of the message, approver, and form fields.
+ *
+ * **[Enterprise Edition Only]** To include form fields in the Teams approval request, go to **Advanced -> Suspend -> Form**
+ * and define a form. Learn more at [Windmill Documentation](https://www.windmill.dev/docs/flows/flow_approval#form).
+ *
+ * @param {Object} options - The configuration options for the Teams approval request.
+ * @param {string} options.teamName - The Teams team name where the approval request will be sent.
+ * @param {string} options.channelName - The Teams channel name where the approval request will be sent.
+ * @param {string} [options.message] - Optional custom message to include in the Teams approval request.
+ * @param {string} [options.approver] - Optional user ID or name of the approver for the request.
+ * @param {DefaultArgs} [options.defaultArgsJson] - Optional object defining or overriding the default arguments to a form field.
+ * @param {Enums} [options.dynamicEnumsJson] - Optional object overriding the enum default values of an enum form field.
+ *
+ * @returns {Promise<void>} Resolves when the Teams approval request is successfully sent.
+ *
+ * @throws {Error} If the function is not called within a flow or flow preview.
+ * @throws {Error} If the `JobService.getTeamsApprovalPayload` call fails.
+ *
+ * **Usage Example:**
+ * ```typescript
+ * await requestInteractiveTeamsApproval({
+ *   teamName: "admins-teams",
+ *   channelName: "admins-teams-channel",
+ *   message: "Please approve this request",
+ *   approver: "approver123",
+ *   defaultArgsJson: { key1: "value1", key2: 42 },
+ *   dynamicEnumsJson: { foo: ["choice1", "choice2"], bar: ["optionA", "optionB"] },
+ * });
+ * ```
+ *
+ * **Note:** This function requires execution within a Windmill flow or flow preview.
+ */
+export async function requestInteractiveTeamsApproval({
+  teamName,
+  channelName,
+  message,
+  approver,
+  defaultArgsJson,
+  dynamicEnumsJson,
+}: TeamsApprovalOptions): Promise<void> {
+  const workspace = getWorkspace();
+  const flowJobId = getEnv("WM_FLOW_JOB_ID");
+
+  if (!flowJobId) {
+    throw new Error(
+      "You can't use this function in a standalone script or flow step preview. Please use it in a flow or a flow preview."
+    );
+  }
+
+  const flowStepId = getEnv("WM_FLOW_STEP_ID");
+  if (!flowStepId) {
+    throw new Error("This function can only be called as a flow step");
+  }
+
+  // Only include non-empty parameters
+  const params: {
+    approver?: string;
+    message?: string;
+    teamName: string;
+    channelName: string;
+    flowStepId: string;
+    defaultArgsJson?: string;
+    dynamicEnumsJson?: string;
+  } = {
+    teamName,
+    channelName,
+    flowStepId,
+  };
+
+  if (message) {
+    params.message = message;
+  }
+  if (approver) {
+    params.approver = approver;
+  }
+
+  if (defaultArgsJson) {
+    params.defaultArgsJson = JSON.stringify(defaultArgsJson);
+  }
+
+  if (dynamicEnumsJson) {
+    params.dynamicEnumsJson = JSON.stringify(dynamicEnumsJson);
+  }
+
+  await JobService.getTeamsApprovalPayload({
     workspace,
     ...params,
     id: getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
@@ -1029,3 +1471,550 @@ interface MockedApi {
   variables: Record<string, string>;
   resources: Record<string, any>;
 }
+
+function parseResourceSyntax(s: string | undefined) {
+  if (s?.startsWith("$res:")) return s.substring(5);
+  if (s?.startsWith("res://")) return s.substring(6);
+}
+
+/**
+ * Parse an S3 object from URI string or record format
+ * @param s3Object - S3 object as URI string (s3://storage/key) or record
+ * @returns S3 object record with storage and s3 key
+ */
+export function parseS3Object(s3Object: S3Object): S3ObjectRecord {
+  if (typeof s3Object === "object") return s3Object;
+  const match = s3Object.match(/^s3:\/\/([^/]*)\/(.*)$/);
+  return { storage: match?.[1] || undefined, s3: match?.[2] ?? "" };
+}
+
+function parseVariableSyntax(s: string) {
+  if (s.startsWith("var://")) return s.substring(6);
+}
+
+// ── Workflow-as-Code SDK ──────────────────────────────────────────────
+
+export class StepSuspend extends Error {
+  constructor(public dispatchInfo: Record<string, any>) {
+    super("__step_suspend__");
+    this.name = "StepSuspend";
+  }
+}
+
+export interface TaskOptions {
+  timeout?: number;
+  tag?: string;
+  cache_ttl?: number;
+  priority?: number;
+  concurrency_limit?: number;
+  concurrency_key?: string;
+  concurrency_time_window_s?: number;
+}
+
+export let _workflowCtx: WorkflowCtx | null = null;
+export function setWorkflowCtx(ctx: WorkflowCtx | null) {
+  _workflowCtx = ctx;
+  Reflect.set(globalThis, "__wmill_wf_ctx", ctx);
+}
+
+
+export class WorkflowCtx {
+  private completed: Record<string, any>;
+  private counters: Record<string, number> = {};
+  private pending: Array<{
+    name: string;
+    script: string;
+    args: Record<string, any>;
+    key: string;
+    dispatch_type: string;
+    [k: string]: any;
+  }> = [];
+  private _suspended = false;
+  /** When set, the task matching this key executes its inner function directly */
+  _executingKey: string | null;
+  /** Serializes fast-path POSTs across concurrent step() calls within one
+   *  workflow invocation. Wraps only the HTTP call, not fn() — so
+   *  `Promise.all([step("a", fn_a), step("b", fn_b)])` still runs the two
+   *  fn() bodies in parallel, only the API requests are ordered. This
+   *  closes the first-write race window against `SELECT FOR UPDATE` on a
+   *  not-yet-created `v2_job_status` row: two concurrent POSTs would both
+   *  see None and overwrite each other's checkpoint because the helper
+   *  writes the whole serialized `_checkpoint` object, not a single
+   *  `completed_steps[key]`. Initialized to a resolved promise. */
+  private _inlineChain: Promise<void> = Promise.resolve();
+
+  constructor(checkpoint: Record<string, any> = {}) {
+    this.completed = checkpoint?.completed_steps ?? {};
+    this._executingKey = checkpoint?._executing_key ?? null;
+  }
+
+  /** Name-based key: `double` for first call, `double_2`, `double_3` for subsequent. */
+  _allocKey(name: string): string {
+    const n = (this.counters[name] ?? 0) + 1;
+    this.counters[name] = n;
+    return n === 1 ? name : `${name}_${n}`;
+  }
+
+  _nextStep(
+    name: string,
+    script: string,
+    args: Record<string, any> = {},
+    dispatch_type: string = "inline",
+    options?: TaskOptions,
+  ): PromiseLike<any> {
+    const key = this._allocKey(name || script || "step");
+
+    if (key in this.completed) {
+      const value = this.completed[key];
+      if (value && typeof value === "object" && (value as any).__wmill_error) {
+        const err = new Error((value as any).message || `Task '${name}' failed`);
+        (err as any).result = (value as any).result;
+        (err as any).step_key = (value as any).step_key;
+        (err as any).child_job_id = (value as any).child_job_id;
+        return { then: (_resolve: any, reject?: any) => { if (reject) reject(err); else throw err; } } as PromiseLike<any>;
+      }
+      return { then: (resolve: any) => resolve(value) };
+    }
+
+    // If this is a child job executing a specific step, return null to signal
+    // that the task wrapper should run the inner function directly
+    if (this._executingKey === key) {
+      return { then: (resolve: any) => resolve(null), _execute_directly: true } as any;
+    }
+
+    // In child job mode (_executingKey is set), non-matching uncompleted steps
+    // should never resolve or throw — the matching step will throw step_complete
+    // which terminates the workflow. Returning a never-resolving thenable prevents
+    // race conditions where a non-matching step's StepSuspend fires before step_complete.
+    if (this._executingKey !== null) {
+      return { then: () => new Promise(() => {}) };
+    }
+
+    const stepInfo: any = { name: name || key, script: script || key, args, key, dispatch_type };
+    if (options) {
+      if (options.timeout !== undefined) stepInfo.timeout = options.timeout;
+      if (options.tag !== undefined) stepInfo.tag = options.tag;
+      if (options.cache_ttl !== undefined) stepInfo.cache_ttl = options.cache_ttl;
+      if (options.priority !== undefined) stepInfo.priority = options.priority;
+      if (options.concurrency_limit !== undefined) stepInfo.concurrent_limit = options.concurrency_limit;
+      if (options.concurrency_key !== undefined) stepInfo.concurrency_key = options.concurrency_key;
+      if (options.concurrency_time_window_s !== undefined) stepInfo.concurrency_time_window_s = options.concurrency_time_window_s;
+    }
+    this.pending.push(stepInfo);
+    return {
+      then: (): never => {
+        // Only the first .then() call throws with all accumulated steps.
+        // Subsequent calls (e.g. from Promise.all resolving other thenables)
+        // also throw (they'll be caught by the same handler).
+        if (this._suspended) return new Promise(() => {}) as never;
+        this._suspended = true;
+        const steps = [...this.pending];
+        this.pending = [];
+        const names = steps.map(s => s.name).join(", ");
+        console.log(`\n--- WAC: ${names} ---`);
+        throw new StepSuspend({
+          mode: steps.length > 1 ? "parallel" : "sequential",
+          steps,
+        });
+      },
+    };
+  }
+  /** Return and clear any pending (unawaited) steps. */
+  _flushPending(): Array<{ name: string; script: string; args: Record<string, any>; key: string; dispatch_type: string }> {
+    const steps = [...this.pending];
+    this.pending = [];
+    return steps;
+  }
+
+  _waitForApproval(options?: {
+    timeout?: number;
+    form?: object;
+    selfApproval?: boolean;
+  }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
+    const key = this._allocKey("approval");
+
+    if (key in this.completed) {
+      const value = this.completed[key];
+      return { then: (resolve: any) => resolve(value) };
+    }
+
+    // In child job mode, return never-resolving thenable (same as _nextStep)
+    if (this._executingKey !== null) {
+      return { then: () => new Promise(() => {}) };
+    }
+
+    // Throw immediately — approval is always a blocking step
+    console.log(`\n--- WAC: approval(${key}) ---`);
+    throw new StepSuspend({
+      mode: "approval",
+      key,
+      timeout: options?.timeout ?? 1800,
+      form: options?.form,
+      self_approval_disabled: !(options?.selfApproval ?? true),
+      steps: [],
+    });
+  }
+
+  _sleep(seconds: number): PromiseLike<void> {
+    const key = this._allocKey("sleep");
+
+    if (key in this.completed) {
+      return { then: (resolve: any) => resolve(undefined) };
+    }
+
+    if (this._executingKey !== null) {
+      return { then: () => new Promise(() => {}) };
+    }
+
+    console.log(`\n--- WAC: sleep(${key}, ${seconds}s) ---`);
+    throw new StepSuspend({
+      mode: "sleep",
+      key,
+      seconds: Math.max(1, Math.round(seconds)),
+      steps: [],
+    });
+  }
+
+  async _runInlineStep<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
+    const key = this._allocKey(name || "step");
+
+    if (key in this.completed) {
+      const value = this.completed[key];
+      if (value && typeof value === "object" && (value as any).__wmill_error) {
+        const err = new Error((value as any).message || `Step '${name}' failed`);
+        (err as any).result = (value as any).result;
+        (err as any).step_key = (value as any).step_key;
+        (err as any).child_job_id = (value as any).child_job_id;
+        throw err;
+      }
+      return value as T;
+    }
+
+    if (this._executingKey !== null) {
+      return new Promise(() => {});
+    }
+
+    console.log(`\n--- WAC: ${key} ---`);
+    const startedAt = new Date().toISOString();
+    console.log(`WM_WAC_STEP: ${JSON.stringify({ key, started_at: startedAt })}`);
+    const t0 = Date.now();
+    const result = await fn();
+    const durationMs = Date.now() - t0;
+
+    // Fast path: POST the delta to the new per-job API endpoint and return the
+    // result directly so the workflow subprocess continues into the next step()
+    // without unwinding. Concurrent step() calls (e.g. inside Promise.all) run
+    // their fn() bodies in parallel, then serialize the API POSTs via a
+    // per-ctx promise chain (`this._inlineChain`). Serializing the POSTs is
+    // required because the backend helper writes the whole serialized
+    // `_checkpoint` object per call, and two concurrent writes against a
+    // not-yet-created `v2_job_status` row would both see None under
+    // `SELECT FOR UPDATE` and overwrite each other.
+    //
+    // On any failure — network, auth, timeout, source-hash mismatch, old
+    // backend without the endpoint — fall through to throwing StepSuspend so
+    // the worker takes the legacy suspend-and-replay path. Gated by
+    // WM_WAC_INLINE_FAST_PATH (default on) so the old behavior stays
+    // reachable for A/B testing and rollback.
+    const fastPathFlagRaw = (getEnv("WM_WAC_INLINE_FAST_PATH") ?? "1").trim().toLowerCase();
+    const fastPathEnabled =
+      fastPathFlagRaw !== "0" &&
+      fastPathFlagRaw !== "false" &&
+      fastPathFlagRaw !== "off" &&
+      fastPathFlagRaw !== "no";
+    const jobId = getEnv("WM_JOB_ID");
+    const workspace = getEnv("WM_WORKSPACE");
+    if (fastPathEnabled && jobId && workspace && OpenAPI.BASE && OpenAPI.TOKEN) {
+      const chainTail = this._inlineChain.then(async () => {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 10_000);
+        try {
+          const resp = await fetch(
+            `${OpenAPI.BASE}/w/${workspace}/jobs/wac/inline_checkpoint/${jobId}`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${OpenAPI.TOKEN}`,
+              },
+              body: JSON.stringify({
+                key,
+                result,
+                started_at: startedAt,
+                duration_ms: durationMs,
+              }),
+              signal: ctrl.signal,
+            },
+          );
+          if (!resp.ok) {
+            throw new Error(`inline_checkpoint API ${resp.status}`);
+          }
+        } finally {
+          clearTimeout(t);
+        }
+      });
+      // Swallow chain errors so a past failure does not poison future awaits.
+      this._inlineChain = chainTail.catch(() => {});
+      try {
+        await chainTail;
+        return result as T;
+      } catch (e) {
+        console.log(
+          `WAC v2 inline fast path failed for key ${key}, falling back to suspend: ${e}`,
+        );
+        // fall through to the legacy suspend path below
+      }
+    }
+
+    throw new StepSuspend({ mode: "inline_checkpoint", steps: [], key, result, started_at: startedAt, duration_ms: durationMs });
+  }
+}
+
+export async function sleep(seconds: number): Promise<void> {
+  const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+  if (ctx) {
+    return ctx._sleep(seconds) as Promise<void>;
+  }
+  // Outside workflow context, just wait locally
+  await new Promise((r) => setTimeout(r, seconds * 1000));
+}
+
+export async function step<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
+  const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+  if (ctx) {
+    return ctx._runInlineStep(name, fn);
+  }
+  return fn();
+}
+
+/**
+ * Wrap an async function as a workflow task.
+ *
+ * @example
+ * const extract_data = task(async (url: string) => { ... });
+ * const run_external = task("f/external_script", async (x: number) => { ... });
+ *
+ * Inside a `workflow()`, calling a task dispatches it as a step.
+ * Outside a workflow, the function body executes directly.
+ */
+export function task<T extends (...args: any[]) => Promise<any>>(
+  fnOrPath: T | string,
+  maybeFnOrOptions?: T | TaskOptions,
+  maybeOptions?: TaskOptions,
+): T {
+  let fn: T;
+  let taskPath: string | undefined;
+  let taskOptions: TaskOptions | undefined;
+
+  if (typeof fnOrPath === "string") {
+    taskPath = fnOrPath;
+    fn = maybeFnOrOptions as T;
+    taskOptions = maybeOptions;
+  } else {
+    fn = fnOrPath;
+    taskOptions = maybeFnOrOptions as TaskOptions | undefined;
+  }
+
+  const taskName = fn.name || taskPath || "";
+
+  // NOT async — in workflow context we return the thenable directly so that
+  // unawaited task calls leave the step in ctx.pending (for _flushPending).
+  // An async wrapper would auto-resolve the thenable in a microtask, calling
+  // .then() which throws StepSuspend and empties pending before the caller
+  // can flush.
+  const wrapper = function (...args: any[]) {
+    const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+    if (ctx) {
+      // Inside a workflow with checkpoint/replay context — dispatch as step
+      const script = taskPath ?? taskName;
+      const paramNames = getParamNames(fn);
+      const kwargs: Record<string, any> = {};
+      for (let i = 0; i < args.length; i++) {
+        if (paramNames[i]) {
+          kwargs[paramNames[i]] = args[i];
+        } else {
+          kwargs[`arg${i}`] = args[i];
+        }
+      }
+      const stepResult = ctx._nextStep(taskName, script, kwargs, "inline", taskOptions);
+      // If this step should execute directly (child job mode), run the inner function
+      // and throw StepSuspend with mode "step_complete" to signal that we're done
+      if ((stepResult as any)?._execute_directly) {
+        return (async () => {
+          const result = await fn(...args);
+          throw new StepSuspend({ mode: "step_complete", steps: [], result });
+        })();
+      }
+      return stepResult;
+    } else if (getEnv("WM_JOB_ID") && !getEnv("WM_FLOW_JOB_ID")) {
+      // Inside a Windmill root job without checkpoint context — v1 HTTP dispatch
+      // WM_FLOW_JOB_ID is set on child jobs, so we skip dispatch for those
+      return (async () => {
+        const paramNames = getParamNames(fn);
+        const kwargs: Record<string, any> = {};
+        args.forEach((x, i) => (kwargs[paramNames[i]] = x));
+        let req = await fetch(
+          `${OpenAPI.BASE}/w/${getWorkspace()}/jobs/run/workflow_as_code/${getEnv(
+            "WM_JOB_ID"
+          )}/${taskName}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${getEnv("WM_TOKEN")}`,
+            },
+            body: JSON.stringify({ args: kwargs }),
+          }
+        );
+        let jobId = await req.text();
+        console.log(`Started task ${taskName} as job ${jobId}`);
+        let r = await waitJob(jobId);
+        console.log(`Task ${taskName} (${jobId}) completed`);
+        return r;
+      })();
+    } else {
+      // Standalone — execute directly
+      return fn(...args);
+    }
+  } as unknown as T;
+
+  Object.defineProperty(wrapper, "name", { value: taskName });
+  (wrapper as any)._is_task = true;
+  (wrapper as any)._task_path = taskPath;
+  return wrapper;
+}
+
+/**
+ * Create a task that dispatches to a separate Windmill script.
+ *
+ * @example
+ * const extract = taskScript("f/data/extract");
+ * // inside workflow: await extract({ url: "https://..." })
+ */
+export function taskScript(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any> {
+  const name = path.split("/").pop() || path;
+  const wrapper = function (...args: any[]) {
+    const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+    if (ctx) {
+      const kwargs = args.length === 1 && typeof args[0] === "object" && args[0] !== null
+        ? args[0]
+        : args.reduce((acc, v, i) => { acc[`arg${i}`] = v; return acc; }, {} as Record<string, any>);
+      return ctx._nextStep(name, path, kwargs, "script", options);
+    }
+    throw new Error(`taskScript("${path}") can only be called inside a workflow()`);
+  };
+  Object.defineProperty(wrapper, "name", { value: name });
+  (wrapper as any)._is_task = true;
+  (wrapper as any)._task_path = path;
+  return wrapper;
+}
+
+/**
+ * Create a task that dispatches to a separate Windmill flow.
+ *
+ * @example
+ * const pipeline = taskFlow("f/etl/pipeline");
+ * // inside workflow: await pipeline({ input: data })
+ */
+export function taskFlow(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any> {
+  const name = path.split("/").pop() || path;
+  const wrapper = function (...args: any[]) {
+    const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+    if (ctx) {
+      const kwargs = args.length === 1 && typeof args[0] === "object" && args[0] !== null
+        ? args[0]
+        : args.reduce((acc, v, i) => { acc[`arg${i}`] = v; return acc; }, {} as Record<string, any>);
+      return ctx._nextStep(name, path, kwargs, "flow", options);
+    }
+    throw new Error(`taskFlow("${path}") can only be called inside a workflow()`);
+  };
+  Object.defineProperty(wrapper, "name", { value: name });
+  (wrapper as any)._is_task = true;
+  (wrapper as any)._task_path = path;
+  return wrapper;
+}
+
+/**
+ * Mark an async function as a workflow-as-code entry point.
+ *
+ * The function must be **deterministic**: given the same inputs it must call
+ * tasks in the same order on every replay. Branching on task results is fine
+ * (results are replayed from checkpoint), but branching on external state
+ * (current time, random values, external API calls) must use `step()` to
+ * checkpoint the value so replays see the same result.
+ */
+export function workflow<T>(fn: (...args: any[]) => Promise<T>) {
+  (fn as any)._is_workflow = true;
+  return fn;
+}
+
+/**
+ * Suspend the workflow and wait for an external approval.
+ *
+ * Use `getResumeUrls()` (wrapped in `step()`) to obtain resume/cancel/approvalPage
+ * URLs before calling this function.
+ *
+ * @example
+ * const urls = await step("urls", () => getResumeUrls());
+ * await step("notify", () => sendEmail(urls.approvalPage));
+ * const { value, approver } = await waitForApproval({ timeout: 3600 });
+ */
+export function waitForApproval(options?: {
+  timeout?: number;
+  form?: object;
+  selfApproval?: boolean;
+}): PromiseLike<{ value: any; approver: string; approved: boolean }> {
+  const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+  if (!ctx) {
+    throw new Error("waitForApproval can only be called inside a workflow()");
+  }
+  return ctx._waitForApproval(options);
+}
+
+/**
+ * Process items in parallel with optional concurrency control.
+ *
+ * Each item is processed by calling `fn(item)`, which should be a task().
+ * Items are dispatched in batches of `concurrency` (default: all at once).
+ *
+ * @example
+ * const process = task(async (item: string) => { ... });
+ * const results = await parallel(items, process, { concurrency: 5 });
+ */
+export async function parallel<T, R>(
+  items: T[],
+  fn: (item: T) => PromiseLike<R> | R,
+  options?: { concurrency?: number },
+): Promise<R[]> {
+  const concurrency = options?.concurrency ?? items.length;
+  if (concurrency <= 0 || items.length === 0) return [];
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    const batchResults = await Promise.all(batch.map((item) => fn(item)));
+    results.push(...batchResults);
+  }
+  return results;
+}
+
+/**
+ * Commit Kafka offsets for a trigger with auto_commit disabled.
+ * @param triggerPath - Path to the Kafka trigger (from event.wm_trigger.trigger_path)
+ * @param topic - Kafka topic name (from event.topic)
+ * @param partition - Partition number (from event.partition)
+ * @param offset - Message offset to commit (from event.offset)
+ */
+export async function commitKafkaOffsets(
+  triggerPath: string,
+  topic: string,
+  partition: number,
+  offset: number,
+): Promise<void> {
+  const workspace = getWorkspace();
+  await KafkaTriggerService.commitKafkaOffsets({
+    workspace,
+    path: triggerPath,
+    requestBody: { topic, partition, offset },
+  });
+}
+

@@ -1,25 +1,43 @@
 <script lang="ts">
 	import { copyToClipboard } from '$lib/utils'
-	import { Clipboard } from 'lucide-svelte'
+	import { Copy } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { inputSizeClasses } from '../text_input/TextInput.svelte'
 
-	export let content: string
-	export let title: string | undefined = undefined
-	export let size: 'sm' | 'md' = 'sm'
-	export let disabled = false
+
+	interface Props {
+		content: string;
+		title?: string | undefined;
+		size?: 'sm' | 'md';
+		disabled?: boolean;
+		class?: string;
+	}
+
+	let {
+		content,
+		title = undefined,
+		size = 'md',
+		disabled = false,
+		class: className = ''
+	}: Props = $props();
+	
 </script>
 
 {#if title !== undefined}
 	<div class="text-xs font-semibold">{title}</div>
 {/if}
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<!-- svelte-ignore a11y-no-static-element-interactions -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class="grow min-w-0 w-full px-2 py-1 border flex items-center bg-surface-secondary text-primary justify-between rounded-md"
+	class={twMerge(
+		'grow min-w-0 w-full border flex items-center bg-surface-secondary hover:opacity-60 transition-opacity text-primary justify-between rounded-md',
+		inputSizeClasses[size],
+		className
+	)}
 	class:cursor-not-allowed={disabled}
 	class:cursor-pointer={!disabled}
-	on:click={(e) => {
+	onclick={(e) => {
 		if (disabled) {
 			return
 		}
@@ -27,8 +45,6 @@
 		copyToClipboard(content)
 	}}
 >
-	<div class={twMerge('truncate whitespace-no-wrap grow', size === 'sm' ? 'text-xs' : 'text-sm')}
-		>{content}</div
-	>
-	<Clipboard size={12} class="flex-shrink-0" />
+	<div class={twMerge('truncate whitespace-no-wrap grow text-xs')}>{content}</div>
+	<Copy size={12} class="flex-shrink-0" />
 </div>

@@ -1,13 +1,17 @@
 import type { Schema } from '$lib/common'
 import type { Flow, FlowModule } from '$lib/gen'
-import type { Writable } from 'svelte/store'
-import { loadFlowModuleState } from './flowStateUtils'
-import { emptyFlowModuleState } from './utils'
+import { isFlowModuleTool, agentToolToFlowModule } from './agentToolUtils'
+import { loadFlowModuleState } from './flowStateUtils.svelte'
+import { emptyFlowModuleState } from './utils.svelte'
+import type { StateStore } from '$lib/utils'
 
 export type FlowModuleState = {
 	schema?: Schema
 	previewResult?: any
 	previewArgs?: any
+	previewJobId?: string
+	previewSuccess?: boolean
+	previewLogs?: string
 }
 
 export type FlowState = Record<string, FlowModuleState>
@@ -18,7 +22,7 @@ export type FlowState = Record<string, FlowModuleState>
  * We also hold the data of the results of a test job, ran by the user.
  */
 
-export async function initFlowState(flow: Flow, flowStateStore: Writable<FlowState>) {
+export async function initFlowState(flow: Flow, flowStateStore: StateStore<FlowState>) {
 	const modulesState: FlowState = {}
 
 	await mapFlowModules(flow.value.modules, modulesState)
@@ -27,10 +31,10 @@ export async function initFlowState(flow: Flow, flowStateStore: Writable<FlowSta
 		? await loadFlowModuleState(flow.value.failure_module)
 		: emptyFlowModuleState()
 
-	flowStateStore.set({
+	flowStateStore.val = {
 		...modulesState,
 		failure: failureModule
-	})
+	}
 }
 
 /**
@@ -53,6 +57,14 @@ async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState) {
 				(branchModule: { summary?: string; skip_failure?: boolean; modules: Array<FlowModule> }) =>
 					mapFlowModules(branchModule.modules, modulesState)
 			)
+		)
+	}
+
+	if (value.type === 'aiagent' && value.tools) {
+		await Promise.all(
+			value.tools.filter(isFlowModuleTool).map(async (tool) => {
+				modulesState[tool.id] = await loadFlowModuleState(agentToolToFlowModule(tool))
+			})
 		)
 	}
 

@@ -1,122 +1,155 @@
 <script lang="ts">
+	import { preventDefault, stopPropagation } from 'svelte/legacy'
+
 	import NodeWrapper from './NodeWrapper.svelte'
 	import TriggersWrapper from '../triggers/TriggersWrapper.svelte'
-	import { type GraphEventHandlers, type SimplifiableFlow } from '../../graphBuilder'
-	import type { FlowModule } from '$lib/gen'
+	import type { FlowModule, TriggersCount } from '$lib/gen'
 	import { getContext } from 'svelte'
-	import type { Writable } from 'svelte/store'
 	import { Maximize2, Minimize2, Calendar } from 'lucide-svelte'
-	import { getStateColor } from '../../util'
+	import { getNodeColorClasses } from '../../util'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
 	import VirtualItemWrapper from '$lib/components/flows/map/VirtualItemWrapper.svelte'
+	import { type Trigger, type TriggerType } from '$lib/components/triggers/utils'
+	import { tick } from 'svelte'
+	import type { GraphEventHandlers, SimplifiableFlow } from '../../graphBuilder.svelte'
+	import { getGraphContext } from '../../graphContext'
 
-	export let data: {
-		path: string
-		isEditor: boolean
-		newFlow: boolean
-		extra_perms: Record<string, any>
-		eventHandlers: GraphEventHandlers
-		modules: FlowModule[]
-		index: number
-		disableAi: boolean
-		simplifiableFlow: SimplifiableFlow
+	interface Props {
+		data: {
+			path: string
+			isEditor: boolean
+			newFlow: boolean
+			extra_perms: Record<string, any>
+			eventHandlers: GraphEventHandlers
+			modules: FlowModule[]
+			index: number
+			disableAi: boolean
+			simplifiableFlow: SimplifiableFlow
+		}
 	}
 
-	const { selectedId } = getContext<{
-		selectedId: Writable<string | undefined>
-	}>('FlowGraphContext')
+	let { data }: Props = $props()
 
-	const { primarySchedule, triggersCount, selectedTrigger } =
-		getContext<TriggerContext>('TriggerContext')
+	const { selectionManager } = getGraphContext()
+
+	const { triggersCount, triggersState } = $state(getContext<TriggerContext>('TriggerContext'))
+
+	function getScheduleCfg(primary: Trigger | undefined, triggersCount: TriggersCount | undefined) {
+		return primary?.draftConfig
+			? {
+					enabled: primary?.draftConfig?.enabled,
+					schedule: primary?.draftConfig?.schedule
+				}
+			: primary?.lightConfig
+				? { enabled: primary?.lightConfig?.enabled, schedule: primary?.lightConfig?.schedule }
+				: {
+						enabled: !!triggersCount?.primary_schedule,
+						schedule: triggersCount?.primary_schedule?.schedule
+					}
+	}
+
+	let colorClasses = $derived(
+		getNodeColorClasses('_VirtualItem', selectionManager?.isNodeSelected('Trigger'))
+	)
 </script>
 
-<NodeWrapper wrapperClass="shadow-md" let:darkMode>
-	{#if data.simplifiableFlow?.simplifiedFlow != true}
-		<TriggersWrapper
-			disableAi={data.disableAi}
-			isEditor={data.isEditor}
-			path={data.path}
-			bgColor={getStateColor(undefined, darkMode)}
-			on:new={(e) => {
-				data?.eventHandlers.insert({
-					modules: data.modules,
-					index: 0,
-					kind: 'trigger',
-					inlineScript: e.detail.inlineScript
-				})
-				data?.eventHandlers?.simplifyFlow(true)
-			}}
-			on:pickScript={(e) => {
-				data?.eventHandlers.insert({
-					modules: data.modules,
-					index: 0,
-					kind: 'trigger',
-					script: e.detail
-				})
-				data?.eventHandlers?.simplifyFlow(true)
-			}}
-			on:openScheduledPoll={(e) => {
-				$selectedTrigger = 'scheduledPoll'
-			}}
-			on:select={(e) => {
-				data?.eventHandlers?.select('triggers')
-			}}
-			on:delete={(e) => {
-				data.eventHandlers.delete(e, '')
-			}}
-			selected={$selectedId == 'triggers'}
-			newItem={data.newFlow}
-			modules={data.modules}
-		/>
-	{:else}
-		<VirtualItemWrapper
-			label="Check for new events"
-			selectable={true}
-			selected={$selectedId == 'triggers'}
-			id={'triggers'}
-			bgColor={getStateColor(undefined, darkMode)}
-			on:select={(e) => {
-				data?.eventHandlers?.select(e.detail)
-			}}
-		>
-			{#if $primarySchedule || ($primarySchedule == undefined && $triggersCount?.primary_schedule?.schedule)}
-				<div class="text-2xs text-primary p-2 flex gap-2 items-center">
-					<Calendar size={12} />
-					<div>
-						Schedule every {$primarySchedule?.cron ?? $triggersCount?.primary_schedule?.schedule}
-						{$primarySchedule?.enabled ||
-						($primarySchedule == undefined && $triggersCount?.primary_schedule?.schedule)
-							? ''
-							: ' (disabled)'}
+<NodeWrapper>
+	{#snippet children({ darkMode })}
+		{#if data.simplifiableFlow?.simplifiedFlow != true}
+			<TriggersWrapper
+				disableAi={data.disableAi}
+				isEditor={data.isEditor}
+				path={data.path}
+				showDraft={data.isEditor ?? false}
+				{colorClasses}
+				on:new={(e) => {
+					data?.eventHandlers.insert({
+						index: 0,
+						kind: 'trigger',
+						inlineScript: e.detail.inlineScript
+					})
+					data?.eventHandlers?.simplifyFlow(true)
+				}}
+				on:pickScript={(e) => {
+					data?.eventHandlers.insert({
+						index: 0,
+						kind: 'trigger',
+						script: e.detail
+					})
+					data?.eventHandlers?.simplifyFlow(true)
+				}}
+				on:openScheduledPoll={(e) => {
+					const primarySchedule = triggersState.triggers.findIndex((t) => t.isPrimary && !t.isDraft)
+					triggersState.selectedTriggerIndex = primarySchedule
+				}}
+				on:select={() => data?.eventHandlers?.select('Trigger')}
+				onSelect={async (triggerIndex: number) => {
+					data?.eventHandlers?.select('Trigger')
+					await tick()
+					triggersState.selectedTriggerIndex = triggerIndex
+				}}
+				onAddDraftTrigger={async (type: TriggerType) => {
+					const newTrigger = triggersState.addDraftTrigger(triggersCount, type)
+					data?.eventHandlers?.select('Trigger')
+					await tick()
+					triggersState.selectedTriggerIndex = newTrigger
+				}}
+				selected={selectionManager?.getSelectedId() === 'Trigger'}
+				newItem={data.newFlow}
+			/>
+		{:else}
+			<VirtualItemWrapper
+				label="Check for new events"
+				selectable={true}
+				id={'Trigger'}
+				on:select={(e) => {
+					data?.eventHandlers?.select(e.detail)
+				}}
+				{colorClasses}
+			>
+				{#if triggersState.triggers.some((t) => t.isPrimary) || $triggersCount?.primary_schedule}
+					{@const { enabled, schedule } = getScheduleCfg(
+						triggersState.triggers.find((t) => t.isPrimary),
+						$triggersCount
+					)}
+					<div class="text-2xs text-primary p-2 flex gap-2 items-center">
+						<Calendar size={12} />
+						<div>
+							Schedule every {schedule}
+							{enabled ? '' : ' (disabled)'}
+						</div>
 					</div>
-				</div>
-			{:else}
-				<button
-					class="px-2 py-1 hover:bg-surface-inverse w-full hover:text-primary-inverse"
-					on:click={() => {
-						setScheduledPollSchedule(primarySchedule, triggersCount)
-					}}
-				>
-					Set primary schedule
-				</button>
-			{/if}
-		</VirtualItemWrapper>
-	{/if}
-	{#if data.simplifiableFlow != undefined}
-		<button
-			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
-outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-nord-950 hover:text-white"
-			on:click|preventDefault|stopPropagation={() =>
-				data?.eventHandlers?.simplifyFlow(!data.simplifiableFlow?.simplifiedFlow)}
-			title={data.simplifiableFlow?.simplifiedFlow
-				? 'Expand to full flow view'
-				: 'Simplify flow view for scheduled poll'}
-		>
-			{#if data.simplifiableFlow?.simplifiedFlow}
-				<Maximize2 size={12} strokeWidth={2} />
-			{:else}
-				<Minimize2 size={12} strokeWidth={2} />
-			{/if}
-		</button>
-	{/if}
+				{:else}
+					<button
+						class="px-2 py-1 hover:bg-surface-inverse w-full hover:text-primary-inverse"
+						onclick={() => {
+							setScheduledPollSchedule(triggersState, triggersCount)
+						}}
+					>
+						Set primary schedule
+					</button>
+				{/if}
+			</VirtualItemWrapper>
+		{/if}
+		{#if data.simplifiableFlow != undefined}
+			<button
+				class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
+outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-nord-950 hover:text-white"
+				onclick={stopPropagation(
+					preventDefault(() =>
+						data?.eventHandlers?.simplifyFlow(!data.simplifiableFlow?.simplifiedFlow)
+					)
+				)}
+				title={data.simplifiableFlow?.simplifiedFlow
+					? 'Expand to full flow view'
+					: 'Simplify flow view for scheduled poll'}
+			>
+				{#if data.simplifiableFlow?.simplifiedFlow}
+					<Maximize2 size={12} strokeWidth={2} />
+				{:else}
+					<Minimize2 size={12} strokeWidth={2} />
+				{/if}
+			</button>
+		{/if}
+	{/snippet}
 </NodeWrapper>

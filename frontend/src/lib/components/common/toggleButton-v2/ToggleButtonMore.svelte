@@ -1,28 +1,48 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
-	import { Tab } from '@rgossiaux/svelte-headlessui'
-	import type { ToggleButtonContext } from './ToggleButtonGroup.svelte'
+	import { untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Popover from '$lib/components/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-
-	export let disabled: boolean = false
-	export let small = false
-	export let light = false
-	export let id: string | undefined = undefined
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 
 	type TogglableItem = {
 		label: string
 		value: string
+		tooltip?: string
 	}
 
-	export let togglableItems: TogglableItem[]
+	interface Props {
+		disabled?: boolean
+		small?: boolean
+		id?: string | undefined
+		item?: any | undefined
+		selected?: string | undefined
+		togglableItems: TogglableItem[]
+		btnText?: string
+		class?: string
+		hideSelectedOption?: boolean
+	}
 
-	const { select, selected } = getContext<ToggleButtonContext>('ToggleButtonGroup')
+	let {
+		disabled = false,
+		small = false,
+		id = undefined,
+		item = undefined,
+		selected = $bindable(undefined),
+		togglableItems,
+		btnText,
+		class: className = '',
+		hideSelectedOption = false
+	}: Props = $props()
 
-	let items = togglableItems.map((i) => ({ displayName: i.label, action: () => select(i.value) }))
+	let items = untrack(() => togglableItems).map((i) => ({
+		displayName: i.label,
+		action: () => (selected = i.value),
+		tooltip: i.tooltip
+	}))
 
-	function isAnOptionSelected(selected: string) {
+	function isAnOptionSelected(selected: string | undefined) {
 		return togglableItems.some((i) => i.value === selected)
 	}
 </script>
@@ -30,28 +50,28 @@
 <Popover
 	disablePopup={true}
 	notClickable
-	class={twMerge('flex', disabled ? 'cursor-not-allowed' : 'cursor-pointer')}
+	class={twMerge('flex', disabled ? 'cursor-not-allowed' : 'cursor-pointer', className)}
 	disappearTimeout={0}
 >
 	<div {id} class="flex">
-		{#if isAnOptionSelected($selected)}
-			<Tab
+		{#if isAnOptionSelected(selected) && !hideSelectedOption}
+			{@const tooltip = togglableItems.find((i) => i.value === selected)?.tooltip}
+			<ToggleButton
 				{disabled}
-				class={twMerge(
-					' rounded-md transition-all text-xs flex gap-1 flex-row items-center',
-					small ? 'px-1.5 py-0.5 text-2xs' : 'px-2 py-1',
-					light ? 'font-medium' : '',
-					isAnOptionSelected($selected)
-						? 'bg-surface shadow-md'
-						: 'bg-surface-secondary hover:bg-surface-hover',
-					$$props.class
-				)}
-			>
-				{togglableItems.find((i) => i.value === $selected)?.label}
-			</Tab>
+				value={selected ?? ''}
+				{item}
+				{small}
+				{id}
+				label={togglableItems.find((i) => i.value === selected)?.label}
+				{tooltip}
+				showTooltipIcon={!!tooltip}
+			/>
 		{/if}
 		<div class="flex items-center">
-			<DropdownV2 {items} />
+			<!-- The tooltip fixes a bug where the other tooltips won't disappear -->
+			<Tooltip disablePopup>
+				<DropdownV2 {btnText} enableFlyTransition {items} size={small ? 'sm' : 'md'} />
+			</Tooltip>
 		</div>
 	</div>
 </Popover>

@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext } from 'svelte'
-	import { Popup } from '../common'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Label from '../Label.svelte'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import Button from '../common/button/Button.svelte'
 	import OneOfInputSpecsEditor from '../apps/editor/settingsPanel/OneOfInputSpecsEditor.svelte'
 	import type { AppViewerContext, GridItem, RichConfiguration } from '../apps/types'
-	import { findGridItem } from '../apps/editor/appUtils'
+	import { findGridItem } from '../apps/editor/appUtilsCore'
 
 	const { selectedComponent, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -16,53 +16,66 @@
 		type: 'bar' | 'scatter' | 'line' | 'area' | 'range-bar' | 'range-area'
 	}
 
-	let component: GridItem | undefined = undefined
+	let component = $state(undefined) as GridItem | undefined
 
-	$: if (component === undefined && $selectedComponent && $app) {
-		component = findGridItem($app, $selectedComponent[0])
+	$effect(() => {
+		if (component === undefined && $selectedComponent && $app) {
+			untrack(() => {
+				component = findGridItem($app, $selectedComponent[0])
+			})
+		}
+	})
+
+	let isEE = $derived(component?.data?.type === 'agchartscomponentee')
+
+	interface Props {
+		value?: Dataset | undefined
+		trigger?: import('svelte').Snippet
 	}
 
-	$: isEE = component?.data.type === 'agchartscomponentee'
-
-	export let value: Dataset | undefined = undefined
+	let { value = $bindable(undefined), trigger }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
 	function removeDataset() {
 		dispatch('remove')
 	}
+
+	const trigger_render = $derived(trigger)
 </script>
 
-<Popup
+<Popover
 	floatingConfig={{
 		strategy: 'fixed',
 		placement: 'left-end',
 		middleware: [offset(8), flip(), shift()]
 	}}
-	containerClasses="border rounded-lg shadow-lg bg-surface p-4"
+	closeOnOtherPopoverOpen
 >
-	<svelte:fragment slot="button">
-		<slot name="trigger" />
-	</svelte:fragment>
-	{#if value}
-		<div class="flex flex-col w-96 p-2 gap-4">
-			<Label label="Name">
-				<input type="text" bind:value={value.name} />
-			</Label>
+	{#snippet trigger()}
+		{@render trigger_render?.()}
+	{/snippet}
+	{#snippet content()}
+		{#if value}
+			<div class="flex flex-col w-96 gap-4 p-4 max-h-[70vh] overflow-y-auto">
+				<Label label="Name">
+					<input type="text" bind:value={value.name} />
+				</Label>
 
-			<OneOfInputSpecsEditor
-				key={'Data'}
-				bind:oneOf={value.value}
-				id={$selectedComponent?.[0] ?? ''}
-				shouldCapitalize={true}
-				resourceOnly={false}
-				inputSpecsConfiguration={value.value?.['configuration']}
-				labels={value.value?.['labels']}
-				tooltip={value.value?.['tooltip']}
-				disabledOptions={isEE ? [] : ['range-bar', 'range-area']}
-			/>
+				<OneOfInputSpecsEditor
+					key={'Data'}
+					bind:oneOf={value.value}
+					id={$selectedComponent?.[0] ?? ''}
+					shouldCapitalize={true}
+					resourceOnly={false}
+					inputSpecsConfiguration={value.value?.['configuration']}
+					labels={value.value?.['labels']}
+					tooltip={value.value?.['tooltip']}
+					disabledOptions={isEE ? [] : ['range-bar', 'range-area']}
+				/>
 
-			<Button color="red" size="xs" on:click={removeDataset}>Remove dataset</Button>
-		</div>
-	{/if}
-</Popup>
+				<Button color="red" size="xs" on:click={removeDataset}>Remove dataset</Button>
+			</div>
+		{/if}
+	{/snippet}
+</Popover>

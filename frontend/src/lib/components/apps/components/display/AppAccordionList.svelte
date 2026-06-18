@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
+	import { getContext, untrack } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
@@ -11,27 +14,44 @@
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let customCss: ComponentCustomCSS<'accordionlistcomponent'> | undefined = undefined
-	export let render: boolean
-	export let initializing: boolean | undefined
-	export let componentContainerHeight: number
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		customCss?: ComponentCustomCSS<'accordionlistcomponent'> | undefined
+		render: boolean
+		initializing: boolean | undefined
+		componentContainerHeight: number
+	}
 
-	type AccordionListValue = { header: string; [key: string]: any };
+	let {
+		id,
+		componentInput,
+		customCss = undefined,
+		render,
+		initializing = $bindable(),
+		componentContainerHeight
+	}: Props = $props()
+
+	type AccordionListValue = { header: string; [key: string]: any }
 
 	type InternalAccordionListInput = AppInput & {
-		value: AccordionListValue[];
-	};
+		value: AccordionListValue[]
+	}
 
-	$: accordionInput = componentInput as InternalAccordionListInput;
+	let accordionInput = $derived(componentInput as InternalAccordionListInput)
 
 	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let activeIndex: number = 0
+	let everRender = $state(untrack(() => render))
 
-	const outputs = initOutput($worldStore, id, {
+	$effect.pre(() => {
+		render && !everRender && (everRender = true)
+	})
+
+	let activeIndex: number = $state(0)
+
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		activeIndex: 0,
 		loading: false,
@@ -45,23 +65,24 @@
 		}
 	}
 
-	let css = initCss($app.css?.accordionlistcomponent, customCss)
-	let result: any[] | undefined = undefined
+	let css = $state(initCss($app.css?.accordionlistcomponent, untrack(() => customCss)))
+	let result: any[] | undefined = $state(undefined)
 
-	let inputs = {}
+	let inputs = $state({})
 
-	$: $selectedComponent?.includes(id) &&
-		$focusedGrid === undefined &&
-		($focusedGrid = {
-			parentComponentId: id,
-			subGridIndex: 0
-		})
+	$effect.pre(() => {
+		$selectedComponent?.includes(id) &&
+			$focusedGrid === undefined &&
+			($focusedGrid = {
+				parentComponentId: id,
+				subGridIndex: 0
+			})
+	})
 
 	function toggleAccordion(index: number) {
 		activeIndex = activeIndex === index ? -1 : index
 		outputs.activeIndex.set(activeIndex)
 	}
-
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -85,27 +106,27 @@
 	bind:initializing
 	bind:result
 >
-	<div class="w-full flex flex-col overflow-auto max-h-full">
-		{#if $app.subgrids?.[`${id}-0`]}
-			{#if Array.isArray(result) && result.length > 0}
-				{#each result ?? [] as value, index}
-					<div class="border-b">
-						<button
-							on:pointerdown|stopPropagation
-							on:click={() => toggleAccordion(index)}
-							class={twMerge(
-								'w-full text-left bg-surface !truncate text-sm hover:text-primary px-1 py-2',
-								'wm-tabs-alltabs',
-								activeIndex === index
-									? twMerge('bg-surface text-primary ', 'wm-tabs-selectedTab')
-									: 'text-secondary'
-							)}
-						>
-							<span class="mr-2 w-8 font-mono">{activeIndex === index ? '-' : '+'}</span>
-							{accordionInput?.value[index]?.header || `Header ${index}`}
-						</button>
-						{#if activeIndex === index}
-							<div class="p-2 overflow-auto w-full">
+	{#if everRender}
+		<div class="w-full flex flex-col overflow-auto max-h-full">
+			{#if $app.subgrids?.[`${id}-0`]}
+				{#if Array.isArray(result) && result.length > 0}
+					{#each result ?? [] as value, index}
+						<div class="border-b">
+							<button
+								onpointerdown={stopPropagation(bubble('pointerdown'))}
+								onclick={() => toggleAccordion(index)}
+								class={twMerge(
+									'w-full text-left bg-surface !truncate text-sm hover:text-primary px-1 py-2',
+									'wm-tabs-alltabs',
+									activeIndex === index
+										? twMerge('bg-surface text-primary ', 'wm-tabs-selectedTab')
+										: 'text-secondary'
+								)}
+							>
+								<span class="mr-2 w-8 font-mono">{activeIndex === index ? '-' : '+'}</span>
+								{result[index]?.header || `Header ${index}`}
+							</button>
+							<div class="overflow-auto w-full">
 								<ListWrapper
 									onSet={(id, value) => {
 										if (!inputs[id]) {
@@ -133,13 +154,13 @@
 								>
 									<SubGridEditor
 										{id}
-										visible={render}
-										class={twMerge(css?.container?.class, 'wm-accordion')}
+										visible={render && index === activeIndex}
+										class={twMerge(css?.container?.class, 'wm-accordion p-2')}
 										style={css?.container?.style}
 										subGridId={`${id}-0`}
 										containerHeight={componentContainerHeight -
 											(30 * accordionInput?.value.length + 40)}
-										on:focus={() => {
+										onFocus={() => {
 											if (!$connectingInput.opened) {
 												$selectedComponent = [id]
 											}
@@ -148,17 +169,21 @@
 									/>
 								</ListWrapper>
 							</div>
-						{/if}
-					</div>
-				{/each}
-			{:else}
-				<ListWrapper disabled value={undefined} index={0}>
-					<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
-				</ListWrapper>
-				{#if !Array.isArray(result)}
-					<div class="text-center text-tertiary">Input data is not an array</div>
+						</div>
+					{/each}
+				{:else}
+					<ListWrapper disabled value={undefined} index={0}>
+						<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
+					</ListWrapper>
+					{#if !Array.isArray(result)}
+						<div class="text-center text-primary">Input data is not an array</div>
+					{/if}
 				{/if}
 			{/if}
-		{/if}
-	</div>
+		</div>
+	{:else if $app.subgrids}
+		<ListWrapper disabled value={undefined} index={0}>
+			<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
+		</ListWrapper>
+	{/if}
 </RunnableWrapper>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
@@ -10,23 +10,33 @@
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { Alert } from '$lib/components/common'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
+	import { appendClass } from '../../editor/componentsPanel/cssUtils'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'alertcomponent'> | undefined = undefined
-	export let render: boolean
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'alertcomponent'> | undefined
+		render: boolean
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+	}
+
+	let {
+		id,
+		configuration,
+		customCss = undefined,
+		render,
+		verticalAlignment = undefined
+	}: Props = $props()
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	let resolvedConfig = initConfig(
-		components['alertcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['alertcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	initOutput($worldStore, id, {})
+	initOutput($worldStore, untrack(() => id), {})
 
-	let css = initCss($app.css?.alertcomponent, customCss)
+	let css = $state(initCss($app.css?.alertcomponent, untrack(() => customCss)))
 </script>
 
 {#each Object.keys(components['alertcomponent'].initialData.configuration) as key (key)}
@@ -63,13 +73,13 @@
 				tooltip={resolvedConfig.tooltip}
 				size={resolvedConfig.size}
 				collapsible={resolvedConfig.collapsible}
-				bgClass={css?.background?.class}
+				bgClass={appendClass(css?.background?.class, 'wm-alert-card-background')}
 				bgStyle={css?.background?.style}
-				iconClass={css?.icon?.class}
+				iconClass={appendClass(css?.icon?.class, 'wm-alert-card-icon')}
 				iconStyle={css?.icon?.style}
-				titleClass={css?.title?.class}
+				titleClass={appendClass(css?.title?.class, 'wm-alert-card-title')}
 				titleStyle={css?.title?.style}
-				descriptionClass={css?.description?.class}
+				descriptionClass={appendClass(css?.description?.class, 'wm-alert-card-description')}
 				descriptionStyle={css?.description?.style}
 				isCollapsed={resolvedConfig.initiallyCollapsed}
 			>

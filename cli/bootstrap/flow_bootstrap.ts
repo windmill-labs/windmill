@@ -13,7 +13,6 @@ export interface FlowDefinition {
         properties: { [name: string]: SchemaProperty},
         required: string[]
     }
-    ws_error_handler_muted: false
 }
 
 export function defaultFlowDefinition(): FlowDefinition {
@@ -30,6 +29,5 @@ export function defaultFlowDefinition(): FlowDefinition {
             properties: {},
             required: []
         },
-        ws_error_handler_muted: false,
     }
 }

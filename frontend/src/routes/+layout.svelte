@@ -1,8 +1,13 @@
 <script lang="ts">
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 
 	import { SvelteToast } from '@zerodevx/svelte-toast'
 	import '$lib/assets/app.css'
+	interface Props {
+		children?: import('svelte').Snippet
+	}
+
+	let { children }: Props = $props()
 
 	// Default toast options
 	const toastOptions = {
@@ -11,13 +16,23 @@
 		next: 0, // next progress value
 		pausable: true, // pause progress bar tween on mouse hover
 		dismissable: true, // allow dismiss with close button
-		reversed: false, // insert new toast to bottom of stack
-		intro: { x: 256 }, // toast intro fly animation settings
+		reversed: true, // insert new toast to bottom of stack
+		intro: { y: -32 }, // toast intro fly animation settings
 		theme: {} // css var overrides
 	}
 
 	document.getElementById('svelte-global-loader')?.remove()
+
+	// Prevent scrolling over number inputs from changing their value
+	function handleWheel(e: WheelEvent) {
+		const target = e.target as HTMLElement
+		if (target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'number') {
+			target.blur()
+		}
+	}
 </script>
+
+<svelte:document onwheel={handleWheel} />
 
 <svelte:head>
 	<!-- {#if !import.meta.env.PROD}
@@ -27,10 +42,10 @@
 			src="https://snippet.meticulous.ai/v1/meticulous.js"
 		></script>
 	{/if} -->
-	<title>{$page.data?.stuff?.title ? `${$page.data?.stuff?.title} | ` : ''}Windmill</title>
+	<title>{page.data?.stuff?.title ? `${page.data?.stuff?.title} | ` : ''}Windmill</title>
 </svelte:head>
 
-<slot />
+{@render children?.()}
 
 <div class="wrap">
 	<SvelteToast options={toastOptions} />
@@ -38,11 +53,22 @@
 
 <style>
 	.wrap {
-		display: contents;
+		display: flex;
 		font-family: 'Inter', sans-serif;
-		font-size: 0.875rem;
+		width: 100%;
+		height: 100%;
+		justify-content: center;
+
+		--toastContainerRight: auto;
+		--toastContainerTop: auto;
+		--toastContainerBottom: 1rem;
 	}
-	.wrap :global(strong) {
-		font-weight: 600;
+
+	.wrap :global(._toastContainer) {
+		height: 20rem;
+		display: flex;
+		flex-direction: column-reverse;
+		overflow-y: auto;
+		overflow-x: hidden;
 	}
 </style>

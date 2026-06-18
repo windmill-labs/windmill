@@ -1,0 +1,10 @@
+-- Add metadata columns to unique_ext_jwt_token for listing external JWTs
+
+ALTER TABLE unique_ext_jwt_token
+  ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS username TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS is_operator BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS workspace_id TEXT,
+  ADD COLUMN IF NOT EXISTS label TEXT,
+  ADD COLUMN IF NOT EXISTS scopes TEXT[];

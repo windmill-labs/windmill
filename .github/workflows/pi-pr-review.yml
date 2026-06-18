@@ -1,0 +1,325 @@
+name: Pi Auto Review
+
+on:
+  pull_request:
+    types: [ready_for_review, opened, synchronize]
+  workflow_call:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: number
+      extra_prompt:
+        description: 'Additional reviewer instructions appended to the standard review prompt'
+        required: false
+        type: string
+        default: ''
+      triggered_by:
+        description: 'GitHub username that triggered this review (for audit only)'
+        required: false
+        type: string
+        default: ''
+    secrets:
+      DEEPSEEK_API_KEY:
+        required: false
+      WINDMILL_EE_PRIVATE_ACCESS:
+        required: false
+
+concurrency:
+  group: pi-review-${{ inputs.pr_number || github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check-membership:
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/check-org-membership.yml
+    with:
+      commenter: ${{ github.event.pull_request.user.login }}
+    secrets:
+      access_token: ${{ secrets.ORG_ACCESS_TOKEN }}
+
+  pi-review:
+    needs: check-membership
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 30
+    if: |
+      always() &&
+      (
+        needs.check-membership.result == 'skipped' ||
+        (needs.check-membership.result == 'success' && needs.check-membership.outputs.is_member == 'true')
+      ) &&
+      (
+        github.event_name == 'workflow_call' ||
+        (github.event.pull_request.draft == false && github.event.pull_request.head.repo.fork == false)
+      )
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Check Pi configuration
+        id: pi_config
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          if [ -n "$DEEPSEEK_API_KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "DEEPSEEK_API_KEY is not configured; skipping Pi review."
+          fi
+
+      - name: Resolve PR metadata
+        if: steps.pi_config.outputs.enabled == 'true'
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_TITLE: ${{ github.event.pull_request.title }}
+          EVENT_BODY: ${{ github.event.pull_request.body }}
+          EVENT_FORK: ${{ github.event.pull_request.head.repo.fork }}
+          EVENT_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          if [ -n "$INPUT_PR_NUMBER" ]; then
+            PR_JSON=$(gh pr view "$INPUT_PR_NUMBER" --repo "${{ github.repository }}" \
+              --json number,baseRefName,baseRefOid,headRefOid,title,body,isCrossRepository,author)
+            PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
+            BASE_REF=$(echo "$PR_JSON" | jq -r '.baseRefName')
+            BASE_SHA=$(echo "$PR_JSON" | jq -r '.baseRefOid')
+            HEAD_SHA=$(echo "$PR_JSON" | jq -r '.headRefOid')
+            PR_TITLE=$(echo "$PR_JSON" | jq -r '.title')
+            PR_BODY=$(echo "$PR_JSON" | jq -r '.body // ""')
+            IS_FORK=$(echo "$PR_JSON" | jq -r '.isCrossRepository')
+            PR_AUTHOR=$(echo "$PR_JSON" | jq -r '.author.login // ""')
+          else
+            PR_NUMBER="$EVENT_PR_NUMBER"
+            BASE_REF="$EVENT_BASE_REF"
+            BASE_SHA="$EVENT_BASE_SHA"
+            HEAD_SHA="$EVENT_HEAD_SHA"
+            PR_TITLE="$EVENT_TITLE"
+            PR_BODY="$EVENT_BODY"
+            IS_FORK="$EVENT_FORK"
+            PR_AUTHOR="$EVENT_AUTHOR"
+          fi
+          if [ "$IS_FORK" = "true" ]; then
+            echo "Skipping Pi review for fork PR."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo "skip=false"
+            echo "pr_number=$PR_NUMBER"
+            echo "base_ref=$BASE_REF"
+            echo "base_sha=$BASE_SHA"
+            echo "head_sha=$HEAD_SHA"
+            echo "pr_author=$PR_AUTHOR"
+            echo 'title<<PR_TITLE_EOF'
+            printf '%s\n' "$PR_TITLE"
+            echo 'PR_TITLE_EOF'
+            echo 'body<<PR_BODY_EOF'
+            printf '%s\n' "$PR_BODY"
+            echo 'PR_BODY_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout repository
+        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        uses: actions/checkout@v5
+        with:
+          ref: refs/pull/${{ steps.pr.outputs.pr_number }}/merge
+          fetch-depth: 1
+
+      - name: Check EE access
+        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        id: ee
+        env:
+          EE_TOKEN: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+        run: |
+          if [ -n "$EE_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout EE repository
+        if: steps.ee.outputs.available == 'true'
+        uses: actions/checkout@v5
+        with:
+          repository: windmill-labs/windmill-ee-private
+          path: ./windmill-ee-private
+          ref: ${{ steps.ee.outputs.ee_repo_ref }}
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+          fetch-depth: 1
+
+      - name: Substitute EE code
+        if: steps.ee.outputs.available == 'true'
+        run: ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
+
+      - name: Set up Node.js
+        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Pi CLI
+        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        run: npm install --global @mariozechner/pi-coding-agent
+
+      - name: Pre-fetch base and head refs for the PR
+        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        env:
+          PR_BASE_REF: ${{ steps.pr.outputs.base_ref }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          git fetch --no-tags origin \
+            "$PR_BASE_REF" \
+            "+refs/pull/$PR_NUMBER/head"
+
+      - name: Fetch prior PR discussion
+        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          gh api "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" \
+            --jq '[.[] | {user: .user.login, created_at: .created_at, body: (.body | .[:4000])}] | sort_by(.created_at) | .[-20:]' \
+            > prior-comments.json || echo "[]" > prior-comments.json
+
+      - name: Write Pi review context
+        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        env:
+          PR_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          PR_BASE_SHA: ${{ steps.pr.outputs.base_sha }}
+          PR_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          PR_TITLE: ${{ steps.pr.outputs.title }}
+          PR_BODY: ${{ steps.pr.outputs.body }}
+          PR_AUTHOR: ${{ steps.pr.outputs.pr_author }}
+          EXTRA_PROMPT: ${{ inputs.extra_prompt }}
+        run: |
+          mkdir -p .github/pi
+          node <<'NODE'
+          const fs = require('fs');
+          const lines = [
+            `Repository: ${process.env.PR_REPOSITORY}`,
+            `PR number: ${process.env.PR_NUMBER}`,
+          ];
+          if (process.env.PR_AUTHOR) {
+            lines.push(`PR AUTHOR: ${process.env.PR_AUTHOR}`);
+          }
+          lines.push(
+            `Base SHA: ${process.env.PR_BASE_SHA}`,
+            `Head SHA: ${process.env.PR_HEAD_SHA}`,
+            '',
+            'PR title:',
+            process.env.PR_TITLE || '(empty)',
+            '',
+            'PR body:',
+            process.env.PR_BODY || '(empty)',
+            '',
+            'Changed commits command:',
+            `git log --oneline ${process.env.PR_BASE_SHA}...${process.env.PR_HEAD_SHA}`,
+            '',
+            'Changed files command:',
+            `git diff --stat ${process.env.PR_BASE_SHA}...${process.env.PR_HEAD_SHA}`,
+            '',
+            'Full review diff command:',
+            `git diff --unified=0 ${process.env.PR_BASE_SHA}...${process.env.PR_HEAD_SHA}`
+          );
+          if (process.env.EXTRA_PROMPT && process.env.EXTRA_PROMPT.trim()) {
+            lines.push('', 'Additional reviewer instructions:', process.env.EXTRA_PROMPT.trim());
+          }
+          if (fs.existsSync('prior-comments.json')) {
+            try {
+              const comments = JSON.parse(fs.readFileSync('prior-comments.json', 'utf8'));
+              if (Array.isArray(comments) && comments.length > 0) {
+                lines.push(
+                  '',
+                  'Prior PR discussion (most recent up to 20 comments):',
+                  '',
+                  'If you have already reviewed this PR (look for your own earlier "## Pi Review (DeepSeek V4)" comment), focus on what changed since then per the diff and respect any decisions the human made in replies. Do not re-flag findings the human already pushed back on.',
+                  ''
+                );
+                for (const c of comments) {
+                  lines.push(`### @${c.user} (${c.created_at})`, '', c.body, '', '---', '');
+                }
+              }
+            } catch (_) {}
+          }
+          fs.writeFileSync('.github/pi/pr-review-context.md', `${lines.join('\n')}\n`);
+          NODE
+
+      - name: Run Pi review
+        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          PI_SKIP_VERSION_CHECK: '1'
+        run: |
+          set -o pipefail
+          cat REVIEW.md .github/pi/pr-review.prompt.md > /tmp/pi-prompt.md
+          pi -p \
+            --provider deepseek \
+            --model deepseek-v4-pro \
+            --tools read,grep,find,ls,bash \
+            --mode json \
+            < /tmp/pi-prompt.md \
+            | tee pi-events.jsonl \
+            | jq -rc --unbuffered '
+                if .type == "agent_start" then "🤖 pi agent started"
+                elif .type == "turn_start" then "── turn ──"
+                elif .type == "message_end" then
+                  "[\(.message.role)] " + (
+                    (.message.content // [])
+                    | map(
+                        if .type == "text" then "text(\(.text | length)c)"
+                        elif .type == "tool_use" then "🔧 \(.name) \(.input | @json | .[:160])"
+                        elif .type == "tool_result" then "✅ result"
+                        else .type
+                        end
+                      )
+                    | join(" | ")
+                  )
+                elif .type == "turn_end" then "── turn done (\((.toolResults // []) | length) tool result(s)) ──"
+                elif .type == "agent_end" then "🏁 pi agent done"
+                else empty
+                end
+              '
+
+          jq -r '
+            select(.type == "agent_end")
+            | .messages
+            | map(select(.role == "assistant"))
+            | last
+            | (.content[]? | select(.type == "text") | .text)
+          ' pi-events.jsonl > pi-final-message.md
+
+      - name: Post Pi review comment
+        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require('fs');
+            const path = `${process.env.GITHUB_WORKSPACE}/pi-final-message.md`;
+            if (!fs.existsSync(path)) {
+              core.info('Pi did not produce a final message; skipping PR comment.');
+              return;
+            }
+            const body = fs.readFileSync(path, 'utf8').trim();
+            if (!body) {
+              core.info('Pi final message was empty; skipping PR comment.');
+              return;
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: Number(process.env.PR_NUMBER),
+              body,
+            });

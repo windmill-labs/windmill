@@ -5,24 +5,28 @@
 	import { displayDate } from '$lib/utils'
 	import { Hourglass } from 'lucide-svelte'
 
-	export let type: FlowStatusModule['type']
-	export let scheduled_for: Date | undefined
-	export let skipped: boolean = false
+	interface Props {
+		type: FlowStatusModule['type'];
+		scheduled_for: Date | undefined;
+		skipped?: boolean;
+	}
+
+	let { type, scheduled_for, skipped = false }: Props = $props();
 </script>
 
 {#if type == 'WaitingForEvents'}
-	<span class="italic text-waiting">
-		<Hourglass />
+	<span class="italic text-xs text-violet-700 dark:text-violet-400">
+		<Hourglass class="inline" size={14} />
 		Waiting to be resumed by resume events such as approvals
 	</span>
 {:else if type == 'WaitingForPriorSteps'}
-	<span class="italic text-tertiary">
-		<Hourglass />
+	<span class="italic text-xs text-primary">
+		<Hourglass class="inline" size={14} />
 		Waiting for prior steps to complete
 	</span>
 {:else if type == 'WaitingForExecutor'}
-	<span class="italic text-tertiary">
-		<Hourglass />
+	<span class="italic text-xs text-primary">
+		<Hourglass class="inline" />
 		{#if scheduled_for && forLater(scheduled_for.toString())}
 			Job is scheduled to be executed at {displayDate(scheduled_for, true)}
 		{:else}
@@ -36,9 +40,3 @@
 {:else if type == 'Failure'}
 	<Badge color="red">Failure</Badge>
 {/if}
-
-<style>
-	.text-waiting {
-		color: #c76bf2;
-	}
-</style>

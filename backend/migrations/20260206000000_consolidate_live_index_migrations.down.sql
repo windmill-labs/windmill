@@ -1,0 +1,2 @@
+-- No-op: indexes and windmill_migrations entries are safe to leave in place.
+-- Rolling back this migration does not require removing the indexes.

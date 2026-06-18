@@ -1,8 +1,11 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview } from '$lib/gen'
-	import { createEventDispatcher, getContext, onMount } from 'svelte'
-	import type { AppViewerContext, InlineScript } from '../../types'
+	import { createEventDispatcher, getContext, onMount, untrack } from 'svelte'
+	import type { AppViewerContext } from '../../types'
 	import { Maximize2, Trash2 } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
 	import { inferArgs, parseOutputs } from '$lib/infer'
@@ -11,35 +14,56 @@
 	import { defaultIfEmptyString, emptySchema, itemsExists } from '$lib/utils'
 	import { computeFields } from './utils'
 	import { deepEqual } from 'fast-equals'
-	import type { AppInput } from '../../inputType'
+	import type { AppInput, InlineScript } from '../../inputType'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { buildExtraLib } from '../../utils'
-	import RunButton from './RunButton.svelte'
+	import RunButton from './AppRunButton.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import ScriptGen from '$lib/components/copilot/ScriptGen.svelte'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
-	import { userStore } from '$lib/stores'
 	import CacheTtlPopup from './CacheTtlPopup.svelte'
+	import TagPopup from './TagPopup.svelte'
 	import EditorSettings from '$lib/components/EditorSettings.svelte'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { convertManagedFieldsToEvalv2 } from '$lib/components/apps/components/componentManagedFields'
 
-	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
+	const {
+		runnableComponents,
+		stateId,
+		worldStore,
+		state: stateStore,
+		appPath,
+		app
+	} = getContext<AppViewerContext>('AppViewerContext')
 
-	export let inlineScript: InlineScript | undefined
-	export let name: string | undefined = undefined
-	export let id: string
-	export let defaultUserInput: boolean = false
-	export let fields: Record<string, AppInput> = {}
-	export let syncFields: boolean = false
-	export let transformer: boolean = false
-	export let componentType: string | undefined = undefined
+	interface Props {
+		inlineScript: InlineScript | undefined
+		name?: string | undefined
+		id: string
+		defaultUserInput?: boolean
+		fields?: Record<string, AppInput>
+		syncFields?: boolean
+		transformer?: boolean
+		componentType?: string | undefined
+		editor?: Editor | undefined
+	}
 
-	const { runnableComponents, stateId, worldStore, state, appPath, app } =
-		getContext<AppViewerContext>('AppViewerContext')
-
-	export let editor: Editor | undefined = undefined
-	let diffEditor: DiffEditor
-	let simpleEditor: SimpleEditor
-	let validCode = true
+	let {
+		inlineScript = $bindable(),
+		name = $bindable(undefined),
+		id,
+		defaultUserInput = false,
+		fields = $bindable({}),
+		syncFields = false,
+		transformer = false,
+		componentType = undefined,
+		editor = $bindable(undefined)
+	}: Props = $props()
+	let diffEditor: DiffEditor | undefined = $state()
+	let simpleEditor: SimpleEditor | undefined = $state()
+	let validCode = $state(true)
+	let inlineScriptEditorDrawer: InlineScriptEditorDrawer | undefined = $state()
 
 	async function inferInlineScriptSchema(
 		language: Preview['language'],
@@ -57,11 +81,14 @@
 		return schema
 	}
 
-	$: inlineScript &&
-		(inlineScript.path = `${defaultIfEmptyString(
-			$appPath,
-			`u/${$userStore?.username ?? 'unknown'}/newapp`
-		)}/${name?.replaceAll(' ', '_')}`)
+	function onNameChange() {
+		if (inlineScript) {
+			inlineScript.path = `${defaultIfEmptyString(
+				$appPath,
+				`u/${$userStore?.username ?? 'unknown'}/newapp`
+			)}/${name?.replaceAll(' ', '_')}`
+		}
+	}
 
 	onMount(async () => {
 		if (inlineScript && !inlineScript.schema) {
@@ -79,10 +106,13 @@
 		if (inlineScript?.language == 'frontend' && inlineScript.content) {
 			inferSuggestions(inlineScript.content)
 		}
+		if (!inlineScript?.path) {
+			onNameChange()
+		}
 	})
 
 	const dispatch = createEventDispatcher()
-	let runLoading = false
+	let runLoading = $state(false)
 
 	function preConnect(newFields) {
 		if (!componentType) {
@@ -99,55 +129,18 @@
 					fieldType: 'number'
 				}
 			}
-		} else if (
-			componentType === 'aggridinfinitecomponent' ||
-			componentType === 'aggridinfinitecomponentee'
-		) {
-			newFields['offset'] = {
-				type: 'evalv2',
-				expr: `${id}.params.offset`,
-				fieldType: 'number'
-			}
-			newFields['limit'] = {
-				type: 'evalv2',
-				expr: `${id}.params.limit`,
-				fieldType: 'number'
-			}
-			newFields['orderBy'] = {
-				type: 'evalv2',
-				expr: `${id}.params.orderBy`,
-				fieldType: 'string'
-			}
-			newFields['isDesc'] = {
-				type: 'evalv2',
-				expr: `${id}.params.isDesc`,
-				fieldType: 'boolean'
-			}
-			newFields['search'] = {
-				type: 'evalv2',
-				expr: `${id}.params.search`,
-				fieldType: 'string'
-			}
+		} else {
+			// Convert component-managed fields to evalv2 type using centralized utility
+			const convertedFields = convertManagedFieldsToEvalv2(componentType, id, newFields)
+			Object.assign(newFields, convertedFields)
 		}
 	}
 
 	function assertConnections(newFields) {
-		if (
-			componentType === 'aggridinfinitecomponent' ||
-			componentType === 'aggridinfinitecomponentee'
-		) {
-			const fields = ['offset', 'limit', 'orderBy', 'isDesc', 'search']
-
-			fields.forEach((field) => {
-				if (newFields[field]?.type !== 'evalv2') {
-					newFields[field] = {
-						type: 'evalv2',
-						expr: `${id}.params.${field}`,
-						fieldType: newFields[field]?.fieldType ?? 'string'
-					}
-				}
-			})
-		}
+		// Convert component-managed fields to evalv2 type using centralized utility
+		// This ensures that even if fields were somehow changed, they remain as evalv2
+		const convertedFields = convertManagedFieldsToEvalv2(componentType ?? '', id, newFields)
+		Object.assign(newFields, convertedFields)
 	}
 
 	async function loadSchemaAndInputsByName() {
@@ -165,21 +158,19 @@
 
 			if (!deepEqual(newFields, fields)) {
 				fields = newFields
-				$stateId++
+				if (stateId) {
+					$stateId++
+				}
 			}
+			$app = $app
 		}
 	}
-
-	$: extraLib =
-		inlineScript?.language == 'frontend' && worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {}, id, $state, true)
-			: undefined
 
 	// 	`
 	// /** The current's app state */
 	// const state: Record<string, any>;`
 
-	let drawerIsOpen: boolean | undefined = undefined
+	let drawerIsOpen: boolean | undefined = $state(undefined)
 
 	async function inferSuggestions(code: string) {
 		const outputs = await parseOutputs(code, true)
@@ -197,14 +188,34 @@
 					]
 				}
 			}
-			$stateId++
+			if (stateId) {
+				$stateId++
+			}
 		}
 	}
+
+	let lastName = $state(name)
+	$effect(() => {
+		if (name && name !== lastName) {
+			lastName = name
+			untrack(() => onNameChange())
+		}
+	})
+
+	let isFrontend = $derived(inlineScript?.language == 'frontend')
+	let extraLib = $derived(
+		isFrontend && worldStore
+			? buildExtraLib($worldStore?.outputsById ?? {}, id, $stateStore, true)
+			: undefined
+	)
 </script>
 
+<!-- <pre class="text-2xs">{JSON.stringify($worldStore?.outputsById, null, 2)}</pre> -->
 {#if inlineScript}
 	{#if inlineScript.language != 'frontend'}
 		<InlineScriptEditorDrawer
+			{id}
+			appPath={$appPath}
 			bind:isOpen={drawerIsOpen}
 			{editor}
 			bind:this={inlineScriptEditorDrawer}
@@ -220,20 +231,24 @@
 			{#if name !== undefined}
 				{#if !transformer}
 					<div class="flex flex-row gap-2 w-full items-center">
-						<input
-							on:keydown|stopPropagation
+						<TextInput
 							bind:value={name}
-							placeholder="Inline script name"
-							class="!text-xs !rounded-sm !shadow-none"
-							on:keyup={() => {
-								$app = $app
-								$stateId++
+							inputProps={{
+								onkeyup: () => {
+									$app = $app
+									if (stateId) {
+										$stateId++
+									}
+								},
+								placeholder: 'Inline script name',
+								onkeydown: () => stopPropagation(bubble('keydown'))
 							}}
+							size="sm"
 						/>
 						<div
 							title={validCode ? 'Main function parsable' : 'Main function not parsable'}
 							class="rounded-full !w-2 !h-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
-						/>
+						></div>
 					</div>
 				{:else}
 					<span class="text-xs font-semibold truncate w-full">{name} of {id}</span>
@@ -241,7 +256,16 @@
 			{/if}
 			<div class="flex w-full flex-row gap-1 items-center justify-end">
 				{#if inlineScript}
-					<CacheTtlPopup bind:cache_ttl={inlineScript.cache_ttl} />
+					{#if inlineScript.language != 'frontend'}
+						<TagPopup
+							bind:tag={inlineScript.tag}
+							btnProps={{ unifiedSize: 'sm', variant: 'subtle' }}
+						/>
+					{/if}
+					<CacheTtlPopup
+						bind:cache_ttl={inlineScript.cache_ttl}
+						btnProps={{ unifiedSize: 'sm', variant: 'subtle' }}
+					/>
 				{/if}
 				<ScriptGen
 					lang={inlineScript?.language}
@@ -253,14 +277,15 @@
 						return acc
 					}, {})}
 					{transformer}
+					btnProps={{ unifiedSize: 'sm', variant: 'subtle' }}
 				/>
-				<EditorSettings />
+				<EditorSettings btnProps={{ unifiedSize: 'sm', variant: 'subtle' }} />
 
 				<Button
 					title="Delete"
-					size="xs2"
-					color="light"
-					variant="contained"
+					unifiedSize="sm"
+					variant="subtle"
+					destructive
 					aria-label="Delete"
 					on:click={() => dispatch('delete')}
 					endIcon={{ icon: Trash2 }}
@@ -268,10 +293,9 @@
 				/>
 				{#if inlineScript.language != 'frontend'}
 					<Button
-						size="xs2"
-						color="light"
+						unifiedSize="sm"
+						variant="subtle"
 						title="Full Editor"
-						variant="contained"
 						on:click={() => {
 							inlineScriptEditorDrawer?.openDrawer()
 						}}
@@ -281,9 +305,8 @@
 				{/if}
 
 				<Button
-					variant="border"
-					size="xs2"
-					color="light"
+					variant="default"
+					unifiedSize="sm"
 					on:click={async () => {
 						editor?.format()
 						simpleEditor?.format()
@@ -304,11 +327,10 @@
 			{#if !drawerIsOpen}
 				{#if inlineScript.language != 'frontend'}
 					<Editor
-						path={inlineScript.path}
+						path={$appPath + '/' + id}
 						bind:this={editor}
 						small
 						class="flex flex-1 grow h-full"
-						lang={scriptLangToEditorLang(inlineScript?.language)}
 						scriptLang={inlineScript.language}
 						bind:code={inlineScript.content}
 						fixedOverflowWidgets={true}
@@ -341,6 +363,7 @@
 							}
 							$app = $app
 						}}
+						key={`app-inline-${$workspaceStore}-${$appPath}-${id}`}
 						args={Object.entries(fields).reduce((acc, [key, obj]) => {
 							acc[key] = obj.type === 'static' ? obj.value : undefined
 							return acc
@@ -369,13 +392,14 @@
 							inferSuggestions(e.detail.code)
 							$app = $app
 						}}
+						key={`app-inline-${$workspaceStore}-${$appPath}-${id}`}
 					/>
 				{/if}
 
 				<DiffEditor
 					open={false}
 					bind:this={diffEditor}
-					class="h-full"
+					className="h-full"
 					automaticLayout
 					fixedOverflowWidgets
 					defaultLang={scriptLangToEditorLang(inlineScript?.language)}

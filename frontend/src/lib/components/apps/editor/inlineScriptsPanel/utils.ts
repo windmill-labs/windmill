@@ -1,6 +1,8 @@
 import type { Schema } from '$lib/common'
-import type { AppInputs, Runnable } from '../../inputType'
-import type { GridItem, InlineScript } from '../../types'
+import { ScriptService } from '$lib/gen'
+import { sendUserToast } from '$lib/toast'
+import { isRunnableByName, isRunnableByPath, type AppInputs, type InlineScript, type Runnable, type RunnableByName, type CtxInput } from '../../inputType'
+import type { GridItem, HiddenRunnable } from '../../types'
 import { fieldTypeToTsType, schemaToInputsSpec } from '../../utils'
 import type { AppComponent } from '../component'
 
@@ -11,7 +13,8 @@ export interface AppScriptsList {
 
 // When the schema is loaded, we need to update the inputs spec
 // in order to render the inputs the component panel
-export function computeFields(schema: Schema, defaultUserInput: boolean, fields: AppInputs) {
+// Note: fields can include CtxInput for raw apps
+export function computeFields(schema: Schema, defaultUserInput: boolean, fields: AppInputs | Record<string, CtxInput | AppInputs[string]>) {
 	let schemaCopy: Schema = JSON.parse(JSON.stringify(schema))
 
 	const result = {}
@@ -27,7 +30,13 @@ export function computeFields(schema: Schema, defaultUserInput: boolean, fields:
 		if (oldInput === undefined) {
 			result[key] = newInput
 		} else {
-			if (
+			// Preserve ctx inputs (used in raw apps) - they have { type: 'ctx', ctx: 'property' } syntax
+			if (oldInput.type === 'ctx') {
+				result[key] = oldInput
+			} else if (oldInput.fieldType === undefined) {
+				// For raw app inputs without fieldType, preserve the input but add the fieldType from schema
+				result[key] = Object.assign({}, oldInput, { fieldType: newInput.fieldType })
+			} else if (
 				fieldTypeToTsType(newInput.fieldType) !== fieldTypeToTsType(oldInput.fieldType) ||
 				newInput.format !== oldInput.format ||
 				newInput.subFieldType !== oldInput.subFieldType ||
@@ -111,7 +120,7 @@ export function getAppScripts(
 	grid: GridItem[],
 	subgrids: Record<string, GridItem[]> | undefined
 ): AppScriptsList {
-	const scriptsList = grid.reduce(
+	const scriptsList = (grid ?? []).reduce(
 		(acc, gridComponent) => processGridItemRunnable(gridComponent, acc),
 		{ inline: [], imported: [], transformer: false } as AppScriptsList
 	)
@@ -136,10 +145,52 @@ function processRunnable(
 	if (runnable?.type === undefined) {
 		return
 	}
-	const type: keyof AppScriptsList = runnable.type === 'runnableByPath' ? 'imported' : 'inline'
+	const type: keyof AppScriptsList = isRunnableByPath(runnable) ? 'imported' : 'inline'
 	list[type].push({
-		name: runnable[runnable.type === 'runnableByPath' ? 'path' : 'name'],
+		name: runnable[isRunnableByPath(runnable) ? 'path' : 'name'],
 		id,
 		transformer: transformer !== undefined
+	})
+}
+
+export async function createScriptFromInlineScript(
+	id: string,
+	runnable: HiddenRunnable | RunnableByName,
+	workspace: string,
+	appPath: string
+) {
+	if (!isRunnableByName(runnable)) {
+		sendUserToast('Only inline scripts can be saved to workspace', true)
+		return
+	}
+	if (!runnable.inlineScript) {
+		sendUserToast('No inline script found', true)
+		return
+	}
+	let language = runnable.inlineScript.language
+	if (language == 'frontend') {
+		sendUserToast('Frontend scripts can not be saved to workspace', true)
+		return
+	}
+	await ScriptService.createScript({
+		workspace,
+		requestBody: {
+			path: appPath + '/' + id,
+			summary: runnable.name ?? '',
+			description: '',
+			content: runnable.inlineScript.content,
+			parent_hash: undefined,
+			schema: runnable.inlineScript.schema,
+			is_template: false,
+			language: language!
+		}
+	})
+
+	Object.assign(runnable, {
+		type: 'path',
+		schema: runnable.inlineScript.schema,
+		runType: 'script',
+		recomputeIds: undefined,
+		path: appPath + '/' + id
 	})
 }

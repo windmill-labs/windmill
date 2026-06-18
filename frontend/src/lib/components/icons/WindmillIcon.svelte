@@ -1,27 +1,37 @@
 <script lang="ts">
 	import { customIcon } from './store'
 
-	export let height = '24px'
-	export let width = '24px'
-	export let white = false
-	export let spin: 'slow' | 'medium' | 'fast' | 'veryfast' | undefined = undefined
+	interface Props {
+		height?: string
+		width?: string
+		white?: boolean
+		spin?: 'slow' | 'medium' | 'fast' | 'veryfast' | undefined
+		class?: string
+		size?: number
+	}
+
+	let {
+		height: heightProp = '24px',
+		width: widthProp = '24px',
+		white = false,
+		spin = undefined,
+		class: classNames = '',
+		size = undefined
+	}: Props = $props()
+
+	let width = $derived(size ? `${size}px` : widthProp)
+	let height = $derived(size ? `${size}px` : heightProp)
 </script>
 
 {#if customIcon.white || customIcon.normal}
 	{#if white}
-		<img src={customIcon.white} alt="Windmill Custom icon" {width} {height} class={$$props.class} />
+		<img src={customIcon.white} alt="Windmill Custom icon" {width} {height} class={classNames} />
 	{:else}
-		<img
-			src={customIcon.normal}
-			alt="Windmill Custom icon"
-			{width}
-			{height}
-			class={$$props.class}
-		/>
+		<img src={customIcon.normal} alt="Windmill Custom icon" {width} {height} class={classNames} />
 	{/if}
 {:else}
 	<svg
-		class={$$props.class}
+		class={classNames}
 		class:animate-[spin_2s_linear_infinite]={spin === 'veryfast'}
 		class:animate-[spin_5s_linear_infinite]={spin === 'fast'}
 		class:animate-[spin_15s_linear_infinite]={spin === 'medium'}

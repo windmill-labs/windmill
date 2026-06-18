@@ -1,4 +1,4 @@
-<script context="module" lang="ts">
+<script module lang="ts">
 	export type ConnectionInfo = {
 		connected: boolean
 		message?: string
@@ -9,7 +9,11 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { Circle } from 'lucide-svelte'
 
-	export let connectionInfo: ConnectionInfo | undefined = undefined
+	interface Props {
+		connectionInfo?: ConnectionInfo | undefined
+	}
+
+	let { connectionInfo = undefined }: Props = $props()
 </script>
 
 {#if connectionInfo}
@@ -20,7 +24,9 @@
 					<Circle class="text-green-600 relative inline-flex fill-current" size={12} />
 				</span>
 
-				<div slot="text"> {connectionInfo.message ?? ''} </div>
+				{#snippet text()}
+					<div> {connectionInfo.message ?? ''} </div>
+				{/snippet}
 			</Popover>
 		{:else}
 			<Popover notClickable>
@@ -29,7 +35,9 @@
 					<Circle class="text-red-600 relative inline-flex fill-current" size={12} />
 				</span>
 
-				<div slot="text"> {connectionInfo.message ?? ''} </div>
+				{#snippet text()}
+					<div> {connectionInfo.message ?? ''} </div>
+				{/snippet}
 			</Popover>
 		{/if}
 	</div>

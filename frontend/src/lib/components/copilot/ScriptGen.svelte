@@ -2,18 +2,13 @@
 	import { base } from '$lib/base'
 	import { Button } from '../common'
 
-	import {
-		MAX_SCHEMA_LENGTH,
-		SUPPORTED_LANGUAGES,
-		addThousandsSeparator,
-		copilot,
-		type AiProviderTypes
-	} from './lib'
+	import { MAX_SCHEMA_LENGTH, SUPPORTED_LANGUAGES, addThousandsSeparator, copilot } from './lib'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import type Editor from '../Editor.svelte'
-	import Popup from '../common/popup/Popup.svelte'
-	import { dbSchemas, copilotInfo, type DBSchema, workspaceStore } from '$lib/stores'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import TooltipV2 from '$lib/components/meltComponents/Tooltip.svelte'
+	import { dbSchemas, type DBSchema, workspaceStore } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import type SimpleEditor from '../SimpleEditor.svelte'
@@ -23,92 +18,112 @@
 	import { writable } from 'svelte/store'
 	import HighlightCode from '../HighlightCode.svelte'
 	import LoadingIcon from '../apps/svelte-select/lib/LoadingIcon.svelte'
-	import { sleep } from '$lib/utils'
+	import { readFieldsRecursively, sleep } from '$lib/utils'
 	import { autoPlacement } from '@floating-ui/core'
-	import {
-		AlertTriangle,
-		Ban,
-		Bot,
-		Check,
-		ExternalLink,
-		HistoryIcon,
-		Wand2,
-		X
-	} from 'lucide-svelte'
+	import { AlertTriangle, Ban, Check, ExternalLink, HistoryIcon, Wand2, X } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
 	import { isInitialCode } from '$lib/script_helpers'
 	import { twMerge } from 'tailwind-merge'
-	import Popover from '../Popover.svelte'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, type ComponentProps } from 'svelte'
+	import ProviderModelSelector from './chat/ProviderModelSelector.svelte'
+	import { copilotInfo } from '$lib/aiStore'
 
-	// props
-	export let iconOnly: boolean = false
-	export let lang: SupportedLanguage | 'bunnative' | 'frontend' | undefined
-	export let editor: Editor | SimpleEditor | undefined
-	export let diffEditor: DiffEditor | undefined
-	export let inlineScript = false
-	export let args: Record<string, any>
-	export let transformer = false
-
-	$: if (lang == 'bunnative') {
-		lang = 'bun'
+	interface Props {
+		// props
+		btnProps?: ComponentProps<typeof Button>
+		lang: SupportedLanguage | 'bunnative' | 'frontend' | undefined
+		editor: Editor | SimpleEditor | undefined
+		diffEditor: DiffEditor | undefined
+		inlineScript?: boolean
+		args: Record<string, any>
+		transformer?: boolean
 	}
 
+	let {
+		btnProps,
+		lang = $bindable(),
+		editor,
+		diffEditor,
+		inlineScript = false,
+		args,
+		transformer = false
+	}: Props = $props()
+
+	$effect.pre(() => {
+		if (lang == 'bunnative') {
+			lang = 'bun'
+		}
+	})
+
 	// state
-	let funcDesc = ''
-	let trimmedDesc = ''
-	let genLoading: boolean = false
-	let input: HTMLTextAreaElement | undefined
+	let funcDesc = $state('')
+	let trimmedDesc = $state('')
+	let genLoading: boolean = $state(false)
+	let input: HTMLTextAreaElement | undefined = $state()
 	let generatedCode = writable<string>('')
-	let dbSchema: DBSchema | undefined = undefined
-	let abortController: AbortController | undefined = undefined
-	let blockPopupOpen = false
-	let mode: 'gen' | 'edit' = 'gen'
+	let dbSchema: DBSchema | undefined = $state(undefined)
+	let abortController: AbortController | undefined = $state(undefined)
+	let blockPopupOpen = $state(false)
+	let mode: 'gen' | 'edit' = $state('gen')
 
-	let button: HTMLButtonElement | undefined
+	let button: HTMLButtonElement | undefined = $state()
 
-	$: trimmedDesc = funcDesc.trim()
+	$effect.pre(() => {
+		trimmedDesc = funcDesc.trim()
+	})
+	async function callCopilot() {
+		if (mode === 'edit') {
+			await copilot(
+				{
+					// @ts-ignore
+					language: transformer && lang === 'frontend' ? 'transformer' : lang!,
+					description: trimmedDesc,
+					code: editor?.getCode() || '',
+					dbSchema: dbSchema,
+					type: 'edit',
+					workspace: $workspaceStore!
+				},
+				generatedCode,
+				abortController!
+			)
+		} else {
+			await copilot(
+				{
+					// @ts-ignore
+					language: transformer && lang === 'frontend' ? 'transformer' : lang!,
+					description: trimmedDesc,
+					dbSchema: dbSchema,
+					type: 'gen',
+					workspace: $workspaceStore!
+				},
+				generatedCode,
+				abortController!
+			)
+		}
+	}
+
+	function handleAiButtonClick() {
+		if (editor && isInitialCode(editor.getCode())) {
+			mode = 'gen'
+		} else {
+			mode = 'edit'
+		}
+
+		setTimeout(() => {
+			autoResize()
+		}, 0)
+	}
 
 	async function onGenerate(closePopup: () => void) {
 		if (trimmedDesc.length <= 0) {
 			return
 		}
 		savePrompt()
-		const aiProvider = $copilotInfo.ai_provider as AiProviderTypes
 		try {
 			genLoading = true
 			blockPopupOpen = true
 			abortController = new AbortController()
-			if (mode === 'edit') {
-				await copilot(
-					{
-						// @ts-ignore
-						language: transformer && lang === 'frontend' ? 'transformer' : lang!,
-						description: trimmedDesc,
-						code: editor?.getCode() || '',
-						dbSchema: dbSchema,
-						type: 'edit',
-						workspace: $workspaceStore!
-					},
-					generatedCode,
-					abortController,
-					aiProvider
-				)
-			} else {
-				await copilot(
-					{
-						// @ts-ignore
-						language: transformer && lang === 'frontend' ? 'transformer' : lang!,
-						description: trimmedDesc,
-						dbSchema: dbSchema,
-						type: 'gen',
-						workspace: $workspaceStore!
-					},
-					generatedCode,
-					abortController,
-					aiProvider
-				)
-			}
+			await callCopilot()
 			setupDiff()
 			diffEditor?.setModified($generatedCode)
 			blockPopupOpen = false
@@ -160,15 +175,21 @@
 		diffEditor?.hide()
 	}
 
-	$: input && setTimeout(() => input?.focus(), 100)
+	$effect(() => {
+		input && setTimeout(() => input?.focus(), 100)
+	})
 
 	function clear() {
 		$generatedCode = ''
 	}
 
-	$: lang && clear()
+	$effect(() => {
+		lang && clear()
+	})
 
-	$: !$generatedCode && hideDiff()
+	$effect(() => {
+		!$generatedCode && hideDiff()
+	})
 
 	function updateSchema(lang, args, dbSchemas) {
 		const schemaRes = lang === 'graphql' ? args.api : args.database
@@ -184,9 +205,16 @@
 		}
 	}
 
-	$: updateSchema(lang, args, $dbSchemas)
+	$effect(() => {
+		readFieldsRecursively(args)
+		updateSchema(lang, args, $dbSchemas)
+	})
+	$effect(() => {
+		readFieldsRecursively(args)
+		updateSchema(lang, args, $dbSchemas)
+	})
 
-	let codeDiv: HTMLDivElement | undefined
+	let codeDiv: HTMLDivElement | undefined = $state()
 	let lastScrollHeight = 0
 	function updateScroll() {
 		if (codeDiv && lastScrollHeight !== codeDiv.scrollHeight) {
@@ -195,13 +223,26 @@
 		}
 	}
 
-	let promptHistory: string[] = []
-	function getPromptHistory() {
+	let promptHistory: string[] = $state([])
+
+	function getPromptStorageKey() {
+		return 'prompts-' + lang
+	}
+
+	function safeLocalStorageOperation<T>(operation: () => T, defaultValue?: T): T | undefined {
 		try {
-			promptHistory = JSON.parse(localStorage.getItem('prompts-' + lang) || '[]')
+			return operation()
 		} catch (e) {
 			console.error('error interacting with local storage', e)
+			return defaultValue
 		}
+	}
+
+	function getPromptHistory() {
+		const storageKey = getPromptStorageKey()
+		promptHistory =
+			safeLocalStorageOperation(() => JSON.parse(localStorage.getItem(storageKey) || '[]'), []) ||
+			[]
 	}
 
 	function savePrompt() {
@@ -212,26 +253,24 @@
 		while (promptHistory.length > 5) {
 			promptHistory.pop()
 		}
-		try {
-			localStorage.setItem('prompts-' + lang, JSON.stringify(promptHistory))
-		} catch (e) {
-			console.error('error interacting with local storage', e)
-		}
+		const storageKey = getPromptStorageKey()
+		safeLocalStorageOperation(() => localStorage.setItem(storageKey, JSON.stringify(promptHistory)))
 	}
 
 	function clearPromptHistory() {
 		promptHistory = []
-		try {
-			localStorage.setItem('prompts-' + lang, JSON.stringify(promptHistory))
-		} catch (e) {
-			console.error('error interacting with local storage', e)
-		}
+		const storageKey = getPromptStorageKey()
+		safeLocalStorageOperation(() => localStorage.setItem(storageKey, JSON.stringify(promptHistory)))
 	}
-	$: lang && getPromptHistory()
+	$effect(() => {
+		lang && getPromptHistory()
+	})
 
-	$: $generatedCode && updateScroll()
+	$effect(() => {
+		$generatedCode && updateScroll()
+	})
 
-	let innerWidth = 0
+	let innerWidth = $state(0)
 
 	function autoResize() {
 		if (input) {
@@ -248,15 +287,20 @@
 		}
 	}
 
+	function handlePublicOnlySelected({ detail }: { detail: string }) {
+		if (!dbSchema) return
+		;(dbSchema as any).publicOnly = detail === 'true'
+	}
+
 	onDestroy(() => {
 		abortController?.abort()
 	})
 </script>
 
-<svelte:window on:resize={autoResize} bind:innerWidth />
+<svelte:window onresize={autoResize} bind:innerWidth />
 
 {#if genLoading}
-	<div transition:fade class="fixed z-[4999] inset-0 bg-gray-500/75" />
+	<div transition:fade class="fixed z-[4999] inset-0 bg-gray-500/75"></div>
 {/if}
 
 {#if $generatedCode.length > 0 && !genLoading}
@@ -265,21 +309,23 @@
 			<Button
 				title="Discard generated code"
 				btnClasses="!font-medium px-2 w-7"
-				size="xs"
-				color="red"
+				unifiedSize="md"
+				destructive
 				on:click={rejectDiff}
-				variant="contained"
+				variant="accent"
 				startIcon={{ icon: X }}
 				iconOnly
+				{...btnProps}
 			/>
 			<Button
 				title="Accept generated code"
 				btnClasses="!font-medium px-2 w-7"
-				size="xs"
-				color="green"
+				unifiedSize="md"
+				variant="accent"
 				on:click={acceptDiff}
 				iconOnly
 				startIcon={{ icon: Check }}
+				{...btnProps}
 			/>
 		</div>
 	{:else}
@@ -287,22 +333,22 @@
 			<Button
 				title="Discard generated code"
 				btnClasses="!font-medium px-2"
-				size="xs"
-				color="red"
+				unifiedSize="md"
+				destructive
 				on:click={rejectDiff}
-				variant="contained"
+				variant="accent"
 				startIcon={{ icon: X }}
-				{iconOnly}
+				{...btnProps}
 			>
 				Discard
 			</Button><Button
 				title="Accept generated code"
 				btnClasses="!font-medium px-2"
-				size="xs"
-				color="green"
+				unifiedSize="md"
+				variant="accent"
 				on:click={acceptDiff}
 				startIcon={{ icon: Check }}
-				{iconOnly}
+				{...btnProps}
 			>
 				Accept
 			</Button>
@@ -310,7 +356,7 @@
 	{/if}
 {/if}
 {#if ($generatedCode.length === 0 || genLoading) && SUPPORTED_LANGUAGES.has(lang ?? '')}
-	<Popup
+	<Popover
 		floatingConfig={{
 			middleware: [
 				autoPlacement({
@@ -318,65 +364,34 @@
 				})
 			]
 		}}
-		let:close
-		blockOpen={blockPopupOpen}
+		disabled={blockPopupOpen}
 	>
-		<svelte:fragment slot="button">
+		{#snippet trigger()}
 			{#if inlineScript}
 				<Button
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
-					btnClasses={genLoading ? '!px-3 z-[5000]' : '!px-2'}
+					btnClasses={twMerge(genLoading ? '!px-3 z-[5000]' : '!px-2')}
 					propagateEvent={!genLoading}
-					on:click={genLoading
-						? () => abortController?.abort()
-						: () => {
-								if (editor) {
-									if (isInitialCode(editor.getCode())) {
-										mode = 'gen'
-									} else {
-										mode = 'edit'
-									}
-								}
-								setTimeout(() => {
-									autoResize()
-								}, 0)
-						  }}
+					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
 					bind:element={button}
 					iconOnly
 					title="Generate code from prompt"
-					startIcon={genLoading
-						? { icon: Ban }
-						: { icon: Wand2, classes: 'text-violet-800 dark:text-violet-400' }}
+					startIcon={genLoading ? { icon: Ban } : { icon: Wand2, classes: 'text-ai' }}
+					{...btnProps}
 				/>
 			{:else}
 				<Button
 					title="Generate code from prompt"
-					btnClasses={twMerge(
-						'!font-medium',
-						genLoading ? 'z-[5000]' : 'text-violet-800 dark:text-violet-400'
-					)}
+					btnClasses={twMerge('!font-medium', genLoading ? 'z-[5000]' : 'text-ai')}
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					spacingSize="md"
 					startIcon={genLoading ? { icon: Ban } : { icon: Wand2 }}
 					propagateEvent={!genLoading}
-					on:click={genLoading
-						? () => abortController?.abort()
-						: () => {
-								if (editor) {
-									if (isInitialCode(editor.getCode())) {
-										mode = 'gen'
-									} else {
-										mode = 'edit'
-									}
-								}
-								setTimeout(() => {
-									autoResize()
-								}, 0)
-						  }}
+					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
 					bind:element={button}
-					{iconOnly}
+					{...btnProps}
 				>
 					{#if genLoading}
 						Stop
@@ -385,138 +400,143 @@
 					{/if}
 				</Button>
 			{/if}
-		</svelte:fragment>
-		<div class="block text-primary">
-			{#if genLoading}
-				<div class="w-[42rem] min-h-[3rem] max-h-[34rem] overflow-y-scroll" bind:this={codeDiv}>
-					{#if $generatedCode.length > 0}
-						<div class="overflow-x-scroll">
-							<HighlightCode language={lang} code={$generatedCode} /></div
-						>
-					{:else}
-						<LoadingIcon />
-					{/if}
-				</div>
-			{:else if $copilotInfo.exists_ai_resource}
-				<div class="flex flex-col gap-4">
-					<div class="flex flex-row justify-between items-center">
-						<ToggleButtonGroup class="w-auto shrink-0" bind:selected={mode}>
-							<ToggleButton value={'gen'} label="Generate from scratch" small light />
-							<ToggleButton value={'edit'} label="Edit existing code" small light />
-						</ToggleButtonGroup>
-
-						<div class="text-[0.6rem] text-secondary opacity-60 flex flex-row items-center gap-0.5">
-							{#if $copilotInfo.ai_provider === 'openai'}
-								GPT-4o
-							{:else if $copilotInfo.ai_provider === 'anthropic'}
-								Claude-3.5
-							{:else}
-								Codestral
-							{/if}
-							<Bot size={14} />
-						</div>
-					</div>
-					<div class="flex w-96 items-start">
-						<textarea
-							bind:this={input}
-							bind:value={funcDesc}
-							on:input={autoResize}
-							on:keydown={({ key, shiftKey }) => {
-								if (key === 'Enter' && !shiftKey && trimmedDesc.length > 0) {
-									onGenerate(() => close(input || null))
-									return false
-								}
-							}}
-							placeholder={mode === 'edit'
-								? 'Describe the changes you want'
-								: 'Describe what the script should do'}
-							rows="1"
-							class="resize-none overflow-hidden"
-						/>
-						<Button
-							size="xs"
-							color="light"
-							buttonType="button"
-							btnClasses="!h-[34px] qhd:!h-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
-							title="Generate code from prompt"
-							aria-label="Generate"
-							on:click={() => {
-								onGenerate(() => close(input || null))
-							}}
-							disabled={trimmedDesc.length <= 0}
-							iconOnly
-							startIcon={{ icon: Wand2 }}
-						/>
-					</div>
-					{#if promptHistory.length > 0}
-						<div class="w-96 flex flex-col gap-1">
-							{#each promptHistory as p}
-								<Button
-									size="xs2"
-									color="light"
-									btnClasses="justify-start overflow-x-scroll no-scrollbar"
-									startIcon={{ icon: HistoryIcon, classes: 'shrink-0' }}
-									on:click={() => {
-										funcDesc = p
-										setTimeout(() => {
-											autoResize()
-										}, 0)
-									}}>{p}</Button
-								>
-							{/each}
-							<button
-								class="underline text-xs text-start px-2 text-secondary font-normal"
-								on:click={clearPromptHistory}>clear history</button
+		{/snippet}
+		{#snippet content({ close })}
+			<div class="p-4">
+				{#if genLoading}
+					<div class="w-[42rem] min-h-[3rem] max-h-[34rem] overflow-y-scroll" bind:this={codeDiv}>
+						{#if $generatedCode.length > 0}
+							<div class="overflow-x-scroll">
+								<HighlightCode language={lang} code={$generatedCode} /></div
 							>
-						</div>
-					{/if}
+						{:else}
+							<LoadingIcon />
+						{/if}
+					</div>
+				{:else if $copilotInfo.enabled}
+					<div class="flex flex-col gap-4">
+						<div class="flex flex-row justify-between items-center w-96 gap-2">
+							<ToggleButtonGroup class="w-auto shrink-0 h-auto" bind:selected={mode}>
+								{#snippet children({ item })}
+									<ToggleButton value={'gen'} label="Generate from scratch" class="px-2" {item} />
+									<ToggleButton value={'edit'} label="Edit existing code" class="px-2" {item} />
+								{/snippet}
+							</ToggleButtonGroup>
 
-					{#if ['postgresql', 'mysql', 'snowflake', 'bigquery', 'mssql', 'graphql, oracledb'].includes(lang ?? '') && dbSchema?.lang === lang}
-						<div class="flex flex-row items-center justify-between gap-2 w-96">
-							<div class="flex flex-row items-center gap-1">
-								<p class="text-xs text-secondary">
-									Context: {lang === 'graphql' ? 'GraphQL' : 'DB'} schema
-								</p>
-								<Tooltip placement="top">
-									We pass the selected schema to GPT-4 Turbo for better script generation.
-								</Tooltip>
-								{#if dbSchema && dbSchema.stringified.length > MAX_SCHEMA_LENGTH}
-									<Popover notClickable placement="top">
-										<AlertTriangle size={16} class="text-yellow-500" />
-										<svelte:fragment slot="text">
-											The schema is about {addThousandsSeparator(dbSchema.stringified.length / 3.5)}
-											tokens. To avoid exceeding the model's context length, it will be truncated to
-											{addThousandsSeparator(MAX_SCHEMA_LENGTH / 3.5)}
-											tokens.
-										</svelte:fragment>
-									</Popover>
+							<ProviderModelSelector />
+						</div>
+						<div class="flex w-96 items-start">
+							<textarea
+								bind:this={input}
+								bind:value={funcDesc}
+								oninput={autoResize}
+								onkeydown={({ key, shiftKey }) => {
+									if (key === 'Enter' && !shiftKey && trimmedDesc.length > 0) {
+										onGenerate(() => close())
+										return false
+									}
+								}}
+								placeholder={mode === 'edit'
+									? 'Describe the changes you want'
+									: 'Describe what the script should do'}
+								rows="1"
+								class="resize-none overflow-hidden"
+							></textarea>
+							<Button
+								size="xs"
+								color="light"
+								buttonType="button"
+								btnClasses="!h-[34px] qhd:!h-[38px] !ml-2 text-ai bg-violet-100 dark:bg-gray-700"
+								title="Generate code from prompt"
+								aria-label="Generate"
+								on:click={() => {
+									onGenerate(() => close())
+								}}
+								disabled={trimmedDesc.length <= 0}
+								iconOnly
+								startIcon={{ icon: Wand2 }}
+							/>
+						</div>
+						{#if promptHistory.length > 0}
+							<div class="w-96 flex flex-col gap-1">
+								{#each promptHistory as p}
+									<Button
+										size="xs2"
+										color="light"
+										btnClasses="justify-start overflow-x-scroll no-scrollbar"
+										startIcon={{ icon: HistoryIcon, classes: 'shrink-0' }}
+										on:click={() => {
+											funcDesc = p
+											setTimeout(() => {
+												autoResize()
+											}, 0)
+										}}>{p}</Button
+									>
+								{/each}
+								<button
+									class="underline text-xs text-start px-2 text-secondary font-normal"
+									onclick={clearPromptHistory}>clear history</button
+								>
+							</div>
+						{/if}
+
+						{#if ['postgresql', 'mysql', 'snowflake', 'bigquery', 'mssql', 'graphql, oracledb'].includes(lang ?? '') && dbSchema?.lang === lang}
+							<div class="flex flex-row items-center justify-between gap-2 w-96">
+								<div class="flex flex-row items-center gap-1">
+									<p class="text-xs text-secondary">
+										Context: {lang === 'graphql' ? 'GraphQL' : 'DB'} schema
+									</p>
+									<Tooltip placement="top">
+										We pass the selected schema to GPT-4 Turbo for better script generation.
+									</Tooltip>
+									{#if dbSchema && dbSchema.stringified.length > MAX_SCHEMA_LENGTH}
+										<TooltipV2 placement="top">
+											<AlertTriangle size={16} class="text-yellow-500" />
+											{#snippet text()}
+												The schema is about {addThousandsSeparator(
+													(dbSchema?.stringified.length ?? 0) / 3.5
+												)}
+												tokens. To avoid exceeding the model's context length, it will be truncated to
+												{addThousandsSeparator(MAX_SCHEMA_LENGTH / 3.5)}
+												tokens.
+											{/snippet}
+										</TooltipV2>
+									{/if}
+								</div>
+								{#if dbSchema && dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC || dbSchema.schema?.dbo)}
+									<ToggleButtonGroup
+										class="w-auto shrink-0"
+										selected={dbSchema?.publicOnly ? 'true' : 'false'}
+										on:selected={handlePublicOnlySelected}
+									>
+										{#snippet children({ item })}
+											<ToggleButton
+												value={'true'}
+												label={(dbSchema?.lang !== 'graphql' && dbSchema?.schema?.dbo
+													? 'Dbo'
+													: 'Public') + ' schema'}
+												small
+												{item}
+											/>
+											<ToggleButton value={'false'} label="All schemas" small {item} />
+										{/snippet}
+									</ToggleButtonGroup>
 								{/if}
 							</div>
-							{#if dbSchema && dbSchema.lang !== 'graphql' && (dbSchema.schema?.public || dbSchema.schema?.PUBLIC || dbSchema.schema?.dbo)}
-								<ToggleButtonGroup class="w-auto shrink-0" bind:selected={dbSchema.publicOnly}>
-									<ToggleButton
-										value={true}
-										label={(dbSchema.schema?.dbo ? 'Dbo' : 'Public') + ' schema'}
-										small
-										light
-									/>
-									<ToggleButton value={false} label="All schemas" small light />
-								</ToggleButtonGroup>
-							{/if}
-						</div>
-					{/if}
-				</div>
-			{:else}
-				<p class="text-sm">
-					Enable Windmill AI in the <a
-						href="{base}/workspace_settings?tab=ai"
-						target="_blank"
-						class="inline-flex flex-row items-center gap-1"
-					>
-						workspace settings <ExternalLink size={16} />
-					</a>
-				</p>
-			{/if}
-		</div>
-	</Popup>
+						{/if}
+					</div>
+				{:else}
+					<p class="text-sm">
+						Enable Windmill AI in the <a
+							href="{base}/workspace_settings?tab=ai"
+							target="_blank"
+							class="inline-flex flex-row items-center gap-1"
+						>
+							workspace settings <ExternalLink size={16} />
+						</a>
+					</p>
+				{/if}
+			</div>
+		{/snippet}
+	</Popover>
 {/if}

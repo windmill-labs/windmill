@@ -7,28 +7,27 @@ use std::{collections::HashMap, sync::Arc};
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
-
 use crate::{
+    auth::{get_end_user_email, OptTokened},
     db::{ApiAuthed, DB},
-    resources::get_resource_value_interpolated_internal,
-    users::{require_owner_of_path, OptAuthed},
-    utils::WithStarredInfoQuery,
+    jobs::RunJobQuery,
+    users::{require_owner_of_path, require_path_read_access_for_preview, OptAuthed},
+    utils::{build_scope_path_predicate, check_scopes},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
 #[cfg(feature = "parquet")]
 use crate::{
-    job_helpers_ee::{
+    job_helpers_oss::{
         download_s3_file_internal, get_random_file_name, get_s3_resource,
-        get_workspace_s3_resource, load_image_preview_internal, upload_file_from_req,
-        DownloadFileQuery, LoadImagePreviewQuery, UploadFileResponse,
+        get_workspace_s3_resource_and_check_paths, upload_file_from_req, DownloadFileQuery,
     },
     users::fetch_api_authed_from_permissioned_as,
 };
-#[cfg(feature = "parquet")]
 use axum::response::Response;
 use axum::{
-    extract::{Extension, Json, Path, Query},
+    body::Body,
+    extract::{Extension, Json, Multipart, Path, Query},
     response::IntoResponse,
     routing::{delete, get, post},
     Router,
@@ -40,8 +39,6 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use magic_crypt::MagicCryptTrait;
 #[cfg(feature = "parquet")]
-use object_store::{Attribute, Attributes};
-#[cfg(feature = "parquet")]
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
@@ -49,65 +46,102 @@ use sha2::{Digest, Sha256};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{types::Uuid, FromRow};
 use std::str;
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
-#[cfg(feature = "parquet")]
-use windmill_common::s3_helpers::build_object_store_client;
-use windmill_common::variables::encrypt;
 use windmill_common::{
-    apps::{AppScriptId, ListAppQuery},
+    apps::{AppScriptId, ListAppQuery, APP_WORKSPACED_ROUTE},
+    auth::TOKEN_PREFIX_LEN,
     cache::{self, future::FutureCachedExt},
-    db::UserDB,
+    db::{DbWithOptAuthed, UserDB},
     error::{to_anyhow, Error, JsonResult, Result},
-    jobs::{get_payload_tag_from_prefixed_path, JobPayload, RawCode},
+    jobs::{
+        get_payload_tag_from_prefixed_path, resolve_delete_after_secs, schedule_job_deletion,
+        JobPayload, RawCode,
+    },
+    user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
-        Pagination, StripPath,
+        Pagination, RunnableKind, StripPath,
     },
-    variables::{build_crypt, build_crypt_with_key_suffix},
+    variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},
+    workspaces::{
+        check_deploy_rules, check_user_against_rule, ProtectionRuleKind, RuleCheckResult,
+    },
     HUB_BASE_URL,
 };
+#[cfg(feature = "parquet")]
+use windmill_object_store::object_store_reexports::{Attribute, Attributes};
+use windmill_store::resources::get_resource_value_interpolated_internal;
 
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
 
-pub fn workspaced_service() -> Router {
+#[cfg(feature = "parquet")]
+use hmac::Mac;
+#[cfg(feature = "parquet")]
+use windmill_common::{jwt, oauth2::HmacSha256, variables::get_workspace_key};
+#[cfg(feature = "parquet")]
+use windmill_types::s3::{S3Object, S3Permission};
+
+pub fn workspaced_service(raw_app_body_limit: usize) -> Router {
     Router::new()
         .route("/list", get(list_apps))
         .route("/list_search", get(list_search_apps))
-        .route("/get/p/*path", get(get_app))
-        .route("/get/lite/*path", get(get_app_lite))
-        .route("/get/draft/*path", get(get_app_w_draft))
-        .route("/secret_of/*path", get(get_secret_id))
-        .route("/get/v/*id", get(get_app_by_id))
-        .route("/exists/*path", get(exists_app))
-        .route("/update/*path", post(update_app))
-        .route("/delete/*path", delete(delete_app))
+        .route("/get/p/{*path}", get(get_app))
+        .route("/get/lite/{*path}", get(get_app_lite))
+        .route("/secret_of/{*path}", get(get_secret_id))
+        .route(
+            "/secret_of_latest_version/{*path}",
+            get(get_latest_version_secret_id),
+        )
+        .route("/get/v/{*id}", get(get_app_by_id))
+        .route("/get_data/v/{*id}", get(get_raw_app_data))
+        .route("/exists/{*path}", get(exists_app))
+        .route("/update/{*path}", post(update_app))
+        .route(
+            "/update_raw/{*path}",
+            post(update_app_raw).layer(axum::extract::DefaultBodyLimit::max(raw_app_body_limit)),
+        )
+        .route("/delete/{*path}", delete(delete_app))
         .route("/create", post(create_app))
-        .route("/history/p/*path", get(get_app_history))
-        .route("/get_latest_version/*path", get(get_latest_version))
-        .route("/history_update/a/:id/v/:version", post(update_app_history))
-        .route("/custom_path_exists/*custom_path", get(custom_path_exists))
+        .route(
+            "/create_raw",
+            post(create_app_raw).layer(axum::extract::DefaultBodyLimit::max(raw_app_body_limit)),
+        )
+        .route("/history/p/{*path}", get(get_app_history))
+        .route("/get_latest_version/{*path}", get(get_latest_version))
+        .route(
+            "/history_update/a/{id}/v/{version}",
+            post(update_app_history),
+        )
+        .route(
+            "/list_paths_from_workspace_runnable/{runnable_kind}/{*path}",
+            get(list_paths_from_workspace_runnable),
+        )
+        .route(
+            "/custom_path_exists/{*custom_path}",
+            get(custom_path_exists),
+        )
+        .route("/sign_s3_objects", post(sign_s3_objects))
 }
 
 pub fn unauthed_service() -> Router {
     Router::new()
-        .route("/execute_component/*path", post(execute_component))
-        .route("/upload_s3_file/*path", post(upload_s3_file_from_app))
-        .route("/download_s3_file/*path", get(download_s3_file_from_app))
-        .route(
-            "/load_image_preview/*path",
-            get(load_s3_file_image_preview_from_app),
-        )
-        .route("/public_app/:secret", get(get_public_app_by_secret))
-        .route("/public_resource/*path", get(get_public_resource))
+        .route("/execute_component/{*path}", post(execute_component))
+        .route("/upload_s3_file/{*path}", post(upload_s3_file_from_app))
+        .route("/delete_s3_file", delete(delete_s3_file_from_app))
+        .route("/download_s3_file/{*path}", get(download_s3_file_from_app))
+        .route("/public_app/{secret}", get(get_public_app_by_secret))
+        .route("/public_resource/{*path}", get(get_public_resource))
+        .route("/get_data/v/{*id}", get(get_raw_app_data))
 }
 pub fn global_service() -> Router {
     Router::new()
         .route("/hub/list", get(list_hub_apps))
-        .route("/hub/get/:id", get(get_hub_app_by_id))
+        .route("/hub/get/{id}", get(get_hub_app_by_id))
+        .route("/hub/get_raw/{id}", get(get_hub_raw_app_by_id))
 }
 
 #[derive(FromRow, Deserialize, Serialize)]
@@ -121,24 +155,52 @@ pub struct ListableApp {
     pub execution_mode: String,
     pub starred: bool,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub has_draft: bool,
+    /// `Some(true)` only on rows synthesised from the `draft` table; `None` for
+    /// deployed rows. See ListableScript in windmill-types/src/scripts.rs.
+    #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_msg: Option<String>,
+    #[serde(skip_serializing_if = "is_false")]
+    pub raw_app: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
+    /// True when the authed user has a draft for this app (draft-only or layered
+    /// over the deployed row). See ListableScript in windmill-types/src/scripts.rs.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_draft: bool,
+    /// User-typed staged path from the draft JSON's `draft_path`; `None` = unchanged.
+    /// See ListableScript in windmill-types/src/scripts.rs.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_path: Option<String>,
+    /// Per-path draft owners driving the home-page avatar circles.
+    /// See ListableScript in windmill-types/src/scripts.rs.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_users: Option<sqlx::types::Json<Vec<windmill_types::user_drafts::DraftUserRef>>>,
+    /// Labels inherited from the parent folder, computed at read time.
+    #[sqlx(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inherited_labels: Option<Vec<String>>,
 }
 
-#[derive(FromRow, Serialize, Deserialize)]
-pub struct AppVersion {
-    pub id: i64,
-    pub app_id: Uuid,
-    pub value: sqlx::types::Json<Box<RawValue>>,
-    pub created_by: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
+fn is_false(b: &bool) -> bool {
+    !b
 }
 
-#[derive(Serialize, Deserialize, FromRow)]
+// #[derive(FromRow, Serialize, Deserialize)]
+// pub struct AppVersion {
+//     pub id: i64,
+//     pub app_id: Uuid,
+//     pub value: sqlx::types::Json<Box<RawValue>>,
+//     pub created_by: String,
+//     pub created_at: chrono::DateTime<chrono::Utc>,
+// }
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct AppWithLastVersion {
     pub id: i64,
     pub path: String,
@@ -151,6 +213,12 @@ pub struct AppWithLastVersion {
     pub extra_perms: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_path: Option<String>,
+    pub raw_app: bool,
+    #[sqlx(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bundle_secret: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -160,26 +228,6 @@ pub struct AppWithLastVersionAndStarred {
     pub app: AppWithLastVersion,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub starred: Option<bool>,
-}
-
-#[cfg(feature = "enterprise")]
-#[derive(Serialize, FromRow)]
-pub struct AppWithLastVersionAndWorkspace {
-    #[sqlx(flatten)]
-    #[serde(flatten)]
-    pub app: AppWithLastVersion,
-    pub workspace_id: String,
-}
-
-#[derive(Serialize, Deserialize, FromRow)]
-pub struct AppWithLastVersionAndDraft {
-    #[sqlx(flatten)]
-    #[serde(flatten)]
-    pub app: AppWithLastVersion,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft: Option<sqlx::types::Json<Box<RawValue>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -214,6 +262,12 @@ pub struct PolicyTriggerableInputs {
     one_of_inputs: OneOfFields,
     #[serde(default)]
     allow_user_resources: AllowUserResources,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    delete_after_secs: Option<i32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    sensitive_inputs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tag: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -222,6 +276,13 @@ pub struct S3Input {
     allow_user_resources: bool,
     allow_workspace_resource: bool,
     file_key_regex: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct S3Key {
+    s3_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    storage: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -238,6 +299,7 @@ pub struct Policy {
     pub triggerables_v2: Option<HashMap<String, PolicyTriggerableInputs>>,
     pub execution_mode: ExecutionMode,
     pub s3_inputs: Option<Vec<S3Input>>,
+    pub allowed_s3_keys: Option<Vec<S3Key>>,
 }
 
 #[derive(Deserialize)]
@@ -246,12 +308,19 @@ pub struct CreateApp {
     pub summary: String,
     pub value: sqlx::types::Json<Box<RawValue>>,
     pub policy: Policy,
-    pub draft_only: Option<bool>,
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
+    pub preserve_on_behalf_of: Option<bool>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
+    /// Caller-intent flag (set by the CLI / git sync): when true, deploying
+    /// this app must NOT delete an existing user draft at the same path.
+    /// Transient — never persisted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip_draft_deletion: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct EditApp {
     pub path: Option<String>,
     pub summary: Option<String>,
@@ -259,6 +328,14 @@ pub struct EditApp {
     pub policy: Option<Policy>,
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
+    pub preserve_on_behalf_of: Option<bool>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
+    /// Caller-intent flag (set by the CLI / git sync): when true, deploying
+    /// this app must NOT delete an existing user draft at the same path.
+    /// Transient — never persisted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip_draft_deletion: Option<bool>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -278,6 +355,8 @@ async fn list_search_apps(
     let n = 3;
     let mut tx = user_db.begin(&authed).await?;
 
+    let allowed = build_scope_path_predicate(&authed, "apps", "read");
+
     let rows = sqlx::query_as::<_, SearchApp>(
         "SELECT path, app_version.value from app LEFT JOIN app_version ON app_version.id = versions[array_upper(versions, 1)]  WHERE workspace_id = $1 LIMIT $2",
     )
@@ -286,6 +365,7 @@ async fn list_search_apps(
     .fetch_all(&mut *tx)
     .await?
     .into_iter()
+    .filter(|r| allowed(&r.path))
     .collect::<Vec<_>>();
     tx.commit().await?;
     Ok(Json(rows))
@@ -294,6 +374,7 @@ async fn list_search_apps(
 async fn list_apps(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListAppQuery>,
@@ -311,8 +392,16 @@ async fn list_apps(
             "app_version.created_at as edited_at",
             "app.extra_perms",
             "favorite.path IS NOT NULL as starred",
-            "draft.path IS NOT NULL as has_draft",
-            "draft_only"
+            "app_version.raw_app",
+            "app.labels",
+            "draft.path IS NOT NULL as is_draft",
+            // Per-path draft owners as a JSON array; see scripts.rs for the rationale
+            // (admins-workspace identity fallback, legacy NULL-email row).
+            "(SELECT json_agg(json_build_object('username', COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END)) ORDER BY COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) NULLS LAST) \
+              FROM draft d \
+              LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
+              WHERE d.workspace_id = app.workspace_id AND d.path = app.path AND d.typ = 'app') as draft_users",
+            "folder_labels(app.workspace_id, app.path) as inherited_labels",
         ])
         .left()
         .join("favorite")
@@ -321,14 +410,18 @@ async fn list_apps(
                 .bind(&authed.username),
         )
         .left()
+        // `app`/`raw_app` are separate draft kinds over one `app` table — match either
+        // for `is_draft`. DISTINCT in the subquery: a path with both kinds for the same
+        // user would otherwise fan the deployed row into two identical entries.
+        .join(
+            "(SELECT DISTINCT path, workspace_id FROM draft WHERE typ IN ('app', 'raw_app') AND email = ?) draft"
+                .bind(&authed.email),
+        )
+        .on("draft.path = app.path AND draft.workspace_id = app.workspace_id")
+        .left()
         .join("app_version")
         .on(
             "app_version.id = versions[array_upper(versions, 1)]"
-        )
-        .left()
-        .join("draft")
-        .on(
-            "draft.path = app.path AND draft.workspace_id = app.workspace_id AND draft.typ = 'app'"
         )
         .order_desc("favorite.path IS NOT NULL")
         .order_by("app_version.created_at", true)
@@ -349,8 +442,14 @@ async fn list_apps(
         sqlb.and_where_eq("app.path", "?".bind(path_exact));
     }
 
-    if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
-        sqlb.and_where("app.draft_only IS NOT TRUE");
+    if let Some(label) = &lq.label {
+        for l in label.split(',') {
+            sqlb.and_where(
+                "(app.labels @> ARRAY[?] OR folder_labels(app.workspace_id, app.path) @> ARRAY[?])"
+                    .bind(&l.trim())
+                    .bind(&l.trim()),
+            );
+        }
     }
 
     if lq.with_deployment_msg.unwrap_or(false) {
@@ -360,38 +459,248 @@ async fn list_apps(
             .fields(&["dm.deployment_msg"]);
     }
 
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query_as::<_, ListableApp>(&sql)
+    let mut rows = sqlx::query_as::<_, ListableApp>(&sql)
         .fetch_all(&mut *tx)
         .await?;
 
     tx.commit().await?;
 
+    // Append the authed user's `app`/`raw_app` drafts at paths with no deployed app;
+    // see scripts.rs.
+    if lq.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && offset == 0
+        && lq.path_start.is_none()
+        && lq.path_exact.is_none()
+        && lq.label.is_none()
+        && !lq.starred_only.unwrap_or(false)
+    {
+        // DISTINCT ON (path), newest first: collapse a path holding both `app` and
+        // `raw_app` drafts to one row (the home list keyed by `type/path` would crash
+        // on duplicates). `(email IS NULL)` last keeps the owned row over the legacy one.
+        let draft_only_rows = sqlx::query!(
+            r#"SELECT DISTINCT ON (path)
+                      path,
+                      value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+                      created_at,
+                      typ::text as "typ!"
+               FROM draft
+               WHERE workspace_id = $1
+                 AND typ IN ('app', 'raw_app')
+                 AND (email = $2 OR email IS NULL)
+                 AND NOT EXISTS (
+                     SELECT 1 FROM app a
+                     WHERE a.workspace_id = draft.workspace_id
+                       AND a.path = draft.path
+                 )
+               ORDER BY path, (email IS NULL), created_at DESC"#,
+            &w_id,
+            &authed.email,
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for row in draft_only_rows {
+            let v: serde_json::Value =
+                serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
+            // App/raw-app drafts are the bare editor value with no `path`, so the editor
+            // writes a separate `draft_path` only when it differs from deployed; see flows.rs.
+            let draft_path = v
+                .get("draft_path")
+                .and_then(|s| s.as_str())
+                .filter(|s| !s.is_empty() && *s != row.path.as_str())
+                .map(|s| s.to_string());
+            rows.push(ListableApp {
+                id: 0,
+                workspace_id: w_id.clone(),
+                path: row.path,
+                summary: v
+                    .get("summary")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                version: 0,
+                extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                execution_mode: String::new(),
+                starred: false,
+                edited_at: Some(row.created_at),
+                draft_only: Some(true),
+                deployment_msg: None,
+                raw_app: row.typ == "raw_app",
+                labels: None,
+                // No deployed row to inherit folder labels from.
+                inherited_labels: None,
+                is_draft: true,
+                draft_path,
+                // Synthesized rows are the authed user's own draft.
+                draft_users: Some(sqlx::types::Json(vec![DraftUserRef {
+                    username: Some(authed.username.clone()),
+                }])),
+            });
+        }
+    }
+
+    let allowed = build_scope_path_predicate(&authed, "apps", "read");
+    rows.retain(|r| allowed(&r.path));
+
     Ok(Json(rows))
+}
+
+async fn get_raw_app_data(
+    Path((w_id, secret_with_ext)): Path<(String, String)>,
+    Extension(db): Extension<DB>,
+) -> Result<Response> {
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    let object_store = windmill_object_store::get_object_store().await;
+
+    // tracing::info!("secret_with_ext: {}", secret_with_ext);
+    let mut splitted = secret_with_ext.split('.');
+    let secret_id = splitted.next().unwrap_or("");
+
+    if secret_id.is_empty() {
+        return Err(Error::BadRequest("Invalid secret".to_string()));
+    }
+
+    let id = get_id_from_secret(
+        &db,
+        &w_id,
+        secret_id.to_string(),
+        Some(BUNDLE_SECRET_PREFIX),
+    )
+    .await?;
+
+    let file_type = splitted.next().unwrap_or("");
+    let file_type = if file_type == "css" {
+        "css"
+    } else if file_type == "js" {
+        "js"
+    } else {
+        return Err(Error::BadRequest(
+            "Invalid file type, only .css and .js are supported".to_string(),
+        ));
+    };
+    // tracing::info!("file_type: {}", file_type);
+
+    #[allow(unused_assignments)]
+    let mut body: Option<Body> = None;
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    if let Some(os) = object_store {
+        let path = format!("/app_bundles/{}/{}.{}", w_id, id, file_type);
+        match os
+            .get(&windmill_object_store::object_store_reexports::Path::from(
+                path,
+            ))
+            .await
+        {
+            Ok(result) => {
+                let stream = result
+                    .bytes()
+                    .await
+                    .map_err(windmill_object_store::object_store_error_to_error)?;
+                tracing::info!("stream: {}", stream.len());
+                body = Some(Body::from(stream));
+            }
+            Err(windmill_object_store::object_store_reexports::ObjectStoreError::NotFound {
+                ..
+            }) => {
+                // S3 key not found, fall through to DB lookup below
+            }
+            Err(e) => {
+                return Err(windmill_object_store::object_store_error_to_error(e));
+            }
+        }
+    }
+
+    if body.is_none() {
+        let get_raw_app_file = sqlx::query_scalar!(
+            "SELECT data FROM app_bundles WHERE app_version_id = $1 AND file_type = $2 AND w_id = $3",
+            id,
+            file_type,
+            &w_id,
+        )
+        .fetch_optional(&db)
+        .await?;
+        if let Some(file) = get_raw_app_file {
+            body = Some(Body::from(file));
+        }
+    }
+
+    if let Some(body) = body {
+        // let stream = tokio_util::io::ReaderStream::new(file);
+        let res = Response::builder().header(
+            http::header::CONTENT_TYPE,
+            if file_type == "css" {
+                "text/css"
+            } else {
+                "text/javascript"
+            },
+        );
+        Ok(res.body(body).unwrap())
+    } else {
+        return Err(Error::NotFound("File not found".to_string()));
+    }
+}
+
+// async fn get_app_version(
+//     authed: ApiAuthed,
+//     Extension(user_db): Extension<UserDB>,
+//     Path((w_id, path)): Path<(String, StripPath)>,
+// ) -> JsonResult<i64> {
+//     let path = path.to_path();
+//     let mut tx = user_db.begin(&authed).await?;
+
+//     let version_o = sqlx::query_scalar!(
+//         "SELECT app.versions[array_upper(app.versions, 1)] as version FROM app
+//             WHERE app.path = $1 AND app.workspace_id = $2",
+//         path,
+//         &w_id,
+//     )
+//     .fetch_optional(&mut *tx)
+//     .await?
+//     .flatten();
+//     tx.commit().await?;
+
+//     let version = not_found_if_none(version_o, "App", path)?;
+//     Ok(Json(version))
+// }
+
+// Fields inlined rather than flattened (axum query bool quirk); see GetScriptByPathQuery in scripts.rs.
+#[derive(Deserialize)]
+struct GetAppQuery {
+    with_starred_info: Option<bool>,
+    #[serde(default)]
+    get_draft: bool,
+    /// Picks the draft kind for a draft-only lookup (`/apps_raw/...` → true).
+    /// Ignored when a deployed row exists — its own `raw_app` column wins.
+    #[serde(default)]
+    raw_app: Option<bool>,
 }
 
 async fn get_app(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Query(query): Query<WithStarredInfoQuery>,
-) -> JsonResult<AppWithLastVersionAndStarred> {
+    Query(query): Query<GetAppQuery>,
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let app_o = if query.with_starred_info.unwrap_or(false) {
         sqlx::query_as::<_, AppWithLastVersionAndStarred>(
             "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-            app.extra_perms, app_version.value, 
-            app_version.created_at, app_version.created_by, favorite.path IS NOT NULL as starred
+            app.extra_perms, app_version.value,
+            app_version.created_at, app_version.created_by, favorite.path IS NOT NULL as starred, app_version.raw_app, app.labels
             FROM app
             JOIN app_version
             ON app_version.id = app.versions[array_upper(app.versions, 1)]
             LEFT JOIN favorite
-            ON favorite.favorite_kind = 'app' 
-                AND favorite.workspace_id = app.workspace_id 
-                AND favorite.path = app.path 
+            ON favorite.favorite_kind = 'app'
+                AND favorite.workspace_id = app.workspace_id
+                AND favorite.path = app.path
                 AND favorite.usr = $3
             WHERE app.path = $1 AND app.workspace_id = $2",
         )
@@ -403,8 +712,8 @@ async fn get_app(
     } else {
         sqlx::query_as::<_, AppWithLastVersionAndStarred>(
             "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-            app.extra_perms, app_version.value, 
-            app_version.created_at, app_version.created_by, NULL as starred
+            app.extra_perms, app_version.value,
+            app_version.created_at, app_version.created_by, NULL as starred, app_version.raw_app, app.labels
             FROM app, app_version
             WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
         )
@@ -415,8 +724,27 @@ async fn get_app(
     };
     tx.commit().await?;
 
-    let app = not_found_if_none(app_o, "App", path)?;
-    Ok(Json(app))
+    // No deployed row + `get_draft`: fall back to the draft table; see scripts.rs.
+    // Draft kind comes from the deployed row's `raw_app` flag, or for a draft-only
+    // path from the caller's `raw_app` query param.
+    let kind = match &app_o {
+        Some(app) if app.app.raw_app => UserDraftItemKind::RawApp,
+        Some(_) => UserDraftItemKind::App,
+        None if query.raw_app.unwrap_or(false) => UserDraftItemKind::RawApp,
+        None => UserDraftItemKind::App,
+    };
+    let overlay = overlay_or_draft_only(
+        &db,
+        &w_id,
+        &authed.email,
+        kind,
+        path,
+        query.get_draft,
+        app_o,
+        || windmill_common::error::Error::NotFound(format!("App not found at path {path}")),
+    )
+    .await?;
+    Ok(Json(overlay))
 }
 
 async fn get_app_lite(
@@ -425,12 +753,13 @@ async fn get_app_lite(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<AppWithLastVersion> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-        app.extra_perms, coalesce(app_version_lite.value::json, app_version.value) as value, 
-        app_version.created_at, app_version.created_by, NULL as starred
+        app.extra_perms, coalesce(app_version_lite.value::json, app_version.value) as value,
+        app_version.created_at, app_version.created_by, NULL as starred, app_version.raw_app, app.labels
         FROM app, app_version
         LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
         WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
@@ -446,41 +775,13 @@ async fn get_app_lite(
     Ok(Json(app))
 }
 
-async fn get_app_w_draft(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<AppWithLastVersionAndDraft> {
-    let path = path.to_path();
-    let mut tx = user_db.begin(&authed).await?;
-
-    let app_o = sqlx::query_as::<_, AppWithLastVersionAndDraft>(
-        r#"SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-        app.extra_perms, app_version.value,
-        app_version.created_at, app_version.created_by,
-        app.draft_only, draft.value as "draft"
-        from app
-        INNER JOIN app_version ON
-        app_version.id = app.versions[array_upper(app.versions, 1)]
-        LEFT JOIN draft ON 
-        app.path = draft.path AND draft.workspace_id = $2 AND draft.typ = 'app' 
-        WHERE app.path = $1 AND app.workspace_id = $2"#,
-    )
-    .bind(path.to_owned())
-    .bind(&w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
-    tx.commit().await?;
-
-    let app = not_found_if_none(app_o, "App", path)?;
-    Ok(Json(app))
-}
-
 async fn get_app_history(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Vec<AppHistory>> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", &path))?;
     let mut tx = user_db.begin(&authed).await?;
     let query_result = sqlx::query!(
         "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg
@@ -488,7 +789,7 @@ async fn get_app_history(
         WHERE a.workspace_id = $1 AND a.path = $2
         ORDER BY created_at DESC",
         w_id,
-        path.to_path(),
+        path,
     ).fetch_all(&mut *tx).await?;
     tx.commit().await?;
 
@@ -508,6 +809,8 @@ async fn get_latest_version(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Option<AppHistory>> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
     let row = sqlx::query!(
         "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg
@@ -515,7 +818,7 @@ async fn get_latest_version(
         WHERE a.workspace_id = $1 AND a.path = $2
         ORDER BY created_at DESC",
         w_id,
-        path.to_path(),
+        path,
     ).fetch_optional(&mut *tx).await?;
     tx.commit().await?;
 
@@ -543,17 +846,19 @@ async fn update_app_history(
         .fetch_optional(&mut *tx)
         .await?;
 
-    if app_path.is_none() {
+    let Some(app_path) = app_path else {
         tx.commit().await?;
         return Err(Error::NotFound(
             format!("App with ID {app_id} not found").to_string(),
         ));
-    }
+    };
+
+    check_scopes(&authed, || format!("apps:write:{}", &app_path))?;
 
     sqlx::query!(
-        "INSERT INTO deployment_metadata (workspace_id, path, app_version, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path, app_version) WHERE app_version IS NOT NULL DO UPDATE SET deployment_msg = $4",
+        "INSERT INTO deployment_metadata (workspace_id, path, app_version, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path, app_version) WHERE app_version IS NOT NULL DO UPDATE SET deployment_msg = EXCLUDED.deployment_msg",
         w_id,
-        app_path.unwrap(),
+        app_path,
         app_version,
         app_history_update.deployment_msg,
     )
@@ -567,11 +872,13 @@ async fn custom_path_exists(
     Extension(db): Extension<DB>,
     Path((w_id, custom_path)): Path<(String, String)>,
 ) -> JsonResult<bool> {
+    let as_workspaced_route = APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+
     let exists =
         sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
             custom_path,
-            if *CLOUD_HOSTED { Some(&w_id) } else { None }
+            if *CLOUD_HOSTED || as_workspaced_route { Some(&w_id) } else { None }
         )
         .fetch_one(&db)
         .await?.unwrap_or(false);
@@ -587,8 +894,9 @@ async fn get_app_by_id(
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-        app.extra_perms, app_version.value, 
-        app_version.created_at, app_version.created_by from app, app_version 
+        app.extra_perms, app_version.value,
+        app_version.created_at, app_version.created_by, app_version.raw_app, app.labels
+        FROM app, app_version
         WHERE app_version.id = $1 AND app.id = app_version.app_id AND app.workspace_id = $2",
     )
     .bind(&id)
@@ -598,6 +906,9 @@ async fn get_app_by_id(
     tx.commit().await?;
 
     let app = not_found_if_none(app_o, "App", id.to_string())?;
+
+    check_scopes(&authed, || format!("apps:read:{}", &app.path))?;
+
     Ok(Json(app))
 }
 
@@ -607,19 +918,13 @@ async fn get_public_app_by_secret(
     Extension(db): Extension<DB>,
     Path((w_id, secret)): Path<(String, String)>,
 ) -> JsonResult<AppWithLastVersion> {
-    let mc = build_crypt(&db, &w_id).await?;
-
-    let decrypted = mc
-        .decrypt_bytes_to_bytes(&(hex::decode(secret)?))
-        .map_err(|e| Error::InternalErr(e.to_string()))?;
-    let bytes = str::from_utf8(&decrypted).map_err(to_anyhow)?;
-
-    let id: i64 = bytes.parse().map_err(to_anyhow)?;
+    let id = get_id_from_secret(&db, &w_id, secret, None).await?;
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
         null as extra_perms, coalesce(app_version_lite.value::json, app_version.value::json) as value,
-        app_version.created_at, app_version.created_by from app, app_version 
+        app_version.created_at, app_version.created_by, app_version.raw_app, app.labels
+        FROM app, app_version
         LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
         WHERE app.id = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]")
         .bind(&id)
@@ -627,39 +932,61 @@ async fn get_public_app_by_secret(
     .fetch_optional(&db)
     .await?;
 
-    let app = not_found_if_none(app_o, "App", id.to_string())?;
+    let mut app = not_found_if_none(app_o, "App", id.to_string())?;
 
     let policy = serde_json::from_str::<Policy>(app.policy.0.get()).map_err(to_anyhow)?;
 
-    if matches!(policy.execution_mode, ExecutionMode::Anonymous) {
-        return Ok(Json(app));
-    }
-
-    if opt_authed.is_none() {
-        {
+    if !matches!(policy.execution_mode, ExecutionMode::Anonymous) {
+        if opt_authed.is_none() {
             return Err(Error::NotAuthorized(
                 "App visibility does not allow public access and you are not logged in".to_string(),
             ));
-        }
-    } else {
-        let authed = opt_authed.unwrap();
-        let mut tx = user_db.begin(&authed).await?;
-        let is_visible = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM app WHERE id = $1 AND workspace_id = $2)",
-            id,
-            &w_id
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        if !is_visible.unwrap_or(false) {
-            return Err(Error::NotAuthorized(
-                "App visibility does not allow public access and you are logged in but you have no read-access to that app".to_string(),
-            ));
+        } else {
+            let authed = opt_authed.unwrap();
+            let mut tx = user_db.begin(&authed).await?;
+            let is_visible = sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM app WHERE id = $1 AND workspace_id = $2)",
+                id,
+                &w_id
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            if !is_visible.unwrap_or(false) {
+                return Err(Error::NotAuthorized(
+                    "App visibility does not allow public access and you are logged in but you have no read-access to that app".to_string(),
+                ));
+            }
         }
     }
 
+    // Compute bundle_secret for raw apps
+    if app.raw_app {
+        app.bundle_secret = Some(compute_bundle_secret(&db, &w_id, &app.versions).await?);
+    }
+
     Ok(Json(app))
+}
+
+async fn get_id_from_secret(
+    db: &DB,
+    w_id: &str,
+    secret: String,
+    prefix: Option<&str>,
+) -> Result<i64> {
+    let mc = build_crypt(db, w_id).await?;
+    let decrypted = mc
+        .decrypt_bytes_to_bytes(&(hex::decode(secret)?))
+        .map_err(|e| Error::internal_err(e.to_string()))?;
+    let mut bytes = str::from_utf8(&decrypted).map_err(to_anyhow)?;
+    if let Some(prefix) = prefix {
+        if !bytes.starts_with(prefix) {
+            return Err(Error::BadRequest("Invalid secret".to_string()));
+        }
+        bytes = bytes.strip_prefix(prefix).unwrap_or("");
+    }
+    let id: i64 = bytes.parse().map_err(to_anyhow)?;
+    Ok(id)
 }
 
 async fn get_public_resource(
@@ -667,20 +994,30 @@ async fn get_public_resource(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Option<serde_json::Value>> {
     let path = path.to_path();
-    if !path.starts_with("f/app_themes/") {
-        return Err(Error::BadRequest(
-            "Only app themes are public resources".to_string(),
-        ));
-    }
-    let res = sqlx::query_scalar!(
-        "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
-        path.to_owned(),
-        &w_id
-    )
-    .fetch_optional(&db)
-    .await?
-    .flatten();
-    Ok(Json(res))
+
+    // This endpoint is unauthenticated (anonymous public apps must fetch their
+    // theme and form schemas). Both branches MUST stay tightly constrained to
+    // the non-sensitive resource types they serve, otherwise an unauthenticated
+    // caller could read the raw value of any resource at the given path.
+    let res = if path.starts_with("f/app_themes/") {
+        sqlx::query_scalar!(
+            "SELECT value from resource WHERE path = $1 AND workspace_id = $2 AND resource_type = 'app_theme'",
+            path.to_owned(),
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+    } else {
+        sqlx::query_scalar!(
+            "SELECT value from resource WHERE path = $1 AND workspace_id = $2 AND resource_type = 'json_schema'",
+            path.to_owned(),
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+    };
+
+    Ok(Json(res.flatten()))
 }
 
 async fn get_secret_id(
@@ -690,6 +1027,7 @@ async fn get_secret_id(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let id_o = sqlx::query_scalar!(
@@ -711,23 +1049,351 @@ async fn get_secret_id(
     Ok(hx)
 }
 
+const BUNDLE_SECRET_PREFIX: &str = "bundle_";
+
+pub async fn compute_bundle_secret(db: &DB, w_id: &str, versions: &[i64]) -> Result<String> {
+    let version_id = versions
+        .last()
+        .ok_or_else(|| Error::internal_err("App has no versions".to_string()))?;
+    let mc = build_crypt(db, w_id).await?;
+    let hx =
+        hex::encode(mc.encrypt_str_to_bytes(format!("{}{}", BUNDLE_SECRET_PREFIX, version_id)));
+    Ok(hx)
+}
+
+async fn get_latest_version_secret_id(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> Result<String> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", path))?;
+    let mut tx = user_db.begin(&authed).await?;
+
+    let id_o = sqlx::query_scalar!(
+        "SELECT app.versions[array_upper(app.versions, 1)] FROM app
+        WHERE app.path = $1 AND app.workspace_id = $2",
+        path,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
+    tx.commit().await?;
+
+    let id = not_found_if_none(id_o, "App", path.to_string())?;
+
+    let mc = build_crypt(&db, &w_id).await?;
+
+    let hx = hex::encode(mc.encrypt_str_to_bytes(format!("{}{}", BUNDLE_SECRET_PREFIX, id)));
+
+    Ok(hx)
+}
+
+async fn store_raw_app_file<'a>(
+    w_id: &str,
+    id: &i64,
+    file_type: &str,
+    data: bytes::Bytes,
+    tx: &mut sqlx::Transaction<'a, sqlx::Postgres>,
+) -> Result<()> {
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    {
+        let object_store = windmill_object_store::get_object_store().await;
+
+        let path: String = format!("/app_bundles/{}/{}.{}", w_id, id, file_type);
+
+        if let Some(os) = object_store {
+            if let Err(e) = os
+                .put(
+                    &windmill_object_store::object_store_reexports::Path::from(path.clone()),
+                    data.into(),
+                )
+                .await
+            {
+                tracing::error!("Failed to put snapshot to s3 at {path}: {:?}", e);
+                return Err(windmill_common::error::Error::ExecutionErr(format!(
+                    "Failed to put {path} to s3"
+                )));
+            }
+            tracing::info!("Successfully put snapshot to s3 at {path}");
+            return Ok(());
+        }
+    }
+
+    sqlx::query!(
+        "INSERT INTO app_bundles (app_version_id, w_id, file_type, data) VALUES ($1, $2, $3, $4)",
+        id,
+        w_id,
+        file_type,
+        data.to_vec()
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+macro_rules! process_app_multipart {
+    ($authed:expr, $user_db:expr, $db:expr, $w_id:expr, $path:expr, $multipart:expr, $internal_fn:expr) => {
+        async {
+            let mut saved_app = None;
+            let mut uploaded_js = false;
+
+            let request_size_limit_mb = *crate::REQUEST_SIZE_LIMIT.read().await / (1024 * 1024);
+            let raw_app_limit_mb = request_size_limit_mb * 5;
+            let mut multipart = $multipart;
+            while let Some(field) = multipart
+                .next_field()
+                .await
+                .map_err(|e| Error::BadRequest(format!("failed to read multipart field: {e}. Could be due to the request size limit for raw app bundles which is {raw_app_limit_mb}MB (adjustable in instance settings)")))?
+            {
+                let name = field
+                    .name()
+                    .ok_or_else(|| Error::BadRequest("multipart field missing name".to_string()))?
+                    .to_string();
+                let data = field.bytes().await.map_err(|e| {
+                    Error::BadRequest(format!("failed to read multipart stream: {e}. Could be due to the request size limit for raw app bundles which is {raw_app_limit_mb}MB (adjustable in instance settings)"))
+                })?;
+                if name == "app" {
+                    let app = serde_json::from_slice(&data).map_err(to_anyhow)?;
+                    let (ntx, npath, nid) = $internal_fn(
+                        $authed.clone(),
+                        $db.clone(),
+                        $user_db.clone(),
+                        $w_id,
+                        $path,
+                        true,
+                        app,
+                    )
+                    .await?;
+                    saved_app = Some((npath, nid, ntx));
+                } else if name == "js" {
+                    if let Some((_npath, id, tx)) = saved_app.as_mut() {
+                        store_raw_app_file($w_id, &id, "js", data, tx).await?;
+                        uploaded_js = true;
+                    } else {
+                        return Err(Error::BadRequest(
+                            "App payload need to be created first".to_string(),
+                        ));
+                    }
+                } else if name == "css" {
+                    if let Some((_npath, id, tx)) = saved_app.as_mut() {
+                        store_raw_app_file($w_id, &id, "css", data, tx).await?;
+                    } else {
+                        return Err(Error::BadRequest(
+                            "App payload need to be created first".to_string(),
+                        ));
+                    }
+                } else {
+                    return Err(Error::BadRequest(format!("Unsupported field: {}", name)));
+                }
+            }
+            if !uploaded_js {
+                return Err(Error::BadRequest("js or css file not uploaded".to_string()));
+            }
+            if let Some((npath, id, tx)) = saved_app {
+                tx.commit().await?;
+                Ok((npath, id))
+            } else {
+                Err(Error::BadRequest("App not created".to_string()))
+            }
+        }
+    };
+}
+
+async fn create_app_raw<'a>(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path(w_id): Path<String>,
+    multipart: Multipart,
+) -> Result<(StatusCode, String)> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create apps for security reasons".to_string(),
+        ));
+    }
+
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
+    let (path, _id) = process_app_multipart!(
+        authed,
+        user_db,
+        db,
+        &w_id,
+        "",
+        multipart,
+        |authed, db, user_db, w_id, _path, raw_app, app| create_app_internal(
+            authed, db, user_db, w_id, raw_app, app
+        )
+    )
+    .await?;
+
+    check_scopes(&authed, || format!("apps:write:{}", path))?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::CreateApp { workspace: w_id, path: path.clone() },
+    );
+    Ok((StatusCode::CREATED, path))
+}
+
+async fn list_paths_from_workspace_runnable(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
+) -> JsonResult<Vec<String>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let runnables = sqlx::query_scalar!(
+        r#"SELECT a.path
+            FROM workspace_runnable_dependencies wru 
+            JOIN app a
+                ON wru.app_path = a.path AND wru.workspace_id = a.workspace_id
+            WHERE wru.runnable_path = $1 AND wru.runnable_is_flow = $2 AND wru.workspace_id = $3"#,
+        path.to_path(),
+        matches!(runnable_kind, RunnableKind::Flow),
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(runnables))
+}
+
 async fn create_app(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
-    Json(mut app): Json<CreateApp>,
+    Json(app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create apps for security reasons".to_string(),
+        ));
+    }
+    let path = app.path.clone();
+    check_scopes(&authed, || format!("apps:write:{}", &path))?;
+
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
+    let (new_tx, _path, _id) = create_app_internal(authed, db, user_db, &w_id, false, app).await?;
+
+    new_tx.commit().await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::CreateApp { workspace: w_id, path: path.clone() },
+    );
+
+    Ok((StatusCode::CREATED, path))
+}
+
+/// Actionable error when a custom path is already taken. In global mode (not
+/// CLOUD_HOSTED and `app_workspaced_route` off) custom paths are unique across
+/// the whole instance, so the conflicting copy may live in another workspace
+/// (e.g. the same app deployed/git-synced to staging and prod) — name it so
+/// the operator knows exactly what to remove.
+fn custom_path_conflict_error(
+    custom_path: &str,
+    conflict_path: &str,
+    conflict_workspace: &str,
+    scoped: bool,
+) -> Error {
+    if scoped {
+        Error::BadRequest(format!(
+            "Custom path '{}' is already used by app '{}' in this workspace",
+            custom_path, conflict_path
+        ))
+    } else {
+        Error::BadRequest(format!(
+            "Custom path '{}' is already used by app '{}' in workspace '{}'. \
+             Custom paths must be unique across the whole instance unless the \
+             'app_workspaced_route' instance setting is enabled.",
+            custom_path, conflict_path, conflict_workspace
+        ))
+    }
+}
+
+async fn create_app_internal<'a>(
+    authed: ApiAuthed,
+    db: sqlx::Pool<sqlx::Postgres>,
+    user_db: UserDB,
+    w_id: &String,
+    raw_app: bool,
+    mut app: CreateApp,
+) -> Result<(sqlx::Transaction<'a, sqlx::Postgres>, String, i64)> {
+    if *CLOUD_HOSTED {
+        let nb_apps =
+            sqlx::query_scalar!("SELECT COUNT(*) FROM app WHERE workspace_id = $1", &w_id)
+                .fetch_one(&db)
+                .await?;
+        if nb_apps.unwrap_or(0) >= 1000 {
+            return Err(Error::BadRequest(
+                    "You have reached the maximum number of apps (1000) on cloud. Check your usage in Workspace Settings > General > Cloud Quotas. Contact support@windmill.dev to increase the limit"
+                        .to_string(),
+                ));
+        }
+        if app.summary.len() > 300 {
+            return Err(Error::BadRequest(
+                "Summary must be less than 300 characters on cloud".to_string(),
+            ));
+        }
+    }
     let mut tx = user_db.clone().begin(&authed).await?;
+    let should_preserve = app.preserve_on_behalf_of.unwrap_or(false)
+        && windmill_common::can_preserve_on_behalf_of(&authed)
+        && app.policy.on_behalf_of.is_some();
 
-    app.policy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
-    app.policy.on_behalf_of_email = Some(authed.email.clone());
-
+    if !should_preserve {
+        let folder_default = if windmill_common::can_preserve_on_behalf_of(&authed) {
+            windmill_common::folders::resolve_folder_default_permissioned_as(&db, w_id, &app.path)
+                .await?
+        } else {
+            None
+        };
+        if let Some(default_permissioned_as) = folder_default {
+            let default_email = windmill_common::users::get_email_from_permissioned_as(
+                &default_permissioned_as,
+                w_id,
+                &db,
+            )
+            .await?;
+            app.policy.on_behalf_of = Some(default_permissioned_as);
+            app.policy.on_behalf_of_email = Some(default_email);
+        } else {
+            app.policy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
+            app.policy.on_behalf_of_email = Some(authed.email.clone());
+        }
+    }
+    let path = app.path.clone();
     if &app.path == "" {
         return Err(Error::BadRequest("App path cannot be empty".to_string()));
     }
-
     let exists = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)",
         &app.path,
@@ -736,69 +1402,90 @@ async fn create_app(
     .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
-
     if exists {
         return Err(Error::BadRequest(format!(
             "App with path {} already exists",
             &app.path
         )));
     }
-
     if let Some(custom_path) = &app.custom_path {
         require_admin(authed.is_admin, &authed.username)?;
+        let scoped =
+            *CLOUD_HOSTED || APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
 
-        let exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
+        let conflict = sqlx::query!(
+            "SELECT workspace_id, path FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2) LIMIT 1",
             custom_path,
-            if *CLOUD_HOSTED { Some(&w_id) } else { None }
+            if scoped { Some(w_id) } else { None }
         )
-        .fetch_one(&mut *tx)
-        .await?.unwrap_or(false);
+        .fetch_optional(&mut *tx)
+        .await?;
 
-        if exists {
-            return Err(Error::BadRequest(format!(
-                "App with custom path {} already exists",
-                custom_path
-            )));
+        if let Some(conflict) = conflict {
+            return Err(custom_path_conflict_error(
+                custom_path,
+                &conflict.path,
+                &conflict.workspace_id,
+                scoped,
+            ));
         }
     }
-
-    sqlx::query!(
-        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
-        &app.path,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
+    if matches!(app.policy.execution_mode, ExecutionMode::Anonymous) {
+        if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+            w_id,
+            &ProtectionRuleKind::RestrictAnonymousAppDeployment,
+            &authed.username,
+            &authed.groups,
+            authed.is_admin,
+            &db,
+        )
+        .await?
+        {
+            return Err(Error::PermissionDenied(msg));
+        }
+    }
+    // CLI / git-sync deploys ask us to preserve any existing user draft at this
+    // path instead of wiping it as part of the deploy. Only wipe the deployer's
+    // own draft (plus the legacy NULL-email row); see scripts.rs.
+    if !app.skip_draft_deletion.unwrap_or(false) {
+        sqlx::query!(
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ IN ('app', 'raw_app') \
+             AND (email = $3 OR email IS NULL)",
+            &app.path,
+            &w_id,
+            &authed.email,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
     let id = sqlx::query_scalar!(
         "INSERT INTO app
-            (workspace_id, path, summary, policy, versions, draft_only, custom_path)
+            (workspace_id, path, summary, policy, versions, custom_path, labels)
             VALUES ($1, $2, $3, $4, '{}', $5, $6) RETURNING id",
         w_id,
         app.path,
         app.summary,
         json!(app.policy),
-        app.draft_only,
         app.custom_path
+            .as_ref()
             .map(|s| if s.is_empty() { None } else { Some(s) })
-            .flatten()
+            .flatten(),
+        app.labels.as_deref() as Option<&[String]>
     )
     .fetch_one(&mut *tx)
     .await?;
-
     let v_id = sqlx::query_scalar!(
         "INSERT INTO app_version
-            (app_id, value, created_by)
-            VALUES ($1, $2::text::json, $3) RETURNING id",
+            (app_id, value, created_by, raw_app)
+            VALUES ($1, $2::text::json, $3, $4) RETURNING id",
         id,
         //to preserve key orders
         serde_json::to_string(&app.value).unwrap(),
         authed.username,
+        raw_app
     )
     .fetch_one(&mut *tx)
     .await?;
-
     sqlx::query!(
         "UPDATE app SET versions = array_append(versions, $1::bigint) WHERE id = $2",
         v_id,
@@ -812,27 +1499,47 @@ async fn create_app(
         &authed,
         "apps.create",
         ActionKind::Create,
-        &w_id,
+        w_id,
         Some(&app.path),
         None,
     )
     .await?;
-
+    if should_preserve {
+        if let Some(ref obo_email) = app.policy.on_behalf_of_email {
+            if obo_email != &authed.email {
+                audit_log(
+                    &mut *tx,
+                    &authed,
+                    "apps.on_behalf_of",
+                    ActionKind::Create,
+                    w_id,
+                    Some(&app.path),
+                    Some([("on_behalf_of", obo_email.as_str()), ("action", "create")].into()),
+                )
+                .await?;
+            }
+        }
+    }
     let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
-    if let Some(dm) = app.deployment_message {
+    if let Some(dm) = &app.deployment_message {
         args.insert("deployment_message".to_string(), to_raw_value(&dm));
     }
-
     let tx = PushIsolationLevel::Transaction(tx);
     let (dependency_job_uuid, new_tx) = push(
         &db,
         tx,
-        &w_id,
-        JobPayload::AppDependencies { path: app.path.clone(), version: v_id },
+        w_id,
+        JobPayload::AppDependencies {
+            path: app.path.clone(),
+            version: v_id,
+            debouncing_settings: Default::default(),
+        },
         PushArgs { args: &args, extra: None },
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
+        authed.token_prefix.as_deref(),
+        None,
         None,
         None,
         None,
@@ -847,24 +1554,21 @@ async fn create_app(
         None,
         None,
         Some(&authed.clone().into()),
+        false,
+        None,
+        None,
+        None,
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
 
-    new_tx.commit().await?;
-
-    webhook.send_message(
-        w_id.clone(),
-        WebhookMessage::CreateApp { workspace: w_id, path: app.path.clone() },
-    );
-
-    Ok((StatusCode::CREATED, app.path))
+    Ok((new_tx, path, v_id))
 }
 
 async fn list_hub_apps(Extension(db): Extension<DB>) -> impl IntoResponse {
     let (status_code, headers, body) = query_elems_from_hub(
         &HTTP_CLIENT,
-        &format!("{}/searchUiData?approved=true", *HUB_BASE_URL.read().await),
+        &format!("{}/searchUiData?approved=true", **HUB_BASE_URL.load()),
         None,
         &db,
     )
@@ -878,7 +1582,25 @@ pub async fn get_hub_app_by_id(
 ) -> JsonResult<Box<serde_json::value::RawValue>> {
     let value = http_get_from_hub(
         &HTTP_CLIENT,
-        &format!("{}/apps/{}/json", *HUB_BASE_URL.read().await, id),
+        &format!("{}/apps/{}/json", **HUB_BASE_URL.load(), id),
+        false,
+        None,
+        Some(&db),
+    )
+    .await?
+    .json()
+    .await
+    .map_err(to_anyhow)?;
+    Ok(Json(value))
+}
+
+pub async fn get_hub_raw_app_by_id(
+    Path(id): Path<i32>,
+    Extension(db): Extension<DB>,
+) -> JsonResult<Box<serde_json::value::RawValue>> {
+    let value = http_get_from_hub(
+        &HTTP_CLIENT,
+        &format!("{}/raw_apps/{}/json", **HUB_BASE_URL.load(), id),
         false,
         None,
         Some(&db),
@@ -898,6 +1620,7 @@ async fn delete_app(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("apps:write:{}", path))?;
 
     if path == "g/all/setup_app" && w_id == "admins" {
         return Err(Error::BadRequest(
@@ -905,10 +1628,59 @@ async fn delete_app(
         ));
     }
 
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
+    // Check if it's a raw app before deletion
+    let is_raw_app = sqlx::query_scalar!(
+        "SELECT app_version.raw_app FROM app
+         JOIN app_version ON app_version.id = app.versions[array_upper(app.versions, 1)]
+         WHERE app.path = $1 AND app.workspace_id = $2",
+        path,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .unwrap_or(false);
+
     let mut tx = user_db.begin(&authed).await?;
 
+    // Capture all related data for trashbin before deleting (CASCADE will remove app_version, etc.)
+    let trash_app: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT to_jsonb(t) FROM app t WHERE path = $1 AND workspace_id = $2")
+            .bind(path)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+    let trash_app_versions: Vec<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM app_version t WHERE app_id = (SELECT id FROM app WHERE path = $1 AND workspace_id = $2)",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let trash_drafts: Vec<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM draft t WHERE path = $1 AND workspace_id = $2 AND typ IN ('app', 'raw_app')",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Both `app` and `raw_app` draft kinds back the same `app` table.
     sqlx::query!(
-        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
+        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ IN ('app', 'raw_app')",
         path,
         &w_id
     )
@@ -923,6 +1695,25 @@ async fn delete_app(
     .execute(&mut *tx)
     .await?;
 
+    if let Some(app_data) = trash_app {
+        let mut trash_data = serde_json::json!({"row": app_data});
+        if !trash_app_versions.is_empty() {
+            trash_data["app_versions"] = serde_json::Value::Array(trash_app_versions);
+        }
+        if !trash_drafts.is_empty() {
+            trash_data["drafts"] = serde_json::Value::Array(trash_drafts);
+        }
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx,
+            &w_id,
+            "app",
+            path,
+            trash_data,
+            &authed.username,
+        )
+        .await?;
+    }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -935,18 +1726,29 @@ async fn delete_app(
     .await?;
     tx.commit().await?;
 
+    let deployed_object = if is_raw_app {
+        DeployedObject::RawApp {
+            path: path.to_string(),
+            parent_path: Some(path.to_string()),
+            version: 0, // dummy version as it will not get inserted in db
+        }
+    } else {
+        DeployedObject::App {
+            path: path.to_string(),
+            parent_path: Some(path.to_string()),
+            version: 0, // dummy version as it will not get inserted in db
+        }
+    };
+
     handle_deployment_metadata(
         &authed.email,
         &authed.username,
         &db,
         &w_id,
-        DeployedObject::App {
-            path: path.to_string(),
-            parent_path: Some(path.to_string()),
-            version: 0, // dummy version as it will not get inserted in db
-        },
+        deployed_object,
         Some(format!("App '{}' deleted", path)),
         true,
+        None,
     )
     .await?;
 
@@ -958,7 +1760,7 @@ async fn delete_app(
     .execute(&db)
     .await
     .map_err(|e| {
-        Error::InternalErr(format!(
+        Error::internal_err(format!(
             "error deleting deployment metadata for script with path {path} in workspace {w_id}: {e:#}"
         ))
     })?;
@@ -979,22 +1781,126 @@ async fn update_app(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditApp>,
 ) -> Result<String> {
-    use sql_builder::prelude::*;
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot update apps for security reasons".to_string(),
+        ));
+    }
+    // create_app_internal(authed, user_db, db, &w_id, &mut app).await?;
+    let path = path.to_path();
+    check_scopes(&authed, || format!("apps:write:{}", path))?;
+
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
+    let opath = path.to_string();
+    let (new_tx, npath, _v_id) =
+        update_app_internal(authed, db, user_db, &w_id, path, false, ns).await?;
+    new_tx.commit().await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::UpdateApp {
+            workspace: w_id.clone(),
+            old_path: opath.clone(),
+            new_path: npath.clone(),
+        },
+    );
+
+    Ok(format!("app {} updated (npath: {:?})", opath, npath))
+}
+
+async fn update_app_raw<'a>(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    multipart: Multipart,
+) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot update apps for security reasons".to_string(),
+        ));
+    }
+
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
 
     let path = path.to_path();
+    check_scopes(&authed, || format!("apps:write:{}", path))?;
+    let opath = path.to_string();
+    let (npath, _id) = process_app_multipart!(
+        authed,
+        user_db,
+        db,
+        &w_id,
+        path,
+        multipart,
+        update_app_internal
+    )
+    .await?;
 
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::UpdateApp {
+            workspace: w_id.clone(),
+            old_path: opath.to_owned(),
+            new_path: npath.clone(),
+        },
+    );
+
+    Ok(format!("app {} updated (npath: {:?})", opath, npath))
+}
+// async fn create_app_internal<'a>(
+//     authed: ApiAuthed,
+//     db: sqlx::Pool<sqlx::Postgres>,
+//     user_db: UserDB,
+//     w_id: &String,
+//     app: &mut CreateApp,
+// )
+
+async fn update_app_internal<'a>(
+    authed: ApiAuthed,
+    db: sqlx::Pool<sqlx::Postgres>,
+    user_db: UserDB,
+    w_id: &str,
+    path: &str,
+    raw_app: bool,
+    ns: EditApp,
+) -> Result<(sqlx::Transaction<'a, sqlx::Postgres>, String, i64)> {
+    use sql_builder::prelude::*;
     let mut tx = user_db.clone().begin(&authed).await?;
 
+    let mut preserved_on_behalf_of: Option<String> = None;
     let npath = if ns.policy.is_some()
         || ns.path.is_some()
         || ns.summary.is_some()
         || ns.custom_path.is_some()
+        || ns.labels.is_some()
     {
         let mut sqlb = SqlBuilder::update_table("app");
         sqlb.and_where_eq("path", "?".bind(&path));
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
 
-        sqlb.set("draft_only", "NULL");
         if let Some(npath) = &ns.path {
             if npath != path {
                 require_owner_of_path(&authed, path)?;
@@ -1024,33 +1930,85 @@ async fn update_app(
 
         if let Some(ncustom_path) = &ns.custom_path {
             require_admin(authed.is_admin, &authed.username)?;
+            let scoped =
+                *CLOUD_HOSTED || APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
 
             if ncustom_path.is_empty() {
                 sqlb.set("custom_path", "NULL");
             } else {
-                let exists = sqlx::query_scalar!(
-                    "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2) AND NOT (path = $3 AND workspace_id = $4))",
+                // Same predicate as before (the check is correct): the app's
+                // own row in this workspace is excluded, so a single-workspace
+                // edit still works. In global mode a copy of this app in
+                // another workspace is a genuine conflict (one global route) —
+                // surface which workspace so it can be resolved.
+                let conflict = sqlx::query!(
+                    "SELECT workspace_id, path FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2) AND NOT (path = $3 AND workspace_id = $4) LIMIT 1",
                     ncustom_path,
-                    if *CLOUD_HOSTED { Some(&w_id) } else { None },
+                    if scoped { Some(w_id) } else { None },
                     path,
                     w_id
                 )
-                .fetch_one(&mut *tx)
-                .await?.unwrap_or(false);
+                .fetch_optional(&mut *tx)
+                .await?;
 
-                if exists {
-                    return Err(Error::BadRequest(format!(
-                        "App with custom path {} already exists",
-                        ncustom_path
-                    )));
+                if let Some(conflict) = conflict {
+                    return Err(custom_path_conflict_error(
+                        ncustom_path,
+                        &conflict.path,
+                        &conflict.workspace_id,
+                        scoped,
+                    ));
                 }
                 sqlb.set_str("custom_path", ncustom_path);
             }
         }
 
         if let Some(mut npolicy) = ns.policy {
-            npolicy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
-            npolicy.on_behalf_of_email = Some(authed.email.clone());
+            if matches!(npolicy.execution_mode, ExecutionMode::Anonymous) && !authed.is_admin {
+                // Restricted users may keep deploying an app that is already
+                // public, but flipping an app to anonymous (public) access is
+                // gated by the RestrictAnonymousAppDeployment protection rule.
+                // FOR UPDATE locks the row until this transaction's policy
+                // UPDATE commits, so a concurrent admin downgrade cannot be
+                // silently overwritten by a stale redeploy keeping anonymous.
+                let already_anonymous = sqlx::query_scalar!(
+                    "SELECT policy->>'execution_mode' = 'anonymous' FROM app WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
+                    path,
+                    w_id
+                )
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten()
+                .unwrap_or(false);
+                if !already_anonymous {
+                    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+                        w_id,
+                        &ProtectionRuleKind::RestrictAnonymousAppDeployment,
+                        &authed.username,
+                        &authed.groups,
+                        authed.is_admin,
+                        &db,
+                    )
+                    .await?
+                    {
+                        return Err(Error::PermissionDenied(msg));
+                    }
+                }
+            }
+            let should_preserve = ns.preserve_on_behalf_of.unwrap_or(false)
+                && windmill_common::can_preserve_on_behalf_of(&authed)
+                && npolicy.on_behalf_of.is_some();
+
+            if should_preserve {
+                if let Some(ref obo_email) = npolicy.on_behalf_of_email {
+                    if obo_email != &authed.email {
+                        preserved_on_behalf_of = Some(obo_email.clone());
+                    }
+                }
+            } else {
+                npolicy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
+                npolicy.on_behalf_of_email = Some(authed.email.clone());
+            }
             sqlb.set(
                 "policy",
                 quote(serde_json::to_string(&json!(npolicy)).map_err(|e| {
@@ -1061,9 +2019,22 @@ async fn update_app(
 
         sqlb.returning("path");
 
-        let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+        let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
         let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
-        not_found_if_none(npath_o, "App", path)?
+        let npath_val = not_found_if_none(npath_o, "App", path)?;
+
+        if let Some(nlabels) = &ns.labels {
+            sqlx::query!(
+                "UPDATE app SET labels = $1 WHERE path = $2 AND workspace_id = $3",
+                nlabels as &[String],
+                &npath_val,
+                w_id
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        npath_val
     } else {
         path.to_owned()
     };
@@ -1078,12 +2049,13 @@ async fn update_app(
 
         let v_id = sqlx::query_scalar!(
             "INSERT INTO app_version
-                (app_id, value, created_by)
-                VALUES ($1, $2::text::json, $3) RETURNING id",
+                (app_id, value, created_by, raw_app)
+                VALUES ($1, $2::text::json, $3, $4) RETURNING id",
             app_id,
             //to preserve key orders
             serde_json::to_string(&nvalue).unwrap(),
             authed.username,
+            raw_app
         )
         .fetch_one(&mut *tx)
         .await?;
@@ -1114,42 +2086,69 @@ async fn update_app(
             )));
         }
     };
-
-    sqlx::query!(
-        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
-        path,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
+    // CLI / git-sync deploys ask us to preserve any existing user draft at this
+    // path instead of wiping it as part of the deploy. Only wipe the deployer's
+    // own draft (plus the legacy NULL-email row) — see create_app_internal.
+    if !ns.skip_draft_deletion.unwrap_or(false) {
+        sqlx::query!(
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ IN ('app', 'raw_app') \
+             AND (email = $3 OR email IS NULL)",
+            path,
+            &w_id,
+            &authed.email,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
     audit_log(
         &mut *tx,
         &authed,
         "apps.update",
         ActionKind::Update,
-        &w_id,
+        w_id,
         Some(&npath),
         None,
     )
     .await?;
-
+    if let Some(on_behalf_of) = preserved_on_behalf_of {
+        audit_log(
+            &mut *tx,
+            &authed,
+            "apps.on_behalf_of",
+            ActionKind::Update,
+            w_id,
+            Some(&npath),
+            Some(
+                [
+                    ("on_behalf_of", on_behalf_of.as_str()),
+                    ("action", "update"),
+                ]
+                .into(),
+            ),
+        )
+        .await?;
+    }
     let tx = PushIsolationLevel::Transaction(tx);
     let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
     if let Some(dm) = ns.deployment_message {
         args.insert("deployment_message".to_string(), to_raw_value(&dm));
     }
     args.insert("parent_path".to_string(), to_raw_value(&path));
-
     let (dependency_job_uuid, new_tx) = push(
         &db,
         tx,
-        &w_id,
-        JobPayload::AppDependencies { path: npath.clone(), version: v_id },
+        w_id,
+        JobPayload::AppDependencies {
+            path: npath.clone(),
+            version: v_id,
+            debouncing_settings: Default::default(),
+        },
         PushArgs { args: &args, extra: None },
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
+        authed.token_prefix.as_deref(),
+        None,
         None,
         None,
         None,
@@ -1164,21 +2163,14 @@ async fn update_app(
         None,
         None,
         Some(&authed.clone().into()),
+        false,
+        None,
+        None,
+        None,
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
-    new_tx.commit().await?;
-
-    webhook.send_message(
-        w_id.clone(),
-        WebhookMessage::UpdateApp {
-            workspace: w_id,
-            old_path: path.to_owned(),
-            new_path: npath.clone(),
-        },
-    );
-
-    Ok(format!("app {} updated (npath: {:?})", path, npath))
+    Ok((new_tx, npath, v_id))
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -1197,6 +2189,14 @@ pub struct ExecuteApp {
     pub force_viewer_static_fields: Option<StaticFields>,
     pub force_viewer_one_of_fields: Option<OneOfFields>,
     pub force_viewer_allow_user_resources: Option<AllowUserResources>,
+    pub force_viewer_sensitive_inputs: Option<Vec<String>>,
+    pub force_viewer_delete_after_secs: Option<i32>,
+    /// Runnable query parameters (e.g., memory_id for chat-enabled flows)
+    pub run_query_params: Option<RunJobQuery>,
+    /// Map of relative-import script path -> temp storage hash. Only honored for
+    /// inline-script (raw_code, preview) execution so `wmill app dev` resolves
+    /// those imports from not-yet-deployed local content instead of deployed.
+    pub temp_script_refs: Option<HashMap<String, String>>,
 }
 
 fn digest(code: &str) -> String {
@@ -1267,11 +2267,20 @@ fn empty_triggerables(mut policy: Policy) -> Policy {
 
 async fn execute_component(
     OptAuthed(opt_authed): OptAuthed,
+    tokened: OptTokened,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Json(payload): Json<ExecuteApp>,
+    Json(mut payload): Json<ExecuteApp>,
 ) -> Result<String> {
+    // Only honor temp_script_refs for the inline-script preview path:
+    // preview/editor mode (force_viewer_static_fields set, == `is_preview`),
+    // raw_code present, and no deployed app_script id — i.e. `wmill app dev`.
+    let temp_script_refs = payload.temp_script_refs.take();
+    let inject_temp_refs = temp_script_refs.is_some()
+        && payload.force_viewer_static_fields.is_some()
+        && payload.raw_code.is_some()
+        && payload.id.is_none();
     match (payload.path.is_some(), payload.raw_code.is_some()) {
         (false, false) => {
             return Err(Error::BadRequest(
@@ -1289,6 +2298,59 @@ async fn execute_component(
     let path = path.to_path();
     let (arc_policy, policy): (Arc<Policy>, Policy);
     let policy_triggerables_default = Default::default();
+    // Preview mode means the request was issued from the editor; the editing
+    // user is already trusted by the policy check, so client-supplied `tag`
+    // on the inline script is honored. In any other case we must read the
+    // tag from the deployed policy and ignore the request body.
+    let is_preview = payload.force_viewer_static_fields.is_some();
+
+    // Preview mode runs request-supplied code as a `Viewer`-mode job (the
+    // app-editor equivalent of `/jobs/run/preview`), so it enforces the same
+    // guards. Operators must never run preview jobs. `jobs:run` is required
+    // because this route is reachable with an `apps:run`-scoped token (the
+    // route maps to the `apps` scope domain), which must not be able to escalate
+    // to arbitrary code execution. The client-supplied inline `raw_code.tag`
+    // must stay within the caller's allowed worker tags. A preview can also
+    // *reference* an existing runnable the caller may not be allowed to read — a
+    // deployed script/flow via `payload.path` or a persisted `app_script` via
+    // `payload.id`, both resolved with the root DB handle — so those (and only
+    // those) are confined to paths the caller can read. Inline `raw_code` is not
+    // path-gated: a non-operator member can already run arbitrary inline code
+    // via `/jobs/run/preview`.
+    if is_preview {
+        let authed = opt_authed.as_ref().ok_or_else(|| {
+            Error::NotAuthorized("App component preview requires authentication".to_string())
+        })?;
+        if authed.is_operator {
+            return Err(Error::NotAuthorized(
+                "Operators cannot run preview jobs for security reasons".to_string(),
+            ));
+        }
+        check_scopes(authed, || format!("jobs:run"))?;
+        if let Some(p) = payload.path.as_deref() {
+            let runnable_path = p
+                .strip_prefix("script/")
+                .or_else(|| p.strip_prefix("flow/"))
+                .unwrap_or(p);
+            require_path_read_access_for_preview(authed, &Some(runnable_path.to_string()))?;
+        }
+        if let Some(id) = payload.id {
+            let owner_path = sqlx::query_scalar!(
+                "SELECT a.path FROM app_script s JOIN app a ON a.id = s.app
+                 WHERE s.id = $1 AND a.workspace_id = $2",
+                id,
+                &w_id,
+            )
+            .fetch_optional(&db)
+            .await?
+            .ok_or_else(|| {
+                Error::NotAuthorized(format!(
+                    "App script {id} does not belong to an app in this workspace"
+                ))
+            })?;
+            require_path_read_access_for_preview(authed, &Some(owner_path))?;
+        }
+    }
 
     // Two cases here:
     // 1. The component is executed from the editor (i.e. in "preview" mode), then:
@@ -1305,12 +2367,21 @@ async fn execute_component(
         // 1. "preview" mode.
         ExecuteApp {
             force_viewer_static_fields: Some(static_inputs),
-            force_viewer_one_of_fields: Some(one_of_inputs),
-            force_viewer_allow_user_resources: Some(allow_user_resources),
+            force_viewer_one_of_fields,
+            force_viewer_allow_user_resources,
+            force_viewer_sensitive_inputs,
+            force_viewer_delete_after_secs,
             ..
         } => (
             &Policy { execution_mode: ExecutionMode::Viewer, ..Default::default() },
-            &PolicyTriggerableInputs { static_inputs, one_of_inputs, allow_user_resources },
+            &PolicyTriggerableInputs {
+                static_inputs,
+                one_of_inputs: force_viewer_one_of_fields.unwrap_or_default(),
+                allow_user_resources: force_viewer_allow_user_resources.unwrap_or_default(),
+                delete_after_secs: force_viewer_delete_after_secs,
+                sensitive_inputs: force_viewer_sensitive_inputs.unwrap_or_default(),
+                tag: None,
+            },
         ),
         // 2. "run" mode.
         _ => {
@@ -1337,6 +2408,15 @@ async fn execute_component(
                 policy = policy_fut.await?;
                 &policy
             };
+
+            // Caller-supplied inline code (`raw_code`), with or without an
+            // `app_script` id. Its resolved `rawscript/<sha>` key must be present
+            // in the policy triggerables below — it must never resolve via the
+            // Viewer default fallback. Without `id` the caller supplies the code
+            // verbatim; with `id` it selects any `app_script` row by number (no
+            // app/workspace scoping), so both let a caller run code the publisher
+            // never pinned for this app.
+            let is_inline_raw_code = payload.raw_code.is_some();
 
             // Compute the path for the triggerables map:
             // - flow: `flow/<payload.path>`
@@ -1370,11 +2450,20 @@ async fn execute_component(
                 .triggerables_v2
                 .as_ref()
                 .ok_or_else(|| Error::BadRequest(format!("Policy is missing triggerables")))?;
+
             let policy_triggerables = triggerables_v2
                 .get(path) // start with `path` in case we can avoid the next` format!`.
                 .or_else(|| triggerables_v2.get(&format!("{}:{}", payload.component, &path)))
                 .or(match policy.execution_mode {
-                    ExecutionMode::Viewer => Some(&policy_triggerables_default),
+                    // A Viewer app may invoke any deployed `script`/`flow` it
+                    // references (resolved as the caller), but caller-supplied
+                    // inline `raw_code` must match a publisher-pinned
+                    // `rawscript/<sha>` entry — otherwise an unauthorized caller
+                    // (e.g. an operator, barred from `/jobs/run/preview`) could
+                    // run code the publisher never pinned for this app.
+                    ExecutionMode::Viewer if !is_inline_raw_code => {
+                        Some(&policy_triggerables_default)
+                    }
                     _ => None,
                 })
                 .ok_or_else(|| Error::BadRequest(format!("Path {path} forbidden by policy")))?;
@@ -1382,6 +2471,15 @@ async fn execute_component(
             (policy, policy_triggerables)
         }
     };
+
+    // Check rate limit for anonymous (public) executions
+    if matches!(policy.execution_mode, ExecutionMode::Anonymous) && opt_authed.is_none() {
+        if let Some(limit) = crate::workspaces::get_public_app_rate_limit(&db, &w_id).await? {
+            if limit > 0 {
+                crate::public_app_rate_limit::check_and_increment(&w_id, limit)?;
+            }
+        }
+    }
 
     // Execution is publisher and an user is authenticated: check if the user is authorized to
     // execute the app.
@@ -1425,7 +2523,10 @@ async fn execute_component(
     let (username, permissioned_as, email) =
         get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
 
-    let (args, job_id) = build_args(
+    let resolved_delete_secs =
+        resolve_delete_after_secs(None, policy_triggerables.delete_after_secs);
+
+    let (mut args, job_id) = build_args(
         policy,
         policy_triggerables,
         payload.args,
@@ -1436,19 +2537,63 @@ async fn execute_component(
     )
     .await?;
 
+    if inject_temp_refs {
+        if let Some(refs) = temp_script_refs {
+            args.extra
+                .get_or_insert_with(HashMap::new)
+                .insert("_TEMP_SCRIPT_REFS".to_string(), to_raw_value(&refs));
+        }
+    }
+
+    let is_flow = payload
+        .path
+        .as_ref()
+        .map(|p| p.starts_with("flow/"))
+        .unwrap_or(false);
+
+    // Tag for inline-script jobs is read from the deployed policy in run mode;
+    // only preview mode (editor) honors the client-supplied tag. This applies to
+    // both the `id`-bearing app_script path and the legacy `rawscript/<sha>`
+    // path that has no app_script entry yet.
+    let resolved_inline_tag = |client_tag: Option<String>| -> Option<String> {
+        if is_preview {
+            client_tag
+        } else {
+            policy_triggerables.tag.clone()
+        }
+        .filter(|t| !t.is_empty())
+    };
     let (job_payload, tag, on_behalf_of) = match (payload.path, payload.raw_code, payload.id) {
         // flow or script:
         (Some(path), None, None) => get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?,
-        // inline script: in "preview" mode or without entry in the `app_script` table.
-        (None, Some(raw_code), None) => (JobPayload::Code(raw_code), None, None),
-        // inline script: in "run" mode and with an entry in the `app_script` table.
-        (None, Some(RawCode { language, path, cache_ttl, .. }), Some(id)) => (
+        // inline script: "preview" mode, or run mode without an entry in the
+        // `app_script` table (legacy `rawscript/<sha>`-keyed triggerables).
+        (None, Some(raw_code), None) => {
+            let tag = resolved_inline_tag(raw_code.tag.clone());
+            (JobPayload::Code(raw_code), tag, None)
+        }
+        // inline script: run mode (deployed app) with an entry in `app_script`.
+        (None, Some(RawCode { language, path, cache_ttl, tag, .. }), Some(id)) => (
             JobPayload::AppScript { id: AppScriptId(id), cache_ttl, language, path },
-            None,
+            resolved_inline_tag(tag),
             None,
         ),
         _ => unreachable!(),
     };
+    // Preview honors the client-supplied inline tag (`resolved_inline_tag`), so
+    // — like `/jobs/run/preview` — confine it to worker tags the caller may use
+    // (a `if_jobs:filter_tags`-restricted token must not escape its filter).
+    // `is_preview` implies an authed caller (the guard above returns otherwise).
+    if is_preview {
+        if let Some(authed) = opt_authed.as_ref() {
+            crate::jobs::check_tag_available_for_workspace(&db, &w_id, &tag, authed).await?;
+        }
+    }
+    // Identity is already resolved to the requesting user in preview mode (the
+    // policy is forced to `ExecutionMode::Viewer`, so the job runs as the
+    // caller). The enqueue stays root-isolated as before — switching the insert
+    // to user-RLS is not what contains the bypass (the auth guards above are)
+    // and would add unnecessary breakage risk to the legitimate editor flow.
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
 
     let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {
@@ -1460,7 +2605,10 @@ async fn execute_component(
         (email.as_str(), permissioned_as)
     };
 
-    let (uuid, tx) = push(
+    let end_user_email =
+        get_end_user_email(&db, opt_authed.as_ref(), tokened.token.as_deref()).await;
+
+    let (uuid, mut tx) = push(
         &db,
         tx,
         &w_id,
@@ -1469,6 +2617,11 @@ async fn execute_component(
         &username,
         email,
         permissioned_as,
+        opt_authed
+            .and_then(|a| a.token_prefix)
+            .or_else(|| tokened.token.map(|t| t[0..TOKEN_PREFIX_LEN].to_string()))
+            .as_deref(),
+        None,
         None,
         None,
         None,
@@ -1483,15 +2636,40 @@ async fn execute_component(
         None,
         None,
         None,
+        false,
+        end_user_email,
+        None,
+        None,
     )
     .await?;
+
+    // Apply runnable query parameters if provided
+    if let Some(ref run_query) = payload.run_query_params {
+        if is_flow {
+            crate::jobs::process_flow_run_query_params(&mut tx, uuid, run_query).await?;
+        }
+    }
+
     tx.commit().await?;
+
+    if let Some(secs) = resolved_delete_secs {
+        if let Err(e) = schedule_job_deletion(&db, uuid, &w_id, secs).await {
+            tracing::error!("Failed to schedule deletion for app job {uuid} after {secs}s: {e:#}");
+        }
+    }
 
     Ok(uuid.to_string())
 }
 
 #[cfg(not(feature = "parquet"))]
 async fn upload_s3_file_from_app() -> Result<()> {
+    return Err(Error::BadRequest(
+        "This endpoint requires the parquet feature to be enabled".to_string(),
+    ));
+}
+
+#[cfg(not(feature = "parquet"))]
+async fn delete_s3_file_from_app() -> Result<()> {
     return Err(Error::BadRequest(
         "This endpoint requires the parquet feature to be enabled".to_string(),
     ));
@@ -1512,14 +2690,91 @@ struct UploadFileToS3Query {
 }
 
 #[cfg(feature = "parquet")]
+#[derive(Serialize, Deserialize)]
+struct S3DeleteTokenClaims {
+    file_key: String,
+    on_behalf_of_email: String,
+    permissioned_as: String,
+    username: String,
+    s3_resource_path: Option<String>,
+    workspace: String,
+    pub exp: usize,
+}
+
+#[cfg(feature = "parquet")]
+#[derive(Deserialize)]
+struct S3TokenRequestBody {
+    s3_objects: Vec<S3Object>,
+}
+#[cfg(feature = "parquet")]
+async fn sign_s3_objects(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(body): Json<S3TokenRequestBody>,
+) -> Result<Json<Vec<S3Object>>> {
+    let workspace_key = get_workspace_key(&w_id, &db).await?;
+
+    let futures = body.s3_objects.into_iter().map(|s3_object| async {
+        let exp = (chrono::Utc::now() + chrono::Duration::hours(12)).timestamp();
+        let mut message = format!("file_key={}&exp={}", s3_object.s3.clone(), exp);
+        if let Some(ref storage) = s3_object.storage {
+            message = format!("{}&storage={}", message, storage);
+        }
+
+        let mut max = HmacSha256::new_from_slice(workspace_key.as_bytes())
+            .map_err(|err| Error::internal_err(format!("Failed to create hmac: {}", err)))?;
+        max.update(message.as_bytes());
+        let result = max.finalize();
+        let signature = hex::encode(result.into_bytes());
+
+        let presigned = format!("exp={}&sig={}", exp, signature);
+
+        Ok::<_, Error>(S3Object { presigned: Some(presigned), ..s3_object })
+    });
+
+    let signed_s3_objects = futures::future::try_join_all(futures).await?;
+
+    Ok(Json(signed_s3_objects))
+}
+
+#[cfg(not(feature = "parquet"))]
+async fn sign_s3_objects() -> Result<()> {
+    return Err(Error::BadRequest(
+        "This endpoint requires the parquet feature to be enabled".to_string(),
+    ));
+}
+
+#[cfg(feature = "parquet")]
+#[derive(Serialize)]
+struct AppUploadFileResponse {
+    file_key: String,
+    delete_token: String,
+}
+
+#[cfg(feature = "parquet")]
 async fn upload_s3_file_from_app(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<UploadFileToS3Query>,
     request: axum::extract::Request,
-) -> JsonResult<UploadFileResponse> {
+) -> JsonResult<AppUploadFileResponse> {
     let policy = if let Some(file_key_regex) = query.force_viewer_file_key_regex {
+        // `force_viewer_*` lets the caller supply a synthetic upload policy that
+        // bypasses the deployed app's file_key_regex / resource restrictions.
+        // It is intended for the app editor's preview path, so it must enforce
+        // the same guards as `execute_component`'s preview mode (PR #9235):
+        // authed caller, not an operator, and `apps:write` scope to make sure
+        // an `apps:run`-scoped token cannot pick its own policy.
+        let authed = opt_authed.as_ref().ok_or_else(|| {
+            Error::NotAuthorized("App S3 preview upload requires authentication".to_string())
+        })?;
+        if authed.is_operator {
+            return Err(Error::NotAuthorized(
+                "Operators cannot run app S3 previews for security reasons".to_string(),
+            ));
+        }
+        check_scopes(authed, || format!("apps:write:{}", path.to_path()))?;
         Some(Policy {
             execution_mode: ExecutionMode::Viewer,
             triggerables: None,
@@ -1537,6 +2792,7 @@ async fn upload_s3_file_from_app(
                     .map(|s| s.split(',').map(|s| s.to_string()).collect())
                     .unwrap_or_default(),
             }]),
+            allowed_s3_keys: None,
         })
     } else {
         let policy_o = sqlx::query_scalar!(
@@ -1554,7 +2810,10 @@ async fn upload_s3_file_from_app(
 
     let user_db = UserDB::new(db.clone());
 
-    let (s3_resource_opt, file_key) = if policy.as_ref().is_some_and(|p| p.s3_inputs.is_some()) {
+    let (s3_resource_opt, file_key, on_behalf_of_email, permissioned_as, username) = if policy
+        .as_ref()
+        .is_some_and(|p| p.s3_inputs.is_some())
+    {
         let policy = policy.unwrap();
         let s3_inputs = policy.s3_inputs.as_ref().unwrap();
 
@@ -1562,11 +2821,11 @@ async fn upload_s3_file_from_app(
             get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
 
         let on_behalf_authed = fetch_api_authed_from_permissioned_as(
-            permissioned_as,
-            email,
+            permissioned_as.clone(),
+            email.clone(),
             &w_id,
             &db,
-            Some(username),
+            Some(username.clone()),
         )
         .await?;
 
@@ -1602,13 +2861,15 @@ async fn upload_s3_file_from_app(
                 if let Some(ref s3_resource_path) = query.s3_resource_path {
                     if matched_input.allow_user_resources {
                         if let Some(authed) = opt_authed {
+                            let db_with_opt_authed = DbWithOptAuthed::from_authed(
+                                &authed,
+                                db.clone(),
+                                Some(user_db.clone()),
+                            );
                             (
                                 Some(
                                     get_s3_resource(
-                                        &authed,
-                                        &db,
-                                        Some(user_db),
-                                        "",
+                                        &db_with_opt_authed,
                                         &w_id,
                                         s3_resource_path,
                                         None,
@@ -1617,6 +2878,9 @@ async fn upload_s3_file_from_app(
                                     .await?,
                                 ),
                                 file_key,
+                                email,
+                                permissioned_as,
+                                username,
                             )
                         } else {
                             return Err(Error::BadRequest(
@@ -1625,13 +2889,15 @@ async fn upload_s3_file_from_app(
                             ));
                         }
                     } else {
+                        let db_with_opt_authed = DbWithOptAuthed::from_authed(
+                            &on_behalf_authed,
+                            db.clone(),
+                            Some(user_db.clone()),
+                        );
                         (
                             Some(
                                 get_s3_resource(
-                                    &on_behalf_authed,
-                                    &db,
-                                    Some(user_db),
-                                    "",
+                                    &db_with_opt_authed,
                                     &w_id,
                                     s3_resource_path,
                                     None,
@@ -1640,13 +2906,27 @@ async fn upload_s3_file_from_app(
                                 .await?,
                             ),
                             file_key,
+                            email,
+                            permissioned_as,
+                            username,
                         )
                     }
                 } else {
-                    let (_, s3_resource_opt) =
-                        get_workspace_s3_resource(&on_behalf_authed, &db, None, "", &w_id, None)
-                            .await?;
-                    (s3_resource_opt, file_key)
+                    let db_with_opt_authed = DbWithOptAuthed::from_authed(
+                        &on_behalf_authed,
+                        db.clone(),
+                        Some(user_db.clone()),
+                    );
+                    let (_, s3_resource_opt) = get_workspace_s3_resource_and_check_paths(
+                        &db_with_opt_authed,
+                        Some(&on_behalf_authed),
+                        &w_id,
+                        None,
+                        &[(&file_key, S3Permission::WRITE)],
+                        None,
+                    )
+                    .await?;
+                    (s3_resource_opt, file_key, email, permissioned_as, username)
                 }
             } else {
                 return Err(Error::BadRequest(
@@ -1661,18 +2941,26 @@ async fn upload_s3_file_from_app(
 
             if !has_unnamed_policy {
                 return Err(Error::BadRequest(
-                    "no policy found for unnamed s3 file uplooad".to_string(),
+                    "no policy found for unnamed s3 file upload".to_string(),
                 ));
             }
 
             // for now, we place all files into `windmill_uploads` folder with a random name
             // TODO: make the folder configurable via the workspace settings
             let file_key = get_random_file_name(query.file_extension);
+            let db_with_opt_authed =
+                DbWithOptAuthed::from_authed(&on_behalf_authed, db.clone(), None);
+            let (_, s3_resource_opt) = get_workspace_s3_resource_and_check_paths(
+                &db_with_opt_authed,
+                Some(&on_behalf_authed),
+                &w_id,
+                None,
+                &[(&file_key, S3Permission::WRITE)],
+                None,
+            )
+            .await?;
 
-            let (_, s3_resource_opt) =
-                get_workspace_s3_resource(&on_behalf_authed, &db, None, "", &w_id, None).await?;
-
-            (s3_resource_opt, file_key)
+            (s3_resource_opt, file_key, email, permissioned_as, username)
         }
     } else {
         // backward compatibility (no policy)
@@ -1682,38 +2970,54 @@ async fn upload_s3_file_from_app(
                 .file_key
                 .unwrap_or_else(|| get_random_file_name(query.file_extension));
 
+            let (on_behalf_of_email, permissioned_as, username) = (
+                authed.email.clone(),
+                username_to_permissioned_as(&authed.username),
+                authed.display_username().to_string(),
+            );
+
             if let Some(ref s3_resource_path) = query.s3_resource_path {
+                let db_with_opt_authed =
+                    DbWithOptAuthed::from_authed(&authed, db.clone(), Some(user_db.clone()));
                 (
                     Some(
-                        get_s3_resource(
-                            &authed,
-                            &db,
-                            Some(user_db),
-                            "",
-                            &w_id,
-                            s3_resource_path,
-                            None,
-                            None,
-                        )
-                        .await?,
+                        get_s3_resource(&db_with_opt_authed, &w_id, s3_resource_path, None, None)
+                            .await?,
                     ),
                     file_key,
+                    on_behalf_of_email,
+                    permissioned_as,
+                    username,
                 )
             } else {
-                let (_, s3_resource) =
-                    get_workspace_s3_resource(&authed, &db, None, "", &w_id, None).await?;
+                let db_with_opt_authed = DbWithOptAuthed::from_authed(&authed, db.clone(), None);
+                let (_, s3_resource) = get_workspace_s3_resource_and_check_paths(
+                    &db_with_opt_authed,
+                    Some(&authed),
+                    &w_id,
+                    None,
+                    &[(&file_key, S3Permission::WRITE)],
+                    None,
+                )
+                .await?;
 
-                (s3_resource, file_key)
+                (
+                    s3_resource,
+                    file_key,
+                    on_behalf_of_email,
+                    permissioned_as,
+                    username,
+                )
             }
         } else {
             return Err(Error::BadRequest("Missing s3 policy".to_string()));
         }
     };
 
-    let s3_resource = s3_resource_opt.ok_or(Error::InternalErr(
+    let s3_resource = s3_resource_opt.ok_or(Error::internal_err(
         "No files storage resource defined at the workspace level".to_string(),
     ))?;
-    let s3_client = build_object_store_client(&s3_resource).await?;
+    let s3_client = windmill_object_store::build_object_store_client(&s3_resource).await?;
 
     let options = Attributes::from_iter(vec![
         (
@@ -1731,9 +3035,97 @@ async fn upload_s3_file_from_app(
     ])
     .into();
 
-    upload_file_from_req(s3_client, &file_key, request, options).await?;
+    let _put_result = upload_file_from_req(s3_client, &file_key, request, options).await?;
 
-    return Ok(Json(UploadFileResponse { file_key }));
+    let delete_token = jwt::encode_with_internal_secret(S3DeleteTokenClaims {
+        file_key: file_key.clone(),
+        on_behalf_of_email,
+        permissioned_as,
+        username,
+        s3_resource_path: query.s3_resource_path,
+        workspace: w_id.clone(),
+        exp: (chrono::Utc::now() + chrono::Duration::hours(12)).timestamp() as usize,
+    })
+    .await?;
+
+    return Ok(Json(AppUploadFileResponse { file_key, delete_token }));
+}
+
+#[cfg(feature = "parquet")]
+#[derive(Deserialize)]
+struct DeleteS3FileQuery {
+    delete_token: String,
+}
+
+#[cfg(feature = "parquet")]
+async fn delete_s3_file_from_app(
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(query): Query<DeleteS3FileQuery>,
+) -> Result<()> {
+    let S3DeleteTokenClaims {
+        file_key,
+        on_behalf_of_email,
+        permissioned_as,
+        username,
+        s3_resource_path,
+        workspace,
+        ..
+    } = jwt::decode_with_internal_secret::<S3DeleteTokenClaims>(&query.delete_token).await?;
+
+    let path = windmill_object_store::object_store_reexports::Path::parse(file_key.as_str())
+        .map_err(|e| Error::internal_err(format!("Error parsing file key: {}", e)))?;
+
+    if workspace != w_id {
+        return Err(Error::BadRequest("Invalid workspace".to_string()));
+    }
+
+    let on_behalf_authed = fetch_api_authed_from_permissioned_as(
+        permissioned_as,
+        on_behalf_of_email,
+        &w_id,
+        &db,
+        Some(username),
+    )
+    .await?;
+
+    let s3_resource = if let Some(s3_resource_path) = s3_resource_path {
+        let db_with_opt_authed =
+            DbWithOptAuthed::from_authed(&on_behalf_authed, db.clone(), Some(user_db.clone()));
+        get_s3_resource(
+            &db_with_opt_authed,
+            &w_id,
+            s3_resource_path.as_str(),
+            None,
+            None,
+        )
+        .await?
+    } else {
+        let db_with_opt_authed = DbWithOptAuthed::from_authed(&on_behalf_authed, db.clone(), None);
+        let (_, s3_resource) = get_workspace_s3_resource_and_check_paths(
+            &db_with_opt_authed,
+            Some(&on_behalf_authed),
+            &w_id,
+            None,
+            &[(&path.to_string(), S3Permission::DELETE)],
+            None,
+        )
+        .await?;
+
+        s3_resource.ok_or(Error::internal_err(
+            "No files storage resource defined at the workspace level".to_string(),
+        ))?
+    };
+
+    let s3_client = windmill_object_store::build_object_store_client(&s3_resource).await?;
+
+    s3_client.delete(&path).await.map_err(|err| {
+        tracing::error!("Error deleting file: {:?}", err);
+        Error::internal_err(format!("Error deleting file: {}", err.to_string()))
+    })?;
+
+    Ok(())
 }
 
 #[cfg(not(feature = "parquet"))]
@@ -1749,26 +3141,41 @@ async fn get_on_behalf_authed_from_app(
     path: &str,
     w_id: &str,
     opt_authed: &Option<ApiAuthed>,
-) -> Result<ApiAuthed> {
-    let policy_o = sqlx::query_scalar!(
-        "SELECT policy from app WHERE path = $1 AND workspace_id = $2",
-        path,
-        w_id
-    )
-    .fetch_optional(db)
-    .await?;
-
-    let policy = policy_o
-        .map(|p| serde_json::from_value::<Policy>(p).map_err(to_anyhow))
-        .transpose()?
-        .unwrap_or_else(|| Policy {
+    force_allowed_s3_keys: Option<Vec<S3Key>>,
+) -> Result<(ApiAuthed, Policy)> {
+    let policy = if let Some(force_allowed_s3_keys) = force_allowed_s3_keys {
+        Policy {
             execution_mode: ExecutionMode::Viewer,
             triggerables: None,
             triggerables_v2: None,
             on_behalf_of: None,
             on_behalf_of_email: None,
             s3_inputs: None,
-        });
+            allowed_s3_keys: Some(force_allowed_s3_keys),
+        }
+    } else {
+        // TODO: improve db query to not return uneeded fields
+        let policy_o = sqlx::query_scalar!(
+            "SELECT policy from app WHERE path = $1 AND workspace_id = $2",
+            path,
+            w_id
+        )
+        .fetch_optional(db)
+        .await?;
+
+        policy_o
+            .map(|p| serde_json::from_value::<Policy>(p).map_err(to_anyhow))
+            .transpose()?
+            .unwrap_or_else(|| Policy {
+                execution_mode: ExecutionMode::Viewer,
+                triggerables: None,
+                triggerables_v2: None,
+                on_behalf_of: None,
+                on_behalf_of_email: None,
+                s3_inputs: None,
+                allowed_s3_keys: None,
+            })
+    };
 
     let (username, permissioned_as, email) =
         get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
@@ -1777,44 +3184,92 @@ async fn get_on_behalf_authed_from_app(
         fetch_api_authed_from_permissioned_as(permissioned_as, email, &w_id, &db, Some(username))
             .await?;
 
-    Ok(on_behalf_authed)
+    Ok((on_behalf_authed, policy))
 }
 
 #[cfg(feature = "parquet")]
 async fn check_if_allowed_to_access_s3_file_from_app(
     db: &DB,
     opt_authed: &Option<ApiAuthed>,
-    file_key: &str,
+    file_query: &AppS3FileQuery,
     w_id: &str,
     path: &str,
+    policy: &Policy,
 ) -> Result<()> {
     // if anonymous, check that the file was the result of an app script ran by an anonymous user in the last 3 hours
     // otherwise, if logged in, allow any file (TODO: change that when we implement better s3 policy)
 
-    let allowed = opt_authed.is_some()
-        || sqlx::query_scalar!(
-            r#"SELECT EXISTS (
-                SELECT 1 FROM completed_job 
-                WHERE workspace_id = $2 
-                    AND (job_kind = 'appscript' OR job_kind = 'preview')
-                    AND created_by = 'anonymous' 
-                    AND started_at > now() - interval '3 hours'
-                    AND script_path LIKE $3 || '/%' 
-                    AND result @> ('{"s3":"' || $1 ||  '"}')::jsonb 
-            )"#,
-            file_key,
-            w_id,
-            path,
-        )
-        .fetch_one(db)
-        .await?
-        .unwrap_or(false);
-
-    if !allowed {
-        Err(Error::BadRequest("File restricted".to_string()))
-    } else {
+    if file_query.sig.is_some() {
+        #[cfg(feature = "private")]
+        {
+            crate::s3_proxy_ee::validate_s3_signature(
+                &file_query.s3,
+                &file_query.sig,
+                &file_query.exp,
+                &file_query.storage,
+                w_id,
+                &db,
+            )
+            .await?;
+            Ok(())
+        }
+        #[cfg(not(feature = "private"))]
+        return Err(Error::InternalErr(
+            "Internal error: signature validation is not supported in open source mode".to_string(),
+        ));
+    } else if opt_authed.is_some() {
         Ok(())
+    } else {
+        let allowed = policy
+            .allowed_s3_keys
+            .as_ref()
+            .unwrap()
+            .iter()
+            .any(|key| key.s3_path == file_query.s3 && key.storage == file_query.storage)
+            || {
+                sqlx::query_scalar!(
+                    r#"SELECT EXISTS (
+                SELECT 1 FROM v2_job_completed c JOIN v2_job j USING (id)
+                WHERE j.workspace_id = $2
+                    AND (j.kind = 'appscript' OR j.kind = 'preview')
+                    AND j.created_by = 'anonymous'
+                    AND c.started_at > now() - interval '3 hours'
+                    AND j.runnable_path LIKE $3 || '/%'
+                    AND c.result @> ('{"s3":"' || $1 ||  '"}')::jsonb
+            )"#,
+                    file_query.s3,
+                    w_id,
+                    path,
+                )
+                .fetch_one(db)
+                .await?
+                .unwrap_or(false)
+            };
+
+        if !allowed {
+            Err(Error::BadRequest("File restricted".to_string()))
+        } else {
+            Ok(())
+        }
     }
+}
+
+#[cfg(feature = "parquet")]
+#[derive(Deserialize, Debug)]
+struct AppS3FileQuery {
+    s3: String,
+    storage: Option<String>,
+    sig: Option<String>,
+    #[cfg(feature = "private")]
+    exp: Option<String>,
+}
+
+#[cfg(feature = "parquet")]
+#[derive(Deserialize, Debug)]
+struct AppS3FileQueryWithForceViewerAllowedS3Keys {
+    #[serde(flatten)]
+    pub file_query: AppS3FileQuery,
+    pub force_viewer_allowed_s3_keys: Option<String>,
 }
 
 #[cfg(feature = "parquet")]
@@ -1822,40 +3277,60 @@ async fn download_s3_file_from_app(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Query(query): Query<DownloadFileQuery>,
+    Query(query): Query<AppS3FileQueryWithForceViewerAllowedS3Keys>,
 ) -> Result<Response> {
+    use crate::db::OptJobAuthed;
+
     let path = path.to_path();
 
-    let on_behalf_authed = get_on_behalf_authed_from_app(&db, &path, &w_id, &opt_authed).await?;
+    let force_viewer_allowed_s3_keys = if let Some(force_viewer_allowed_s3_keys) =
+        query.force_viewer_allowed_s3_keys.clone()
+    {
+        // `force_viewer_allowed_s3_keys` lets the caller supply a synthetic
+        // allowlist that bypasses the deployed app policy. Apply the same
+        // preview-mode guard as `execute_component` (PR #9235): authed, not an
+        // operator, `apps:write` scope so an `apps:run`-scoped token cannot
+        // pick its own allowlist.
+        let authed = opt_authed.as_ref().ok_or_else(|| {
+            Error::NotAuthorized("App S3 preview download requires authentication".to_string())
+        })?;
+        if authed.is_operator {
+            return Err(Error::NotAuthorized(
+                "Operators cannot run app S3 previews for security reasons".to_string(),
+            ));
+        }
+        check_scopes(authed, || format!("apps:write:{}", path))?;
+        Some(serde_json::from_str::<Vec<S3Key>>(&force_viewer_allowed_s3_keys).unwrap_or_default())
+    } else {
+        None
+    };
 
-    check_if_allowed_to_access_s3_file_from_app(&db, &opt_authed, &query.file_key, &w_id, &path)
-        .await?;
+    let (on_behalf_authed, policy) =
+        get_on_behalf_authed_from_app(&db, &path, &w_id, &opt_authed, force_viewer_allowed_s3_keys)
+            .await?;
 
-    download_s3_file_internal(on_behalf_authed, &db, None, "", &w_id, query).await
-}
+    check_if_allowed_to_access_s3_file_from_app(
+        &db,
+        &opt_authed,
+        &query.file_query,
+        &w_id,
+        &path,
+        &policy,
+    )
+    .await?;
 
-#[cfg(not(feature = "parquet"))]
-async fn load_s3_file_image_preview_from_app() -> Result<()> {
-    return Err(Error::BadRequest(
-        "This endpoint requires the parquet feature to be enabled".to_string(),
-    ));
-}
-
-#[cfg(feature = "parquet")]
-async fn load_s3_file_image_preview_from_app(
-    OptAuthed(opt_authed): OptAuthed,
-    Extension(db): Extension<DB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-    Query(query): Query<LoadImagePreviewQuery>,
-) -> Result<Response> {
-    let path = path.to_path();
-
-    let on_behalf_authed = get_on_behalf_authed_from_app(&db, &path, &w_id, &opt_authed).await?;
-
-    check_if_allowed_to_access_s3_file_from_app(&db, &opt_authed, &query.file_key, &w_id, &path)
-        .await?;
-
-    load_image_preview_internal(on_behalf_authed, &db, "", &w_id, query).await
+    download_s3_file_internal(
+        OptJobAuthed { authed: on_behalf_authed, job_id: None },
+        &db,
+        None,
+        &w_id,
+        DownloadFileQuery {
+            file_key: query.file_query.s3,
+            s3_resource_path: None,
+            storage: query.file_query.storage,
+        },
+    )
+    .await
 }
 
 fn get_on_behalf_of(policy: &Policy) -> Result<(String, String)> {
@@ -1882,26 +3357,13 @@ fn get_on_behalf_of(policy: &Policy) -> Result<(String, String)> {
     Ok((permissioned_as, email))
 }
 
-pub async fn require_is_writer(authed: &ApiAuthed, path: &str, w_id: &str, db: DB) -> Result<()> {
-    return crate::users::require_is_writer(
-        authed,
-        path,
-        w_id,
-        db,
-        "SELECT extra_perms FROM app WHERE path = $1 AND workspace_id = $2",
-        "app",
-    )
-    .await;
-}
-
 async fn exists_app(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
-    let path = path.to_path();
     let exists = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)",
-        path,
+        path.to_path(),
         w_id
     )
     .fetch_one(&db)
@@ -1917,6 +3379,8 @@ async fn build_args(
         static_inputs,
         one_of_inputs,
         allow_user_resources,
+        sensitive_inputs,
+        ..
     }: &PolicyTriggerableInputs,
     mut args: HashMap<String, Box<RawValue>>,
     authed: Option<&ApiAuthed>,
@@ -1935,14 +3399,15 @@ async fn build_args(
                 key.and_then(|x| x.clone().strip_prefix("$res:").map(|x| x.to_string()))
             {
                 if let Some(authed) = authed {
+                    let db_with_opt_authed =
+                        DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
                     let res = get_resource_value_interpolated_internal(
-                        authed,
-                        Some(user_db.clone()),
-                        db,
+                        &db_with_opt_authed,
                         w_id,
                         &path,
                         None,
-                        "",
+                        None,
+                        false,
                     )
                     .await?;
                     if res.is_none() {
@@ -2034,7 +3499,10 @@ async fn build_args(
             safe_args.insert(
                 k.to_string(),
                 to_raw_value(&value.unwrap_or(Ok(serde_json::Value::Null)).map_err(|e| {
-                    Error::InternalErr(format!("failed to serialize ctx variable for {}: {}", k, e))
+                    Error::internal_err(format!(
+                        "failed to serialize ctx variable for {}: {}",
+                        k, e
+                    ))
                 })?),
             );
         } else if !arg_str.contains("\"$var:") && !arg_str.contains("\"$res:") {
@@ -2054,7 +3522,7 @@ async fn build_args(
                         ),
                 )
                 .map_err(|e| {
-                    Error::InternalErr(format!(
+                    Error::internal_err(format!(
                         "failed to remove sensitive variable(s)/resource(s) with error: {}",
                         e
                     ))
@@ -2062,6 +3530,26 @@ async fn build_args(
             );
         }
     }
+    for k in sensitive_inputs {
+        let Some(v) = safe_args.get(k) else { continue };
+        let raw = v.get();
+        if raw.starts_with("\"$encrypted:") {
+            continue;
+        }
+        let job_id = if let Some(job_id) = job_id {
+            job_id
+        } else {
+            job_id = Some(ulid::Ulid::new().into());
+            job_id.unwrap()
+        };
+        let mc = build_crypt_with_key_suffix(&db, &w_id, &job_id.to_string()).await?;
+        let encrypted = encrypt(&mc, raw);
+        safe_args.insert(
+            k.to_string(),
+            to_raw_value(&format!("$encrypted:{encrypted}")),
+        );
+    }
+
     let mut extra = HashMap::new();
     for (k, v) in static_inputs {
         extra.insert(k.to_string(), v.to_owned());

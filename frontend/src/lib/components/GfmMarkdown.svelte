@@ -1,17 +1,15 @@
 <script lang="ts">
-	import { Markdown, type Plugin } from 'svelte-exmarkdown'
-	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
-	import rehypeRaw from 'rehype-raw'
-	import { rehypeGithubAlerts } from 'rehype-github-alerts'
-	export let md: string
-	const plugins: Plugin[] = [
-		gfmPlugin(),
-		{ rehypePlugin: [rehypeRaw] },
-		{ rehypePlugin: [rehypeGithubAlerts] }
-	]
+	import { Markdown } from 'svelte-exmarkdown'
+	import { markdownPlugins as plugins } from './markdownPlugins'
+	interface Props {
+		md: string
+		noPadding?: boolean
+	}
+
+	let { md, noPadding }: Props = $props()
 </script>
 
-<div class="!prose-xs pgap">
+<div class="!prose-xs {noPadding ? '' : 'pgap'}">
 	<Markdown {md} {plugins} />
 </div>
 

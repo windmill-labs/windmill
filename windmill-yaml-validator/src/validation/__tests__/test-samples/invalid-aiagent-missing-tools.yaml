@@ -1,0 +1,12 @@
+summary: Invalid AI Agent - Missing Tools
+description: An AI agent without the required tools field
+value:
+  modules:
+    - id: broken_agent
+      value:
+        type: aiagent
+        input_transforms:
+          prompt:
+            type: static
+            value: "Test prompt"
+        # Missing required 'tools' field

@@ -1,3 +1,18 @@
+<script lang="ts" module>
+	async function loadResources(workspace: string): Promise<string[]> {
+		const r = await ResourceService.listResource({ workspace })
+		const sPaths = await ScriptService.listScriptPaths({ workspace })
+		const fPaths = await FlowService.listFlowPaths({ workspace })
+		const a = await AppService.listApps({ workspace })
+		return r
+			.map((r) => r.path)
+			.concat(sPaths)
+			.concat(fPaths)
+			.concat(a.map((a) => a.path))
+			.sort()
+	}
+</script>
+
 <script lang="ts">
 	import { goto } from '$lib/navigation'
 	import type { ActionKind } from '$lib/common'
@@ -11,69 +26,108 @@
 		UserService,
 		ScriptService,
 		FlowService,
-		AppService
+		AppService,
+		CancelError
 	} from '$lib/gen'
 
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { Loader2, RefreshCcw } from 'lucide-svelte'
-	import { onDestroy } from 'svelte'
-	import AutoComplete from 'simple-svelte-autocomplete'
+	import { ChevronDown, Download, Loader2, RefreshCcw } from 'lucide-svelte'
+	import { onDestroy, untrack } from 'svelte'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import Select from '../select/Select.svelte'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
+	import { safeSelectItems } from '../select/utils.svelte'
+	import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
+	import { sendUserToast } from '$lib/toast'
 
-	let usernames: string[]
-	let resources: string[]
-	let loading: boolean = false
+	let usernames: string[] | undefined = $state()
+	let resources = usePromise(() => loadResources($workspaceStore!), { loadInit: false })
 
-	export let logs: AuditLog[] = []
-	export let username: string = 'all'
-	export let pageIndex: number | undefined = 0
-	export let before: string | undefined = undefined
-	export let after: string | undefined = undefined
-	export let perPage: number | undefined = 100
-	export let operation: string = 'all'
-	export let resource: string | undefined = 'all'
-	export let actionKind: ActionKind | 'all' = 'all'
+	interface Props {
+		logs?: AuditLog[]
+		username?: string
+		pageIndex?: number | undefined
+		hasMore?: boolean
+		before?: string | undefined
+		after?: string | undefined
+		perPage?: number | undefined
+		operation?: string
+		resource?: string | undefined
+		actionKind?: ActionKind | 'all'
+		scope?: undefined | 'all_workspaces' | 'instance'
+		loading?: boolean
+	}
 
-	async function loadLogs(
-		username: string | undefined,
-		page: number | undefined,
-		perPage: number | undefined,
-		before: string | undefined,
-		after: string | undefined,
-		operation: string | undefined,
-		resource: string | undefined,
-		actionKind: ActionKind | undefined | 'all'
-	): Promise<void> {
+	let {
+		logs = $bindable(undefined),
+		username = $bindable('all'),
+		pageIndex = $bindable(1),
+		hasMore = $bindable(false),
+		before = $bindable(undefined),
+		after = $bindable(undefined),
+		perPage = $bindable(100),
+		operation = $bindable(),
+		resource = $bindable() as string | undefined,
+		actionKind = $bindable(undefined),
+		scope = $bindable(undefined),
+		loading = $bindable(false)
+	}: Props = $props()
+
+	$effect.pre(() => {
+		if (logs == undefined) {
+			logs = []
+		}
+		if (operation == undefined) {
+			operation = 'all'
+		}
+		if (resource == undefined) {
+			resource = 'all'
+		}
+		if (actionKind == undefined) {
+			actionKind = 'all'
+		}
+	})
+
+	function loadLogs() {
 		loading = true
 
-		if (username == 'all') {
-			username = undefined
-		}
-		if (operation == 'all' || operation == '') {
-			operation = undefined
-		}
+		let username_ = username == 'all' ? undefined : username
+		let operation_ = operation == 'all' || operation == '' ? undefined : operation
+		let actionKind_ = actionKind == 'all' ? undefined : actionKind
+		let resource_ = resource == 'all' || resource == '' ? undefined : resource
 
-		// @ts-ignore
-		if (actionKind == 'all' || actionKind == '') {
-			actionKind = undefined
-		}
-
-		if (resource == 'all' || resource == '') {
-			resource = undefined
-		}
-
-		logs = await AuditService.listAuditLogs({
-			workspace: $workspaceStore!,
-			page,
+		let _promise = AuditService.listAuditLogs({
+			workspace: scope === 'instance' ? 'global' : $workspaceStore!,
+			page: pageIndex,
 			perPage,
 			before,
 			after,
-			username,
-			operation,
-			resource,
-			actionKind
+			username: username_,
+			operation: operation_,
+			resource: resource_,
+			actionKind: actionKind_,
+			allWorkspaces: scope === 'all_workspaces'
 		})
-
-		loading = false
+		let promise = CancelablePromiseUtils.map(_promise, (value) => {
+			logs = value
+			hasMore = !logs || (logs.length > 0 && logs.length === perPage)
+			loading = false
+		})
+		promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
+			sendUserToast(
+				'Loading audit logs is taking longer than expected...',
+				'warning',
+				perPage > 25
+					? [{ label: 'Reduce to 25 items per page', callback: () => (perPage = 25) }]
+					: []
+			)
+		})
+		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
+			if (e instanceof CancelError) return CancelablePromiseUtils.pure<void>(undefined)
+			return CancelablePromiseUtils.err<void>(e)
+		})
+		return promise
 	}
 
 	async function loadUsers() {
@@ -83,74 +137,7 @@
 				: [$userStore?.username ?? '']
 	}
 
-	async function loadResources() {
-		const r = await ResourceService.listResource({
-			workspace: $workspaceStore!
-		})
-		const sPaths = await ScriptService.listScriptPaths({
-			workspace: $workspaceStore!
-		})
-		const fPaths = await FlowService.listFlowPaths({
-			workspace: $workspaceStore!
-		})
-		const a = await AppService.listApps({
-			workspace: $workspaceStore!
-		})
-		resources = r
-			.map((r) => r.path)
-			.concat(sPaths)
-			.concat(fPaths)
-			.concat(a.map((a) => a.path))
-			.sort()
-	}
-
-	$: {
-		if ($workspaceStore && refresh) {
-			loadUsers()
-			loadResources()
-			loadLogs(username, pageIndex, perPage, before, after, operation, resource, actionKind)
-		}
-	}
-
-	function updateQueryParams({
-		username,
-		perPage,
-		before,
-		after,
-		operation,
-		resource,
-		actionKind
-	}: {
-		username?: string | undefined
-		perPage?: number | undefined
-		before?: string | undefined
-		after?: string | undefined
-		operation?: string | undefined
-		resource?: string | undefined
-		actionKind?: ActionKind | undefined | 'all'
-	}) {
-		const queryParams: string[] = []
-
-		function addQueryParam(key: string, value: string | number | undefined | null) {
-			if (value !== undefined && value !== null && value !== '' && value !== 'all') {
-				queryParams.push(`${key}=${encodeURIComponent(value)}`)
-			}
-		}
-
-		addQueryParam('username', username)
-		addQueryParam('page', 0)
-		addQueryParam('perPage', perPage)
-		addQueryParam('before', before)
-		addQueryParam('after', after)
-		addQueryParam('operation', operation)
-		addQueryParam('resource', resource)
-		addQueryParam('actionKind', actionKind)
-
-		const query = '?' + queryParams.join('&')
-		goto(query)
-	}
-
-	function updatePageQueryParams(pageIndex?: number | undefined) {
+	function updateQueryParams() {
 		const queryParams: string[] = []
 
 		function addQueryParam(key: string, value: string | number | undefined | null) {
@@ -167,22 +154,13 @@
 		addQueryParam('operation', operation)
 		addQueryParam('resource', resource)
 		addQueryParam('actionKind', actionKind)
-
+		if (scope && $workspaceStore == 'admins') {
+			addQueryParam('scope', scope)
+			addQueryParam('workspace', 'admins')
+		}
 		const query = '?' + queryParams.join('&')
-		goto(query)
+		goto(query, { replaceState: true, keepFocus: true })
 	}
-
-	$: updateQueryParams({
-		username,
-		perPage,
-		before,
-		after,
-		operation,
-		resource,
-		actionKind
-	})
-
-	$: updatePageQueryParams(pageIndex)
 
 	window.addEventListener('popstate', handlePopState)
 
@@ -251,6 +229,9 @@
 		USERS_ADD_GLOBAL: 'users.add_global',
 		USERS_IMPERSONATE: 'users.impersonate',
 		USERS_LEAVE_WORKSPACE: 'users.leave_workspace',
+		USERS_SCIM_CREATE: 'users.scim_create',
+		USERS_SCIM_DELETE: 'users.scim_delete',
+		USERS_SCIM_UPDATE: 'users.scim_update',
 		OAUTH_LOGIN: 'oauth.login',
 		OAUTH_LOGIN_FAILURE: 'oauth.login_failure',
 		OAUTH_SIGNUP: 'oauth.signup',
@@ -278,6 +259,9 @@
 		IGROUP_DELETE: 'igroup.delete',
 		IGROUP_ADDUSER: 'igroup.adduser',
 		IGROUP_REMOVEUSER: 'igroup.removeuser',
+		INSTANCE_GROUPS_SCIM_CREATE: 'instance_groups.scim_create',
+		INSTANCE_GROUPS_SCIM_DELETE: 'instance_groups.scim_delete',
+		INSTANCE_GROUPS_SCIM_UPDATE: 'instance_groups.scim_update',
 		VARIABLES_DECRYPT_SECRET: 'variables.decrypt_secret',
 		WORKSPACES_EDIT_COMMAND_SCRIPT: 'workspaces.edit_command_script',
 		WORKSPACES_EDIT_DEPLOY_TO: 'workspaces.edit_deploy_to',
@@ -292,98 +276,179 @@
 		WORKSPACES_DELETE: 'workspaces.delete'
 	}
 
-	let refresh = 1
+	let refresh = $state(0)
+	let lastRefresh = $state(-1)
+
+	function downloadAuditLogsAsJson() {
+		if (!logs || logs.length === 0) {
+			sendUserToast('No audit logs to download', true)
+			return
+		}
+
+		const jsonContent = JSON.stringify(logs, null, 2)
+		const blob = new Blob([jsonContent], { type: 'application/json' })
+		const url = URL.createObjectURL(blob)
+
+		const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+		const filename = `audit_logs_${$workspaceStore}_${timestamp}.json`
+
+		const link = document.createElement('a')
+		link.href = url
+		link.download = filename
+		document.body.appendChild(link)
+		link.click()
+		document.body.removeChild(link)
+		URL.revokeObjectURL(url)
+	}
+
+	// observe all the variables that should trigger an update
+	$effect(() => {
+		;[refresh, username, perPage, before, after, operation, resource, actionKind, scope, pageIndex]
+		return untrack(() => {
+			if (refresh !== lastRefresh) {
+				loadUsers()
+				resources.refresh()
+				lastRefresh = refresh
+			}
+			updateQueryParams()
+			let promise = loadLogs()
+			return () => promise?.cancel()
+		})
+	})
 </script>
 
-<div class="flex flex-col items-center gap-6 2xl:gap-1 2xl:flex-row mt-4 xl:mt-0">
-	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">After</span>
-		<input type="text" value={after ?? 'After'} disabled />
+<div class="flex flex-col gap-8 2xl:gap-2 2xl:flex-row mt-4 xl:mt-0 pr-2">
+	{#if $workspaceStore == 'admins'}
+		<div class="flex gap-1 relative">
+			<span class="text-xs absolute font-semibold text-emphasis -top-4">Scope</span>
+			<ToggleButtonGroup
+				selected={scope ?? 'admins'}
+				on:selected={({ detail }) => {
+					scope = detail === 'admins' ? undefined : detail
+				}}
+			>
+				{#snippet children({ item })}
+					<ToggleButton
+						value={'admins'}
+						label="Admins"
+						tooltip="Displays events from the admins workspace only."
+						{item}
+					/>
+					<ToggleButton
+						value="all_workspaces"
+						label="All"
+						tooltip="Displays events from all workspaces."
+						{item}
+					/>
+					<ToggleButton
+						value="instance"
+						label="Instance"
+						tooltip="Displays instance-scope events, such as user logins and registrations, instance user and group management, and worker configuration changes."
+						{item}
+					/>
+				{/snippet}
+			</ToggleButtonGroup>
+		</div>
+	{/if}
+	<div class="flex relative bg-surface-input">
+		<span class="text-xs absolute font-semibold text-emphasis -top-4">From</span>
+		<input type="text" value={after ?? 'From'} disabled />
 		<CalendarPicker
+			clearable
 			date={after}
 			placement="bottom-end"
-			label="After"
-			on:change={async ({ detail }) => {
+			label="From"
+			on:change={({ detail }) => {
 				after = new Date(detail).toISOString()
 			}}
+			on:clear={() => {
+				after = undefined
+			}}
 		/>
 	</div>
-	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">Before</span>
-		<input type="text" value={before ?? 'Before'} disabled />
+	<div class="flex relative bg-surface-input">
+		<span class="text-xs absolute font-semibold text-emphasis -top-4">To</span>
+		<input type="text" value={before ?? 'To'} disabled />
 		<CalendarPicker
+			clearable
 			bind:date={before}
-			label="Before"
+			label="To"
 			placement="bottom-end"
-			on:change={async ({ detail }) => {
+			on:change={({ detail }) => {
 				before = new Date(detail).toISOString()
 			}}
-		/>
-	</div>
-
-	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">Username</span>
-		<select bind:value={username}>
-			{#if usernames}
-				{#if $userStore?.is_admin || $userStore?.is_super_admin}
-					<option selected>all</option>
-				{/if}
-				{#each usernames as e}
-					{#if e == username || $userStore?.is_admin || $userStore?.is_super_admin}
-						<option>{e}</option>
-					{:else}
-						<option disabled>{e}</option>
-					{/if}
-				{/each}
-			{/if}
-		</select>
-	</div>
-	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">Resource</span>
-
-		<AutoComplete
-			create
-			onCreate={(resource) => {
-				resources.push(resource)
-				return resource
+			on:clear={() => {
+				before = undefined
 			}}
-			createText="Press enter to use this value"
-			noInputStyles
-			items={resources}
-			value={resource}
-			bind:selectedItem={resource}
-			inputClassName="!h-[34px] py-1 !text-xs !w-48"
-			hideArrow
-			dropdownClassName="!text-sm"
 		/>
 	</div>
 
-	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">Operation</span>
+	<div class="flex relative">
+		<span class="text-xs absolute font-semibold text-emphasis -top-4">Username</span>
+		<Select
+			class="w-full"
+			bind:value={username}
+			RightIcon={ChevronDown}
+			items={usernames
+				? [
+						...($userStore?.is_admin || $userStore?.is_super_admin
+							? [{ value: 'all', label: 'all' }]
+							: []),
+						...usernames.map((e) => ({
+							value: e,
+							label: e,
+							disabled: e !== username && !$userStore?.is_admin && !$userStore?.is_super_admin
+						}))
+					]
+				: []}
+		/>
+	</div>
+	<div class="flex relative">
+		<span class="text-xs absolute font-semibold text-emphasis -top-4">Resource</span>
 
-		<select bind:value={operation}>
-			<option selected value="all">all</option>
-			{#each Object.keys(operations) as e}
-				<option value={operations[e]}>{e}</option>
-			{/each}
-		</select>
+		<Select
+			class="w-full"
+			onCreateItem={(r) => (resources.value?.push(r), (resource = r))}
+			createText="Press enter to use this value"
+			bind:value={resource}
+			items={safeSelectItems(['all', ...(resources.value ?? [])])}
+			inputClass="dark:!bg-gray-700"
+			RightIcon={ChevronDown}
+		/>
 	</div>
 
-	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">Action</span>
+	<div class="flex relative">
+		<span class="text-xs absolute font-semibold text-emphasis -top-4">Operation</span>
 
-		<select class="!truncate" bind:value={actionKind}>
-			<option selected value="all">all</option>
-			{#each ['Create', 'Update', 'Delete', 'Execute'] as e}
-				<option value={e.toLocaleLowerCase()}>{e}</option>
-			{/each}
-		</select>
+		<Select
+			class="w-full"
+			bind:value={operation}
+			items={['all', ...Object.values(operations)].map((r) => ({ value: r, label: r }))}
+			inputClass="dark:!bg-gray-700"
+			RightIcon={ChevronDown}
+		/>
 	</div>
 
-	<div class="flex flex-row gap-1">
+	<div class="flex relative">
+		<span class="text-xs absolute font-semibold text-emphasis -top-4">Action</span>
+
+		<Select
+			class="w-full"
+			bind:value={actionKind}
+			RightIcon={ChevronDown}
+			items={[
+				{ value: 'all', label: 'all' },
+				{ value: 'create', label: 'Create' },
+				{ value: 'update', label: 'Update' },
+				{ value: 'delete', label: 'Delete' },
+				{ value: 'execute', label: 'Execute' }
+			]}
+		/>
+	</div>
+
+	<div class="flex flex-row">
 		<Button
-			variant="contained"
-			color="light"
+			variant="subtle"
 			on:click={() => {
 				after = undefined
 				before = undefined
@@ -393,18 +458,27 @@
 				pageIndex = 1
 				perPage = 100
 				resource = 'all'
+				scope = undefined
 			}}
-			size="xs"
+			unifiedSize="md"
 		>
 			Clear filters
 		</Button>
 		<Button
-			variant="contained"
-			color="dark"
+			variant="subtle"
+			on:click={downloadAuditLogsAsJson}
+			unifiedSize="md"
+			title="Downloads currently displayed logs only (up to {perPage} entries)"
+			startIcon={{ icon: Download }}
+			iconOnly
+		/>
+		<Button
+			variant="accent"
 			on:click={() => {
 				refresh++
 			}}
-			size="xs"
+			unifiedSize="md"
+			wrapperClasses="ml-auto"
 		>
 			<div class="flex flex-row gap-1 items-center">
 				{#if loading}

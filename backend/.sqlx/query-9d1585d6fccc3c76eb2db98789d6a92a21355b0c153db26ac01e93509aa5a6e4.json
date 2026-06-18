@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM concurrency_key WHERE job_id = ANY($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9d1585d6fccc3c76eb2db98789d6a92a21355b0c153db26ac01e93509aa5a6e4"
+}

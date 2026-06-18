@@ -1,52 +1,70 @@
 <script lang="ts">
 	import { isCloudHosted } from '$lib/cloud'
 	import { enterpriseLicense, isCriticalAlertsUIOpen } from '$lib/stores'
-	import {
-		AlertCircle,
-		AlertTriangle,
-		BadgeCheck,
-		BadgeX,
-		Info,
-		Plus,
-		RefreshCcw,
-		Slack,
-		X
-	} from 'lucide-svelte'
+	import { AlertCircle, BadgeCheck, BadgeX, Info } from 'lucide-svelte'
 	import type { Setting } from './instanceSettings'
-	import Tooltip from './Tooltip.svelte'
+	import { OTEL_TRACING_PROXY_LANGUAGES } from './instanceSettings'
+	import { LanguageIcon } from './common/languageIcons'
 	import ObjectStoreConfigSettings from './ObjectStoreConfigSettings.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import ConfirmButton from './ConfirmButton.svelte'
-	import { IndexSearchService, SettingService, TeamsService } from '$lib/gen'
+	import { ConfigService, SettingService, type ListAvailablePythonVersionsResponse } from '$lib/gen'
 	import { Button, SecondsInput, Skeleton } from './common'
 	import Password from './Password.svelte'
 	import { classNames } from '$lib/utils'
 	import Popover from './Popover.svelte'
+	import DropdownV2 from './DropdownV2.svelte'
 	import Toggle from './Toggle.svelte'
 	import type { Writable } from 'svelte/store'
-	import { createEventDispatcher } from 'svelte'
-	import { fade } from 'svelte/transition'
-	import { base } from '$lib/base'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
+	import CriticalAlertChannels from './instanceSettings/CriticalAlertChannels.svelte'
+	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
+	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
+	import GhesAppSettings from './instanceSettings/GhesAppSettings.svelte'
+	import WsConnectivityTest from './instanceSettings/WsConnectivityTest.svelte'
+	import IndexerMemorySettings from './instanceSettings/IndexerMemorySettings.svelte'
+	import IndexerJobIndexSettings from './instanceSettings/IndexerJobIndexSettings.svelte'
+	import IndexerLogIndexSettings from './instanceSettings/IndexerLogIndexSettings.svelte'
+	import TextInput from './text_input/TextInput.svelte'
+	import SettingCard from './instanceSettings/SettingCard.svelte'
 
-	export let setting: Setting
-	export let version: string
-	export let values: Writable<Record<string, any>>
-	export let loading = true
-	const dispatch = createEventDispatcher()
-
-	if (setting.fieldType == 'select' && $values[setting.key] == undefined) {
-		$values[setting.key] = 'default'
+	interface Props {
+		setting: Setting
+		version: string
+		values: Writable<Record<string, any>>
+		loading?: boolean
+		openSmtpSettings?: () => void
+		oauths?: Record<string, any>
+		warning?: string
 	}
+
+	let {
+		setting,
+		version,
+		values,
+		loading = true,
+		openSmtpSettings,
+		oauths,
+		warning
+	}: Props = $props()
+	const dispatch = createEventDispatcher()
 
 	let latestKeyRenewalAttempt: {
 		result: string
 		attempted_at: string
-	} | null
+	} | null = $state(null)
 
-	let isFetching = false
+	let offlineCapStatus: {
+		seats_used: number
+		seats_cap: number
+		author_count: number
+		operator_count: number
+		current_cu: number
+		cu_cap: number
+		cu_over_cap: boolean
+	} | null = $state(null)
 
 	function showSetting(setting: string, values: Record<string, any>) {
 		if (setting == 'dev_instance') {
@@ -54,20 +72,52 @@
 				return false
 			}
 		}
+		// Hide the nsjail-only settings only when isolation is *explicitly* a
+		// non-nsjail mode. When `job_isolation` is unset, nsjail may still be
+		// enabled via the legacy env-driven path (`DISABLE_NSJAIL=false`), so
+		// keep the controls reachable.
+		if (setting == 'nsjail_tmp_backing' || setting == 'nsjail_tmpfs_size_mb') {
+			const isolation = values['job_isolation']
+			if (isolation === 'none' || isolation === 'unshare') {
+				return false
+			}
+		}
+		// The tmpfs size knob is meaningless when /tmp is disk-backed.
+		if (setting == 'nsjail_tmpfs_size_mb' && values['nsjail_tmp_backing'] === 'disk') {
+			return false
+		}
 		return true
 	}
 
-	let licenseKeyChanged = false
-	let renewing = false
-	let opening = false
+	let renewing = $state(false)
+	let opening = $state(false)
 
 	async function reloadKeyrenewalAttemptInfo() {
 		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
 	}
 
-	if (setting.key == 'license_key') {
-		reloadKeyrenewalAttemptInfo()
+	async function reloadLicenseStatus() {
+		try {
+			offlineCapStatus = (await SettingService.getOfflineLicenseStatus()) as any
+		} catch {
+			offlineCapStatus = null
+		}
 	}
+
+	async function reloadLicenseKey() {
+		$values['license_key'] = await SettingService.getGlobal({
+			key: 'license_key'
+		})
+	}
+
+	$effect(() => {
+		if (setting.key == 'license_key') {
+			untrack(() => {
+				reloadKeyrenewalAttemptInfo()
+				reloadLicenseStatus()
+			})
+		}
+	})
 
 	export async function renewLicenseKey() {
 		renewing = true
@@ -76,22 +126,30 @@
 				licenseKey: $values['license_key'] || undefined
 			})
 			sendUserToast('Key renewal successful')
-			reloadKeyrenewalAttemptInfo()
+			reloadLicenseKey()
 		} catch (err) {
-			latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
 			throw err
 		} finally {
+			reloadKeyrenewalAttemptInfo()
 			renewing = false
 		}
 	}
 
 	export async function openCustomerPortal() {
 		opening = true
+		const newWindow = window.open('', '_blank')
 		try {
 			const url = await SettingService.createCustomerPortalSession({
 				licenseKey: $values['license_key'] || undefined
 			})
-			window.open(url, '_blank')
+			if (newWindow) {
+				newWindow.location.href = url
+			} else {
+				window.location.href = url
+			}
+		} catch (err) {
+			newWindow?.close()
+			throw err
 		} finally {
 			opening = false
 		}
@@ -120,105 +178,195 @@
 		}
 	}
 
-	async function fetchTeams() {
-		if (isFetching) return
-		isFetching = true
+	$effect(() => {
+		if (setting.key === 'license_key') {
+			const key = $values['license_key'] ?? ''
+			const { valid } = parseLicenseKey(key)
+			if (valid) {
+				$enterpriseLicense = key.split('.')[0]
+			}
+		}
+	})
+
+	let pythonAvailableVersions: ListAvailablePythonVersionsResponse = $state([])
+
+	let isPyFetching = $state(false)
+	async function fetch_available_python_versions() {
+		if (isPyFetching) return
+		isPyFetching = true
 		try {
-			$values['teams'] = await TeamsService.syncTeams()
+			pythonAvailableVersions = await ConfigService.listAvailablePythonVersions()
 		} catch (error) {
-			console.error('Error fetching teams:', error)
+			console.error('Error fetching python versions:', error)
 		} finally {
-			isFetching = false
+			isPyFetching = false
 		}
 	}
 
-	function handleTeamChange(event: Event, i: number) {
-		const teamId = (event.target as HTMLSelectElement).value
-		const team = $values['teams'].find((team) => team.team_id === teamId) || null
-		$values['critical_error_channels'][i] = {
-			teams_channel: {
-				team_id: team?.team_id,
-				team_name: team?.team_name,
-				channel_id: team?.channels[0]?.channel_id,
-				channel_name: team?.channels[0]?.channel_name
-			}
+	$effect(() => {
+		if (setting.fieldType == 'select_python') {
+			untrack(() => fetch_available_python_versions())
 		}
-	}
+	})
 
-	function handleChannelChange(event: Event, setting: Setting, i: number) {
-		const channelId = (event.target as HTMLSelectElement).value
-		const team = $values['teams'].find(
-			(team) => team.team_id === $values['critical_error_channels'][i]?.teams_channel?.team_id
-		)
-		const channel = team?.channels.find((channel) => channel.channel_id === channelId) || null
-		if (channelId) {
-			$values['critical_error_channels'][i] = {
-				teams_channel: {
-					team_id: team?.team_id,
-					team_name: team?.team_name,
-					channel_id: channel?.channel_id,
-					channel_name: channel?.channel_name
+	$effect(() => {
+		if (
+			(setting.fieldType == 'select' || setting.fieldType == 'select_python') &&
+			$values[setting.key] == undefined &&
+			setting.defaultValue
+		) {
+			untrack(() => {
+				if (setting.defaultValue) {
+					$values[setting.key] = setting.defaultValue()
 				}
-			}
+			})
 		}
-	}
+	})
 </script>
 
 <!-- {JSON.stringify($values, null, 2)} -->
-{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, $values) && !(setting.hiddenIfNull && $values[setting.key] == null)}
-	{#if setting.ee_only != undefined && !$enterpriseLicense}
-		<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap">
-			<AlertTriangle size={16} />
-			EE only {#if setting.ee_only != ''}<Tooltip>{setting.ee_only}</Tooltip>{/if}
-		</div>
-	{/if}
+{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, $values) && !(setting.hiddenIfNull && $values[setting.key] == null) && !(setting.hiddenIfEmpty && !$values[setting.key]) && !(setting.hiddenInEe && $enterpriseLicense)}
 	{#if setting.fieldType == 'select'}
-		<div>
-			<!-- svelte-ignore a11y-label-has-associated-control -->
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">{setting.label}</span>
-				{#if setting.description}
-					<span class="text-secondary text-xs">
-						{@html setting.description}
-					</span>
-				{/if}
-			</label>
+		<SettingCard
+			label={setting.label}
+			description={setting.description}
+			ee_only={setting.ee_only}
+			settingKey={setting.key}
+		>
 			<ToggleButtonGroup bind:selected={$values[setting.key]}>
-				{#each setting.select_items ?? [] as item}
-					<ToggleButton
-						value={item.value ?? item.label}
-						label={item.label}
-						tooltip={item.tooltip}
-					/>
-				{/each}
+				{#snippet children({ item: toggleButton })}
+					{#each setting.select_items ?? [] as item}
+						<ToggleButton
+							value={item.value ?? item.label}
+							label={item.label}
+							tooltip={item.tooltip}
+							item={toggleButton}
+						/>
+					{/each}
+				{/snippet}
 			</ToggleButtonGroup>
-		</div>
+		</SettingCard>
+	{:else if setting.fieldType == 'select_python'}
+		<SettingCard
+			label={setting.label}
+			description={setting.description}
+			ee_only={setting.ee_only}
+			settingKey={setting.key}
+		>
+			<ToggleButtonGroup
+				bind:selected={() => $values[setting.key] ?? 'default', (v) => ($values[setting.key] = v)}
+			>
+				{#snippet children({ item: toggleButton })}
+					{#each setting.select_items ?? [] as item}
+						<ToggleButton
+							value={item.value ?? item.label}
+							label={item.label}
+							tooltip={item.tooltip}
+							item={toggleButton}
+						/>
+					{/each}
+
+					<DropdownV2
+						items={() =>
+							pythonAvailableVersions.map((v) => ({
+								displayName: v,
+								action: () => {
+									$values[setting.key] = v
+								}
+							}))}
+					>
+						{#snippet buttonReplacement()}
+							{#if setting.select_items?.some((e) => e.label == $values[setting.key] || e.value == $values[setting.key])}
+								<Button variant="subtle" btnClasses="font-normal" nonCaptureEvent={true}
+									>Select Custom</Button
+								>
+							{:else}
+								<Button
+									variant="default"
+									btnClasses="font-normal bg-surface-input"
+									nonCaptureEvent={true}>Custom | {$values[setting.key]}</Button
+								>
+							{/if}
+						{/snippet}
+					</DropdownV2>
+				{/snippet}
+			</ToggleButtonGroup>
+		</SettingCard>
+	{:else if setting.fieldType == 'indexer_rates'}
+		{#if $values[setting.key]}
+			{@const fieldErrors = setting.validate?.($values[setting.key]) ?? {}}
+			<SettingCard
+				label="Memory"
+				description="Configure the memory budget for the indexer and manage index clearing."
+				ee_only=""
+				settingKey="indexer_settings_memory"
+			>
+				<div class="p-4 rounded-md border mt-2">
+					<IndexerMemorySettings {values} disabled={!$enterpriseLicense} errors={fieldErrors} />
+				</div>
+			</SettingCard>
+			<SettingCard
+				label="Completed Job Index"
+				description="Configure indexing parameters for completed jobs."
+				ee_only=""
+				settingKey="indexer_settings_jobs"
+			>
+				<div class="p-4 rounded-md border mt-2">
+					<IndexerJobIndexSettings {values} disabled={!$enterpriseLicense} errors={fieldErrors} />
+				</div>
+			</SettingCard>
+			<SettingCard
+				label="Service Logs Index"
+				description="Configure indexing parameters for service logs."
+				ee_only=""
+				settingKey="indexer_settings_logs"
+			>
+				<div class="p-4 rounded-md border mt-2">
+					<IndexerLogIndexSettings {values} disabled={!$enterpriseLicense} errors={fieldErrors} />
+				</div>
+			</SettingCard>
+		{/if}
 	{:else}
-		<!-- svelte-ignore a11y-label-has-associated-control -->
-		<label class="block pb-2">
-			<span class="text-primary font-semibold text-sm">{setting.label}</span>
-			{#if setting.description}
-				<span class="text-secondary text-xs">
-					{@html setting.description}
-				</span>
-			{/if}
-			{#if setting.tooltip}
-				<Tooltip>{setting.tooltip}</Tooltip>
-			{/if}
+		<SettingCard
+			label={setting.key === 'disable_stats'
+				? $enterpriseLicense
+					? 'Minimal telemetry'
+					: 'Disable telemetry'
+				: setting.fieldType != 'smtp_connect'
+					? setting.label
+					: undefined}
+			description={setting.key === 'disable_stats'
+				? $enterpriseLicense
+					? 'Reduces telemetry to only what is needed for license compliance (no job usage data).'
+					: 'Disables telemetry entirely.'
+				: setting.description}
+			ee_only={setting.ee_only}
+			tooltip={setting.tooltip}
+			settingKey={setting.key}
+			actionButton={setting.actionButton}
+			values={$values}
+		>
 			{#if $values}
 				{@const hasError = setting.isValid && !setting.isValid($values[setting.key])}
+				<div class="h-1"></div>
 				{#if loading}
 					<Skeleton layout={[[2.5]]} />
 				{:else if setting.fieldType == 'text'}
-					<input
-						disabled={setting.ee_only != undefined && !$enterpriseLicense}
-						type="text"
-						placeholder={setting.placeholder}
-						class={hasError
-							? 'border !border-red-700 !border-opacity-30 !focus:border-red-700 !focus:border-opacity-30'
-							: ''}
+					<TextInput
+						inputProps={{
+							type: 'text',
+							id: setting.key,
+							disabled: setting.ee_only != undefined && !$enterpriseLicense,
+							placeholder: setting.placeholder
+						}}
 						bind:value={$values[setting.key]}
+						class="max-w-lg"
 					/>
+					{#if warning}
+						<span class="text-yellow-600 dark:text-yellow-500 text-2xs">
+							{warning}
+						</span>
+					{/if}
 					{#if setting.advancedToggle}
 						<div class="mt-1">
 							<Toggle
@@ -235,21 +383,25 @@
 					{/if}
 				{:else if setting.fieldType == 'textarea'}
 					<textarea
+						id={setting.key}
 						disabled={!$enterpriseLicense}
 						rows="2"
 						placeholder={setting.placeholder}
 						bind:value={$values[setting.key]}
-					/>
+					></textarea>
 					{#if setting.key == 'saml_metadata'}
 						<div class="flex mt-2">
 							<Button
 								disabled={!$enterpriseLicense}
 								on:click={async (e) => {
-									const res = await SettingService.testMetadata({
-										requestBody: $values[setting.key]
-									})
-									sendUserToast(`Metadata valid, see console for full content`)
-									console.log(`Metadata content:`, res)
+									try {
+										const res = await SettingService.testMetadata({
+											requestBody: $values[setting.key]
+										})
+										sendUserToast(`Metadata valid: ${res}`)
+									} catch (error) {
+										sendUserToast(`Invalid metadata`, true, error.message)
+									}
 								}}>Test content/url</Button
 							>
 						</div>
@@ -266,16 +418,20 @@
 					{@const { valid, expiration } = parseLicenseKey($values[setting.key] ?? '')}
 					<div class="flex gap-2">
 						<Password
+							id={setting.key}
 							small
 							placeholder={setting.placeholder}
-							on:keydown={() => {
-								licenseKeyChanged = true
+							onBlur={() => {
+								if ($values[setting.key] && typeof $values[setting.key] === 'string') {
+									$values[setting.key] = $values[setting.key].trim()
+								}
 							}}
 							bind:password={$values[setting.key]}
 						/>
 						<Button
-							variant={$values[setting.key] ? 'contained' : 'border'}
-							size="xs"
+							variant="default"
+							unifiedSize="md"
+							disabled={!$values[setting.key]}
 							on:click={async () => {
 								await SettingService.testLicenseKey({
 									requestBody: { license_key: $values[setting.key] }
@@ -290,17 +446,23 @@
 						{#if $values[setting.key]?.length > 0}
 							{#if valid}
 								<div class="flex flex-row gap-1 items-center">
-									<Info size={12} class="text-tertiary" />
-									<span class="text-tertiary text-xs"
-										>License key expires on {expiration ?? ''}</span
+									<Info size={12} class="text-primary" />
+									<span class="text-primary text-xs">License key expires on {expiration ?? ''}</span
 									>
 								</div>
 							{:else if expiration}
 								<div class="flex flex-row gap-1 items-center">
 									<AlertCircle size={12} class="text-red-600" />
-									<span class="text-red-600 dark:text-red-400 text-xs"
-										>License key expired on {expiration}</span
-									>
+									<span class="text-red-600 dark:text-red-400 text-xs">
+										{#if $values[setting.key]?.endsWith('__dev')}
+											Dev license key expired on {expiration}.<br />If even after successful
+											renewal, your dev license key is still expired, it means that your production
+											key has expired due to unpaid invoices or excessive use of your production
+											instance.
+										{:else}
+											License key expired on {expiration}.
+										{/if}
+									</span>
 								</div>
 							{:else}
 								<div class="flex flex-row gap-1 items-center">
@@ -311,7 +473,7 @@
 								</div>
 							{/if}
 						{/if}
-						{#if latestKeyRenewalAttempt}
+						{#if latestKeyRenewalAttempt && !offlineCapStatus}
 							{@const attemptedAt = new Date(latestKeyRenewalAttempt.attempted_at).toLocaleString()}
 							{@const isTrial = latestKeyRenewalAttempt.result.startsWith('error: trial:')}
 							<div class="relative">
@@ -328,75 +490,119 @@
 												latestKeyRenewalAttempt.result === 'success'
 													? 'text-green-600'
 													: isTrial
-													? 'text-yellow-600'
-													: 'text-red-600'
+														? 'text-yellow-600'
+														: 'text-red-600'
 											)}
 										>
-											{latestKeyRenewalAttempt.result === 'success'
-												? 'Latest key renewal succeeded'
-												: isTrial
-												? 'Latest key renewal ignored because in trial'
-												: 'Latest key renewal failed'}
-											on {attemptedAt}
+											{#if latestKeyRenewalAttempt.result === 'success' && $values[setting.key]?.endsWith('__dev')}
+												Latest dev key renewal succeeded on {attemptedAt}. The dev key expiry was
+												updated to align with your current production key's expiration date.
+											{:else}
+												{latestKeyRenewalAttempt.result === 'success'
+													? 'Latest key renewal succeeded'
+													: isTrial
+														? 'Latest key renewal ignored because in trial'
+														: 'Latest key renewal failed'}
+												on {attemptedAt}
+											{/if}
 										</span>
 									</div>
-									<div slot="text">
-										{#if latestKeyRenewalAttempt.result === 'success'}
-											<span class="text-green-300">
-												Latest key renewal succeeded on {attemptedAt}
-											</span>
-										{:else if isTrial}
-											<span class="text-yellow-300">
-												License key cannot be renewed during trial ({attemptedAt})
-											</span>
-										{:else}
-											<span class="text-red-300">
-												Latest key renewal failed on {attemptedAt}: {latestKeyRenewalAttempt.result.replace(
-													'error: ',
-													''
-												)}
-											</span>
-										{/if}
-										<br />
-										As long as invoices are paid and usage corresponds to the subscription, the key is
-										renewed daily with a validity of 35 days (grace period).
-									</div>
+									{#snippet text()}
+										<div>
+											{#if latestKeyRenewalAttempt?.result === 'success'}
+												<span class="text-green-300">
+													Latest key renewal succeeded on {attemptedAt}
+												</span>
+											{:else if isTrial}
+												<span class="text-yellow-300">
+													License key cannot be renewed during trial ({attemptedAt})
+												</span>
+											{:else}
+												<span class="text-red-600 dark:text-red-400">
+													Latest key renewal failed on {attemptedAt}: {latestKeyRenewalAttempt?.result.replace(
+														'error: ',
+														''
+													)}
+												</span>
+											{/if}
+											<br />
+											As long as invoices are paid and usage corresponds to the subscription, the key
+											is renewed daily with a validity of 35 days (grace period).
+										</div>
+									{/snippet}
 								</Popover>
 							</div>
 						{/if}
-						{#if licenseKeyChanged && !$enterpriseLicense}
-							{#if version.startsWith('CE')}
-								<div class="text-red-400"
-									>License key is set but image used is the Community Edition {version}. Switch
-									image to EE.</div
-								>
-							{/if}
+						{#if $values[setting.key]?.length > 0 && version.includes('CE')}
+							<div class="flex flex-row gap-1 items-center">
+								<Info size={12} class="text-blue-600" />
+								<span class="text-blue-600 dark:text-blue-400 text-xs">
+									License key is set but the current image is Community Edition ({version}). Switch
+									to the EE image to finalize the upgrade.
+								</span>
+							</div>
+						{/if}
+
+						{#if offlineCapStatus}
+							{@const cap = offlineCapStatus}
+							{@const seatsOver = cap.seats_used > cap.seats_cap}
+							{@const cuOver = cap.cu_over_cap}
+							<div class="mt-1 flex flex-row items-center gap-2 text-xs">
+								<div class="flex flex-row items-center gap-1">
+									{#if seatsOver}
+										<BadgeX class="text-red-600" size={12} />
+									{:else}
+										<BadgeCheck class="text-green-600" size={12} />
+									{/if}
+									<span class={seatsOver ? 'text-red-600' : 'text-green-600'}>
+										Seats: {cap.seats_used.toFixed(1)} / {cap.seats_cap}
+									</span>
+								</div>
+								<div class="flex flex-row items-center gap-1">
+									{#if cuOver}
+										<BadgeX class="text-red-600" size={12} />
+									{:else}
+										<BadgeCheck class="text-green-600" size={12} />
+									{/if}
+									<span class={cuOver ? 'text-red-600' : 'text-green-600'}>
+										CUs: {cap.current_cu.toFixed(2)} / {cap.cu_cap.toFixed(2)}
+									</span>
+								</div>
+							</div>
 						{/if}
 
 						{#if valid || expiration}
 							<div class="flex flex-row gap-2 mt-1">
-								<Button on:click={renewLicenseKey} loading={renewing} size="xs" color="dark"
-									>Renew key
-								</Button>
-								<Button color="dark" size="xs" loading={opening} on:click={openCustomerPortal}>
+								{#if !offlineCapStatus}
+									<Button on:click={renewLicenseKey} loading={renewing} size="xs" variant="accent"
+										>Renew key
+									</Button>
+								{/if}
+								<Button variant="accent" size="xs" loading={opening} on:click={openCustomerPortal}>
 									Open customer portal
 								</Button>
 							</div>
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'email'}
-					<input type="email" placeholder={setting.placeholder} bind:value={$values[setting.key]} />
+					<TextInput
+						inputProps={{
+							type: 'email',
+							placeholder: setting.placeholder,
+							id: setting.key
+						}}
+						bind:value={$values[setting.key]}
+					/>
 				{:else if setting.key == 'critical_alert_mute_ui'}
-					<div class="flex flex-col gap-y-2 my-2 py-2">
+					<div class="flex flex-col gap-y-2">
 						<Toggle
 							disabled={!$enterpriseLicense}
 							bind:checked={$values[setting.key]}
-							options={{ right: setting.description }}
+							id={setting.key}
 						/>
 						<div class="flex flex-row">
 							<Button
-								variant="border"
-								color="light"
+								variant="default"
 								disabled={!$enterpriseLicense}
 								size="xs"
 								on:click={() => {
@@ -409,406 +615,9 @@
 						</div>
 					</div>
 				{:else if setting.fieldType == 'critical_error_channels'}
-					<div class="w-full flex gap-x-16 flex-wrap">
-						<div class="w-full max-w-lg">
-							{#if $enterpriseLicense && Array.isArray($values[setting.key])}
-								{#each $values[setting.key] ?? [] as v, i}
-									<div class="flex w-full max-w-lg mt-1 gap-2 items-center">
-										<select
-											class="max-w-24"
-											on:change={(e) => {
-												if (e.target?.['value']) {
-													$values[setting.key][i] = {
-														[e.target['value']]: ''
-													}
-												}
-											}}
-											value={(() => {
-												if (!v) return 'email'
-												return (
-													['slack_channel', 'teams_channel'].find((type) => type in v) || 'email'
-												)
-											})()}
-										>
-											<option value="email">Email</option>
-											<option value="slack_channel">Slack</option>
-											<option value="teams_channel">Teams</option>
-										</select>
-										{#if v && 'slack_channel' in v}
-											<input
-												type="text"
-												placeholder="Slack channel"
-												on:input={(e) => {
-													if (e.target?.['value']) {
-														$values[setting.key][i] = {
-															slack_channel: e.target['value']
-														}
-													}
-												}}
-												value={v?.slack_channel ?? ''}
-											/>
-										{:else if v && 'teams_channel' in v}
-											<div class="flex flex-row gap-2 w-full">
-												<select on:change={(e) => handleTeamChange(e, i)}>
-													<option
-														value=""
-														disabled
-														selected={!$values['critical_error_channels'][i]?.teams_channel
-															?.team_id}>Select team</option
-													>
-													{#each $values['teams'] as team}
-														<option
-															value={team.team_id}
-															selected={$values['critical_error_channels'][i]?.teams_channel
-																?.team_id === team.team_id}
-														>
-															{team.team_name}
-														</option>
-													{/each}
-												</select>
-												{#if $values['critical_error_channels'][i]?.teams_channel?.team_id}
-													<select
-														id="channel-select"
-														on:change={(e) => handleChannelChange(e, setting, i)}
-													>
-														<option
-															value=""
-															disabled
-															selected={!$values['critical_error_channels'][i]?.teams_channel
-																?.channel_id}>Select channel</option
-														>
-														{#each $values['teams'].find((team) => team.team_id === $values['critical_error_channels'][i]?.teams_channel?.team_id)?.channels ?? [] as channel}
-															<option
-																value={channel.channel_id}
-																selected={$values['critical_error_channels'][i]?.teams_channel
-																	?.channel_id === channel.channel_id}
-															>
-																{channel.channel_name}
-															</option>
-														{/each}
-													</select>
-												{/if}
-												<div>
-													<button on:click={fetchTeams} class="flex items-center gap-1 mt-2">
-														<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
-													</button>
-												</div>
-											</div>
-										{:else}
-											<input
-												type="email"
-												placeholder="Email address"
-												on:input={(e) => {
-													if (e.target?.['value']) {
-														$values[setting.key][i] = {
-															email: e.target['value']
-														}
-													}
-												}}
-												value={v?.email ?? ''}
-											/>
-										{/if}
-										<button
-											transition:fade|local={{ duration: 100 }}
-											class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
-											aria-label="Clear"
-											on:click={() => {
-												$values[setting.key] = $values[setting.key].filter(
-													(_, index) => index !== i
-												)
-											}}
-										>
-											<X size={14} />
-										</button>
-									</div>
-								{/each}
-							{/if}
-						</div>
-					</div>
-					<div class="flex mt-2 gap-20 items-center">
-						<Button
-							variant="border"
-							color="light"
-							size="md"
-							btnClasses="mt-1"
-							on:click={() => {
-								if ($values[setting.key] == undefined || !Array.isArray($values[setting.key])) {
-									$values[setting.key] = []
-								}
-								$values[setting.key] = $values[setting.key].concat('')
-							}}
-							id="arg-input-add-item"
-							startIcon={{ icon: Plus }}
-							disabled={!$enterpriseLicense}
-						>
-							Add channel
-						</Button>
-						<div class="flex mt-1">
-							<Button
-								disabled={!$enterpriseLicense}
-								variant="border"
-								color="light"
-								size="md"
-								on:click={async () => {
-									try {
-										await SettingService.testCriticalChannels({
-											requestBody: $values[setting.key]
-										})
-										sendUserToast('Test message sent successfully to critical channels', false)
-									} catch (error) {
-										sendUserToast('Failed to send test message: ' + error.message, true)
-									}
-								}}
-							>
-								Test channels
-							</Button>
-						</div>
-					</div>
-				{:else if setting.fieldType == 'slack_connect'}
-					<div class="flex flex-col items-start self-start">
-						{#if $values[setting.key] && 'team_name' in $values[setting.key]}
-							<div class="text-sm">
-								Connected to <code>{$values[setting.key]['team_name']}</code>
-							</div>
-							<Button
-								size="sm"
-								endIcon={{ icon: Slack }}
-								btnClasses="mt-2"
-								variant="border"
-								on:click={async () => {
-									$values[setting.key] = undefined
-								}}
-							>
-								Disconnect Slack
-							</Button>
-						{:else}
-							<Button
-								size="xs"
-								color="dark"
-								href="{base}/api/oauth/connect_slack?instance=true"
-								startIcon={{ icon: Slack }}
-								disabled={!$enterpriseLicense}
-							>
-								Connect to Slack
-							</Button>
-						{/if}
-					</div>
-				{:else if setting.fieldType == 'indexer_rates'}
-					<div class="flex flex-col gap-4 mt-4">
-						{#if $values[setting.key]}
-							<div>
-								<label for="writer_memory_budget" class="block text-sm font-medium">
-									Index writer memory budget (MB)
-									<Tooltip>
-										The allocated memory arena for the indexer. A bigger value means less writing to
-										disk and potentially higher indexing throughput
-									</Tooltip>
-								</label>
-								<input
-									disabled={!$enterpriseLicense}
-									type="number"
-									id="writer_memory_budget"
-									placeholder="300"
-									on:input={(e) => {
-										if (e.target instanceof HTMLInputElement) {
-											if (e.target.valueAsNumber) {
-												$values[setting.key].writer_memory_budget =
-													e.target.valueAsNumber * (1024 * 1024)
-											}
-										}
-									}}
-									value={$values[setting.key].writer_memory_budget / (1024 * 1024)}
-								/>
-							</div>
-							<h3>Completed Job Index</h3>
-							<div>
-								<label for="commit_job_max_batch_size" class="block text-sm font-medium">
-									Commit max batch size <Tooltip>
-										The max amount of documents (here jobs) per commit. To optimize indexing
-										throughput, it is best to keep this as high as possible. However, especially
-										when reindexing the whole instance, it can be useful to have a limit on how many
-										jobs can be written without being commited. A commit will make the jobs
-										available for search, constitute a "checkpoint" state in the indexing and will
-										be logged.
-									</Tooltip>
-								</label>
-								<input
-									disabled={!$enterpriseLicense}
-									type="number"
-									id="commit_job_max_batch_size"
-									placeholder="100000"
-									bind:value={$values[setting.key].commit_job_max_batch_size}
-								/>
-							</div>
-							<div>
-								<label for="refresh_index_period" class="block text-sm font-medium">
-									Refresh index period (s) <Tooltip>
-										The index will query new jobs periodically and write them on the index. This
-										setting sets that period.
-									</Tooltip></label
-								>
-								<input
-									disabled={!$enterpriseLicense}
-									type="number"
-									id="refresh_index_period"
-									placeholder="300"
-									bind:value={$values[setting.key].refresh_index_period}
-								/>
-							</div>
-							<div>
-								<label for="max_indexed_job_log_size" class="block text-sm font-medium">
-									Max indexed job log size (KB) <Tooltip>
-										Job logs are included when indexing, but to avoid the index size growing
-										artificially, the logs will be truncated after a size has been reached.
-									</Tooltip>
-								</label>
-								<input
-									disabled={!$enterpriseLicense}
-									type="number"
-									id="max_indexed_job_log_size"
-									placeholder="1024"
-									on:input={(e) => {
-										if (e.target instanceof HTMLInputElement) {
-											if (e.target.valueAsNumber) {
-												$values[setting.key].max_indexed_job_log_size =
-													e.target.valueAsNumber * 1024
-											}
-										}
-									}}
-									value={$values[setting.key].max_indexed_job_log_size / 1024}
-								/>
-							</div>
-							<h3>Service Logs Index</h3>
-							<div>
-								<label for="commit_log_max_batch_size" class="block text-sm font-medium"
-									>Commit max batch size <Tooltip>
-										The max amount of documents per commit. In this case 1 document is one log file
-										representing all logs during 1 minute for a specific host. To optimize indexing
-										throughput, it is best to keep this as high as possible. However, especially
-										when reindexing the whole instance, it can be useful to have a limit on how many
-										logs can be written without being commited. A commit will make the logs
-										available for search, appear as a log line, and be a "checkpoint" of the
-										indexing progress.
-									</Tooltip>
-								</label>
-								<input
-									disabled={!$enterpriseLicense}
-									type="number"
-									id="commit_log_max_batch_size"
-									placeholder="10000"
-									bind:value={$values[setting.key].commit_log_max_batch_size}
-								/>
-							</div>
-							<div>
-								<label for="refresh_log_index_period" class="block text-sm font-medium">
-									Refresh index period (s) <Tooltip>
-										The index will query new service logs peridically and write them on the index.
-										This setting sets that period.
-									</Tooltip></label
-								>
-								<input
-									disabled={!$enterpriseLicense}
-									type="number"
-									id="refresh_log_index_period"
-									placeholder="300"
-									bind:value={$values[setting.key].refresh_log_index_period}
-								/>
-							</div>
-							<h3>Reset Index</h3>
-							This buttons will clear the whole index, and the service will start reindexing from scratch.
-							Full text search might be down during this time.
-							<div>
-								<ConfirmButton
-									on:click={async () => {
-										let r = await IndexSearchService.clearIndex({
-											idxName: 'JobIndex'
-										})
-										console.log('asasd')
-										sendUserToast(r)
-									}}>Clear <b>Jobs</b> Index</ConfirmButton
-								>
-								<ConfirmButton
-									on:click={async () => {
-										let r = await IndexSearchService.clearIndex({
-											idxName: 'ServiceLogIndex'
-										})
-										console.log('asasd')
-										sendUserToast(r)
-									}}>Clear <b>Service Logs</b> Index</ConfirmButton
-								>
-							</div>
-						{/if}
-					</div>
-				{:else if setting.fieldType == 'smtp_connect'}
-					<div class="flex flex-col gap-4 border rounded p-4">
-						{#if $values[setting.key]}
-							<div>
-								<label for="smtp_host" class="block text-sm font-medium">Host</label>
-								<input
-									type="text"
-									id="smtp_host"
-									placeholder="smtp.gmail.com"
-									bind:value={$values[setting.key].smtp_host}
-								/>
-							</div>
-							<div>
-								<label for="smtp_port" class="block text-sm font-medium">Port</label>
-								<input
-									type="number"
-									id="smtp_port"
-									placeholder="587"
-									bind:value={$values[setting.key].smtp_port}
-								/>
-							</div>
-							<div>
-								<label for="smtp_username" class="block text-sm font-medium">Username</label>
-								<input
-									type="text"
-									id="smtp_username"
-									placeholder="ruben@windmill.dev"
-									bind:value={$values[setting.key].smtp_username}
-								/>
-							</div>
-							<div>
-								<label for="smtp_password" class="block text-sm font-medium">Password</label>
-								<Password bind:password={$values[setting.key].smtp_password} />
-							</div>
-							<div>
-								<label for="smtp_from" class="block text-sm font-medium">From Address</label>
-								<input
-									type="email"
-									id="smtp_from"
-									placeholder="noreply@windmill.dev"
-									bind:value={$values[setting.key].smtp_from}
-								/>
-							</div>
-							<div>
-								<Toggle
-									disabled={$values[setting.key].smtp_disable_tls == true || !$enterpriseLicense}
-									id="smtp_tls_implicit"
-									bind:checked={$values[setting.key].smtp_tls_implicit}
-									options={{ right: 'Implicit TLS' }}
-									label="Implicit TLS"
-								/>
-							</div>
-							<div>
-								<Toggle
-									id="smtp_disable_tls"
-									disabled={!$enterpriseLicense}
-									bind:checked={$values[setting.key].smtp_disable_tls}
-									on:change={() => {
-										if ($values[setting.key].smtp_disable_tls) {
-											$values[setting.key].smtp_tls_implicit = false
-										}
-									}}
-									options={{ right: 'Disable TLS' }}
-									label="Disable TLS"
-								/>
-							</div>
-						{/if}
-					</div>
+					<CriticalAlertChannels {values} {openSmtpSettings} {oauths} />
 				{:else if setting.fieldType == 'otel'}
-					<div class="flex flex-col gap-4 border rounded p-4">
+					<div class="flex flex-col gap-4 p-4 rounded-md border">
 						{#if $values[setting.key]}
 							<div class="flex gap-8">
 								<Toggle
@@ -816,103 +625,171 @@
 									id="tracing_enabled"
 									bind:checked={$values[setting.key].tracing_enabled}
 									options={{ right: 'Tracing' }}
-									label="Tracing"
 								/>
 								<Toggle
 									disabled={!$enterpriseLicense}
 									id="logs_enabled"
 									bind:checked={$values[setting.key].logs_enabled}
 									options={{ right: 'Logs' }}
-									label="logs"
 								/>
 								<Toggle
-									disabled
+									disabled={!$enterpriseLicense}
 									id="metrics_enabled"
-									bind:checked={$values[setting.key].logs_enabled}
-									options={{ right: 'Metrics (coming soon)' }}
-									label="metrics"
+									bind:checked={$values[setting.key].metrics_enabled}
+									options={{ right: 'Metrics' }}
 								/>
 							</div>
 
-							<div>
-								<label for="OTEL_EXPORTER_OTLP_ENDPOINT" class="block text-sm font-medium"
-									>Endpoint</label
+							<div class="flex flex-col gap-1">
+								<label
+									for="OTEL_EXPORTER_OTLP_ENDPOINT"
+									class="block text-xs font-semibold text-emphasis">Endpoint</label
 								>
-								<input
-									disabled={!$enterpriseLicense}
-									type="text"
-									id="OTEL_EXPORTER_OTLP_ENDPOINT"
-									placeholder="http://otel-collector.example.com:4317"
+								<TextInput
+									inputProps={{
+										type: 'text',
+										placeholder: 'http://otel-collector.example.com:4317',
+										id: 'OTEL_EXPORTER_OTLP_ENDPOINT',
+										disabled: !$enterpriseLicense
+									}}
 									bind:value={$values[setting.key].otel_exporter_otlp_endpoint}
 								/>
 							</div>
-							<div>
-								<label for="OTEL_EXPORTER_OTLP_HEADERS" class="block text-sm font-medium"
-									>Headers</label
+							<div class="flex flex-col gap-1">
+								<label
+									for="OTEL_EXPORTER_OTLP_HEADERS"
+									class="block text-xs font-semibold text-emphasis">Headers</label
 								>
-								<input
-									disabled={!$enterpriseLicense}
-									type="text"
-									id="OTEL_EXPORTER_OTLP_HEADERS"
-									placeholder="Authorization=Bearer my-secret-token,Env=production"
+								<TextInput
+									inputProps={{
+										type: 'text',
+										placeholder: 'Authorization=Bearer my-secret-token,Env=production',
+										id: 'OTEL_EXPORTER_OTLP_HEADERS',
+										disabled: !$enterpriseLicense
+									}}
 									bind:value={$values[setting.key].otel_exporter_otlp_headers}
 								/>
 							</div>
-							<div>
-								<label for="OTEL_EXPORTER_OTLP_PROTOCOL" class="block text-sm font-medium"
-									>Protocol</label
+							<div class="flex flex-col gap-1">
+								<label
+									for="OTEL_EXPORTER_OTLP_PROTOCOL"
+									class="block text-xs font-semibold text-emphasis">Protocol</label
 								>
-								gRPC
+								<select
+									id="OTEL_EXPORTER_OTLP_PROTOCOL"
+									class="!text-xs"
+									disabled={!$enterpriseLicense}
+									bind:value={$values[setting.key].otel_exporter_otlp_protocol}
+								>
+									<option value={undefined}>grpc (default)</option>
+									<option value="http/protobuf">http/protobuf</option>
+								</select>
 							</div>
-							<!-- <div>
-							<label for="OTEL_EXPORTER_OTLP_PROTOCOL" class="block text-sm font-medium"
-								>Protocol<span class="text-2xs text-tertiary ml-4"
-									>grpc, http/protobuf, http/json</span
-								></label
-							>
-							<input
-								type="text"
-								id="OTEL_EXPORTER_OTLP_PROTOCOL"
-								placeholder="grpc"
-								bind:value={$values[setting.key].otel_exporter_otlp_protocol}
-							/>
-						</div>
-						<div>
-							<label for="OTEL_EXPORTER_OTLP_COMPRESSION" class="block text-sm font-medium"
-								>Compression <span class="text-2xs text-tertiary ml-4">none, gzip</span></label
-							>
-							<input
-								type="text"
-								id="OTEL_EXPORTER_OTLP_COMPRESSION"
-								placeholder="none"
-								bind:value={$values[setting.key].otel_exporter_otlp_compression}
-							/>
-						</div> -->
+						{/if}
+					</div>
+				{:else if setting.fieldType == 'otel_tracing_proxy'}
+					{@const tracingProxyVal = $values[setting.key] ?? {
+						enabled: false,
+						enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES]
+					}}
+					<div class="flex flex-col gap-4">
+						<Toggle
+							id="otel_tracing_proxy_enabled"
+							checked={tracingProxyVal.enabled ?? false}
+							on:change={(e) => {
+								$values[setting.key] = { ...tracingProxyVal, enabled: e.detail }
+							}}
+							options={{ right: 'Enabled' }}
+						/>
+						{#if tracingProxyVal.enabled}
+							<div class="flex flex-wrap gap-2">
+								{#each OTEL_TRACING_PROXY_LANGUAGES as lang (lang)}
+									{@const isEnabled = (tracingProxyVal.enabled_languages ?? []).includes(lang)}
+									<button
+										class="flex flex-col items-center gap-1 p-2 rounded border transition-all {isEnabled
+											? 'border-blue-500 bg-blue-500/10'
+											: 'border-gray-300 opacity-40 hover:opacity-70'}"
+										onclick={() => {
+											const current = tracingProxyVal.enabled_languages ?? []
+											const newLangs = isEnabled
+												? current.filter((l) => l !== lang)
+												: [...current, lang]
+											$values[setting.key] = { ...tracingProxyVal, enabled_languages: newLangs }
+										}}
+									>
+										<LanguageIcon {lang} size={24} />
+									</button>
+								{/each}
+							</div>
+							<div class="flex flex-col gap-1">
+								<label
+									for="otel_tracing_proxy_no_proxy_hosts"
+									class="block text-xs font-semibold text-emphasis"
+								>
+									NO_PROXY hosts (bypass tracing)
+								</label>
+								<TextInput
+									inputProps={{
+										type: 'text',
+										placeholder: '*.eks.amazonaws.com,*.internal',
+										id: 'otel_tracing_proxy_no_proxy_hosts',
+										disabled: !$enterpriseLicense
+									}}
+									bind:value={$values[setting.key].no_proxy_hosts}
+								/>
+								<p class="text-xs text-tertiary">
+									Comma-separated host patterns that job HTTP clients should bypass the tracing
+									proxy for — those hosts will not be traced. Use this for clients that pin their
+									own CA (kubectl, helm, terraform providers, aws cli for EKS, etc.) which would
+									otherwise fail with <code>x509: certificate signed by unknown authority</code>.
+									Independent of the worker's own <code>NO_PROXY</code> env, which governs the proxy's
+									upstream relay (e.g. through a corporate proxy).
+								</p>
+							</div>
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'object_store_config'}
 					<ObjectStoreConfigSettings bind:bucket_config={$values[setting.key]} />
-					<div class="mb-6" />
+				{:else if setting.fieldType == 'critical_alerts_on_db_oversize'}
+					{#if $values[setting.key]}
+						<div class="flex flex-row flex-wrap gap-2 p-0 items-center">
+							<div class="p-1">
+								<Toggle
+									disabled={!$enterpriseLicense}
+									bind:checked={$values[setting.key].enabled}
+									id={setting.key}
+								/>
+							</div>
+							{#if $values[setting.key].enabled}
+								<label class="block shrink min-w-0">
+									<input
+										type="number"
+										placeholder={setting.placeholder}
+										bind:value={$values[setting.key].value}
+									/>
+								</label>
+								<span class="text-primary font-semibold text-sm">GB</span>
+							{/if}
+						</div>
+					{/if}
 				{:else if setting.fieldType == 'number'}
-					<input
-						type="number"
-						placeholder={setting.placeholder}
+					<TextInput
+						inputProps={{
+							type: 'number',
+							placeholder: setting.placeholder,
+							id: setting.key
+						}}
 						bind:value={$values[setting.key]}
+						class="max-w-lg"
 					/>
 				{:else if setting.fieldType == 'password'}
-					<input
-						autocomplete="new-password"
-						type="password"
-						placeholder={setting.placeholder}
-						bind:value={$values[setting.key]}
-					/>
+					<Password small placeholder={setting.placeholder} bind:password={$values[setting.key]} />
 				{:else if setting.fieldType == 'boolean'}
-					<div class="mt-0.5">
-						<Toggle
-							disabled={setting.ee_only != undefined && !$enterpriseLicense}
-							bind:checked={$values[setting.key]}
-						/>
-					</div>
+					<Toggle
+						disabled={setting.ee_only != undefined && !$enterpriseLicense}
+						bind:checked={$values[setting.key]}
+						id={setting.key}
+					/>
 				{:else if setting.fieldType == 'seconds'}
 					<div>
 						<SecondsInput
@@ -920,19 +797,26 @@
 								? 60 * 60 * 24 * 30
 								: undefined}
 							bind:seconds={$values[setting.key]}
+							clearable
 						/>
 					</div>
-				{:else if setting.fieldType == 'select'}
-					TODO
+				{:else if setting.fieldType == 'smtp_connect'}
+					<SmtpSettings {values} disabled={loading} />
+				{:else if setting.fieldType == 'secret_backend'}
+					<SecretBackendConfig {values} disabled={loading} />
+				{:else if setting.fieldType == 'github_enterprise_app'}
+					<GhesAppSettings {values} disabled={loading || !$enterpriseLicense} />
+				{:else if setting.fieldType == 'ws_connectivity'}
+					<WsConnectivityTest {values} />
 				{/if}
 				{#if hasError}
-					<span class="text-red-500 dark:text-red-400 text-sm">
+					<span class="text-red-600 dark:text-red-400 text-xs">
 						{setting.error ?? ''}
 					</span>
 				{/if}
 			{:else}
 				<input disabled placeholder="Loading..." />
 			{/if}
-		</label>
+		</SettingCard>
 	{/if}
 {/if}

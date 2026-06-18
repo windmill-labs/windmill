@@ -7,21 +7,21 @@
  */
 
 use futures::FutureExt;
-use sqlx::Executor;
-
 use sqlx::{
     migrate::{Migrate, MigrateError},
     pool::PoolConnection,
-    PgConnection, Pool, Postgres,
-};
-use windmill_audit::audit_ee::{AuditAuthor, AuditAuthorable};
-use windmill_common::utils::generate_lock_id;
-use windmill_common::{
-    db::{Authable, Authed},
-    error::Error,
+    Executor, PgConnection, Postgres,
 };
 
-pub type DB = Pool<Postgres>;
+use tokio::task::JoinHandle;
+pub use windmill_common::db::DB;
+use windmill_common::{
+    error::Error,
+    utils::{generate_lock_id, GIT_VERSION},
+};
+
+#[allow(unused_imports)]
+pub use windmill_api_auth::{ApiAuthed, OptJobAuthed};
 
 async fn current_database(conn: &mut PgConnection) -> Result<String, MigrateError> {
     // language=SQL
@@ -30,7 +30,64 @@ async fn current_database(conn: &mut PgConnection) -> Result<String, MigrateErro
         .await?)
 }
 
-struct CustomMigrator {
+lazy_static::lazy_static! {
+    pub static ref OVERRIDDEN_MIGRATIONS: std::collections::HashMap<i64, String> = vec![(20220123221903, include_str!(
+                        "../../migrations/20220123221903_first.up.sql"
+                    ).replace("create SCHEMA IF NOT exists extensions;", "")
+                     .replace("create extension if not exists \"uuid-ossp\"      with schema extensions;", "")),
+                    (20221207103910, include_str!(
+                        "../../custom_migrations/create_workspace_without_md5.sql"
+                    ).to_string()),
+                    (20240216100535, include_str!(
+                        "../../migrations/20240216100535_improve_policies.up.sql"
+                    ).replace("public.", "")),
+                    (20240403083110, include_str!(
+                        "../../migrations/20240403083110_remove_team_id_constraint.up.sql"
+                    ).replace("public.", "")),
+                    (20240613150524, include_str!(
+                        "../../migrations/20240613150524_add_job_perms.up.sql"
+                    ).replace("public.", "")),
+                    (20250102145420, include_str!(
+                        "../../migrations/20250102145420_more_captures.up.sql"
+                    ).replace("public.", "")),
+                    (20250429211554, include_str!(
+                        "../../migrations/20250429211554_create_indices_on_queue.up.sql"
+                    ).replace("public.", "")),
+                     (20241006144414, include_str!(
+                        "../../custom_migrations/grant_all_current_schema.sql"
+                    ).to_string()),
+                    (20221105003256, "DELETE FROM workspace_invite WHERE workspace_id = 'demo' AND email = 'ruben@windmill.dev';".to_string()),
+                    (20221123151919, "".to_string()),
+                    (20251105100125, include_str!(
+                        "../../migrations/20251105100125_legacy_sql_result_flag.up.sql"
+                    ).replace("✅", "")),
+                    (20260107133344, "".to_string()),
+                    (20260126235947, include_str!(
+                        "../../custom_migrations/lowercase_emails_safe.sql"
+                    ).to_string()),
+                    (20260206000000, "".to_string()),
+                    (20260207000001, include_str!(
+                        "../../migrations/20260207000001_concurrent_indexes_v2_job.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20260207000002, include_str!(
+                        "../../migrations/20260207000002_concurrent_indexes_v2_job_completed.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY").replace("DROP INDEX CONCURRENTLY IF EXISTS labeled_jobs_on_jobs;", "")),
+                    (20260207000003, include_str!(
+                        "../../migrations/20260207000003_concurrent_indexes_v2_job_queue.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20260207000004, include_str!(
+                        "../../migrations/20260207000004_concurrent_indexes_other.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20260225100000, include_str!(
+                        "../../migrations/20260225100000_asset_covering_index.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20260228000000, include_str!(
+                        "../../migrations/20260228000000_v2_job_completed_failure_index.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")),
+                    ].into_iter().collect();
+}
+
+pub struct CustomMigrator {
     inner: PoolConnection<Postgres>,
 }
 impl Migrate for CustomMigrator {
@@ -75,16 +132,22 @@ impl Migrate for CustomMigrator {
             let mut r = false;
 
             while !r {
-                r = sqlx::query_scalar!("SELECT pg_try_advisory_lock($1)", lock_id)
-                    .fetch_one(&mut *self.inner)
+                r = match tokio::time::timeout(std::time::Duration::from_secs(5), sqlx::query_scalar!("SELECT pg_try_advisory_lock($1)", lock_id)  
+                    .fetch_one(&mut *self.inner))
                     .await
-                    .map_err(|e| {
-                        tracing::error!("Error acquiring lock: {e:#}");
-                        sqlx::migrate::MigrateError::Execute(e)
-                    })?
-                    .unwrap_or(false);
+                    {
+                        Ok(Ok(r)) => r.unwrap_or(false),
+                        Ok(Err(e)) => {
+                            tracing::error!("Error acquiring lock: {e:#}");
+                            return Err(sqlx::migrate::MigrateError::Execute(e));
+                        }
+                        Err(e) => {
+                            tracing::error!("Timed out acquiring lock retrying in 5s: {e:#}");
+                            false
+                        }
+                    };
                 if !r {
-                    tracing::info!("PG lock already acquired by another server or worker, retrying in 5s. (look for the advisory lock in pg_lock with granted = true)");
+                    tracing::info!("PG migration lock already acquired by another server or worker, a migration is in progress, this may take a long time if you have many jobs and be normal, rechecking in 5s.");
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 }
             }
@@ -130,13 +193,35 @@ impl Migrate for CustomMigrator {
                 migration.version,
                 migration.description
             );
-            if migration.version == 20221207103910 {
-                tracing::info!("Skipping migration 20221207103910 to avoid using md5");
-                self.inner
-                    .execute(include_str!(
-                        "../../custom_migrations/create_workspace_without_md5.sql"
-                    ))
-                    .await?;
+
+
+            if let Some(migration_sql) = OVERRIDDEN_MIGRATIONS.get(&migration.version) {
+                tracing::info!("Using custom migration for version {}", migration.version);
+
+                if migration_sql.contains("CONCURRENTLY") {
+                    // CONCURRENTLY operations cannot run inside a transaction block
+                    // or a multi-statement query (PostgreSQL requires top-level execution).
+                    // Split into individual statements and execute each separately.
+                    for stmt in migration_sql.split(';') {
+                        let stmt = stmt.trim();
+                        if !stmt.is_empty()
+                            && stmt.lines().any(|l| {
+                                let t = l.trim();
+                                !t.is_empty() && !t.starts_with("--")
+                            })
+                        {
+                            let summary: String = stmt.lines()
+                                .filter(|l| !l.trim().is_empty() && !l.trim().starts_with("--"))
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            tracing::info!("Executing: {summary}");
+                            self.inner.execute(stmt).await?;
+                            tracing::info!("Done: {summary}");
+                        }
+                    }
+                } else if !migration_sql.is_empty() {
+                    self.inner.execute(&**migration_sql).await?;
+                }
                 let _ = sqlx::query(
                     r#"
                 INSERT INTO _sqlx_migrations ( version, description, success, checksum, execution_time )
@@ -169,417 +254,136 @@ impl Migrate for CustomMigrator {
     }
 }
 
-pub async fn migrate(db: &DB) -> Result<(), Error> {
+pub async fn migrate(
+    db: &DB,
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+) -> Result<Option<JoinHandle<()>>, Error> {
     let migrator = db.acquire().await?;
     let mut custom_migrator = CustomMigrator { inner: migrator };
 
-    if let Err(err) = sqlx::query!("DELETE FROM _sqlx_migrations WHERE version=20250131115248")
-        .execute(db)
-        .await
-    {
-        tracing::info!("Could not remove sqlx migration with version=20250131115248: {err:#}");
-    }
-
-    match sqlx::migrate!("../migrations")
-        .run_direct(&mut custom_migrator)
-        .await
-    {
-        Ok(_) => Ok(()),
-        Err(sqlx::migrate::MigrateError::VersionMissing(e)) => {
-            tracing::error!("Database had been applied more migrations than this container. 
-            This usually mean than another container on a more recent version migrated the database and this one is on an earlier version.
-            Please update the container to latest. Not critical, but may cause issues if migration introduced a breaking change. Version missing: {e:#}");
-            custom_migrator.unlock().await?;
-            Ok(())
-        }
-        Err(err) => Err(err),
-    }?;
-
-    if let Err(err) = fix_flow_versioning_migration(&mut custom_migrator, db).await {
-        tracing::error!("Could not apply flow versioning fix migration: {err:#}");
-    }
-
-    let db2 = db.clone();
-    let _ = tokio::task::spawn(async move {
-        if let Err(err) = fix_job_completed_index(&db2).await {
-            tracing::error!("Could not apply job completed index fix migration: {err:#}");
-        }
-    });
-
-    Ok(())
-}
-
-async fn fix_flow_versioning_migration(
-    migrator: &mut CustomMigrator,
-    db: &DB,
-) -> Result<(), Error> {
-    let has_done_migration = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'fix_flow_versioning_2')",
+    if let Err(err) = sqlx::query!(
+        "DELETE FROM _sqlx_migrations WHERE
+        version=20250131115248 OR version=20250902085503 OR version=20250201145630 OR
+        version=20250201145631 OR version=20250201145632 OR version=20251006143821"
     )
-    .fetch_one(db)
-    .await?
-    .unwrap_or(false);
-
-    if !has_done_migration {
-        migrator.lock().await?;
-
-        if migrator
-            .list_applied_migrations()
-            .await?
-            .iter()
-            .any(|x| x.version == 20240630102146)
-        {
-            let has_done_migration = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'fix_flow_versioning_2')",
-            )
-            .fetch_one(db)
-            .await?
-            .unwrap_or(false);
-
-            if !has_done_migration {
-                let query = include_str!("../../custom_migrations/fix_flow_versioning_2.sql");
-                tracing::info!("Applying fix_flow_versioning_2.sql");
-                let mut tx: sqlx::Transaction<'_, Postgres> = db.begin().await?;
-                tx.execute(query).await?;
-                tracing::info!("Applied fix_flow_versioning_2.sql");
-                sqlx::query!(
-                    "INSERT INTO windmill_migrations (name) VALUES ('fix_flow_versioning_2')"
-                )
-                .execute(&mut *tx)
-                .await?;
-                tx.commit().await?;
-            }
-        }
-
-        migrator.unlock().await?;
+    .execute(db)
+    .await
+    {
+        tracing::info!("Could not remove sqlx migrations: {err:#}");
     }
-    Ok(())
-}
 
-macro_rules! run_windmill_migration {
-    ($migration_job_name:expr, $db:expr, $code:block) => {
-        {
-            let migration_job_name = $migration_job_name;
-            let db: &Pool<Postgres> = $db;
-
-            let has_done_migration = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = $1)",
-                migration_job_name
-            )
-            .fetch_one(db)
-            .await?
-            .unwrap_or(false);
-            if !has_done_migration {
-                tracing::info!("Applying {migration_job_name} migration");
-                let mut tx = db.begin().await?;
-                let mut r = false;
-                while !r {
-                    r = sqlx::query_scalar!("SELECT pg_try_advisory_lock(4242)")
-                        .fetch_one(&mut *tx)
-                        .await
-                        .map_err(|e| {
-                            tracing::error!("Error acquiring {migration_job_name} lock: {e:#}");
-                            sqlx::migrate::MigrateError::Execute(e)
-                        })?
-                        .unwrap_or(false);
-                    if !r {
-                        tracing::info!("PG {migration_job_name} lock already acquired by another server or worker, retrying in 5s. (look for the advisory lock in pg_lock with granted = true)");
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    }
-                }
-                tracing::info!("acquired lock for {migration_job_name}");
-
-                let has_done_migration = sqlx::query_scalar!(
-                    "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = $1)",
-                    migration_job_name
-                )
-                .fetch_one(db)
-                .await?
-                .unwrap_or(false);
-
-                if !has_done_migration {
-
-                    $code
-
-                    sqlx::query!(
-                        "INSERT INTO windmill_migrations (name) VALUES ($1) ON CONFLICT DO NOTHING",
-                        migration_job_name
-                    )
-                    .execute(&mut *tx)
-                    .await?;
-                    tracing::info!("Finished applying {migration_job_name} migration");
-                } else {
-                    tracing::debug!("migration {migration_job_name} already done");
-                }
-
-                let _ = sqlx::query("SELECT pg_advisory_unlock(4242)")
-                    .execute(&mut *tx)
-                    .await?;
-                tx.commit().await?;
-                tracing::info!("released lock for {migration_job_name}");
-            } else {
-                tracing::debug!("migration {migration_job_name} already done");
-
-            }
+    // For migrations that were replaced (same version, new content), only delete if
+    // the stored checksum doesn't match the current file — i.e., it's a stale record
+    // from the old broken version. Once the new migration is applied, the checksum
+    // matches and the record is kept, avoiding expensive re-application on every start.
+    let migrator = sqlx::migrate!("../migrations");
+    let potentially_stale: &[i64] = &[
+        20260207000001,
+        20260207000002,
+        20260207000003,
+        20260207000004,
+    ];
+    for m in migrator.migrations.iter() {
+        if m.migration_type.is_down_migration() {
+            continue;
         }
-    };
-}
-
-async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
-    // let has_done_migration = sqlx::query_scalar!(
-    //     "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'fix_job_completed_index')"
-    // )
-    // .fetch_one(db)
-    // .await?
-    // .unwrap_or(false);
-    // if !has_done_migration {
-    //     tracing::info!("Applying fix_job_completed_index migration");
-    //     let mut tx = db.begin().await?;
-    //     let mut r = false;
-    //     while !r {
-    //         r = sqlx::query_scalar!("SELECT pg_try_advisory_lock(4242)")
-    //             .fetch_one(&mut *tx)
-    //             .await
-    //             .map_err(|e| {
-    //                 tracing::error!("Error acquiring fix_job_completed_index lock: {e:#}");
-    //                 sqlx::migrate::MigrateError::Execute(e)
-    //             })?
-    //             .unwrap_or(false);
-    //         if !r {
-    //             tracing::info!("PG fix_job_completed_index_migration lock already acquired by another server or worker, retrying in 5s. (look for the advisory lock in pg_lock with granted = true)");
-    //             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-    //         }
-    //     }
-    //     // sqlx::query(
-    //     //     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_completed_job_workspace_id_created_at_new ON completed_job (workspace_id, job_kind, is_skipped, is_flow_step, created_at DESC, started_at DESC)"
-    //     // ).execute(db).await?;
-
-    //     sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at")
-    //         .execute(db)
-    //         .await?;
-
-    //     sqlx::query!("INSERT INTO windmill_migrations (name) VALUES ('fix_job_completed_index') ON CONFLICT DO NOTHING")
-    //         .execute(&mut *tx)
-    //         .await?;
-    //     let _ = sqlx::query("SELECT pg_advisory_unlock(4242)")
-    //         .execute(&mut *tx)
-    //         .await?;
-    //     tx.commit().await?;
-    // }
-
-    run_windmill_migration!("fix_job_completed_index_2", &db, {
-        //     sqlx::query(
-        //     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_completed_job_workspace_id_created_at_new_2 ON completed_job (workspace_id, job_kind, success, is_skipped, is_flow_step, created_at DESC)"
-        // ).execute(db).await?;
-
-        //     sqlx::query(
-        //     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_completed_job_workspace_id_started_at_new ON completed_job (workspace_id, job_kind, success, is_skipped, is_flow_step, started_at DESC)"
-        // ).execute(db).await?;
-
-        sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at")
-            .execute(db)
-            .await?;
-
-        sqlx::query(
-            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new",
-        )
-        .execute(db)
-        .await?;
-    });
-
-    run_windmill_migration!("fix_job_completed_index_3", &db, {
-        sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS index_completed_job_on_schedule_path")
-            .execute(db)
-            .await?;
-
-        sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS concurrency_limit_stats_queue")
-            .execute(db)
-            .await?;
-
-        sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS root_job_index")
-            .execute(db)
-            .await?;
-
-        sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS index_completed_on_created")
-            .execute(db)
-            .await?;
-    });
-
-    run_windmill_migration!("fix_job_completed_index_4", &db, {
-        let migration_job_name = "fix_job_completed_index_4";
-        let mut i = 1;
-        tracing::info!("step {i} of {migration_job_name} migration");
-        sqlx::query("create index concurrently  if not exists ix_completed_job_workspace_id_created_at_new_3 ON completed_job  (workspace_id,  created_at DESC)")
-                .execute(db)
-                .await?;
-        i += 1;
-        tracing::info!("step {i} of {migration_job_name} migration");
-
-        sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_created_at_new_8 ON completed_job  (workspace_id, created_at DESC) where job_kind in ('deploymentcallback') AND parent_job IS NULL")
-            .execute(db)
-            .await?;
-        i += 1;
-        tracing::info!("step {i} of {migration_job_name} migration");
-
-        sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_created_at_new_9 ON completed_job  (workspace_id, created_at DESC) where job_kind in ('dependencies', 'flowdependencies', 'appdependencies') AND parent_job IS NULL")
-            .execute(db)
-            .await?;
-        i += 1;
-        tracing::info!("step {i} of {migration_job_name} migration");
-
-        sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_created_at_new_5 ON completed_job  (workspace_id, created_at DESC) where job_kind in ('preview', 'flowpreview') AND parent_job IS NULL")
-                .execute(db)
-                .await?;
-        i += 1;
-        tracing::info!("step {i} of {migration_job_name} migration");
-
-        sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_created_at_new_6 ON completed_job  (workspace_id, created_at DESC) where job_kind in ('script', 'flow') AND parent_job IS NULL")
-                .execute(db)
-                .await?;
-        i += 1;
-        tracing::info!("step {i} of {migration_job_name} migration");
-
-        sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_created_at_new_7 ON completed_job  (workspace_id, success, created_at DESC) where job_kind in ('script', 'flow') AND parent_job IS NULL")
-                .execute(db)
-                .await?;
-        i += 1;
-        tracing::info!("step {i} of {migration_job_name} migration");
-
-        sqlx::query("create index concurrently if not exists ix_completed_job_workspace_id_started_at_new_2 ON completed_job  (workspace_id, started_at DESC)")
-                .execute(db)
-                .await?;
-        i += 1;
-        tracing::info!("step {i} of {migration_job_name} migration");
-
-        sqlx::query("create index concurrently if not exists root_job_index_by_path_2 ON completed_job (workspace_id, script_path, created_at desc) WHERE parent_job IS NULL")
-                .execute(db)
-                .await?;
-
-        i += 1;
-        tracing::info!("step {i} of {migration_job_name} migration");
-
-        sqlx::query("create index concurrently if not exists ix_completed_job_created_at ON completed_job  (created_at DESC)")
+        if potentially_stale.contains(&m.version) {
+            if let Err(err) =
+                sqlx::query("DELETE FROM _sqlx_migrations WHERE version = $1 AND checksum != $2")
+                    .bind(m.version)
+                    .bind(&*m.checksum)
                     .execute(db)
-                    .await?;
-
-        i += 1;
-        tracing::info!("step {i} of {migration_job_name} migration");
-
-        sqlx::query(
-            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new_2",
-        )
-        .execute(db)
-        .await?;
-        i += 1;
-        tracing::info!("step {i} of {migration_job_name} migration");
-
-        sqlx::query(
-            "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_started_at_new",
-        )
-        .execute(db)
-        .await?;
-        i += 1;
-        tracing::info!("step {i} of {migration_job_name} migration");
-
-        sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS root_job_index_by_path")
-            .execute(db)
-            .await?;
-    });
-
-    run_windmill_migration!("fix_labeled_jobs_index", &db, {
-        tracing::info!("Special migration to add index concurrently on job labels 2");
-        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS labeled_jobs_on_jobs")
-            .execute(db)
-            .await?;
-        sqlx::query!(
-        "CREATE INDEX CONCURRENTLY labeled_jobs_on_jobs ON completed_job USING GIN ((result -> 'wm_labels')) WHERE result ? 'wm_labels'"
-        ).execute(db).await?;
-    });
-
-    Ok(())
-}
-
-#[derive(Clone, Debug)]
-pub struct ApiAuthed {
-    pub email: String,
-    pub username: String,
-    pub is_admin: bool,
-    pub is_operator: bool,
-    pub groups: Vec<String>,
-    // (folder name, can write, is owner)
-    pub folders: Vec<(String, bool, bool)>,
-    pub scopes: Option<Vec<String>>,
-    pub username_override: Option<String>,
-}
-
-impl From<ApiAuthed> for Authed {
-    fn from(value: ApiAuthed) -> Self {
-        Self {
-            email: value.email,
-            username: value.username,
-            is_admin: value.is_admin,
-            is_operator: value.is_operator,
-            groups: value.groups,
-            folders: value.folders,
-            scopes: value.scopes,
+                    .await
+            {
+                tracing::info!("Could not clean up stale migration {}: {err:#}", m.version);
+            }
         }
     }
-}
 
-impl From<&ApiAuthed> for AuditAuthor {
-    fn from(value: &ApiAuthed) -> Self {
-        Self {
-            email: value.email.clone(),
-            username: value.username.clone(),
-            username_override: value.username_override.clone(),
+    tokio::select! {
+        _ = killpill_rx.recv() => {
+            tracing::info!("Killpill received, stopping migration");
+            return Ok(None);
+        }
+        migration_result = sqlx::migrate!("../migrations")
+            .run_direct(&mut custom_migrator)
+     => {
+        match migration_result {
+            Ok(_) => Ok(()),
+            Err(sqlx::migrate::MigrateError::VersionMissing(e)) => {
+                tracing::error!("Database had been applied more migrations than this container.
+                This usually mean than another container on a more recent version migrated the database and this one is on an earlier version.
+                Please update the container to latest. Not critical, but may cause issues if migration introduced a breaking change. Version missing: {e:#}");
+                custom_migrator.unlock().await?;
+                Ok(())
+            }
+            Err(err) => Err(err),
+        }?;
         }
     }
+
+    crate::live_migrations::custom_migrations(&mut custom_migrator, db).await?;
+    Ok(None)
 }
 
-impl ApiAuthed {
-    pub fn display_username(&self) -> &str {
-        self.username_override.as_ref().unwrap_or(&self.username)
-    }
-}
+pub async fn wait_for_migrations(
+    db: &DB,
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+) -> Result<(), Error> {
+    let migrator = sqlx::migrate!("../migrations");
+    let latest_version = migrator
+        .migrations
+        .iter()
+        .map(|m| m.version)
+        .max()
+        .expect("No migrations found") as i64;
 
-impl AuditAuthorable for ApiAuthed {
-    fn username(&self) -> &str {
-        self.username.as_str()
-    }
-    fn email(&self) -> &str {
-        self.email.as_str()
-    }
-    fn username_override(&self) -> Option<&str> {
-        self.username_override.as_deref()
-    }
-}
+    tracing::info!(
+        "This worker is on Windmill version {GIT_VERSION} (migration version {latest_version}). Only servers run migrations. Waiting for a server with version >= {GIT_VERSION} to apply the migration..."
+    );
 
-impl Authable for ApiAuthed {
-    fn is_admin(&self) -> bool {
-        self.is_admin
-    }
+    let mut attempts = 0;
 
-    fn is_operator(&self) -> bool {
-        self.is_operator
-    }
+    loop {
+        let is_applied: Result<Option<bool>, sqlx::Error> =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM _sqlx_migrations WHERE version = $1)")
+                .bind(latest_version)
+                .fetch_one(db)
+                .await;
 
-    fn groups(&self) -> &[String] {
-        &self.groups
-    }
+        match is_applied {
+            Ok(Some(true)) => {
+                tracing::info!(
+                    "All migrations applied (version {latest_version}), continuing worker startup"
+                );
+                return Ok(());
+            }
+            Ok(_) => {
+                tracing::info!(
+                    "Database not up to date yet. This worker (Windmill {GIT_VERSION}, migration version {latest_version}) is waiting for a server with version >= {GIT_VERSION} to run the migration. Rechecking in 3s..."
+                );
+            }
+            Err(e) => {
+                tracing::info!(
+                    "Could not check migration status (migrations table may not exist yet): {e:#}. Rechecking in 3s..."
+                );
+            }
+        }
 
-    fn folders(&self) -> &[(String, bool, bool)] {
-        &self.folders
-    }
+        tokio::select! {
+            _ = killpill_rx.recv() => {
+                tracing::info!("Killpill received, stopping migration wait");
+                return Ok(());
+            }
+            _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {}
+        }
 
-    fn scopes(&self) -> Option<&[std::string::String]> {
-        self.scopes.as_ref().map(|x| x.as_slice())
-    }
-
-    fn email(&self) -> &str {
-        &self.email
-    }
-
-    fn username(&self) -> &str {
-        &self.username
+        attempts += 1;
+        if attempts >= 10 {
+            tracing::error!(
+                "Timed out after 10 attempts waiting for migration version {latest_version}. Exiting."
+            );
+            std::process::exit(1);
+        }
     }
 }

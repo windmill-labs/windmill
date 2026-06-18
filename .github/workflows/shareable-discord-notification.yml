@@ -1,0 +1,214 @@
+name: "Notify Discord when a PR is opened or merged"
+
+on:
+  workflow_call:
+    inputs:
+      PR_TITLE:
+        description: "The title of the PR"
+        type: string
+      PR_URL:
+        description: "The URL of the PR"
+        type: string
+      PR_AUTHOR:
+        description: "The author of the PR"
+        type: string
+      PR_STATUS:
+        description: "The status of the PR"
+        type: string
+      DISCORD_CHANNEL_ID:
+        description: "The Discord channel ID"
+        type: string
+      PR_NUMBER:
+        description: "The number of the PR"
+        type: string
+      DISCORD_GUILD_ID:
+        description: "The Discord guild ID"
+        type: string
+      COMMENT_BODY:
+        description: "The comment body"
+        type: string
+        default: ""
+      COMMENT_AUTHOR:
+        description: "The comment author"
+        type: string
+        default: ""
+      COMMENT_URL:
+        description: "The comment URL"
+        type: string
+        default: ""
+      COMMENT_IS_EDIT:
+        description: "Whether this is an edit of an existing comment"
+        type: string
+        default: "false"
+    secrets:
+      DISCORD_WEBHOOK_URL:
+        description: "Discord Webhook URL"
+        required: false
+      DISCORD_BOT_TOKEN:
+        description: "Discord Bot Token"
+
+jobs:
+  open_thread:
+    runs-on: ubicloud-standard-2
+    if: ${{ inputs.PR_STATUS == 'opened' }}
+    steps:
+      - name: Send Discord notification and start a thread
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          CHANNEL_ID: ${{ inputs.DISCORD_CHANNEL_ID }}
+          GUILD_ID: ${{ inputs.DISCORD_GUILD_ID }}
+          PR_TITLE: ${{ inputs.PR_TITLE }}
+          PR_NUMBER: ${{ inputs.PR_NUMBER }}
+          PR_URL: ${{ inputs.PR_URL }}
+          PR_AUTHOR: ${{ inputs.PR_AUTHOR }}
+        run: |
+          # Check if thread already exists
+          thread_exists=false
+          if threads=$(curl -s -H "Authorization: Bot $BOT_TOKEN" "https://discord.com/api/v10/guilds/${GUILD_ID}/threads/active"); then
+            if thread_id=$(echo "$threads" | jq -r --arg cid "$CHANNEL_ID" --arg pref "#${PR_NUMBER}:" '.threads[] | select(.parent_id == $cid and (.name | startswith($pref))) | .id' 2>/dev/null); then
+              if [ -n "$thread_id" ]; then
+                thread_exists=true
+                echo "Thread already exists, skipping creation"
+              fi
+            fi
+          else
+            echo "Failed to check for existing threads, will create new thread"
+          fi
+
+          # Create thread if it doesn't exist or if check failed
+          if [ "$thread_exists" = false ]; then
+            echo "Creating new thread"
+            THREAD_TITLE="#${PR_NUMBER}: ${PR_TITLE} by \`${PR_AUTHOR}\`"
+            payload=$(jq -n \
+              --arg content "${PR_URL}" \
+              --arg thread "${THREAD_TITLE:0:99}" \
+              '{
+                content: $content,
+                thread_name: $thread,
+                auto_archive_duration: 10080
+              }'
+            )
+            curl -H "Content-Type: application/json" \
+              -X POST \
+              -d "$payload" \
+              "$WEBHOOK_URL"
+          fi
+
+  merge_success_emoji:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.PR_STATUS == 'merged' }}
+    steps:
+      - name: React
+        env:
+          BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          CHANNEL_ID: ${{ inputs.DISCORD_CHANNEL_ID }}
+          GUILD_ID: ${{ inputs.DISCORD_GUILD_ID }}
+          PR_NUMBER: ${{ inputs.PR_NUMBER }}
+        run: |
+          # 1) get PR thread
+          threads=$(curl -H "Authorization: Bot $BOT_TOKEN" "https://discord.com/api/v10/guilds/${GUILD_ID}/threads/active")
+          thread_id=$(
+            echo "$threads" \
+              | jq -r --arg cid "$CHANNEL_ID" \
+                    --arg pref "#${PR_NUMBER}:" \
+                '.threads[]
+                | select(.parent_id == $cid and (.name | startswith($pref)))
+                | .id'
+          )
+          if [ -z "$thread_id" ]; then
+            echo "Thread not found"
+            exit 1
+          fi
+          # 2) get the first message in that thread
+          messages=$(curl -H "Authorization: Bot $BOT_TOKEN" \
+            "https://discord.com/api/v10/channels/$thread_id/messages")
+          message_id=$(echo "$messages" | jq -r '.[-1].id')
+
+          if [ -z "$message_id" ]; then
+            echo "Message not found"
+            exit 1
+          fi
+
+          # 3) add the ✅ reaction
+          curl -X PUT \
+            -H "Authorization: Bot $BOT_TOKEN" \
+            "https://discord.com/api/v10/channels/$thread_id/messages/$message_id/reactions/%E2%9C%85/@me"
+
+  post_comment:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.PR_STATUS == 'comment' }}
+    steps:
+      - name: Post or update comment in Discord thread
+        env:
+          BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          CHANNEL_ID: ${{ inputs.DISCORD_CHANNEL_ID }}
+          GUILD_ID: ${{ inputs.DISCORD_GUILD_ID }}
+          PR_NUMBER: ${{ inputs.PR_NUMBER }}
+          COMMENT_BODY: ${{ inputs.COMMENT_BODY }}
+          COMMENT_AUTHOR: ${{ inputs.COMMENT_AUTHOR }}
+          COMMENT_URL: ${{ inputs.COMMENT_URL }}
+          COMMENT_IS_EDIT: ${{ inputs.COMMENT_IS_EDIT }}
+        run: |
+          # 1) Find the thread by PR number
+          threads=$(curl -s -H "Authorization: Bot $BOT_TOKEN" \
+            "https://discord.com/api/v10/guilds/${GUILD_ID}/threads/active")
+          thread_id=$(echo "$threads" | jq -r \
+            --arg cid "$CHANNEL_ID" \
+            --arg pref "#${PR_NUMBER}:" \
+            '.threads[] | select(.parent_id == $cid and (.name | startswith($pref))) | .id')
+
+          if [ -z "$thread_id" ]; then
+            echo "Thread not found for PR #${PR_NUMBER}, skipping"
+            exit 0
+          fi
+
+          # 2) Truncate comment body to fit Discord's 2000 char limit
+          # Reserve space for the author line + link (~100 chars)
+          max_body=1800
+          if [ ${#COMMENT_BODY} -gt $max_body ]; then
+            # For bot comments, show the tail (conclusions/code tend to be at the end)
+            if [[ "$COMMENT_AUTHOR" == *"[bot]"* ]] || [[ "$COMMENT_AUTHOR" == *"-bot"* ]]; then
+              truncated_body="...${COMMENT_BODY: -$max_body}"
+            else
+              truncated_body="${COMMENT_BODY:0:$max_body}..."
+            fi
+          else
+            truncated_body="$COMMENT_BODY"
+          fi
+
+          # 3) Build the message content
+          if [ "$COMMENT_IS_EDIT" = "true" ]; then
+            message=$(printf '**%s** [edited comment](%s):\n%s' "$COMMENT_AUTHOR" "$COMMENT_URL" "$truncated_body")
+          else
+            message=$(printf '**%s** [commented](%s):\n%s' "$COMMENT_AUTHOR" "$COMMENT_URL" "$truncated_body")
+          fi
+          payload=$(jq -n --arg content "$message" '{content: $content, flags: 4, allowed_mentions: {parse: []}}')
+
+          # 4) If this is an edit, try to find and update the existing Discord message
+          if [ "$COMMENT_IS_EDIT" = "true" ]; then
+            # Search recent messages in the thread for one containing the comment URL
+            messages=$(curl -s -H "Authorization: Bot $BOT_TOKEN" \
+              "https://discord.com/api/v10/channels/${thread_id}/messages?limit=100")
+            existing_msg_id=$(echo "$messages" | jq -r \
+              --arg url "$COMMENT_URL" \
+              '[.[] | select(.content | contains($url))] | first | .id // empty')
+
+            if [ -n "$existing_msg_id" ]; then
+              echo "Updating existing Discord message $existing_msg_id"
+              curl -s -X PATCH \
+                -H "Authorization: Bot $BOT_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "$payload" \
+                "https://discord.com/api/v10/channels/${thread_id}/messages/${existing_msg_id}"
+              exit 0
+            fi
+            echo "Original Discord message not found, posting as new message"
+          fi
+
+          # 5) Post a new message to the thread
+          curl -s -X POST \
+            -H "Authorization: Bot $BOT_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$payload" \
+            "https://discord.com/api/v10/channels/${thread_id}/messages"

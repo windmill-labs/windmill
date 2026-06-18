@@ -223,5 +223,75 @@
         "label": "noop"
       }
     ]
+  },
+  {
+    "graph_title": "WAC v2 sequential vs flow sequential (2 steps, bun)",
+    "benchmarks": [
+      {
+        "kind": "wac_seq_2",
+        "workers": 1,
+        "label": "WAC v2 sequential"
+      },
+      {
+        "kind": "flow_seq_2_bun",
+        "workers": 1,
+        "label": "Flow sequential"
+      }
+    ]
+  },
+  {
+    "graph_title": "WAC v2 parallel vs flow parallel (2 steps, bun)",
+    "benchmarks": [
+      {
+        "kind": "wac_par_2",
+        "workers": 1,
+        "label": "WAC v2 parallel"
+      },
+      {
+        "kind": "flow_par_2_bun",
+        "workers": 1,
+        "label": "Flow parallel"
+      }
+    ]
+  },
+  {
+    "graph_title": "WAC v2 sequential vs flow sequential (3 steps, bun)",
+    "benchmarks": [
+      {
+        "kind": "wac_seq_3",
+        "workers": 1,
+        "label": "WAC v2 sequential"
+      },
+      {
+        "kind": "flow_seq_3_bun",
+        "workers": 1,
+        "label": "Flow sequential"
+      }
+    ]
+  },
+  {
+    "graph_title": "WAC v2 patterns comparison",
+    "benchmarks": [
+      {
+        "kind": "wac_seq_2",
+        "workers": 1,
+        "label": "sequential 2-task"
+      },
+      {
+        "kind": "wac_par_2",
+        "workers": 1,
+        "label": "parallel 2-task"
+      },
+      {
+        "kind": "wac_seq_3",
+        "workers": 1,
+        "label": "sequential 3-task"
+      },
+      {
+        "kind": "wac_inline_2",
+        "workers": 1,
+        "label": "inline 2-step"
+      }
+    ]
   }
 ]

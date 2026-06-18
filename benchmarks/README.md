@@ -1,85 +1,71 @@
 # Benchmarks
 
-This folder includes a small deno/ts utility to benchmark execution of jobs &
-flows.
+Deno/TS benchmark suite for measuring Windmill job and flow execution throughput.
 
-## Installation
+## Quick Start
 
-Install the `wmill` CLI tool using
-`deno install --unstable -A https://deno.land/x/wmillbench/main.ts`.
+```bash
+# Install Deno
+curl -fsSL https://deno.land/install.sh | sh
 
-Update to the latest version using `wmillbench upgrade`.
+# Run a single benchmark
+deno run -A benchmark_oneoff.ts --kind noop --jobs 10000
 
-To build a local version, you can just run:
-```
-deno install -A main.ts
-```
+# Run the full suite
+deno run -A benchmark_suite.ts -c suite_config.json
 
-## Quickstart
-
-Have your instance expose prometheus metrics (METRICS_ADDR=true).
-
-Then
-
-```
-wmillbench -e admin@windmill.dev -p changeme --host YOUR_HOST
+# Run WAC v2 benchmarks (workflow-as-code vs flow comparison)
+deno run -A benchmark_suite.ts -c suite_wac.json
 ```
 
-## Usage
+## Benchmark Kinds
 
-Usage: wmillbench
+### Script benchmarks
+- `noop` — Empty jobs (measures pure scheduling overhead)
+- `deno`, `bun`, `python`, `go`, `bash` — Language runtimes
+- `nativets` — BunNative (no isolation)
+- `dedicated`, `dedicated_nativets` — Dedicated worker mode
 
-Description:
+### Flow benchmarks
+- `2steps` — 2-step flow (deno + identity)
+- `bigscriptinflow` — Flow with large raw bash script
+- `flow_seq_2_bun` — 2 sequential bun steps
+- `flow_par_2_bun` — 2 parallel bun steps (branchall)
+- `flow_seq_3_bun` — 3 sequential bun steps
+- `flow:<path>` — Custom flow by path
+- `script:<path>` — Custom script by path
 
-Run Benchmark to measure throughput of windmill.
+### WAC v2 benchmarks (workflow-as-code)
+- `wac_seq_2` — 2 sequential tasks
+- `wac_par_2` — 2 parallel tasks (Promise.all)
+- `wac_seq_3` — 3 sequential tasks
+- `wac_inline_2` — 2 inline steps (no child jobs)
 
-Options:
+## Suite Configs
 
--h, --help - Show this help. 
--V, --version - Show the version number for this program. 
---host <url> - The windmill host to benchmark. (Default: "http://127.0.0.1:8000/") 
---workers <workers> - The number of workers to run at once. (Default: 1) 
--s, --seconds <seconds> - How long to run the benchmark for (in seconds). (Default: 30) 
--e, --email <email> - The email to use to login. 
--p, --password <password> - The password to use to login. 
--t, --token <token> - The token to use when talking to the API server. Preferred over manual login. 
--w, --workspace <workspace> - The workspace to spawn scripts from. (Default: "starter") 
--m, --metrics <metrics> - The url to scrape metrics from. (Default: "http://localhost:8001/metrics") 
---export-json <export_json> - If set, exports will be into a JSON file. 
---export-csv <export_csv> - If set, exports will be into a csv file. 
---export-histograms [histograms...] - Mark metrics (without label) that are reported as histograms to export. 
---export-simple [simple...] - Mark metrics (without label) that are reported as simple values.
---maximum-throughput <maximum_throughput> - Maximum number of jobs/flows to start in one second. (Default: Infinity) 
---use-flows - Run flows instead of jobs.
---histogram-buckets [buckets...] - Define what buckets to collect from histograms. (Default: [ "+Inf", "10", "5", "2.5", "2.5", "1", "0.5", "0.25", "0.1", "0.05", "0.025", "0.01", "0.005" ])
+| File | Description |
+|------|-------------|
+| `suite_config.json` | Main benchmark suite (noop, languages, flows) |
+| `suite_dedicated.json` | Dedicated worker benchmarks |
+| `suite_dedicated_nativets.json` | Dedicated NativeTS benchmarks |
+| `suite_wac.json` | WAC v2 vs flow comparison benchmarks |
 
-Environment variables:
+## Interactive Benchmark Tool
 
-WM_TOKEN <token> - The token to use when talking to the API server. Preferred
-over manual login. WM_WORKSPACE <workspace> - The workspace to spawn scripts
-from.
-
-
-
-This will run a simple benchmark against localhost (the default admin email +
-password are set above), all execution is done in the "bench" workspace (as set
-via `--workspace`).
-
-Metrics are exported to JSON will only include mean & stdev, histograms get one
-entry for each bucket. CSV will include a full list of all values scraped.
-
-## NOOP jobs benchmark
-
-A specific benchmark creating a set of NOOP jobs all at once in windmill is also available.
-in `benchmarks_noop.ts`
-
-You can build it locally with:
-```
-deno install -A benchmarks_noop.ts
-```
-and then
-```
-benchmarks_noop -e admin@windmill.dev -p changeme --host YOUR_HOST
+```bash
+deno run -A main.ts -e admin@windmill.dev -p changeme --host http://localhost:8000
 ```
 
-By default it creates 10000 jobs in Windmill in a single batch, but this is parametrizable.
+Options: `--workers`, `--seconds`, `--maximum-throughput`, `--use-flows`, `--script-pattern`, `--export-json`, `--export-csv`
+
+## Graph Generation
+
+```bash
+deno run -A benchmark_graphs.ts -c graphs_config.json
+```
+
+Generates SVG graphs from `*_benchmark.json` data files.
+
+## CI
+
+The GitHub Actions workflow (`.github/workflows/benchmark.yml`) runs hourly with 1/4/8 worker configurations plus WAC benchmarks. Results are committed to the `benchmarks` branch.

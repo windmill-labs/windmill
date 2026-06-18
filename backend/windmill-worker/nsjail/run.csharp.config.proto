@@ -3,6 +3,7 @@ name: "csharp run script"
 mode: ONCE
 hostname: "csharp"
 log_level: ERROR
+time_limit: {TIMEOUT}
 
 disable_rl: true
 
@@ -11,6 +12,7 @@ cwd: "/tmp"
 clone_newnet: false
 clone_newuser: {CLONE_NEWUSER}
 
+skip_setsid: true
 keep_caps: false
 keep_env: true
 mount_proc: true
@@ -43,8 +45,8 @@ mount {
 }
 
 mount {
-    src: "/opt/dotnet-sdk/bin"
-    dst: "/opt/dotnet-sdk/bin"
+    src: "/usr/share/dotnet"
+    dst: "/usr/share/dotnet"
     is_bind: true
 }
 
@@ -55,16 +57,11 @@ mount {
     rw: true
 }
 
-mount {
-    dst: "/tmp"
-    fstype: "tmpfs"
-    rw: true
-    options: "size=500000000"
-}
+{TMP_MOUNT_BLOCK}
 
 
 mount {
-    src: "{JOB_DIR}/Main"
+    src: "{JOB_DIR}/out/Main"
     dst: "/tmp/main"
     is_bind: true
     mandatory: false
@@ -89,6 +86,30 @@ mount {
 	is_bind: true
 }
 
+# Container runtimes bind exactly these 3 files as separate submounts over
+# /etc; nsjail's ro remount of /etc is non-recursive so they stay writable.
+# Load-bearing -- do not remove as redundant with the /etc bind above.
+mount {
+    src: "/etc/resolv.conf"
+    dst: "/etc/resolv.conf"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/etc/hosts"
+    dst: "/etc/hosts"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/etc/hostname"
+    dst: "/etc/hostname"
+    is_bind: true
+    mandatory: false
+}
+
 mount {
     src: "/dev/random"
     dst: "/dev/random"
@@ -104,11 +125,19 @@ mount {
 iface_no_lo: true
 
 mount {
-    src: "{CACHE_DIR}"
-    dst: "/tmp/.cache/csharp"
+    src: "{CACHE_DIR}/{CACHE_HASH}"
+    dst: "/tmp/.cache/csharp/{CACHE_HASH}"
     is_bind: true
-    rw: true
     mandatory: false
 }
 
 {SHARED_MOUNT}
+
+mount {
+    src: "{TRACING_PROXY_CA_CERT_PATH}"
+    dst: "{TRACING_PROXY_CA_CERT_PATH}"
+    is_bind: true
+    mandatory: false
+}
+
+#{DEV}

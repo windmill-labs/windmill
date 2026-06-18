@@ -4,67 +4,225 @@
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
 	import { Skeleton } from '../common'
-	import { getContext, setContext } from 'svelte'
+	import { getContext, onDestroy, onMount, setContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
-	import type { FlowCopilotContext } from '../copilot/flow'
-	import { classNames } from '$lib/utils'
 
 	import { writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
+	import type { Flow, Job } from '$lib/gen'
+	import type { Trigger } from '$lib/components/triggers/utils'
+	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
+	import {
+		AIChatManager,
+		aiChatManager as singletonAiChatManager,
+		AIMode
+	} from '../copilot/chat/AIChatManager.svelte'
+	import type { GraphModuleState } from '../graph'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import type { ModulesTestStates } from '../modulesTest.svelte'
+	import type { StateStore } from '$lib/utils'
+	import type { FlowOptions } from '../copilot/chat/ContextManager.svelte'
+	import { extractAllModules } from '../copilot/chat/shared'
+	import type { Snippet } from 'svelte'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const sessionScopedManager = getContext<AIChatManager>('aiChatManager')
+	const aiChatManager = sessionScopedManager ?? singletonAiChatManager
 
-	export let loading: boolean
-	export let disableStaticInputs = false
-	export let disableTutorials = false
-	export let disableAi = false
-	export let disableSettings = false
-	export let disabledFlowInputs = false
-	export let smallErrorHandler = false
-	export let newFlow: boolean = false
+	interface Props {
+		loading: boolean
+		disableStaticInputs?: boolean
+		disableTutorials?: boolean
+		disableAi?: boolean
+		disableSettings?: boolean
+		disabledFlowInputs?: boolean
+		smallErrorHandler?: boolean
+		newFlow?: boolean
+		showJobStatus?: boolean
+		savedFlow?:
+			| (Flow & {
+					draft?: Flow | undefined
+			  })
+			| undefined
+		onDeployTrigger?: (trigger: Trigger) => void
+		onTestUpTo?: ((id: string) => void) | undefined
+		onEditInput?: ((moduleId: string, key: string) => void) | undefined
+		forceTestTab?: Record<string, boolean>
+		highlightArg?: Record<string, string | undefined>
+		aiChatOpen?: boolean
+		showFlowAiButton?: boolean
+		toggleAiChat?: () => void
+		localModuleStates?: Record<string, GraphModuleState>
+		testModuleStates?: ModulesTestStates
+		isOwner?: boolean
+		onTestFlow?: (conversationId?: string) => Promise<string | undefined>
+		isRunning?: boolean
+		onCancelTestFlow?: () => void
+		onOpenPreview?: () => void
+		onHideJobStatus?: () => void
+		individualStepTests?: boolean
+		job?: Job
+		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
+		onDelete?: (id: string) => void
+		flowHasChanged?: boolean
+		previewOpen: boolean
+		graphOverlay?: Snippet
+	}
 
-	let size = 50
+	let {
+		loading,
+		disableStaticInputs = false,
+		disableTutorials = false,
+		disableAi = false,
+		disableSettings = false,
+		disabledFlowInputs = false,
+		smallErrorHandler = false,
+		showJobStatus = false,
+		newFlow = false,
+		savedFlow = undefined,
+		onDeployTrigger = () => {},
+		onTestUpTo = undefined,
+		onEditInput = undefined,
+		forceTestTab,
+		highlightArg,
+		localModuleStates = {},
+		testModuleStates = undefined,
+		aiChatOpen,
+		showFlowAiButton,
+		toggleAiChat,
+		isOwner,
+		onTestFlow,
+		isRunning,
+		onCancelTestFlow,
+		onOpenPreview,
+		onHideJobStatus,
+		individualStepTests = false,
+		job,
+		suspendStatus,
+		onDelete,
+		flowHasChanged,
+		previewOpen,
+		graphOverlay
+	}: Props = $props()
 
-	const { currentStepStore: copilotCurrentStepStore } =
-		getContext<FlowCopilotContext>('FlowCopilotContext')
+	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
+
+	// When the graph pane is narrow, fall back to a top-centered overlay so the
+	// preview buttons don't overlap the rightmost node ports (matches the dev
+	// page layout).
+	let graphPaneWidth = $state(0)
+	const compactGraphOverlay = $derived(graphPaneWidth > 0 && graphPaneWidth < 800)
+
+	export function isNodeVisible(nodeId: string): boolean {
+		return flowModuleSchemaMap?.isNodeVisible(nodeId) ?? false
+	}
+
+	export function enableNotes(): void {
+		flowModuleSchemaMap?.enableNotes?.()
+	}
 
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
 	})
+
+	$effect(() => {
+		const options: FlowOptions = {
+			currentFlow: flowStore.val,
+			lastDeployedFlow: savedFlow,
+			lastSavedFlow: savedFlow?.draft,
+			path: savedFlow?.path,
+			modules: extractAllModules(flowStore.val.value.modules)
+		}
+		aiChatManager.flowOptions = options
+	})
+
+	onMount(() => {
+		if (!sessionScopedManager) {
+			aiChatManager.saveAndClear()
+			aiChatManager.changeMode(AIMode.FLOW)
+		}
+	})
+
+	onDestroy(() => {
+		aiChatManager.flowOptions = undefined
+		if (!sessionScopedManager) {
+			aiChatManager.saveAndClear()
+			aiChatManager.changeMode(AIMode.NAVIGATOR)
+		}
+	})
 </script>
 
 <div
 	id="flow-editor"
-	class={classNames(
-		'h-full overflow-hidden transition-colors duration-[400ms] ease-linear border-t',
-		$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : ''
-	)}
+	class={'h-full overflow-hidden transition-colors duration-[400ms] ease-linear border-t'}
+	use:triggerableByAI={{
+		id: 'flow-editor',
+		description: 'Component to edit a flow'
+	}}
 >
 	<Splitpanes>
-		<Pane {size} minSize={15} class="h-full relative z-0">
-			<div class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative">
+		<Pane size={50} minSize={15} class="h-full relative z-0">
+			<div
+				bind:clientWidth={graphPaneWidth}
+				class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative"
+			>
+				{#if graphOverlay}
+					<div
+						class="absolute z-30 flex gap-2 {compactGraphOverlay
+							? 'top-14 left-1/2 -translate-x-1/2'
+							: 'top-2 right-2'}"
+					>
+						{@render graphOverlay()}
+					</div>
+				{/if}
 				{#if loading}
 					<div class="p-2 pt-10">
 						{#each new Array(6) as _}
 							<Skeleton layout={[[2], 1.5]} />
 						{/each}
 					</div>
-				{:else if $flowStore.value.modules}
+				{:else if flowStore.val.value.modules}
 					<FlowModuleSchemaMap
+						bind:this={flowModuleSchemaMap}
+						controlsPosition={compactGraphOverlay ? 'bottom' : 'top'}
 						{disableStaticInputs}
 						{disableTutorials}
 						{disableAi}
 						{disableSettings}
 						{smallErrorHandler}
 						{newFlow}
-						bind:modules={$flowStore.value.modules}
+						{showJobStatus}
 						on:reload
+						on:generateStep={({ detail }) => {
+							if (!aiChatManager.open) {
+								aiChatManager.openChat()
+							}
+							aiChatManager.generateStep(detail.moduleId, detail.lang, detail.instructions)
+						}}
+						{onTestUpTo}
+						{onEditInput}
+						{localModuleStates}
+						{testModuleStates}
+						{aiChatOpen}
+						{showFlowAiButton}
+						{toggleAiChat}
+						{isOwner}
+						{onTestFlow}
+						{isRunning}
+						{onCancelTestFlow}
+						{onOpenPreview}
+						{onHideJobStatus}
+						{individualStepTests}
+						flowJob={job}
+						{suspendStatus}
+						{onDelete}
+						{flowHasChanged}
 					/>
 				{/if}
 			</div>
 		</Pane>
-		<Pane class="relative z-10" size={100 - size} minSize={40}>
+		<Pane class="relative z-10" size={50} minSize={20}>
 			{#if loading}
 				<div class="w-full h-full">
 					<div class="block m-auto pt-40 w-10">
@@ -75,11 +233,25 @@
 				<FlowEditorPanel
 					{disabledFlowInputs}
 					{newFlow}
+					{savedFlow}
 					enableAi={!disableAi}
 					on:applyArgs
 					on:testWithArgs
+					{onDeployTrigger}
+					{forceTestTab}
+					{highlightArg}
+					{onTestFlow}
+					{job}
+					{isOwner}
+					{suspendStatus}
+					onOpenDetails={onOpenPreview}
+					{previewOpen}
+					{flowModuleSchemaMap}
 				/>
 			{/if}
 		</Pane>
+		{#if !disableAi}
+			<FlowAIChat {flowModuleSchemaMap} {onTestFlow} />
+		{/if}
 	</Splitpanes>
 </div>

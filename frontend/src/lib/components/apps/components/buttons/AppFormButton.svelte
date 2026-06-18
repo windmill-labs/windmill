@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
@@ -15,22 +15,35 @@
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let recomputeIds: string[] | undefined = undefined
-	export let extraQueryParams: Record<string, any> = {}
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'formbuttoncomponent'> | undefined = undefined
-	export let render: boolean
-	export let errorHandledByComponent: boolean | undefined = false
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		recomputeIds?: string[] | undefined
+		extraQueryParams?: Record<string, any>
+		horizontalAlignment?: 'left' | 'center' | 'right' | undefined
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		customCss?: ComponentCustomCSS<'formbuttoncomponent'> | undefined
+		render: boolean
+		errorHandledByComponent?: boolean | undefined
+	}
 
-	$: errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
+	let {
+		id,
+		componentInput,
+		configuration,
+		recomputeIds = undefined,
+		extraQueryParams = {},
+		horizontalAlignment = undefined,
+		verticalAlignment = undefined,
+		customCss = undefined,
+		render,
+		errorHandledByComponent = $bindable(false)
+	}: Props = $props()
 
 	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		onDelete: () => {
 			modal?.close()
 		},
@@ -45,30 +58,33 @@
 		}
 	}
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false
 	})
 
-	let resolvedConfig = initConfig(
-		components['formbuttoncomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['formbuttoncomponent'].initialData.configuration, untrack(() => configuration))
 	)
-	let runnableComponent: RunnableComponent
+	let runnableComponent: RunnableComponent | undefined = $state()
 
 	let errors: Record<string, string> = {}
 
-	$: errorsMessage = Object.values(errors)
-		.filter((x) => x != '')
-		.join('\n')
-
-	$: noInputs =
+	let css = $state(initCss($app?.css?.formbuttoncomponent, untrack(() => customCss)))
+	let runnableWrapper: RunnableWrapper | undefined = $state()
+	let loading = $state(false)
+	let modal: AlwaysMountedModal | undefined = $state()
+	$effect(() => {
+		errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
+	})
+	let errorsMessage = $derived(
+		Object.values(errors)
+			.filter((x) => x != '')
+			.join('\n')
+	)
+	let noInputs = $derived(
 		componentInput?.type != 'runnable' || Object.keys(componentInput?.fields ?? {}).length == 0
-
-	let css = initCss($app?.css?.formbuttoncomponent, customCss)
-	let runnableWrapper: RunnableWrapper
-	let loading = false
-	let modal: AlwaysMountedModal
+	)
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -81,83 +97,93 @@
 	/>
 {/each}
 
-{#each Object.keys(components['formbuttoncomponent'].initialData.configuration) as key (key)}
+{#each Object.entries(components['formbuttoncomponent'].initialData.configuration) as [key, initialConfig] (key)}
 	<ResolveConfig
 		{id}
 		{key}
+		{initialConfig}
 		bind:resolvedConfig={resolvedConfig[key]}
 		configuration={configuration[key]}
 	/>
 {/each}
-<AlwaysMountedModal {css} title={resolvedConfig.modalTitle ?? ''} bind:this={modal}>
-	<div class="flex flex-col gap-2 px-4 w-full pt-2">
-		<RunnableWrapper
-			bind:this={runnableWrapper}
-			bind:loading
-			{recomputeIds}
-			{render}
-			bind:runnableComponent
-			{componentInput}
-			{id}
-			{extraQueryParams}
-			autoRefresh={false}
-			forceSchemaDisplay={true}
-			runnableClass="!block"
-			{outputs}
-			doOnSuccess={resolvedConfig.onSuccess}
-			doOnError={resolvedConfig.onError}
-			{errorHandledByComponent}
-		>
-			{#if noInputs}
-				<div class="text-secondary italic text-sm my-4">
-					Run forms are associated with a runnable that has user inputs.
-					<br />
-					Once a script or flow is chosen, set some <strong>Runnable Inputs</strong> to
-					<strong>
-						User Input
-						<User size={20} class="rounded-sm bg-gray-200 p-1 ml-0.5" />
-					</strong>
+{#if render}
+	<AlwaysMountedModal {css} title={resolvedConfig.modalTitle ?? ''} bind:this={modal}>
+		<div class="flex flex-col gap-2 px-4 w-full pt-2">
+			<RunnableWrapper
+				bind:this={runnableWrapper}
+				bind:loading
+				{recomputeIds}
+				{render}
+				bind:runnableComponent
+				{componentInput}
+				{id}
+				{extraQueryParams}
+				autoRefresh={false}
+				forceSchemaDisplay={true}
+				runnableClass="!block"
+				{outputs}
+				doOnSuccess={resolvedConfig.onSuccess}
+				doOnError={resolvedConfig.onError}
+				clearFormInputs={{
+					selected: resolvedConfig.clearFormInputs.selected,
+					onClear: () => runnableComponent?.setArgs({})
+				}}
+				{errorHandledByComponent}
+			>
+				{#if noInputs}
+					<div class="text-secondary italic text-sm my-4">
+						Run forms are associated with a runnable that has user inputs.
+						<br />
+						Once a script or flow is chosen, set some <strong>Runnable Inputs</strong> to
+						<strong>
+							User Input
+							<User size={20} class="rounded-sm bg-gray-200 p-1 ml-0.5" />
+						</strong>
+					</div>
+				{/if}
+				<div class="flex justify-end gap-3 p-2">
+					<Button
+						{loading}
+						btnClasses="my-1"
+						on:pointerdown={(e) => {
+							e?.stopPropagation()
+						}}
+						on:click={async () => {
+							if (!runnableComponent) {
+								runnableWrapper?.handleSideEffect(true)
+							} else {
+								await runnableComponent?.runComponent()
+							}
+							modal?.close()
+						}}
+						unifiedSize="sm"
+						variant="accent"
+					>
+						Submit
+					</Button>
 				</div>
-			{/if}
-			<div class="flex justify-end gap-3 p-2">
-				<Button
-					{loading}
-					btnClasses="my-1"
-					on:pointerdown={(e) => {
-						e?.stopPropagation()
-					}}
-					on:click={async () => {
-						if (!runnableComponent) {
-							runnableWrapper?.handleSideEffect(true)
-						} else {
-							await runnableComponent?.runComponent()
-						}
-						modal?.close()
-					}}
-					size="xs"
-					color="dark"
-				>
-					Submit
-				</Button>
-			</div>
-		</RunnableWrapper>
-	</div>
-</AlwaysMountedModal>
+			</RunnableWrapper>
+		</div>
+	</AlwaysMountedModal>
 
-<AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
-	{#if errorsMessage}
-		<div class="text-red-500 text-xs">{errorsMessage}</div>
-	{/if}
-	<Button
-		disabled={resolvedConfig.disabled ?? false}
-		size={resolvedConfig.size ?? 'md'}
-		color={resolvedConfig.color}
-		btnClasses={twMerge(css?.button?.class, 'wm-button', 'wm-modal-form-button')}
-		style={css?.button?.style ?? ''}
-		on:click={(e) => {
-			modal?.open()
-		}}
-	>
-		{resolvedConfig.label}
-	</Button>
-</AlignWrapper>
+	<AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
+		{#if errorsMessage}
+			<div class="text-red-500 text-xs">{errorsMessage}</div>
+		{/if}
+		<Button
+			disabled={resolvedConfig.disabled ?? false}
+			extendedSize={resolvedConfig.size ?? 'md'}
+			color={resolvedConfig.color}
+			btnClasses={twMerge(css?.button?.class, 'wm-button', 'wm-modal-form-button')}
+			style={css?.button?.style ?? ''}
+			on:click={(e) => {
+				modal?.open()
+			}}
+			variant="contained"
+		>
+			{resolvedConfig.label}
+		</Button>
+	</AlignWrapper>
+{:else}
+	<RunnableWrapper {outputs} {render} {componentInput} {id} />
+{/if}

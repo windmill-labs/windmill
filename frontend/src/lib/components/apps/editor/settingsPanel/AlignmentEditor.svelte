@@ -15,21 +15,27 @@
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
-	export let component: AppComponent
+	interface Props {
+		component: AppComponent
+	}
+
+	let { component = $bindable() }: Props = $props()
 </script>
 
 {#if component.horizontalAlignment || component.verticalAlignment}
 	<div class="flex flex-wrap gap-x-4 gap-y-1 w-full justify-end items-center">
-		<div class="text-tertiary text-xs">Alignment</div>
+		<div class="text-primary text-xs">Alignment</div>
 		{#if component.horizontalAlignment}
 			<ToggleButtonGroup
 				noWFull
 				on:selected={() => ($app = $app)}
 				bind:selected={component.horizontalAlignment}
 			>
-				<ToggleButton value="left" icon={AlignStartVertical} />
-				<ToggleButton value="center" icon={AlignCenterVertical} />
-				<ToggleButton value="right" icon={AlignEndVertical} />
+				{#snippet children({ item })}
+					<ToggleButton value="left" icon={AlignStartVertical} {item} />
+					<ToggleButton value="center" icon={AlignCenterVertical} {item} />
+					<ToggleButton value="right" icon={AlignEndVertical} {item} />
+				{/snippet}
 			</ToggleButtonGroup>
 		{/if}
 		{#if component.type !== 'formcomponent' && component.verticalAlignment}
@@ -38,9 +44,11 @@
 				on:selected={() => ($app = $app)}
 				bind:selected={component.verticalAlignment}
 			>
-				<ToggleButton value="top" icon={AlignStartHorizontal} />
-				<ToggleButton value="center" icon={AlignCenterHorizontal} />
-				<ToggleButton value="bottom" icon={AlignEndHorizontal} />
+				{#snippet children({ item })}
+					<ToggleButton value="top" icon={AlignStartHorizontal} {item} />
+					<ToggleButton value="center" icon={AlignCenterHorizontal} {item} />
+					<ToggleButton value="bottom" icon={AlignEndHorizontal} {item} />
+				{/snippet}
 			</ToggleButtonGroup>
 		{/if}
 	</div>

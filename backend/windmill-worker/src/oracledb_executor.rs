@@ -1,29 +1,36 @@
 use anyhow::anyhow;
 use chrono::Utc;
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{collections::HashMap, str::FromStr, sync::Arc, vec};
 use windmill_parser::Arg;
 
-use futures::{future::BoxFuture, FutureExt};
+use futures::{future::BoxFuture, FutureExt, StreamExt};
 use itertools::Itertools;
 use oracle::sql_type::{InnerValue, OracleType, ToSql};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue, Value};
-use sqlx::types::Json;
+use uuid::Uuid;
 use windmill_common::{
     error::{to_anyhow, Error},
-    jobs::QueuedJob,
-    worker::to_raw_value,
+    worker::{to_raw_value, Connection, SqlResultCollectionStrategy},
 };
+use windmill_queue::MiniPulledJob;
+
 use windmill_parser_sql::{
-    parse_db_resource, parse_oracledb_sig, parse_sql_blocks, parse_sql_statement_named_params,
+    parse_db_resource, parse_oracledb_sig, parse_s3_mode, parse_sql_blocks,
+    parse_sql_statement_named_params,
 };
 use windmill_queue::CanceledBy;
 
 use crate::{
-    common::{build_args_map, check_executor_binary_exists, OccupancyMetrics},
+    common::{
+        build_args_values, check_executor_binary_exists, get_reserved_variables,
+        s3_mode_args_to_worker_data, s3_stream_and_upload_with_logs, OccupancyMetrics,
+        S3ModeWorkerData,
+    },
     handle_child::run_future_with_polling_update_job_poller,
-    AuthedClientBackgroundTask,
+    sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
 };
+use windmill_common::client::AuthedClient;
 
 #[derive(Deserialize)]
 struct OracleDatabase {
@@ -42,7 +49,13 @@ pub fn do_oracledb_inner<'a>(
     conn: Arc<std::sync::Mutex<oracle::Connection>>,
     column_order: Option<&'a mut Option<Vec<String>>>,
     skip_collect: bool,
-) -> windmill_common::error::Result<BoxFuture<'a, anyhow::Result<Box<RawValue>>>> {
+    first_row_only: bool,
+    s3: Option<S3ModeWorkerData>,
+    job_id: Uuid,
+    workspace_id: &'a str,
+    log_conn: &'a Connection,
+) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Vec<Box<RawValue>>>>>
+{
     let qw = query.trim_end_matches(';').to_string();
 
     let result_f = async move {
@@ -78,57 +91,101 @@ pub fn do_oracledb_inner<'a>(
             .map_err(to_anyhow)?
             .map_err(to_anyhow)?;
 
-            Ok(to_raw_value(&Value::Array(vec![])))
+            Ok(vec![])
         } else {
-            let rows = tokio::task::spawn_blocking(move || {
-                let params2: Vec<(&str, &dyn ToSql)> = params
-                    .iter()
-                    .filter(|(k, _)| param_names.contains(&k.clone().into_bytes()))
-                    .map(|(key, val)| (key.as_str(), &**val as &dyn ToSql))
-                    .collect();
+            // We use an mpsc because we need an async stream for s3 mode. However since everything is sync
+            // in rust-oracle, I assumed that calling ResultSet::next() is blocking when it has to refetch.
+            let (tx, rx) = tokio::sync::mpsc::channel::<oracle::Result<Value>>(1000);
+            let (column_order_oneshot_tx, column_order_oneshot_rx) =
+                tokio::sync::oneshot::channel::<Option<Vec<String>>>();
+            let mut column_order_oneshot_tx = Some(column_order_oneshot_tx);
+            let rows_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+            tokio::task::spawn_blocking(move || {
+                let result = (|| {
+                    let tx = tx.clone();
+                    let params2: Vec<(&str, &dyn ToSql)> = params
+                        .iter()
+                        .filter(|(k, _)| param_names.contains(&k.clone().into_bytes()))
+                        .map(|(key, val)| (key.as_str(), &**val as &dyn ToSql))
+                        .collect();
 
-                let c = conn.lock()?;
-                let mut stmt = c.statement(&qw).build()?;
+                    let c = conn.lock()?;
+                    let mut stmt = c.statement(&qw).build()?;
 
-                let rows = match stmt.statement_type() {
-                    oracle::StatementType::Select => {
-                        let result_rows = stmt.query_named(&params2)?;
-                        let rows: Vec<oracle::Row> =
-                            result_rows.into_iter().filter_map(Result::ok).collect_vec();
-                        rows
-                    }
-                    _ => {
-                        stmt.execute_named(&params2)?;
-                        c.commit()?;
-                        vec![]
-                    }
-                };
+                    match stmt.statement_type() {
+                        oracle::StatementType::Select => {
+                            let mut result_rows = stmt.query_named(&params2)?.enumerate();
+                            while let Some((i, row)) = result_rows.next() {
+                                match row {
+                                    Ok(row) => {
+                                        // If first row, infer column order and send it to the channel
+                                        if i == 0 {
+                                            let col_order: Vec<String> = row
+                                                .column_info()
+                                                .iter()
+                                                .map(|x| x.name().to_string())
+                                                .collect::<Vec<String>>();
+                                            let _ = column_order_oneshot_tx
+                                                .take()
+                                                .unwrap()
+                                                .send(Some(col_order));
+                                        }
 
-                oracle::Result::Ok(rows)
-            })
-            .await
-            .map_err(to_anyhow)?
-            .map_err(to_anyhow)?;
+                                        // called in a spawn_blocking synchronous context, unwrap won't panic
+                                        tx.blocking_send(Ok(convert_row_to_value(row))).unwrap()
+                                    }
+                                    Err(e) => {
+                                        tx.blocking_send(Err(e)).unwrap();
+                                        break;
+                                    }
+                                }
+                                if first_row_only {
+                                    break;
+                                }
+                            }
+                        }
+                        _ => {
+                            stmt.execute_named(&params2)?;
+                            c.commit()?;
+                        }
+                    };
+                    drop(column_order_oneshot_tx);
+                    Ok::<_, oracle::Error>(())
+                })();
+                match result {
+                    Ok(_) => {}
+                    Err(e) => tx.blocking_send(Err(e)).unwrap(),
+                }
+                // all instances of tx should be dropped here
+            });
 
-            if let Some(column_order) = column_order {
-                *column_order = Some(
-                    rows.first()
-                        .map(|x| {
-                            x.column_info()
-                                .iter()
-                                .map(|x| x.name().to_string())
-                                .collect::<Vec<String>>()
-                        })
-                        .unwrap_or_default(),
-                );
+            if let Ok(Some(col_order)) = column_order_oneshot_rx.await {
+                if let Some(column_order) = column_order {
+                    *column_order = Some(col_order);
+                }
             }
 
-            Ok(to_raw_value(
-                &rows
+            if let Some(s3) = s3 {
+                s3_stream_and_upload_with_logs(
+                    "OracleDB",
+                    rows_stream.boxed(),
+                    &s3,
+                    job_id,
+                    workspace_id,
+                    log_conn,
+                )
+                .await?;
+                return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);
+            } else {
+                let rows: Vec<_> = rows_stream.collect().await;
+                Ok(rows
                     .into_iter()
-                    .map(|x| convert_row_to_value(x))
-                    .collect::<Vec<serde_json::Value>>(),
-            ))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(to_anyhow)?
+                    .iter()
+                    .map(to_raw_value)
+                    .collect::<Vec<_>>())
+            }
         }
     };
 
@@ -220,24 +277,24 @@ fn convert_oracledb_value_to_json(v: &oracle::SqlValue, c: &OracleType) -> serde
 
 fn get_statement_values(
     sig: Vec<Arg>,
-    job_args: Option<&Json<HashMap<String, Box<RawValue>>>>,
+    job_args: &HashMap<String, Value>,
+    args_to_skip: &Vec<String>,
 ) -> (Vec<(String, Box<dyn ToSql + Send + Sync>)>, Vec<String>) {
     let mut statement_values = vec![];
     let mut errors = vec![];
 
     for arg in &sig {
+        if args_to_skip.contains(&arg.name) {
+            continue;
+        }
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "text".to_string());
         let arg_n = arg.name.clone();
         let oracle_v: Box<dyn ToSql + Send + Sync> = match job_args
-            .and_then(|x| {
-                x.get(arg.name.as_str())
-                    .map(|x| serde_json::from_str::<serde_json::Value>(x.get()).ok())
-            })
-            .flatten()
-            .unwrap_or_else(|| json!(null))
+            .get(arg.name.as_str())
+            .unwrap_or_else(|| &json!(null))
         {
             // Value::Null => todo!(),
-            Value::Bool(b) => Box::new(b),
+            Value::Bool(b) => Box::new(*b),
             Value::String(s)
                 if arg_t == "timestamp"
                     || arg_t == "datetime"
@@ -247,10 +304,10 @@ fn get_statement_values(
                 if let Ok(d) = chrono::DateTime::<Utc>::from_str(s.as_str()) {
                     Box::new(d)
                 } else {
-                    Box::new(s)
+                    Box::new(s.clone())
                 }
             }
-            Value::String(s) => Box::new(s),
+            Value::String(s) => Box::new(s.clone()),
             Value::Number(n)
                 if n.is_i64()
                     && (arg_t == "int"
@@ -292,15 +349,16 @@ fn get_statement_values(
 }
 
 pub async fn do_oracledb(
-    job: &QueuedJob,
-    client: &AuthedClientBackgroundTask,
+    job: &MiniPulledJob,
+    client: &AuthedClient,
     query: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
+    parent_runnable_path: Option<String>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     check_executor_binary_exists(
         "the Oracle client lib",
@@ -308,48 +366,49 @@ pub async fn do_oracledb(
         "Oracle Database",
     )?;
 
-    let args = build_args_map(job, client, db).await?.map(Json);
-    let job_args = if args.is_some() {
-        args.as_ref()
-    } else {
-        job.args.as_ref()
-    };
+    let job_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
+    let s3 = parse_s3_mode(&query)?.map(|s3| s3_mode_args_to_worker_data(s3, client.clone(), job));
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
-        let val = client
-            .get_authed()
-            .await
-            .get_resource_value_interpolated::<serde_json::Value>(
-                &inline_db_res_path,
-                Some(job.id.to_string()),
-            )
-            .await?;
-
-        let as_raw = serde_json::from_value(val).map_err(|e| {
-            Error::InternalErr(format!("Error while parsing inline resource: {e:#}"))
-        })?;
-
-        Some(as_raw)
+        Some(
+            client
+                .get_resource_value_interpolated::<serde_json::Value>(
+                    &inline_db_res_path,
+                    Some(job.id.to_string()),
+                )
+                .await?,
+        )
     } else {
-        job_args.and_then(|x| x.get("database").cloned())
+        job_args.get("database").cloned()
     };
 
     let database = if let Some(db) = db_arg {
-        serde_json::from_str::<OracleDatabase>(db.get())
+        serde_json::from_value::<OracleDatabase>(db)
             .map_err(|e| Error::ExecutionErr(e.to_string()))?
     } else {
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
 
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
+    let collection_strategy = if annotations.return_last_result {
+        SqlResultCollectionStrategy::LastStatementAllRows
+    } else {
+        annotations.result_collection
+    };
 
     let sig = parse_oracledb_sig(query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
-    let (statement_values, errors) = get_statement_values(sig.clone(), job_args);
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+
+    let (query, args_to_skip) =
+        sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args, &reserved_variables)?;
+
+    let (_, errors) = get_statement_values(sig.clone(), &job_args, &args_to_skip);
 
     if !errors.is_empty() {
         return Err(Error::ExecutionErr(errors.join("\n")));
@@ -362,49 +421,54 @@ pub async fn do_oracledb(
             .init();
     }
 
-    let conn = tokio::task::spawn_blocking(|| {
+    let oracle_conn = tokio::task::spawn_blocking(|| {
         oracle::Connection::connect(database.user, database.password, database.database)
             .map_err(|e| Error::ExecutionErr(e.to_string()))
     })
     .await
     .map_err(to_anyhow)??;
 
-    let conn_a = Arc::new(std::sync::Mutex::new(conn));
+    let conn_a = Arc::new(std::sync::Mutex::new(oracle_conn));
 
-    let queries = parse_sql_blocks(query);
+    let queries = parse_sql_blocks(&query, false);
 
-    let result_f = if queries.len() > 1 {
-        let f = async {
-            let mut res: Vec<Box<RawValue>> = vec![];
-            for (i, q) in queries.iter().enumerate() {
-                let (vals, _) = get_statement_values(sig.clone(), job_args);
-                let r = do_oracledb_inner(
-                    q,
-                    vals,
-                    conn_a.clone(),
-                    None,
-                    annotations.return_last_result && i < queries.len() - 1,
-                )?
-                .await?;
-                res.push(r);
-            }
+    let result_f = async move {
+        let mut results = vec![];
+        for (i, q) in queries.iter().enumerate() {
+            let (vals, _) = get_statement_values(sig.clone(), &job_args, &args_to_skip);
 
-            if annotations.return_last_result && res.len() > 0 {
-                Ok(res.pop().unwrap())
-            } else {
-                Ok(to_raw_value(&res))
-            }
-        };
+            let result = do_oracledb_inner(
+                q,
+                vals,
+                conn_a.clone(),
+                if i == queries.len() - 1
+                    && s3.is_none()
+                    && collection_strategy.collect_last_statement_only(queries.len())
+                    && !collection_strategy.collect_scalar()
+                {
+                    Some(column_order)
+                } else {
+                    None
+                },
+                collection_strategy.collect_last_statement_only(queries.len())
+                    && i < queries.len() - 1,
+                collection_strategy.collect_first_row_only(),
+                s3.clone(),
+                job.id,
+                &job.workspace_id,
+                conn,
+            )?
+            .await?;
+            results.push(result);
+        }
 
-        f.boxed()
-    } else {
-        do_oracledb_inner(query, statement_values, conn_a, Some(column_order), false)?
+        collection_strategy.collect(results)
     };
 
     let result = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         result_f,

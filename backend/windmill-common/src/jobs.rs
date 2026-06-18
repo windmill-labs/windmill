@@ -1,385 +1,85 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use bytes::Bytes;
 use futures_core::Stream;
 use indexmap::IndexMap;
-use serde::{Deserialize, Serialize};
+use once_cell::sync::OnceCell;
 use serde_json::value::RawValue;
-use sqlx::{types::Json, Pool, Postgres, Transaction};
 use tokio::io::AsyncReadExt;
-use uuid::Uuid;
 
-pub const ENTRYPOINT_OVERRIDE: &str = "_ENTRYPOINT_OVERRIDE";
-
-pub const PREPROCESSOR_FAKE_ENTRYPOINT: &str = "__WM_PREPROCESSOR";
+pub use windmill_types::jobs::*;
 
 use crate::{
-    apps::AppScriptId,
+    auth::is_super_admin_email,
+    client::AuthedClient,
+    db::{AuthedRef, UserDbWithAuthed, DB},
     error::{self, to_anyhow, Error},
-    flow_status::{FlowStatus, RestartedFrom},
-    flows::{FlowNodeId, FlowValue, Retry},
-    get_latest_deployed_hash_for_path,
-    scripts::{ScriptHash, ScriptLang},
+    flows::get_full_hub_flow_by_path,
+    get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
+    scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
-    worker::{to_raw_value, TMP_DIR},
+    utils::{StripPath, HTTP_CLIENT},
+    worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, WINDMILL_DIR},
+    FlowVersionInfo, ScriptHashInfo, Tag,
 };
 
-#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
-#[sqlx(type_name = "JOB_KIND", rename_all = "lowercase")]
-#[serde(rename_all(serialize = "lowercase"))]
-pub enum JobKind {
-    Script,
-    #[allow(non_camel_case_types)]
-    Script_Hub,
-    Preview,
-    Dependencies,
-    Flow,
-    FlowPreview,
-    SingleScriptFlow,
-    Identity,
-    FlowDependencies,
-    AppDependencies,
-    Noop,
-    DeploymentCallback,
-    FlowScript,
-    FlowNode,
-    AppScript,
-}
-
-impl JobKind {
-    pub fn is_flow(&self) -> bool {
-        matches!(
-            self,
-            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow | JobKind::FlowNode
-        )
-    }
-}
-
-#[derive(sqlx::FromRow, Debug, Serialize, Clone)]
-pub struct QueuedJob {
-    pub workspace_id: String,
-    pub id: Uuid,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent_job: Option<Uuid>,
-    pub created_by: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub scheduled_for: chrono::DateTime<chrono::Utc>,
-    pub running: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub script_hash: Option<ScriptHash>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub script_path: Option<String>,
-    pub args: Option<Json<HashMap<String, Box<RawValue>>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub logs: Option<String>,
-    pub canceled: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub canceled_by: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub canceled_reason: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_ping: Option<chrono::DateTime<chrono::Utc>>,
-    pub job_kind: JobKind,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub schedule_path: Option<String>,
-    pub permissioned_as: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub flow_status: Option<Json<Box<RawValue>>>,
-    pub is_flow_step: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub language: Option<ScriptLang>,
-    pub same_worker: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pre_run_error: Option<String>,
-    pub email: String,
-    pub visible_to_owner: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub suspend: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mem_peak: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub root_job: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub leaf_jobs: Option<serde_json::Value>,
-    pub tag: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrent_limit: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_time_window_s: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timeout: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub flow_step_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cache_ttl: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub priority: Option<i16>,
-}
-
-impl QueuedJob {
-    pub fn script_path(&self) -> &str {
-        self.script_path
-            .as_ref()
-            .map(String::as_str)
-            .unwrap_or("tmp/main")
-    }
-    pub fn is_flow(&self) -> bool {
-        self.job_kind.is_flow()
-    }
-
-    pub fn full_path_with_workspace(&self) -> String {
-        format!(
-            "{}/{}/{}",
-            self.workspace_id,
-            if self.is_flow() { "flow" } else { "script" },
-            self.script_path()
-        )
-    }
-
-    pub fn parse_flow_status(&self) -> Option<FlowStatus> {
-        self.flow_status
-            .as_ref()
-            .and_then(|v| serde_json::from_str::<FlowStatus>((**v).get()).ok())
-    }
-}
-
-impl Default for QueuedJob {
-    fn default() -> Self {
-        Self {
-            workspace_id: "".to_string(),
-            id: Uuid::default(),
-            parent_job: None,
-            created_by: "".to_string(),
-            created_at: chrono::Utc::now(),
-            started_at: None,
-            scheduled_for: chrono::Utc::now(),
-            running: false,
-            script_hash: None,
-            script_path: None,
-            args: None,
-            logs: None,
-            canceled: false,
-            canceled_by: None,
-            canceled_reason: None,
-            last_ping: None,
-            job_kind: JobKind::Identity,
-            schedule_path: None,
-            permissioned_as: "".to_string(),
-            flow_status: None,
-            is_flow_step: false,
-            language: None,
-            same_worker: false,
-            pre_run_error: None,
-            email: "".to_string(),
-            visible_to_owner: false,
-            suspend: None,
-            mem_peak: None,
-            root_job: None,
-            leaf_jobs: None,
-            tag: "deno".to_string(),
-            concurrent_limit: None,
-            concurrency_time_window_s: None,
-            timeout: None,
-            flow_step_id: None,
-            cache_ttl: None,
-            priority: None,
+pub fn get_has_preprocessor_from_content_and_lang(
+    content: &str,
+    language: &ScriptLang,
+) -> error::Result<bool> {
+    let has_preprocessor = match language {
+        ScriptLang::Bun | ScriptLang::Bunnative | ScriptLang::Deno | ScriptLang::Nativets => {
+            let args = windmill_parser_ts::parse_deno_signature(&content, true, true, None)?;
+            args.has_preprocessor.unwrap_or(false)
         }
+        #[cfg(feature = "python")]
+        ScriptLang::Python3 => {
+            let args = windmill_parser_py::parse_python_signature(&content, None, true)?;
+            args.has_preprocessor.unwrap_or(false)
+        }
+        _ => false,
+    };
+
+    Ok(has_preprocessor)
+}
+
+pub async fn schedule_job_deletion(
+    db: &DB,
+    job_id: uuid::Uuid,
+    w_id: &str,
+    delete_after_secs: i32,
+) -> crate::error::Result<()> {
+    sqlx::query!(
+        "INSERT INTO job_delete_schedule (job_id, workspace_id, delete_at) \
+         VALUES ($1, $2, now() + make_interval(secs => $3::double precision)) \
+         ON CONFLICT (job_id) DO NOTHING",
+        job_id,
+        w_id,
+        delete_after_secs as f64,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Resolve effective delete behavior from delete_after_use (bool) and delete_after_secs.
+/// Returns Some(secs) if deletion should happen, None otherwise.
+pub fn resolve_delete_after_secs(
+    delete_after_use: Option<bool>,
+    delete_after_secs: Option<i32>,
+) -> Option<i32> {
+    match (delete_after_use, delete_after_secs) {
+        (_, Some(secs)) if secs >= 0 => Some(secs),
+        (_, Some(_)) => None,          // reject negative values
+        (Some(true), None) => Some(0), // backward compat: immediate
+        _ => None,
     }
 }
 
-#[derive(Debug, sqlx::FromRow, Serialize, Clone)]
-pub struct CompletedJob {
-    pub workspace_id: String,
-    pub id: Uuid,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent_job: Option<Uuid>,
-    pub created_by: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub started_at: chrono::DateTime<chrono::Utc>,
-    pub duration_ms: i64,
-    pub success: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub script_hash: Option<ScriptHash>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub script_path: Option<String>,
-    pub args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<sqlx::types::Json<Box<RawValue>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub logs: Option<String>,
-    pub deleted: bool,
-    pub canceled: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub canceled_by: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub canceled_reason: Option<String>,
-    pub job_kind: JobKind,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub schedule_path: Option<String>,
-    pub permissioned_as: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub flow_status: Option<sqlx::types::Json<Box<RawValue>>>,
-    pub is_flow_step: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub language: Option<ScriptLang>,
-    pub is_skipped: bool,
-    pub email: String,
-    pub visible_to_owner: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mem_peak: Option<i32>,
-    pub tag: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub priority: Option<i16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub labels: Option<serde_json::Value>,
-}
-
-impl CompletedJob {
-    pub fn json_result(&self) -> Option<serde_json::Value> {
-        self.result
-            .as_ref()
-            .map(|r| serde_json::from_str(r.get()).ok())
-            .flatten()
-    }
-
-    pub fn parse_flow_status(&self) -> Option<FlowStatus> {
-        self.flow_status
-            .as_ref()
-            .and_then(|v| serde_json::from_str::<FlowStatus>((**v).get()).ok())
-    }
-}
-
-#[derive(sqlx::FromRow)]
-pub struct BranchResults {
-    pub result: sqlx::types::Json<Box<RawValue>>,
-    pub id: Uuid,
-}
-
-#[derive(Debug, Clone)]
-pub enum JobPayload {
-    ScriptHub {
-        path: String,
-    },
-    ScriptHash {
-        hash: ScriptHash,
-        path: String,
-        custom_concurrency_key: Option<String>,
-        concurrent_limit: Option<i32>,
-        concurrency_time_window_s: Option<i32>,
-        cache_ttl: Option<i32>,
-        dedicated_worker: Option<bool>,
-        language: ScriptLang,
-        priority: Option<i16>,
-        apply_preprocessor: bool,
-    },
-    FlowScript {
-        id: FlowNodeId, // flow_node(id).
-        language: ScriptLang,
-        custom_concurrency_key: Option<String>,
-        concurrent_limit: Option<i32>,
-        concurrency_time_window_s: Option<i32>,
-        cache_ttl: Option<i32>,
-        dedicated_worker: Option<bool>,
-        path: String,
-    },
-    FlowNode {
-        id: FlowNodeId, // flow_node(id).
-        path: String,   // flow node inner path (e.g. `outer/branchall-42`).
-    },
-    AppScript {
-        id: AppScriptId, // app_script(id).
-        path: Option<String>,
-        language: ScriptLang,
-        cache_ttl: Option<i32>,
-    },
-    Code(RawCode),
-    Dependencies {
-        path: String,
-        hash: ScriptHash,
-        language: ScriptLang,
-        dedicated_worker: Option<bool>,
-    },
-    FlowDependencies {
-        path: String,
-        dedicated_worker: Option<bool>,
-        version: i64,
-    },
-    AppDependencies {
-        path: String,
-        version: i64,
-    },
-    RawFlowDependencies {
-        path: String,
-        flow_value: FlowValue,
-    },
-    RawScriptDependencies {
-        script_path: String,
-        content: String,
-        language: ScriptLang,
-    },
-    Flow {
-        path: String,
-        dedicated_worker: Option<bool>,
-        apply_preprocessor: bool,
-    },
-    RestartedFlow {
-        completed_job_id: Uuid,
-        step_id: String,
-        branch_or_iteration_n: Option<usize>,
-    },
-    RawFlow {
-        value: FlowValue,
-        path: Option<String>,
-        restarted_from: Option<RestartedFrom>,
-    },
-    SingleScriptFlow {
-        path: String,
-        hash: ScriptHash,
-        args: HashMap<String, Box<serde_json::value::RawValue>>,
-        retry: Retry, // for now only used to retry the script, so retry is necessarily present
-        custom_concurrency_key: Option<String>,
-        concurrent_limit: Option<i32>,
-        concurrency_time_window_s: Option<i32>,
-        cache_ttl: Option<i32>,
-        priority: Option<i16>,
-        tag_override: Option<String>,
-    },
-    DeploymentCallback {
-        path: String,
-    },
-    Identity,
-    Noop,
-}
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct RawCode {
-    pub content: String,
-    pub path: Option<String>,
-    pub hash: Option<i64>,
-    pub language: ScriptLang,
-    pub lock: Option<String>,
-    pub custom_concurrency_key: Option<String>,
-    pub concurrent_limit: Option<i32>,
-    pub concurrency_time_window_s: Option<i32>,
-    pub cache_ttl: Option<i32>,
-    pub dedicated_worker: Option<bool>,
-}
-
-type Tag = String;
-
-pub type DB = Pool<Postgres>;
-
-#[derive(Clone, Debug)]
-pub struct OnBehalfOf {
-    pub email: String,
-    pub permissioned_as: String,
-}
-
-pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgres>>(
+pub async fn script_path_to_payload<'e>(
     script_path: &str,
-    db: E,
+    db_authed: Option<UserDbWithAuthed<'e, AuthedRef<'e>>>,
+    db: DB,
     w_id: &str,
     skip_preprocessor: Option<bool>,
 ) -> error::Result<(
@@ -387,34 +87,57 @@ pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgre
     Option<Tag>,
     Option<bool>,
     Option<i32>,
+    Option<i32>,
     Option<OnBehalfOf>,
 )> {
-    let (job_payload, tag, delete_after_use, script_timeout, on_behalf_of) =
+    let (job_payload, tag, delete_after_use, delete_after_secs, script_timeout, on_behalf_of) =
         if script_path.starts_with("hub/") {
+            let hub_script =
+                get_full_hub_script_by_path(StripPath(script_path.to_string()), &HTTP_CLIENT, None)
+                    .await?;
+
+            let has_preprocessor = get_has_preprocessor_from_content_and_lang(
+                &hub_script.content,
+                &hub_script.language,
+            )?;
+
             (
-                JobPayload::ScriptHub { path: script_path.to_owned() },
+                JobPayload::ScriptHub {
+                    path: script_path.to_owned(),
+                    apply_preprocessor: has_preprocessor && !skip_preprocessor.unwrap_or(false),
+                },
+                None,
                 None,
                 None,
                 None,
                 None,
             )
         } else {
-            let (
-                script_hash,
+            let ScriptHashInfo {
+                hash,
                 tag,
-                custom_concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
+                runnable_settings:
+                    super::scripts::ScriptRunnableSettingsInline {
+                        concurrency_settings,
+                        debouncing_settings,
+                    },
                 cache_ttl,
+                cache_ignore_s3_path,
                 language,
                 dedicated_worker,
                 priority,
                 delete_after_use,
-                script_timeout,
+                delete_after_secs,
+                timeout,
                 has_preprocessor,
                 on_behalf_of_email,
                 created_by,
-            ) = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
+                labels,
+                ..
+            } = get_latest_deployed_hash_for_path(db_authed, db.clone(), w_id, script_path)
+                .await?
+                .prefetch_cached(&db)
+                .await?;
 
             let on_behalf_of = if let Some(email) = on_behalf_of_email {
                 Some(OnBehalfOf {
@@ -427,21 +150,23 @@ pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgre
 
             (
                 JobPayload::ScriptHash {
-                    hash: script_hash,
+                    hash: ScriptHash(hash),
                     path: script_path.to_owned(),
-                    custom_concurrency_key,
-                    concurrent_limit,
-                    concurrency_time_window_s,
-                    cache_ttl: cache_ttl,
+                    cache_ttl,
+                    cache_ignore_s3_path,
                     language,
                     dedicated_worker,
                     priority,
                     apply_preprocessor: !skip_preprocessor.unwrap_or(false)
                         && has_preprocessor.unwrap_or(false),
+                    debouncing_settings,
+                    concurrency_settings,
+                    labels,
                 },
                 tag,
                 delete_after_use,
-                script_timeout,
+                delete_after_secs,
+                timeout,
                 on_behalf_of,
             )
         };
@@ -449,54 +174,9 @@ pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgre
         job_payload,
         tag,
         delete_after_use,
+        delete_after_secs,
         script_timeout,
         on_behalf_of,
-    ))
-}
-
-pub async fn script_hash_to_tag_and_limits<'c>(
-    script_hash: &ScriptHash,
-    db: &mut Transaction<'c, Postgres>,
-    w_id: &String,
-) -> error::Result<(
-    Option<Tag>,
-    Option<String>,
-    Option<i32>,
-    Option<i32>,
-    Option<i32>,
-    ScriptLang,
-    Option<bool>,
-    Option<i16>,
-    Option<bool>,
-    Option<i32>,
-    Option<String>,
-    String,
-)> {
-    let script = sqlx::query!(
-        "select tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, on_behalf_of_email, created_by from script where hash = $1 AND workspace_id = $2",
-        script_hash.0,
-        w_id
-    )
-    .fetch_one(&mut **db)
-    .await
-    .map_err(|e| {
-        Error::InternalErr(format!(
-            "querying getting tag for hash {script_hash}: {e:#}"
-        ))
-    })?;
-    Ok((
-        script.tag,
-        script.concurrency_key,
-        script.concurrent_limit,
-        script.concurrency_time_window_s,
-        script.cache_ttl,
-        script.language,
-        script.dedicated_worker,
-        script.priority,
-        script.delete_after_use,
-        script.timeout,
-        script.on_behalf_of_email,
-        script.created_by,
     ))
 }
 
@@ -505,27 +185,50 @@ pub async fn get_payload_tag_from_prefixed_path(
     db: &DB,
     w_id: &str,
 ) -> Result<(JobPayload, Option<String>, Option<OnBehalfOf>), Error> {
-    let (payload, tag, _, _, on_behalf_of) = if path.starts_with("script/") {
-        script_path_to_payload(path.strip_prefix("script/").unwrap(), db, w_id, Some(true)).await?
+    let (payload, tag, _, _, _, on_behalf_of) = if path.starts_with("script/") {
+        script_path_to_payload(
+            path.strip_prefix("script/").unwrap(),
+            None,
+            db.clone(),
+            w_id,
+            Some(true),
+        )
+        .await?
     } else if path.starts_with("flow/") {
         let path = path.strip_prefix("flow/").unwrap().to_string();
-        let r = sqlx::query!(
-            "SELECT tag, dedicated_worker from flow WHERE path = $1 and workspace_id = $2",
-            &path,
-            &w_id,
-        )
-        .fetch_optional(db)
-        .await?;
-        let (tag, dedicated_worker) = r
-            .map(|x| (x.tag, x.dedicated_worker))
-            .unwrap_or_else(|| (None, None));
-        (
-            JobPayload::Flow { path, dedicated_worker, apply_preprocessor: false },
-            tag,
-            None,
-            None,
-            None,
-        )
+        if path.starts_with("hub/flows/") {
+            let hub_flow =
+                get_full_hub_flow_by_path(StripPath(path.clone()), &HTTP_CLIENT, Some(db)).await?;
+            (
+                JobPayload::RawFlow {
+                    value: hub_flow.value,
+                    path: Some(path),
+                    restarted_from: None,
+                },
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        } else {
+            let FlowVersionInfo { dedicated_worker, tag, version, labels, .. } =
+                get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
+            (
+                JobPayload::Flow {
+                    path,
+                    dedicated_worker,
+                    apply_preprocessor: false,
+                    version,
+                    labels,
+                },
+                tag,
+                None,
+                None,
+                None,
+                None,
+            )
+        }
     } else {
         return Err(Error::BadRequest(format!(
             "path must start with script/ or flow/ (got {})",
@@ -535,19 +238,9 @@ pub async fn get_payload_tag_from_prefixed_path(
     Ok((payload, tag, on_behalf_of))
 }
 
-#[derive(Deserialize)]
-struct FlowStatusMetadata {
-    column_order: Vec<String>,
-}
-
-#[derive(Deserialize)]
-struct FlowStatusWithMetadataOnly {
-    _metadata: FlowStatusMetadata,
-}
-
 pub fn order_columns(
     rows: Option<Vec<Box<RawValue>>>,
-    column_order: Vec<String>,
+    column_order: &Vec<String>,
 ) -> Option<Box<RawValue>> {
     if let Some(mut rows) = rows {
         if let Some(first_row) = rows.get(0) {
@@ -555,7 +248,7 @@ pub fn order_columns(
             if let Ok(first_row) = first_row {
                 let mut new_first_row = IndexMap::new();
                 for col in column_order {
-                    if let Some(val) = first_row.get(&col) {
+                    if let Some(val) = first_row.get(col) {
                         new_first_row.insert(col.clone(), val.clone());
                     }
                 }
@@ -572,40 +265,35 @@ pub fn order_columns(
 }
 
 pub fn format_result(
-    language: Option<&ScriptLang>,
-    flow_status: Option<&sqlx::types::Json<Box<RawValue>>>,
+    result_columns: Option<&Vec<String>>,
     result: Option<&mut sqlx::types::Json<Box<RawValue>>>,
 ) -> () {
-    match language {
-        Some(&ScriptLang::Postgresql)
-        | Some(&ScriptLang::Mysql)
-        | Some(&ScriptLang::Snowflake)
-        | Some(&ScriptLang::Bigquery) => {
-            if let Some(Ok(flow_status)) =
-                flow_status.map(|x| serde_json::from_str::<FlowStatusWithMetadataOnly>(x.get()))
-            {
-                if let Some(result) = result {
-                    let rows = serde_json::from_str::<Vec<Box<RawValue>>>(result.get()).ok();
-                    if let Some(ordered_result) =
-                        order_columns(rows, flow_status._metadata.column_order)
-                    {
-                        *result = sqlx::types::Json(ordered_result);
-                    }
-                }
+    if let Some(result_columns) = result_columns {
+        if let Some(result) = result {
+            let rows = serde_json::from_str::<Vec<Box<RawValue>>>(result.get()).ok();
+            if let Some(ordered_result) = order_columns(rows, result_columns) {
+                *result = sqlx::types::Json(ordered_result);
             }
         }
-        _ => {}
     }
 }
 
 pub fn format_completed_job_result(mut cj: CompletedJob) -> CompletedJob {
-    format_result(
-        cj.language.as_ref(),
-        cj.flow_status.as_ref(),
-        cj.result.as_mut(),
-    );
-
+    format_result(cj.result_columns.as_ref(), cj.result.as_mut());
     cj
+}
+
+/// `log_file_index` is normally written by the worker as job-id-scoped relative
+/// paths under the windmill log directory. Any code path that lets a request
+/// control this value (e.g. job import) must reject entries that could escape
+/// that directory, otherwise the log-reading endpoints become an arbitrary file
+/// read primitive. Rejects path traversal (`..`) and absolute paths; on-disk
+/// readers additionally refuse symlinks (see `get_logs_from_disk`).
+pub fn is_safe_log_file_path(file_p: &str) -> bool {
+    !file_p.is_empty()
+        && !file_p.starts_with('/')
+        && !file_p.starts_with('\\')
+        && !file_p.split(['/', '\\']).any(|c| c == "..")
 }
 
 pub async fn get_logs_from_disk(
@@ -616,18 +304,23 @@ pub async fn get_logs_from_disk(
     if log_offset > 0 {
         if let Some(file_index) = log_file_index.clone() {
             for file_p in &file_index {
-                if !tokio::fs::metadata(format!("{TMP_DIR}/{file_p}"))
-                    .await
-                    .is_ok()
-                {
+                if !is_safe_log_file_path(file_p) {
                     return None;
+                }
+                let local_file = format!("{}/{file_p}", *WINDMILL_DIR);
+                // Defense in depth: refuse to read through a symlink so a planted
+                // symlink under the log directory cannot exfiltrate arbitrary files.
+                match tokio::fs::symlink_metadata(&local_file).await {
+                    Ok(meta) if meta.file_type().is_symlink() => return None,
+                    Ok(_) => {}
+                    Err(_) => return None,
                 }
             }
 
             let logs = logs.to_string();
             let stream = async_stream::stream! {
                 for file_p in file_index.clone() {
-                    let mut file = tokio::fs::File::open(format!("{TMP_DIR}/{file_p}")).await.map_err(to_anyhow)?;
+                    let mut file = tokio::fs::File::open(format!("{}/{file_p}", *WINDMILL_DIR)).await.map_err(to_anyhow)?;
                     let mut buffer = Vec::new();
                     file.read_to_end(&mut buffer).await.map_err(to_anyhow)?;
                     yield Ok(bytes::Bytes::from(buffer)) as anyhow::Result<bytes::Bytes>;
@@ -641,38 +334,153 @@ pub async fn get_logs_from_disk(
     return None;
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
-pub async fn get_logs_from_store(
-    log_offset: i32,
-    logs: &str,
-    log_file_index: &Option<Vec<String>>,
-) -> Option<impl Stream<Item = Result<Bytes, object_store::Error>>> {
-    use crate::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
+lazy_static::lazy_static! {
+    pub static ref TAGS_ARE_SENSITIVE: bool = std::env::var("TAGS_ARE_SENSITIVE").map(
+        |v| v.parse().unwrap()
+    ).unwrap_or(false);
+    pub static ref HIDE_WORKERS_FOR_NON_ADMINS: bool = std::env::var("HIDE_WORKERS_FOR_NON_ADMINS").map(
+        |v| v.parse().unwrap()
+    ).unwrap_or(false);
+}
 
-    if log_offset > 0 {
-        if let Some(file_index) = log_file_index.clone() {
-            if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-                let logs = logs.to_string();
-                let stream = async_stream::stream! {
-                    for file_p in file_index.clone() {
-                        let file_p_2 = file_p.clone();
-                        let file = os.get(&object_store::path::Path::from(file_p)).await;
-                        if let Ok(file) = file {
-                            if let Ok(bytes) = file.bytes().await {
-                                yield Ok(bytes::Bytes::from(bytes)) as object_store::Result<bytes::Bytes>;
-                            }
-                        } else {
-                            tracing::debug!("error getting file from store: {file_p_2}: {}", file.err().unwrap());
-                        }
-                    }
+pub async fn check_tag_available_for_workspace_internal(
+    db: &DB,
+    w_id: &str,
+    tag: &str,
+    email: &str,
+    scope_tags: Option<Vec<&str>>,
+) -> error::Result<()> {
+    let mut is_tag_in_scope_tags = None;
+    let mut is_tag_in_workspace_custom_tags = false;
 
-                    yield Ok(bytes::Bytes::from(logs))
-                };
-                return Some(stream);
-            } else {
-                tracing::debug!("object store client not present, cannot stream logs from store");
+    if let Some(scope_tags) = scope_tags.as_ref() {
+        is_tag_in_scope_tags = Some(scope_tags.contains(&tag));
+    }
+
+    let custom_tags_per_w = CUSTOM_TAGS_PER_WORKSPACE.load();
+    if custom_tags_per_w.global.contains(&tag.to_string()) {
+        is_tag_in_workspace_custom_tags = true;
+    } else if let Some(specific_tag) = custom_tags_per_w.specific.get(tag) {
+        is_tag_in_workspace_custom_tags = specific_tag.applies_to_workspace(w_id);
+    }
+
+    match is_tag_in_scope_tags {
+        Some(true) | None => {
+            if is_tag_in_workspace_custom_tags {
+                return Ok(());
             }
         }
+        _ => {}
     }
-    return None;
+
+    if !is_super_admin_email(db, email).await? {
+        if scope_tags.is_some() && is_tag_in_scope_tags.is_some() {
+            return Err(Error::BadRequest(format!(
+                "Tag {tag} is not available in your scope"
+            )));
+        }
+
+        if *TAGS_ARE_SENSITIVE {
+            return Err(Error::BadRequest(format!("{tag} is not available to you")));
+        } else {
+            return Err(error::Error::BadRequest(format!(
+            "Only super admins are allowed to use tags that are not included in the allowed CUSTOM_TAGS: {:?}",
+            custom_tags_per_w
+        )));
+        }
+    }
+
+    return Ok(());
+}
+
+pub struct RunInlinePreviewScriptFnParams {
+    pub workspace_id: String,
+    pub content: String,
+    pub lang: ScriptLang,
+    pub args: Option<HashMap<String, Box<RawValue>>>,
+    pub created_by: String,
+    pub permissioned_as: String,
+    pub permissioned_as_email: String,
+    pub base_internal_url: String,
+    pub worker_name: String,
+    pub conn: crate::worker::Connection,
+    pub client: AuthedClient,
+    pub job_dir: String,
+    pub worker_dir: String,
+    pub killpill_rx: tokio::sync::broadcast::Receiver<()>,
+}
+
+pub enum InlineScriptTarget {
+    Path(String),
+    Hash(i64),
+}
+
+pub struct RunInlineScriptFnParams {
+    pub workspace_id: String,
+    pub target: InlineScriptTarget,
+    pub args: Option<HashMap<String, Box<RawValue>>>,
+    pub created_by: String,
+    pub permissioned_as: String,
+    pub permissioned_as_email: String,
+    pub base_internal_url: String,
+    pub worker_name: String,
+    pub conn: crate::worker::Connection,
+    pub client: AuthedClient,
+    pub job_dir: String,
+    pub worker_dir: String,
+    pub killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    pub user_db: Option<(crate::db::UserDB, crate::db::Authed)>,
+}
+
+#[derive(Clone)]
+pub struct WorkerInternalServerInlineUtils {
+    pub killpill_rx: Arc<tokio::sync::broadcast::Receiver<()>>,
+    pub base_internal_url: String,
+    pub run_inline_preview_script: Arc<
+        dyn Fn(
+                RunInlinePreviewScriptFnParams,
+            ) -> Pin<Box<dyn Future<Output = error::Result<Box<RawValue>>> + Send>>
+            + Send
+            + Sync,
+    >,
+    pub run_inline_script: Arc<
+        dyn Fn(
+                RunInlineScriptFnParams,
+            ) -> Pin<Box<dyn Future<Output = error::Result<Box<RawValue>>> + Send>>
+            + Send
+            + Sync,
+    >,
+}
+// To run a script inline, bypassing the db and job queue, windmill-api uses these functions.
+// They should only be called by the internal server of a worker.
+// main() sets the global on startup.
+// The server cannot call the worker functions directly because they are independent crates
+pub static WORKER_INTERNAL_SERVER_INLINE_UTILS: OnceCell<WorkerInternalServerInlineUtils> =
+    OnceCell::new();
+
+#[cfg(test)]
+mod tests {
+    use super::is_safe_log_file_path;
+
+    #[test]
+    fn safe_log_file_paths_are_accepted() {
+        // Legit worker-written entries are job-id-scoped relative paths.
+        assert!(is_safe_log_file_path(
+            "0190d3e2-0000-7000-8000-000000000000/0.txt"
+        ));
+        assert!(is_safe_log_file_path("logs/abc/chunk1.log"));
+        assert!(is_safe_log_file_path("file..with..dots.txt"));
+    }
+
+    #[test]
+    fn traversal_and_absolute_paths_are_rejected() {
+        assert!(!is_safe_log_file_path(""));
+        assert!(!is_safe_log_file_path("../../../../etc/passwd"));
+        assert!(!is_safe_log_file_path("a/../../etc/passwd"));
+        assert!(!is_safe_log_file_path(".."));
+        assert!(!is_safe_log_file_path("/etc/passwd"));
+        assert!(!is_safe_log_file_path("/proc/self/environ"));
+        assert!(!is_safe_log_file_path("\\windows\\path"));
+        assert!(!is_safe_log_file_path("a\\..\\..\\b"));
+    }
 }

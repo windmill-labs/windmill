@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            c.relname as \"table_name!\",\n            pg_total_relation_size(c.oid) as \"size_bytes!\",\n            pg_size_pretty(pg_total_relation_size(c.oid)) as \"size_pretty!\",\n            COALESCE(c.reltuples, 0) as \"estimated_rows!\"\n        FROM pg_class c\n        JOIN pg_namespace n ON n.oid = c.relnamespace\n        WHERE n.nspname = 'public' AND c.relname = ANY($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "table_name!",
+        "type_info": "Name"
+      },
+      {
+        "ordinal": 1,
+        "name": "size_bytes!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "size_pretty!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "estimated_rows!",
+        "type_info": "Float4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "NameArray"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "7c5db0b3bd1dd1f766e1841ca620871a468033e05b6e0188ea4775b63fc66e84"
+}

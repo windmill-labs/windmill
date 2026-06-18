@@ -1,4 +1,4 @@
-import type { Script } from './gen'
+import type { Script, ScriptLang } from './gen'
 
 export type OwnerKind = 'group' | 'user' | 'folder'
 
@@ -15,7 +15,7 @@ export interface PropertyDisplayInfo {
 	propertiesNumber: number
 }
 
-export type EnumType = string[] | undefined
+export type EnumType = string[] | { value: string; label: string }[] | undefined
 
 export interface SchemaProperty {
 	type: string | undefined
@@ -31,6 +31,7 @@ export interface SchemaProperty {
 		enum?: string[]
 		resourceType?: string
 		properties?: { [name: string]: SchemaProperty }
+		required?: string[]
 	}
 	min?: number
 	max?: number
@@ -41,6 +42,7 @@ export interface SchemaProperty {
 	properties?: { [name: string]: SchemaProperty }
 	required?: string[]
 	showExpr?: string
+	hideWhenChatEnabled?: boolean
 	password?: boolean
 	order?: string[]
 	nullable?: boolean
@@ -49,6 +51,9 @@ export interface SchemaProperty {
 	placeholder?: string
 	oneOf?: SchemaProperty[]
 	originalType?: string
+	disabled?: boolean
+	'x-no-s3-storage-workspace-warning'?: string
+	'x-auto-generate'?: boolean
 }
 
 export interface ModalSchemaProperty {
@@ -108,6 +113,8 @@ export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
 export type Schema = {
 	$schema: string | undefined
 	type: string
+	'x-windmill-dyn-select-code'?: string
+	'x-windmill-dyn-select-lang'?: ScriptLang
 	properties: { [name: string]: SchemaProperty }
 	order?: string[]
 	required: string[]

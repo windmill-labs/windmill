@@ -1,0 +1,3093 @@
+/*
+ * Author: Ruben Fiszel
+ * Copyright: Windmill Labs, Inc 2022
+ * This file and its contents are licensed under the AGPLv3 License.
+ * Please see the included NOTICE for copyright information and
+ * LICENSE-AGPL for a copy of the license.
+ */
+
+use std::collections::HashMap;
+use std::net::IpAddr;
+
+use windmill_api_auth::{
+    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
+    require_super_admin, ApiAuthed, Tokened,
+};
+use windmill_common::db::DB;
+use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
+
+use crate::secret_backend_ext::rename_vault_secret;
+use crate::var_resource_cache::{auth_identity, cache_resource, get_cached_resource};
+use windmill_common::utils::{escape_ilike_pattern, BulkDeleteRequest};
+use windmill_common::webhook::{WebhookMessage, WebhookShared};
+
+use axum::{
+    body::Body,
+    extract::{Extension, Path, Query},
+    response::Response,
+    routing::{delete, get, post},
+    Json, Router,
+};
+use futures::future::try_join_all;
+use hyper::{header, StatusCode};
+use serde::{Deserialize, Serialize};
+use serde_json::{value::RawValue, Value};
+use sql_builder::{bind::Bind, quote, SqlBuilder};
+use sqlx::{Acquire, FromRow, Postgres, Transaction};
+use std::process::Stdio;
+use tokio::process::Command;
+use uuid::Uuid;
+use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
+use windmill_audit::ActionKind;
+use windmill_common::{
+    db::{DbWithOptAuthed, UserDB},
+    error::{self, Error, JsonResult, Result},
+    get_database_url,
+    user_drafts::{
+        delete_all_drafts_for_path, delete_own_draft_for_path, fetch_draft_only,
+        fetch_draft_only_list_rows, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay,
+        WithDraftQuery,
+    },
+    utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
+    variables,
+    worker::{CLOUD_HOSTED, WINDMILL_DIR},
+    PgDatabase,
+};
+
+use async_recursion::async_recursion;
+use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+
+pub fn workspaced_service() -> Router {
+    Router::new()
+        .route("/list", get(list_resources))
+        .route("/list_search", get(list_search_resources))
+        .route("/list_names/{type}", get(list_names))
+        .route("/get/{*path}", get(get_resource))
+        .route("/exists/{*path}", get(exists_resource))
+        .route("/get_value/{*path}", get(get_resource_value))
+        .route(
+            "/get_value_interpolated/{*path}",
+            get(get_resource_value_interpolated),
+        )
+        .route("/update/{*path}", post(update_resource))
+        .route("/update_value/{*path}", post(update_resource_value))
+        .route("/delete/{*path}", delete(delete_resource))
+        .route("/delete_bulk", delete(delete_resources_bulk))
+        .route("/create", post(create_resource))
+        .route("/git_commit_hash/{*path}", get(get_git_commit_hash))
+        .route("/type/list", get(list_resource_types))
+        .route("/type/listnames", get(list_resource_types_names))
+        .route("/type/get/{name}", get(get_resource_type))
+        .route("/type/exists/{name}", get(exists_resource_type))
+        .route("/type/update/{name}", post(update_resource_type))
+        .route("/type/delete/{name}", delete(delete_resource_type))
+        .route(
+            "/file_resource_type_to_file_ext_map",
+            get(file_resource_ext_to_resource_type),
+        )
+        .route("/type/create", post(create_resource_type))
+}
+
+pub fn public_service() -> Router {
+    Router::new().route("/custom_component/{name}", get(custom_component))
+}
+
+#[derive(FromRow, Serialize, Deserialize)]
+pub struct ResourceType {
+    pub workspace_id: String,
+    pub name: String,
+    pub schema: Option<serde_json::Value>,
+    pub description: Option<String>,
+    pub created_by: Option<String>,
+    pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub format_extension: Option<String>,
+    pub is_fileset: bool,
+}
+
+#[derive(Deserialize)]
+pub struct CreateResourceType {
+    pub name: String,
+    pub schema: Option<serde_json::Value>,
+    pub description: Option<String>,
+    pub format_extension: Option<String>,
+    pub is_fileset: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct EditResourceType {
+    pub schema: Option<serde_json::Value>,
+    pub description: Option<String>,
+    pub is_fileset: Option<bool>,
+}
+
+#[derive(FromRow, Serialize, Deserialize)]
+pub struct Resource {
+    pub workspace_id: String,
+    pub path: String,
+    pub value: Option<serde_json::Value>,
+    pub description: Option<String>,
+    pub resource_type: String,
+    pub extra_perms: serde_json::Value,
+    pub created_by: Option<String>,
+    pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
+}
+
+#[derive(FromRow, Serialize, Deserialize)]
+pub struct ListableResource {
+    pub workspace_id: String,
+    pub path: String,
+    pub value: Option<serde_json::Value>,
+    pub description: Option<String>,
+    pub resource_type: String,
+    pub extra_perms: serde_json::Value,
+    pub created_by: Option<String>,
+    pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub is_linked: Option<bool>,
+    pub is_refreshed: Option<bool>,
+    pub is_oauth: Option<bool>,
+    pub is_expired: Option<bool>,
+    pub refresh_error: Option<String>,
+    pub account: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
+    /// Labels inherited from the parent folder, computed at read time.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inherited_labels: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ws_specific: Option<bool>,
+    /// `Some(true)` only on synthesized draft-only rows; `None` on deployed rows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub draft_only: Option<bool>,
+    /// True when the authed user has a per-user draft at this path (drives the
+    /// `*` suffix on the resources page).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub is_draft: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct CreateResource {
+    pub path: String,
+    pub value: Option<Box<RawValue>>,
+    pub description: Option<String>,
+    pub resource_type: String,
+    pub labels: Option<Vec<String>>,
+    #[serde(default)]
+    pub ws_specific: Option<bool>,
+}
+#[derive(Deserialize)]
+struct EditResource {
+    path: Option<String>,
+    description: Option<String>,
+    value: Option<Box<RawValue>>,
+    labels: Option<Vec<String>>,
+    ws_specific: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct ListResourceQuery {
+    pub resource_type: Option<String>,
+    pub resource_type_exclude: Option<String>,
+    pub path_start: Option<String>,
+    pub path: Option<String>,
+    pub description: Option<String>,
+    // filter by matching a subset of the value using base64 encoded json subset
+    pub value: Option<String>,
+    pub broad_filter: Option<String>,
+    pub label: Option<String>,
+    /// When true, append per-user draft-only rows; picker callers leave it off
+    /// to stay deployed-only. See list synthesis in scripts.rs.
+    pub include_draft_only: Option<bool>,
+}
+
+#[derive(Serialize, FromRow)]
+pub struct NamePath {
+    name: String,
+    path: String,
+}
+async fn list_names(
+    authed: ApiAuthed,
+    Path((w_id, rt)): Path<(String, String)>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<NamePath>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let allowed = build_scope_path_predicate(&authed, "resources", "read");
+    let rows = sqlx::query!(
+        "SELECT value->>'name' as name, path from resource WHERE resource_type = $1 AND workspace_id = $2",
+        rt,
+        &w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .filter_map(|x| x.name.map(|name| NamePath { name, path: x.path }))
+    .filter(|np| allowed(&np.path))
+    .collect::<Vec<_>>();
+    tx.commit().await?;
+    Ok(Json(rows))
+}
+
+#[derive(Serialize, FromRow)]
+pub struct SearchResource {
+    path: String,
+    value: serde_json::Value,
+}
+async fn list_search_resources(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<SearchResource>> {
+    let mut tx = user_db.begin(&authed).await?;
+    #[cfg(feature = "enterprise")]
+    let n = 1000;
+
+    #[cfg(not(feature = "enterprise"))]
+    let n = 3;
+
+    let allowed = build_scope_path_predicate(&authed, "resources", "read");
+    let rows = sqlx::query_as!(
+        SearchResource,
+        "SELECT path, value from resource WHERE workspace_id = $1 LIMIT $2",
+        &w_id,
+        n
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .filter(|r| allowed(&r.path))
+    .collect::<Vec<_>>();
+    tx.commit().await?;
+    Ok(Json(rows))
+}
+
+async fn list_resources(
+    authed: ApiAuthed,
+    Query(lq): Query<ListResourceQuery>,
+    Query(pagination): Query<Pagination>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<ListableResource>> {
+    let (per_page, offset) = paginate(pagination);
+
+    let mut sqlb = SqlBuilder::select_from("resource")
+        .fields(&[
+            "resource.workspace_id",
+            "resource.path",
+            "null::JSONB as value",
+            "resource.description",
+            "resource_type",
+            "resource.extra_perms",
+            "(now() > account.expires_at) as is_expired",
+            "variable.path IS NOT NULL as is_linked",
+            "account.refresh_token != '' as is_refreshed",
+            "variable.is_oauth",
+            "variable.account",
+            "account.refresh_error",
+            "resource.created_by",
+            "resource.edited_at",
+            "resource.labels",
+            "folder_labels(resource.workspace_id, resource.path) as inherited_labels",
+            "ws_specific.path IS NOT NULL as ws_specific",
+        ])
+        // Scalar EXISTS flags the authed user's per-user draft without fanning rows out.
+        .field(
+            &"EXISTS(SELECT 1 FROM draft WHERE draft.workspace_id = resource.workspace_id \
+              AND draft.path = resource.path AND draft.typ = 'resource' \
+              AND draft.email = ?) as is_draft"
+                .bind(&authed.email),
+        )
+        .left()
+        .join("variable")
+        .on("variable.path = resource.path AND variable.workspace_id = resource.workspace_id")
+        .left()
+        .join("ws_specific")
+        .on("ws_specific.path = resource.path AND ws_specific.workspace_id = resource.workspace_id AND ws_specific.item_kind = 'resource'")
+        .left()
+        .join("account")
+        .on("variable.account = account.id AND account.workspace_id = variable.workspace_id")
+        .order_by("path", true)
+        .and_where("resource.workspace_id = ?".bind(&w_id))
+        .offset(offset)
+        .limit(per_page)
+        .clone();
+
+    if let Some(rt) = &lq.resource_type {
+        let resource_type_filters = rt.split(',').collect::<Vec<&str>>();
+        if resource_type_filters.len() == 1 {
+            sqlb.and_where_eq("resource_type", "?".bind(rt));
+        } else {
+            let mut list = Vec::new();
+            for rt in resource_type_filters {
+                let quoted_value = quote(rt);
+                list.push(quoted_value);
+            }
+            sqlb.and_where_in("resource_type", list.as_slice());
+        }
+    }
+    if let Some(rt) = &lq.resource_type_exclude {
+        for rt in rt.split(',') {
+            sqlb.and_where_ne("resource_type", "?".bind(&rt));
+        }
+    }
+
+    if let Some(path_start) = &lq.path_start {
+        sqlb.and_where_like_left("resource.path", path_start);
+    }
+
+    if let Some(path) = &lq.path {
+        sqlb.and_where_eq("resource.path", "?".bind(path));
+    }
+
+    if let Some(description) = &lq.description {
+        let pat = format!("%{}%", escape_ilike_pattern(description));
+        sqlb.and_where("resource.description ILIKE ?".bind(&pat));
+    }
+
+    if let Some(value) = &lq.value {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(value) {
+            sqlb.and_where("resource.value @> ?".bind(&v.to_string()));
+        } else {
+            sqlb.and_where("FALSE");
+        }
+    }
+
+    if let Some(broad_filter) = &lq.broad_filter {
+        let pat = format!("%{}%", escape_ilike_pattern(broad_filter));
+        sqlb.and_where(
+            "(resource.path ILIKE ? OR resource.description ILIKE ? OR resource_type ILIKE ? OR resource.value::text ILIKE ?)"
+                .bind(&pat).bind(&pat).bind(&pat).bind(&pat)
+        );
+    }
+
+    if let Some(label) = &lq.label {
+        for l in label.split(',') {
+            sqlb.and_where(
+                "(resource.labels @> ARRAY[?] OR folder_labels(resource.workspace_id, resource.path) @> ARRAY[?])"
+                    .bind(&l.trim())
+                    .bind(&l.trim()),
+            );
+        }
+    }
+
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
+    let mut tx = user_db.begin(&authed).await?;
+    let allowed = build_scope_path_predicate(&authed, "resources", "read");
+    let mut rows = sqlx::query_as::<_, ListableResource>(&sql)
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .filter(|r| allowed(&r.path))
+        .collect::<Vec<_>>();
+
+    tx.commit().await?;
+
+    // Append the authed user's draft-only resources; see scripts.rs.
+    // `resource_type` / `resource_type_exclude` are deliberately NOT in the bail-out
+    // list (the resources page always passes `resource_type_exclude`); they're applied
+    // per-row below against the draft JSON's `resource_type` instead.
+    if lq.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && offset == 0
+        && lq.path_start.is_none()
+        && lq.path.is_none()
+        && lq.description.is_none()
+        && lq.value.is_none()
+        && lq.broad_filter.is_none()
+        && lq.label.is_none()
+    {
+        let rt_filter: Option<Vec<&str>> = lq
+            .resource_type
+            .as_deref()
+            .map(|s| s.split(',').map(str::trim).collect());
+        let rt_exclude: Option<Vec<&str>> = lq
+            .resource_type_exclude
+            .as_deref()
+            .map(|s| s.split(',').map(str::trim).collect());
+        let draft_only_rows =
+            fetch_draft_only_list_rows(&db, &w_id, &authed.email, UserDraftItemKind::Resource)
+                .await?;
+
+        for row in draft_only_rows {
+            let v: serde_json::Value =
+                serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
+            // ResourceEditor's `ResourceState`: { path, description, args, labels?, wsSpecific, resource_type? }
+            let path = v
+                .get("path")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string();
+            if path.is_empty() || !allowed(&path) {
+                continue;
+            }
+            let description = v
+                .get("description")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string());
+            let value = v.get("args").cloned();
+            let resource_type = v
+                .get("resource_type")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            // Mirror the deployed query's resource_type narrowing for the
+            // synthesized rows (see the gate comment above).
+            if let Some(ref rts) = rt_filter {
+                if !rts.contains(&resource_type.as_str()) {
+                    continue;
+                }
+            }
+            if let Some(ref excl) = rt_exclude {
+                if excl.contains(&resource_type.as_str()) {
+                    continue;
+                }
+            }
+            let labels = v.get("labels").and_then(|x| {
+                x.as_array().map(|arr| {
+                    arr.iter()
+                        .filter_map(|s| s.as_str().map(|s| s.to_string()))
+                        .collect::<Vec<_>>()
+                })
+            });
+            let ws_specific = v.get("wsSpecific").and_then(|x| x.as_bool());
+
+            rows.push(ListableResource {
+                workspace_id: w_id.clone(),
+                path,
+                value,
+                description,
+                resource_type,
+                extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                created_by: None,
+                edited_at: Some(row.created_at),
+                is_linked: None,
+                is_refreshed: None,
+                is_oauth: None,
+                is_expired: None,
+                refresh_error: None,
+                account: None,
+                labels,
+                // No deployed row to inherit folder labels from.
+                inherited_labels: None,
+                ws_specific,
+                draft_only: Some(true),
+                // Synthesized rows are the authed user's draft.
+                is_draft: Some(true),
+            });
+        }
+    }
+
+    Ok(Json(rows))
+}
+
+async fn get_resource(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Query(q): Query<WithDraftQuery>,
+) -> JsonResult<WithDraftOverlay> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("resources:read:{}", path))?;
+    let mut tx = user_db.begin(&authed).await?;
+
+    let resource_o = sqlx::query_as!(
+        ListableResource,
+        // `null::bool` columns align with the struct fields; deployed rows are never draft-only.
+        "SELECT resource.workspace_id, resource.path, resource.value, resource.description,
+        resource.resource_type, resource.extra_perms, resource.created_by, resource.edited_at,
+        resource.labels,
+        folder_labels(resource.workspace_id, resource.path) as \"inherited_labels?\",
+        (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,
+        account.refresh_error,
+        variable.path IS NOT NULL as is_linked,
+        variable.is_oauth as \"is_oauth?\",
+        variable.account,
+        ws_specific.path IS NOT NULL as ws_specific,
+        null::bool as draft_only,
+        null::bool as is_draft
+        FROM resource
+        LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = $2
+        LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2
+        LEFT JOIN ws_specific ON ws_specific.path = resource.path AND ws_specific.workspace_id = $2 AND ws_specific.item_kind = 'resource'
+        WHERE resource.path = $1 AND resource.workspace_id = $2",
+        path.to_owned(),
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    if resource_o.is_none() && q.get_draft {
+        // No deployed row + `get_draft`: synthesize the response from the draft
+        // alone (`no_deployed = true`); see scripts.rs.
+        if let Some(overlay) =
+            fetch_draft_only(&db, &w_id, &authed.email, UserDraftItemKind::Resource, path).await?
+        {
+            return Ok(Json(overlay));
+        }
+    }
+    if resource_o.is_none() {
+        explain_resource_perm_error(&path, &w_id, &db, &authed).await?;
+    }
+    let resource = not_found_if_none(resource_o, "Resource", path)?;
+    let overlay = maybe_overlay_draft(
+        &db,
+        &w_id,
+        &authed.email,
+        UserDraftItemKind::Resource,
+        path,
+        q.get_draft,
+        resource,
+    )
+    .await?;
+    Ok(Json(overlay))
+}
+
+async fn exists_resource(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<bool> {
+    let path = path.to_path();
+
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM resource WHERE path = $1 AND workspace_id = $2)",
+        path,
+        w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+
+    Ok(Json(exists))
+}
+
+async fn get_resource_value(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Option<serde_json::Value>> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("resources:read:{}", path))?;
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    let value_o = sqlx::query_scalar!(
+        "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
+        path.to_owned(),
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    if value_o.is_none() {
+        explain_resource_perm_error(&path, &w_id, &db, &authed).await?;
+    }
+
+    let value = not_found_if_none(value_o, "Resource", path)?;
+
+    Ok(Json(value))
+}
+
+pub async fn explain_resource_perm_error(
+    path: &str,
+    w_id: &str,
+    db: &sqlx::Pool<Postgres>,
+    authed: &ApiAuthed,
+) -> windmill_common::error::Result<()> {
+    let extra_perms = sqlx::query_scalar!(
+        "SELECT extra_perms from resource WHERE path = $1 AND workspace_id = $2",
+        path,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Resource {} not found", path)))?;
+    if path.starts_with("f/") {
+        let folder = path.split("/").nth(1).ok_or_else(|| {
+            Error::BadRequest(format!(
+                "path {} should have at least 2 components separated by /",
+                path
+            ))
+        })?;
+        let folder_extra_perms = sqlx::query_scalar!(
+            "SELECT extra_perms from folder WHERE name = $1 AND workspace_id = $2",
+            folder,
+            w_id
+        )
+        .fetch_optional(db)
+        .await?;
+        return Err(Error::NotAuthorized(format!(
+            "Resource exists but you don't have access to it:\nresource perms: {}\nfolder perms: {}\nauthed as: {authed:?}",
+            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(), serde_json::to_string_pretty(&folder_extra_perms).unwrap_or_default()
+        )));
+    } else {
+        return Err(Error::NotAuthorized(format!(
+            "Resource exists but you don't have access to it:\nresource perms: {}\nauthed as: {authed:?}",
+            serde_json::to_string_pretty(&extra_perms).unwrap_or_default()
+        )));
+    }
+}
+
+async fn custom_component(
+    Extension(db): Extension<DB>,
+    Path((w_id, name)): Path<(String, String)>,
+) -> Result<Response> {
+    let cc_o = sqlx::query_scalar!(
+        "SELECT value->>'js' FROM resource
+        WHERE path = $1 AND workspace_id = $2",
+        format!("f/app_custom/{name}"),
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten();
+
+    let cc = not_found_if_none(cc_o, "Custom Component", name)?;
+    let res = Response::builder().header(header::CONTENT_TYPE, "text/javascript");
+
+    Ok(res.body(Body::from(cc)).unwrap())
+}
+
+#[derive(Deserialize)]
+pub struct JobInfo {
+    pub job_id: Option<Uuid>,
+    pub allow_cache: Option<bool>,
+}
+
+async fn get_resource_value_interpolated(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Tokened { token }: Tokened,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Query(job_info): Query<JobInfo>,
+) -> JsonResult<Option<serde_json::Value>> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("resources:read:{}", path))?;
+
+    let db_with_opt_authed =
+        DbWithOptAuthed::from_authed(&authed, db.clone(), Some(user_db.clone()));
+    get_resource_value_interpolated_internal(
+        &db_with_opt_authed,
+        w_id.as_str(),
+        path,
+        job_info.job_id,
+        Some(token.as_str()),
+        job_info.allow_cache.unwrap_or(false),
+    )
+    .await
+    .map(|success| Json(success))
+}
+
+pub async fn get_resource_value_interpolated_internal<'a>(
+    db_with_opt_authed: &'a DbWithOptAuthed<'a, ApiAuthed>,
+    workspace: &str,
+    path: &str,
+    job_id: Option<Uuid>,
+    token_for_context: Option<&str>,
+    allow_cache: bool,
+) -> Result<Option<serde_json::Value>> {
+    // This is a special syntax to help debugging custom instance databases
+    if let Some(dbname) = path.strip_prefix("CUSTOM_INSTANCE_DB/") {
+        require_super_admin(db_with_opt_authed.db(), &db_with_opt_authed.email()).await?;
+        let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+        pg_creds.dbname = dbname.to_string();
+        let pg_creds = serde_json::to_value(&pg_creds)
+            .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?;
+        return Ok(Some(pg_creds));
+    }
+
+    // Scope the cache to the caller's full authorization identity (not just email): the
+    // cached value is already decrypted/interpolated under this caller's RLS context, so it
+    // must never be served to a context that resolves to different permissions. Only
+    // job-independent values are ever stored (see the write below), so a hit is always safe
+    // to return regardless of the current `job_id`.
+    let cache_identity = allow_cache.then(|| match db_with_opt_authed.authed() {
+        Some(authed) => auth_identity(authed),
+        None => format!("\0system:{}", db_with_opt_authed.email()),
+    });
+
+    if let Some(identity) = cache_identity.as_deref() {
+        if let Some(cached_value) = get_cached_resource(&workspace, &path, identity) {
+            return Ok(Some(cached_value));
+        }
+    }
+    use sqlx::Acquire;
+    let mut tx = db_with_opt_authed.begin().await?;
+
+    let value_o = sqlx::query_scalar!(
+        "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
+        path,
+        workspace
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    if value_o.is_none() {
+        if let Some(authed) = db_with_opt_authed.authed() {
+            let db = db_with_opt_authed.db();
+            explain_resource_perm_error(path, workspace, db, authed).await?;
+        }
+    }
+
+    let value = not_found_if_none(value_o, "Resource", path)?;
+    if let Some(value) = value {
+        // Track whether interpolation pulled in a `$WM_*` contextual variable. If it did, the
+        // result is job-dependent (and may embed `$WM_TOKEN`) and must not be cached; if not,
+        // it's job-independent and safe to cache and to serve to any job context.
+        let used_job_context = std::sync::atomic::AtomicBool::new(false);
+        let r = transform_json_value_tracked(
+            &db_with_opt_authed,
+            workspace,
+            value,
+            &job_id,
+            token_for_context,
+            0,
+            &used_job_context,
+        )
+        .await?;
+        if let Some(identity) = cache_identity.as_deref() {
+            if !used_job_context.load(std::sync::atomic::Ordering::Relaxed) {
+                cache_resource(&workspace, &path, identity, r.clone());
+            }
+        }
+        Ok(Some(r))
+    } else {
+        Ok(None)
+    }
+}
+
+// Maximum recursion depth for variable/resource interpolation. Each nested
+// object/array level and each `$res:`/`$var:` indirection consumes one unit of
+// depth. This bounds runtime cost and, crucially, prevents a stack overflow
+// from mutually-recursive `$res:` references (e.g. resource A -> `$res:B` and
+// resource B -> `$res:A`), which any workspace member with resource write
+// access could otherwise use to crash the API process.
+pub const MAX_RESOURCE_INTERPOLATION_DEPTH: u8 = 50;
+
+pub async fn transform_json_value(
+    db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
+    workspace: &str,
+    v: Value,
+    job_id: &Option<Uuid>,
+    token: Option<&str>,
+    depth: u8,
+) -> Result<Value> {
+    // Discard the job-context flag; callers that need it use `transform_json_value_tracked`.
+    let used_job_context = std::sync::atomic::AtomicBool::new(false);
+    transform_json_value_tracked(
+        db_with_opt_authed,
+        workspace,
+        v,
+        job_id,
+        token,
+        depth,
+        &used_job_context,
+    )
+    .await
+}
+
+/// Like [`transform_json_value`], but records into `used_job_context` whether the value
+/// contains a `$WM_*` contextual variable (resolved from `job_id`/`token`). A value that did
+/// not is job-independent and safe to cache; one that did must not be cached or shared across
+/// jobs.
+#[async_recursion]
+pub async fn transform_json_value_tracked(
+    db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
+    workspace: &str,
+    v: Value,
+    job_id: &Option<Uuid>,
+    token: Option<&str>,
+    depth: u8,
+    used_job_context: &std::sync::atomic::AtomicBool,
+) -> Result<Value> {
+    if depth >= MAX_RESOURCE_INTERPOLATION_DEPTH {
+        return Err(Error::internal_err(format!(
+            "Maximum resource/variable interpolation depth ({MAX_RESOURCE_INTERPOLATION_DEPTH}) exceeded; this usually indicates a circular `$res:` or `$var:` reference"
+        )));
+    }
+    match v {
+        Value::String(y) if y.starts_with("$var:") => {
+            let path = y.strip_prefix("$var:").unwrap();
+
+            let v =
+                crate::variables::get_value_internal(&db_with_opt_authed, workspace, path, false)
+                    .await?;
+            Ok(Value::String(v))
+        }
+        Value::String(y) if y.starts_with("$jsonvar:") => {
+            let path = y.strip_prefix("$jsonvar:").unwrap();
+
+            let v =
+                crate::variables::get_value_internal(&db_with_opt_authed, workspace, path, false)
+                    .await?;
+            serde_json::from_str::<Value>(&v).map_err(|e| {
+                Error::internal_err(format!("Failed to parse $jsonvar value as JSON: {e}"))
+            })
+        }
+        Value::String(y) if y.starts_with("$res:") => {
+            let path = y.strip_prefix("$res:").unwrap();
+            if path.split("/").count() < 2 {
+                return Err(Error::internal_err(format!(
+                    "Invalid resource path: {path}"
+                )));
+            }
+            let mut tx: Transaction<'_, Postgres> = db_with_opt_authed.begin().await?;
+            let v = sqlx::query_scalar!(
+                "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
+                path,
+                &workspace
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            let v = not_found_if_none(v, "Resource", path)?;
+            if let Some(v) = v {
+                transform_json_value_tracked(
+                    db_with_opt_authed,
+                    workspace,
+                    v,
+                    job_id,
+                    token,
+                    depth + 1,
+                    used_job_context,
+                )
+                .await
+            } else {
+                Ok(Value::Null)
+            }
+        }
+        // `$WM_*` is the reserved contextual-variable namespace (`$WM_TOKEN`, `$WM_JOB_ID`,
+        // ...); its resolved value depends on the job, so a value containing one is
+        // job-dependent and must never be cached — including on a no-job read, where the
+        // placeholder is left unresolved (caching it would then serve a stale placeholder to a
+        // later job read). Any other `$...` string (custom workspace envs, `$5.00`, `$HOME`, jq
+        // paths) is NOT interpolated here — it resolves to itself regardless of context and so
+        // stays cacheable (handled by the catch-all below). Note: custom workspace envs are
+        // intentionally not resolved inside resource values (they remain available to scripts).
+        Value::String(y) if y.starts_with("$WM_") => {
+            used_job_context.store(true, std::sync::atomic::Ordering::Relaxed);
+            let Some(job_id) = *job_id else {
+                // No job context to resolve against; leave the placeholder unchanged.
+                return Ok(Value::String(y));
+            };
+            let mut tx = db_with_opt_authed.begin().await?;
+            let job = sqlx::query!(
+                "SELECT
+                    v2_job.permissioned_as_email,
+                    v2_job.created_by,
+                    v2_job.parent_job,
+                    v2_job.permissioned_as,
+                    v2_job.runnable_path,
+                    CASE WHEN v2_job.trigger_kind = 'schedule'::job_trigger_kind THEN v2_job.trigger END AS schedule_path,
+                    CASE WHEN v2_job.trigger_kind = 'ci_test'::job_trigger_kind THEN v2_job.trigger END AS tested_runnable,
+                    v2_job.flow_step_id,
+                    v2_job.flow_innermost_root_job,
+                    v2_job.root_job,
+                    v2_job_queue.scheduled_for AS \"scheduled_for: chrono::DateTime<chrono::Utc>\"
+                FROM v2_job INNER JOIN v2_job_queue ON v2_job.id = v2_job_queue.id
+                WHERE v2_job.id = $1 AND v2_job.workspace_id = $2",
+                job_id,
+                workspace
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
+            tx.commit().await?;
+
+            let job = not_found_if_none(job, "Job", job_id.to_string())?;
+
+            let flow_path = if let Some(uuid) = job.parent_job {
+                let mut tx: Transaction<'_, Postgres> = db_with_opt_authed.begin().await?;
+                let p = sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", uuid)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .flatten();
+                tx.commit().await?;
+                p
+            } else {
+                None
+            };
+
+            let variables = variables::get_reserved_variables(
+                &db_with_opt_authed.db().into(),
+                workspace,
+                token.unwrap_or_else(|| "no_token_available"),
+                &job.permissioned_as_email,
+                &job.created_by,
+                &job_id.to_string(),
+                &job.permissioned_as,
+                job.runnable_path.clone(),
+                job.parent_job.map(|x| x.to_string()),
+                flow_path,
+                job.schedule_path.clone(),
+                job.flow_step_id.clone(),
+                job.flow_innermost_root_job.map(|x| x.to_string()),
+                job.root_job.map(|x| x.to_string()),
+                Some(job.scheduled_for.clone()),
+                None,
+                None,
+                job.tested_runnable.clone(),
+            )
+            .await;
+
+            let name = y.strip_prefix("$").unwrap();
+
+            let value = variables
+                .iter()
+                .find(|x| x.name == name)
+                .map(|x| x.value.clone())
+                .unwrap_or_else(|| y);
+            Ok(serde_json::json!(value))
+        }
+        Value::Array(mut arr) if depth <= 2 && arr.len() <= 1000 => {
+            for i in 0..arr.len() {
+                let val = std::mem::take(&mut arr[i]);
+                arr[i] = transform_json_value_tracked(
+                    db_with_opt_authed,
+                    workspace,
+                    val,
+                    job_id,
+                    token,
+                    depth + 1,
+                    used_job_context,
+                )
+                .await?;
+            }
+            Ok(Value::Array(arr))
+        }
+        Value::Array(arr) => {
+            if arr.len() > 1000 {
+                tracing::warn!(
+                    "Array with {} items exceeds 1000 item limit for variable/resource resolution, skipping",
+                    arr.len()
+                );
+            }
+            Ok(Value::Array(arr))
+        }
+        Value::Object(mut m) => {
+            for (a, b) in m.clone().into_iter() {
+                let v = transform_json_value_tracked(
+                    db_with_opt_authed,
+                    workspace,
+                    b,
+                    job_id,
+                    token,
+                    depth + 1,
+                    used_job_context,
+                )
+                .await?;
+                m.insert(a.clone(), v);
+            }
+            Ok(Value::Object(m))
+        }
+        a @ _ => Ok(a),
+    }
+}
+
+async fn check_path_conflict<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+    path: &str,
+) -> Result<()> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM resource WHERE path = $1 AND workspace_id = $2)",
+        path,
+        w_id
+    )
+    .fetch_one(&mut **tx)
+    .await?
+    .unwrap_or(false);
+    if exists {
+        return Err(Error::BadRequest(format!(
+            "Resource {} already exists",
+            path
+        )));
+    }
+    return Ok(());
+}
+
+#[derive(Deserialize)]
+struct CreateResourceQuery {
+    update_if_exists: Option<bool>,
+}
+async fn create_resource(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path(w_id): Path<String>,
+    Query(q): Query<CreateResourceQuery>,
+    Json(resource): Json<CreateResource>,
+) -> Result<(StatusCode, String)> {
+    check_scopes(&authed, || format!("resources:write:{}", resource.path))?;
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+    if *CLOUD_HOSTED {
+        let nb_resources = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM resource WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_one(&db)
+        .await?;
+        if nb_resources.unwrap_or(0) >= 10000 {
+            return Err(Error::BadRequest(
+                    "You have reached the maximum number of resources (10000) on cloud. Check your usage in Workspace Settings > General > Cloud Quotas. Contact support@windmill.dev to increase the limit"
+                        .to_string(),
+                ));
+        }
+    }
+    let authed = maybe_refresh_folders(&resource.path, &w_id, authed, &db).await;
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    let update_if_exists = q.update_if_exists.unwrap_or(false);
+    if !update_if_exists {
+        check_path_conflict(&mut tx, &w_id, &resource.path).await?;
+    }
+
+    let res_value = resource.value.unwrap_or_default();
+    let raw_json = sqlx::types::Json(res_value.as_ref());
+
+    if resource.path.starts_with("f/app_themes/") {
+        sqlx::query!(
+            "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_themes', 'App Themes', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
+            w_id,
+            authed.username,
+        )
+        .execute(&db)
+        .await?;
+    } else if resource.path.starts_with("f/app_custom/") {
+        sqlx::query!(
+            "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_custom', 'App Custom Components', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
+            w_id,
+            authed.username,
+        )
+        .execute(&db)
+        .await?;
+    } else if resource.path.starts_with("f/app_groups/") {
+        sqlx::query!(
+            "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, edited_at) VALUES ($1, 'app_groups', 'App Groups', ARRAY[]::TEXT[], '{\"g/all\": false}', $2, now()) ON CONFLICT DO NOTHING",
+            w_id,
+            authed.username,
+        )
+        .execute(&db)
+        .await?;
+    }
+    sqlx::query!(
+        "INSERT INTO resource
+            (workspace_id, path, value, description, resource_type, created_by, edited_at, labels)
+            VALUES ($1, $2, $3, $4, $5, $6, now(), $7) ON CONFLICT (workspace_id, path)
+            DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description, resource_type = EXCLUDED.resource_type, edited_at = now(), labels = EXCLUDED.labels",
+        w_id,
+        resource.path,
+        raw_json as sqlx::types::Json<&RawValue>,
+        resource.description,
+        resource.resource_type,
+        authed.username,
+        resource.labels.as_deref() as Option<&[String]>
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Mirror update_resource: Some(true) inserts, Some(false) clears (only
+    // meaningful on the upsert path, since a pure create has no existing row),
+    // None leaves the existing flag alone.
+    match resource.ws_specific {
+        Some(true) => {
+            sqlx::query!(
+                "INSERT INTO ws_specific (workspace_id, item_kind, path) VALUES ($1, 'resource', $2) ON CONFLICT DO NOTHING",
+                w_id,
+                resource.path,
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            mark_linked_variables_ws_specific(&mut tx, &authed, &w_id, &resource.path).await?;
+        }
+        Some(false) if update_if_exists => {
+            sqlx::query!(
+                "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2",
+                w_id,
+                resource.path,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        _ => {}
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "resources.create",
+        ActionKind::Create,
+        &w_id,
+        Some(&resource.path),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Resource { path: resource.path.clone(), parent_path: None },
+        Some(format!("Resource '{}' created", resource.path.clone())),
+        true,
+        None,
+    )
+    .await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::CreateResource { workspace: w_id, path: resource.path.clone() },
+    );
+
+    Ok((
+        StatusCode::CREATED,
+        format!("resource {} created", resource.path),
+    ))
+}
+
+async fn delete_resource(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> Result<String> {
+    let path = path.to_path();
+
+    check_scopes(&authed, || format!("resources:write:{}", path))?;
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+    let mut tx = user_db.begin(&authed).await?;
+
+    // Capture resource data for trashbin before deleting
+    let trash_resource: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM resource t WHERE path = $1 AND workspace_id = $2",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    // Fetch the resource value before deleting, so we can find linked $var: references
+    let resource_value: Option<Option<serde_json::Value>> =
+        sqlx::query_scalar("SELECT value FROM resource WHERE path = $1 AND workspace_id = $2")
+            .bind(path)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+    // Collect all $var: paths referenced in the resource value
+    let mut linked_var_paths: Vec<String> = Vec::new();
+    if let Some(Some(ref value)) = resource_value {
+        collect_var_refs(value, &mut linked_var_paths);
+    }
+
+    // Capture linked variables for trashbin before deleting them
+    let trash_linked_vars: Vec<serde_json::Value> = if linked_var_paths.is_empty() {
+        Vec::new()
+    } else {
+        let placeholders: Vec<String> = linked_var_paths
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("${}", i + 2))
+            .collect();
+        let query = format!(
+            "SELECT to_jsonb(t) FROM variable t WHERE workspace_id = $1 AND path IN ({})",
+            placeholders.join(", ")
+        );
+        let mut q = sqlx::query_scalar::<_, serde_json::Value>(&query).bind(&w_id);
+        for var_path in &linked_var_paths {
+            q = q.bind(var_path);
+        }
+        q.fetch_all(&mut *tx).await?
+    };
+
+    sqlx::query!(
+        "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2",
+        w_id,
+        path
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    let deleted_path = sqlx::query_scalar!(
+        "DELETE FROM resource WHERE path = $1 AND workspace_id = $2 RETURNING path",
+        path,
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    not_found_if_none(deleted_path, "Resource", &path)?;
+
+    // Delete linked variables that are actually referenced in the resource value
+    let deleted_linked_variables: Vec<String> = if linked_var_paths.is_empty() {
+        Vec::new()
+    } else {
+        // Clean up any ws_specific rows for these variables first
+        // (mark_linked_variables_ws_specific may have auto-inserted them) so
+        // they don't survive the variable deletion as orphans — a variable
+        // later recreated at the same path would otherwise inherit the stale
+        // ws_specific flag.
+        sqlx::query!(
+            "DELETE FROM ws_specific
+             WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
+            w_id,
+            &linked_var_paths
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        let placeholders: Vec<String> = linked_var_paths
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("${}", i + 2))
+            .collect();
+        let query = format!(
+            "DELETE FROM variable WHERE workspace_id = $1 AND path IN ({}) RETURNING path",
+            placeholders.join(", ")
+        );
+        let mut q = sqlx::query_scalar::<_, String>(&query).bind(&w_id);
+        for var_path in &linked_var_paths {
+            q = q.bind(var_path);
+        }
+        q.fetch_all(&mut *tx).await?
+    };
+
+    if let Some(res_data) = trash_resource {
+        let mut trash_data = serde_json::json!({"row": res_data});
+        if !trash_linked_vars.is_empty() {
+            trash_data["linked_variables"] = serde_json::Value::Array(trash_linked_vars);
+        }
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx,
+            &w_id,
+            "resource",
+            path,
+            trash_data,
+            &authed.username,
+        )
+        .await?;
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "resources.delete",
+        ActionKind::Delete,
+        &w_id,
+        Some(path),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    // Resource gone for everyone: wipe ALL users' drafts at this path (and any linked
+    // variables cascaded into) so teammates' drafts don't orphan. Idempotent on no-draft.
+    delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Resource, path).await?;
+    for var_path in &deleted_linked_variables {
+        delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Variable, var_path).await?;
+    }
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Resource { path: path.to_string(), parent_path: Some(path.to_string()) },
+        Some(format!("Resource '{}' deleted", path)),
+        true,
+        None,
+    )
+    .await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::DeleteResource { workspace: w_id.clone(), path: path.to_owned() },
+    );
+
+    for var_path in &deleted_linked_variables {
+        handle_deployment_metadata(
+            &authed.email,
+            &authed.username,
+            &db,
+            &w_id,
+            DeployedObject::Variable {
+                path: var_path.clone(),
+                parent_path: Some(var_path.clone()),
+            },
+            Some(format!(
+                "Variable '{}' deleted (linked resource deleted)",
+                var_path
+            )),
+            true,
+            None,
+        )
+        .await?;
+
+        webhook.send_message(
+            w_id.clone(),
+            WebhookMessage::DeleteVariable { workspace: w_id.clone(), path: var_path.clone() },
+        );
+    }
+
+    Ok(format!("resource {} deleted", path))
+}
+
+/// Recursively collect all `$var:path` references from a JSON value.
+fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::String(s) => {
+            if let Some(var_path) = s.strip_prefix("$var:") {
+                out.push(var_path.to_string());
+            }
+        }
+        serde_json::Value::Object(m) => {
+            for v in m.values() {
+                collect_var_refs(v, out);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                collect_var_refs(v, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+async fn mark_linked_variables_ws_specific(
+    tx: &mut Transaction<'_, Postgres>,
+    authed: &ApiAuthed,
+    w_id: &str,
+    resource_path: &str,
+) -> Result<()> {
+    let resource_value: Option<Option<serde_json::Value>> =
+        sqlx::query_scalar("SELECT value FROM resource WHERE path = $1 AND workspace_id = $2")
+            .bind(resource_path)
+            .bind(w_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+
+    let mut linked_var_paths: Vec<String> = Vec::new();
+    if let Some(Some(ref value)) = resource_value {
+        collect_var_refs(value, &mut linked_var_paths);
+    }
+
+    linked_var_paths.sort();
+    linked_var_paths.dedup();
+
+    if linked_var_paths.is_empty() {
+        return Ok(());
+    }
+
+    // RETURNING gives us only the rows actually inserted (RFC: ON CONFLICT
+    // DO NOTHING + RETURNING returns the affected rows, i.e. the new ones).
+    let newly_marked: Vec<String> = sqlx::query_scalar(
+        "INSERT INTO ws_specific (workspace_id, item_kind, path)
+         SELECT workspace_id, 'variable', path
+         FROM variable
+         WHERE workspace_id = $1 AND path = ANY($2::text[])
+         ON CONFLICT DO NOTHING
+         RETURNING path",
+    )
+    .bind(w_id)
+    .bind(&linked_var_paths)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    // Audit each variable that was actually flipped to ws_specific so the
+    // change is traceable to the resource save that caused it.
+    for var_path in &newly_marked {
+        let mut params = HashMap::new();
+        params.insert("via_resource", resource_path);
+        audit_log(
+            &mut **tx,
+            authed,
+            "variables.set_ws_specific",
+            ActionKind::Update,
+            w_id,
+            Some(var_path),
+            Some(params),
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn delete_resources_bulk(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path(w_id): Path<String>,
+    Json(request): Json<BulkDeleteRequest>,
+) -> JsonResult<Vec<String>> {
+    for path in &request.paths {
+        check_scopes(&authed, || format!("resources:write:{}", path))?;
+    }
+
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    // Capture resources for trashbin per path before bulk delete, and
+    // collect $var: references so we can cascade-delete the linked variables
+    // (matching single-resource delete semantics).
+    let mut linked_var_paths: Vec<String> = Vec::new();
+    for path in &request.paths {
+        let trash_resource: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT to_jsonb(t) FROM resource t WHERE path = $1 AND workspace_id = $2",
+        )
+        .bind(path)
+        .bind(&w_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(res_data) = trash_resource {
+            // Per-resource linked vars so each resource's trash entry carries
+            // exactly the variables that vanished with it (matching the
+            // single-delete shape: trash_data["linked_variables"]).
+            let mut this_linked: Vec<String> = Vec::new();
+            if let Some(value) = res_data.get("value") {
+                collect_var_refs(value, &mut this_linked);
+            }
+            this_linked.sort();
+            this_linked.dedup();
+
+            let trash_linked_vars: Vec<serde_json::Value> = if this_linked.is_empty() {
+                Vec::new()
+            } else {
+                let placeholders: Vec<String> = this_linked
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| format!("${}", i + 2))
+                    .collect();
+                let query = format!(
+                    "SELECT to_jsonb(t) FROM variable t WHERE workspace_id = $1 AND path IN ({})",
+                    placeholders.join(", ")
+                );
+                let mut q = sqlx::query_scalar::<_, serde_json::Value>(&query).bind(&w_id);
+                for var_path in &this_linked {
+                    q = q.bind(var_path);
+                }
+                q.fetch_all(&mut *tx).await?
+            };
+
+            let mut trash_data = serde_json::json!({"row": res_data});
+            if !trash_linked_vars.is_empty() {
+                trash_data["linked_variables"] = serde_json::Value::Array(trash_linked_vars);
+            }
+            windmill_common::trashbin::move_to_trash(
+                &mut *tx,
+                &w_id,
+                "resource",
+                path,
+                trash_data,
+                &authed.username,
+            )
+            .await?;
+
+            linked_var_paths.extend(this_linked);
+        }
+    }
+    linked_var_paths.sort();
+    linked_var_paths.dedup();
+
+    sqlx::query!(
+        "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = ANY($2)",
+        w_id,
+        &request.paths
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    let deleted_paths = sqlx::query_scalar!(
+        "DELETE FROM resource WHERE path = ANY($1) AND workspace_id = $2 RETURNING path",
+        &request.paths,
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Cascade-clean linked variables: delete any ws_specific 'variable' rows
+    // (typically auto-inserted by mark_linked_variables_ws_specific when the
+    // resource was ws_specific) BEFORE deleting the variable rows themselves
+    // — otherwise those ws_specific rows survive as orphans and a later
+    // variable created at the same path would inherit a stale flag.
+    if !linked_var_paths.is_empty() {
+        sqlx::query!(
+            "DELETE FROM ws_specific
+             WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
+            w_id,
+            &linked_var_paths
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query!(
+            "DELETE FROM variable WHERE workspace_id = $1 AND path = ANY($2)",
+            w_id,
+            &linked_var_paths
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "resources.delete_bulk",
+        ActionKind::Delete,
+        &w_id,
+        Some(&deleted_paths.join(", ")),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    // Wipe ALL users' drafts at these paths (and linked variables); see delete_resource.
+    for path in &deleted_paths {
+        delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Resource, path).await?;
+    }
+    for var_path in &linked_var_paths {
+        delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Variable, var_path).await?;
+    }
+
+    try_join_all(deleted_paths.iter().map(|path| {
+        handle_deployment_metadata(
+            &authed.email,
+            &authed.username,
+            &db,
+            &w_id,
+            DeployedObject::Resource {
+                path: path.to_string(),
+                parent_path: Some(path.to_string()),
+            },
+            Some(format!("Resource '{}' deleted", path)),
+            true,
+            None,
+        )
+    }))
+    .await?;
+
+    for path in &deleted_paths {
+        webhook.send_message(
+            w_id.clone(),
+            WebhookMessage::DeleteResource { workspace: w_id.clone(), path: path.to_owned() },
+        );
+    }
+
+    Ok(Json(deleted_paths))
+}
+
+async fn update_resource(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Json(ns): Json<EditResource>,
+) -> Result<String> {
+    use sql_builder::prelude::*;
+
+    let path = path.to_path();
+    check_scopes(&authed, || format!("resources:write:{}", path))?;
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
+    let mut sqlb = SqlBuilder::update_table("resource");
+    sqlb.and_where_eq("path", "?".bind(&path));
+    sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
+
+    if let Some(npath) = &ns.path {
+        sqlb.set_str("path", npath);
+    }
+    if let Some(nvalue) = &ns.value {
+        sqlb.set_str("value", nvalue.to_string());
+    }
+    if let Some(ndesc) = ns.description {
+        sqlb.set_str("description", ndesc);
+    }
+    sqlb.set_str("edited_at", "now()");
+
+    sqlb.returning("path");
+    let authed = maybe_refresh_folders(path, &w_id, authed, &db).await;
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    if let Some(npath) = ns.path.clone() {
+        if npath != path {
+            check_path_conflict(&mut tx, &w_id, &npath).await?;
+
+            require_owner_of_path(&authed, path)?;
+
+            // Handle Vault secret rename if the linked variable is a Vault-stored secret
+            let linked_var = sqlx::query!(
+                "SELECT value, is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
+                path,
+                w_id
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
+
+            if let Some(var) = linked_var {
+                if var.is_secret {
+                    // Check if this is a Vault-stored secret and rename it
+                    if let Some(new_value) =
+                        rename_vault_secret(&db, &w_id, path, &npath, &var.value).await?
+                    {
+                        // Update the variable's value to point to the new Vault path
+                        sqlx::query!(
+                            "UPDATE variable SET value = $1 WHERE path = $2 AND workspace_id = $3",
+                            new_value,
+                            path,
+                            w_id
+                        )
+                        .execute(&mut *tx)
+                        .await?;
+                    }
+                }
+            }
+
+            sqlx::query!(
+                "UPDATE variable SET path = $1 WHERE path = $2 AND workspace_id = $3",
+                npath,
+                path,
+                w_id
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query!(
+                "UPDATE workspace_integrations SET resource_path = $1 WHERE workspace_id = $2 AND resource_path = $3",
+                npath,
+                w_id,
+                path
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            // Update ci_test_reference when a tested resource is renamed
+            sqlx::query!(
+                "UPDATE ci_test_reference SET tested_item_path = $1 WHERE tested_item_path = $2 AND workspace_id = $3 AND tested_item_kind = 'resource'",
+                npath,
+                path,
+                w_id
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query!(
+                "UPDATE ws_specific SET path = $1 WHERE workspace_id = $2 AND item_kind = 'resource' AND path = $3",
+                npath,
+                w_id,
+                path
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query!(
+                "UPDATE ws_specific SET path = $1 WHERE workspace_id = $2 AND item_kind = 'variable' AND path = $3",
+                npath,
+                w_id,
+                path
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
+    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
+
+    let npath = not_found_if_none(npath_o, "Resource", path)?;
+
+    if let Some(nlabels) = &ns.labels {
+        sqlx::query!(
+            "UPDATE resource SET labels = $1 WHERE path = $2 AND workspace_id = $3",
+            nlabels as &[String],
+            &npath,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    if let Some(ws_specific) = ns.ws_specific {
+        if ws_specific {
+            sqlx::query!(
+                "INSERT INTO ws_specific (workspace_id, item_kind, path) VALUES ($1, 'resource', $2) ON CONFLICT DO NOTHING",
+                w_id,
+                &npath,
+            )
+            .execute(&mut *tx)
+            .await?;
+        } else {
+            sqlx::query!(
+                "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2",
+                w_id,
+                &npath,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    // Only re-mark linked variables when something that could change them
+    // actually changed: a new value (different $var: refs) or ws_specific
+    // freshly enabled. Skipping when neither changed avoids re-running an
+    // INSERT (and audit logs) on every save.
+    let needs_remark = ns.value.is_some() || ns.ws_specific == Some(true);
+    if needs_remark {
+        let effective_ws_specific = if let Some(ws_specific) = ns.ws_specific {
+            ws_specific
+        } else {
+            sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2)",
+            )
+            .bind(&w_id)
+            .bind(&npath)
+            .fetch_one(&mut *tx)
+            .await?
+        };
+
+        if effective_ws_specific {
+            mark_linked_variables_ws_specific(&mut tx, &authed, &w_id, &npath).await?;
+        }
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "resources.update",
+        ActionKind::Update,
+        &w_id,
+        Some(path),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    // Detect if this was a rename operation
+    let old_path_if_renamed = if npath != path { Some(path) } else { None };
+
+    // On rename the draft at the OLD path orphans (no SQL FK); clear the deployer's
+    // own (+ legacy NULL) there, teammates keep theirs (StaleDraftModal). The linked
+    // variable renames alongside the resource, so its old-path draft orphans too.
+    if let Some(old_path) = old_path_if_renamed {
+        delete_own_draft_for_path(
+            &db,
+            &w_id,
+            UserDraftItemKind::Resource,
+            old_path,
+            &authed.email,
+        )
+        .await?;
+        delete_own_draft_for_path(
+            &db,
+            &w_id,
+            UserDraftItemKind::Variable,
+            old_path,
+            &authed.email,
+        )
+        .await?;
+    }
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Resource { path: npath.to_string(), parent_path: Some(path.to_string()) },
+        Some(format!("Resource '{}' updated", npath)),
+        true,
+        old_path_if_renamed,
+    )
+    .await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::UpdateResource {
+            workspace: w_id.clone(),
+            old_path: path.to_owned(),
+            new_path: npath.clone(),
+        },
+    );
+
+    // Trigger CI tests for items that reference this resource
+    {
+        let db2 = db.clone();
+        let npath2 = npath.clone();
+        let email2 = authed.email.clone();
+        let username2 = authed.username.clone();
+        tokio::spawn(async move {
+            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                &db2, &w_id, &npath2, "resource", &email2, &username2,
+            )
+            .await
+            {
+                tracing::error!(%e, "error triggering CI tests after resource update");
+            }
+        });
+    }
+
+    Ok(format!("resource {} updated (npath: {:?})", path, npath))
+}
+
+#[derive(FromRow, Serialize, Deserialize)]
+struct UpdateResource {
+    value: Option<serde_json::Value>,
+}
+
+async fn update_resource_value(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Json(nv): Json<UpdateResource>,
+) -> Result<String> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("resources:write:{}", path))?;
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+    let mut tx = user_db.begin(&authed).await?;
+
+    sqlx::query!(
+        "UPDATE resource SET value = $1, edited_at = now() WHERE path = $2 AND workspace_id = $3",
+        nv.value,
+        path,
+        w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "resources.update",
+        ActionKind::Update,
+        &w_id,
+        Some(path),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Resource { path: path.to_string(), parent_path: Some(path.to_string()) },
+        None,
+        true,
+        None,
+    )
+    .await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::UpdateResource {
+            workspace: w_id.clone(),
+            old_path: path.to_owned(),
+            new_path: path.to_owned(),
+        },
+    );
+
+    // Trigger CI tests for items that reference this resource
+    {
+        let db2 = db.clone();
+        let path2 = path.to_string();
+        let email2 = authed.email.clone();
+        let username2 = authed.username.clone();
+        tokio::spawn(async move {
+            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                &db2, &w_id, &path2, "resource", &email2, &username2,
+            )
+            .await
+            {
+                tracing::error!(%e, "error triggering CI tests after resource value update");
+            }
+        });
+    }
+
+    Ok(format!("value of resource {} updated", path))
+}
+
+#[derive(Serialize)]
+pub struct FileResourceTypeInfo {
+    pub format_extension: Option<String>,
+    pub is_fileset: bool,
+}
+
+async fn file_resource_ext_to_resource_type(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<HashMap<String, FileResourceTypeInfo>> {
+    #[derive(sqlx::FromRow)]
+    struct LocalFileResourceExtension {
+        name: String,
+        format_extension: Option<String>,
+        is_fileset: bool,
+    }
+
+    let r = sqlx::query_as!(LocalFileResourceExtension, "
+        SELECT name, format_extension, is_fileset FROM resource_type WHERE (format_extension IS NOT NULL OR is_fileset = true) AND (workspace_id = $1 OR workspace_id = 'admins')", w_id)
+        .fetch_all(&db)
+        .await?;
+
+    let hashmap: HashMap<String, FileResourceTypeInfo> = r
+        .into_iter()
+        .map(|entry| {
+            (
+                entry.name,
+                FileResourceTypeInfo {
+                    format_extension: entry.format_extension,
+                    is_fileset: entry.is_fileset,
+                },
+            )
+        })
+        .collect();
+
+    Ok(Json(hashmap))
+}
+
+async fn list_resource_types(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<ResourceType>> {
+    let rows = sqlx::query_as!(
+        ResourceType,
+        "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset from resource_type WHERE (workspace_id = $1 OR workspace_id = 'admins') ORDER \
+         BY name",
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(rows))
+}
+
+async fn list_resource_types_names(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<String>> {
+    let rows = sqlx::query_scalar!(
+        "SELECT name from resource_type WHERE (workspace_id = $1 OR workspace_id = 'admins') \
+         ORDER BY name",
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(rows))
+}
+
+async fn get_resource_type(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, name)): Path<(String, String)>,
+) -> JsonResult<ResourceType> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let resource_type_o = sqlx::query_as!(
+        ResourceType,
+        "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'admins')",
+        &name,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    let resource_type = not_found_if_none(resource_type_o, "ResourceType", name)?;
+    Ok(Json(resource_type))
+}
+
+async fn exists_resource_type(
+    Extension(db): Extension<DB>,
+    Path((w_id, name)): Path<(String, String)>,
+) -> JsonResult<bool> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'admins'))",
+        name,
+        w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+
+    Ok(Json(exists))
+}
+
+async fn create_resource_type(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path(w_id): Path<String>,
+    Json(resource_type): Json<CreateResourceType>,
+) -> Result<(StatusCode, String)> {
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    check_rt_path_conflict(&mut tx, &w_id, &resource_type.name).await?;
+
+    let is_fileset = resource_type.is_fileset.unwrap_or(false);
+
+    if is_fileset && resource_type.format_extension.is_some() {
+        return Err(Error::BadRequest(
+            "A fileset resource type cannot have a format_extension".to_string(),
+        ));
+    }
+
+    sqlx::query!(
+        "INSERT INTO resource_type
+            (workspace_id, name, schema, description, created_by, format_extension, is_fileset, edited_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, now())",
+        w_id,
+        resource_type.name,
+        resource_type.schema,
+        resource_type.description,
+        authed.username,
+        resource_type.format_extension,
+        is_fileset,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "resource_types.create",
+        ActionKind::Create,
+        &w_id,
+        Some(&resource_type.name),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::ResourceType { path: resource_type.name.clone() },
+        Some(format!(
+            "Resource Type '{}' created",
+            resource_type.name.clone()
+        )),
+        true,
+        None,
+    )
+    .await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::CreateResourceType { name: resource_type.name.clone() },
+    );
+
+    Ok((
+        StatusCode::CREATED,
+        format!("resource_type {} created", resource_type.name),
+    ))
+}
+
+async fn check_rt_path_conflict<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+    name: &str,
+) -> Result<()> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM resource_type WHERE name = $1 AND workspace_id = $2)",
+        name,
+        w_id
+    )
+    .fetch_one(&mut **tx)
+    .await?
+    .unwrap_or(false);
+    if exists {
+        return Err(Error::BadRequest(format!(
+            "Resource type {} already exists",
+            name
+        )));
+    }
+    return Ok(());
+}
+
+async fn delete_resource_type(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path((w_id, name)): Path<(String, String)>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    let deleted_name = sqlx::query_scalar!(
+        "DELETE FROM resource_type WHERE name = $1 AND workspace_id = $2 RETURNING name",
+        name,
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    not_found_if_none(deleted_name, "ResourceType", &name)?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "resource_types.delete",
+        ActionKind::Delete,
+        &w_id,
+        Some(&name),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::ResourceType { path: name.clone() },
+        None,
+        true,
+        None,
+    )
+    .await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::DeleteResourceType { name: name.clone() },
+    );
+
+    Ok(format!("resource_type {} deleted", name))
+}
+
+async fn update_resource_type(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path((w_id, name)): Path<(String, String)>,
+    Json(ns): Json<EditResourceType>,
+) -> Result<String> {
+    use sql_builder::prelude::*;
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
+    let mut sqlb = SqlBuilder::update_table("resource_type");
+    sqlb.and_where_eq("name", "?".bind(&name));
+    sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
+    if let Some(nschema) = ns.schema {
+        sqlb.set_str("schema", nschema);
+    }
+    if let Some(ndesc) = ns.description {
+        sqlb.set_str("description", ndesc);
+    }
+    if let Some(is_fileset) = ns.is_fileset {
+        sqlb.set("is_fileset", if is_fileset { "TRUE" } else { "FALSE" });
+    }
+    sqlb.set_str("edited_at", "now()");
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
+    let mut tx = user_db.begin(&authed).await?;
+
+    sqlx::query(&sql).execute(&mut *tx).await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "resource_types.update",
+        ActionKind::Update,
+        &w_id,
+        Some(&name),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::ResourceType { path: name.clone() },
+        None,
+        true,
+        None,
+    )
+    .await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::UpdateResourceType { name: name.clone() },
+    );
+
+    Ok(format!("resource_type {} updated", name))
+}
+
+#[cfg(any(
+    feature = "http_trigger",
+    feature = "postgres_trigger",
+    feature = "mqtt_trigger",
+    all(
+        feature = "enterprise",
+        any(
+            feature = "sqs_trigger",
+            feature = "gcp_trigger",
+            feature = "azure_trigger",
+            feature = "kafka",
+            feature = "nats"
+        )
+    )
+))]
+pub async fn try_get_resource_from_db_as<T>(
+    authed: &ApiAuthed,
+    user_db: Option<UserDB>,
+    db: &DB,
+    resource_path: &str,
+    w_id: &str,
+) -> Result<T>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let resource = get_resource_value_interpolated_internal(
+        &DbWithOptAuthed::from_authed(authed, db.clone(), user_db),
+        &w_id,
+        &resource_path,
+        None,
+        None,
+        false,
+    )
+    .await?;
+
+    let resource = match resource {
+        Some(resource) => serde_json::from_value::<T>(resource)
+            .map_err(|e| Error::SerdeJson { error: e, location: "resources.rs".to_string() })?,
+        None => {
+            return {
+                Err(Error::NotFound(format!(
+                    "resource at path :{} do not exist",
+                    &resource_path
+                )))
+            }
+        }
+    };
+
+    Ok(resource)
+}
+
+#[derive(Deserialize, Serialize)]
+struct GitRepositoryResource {
+    url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch: Option<String>,
+}
+
+/// Checks whether an IP address belongs to a private, loopback, link-local, or
+/// otherwise reserved range that should not be reachable from git operations.
+fn is_private_or_reserved_ip(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                // 100.64.0.0/10 (Carrier-grade NAT / CGNAT)
+                || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xC0) == 64)
+        }
+        IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || v6.is_unspecified()
+                // IPv4-mapped IPv6 (::ffff:x.x.x.x) — check the inner v4
+                || v6.to_ipv4_mapped().map_or(false, |v4| {
+                    is_private_or_reserved_ip(&IpAddr::V4(v4))
+                })
+        }
+    }
+}
+
+/// Extracts the hostname from a git URL.
+///
+/// Handles standard URLs (`https://host/path`, `ssh://user@host/path`) and
+/// SCP-style (`user@host:path`).
+fn extract_host_from_git_url(url: &str) -> Option<String> {
+    if let Some(after_scheme) = url.split("://").nth(1) {
+        // Standard URL with scheme
+        let host_part = match after_scheme.find('@') {
+            Some(pos) => &after_scheme[pos + 1..],
+            None => after_scheme,
+        };
+        // Handle IPv6 in brackets: [::1]
+        if host_part.starts_with('[') {
+            let end = host_part.find(']')?;
+            let host = &host_part[1..end];
+            return if host.is_empty() {
+                None
+            } else {
+                Some(host.to_lowercase())
+            };
+        }
+        let host_port = host_part.split('/').next()?;
+        let host = host_port.rsplit_once(':').map_or(host_port, |(h, _)| h);
+        if host.is_empty() {
+            return None;
+        }
+        return Some(host.to_lowercase());
+    }
+
+    // SCP-style: user@host:path
+    if let Some(at_pos) = url.find('@') {
+        let after_at = &url[at_pos + 1..];
+        let host = after_at.split(':').next()?;
+        if host.is_empty() {
+            return None;
+        }
+        return Some(host.to_lowercase());
+    }
+
+    None
+}
+
+/// Validates a git URL to prevent option injection, SSRF, and local file read.
+async fn validate_git_url(url: &str) -> Result<()> {
+    let url = url.trim();
+    if url.is_empty() {
+        return Err(Error::BadRequest("Git URL cannot be empty".to_string()));
+    }
+    if url.starts_with('-') {
+        return Err(Error::BadRequest(
+            "Git URL cannot start with '-' (potential option injection)".to_string(),
+        ));
+    }
+    if url.contains('\0') || url.contains('\n') || url.contains('\r') {
+        return Err(Error::BadRequest(
+            "Git URL contains invalid characters".to_string(),
+        ));
+    }
+
+    let lower = url.to_lowercase();
+
+    // Allowlist of URL formats — blocks file://, ftp://, local paths, etc.
+    let has_valid_scheme = lower.starts_with("https://")
+        || lower.starts_with("http://")
+        || lower.starts_with("git://")
+        || lower.starts_with("ssh://");
+
+    // SCP-style: user@host:path (no scheme, has @ before :)
+    let is_scp_style = !url.contains("://") && url.contains('@') && url.contains(':');
+
+    if !has_valid_scheme && !is_scp_style {
+        return Err(Error::BadRequest(
+            "Git URL must use https://, http://, git://, ssh://, or user@host:path format"
+                .to_string(),
+        ));
+    }
+
+    let host = extract_host_from_git_url(url)
+        .ok_or_else(|| Error::BadRequest("Could not parse hostname from git URL".to_string()))?;
+
+    if host == "localhost" || host.ends_with(".local") || host == "[::1]" {
+        return Err(Error::BadRequest(
+            "Git URLs targeting localhost or local network are not allowed".to_string(),
+        ));
+    }
+
+    // Check literal IP addresses
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        if is_private_or_reserved_ip(&ip) {
+            return Err(Error::BadRequest(
+                "Git URLs targeting private or reserved IP addresses are not allowed".to_string(),
+            ));
+        }
+    } else {
+        // Hostname — resolve via DNS and reject if any address is private
+        if let Ok(addrs) = tokio::net::lookup_host(format!("{}:443", host)).await {
+            for addr in addrs {
+                if is_private_or_reserved_ip(&addr.ip()) {
+                    return Err(Error::BadRequest(
+                        "Git URL hostname resolves to a private or reserved IP address".to_string(),
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Validates a git branch/ref name to prevent injection attacks.
+fn validate_git_ref(ref_name: &str) -> Result<()> {
+    let ref_name = ref_name.trim();
+    if ref_name.is_empty() {
+        return Err(Error::BadRequest("Git ref cannot be empty".to_string()));
+    }
+    if ref_name.starts_with('-') {
+        return Err(Error::BadRequest(
+            "Git ref cannot start with '-' (potential option injection)".to_string(),
+        ));
+    }
+    // Git ref names have specific rules - block dangerous characters
+    if ref_name.contains('\0')
+        || ref_name.contains('\n')
+        || ref_name.contains('\r')
+        || ref_name.contains("..")
+        || ref_name.contains("@{")
+        || ref_name.ends_with('.')
+        || ref_name.ends_with('/')
+        || ref_name.contains("//")
+    {
+        return Err(Error::BadRequest(
+            "Git ref contains invalid characters or patterns".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct GitCommitHashResponse {
+    commit_hash: String,
+}
+
+#[derive(Deserialize)]
+struct GitCommitHashQuery {
+    git_ssh_identity: Option<String>,
+}
+
+async fn get_git_commit_hash(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<GitCommitHashQuery>,
+) -> JsonResult<GitCommitHashResponse> {
+    let path = path.to_path();
+
+    check_scopes(&authed, || format!("resources:read:{}", path))?;
+
+    let db_with_opt_authed =
+        DbWithOptAuthed::from_authed(&authed, db.clone(), Some(user_db.clone()));
+    let git_repo_resource_value = get_resource_value_interpolated_internal(
+        &db_with_opt_authed,
+        &w_id,
+        path,
+        None,
+        None,
+        false,
+    )
+    .await
+    .map_err(|e| Error::NotFound(format!("Access to resource {} denied: ({e})", path)))?;
+
+    let git_resource: GitRepositoryResource = match git_repo_resource_value {
+        Some(value) => serde_json::from_value(value).map_err(|e| {
+            Error::BadRequest(format!("Invalid git repository resource format: {}", e))
+        })?,
+        None => return Err(Error::NotFound(format!("Resource {} not found", path)).into()),
+    };
+
+    let identities: Vec<String> = query
+        .git_ssh_identity
+        .map(|s| {
+            s.split(",")
+                .filter_map(|s| {
+                    if !s.is_empty() {
+                        Some(s.to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or(vec![]);
+
+    let (git_ssh_cmd, filenames) =
+        get_git_ssh_cmd(&authed, &user_db, &db, &w_id, identities).await?;
+
+    let commit_hash = get_repo_latest_commit_hash(&git_resource, git_ssh_cmd).await;
+
+    delete_paths(&filenames).await;
+
+    Ok(Json(GitCommitHashResponse { commit_hash: commit_hash? }))
+}
+
+async fn write_ssh_file(
+    authed: &ApiAuthed,
+    user_db: &UserDB,
+    db: &DB,
+    w_id: &str,
+    var_path: &str,
+) -> std::result::Result<std::path::PathBuf, (error::Error, std::path::PathBuf)> {
+    let id_file_name = format!(".ssh_id_priv_{}", Uuid::new_v4());
+    let loc = std::path::Path::new(&*WINDMILL_DIR)
+        .join("ssh_ids")
+        .join(id_file_name);
+
+    let userdb_authed = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
+    let mut content = crate::variables::get_value_internal(&userdb_authed, &w_id, &var_path, false)
+        .await
+        .map_err(|e| {
+            (
+                error::Error::NotFound(format!(
+                    "Variable {var_path} not found for git ssh identity: {e:#}"
+                )),
+                loc.clone(),
+            )
+        })?;
+    content.push_str("\n");
+
+    if let Some(p) = &loc.parent() {
+        tokio::fs::create_dir_all(p)
+            .await
+            .map_err(|e| (e.into(), loc.clone()))?;
+    }
+    tokio::fs::write(&loc, content)
+        .await
+        .map_err(|e| (e.into(), loc.clone()))?;
+
+    #[cfg(unix)]
+    {
+        let perm = std::os::unix::fs::PermissionsExt::from_mode(0o600);
+        tokio::fs::set_permissions(&loc, perm)
+            .await
+            .map_err(|e| (e.into(), loc.clone()))?;
+    }
+
+    return Ok(loc);
+}
+
+async fn delete_paths(paths: &Vec<std::path::PathBuf>) {
+    for path in paths {
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+}
+
+async fn get_git_ssh_cmd(
+    authed: &ApiAuthed,
+    user_db: &UserDB,
+    db: &DB,
+    w_id: &str,
+    git_ssh_identity: Vec<String>,
+) -> error::Result<(Option<String>, Vec<std::path::PathBuf>)> {
+    if git_ssh_identity.len() > 5 {
+        return Err(error::Error::BadRequest(
+            "Too many ssh identities, try using at most 1".to_string(),
+        ));
+    }
+    if git_ssh_identity.len() == 0 {
+        return Ok((None, vec![]));
+    }
+
+    let mut ssh_id_files = vec![];
+    let mut file_paths = vec![];
+    for var_path in git_ssh_identity.iter() {
+        match write_ssh_file(authed, user_db, db, w_id, &var_path).await {
+            Ok(loc) => {
+                ssh_id_files.push(format!(
+                    " -i '{}'",
+                    loc.to_string_lossy().replace('\'', r"'\''")
+                ));
+                file_paths.push(loc);
+            }
+            Err((e, loc)) => {
+                file_paths.push(loc);
+                delete_paths(&file_paths).await;
+                return Err(e);
+            }
+        }
+    }
+
+    let git_ssh_cmd = format!("ssh -o StrictHostKeyChecking=no{}", ssh_id_files.join(""));
+    Ok((Some(git_ssh_cmd), file_paths))
+}
+
+async fn get_repo_latest_commit_hash(
+    git_resource: &GitRepositoryResource,
+    git_ssh_command: Option<String>,
+) -> Result<String> {
+    // Validate URL and branch to prevent option injection and SSRF attacks
+    validate_git_url(&git_resource.url).await?;
+
+    let ref_spec = git_resource
+        .branch
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or("HEAD");
+
+    // Validate ref_spec if it's not the default HEAD
+    if ref_spec != "HEAD" {
+        validate_git_ref(ref_spec)?;
+    }
+
+    let mut git_cmd = Command::new("git");
+    git_cmd.args(["ls-remote", &git_resource.url, ref_spec]);
+    if let Some(git_ssh_command) = git_ssh_command {
+        git_cmd.env("GIT_SSH_COMMAND", git_ssh_command);
+    }
+    git_cmd.stderr(Stdio::piped());
+
+    let output = git_cmd
+        .output()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to execute git command: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8(output.stderr)
+            .unwrap_or_else(|_| "Failed to decode stderr".to_string());
+        return Err(Error::BadRequest(format!(
+            "Error getting git repo commit hash: {}",
+            stderr
+        )));
+    }
+
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|e| Error::internal_err(format!("Failed to decode git output: {}", e)))?;
+
+    let lines: Vec<&str> = stdout.lines().collect();
+
+    if lines.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "No commits found for reference '{}' in repository '{}'",
+            ref_spec, git_resource.url
+        )));
+    }
+
+    let commit_hash = lines
+        .first()
+        .and_then(|line| line.split_whitespace().next())
+        .map(|s| s.to_string())
+        .ok_or_else(|| {
+            Error::BadRequest("Unexpected output format for git ls-remote".to_string())
+        })?;
+
+    Ok(commit_hash)
+}
+
+#[cfg(all(
+    feature = "enterprise",
+    any(feature = "nats", feature = "kafka", feature = "sqs_trigger")
+))]
+pub async fn interpolate(
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    s: String,
+) -> std::result::Result<String, anyhow::Error> {
+    use serde_json::Value;
+    use windmill_common::db::DbWithOptAuthed;
+    let value = Value::String(s);
+    match transform_json_value(
+        &DbWithOptAuthed::from_authed(authed, db.clone(), None),
+        w_id,
+        value,
+        &None,
+        None,
+        0,
+    )
+    .await?
+    {
+        Value::String(s) => Ok(s),
+        v => Err(anyhow::anyhow!("Expected string, got {:?}", v)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use windmill_common::audit::AuditAuthor;
+    use windmill_common::db::DbWithOptAuthed;
+
+    fn test_db_with_opt_authed(db: DB) -> DbWithOptAuthed<'static, ApiAuthed> {
+        DbWithOptAuthed::DB {
+            db,
+            audit_author: AuditAuthor {
+                username: "test".to_string(),
+                email: "test@test.com".to_string(),
+                username_override: None,
+                token_prefix: None,
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn test_transform_array_over_1000_passthrough() {
+        let db_url = std::env::var("DATABASE_URL")
+            .unwrap_or("postgres://postgres:changeme@localhost:5432/windmill".to_string());
+        let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
+        let dba = test_db_with_opt_authed(pool);
+
+        let arr: Vec<Value> = (0..1001).map(|i| json!(format!("$var:x/{i}"))).collect();
+        let input = Value::Array(arr.clone());
+
+        let result = transform_json_value(&dba, "test", input, &None, None, 0)
+            .await
+            .unwrap();
+
+        assert_eq!(result, Value::Array(arr));
+    }
+
+    #[tokio::test]
+    async fn test_transform_array_non_matching_strings_passthrough() {
+        let db_url = std::env::var("DATABASE_URL")
+            .unwrap_or("postgres://postgres:changeme@localhost:5432/windmill".to_string());
+        let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
+        let dba = test_db_with_opt_authed(pool);
+
+        let input = json!(["hello", "world", 42, true, null, {"key": "val"}]);
+
+        let result = transform_json_value(&dba, "test", input.clone(), &None, None, 0)
+            .await
+            .unwrap();
+
+        assert_eq!(result, input);
+    }
+
+    #[tokio::test]
+    async fn test_transform_array_resolved_inside_object() {
+        let db_url = std::env::var("DATABASE_URL")
+            .unwrap_or("postgres://postgres:changeme@localhost:5432/windmill".to_string());
+        let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
+        let dba = test_db_with_opt_authed(pool);
+
+        let input = json!({"urls": ["$var:u/test/nonexistent", "plain"]});
+
+        let result = transform_json_value(&dba, "test", input, &None, None, 0).await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_transform_array_attempts_matching_items() {
+        let db_url = std::env::var("DATABASE_URL")
+            .unwrap_or("postgres://postgres:changeme@localhost:5432/windmill".to_string());
+        let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
+        let dba = test_db_with_opt_authed(pool);
+
+        let input = json!(["$var:u/test/nonexistent", "plain"]);
+
+        let result = transform_json_value(&dba, "test", input, &None, None, 0).await;
+
+        assert!(result.is_err());
+    }
+
+    // Regression test for WIN-1957: deeply nested structures must be bounded so
+    // that interpolation cannot recurse without limit (which would otherwise
+    // overflow the stack).
+    #[tokio::test]
+    async fn test_transform_json_value_bounds_recursion_depth() {
+        let db_url = std::env::var("DATABASE_URL")
+            .unwrap_or("postgres://postgres:changeme@localhost:5432/windmill".to_string());
+        let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
+        let dba = test_db_with_opt_authed(pool);
+
+        // Build an object nested deeper than the allowed interpolation depth.
+        // No `$res:`/`$var:` leaves are involved, so this exercises the depth
+        // guard purely on structural recursion (no DB lookups required).
+        let mut input = Value::String("plain".to_string());
+        for _ in 0..(MAX_RESOURCE_INTERPOLATION_DEPTH as usize + 5) {
+            let mut m = serde_json::Map::new();
+            m.insert("a".to_string(), input);
+            input = Value::Object(m);
+        }
+
+        let result = transform_json_value(&dba, "test", input, &None, None, 0).await;
+
+        let err = result.expect_err("deeply nested value should be rejected");
+        assert!(
+            err.to_string().contains("interpolation depth"),
+            "unexpected error: {err}"
+        );
+    }
+
+    // Regression test for WIN-1957: two resources whose values reference each
+    // other via `$res:` must NOT recurse forever (stack overflow / process
+    // crash). With the depth guard the resolution terminates with an error.
+    //
+    // This test needs the real `workspace`/`resource` schema, so it uses
+    // `#[sqlx::test]` which provisions a migrated ephemeral database per test
+    // (the bare `DATABASE_URL` database in CI has no migrations applied, which
+    // previously made the workspace INSERT panic with `relation "workspace"
+    // does not exist` — WIN-1958).
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_transform_json_value_mutual_resource_recursion_terminates(pool: DB) {
+        let w_id = format!("dostest{}", Uuid::new_v4().simple());
+
+        sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ($1, $1, 'test@windmill.dev')")
+            .bind(&w_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "INSERT INTO resource (workspace_id, path, value, resource_type) VALUES \
+             ($1, 'f/test/dos_a', $2, 'object'), \
+             ($1, 'f/test/dos_b', $3, 'object')",
+        )
+        .bind(&w_id)
+        .bind(json!("$res:f/test/dos_b"))
+        .bind(json!("$res:f/test/dos_a"))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let dba = test_db_with_opt_authed(pool.clone());
+        let result = transform_json_value(
+            &dba,
+            &w_id,
+            Value::String("$res:f/test/dos_a".to_string()),
+            &None,
+            None,
+            0,
+        )
+        .await;
+
+        // The ephemeral test database is dropped automatically, so no manual
+        // row cleanup is required.
+        let err = result.expect_err("mutually recursive resources should error, not crash");
+        assert!(
+            err.to_string().contains("interpolation depth"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_extract_host_from_git_url() {
+        // Standard HTTPS
+        assert_eq!(
+            extract_host_from_git_url("https://github.com/user/repo.git"),
+            Some("github.com".to_string())
+        );
+        // HTTPS with port
+        assert_eq!(
+            extract_host_from_git_url("https://git.example.com:8443/repo.git"),
+            Some("git.example.com".to_string())
+        );
+        // SSH with scheme
+        assert_eq!(
+            extract_host_from_git_url("ssh://git@github.com/user/repo.git"),
+            Some("github.com".to_string())
+        );
+        // SCP-style
+        assert_eq!(
+            extract_host_from_git_url("git@github.com:user/repo.git"),
+            Some("github.com".to_string())
+        );
+        // Git protocol
+        assert_eq!(
+            extract_host_from_git_url("git://example.com/repo.git"),
+            Some("example.com".to_string())
+        );
+        // IPv6 in brackets
+        assert_eq!(
+            extract_host_from_git_url("http://[::1]:8080/repo.git"),
+            Some("::1".to_string())
+        );
+        // No host extractable
+        assert_eq!(extract_host_from_git_url("/local/path"), None);
+        assert_eq!(
+            extract_host_from_git_url("file:///etc/passwd"),
+            Some("".to_string()).filter(|s| !s.is_empty())
+        );
+    }
+
+    #[test]
+    fn test_is_private_or_reserved_ip() {
+        use std::net::IpAddr;
+        // Loopback
+        assert!(is_private_or_reserved_ip(
+            &"127.0.0.1".parse::<IpAddr>().unwrap()
+        ));
+        assert!(is_private_or_reserved_ip(
+            &"127.0.0.2".parse::<IpAddr>().unwrap()
+        ));
+        // Private ranges
+        assert!(is_private_or_reserved_ip(
+            &"10.0.0.1".parse::<IpAddr>().unwrap()
+        ));
+        assert!(is_private_or_reserved_ip(
+            &"172.16.0.1".parse::<IpAddr>().unwrap()
+        ));
+        assert!(is_private_or_reserved_ip(
+            &"192.168.1.1".parse::<IpAddr>().unwrap()
+        ));
+        // Link-local / cloud metadata
+        assert!(is_private_or_reserved_ip(
+            &"169.254.169.254".parse::<IpAddr>().unwrap()
+        ));
+        // CGNAT
+        assert!(is_private_or_reserved_ip(
+            &"100.64.0.1".parse::<IpAddr>().unwrap()
+        ));
+        // Unspecified
+        assert!(is_private_or_reserved_ip(
+            &"0.0.0.0".parse::<IpAddr>().unwrap()
+        ));
+        // IPv6 loopback
+        assert!(is_private_or_reserved_ip(&"::1".parse::<IpAddr>().unwrap()));
+        // IPv4-mapped IPv6
+        assert!(is_private_or_reserved_ip(
+            &"::ffff:127.0.0.1".parse::<IpAddr>().unwrap()
+        ));
+        // Public IPs should pass
+        assert!(!is_private_or_reserved_ip(
+            &"8.8.8.8".parse::<IpAddr>().unwrap()
+        ));
+        assert!(!is_private_or_reserved_ip(
+            &"140.82.121.4".parse::<IpAddr>().unwrap()
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_validate_git_url_blocks_file_scheme() {
+        let result = validate_git_url("file:///etc/passwd").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("https://"));
+    }
+
+    #[tokio::test]
+    async fn test_validate_git_url_blocks_private_ips() {
+        assert!(validate_git_url("http://127.0.0.1/repo.git").await.is_err());
+        assert!(validate_git_url("http://169.254.169.254/latest/meta-data/")
+            .await
+            .is_err());
+        assert!(validate_git_url("http://10.0.0.1/repo.git").await.is_err());
+        assert!(validate_git_url("http://172.16.0.1/repo.git")
+            .await
+            .is_err());
+        assert!(validate_git_url("http://192.168.1.1/repo.git")
+            .await
+            .is_err());
+        assert!(validate_git_url("git://0.0.0.0/repo.git").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_validate_git_url_blocks_localhost() {
+        assert!(validate_git_url("http://localhost/repo.git").await.is_err());
+        assert!(validate_git_url("http://myhost.local/repo.git")
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn test_validate_git_url_blocks_local_paths() {
+        assert!(validate_git_url("/etc/passwd").await.is_err());
+        assert!(validate_git_url("../relative/path").await.is_err());
+        assert!(validate_git_url("./local/repo").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_validate_git_url_allows_valid_urls() {
+        // These should succeed (host resolution may fail but validation passes)
+        assert!(validate_git_url("https://github.com/user/repo.git")
+            .await
+            .is_ok());
+        assert!(validate_git_url("git@github.com:user/repo.git")
+            .await
+            .is_ok());
+        assert!(validate_git_url("ssh://git@github.com/user/repo.git")
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_validate_git_url_blocks_option_injection() {
+        assert!(validate_git_url("-evil").await.is_err());
+        assert!(validate_git_url("--upload-pack=evil").await.is_err());
+    }
+}

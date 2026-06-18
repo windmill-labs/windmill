@@ -1,93 +1,193 @@
-<script lang="ts" context="module">
+<script lang="ts" module>
+	import { untrack } from 'svelte'
 	const s3LogPrefixes = [
-		'\n[windmill] Previous logs have been saved to object storage at logs/',
-		'\n[windmill] Previous logs have been saved to disk at logs/',
-		'\n[windmill] No object storage set in instance settings. Previous logs have been saved to disk at logs/'
+		'[windmill] Previous logs have been saved to object storage at logs/',
+		'[windmill] Previous logs have been saved to disk at logs/',
+		'[windmill] No object storage set in instance settings. Previous logs have been saved to disk at logs/'
 	]
+
+	// Only search within first N characters to avoid expensive full-content scans
+	const S3_LOG_SEARCH_LIMIT = 2000
 </script>
 
 <script lang="ts">
-	import { ClipboardCopy, Download, Expand, Loader2 } from 'lucide-svelte'
+	import { ClipboardCopy, Download, Expand, Loader2, Timer, Cpu } from 'lucide-svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { copyToClipboard } from '$lib/utils'
 	import { base } from '$lib/base'
+	import { withExternalDomain } from '$lib/externalDomain'
+	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
+	import { appendViewToken } from '$lib/viewToken'
 	import { workspaceStore } from '$lib/stores'
-	import AnsiUp from 'ansi_up'
+	import { AnsiUp } from 'ansi_up'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
 	import { JobService } from '$lib/gen'
+	import { WM_LOGS_SKIPPED } from '$lib/consts'
 	import Tooltip from './Tooltip.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import QueuePosition from './QueuePosition.svelte'
 
-	export let content: string | undefined
-	export let isLoading: boolean
-	export let duration: number | undefined = undefined
-	export let mem: number | undefined = undefined
-	export let wrapperClass = ''
-	export let jobId: string | undefined = undefined
-	export let tag: string | undefined
-	export let small = false
-	export let drawerOpen = false
-	export let noMaxH = false
-	export let noAutoScroll = false
-	export let download = true
+	interface Props {
+		content: string | undefined
+		isLoading: boolean
+		duration?: number | undefined
+		mem?: number | undefined
+		wrapperClass?: string
+		jobId?: string | undefined
+		tag: string | undefined
+		small?: boolean
+		drawerOpen?: boolean
+		noMaxH?: boolean
+		noAutoScroll?: boolean
+		download?: boolean
+		customEmptyMessage?: string
+		tagLabel?: string
+		noPadding?: boolean
+		navigationId?: string
+		/** Called once after we resolve a WM_LOGS_SKIPPED sentinel by fetching the
+		 * full job. Use this to write the real logs back into the source of truth
+		 * (e.g. flowStateStore) so subsequent mounts don't refetch. */
+		onLogsResolved?: (logs: string) => void
+	}
+
+	let {
+		content,
+		isLoading,
+		duration = undefined,
+		mem = undefined,
+		wrapperClass = '',
+		jobId = undefined,
+		tag,
+		small = false,
+		drawerOpen = $bindable(false),
+		noMaxH = false,
+		noAutoScroll = false,
+		download = true,
+		customEmptyMessage = 'No logs are available yet',
+		tagLabel = undefined,
+		noPadding = false,
+		navigationId = undefined,
+		onLogsResolved
+	}: Props = $props()
 
 	// @ts-ignore
-	const ansi_up = new AnsiUp()
+	const ansi_up = $state(new AnsiUp())
 
 	ansi_up.use_classes = true
 
-	let scroll = true
-	let div: HTMLElement | null = null
+	let scroll = $state(true)
+	let preEl: HTMLElement | null = $state(null)
 
 	// let downloadStartUrl: string | undefined = undefined
 
 	let LOG_INC = 10000
-	let LOG_LIMIT = LOG_INC
+	let LOG_LIMIT = $state(LOG_INC)
 
-	let lastJobId = jobId
+	let lastJobId = $state(untrack(() => jobId))
 
-	let loadedFromObjectStore = ''
-	$: if (jobId !== lastJobId) {
-		lastJobId = jobId
-		loadedFromObjectStore = ''
-		LOG_LIMIT = LOG_INC
-	}
+	let loadedFromObjectStore = $state('')
 
-	function findPrefixIndex(truncateContent: string): number | undefined {
-		let index = s3LogPrefixes.findIndex((x) => truncateContent.startsWith(x))
-		if (index == -1) {
+	// `content` is the WM_LOGS_SKIPPED sentinel when the job was fetched with
+	// no_logs=true. If an older in-memory value accidentally has real bytes
+	// concatenated after the sentinel, treat that as skipped too and refetch.
+	let isLogsSkipped = $derived((content ?? '').startsWith(WM_LOGS_SKIPPED))
+	let resolvedSkippedLogs: string | undefined = $state(undefined)
+	let fetchedSkippedJobId: string | undefined = $state(undefined)
+	let effectiveContent = $derived(isLogsSkipped ? resolvedSkippedLogs : content)
+	let resolvingSkippedLogs = $derived(isLogsSkipped && !!jobId && resolvedSkippedLogs === undefined)
+
+	$effect(() => {
+		if (!isLogsSkipped || !jobId || fetchedSkippedJobId === jobId) {
+			return
+		}
+		const id = jobId
+		fetchedSkippedJobId = id
+		untrack(() => {
+			JobService.getJob({ workspace: $workspaceStore ?? '', id })
+				.then((j) => {
+					if (fetchedSkippedJobId === id) {
+						const logs = (j as { logs?: string })['logs'] ?? ''
+						resolvedSkippedLogs = logs
+						onLogsResolved?.(logs)
+					}
+				})
+				.catch((e) => console.error('Failed to resolve skipped logs', e))
+		})
+	})
+
+	function findPrefixInfo(
+		truncateContent: string
+	): { prefixIndex: number; position: number } | undefined {
+		// Quick check - [windmill] is rare, so bail early in the common case
+		// This is much faster than doing 3 long string indexOf searches
+		const windmillPos = truncateContent.indexOf('[windmill]')
+		if (windmillPos === -1 || windmillPos >= S3_LOG_SEARCH_LIMIT) {
 			return undefined
 		}
-		return index
-	}
-	function findStartUrl(truncateContent: string, prefixIndex: number | undefined = undefined) {
-		if (prefixIndex == undefined) {
-			return undefined
+
+		// Found [windmill] marker, now determine which specific prefix matches
+		for (let i = 0; i < s3LogPrefixes.length; i++) {
+			const prefix = s3LogPrefixes[i]
+			if (
+				truncateContent.length >= windmillPos + prefix.length &&
+				truncateContent.startsWith(prefix, windmillPos)
+			) {
+				return { prefixIndex: i, position: windmillPos }
+			}
 		}
-		const end = truncateContent.substring(1).indexOf('\n')
-		return prefixIndex != undefined && truncateContent
-			? truncateContent.substring(
-					s3LogPrefixes[prefixIndex]?.length,
-					end == -1 ? undefined : end + 1
-			  )
-			: undefined
+		return undefined
 	}
 
-	function tooltipText(prefixIndex: number | undefined) {
-		if (prefixIndex == undefined) {
+	function findStartUrl(
+		truncateContent: string,
+		prefixInfo: { prefixIndex: number; position: number } | undefined
+	) {
+		if (!prefixInfo) {
+			return undefined
+		}
+
+		const { prefixIndex, position } = prefixInfo
+		const prefix = s3LogPrefixes[prefixIndex]
+		const startOfPath = position + prefix.length
+		const endOfLine = truncateContent.indexOf('\n', startOfPath)
+
+		return truncateContent.substring(startOfPath, endOfLine === -1 ? undefined : endOfLine)
+	}
+
+	function splitAtWindmillLine(
+		content: string,
+		prefixInfo: { prefixIndex: number; position: number }
+	): { before: string; after: string } {
+		const { prefixIndex, position } = prefixInfo
+		const prefix = s3LogPrefixes[prefixIndex]
+
+		// Find line boundaries
+		const lineStart = position > 0 && content[position - 1] === '\n' ? position - 1 : position
+		const pathStart = position + prefix.length
+		const lineEnd = content.indexOf('\n', pathStart)
+
+		if (lineEnd === -1) {
+			// [windmill] line is at the end
+			return { before: content.substring(0, lineStart), after: '' }
+		}
+
+		return {
+			before: content.substring(0, lineStart),
+			after: content.substring(lineEnd)
+		}
+	}
+
+	function tooltipText(prefixInfo: { prefixIndex: number; position: number } | undefined) {
+		if (prefixInfo == undefined) {
 			return 'No path/file detected to download from'
-		} else if (prefixIndex == 0) {
+		} else if (prefixInfo.prefixIndex == 0) {
 			return 'Download the previous logs from the instance configured object store'
-		} else if (prefixIndex == 1) {
+		} else if (prefixInfo.prefixIndex == 1) {
 			return 'Attempt to download the logs from disk. Assume there is a shared disk between the workers and the server at /tmp/windmill/logs. Upgrade to EE to use an object store such as S3 instead of a shared volume.'
-		} else if (prefixIndex == 2) {
+		} else if (prefixInfo.prefixIndex == 2) {
 			return 'Attempt to download the logs from disk. Assume there is a shared disk between the workers and the server at /tmp/windmill/logs. Since you are on EE, you can alternatively use an object store such as S3 configured in the instance settings instead of a shared volume..'
 		}
 	}
-
-	$: truncatedContent = truncateContent(content, loadedFromObjectStore, LOG_LIMIT)
-
-	$: prefixIndex = findPrefixIndex(truncatedContent)
-	$: downloadStartUrl = findStartUrl(truncatedContent, prefixIndex)
 
 	function truncateContent(
 		jobContent: string | undefined,
@@ -101,21 +201,11 @@
 		return content
 	}
 
-	$: truncatedContent && scrollToBottom()
-
-	$: html = ansi_up.ansi_to_html(
-		downloadStartUrl && prefixIndex != undefined
-			? truncatedContent.substring(
-					truncatedContent.substring(1).indexOf('\n') + 2,
-					truncatedContent.length
-			  )
-			: truncatedContent
-	)
 	export function scrollToBottom() {
-		scroll && setTimeout(() => div?.scroll({ top: div?.scrollHeight, behavior: 'smooth' }), 100)
+		scroll && setTimeout(() => preEl?.scroll({ top: preEl?.scrollHeight, behavior: 'smooth' }), 100)
 	}
 
-	let logViewer: Drawer
+	let logViewer: Drawer | undefined = $state()
 
 	async function getStoreLogs() {
 		if (downloadStartUrl) {
@@ -124,10 +214,9 @@
 				workspace: $workspaceStore ?? '',
 				path: downloadStartUrl
 			})) as string
-			downloadStartUrl = undefined
 			LOG_LIMIT += Math.min(LOG_INC, res.length)
 			loadedFromObjectStore = res + loadedFromObjectStore
-			let newC = truncateContent(content, loadedFromObjectStore, LOG_LIMIT)
+			let newC = truncateContent(effectiveContent, loadedFromObjectStore, LOG_LIMIT)
 			LOG_LIMIT -= newC.indexOf('\n') + 1
 		} else {
 			console.error('No file detected to download from')
@@ -137,34 +226,94 @@
 	function showMoreTruncate(len: number) {
 		scroll = false
 		LOG_LIMIT += LOG_INC
-		console.log(LOG_INC, len, LOG_LIMIT)
-		let newC = truncateContent(content, loadedFromObjectStore, LOG_LIMIT)
+		let newC = truncateContent(effectiveContent, loadedFromObjectStore, LOG_LIMIT)
 		let newlineIndex = newC.indexOf('\n') + 1
 		if (newlineIndex < LOG_INC / 2) {
 			LOG_LIMIT -= newlineIndex
 		}
 	}
+	$effect.pre(() => {
+		if (jobId !== lastJobId) {
+			lastJobId = jobId
+			loadedFromObjectStore = ''
+			LOG_LIMIT = LOG_INC
+			scroll = true
+			resolvedSkippedLogs = undefined
+			fetchedSkippedJobId = undefined
+		}
+	})
+	let logsApiPath = $derived(appendViewToken(`/w/${$workspaceStore}/jobs_u/get_logs/${jobId}`))
+	let downloadHref = $derived(withExternalDomain(`${base}/api${logsApiPath}`))
+	let downloadName = $derived(`windmill_logs_${jobId}.txt`)
+	let truncatedContent = $derived(
+		truncateContent(effectiveContent, loadedFromObjectStore, LOG_LIMIT)
+	)
+	let prefixInfo = $derived(findPrefixInfo(truncatedContent))
+	let downloadStartUrl = $derived(findStartUrl(truncatedContent, prefixInfo))
+	$effect.pre(() => {
+		truncatedContent && scrollToBottom()
+	})
+
+	// When [windmill] line is NOT at start, split into before/after to render button inline
+	let splitHtml = $derived.by(() => {
+		if (prefixInfo == undefined || prefixInfo.position === 0) {
+			return undefined
+		}
+		const { before, after } = splitAtWindmillLine(truncatedContent, prefixInfo)
+		return {
+			before: ansi_up.ansi_to_html(before),
+			after: ansi_up.ansi_to_html(after)
+		}
+	})
+
+	// Only compute html when splitHtml won't be used (avoids wasteful ansi_to_html call)
+	let html = $derived.by(() => {
+		if (splitHtml) {
+			// splitHtml is active - skip expensive computation
+			return ''
+		}
+		if (prefixInfo == undefined) {
+			// No [windmill] line - return full content
+			return ansi_up.ansi_to_html(truncatedContent)
+		}
+		// [windmill] at start - strip the line and return the rest
+		const { after } = splitAtWindmillLine(truncatedContent, prefixInfo)
+		return ansi_up.ansi_to_html(after)
+	})
 </script>
 
 <Drawer bind:this={logViewer} bind:open={drawerOpen} size="900px">
 	<DrawerContent title="Expanded Logs" on:close={logViewer.closeDrawer}>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			{#if jobId && download}
-				<Button
-					href="{base}/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
-					download="windmill_logs_{jobId}.txt"
-					color="light"
-					size="xs"
-					startIcon={{
-						icon: Download
-					}}
-				>
-					Download
-				</Button>
+				{#if shouldDownloadViaClient()}
+					<Button
+						on:click={() => downloadViaClient(logsApiPath, downloadName)}
+						color="light"
+						size="xs"
+						startIcon={{
+							icon: Download
+						}}
+					>
+						Download
+					</Button>
+				{:else}
+					<Button
+						href={downloadHref}
+						download={downloadName}
+						color="light"
+						size="xs"
+						startIcon={{
+							icon: Download
+						}}
+					>
+						Download
+					</Button>
+				{/if}
 			{/if}
 
 			<Button
-				on:click={() => copyToClipboard(content)}
+				on:click={() => copyToClipboard(effectiveContent)}
 				color="light"
 				size="xs"
 				startIcon={{
@@ -173,88 +322,130 @@
 			>
 				Copy to clipboard
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 		<div>
 			<pre
-				class="bg-surface-secondary text-secondary text-xs w-full p-2 whitespace-pre-wrap border rounded-md"
-				>{#if content}{@const len =
-						(content?.length ?? 0) +
-						(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button
-							on:click={getStoreLogs}
-							>Show more... <Tooltip>{tooltipText(prefixIndex)}</Tooltip></button
-						><br />{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)...<br
-						/><button on:click={() => showMoreTruncate(len)}>Show more..</button><br
-						/>{/if}{@html html}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre
+				class="bg-surface-secondary text-primary text-xs w-full p-2 whitespace-pre-wrap border rounded-md"
+				>{#if resolvingSkippedLogs}<Loader2
+						class="animate-spin"
+						size={14}
+					/>{:else if effectiveContent}{@const len =
+						(effectiveContent?.length ?? 0) +
+						(loadedFromObjectStore?.length ?? 0)}{#if splitHtml}{@html splitHtml.before}<button
+							onclick={getStoreLogs}
+							>Show more... <Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
+						>{@html splitHtml.after}{:else if downloadStartUrl}<button onclick={getStoreLogs}
+							>Show more... <Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
+						><br
+						/>{@html html}{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)...<br
+						/><button onclick={() => showMoreTruncate(len)}>Show more..</button><br
+						/>{@html html}{:else}{@html html}{/if}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre
 			>
 		</div>
 	</DrawerContent>
 </Drawer>
 
-<div class="relative w-full h-full {wrapperClass}">
-	<div
-		bind:this={div}
-		class="w-full h-full overflow-auto relative bg-surface-secondary {noMaxH ? '' : 'max-h-screen'}"
-	>
-		<div class="sticky z-10 top-0 right-0 w-full flex flex-row-reverse justify-between text-sm">
-			<div class="flex gap-2 pl-0.5 bg-surface-secondary">
-				{#if jobId && download}
-					<div class="flex items-center">
-						<a
-							class="text-primary pb-0.5"
-							target="_blank"
-							href="{base}/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
-							download="windmill_logs_{jobId}.txt"
-							><Download size="14" />
-						</a>
-					</div>
-				{/if}
-				<button on:click={logViewer.openDrawer}><Expand size="12" /></button>
-				{#if !noAutoScroll}
-					<div
-						class="{small ? '' : 'py-2'} pr-2 {small
-							? '!text-2xs'
-							: '!text-xs'} flex gap-2 text-tertiary items-center"
-					>
-						Auto scroll
-						<input class="windmillapp" type="checkbox" bind:checked={scroll} />
-					</div>
-				{/if}
-			</div>
-		</div>
-		{#if isLoading}
-			<div class="flex gap-2 absolute top-2 left-2 items-center z-10">
-				<Loader2 class="animate-spin" />
-				{#if tag}
-					<div class="flex flex-row items-center gap-1">
-						<div class="text-secondary {small ? '!text-2xs' : '!text-xs'}">tag: {tag}</div>
-						<NoWorkerWithTagWarning {tag} />
-					</div>
-				{/if}
-			</div>
-		{:else if duration}
-			<span
-				class="absolute {small ? '!text-2xs' : '!text-xs'} text-tertiary dark:text-gray-400 {small
-					? 'top-0'
-					: 'top-2'} left-2">took {duration}ms</span
-			>
-		{/if}
-		{#if mem}
-			<span
-				class="absolute {small ? '!text-2xs' : '!text-xs'} text-tertiary dark:text-gray-400 {small
-					? 'top-0'
-					: 'top-2'}  left-36">mem peak: {(mem / 1024).toPrecision(4)}MB</span
-			>
-		{/if}
-		<pre class="whitespace-pre break-words {small ? '!text-2xs' : '!text-xs'} w-full p-2"
-			>{#if content}{@const len =
-					(content?.length ?? 0) +
-					(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button on:click={getStoreLogs}
-						>Show more... &nbsp;<Tooltip>{tooltipText(prefixIndex)}</Tooltip></button
-					><br />{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)<br
-					/><button on:click={() => showMoreTruncate(len)}>Show more..</button><br />{/if}<span
-					>{@html html}</span
-				>{:else if !isLoading}<span>No logs are available yet</span>{/if}</pre
+<div class="w-full h-full {wrapperClass}">
+	<div class="w-full h-full relative">
+		<div
+			class="w-full h-full bg-surface-secondary flex flex-col {noMaxH ? '' : 'max-h-screen'}"
+			data-nav-id={navigationId}
 		>
+			<div
+				class="flex gap-2 ml-2 {small ? 'py-1' : 'py-2'} border-b overflow-x-auto overflow-y-hidden"
+			>
+				{#if isLoading}
+					<div class="flex gap-2 items-center">
+						<Loader2 class="animate-spin" />
+						{#if tag}
+							<div class="flex flex-row items-center gap-1">
+								<div class="text-secondary text-2xs">{tagLabel ?? 'tag'}: {tag}</div>
+								<NoWorkerWithTagWarning {tagLabel} {tag} />
+							</div>
+						{/if}
+						{#if jobId}
+							<QueuePosition {jobId} />
+						{/if}
+					</div>
+				{:else if duration}
+					<span
+						class={twMerge(
+							'flex items-center gap-1 text-secondary dark:text-gray-400',
+							small ? '!text-2xs' : '!text-xs'
+						)}
+						title="Duration"
+					>
+						<Timer size={small ? 10 : 12} />
+						{duration}ms
+					</span>
+				{/if}
+				{#if mem}
+					<span
+						class={twMerge(
+							'flex items-center gap-1 text-secondary dark:text-gray-400',
+							small ? '!text-2xs' : '!text-xs'
+						)}
+						title="Memory peak"
+					>
+						<Cpu size={small ? 10 : 12} />
+						{(mem / 1024).toPrecision(4)}MB
+					</span>
+				{/if}
+				<div class="flex gap-2 justify-end flex-1">
+					{#if jobId && download}
+						<div class="flex items-center">
+							{#if shouldDownloadViaClient()}
+								<button
+									class="text-primary pb-0.5"
+									onclick={() => downloadViaClient(logsApiPath, downloadName)}
+									><Download size="14" />
+								</button>
+							{:else}
+								<a
+									class="text-primary pb-0.5"
+									target="_blank"
+									href={downloadHref}
+									download={downloadName}
+									><Download size="14" />
+								</a>
+							{/if}
+						</div>
+					{/if}
+					<button onclick={logViewer.openDrawer}><Expand size="12" /></button>
+					{#if !noAutoScroll}
+						<label
+							class="pr-2 text-2xs flex gap-2 font-normal text-primary items-center whitespace-nowrap"
+						>
+							auto-scroll
+							<input class="windmillapp" type="checkbox" bind:checked={scroll} />
+						</label>
+					{/if}
+				</div>
+			</div>
+			<pre
+				bind:this={preEl}
+				class={twMerge(
+					'whitespace-pre break-words w-full flex-1 overflow-auto',
+					small ? '!text-2xs' : '!text-xs',
+					noPadding ? '' : 'p-2'
+				)}
+				>{#if resolvingSkippedLogs}<span class="flex p-2"
+						><Loader2 class="animate-spin" size={14} /></span
+					>{:else if effectiveContent}{@const len =
+						(effectiveContent?.length ?? 0) +
+						(loadedFromObjectStore?.length ?? 0)}{#if splitHtml}<span>{@html splitHtml.before}</span
+						><button onclick={getStoreLogs}
+							>Show more... &nbsp;<Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
+						><span>{@html splitHtml.after}</span>{:else if downloadStartUrl}<button
+							onclick={getStoreLogs}
+							>Show more... &nbsp;<Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
+						><br /><span>{@html html}</span>{:else if len > LOG_LIMIT}<button
+							onclick={() => showMoreTruncate(len)}>Show more..</button
+						>&nbsp;({LOG_LIMIT}/{len} chars)<br /><span>{@html html}</span>{:else}<span
+							>{@html html}</span
+						>{/if}{:else if !isLoading}<span>{customEmptyMessage}</span>{/if}</pre
+			>
+		</div>
 	</div>
 </div>
 
@@ -461,5 +652,10 @@
 	}
 	.dark .ansi-bright-white-bg {
 		background-color: rgb(229, 233, 240);
+	}
+
+	[data-nav-id]:focus-visible {
+		outline: none;
+		outline-offset: 0;
 	}
 </style>

@@ -1,0 +1,910 @@
+/**
+ * Mixed Case Paths Sync Tests
+ *
+ * Tests sync pull/push operations with folder paths containing capital letters.
+ * This is critical for Windows compatibility testing since Windows has
+ * case-insensitive file systems which can cause issues with paths like:
+ *   f/MyFolder/MyScript
+ *
+ * The test verifies that:
+ * 1. Resources with mixed-case paths can be pulled correctly
+ * 2. Modifications to those files can be pushed back
+ * 3. The modifications are correctly applied on the server
+ */
+
+import { expect, test } from "bun:test";
+import * as path from "node:path";
+import { writeFile, readFile, stat, rename } from "node:fs/promises";
+import { withTestBackend } from "./test_backend.ts";
+import { addWorkspace } from "../workspace.ts";
+import { parseJsonFromCLIOutput } from "./test_config_helpers.ts";
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+async function setupWorkspaceProfile(backend: any): Promise<void> {
+  const testWorkspace = {
+    remote: backend.baseUrl,
+    workspaceId: backend.workspace,
+    name: "localhost_test",
+    token: backend.token,
+  };
+
+  await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+}
+
+async function createFolder(backend: any, name: string): Promise<void> {
+  const response = await backend.apiRequest!(`/api/w/${backend.workspace}/folders/create`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!response.ok) {
+    const error = await response.text();
+    if (!error.includes("already exists")) {
+      throw new Error(`Failed to create folder ${name}: ${error}`);
+    }
+  } else {
+    await response.text();
+  }
+}
+
+async function createScript(
+  backend: any,
+  scriptPath: string,
+  content: string,
+  summary: string = "Test script"
+): Promise<void> {
+  const script = {
+    path: scriptPath,
+    summary,
+    description: `Script at ${scriptPath}`,
+    content,
+    language: "bun",
+    is_template: false,
+    kind: "script",
+    // Provide a non-empty lock to prevent async lock generation by the backend
+    // worker, which causes flaky tests due to race conditions on Windows CI.
+    lock: "\n",
+    schema: {
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  };
+
+  const response = await backend.apiRequest!(`/api/w/${backend.workspace}/scripts/create`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(script),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to create script ${scriptPath}: ${error}`);
+  }
+  await response.text();
+}
+
+async function createFlow(
+  backend: any,
+  flowPath: string,
+  inlineScriptContent: string,
+  summary: string = "Test flow"
+): Promise<void> {
+  const flow = {
+    path: flowPath,
+    summary,
+    description: `Flow at ${flowPath}`,
+    value: {
+      modules: [
+        {
+          id: "a",
+          value: {
+            type: "rawscript",
+            content: inlineScriptContent,
+            language: "bun",
+            input_transforms: {},
+          },
+        },
+      ],
+    },
+    schema: {
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  };
+
+  const response = await backend.apiRequest!(`/api/w/${backend.workspace}/flows/create`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(flow),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to create flow ${flowPath}: ${error}`);
+  }
+  await response.text();
+
+  // Flow creation queues an async FlowDependencies job that generates the
+  // inline-script lockfile and rewrites flow.value. If we don't wait, a
+  // subsequent pull/push races the worker and the dry-run idempotency
+  // assertion sees a phantom lock-add + flow.yaml-edit diff (CI-only flake).
+  await waitForFlowDependencyJob(backend, flowPath);
+}
+
+async function waitForFlowDependencyJob(
+  backend: any,
+  flowPath: string,
+  timeoutMs: number = 30000,
+): Promise<void> {
+  // /flows/get does not return `dependency_job`. The deployment_status route
+  // joins flow_version against deployment_metadata, which is populated in the
+  // same tx as the FlowDependencies push, so by the time the create/update
+  // API call returns, job_id is already the latest dep-job UUID.
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const statusResp = await backend.apiRequest!(
+      `/api/w/${backend.workspace}/flows/deployment_status/p/${flowPath}`,
+    );
+    if (statusResp.status === 404) {
+      await statusResp.text().catch(() => {});
+      return;
+    }
+    if (!statusResp.ok) {
+      await statusResp.text().catch(() => {});
+      throw new Error(
+        `Failed to fetch deployment status for ${flowPath}: ${statusResp.status}`,
+      );
+    }
+    const status = await statusResp.json();
+    const depJobId: string | undefined = status?.job_id;
+    if (!depJobId) {
+      await new Promise((r) => setTimeout(r, 100));
+      continue;
+    }
+    const completed = await backend.apiRequest!(
+      `/api/w/${backend.workspace}/jobs_u/completed/get/${depJobId}`,
+    );
+    if (completed.ok) {
+      await completed.text();
+      return;
+    }
+    await completed.text().catch(() => {});
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(
+    `Flow dependency job for ${flowPath} did not complete within ${timeoutMs}ms`,
+  );
+}
+
+async function createApp(
+  backend: any,
+  appPath: string,
+  summary: string = "Test app"
+): Promise<void> {
+  const app = {
+    path: appPath,
+    summary,
+    policy: {
+      execution_mode: "viewer",
+    },
+    value: {
+      grid: [],
+      hiddenInlineScripts: [],
+      css: {},
+      norefreshbar: false,
+    },
+  };
+
+  const response = await backend.apiRequest!(`/api/w/${backend.workspace}/apps/create`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(app),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to create app ${appPath}: ${error}`);
+  }
+  await response.text();
+}
+
+async function createVariable(
+  backend: any,
+  varPath: string,
+  value: string,
+  description: string = "Test variable"
+): Promise<void> {
+  const response = await backend.apiRequest!(`/api/w/${backend.workspace}/variables/create`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      path: varPath,
+      value,
+      is_secret: false,
+      description,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to create variable ${varPath}: ${error}`);
+  }
+  await response.text();
+}
+
+async function createResource(
+  backend: any,
+  resourcePath: string,
+  resourceType: string,
+  value: Record<string, unknown>,
+  description: string = "Test resource"
+): Promise<void> {
+  const response = await backend.apiRequest!(`/api/w/${backend.workspace}/resources/create`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      path: resourcePath,
+      resource_type: resourceType,
+      value,
+      description,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to create resource ${resourcePath}: ${error}`);
+  }
+  await response.text();
+}
+
+async function getScript(backend: any, scriptPath: string): Promise<any> {
+  const response = await backend.apiRequest!(`/api/w/${backend.workspace}/scripts/get/p/${encodeURIComponent(scriptPath)}`);
+  if (!response.ok) {
+    throw new Error(`Failed to get script ${scriptPath}: ${response.status}`);
+  }
+  return response.json();
+}
+
+async function getFlow(backend: any, flowPath: string): Promise<any> {
+  const response = await backend.apiRequest!(`/api/w/${backend.workspace}/flows/get/${encodeURIComponent(flowPath)}`);
+  if (!response.ok) {
+    throw new Error(`Failed to get flow ${flowPath}: ${response.status}`);
+  }
+  return response.json();
+}
+
+async function getApp(backend: any, appPath: string): Promise<any> {
+  const response = await backend.apiRequest!(`/api/w/${backend.workspace}/apps/get/p/${encodeURIComponent(appPath)}`);
+  if (!response.ok) {
+    throw new Error(`Failed to get app ${appPath}: ${response.status}`);
+  }
+  return response.json();
+}
+
+async function getVariable(backend: any, varPath: string): Promise<any> {
+  const response = await backend.apiRequest!(`/api/w/${backend.workspace}/variables/get/${encodeURIComponent(varPath)}`);
+  if (!response.ok) {
+    throw new Error(`Failed to get variable ${varPath}: ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Helper to verify that a subsequent pull detects no changes (idempotency check)
+ */
+async function verifyNoDiffOnPull(backend: any, tempDir: string): Promise<void> {
+  const pullResult = await backend.runCLICommand(
+    ["sync", "pull", "--yes", "--dry-run", "--json-output"],
+    tempDir
+  );
+  expect(pullResult.code).toEqual(0);
+
+  const output = parseJsonFromCLIOutput(pullResult.stdout);
+  const changes = output.changes || [];
+
+  if (changes.length > 0) {
+    console.error(
+      `Unexpected changes on dry-run pull (expected 0, got ${changes.length}):`,
+      JSON.stringify(changes, null, 2)
+    );
+  }
+  expect(changes.length).toEqual(0);
+}
+
+// =============================================================================
+// TESTS
+// =============================================================================
+
+test("Mixed Case Paths: pull and push script with capitalized folder", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      // Create folder with mixed case
+      await createFolder(backend, "MyFolder");
+
+      // Create a script with mixed-case path
+      const scriptPath = "f/MyFolder/MyScript";
+      const originalContent = `export async function main() {
+  return "original content";
+}`;
+      await createScript(backend, scriptPath, originalContent, "My Test Script");
+
+      // Create wmill.yaml
+      await writeFile(
+        path.join(tempDir, "wmill.yaml"),
+        `defaultTs: bun
+includes:
+  - "**"
+excludes: []
+`,
+        "utf-8"
+      );
+
+      // Pull
+      const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(pullResult.code).toEqual(0);
+
+      // Verify file exists with correct path (normalized for comparison)
+      const expectedScriptPath = path.join(tempDir, "f", "MyFolder", "MyScript.ts");
+      const scriptExists = await stat(expectedScriptPath).then(() => true).catch(() => false);
+      expect(scriptExists).toBeTruthy();
+
+      // Read and verify content
+      const pulledContent = await readFile(expectedScriptPath, "utf-8");
+      expect(pulledContent.includes("original content")).toBeTruthy();
+
+      // Modify the script
+      const modifiedContent = `export async function main() {
+  return "modified content from test";
+}`;
+      await writeFile(expectedScriptPath, modifiedContent, "utf-8");
+
+      // Push
+      const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
+      expect(pushResult.code).toEqual(0);
+
+      // Verify modification on server
+      const updatedScript = await getScript(backend, scriptPath);
+      expect(
+        updatedScript.content.includes("modified content from test")
+      ).toBeTruthy();
+
+      // Verify no diff on subsequent pull (idempotency)
+      await verifyNoDiffOnPull(backend, tempDir);
+    });
+});
+
+test("Mixed Case Paths: pull and push flow with capitalized folder", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      // Create folder with mixed case
+      await createFolder(backend, "MyFlows");
+
+      // Create a flow with mixed-case path
+      const flowPath = "f/MyFlows/DataProcessor";
+      const originalContent = `export async function main() {
+  return "original flow step";
+}`;
+      await createFlow(backend, flowPath, originalContent, "Data Processor Flow");
+
+      // Create wmill.yaml
+      await writeFile(
+        path.join(tempDir, "wmill.yaml"),
+        `defaultTs: bun
+includes:
+  - "**"
+excludes: []
+`,
+        "utf-8"
+      );
+
+      // Pull
+      const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(pullResult.code).toEqual(0);
+
+      // Verify flow directory exists
+      const flowDir = path.join(tempDir, "f", "MyFlows", "DataProcessor.flow");
+      const flowDirExists = await stat(flowDir).then(s => s.isDirectory()).catch(() => false);
+      expect(flowDirExists).toBeTruthy();
+
+      // Modify the flow metadata (summary) instead of inline script
+      const flowMetadataPath = path.join(flowDir, "flow.yaml");
+      const flowMetadataExists = await stat(flowMetadataPath).then(() => true).catch(() => false);
+      expect(flowMetadataExists).toBeTruthy();
+
+      const flowMetadata = await readFile(flowMetadataPath, "utf-8");
+      const modifiedMetadata = flowMetadata.replace(
+        /summary:.*$/m,
+        'summary: "Modified Data Processor Flow from test"'
+      );
+      await writeFile(flowMetadataPath, modifiedMetadata, "utf-8");
+
+      // Push
+      const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
+      expect(pushResult.code).toEqual(0);
+
+      // Verify modification on server
+      const updatedFlow = await getFlow(backend, flowPath);
+      expect(updatedFlow.summary).toEqual("Modified Data Processor Flow from test");
+
+      // The CLI push enqueues a fresh FlowDependencies job. Wait for it before
+      // the dry-run pull so the lock/flow.value writes have committed.
+      await waitForFlowDependencyJob(backend, flowPath);
+
+      // Verify no diff on subsequent pull (idempotency)
+      await verifyNoDiffOnPull(backend, tempDir);
+    });
+});
+
+test("Mixed Case Paths: pull and push app with capitalized folder", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      // Create folder with mixed case
+      await createFolder(backend, "MyApps");
+
+      // Create an app with mixed-case path
+      const appPath = "f/MyApps/Dashboard";
+      await createApp(backend, appPath, "My Dashboard App");
+
+      // Create wmill.yaml
+      await writeFile(
+        path.join(tempDir, "wmill.yaml"),
+        `defaultTs: bun
+includes:
+  - "**"
+excludes: []
+`,
+        "utf-8"
+      );
+
+      // Pull
+      const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(pullResult.code).toEqual(0);
+
+      // Verify app directory exists
+      const appDir = path.join(tempDir, "f", "MyApps", "Dashboard.app");
+      const appDirExists = await stat(appDir).then(s => s.isDirectory()).catch(() => false);
+      expect(appDirExists).toBeTruthy();
+
+      // Modify the app metadata
+      const appMetadataPath = path.join(appDir, "app.yaml");
+      const appMetadata = await readFile(appMetadataPath, "utf-8");
+      const modifiedMetadata = appMetadata.replace(
+        /summary:.*$/m,
+        'summary: "Modified Dashboard App from test"'
+      );
+      await writeFile(appMetadataPath, modifiedMetadata, "utf-8");
+
+      // Push
+      const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
+      expect(pushResult.code).toEqual(0);
+
+      // Verify modification on server
+      const updatedApp = await getApp(backend, appPath);
+      expect(updatedApp.summary).toEqual("Modified Dashboard App from test");
+
+      // Verify no diff on subsequent pull (idempotency)
+      await verifyNoDiffOnPull(backend, tempDir);
+    });
+});
+
+test("Mixed Case Paths: pull and push variable with capitalized folder", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      // Create folder with mixed case
+      await createFolder(backend, "MyVars");
+
+      // Create a variable with mixed-case path
+      const varPath = "f/MyVars/ApiKey";
+      await createVariable(backend, varPath, "original-api-key-value", "API Key Variable");
+
+      // Create wmill.yaml
+      await writeFile(
+        path.join(tempDir, "wmill.yaml"),
+        `defaultTs: bun
+includes:
+  - "**"
+excludes: []
+`,
+        "utf-8"
+      );
+
+      // Pull
+      const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(pullResult.code).toEqual(0);
+
+      // Verify variable file exists
+      const varFilePath = path.join(tempDir, "f", "MyVars", "ApiKey.variable.yaml");
+      const varExists = await stat(varFilePath).then(() => true).catch(() => false);
+      expect(varExists).toBeTruthy();
+
+      // Modify the variable
+      const varContent = await readFile(varFilePath, "utf-8");
+      const modifiedVarContent = varContent.replace(
+        /value:.*$/m,
+        'value: "modified-api-key-from-test"'
+      );
+      await writeFile(varFilePath, modifiedVarContent, "utf-8");
+
+      // Push
+      const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
+      expect(pushResult.code).toEqual(0);
+
+      // Verify modification on server
+      const updatedVar = await getVariable(backend, varPath);
+      expect(updatedVar.value).toEqual("modified-api-key-from-test");
+
+      // Verify no diff on subsequent pull (idempotency)
+      await verifyNoDiffOnPull(backend, tempDir);
+    });
+});
+
+test("Mixed Case Paths: deeply nested capitalized folders", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      // Create nested folders with mixed case
+      // Note: Windmill folders are flat, so we create a folder with slashes in the name
+      // The actual nesting is in the path structure
+      await createFolder(backend, "MyProject");
+
+      // Create a script with deeply nested mixed-case path
+      const scriptPath = "f/MyProject/SubFolder_A";
+      const originalContent = `export async function main() {
+  return "deeply nested original";
+}`;
+      await createScript(backend, scriptPath, originalContent, "Nested Script");
+
+      // Create wmill.yaml
+      await writeFile(
+        path.join(tempDir, "wmill.yaml"),
+        `defaultTs: bun
+includes:
+  - "**"
+excludes: []
+`,
+        "utf-8"
+      );
+
+      // Pull
+      const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(pullResult.code).toEqual(0);
+
+      // Verify file exists
+      const scriptFilePath = path.join(tempDir, "f", "MyProject", "SubFolder_A.ts");
+      const scriptExists = await stat(scriptFilePath).then(() => true).catch(() => false);
+      expect(scriptExists).toBeTruthy();
+
+      // Modify
+      const modifiedContent = `export async function main() {
+  return "deeply nested modified from test";
+}`;
+      await writeFile(scriptFilePath, modifiedContent, "utf-8");
+
+      // Push
+      const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
+      expect(pushResult.code).toEqual(0);
+
+      // Verify on server
+      const updatedScript = await getScript(backend, scriptPath);
+      expect(
+        updatedScript.content.includes("deeply nested modified from test")
+      ).toBeTruthy();
+
+      // Verify no diff on subsequent pull (idempotency)
+      await verifyNoDiffOnPull(backend, tempDir);
+    });
+});
+
+test("Mixed Case Paths: multiple resources in same capitalized folder", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      // Create folder with mixed case
+      await createFolder(backend, "SharedFolder");
+
+      // Create multiple resources in the same folder
+      await createScript(
+        backend,
+        "f/SharedFolder/ScriptOne",
+        'export async function main() { return "script one original"; }',
+        "Script One"
+      );
+      await createScript(
+        backend,
+        "f/SharedFolder/ScriptTwo",
+        'export async function main() { return "script two original"; }',
+        "Script Two"
+      );
+      await createVariable(backend, "f/SharedFolder/VarOne", "var-one-original");
+      await createResource(backend, "f/SharedFolder/ResourceOne", "any", { key: "original" });
+
+      // Create wmill.yaml
+      await writeFile(
+        path.join(tempDir, "wmill.yaml"),
+        `defaultTs: bun
+includes:
+  - "**"
+excludes: []
+`,
+        "utf-8"
+      );
+
+      // Pull
+      const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(pullResult.code).toEqual(0);
+
+      // Verify all files exist
+      const folderPath = path.join(tempDir, "f", "SharedFolder");
+      const script1Exists = await stat(path.join(folderPath, "ScriptOne.ts")).then(() => true).catch(() => false);
+      const script2Exists = await stat(path.join(folderPath, "ScriptTwo.ts")).then(() => true).catch(() => false);
+      const var1Exists = await stat(path.join(folderPath, "VarOne.variable.yaml")).then(() => true).catch(() => false);
+      const res1Exists = await stat(path.join(folderPath, "ResourceOne.resource.yaml")).then(() => true).catch(() => false);
+
+      expect(script1Exists).toBeTruthy();
+      expect(script2Exists).toBeTruthy();
+      expect(var1Exists).toBeTruthy();
+      expect(res1Exists).toBeTruthy();
+
+      // Modify script one
+      await writeFile(
+        path.join(folderPath, "ScriptOne.ts"),
+        'export async function main() { return "script one MODIFIED"; }',
+        "utf-8"
+      );
+
+      // Modify script two
+      await writeFile(
+        path.join(folderPath, "ScriptTwo.ts"),
+        'export async function main() { return "script two MODIFIED"; }',
+        "utf-8"
+      );
+
+      // Push
+      const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
+      expect(pushResult.code).toEqual(0);
+
+      // Verify modifications on server
+      const script1 = await getScript(backend, "f/SharedFolder/ScriptOne");
+      const script2 = await getScript(backend, "f/SharedFolder/ScriptTwo");
+
+      expect(script1.content.includes("script one MODIFIED")).toBeTruthy();
+      expect(script2.content.includes("script two MODIFIED")).toBeTruthy();
+
+      // Verify no diff on subsequent pull (idempotency)
+      await verifyNoDiffOnPull(backend, tempDir);
+    });
+});
+
+// The core WIN-2020 reproduction. The real failure is NOT a user authoring
+// both f/Caps and f/caps — it is a SINGLE capitalized folder whose on-disk
+// casing drifts on a case-insensitive filesystem (Windows stores/reports the
+// case the directory was first created with). The diff then sees a brand-new
+// lowercase path plus a destructive delete of the real one.
+//
+// This test runs on BOTH the Linux and Windows CI jobs:
+//   - On the Windows runner (real case-insensitive NTFS) the CLI auto-detects
+//     case-insensitivity via its filesystem probe — no override, real behavior.
+//   - On Linux (case-sensitive) we reproduce the drift with an explicit rename
+//     and force the same code path with WMILL_CASE_INSENSITIVE_FS=true, and we
+//     additionally assert that WITHOUT the fix the destructive phantom appears
+//     (which can only be observed on a case-sensitive FS).
+test("Mixed Case Paths: case-only folder drift reconciles to server casing (WIN-2020)", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      await createFolder(backend, "Caps");
+      await createScript(
+        backend,
+        "f/Caps/MyScript",
+        'export async function main() { return "drift repro"; }',
+        "Drift Script"
+      );
+
+      await writeFile(
+        path.join(tempDir, "wmill.yaml"),
+        `defaultTs: bun
+includes:
+  - "**"
+excludes: []
+`,
+        "utf-8"
+      );
+
+      const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(pullResult.code).toEqual(0);
+
+      const upperDir = path.join(tempDir, "f", "Caps");
+      const lowerDir = path.join(tempDir, "f", "caps");
+      const pulledExists = await stat(path.join(upperDir, "MyScript.ts"))
+        .then(() => true)
+        .catch(() => false);
+      expect(pulledExists).toBeTruthy();
+
+      // Simulate the on-disk casing drift (a no-op-in-spirit case-only rename).
+      // On Windows this is a real case-only rename of the same directory; on
+      // Linux it produces a genuinely lowercase sibling.
+      await rename(upperDir, lowerDir);
+
+      const onWindows = process.platform === "win32";
+
+      // Without case-insensitive handling, the drift is a destructive
+      // delete(f/Caps) + add(f/caps) phantom. Only observable on a
+      // case-sensitive FS (Linux), where the override defaults off.
+      if (!onWindows) {
+        const buggy = await backend.runCLICommand(
+          ["sync", "push", "--yes", "--dry-run", "--json-output"],
+          tempDir
+        );
+        expect(buggy.code).toEqual(0);
+        const buggyChanges = parseJsonFromCLIOutput(buggy.stdout).changes || [];
+        const hasDelete = buggyChanges.some(
+          (c: any) => c.type === "deleted" && c.path.replace(/\\/g, "/").startsWith("f/Caps/")
+        );
+        const hasAdd = buggyChanges.some(
+          (c: any) => c.type === "added" && c.path.replace(/\\/g, "/").startsWith("f/caps/")
+        );
+        expect(hasDelete).toBeTruthy();
+        expect(hasAdd).toBeTruthy();
+      }
+
+      // With case-insensitive handling in effect (auto on Windows via the FS
+      // probe, forced via env on Linux) the drifted local casing is reconciled
+      // to the server's casing, so the push is a clean no-op.
+      if (!onWindows) process.env.WMILL_CASE_INSENSITIVE_FS = "true";
+      try {
+        const fixed = await backend.runCLICommand(
+          ["sync", "push", "--yes", "--dry-run", "--json-output"],
+          tempDir
+        );
+        expect(fixed.code).toEqual(0);
+        const fixedChanges = parseJsonFromCLIOutput(fixed.stdout).changes || [];
+        if (fixedChanges.length !== 0) {
+          console.error(
+            "Expected no changes after reconciliation, got:",
+            JSON.stringify(fixedChanges, null, 2)
+          );
+        }
+        expect(fixedChanges.length).toEqual(0);
+
+        // P1 regression: a brand-new item added under the drifted (lowercase)
+        // folder must be pushed under the server's folder casing (f/Caps), not
+        // recreate the case-only collision as f/caps. A self-contained variable
+        // YAML is used so the assertion targets path canonicalization without
+        // dragging in script lock/metadata generation.
+        await writeFile(
+          path.join(lowerDir, "NewVar.variable.yaml"),
+          `value: hello\nis_secret: false\ndescription: new under drifted folder\nis_oauth: false\n`,
+          "utf-8"
+        );
+        const added = await backend.runCLICommand(
+          ["sync", "push", "--yes", "--dry-run", "--json-output"],
+          tempDir
+        );
+        expect(added.code).toEqual(0);
+        const addedChanges = parseJsonFromCLIOutput(added.stdout).changes || [];
+        const addedPaths = addedChanges.map((c: any) =>
+          c.path.replace(/\\/g, "/")
+        );
+        expect(
+          addedPaths.some((p: string) => p === "f/Caps/NewVar.variable.yaml")
+        ).toBeTruthy();
+        expect(
+          addedPaths.some((p: string) => p.startsWith("f/caps/"))
+        ).toBeFalsy();
+      } finally {
+        if (!onWindows) delete process.env.WMILL_CASE_INSENSITIVE_FS;
+      }
+    });
+});
+
+// A genuine, unrepresentable server-side collision: two DISTINCT server folders
+// that differ only by case (f/Caps and f/caps). These cannot both exist on a
+// case-insensitive filesystem, so the CLI must warn. Skipped on Windows, where
+// the pull physically cannot lay both folders down; the warning string itself
+// is exercised platform-independently by the unit tests.
+const collisionTest = process.platform === "win32" ? test.skip : test;
+collisionTest("Mixed Case Paths: distinct server folders differing only by case warn", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      await createFolder(backend, "Caps");
+      await createFolder(backend, "caps");
+      await createScript(
+        backend,
+        "f/Caps/upper",
+        'export async function main() { return "upper"; }',
+        "Upper"
+      );
+      await createScript(
+        backend,
+        "f/caps/lower",
+        'export async function main() { return "lower"; }',
+        "Lower"
+      );
+
+      await writeFile(
+        path.join(tempDir, "wmill.yaml"),
+        `defaultTs: bun
+includes:
+  - "**"
+excludes: []
+`,
+        "utf-8"
+      );
+
+      const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(pullResult.code).toEqual(0);
+
+      const combinedOutput = pullResult.stdout + pullResult.stderr;
+      expect(combinedOutput.includes("differ only by letter case")).toBeTruthy();
+      expect(combinedOutput.includes("f/Caps")).toBeTruthy();
+      expect(combinedOutput.includes("f/caps")).toBeTruthy();
+    });
+});
+
+test("Mixed Case Paths: CamelCase folder names with numbers", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      // Create folder with CamelCase and numbers
+      await createFolder(backend, "Project2024");
+
+      // Create script
+      const scriptPath = "f/Project2024/DataHandler_V2";
+      await createScript(
+        backend,
+        scriptPath,
+        'export async function main() { return "handler v2 original"; }',
+        "Data Handler V2"
+      );
+
+      // Create wmill.yaml
+      await writeFile(
+        path.join(tempDir, "wmill.yaml"),
+        `defaultTs: bun
+includes:
+  - "**"
+excludes: []
+`,
+        "utf-8"
+      );
+
+      // Pull
+      const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(pullResult.code).toEqual(0);
+
+      // Verify file exists
+      const scriptFilePath = path.join(tempDir, "f", "Project2024", "DataHandler_V2.ts");
+      const scriptExists = await stat(scriptFilePath).then(() => true).catch(() => false);
+      expect(scriptExists).toBeTruthy();
+
+      // Modify
+      await writeFile(
+        scriptFilePath,
+        'export async function main() { return "handler v2 MODIFIED"; }',
+        "utf-8"
+      );
+
+      // Push
+      const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
+      expect(pushResult.code).toEqual(0);
+
+      // Verify on server
+      const updatedScript = await getScript(backend, scriptPath);
+      expect(updatedScript.content.includes("handler v2 MODIFIED")).toBeTruthy();
+
+      // Verify no diff on subsequent pull (idempotency)
+      await verifyNoDiffOnPull(backend, tempDir);
+    });
+});

@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext, onDestroy, tick } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, tick, untrack } from 'svelte'
+	import { get } from 'svelte/store'
 	import type {
 		AppInput,
 		EvalAppInput,
 		EvalV2AppInput,
-		TemplateV2Input,
-		UploadAppInput
+		UploadAppInput,
+		UploadS3AppInput
 	} from '../../inputType'
 	import type {
 		AppEditorContext,
@@ -16,23 +17,37 @@
 	} from '../../types'
 	import { accessPropertyByPath } from '../../utils'
 	import { computeGlobalContext, eval_like } from './eval'
-	import deepEqualWithOrderedArray from './deepEqualWithOrderedArray'
 	import { deepEqual } from 'fast-equals'
-	import { deepMergeWithPriority, isCodeInjection } from '$lib/utils'
+	import { deepMergeWithPriority, isCodeInjection, readFieldsRecursively } from '$lib/utils'
 	import sum from 'hash-sum'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	type T = string | number | boolean | Record<string | number, any> | undefined
 
-	export let input: AppInput | RichConfiguration
-	export let value: T
-	export let id: string | undefined = undefined
-	export let error: string = ''
-	export let key: string = ''
-	export let field: string = key
-	export let onDemandOnly: boolean = false
-	export let exportValueFunction: boolean = false
+	interface Props {
+		input: AppInput | RichConfiguration
+		value: T
+		id?: string | undefined
+		error?: string
+		key?: string
+		field?: string
+		onDemandOnly?: boolean
+		exportValueFunction?: boolean
+	}
 
-	const { componentControl, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
+	let {
+		input,
+		value = $bindable(),
+		id = undefined,
+		error = $bindable(''),
+		key = '',
+		field = key,
+		onDemandOnly = false,
+		exportValueFunction = false
+	}: Props = $props()
+
+	const { componentControl, runnableComponents, recomputeAllContext } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
@@ -45,66 +60,35 @@
 
 	let groupStore = groupContext?.context
 
-	$: fullContext = {
-		iter: iterContext ? $iterContext : undefined,
-		row: rowContext ? $rowContext : undefined,
-		group: groupStore ? $groupStore : undefined
-	}
-
-	$: lastInput?.type == 'evalv2' &&
-		!onDemandOnly &&
-		(fullContext.iter != undefined ||
-			fullContext.row != undefined ||
-			fullContext.group != undefined) &&
-		lastInput.connections?.some(
-			(x) => x.componentId == 'row' || x.componentId == 'iter' || x.componentId == 'group'
-		) &&
-		debounceEval()
-
-	$: lastInput &&
-		lastInput.type == 'templatev2' &&
-		isCodeInjection(lastInput.eval) &&
-		(fullContext.iter != undefined ||
-			fullContext.row != undefined ||
-			fullContext.group != undefined) &&
-		lastInput.connections?.some(
-			(x) => x.componentId == 'row' || x.componentId == 'iter' || x.componentId == 'group'
-		) &&
-		debounceTemplate()
-
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
-	if (input == undefined) {
+	if (untrack(() => input) == undefined) {
+		// How did this ever do anything at the top level in svelte 4 if
+		// events were not being picked up before the component fully mounted?
 		dispatch('done')
 	}
 
-	let lastInput: AppInput | undefined = input ? JSON.parse(JSON.stringify(input)) : undefined
+	const { worldStore, state: stateStore, mode } = getContext<AppViewerContext>('AppViewerContext')
 
-	onDestroy(() => (lastInput = undefined))
-
-	$: if (input && !deepEqualWithOrderedArray(input, lastInput)) {
-		lastInput = JSON.parse(JSON.stringify(input))
-		// Needed because of file uploads
-		if (lastInput && input?.['value'] instanceof ArrayBuffer) {
-			// @ts-ignore
-			lastInput.value = input?.['value']
-		}
-	}
-
-	const { worldStore, state, mode } = getContext<AppViewerContext>('AppViewerContext')
-
-	$: stateId = $worldStore?.stateId
-
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 
 	let firstDebounce = true
 	const debounce_ms = 50
 
 	export async function computeExpr(args?: Record<string, any>) {
-		return await evalExpr(lastInput as EvalAppInput, args)
+		return await evalExpr(input as EvalAppInput, args)
 	}
 
+	let destroyed = false
+	onDestroy(() => {
+		destroyed = true
+		clearTimeout(timeout)
+		timeout = undefined
+	})
+
 	function debounce(cb: () => Promise<void>) {
+		if (destroyed) return
 		if (firstDebounce) {
 			firstDebounce = false
 			cb()
@@ -117,6 +101,7 @@
 	}
 
 	function debounce2(cb: () => Promise<void>) {
+		if (destroyed) return
 		if (firstDebounce) {
 			firstDebounce = false
 			cb()
@@ -128,29 +113,19 @@
 		timeout = setTimeout(cb, 50)
 	}
 
-	$: lastInput && $worldStore && debounce(handleConnection)
-
 	const debounceTemplate = async () => {
-		let nvalue = await getValue(lastInput as EvalAppInput)
+		let nvalue = await getValue(input as EvalAppInput)
 		if (!deepEqual(nvalue, value)) {
 			// console.log('template')
 			value = nvalue
 		}
 	}
 
-	$: lastInput &&
-		lastInput.type == 'template' &&
-		isCodeInjection(lastInput.eval) &&
-		$stateId &&
-		$state &&
-		debounce(debounceTemplate)
-
 	let lastExprHash: any = undefined
 
 	const debounceEval = async (s?: string) => {
 		let args = s == 'exprChanged' ? { file: { name: 'example.png' } } : undefined
-		let nvalue = await evalExpr(lastInput as EvalAppInput, args)
-
+		let nvalue = await evalExpr(input as EvalAppInput, args)
 		if (field) {
 			editorContext?.evalPreview.update((x) => {
 				x[`${id}.${field}`] = nvalue
@@ -161,23 +136,17 @@
 		if (!onDemandOnly) {
 			let nhash = typeof nvalue != 'object' ? nvalue : sum(nvalue)
 			if (lastExprHash != nhash) {
-				// console.log('eval changed', field, nvalue)
 				value = nvalue
 				lastExprHash = nhash
 			}
 		}
 	}
 
-	$: lastInput && lastInput.type == 'eval' && $stateId && $state && debounce2(debounceEval)
-
-	$: lastInput?.type == 'evalv2' && lastInput.expr && debounceEval('exprChanged')
-	$: lastInput?.type == 'templatev2' && lastInput.eval && debounceTemplate()
-
 	async function handleConnection() {
-		// console.log('handleCon')
-		if (lastInput?.type === 'connected') {
-			if (lastInput.connection) {
-				const { path, componentId } = lastInput.connection
+		if (destroyed) return
+		if (input?.type === 'connected') {
+			if (input.connection) {
+				const { path, componentId } = input.connection
 				const [p] = path ? path.split('.')[0].split('[') : [undefined]
 				if (p) {
 					const skey = `${id}-${key}-${rowContext ? $rowContext.index : 0}-${
@@ -190,25 +159,26 @@
 						previousConnectedValue
 					)
 				} else {
-					console.debug('path was invalid for connection', lastInput.connection)
+					console.debug('path was invalid for connection', input.connection)
 				}
 			}
-		} else if (lastInput?.type === 'static' || lastInput?.type == 'template') {
-			value = await getValue(lastInput)
-		} else if (lastInput?.type == 'eval') {
-			value = await evalExpr(lastInput as EvalAppInput)
-		} else if (lastInput?.type == 'evalv2') {
-			// console.log('evalv2', onDemandOnly, field)
+		} else if (input?.type === 'static' || input?.type == 'template') {
+			await debounceTemplate()
+		} else if (input?.type == 'eval') {
+			value = await evalExpr(input as EvalAppInput)
+			let nhash = typeof value != 'object' ? value : sum(value)
+			lastExprHash = nhash
+		} else if (input?.type == 'evalv2') {
+			// console.log('evalv2', onDemandOnly, field, exportValueFunction, key)
 			if (onDemandOnly && exportValueFunction) {
 				value = (args?: any) => {
-					return evalExpr(lastInput as EvalV2AppInput, args)
+					return evalExpr(input as EvalV2AppInput, args)
 				}
 				return
 			}
 			const skey = `${id}-${key}-${rowContext ? $rowContext.index : 0}-${
 				iterContext ? $iterContext.index : 0
 			}`
-			const input = lastInput as EvalV2AppInput
 			for (const c of input.connections ?? []) {
 				const previousValueKey = `${c.componentId}-${c.id}`
 				$worldStore?.connect<any>(
@@ -218,8 +188,7 @@
 					previousConnectedValues[previousValueKey]
 				)
 			}
-		} else if (lastInput?.type == 'templatev2') {
-			const input = lastInput as TemplateV2Input
+		} else if (input?.type == 'templatev2') {
 			const skey = `${id}-${key}-${rowContext ? $rowContext.index : 0}-${
 				iterContext ? $iterContext.index : 0
 			}`
@@ -232,14 +201,16 @@
 					previousConnectedValues[previousValueKey]
 				)
 			}
-		} else if (lastInput?.type == 'upload') {
-			value = (lastInput as UploadAppInput).value
+		} else if (input?.type == 'upload') {
+			value = (input as UploadAppInput).value
+		} else if (input?.type == 'uploadS3') {
+			value = (input as UploadS3AppInput).value
 		} else {
 			value = undefined
 		}
 
 		await tick()
-		dispatch('done')
+		dispatchIfMounted('done')
 	}
 
 	function onEvalChange(previousValueKey: string) {
@@ -251,6 +222,7 @@
 
 	function onTemplateChange(previousValueKey: string) {
 		return (newValue) => {
+			// console.log('onTemplateChange', previousValueKey, newValue, id)
 			previousConnectedValues[previousValueKey] = newValue
 			debounceTemplate()
 		}
@@ -264,24 +236,30 @@
 		try {
 			const context = computeGlobalContext(
 				$worldStore,
+				id,
 				deepMergeWithPriority(fullContext, args ?? {})
 			)
 			const r = await eval_like(
 				input.expr,
 				context,
-				$state,
+				$stateStore,
 				$mode == 'dnd',
 				$componentControl,
 				$worldStore,
 				$runnableComponents,
 				false,
-				groupContext?.id
+				groupContext?.id,
+				get(recomputeAllContext)?.onRefresh
 			)
 			error = ''
 			return r
 		} catch (e) {
 			error = e.message
-			console.warn("Eval error in app input '" + id + "' with key '" + key + "'", e)
+			try {
+				console.warn("Eval error in app input '" + id + "' with key '" + key + "'", e)
+			} catch (e) {
+				console.warn('error warning', e)
+			}
 			return value
 		}
 	}
@@ -293,15 +271,16 @@
 		if ((input.type === 'template' || input.type == 'templatev2') && isCodeInjection(input.eval)) {
 			try {
 				const r = await eval_like(
-					'`' + input.eval + '`',
-					computeGlobalContext($worldStore, fullContext),
-					$state,
+					'`' + input.eval.replaceAll('`', '\\`') + '`',
+					computeGlobalContext($worldStore, id, fullContext),
+					$stateStore,
 					$mode == 'dnd',
 					$componentControl,
 					$worldStore,
 					$runnableComponents,
 					false,
-					groupContext?.id
+					groupContext?.id,
+					get(recomputeAllContext)?.onRefresh
 				)
 				error = ''
 				return r
@@ -316,11 +295,10 @@
 		}
 	}
 
-	function onValueChange(newValue: any): void {
+	function onValueChange(newValue: any, force?: boolean): void {
 		if (iterContext && $iterContext.disabled) return
-
-		if (lastInput?.type === 'connected' && newValue !== undefined && newValue !== null) {
-			const { connection } = lastInput
+		if (input?.type === 'connected' && ((newValue !== undefined && newValue !== null) || force)) {
+			const { connection } = input
 			if (!connection) {
 				// No connection
 				return
@@ -344,4 +322,74 @@
 			// TODO: handle disconnect
 		}
 	}
+	let fullContext = $derived({
+		iter: iterContext ? $iterContext : undefined,
+		row: rowContext ? $rowContext : undefined,
+		group: groupStore ? $groupStore : undefined
+	})
+
+	$effect(() => {
+		input?.type == 'evalv2' &&
+			!onDemandOnly &&
+			(fullContext.iter != undefined ||
+				fullContext.row != undefined ||
+				fullContext.group != undefined) &&
+			input.connections?.some(
+				(x) => x.componentId == 'row' || x.componentId == 'iter' || x.componentId == 'group'
+			) &&
+			untrack(() => debounceEval())
+	})
+	$effect(() => {
+		input &&
+			input.type == 'templatev2' &&
+			isCodeInjection(input.eval) &&
+			(fullContext.iter != undefined ||
+				fullContext.row != undefined ||
+				fullContext.group != undefined) &&
+			input.connections?.some(
+				(x) => x.componentId == 'row' || x.componentId == 'iter' || x.componentId == 'group'
+			) &&
+			untrack(() => debounceTemplate())
+	})
+
+	// $effect(() => {
+	// 	console.log('handleConnection4', input)
+	// })
+	$effect(() => {
+		readFieldsRecursively(input)
+		input && $worldStore && untrack(() => debounce(handleConnection))
+	})
+	$effect(() => {
+		input &&
+			input.type == 'template' &&
+			isCodeInjection(input.eval) &&
+			$stateStore &&
+			untrack(() => debounce(debounceTemplate))
+	})
+
+	if (untrack(() => input)?.type == 'eval') {
+		$worldStore?.stateId.subscribe((x) => {
+			debounce2(debounceEval)
+		})
+	}
+
+	if (untrack(() => input)?.type == 'template') {
+		$worldStore?.stateId.subscribe((x) => {
+			debounce2(debounceTemplate)
+		})
+	}
+
+	$effect(() => {
+		input && input.type == 'eval' && $stateStore && untrack(() => debounce2(debounceEval))
+	})
+
+	$effect(() => {
+		input?.type == 'evalv2' && input.expr && untrack(() => debounceEval('exprChanged'))
+	})
+	$effect(() => {
+		input?.type == 'templatev2' && input.eval && untrack(() => debounceTemplate())
+	})
 </script>
+
+<!-- {JSON.stringify(input)} -->
+<!-- 3{value} -->

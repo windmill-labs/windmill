@@ -1,6 +1,0 @@
-openai==1.30.3
-python-dotenv==1.0.0
-pyyaml==6.0
-tqdm==4.66.3
-anyio>=4.4.0 # not directly required, pinned by Snyk to avoid a vulnerability
-zipp>=3.19.1 # not directly required, pinned by Snyk to avoid a vulnerability

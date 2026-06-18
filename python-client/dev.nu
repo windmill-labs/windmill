@@ -1,6 +1,6 @@
 #! /usr/bin/env nu
 
-let cache = "/tmp/windmill/cache/python_311/"
+let cache = "/tmp/windmill/cache/python_3_11/"
 
 # Clean cache
 def "main clean" [] {
@@ -42,7 +42,7 @@ def main [
 		rm -rf ($cache ++ wmill*/wmill/*)
 
 		# Copy files from local ./dist to every wm-client version in cache
-		ls /tmp/windmill/cache/python_311/wmill*	| each {
+		ls /tmp/windmill/cache/python_3_11/wmill*	| each {
 				|i| 
 
 				let path = $i | get name; 

@@ -1,34 +1,53 @@
 <script lang="ts">
 	import { Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
+	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
 	import { Building, Globe2, MousePointer, Plus } from 'lucide-svelte'
 	import InlineScriptList from './InlineScriptList.svelte'
-	import type { Runnable, StaticAppInput } from '$lib/components/apps/inputType'
+	import type { InlineScript, Runnable, StaticAppInput } from '$lib/components/apps/inputType'
 	import WorkspaceScriptList from './WorkspaceScriptList.svelte'
 	import WorkspaceFlowList from './WorkspaceFlowList.svelte'
-	import type { AppViewerContext } from '$lib/components/apps/types'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import type { Schema } from '$lib/common'
-	import { getAllScriptNames, schemaToInputsSpec } from '$lib/components/apps/utils'
-	import { defaultIfEmptyString, emptySchema } from '$lib/utils'
+	import { emptySchema } from '$lib/utils'
 	import { loadSchema } from '$lib/infer'
+	import { workspaceStore } from '$lib/stores'
+	import { buildPathRunnableSelection } from './runnableSelectorUtils'
 
-	type Tab = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
+	type TabType =
+		| 'hubscripts'
+		| 'hubflows'
+		| 'workspacescripts'
+		| 'workspaceflows'
+		| 'inlinescripts'
 
-	export let defaultUserInput = false
-	export let hideCreateScript = false
-	export let onlyFlow = false
-	export let rawApps = false
+	interface Props {
+		defaultUserInput?: boolean
+		hideCreateScript?: boolean
+		onlyFlow?: boolean
+		rawApps?: boolean
+		unusedInlineScripts: { name: string; inlineScript: InlineScript }[]
+	}
 
-	const { app, workspace } = getContext<AppViewerContext>('AppViewerContext')
+	let {
+		defaultUserInput = false,
+		hideCreateScript = false,
+		onlyFlow = false,
+		rawApps = false,
+		unusedInlineScripts = $bindable()
+	}: Props = $props()
 
-	let tab: Tab = onlyFlow
-		? 'workspaceflows'
-		: $app?.unusedInlineScripts?.length > 0
-		? 'inlinescripts'
-		: 'workspacescripts'
-	let filter: string = ''
-	let picker: Drawer
+	// const { app, workspace } = getContext<AppViewerContext>('AppViewerContext')
+
+	let tab: TabType = $state(
+		untrack(() => onlyFlow)
+			? 'workspaceflows'
+			: unusedInlineScripts?.length > 0
+				? 'inlinescripts'
+				: 'workspacescripts'
+	)
+	let filter: string = $state('')
+	let picker: Drawer | undefined = $state()
 
 	const dispatch = createEventDispatcher<{
 		pick: {
@@ -41,7 +60,7 @@
 		path: string,
 		runType: 'script' | 'flow' | 'hubscript'
 	): Promise<{ schema: Schema; summary: string | undefined }> {
-		const schema = await loadSchema(workspace, path, runType)
+		const schema = await loadSchema($workspaceStore!, path, runType)
 		if (!schema.schema.order) {
 			schema.schema.order = Object.keys(schema.schema.properties ?? {})
 		}
@@ -49,87 +68,85 @@
 	}
 
 	async function pickScript(path: string) {
-		const schema = await loadSchemaFromTriggerable(path, 'script')
-		const fields = schemaToInputsSpec(schema.schema, defaultUserInput)
-		const runnable = {
-			type: 'runnableByPath',
+		const selection = buildPathRunnableSelection(
 			path,
-			runType: 'script',
-			schema: schema.schema,
-			name: defaultIfEmptyString(schema.summary, path)
-		} as const
-
+			'script',
+			await loadSchemaFromTriggerable(path, 'script'),
+			defaultUserInput,
+			rawApps
+		)
 		dispatch('pick', {
-			runnable,
-			fields
+			runnable: selection.runnable,
+			fields: selection.fields
 		})
 	}
 
 	async function pickFlow(path: string) {
-		const schema = await loadSchemaFromTriggerable(path, 'flow')
-		const fields = schemaToInputsSpec(schema.schema, defaultUserInput)
-		const runnable = {
-			type: 'runnableByPath',
+		const selection = buildPathRunnableSelection(
 			path,
-			runType: 'flow',
-			schema,
-			name: defaultIfEmptyString(schema.summary, path)
-		} as const
+			'flow',
+			await loadSchemaFromTriggerable(path, 'flow'),
+			defaultUserInput,
+			rawApps
+		)
 		dispatch('pick', {
-			runnable,
-			fields
+			runnable: selection.runnable,
+			fields: selection.fields
 		})
 	}
 
 	async function pickHubScript(path: string) {
-		const schema = await loadSchemaFromTriggerable(path, 'hubscript')
-		const fields = schemaToInputsSpec(schema.schema, defaultUserInput)
-		const runnable = {
-			type: 'runnableByPath',
+		const selection = buildPathRunnableSelection(
 			path,
-			runType: 'hubscript',
-			schema,
-			name: defaultIfEmptyString(schema.summary, path)
-		} as const
+			'hubscript',
+			await loadSchemaFromTriggerable(path, 'hubscript'),
+			defaultUserInput,
+			rawApps
+		)
 		dispatch('pick', {
-			runnable,
-			fields
+			runnable: selection.runnable,
+			fields: selection.fields
+		})
+	}
+
+	async function pickHubFlow(item: { flow_id: number }) {
+		const path = `hub/flows/${item.flow_id}`
+		const selection = buildPathRunnableSelection(
+			path,
+			'flow',
+			await loadSchemaFromTriggerable(path, 'flow'),
+			defaultUserInput,
+			rawApps
+		)
+		dispatch('pick', {
+			runnable: selection.runnable,
+			fields: selection.fields
 		})
 	}
 
 	function pickInlineScript(name: string) {
-		const unusedInlineScriptIndex = $app.unusedInlineScripts?.findIndex(
-			(script) => script.name === name
-		)
-		const unusedInlineScript = $app.unusedInlineScripts?.[unusedInlineScriptIndex]
+		const unusedInlineScriptIndex = unusedInlineScripts?.findIndex((script) => script.name === name)
+		const unusedInlineScript = unusedInlineScripts?.[unusedInlineScriptIndex]
 		dispatch('pick', {
 			runnable: {
-				type: 'runnableByName',
+				type: 'inline',
 				name,
 				inlineScript: unusedInlineScript.inlineScript
 			},
 			fields: {}
 		})
 
-		$app.unusedInlineScripts.splice(unusedInlineScriptIndex, 1)
-		$app.unusedInlineScripts = $app.unusedInlineScripts
+		unusedInlineScripts.splice(unusedInlineScriptIndex, 1)
+		unusedInlineScripts = unusedInlineScripts
 	}
 
 	function createScript() {
-		let index = 0
-		let newScriptPath = `Inline Script ${index}`
-
-		const names = getAllScriptNames($app)
-
-		// Find a name that is not used by any other inline script
-		while (names.includes(newScriptPath)) {
-			newScriptPath = `Inline Script ${++index}`
-		}
+		let newScriptName = `Inline Script`
 
 		dispatch('pick', {
 			runnable: {
-				type: 'runnableByName',
-				name: newScriptPath,
+				type: 'inline',
+				name: newScriptName,
 				inlineScript: undefined
 			},
 			fields: {}
@@ -144,43 +161,24 @@
 				<Tabs bind:selected={tab}>
 					{#if !onlyFlow}
 						{#if !rawApps}
-							<Tab size="sm" value="inlinescripts">
-								<div class="flex gap-2 items-center my-1">
-									<Building size={18} strokeWidth={1.5} />
-									Detached Inline Scripts
-								</div>
-							</Tab>
+							<Tab value="inlinescripts" label="Detached Inline Scripts" icon={Building} />
 						{/if}
-						<Tab size="sm" value="workspacescripts">
-							<div class="flex gap-2 items-center my-1">
-								<Building size={18} strokeWidth={1.5} />
-								Workspace Scripts
-							</div>
-						</Tab>
+						<Tab value="workspacescripts" label="Workspace Scripts" icon={Building} />
 					{/if}
-					<Tab size="sm" value="workspaceflows">
-						<div class="flex gap-2 items-center my-1">
-							<Building size={18} strokeWidth={1.5} />
-							Workspace Flows
-						</div>
-					</Tab>
+					<Tab value="workspaceflows" label="Workspace Flows" icon={Building} />
 					{#if !onlyFlow}
-						<Tab size="sm" value="hubscripts">
-							<div class="flex gap-2 items-center my-1">
-								<Globe2 size={18} strokeWidth={1.5} />
-								Hub Scripts
-							</div>
-						</Tab>
+						<Tab value="hubscripts" label="Hub Scripts" icon={Globe2} />
 					{/if}
+					<Tab value="hubflows" label="Hub Flows" icon={Globe2} />
 				</Tabs>
-				<div class="my-2" />
+				<div class="my-2"></div>
 				<div class="flex flex-col gap-y-16">
 					<div class="flex flex-col">
 						{#if tab == 'inlinescripts'}
 							<InlineScriptList
 								on:pick={(e) => pickInlineScript(e.detail)}
-								inlineScripts={$app.unusedInlineScripts
-									? $app.unusedInlineScripts.map((uis) => uis.name)
+								inlineScripts={unusedInlineScripts
+									? unusedInlineScripts.map((uis) => uis.name)
 									: []}
 							/>
 						{:else if tab == 'workspacescripts'}
@@ -189,6 +187,8 @@
 							<WorkspaceFlowList on:pick={(e) => pickFlow(e.detail)} />
 						{:else if tab == 'hubscripts'}
 							<PickHubScript bind:filter on:pick={(e) => pickHubScript(e.detail.path)} />
+						{:else if tab == 'hubflows'}
+							<PickHubFlow bind:filter on:pick={(e) => pickHubFlow(e.detail)} />
 						{/if}
 					</div>
 				</div>
@@ -201,9 +201,8 @@
 	{#if !hideCreateScript}
 		<Button
 			on:click={createScript}
-			size="xs"
-			color="light"
-			variant="border"
+			unifiedSize="md"
+			variant="default"
 			startIcon={{ icon: Plus }}
 			btnClasses="truncate w-full"
 			id="app-editor-create-inline-script"
@@ -213,9 +212,8 @@
 	{/if}
 	<Button
 		on:click={() => picker?.openDrawer()}
-		size="xs"
-		color="blue"
-		variant="border"
+		unifiedSize="md"
+		variant={rawApps ? 'contained' : 'border'}
 		startIcon={{ icon: MousePointer }}
 		btnClasses="truncate w-full"
 	>

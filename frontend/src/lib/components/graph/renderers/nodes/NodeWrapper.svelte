@@ -2,35 +2,82 @@
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import { Handle, Position } from '@xyflow/svelte'
 	import { twMerge } from 'tailwind-merge'
+	import ContextMenu, { type ContextMenuItem } from '../../../common/contextmenu/ContextMenu.svelte'
+	import { getGraphContext } from '../../graphContext'
+	import type { Item } from '$lib/utils'
 
-	export let enableSourceHandle: boolean = true
-	export let enableTargetHandle: boolean = true
-	export let offset: number = 0
-	export let wrapperClass: string = ''
+	interface Props {
+		enableSourceHandle?: boolean
+		enableTargetHandle?: boolean
+		wrapperClass?: string
+		contextMenuItems?: ContextMenuItem[]
+		menuItems?: Item[]
+		/** xyflow node ID — used to fade nodes that are part of a moving subflow */
+		nodeId?: string
+		children?: import('svelte').Snippet<[any]>
+	}
 
-	let darkMode: boolean = false
+	let {
+		enableSourceHandle = true,
+		enableTargetHandle = true,
+		wrapperClass = '',
+		contextMenuItems = undefined,
+		menuItems = undefined,
+		nodeId = undefined,
+		children
+	}: Props = $props()
+
+	let resolvedContextMenuItems: ContextMenuItem[] | undefined = $derived(
+		contextMenuItems ??
+			menuItems?.flatMap((item) => [
+				...(item.separatorTop
+					? [{ id: `${item.displayName}-divider`, label: '', divider: true }]
+					: []),
+				{
+					id: item.displayName,
+					label: item.displayName,
+					icon: item.icon,
+					disabled: item.disabled,
+					type: item.type,
+					shortcut: item.shortcut,
+					onClick: item.action as (() => void) | undefined
+				}
+			])
+	)
+
+	// NodeWrapper is reused outside the flow graph (e.g. the app decision-tree
+	// editor) where FlowGraphContext is never set, so guard against undefined.
+	const { moveManager } = getGraphContext() ?? {}
+
+	let faded = $derived(nodeId != null && (moveManager?.draggedNodeIds?.has(nodeId) ?? false))
+
+	let darkMode: boolean = $state(false)
 </script>
 
 <DarkModeObserver bind:darkMode />
 
-<div class={twMerge('relative shadow-md', wrapperClass)} style={`margin-left: ${offset}px;`}>
-	<slot {darkMode} />
-</div>
+{#if resolvedContextMenuItems && resolvedContextMenuItems.length > 0}
+	<ContextMenu items={resolvedContextMenuItems}>
+		<div class={twMerge('relative rounded-md', faded ? 'opacity-30' : '', wrapperClass)}>
+			{@render children?.({ darkMode })}
+		</div>
 
-{#if enableSourceHandle}
-	<Handle
-		type="source"
-		isConnectable={false}
-		position={Position.Bottom}
-		style={`margin-left: ${offset / 2}px;`}
-	/>
+		{@render handles()}
+	</ContextMenu>
+{:else}
+	<div class={twMerge('relative rounded-md', faded ? 'opacity-30' : '', wrapperClass)}>
+		{@render children?.({ darkMode })}
+	</div>
+
+	{@render handles()}
 {/if}
 
-{#if enableTargetHandle}
-	<Handle
-		type="target"
-		isConnectable={false}
-		position={Position.Top}
-		style={`margin-left: ${offset / 2}px;`}
-	/>
-{/if}
+{#snippet handles()}
+	{#if enableSourceHandle}
+		<Handle type="source" isConnectable={false} position={Position.Bottom} />
+	{/if}
+
+	{#if enableTargetHandle}
+		<Handle type="target" isConnectable={false} position={Position.Top} />
+	{/if}
+{/snippet}

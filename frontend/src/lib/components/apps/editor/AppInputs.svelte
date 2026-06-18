@@ -3,13 +3,13 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../types'
-	import { BG_PREFIX, allItems } from '../utils'
 	import AppComponentInput from './AppComponentInput.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
+	import { allItems, BG_PREFIX } from './appUtilsCore'
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
-	let resourceOnly: boolean = true
+	let resourceOnly: boolean = $state(true)
 </script>
 
 <Alert type="info" title="Configurations">
@@ -24,8 +24,11 @@
 			<div>
 				<AppComponentInput bind:component={gridItem.data} {resourceOnly} />
 				<div class="ml-4 mt-4">
-					{#each gridItem.data.actionButtons as actionButton (actionButton.id)}
-						<AppComponentInput bind:component={actionButton.data} {resourceOnly} />
+					{#each gridItem.data.actionButtons as actionButton, actionIndex (actionButton.id)}
+						<AppComponentInput
+							bind:component={gridItem.data.actionButtons[actionIndex].data}
+							{resourceOnly}
+						/>
 					{/each}
 				</div>
 			</div>
@@ -34,8 +37,11 @@
 				<AppComponentInput bind:component={gridItem.data} {resourceOnly} />
 				<div class="ml-4 mt-4">
 					{#if Array.isArray(gridItem.data.actions)}
-						{#each gridItem.data.actions as actionButton (actionButton.id)}
-							<AppComponentInput bind:component={actionButton.data} {resourceOnly} />
+						{#each gridItem.data.actions as actionButton, actionIndex (actionButton.id)}
+							<AppComponentInput
+								bind:component={gridItem.data.actions[actionIndex].data}
+								{resourceOnly}
+							/>
 						{/each}
 					{/if}
 				</div>

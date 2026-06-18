@@ -7,17 +7,21 @@
 	// import Button from '$lib/components/common/button/Button.svelte'
 	// import { json } from 'svelte-highlight/languages'
 	// import { copyToClipboard } from '$lib/utils'
-	// import { deepEqual } from 'fast-equals'
+	
 
-	export let flowStatus: any
+	interface Props {
+		// import { deepEqual } from 'fast-equals'
+		preprocessed: boolean | undefined;
+	}
+
+	let { preprocessed }: Props = $props();
 
 	// $: args =
 	// 	'_metadata' in flowStatus && 'original_args' in flowStatus['_metadata']
 	// 		? flowStatus['_metadata']['original_args']
 	// 		: undefined
 
-	$: hasPreprocessedArgs =
-		'_metadata' in flowStatus && !!flowStatus['_metadata']['preprocessed_args']
+	let hasPreprocessedArgs = $derived(preprocessed === true)
 
 	// $: argsStr = args !== undefined ? JSON.stringify(args, null, 4) : undefined
 
@@ -34,7 +38,7 @@
 {#if args !== undefined && argsStr !== undefined}
 	<Drawer bind:this={jsonViewer} size="900px">
 		<DrawerContent title="Original args" on:close={jsonViewer.closeDrawer}>
-			<svelte:fragment slot="actions">
+			{#snippet actions()}
 				<Button
 					download="windmill-args.json"
 					href={`data:text/json;charset=utf-8,${encodeURIComponent(argsStr)}`}
@@ -52,9 +56,9 @@
 				>
 					Copy to clipboard
 				</Button>
-			</svelte:fragment>
+			{/snippet}
 			{#if args.length > 100000 || (args && typeof args === 'object' && deepEqual( Object.keys(args), ['reason'] ) && args['reason'] == 'WINDMILL_TOO_BIG')}
-				<div class="text-sm mb-2 text-tertiary">
+				<div class="text-sm mb-2 text-primary">
 					<a
 						download="windmill-args.json"
 						href={`data:text/json;charset=utf-8,${encodeURIComponent(args)}`}

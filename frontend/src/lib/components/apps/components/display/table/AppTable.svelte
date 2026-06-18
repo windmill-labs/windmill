@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { getContext, onDestroy, onMount } from 'svelte'
+	import { stopPropagation } from 'svelte/legacy'
+
+	import { getContext, onDestroy, onMount, untrack } from 'svelte'
 	import type {
 		AppViewerContext,
 		BaseAppComponent,
@@ -11,14 +13,24 @@
 	import type { AppInput } from '../../../inputType'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { writable } from 'svelte/store'
-	import {
-		createSvelteTable,
-		flexRender,
-		type HeaderGroup,
-		type Row,
-		type Table,
-		type TableOptions
-	} from '@tanstack/svelte-table'
+
+	// tanstack-table v8 does not support svelte 5.
+	//
+	// This packages acts as a drop-in replacement:
+	// https://github.com/dummdidumm/tanstack-table-8-svelte-5
+	// It re-exports the core lib types but for some reason I can't
+	// import them so I get them manually from node_modules.
+	//
+	// tanstack-table v9 supports svelte 5 but is still in alpha at the
+	// time of writing, and introduces unstable breaking changes
+	import { createSvelteTable, flexRender } from '@tanstack/svelte-table'
+	import type {
+		HeaderGroup,
+		Row,
+		Table,
+		TableOptions
+	} from '$lib/../../node_modules/@tanstack/table-core/build/lib'
+
 	import AppButton from '../../buttons/AppButton.svelte'
 	import { classNames, isObject, sendUserToast } from '$lib/utils'
 	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
@@ -29,6 +41,7 @@
 		components,
 		type ButtonComponent,
 		type CheckboxComponent,
+		type ModalComponent,
 		type SelectComponent
 	} from '../../../editor/component'
 	import { initCss } from '../../../utils'
@@ -39,28 +52,40 @@
 	import AppSelect from '../../inputs/AppSelect.svelte'
 	import RowWrapper from '../../layout/RowWrapper.svelte'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
-	import { Popup } from '$lib/components/common'
 	import ComponentOutputViewer from '$lib/components/apps/editor/contextPanel/ComponentOutputViewer.svelte'
 	import { EyeIcon, Plug2 } from 'lucide-svelte'
 	import AppCell from './AppCell.svelte'
 	import sum from 'hash-sum'
 	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let actionButtons: (BaseAppComponent &
-		(ButtonComponent | CheckboxComponent | SelectComponent))[]
-	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'tablecomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		actionButtons: (BaseAppComponent &
+			(ButtonComponent | CheckboxComponent | SelectComponent | ModalComponent))[]
+		initializing?: boolean | undefined
+		customCss?: ComponentCustomCSS<'tablecomponent'> | undefined
+		render: boolean
+	}
+
+	let {
+		id,
+		componentInput,
+		configuration,
+		actionButtons,
+		initializing = $bindable(undefined),
+		customCss = undefined,
+		render
+	}: Props = $props()
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
 	type T = Record<string, any>
 
-	let result: Record<string, any>[] | undefined = undefined
+	let result: Record<string, any>[] | undefined = $state(undefined)
 
 	const {
 		app,
@@ -72,9 +97,9 @@
 		connectingInput
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	let searchValue = ''
+	let searchValue = $state('')
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		selectedRowIndex: 0,
 		selectedRow: undefined,
 		loading: false,
@@ -84,10 +109,8 @@
 		page: 1
 	})
 
-	let inputs = {}
-	let loading: boolean = false
-
-	$: setSearch(searchValue)
+	let inputs = $state({})
+	let loading: boolean = $state(false)
 
 	function setSearch(srch: string) {
 		$table.setPageIndex(0)
@@ -100,14 +123,13 @@
 		columns: []
 	})
 
-	let table = createSvelteTable(options)
+	let table = $state(createSvelteTable(options))
 
-	let resolvedConfig = initConfig(
-		components['tablecomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['tablecomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	let selectedRowIndex = -1
+	let selectedRowIndex = $state(-1)
 
 	function toggleRow(row: Record<string, any>, force: boolean = false) {
 		let data = { ...row.original }
@@ -129,19 +151,10 @@
 		listInputs?.remove(id)
 	})
 
-	let mounted = false
+	let mounted = $state(false)
 	onMount(() => {
 		mounted = true
 	})
-
-	$: resolvedConfig?.selectFirstRowByDefault != false &&
-		selectedRowIndex === -1 &&
-		Array.isArray(result) &&
-		result.length > 0 &&
-		// We need to wait until the component is mounted so the world is created
-		mounted &&
-		outputs &&
-		toggleRow({ original: { ...result[0], __index: 0 } })
 
 	function searchInResult(result: Array<Record<string, any>>, searchValue: string) {
 		if (searchValue === '') {
@@ -161,7 +174,7 @@
 		}
 	}
 
-	let filteredResult: Array<Record<string, any>> = []
+	let filteredResult: Array<Record<string, any>> = $state([])
 
 	function setFilteredResult() {
 		console.log('setting filtered result')
@@ -175,10 +188,6 @@
 			filteredResult = searchInResult(wIndex ?? [], searchValue)
 		}
 	}
-	$: (result || resolvedConfig.search || searchValue || resolvedConfig.pagination) &&
-		setFilteredResult()
-
-	$: outputs.page.set($table.getState().pagination.pageIndex)
 
 	function rerender() {
 		if (!Array.isArray(result)) {
@@ -199,12 +208,12 @@
 								pageSize: resolvedConfig?.pagination?.configuration?.auto?.pageSize ?? 20
 							}
 						}
-				  }
+					}
 				: {}),
 			manualPagination: resolvedConfig?.pagination?.selected == 'manual',
 			pageCount:
 				resolvedConfig?.pagination?.selected == 'manual'
-					? resolvedConfig?.pagination?.configuration.manual.pageCount ?? -1
+					? (resolvedConfig?.pagination?.configuration.manual.pageCount ?? -1)
 					: undefined,
 			data: filteredResult,
 			columns: headers.map((header) => {
@@ -228,11 +237,9 @@
 		}
 	}
 
-	$: filteredResult != undefined && rerender()
+	let css = $state(initCss($app.css?.tablecomponent, untrack(() => customCss)))
 
-	let css = initCss($app.css?.tablecomponent, customCss)
-
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		right: (skipActions: boolean | undefined) => {
 			if (skipActions) {
 				return false
@@ -249,6 +256,12 @@
 		setSelectedIndex: (index: number) => {
 			if (filteredResult) {
 				toggleRow({ original: filteredResult[index] }, true)
+			}
+		},
+		setValue(nvalue) {
+			if (Array.isArray(nvalue)) {
+				result = nvalue
+				outputs?.result.set(nvalue)
 			}
 		}
 	}
@@ -278,26 +291,24 @@
 		}
 	}
 
-	function updateTable(resolvedConfig, searchValue) {
+	function updateTable(resolvedConfig) {
 		if (resolvedConfig?.columnDefs) {
 			$table.getAllLeafColumns().map((column) => {
 				const columnConfig = resolvedConfig.columnDefs.find(
 					// @ts-ignore
 					(columnDef) => columnDef.field === column.columnDef.accessorKey
 				)
-
 				if (columnConfig?.hideColumn === column.getIsVisible()) {
 					column.toggleVisibility()
 				}
 			})
-
-			$table.setColumnOrder(() =>
-				resolvedConfig.columnDefs.map((columnDef: { field: any }) => columnDef.field)
+			const newColumnOrder = resolvedConfig.columnDefs.map(
+				(columnDef: { field: any }) => columnDef.field
 			)
+
+			$table.setColumnOrder(() => newColumnOrder)
 		}
 	}
-
-	$: $table && updateTable(resolvedConfig, searchValue)
 
 	function updateCellValue(rowIndex: number, columnIndex: number, newCellValue: string) {
 		if (result && rowIndex < result.length) {
@@ -314,6 +325,34 @@
 			outputs?.result.set([result])
 		}
 	}
+	$effect(() => {
+		;[searchValue]
+		untrack(() => setSearch(searchValue))
+	})
+	$effect(() => {
+		resolvedConfig?.selectFirstRowByDefault != false &&
+			selectedRowIndex === -1 &&
+			Array.isArray(result) &&
+			result.length > 0 &&
+			// We need to wait until the component is mounted so the world is created
+			mounted &&
+			outputs &&
+			toggleRow({ original: { ...result[0], __index: 0 } })
+	})
+	$effect(() => {
+		;[result, resolvedConfig.search, searchValue, resolvedConfig.pagination]
+		untrack(() => setFilteredResult())
+	})
+	$effect(() => {
+		outputs.page.set($table.getState().pagination.pageIndex)
+	})
+	$effect(() => {
+		filteredResult != undefined && untrack(() => rerender())
+	})
+	$effect(() => {
+		resolvedConfig.columnDefs
+		untrack(() => updateTable(resolvedConfig))
+	})
 </script>
 
 {#each Object.keys(components['tablecomponent'].initialData.configuration) as key (key)}
@@ -357,7 +396,7 @@
 							/>
 						</div>
 					{:else}
-						<div />
+						<div></div>
 					{/if}
 
 					{#if componentInput?.hideRefreshButton && componentInput['autoRefresh']}
@@ -405,12 +444,13 @@
 														{#if displayName}
 															{displayName}
 														{:else if !header.isPlaceholder && component}
-															<svelte:component this={component} />
+															{@const SvelteComponent = component}
+															<SvelteComponent />
 														{/if}
 														{#if header.column.getIsVisible()}
 															<button
 																class="w-6 flex justify-center items-center"
-																on:click={() => {
+																onclick={() => {
 																	header.column.toggleVisibility()
 																}}
 															>
@@ -479,13 +519,13 @@
 									{#if actionButtons.length > 0}
 										<td
 											class="p-2"
-											on:keypress={() => toggleRow(row)}
-											on:click={() => toggleRow(row)}
+											onkeypress={() => toggleRow(row)}
+											onclick={() => toggleRow(row)}
 											style="width: {(actionButtons ?? []).length * 130}px"
 										>
 											<div class="center-center h-full w-full flex-wrap gap-2">
 												{#each actionButtons as actionButton, actionIndex (actionButton?.id)}
-													<!-- svelte-ignore a11y-no-static-element-interactions -->
+													<!-- svelte-ignore a11y_no_static_element_interactions -->
 													<RowWrapper
 														value={row.original}
 														index={rowIndex}
@@ -511,18 +551,18 @@
 															outputs?.inputs.set(inputs, true)
 														}}
 													>
-														<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+														<!-- svelte-ignore a11y_mouse_events_have_key_events -->
 														<div
-															on:mouseover|stopPropagation={() => {
+															onmouseover={stopPropagation(() => {
 																if (actionButton.id !== $hoverStore) {
 																	$hoverStore = actionButton.id
 																}
-															}}
-															on:mouseout|stopPropagation={() => {
+															})}
+															onmouseout={stopPropagation(() => {
 																if ($hoverStore !== undefined) {
 																	$hoverStore = undefined
 																}
-															}}
+															})}
 															class={classNames(
 																($selectedComponent?.includes(actionButton.id) ||
 																	$hoverStore === actionButton.id) &&
@@ -532,8 +572,8 @@
 															)}
 														>
 															{#if $mode !== 'preview'}
-																<!-- svelte-ignore a11y-click-events-have-key-events -->
-																<!-- svelte-ignore a11y-no-static-element-interactions -->
+																<!-- svelte-ignore a11y_click_events_have_key_events -->
+																<!-- svelte-ignore a11y_no_static_element_interactions -->
 																<span
 																	title={`Id: ${actionButton.id}`}
 																	class={classNames(
@@ -544,40 +584,44 @@
 																			? 'opacity-100'
 																			: 'opacity-0'
 																	)}
-																	on:click|stopPropagation={() => {
+																	onclick={stopPropagation(() => {
 																		$selectedComponent = [actionButton.id]
-																	}}
+																	})}
 																>
 																	{actionButton.id}
 																</span>
 
 																{#if $connectingInput.opened}
 																	<div class="absolute z-50 left-8 -top-[10px]">
-																		<Popup
+																		<Popover
 																			floatingConfig={{
 																				strategy: 'absolute',
 																				placement: 'bottom-start'
 																			}}
+																			closeOnOtherPopoverOpen
+																			contentClasses="p-4"
 																		>
-																			<svelte:fragment slot="button">
+																			{#snippet trigger()}
 																				<button
 																					class="bg-red-500/70 border border-red-600 px-1 py-0.5"
 																					title="Outputs"
 																					aria-label="Open output"><Plug2 size={12} /></button
 																				>
-																			</svelte:fragment>
-																			<ComponentOutputViewer
-																				suffix="table"
-																				on:select={({ detail }) =>
-																					connectOutput(
-																						connectingInput,
-																						'buttoncomponent',
-																						actionButton.id,
-																						detail
-																					)}
-																				componentId={actionButton.id}
-																			/>
-																		</Popup>
+																			{/snippet}
+																			{#snippet content()}
+																				<ComponentOutputViewer
+																					suffix="table"
+																					on:select={({ detail }) =>
+																						connectOutput(
+																							connectingInput,
+																							'buttoncomponent',
+																							actionButton.id,
+																							detail
+																						)}
+																					componentId={actionButton.id}
+																				/>
+																			{/snippet}
+																		</Popover>
 																	</div>
 																{/if}
 															{/if}

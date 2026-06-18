@@ -1,8 +1,9 @@
 <script lang="ts">
-	import Select from '$lib/components/apps/svelte-select/lib/Select.svelte'
+	import { run } from 'svelte/legacy';
+
 	import { Button } from '$lib/components/common'
-	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
+	import Select from '$lib/components/select/Select.svelte'
+	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 	import type { Relations } from '$lib/gen'
 	import { PostgresTriggerService } from '$lib/gen/services.gen'
 	import { workspaceStore } from '$lib/stores'
@@ -10,16 +11,32 @@
 	import { emptyString } from '$lib/utils'
 	import { RefreshCw } from 'lucide-svelte'
 
-	export let items: string[] = []
-	export let publication_name: string = ''
-	export let postgres_resource_path: string = ''
-	export let table_to_track: Relations[] = []
-	export let relations: Relations[] = []
-	export let transaction_to_track: string[] = []
-	export let selectedTable: 'all' | 'specific' = 'specific'
+	interface Props {
+		items?: string[];
+		can_write?: boolean;
+		publication_name?: string;
+		postgres_resource_path?: string;
+		relations?: Relations[] | undefined;
+		transaction_to_track?: string[];
+		disabled?: boolean;
+	}
 
+	let {
+		items = $bindable([]),
+		can_write = true,
+		publication_name = $bindable(''),
+		postgres_resource_path = '',
+		relations = $bindable(undefined),
+		transaction_to_track = $bindable([]),
+		disabled = false
+	}: Props = $props();
+
+	let loadingPublication: boolean = $state(false)
+	let deletingPublication: boolean = $state(false)
+	let updatingPublication: boolean = $state(false)
 	async function listDatabasePublication() {
 		try {
+			loadingPublication = true
 			const publications = await PostgresTriggerService.listPostgresPublication({
 				path: postgres_resource_path,
 				workspace: $workspaceStore!
@@ -28,40 +45,48 @@
 			items = publications
 		} catch (error) {
 			sendUserToast(error.body, true)
+		} finally {
+			loadingPublication = false
 		}
 	}
 
 	async function updatePublication() {
 		try {
+			updatingPublication = true
 			const message = await PostgresTriggerService.updatePostgresPublication({
 				path: postgres_resource_path,
 				workspace: $workspaceStore!,
 				publication: publication_name,
 				requestBody: {
-					table_to_track,
+					table_to_track: relations,
 					transaction_to_track: transaction_to_track
 				}
 			})
 			sendUserToast(message)
 		} catch (error) {
 			sendUserToast(error.body, true)
+		} finally {
+			updatingPublication = false
 		}
 	}
 
 	async function deletePublication() {
 		try {
+			deletingPublication = true
 			const message = await PostgresTriggerService.deletePostgresPublication({
 				path: postgres_resource_path,
 				workspace: $workspaceStore!,
 				publication: publication_name
 			})
 			items = items.filter((item) => item != publication_name)
-			relations = []
+			relations = undefined
 			transaction_to_track = ['Insert', 'Update', 'Delete']
 			publication_name = ''
 			sendUserToast(message)
 		} catch (error) {
 			sendUserToast(error.body, true)
+		} finally {
+			deletingPublication = false
 		}
 	}
 
@@ -73,61 +98,52 @@
 				publication: publication_name
 			})
 			transaction_to_track = [...publication_data.transaction_to_track]
-			relations = publication_data.table_to_track ?? []
-			if (relations.length === 0) {
-				selectedTable = 'all'
-			} else {
-				selectedTable = 'specific'
-			}
-			selectedTable = selectedTable
+			relations =
+				publication_data.table_to_track && publication_data.table_to_track.length > 0
+					? publication_data.table_to_track
+					: undefined
 		} catch (error) {
 			sendUserToast(error.body, true)
 		}
 	}
 
 	listDatabasePublication()
-
-	let darkMode = false
-
-	$: publication_name && getAllRelations()
+	run(() => {
+		publication_name && getAllRelations()
+	});
 </script>
-
-<DarkModeObserver bind:darkMode />
 
 <div class="flex gap-1">
 	<Select
-		class="grow shrink max-w-full"
-		bind:justValue={publication_name}
-		value={publication_name}
-		{items}
+		loading={loadingPublication}
+		disabled={!can_write || disabled}
+		class="grow shrink"
+		bind:value={publication_name}
+		items={safeSelectItems(items)}
 		placeholder="Choose a publication"
-		inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-		containerStyles={darkMode
-			? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-			: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-		portal={false}
-		on:select={getAllRelations}
+		clearable
+		disablePortal
 	/>
 	<Button
-		variant="border"
-		color="light"
+		disabled={!can_write || disabled}
+		variant="default"
 		wrapperClasses="self-stretch"
 		on:click={listDatabasePublication}
 		startIcon={{ icon: RefreshCw }}
 		iconOnly
 	/>
 	<Button
-		color="light"
+		loading={updatingPublication}
 		size="xs"
-		variant="border"
-		disabled={emptyString(publication_name)}
+		variant="default"
+		disabled={emptyString(publication_name) || !can_write || disabled}
 		on:click={updatePublication}>Update</Button
 	>
 	<Button
-		color="light"
+		loading={deletingPublication}
 		size="xs"
-		variant="border"
-		disabled={emptyString(publication_name)}
+		variant="default"
+		disabled={emptyString(publication_name) || !can_write || disabled}
 		on:click={deletePublication}>Delete</Button
 	>
 </div>

@@ -1,53 +1,82 @@
-<script context="module" lang="ts">
-	export type ToggleButtonContext = {
-		selected: Writable<any>
-		select: (value: any) => void
-	}
-</script>
-
 <script lang="ts">
-	import { createEventDispatcher, setContext } from 'svelte'
-	import { writable, type Writable } from 'svelte/store'
-	import { TabGroup, TabList } from '@rgossiaux/svelte-headlessui'
+	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-
-	export let id: string | null | undefined = undefined
-	export let selected: any
-	export let noWFull: boolean = false
-	export let disabled: boolean = false
-	export let tabListClass: string = ''
+	import { createSync } from '@melt-ui/svelte'
 
 	const dispatch = createEventDispatcher()
-	const selectedContent = writable(selected)
 
-	function setSelected(selected: any) {
-		if ($selectedContent != selected) {
-			selectedContent.set(selected)
-		}
+	import { createToggleGroup, melt } from '@melt-ui/svelte'
+	interface Props {
+		id?: string | null | undefined
+		selected?: string | string[] | null | undefined
+		noWFull?: boolean
+		disabled?: boolean
+		tabListClass?: string
+		allowEmpty?: boolean
+		class?: string
+		wrap?: boolean
+		children?: import('svelte').Snippet<[any]>
+		onSelected?: (value: any) => void
 	}
 
-	$: setSelected(selected)
+	let {
+		id = undefined,
+		selected = $bindable(undefined),
+		noWFull = false,
+		disabled = false,
+		tabListClass = '',
+		allowEmpty = false,
+		class: className = '',
+		wrap = false,
+		onSelected,
+		children
+	}: Props = $props()
 
-	setContext<ToggleButtonContext>('ToggleButtonGroup', {
-		selected: selectedContent,
-		select: (value: any) => {
-			selectedContent.set(value)
-			selected = value
-			dispatch('selected', value)
+	const {
+		elements: { root, item },
+		options: { disabled: disabledOption },
+		states
+	} = createToggleGroup({
+		type: 'single',
+		onValueChange: ({ curr, next }) => {
+			if (next === undefined && !allowEmpty) {
+				return curr
+			}
+			if (curr !== next && curr !== undefined) {
+				dispatch('selected', next)
+				onSelected?.(next)
+			}
+			return next
 		}
+	})
+
+	$effect(() => {
+		$disabledOption = disabled
+	})
+
+	const sync = createSync(states)
+	$effect(() => {
+		sync.value(selected ?? undefined, (v) => (selected = v))
 	})
 </script>
 
-<TabGroup
-	{id}
+<div
+	use:melt={$root}
 	class={twMerge(
-		`h-8 flex ${noWFull ? '' : 'w-full'} ${disabled ? 'disabled' : ''}`,
-		$$props.class
+		`flex ${noWFull ? '' : 'w-full'} ${disabled ? 'disabled' : ''}`,
+		className,
+		'flex items-center data-[orientation="vertical"]:flex-col'
 	)}
+	aria-label="Toggle button group"
+	{id}
 >
-	<TabList
-		class={twMerge('flex bg-surface-secondary rounded-md p-0.5 gap-1 h-full ', tabListClass)}
+	<div
+		class={twMerge(
+			'flex bg-surface-sunken dark:bg-surface-sunken/60 rounded-md h-full',
+			wrap ? 'flex-wrap' : '',
+			tabListClass
+		)}
 	>
-		<slot />
-	</TabList>
-</TabGroup>
+		{@render children?.({ item, disabled })}
+	</div>
+</div>

@@ -19,12 +19,26 @@
 		metadata: string
 	}
 
-	let contentType: 'content' | 'metadata' | undefined = undefined
-	let diffType: 'draft' | 'deployed' | 'custom' | undefined = undefined
-	let diffViewer: Drawer
+	let diffType: 'draft' | 'deployed' | 'custom' | undefined = $state(undefined)
 
-	export let restoreDeployed: () => Promise<void> = async () => {}
-	export let restoreDraft: () => Promise<void> = async () => {}
+	let contentType = $derived.by(() => {
+		if (!data || !diffType) return undefined
+		const dataType = diffType === 'custom' ? 'original' : diffType
+		return data[dataType]?.content !== data.current.content
+			? 'content'
+			: data[dataType]?.metadata !== data.current.metadata
+				? 'metadata'
+				: undefined
+	})
+
+	let diffViewer: Drawer | undefined = $state(undefined)
+
+	interface Props {
+		restoreDeployed?: () => Promise<void>
+		isFlow?: boolean
+	}
+
+	let { restoreDeployed = undefined, isFlow = false }: Props = $props()
 
 	let data:
 		| {
@@ -42,19 +56,17 @@
 				current: DiffData
 				button?: { text: string; onClick: () => void }
 		  }
-		| undefined = undefined
+		| undefined = $state(undefined)
 
 	export function openDrawer() {
 		data = undefined
-		contentType = undefined
 		diffType = undefined
-		diffViewer.openDrawer()
+		diffViewer?.openDrawer()
 	}
 
 	export function closeDrawer() {
-		diffViewer.closeDrawer()
+		diffViewer?.closeDrawer()
 	}
-
 
 	function prepareDiff(data: Value) {
 		const metadata = structuredClone(cleanValueProperties(replaceFalseWithUndefined(data)))
@@ -74,7 +86,7 @@
 			| {
 					mode: 'normal'
 					deployed: Value
-					draft: Value | undefined
+					draft?: Value | undefined
 					current: Value
 					defaultDiffType?: 'deployed' | 'draft'
 					button?: { text: string; onClick: () => void }
@@ -88,7 +100,7 @@
 			  }
 	) {
 		if (diff.mode === 'normal') {
-			const { deployed, draft, current, defaultDiffType, button } = diff
+			const { deployed, draft, current, button } = diff
 			data = {
 				mode: 'normal',
 				deployed: !deployed.draft_only ? prepareDiff(deployed) : undefined,
@@ -98,13 +110,9 @@
 				button
 			}
 
-			if (defaultDiffType && data[defaultDiffType]) {
-				diffType = defaultDiffType
-			} else if (data.deployed) {
-				diffType = 'deployed'
-			} else if (data.draft) {
-				diffType = 'draft'
-			}
+			// The draft-vs-current view (and its tab) is obsolete — always show the
+			// deployed-vs-current diff.
+			diffType = 'deployed'
 		} else {
 			const { original, current, title, button } = diff
 			data = {
@@ -117,93 +125,43 @@
 			diffType = 'custom'
 		}
 	}
-
-	function updateContentType(data_: typeof data, diffType_: typeof diffType) {
-		if (!data_) return
-		if (!diffType_) return
-		const dataType = diffType_ === 'custom' ? 'original' : diffType_
-		contentType =
-			data_[dataType]?.content !== data_.current.content
-				? 'content'
-				: data_[dataType]?.metadata !== data_.current.metadata
-				? 'metadata'
-				: undefined
-	}
-
-	$: updateContentType(data, diffType)
 </script>
 
 <Drawer bind:this={diffViewer} size="1200px" on:close>
 	<DrawerContent title="Diff" on:close={diffViewer.closeDrawer}>
 		<div class="flex flex-col gap-4 h-full">
-			{#if diffType && data}
-				<Tabs bind:selected={diffType} wrapperClass="shrink-0">
-					{#if data.mode === 'simple'}
-						<Tab value="custom">{data.title}</Tab>
-					{:else}
-						<Tab value="deployed" disabled={!data.deployed}
-							>{'Deployed <> Current'}{!data.deployed ? ' (no deployed version)' : ''}</Tab
-						>
-						<Tab value="draft" disabled={!data.draft}
-							>{'Latest saved draft <> Current'}{!data.draft ? ' (no draft)' : ''}</Tab
-						>
-					{/if}
-				</Tabs>
-			{/if}
 			{#if data?.mode === 'normal'}
-				{#if diffType === 'draft'}
-					<Button
-						size="xs"
-						color="light"
-						variant="border"
-						wrapperClasses="self-start"
-						on:click={restoreDraft}
-						disabled={orderedJsonStringify(data.draft) === orderedJsonStringify(data.current)}
-						>Restore to latest saved draft</Button
-					>
-				{:else if diffType === 'deployed'}
-					<Button
-						size="xs"
-						color="light"
-						variant="border"
-						wrapperClasses="self-start"
-						on:click={restoreDeployed}
-						disabled={!data.draft &&
-							orderedJsonStringify(data.deployed) === orderedJsonStringify(data.current)}
-					>
-						Restore to deployed{data.draft ? ' and discard draft' : ''}
-					</Button>
-				{/if}
+				<Button
+					unifiedSize="md"
+					variant="default"
+					wrapperClasses="self-start"
+					onClick={restoreDeployed}
+					disabled={!data.draft &&
+						orderedJsonStringify(data.deployed) === orderedJsonStringify(data.current)}
+				>
+					Restore to deployed{data.draft ? ' and discard draft' : ''}
+				</Button>
 			{/if}
 			{#if data}
 				{#if contentType}
 					{@const content =
-						data.mode === 'normal'
-							? diffType === 'draft'
-								? data.draft?.content
-								: data.deployed?.content
-							: data.original?.content}
+						data.mode === 'normal' ? data.deployed?.content : data.original?.content}
 					{@const metadata =
-						data.mode === 'normal'
-							? diffType === 'draft'
-								? data.draft?.metadata
-								: data.deployed?.metadata
-							: data.original?.metadata}
-					{@const lang =
-						data.mode === 'normal'
-							? diffType === 'draft'
-								? data.draft?.lang
-								: data.deployed?.lang
-							: data.original?.lang}
+						data.mode === 'normal' ? data.deployed?.metadata : data.original?.metadata}
+					{@const lang = data.mode === 'normal' ? data.deployed?.lang : data.original?.lang}
 					<div class="flex flex-col h-full gap-4">
 						{#if data.current.content !== undefined}
 							<Tabs bind:selected={contentType}>
-								<Tab value="content" disabled={content === data.current.content}
-									>Content{content === data.current.content ? ' (no changes)' : ''}</Tab
-								>
-								<Tab value="metadata" disabled={metadata === data.current.metadata}
-									>Metadata{metadata === data.current.metadata ? ' (no changes)' : ''}</Tab
-								>
+								<Tab
+									value="content"
+									disabled={content === data.current.content}
+									label={`Content${content === data.current.content ? ' (no changes)' : ''}`}
+								/>
+								<Tab
+									value="metadata"
+									disabled={metadata === data.current.metadata}
+									label={`Metadata${metadata === data.current.metadata ? ' (no changes)' : ''}`}
+								/>
 							</Tabs>
 						{/if}
 						<div class="flex-1">
@@ -215,7 +173,7 @@
 										<Module.default
 											open={true}
 											automaticLayout
-											class="h-full"
+											className="h-full"
 											defaultLang={lang}
 											defaultModifiedLang={data.current.lang}
 											defaultOriginal={content}
@@ -224,30 +182,39 @@
 										/>
 									{/await}
 								{:else if contentType === 'metadata'}
-									{#await import('$lib/components/DiffEditor.svelte')}
-										<Loader2 class="animate-spin" />
-									{:then Module}
-										<Module.default
-											open={true}
-											automaticLayout
-											class="h-full"
-											defaultLang="yaml"
-											defaultOriginal={metadata}
-											defaultModified={data.current.metadata}
-											readOnly
-										/>
-									{/await}
+									{#if isFlow}
+										{#await import('$lib/components/FlowDiffViewer.svelte')}
+											<Loader2 class="animate-spin" />
+										{:then Module}
+											<Module.default
+												beforeYaml={metadata ?? ''}
+												afterYaml={data.current.metadata}
+											/>
+										{/await}
+									{:else}
+										{#await import('$lib/components/DiffEditor.svelte')}
+											<Loader2 class="animate-spin" />
+										{:then Module}
+											<Module.default
+												open={true}
+												automaticLayout
+												className="h-full"
+												defaultLang="yaml"
+												defaultOriginal={metadata}
+												defaultModified={data.current.metadata}
+												readOnly
+											/>
+										{/await}
+									{/if}
 								{/if}
 							{/key}
 						</div>
 					</div>
 				{:else}
 					<Alert title="No changes detected">
-						{#if diffType === 'draft'}
-							There are no differences between latest saved draft and current
-						{:else if diffType === 'deployed'}
+						{#if diffType === 'deployed'}
 							There are no differences between deployed and current
-						{:else if diffType === 'custom'}
+						{:else}
 							There are no differences
 						{/if}
 					</Alert>
@@ -256,18 +223,18 @@
 				<Loader2 class="animate-spin" />
 			{/if}
 		</div>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			{#if data?.button}
 				<Button
-					color="light"
-					on:click={() => {
+					variant="subtle"
+					onClick={() => {
 						if (data?.button) {
 							data.button.onClick()
-							diffViewer.closeDrawer()
+							diffViewer?.closeDrawer()
 						}
 					}}>{data.button.text}</Button
 				>
 			{/if}
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

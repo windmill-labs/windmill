@@ -2,30 +2,33 @@
 	import { Alert } from '$lib/components/common'
 	import Description from '$lib/components/Description.svelte'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
-	import TriggersEditorSection from '../TriggersEditorSection.svelte'
+	import WebhooksConfigSection from './WebhooksConfigSection.svelte'
+	import { Section } from '$lib/components/common'
 
-	export let token: string
-	export let args: Record<string, any> = {}
-	export let scopes: string[] = []
-	export let isFlow: boolean = false
-	export let hash: string | undefined = undefined
-	export let path: string
-	export let newItem: boolean = false
-	export let isEditor: boolean = false
-	export let canHavePreprocessor: boolean = false
-	export let hasPreprocessor: boolean = false
-
-	$: data = {
-		hash,
-		token,
-		scopes,
-		args
+	interface Props {
+		token: string
+		args?: Record<string, any>
+		scopes?: string[]
+		isFlow?: boolean
+		runnableVersion?: string | undefined
+		path: string
+		newItem?: boolean
 	}
+
+	let {
+		token,
+		args = {},
+		scopes = [],
+		isFlow = false,
+		runnableVersion = undefined,
+		path,
+		newItem = false
+	}: Props = $props()
 </script>
 
 <HighlightTheme />
 
-<div class="flex flex-col w-full gap-4">
+<Section label="Webhooks" class="flex flex-col gap-4">
 	<Description link="https://www.windmill.dev/docs/core_concepts/webhooks">
 		Webhooks trigger scripts or flows via HTTP requests. Each webhook can be configured to run
 		synchronously or asynchronously. You can secure webhooks using tokens with specific permissions.
@@ -36,23 +39,5 @@
 			{isFlow ? 'flow' : 'script'}.
 		</Alert>
 	{/if}
-
-	<TriggersEditorSection
-		on:applyArgs
-		on:addPreprocessor
-		on:refreshCaptures
-		on:updateSchema
-		on:testWithArgs
-		cloudDisabled={false}
-		triggerType="webhook"
-		{isFlow}
-		{data}
-		noSave
-		{path}
-		{isEditor}
-		{canHavePreprocessor}
-		{hasPreprocessor}
-		{newItem}
-		alwaysOpened={true}
-	/>
-</div>
+	<WebhooksConfigSection {isFlow} {path} {runnableVersion} {token} runnableArgs={args} {scopes} />
+</Section>

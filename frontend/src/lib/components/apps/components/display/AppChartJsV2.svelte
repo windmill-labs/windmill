@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Chart } from 'svelte-chartjs'
+	import { Chart } from '$lib/components/chartjs-wrappers/chartJs'
 	import { Chart as ChartJS, registerables, type ChartOptions } from 'chart.js'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
@@ -10,7 +10,7 @@
 		RichConfigurations
 	} from '../../types'
 	import { initCss } from '../../utils'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
@@ -18,38 +18,50 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { deepMergeWithPriority } from '$lib/utils'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'chartjscomponent'> | undefined = undefined
-	export let render: boolean
-	export let datasets: RichConfiguration | undefined
-	export let xData: RichConfiguration | undefined
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		initializing?: boolean | undefined
+		customCss?: ComponentCustomCSS<'chartjscomponent'> | undefined
+		render: boolean
+		datasets: RichConfiguration | undefined
+		xData: RichConfiguration | undefined
+	}
+
+	let {
+		id,
+		componentInput,
+		configuration,
+		initializing = $bindable(undefined),
+		customCss = undefined,
+		render,
+		datasets,
+		xData
+	}: Props = $props()
 
 	type Dataset = {
 		value: RichConfiguration
 		name: string
 	}
 
-	let resolvedDatasets: Dataset[]
-	let resolvedDatasetsValues: Array<number[]> = []
-	let resolvedXData: any[] = []
+	let resolvedDatasets = $state(undefined) as Dataset[] | undefined
+	let resolvedDatasetsValues: Array<number[]> = $state([])
+	let resolvedXData: any[] = $state([])
 
 	const { app, worldStore, darkMode } = getContext<AppViewerContext>('AppViewerContext')
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false
 	})
 
 	ChartJS.register(...registerables)
 
-	let result: undefined = undefined
+	let result: undefined = $state(undefined)
 
-	const resolvedConfig = initConfig(
-		components['chartjscomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['chartjscomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	function hasScales() {
@@ -57,34 +69,36 @@
 		return type === 'bar' || type === 'line' || type === 'scatter' || type === 'bubble'
 	}
 
-	$: options = deepMergeWithPriority(resolvedConfig.options, {
-		responsive: true,
-		animation: false,
-		maintainAspectRatio: false,
-		plugins: {
-			legend: {
-				labels: {
-					color: $darkMode ? '#fff' : '#000'
+	let options = $derived(
+		deepMergeWithPriority(resolvedConfig.options, {
+			responsive: true,
+			animation: false,
+			maintainAspectRatio: false,
+			plugins: {
+				legend: {
+					labels: {
+						color: $darkMode ? '#fff' : '#000'
+					}
 				}
-			}
-		},
-		...(hasScales()
-			? {
-					scales: {
-						y: {
-							ticks: { color: $darkMode ? '#eee' : '#333' },
-							grid: { color: $darkMode ? '#555' : '#ddd' }
-						},
-						x: {
-							ticks: { color: $darkMode ? '#eee' : '#333' },
-							grid: { color: $darkMode ? '#555' : '#ddd' }
+			},
+			...(hasScales()
+				? {
+						scales: {
+							y: {
+								ticks: { color: $darkMode ? '#eee' : '#333' },
+								grid: { color: $darkMode ? '#555' : '#ddd' }
+							},
+							x: {
+								ticks: { color: $darkMode ? '#eee' : '#333' },
+								grid: { color: $darkMode ? '#555' : '#ddd' }
+							}
 						}
 					}
-			  }
-			: {})
-	} as ChartOptions)
+				: {})
+		}) as ChartOptions
+	)
 
-	$: data =
+	let data = $derived(
 		datasets && xData && resolvedDatasets
 			? {
 					labels: resolvedXData,
@@ -92,10 +106,11 @@
 						label: d.name,
 						data: Array.isArray(resolvedDatasetsValues[index]) ? resolvedDatasetsValues[index] : []
 					}))
-			  }
+				}
 			: result
+	)
 
-	let css = initCss($app.css?.chartjscomponent, customCss)
+	let css = $state(initCss($app.css?.chartjscomponent, untrack(() => customCss)))
 </script>
 
 {#if datasets}
@@ -149,7 +164,7 @@
 		{#if data && resolvedConfig.type}
 			{#key resolvedConfig.type}
 				{#key options}
-					<Chart type={resolvedConfig.type} {data} {options} />
+					<Chart type={resolvedConfig.type} data={$state.snapshot(data)} {options} />
 				{/key}
 			{/key}
 		{/if}

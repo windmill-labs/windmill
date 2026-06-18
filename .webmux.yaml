@@ -1,0 +1,156 @@
+# Project display name in the dashboard
+name: Windmill
+
+workspace:
+  mainBranch: main
+  worktreeRoot: ../windmill__worktrees
+  defaultAgent: claude
+
+startupEnvs:
+  CARGO_FEATURES: "quickjs"
+  WM_CLONE_DB: false
+  USE_RUST_PLUGIN: false
+
+lifecycleHooks:
+  postCreate: bash ./scripts/post-create.sh
+  preRemove: bash ./scripts/pre-remove.sh
+
+auto_name:
+  provider: claude
+  model: haiku
+
+# Each service defines a port env var that webmux injects into pane and agent
+# process environments when creating a worktree. Ports are auto-assigned:
+# base + (slot x step).
+services:
+  - name: backend
+    portEnv: BACKEND_PORT
+    portStart: 8000
+    portStep: 10
+  - name: frontend
+    portEnv: FRONTEND_PORT
+    portStart: 3000
+    portStep: 10
+
+profiles:
+  full:
+    runtime: host
+    yolo: true
+    envPassthrough: []
+    systemPrompt: >
+      You are running inside a tmux session with other panes running services.
+      Pane layout (current window):
+      - Pane 0: this pane (claude agent)
+      - Pane 1: backend (cargo watch -x run)
+      - Pane 2: frontend (npm run dev)
+      To check logs, use: \`tmux capture-pane -t $(tmux display-message -t "$TMUX_PANE" -p '#{session_name}:#{window_name}').1 -p -S -50\` (backend) or \`tmux capture-pane -t $(tmux display-message -t "$TMUX_PANE" -p '#{session_name}:#{window_name}').2 -p -S -50\` (frontend).
+      For this window specifically, backend is running on: ${BACKEND_PORT} and frontend is running on: ${FRONTEND_PORT}.
+      To connect to the database, use this connection string: ${DATABASE_URL}
+      Because we are running backend with cargo watch, to verify your changes, just check the logs in the backend pane. No need for cargo check.
+      For UI verification, use the Playwright MCP (`mcp__playwright__*`) — the `playwright` server is headless and works without a display. Navigate to http://localhost:${FRONTEND_PORT}, log in as admin@windmill.dev / changeme.
+      IMPORTANT: Read docs/autonomous-mode.md before starting any work.
+    panes:
+      - id: agent
+        kind: agent
+        focus: true
+      - id: backend
+        kind: command
+        split: right
+        workingDir: backend
+        command: PORT=${BACKEND_PORT:-8000} cargo watch -x "run ${CARGO_FEATURES:+--features $CARGO_FEATURES}"
+      - id: frontend
+        kind: command
+        split: bottom
+        workingDir: frontend
+        command: npm run generate-backend-client && REMOTE=${REMOTE:-http://localhost:${BACKEND_PORT:-8000}} npm run dev -- --port ${FRONTEND_PORT:-3000} --host 0.0.0.0
+        
+  frontendOnly:
+    runtime: host
+    yolo: true
+    envPassthrough: []
+    systemPrompt: >
+      You are running inside a tmux session with other panes running services.
+      Pane layout (current window):
+      - Pane 0: this pane (claude agent)
+      - Pane 1: frontend (npm run dev)
+      To check logs, use: \`tmux capture-pane -t $(tmux display-message -t "$TMUX_PANE" -p '#{session_name}:#{window_name}').1 -p -S -50\` (frontend).
+      On this window specifically, frontend is running on: ${FRONTEND_PORT}.
+      To connect to the database, use this connection string: ${DATABASE_URL}
+      Because we are running frontend with npm run dev, to verify your changes, just check the logs in the frontend pane. No need for npm run build.
+      For UI verification, use the Playwright MCP (`mcp__playwright__*`) — the `playwright` server is headless and works without a display. Navigate to http://localhost:${FRONTEND_PORT}, log in as admin@windmill.dev / changeme.
+      IMPORTANT: Read docs/autonomous-mode.md before starting any work.
+    panes:
+      - id: agent
+        kind: agent
+        focus: true
+      - id: frontend
+        kind: command
+        split: right
+        workingDir: frontend
+        command: npm run generate-backend-client && npm run dev -- --port ${FRONTEND_PORT:-3000} --host 0.0.0.0
+
+  agentOnly:
+    runtime: host
+    yolo: true
+    envPassthrough: []
+    systemPrompt: >
+      IMPORTANT: Read docs/autonomous-mode.md before starting any work.
+    panes:
+      - id: agent
+        kind: agent
+        focus: true
+
+integrations:
+  github:
+    autoRemoveOnMerge: true
+    linkedRepos:
+      - repo: windmill-labs/windmill-ee-private
+        alias: ee-private
+        dir: ../windmill-ee-private__worktrees
+  linear:
+    enabled: true
+    autoCreateWorktrees: true
+    watchTeams: [WIN,GIT]
+
+oneshot:
+  systemPrompt: |
+    You are running in webmux ONESHOT mode.
+
+    # No interactive user
+    There is NO interactive user — nobody is watching the chat or will respond
+    to questions, approvals, or status checks. Any message asking the user to
+    review, approve, confirm, take a look, or "let you know" is wasted output:
+    it will not be answered.
+
+    # Your job
+    Take the task to its real conclusion without pausing:
+      1. Make the change.
+      2. Validate it (run the relevant tests, typecheck, build, or quick
+         manual check). For UI changes, drive the running frontend with
+         the Playwright MCP (`mcp__playwright__*`, headless) and confirm
+         the change works end-to-end before moving on.
+      3. Commit.
+      4. Push.
+      5. Open a pull request.
+    Only then are you done.
+
+    # Decisions
+    When something is ambiguous, pick the most reasonable default and proceed.
+    When you would normally ask "should I X or Y?", just pick one and continue
+    — note the choice in the PR description if it matters.
+
+    # PR readiness
+    Default to opening the PR as a draft. If you are highly confident in the
+    change — the scope is small and well-understood, validation passed
+    cleanly, and you would not change anything if a reviewer pushed back —
+    open the PR as ready-for-review directly (omit `--draft` when invoking
+    `gh pr create`, or call `gh pr ready <number>` after creation). Err on
+    the side of draft when validation was partial, the change touches
+    public APIs or shared infrastructure, or you made a non-obvious judgment
+    call.
+
+    # Ending your turn
+    Never end your turn with a question, a suggestion to "take a look", or a
+    request for approval. Stop only when the PR is open, or when you hit a
+    technical error you cannot recover from yourself (in which case clearly
+    state the blocker).

@@ -10,6 +10,8 @@ export type FlowBuilderWhitelabelCustomUi = {
 		diff?: boolean
 		extraDeployOptions?: boolean
 		editableSummary?: boolean
+		settings?: boolean
+		draft?: boolean
 	}
 	settingsPanel?: boolean
 	settingsTabs?: {
@@ -19,6 +21,7 @@ export type FlowBuilderWhitelabelCustomUi = {
 		earlyReturn?: boolean
 		workerGroup?: boolean
 		concurrency?: boolean
+		debouncing?: boolean
 		cache?: boolean
 	}
 	triggers?: boolean
@@ -34,33 +37,103 @@ export type FlowBuilderWhitelabelCustomUi = {
 	tagEdit?: boolean
 	editorBar?: EditorBarUi
 	downloadLogs?: boolean
+	tagSelectPlaceholder?: string
+	tagSelectNoLabel?: boolean
+	tagLabel?: string
+	aiAgent?: boolean
+	aiSandbox?: boolean
+	suggestIntegration?: boolean
+	suggestScript?: boolean
+	// Default timeout (in seconds) prefilled when enabling a custom step timeout.
+	// Defaults to 300 (5 minutes) when unset.
+	defaultTimeout?: number
+}
+
+export type DisplayResultUi = {
+	disableAiFix?: boolean
+	disableDownload?: boolean
+}
+
+export type PreviewPanelUi = {
+	disableHistory?: boolean
+	disableTracing?: boolean
+	disableTriggerCaptures?: boolean
+	disableTriggerButton?: boolean
+	displayResult?: DisplayResultUi
+	disableVariablePicker?: boolean
+	disableDownload?: boolean
+	tagLabel?: string
 }
 
 export type EditorBarUi = {
 	contextVar?: boolean
 	variable?: boolean
+	resource?: boolean
+	reset?: boolean
 	type?: boolean
 	assistants?: boolean
 	multiplayer?: boolean
 	autoformatting?: boolean
+	editorSettings?: boolean
 	vimMode?: boolean
+	relativeLineNumbers?: boolean
 	aiGen?: boolean
 	aiCompletion?: boolean
 	library?: boolean
 	useVsCode?: boolean
+	diffMode?: boolean
+	s3object?: boolean
+	database?: boolean
+	ducklake?: boolean
+	dataTable?: boolean
+	debug?: boolean
+	history?: boolean
+	saveToWorkspace?: boolean
+}
+
+export type EditableSchemaFormUi = {
+	jsonOnly?: boolean
+	disableVariablePicker?: boolean
+}
+
+export type SettingsPanelMetadataUi = {
+	languages?: SupportedLanguage[]
+	disableScriptKind?: boolean
+	editableSchemaForm?: EditableSchemaFormUi
+	disableMute?: boolean
+	disableAiFilling?: boolean
+}
+
+export type SettingsPanelUi = {
+	metadata?: SettingsPanelMetadataUi
+	disableMetadata?: boolean
+	disableRuntime?: boolean
+	disableGeneratedUi?: boolean
+	disableTriggers?: boolean
 }
 
 export type ScriptEditorWhitelabelCustomUi = {
 	editorBar?: EditorBarUi
+	previewPanel?: PreviewPanelUi
+	disableTooltips?: boolean
 }
 
 export type ScriptBuilderWhitelabelCustomUi = {
 	topBar?: {
 		path?: boolean
+		editablePath?: boolean
 		settings?: boolean
 		extraDeployOptions?: boolean
 		editableSummary?: boolean
 		diff?: boolean
+		tagEdit?: boolean
 	}
+	settingsPanel?: SettingsPanelUi
+	disableTooltips?: boolean
 	editorBar?: EditorBarUi
+	previewPanel?: PreviewPanelUi
+	tagSelectPlaceholder?: string
+	// Default timeout (in seconds) prefilled when enabling a custom script timeout.
+	// Defaults to 300 (5 minutes) when unset.
+	defaultTimeout?: number
 }

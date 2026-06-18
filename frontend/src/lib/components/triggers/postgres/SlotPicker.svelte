@@ -1,20 +1,33 @@
 <script lang="ts">
-	import Select from '$lib/components/apps/svelte-select/lib/Select.svelte'
 	import { Button } from '$lib/components/common'
-	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
+	import Select from '$lib/components/select/Select.svelte'
+	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 	import { PostgresTriggerService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString } from '$lib/utils'
 	import { RefreshCw } from 'lucide-svelte'
 
-	export let edit: boolean
-	export let replication_slot_name: string = ''
-	export let postgres_resource_path: string = ''
-	let items: (string | undefined)[] = []
+	interface Props {
+		edit: boolean;
+		replication_slot_name?: string;
+		postgres_resource_path?: string;
+		disabled?: boolean;
+	}
+
+	let {
+		edit,
+		replication_slot_name = $bindable(''),
+		postgres_resource_path = '',
+		disabled = false
+	}: Props = $props();
+
+	let deletingSlot: boolean = $state(false)
+	let loadingSlot: boolean = $state(false)
+	let items: (string | undefined)[] = $state([])
 	async function listDatabaseSlot() {
 		try {
+			loadingSlot = true
 			const result = await PostgresTriggerService.listPostgresReplicationSlot({
 				path: postgres_resource_path,
 				workspace: $workspaceStore!
@@ -40,11 +53,14 @@
 			}
 		} catch (error) {
 			sendUserToast(error.body, true)
+		} finally {
+			loadingSlot = false
 		}
 	}
 
 	async function deleteSlot() {
 		try {
+			deletingSlot = true
 			const message = await PostgresTriggerService.deletePostgresReplicationSlot({
 				path: postgres_resource_path,
 				workspace: $workspaceStore!,
@@ -57,42 +73,39 @@
 			sendUserToast(message)
 		} catch (error) {
 			sendUserToast(error.body, true)
+		} finally {
+			deletingSlot = false
 		}
 	}
 
 	listDatabaseSlot()
-
-	let darkMode = false
 </script>
-
-<DarkModeObserver bind:darkMode />
 
 <div class="flex gap-1">
 	<Select
+		loading={loadingSlot}
 		class="grow shrink max-w-full"
-		bind:justValue={replication_slot_name}
-		value={replication_slot_name}
-		{items}
+		bind:value={replication_slot_name}
+		onClear={() => (replication_slot_name = '')}
+		items={safeSelectItems(items)}
 		placeholder="Choose a slot name"
-		inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-		containerStyles={darkMode
-			? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-			: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-		portal={false}
+		disablePortal
+		clearable
+		{disabled}
 	/>
 	<Button
-		variant="border"
-		color="light"
+		variant="default"
 		wrapperClasses="self-stretch"
 		on:click={listDatabaseSlot}
 		startIcon={{ icon: RefreshCw }}
 		iconOnly
+		{disabled}
 	/>
 	<Button
-		color="light"
+		loading={deletingSlot}
 		size="xs"
-		variant="border"
-		disabled={emptyString(replication_slot_name)}
+		variant="default"
+		disabled={emptyString(replication_slot_name) || disabled}
 		on:click={deleteSlot}>Delete</Button
 	>
 </div>

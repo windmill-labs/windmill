@@ -1,14 +1,15 @@
 <script lang="ts">
-	import { push } from '$lib/history'
+	import { stopPropagation } from 'svelte/legacy'
+
+	import { push } from '$lib/history.svelte'
 	import { classNames } from '$lib/utils'
-	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { columnConfiguration, gridColumns, isFixed, toggleFixed } from '../gridUtils'
+	import { gridColumns, isFixed, toggleFixed } from '../gridUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
 	import type { AppEditorContext, AppViewerContext, GridItem } from '../types'
 	import {
 		expandGriditem,
-		findGridItem,
 		findGridItemParentGrid,
 		insertNewGridItem,
 		isContainer,
@@ -20,21 +21,35 @@
 	import ComponentWrapper from './component/ComponentWrapper.svelte'
 	import GridViewer from './GridViewer.svelte'
 	import GridEditorMenu from './GridEditorMenu.svelte'
+	import { findGridItem } from './appUtilsCore'
 
-	export let containerHeight: number | undefined = undefined
-	export let containerWidth: number | undefined = undefined
-	let classes = ''
+	interface Props {
+		containerHeight?: number | undefined
+		containerWidth?: number | undefined
+		class?: string
+		style?: string
+		noPadding?: boolean
+		noYPadding?: boolean
+		subGridId: string
+		visible?: boolean
+		id: string
+		shouldHighlight?: boolean
+		onFocus?: () => void
+	}
 
-	export { classes as class }
-	export let style = ''
-	export let noPadding = false
-	export let noYPadding = false
-	export let subGridId: string
-	export let visible: boolean = true
-	export let id: string
-	export let shouldHighlight: boolean = true
-
-	const dispatch = createEventDispatcher()
+	let {
+		containerHeight = undefined,
+		containerWidth = undefined,
+		class: classes = '',
+		style = '',
+		noPadding = false,
+		noYPadding = false,
+		subGridId,
+		visible = true,
+		id,
+		shouldHighlight = true,
+		onFocus
+	}: Props = $props()
 
 	const {
 		app,
@@ -50,16 +65,22 @@
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
-	let isActive = false
+	let isActive = $state(false)
 	let sber = editorContext?.componentActive?.subscribe((x) => (isActive = x))
+
+	let everVisible = $state(untrack(() => visible))
+
+	$effect.pre(() => {
+		visible && !everVisible && (everVisible = true)
+	})
 
 	onDestroy(() => {
 		sber?.()
 	})
-	$: highlight = id === $focusedGrid?.parentComponentId && shouldHighlight
+	let highlight = $derived(id === $focusedGrid?.parentComponentId && shouldHighlight)
 
 	const onpointerdown = (e) => {
-		dispatch('focus')
+		onFocus?.()
 	}
 
 	function selectComponent(e: PointerEvent, id: string) {
@@ -76,9 +97,11 @@
 		$app = $app
 	}
 
-	let container: HTMLElement | undefined = undefined
+	let container: HTMLElement | undefined = $state(undefined)
 
-	$: maxRow = maxHeight($app.subgrids?.[subGridId] ?? [], containerHeight ?? 0, $breakpoint)
+	let maxRow = $derived(
+		maxHeight($app.subgrids?.[subGridId] ?? [], containerHeight ?? 0, $breakpoint)
+	)
 
 	export function moveComponentBetweenSubgrids(
 		componentId: string,
@@ -120,7 +143,7 @@
 		)
 
 		// Update the app state
-		$app = { ...$app }
+		$app = $app
 
 		if (parentGrid) {
 			$focusedGrid = {
@@ -169,164 +192,166 @@
 		)
 
 		// Update the app state
-		$app = { ...$app }
+		$app = $app
 	}
 </script>
 
-<div
-	class="translate-x-0 translate-y-0 w-full subgrid {visible
-		? 'visible'
-		: 'invisible h-0 overflow-hidden'}"
-	bind:this={container}
-	on:pointerdown={onpointerdown}
->
+<!-- {visible}
+{everVisible} -->
+{#if everVisible || $app.eagerRendering}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
-		class={twMerge(
-			$allIdsInPath.includes(id) && $mode == 'dnd' ? 'overflow-visible' : 'overflow-auto',
-			noYPadding ? '' : 'py-2',
-			classes ?? '',
-			noPadding ? 'px-0' : 'px-2'
-		)}
-		style="{containerHeight ? `height: ${containerHeight - 2}px;` : ''} {style ?? ''}"
+		class="translate-x-0 translate-y-0 w-full subgrid {visible
+			? 'visible'
+			: 'invisible h-0 overflow-hidden'}"
+		bind:this={container}
+		{onpointerdown}
 	>
-		{#if $mode !== 'preview'}
-			<div
-				class={highlight
-					? `animate-border border-dashed border-2 min-h-full ${
-							isActive && !$selectedComponent?.includes(id)
-								? 'border-orange-600'
-								: 'dark:border-gray-600 border-gray-400'
-					  }`
-					: ''}
-			>
-				<Grid
+		<div
+			class={twMerge(
+				$allIdsInPath.includes(id) && $mode == 'dnd' ? 'overflow-visible' : 'overflow-auto',
+				noYPadding ? '' : 'py-2',
+				classes ?? '',
+				noPadding ? 'px-0' : 'px-2'
+			)}
+			style="{containerHeight ? `height: ${containerHeight - 2}px;` : ''} {style ?? ''}"
+		>
+			{#if $mode !== 'preview'}
+				<div
+					class={highlight
+						? `!outline-dashed outline-2 min-h-full ${
+								isActive && !$selectedComponent?.includes(id)
+									? 'outline-orange-600'
+									: 'outline-gray-400 dark:outline-gray-600'
+							}`
+						: ''}
+				>
+					<!-- A{JSON.stringify($app.subgrids?.[subGridId]) ?? []}B -->
+					<Grid
+						allIdsInPath={$allIdsInPath}
+						items={$app.subgrids?.[subGridId] ?? []}
+						onRedraw={(grid) => {
+							push(editorContext?.history, $app)
+							if ($app.subgrids) {
+								$app.subgrids[subGridId] = grid
+							}
+						}}
+						selectedIds={$selectedComponent}
+						scroller={container}
+						parentWidth={$parentWidth - 17}
+						{containerWidth}
+						onDropped={({ id, overlapped, x, y }) => {
+							if (!overlapped) {
+								moveToRoot(id, { x, y })
+							} else {
+								const overlappedComponent = findGridItem($app, overlapped)
+
+								if (overlappedComponent && !isContainer(overlappedComponent.data.type)) {
+									return
+								}
+								if (!overlapped) {
+									return
+								}
+
+								if (id === overlapped) {
+									return
+								}
+								moveComponentBetweenSubgrids(
+									id,
+									overlapped,
+									subGridIndexKey(overlappedComponent?.data?.type, overlapped, $worldStore),
+									{ x, y }
+								)
+							}
+						}}
+						disableMove={!!$connectingInput.opened}
+					>
+						{#snippet children({ dataItem, overlapped, componentDraggedId })}
+							<ComponentWrapper
+								id={dataItem.id}
+								type={dataItem.data.type}
+								class={classNames(
+									'h-full w-full center-center',
+									$selectedComponent?.includes(dataItem.id) ? 'active-grid-item' : '',
+									'top-0'
+								)}
+							>
+								<GridEditorMenu id={dataItem.id}>
+									<Component
+										{overlapped}
+										fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
+										render={visible}
+										component={dataItem.data}
+										selected={Boolean($selectedComponent?.includes(dataItem.id))}
+										locked={isFixed(dataItem)}
+										on:lock={() => lock(dataItem)}
+										on:expand={() => {
+											const parentGridItem = findGridItem($app, id)
+
+											if (!parentGridItem) {
+												return
+											}
+
+											$selectedComponent = [dataItem.id]
+											push(editorContext?.history, $app)
+
+											expandGriditem(
+												$app.subgrids?.[subGridId] ?? [],
+												dataItem.id,
+												$breakpoint,
+												parentGridItem
+											)
+											$app = $app
+										}}
+										on:fillHeight={() => {
+											const gridItem = findGridItem($app, dataItem.id)
+											const b = $breakpoint === 'sm' ? 3 : 12
+
+											if (gridItem?.[b]) {
+												gridItem[b].fullHeight = !gridItem[b].fullHeight
+											}
+											$app = $app
+										}}
+										{componentDraggedId}
+									/>
+								</GridEditorMenu>
+							</ComponentWrapper>
+						{/snippet}
+					</Grid>
+				</div>
+			{:else}
+				<GridViewer
 					allIdsInPath={$allIdsInPath}
 					items={$app.subgrids?.[subGridId] ?? []}
-					on:redraw={(e) => {
-						push(editorContext?.history, $app)
-						if ($app.subgrids) {
-							$app.subgrids[subGridId] = e.detail
-						}
-					}}
-					selectedIds={$selectedComponent}
-					let:dataItem
-					let:hidden
-					let:overlapped
-					let:moveMode
-					let:componentDraggedId
-					cols={columnConfiguration}
-					scroller={container}
+					breakpoint={$breakpoint}
 					parentWidth={$parentWidth - 17}
 					{containerWidth}
-					on:dropped={(e) => {
-						const { id, overlapped, x, y } = e.detail
-
-						if (!overlapped) {
-							moveToRoot(id, { x, y })
-						} else {
-							const overlappedComponent = findGridItem($app, overlapped)
-
-							if (overlappedComponent && !isContainer(overlappedComponent.data.type)) {
-								return
-							}
-							if (!overlapped) {
-								return
-							}
-
-							if (id === overlapped) {
-								return
-							}
-
-							moveComponentBetweenSubgrids(
-								id,
-								overlapped,
-								subGridIndexKey(overlappedComponent?.data?.type, overlapped, $worldStore),
-								{ x, y }
-							)
-						}
-					}}
-					disableMove={!!$connectingInput.opened}
+					{maxRow}
 				>
-					<ComponentWrapper
-						id={dataItem.id}
-						type={dataItem.data.type}
-						class={classNames(
-							'h-full w-full center-center',
-							$selectedComponent?.includes(dataItem.id) ? 'active-grid-item' : '',
-							'top-0'
-						)}
-					>
-						<GridEditorMenu id={dataItem.id}>
+					{#snippet children({ dataItem })}
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div
+							onpointerdown={stopPropagation((e) =>
+								selectComponent(e as PointerEvent, dataItem.id)
+							)}
+							class={classNames('h-full w-full center-center', 'top-0')}
+						>
 							<Component
-								{hidden}
-								{overlapped}
 								fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
 								render={visible}
 								component={dataItem.data}
 								selected={Boolean($selectedComponent?.includes(dataItem.id))}
 								locked={isFixed(dataItem)}
-								on:lock={() => lock(dataItem)}
-								on:expand={() => {
-									const parentGridItem = findGridItem($app, id)
-
-									if (!parentGridItem) {
-										return
-									}
-
-									$selectedComponent = [dataItem.id]
-									push(editorContext?.history, $app)
-
-									expandGriditem(
-										$app.subgrids?.[subGridId] ?? [],
-										dataItem.id,
-										$breakpoint,
-										parentGridItem
-									)
-									$app = $app
-								}}
-								on:fillHeight={() => {
-									const gridItem = findGridItem($app, dataItem.id)
-									const b = $breakpoint === 'sm' ? 3 : 12
-
-									if (gridItem?.[b]) {
-										gridItem[b].fullHeight = !gridItem[b].fullHeight
-									}
-									$app = $app
-								}}
-								{moveMode}
-								{componentDraggedId}
 							/>
-						</GridEditorMenu>
-					</ComponentWrapper>
-				</Grid>
-			</div>
-		{:else}
-			<GridViewer
-				allIdsInPath={$allIdsInPath}
-				items={$app.subgrids?.[subGridId] ?? []}
-				let:dataItem
-				let:hidden
-				cols={columnConfiguration}
-				breakpoint={$breakpoint}
-				parentWidth={$parentWidth - 17}
-				{containerWidth}
-				{maxRow}
-			>
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<div
-					on:pointerdown|stopPropagation={(e) => selectComponent(e, dataItem.id)}
-					class={classNames('h-full w-full center-center', 'top-0')}
-				>
-					<Component
-						fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
-						render={visible}
-						component={dataItem.data}
-						selected={Boolean($selectedComponent?.includes(dataItem.id))}
-						locked={isFixed(dataItem)}
-						{hidden}
-					/>
-				</div>
-			</GridViewer>
-		{/if}
+						</div>
+					{/snippet}
+				</GridViewer>
+			{/if}
+		</div>
 	</div>
-</div>
+{:else if $app.lazyInitRequire == undefined}
+	{#each $app?.subgrids?.[subGridId] ?? [] as item}
+		<Component selected={false} fullHeight={false} render={false} component={item.data} />
+	{/each}
+{/if}

@@ -1,67 +1,84 @@
-<script context="module" lang="ts">
-	export type TabsContext = {
-		selected: Writable<string>
-		update: (value: string) => void
-		hashNavigation: boolean
-	}
-</script>
-
 <script lang="ts">
-	import { setContext } from 'svelte'
-	import { writable, type Writable } from 'svelte/store'
+	import { setContext, untrack } from 'svelte'
+	import { writable } from 'svelte/store'
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
+	import type { TabsContext } from '$lib/components/apps/editor/settingsPanel/inputEditor/tabs.svelte'
 
-	const dispatch = createEventDispatcher()
+	const dispatch = createEventDispatcher<{ selected: string }>()
 
-	export let selected: string
-	export let hideTabs = false
+	interface Props {
+		selected: string
+		hideTabs?: boolean
+		class?: string
+		wrapperClass?: string
+		style?: string
+		hashNavigation?: boolean
+		values?: string[] | undefined
+		children?: import('svelte').Snippet<[any]>
+		content?: import('svelte').Snippet
+		/**
+		 * If true, the tab component will only update the internal store when a tab is clicked,
+		 * but will NOT immediately update the bindable 'selected' prop. This allows the parent
+		 * component to control when the tab actually changes (e.g., after navigation completes).
+		 * Use this when you want to prevent navigation before checking for unsaved changes.
+		 */
+		deferSelectedUpdate?: boolean
+	}
 
-	let c = ''
-	export { c as class }
-	export let wrapperClass = ''
-	export let style = ''
-	export let hashNavigation = false
-	export let values: string[] | undefined = undefined
+	let {
+		selected = $bindable(),
+		hideTabs = false,
+		class: c = '',
+		wrapperClass = '',
+		style = '',
+		hashNavigation = false,
+		values = undefined,
+		children,
+		content,
+		deferSelectedUpdate = false
+	}: Props = $props()
 
-	$: selected && updateSelected()
-
+	// Single source of truth for tab state
 	const selectedStore = writable(selected)
 
-	$: $selectedStore && dispatch('selected', $selectedStore)
+	function update(value: string) {
+		if (!deferSelectedUpdate) {
+			selected = value
+		}
+		dispatch('selected', value)
+	}
 
-	$: hashValues = values ? values.map((x) => '#' + x) : undefined
 	setContext<TabsContext>('Tabs', {
 		selected: selectedStore,
-		update: (value: string) => {
-			selectedStore.set(value)
-			selected = value
-		},
-		hashNavigation
+		update,
+		hashNavigation: untrack(() => hashNavigation)
 	})
 
-	function updateSelected() {
+	// Sync external prop changes to store (single direction: prop → store)
+	$effect(() => {
 		selectedStore.set(selected)
-	}
+	})
+
+	let hashValues = $derived(values ? values.map((x) => '#' + x) : undefined)
 
 	function hashChange() {
 		if (hashNavigation) {
 			const hash = window.location.hash
 			if (hash && hashValues?.includes(hash)) {
 				const id = hash.replace('#', '')
-				selectedStore.set(id)
-				selected = id
+				update(id)
 			}
 		}
 	}
 </script>
 
-<svelte:window on:hashchange={hashChange} />
+<svelte:window onhashchange={hashChange} />
 {#if !hideTabs}
 	<div class="overflow-x-auto {wrapperClass}">
 		<div class={twMerge('border-b flex flex-row whitespace-nowrap scrollbar-hidden', c)} {style}>
-			<slot {selected} />
+			{@render children?.({ selected })}
 		</div>
 	</div>
 {/if}
-<slot name="content" />
+{@render content?.()}

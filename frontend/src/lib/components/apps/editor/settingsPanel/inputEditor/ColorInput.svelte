@@ -6,13 +6,19 @@
 	import { fade } from 'svelte/transition'
 	import { zIndexes } from '$lib/zIndexes'
 
-	export let value: string = '#fff'
+	interface Props {
+		value?: string
+	}
+
+	let { value = $bindable('#fff') }: Props = $props()
 	const dispatch = createEventDispatcher()
 	const [popperRef, popperContent] = createPopperActions()
-	let isOpen = false
-	let width: number
+	let isOpen = $state(false)
+	let width: number | undefined = $state()
 
-	$: dispatch('change', value)
+	$effect(() => {
+		dispatch('change', value)
+	})
 
 	function open() {
 		isOpen = true

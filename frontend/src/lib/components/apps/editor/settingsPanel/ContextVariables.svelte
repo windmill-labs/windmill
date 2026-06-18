@@ -1,12 +1,17 @@
 <script lang="ts">
 	import Popover from '$lib/components/Popover.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import type { AppViewerContext, GridItem } from '../../types'
-	import { dfs, findGridItem } from '../appUtils'
+	import { dfs } from '../appUtils'
+	import { findGridItem } from '../appUtilsCore'
 
-	export let type: string
-	export let id: string
+	interface Props {
+		type: string
+		id: string
+	}
+
+	let { type, id }: Props = $props()
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -29,16 +34,16 @@
 		}
 	}
 
-	if (tables.includes(type)) {
+	if (tables.includes(untrack(() => type))) {
 		addContextVariable(
 			'row',
 			'The current row of a table. Row is an object with keys index and value.'
 		)
-	} else if (type === 's3fileinputcomponent' || type === 'fileinputcomponent') {
+	} else if (untrack(() => type) === 's3fileinputcomponent' || untrack(() => type) === 'fileinputcomponent') {
 		addContextVariable('file', 'The current file being processed.')
-	} else if (type === 'containercomponent') {
+	} else if (untrack(() => type) === 'containercomponent') {
 		addContextVariable('group', 'The group name of the container.')
-	} else if (type === 'listcomponent') {
+	} else if (untrack(() => type) === 'listcomponent') {
 		addContextVariable(
 			'iter',
 			'The current iteration of the list. Iter is an object with keys index and value.'
@@ -72,7 +77,7 @@
 		processParents(allParents)
 	}
 
-	findParentsContextVariables(id)
+	findParentsContextVariables(untrack(() => id))
 
 	function addParentContextVariable(parent: GridItem | undefined) {
 		if (parent?.data?.type === 'containercomponent') {
@@ -103,9 +108,9 @@
 		<div class="flex flex-row gap-1">
 			{#each contextVariables as contextVariable}
 				<Popover>
-					<svelte:fragment slot="text">
+					{#snippet text()}
 						{contextVariable.description}
-					</svelte:fragment>
+					{/snippet}
 
 					<span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border">
 						{contextVariable.label}

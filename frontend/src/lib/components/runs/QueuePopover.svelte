@@ -5,8 +5,12 @@
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import { displayDate } from '$lib/utils'
 
-	let jobs: QueuedJob[] | undefined = undefined
-	export let allWorkspaces: boolean = false
+	let jobs: QueuedJob[] | undefined = $state(undefined)
+	interface Props {
+		allWorkspaces?: boolean;
+	}
+
+	let { allWorkspaces = false }: Props = $props();
 
 	getQueuedJobs()
 	async function getQueuedJobs() {
@@ -42,7 +46,7 @@
 					>{job.id} <ExternalLink size={10} />
 				</a>
 				<div class="w-32">{displayDate(job.created_at)}</div>
-				<div class="text-2xs text-tertiary">tag: {job.tag}</div>
+				<div class="text-2xs text-primary">tag: {job.tag}</div>
 			</div>
 		{/each}
 	</div>

@@ -1,23 +1,23 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { allItems } from '../../utils'
 	import type { AppViewerContext } from '../../types'
 	import Section from '$lib/components/Section.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { deleteGridItem, findGridItem, findGridItemParentGrid } from '../appUtils'
+	import { deleteGridItem, findGridItemParentGrid } from '../appUtils'
 	import { pluralize } from '$lib/utils'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Trash } from 'lucide-svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import { allItems, findGridItem } from '../appUtilsCore'
 
 	const { app, initialized } = getContext<AppViewerContext>('AppViewerContext')
 
-	$: unintitializedComponents = allItems($app.grid, $app.subgrids)
+	let unintitializedComponents = $derived(allItems($app.grid, $app.subgrids)
 		.map((x) => x.id)
 		.filter((x) => !$initialized.initializedComponents?.includes(x))
-		.sort()
+		.sort())
 
-	$: subgridsErrors = Object.keys($app.subgrids ?? {})
+	let subgridsErrors = $derived(Object.keys($app.subgrids ?? {})
 		.map((x) => {
 			const parentId = x.split('-')[0]
 			const parent = findGridItem($app, parentId)
@@ -39,7 +39,7 @@
 				}
 			}
 		})
-		.filter(Boolean)
+		.filter(Boolean))
 </script>
 
 <div class="flex flex-col gap-8" style="all:none;">
@@ -74,7 +74,8 @@
 						>Status</div
 					>
 					<div class="font-semibold bg-gray-100 dark:bg-gray-900 px-2 py-1 text-xs border-b"
-						>Action</div>
+						>Action</div
+					>
 
 					<!-- Iterate over uninitializedComponents to display each component in the grid -->
 					{#each unintitializedComponents as c}
@@ -82,41 +83,39 @@
 						{#if !item}
 							<div>Item {c} not found</div>
 						{:else}
-						<!-- Component Id -->
-						<div class="text-xs flex items-center px-2 py-2">
-							<Badge>
-								{c}
-							</Badge>
-						</div>
+							<!-- Component Id -->
+							<div class="text-xs flex items-center px-2 py-2">
+								<Badge>
+									{c}
+								</Badge>
+							</div>
 
-						<div class="text-xs flex items-center px-2 py-2">
-							<Badge color="blue">
-								{item?.data?.type || 'Unknown'}
-							</Badge>
-						</div>
+							<div class="text-xs flex items-center px-2 py-2">
+								<Badge color="blue">
+									{item?.data?.type || 'Unknown'}
+								</Badge>
+							</div>
 
-						<div class="text-xs flex items-center px-2 py-2">
-							<Badge color="red">Uninitialized</Badge>
-						</div>
-						<div class="text-xs flex items-center px-2 py-2">
-
-							<Button
-								color="light"
-								startIcon={{
-									icon: Trash
-								}}
-								size="xs2"
-								on:click={() => {
-									let parent = findGridItemParentGrid($app, c)
-									deleteGridItem($app, item.data, parent)
-									$app = $app
-								}}
-							>
-								Remove
-							</Button>
-						</div>
+							<div class="text-xs flex items-center px-2 py-2">
+								<Badge color="red">Uninitialized</Badge>
+							</div>
+							<div class="text-xs flex items-center px-2 py-2">
+								<Button
+									color="light"
+									startIcon={{
+										icon: Trash
+									}}
+									size="xs2"
+									on:click={() => {
+										let parent = findGridItemParentGrid($app, c)
+										deleteGridItem($app, item.data, parent)
+										$app = $app
+									}}
+								>
+									Remove
+								</Button>
+							</div>
 						{/if}
-
 					{/each}
 				</div>
 			</div>
@@ -166,7 +165,7 @@
 								on:click={() => {
 									if ($app.subgrids && s) {
 										delete $app.subgrids[s.subGridId]
-										$app = { ...$app }
+										$app = $app
 									}
 								}}
 							>

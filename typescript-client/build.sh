@@ -1,10 +1,10 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -eou pipefail
 script_dirpath="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 rm -rf "${script_dirpath}/src"
 
-npx --yes @hey-api/openapi-ts@0.43.0  --input "${script_dirpath}/../backend/windmill-api/openapi.yaml" --output "${script_dirpath}/src" --useOptions  --schemas false 
+npx --yes @hey-api/openapi-ts@0.43.0  --input "${script_dirpath}/../backend/windmill-api/openapi.yaml" --output "${script_dirpath}/src" --useOptions  --schemas false
 cat <<EOF - src/core/OpenAPI.ts > temp_file && mv temp_file src/core/OpenAPI.ts
 const getEnv = (key: string) => {
   if (typeof window === "undefined") {
@@ -36,7 +36,185 @@ fi
 
 cp "${script_dirpath}/client.ts" "${script_dirpath}/src/"
 cp "${script_dirpath}/s3Types.ts" "${script_dirpath}/src/"
+cp "${script_dirpath}/sqlUtils.ts" "${script_dirpath}/src/"
 echo "" >> "${script_dirpath}/src/index.ts"
-echo 'export type { S3Object, DenoS3LightClientSettings } from "./s3Types";' >> "${script_dirpath}/src/index.ts"
+echo 'export type { DenoS3LightClientSettings } from "./s3Types";' >> "${script_dirpath}/src/index.ts"
 echo "" >> "${script_dirpath}/src/index.ts"
-echo 'export { type Base64, setClient, getVariable, setVariable, getResource, setResource, getResumeUrls, setState, setProgress, getProgress, getState, getIdToken, denoS3LightClientSettings, loadS3FileStream, loadS3File, writeS3File, task, runScript, runScriptAsync, runFlow, runFlowAsync, waitJob, getRootJobId, setFlowUserState, getFlowUserState, usernameToEmail, requestInteractiveSlackApproval } from "./client";' >> "${script_dirpath}/src/index.ts"
+echo 'export { type Base64, setClient, getVariable, setVariable, getResource, setResource, getResumeUrls, setState, setProgress, getProgress, getState, getIdToken, denoS3LightClientSettings, loadS3FileStream, loadS3File, writeS3File, deleteS3File, signS3Objects, signS3Object, getPresignedS3PublicUrls, getPresignedS3PublicUrl, task, taskScript, taskFlow, workflow, step, sleep, parallel, waitForApproval, type TaskOptions, WorkflowCtx, _workflowCtx, setWorkflowCtx, StepSuspend, runScript, runScriptAsync, runScriptByPath, runScriptByHash, runScriptByPathAsync, runScriptByHashAsync, runFlow, runFlowAsync, waitJob, getRootJobId, setFlowUserState, getFlowUserState, usernameToEmail, requestInteractiveSlackApproval, type Sql, requestInteractiveTeamsApproval, appendToResultStream, streamResult, datatable, ducklake, type DatatableSqlTemplateFunction, type SqlTemplateFunction, type S3Object, type S3ObjectRecord, type S3ObjectURI, commitKafkaOffsets } from "./client";' >> "${script_dirpath}/src/index.ts"
+
+# Build default export by combining client utilities + services
+# This preserves backward compatibility for `import wmill from "windmill-client"`
+# while enabling tree-shaking for named imports
+cat >> "${script_dirpath}/src/index.ts" << 'INDEXEOF'
+
+import {
+  setClient,
+  getVariable,
+  setVariable,
+  getResource,
+  setResource,
+  getResumeUrls,
+  setState,
+  setProgress,
+  getProgress,
+  getState,
+  getIdToken,
+  denoS3LightClientSettings,
+  loadS3FileStream,
+  loadS3File,
+  writeS3File,
+  deleteS3File,
+  signS3Objects,
+  signS3Object,
+  getPresignedS3PublicUrls,
+  getPresignedS3PublicUrl,
+  task,
+  taskScript,
+  taskFlow,
+  workflow,
+  step,
+  sleep,
+  parallel,
+  waitForApproval,
+  WorkflowCtx,
+  _workflowCtx,
+  setWorkflowCtx,
+  StepSuspend,
+  runScript,
+  runScriptAsync,
+  runScriptByPath,
+  runScriptByHash,
+  runScriptByPathAsync,
+  runScriptByHashAsync,
+  runFlow,
+  runFlowAsync,
+  waitJob,
+  getRootJobId,
+  setFlowUserState,
+  getFlowUserState,
+  usernameToEmail,
+  requestInteractiveSlackApproval,
+  requestInteractiveTeamsApproval,
+  appendToResultStream,
+  streamResult,
+  datatable,
+  ducklake,
+  SHARED_FOLDER,
+  getWorkspace,
+  getStatePath,
+  getInternalState,
+  setInternalState,
+  getResumeEndpoints,
+  getResult,
+  getResultMaybe,
+  resolveDefaultResource,
+  databaseUrlFromResource,
+  base64ToUint8Array,
+  uint8ArrayToBase64,
+  parseS3Object,
+  commitKafkaOffsets,
+} from "./client";
+
+import {
+  AdminService,
+  AuditService,
+  FlowService,
+  GranularAclService,
+  GroupService,
+  JobService,
+  ResourceService,
+  VariableService,
+  ScriptService,
+  ScheduleService,
+  SettingsService,
+  UserService,
+  WorkspaceService,
+  TeamsService,
+} from "./services.gen";
+
+const wmill = {
+  // Client utilities
+  setClient,
+  getVariable,
+  setVariable,
+  getResource,
+  setResource,
+  getResumeUrls,
+  setState,
+  setProgress,
+  getProgress,
+  getState,
+  getIdToken,
+  denoS3LightClientSettings,
+  loadS3FileStream,
+  loadS3File,
+  writeS3File,
+  deleteS3File,
+  signS3Objects,
+  signS3Object,
+  getPresignedS3PublicUrls,
+  getPresignedS3PublicUrl,
+  task,
+  taskScript,
+  taskFlow,
+  workflow,
+  step,
+  sleep,
+  parallel,
+  waitForApproval,
+  WorkflowCtx,
+  _workflowCtx,
+  setWorkflowCtx,
+  StepSuspend,
+  runScript,
+  runScriptAsync,
+  runScriptByPath,
+  runScriptByHash,
+  runScriptByPathAsync,
+  runScriptByHashAsync,
+  runFlow,
+  runFlowAsync,
+  waitJob,
+  getRootJobId,
+  setFlowUserState,
+  getFlowUserState,
+  usernameToEmail,
+  requestInteractiveSlackApproval,
+  requestInteractiveTeamsApproval,
+  appendToResultStream,
+  streamResult,
+  datatable,
+  ducklake,
+  SHARED_FOLDER,
+  getWorkspace,
+  getStatePath,
+  getInternalState,
+  setInternalState,
+  getResumeEndpoints,
+  getResult,
+  getResultMaybe,
+  resolveDefaultResource,
+  databaseUrlFromResource,
+  base64ToUint8Array,
+  uint8ArrayToBase64,
+  parseS3Object,
+  commitKafkaOffsets,
+  // Services
+  AdminService,
+  AuditService,
+  FlowService,
+  GranularAclService,
+  GroupService,
+  JobService,
+  ResourceService,
+  VariableService,
+  ScriptService,
+  ScheduleService,
+  SettingsService,
+  UserService,
+  WorkspaceService,
+  TeamsService,
+};
+
+export default wmill;
+INDEXEOF

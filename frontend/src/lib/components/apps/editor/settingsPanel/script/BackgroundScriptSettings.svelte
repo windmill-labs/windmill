@@ -6,11 +6,16 @@
 	import { getContext } from 'svelte'
 	import ScriptSettingsSection from './shared/ScriptSettingsSection.svelte'
 	import ScriptTransformer from './shared/ScriptTransformer.svelte'
+	import { isRunnableByPath } from '$lib/components/apps/inputType'
 
-	export let runnable: HiddenRunnable
-	export let id: string
+	interface Props {
+		runnable: HiddenRunnable
+		id: string
+	}
 
-	const { runnableComponents, app } = getContext<AppViewerContext>('AppViewerContext')
+	let { runnable = $bindable(), id }: Props = $props()
+
+	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
 	function updateAutoRefresh() {
 		const autoRefresh = runnable.autoRefresh
@@ -21,19 +26,17 @@
 			}
 		}
 	}
-
-	$: runnable && ($app = $app)
 </script>
 
 <div class={'border-y divide-y '}>
 	<ScriptSettingHeader name={runnable.name} noBorder />
 	<div class="p-2">
 		<ScriptTransformer bind:appInput={runnable} {id} />
-		{#if runnable.type == 'runnableByPath' || runnable.inlineScript}
+		{#if isRunnableByPath(runnable) || runnable.inlineScript}
 			<ScriptRunConfiguration
 				bind:autoRefresh={runnable.autoRefresh}
 				bind:recomputeOnInputChanged={runnable.recomputeOnInputChanged}
-				canConfigureRecomputeOnInputChanged={runnable.type == 'runnableByPath' ||
+				canConfigureRecomputeOnInputChanged={isRunnableByPath(runnable) ||
 					runnable.inlineScript?.language !== 'frontend'}
 				on:updateAutoRefresh={updateAutoRefresh}
 			>

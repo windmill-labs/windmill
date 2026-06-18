@@ -4,7 +4,11 @@
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../../types'
 
-	export let id: string | undefined = undefined
+	interface Props {
+		id?: string | undefined
+	}
+
+	let { id = undefined }: Props = $props()
 
 	const { componentControl } = getContext<AppViewerContext>('AppViewerContext')
 

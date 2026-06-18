@@ -1,37 +1,48 @@
 <script lang="ts">
+	import { createBubbler, preventDefault } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { IndexSearchService, ServiceLogsService } from '$lib/gen'
 
-	import ManuelDatePicker from './runs/ManuelDatePicker.svelte'
+	import TimeframeSelect, {
+		serviceLogsTimeframes,
+		useUrlSyncedTimeframe
+	} from './runs/TimeframeSelect.svelte'
 	import CalendarPicker from './common/calendarPicker/CalendarPicker.svelte'
 	import LogViewer from './LogViewer.svelte'
 	import Toggle from './Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { onDestroy, tick } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { copyToClipboard, truncateRev } from '$lib/utils'
+	import { copyToClipboard, scroll_into_view_if_needed_polyfill, truncateRev } from '$lib/utils'
 	import LogSnippetViewer from './LogSnippetViewer.svelte'
-	import { Button, Drawer, DrawerContent } from './common'
+	import { Alert, Button, Drawer, DrawerContent } from './common'
 	import ClipboardCopy from 'lucide-svelte/icons/clipboard-copy'
-	import AnsiUp from 'ansi_up'
-	import { scroll_into_view_if_needed_polyfill } from './multiselect/utils'
+	import { AnsiUp } from 'ansi_up'
 	import SplitPanesOrColumnOnMobile from './splitPanes/SplitPanesOrColumnOnMobile.svelte'
+	import Select from './select/Select.svelte'
+	import { goto } from '$lib/navigation'
+	import { page } from '$app/state'
+	import { watch } from 'runed'
 
-	export let searchTerm: string
-	export let queryParseErrors: string[] = []
+	interface Props {
+		searchTerm: string
+		queryParseErrors?: string[]
+		tagLabel?: string
+	}
 
-	let minTs: undefined | string = undefined
-	let maxTs: undefined | string = undefined
+	let { searchTerm, queryParseErrors = $bindable(), tagLabel }: Props = $props()
 
-	let minTsManual: undefined | string = undefined
-	let maxTsManual: undefined | string = undefined
+	let minTs: undefined | string = $state(undefined)
+	let maxTs: undefined | string = $state(undefined)
 
-	let max_lines: undefined | number = undefined
+	let max_lines: undefined | number = $state(undefined)
 
 	// let lastSeen: undefined | string = undefined
 
-	let withError = false
-	let autoRefresh = true
-	let loading = false
+	let withError = $state(false)
+	let autoRefresh = $state(true)
+	let loading = $state(false)
 
 	type LogFile = {
 		ts: number
@@ -45,19 +56,19 @@
 	type ByWorkerGroup = Record<string, ByHostname>
 	type ByMode = Record<string, ByWorkerGroup>
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = $state(undefined)
 
-	let allLogs: ByMode | undefined = undefined
-	let manualPicker: ManuelDatePicker | undefined = undefined
+	let allLogs: ByMode | undefined = $state(undefined)
 
-	let upTo: undefined | string = undefined
-	let upToIsLatest = true
+	let _timeframe = useUrlSyncedTimeframe(serviceLogsTimeframes)
+	let timeframe = $derived(_timeframe.timeframe)
 
-	$: minTsManual || maxTsManual || onManualChanges()
+	let [minTsManual, maxTsManual] = $derived(
+		timeframe.type === 'manual' ? [timeframe.minTs ?? undefined, timeframe.maxTs ?? undefined] : []
+	)
 
-	function onManualChanges() {
-		getAllLogs(minTsManual ?? maxTs, maxTsManual)
-	}
+	let upTo: undefined | string = $state(undefined)
+	let upToIsLatest = $state(true)
 
 	function getAllLogs(queryMinTs: string | undefined, queryMaxTs: string | undefined) {
 		timeout && clearTimeout(timeout)
@@ -143,11 +154,6 @@
 				if (autoRefresh && searchTerm === '' && !maxTsManual) {
 					timeout = setTimeout(() => {
 						if (searchTerm !== '') return
-						let minMax = manualPicker?.computeMinMax()
-						if (minMax) {
-							maxTsManual = minMax?.maxTs
-							minTsManual = minMax?.minTs
-						}
 						let maxTsPlus1 = maxTs ? new Date(new Date(maxTs).getTime() + 1000) : undefined
 						getAllLogs(maxTsPlus1?.toISOString(), undefined)
 					}, 5000)
@@ -161,9 +167,20 @@
 			})
 	}
 
-	let selected: [string, string, string] | undefined = undefined
+	type Selected = { mode: string; workerGroup: string; hostname: string }
+	let initialSelected =
+		page.url.searchParams.get('mode') &&
+		page.url.searchParams.get('workerGroup') &&
+		page.url.searchParams.get('hostname')
+			? {
+					mode: page.url.searchParams.get('mode')!,
+					workerGroup: page.url.searchParams.get('workerGroup')!,
+					hostname: page.url.searchParams.get('hostname')!
+				}
+			: undefined
+	let selected: Selected | undefined = $state(initialSelected)
 
-	let logsContent: Record<string, { content?: string; error?: string }> = {}
+	let logsContent: Record<string, { content?: string; error?: string }> = $state({})
 	export async function getLogFile(hostname: string, path: string) {
 		if (logsContent[path]) {
 			return
@@ -178,11 +195,11 @@
 
 	getAllLogs(undefined, undefined)
 
-	function getLogs(selected: [string, string, string], upTo: string | undefined) {
+	function getLogs(selected: Selected, upTo: string | undefined) {
 		if (!selected) {
 			return []
 		}
-		let logs = allLogs?.[selected[0]]?.[selected[1]]?.[selected[2]]
+		let logs = allLogs?.[selected.mode]?.[selected.workerGroup]?.[selected.hostname]
 		if (!logs) {
 			return []
 		}
@@ -192,7 +209,7 @@
 			logs = nlogs.slice(nlogs.length - 5, undefined)
 
 			getFiles(
-				selected[2],
+				selected.hostname,
 				logs.map((x) => x.file_path)
 			)
 		}
@@ -204,11 +221,11 @@
 		scrollToBottom()
 	}
 
-	function getLatestUpTo(selected: [string, string, string]): any {
+	function getLatestUpTo(selected: Selected): any {
 		if (!selected) {
 			return undefined
 		}
-		let logs = allLogs?.[selected[0]]?.[selected[1]]?.[selected[2]]
+		let logs = allLogs?.[selected.mode]?.[selected.workerGroup]?.[selected.hostname]
 		if (!logs) {
 			return undefined
 		}
@@ -277,23 +294,30 @@
 		}
 	}
 
-	let logs: any
+	let logs: any = $state()
 
-	let debounceTimeout: NodeJS.Timeout | undefined = undefined
+	let debounceTimeout: number | undefined = undefined
 	const debouncePeriod: number = 400
-	let loadingLogs = false
-	let loadingLogCounts = false
+	let loadingLogs = $state(false)
+	let loadingLogCounts = $state(false)
 
-	let countsPerHost: any
-	let sumOtherDocCount: number = 0
+	let countsPerHost: any = $state()
+	let sumOtherDocCount: number = $state(0)
+	let searchError: string | undefined = $state(undefined)
 
 	async function searchLogs(
 		searchTerm: string,
-		selected: [string, string, string] | undefined,
+		selected: Selected | undefined,
 		minTs: string | undefined,
 		maxTs: string | undefined,
 		allLogs: ByMode | undefined
 	) {
+		const params = new URLSearchParams()
+		if (searchTerm) params.set('searchTerm', searchTerm)
+		if (selected?.mode) params.set('mode', selected.mode)
+		if (selected?.workerGroup) params.set('workerGroup', selected.workerGroup)
+		if (selected?.hostname) params.set('hostname', selected.hostname)
+		goto(`?${params.toString()}`)
 		if (searchTerm.trim() === '') {
 			debounceTimeout && clearTimeout(debounceTimeout)
 			logs = undefined
@@ -301,6 +325,7 @@
 			sumOtherDocCount = 0
 			loadingLogs = false
 			loadingLogCounts = false
+			searchError = undefined
 			return
 		}
 		timeout && clearTimeout(timeout)
@@ -309,46 +334,62 @@
 		loadingLogs = true
 		debounceTimeout && clearTimeout(debounceTimeout)
 		debounceTimeout = setTimeout(async () => {
-			if (allLogs) {
-				const countLogsResponse = await IndexSearchService.countSearchLogsIndex({
-					searchQuery: searchTerm,
-					minTs,
-					maxTs
-				})
-				const res = (countLogsResponse.count_per_host as any)['count_per_host']
-				const buckets = res['buckets']
-				sumOtherDocCount = res['sum_other_doc_count']
-				countsPerHost = new Map(buckets.map(({ key, doc_count }) => [key, doc_count]))
-				countsPerHost = buckets.reduce((acc: any, { key, doc_count }) => {
-					acc[key] = { doc_count }
-					return acc
-				}, {} as Record<string, number>)
-				queryParseErrors = countLogsResponse.query_parse_errors ?? []
+			searchError = undefined
+			try {
+				if (allLogs) {
+					const countLogsResponse = await IndexSearchService.countSearchLogsIndex({
+						searchQuery: searchTerm,
+						minTs,
+						maxTs
+					})
+					const res = (countLogsResponse.count_per_host as any)['count_per_host']
+					const buckets = res['buckets']
+					sumOtherDocCount = res['sum_other_doc_count']
+					countsPerHost = new Map(buckets.map(({ key, doc_count }) => [key, doc_count]))
+					countsPerHost = buckets.reduce(
+						(acc: any, { key, doc_count }) => {
+							acc[key] = { doc_count }
+							return acc
+						},
+						{} as Record<string, number>
+					)
+					queryParseErrors = countLogsResponse.query_parse_errors ?? []
+				}
+
+				if (selected) {
+					logs = await IndexSearchService.searchLogsIndex({
+						searchQuery: searchTerm,
+						mode: selected.mode,
+						workerGroup: selected.workerGroup != '' ? selected.workerGroup : undefined,
+						hostname: selected.hostname,
+						minTs,
+						maxTs
+					})
+				}
+			} catch (e) {
+				const message = e?.body ?? e?.message ?? 'Unknown error'
+				searchError = message
+				// Drop any results from a previous successful search so the error
+				// isn't shown alongside stale matches/counts for the old query.
+				logs = undefined
+				countsPerHost = undefined
+				sumOtherDocCount = 0
+				sendUserToast('Service logs search failed: ' + message, true)
+				console.error(e)
+			} finally {
+				loadingLogs = false
 				loadingLogCounts = false
 			}
-
-			if (selected) {
-				logs = await IndexSearchService.searchLogsIndex({
-					searchQuery: searchTerm,
-					mode: selected[0],
-					workerGroup: selected[1] != '' ? selected[1] : undefined,
-					hostname: selected[2],
-					minTs,
-					maxTs
-				})
-			}
-
-			loadingLogs = false
 		}, debouncePeriod)
 	}
 
 	const ansi_up = new AnsiUp()
 	ansi_up.use_classes = true
 
-	let logDrawer: Drawer
-	let logDrawerOpen: boolean
-	let content: string = ''
-	let hitLineNumber: number | undefined = undefined
+	let logDrawer: Drawer | undefined = $state(undefined)
+	let logDrawerOpen: boolean = $state(false)
+	let content: string = $state('')
+	let hitLineNumber: number | undefined = $state(undefined)
 
 	async function seeLogContext(
 		lineNumber: number,
@@ -367,8 +408,6 @@
 		if (el) scroll_into_view_if_needed_polyfill(el, false)
 	}
 
-	$: searchLogs(searchTerm, selected, minTsManual, maxTsManual, allLogs)
-
 	function allLogsOrQueryResults(allLogs: ByMode, countsPerHost: any): ByMode {
 		if (countsPerHost == undefined) {
 			return allLogs
@@ -376,7 +415,7 @@
 		let ret = {}
 
 		for (const hk of Object.keys(countsPerHost)) {
-			let u = hk.split(",")
+			let u = hk.split(',')
 			let [mode, wg, hn] = [u[0], u[1], u[2]]
 
 			if (!ret[mode]) {
@@ -392,11 +431,42 @@
 
 		return ret
 	}
+
+	function getSelectItems(
+		allLogs: ByMode,
+		countsPerHost: any
+	): { label: string; value: Selected }[] {
+		return Object.entries(allLogsOrQueryResults(allLogs, countsPerHost)).flatMap(([mode, o1]) =>
+			Object.entries(o1).flatMap(([wg, o2]) =>
+				Object.keys(o2).map((hn) => ({
+					label: hn,
+					value: { mode, workerGroup: wg, hostname: hn }
+				}))
+			)
+		)
+	}
+
+	watch(
+		() => timeframe,
+		() => {
+			const ts = timeframe.computeMinMax()
+			minTs = undefined
+			maxTs = undefined
+			allLogs = undefined
+			getAllLogs(ts.minTs ?? undefined, ts.maxTs ?? undefined)
+		}
+	)
+	watch(
+		() => [searchTerm, selected, timeframe, allLogs],
+		() => {
+			searchLogs(searchTerm, selected, minTsManual, maxTsManual, allLogs)
+		}
+	)
 </script>
 
 <Drawer bind:this={logDrawer} bind:open={logDrawerOpen} size="1400px">
 	<DrawerContent title="See context" on:close={logDrawer.closeDrawer}>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button
 				on:click={() => copyToClipboard(content)}
 				color="light"
@@ -407,7 +477,7 @@
 			>
 				Copy to clipboard
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 		<div class="w-fit">
 			<pre
 				class="bg-surface-secondary text-secondary text-xs w-full p-2 whitespace-pre border rounded-md"
@@ -421,77 +491,25 @@
 </Drawer>
 
 <SplitPanesOrColumnOnMobile>
-	<svelte:fragment slot="left-pane">
+	{#snippet left_pane()}
 		<div class="p-1">
 			<div
 				class="flex flex-col lg:flex-row gap-y-1 justify-between w-full relative pb-4 gap-x-0.5"
 				id="service-logs-date-pickers"
 			>
-				<div class="flex relative">
-					<input
-						type="text"
-						value={minTsManual
-							? new Date(minTsManual).toLocaleTimeString([], {
-									day: '2-digit',
-									month: '2-digit',
-									hour: '2-digit',
-									minute: '2-digit'
-							  })
-							: 'min datetime'}
-						disabled
-					/>
-					<CalendarPicker
-						label="min datetime"
-						date={minTsManual}
-						on:change={({ detail }) => {
-							minTs = undefined
-							maxTs = undefined
-							allLogs = undefined
-							minTsManual = detail
-							getAllLogs(minTsManual, maxTsManual)
-						}}
-						placement="top-start"
-					/>
-				</div>
-				<ManuelDatePicker
-					bind:minTs={minTsManual}
-					bind:maxTs={maxTsManual}
-					bind:this={manualPicker}
+				<TimeframeSelect
+					items={serviceLogsTimeframes}
+					bind:value={timeframe}
 					{loading}
-					on:loadJobs={() => {
+					wrapperClasses="w-full"
+					onClick={() => {
 						minTs = undefined
 						maxTs = undefined
 						allLogs = undefined
-						getAllLogs(minTsManual, maxTsManual)
+						const ts = timeframe.computeMinMax()
+						getAllLogs(ts.minTs ?? undefined, ts.maxTs ?? undefined)
 					}}
-					serviceLogsChoices
-					loadText={searchTerm === '' ? 'Last 1000 logfiles' : 'All time'}
 				/>
-				<div class="flex relative">
-					<input
-						type="text"
-						value={maxTsManual
-							? new Date(maxTsManual).toLocaleTimeString([], {
-									day: '2-digit',
-									month: '2-digit',
-									hour: '2-digit',
-									minute: '2-digit'
-							  })
-							: 'max datetime'}
-						disabled
-					/>
-					<CalendarPicker
-						label="max datetime"
-						date={maxTsManual}
-						on:change={({ detail }) => {
-							minTs = undefined
-							maxTs = undefined
-							allLogs = undefined
-							maxTsManual = detail
-							getAllLogs(minTsManual, maxTsManual)
-						}}
-					/>
-				</div>
 			</div>
 			<div class="flex w-full flex-row-reverse pb-4 -mt-2 gap-2"
 				><Toggle
@@ -517,17 +535,30 @@
 					options={{ right: 'auto-refresh' }}
 				/></div
 			>
+			{#if searchError}
+				<div class="pb-4">
+					<Alert type="warning" title="Service logs search unavailable" size="xs">
+						{searchError}
+					</Alert>
+				</div>
+			{/if}
 			{#if allLogs == undefined}
 				<div class="text-center pb-2"><Loader2 class="animate-spin" /></div>
 			{:else if Object.keys(allLogs).length == 0}
-				<div class="flex justify-center items-center h-full">No logs</div>
+				<div class="flex flex-col justify-center items-center h-full gap-2">
+					<span>No logs</span>
+					<span class="text-2xs text-tertiary"
+						>Search only covers a recent time window, configurable in instance settings under
+						Indexer.</span
+					>
+				</div>
 			{:else if minTs && maxTs}
 				{@const minTsN = new Date(minTs).getTime()}
 				{@const maxTsN = new Date(maxTs).getTime()}
 				{@const diff = maxTsN - minTsN}
 				{#if searchTerm === ''}
-					<div class="flex w-full text-2xs text-tertiary pb-6">
-						<div style="width: 60px;" />
+					<div class="flex w-full text-2xs text-primary pb-6">
+						<div style="width: 60px;"></div>
 
 						<div class="flex justify-between w-full"
 							><div
@@ -548,6 +579,16 @@
 						>
 					</div>
 				{/if}
+				<div class="mr-0.5 mb-2">
+					<Select
+						bind:value={selected}
+						items={getSelectItems(allLogs, countsPerHost)}
+						onClear={() => {
+							selected = undefined
+						}}
+						placeholder="Select a service"
+					/>
+				</div>
 				{#each Object.entries(allLogsOrQueryResults(allLogs, countsPerHost)) as [mode, o1]}
 					<div class="w-full pb-8">
 						<h2 class="pb-2 text-2xl">{mode}s</h2>
@@ -558,7 +599,7 @@
 								{/if}
 								<div class="divide-y flex flex-col">
 									{#each Object.entries(o2).filter(([hn, files]) => {
-										if (selected && selected[0] === mode && selected[1] === wg && selected[2] === hn) {
+										if (selected && selected.mode === mode && selected.workerGroup === wg && selected.hostname === hn) {
 											return true
 										}
 										const hostKey = `${mode},${wg},${hn}`
@@ -568,17 +609,17 @@
 										return true
 									}) as [hn, files]}
 										{@const hostKey = `${mode},${wg},${hn}`}
-										<!-- svelte-ignore a11y-click-events-have-key-events -->
-										<!-- svelte-ignore a11y-no-static-element-interactions -->
+										<!-- svelte-ignore a11y_click_events_have_key_events -->
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
 										<div
 											class="w-full flex items-baseline justify-between rounded px-1 hover:bg-surface-hover cursor-pointer {selected &&
-											selected[0] == mode &&
-											selected[1] == wg &&
-											selected[2] == hn
+											selected.mode == mode &&
+											selected.workerGroup == wg &&
+											selected.hostname == hn
 												? 'bg-surface-secondary'
 												: ''}"
-											on:click={() => {
-												selected = [mode, wg, hn]
+											onclick={() => {
+												selected = { mode, workerGroup: wg, hostname: hn }
 												upToIsLatest = true
 												upTo = getLatestUpTo(selected)
 												scrollToBottom()
@@ -587,12 +628,13 @@
 											<div
 												class="text-sm pt-2 pl-0.5 whitespace-nowrap"
 												title={hn}
-												style="width: 90px;">{truncateRev(hn, countsPerHost || loadingLogs ? 40 : 8)}</div
+												style="width: 90px;"
+												>{truncateRev(hn, countsPerHost || loadingLogs ? 40 : 8)}</div
 											>
 											{#if loadingLogCounts}
 												<Loader2 size={15} class="animate-spin" />
 											{:else if countsPerHost}
-												<div class="text-tertiary text-xs">
+												<div class="text-primary text-xs">
 													{countsPerHost[hostKey]?.doc_count ?? 0} matches
 												</div>
 											{:else}
@@ -604,12 +646,12 @@
 															class=" w-2 bg-red-400 absolute"
 															style="left: {((file.ts - minTsN) / diff) *
 																100}%; height: {errHeight}%; bottom: {okHeight}%;"
-														/>
+														></div>
 														<div
 															class="w-2 bg-surface-secondary-inverse absolute bottom-0"
 															style="left: {((file.ts - minTsN) / diff) *
 																100}%; height: {okHeight}%"
-														/>
+														></div>
 													{/each}
 												</div>
 											{/if}
@@ -621,25 +663,25 @@
 					</div>
 				{/each}
 				{#if !loadingLogCounts && sumOtherDocCount != 0}
-					<div class="text-tertiary italic text-sm">
+					<div class="text-primary italic text-sm">
 						Note: {sumOtherDocCount} additional matches weren't grouped into any of the above hosts.
 					</div>
 				{/if}
 			{/if}
 		</div>
-	</svelte:fragment>
-	<svelte:fragment slot="right-pane">
+	{/snippet}
+	{#snippet right_pane()}
 		<div class="relative h-full flex flex-col gap-1 pb-2">
 			{#if selected}
 				{#if !loadingLogs && logs == undefined}
-					<div class="w-full bg-surface-primary-inverse text-tertiary text-xs text-center">
+					<div class="w-full bg-surface-primary-inverse text-primary text-xs text-center">
 						1 min delay: logs are compacted before being available
 					</div>
 				{/if}
 				<div class="grow overflow-auto" id="logviewer">
 					{#if loadingLogs}
 						<div class="flex w-full justify-center items-center h-48">
-							<div class="text-tertiary text-center">
+							<div class="text-primary text-center">
 								<Loader2 size={34} class="animate-spin" />
 							</div>
 						</div>
@@ -649,7 +691,7 @@
 								<LogSnippetViewer
 									content={snippet_fragment || document.logs[0]}
 									highlighted={snippet_highlighted}
-									on:click={() => {
+									onClick={() => {
 										let logLineNumber = document.line_number[0]
 										let logFile = document.file_name[0]
 										let host = document.host[0]
@@ -659,7 +701,7 @@
 								/>
 							{/each}
 							{#if logs.hits.length === 0}
-								<div class="text-center py-20 text-bold text-xl text-tertiary"> No logs </div>
+								<div class="text-center py-20 text-bold text-xl text-primary"> No logs </div>
 							{/if}
 							{#if logs.hits.length === 1000}
 								<div class="pl-6 py-6 text-sm text-secondary">
@@ -667,7 +709,7 @@
 									more precise results.
 								</div>
 							{/if}
-							<div class="py-20" />
+							<div class="py-20"></div>
 						</div>
 					{:else}
 						{#each getLogs(selected, upTo) as file}
@@ -687,7 +729,7 @@
 								{#if logsContent[file.file_path] == undefined}
 									<div
 										class="animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms] h-full w-full"
-									/>
+									></div>
 								{:else if logsContent[file.file_path]}
 									{#if logsContent[file.file_path].error}
 										{#if logsContent[file.file_path].error?.startsWith('Not Found')}
@@ -703,14 +745,15 @@
 											>
 										{/if}
 									{:else if logsContent[file.file_path].content}
-										<!-- svelte-ignore a11y-click-events-have-key-events -->
-										<!-- svelte-ignore a11y-no-static-element-interactions -->
-										<div on:click|preventDefault class="pr-2"
+										<!-- svelte-ignore a11y_click_events_have_key_events -->
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
+										<div onclick={preventDefault(bubble('click'))} class="pr-2"
 											><LogViewer
 												noAutoScroll
 												noMaxH
 												isLoading={false}
 												tag={undefined}
+												{tagLabel}
 												content={processLogWithJsonFmt(
 													logsContent[file.file_path].content,
 													file.json_fmt
@@ -727,11 +770,11 @@
 				</div>
 				{#if searchTerm == ''}
 					<div class="flex w-full items-center gap-4">
-						<div class="text-tertiary px-1 text-2xs">Last 5 log files up to:</div>
+						<div class="text-primary px-1 text-2xs">Last 5 log files up to:</div>
 						<div class="flex grow text-xs justify-center px-2 items-center gap-2">
 							{#if upTo}
 								<button
-									on:click={() => {
+									onclick={() => {
 										if (upTo) {
 											upToIsLatest = false
 											upTo = new Date(new Date(upTo).getTime() - 5 * 60 * 1000).toISOString()
@@ -739,7 +782,7 @@
 									}}>{'<'} 5m</button
 								>
 							{:else}
-								<div />
+								<div></div>
 							{/if}
 
 							<div class="flex gap-1 relative items-center"
@@ -752,7 +795,7 @@
 													month: '2-digit',
 													hour: '2-digit',
 													minute: '2-digit'
-											  })
+												})
 											: ''}
 										disabled
 									/><CalendarPicker bind:date={upTo} label="Logs up to" /></div
@@ -760,7 +803,7 @@
 							>
 							{#if upTo}
 								<button
-									on:click={() => {
+									onclick={() => {
 										if (upTo) {
 											upToIsLatest = false
 											upTo = new Date(new Date(upTo).getTime() + 5 * 60 * 1000).toISOString()
@@ -768,13 +811,13 @@
 									}}>5m {'>'}</button
 								>
 							{:else}
-								<div />
+								<div></div>
 							{/if}
 						</div>
 						<div>
 							<button
 								class="text-xs"
-								on:click={() => {
+								onclick={() => {
 									upTo = new Date().toISOString()
 									upToIsLatest = true
 								}}>now</button
@@ -786,5 +829,5 @@
 				<div class="flex justify-center items-center pt-8">Select a host to see its logs</div>
 			{/if}</div
 		>
-	</svelte:fragment>
+	{/snippet}
 </SplitPanesOrColumnOnMobile>

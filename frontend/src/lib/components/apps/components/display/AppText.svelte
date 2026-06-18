@@ -1,7 +1,10 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { Clipboard } from 'lucide-svelte'
-	import { getContext } from 'svelte'
+	import { Copy } from 'lucide-svelte'
+	import { getContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { copyToClipboard, isCodeInjection } from '../../../../utils'
 	import Button from '../../../common/button/Button.svelte'
@@ -15,22 +18,36 @@
 	import { initCss } from '../../utils'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = 'left'
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let configuration: RichConfigurations
-	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'textcomponent'> | undefined = undefined
-	export let render: boolean
-	export let editorMode: boolean = false
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		horizontalAlignment?: 'left' | 'center' | 'right' | undefined
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		configuration: RichConfigurations
+		initializing?: boolean | undefined
+		customCss?: ComponentCustomCSS<'textcomponent'> | undefined
+		render: boolean
+		editorMode?: boolean
+	}
 
-	let resolvedConfig = initConfig(
-		components['textcomponent'].initialData.configuration,
-		configuration
+	let {
+		id,
+		componentInput,
+		horizontalAlignment = 'left',
+		verticalAlignment = undefined,
+		configuration,
+		initializing = $bindable(undefined),
+		customCss = undefined,
+		render,
+		editorMode = $bindable(false)
+	}: Props = $props()
+
+	let resolvedConfig = $state(
+		initConfig(
+			components['textcomponent'].initialData.configuration,
+			untrack(() => configuration)
+		)
 	)
-
-	$: editorMode && onEditorMode()
 
 	function onEditorMode() {
 		autosize()
@@ -39,29 +56,40 @@
 	const { app, worldStore, mode, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let css = initCss($app.css?.textcomponent, customCss)
+	let css = $state(
+		initCss(
+			$app.css?.textcomponent,
+			untrack(() => customCss)
+		)
+	)
 
-	let result: string | undefined = undefined
+	let result: string | undefined = $state(undefined)
 
+	const untrackedComponentInput = untrack(() => componentInput)
 	if (
-		componentInput?.type == 'template' ||
-		(componentInput?.type == 'templatev2' && !isCodeInjection(componentInput.eval))
+		untrackedComponentInput?.type == 'template' ||
+		(untrackedComponentInput?.type == 'templatev2' &&
+			!isCodeInjection(untrackedComponentInput.eval))
 	) {
-		result = componentInput.eval
+		result = untrackedComponentInput.eval
 		initializing = false
 	}
 
-	$componentControl[id] = {
-		...$componentControl[id],
+	$componentControl[untrack(() => id)] = {
+		...$componentControl[untrack(() => id)],
 		setValue(value: string) {
 			result = value
 		}
 	}
 
-	const outputs = initOutput($worldStore, id, {
-		result,
-		loading: initializing
-	})
+	const outputs = initOutput(
+		$worldStore,
+		untrack(() => id),
+		{
+			result: untrack(() => result),
+			loading: initializing
+		}
+	)
 
 	function getComponent() {
 		switch (resolvedConfig.style) {
@@ -83,7 +111,7 @@
 	function getClasses() {
 		switch (resolvedConfig.style) {
 			case 'Caption':
-				return 'text-sm italic text-tertiary'
+				return 'text-sm italic text-primary'
 			case 'Label':
 				return 'font-semibold text-sm'
 			default:
@@ -108,16 +136,8 @@
 		}
 	}
 
-	let component = 'p'
-	let classes = ''
-
-	$: resolvedConfig.style && (component = getComponent())
-	$: resolvedConfig.style && (classes = getClasses())
-	$: initialValue =
-		componentInput?.type == 'template' || componentInput?.type == 'templatev2'
-			? componentInput.eval
-			: ''
-	$: editableValue = initialValue ?? ''
+	let component = $state('p')
+	let classes = $state('')
 
 	let rows = 1
 
@@ -140,6 +160,21 @@
 			// console.log(el, el?.scrollHeight)
 		}, 0)
 	}
+	$effect(() => {
+		editorMode && onEditorMode()
+	})
+	$effect(() => {
+		resolvedConfig.style && (component = getComponent())
+	})
+	$effect(() => {
+		resolvedConfig.style && (classes = getClasses())
+	})
+	let initialValue = $derived(
+		componentInput?.type == 'template' || componentInput?.type == 'templatev2'
+			? componentInput.eval
+			: ''
+	)
+	let editableValue = $derived(initialValue ?? '')
 </script>
 
 {#each Object.keys(components['textcomponent'].initialData.configuration) as key (key)}
@@ -162,17 +197,17 @@
 {/each}
 
 <RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class={twMerge('h-full w-full overflow-hidden', css.container?.class, 'wm-text-container')}
 		style={css?.container?.style}
-		on:dblclick={() => {
+		ondblclick={() => {
 			if (!editorMode) {
 				editorMode = true
 				document.getElementById(`text-${id}`)?.focus()
 			}
 		}}
-		on:keydown|stopPropagation
+		onkeydown={stopPropagation(bubble('keydown'))}
 	>
 		{#if $mode == 'dnd' && editorMode && (componentInput?.type == 'template' || componentInput?.type == 'templatev2')}
 			<AlignWrapper {verticalAlignment}>
@@ -187,22 +222,22 @@
 						horizontalAlignment === 'center'
 							? 'text-center'
 							: horizontalAlignment === 'right'
-							? 'text-right'
-							: 'text-left'
+								? 'text-right'
+								: 'text-left'
 					)}
-					on:pointerdown|stopPropagation
+					onpointerdown={stopPropagation(bubble('pointerdown'))}
 					style={css?.text?.style}
 					id={`text-${id}`}
-					on:pointerenter={() => {
+					onpointerenter={() => {
 						const elem = document.getElementById(`text-${id}`)
 						if (elem) {
 							elem.focus()
 						}
 					}}
 					{rows}
-					on:input={onInput}
+					oninput={onInput}
 					value={editableValue}
-				/>
+				></textarea>
 			</AlignWrapper>
 		{:else}
 			<AlignWrapper {verticalAlignment}>
@@ -215,9 +250,9 @@
 						{/if}
 					</div>
 				{:else}
-					<!-- svelte-ignore a11y-click-events-have-key-events -->
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
 					<div
-						class="flex flex-wrap gap-2 pb-0.5 w-full {$mode === 'dnd' &&
+						class="flex flex-wrap gap-0.5 pb-0.5 w-full {$mode === 'dnd' &&
 						(componentInput?.type == 'template' || componentInput?.type == 'templatev2')
 							? 'cursor-text'
 							: 'overflow-auto'}"
@@ -225,15 +260,15 @@
 						<svelte:element
 							this={component}
 							class={twMerge(
-								'whitespace-pre-wrap w-full',
+								'whitespace-pre-wrap grow',
 
 								css?.text?.class,
 								classes,
 								horizontalAlignment === 'center'
 									? 'text-center'
 									: horizontalAlignment === 'right'
-									? 'text-right'
-									: 'text-left'
+										? 'text-right'
+										: 'text-left'
 							)}
 							style={css?.text?.style}
 						>
@@ -244,16 +279,15 @@
 						</svelte:element>
 
 						{#if resolvedConfig.copyButton && result}
-							<div class="flex">
+							<div class="flex items-center">
 								<Button
 									title="Copy to clipboard"
-									variant="border"
+									variant="default"
 									size="xs"
-									color="light"
 									btnClasses="!p-1"
 									on:click={() => copyToClipboard(result)}
 								>
-									<Clipboard size={14} strokeWidth={2} />
+									<Copy size={14} strokeWidth={2} />
 								</Button>
 							</div>
 						{/if}
@@ -263,3 +297,9 @@
 		{/if}
 	</div>
 </RunnableWrapper>
+
+<style>
+	h1 {
+		font-size: 29px;
+	}
+</style>

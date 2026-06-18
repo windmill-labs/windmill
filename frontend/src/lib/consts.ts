@@ -1,3 +1,11 @@
+import type { DbType } from './components/dbTypes'
+
+// Sentinel written into a job's `logs` field when it was fetched with
+// `no_logs=true` (e.g. nested flow-status viewers during "Test flow").
+// It is NOT empty logs — it means logs were intentionally skipped and can
+// be lazily fetched. The log panel detects this and resolves the real logs.
+export const WM_LOGS_SKIPPED = '__WM_LOGS_SKIPPED__'
+
 export const DEFAULT_WEBHOOK_TYPE: 'async' | 'sync' = 'async'
 
 export const HOME_SHOW_HUB = true
@@ -39,6 +47,13 @@ export const WORKER_S3_BUCKET_SYNC_SETTING = 'worker_s3_bucket_sync'
 export const CUSTOM_TAGS_SETTING = 'custom_tags'
 export const DEFAULT_TAGS_PER_WORKSPACE_SETTING = 'default_tags_per_workspace'
 export const DEFAULT_TAGS_WORKSPACES_SETTING = 'default_tags_workspaces'
+export const FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING = 'fork_workspace_tag_append_fork_suffix'
+export const PREVIEW_TAGS_OVERRIDE_SETTING = 'preview_tags_override'
+
+export const WORKSPACE_FAIRNESS_ENABLED_SETTING = 'workspace_fairness_enabled'
+export const WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING = 'workspace_fairness_max_percent'
+export const WORKSPACE_FAIRNESS_DURATION_SECS_SETTING = 'workspace_fairness_duration_secs'
+export const WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING = 'workspace_fairness_min_total_jobs'
 
 export const WORKSPACE_SLACK_BOT_TOKEN_PATH = 'f/slack_bot/bot_token'
 
@@ -101,7 +116,10 @@ export const MYSQL_TYPES = [
 	'enum',
 	'set',
 	'int',
-	'uint',
+	'tinyint',
+	'smallint',
+	'mediumint',
+	'bigint',
 	'integer',
 	'bool',
 	'bit',
@@ -114,7 +132,6 @@ export const MYSQL_TYPES = [
 	'timestamp',
 	'time'
 ]
-
 export const ORACLEDB_TYPES = [
 	'varchar2',
 	'char',
@@ -152,8 +169,6 @@ export const BIGQUERY_TYPES = [
 	'integer[]',
 	'int64',
 	'int64[]',
-	'float',
-	'float[]',
 	'float64',
 	'float64[]',
 	'numeric',
@@ -201,3 +216,72 @@ export const MSSQL_TYPES = [
 	'decimal',
 	'bit'
 ]
+export const DUCKDB_TYPES = [
+	'BIGINT',
+	'INT8',
+	'LONG',
+	'BIT',
+	'BITSTRING',
+	'BLOB',
+	'BYTEA',
+	'BINARY',
+	'VARBINARY',
+	'BOOLEAN',
+	'BOOL',
+	'LOGICAL',
+	'DATE',
+	'DECIMAL',
+	'NUMERIC',
+	'DOUBLE',
+	'FLOAT8',
+	'FLOAT',
+	'FLOAT4',
+	'REAL',
+	'HUGEINT',
+	'INTEGER',
+	'INT4',
+	'INT',
+	'SIGNED',
+	'INTERVAL',
+	'JSON',
+	'SMALLINT',
+	'INT2',
+	'SHORT',
+	'TIME',
+	'TIMESTAMP WITH TIME ZONE',
+	'TIMESTAMPTZ',
+	'TIMESTAMP',
+	'DATETIME',
+	'TINYINT',
+	'INT1',
+	'UBIGINT',
+	'UHUGEINT',
+	'UINTEGER',
+	'USMALLINT',
+	'UTINYINT',
+	'UUID',
+	'VARCHAR',
+	'CHAR',
+	'BPCHAR',
+	'TEXT',
+	'STRING'
+]
+
+/** Types that are only valid for new columns (CREATE TABLE / ADD COLUMN), not for altering existing ones. */
+export const NEW_COLUMN_ONLY_TYPES: string[] = [
+	'SMALLSERIAL',
+	'SMALLSERIAL[]',
+	'SERIAL',
+	'SERIAL[]',
+	'BIGSERIAL',
+	'BIGSERIAL[]'
+]
+
+export const DB_TYPES: Record<DbType, string[]> = {
+	bigquery: BIGQUERY_TYPES,
+	ms_sql_server: MSSQL_TYPES,
+	mysql: MYSQL_TYPES,
+	postgresql: POSTGRES_TYPES,
+	snowflake: SNOWFLAKE_TYPES,
+	duckdb: DUCKDB_TYPES
+}

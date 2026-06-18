@@ -3,14 +3,21 @@
 	import { workspaceStore } from '$lib/stores'
 	import LogViewer from './LogViewer.svelte'
 
-	export let jobId: string
+	interface Props {
+		jobId: string
+		tagLabel?: string | undefined
+	}
 
-	let logs: string | undefined = undefined
+	let { jobId, tagLabel = undefined }: Props = $props()
 
-	$: jobId && loadLogs()
+	let logs: string | undefined = $state(undefined)
+
 	async function loadLogs() {
 		logs = await JobService.getJobLogs({ workspace: $workspaceStore!, id: jobId })
 	}
+	$effect(() => {
+		jobId && loadLogs()
+	})
 </script>
 
-<LogViewer content={logs} isLoading={false} tag={undefined} {jobId} />
+<LogViewer content={logs} isLoading={false} tag={undefined} {jobId} {tagLabel} />

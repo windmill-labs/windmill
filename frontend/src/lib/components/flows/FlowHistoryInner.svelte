@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { stopPropagation, createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { classNames, displayDate, emptyString, sendUserToast } from '$lib/utils'
 	import { type Flow, FlowService, type FlowVersion } from '$lib/gen'
@@ -6,24 +9,28 @@
 	import { Skeleton } from '$lib/components/common'
 	import Button from '../common/button/Button.svelte'
 	import { ArrowRight, Loader2, Pencil, X } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
 
-	export let path: string
-	export let allowFork: boolean = false
-	let loading: boolean = false
+	interface Props {
+		path: string
+		allowFork?: boolean
+		onHistoryRestore?: () => void
+	}
 
-	let versions: FlowVersion[] = []
+	let { path, allowFork = false, onHistoryRestore }: Props = $props()
+	let loading: boolean = $state(false)
 
-	let selectedVersion: FlowVersion | undefined = undefined
-	let selected: Flow | undefined = undefined
-	let deploymentMsgUpdateMode = false
-	let deploymentMsgUpdate: string | undefined = undefined
+	let versions: FlowVersion[] = $state([])
+
+	let selectedVersion: FlowVersion | undefined = $state(undefined)
+	let selected: Flow | undefined = $state(undefined)
+	let deploymentMsgUpdateMode = $state(false)
+	let deploymentMsgUpdate: string | undefined = $state(undefined)
+	let selectedVersionIndex: number | undefined = $state(undefined)
 
 	async function loadFlow(version: number) {
 		selected = await FlowService.getFlowVersion({
 			workspace: $workspaceStore!,
-			version,
-			path
+			version
 		})
 	}
 
@@ -47,7 +54,6 @@
 		await FlowService.updateFlowHistory({
 			workspace: $workspaceStore!,
 			version,
-			path,
 			requestBody: {
 				deployment_msg: deploymentMsgUpdate!
 			}
@@ -56,8 +62,6 @@
 		deploymentMsgUpdateMode = false
 		loadVersions()
 	}
-
-	const dispatch = createEventDispatcher()
 
 	async function restoreVersion(flow: Flow | undefined) {
 		if (!flow) return
@@ -69,13 +73,20 @@
 			},
 			path
 		})
-		dispatch('historyRestore')
+		onHistoryRestore?.()
 		sendUserToast('Flow restored from previous deployment')
 	}
 
 	loadVersions()
 
-	$: selectedVersion !== undefined && loadFlow(selectedVersion.id)
+	$effect.pre(() => {
+		selectedVersion !== undefined && loadFlow(selectedVersion.id)
+	})
+
+	// Get available versions for comparison (versions after selected one)
+	let availableVersions = $derived(
+		selectedVersionIndex !== undefined ? versions.slice(selectedVersionIndex + 1) : []
+	)
 </script>
 
 <Splitpanes class="!overflow-visible">
@@ -84,8 +95,8 @@
 			{#if !loading}
 				{#if versions.length > 0}
 					<div class="flex gap-2 flex-col">
-						{#each versions ?? [] as version}
-							<!-- svelte-ignore a11y-click-events-have-key-events -->
+						{#each versions ?? [] as version (version.id)}
+							<!-- svelte-ignore a11y_click_events_have_key_events -->
 							<div
 								class={classNames(
 									'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-surface-hover hover:text-primary',
@@ -93,8 +104,12 @@
 								)}
 								role="button"
 								tabindex="0"
-								on:click={() => {
+								onclick={() => {
+									const versionIndex = versions.findIndex((v) => v.id === version.id)
 									selectedVersion = version
+									selectedVersionIndex = versionIndex
+									deploymentMsgUpdate = undefined
+									deploymentMsgUpdateMode = false
 								}}
 							>
 								<span class="text-xs truncate">
@@ -104,7 +119,7 @@
 						{/each}
 					</div>
 				{:else}
-					<div class="text-sm text-tertiary">No items</div>
+					<div class="text-sm text-primary">No items</div>
 				{/if}
 			{:else}
 				<Skeleton layout={[[40], [40], [40], [40], [40]]} />
@@ -117,17 +132,18 @@
 				{#if selected}
 					<div class="px-2 flex flex-col gap-2">
 						<div class="flex justify-between">
-							<span class="flex flex-row text-sm p-1 text-tertiary">
+							<span class="flex flex-row text-sm p-1 text-primary">
 								{#if deploymentMsgUpdateMode}
 									<div class="flex w-full">
 										<input
 											type="text"
 											bind:value={deploymentMsgUpdate}
 											class="!w-auto grow"
-											on:click|stopPropagation={() => {}}
-											on:keydown|stopPropagation
-											on:keypress|stopPropagation={({ key }) => {
-												if (key === 'Enter') updateDeploymentMsg(selectedVersion?.id)
+											onclick={stopPropagation(() => {})}
+											onkeydown={stopPropagation(bubble('keydown'))}
+											onkeypress={(e) => {
+												e.stopPropagation()
+												if (e.key === 'Enter') updateDeploymentMsg(selectedVersion?.id)
 											}}
 										/>
 										<Button
@@ -163,7 +179,7 @@
 										Deployed {displayDate(selected.edited_at)} by {selected.edited_by}
 									{/if}
 									<button
-										on:click={() => {
+										onclick={() => {
 											deploymentMsgUpdate = selectedVersion?.deployment_msg
 											deploymentMsgUpdateMode = true
 										}}
@@ -180,7 +196,7 @@
 									<div class="flex">
 										<Button
 											size="sm"
-											color="dark"
+											variant="accent"
 											on:click={() =>
 												window.open(
 													`/flows/add?template_id=${selectedVersion?.id}&template=${path}`,
@@ -193,7 +209,7 @@
 								{/if}
 
 								<div class="flex">
-									<Button size="sm" color="dark" on:click={() => restoreVersion(selected)}
+									<Button size="sm" variant="accent" on:click={() => restoreVersion(selected)}
 										>Redeploy with that version
 									</Button>
 								</div>
@@ -202,14 +218,18 @@
 						{#await import('$lib/components/FlowViewer.svelte')}
 							<Loader2 class="animate-spin" />
 						{:then Module}
-							<Module.default flow={selected} />
+							<Module.default
+								flow={selected}
+								{availableVersions}
+								selectedVersionId={selectedVersion?.id}
+							/>
 						{/await}
 					</div>
 				{:else}
 					<Skeleton layout={[[40]]} />
 				{/if}
 			{:else}
-				<div class="text-sm p-2 text-tertiary">Select a deployment version to see its details</div>
+				<div class="text-sm p-2 text-primary">Select a deployment version to see its details</div>
 			{/if}
 		</div>
 	</Pane>

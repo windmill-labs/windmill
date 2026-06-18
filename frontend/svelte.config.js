@@ -10,8 +10,8 @@ const config = {
 		preprocess({
 			postcss: true
 		}),
-			preprocessMeltUI()
-		]),
+		preprocessMeltUI()
+	]),
 
 	kit: {
 		adapter:
@@ -22,11 +22,19 @@ const config = {
 						pages: 'build',
 						assets: 'build',
 						fallback: '200.html'
-				  }),
+					}),
 		prerender: { entries: [] },
 		paths: {
 			base: process.env.VITE_BASE_URL ?? ''
+		},
+		alias: {
+			$system_prompts: '../system_prompts/auto-generated',
+			$oauth_connect_registry: '../backend/oauth_connect.json'
 		}
+	},
+
+	vitePlugin: {
+		inspector: true
 	}
 }
 

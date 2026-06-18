@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_fork_deployment_request_comment SET obsolete = true WHERE request_id = $1 AND obsolete = false",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8e4bcfa5e7ccec5d26b5602ed8697d17dd9035854126a3f76a86b613e3975d92"
+}

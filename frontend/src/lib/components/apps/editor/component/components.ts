@@ -53,7 +53,9 @@ import {
 	PanelTop,
 	RefreshCw,
 	ListCollapse,
-	GalleryThumbnails
+	GalleryThumbnails,
+	Code,
+	MessageSquare
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -81,7 +83,7 @@ export type BaseComponent<T extends string> = {
 }
 
 export type RecomputeOthersSource = {
-	recomputeIds: string[] | undefined
+	recomputeIds?: string[] | undefined
 }
 
 export type CustomComponentConfig = {
@@ -90,20 +92,51 @@ export type CustomComponentConfig = {
 		reactVersion?: string
 	}
 }
-export type TextComponent = BaseComponent<'textcomponent'>
-export type TextInputComponent = BaseComponent<'textinputcomponent'>
-export type QuillComponent = BaseComponent<'quillcomponent'>
-export type TextareaInputComponent = BaseComponent<'textareainputcomponent'>
-export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
-export type EmailInputComponent = BaseComponent<'emailinputcomponent'>
-export type DateInputComponent = BaseComponent<'dateinputcomponent'>
-export type TimeInputComponent = BaseComponent<'timeinputcomponent'>
-export type DateTimeInputComponent = BaseComponent<'datetimeinputcomponent'>
-export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
-export type CurrencyComponent = BaseComponent<'currencycomponent'>
-export type SliderComponent = BaseComponent<'slidercomponent'>
-export type DateSliderComponent = BaseComponent<'dateslidercomponent'>
-export type RangeComponent = BaseComponent<'rangecomponent'>
+export type TextComponent = BaseComponent<'textcomponent'> & {
+	onChange?: string[]
+}
+export type TextInputComponent = BaseComponent<'textinputcomponent'> & {
+	onChange?: string[]
+}
+export type QuillComponent = BaseComponent<'quillcomponent'> & {
+	onChange?: string[]
+}
+export type CodeInputComponent = BaseComponent<'codeinputcomponent'> & {
+	onChange?: string[]
+}
+export type TextareaInputComponent = BaseComponent<'textareainputcomponent'> & {
+	onChange?: string[]
+}
+export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'> & {
+	onChange?: string[]
+}
+export type EmailInputComponent = BaseComponent<'emailinputcomponent'> & {
+	onChange?: string[]
+}
+export type DateInputComponent = BaseComponent<'dateinputcomponent'> & {
+	onChange?: string[]
+}
+export type TimeInputComponent = BaseComponent<'timeinputcomponent'> & {
+	onChange?: string[]
+}
+export type DateTimeInputComponent = BaseComponent<'datetimeinputcomponent'> & {
+	onChange?: string[]
+}
+export type NumberInputComponent = BaseComponent<'numberinputcomponent'> & {
+	onChange?: string[]
+}
+export type CurrencyComponent = BaseComponent<'currencycomponent'> & {
+	onChange?: string[]
+}
+export type SliderComponent = BaseComponent<'slidercomponent'> & {
+	onChange?: string[]
+}
+export type DateSliderComponent = BaseComponent<'dateslidercomponent'> & {
+	onChange?: string[]
+}
+export type RangeComponent = BaseComponent<'rangecomponent'> & {
+	onChange?: string[]
+}
 export type HtmlComponent = BaseComponent<'htmlcomponent'>
 export type CustomComponent = BaseComponent<'customcomponent'> & {
 	customComponent: CustomComponentConfig
@@ -144,7 +177,7 @@ export type AgChartsComponentEe = BaseComponent<'agchartscomponentee'> & {
 export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
 
 export type TableAction = BaseAppComponent &
-	(ButtonComponent | CheckboxComponent | SelectComponent) &
+	(ButtonComponent | CheckboxComponent | SelectComponent | ModalComponent) &
 	GridItem
 
 export type TableComponent = BaseComponent<'tablecomponent'> & {
@@ -153,30 +186,36 @@ export type TableComponent = BaseComponent<'tablecomponent'> & {
 export type AggridComponent = BaseComponent<'aggridcomponent'> & {
 	actions: TableAction[]
 	actionsOrder: RichConfiguration | undefined
+	onChange?: string[] | undefined
 }
 export type AggridComponentEe = BaseComponent<'aggridcomponentee'> & {
 	license: string
 	actions: TableAction[]
 	actionsOrder: RichConfiguration | undefined
+	onChange?: string[] | undefined
 }
 
 export type AggridInfiniteComponent = BaseComponent<'aggridinfinitecomponent'> & {
 	actions: TableAction[]
 	actionsOrder: RichConfiguration | undefined
+	onChange?: string[] | undefined
 }
 
 export type AggridInfiniteComponentEe = BaseComponent<'aggridinfinitecomponentee'> & {
 	actions: TableAction[]
 	license: string
 	actionsOrder: RichConfiguration | undefined
+	onChange?: string[] | undefined
 }
 
 export type DisplayComponent = BaseComponent<'displaycomponent'>
+export type ChatComponent = BaseComponent<'chatcomponent'> & RecomputeOthersSource
 export type JobIdDisplayComponent = BaseComponent<'jobiddisplaycomponent'>
 export type LogComponent = BaseComponent<'logcomponent'>
 export type JobIdLogComponent = BaseComponent<'jobidlogcomponent'>
 export type FlowStatusComponent = BaseComponent<'flowstatuscomponent'>
 export type JobIdFlowStatusComponent = BaseComponent<'jobidflowstatuscomponent'>
+export type JobProgressBarComponent = BaseComponent<'jobprogressbarcomponent'>
 export type ImageComponent = BaseComponent<'imagecomponent'>
 export type InputComponent = BaseComponent<'inputcomponent'>
 export type SelectComponent = BaseComponent<'selectcomponent'> &
@@ -207,6 +246,7 @@ export type FileInputComponent = BaseComponent<'fileinputcomponent'> & {
 export type TabsComponent = BaseComponent<'tabscomponent'> & {
 	tabs: string[]
 	disabledTabs: RichConfiguration[]
+	hiddenTabs: RichConfiguration[]
 	onTabChange?: string[]
 }
 
@@ -256,6 +296,7 @@ export type DBExplorerComponent = BaseComponent<'dbexplorercomponent'> & {
 	columns: RichConfiguration
 	actions: TableAction[]
 	actionsOrder: RichConfiguration | undefined
+	onChange?: string[] | undefined
 }
 
 export type S3FileInputComponent = BaseComponent<'s3fileinputcomponent'> & {
@@ -291,19 +332,24 @@ export type NavBarComponent = BaseComponent<'navbarcomponent'> & {
 	navbarItems: NavbarItem[]
 }
 
-export type DateSelectComponent = BaseComponent<'dateselectcomponent'>
+export type DateSelectComponent = BaseComponent<'dateselectcomponent'> & {
+	onChange?: string[]
+}
 
 export type RecomputeAllComponent = BaseComponent<'recomputeallcomponent'>
 
 export type TypedComponent =
 	| DBExplorerComponent
 	| DisplayComponent
+	| ChatComponent
 	| LogComponent
 	| JobIdLogComponent
 	| FlowStatusComponent
 	| JobIdFlowStatusComponent
+	| JobProgressBarComponent
 	| TextInputComponent
 	| QuillComponent
+	| CodeInputComponent
 	| TextareaInputComponent
 	| PasswordInputComponent
 	| EmailInputComponent
@@ -420,6 +466,23 @@ export type AppComponentConfig<T extends TypedComponent['type']> = {
 	 */
 	initialData: InitialAppComponent
 	customCss: ComponentCustomCSS<T>
+	/**
+	 * Optional configuration for runnable inputs validation
+	 */
+	runnableInputsInfo?: {
+		/**
+		 * Function to validate runnable inputs and return a warning if needed
+		 * @param fields - The fields object from componentInput.fields
+		 * @returns Warning object with type, title, and message, or undefined if valid
+		 */
+		validate?: (fields: Record<string, any>) =>
+			| {
+					type: 'warning' | 'error' | 'info'
+					title: string
+					message: string
+			  }
+			| undefined
+	}
 }
 
 export type PresetComponentConfig = {
@@ -451,7 +514,7 @@ const buttonColorOptions = [...BUTTON_COLORS]
 export const selectOptions = {
 	buttonColorOptions,
 	tabsKindOptions: ['tabs', 'sidebar', 'accordion', 'invisibleOnView'],
-	buttonSizeOptions: ['xs', 'sm', 'md', 'lg', 'xl'],
+	buttonSizeOptions: ['xs2', 'xs', 'sm', 'md', 'lg', 'xl'],
 	tableSearchOptions: ['By Component', 'By Runnable', 'Disabled'],
 	chartThemeOptions: ['theme1', 'theme2', 'theme3'],
 	textStyleOptions: ['Title', 'Subtitle', 'Body', 'Label', 'Caption'],
@@ -485,6 +548,13 @@ export const selectOptions = {
 	prose: ['sm', 'Default', 'lg', 'xl', '2xl'],
 	imageSourceKind: [
 		'url',
+		'png encoded as base64',
+		'jpeg encoded as base64',
+		'svg encoded as base64'
+	],
+	imageSourceKindWithS3: [
+		'url',
+		's3 (workspace storage)',
 		'png encoded as base64',
 		'jpeg encoded as base64',
 		'svg encoded as base64'
@@ -592,6 +662,94 @@ const onSuccessClick = {
 	}
 } as const
 
+const onSubmitClick = {
+	type: 'oneOf',
+	tooltip: 'Action to perform on submit (when job ID is obtained)',
+	selected: 'none',
+	labels,
+	configuration: {
+		none: {},
+		gotoUrl: {
+			url: {
+				tooltip: 'Go to the given url, absolute or relative',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				placeholder: '/apps/get/foo',
+				onDemandOnly: true
+			},
+			newTab: {
+				tooltip: 'Open the url in a new tab',
+				fieldType: 'boolean',
+				type: 'static',
+				value: true
+			}
+		},
+		setTab: {
+			setTab: {
+				type: 'static',
+				value: [] as Array<{ id: string; index: number }>,
+				fieldType: 'array',
+				subFieldType: 'tab-select',
+				tooltip: 'Set the tabs id and index to go to on submit',
+				onDemandOnly: true
+			}
+		},
+		sendToast: {
+			message: {
+				tooltip: 'The message of the toast to display',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				placeholder: 'Hello there',
+				onDemandOnly: true
+			}
+		},
+		openModal: {
+			modalId: {
+				tooltip: 'The id of the modal to open',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				deprecated: true
+			}
+		},
+		closeModal: {
+			modalId: {
+				tooltip: 'The id of the modal to close',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				deprecated: true
+			}
+		},
+		open: {
+			id: {
+				tooltip: 'The id of the modal or the drawer to open',
+				fieldType: 'text',
+				type: 'static',
+				value: ''
+			}
+		},
+		close: {
+			id: {
+				tooltip: 'The id of the modal or the drawer to close',
+				fieldType: 'text',
+				type: 'static',
+				value: ''
+			}
+		},
+		clearFiles: {
+			id: {
+				tooltip: 'The id of s3 file input to clear',
+				fieldType: 'text',
+				type: 'static',
+				value: ''
+			}
+		}
+	}
+} as const
+
 const onErrorClick = {
 	type: 'oneOf',
 	tooltip: 'Action to perform on error',
@@ -630,7 +788,7 @@ const onErrorClick = {
 				tooltip: 'The message of the toast to display',
 				fieldType: 'text',
 				type: 'static',
-				value: 'An error occured',
+				value: 'An error occurred',
 				placeholder: 'Hello there',
 				onDemandOnly: true
 			},
@@ -659,6 +817,24 @@ const onErrorClick = {
 				noVariablePicker: true
 			}
 		}
+	}
+} as const
+
+const clearFormInputs = {
+	type: 'oneOf',
+	tooltip: 'When to clear the form inputs',
+	selected: 'never',
+	labels: {
+		never: 'Never',
+		onSuccess: 'On success',
+		onSubmit: 'On submit',
+		onError: 'On error'
+	},
+	configuration: {
+		never: {},
+		onSuccess: {},
+		onSubmit: {},
+		onError: {}
 	}
 } as const
 
@@ -930,7 +1106,27 @@ const agchartscomponentconst = {
 	},
 	initialData: {
 		configuration: {},
-		componentInput: undefined
+		componentInput: {
+			type: 'evalv2',
+			noStatic: true,
+			fieldType: 'object',
+			expr: `({
+				data: [
+					{ x: 1, y: 5 },
+					{ x: 2, y: 10 },
+					{ x: 3, y: 2 },
+					{ x: 4, y: 8 }
+				],
+				series: [{
+					type: 'bar',
+					xKey: 'x',
+					yKey: 'y',
+					fill: '#C8A2C8',
+					strokeWidth: 2.5
+				}]
+			})`,
+			connections: [] as InputConnectionEval[]
+		}
 	}
 } as const
 
@@ -962,7 +1158,63 @@ export const components = {
 					value: false,
 					tooltip:
 						'Hide the details section: the object keys, the clipboard button and the maximise button'
+				},
+				forceJson: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Force the result to be displayed as JSON'
 				}
+			}
+		}
+	},
+	chatcomponent: {
+		name: 'Chat',
+		icon: MessageSquare,
+		documentationLink: `${documentationBaseUrl}/chat`,
+		dims: '3:8-6:12' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' },
+			messagesContainer: { class: '', style: '' },
+			inputContainer: { class: '', style: '' },
+			userMessage: { class: '', style: '' },
+			assistantMessage: { class: '', style: '' },
+			input: { class: '', style: '' },
+			button: { class: '', style: '' }
+		},
+		runnableInputsInfo: {
+			validate: (fields) => {
+				const fieldNames = Object.keys(fields)
+				const hasUserMessage = fieldNames.includes('user_message')
+
+				if (!hasUserMessage) {
+					return {
+						type: 'warning' as const,
+						title: 'Chat input configuration',
+						message:
+							'The chat component requires a <code>user_message</code> parameter to work. Please add it to your event handler.'
+					}
+				}
+
+				return undefined
+			}
+		},
+		initialData: {
+			componentInput: {
+				type: 'runnable',
+				fieldType: 'any',
+				fields: {},
+				runnable: undefined
+			},
+			recomputeIds: true,
+			configuration: {
+				placeholder: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Type a message...'
+				},
+				onSuccess: onSuccessClick,
+				onError: onErrorClick
 			}
 		}
 	},
@@ -1040,6 +1292,26 @@ export const components = {
 					fieldType: 'text',
 					value: '',
 					tooltip: 'Job id to display status from'
+				}
+			}
+		}
+	},
+	jobprogressbarcomponent: {
+		name: 'Progress Bar by Job Id',
+		icon: Monitor,
+		documentationLink: `${documentationBaseUrl}/progress_bar`,
+		dims: '2:2-6:2' as AppComponentDimensions,
+		customCss: {
+			header: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				jobId: {
+					type: 'static',
+					fieldType: 'text',
+					value: '',
+					tooltip: 'Job id to display progress from'
 				}
 			}
 		}
@@ -1191,6 +1463,65 @@ export const components = {
 			}
 		}
 	},
+	codeinputcomponent: {
+		name: 'Code Input',
+		icon: Code,
+		dims: '2:1-4:4' as AppComponentDimensions,
+		documentationLink: `${documentationBaseUrl}/code`,
+		customCss: {
+			text: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			componentInput: undefined,
+			configuration: {
+				placeholder: {
+					type: 'static',
+					value: 'Type...',
+					fieldType: 'text'
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'text'
+				},
+				lang: {
+					type: 'static',
+					fieldType: 'select',
+					value: 'javascript',
+					selectOptions: [
+						'javascript',
+						'typescript',
+						'python',
+						'sql',
+						'json',
+						'html',
+						'css',
+						'markdown',
+						'yaml'
+					]
+				},
+				disableSuggestions: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Disable code completion suggestions'
+				},
+				disableLinting: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Disable code validation/linting (keeps only syntax highlighting)'
+				},
+				hideLineNumbers: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Hide line numbers in the editor'
+				}
+			}
+		}
+	},
 	buttoncomponent: {
 		name: 'Button',
 		icon: Inspect,
@@ -1252,13 +1583,27 @@ export const components = {
 					value: undefined,
 					fieldType: 'icon-select'
 				},
+				tooltip: {
+					type: 'static',
+					value: '',
+					fieldType: 'text',
+					tooltip: 'Tooltip text to show on hover'
+				},
 				triggerOnAppLoad: {
 					type: 'static',
 					value: false,
 					fieldType: 'boolean'
 				},
+				runInBackground: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					tooltip:
+						'Run the job in the background without blocking the button. Multiple clicks will trigger multiple jobs.'
+				},
 
 				onSuccess: onSuccessClick,
+				onSubmit: onSubmitClick,
 				onError: onErrorClick,
 				confirmationModal: {
 					type: 'oneOf',
@@ -1314,6 +1659,9 @@ export const components = {
 					fileUpload: {
 						accept: '*',
 						convertTo: 'base64'
+					},
+					fileUploadS3: {
+						accept: '*'
 					},
 					placeholder: 'Enter URL or upload file (base64)'
 				},
@@ -1397,7 +1745,9 @@ export const components = {
 					selectOptions: selectOptions.buttonSizeOptions
 				},
 				onSuccess: onSuccessClick,
-				onError: onErrorClick
+				onSubmit: onSubmitClick,
+				onError: onErrorClick,
+				clearFormInputs
 			}
 		}
 	},
@@ -1446,7 +1796,9 @@ export const components = {
 					selectOptions: selectOptions.buttonSizeOptions
 				},
 				onSuccess: onSuccessClick,
+				onSubmit: onSubmitClick,
 				onError: onErrorClick,
+				clearFormInputs,
 				disabled: {
 					fieldType: 'boolean',
 					type: 'static',
@@ -1549,7 +1901,19 @@ export const components = {
 					tooltip: 'ChartJs options object https://www.chartjs.org/docs/latest/general/options.html'
 				}
 			},
-			componentInput: undefined
+			componentInput: {
+				type: 'static',
+				fieldType: 'object',
+				value: {
+					labels: ['Pie', 'Charts', '<3'],
+					datasets: [
+						{
+							data: [25, 50, 25],
+							backgroundColor: ['#FF6384', '#4BC0C0', '#FFCE56']
+						}
+					]
+				}
+			}
 		}
 	},
 	barchartcomponent: {
@@ -1643,9 +2007,9 @@ Hello \${ctx.username}
 				type: 'templatev2',
 				fieldType: 'template',
 				eval: `# This is a header
-## This is a subheader				
+## This is a subheader
 This is a paragraph.
-				
+
 * This is a list
 * With two items`,
 				connections: [] as InputConnectionEval[]
@@ -1739,7 +2103,21 @@ This is a paragraph.
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {},
 		initialData: {
-			componentInput: undefined,
+			componentInput: {
+				type: 'static',
+				fieldType: 'object',
+				value: {
+					type: 'bar',
+					x: [1, 2, 3, 4],
+					y: [5, 10, 2, 8],
+					marker: {
+						color: '#C8A2C8',
+						line: {
+							width: 2.5
+						}
+					}
+				}
+			},
 			configuration: {
 				layout: {
 					type: 'static',
@@ -2080,12 +2458,7 @@ This is a paragraph.
 		documentationLink: `${documentationBaseUrl}/select`,
 		dims: '2:1-3:1' as AppComponentDimensions,
 		customCss: {
-			input: {
-				style: '',
-				tooltip:
-					'https://github.com/rob-balfre/svelte-select/blob/master/docs/theming_variables.md',
-				class: ''
-			}
+			input: { style: '', class: '' }
 		},
 		initialData: {
 			recomputeIds: true,
@@ -2247,6 +2620,11 @@ This is a paragraph.
 
 					tooltip:
 						'If too many items, the box overflow its container instead of having an internal scroll'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}
@@ -2270,6 +2648,12 @@ This is a paragraph.
 					allowTypeChange: false,
 					value: []
 				} as StaticAppInput,
+				defaultValue: {
+					type: 'static',
+					fieldType: 'text',
+					value: undefined,
+					tooltip: 'Format: $res:path/to/resource'
+				},
 				placeholder: {
 					type: 'static',
 					fieldType: 'text',
@@ -2306,6 +2690,12 @@ This is a paragraph.
 					type: 'static',
 					fieldType: 'text',
 					value: 'postgresql'
+				},
+				defaultValue: {
+					type: 'static',
+					fieldType: 'text',
+					value: undefined,
+					tooltip: 'Format: $res:path/to/resource'
 				},
 				expressOauthSetup: {
 					type: 'static',
@@ -2679,21 +3069,15 @@ This is a paragraph.
 					type: 'static',
 					value: 'yyyy-MM-dd',
 					fieldType: 'text',
-					markdownTooltip: `### Output format				
-See date-fns format for more information. By default, it is 'yyyy-MM-dd'
-
-| Format      | Result | Description |
-| ----------- | ----------- | ----------- |
-| dd 				| 01, 02, ..., 31 | Day of the month |
-| d 				| 1, 2, ..., 31 | Day of the month |
-| MM 				| 01, 02, ..., 12 | Month |
-| MMM 				| Jan, Feb, ..., Dec | Month |
-| MMMM 				| January, February, ..., December | Month |
-| yyyy 				| 2021, 2022, ... | Year |
-`,
+					tooltip: `<b>Output format</b><br>See date-fns format for more information. Default: <code>yyyy-MM-dd</code><table class="mt-1 text-2xs"><tr><th class="pr-2 text-left">Format</th><th class="pr-2 text-left">Result</th><th class="text-left">Description</th></tr><tr><td><code>dd</code></td><td>01, 02, ..., 31</td><td>Day of the month</td></tr><tr><td><code>d</code></td><td>1, 2, ..., 31</td><td>Day of the month</td></tr><tr><td><code>MM</code></td><td>01, 02, ..., 12</td><td>Month</td></tr><tr><td><code>MMM</code></td><td>Jan, Feb, ..., Dec</td><td>Month</td></tr><tr><td><code>MMMM</code></td><td>January, ..., December</td><td>Month</td></tr><tr><td><code>yyyy</code></td><td>2021, 2022, ...</td><td>Year</td></tr></table>`,
 
 					documentationLink: 'https://date-fns.org/v2.30.0/docs/format',
 					placeholder: 'yyyy-MM-dd'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}
@@ -2736,21 +3120,7 @@ See date-fns format for more information. By default, it is 'yyyy-MM-dd'
 					fieldType: 'text',
 					documentationLink: 'https://date-fns.org/v2.30.0/docs/format',
 					placeholder: 'dd.MM.yyyy HH:mm',
-					markdownTooltip: `### Output format				
-See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
-
-| Format      | Result | Description |
-| ----------- | ----------- | ----------- |
-| dd 				| 01, 02, ..., 31 | Day of the month |
-| d 				| 1, 2, ..., 31 | Day of the month |
-| MM 				| 01, 02, ..., 12 | Month |
-| MMM 				| Jan, Feb, ..., Dec | Month |
-| MMMM 				| January, February, ..., December | Month |
-| yyyy 				| 2021, 2022, ... | Year |
-| HH 				| 00, 01, ..., 23 | Hours |
-| mm 				| 00, 01, ..., 59 | Minutes |
-| ss 				| 00, 01, ..., 59 | Seconds |
-					`
+					tooltip: `<b>Output format</b><br>See date-fns format for more information. Default: <code>dd.MM.yyyy HH:mm</code><table class="mt-1 text-2xs"><tr><th class="pr-2 text-left">Format</th><th class="pr-2 text-left">Result</th><th class="text-left">Description</th></tr><tr><td><code>dd</code></td><td>01, 02, ..., 31</td><td>Day of the month</td></tr><tr><td><code>d</code></td><td>1, 2, ..., 31</td><td>Day of the month</td></tr><tr><td><code>MM</code></td><td>01, 02, ..., 12</td><td>Month</td></tr><tr><td><code>MMM</code></td><td>Jan, Feb, ..., Dec</td><td>Month</td></tr><tr><td><code>MMMM</code></td><td>January, ..., December</td><td>Month</td></tr><tr><td><code>yyyy</code></td><td>2021, 2022, ...</td><td>Year</td></tr><tr><td><code>HH</code></td><td>00, 01, ..., 23</td><td>Hours</td></tr><tr><td><code>mm</code></td><td>00, 01, ..., 59</td><td>Minutes</td></tr><tr><td><code>ss</code></td><td>00, 01, ..., 59</td><td>Seconds</td></tr></table>`
 				},
 				defaultValue: {
 					type: 'static',
@@ -2831,7 +3201,15 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 			},
 			componentInput: undefined,
 			numberOfSubgrids: 2,
-			tabs: ['First tab', 'Second tab'] as string[]
+			tabs: ['First tab', 'Second tab'] as string[],
+			disabledTabs: [
+				{ type: 'static', value: false, fieldType: 'boolean' },
+				{ type: 'static', value: false, fieldType: 'boolean' }
+			] as RichConfiguration[],
+			hiddenTabs: [
+				{ type: 'static', value: false, fieldType: 'boolean' },
+				{ type: 'static', value: false, fieldType: 'boolean' }
+			] as RichConfiguration[]
 		}
 	},
 	steppercomponent: {
@@ -2896,7 +3274,11 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 				type: 'static',
 				fieldType: 'array',
 				subFieldType: 'object',
-				value: [{ header: 'First', foo: 1 }, { header: 'Second', foo: 2 }, { header: 'Third', foo: 3 }] as object[]
+				value: [
+					{ header: 'First', foo: 1 },
+					{ header: 'Second', foo: 2 },
+					{ header: 'Third', foo: 3 }
+				] as object[]
 			},
 			numberOfSubgrids: 1
 		}
@@ -3073,13 +3455,16 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fileUpload: {
 						accept: 'image/*',
 						convertTo: 'base64'
+					},
+					fileUploadS3: {
+						accept: 'image/*'
 					}
 				},
 				sourceKind: {
 					fieldType: 'select',
 					type: 'static',
-					selectOptions: selectOptions.imageSourceKind,
-					value: 'url' as (typeof selectOptions.imageSourceKind)[number]
+					selectOptions: selectOptions.imageSourceKindWithS3,
+					value: 'url' as (typeof selectOptions.imageSourceKindWithS3)[number]
 				},
 				imageFit: {
 					fieldType: 'select',
@@ -3272,6 +3657,9 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 						accept: 'application/pdf',
 						convertTo: 'base64'
 					},
+					fileUploadS3: {
+						accept: 'application/pdf'
+					},
 					placeholder: 'Enter URL or upload file (base64)'
 				},
 				zoom: {
@@ -3290,7 +3678,8 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		customCss: {
 			button: { class: '', style: '' },
 			buttonContainer: { class: '', style: '' },
-			popup: { class: '', style: '' }
+			popup: { class: '', style: '' },
+			container: { class: '', style: '' }
 		},
 		initialData: {
 			horizontalAlignment: 'center',
@@ -3383,7 +3772,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'object',
 					value: {},
 					tooltip:
-						'This enables setting form enum values dynamically using an object: keys are field names, and values are arrays of strings.'
+						'This enables setting form enum values dynamically using an object: keys are field names, and values are arrays of strings or { "label": "myLabel", "value": "myValue" }.'
 				},
 
 				displayType: {
@@ -3688,6 +4077,12 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								fieldType: 'boolean',
 								tooltip: 'If allowed, the user will be able to select more than one file'
 							},
+							allowDelete: {
+								type: 'static',
+								value: false,
+								fieldType: 'boolean',
+								tooltip: 'If allowed, the user will be able to delete files'
+							},
 							text: {
 								type: 'static',
 								value: 'Drag and drop files or click to select them',
@@ -3737,7 +4132,9 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 						ms_sql_server: 'MS SQL Server',
 						snowflake: 'Snowflake',
 						bigquery: 'BigQuery',
-						snowflake_oauth: 'Snowflake OAuth'
+						snowflake_oauth: 'Snowflake OAuth',
+						ducklake: 'Ducklake',
+						datatable: 'Data table'
 					},
 					configuration: {
 						postgresql: {
@@ -3762,14 +4159,16 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								type: 'static',
 								fieldType: 'resource',
 								subFieldType: 'mysql',
-								value: ''
+								value: '',
+								allowTypeChange: false
 							} as StaticAppInput,
 							table: {
 								fieldType: 'select',
 								subFieldType: 'db-table',
 								type: 'static',
 								selectOptions: [],
-								value: undefined
+								value: undefined,
+								allowTypeChange: false
 							}
 						},
 						ms_sql_server: {
@@ -3777,14 +4176,16 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								type: 'static',
 								fieldType: 'resource',
 								subFieldType: 'ms_sql_server',
-								value: ''
+								value: '',
+								allowTypeChange: false
 							} as StaticAppInput,
 							table: {
 								fieldType: 'select',
 								subFieldType: 'db-table',
 								type: 'static',
 								selectOptions: [],
-								value: undefined
+								value: undefined,
+								allowTypeChange: false
 							}
 						},
 						snowflake: {
@@ -3792,14 +4193,16 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								type: 'static',
 								fieldType: 'resource',
 								subFieldType: 'snowflake',
-								value: ''
+								value: '',
+								allowTypeChange: false
 							} as StaticAppInput,
 							table: {
 								fieldType: 'select',
 								subFieldType: 'db-table',
 								type: 'static',
 								selectOptions: [],
-								value: undefined
+								value: undefined,
+								allowTypeChange: false
 							}
 						},
 						bigquery: {
@@ -3807,14 +4210,50 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								type: 'static',
 								fieldType: 'resource',
 								subFieldType: 'bigquery',
-								value: ''
+								value: '',
+								allowTypeChange: false
 							} as StaticAppInput,
 							table: {
 								fieldType: 'select',
 								subFieldType: 'db-table',
 								type: 'static',
 								selectOptions: [],
-								value: undefined
+								value: undefined,
+								allowTypeChange: false
+							}
+						},
+						ducklake: {
+							ducklake: {
+								type: 'static',
+								fieldType: 'ducklake',
+								subFieldType: 'ducklake',
+								value: '',
+								allowTypeChange: false
+							} as StaticAppInput,
+							table: {
+								fieldType: 'select',
+								subFieldType: 'db-table',
+								type: 'static',
+								selectOptions: [],
+								value: undefined,
+								allowTypeChange: false
+							}
+						},
+						datatable: {
+							datatable: {
+								type: 'static',
+								fieldType: 'datatable',
+								subFieldType: 'datatable',
+								value: '',
+								allowTypeChange: false
+							} as StaticAppInput,
+							table: {
+								fieldType: 'select',
+								subFieldType: 'db-table',
+								type: 'static',
+								selectOptions: [],
+								value: undefined,
+								allowTypeChange: false
 							}
 						}
 					}
@@ -3824,7 +4263,8 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'array',
 					subFieldType: 'db-explorer',
 					value: [],
-					loading: false
+					loading: false,
+					allowTypeChange: false
 				} as StaticAppInput,
 				rowIdCol: {
 					type: 'static',
@@ -4142,6 +4582,12 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					value: false,
 					tooltip:
 						'Hide the details section: the object keys, the clipboard button and the maximise button'
+				},
+				forceJson: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Force the result to be displayed as JSON'
 				}
 			}
 		}
@@ -4157,7 +4603,22 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		initialData: {
 			...defaultAlignement,
 			componentInput: undefined,
-			configuration: {},
+			configuration: {
+				defaultRefreshInterval: {
+					fieldType: 'select',
+					type: 'static',
+					selectOptions: [
+						{ value: '0', label: 'Once' },
+						{ value: '5', label: 'Every 5 seconds' },
+						{ value: '10', label: 'Every 10 seconds' },
+						{ value: '15', label: 'Every 15 seconds' },
+						{ value: '20', label: 'Every 20 seconds' },
+						{ value: '25', label: 'Every 25 seconds' },
+						{ value: '30', label: 'Every 30 seconds' }
+					],
+					value: '0'
+				}
+			},
 			menuItems: true
 		}
 	}

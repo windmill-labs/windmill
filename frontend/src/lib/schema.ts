@@ -1,15 +1,17 @@
-import type { Schema } from './common'
+import type { Schema, SchemaProperty } from './common'
 
-export function schemaToTsType(schema: Schema): string {
-	if (!schema || !schema.properties) {
+export function schemaToTsType(schema: Schema | SchemaProperty): string {
+	const schemaProperties = schema.properties
+	const schemaRequired = schema.required
+	if (!schema || !schemaProperties) {
 		return 'any'
 	}
-	const propKeys = Object.keys(schema.properties)
+	const propKeys = Object.keys(schemaProperties)
 
 	const types = propKeys
 		.map((key: string) => {
-			const prop = schema.properties[key]
-			const isOptional = !schema.required.includes(key)
+			const prop = schemaProperties[key]
+			const isOptional = !schemaRequired?.includes(key)
 			const prefix = `${key}${isOptional ? '?' : ''}`
 			let type: string = 'any'
 			if (prop.type === 'string') {
@@ -19,16 +21,18 @@ export function schemaToTsType(schema: Schema): string {
 			} else if (prop.type === 'boolean') {
 				type = 'boolean'
 			} else if (prop.type === 'array') {
-				let type = prop.items?.type ?? 'any'
+				type = prop.items?.type ?? 'any'
 				if (type === 'integer') {
 					type = 'number'
 				}
 				type = `${type}[]`
+			} else if (prop.type === 'object' && prop.properties) {
+				type = schemaToTsType(prop)
 			}
 
 			return `${prefix}: ${type}`
 		})
-		.join(';')
+		.join('; ')
 
 	return `{ ${types} }`
 }

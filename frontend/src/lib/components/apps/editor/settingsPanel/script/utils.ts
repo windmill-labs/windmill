@@ -1,4 +1,4 @@
-import type { EvalAppInput, Runnable } from '$lib/components/apps/inputType'
+import { isRunnableByName, type EvalAppInput, type Runnable } from '$lib/components/apps/inputType'
 import type { AppComponent } from '../../component'
 import type {
 	StaticAppInput,
@@ -29,11 +29,11 @@ export function getDependencies(
 }
 
 export function isFrontend(runnable: Runnable): boolean {
-	return runnable?.type === 'runnableByName' && runnable.inlineScript?.language === 'frontend'
+	return isRunnableByName(runnable) && runnable.inlineScript?.language === 'frontend'
 }
 
 export function isTriggerable(componentType: string): boolean {
-	return ['buttoncomponent', 'formbuttoncomponent', 'formcomponent', 'steppercomponent'].includes(
+	return ['buttoncomponent', 'formbuttoncomponent', 'formcomponent', 'steppercomponent', 'chatcomponent'].includes(
 		componentType
 	)
 }
@@ -55,7 +55,12 @@ export function getAllTriggerEvents(
 	const isTriggerableComponent = isTriggerable(appComponent.type)
 
 	if (isTriggerableComponent) {
-		events.push('click')
+		// Use 'send' for chat component, 'click' for others
+		if (appComponent.type === 'chatcomponent') {
+			events.push('send')
+		} else {
+			events.push('click')
+		}
 
 		if (triggerOnAppLoad) {
 			events.push('start')

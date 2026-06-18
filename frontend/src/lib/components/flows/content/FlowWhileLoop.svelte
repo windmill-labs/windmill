@@ -7,32 +7,44 @@
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	// import FlowRetries from './FlowRetries.svelte'
-	import { Button, Drawer, Tab, TabContent, Tabs, Alert } from '$lib/components/common'
+	import { Button, Drawer, Tab, TabContent, Alert } from '$lib/components/common'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { enterpriseLicense } from '$lib/stores'
 
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
 	import { Play } from 'lucide-svelte'
-	import type { FlowModule, Job } from '$lib/gen'
+	import type { FlowModule, Job, WhileloopFlow } from '$lib/gen'
 	import FlowLoopIterationPreview from '$lib/components/FlowLoopIterationPreview.svelte'
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
+	import TabsV2 from '$lib/components/common/tabs/TabsV2.svelte'
+	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 
 	const { flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	export let mod: FlowModule
-	export let previousModule: FlowModule | undefined
-	export let parentModule: FlowModule | undefined
-	export let noEditor: boolean
+	interface Props {
+		mod: FlowModule
+		previousModule: FlowModule | undefined
+		parentModule: FlowModule | undefined
+		noEditor: boolean
+	}
 
-	let selected: string = 'early-stop'
+	let { mod = $bindable(), previousModule, parentModule, noEditor }: Props = $props()
 
-	let previewOpen = false
-	let jobId: string | undefined = undefined
-	let job: Job | undefined = undefined
+	let selected: string = $state('early-stop')
 
-	$: previewIterationArgs = $flowStateStore[mod.id]?.previewArgs ?? {}
+	let previewOpen = $state(false)
+	let jobId: string | undefined = $state(undefined)
+	let job: Job | undefined = $state(undefined)
+
+	let previewIterationArgs = $derived(flowStateStore.val[mod.id]?.previewArgs ?? {})
+
+	useUiIntent(`whileloopflow-${mod.id}`, {
+		openTab: (tab) => {
+			selected = tab
+		}
+	})
 </script>
 
 <Drawer bind:open={previewOpen} alwaysOpen size="75%">
@@ -49,9 +61,11 @@
 </Drawer>
 
 <FlowCard {noEditor} title="While loop">
-	<div slot="header" class="grow">
-		<input bind:value={mod.summary} placeholder={'Summary'} />
-	</div>
+	{#snippet header()}
+		<div class="grow">
+			<input bind:value={mod.summary} placeholder={'Summary'} />
+		</div>
+	{/snippet}
 
 	<Splitpanes horizontal class="h-full">
 		<Pane size={50} minSize={20} class="p-4">
@@ -72,13 +86,14 @@
 
 			{#if mod.value.type === 'whileloopflow'}
 				<div class="flex flex-row gap-8 mt-2 mb-6">
-					<div>
+					<div class="flex-shrink-0">
 						<div class="mb-2 text-sm font-bold"
 							>Skip failures <Tooltip
 								documentationLink="https://www.windmill.dev/docs/flows/while_loops"
 								>If disabled, the flow will fail as soon as one of the iteration fail. Otherwise,
 								the error will be collected as the result of the iteration. Regardless of this
-								setting, if an error handler is defined, it will process the error.</Tooltip
+								setting, if a flow level error handler is defined, it will process the error.
+								(Workspace error handlers will NOT be used to process errors if enabled.)</Tooltip
 							></div
 						>
 						<Toggle
@@ -88,6 +103,26 @@
 							}}
 						/>
 					</div>
+					<div class="flex-shrink-0">
+						<div class="mb-2 text-sm font-bold"
+							>Squash
+							<Tooltip documentationLink="https://www.windmill.dev/docs/flows/while_loops">
+								Squashing a while loop runs all iterations on the same worker, using a single runner
+								per step for the entire loop. This eliminates cold starts between iterations for
+								supported languages (Bun, Deno, and Python).
+							</Tooltip>
+						</div>
+						<Toggle
+							bind:checked={mod.value.squash}
+							on:change={({ detail }) => {
+								;(mod.value as WhileloopFlow).squash = detail
+							}}
+							options={{
+								right: 'Squash'
+							}}
+							class="whitespace-nowrap"
+						/>
+					</div>
 				</div>
 
 				<div class="my-2 flex flex-row gap-2 items-center">
@@ -95,7 +130,7 @@
 						<Button
 							on:click={() => (previewOpen = true)}
 							startIcon={{ icon: Play }}
-							color="dark"
+							variant="accent"
 							size="sm">Test an iteration</Button
 						>
 					</div>
@@ -103,22 +138,22 @@
 			{/if}
 		</Pane>
 		<Pane size={40} minSize={20} class="flex flex-col flex-1">
-			<Tabs bind:selected>
+			<TabsV2 bind:selected>
 				<!-- <Tab value="retries">Retries</Tab> -->
-				<Tab value="early-stop">Early Stop/Break</Tab>
-				<Tab value="skip">Skip</Tab>
-				<Tab value="suspend">Suspend/Approval/Prompt</Tab>
-				<Tab value="sleep">Sleep</Tab>
-				<Tab value="mock">Mock</Tab>
-				<Tab value="lifetime">Lifetime</Tab>
+				<Tab value="early-stop" label="Early Stop/Break" />
+				<Tab value="skip" label="Skip" />
+				<Tab value="suspend" label="Suspend/Approval/Prompt" />
+				<Tab value="sleep" label="Sleep" />
+				<Tab value="mock" label="Mock" />
+				<Tab value="lifetime" label="Lifetime" />
 
-				<svelte:fragment slot="content">
+				{#snippet content()}
 					<div class="overflow-hidden bg-surface" style="height:calc(100% - 32px);">
 						<!-- <TabContent value="retries" class="flex flex-col flex-1 h-full">
-								<div class="p-4 overflow-y-auto">
-									<FlowRetries bind:flowModule={mod} />
-								</div>
-							</TabContent> -->
+									<div class="p-4 overflow-y-auto">
+										<FlowRetries bind:flowModule={mod} />
+									</div>
+								</TabContent> -->
 
 						<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 							<div class="p-4 overflow-y-auto">
@@ -153,8 +188,8 @@
 							</div>
 						</TabContent>
 					</div>
-				</svelte:fragment>
-			</Tabs>
+				{/snippet}
+			</TabsV2>
 		</Pane>
 	</Splitpanes>
 </FlowCard>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import MySQLIcon from '$lib/components/icons/Mysql.svelte'
 	import PostgresIcon from '$lib/components/icons/PostgresIcon.svelte'
@@ -20,22 +21,35 @@
 	import RustIcon from '$lib/components/icons/RustIcon.svelte'
 	import AnsibleIcon from '$lib/components/icons/AnsibleIcon.svelte'
 	import CSharpIcon from '$lib/components/icons/CSharpIcon.svelte'
+	import NuIcon from '$lib/components/icons/NuIcon.svelte'
+	import JavaIcon from '$lib/components/icons/JavaIcon.svelte'
+	import DuckDbIcon from '$lib/components/icons/DuckDbIcon.svelte'
+	import RubyIcon from '$lib/components/icons/RubyIcon.svelte'
+	import RIcon from '$lib/components/icons/RIcon.svelte'
+	import ClaudeIcon from '$lib/components/icons/ClaudeIcon.svelte'
 
-	export let lang:
-		| SupportedLanguage
-		| 'mysql'
-		| 'bun'
-		| 'pgsql'
-		| 'javascript'
-		| 'fetch'
-		| 'docker'
-		| 'powershell'
-		| 'bunnative'
-	export let width = 30
-	export let height = 30
-	export let scale = 1
+	interface Props {
+		lang:
+			| SupportedLanguage
+			| 'mysql'
+			| 'bun'
+			| 'pgsql'
+			| 'javascript'
+			| 'fetch'
+			| 'docker'
+			| 'powershell'
+			| 'bunnative'
+			| 'claudesandbox'
+		width?: number
+		height?: number
+		scale?: number
+		[key: string]: any
+		size?: number
+	}
 
-	const languageLabel: Record<Script['language'] | 'bunnative', String> = {
+	let { lang, width = 30, height = 30, scale = 1, size = undefined, ...rest }: Props = $props()
+
+	const languageLabel: Record<Script['language'] | 'bunnative' | 'claudesandbox', String> = {
 		python3: 'Python',
 		deno: 'TypeScript',
 		go: 'Go',
@@ -47,18 +61,25 @@
 		postgresql: 'Postgresql',
 		bigquery: 'BigQuery',
 		oracledb: 'Oracle Database',
+		duckdb: 'DuckDB',
 		snowflake: 'Snowflake',
 		mysql: 'MySQL',
 		mssql: 'MS SQL Server',
 		bun: 'TypeScript',
 		php: 'PHP',
 		rust: 'Rust',
-		ansible: 'Ansible Playbook',
-		csharp: 'C#'
+		ansible: 'Ansible',
+		csharp: 'C#',
+		nu: 'Nu',
+		java: 'Java',
+		ruby: 'Ruby',
+		rlang: 'R',
+		claudesandbox: 'Claude Sandbox'
+		// for related places search: ADD_NEW_LANG
 	}
 
 	const langToComponent: Record<
-		SupportedLanguage | 'pgsql' | 'javascript' | 'fetch' | 'docker' | 'powershell' | 'bunnative',
+		SupportedLanguage | 'pgsql' | 'javascript' | 'fetch' | 'docker' | 'powershell' | 'bunnative' | 'claudesandbox',
 		any
 	> = {
 		go: GoIcon,
@@ -84,19 +105,27 @@
 		php: PHPIcon,
 		rust: RustIcon,
 		ansible: AnsibleIcon,
-		csharp: CSharpIcon
+		csharp: CSharpIcon,
+		nu: NuIcon,
+		java: JavaIcon,
+		ruby: RubyIcon,
+		rlang: RIcon,
+		duckdb: DuckDbIcon,
+		claudesandbox: TypeScriptIcon
+		// for related places search: ADD_NEW_LANG
 	}
 
-	let subIconScale = width === 30 ? 0.6 : 0.8
+	let subIconScale = untrack(() => width) === 30 ? 0.6 : 0.8
+
+	const SvelteComponent = $derived(langToComponent[lang])
 </script>
 
 <div class="relative">
-	<svelte:component
-		this={langToComponent[lang]}
+	<SvelteComponent
 		title={languageLabel[lang]}
-		width={width * scale}
-		height={height * scale}
-		{...$$restProps}
+		width={size ? size : width * scale}
+		height={size ? size : height * scale}
+		{...rest}
 	/>
 	{#if lang === 'deno'}
 		<div
@@ -116,6 +145,19 @@
 			}px;`}
 		>
 			<BunIcon
+				width={width * scale * (subIconScale - 0.1)}
+				height={height * scale * (subIconScale - 0.1)}
+			/>
+		</div>
+	{/if}
+	{#if lang === 'claudesandbox'}
+		<div
+			class="absolute -top-1.5 -right-1.5 bg-surface rounded-full flex items-center justify-center"
+			style={`width: ${width * scale * subIconScale}px; height: ${
+				height * scale * subIconScale
+			}px;`}
+		>
+			<ClaudeIcon
 				width={width * scale * (subIconScale - 0.1)}
 				height={height * scale * (subIconScale - 0.1)}
 			/>

@@ -1,12 +1,14 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { Map, View, Feature } from 'ol'
 	import { Fill, Stroke, Style, Text } from 'ol/style.js'
-	import { useGeographic } from 'ol/proj'
-	import { OSM, Vector as VectorSource } from 'ol/source'
-	import { Vector as VectorLayer, Tile as TileLayer } from 'ol/layer'
-	import { Point } from 'ol/geom'
-	import { defaults as defaultControls } from 'ol/control'
-	import CircleStyle from 'ol/style/Circle'
+	import { useGeographic } from 'ol/proj.js'
+	import { OSM, Vector as VectorSource } from 'ol/source.js'
+	import { Vector as VectorLayer, Tile as TileLayer } from 'ol/layer.js'
+	import { Point } from 'ol/geom.js'
+	import { defaults as defaultControls } from 'ol/control.js'
+	import CircleStyle from 'ol/style/Circle.js'
 
 	interface Marker {
 		lon: number
@@ -18,17 +20,26 @@
 		strokeColor?: string
 	}
 
-	export let lon: number | undefined = undefined
-	export let lat: number | undefined = undefined
-	export let zoom: number | undefined = undefined
-	export let markers: Marker[] | string | undefined = undefined
+	interface Props {
+		lon?: number | undefined;
+		lat?: number | undefined;
+		zoom?: number | undefined;
+		markers?: Marker[] | string | undefined;
+	}
+
+	let {
+		lon = undefined,
+		lat = undefined,
+		zoom = undefined,
+		markers = undefined
+	}: Props = $props();
 
 	const LAYER_NAME = {
 		MARKER: 'Marker'
 	} as const
 
-	let map: Map | undefined = undefined
-	let mapElement: HTMLDivElement | undefined = undefined
+	let map: Map | undefined = $state(undefined)
+	let mapElement: HTMLDivElement | undefined = $state(undefined)
 
 	function getLayersByName(name: keyof typeof LAYER_NAME) {
 		return map
@@ -100,39 +111,41 @@
 		createMarkerLayers()?.forEach((l) => map?.addLayer(l))
 	}
 
-	$: if (!map && mapElement) {
-		useGeographic()
-		map = new Map({
-			target: mapElement,
-			layers: [
-				new TileLayer({
-					source: new OSM()
+	run(() => {
+		if (!map && mapElement) {
+			useGeographic()
+			map = new Map({
+				target: mapElement,
+				layers: [
+					new TileLayer({
+						source: new OSM()
+					}),
+					...(createMarkerLayers() || [])
+				],
+				view: new View({
+					center: [lon ?? 0, lat ?? 0],
+					zoom: zoom ?? 2
 				}),
-				...(createMarkerLayers() || [])
-			],
-			view: new View({
-				center: [lon ?? 0, lat ?? 0],
-				zoom: zoom ?? 2
-			}),
-			controls: defaultControls({
-				attribution: false
+				controls: defaultControls({
+					attribution: false
+				})
 			})
-		})
-		if (lat && lon) {
-			map.getView().setCenter([lon, lat])
-		}
+			if (lat && lon) {
+				map.getView().setCenter([lon, lat])
+			}
 
-		if (map && zoom) {
-			map.getView().setZoom(zoom)
-		}
+			if (map && zoom) {
+				map.getView().setZoom(zoom)
+			}
 
-		if (map && markers) {
-			updateMarkers()
+			if (map && markers) {
+				updateMarkers()
+			}
 		}
-	}
+	});
 </script>
 
-<div bind:this={mapElement} class="w-full h-[300px]" />
+<div bind:this={mapElement} class="w-full h-[300px]"></div>
 
 <style global lang="postcss">
 	.ol-overlaycontainer-stopevent {

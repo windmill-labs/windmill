@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { GridApi, createGrid, type IDatasource } from 'ag-grid-community'
+	import { run } from 'svelte/legacy'
+
+	import { type GridApi, createGrid, type IDatasource } from 'ag-grid-community'
 
 	import 'ag-grid-community/styles/ag-grid.css'
 	import 'ag-grid-community/styles/ag-theme-alpine.css'
@@ -7,6 +9,7 @@
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { HelpersService } from '$lib/gen'
 	import { base } from '$lib/base'
+	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { Download } from 'lucide-svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -14,15 +17,19 @@
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
 	let selectedRowIndex = -1
-	export let s3resource: string
-	export let storage: string | undefined
-	export let workspaceId: string | undefined
-	export let disable_download: boolean = false
+	interface Props {
+		s3resource: string
+		storage: string | undefined
+		workspaceId: string | undefined
+		disable_download?: boolean
+	}
+
+	let { s3resource, storage, workspaceId, disable_download = false }: Props = $props()
 
 	let lastSearch: string | undefined = undefined
 
-	let nbRows: number | undefined = undefined
-	let csvSeparatorChar: string = ','
+	let nbRows: number | undefined = $state(undefined)
+	let csvSeparatorChar: string = $state(',')
 	let datasource: IDatasource = {
 		rowCount: 0,
 		getRows: async function (params) {
@@ -95,11 +102,9 @@
 		toggleRow(rows[0])
 	}
 
-	let eGui: HTMLDivElement
+	let eGui: HTMLDivElement | undefined = $state()
 
-	$: eGui && mountGrid()
-
-	let error: string | undefined = undefined
+	let error: string | undefined = $state(undefined)
 	async function mountGrid() {
 		if (eGui) {
 			try {
@@ -112,13 +117,13 @@
 							limit: 0,
 							storage: storage,
 							csvSeparator: csvSeparatorChar
-					  })
+						})
 					: await HelpersService.loadParquetPreview({
 							workspace: $workspaceStore!,
 							path: s3resource,
 							limit: 0,
 							storage: storage
-					  })
+						})
 
 				createGrid(
 					eGui,
@@ -170,7 +175,10 @@
 		}
 	}
 
-	let darkMode: boolean = false
+	let darkMode: boolean = $state(false)
+	run(() => {
+		eGui && mountGrid()
+	})
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -182,7 +190,7 @@
 				<label for="csvSeparatorChar" class="text-2xs text-secondary">Separator</label>
 
 				<div class="w-12 ml-2 mr-2">
-					<select class="h-8" bind:value={csvSeparatorChar} on:change={(e) => mountGrid()}>
+					<select class="h-8" bind:value={csvSeparatorChar} onchange={(e) => mountGrid()}>
 						<option value=",">,</option>
 						<option value=";">;</option>
 						<option value="\t">\t</option>
@@ -193,14 +201,26 @@
 		</div>
 	{/if}
 	{#if !disable_download && !s3resource.endsWith('.csv')}
-		<a
-			target="_blank"
-			href="{base}/api/w/{workspaceId}/job_helpers/download_s3_parquet_file_as_csv?file_key={s3resource}{storage
-				? `&storage=${storage}`
-				: ''}"
-			class="text-secondary w-full text-right underline text-2xs whitespace-nowrap"
-			><div class="flex flex-row-reverse gap-2 items-center"><Download size={12} /> CSV</div></a
-		>
+		{@const csvApiPath = `/w/${workspaceId}/job_helpers/download_s3_parquet_file_as_csv?file_key=${encodeURIComponent(s3resource)}${storage ? `&storage=${storage}` : ''}`}
+		{@const csvName = (s3resource.split('/').pop() ?? 'download') + '.csv'}
+		{#if shouldDownloadViaClient()}
+			<button
+				class="text-secondary w-full text-right underline text-2xs whitespace-nowrap"
+				onclick={() => downloadViaClient(csvApiPath, csvName)}
+				><div class="flex flex-row-reverse gap-2 items-center"
+					><Download size={12} /> CSV</div
+				></button
+			>
+		{:else}
+			<a
+				target="_blank"
+				href="{base}/api{csvApiPath}"
+				class="text-secondary w-full text-right underline text-2xs whitespace-nowrap"
+				><div class="flex flex-row-reverse gap-2 items-center"
+					><Download size={12} /> CSV</div
+				></a
+			>
+		{/if}
 	{/if}
 
 	{#if nbRows != undefined}
@@ -217,7 +237,7 @@
 			<div class="text-red-500">{error}</div>
 			<div>Try changing separator to fix it</div>
 		{/if}
-		<div bind:this={eGui} style="height:100%; " />
+		<div bind:this={eGui} style="height:100%; "></div>
 	</div>
 </div>
 

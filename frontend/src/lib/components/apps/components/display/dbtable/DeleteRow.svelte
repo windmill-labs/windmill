@@ -1,42 +1,46 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext, tick } from 'svelte'
+	import { createEventDispatcher, getContext, tick, untrack } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type { AppViewerContext } from '../../../types'
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { getPrimaryKeys, type ColumnDef, type DbType } from './utils'
+	import { getPrimaryKeys, type ColumnDef } from './utils'
 	import { sendUserToast } from '$lib/toast'
 	import { getDeleteInput } from './queries/delete'
+	import type { DbInput } from '$lib/components/dbTypes'
 
-	export let id: string
+	interface Props {
+		id: string
+	}
+
+	let { id }: Props = $props()
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	let outputs = initOutput($worldStore, `${id}_delete`, {
+	let outputs = initOutput($worldStore, `${untrack(() => id)}_delete`, {
 		result: undefined,
 		loading: false,
 		jobId: undefined
 	})
 
-	let runnableComponent: RunnableComponent
-	let loading = false
+	let runnableComponent: RunnableComponent | undefined = $state()
+	let loading = $state(false)
 
-	let input: AppInput | undefined = undefined
+	let input: AppInput | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 
 	export async function triggerDelete(
-		resource: string,
+		dbInput: DbInput,
 		table: string,
 		allColumns: ColumnDef[],
-		data: Record<string, any>,
-		dbType: DbType
+		data: Record<string, any>
 	) {
 		let primaryColumns = getPrimaryKeys(allColumns)
 		let columns = allColumns?.filter((x) => primaryColumns.includes(x.field))
 
-		input = getDeleteInput(resource, table, columns, dbType)
+		input = getDeleteInput(dbInput, table, columns)
 
 		await tick()
 
@@ -51,15 +55,15 @@
 				undefined,
 				{ ...ndata },
 				{
-					done: (x) => {
+					onDone: (_x) => {
 						sendUserToast('Row deleted', false)
 						dispatch('deleted')
 					},
-					cancel: () => {
+					onCancel: () => {
 						sendUserToast('Error deleting row', true)
 					},
-					error: () => {
-						sendUserToast('Error updating row', true)
+					onError: (e) => {
+						sendUserToast(`Error deleting row: ${e?.message ?? e}`, true)
 					}
 				}
 			)

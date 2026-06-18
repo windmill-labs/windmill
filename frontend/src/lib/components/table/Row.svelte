@@ -2,12 +2,28 @@
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	export let hoverable: boolean = false
-	export let selected: boolean = false
-	export let dividable: boolean = false
-	export let disabled: boolean = false
-	export let hovering: boolean = false
 	const dispatch = createEventDispatcher()
+
+	interface Props {
+		hoverable?: boolean;
+		selected?: boolean;
+		dividable?: boolean;
+		disabled?: boolean;
+		hovering?: boolean;
+		class?: string;
+		children?: import('svelte').Snippet;
+	}
+
+	let {
+		hoverable = false,
+		selected = false,
+		dividable = false,
+		disabled = false,
+		hovering = $bindable(false),
+		class: className = '',
+		children
+	}: Props = $props();
+	
 </script>
 
 <tr
@@ -17,19 +33,19 @@
 		'transition-all',
 		dividable ? 'divide-x' : '',
 		disabled ? 'opacity-60' : '',
-		$$props.class
+		className
 	)}
-	on:click={() => {
+	onclick={() => {
 		dispatch('click')
 	}}
-	on:mouseenter={() => {
+	onmouseenter={() => {
 		hovering = true
 		dispatch('hover', true)
 	}}
-	on:mouseleave={() => {
+	onmouseleave={() => {
 		hovering = false
 		dispatch('hover', false)
 	}}
 >
-	<slot />
+	{@render children?.()}
 </tr>

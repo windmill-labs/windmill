@@ -1,6 +1,7 @@
 name: Backend only integration tests
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - "main"
@@ -19,7 +20,7 @@ defaults:
 
 jobs:
   cargo_test:
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-16
     services:
       postgres:
         image: postgres
@@ -28,9 +29,20 @@ jobs:
         env:
           POSTGRES_DB: windmill
           POSTGRES_PASSWORD: changeme
+          POSTGRES_INITDB_ARGS: "-c max_connections=500"
         options: >-
           --health-cmd pg_isready --health-interval 10s --health-timeout 5s
-          --health-retries 5
+          --health-retries 5 --shm-size=256mb
+      mysql:
+        image: mysql:8.0
+        ports:
+          - 3306:3306
+        env:
+          MYSQL_ROOT_PASSWORD: changeme
+          MYSQL_DATABASE: windmill_test
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost" --health-interval 10s
+          --health-timeout 5s --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -42,30 +54,206 @@ jobs:
       - uses: actions/setup-go@v2
         with:
           go-version: 1.21.5
-      - uses: actions/setup-python@v2
-        with:
-          python-version: 3.11
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.1.43
-      - uses: astral-sh/setup-uv@v4
+          bun-version: 1.3.10
+      - uses: actions/setup-node@v4
         with:
-          version: "0.4.18"
+          node-version: "20"
+      - uses: astral-sh/setup-uv@v6.2.1
+        with:
+          version: "0.9.25"
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: composer
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: false
+      - name: Install windmill CLI from source
+        run: |
+          cd $GITHUB_WORKSPACE/cli
+          bash gen_wm_client.sh
+          bun install
+          mkdir -p "$HOME/.local/bin"
+          printf '#!/bin/sh\nexec bun run "%s/cli/src/main.ts" "$@"\n' "$GITHUB_WORKSPACE" > "$HOME/.local/bin/wmill"
+          chmod +x "$HOME/.local/bin/wmill"
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+        working-directory: /
+      - name: Install PowerShell, mold and clang
+        run: |
+          sudo apt-get update && sudo apt-get install -y powershell mold clang libcurl4-openssl-dev
+        working-directory: /
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
-          toolchain: 1.83.0
-      - uses: Swatinem/rust-cache@v2
+          toolchain: 1.93.0
+      - name: Fix stale v8 build cache
+        working-directory: ./backend
+        run: |
+          # Cargo cache may preserve v8 build fingerprints without the actual
+          # librusty_v8.a library. Since fingerprints look valid, cargo skips
+          # build.rs re-run, causing "could not find native static library rusty_v8".
+          for profile in debug release; do
+            if [ -d "target/$profile/.fingerprint" ] && [ ! -f "target/$profile/gn_out/obj/librusty_v8.a" ]; then
+              echo "Cleaning stale v8 build artifacts in target/$profile"
+              rm -rf "target/$profile/build/v8-"* "target/$profile/.fingerprint/v8-"*
+            fi
+          done
+      - name: Read EE repo commit hash
+        run: |
+          echo "ee_repo_ref=$(cat ./ee-repo-ref.txt)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
         with:
-          workspaces: backend
+          repository: windmill-labs/windmill-ee-private
+          path: ./windmill-ee-private
+          ref: ${{ env.ee_repo_ref }}
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+          fetch-depth: 0
+
+      - name: Substitute EE code (EE logic is behind feature flag)
+        run: |
+          ./substitute_ee_code.sh --copy --dir ./windmill-ee-private
+      - name: Setup private npm registry with test package
+        working-directory: /tmp
+        run: |
+          set -e
+
+          # Install Verdaccio globally
+          npm install -g verdaccio
+
+          # Create Verdaccio config that requires authentication for @windmill-test packages
+          mkdir -p /tmp/verdaccio/storage
+          cat > /tmp/verdaccio/config.yaml << 'VERDACCIO_CONFIG'
+          storage: /tmp/verdaccio/storage
+          auth:
+            htpasswd:
+              file: /tmp/verdaccio/htpasswd
+              max_users: 100
+          uplinks:
+            npmjs:
+              url: https://registry.npmjs.org/
+          packages:
+            '@windmill-test/*':
+              access: $authenticated
+              publish: $authenticated
+            '@*/*':
+              access: $all
+              publish: $authenticated
+              proxy: npmjs
+            '**':
+              access: $all
+              publish: $authenticated
+              proxy: npmjs
+          server:
+            keepAliveTimeout: 60
+          middlewares:
+            audit:
+              enabled: true
+          log: { type: stdout, format: pretty, level: warn }
+          VERDACCIO_CONFIG
+
+          # Create empty htpasswd file (users will be created via API)
+          touch /tmp/verdaccio/htpasswd
+
+          # Start Verdaccio in background
+          verdaccio --config /tmp/verdaccio/config.yaml &
+          VERDACCIO_PID=$!
+
+          # Wait for Verdaccio to be ready
+          echo "Waiting for Verdaccio to start..."
+          for i in {1..30}; do
+            if curl -s http://localhost:4873/-/ping > /dev/null 2>&1; then
+              echo "Verdaccio is ready"
+              break
+            fi
+            sleep 1
+          done
+
+          # Login to get a token
+          echo "Getting auth token..."
+          RESPONSE=$(curl -s -X PUT \
+            -H "Content-Type: application/json" \
+            -d '{"name":"testuser","password":"testpass123"}' \
+            http://localhost:4873/-/user/org.couchdb.user:testuser)
+
+          echo "Auth response: $RESPONSE"
+          NPM_TOKEN=$(echo "$RESPONSE" | jq -r '.token')
+
+          if [ -z "$NPM_TOKEN" ] || [ "$NPM_TOKEN" = "null" ]; then
+            echo "Failed to get NPM token from response"
+            exit 1
+          fi
+
+          echo "NPM_TOKEN=${NPM_TOKEN}" >> $GITHUB_ENV
+          {
+            echo "TEST_NPMRC<<NPMRC_EOF"
+            echo "@windmill-test:registry=http://localhost:4873/"
+            echo "//localhost:4873/:_authToken=${NPM_TOKEN}"
+            echo "NPMRC_EOF"
+          } >> $GITHUB_ENV
+          echo "Got NPM token successfully: ${NPM_TOKEN:0:10}..."
+
+          # Configure npm globally with the auth token
+          echo "//localhost:4873/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+          echo "Configured ~/.npmrc with auth token"
+
+          # Create a simple test package
+          mkdir -p /tmp/windmill-test-private-pkg
+          cat > /tmp/windmill-test-private-pkg/package.json << 'PKG_JSON'
+          {
+            "name": "@windmill-test/private-pkg",
+            "version": "1.0.0",
+            "main": "index.js"
+          }
+          PKG_JSON
+          cat > /tmp/windmill-test-private-pkg/index.js << 'PKG_JS'
+          module.exports.greet = (name) => `Hello from private package, ${name}!`;
+          PKG_JS
+
+          # Publish to Verdaccio with auth
+          cd /tmp/windmill-test-private-pkg
+          echo "Publishing package..."
+          npm publish --registry http://localhost:4873
+          echo "Package published successfully"
+
+          # Verify the package requires auth by trying anonymous access (should fail)
+          rm -f ~/.npmrc
+          echo "Testing anonymous access (should fail)..."
+          if npm view @windmill-test/private-pkg --registry http://localhost:4873 2>/dev/null; then
+            echo "ERROR: Package should require authentication but anonymous access worked"
+            exit 1
+          fi
+          echo "Verified: Package requires authentication for @windmill-test/private-pkg"
+      - name: Cache DuckDB FFI module build
+        uses: actions/cache@v3
+        with:
+          path: ./backend/windmill-duckdb-ffi-internal/target
+          key: ${{ runner.os }}-duckdb-ffi-${{ hashFiles('./backend/windmill-duckdb-ffi-internal/src/**/*.rs', './backend/windmill-duckdb-ffi-internal/Cargo.toml', './backend/windmill-duckdb-ffi-internal/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-duckdb-ffi-
       - name: cargo test
-        timeout-minutes: 16
-        run:
-          deno --version && bun -v && go version && python3 --version &&
-          SQLX_OFFLINE=true
-          DATABASE_URL=postgres://postgres:changeme@localhost:5432/windmill
-          DISABLE_EMBEDDING=true RUST_LOG=info PYTHON_PATH=$(which python)
-          DENO_PATH=$(which deno) BUN_PATH=$(which bun) GO_PATH=$(which go)
-          UV_PATH=$(which uv) cargo test --features
-          enterprise,deno_core,license,python,rust,scoped_cache --all --
-          --nocapture
+        timeout-minutes: 30
+        env:
+          SQLX_OFFLINE: true
+          DATABASE_URL: postgres://postgres:changeme@localhost:5432/windmill
+          DISABLE_EMBEDDING: true
+          RUST_LOG: "off"
+          RUST_LOG_STYLE: never
+          CARGO_NET_GIT_FETCH_WITH_CLI: true
+          CARGO_BUILD_JOBS: 12
+          # Tests' poll-time stack frames (deep nested async fn chains in
+          # debug builds) reach ~1.8MB, leaving very thin headroom on the
+          # default 2MB thread stack. 4MB gives ~2x buffer against flaky
+          # overflows under parallel-test contention.
+          RUST_MIN_STACK: 4194304
+          WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: 1
+          WMDEBUG_FORCE_RUNNABLE_SETTINGS_V0: 1
+          WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT: 1
+          TEST_NPM_REGISTRY: "http://localhost:4873/:_authToken=${{ env.NPM_TOKEN }}"
+        run: |
+          deno --version && bun -v && node --version && go version && python3 --version && php --version && ruby --version && pwsh --version && dotnet --version
+          cd windmill-duckdb-ffi-internal && ./build_dev.sh && cd ..
+          DENO_PATH=$(which deno) BUN_PATH=$(which bun) NODE_BIN_PATH=$(which node) GO_PATH=$(which go) UV_PATH=$(which uv) PHP_PATH=$(which php) COMPOSER_PATH=$(which composer) RUBY_PATH=$(which ruby) RUBY_BUNDLE_PATH=$(which bundle) RUBY_GEM_PATH=$(which gem) POWERSHELL_PATH=$(which pwsh) DOTNET_PATH=$(which dotnet) cargo test --features enterprise,deno_core,duckdb,license,python,rust,scoped_cache,parquet,private,private_registry_test,csharp,php,ruby,mysql,quickjs,mcp,run_inline --all -- --nocapture --test-threads=10

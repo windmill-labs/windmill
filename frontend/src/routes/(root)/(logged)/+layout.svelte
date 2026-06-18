@@ -3,23 +3,22 @@
 
 	import {
 		AppService,
+		AssetService,
 		FlowService,
 		OpenAPI,
-		RawAppService,
 		ScriptService,
 		SettingService,
 		UserService,
 		WorkspaceService
 	} from '$lib/gen'
-	import { classNames, getModifierKey } from '$lib/utils'
+	import { capitalize, classNames, getModifierKey, sendUserToast } from '$lib/utils'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
+	import ForkConflictModal from '$lib/components/ForkConflictModal.svelte'
 	import {
 		enterpriseLicense,
-		copilotInfo,
 		isPremiumStore,
-		starStore,
 		superadmin,
 		usageStore,
 		workspaceUsageStore,
@@ -28,8 +27,13 @@
 		type UserExt,
 		defaultScripts,
 		hubBaseUrlStore,
+		wsBaseUrlStore,
+		disableHubStore,
 		usedTriggerKinds,
-		devopsRole
+		devopsRole,
+		whitelabelNameStore,
+		globalDbManagerDrawer,
+		globalForkModal
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
@@ -37,71 +41,112 @@
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
-	import { page } from '$app/stores'
-	import FavoriteMenu from '$lib/components/sidebar/FavoriteMenu.svelte'
+	import { page } from '$app/state'
+	import FavoriteMenu, {
+		favoriteManager,
+		getFavoriteHref,
+		getFavoriteLabel
+	} from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
-	import { ArrowLeft, Search } from 'lucide-svelte'
+	import { ArrowLeft, Search, WandSparkles } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
-	import { initAllAiWorkspace } from '$lib/components/copilot/lib'
+	import { deepEqual } from 'fast-equals'
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
-	import { setContext } from 'svelte'
+	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
+	import { migrateLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
+	import { migrateUserDraftsToDb } from '$lib/userDraftDbMigration'
+	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
+	import { setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
+	import { Menubar } from '$lib/components/meltComponents'
+	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
+	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
+	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
+	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
+	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
+	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
+	import { useDbManagerUriState } from '$lib/components/dbManagerDrawerModel.svelte'
+	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
+	import CreateWorkspaceInner from '$lib/components/workspaceSettings/CreateWorkspaceInner.svelte'
+	interface Props {
+		children?: import('svelte').Snippet
+	}
 
+	const remoteUrlParam = page.url.searchParams.get('remote_url')
+	if (remoteUrlParam) {
+		document.cookie = `remote_url=${remoteUrlParam}; path=/; secure; samesite=strict`
+		page.url.searchParams.delete('remote_url')
+	}
+
+	let { children }: Props = $props()
 	OpenAPI.WITH_CREDENTIALS = true
-	let menuOpen = false
-	let globalSearchModal: GlobalSearchModal | undefined = undefined
-	let isCollapsed = false
-	let userSettings: UserSettings
-	let superadminSettings: SuperadminSettings
-	let menuHidden = false
+	let menuOpen = $state(false)
+	let globalSearchModal: GlobalSearchModal | undefined = $state(undefined)
+	let isCollapsed = $state(false)
+	let userSettings: UserSettings | undefined = $state()
+	let superadminSettings: SuperadminSettings | undefined = $state()
+	let menuHidden = $state(false)
+	let isDarkMode = useIsDarkMode()
+	let darkMode = $derived(isDarkMode.val)
 
-	if ($page.status == 404) {
+	const SIDEBAR_BG = '#F3F3F7'
+	const SIDEBAR_BG_DARK = '#1e232e'
+
+	if (page.status == 404) {
 		goto('/user/login')
 	}
 
-	$: $page.url && userSettings != undefined && onQueryChangeUserSettings()
-	$: $page.url && superadminSettings != undefined && onQueryChangeAdminSettings()
-	$: $page.url && onQueryChange()
-
 	function onQueryChangeUserSettings() {
-		if (userSettings && $page.url.hash === USER_SETTINGS_HASH) {
-			userSettings.openDrawer()
+		if (userSettings && page.url.hash.startsWith(USER_SETTINGS_HASH)) {
+			const mcpMode = page.url.hash.includes('-mcp')
+			userSettings.openDrawer(mcpMode)
 		}
 	}
 
 	function onQueryChangeAdminSettings() {
-		if (superadminSettings && $page.url.hash === SUPERADMIN_SETTINGS_HASH) {
+		if (superadminSettings && page.url.hash === SUPERADMIN_SETTINGS_HASH) {
 			superadminSettings.openDrawer()
 		}
 	}
 
 	function onQueryChange() {
-		let queryWorkspace = $page.url.searchParams.get('workspace')
+		let queryWorkspace = page.url.searchParams.get('workspace')
 		if (queryWorkspace) {
 			$workspaceStore = queryWorkspace
 		}
 
 		menuHidden =
-			$page.url.searchParams.get('nomenubar') === 'true' ||
-			$page.url.pathname.startsWith('/oauth/callback/')
+			page.url.searchParams.get('nomenubar') === 'true' ||
+			page.url.pathname.startsWith('/oauth/callback/')
 	}
-
-	$: updateUserStore($workspaceStore)
 
 	async function updateUserStore(workspace: string | undefined) {
 		if (workspace) {
 			try {
+				sessionStorage.setItem('workspace', String(workspace))
 				localStorage.setItem('workspace', String(workspace))
 			} catch (e) {
 				console.error('Could not persist workspace to local storage', e)
 			}
 			const user = await getUserExt(workspace)
-			userStore.set(user)
+			if (!deepEqual(user, $userStore)) {
+				userStore.set(user)
+			}
+			// Persist the workspace username so the synchronous `/add` →
+			// `/edit/u/{user}/draft_{uuid}` redirects (in each editor's
+			// `+page.ts`) can land on the right namespace without waiting
+			// for this async layout fetch. Without this they fall back to
+			// the `'me'` placeholder on every fresh nav.
+			try {
+				if (user?.username) localStorage.setItem('username', user.username)
+			} catch (e) {
+				console.error('Could not persist username to local storage', e)
+			}
 			if (isCloudHosted() && user?.is_admin) {
 				isPremiumStore.set(await WorkspaceService.getIsPremium({ workspace }))
 			}
@@ -110,29 +155,38 @@
 		}
 	}
 
-	beforeNavigate(() => {
+	beforeNavigate((navigation) => {
 		menuOpen = false
+
+		// Force page reload when navigating to /apps_raw/add or /apps_raw/edit
+		// This ensures the cross-origin isolation headers are fetched from the server
+		// which are required for SharedArrayBuffer and TypeScript workers to work correctly
+		const toPath = navigation.to?.url.pathname
+		if (toPath && (toPath.startsWith('/apps_raw/add') || toPath.startsWith('/apps_raw/edit'))) {
+			const currentPath = navigation.from?.url.pathname
+			// Reload if we're not on an apps_raw path, or if we're on /apps/get_raw/ (viewing a raw app)
+			// The /apps/get_raw/ path doesn't have cross-origin isolation headers, so we need to reload
+			if (!currentPath?.startsWith('/apps_raw/') || currentPath?.startsWith('/apps_raw/get/')) {
+				navigation.cancel()
+				window.location.href = navigation.to!.url.href
+			}
+		}
 	})
 
-	let innerWidth = BROWSER ? window.innerWidth : 2000
-
-	let favoriteLinks = [] as {
-		label: string
-		href: string
-		kind: 'app' | 'script' | 'flow' | 'raw_app'
-	}[]
-	$: $workspaceStore && $starStore && onLoad()
+	let innerWidth = $state(BROWSER ? window.innerWidth : 2000)
 
 	function onLoad() {
 		loadFavorites()
 		loadUsage()
 		syncTutorialsTodos()
 		loadHubBaseUrl()
+		loadWsBaseUrl()
+		loadDisableHub()
 		loadUsedTriggerKinds()
 	}
 
 	async function loadUsage() {
-		if (isCloudHosted()) {
+		if (isCloudHosted() && $workspaceStore) {
 			$usageStore = await UserService.getUsage()
 			$workspaceUsageStore = await WorkspaceService.getWorkspaceUsage({
 				workspace: $workspaceStore!
@@ -144,59 +198,85 @@
 		$hubBaseUrlStore =
 			((await SettingService.getGlobal({ key: 'hub_accessible_url' })) as string) ||
 			((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ||
-			'https://hub.windmill.dev'
+			DEFAULT_HUB_BASE_URL
+	}
+
+	async function loadWsBaseUrl() {
+		const val = (await SettingService.getGlobal({ key: 'ws_base_url' })) as string
+		if (val) {
+			$wsBaseUrlStore = val
+		}
+	}
+
+	async function loadDisableHub() {
+		$disableHubStore =
+			((await SettingService.getGlobal({ key: 'disable_hub' })) as boolean) ?? false
 	}
 
 	async function loadFavorites() {
 		const scripts = await ScriptService.listScripts({
 			workspace: $workspaceStore ?? '',
 			starredOnly: true,
-			includeWithoutMain: true
+			includeWithoutMain: true,
+			withoutDescription: true
 		})
 		const flows = await FlowService.listFlows({
 			workspace: $workspaceStore ?? '',
-			starredOnly: true
+			starredOnly: true,
+			withoutDescription: true
 		})
 		const apps = await AppService.listApps({
 			workspace: $workspaceStore ?? '',
 			starredOnly: true
 		})
-		const raw_apps = await RawAppService.listRawApps({
-			workspace: $workspaceStore ?? '',
-			starredOnly: true
-		})
-		favoriteLinks = [
+		const assets = await AssetService.listFavoriteAssets({ workspace: $workspaceStore ?? '' })
+		favoriteManager.current = [
 			...scripts.map((s) => ({
-				label: s.summary || s.path,
-				href: `${base}/scripts/get/${s.hash}`,
-				kind: 'script' as 'script'
+				label: s.summary || getFavoriteLabel(s.path, 'script'),
+				path: s.path,
+				href: getFavoriteHref(s.path, 'script'),
+				kind: 'script' as const
 			})),
 			...flows.map((f) => ({
-				label: f.summary || f.path,
-				href: `${base}/flows/get/${f.path}`,
-				kind: 'flow' as 'flow'
+				label: f.summary || getFavoriteLabel(f.path, 'flow'),
+				path: f.path,
+				href: getFavoriteHref(f.path, 'flow'),
+				kind: 'flow' as const
 			})),
 			...apps.map((f) => ({
-				label: f.summary || f.path,
-				href: `${base}/apps/get/${f.path}`,
-				kind: 'app' as 'app'
+				label: f.summary || getFavoriteLabel(f.path, 'app'),
+				path: f.path,
+				href: getFavoriteHref(f.path, 'app'),
+				kind: 'app' as const
 			})),
-			...raw_apps.map((f) => ({
-				label: f.summary || f.path,
-				href: `${base}/apps/get_raw/${f.version}/${f.path}`,
-				kind: 'raw_app' as 'raw_app'
+			...assets.map((a) => ({
+				label: getFavoriteLabel(a.path, 'asset'),
+				path: a.path,
+				href: getFavoriteHref(a.path, 'asset'),
+				kind: 'asset' as const
 			}))
 		]
 	}
 
 	async function loadUsedTriggerKinds() {
 		let usedKinds: string[] = []
-		const { http_routes_used, websocket_used, kafka_used, postgres_used, nats_used } =
-			await WorkspaceService.getUsedTriggers(
-			{
-					workspace: $workspaceStore ?? ''
-				}
-		)
+		const {
+			http_routes_used,
+			websocket_used,
+			kafka_used,
+			postgres_used,
+			nats_used,
+			sqs_used,
+			mqtt_used,
+			gcp_used,
+			azure_used,
+			email_used,
+			nextcloud_used,
+			google_used,
+			github_used
+		} = await WorkspaceService.getUsedTriggers({
+			workspace: $workspaceStore ?? ''
+		})
 		if (http_routes_used) {
 			usedKinds.push('http')
 		}
@@ -211,6 +291,30 @@
 		}
 		if (nats_used) {
 			usedKinds.push('nats')
+		}
+		if (mqtt_used) {
+			usedKinds.push('mqtt')
+		}
+		if (sqs_used) {
+			usedKinds.push('sqs')
+		}
+		if (gcp_used) {
+			usedKinds.push('gcp')
+		}
+		if (azure_used) {
+			usedKinds.push('azure')
+		}
+		if (email_used) {
+			usedKinds.push('email')
+		}
+		if (nextcloud_used) {
+			usedKinds.push('nextcloud')
+		}
+		if (google_used) {
+			usedKinds.push('google')
+		}
+		if (github_used) {
+			usedKinds.push('github')
 		}
 		$usedTriggerKinds = usedKinds
 	}
@@ -231,45 +335,23 @@
 		}
 	})
 
-	$: innerWidth && changeCollapsed()
-
 	function changeCollapsed() {
 		if (innerWidth < 1248 && innerWidth >= 768 && !isCollapsed) {
 			isCollapsed = true
 		}
 	}
 
-	let devOnly = $page.url.pathname.startsWith(base + '/scripts/dev')
+	let devOnly = $derived(page.url.pathname.startsWith(base + '/scripts/dev'))
+	// Sessions own their own chat pane; suppress the global Ask-AI chat on the /sessions route
+	// so it doesn't render a second chat overlay on top of the session.
+	let inSessionRoute = $derived(page.url.pathname.startsWith(base + '/sessions'))
 
-	async function loadCopilot(workspace: string) {
-		initAllAiWorkspace(workspace)
-		try {
-			copilotInfo.set(await WorkspaceService.getCopilotInfo({ workspace }))
-		} catch (err) {
-			console.log(err)
-			copilotInfo.set({
-				ai_provider: '',
-				exists_ai_resource: false,
-				code_completion_enabled: false
-			})
-			console.error('Could not get copilot info')
-		}
-	}
-
-	workspaceStore.subscribe(async (workspace) => {
-		if (workspace) {
-			loadCopilot(workspace)
-		}
-	})
-
-	$: onUserStore($userStore)
-	$: $workspaceStore && $userStore && loadDefaultScripts($workspaceStore, $userStore)
 	async function loadDefaultScripts(workspace: string, user: UserExt | undefined) {
 		if (!user?.operator) {
 			$defaultScripts = await WorkspaceService.getDefaultScripts({ workspace })
 		}
 	}
-	let timeout: NodeJS.Timeout | undefined
+	let timeout: number | undefined
 	async function onUserStore(u: UserExt | undefined) {
 		if (u && timeout) {
 			clearTimeout(timeout)
@@ -283,35 +365,24 @@
 		}
 	}
 
-	$: if (isCollapsed && $userStore?.operator) {
-		isCollapsed = false
-	}
-
 	function openSearchModal(text?: string): void {
 		globalSearchModal?.openSearchWithPrefilledText(text)
 	}
 
 	setContext('openSearchWithPrefilledText', openSearchModal)
 
-	$: {
-		if ($enterpriseLicense && $workspaceStore && $userStore && $devopsRole !== undefined && ($devopsRole || $userStore.is_admin)) {
-			mountModal = true
-			loadCriticalAlertsMuted()
-		}
-	}
-
-	let numUnacknowledgedCriticalAlerts = 0
-	let mountModal = false
-	let isCriticalAlertsUiMuted = true
-	let muteSettings = {
+	let numUnacknowledgedCriticalAlerts = $state(0)
+	let mountModal = $state(false)
+	let isCriticalAlertsUiMuted = $state(true)
+	let muteSettings = $state({
 		global: true,
 		workspace: true
-	}
+	})
 	async function loadCriticalAlertsMuted() {
 		let g_muted = true
 		const ws_muted =
-			(await WorkspaceService.getSettings({ workspace: $workspaceStore! })).mute_critical_alerts ||
-			false
+			(await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! }))
+				.mute_critical_alerts || false
 
 		if ($superadmin) {
 			g_muted = (await SettingService.getGlobal({
@@ -324,19 +395,116 @@
 
 		muteSettings = { global: g_muted, workspace: ws_muted }
 	}
+
+	async function checkTeamPlanStatus(workspace: string) {
+		const premiumInfo = await WorkspaceService.getPremiumInfo({
+			workspace,
+			skipSubscriptionFetch: true // won't load subscription status from stripe but only the past due status from db
+		})
+		if (premiumInfo.is_past_due) {
+			if (
+				premiumInfo.max_tolerated_executions === undefined ||
+				(premiumInfo.usage ?? 0) > premiumInfo.max_tolerated_executions
+			) {
+				sendUserToast(
+					'Your last invoice is unpaid, you cannot run any more jobs. Please update your payment method in the workspace settings to continue running jobs.',
+					true
+				)
+			} else {
+				sendUserToast(
+					'Your last invoice is unpaid. Please update your payment method in the workspace settings to prevent the interruption of your job executions.',
+					true
+				)
+			}
+		}
+	}
+
+	$effect(() => {
+		page.url && userSettings != undefined && untrack(() => onQueryChangeUserSettings())
+	})
+	$effect(() => {
+		page.url && superadminSettings != undefined && untrack(() => onQueryChangeAdminSettings())
+	})
+	$effect(() => {
+		page.url && untrack(() => onQueryChange())
+	})
+	$effect(() => {
+		$workspaceStore
+		untrack(() => updateUserStore($workspaceStore))
+	})
+	$effect(() => {
+		$workspaceStore && untrack(() => onLoad())
+	})
+	// One-shot UserDraft migration chain. `migrateLegacyUserDrafts` folds
+	// the legacy `flow` / `app-…` / `rawapp-…` LS keys into the
+	// `userdraft/w/{ws}/{kind}/{path}` format; `migrateUserDraftsToDb`
+	// then pushes those onto the server-side draft table and clears LS
+	// on success. The order matters — the second step only sees what
+	// the first one normalized.
+	$effect(() => {
+		if ($workspaceStore && $userStore) {
+			untrack(() => {
+				migrateLegacyUserDrafts($workspaceStore!)
+				void migrateUserDraftsToDb()
+			})
+		}
+	})
+	$effect(() => {
+		innerWidth && untrack(() => changeCollapsed())
+	})
+	$effect(() => {
+		$userStore
+		untrack(() => onUserStore($userStore))
+	})
+	$effect(() => {
+		$workspaceStore && $userStore && untrack(() => loadDefaultScripts($workspaceStore!, $userStore))
+	})
+	$effect(() => {
+		if (isCollapsed && $userStore?.operator) {
+			isCollapsed = false
+		}
+	})
+	$effect(() => {
+		if (
+			$enterpriseLicense &&
+			$workspaceStore &&
+			$userStore &&
+			$devopsRole !== undefined &&
+			($devopsRole || $userStore.is_admin)
+		) {
+			mountModal = true
+			untrack(() => loadCriticalAlertsMuted())
+		} else {
+			mountModal = false
+		}
+	})
+
+	$effect(() => {
+		if (isCloudHosted()) {
+			const workspace = $workspaceStore
+			if (workspace && $userStore?.is_admin) {
+				checkTeamPlanStatus(workspace)
+			}
+		}
+	})
+
+	// Load workspace protection rules on workspace change
+	$effect(() => {
+		const workspace = $workspaceStore
+		if (workspace) {
+			untrack(() => loadProtectionRules(workspace))
+		}
+	})
+
+	globalDbManagerDrawer.val = useDbManagerUriState()
 </script>
 
 <svelte:window bind:innerWidth />
 
-<UserSettings bind:this={userSettings} />
-{#if $page.status == 404}
-	<CenteredModal title="Page not found, redirecting you to login">
-		<div class="w-full">
-			<div class="block m-auto w-20">
-				<WindmillIcon height="80px" width="80px" spin="fast" />
-			</div>
-		</div>
-	</CenteredModal>
+<UserSettings bind:this={userSettings} showMcpMode={true} />
+<DraftMigrationErrorModal />
+{#if page.status == 404}
+	<CenteredModal title="Page not found, redirecting you to login" loading={true}></CenteredModal>
 {:else if $userStore}
 	<GlobalSearchModal bind:this={globalSearchModal} />
 	{#if $superadmin}
@@ -345,7 +513,7 @@
 	{#if mountModal}
 		<CriticalAlertModal bind:muteSettings bind:numUnacknowledgedCriticalAlerts />
 	{/if}
-	<div>
+	<div class="h-screen flex flex-col">
 		{#if !menuHidden}
 			{#if !$userStore?.operator}
 				{#if innerWidth < 768}
@@ -360,11 +528,11 @@
 					>
 						<div
 							class={classNames(
-								'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300 z-40 !dark',
+								'fixed inset-0 bg-black/50 transition-opacity ease-linear duration-300 z-40',
 
 								menuOpen ? 'opacity-100' : 'opacity-0'
 							)}
-						/>
+						></div>
 
 						<div class="fixed inset-0 flex z-40">
 							<div
@@ -375,19 +543,20 @@
 							>
 								<div
 									class={classNames(
-										'absolute top-0 right-0 -mr-12 pt-2 ease-in-out duration-300',
+										'absolute top-0 right-4 -mr-12 pt-2 ease-in-out duration-300',
 										menuOpen ? 'opacity-100' : 'opacity-0'
 									)}
 								>
 									<button
 										type="button"
-										on:click={() => {
+										onclick={() => {
 											menuOpen = !menuOpen
 										}}
-										class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
+										class="ml-1 flex items-center justify-center h-6 w-6 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
+										aria-label="Close"
 									>
 										<svg
-											class="h-6 w-6 text-white"
+											class="h-4 w-4 text-white"
 											xmlns="http://www.w3.org/2000/svg"
 											fill="none"
 											viewBox="0 0 24 24"
@@ -403,14 +572,25 @@
 										</svg>
 									</button>
 								</div>
-								<div class="dark:bg-[#1e232e] bg-[#202125] h-full !dark">
-									<div class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-gray-200 w-40">
-										<WindmillIcon white={true} height="20px" width="20px" />
-										Windmill
+								<div
+									class="h-full flex flex-col"
+									style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
+								>
+									<div class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-emphasis w-40">
+										<WindmillIcon white={darkMode} height="20px" width="20px" />
+										{#if $whitelabelNameStore}
+											{$whitelabelNameStore}
+										{:else}
+											Windmill
+										{/if}
 									</div>
-									<div class="px-2 py-4 space-y-2 border-y border-gray-500">
-										<WorkspaceMenu />
-										<FavoriteMenu {favoriteLinks} />
+									<div class="px-2 py-4 border-y border-light dark:border-gray-700">
+										<Menubar>
+											{#snippet children({ createMenu })}
+												<WorkspaceMenu {createMenu} />
+												<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
+											{/snippet}
+										</Menubar>
 										<MenuButton
 											stopPropagationOnClick={true}
 											on:click={() => openSearchModal()}
@@ -420,6 +600,26 @@
 											class="!text-xs"
 											shortcut={`${getModifierKey()}k`}
 										/>
+										<MenuButton
+											stopPropagationOnClick={true}
+											on:click={() => aiChatManager.toggleOpen()}
+											isCollapsed={false}
+											icon={WandSparkles}
+											iconProps={{
+												forceDarkMode: true
+											}}
+											label="Ask AI"
+											class="!text-xs"
+											iconClasses="!text-ai"
+											shortcut={`${getModifierKey()}L`}
+										/>
+									</div>
+
+									<!-- w-40 cap: the drawer is max-w-min, and long session titles
+									     (nowrap before truncation) would otherwise inflate its
+									     min-content width to the full text width. -->
+									<div class="w-40">
+										<SessionPicker isCollapsed={false} />
 									</div>
 
 									<SidebarContent
@@ -436,16 +636,17 @@
 					<div
 						id="sidebar"
 						class={classNames(
-							'flex flex-col fixed inset-y-0 transition-all ease-in-out duration-200 shadow-md z-40 ',
-							isCollapsed ? 'md:w-12' : 'md:w-40',
+							'flex flex-col fixed inset-y-0 transition-all ease-in-out duration-200 z-40 ',
+							isCollapsed ? 'w-12' : 'w-40',
 							devOnly ? '!hidden' : ''
 						)}
 					>
 						<div
-							class="flex-1 flex flex-col min-h-0 h-screen shadow-lg dark:bg-[#1e232e] bg-[#202125] !dark"
+							class="flex-1 flex flex-col min-h-0 h-screen border-r border-light dark:border-gray-700"
+							style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 						>
 							<button
-								on:click={() => {
+								onclick={() => {
 									goto('/')
 								}}
 							>
@@ -454,16 +655,28 @@
 									class:w-40={!isCollapsed}
 								>
 									<div class:mr-1={!isCollapsed}>
-										<WindmillIcon white={true} height="20px" width="20px" />
+										<WindmillIcon white={darkMode} height="20px" width="20px" />
 									</div>
 									{#if !isCollapsed}
-										<div class="text-sm mt-0.5 text-white"> Windmill </div>
+										<div class="text-sm mt-0.5 text-emphasis">
+											{#if $whitelabelNameStore}{capitalize(
+													$whitelabelNameStore
+												)}{:else}Windmill{/if}
+										</div>
 									{/if}
 								</div>
 							</button>
-							<div class="px-2 py-4 space-y-2 border-y border-gray-700">
-								<WorkspaceMenu {isCollapsed} />
-								<FavoriteMenu {favoriteLinks} {isCollapsed} />
+							<div class="px-2 py-4 border-y border-light dark:border-gray-700 flex flex-col gap-1">
+								<Menubar class="flex flex-col gap-1">
+									{#snippet children({ createMenu })}
+										<WorkspaceMenu {createMenu} {isCollapsed} />
+										<FavoriteMenu
+											{createMenu}
+											favoriteLinks={favoriteManager.current}
+											{isCollapsed}
+										/>
+									{/snippet}
+								</Menubar>
 								<MenuButton
 									stopPropagationOnClick={true}
 									on:click={() => openSearchModal()}
@@ -473,7 +686,22 @@
 									class="!text-xs"
 									shortcut={`${getModifierKey()}k`}
 								/>
+								<MenuButton
+									stopPropagationOnClick={true}
+									on:click={() => aiChatManager.toggleOpen()}
+									{isCollapsed}
+									icon={WandSparkles}
+									iconProps={{
+										forceDarkMode: true
+									}}
+									label="Ask AI"
+									class="!text-xs"
+									iconClasses="!text-ai"
+									shortcut={`${getModifierKey()}L`}
+								/>
 							</div>
+
+							<SessionPicker {isCollapsed} />
 
 							<SidebarContent
 								{isCollapsed}
@@ -484,14 +712,14 @@
 
 							<div class="flex-shrink-0 flex px-4 pb-3.5">
 								<button
-									on:click={() => {
+									onclick={() => {
 										isCollapsed = !isCollapsed
 									}}
 								>
 									<ArrowLeft
 										size={16}
 										class={classNames(
-											'flex-shrink-0 h-4 w-4 transition-all ease-in-out duration-200 text-white',
+											'flex-shrink-0 h-4 w-4 transition-all ease-in-out duration-200 text-secondary',
 											isCollapsed ? 'rotate-180' : 'rotate-0'
 										)}
 									/>
@@ -501,15 +729,15 @@
 					</div>
 				{/if}
 			{:else}
-				<div class="absolute top-2 left-2 z5000">
-					<OperatorMenu {favoriteLinks} />
+				<div class="absolute top-1 left-1 z5000">
+					<OperatorMenu favoriteLinks={favoriteManager.current} />
 				</div>
 			{/if}
-
+			<!-- Legacy menu -->
 			<div
 				class={classNames(
-					'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300  !dark',
-					'opacity-0'
+					'fixed inset-0 bg-black/50 transition-opacity ease-linear duration-300',
+					'opacity-0 pointer-events-none'
 				)}
 			>
 				<div class={twMerge('fixed inset-0 flex ', '-z-0')}>
@@ -527,9 +755,10 @@
 						>
 							<button
 								type="button"
-								on:click={() => {
+								onclick={() => {
 									// menuSlide = !menuSlide
 								}}
+								aria-label="Close"
 								class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
 							>
 								<svg
@@ -545,18 +774,24 @@
 								</svg>
 							</button>
 						</div>
-						<div class="dark:bg-[#1e232e] bg-[#202125] h-full !dark">
+						<div class="h-full" style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
 							<div
-								class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-gray-200 w-10"
+								class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-emphasis w-10"
 								class:w-40={!isCollapsed}
 							>
-								<WindmillIcon white={true} height="20px" width="20px" />
-								{#if !isCollapsed}Windmill{/if}
+								<WindmillIcon white={darkMode} height="20px" width="20px" />
+								{#if !isCollapsed}{#if $whitelabelNameStore}{capitalize(
+											$whitelabelNameStore
+										)}{:else}Windmill{/if}{/if}
 							</div>
 
-							<div class="px-2 py-4 space-y-2 border-y border-gray-500">
-								<WorkspaceMenu />
-								<FavoriteMenu {favoriteLinks} />
+							<div class="px-2 py-4 space-y-2 border-y border-light dark:border-gray-700">
+								<Menubar>
+									{#snippet children({ createMenu })}
+										<WorkspaceMenu {createMenu} />
+										<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
+									{/snippet}
+								</Menubar>
 								<MenuButton
 									stopPropagationOnClick={true}
 									on:click={() => openSearchModal()}
@@ -565,6 +800,19 @@
 									label="Search"
 									class="!text-xs"
 									shortcut={`${getModifierKey()}k`}
+								/>
+								<MenuButton
+									stopPropagationOnClick={true}
+									on:click={() => aiChatManager.toggleOpen()}
+									{isCollapsed}
+									icon={WandSparkles}
+									iconProps={{
+										forceDarkMode: true
+									}}
+									label="Ask AI"
+									class="!text-xs"
+									iconClasses="!text-ai"
+									shortcut={`${getModifierKey()}L`}
 								/>
 							</div>
 
@@ -579,53 +827,71 @@
 				</div>
 			</div>
 		{/if}
-		<div
-			id="content"
-			class={classNames(
-				'w-full flex flex-col flex-1 h-full',
-				devOnly || $userStore?.operator ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
-				'transition-all ease-in-out duration-200'
-			)}
-		>
-			<main class="min-h-screen">
-				<div class="relative w-full h-full">
-					<div
-						class={classNames(
-							'py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-7xl mx-auto md:hidden',
-							devOnly || $userStore?.operator ? 'hidden' : ''
-						)}
-					>
-						<button
-							type="button"
-							on:click={() => {
-								menuOpen = true
-							}}
-							class="h-8 w-8 inline-flex items-center justify-center rounded-md text-tertiary hover:text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
+		<div class="flex flex-col h-full w-full">
+			{#if $userStore?.is_service_account}
+				<div
+					class="bg-yellow-100 dark:bg-yellow-900/50 border-b border-yellow-300 dark:border-yellow-700 px-4 py-2 text-sm text-yellow-800 dark:text-yellow-200 flex items-center justify-center gap-4 shrink-0"
+				>
+					<span>
+						Viewing workspace on behalf of <strong>{$userStore.username}</strong>
+						<span class="text-yellow-600 dark:text-yellow-400"
+							>(impersonated by {$userStore.impersonating_email})</span
 						>
-							<svg
-								class="h-6 w-6"
-								xmlns="http://www.w3.org/2000/svg"
-								fill="none"
-								viewBox="0 0 24 24"
-								stroke-width="2"
-								stroke="currentColor"
-								aria-hidden="true"
-							>
-								<path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-							</svg>
-						</button>
-					</div>
-					<slot />
+					</span>
+					<button
+						class="px-3 py-1 text-xs font-medium bg-yellow-200 dark:bg-yellow-800 hover:bg-yellow-300 dark:hover:bg-yellow-700 rounded transition-colors"
+						onclick={async () => {
+							const savedToken = sessionStorage.getItem('pre_impersonation_token')
+							if (savedToken && $workspaceStore) {
+								try {
+									await UserService.exitImpersonation({
+										workspace: $workspaceStore,
+										requestBody: { token: savedToken }
+									})
+								} catch (e) {
+									console.error('Failed to exit impersonation', e)
+								}
+								sessionStorage.removeItem('pre_impersonation_token')
+								sessionStorage.removeItem('pre_impersonation_email')
+							}
+							window.location.href = '/workspace_settings?tab=users'
+						}}
+					>
+						Exit impersonation
+					</button>
 				</div>
-			</main>
+			{/if}
+			<AiChatLayout
+				{children}
+				noPadding={devOnly}
+				disableAi={inSessionRoute}
+				{isCollapsed}
+				isMobile={innerWidth < 768}
+				onMenuOpen={() => {
+					menuOpen = true
+				}}
+			/>
 		</div>
 	</div>
 {:else}
-	<CenteredModal title="Loading user...">
-		<div class="w-full">
-			<div class="block m-auto w-16">
-				<WindmillIcon height="60px" width="60px" spin="fast" />
-			</div>
-		</div>
-	</CenteredModal>
+	<CenteredModal title="Loading user..." loading={true}></CenteredModal>
 {/if}
+
+{#if $workspaceStore && globalDbManagerDrawer.val}
+	<DBManagerDrawer uriState={globalDbManagerDrawer.val} />
+{/if}
+
+<ForkConflictModal />
+
+<Modal2
+	title="Forking {$workspaceStore}"
+	target="#content"
+	fixedHeight="lg"
+	fixedWidth="sm"
+	contentClasses="flex-col"
+	bind:isOpen={() => !!globalForkModal.val?.opened, (v) => !v && (globalForkModal.val = undefined)}
+>
+	{#if globalForkModal.val}
+		<CreateWorkspaceInner isFork onFinish={() => (globalForkModal.val = undefined)} />
+	{/if}
+</Modal2>

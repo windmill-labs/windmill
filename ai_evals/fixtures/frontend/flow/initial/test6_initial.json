@@ -1,0 +1,68 @@
+{
+    "summary": "Order processing flow",
+    "value": {
+        "modules": [
+            {
+                "id": "get_orders",
+                "summary": "Fetch list of orders",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main() {\n  // Mock orders from database\n  return [\n    { id: \"ORD-001\", type: \"express\", items: 3, total: 150 },\n    { id: \"ORD-002\", type: \"standard\", items: 5, total: 280 },\n    { id: \"ORD-003\", type: \"pickup\", items: 2, total: 75 },\n    { id: \"ORD-004\", type: \"express\", items: 1, total: 50 }\n  ];\n}",
+                    "input_transforms": {}
+                }
+            },
+            {
+                "id": "loop_orders",
+                "summary": "Process each order",
+                "value": {
+                    "type": "forloopflow",
+                    "iterator": {
+                        "type": "javascript",
+                        "expr": "results.get_orders"
+                    },
+                    "skip_failures": false,
+                    "parallel": false,
+                    "modules": [
+                        {
+                            "id": "process_order",
+                            "summary": "Process individual order",
+                            "value": {
+                                "type": "rawscript",
+                                "language": "bun",
+                                "content": "export async function main(order: any) {\n  console.log(`Processing order ${order.id}`);\n  return {\n    orderId: order.id,\n    processed: true,\n    timestamp: new Date().toISOString()\n  };\n}",
+                                "input_transforms": {
+                                    "order": {
+                                        "type": "javascript",
+                                        "expr": "flow_input.iter.value"
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "id": "summarize",
+                "summary": "Return processing summary",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(results: any[]) {\n  return {\n    totalProcessed: results.length,\n    processedAt: new Date().toISOString()\n  };\n}",
+                    "input_transforms": {
+                        "results": {
+                            "type": "javascript",
+                            "expr": "results.loop_orders"
+                        }
+                    }
+                }
+            }
+        ]
+    },
+    "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {},
+        "required": [],
+        "type": "object"
+    }
+}

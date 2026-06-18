@@ -1,0 +1,80 @@
+name: External Aider Issue Fix
+
+on:
+  repository_dispatch:
+    types: [external_issue_fix]
+
+jobs:
+  check-and-prepare:
+    runs-on: ubicloud-standard-2
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      issue_title: ${{ steps.determine_inputs.outputs.ISSUE_TITLE }}
+      issue_body: ${{ steps.determine_inputs.outputs.ISSUE_BODY }}
+      instruction: ${{ steps.determine_inputs.outputs.INSTRUCTION }}
+    env:
+      GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      WINDMILL_TOKEN: ${{ secrets.WINDMILL_TOKEN }}
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_AI_BOT_TOKEN }}
+
+    steps:
+      - name: Acknowledge Request
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_AI_BOT_TOKEN }}
+        run: |
+          if [[ "${{ github.event.client_payload.source }}" == "linear" ]]; then
+            echo "Commenting on Linear issue #${{ github.event.client_payload.issue_id }} to acknowledge the request."
+            curl -X POST \
+              -H "Authorization: $LINEAR_API_KEY" \
+              -H "Content-Type: application/json" \
+              "https://api.linear.app/graphql" \
+              -d "{\"query\":\"mutation { commentCreate(input: { issueId: \\\"${{ github.event.client_payload.issue_id }}\\\", body: \\\"🤖 Aider is starting to work on your request. I'll update you here once I have a PR ready. Please be patient, this might take a few minutes.\\\" }) { success } }\"}"
+          elif [[ "${{ github.event.client_payload.source }}" == "discord" ]]; then
+            echo "Commenting on Discord thread #${{ github.event.client_payload.channel_id }} to acknowledge the request."
+            curl -X POST \
+              -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://discord.com/api/v10/channels/${{ github.event.client_payload.channel_id }}/messages" \
+              -d "{\"content\":\"🤖 Aider is starting to work on your request. I'll update you here once I have a PR ready. Please be patient, this might take a few minutes.\"}"
+          fi
+
+      - name: Determine inputs for Aider
+        id: determine_inputs
+        shell: bash
+        env:
+          ISSUE_TITLE: ${{ github.event.client_payload.issue_title }}
+          ISSUE_BODY: ${{ github.event.client_payload.issue_body }}
+          INSTRUCTION: ${{ github.event.client_payload.instruction }}
+        run: |
+          echo "Determining inputs for Aider..."
+
+          echo "ISSUE_TITLE<<EOF_AIDER_TITLE" >> "$GITHUB_OUTPUT"
+          echo "$ISSUE_TITLE" >> "$GITHUB_OUTPUT"
+          echo "EOF_AIDER_TITLE" >> "$GITHUB_OUTPUT"
+
+          echo "ISSUE_BODY<<EOF_AIDER_BODY" >> "$GITHUB_OUTPUT"
+          echo "$ISSUE_BODY" >> "$GITHUB_OUTPUT"
+          echo "EOF_AIDER_BODY" >> "$GITHUB_OUTPUT"
+
+          echo "INSTRUCTION<<EOF_AIDER_INSTRUCTION" >> "$GITHUB_OUTPUT"
+          echo "$INSTRUCTION" >> "$GITHUB_OUTPUT"
+          echo "EOF_AIDER_INSTRUCTION" >> "$GITHUB_OUTPUT"
+          echo "Finished determining inputs."
+
+  run-aider:
+    needs: check-and-prepare
+    uses: ./.github/workflows/aider-common.yml
+    with:
+      issue_title: ${{ needs.check-and-prepare.outputs.issue_title }}
+      issue_body: ${{ needs.check-and-prepare.outputs.issue_body }}
+      instruction: ${{ needs.check-and-prepare.outputs.instruction }}
+      issue_id: ${{ github.event.client_payload.issue_id }}
+      rules_files: ".cursor/rules/rust-best-practices.mdc .cursor/rules/svelte5-best-practices.mdc .cursor/rules/windmill-overview.mdc"
+    secrets: inherit

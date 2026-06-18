@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { UserService, WorkspaceService } from '$lib/gen'
-	import { logoutWithRedirect } from '$lib/logout'
+	import { logoutWithRedirect } from '$lib/logoutKit'
 	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
@@ -13,6 +13,11 @@
 	import { computeDrift } from '$lib/forLater'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import { deepEqual } from 'fast-equals'
+	interface Props {
+		children?: import('svelte').Snippet
+	}
+
+	let { children }: Props = $props()
 
 	const monacoEditorUnhandledErrors = [
 		'Model not found',
@@ -46,13 +51,11 @@
 				}
 			} else {
 				if (
-					!$page.url.pathname.startsWith('/user/') ||
-					$page.url.pathname.startsWith('/user/cli')
+					(!page.url.pathname.startsWith('/user/') || page.url.pathname.startsWith('/user/cli')) &&
+					!page.url.pathname.startsWith('/oauth/mcp_authorize')
 				) {
 					goto(
-						`/user/workspaces?rd=${encodeURIComponent(
-							$page.url.href.replace($page.url.origin, '')
-						)}`
+						`/user/workspaces?rd=${encodeURIComponent(page.url.href.replace(page.url.origin, ''))}`
 					)
 				}
 				let user = await UserService.globalWhoami()
@@ -60,14 +63,15 @@
 			}
 		} catch (e) {
 			console.error(e)
-			if ($page.url.pathname != '/user/login') {
-				const url = $page.url
+			if (page.url.pathname != '/user/login' && page.url.pathname != '/user/logout') {
+				const url = page.url
+				console.log('logout 5', url.href.replace(url.origin, ''))
 				await logoutWithRedirect(url.href.replace(url.origin, ''))
 			}
 		}
 	}
 
-	let interval: NodeJS.Timeout | undefined = undefined
+	let interval: number | undefined = undefined
 	onMount(() => {
 		window.onunhandledrejection = (event: PromiseRejectionEvent) => {
 			event.preventDefault()
@@ -100,10 +104,14 @@
 				}
 
 				if (status == '401') {
-					const url = $page.url
-					console.log('UNAUTHORIZED', url, url.href.replace(url.origin, ''))
+					const url = page.url
+					console.log('UNAUTHORIZED', url, url.href.replace(url.origin, ''), url.pathname)
 					if (url.pathname != '/user/login' && url.pathname != '/user/logout') {
+						console.log('logout 6', url.pathname, url.href.replace(url.origin, ''))
 						logoutWithRedirect(url.href.replace(url.origin, ''))
+						return
+					} else {
+						console.log('logout ignored')
 						return
 					}
 				} else if (status == '403') {
@@ -122,21 +130,22 @@
 		setLicense()
 		computeDrift()
 
-		if ($page.url.pathname != '/user/login') {
+		if (page.url.pathname != '/user/login') {
 			setUserWorkspaceStore()
 			loadUser()
-			UserService.refreshUserToken({ ifExpiringInLessThanS: 60 * 60 * 24 })
+			UserService.refreshUserToken({ ifExpiringInLessThanS: 30 * 60 })
 		}
 
 		let i = 0
 		interval = setInterval(async () => {
-			if ($page.url.pathname != '/user/login') {
+			if (page.url.pathname != '/user/login') {
 				i += 1
 
-				// every 1 hour
-				if (i % 12 == 0) {
+				// every 15 mins
+				if (i % 3 == 0) {
 					console.debug('Refreshing user token')
-					await UserService.refreshUserToken({ ifExpiringInLessThanS: 60 * 60 * 24 })
+					// every 15 minutes check if session token is expiring in less than 30min
+					await UserService.refreshUserToken({ ifExpiringInLessThanS: 30 * 60 })
 				}
 
 				try {
@@ -175,4 +184,4 @@
 	}
 </script>
 
-<slot />
+{@render children?.()}

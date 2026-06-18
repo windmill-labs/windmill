@@ -1,29 +1,48 @@
 <script lang="ts">
 	import { getBezierPath, BaseEdge, type Position } from '@xyflow/svelte'
-	import { getContext } from 'svelte'
-	import type { Writable } from 'svelte/store'
+	import { twMerge } from 'tailwind-merge'
+	import { getGraphContext } from '../../graphContext'
 
-	export let sourceX: number
-	export let sourceY: number
-	export let sourcePosition: Position
-	export let targetX: number
-	export let targetY: number
-	export let targetPosition: Position
-	export let markerEnd: string | undefined = undefined
+	interface Props {
+		sourceX: number
+		sourceY: number
+		sourcePosition: Position
+		targetX: number
+		targetY: number
+		targetPosition: Position
+		markerEnd?: string | undefined
+		data?: { class?: string }
+	}
 
-	const { useDataflow } = getContext<{
-		useDataflow: Writable<boolean | undefined>
-	}>('FlowGraphContext')
-
-	$: [edgePath] = getBezierPath({
+	let {
 		sourceX,
 		sourceY,
 		sourcePosition,
 		targetX,
 		targetY,
 		targetPosition,
-		curvature: 0.25
-	})
+		markerEnd = undefined,
+		data = {}
+	}: Props = $props()
+
+	const { useDataflow } = getGraphContext()
+
+	let [edgePath] = $derived(
+		getBezierPath({
+			sourceX,
+			sourceY,
+			sourcePosition,
+			targetX,
+			targetY,
+			targetPosition,
+			curvature: 0.25
+		})
+	)
 </script>
 
-<BaseEdge path={edgePath} {markerEnd} class={$useDataflow ? 'hidden' : ''} />
+<BaseEdge
+	path={edgePath}
+	{markerEnd}
+	class={twMerge($useDataflow ? 'hidden' : '', 'pointer-events-none', data.class ?? '')}
+	interactionWidth={0}
+/>

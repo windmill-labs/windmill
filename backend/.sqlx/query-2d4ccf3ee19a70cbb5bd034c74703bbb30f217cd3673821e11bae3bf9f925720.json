@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            ws.workspace_id as \"workspace_id!\",\n            dt.key as \"name!\",\n            dt.value->>'table_name' as \"table_name\"\n        FROM workspace_settings ws,\n             jsonb_each(ws.datatable) dt\n        WHERE dt.value->>'resource_type' = 'instance'\n          AND dt.value->>'table_name' IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "table_name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "2d4ccf3ee19a70cbb5bd034c74703bbb30f217cd3673821e11bae3bf9f925720"
+}

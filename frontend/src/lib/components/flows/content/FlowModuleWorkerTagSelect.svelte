@@ -1,20 +1,32 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { workerTags, workspaceStore } from '$lib/stores'
 	import { WorkerService } from '$lib/gen'
 	import WorkerTagSelect from '$lib/components/WorkerTagSelect.svelte'
 
-	export let tag: string | undefined
-	export let nullTag: string | undefined = undefined
+	let {
+		tag = $bindable(),
+		nullTag,
+		placeholder,
+		noLabel,
+		isPreprocessor
+	}: {
+		tag: string | undefined
+		nullTag?: string | undefined
+		placeholder?: string
+		noLabel?: boolean
+		isPreprocessor: boolean
+	} = $props()
 
-	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
 
+	const dispatch = createEventDispatcher()
 	loadWorkerGroups()
 
 	async function loadWorkerGroups() {
 		if (!$workerTags) {
-			$workerTags = await WorkerService.getCustomTags({ workspace: $workspaceStore })
+			$workerTags = await WorkerService.getCustomTagsForWorkspace({ workspace: $workspaceStore! })
 		}
 	}
 </script>
@@ -22,15 +34,21 @@
 {#if $workerTags}
 	{#if $workerTags?.length > 0}
 		<div class="w-40">
-			{#if $flowStore.tag == undefined}
-				<WorkerTagSelect {nullTag} bind:tag />
+			{#if flowStore.val.tag == undefined || isPreprocessor || flowStore.val.value?.preserve_step_tags}
+				<WorkerTagSelect
+					{noLabel}
+					{placeholder}
+					{nullTag}
+					bind:tag
+					on:change={(e) => dispatch('change', e.detail)}
+				/>
 			{:else}
 				<button
-					title="Worker Group is defined at the flow level"
+					title="Worker group is defined at the flow level"
 					class="w-full text-left items-center font-normal p-1 py-2 border text-xs rounded"
-					on:click={() => ($selectedId = 'settings-worker-group')}
+					onclick={() => selectionManager.selectId('settings-worker-group')}
 				>
-					Flow's WG: {$flowStore.tag}
+					Flow's WG: {flowStore.val.tag}
 				</button>
 			{/if}
 		</div>

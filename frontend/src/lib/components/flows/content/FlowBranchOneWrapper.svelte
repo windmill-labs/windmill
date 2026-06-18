@@ -4,22 +4,34 @@
 
 	import BranchPredicateEditor from './BranchPredicateEditor.svelte'
 
-	export let branch: {
-		summary?: string
-		expr: string
-		modules: Array<FlowModule>
+	interface Props {
+		branch: {
+			summary?: string
+			expr: string
+			modules: Array<FlowModule>
+		}
+		parentModule: FlowModule
+		previousModule: FlowModule | undefined
+		noEditor: boolean
+		enableAi?: boolean
 	}
-	export let parentModule: FlowModule
-	export let previousModule: FlowModule | undefined
-	export let noEditor: boolean
-	export let enableAi = false
+
+	let {
+		branch = $bindable(),
+		parentModule,
+		previousModule,
+		noEditor,
+		enableAi = false
+	}: Props = $props()
 </script>
 
 <div class="h-full flex flex-col">
 	<FlowCard {noEditor} title="Branch">
-		<div slot="header" class="grow">
-			<input bind:value={branch.summary} placeholder={'Summary'} />
-		</div>
+		{#snippet header()}
+			<div class="grow">
+				<input bind:value={branch.summary} placeholder={'Summary'} />
+			</div>
+		{/snippet}
 		<div class="overflow-hidden flex-grow">
 			<h3 class="p-2">Predicate expression</h3>
 			<BranchPredicateEditor

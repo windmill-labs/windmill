@@ -10,19 +10,19 @@
 	import { Hourglass, Loader2, Play, RefreshCw } from 'lucide-svelte'
 
 	let dispatch = createEventDispatcher()
-	let drawer: Drawer
+	let drawer: Drawer | undefined = $state()
 
-	let script: Script
-	let loadQueuedJobs = true
-	let queuedJobsLoading = false
+	let script: Script | undefined = $state()
+	let loadQueuedJobs = $state(true)
+	let queuedJobsLoading = $state(false)
 	let queuedJobs: {
 		status: 'running' | 'queued'
 		jobId: string
 		scheduledFor: string
 		scriptHash: string
-	}[] = []
+	}[] = $state([])
 
-	let cancellingInProgress = false
+	let cancellingInProgress = $state(false)
 
 	async function continuouslyLoadQueuedJobs() {
 		while (loadQueuedJobs) {
@@ -40,7 +40,7 @@
 		let qjs = await JobService.listQueue({
 			workspace: $workspaceStore ?? '',
 			orderDesc: false,
-			scriptPathExact: script.path
+			scriptPathExact: script?.path
 		})
 		let loadingQueuedJobs: {
 			status: 'running' | 'queued'
@@ -59,21 +59,24 @@
 		queuedJobs = loadingQueuedJobs
 		const endStart = new Date().getTime()
 		// toggle queuedJobsLoading to false in 1 secs to let some time for the animation to play
-		setTimeout(() => {
-			queuedJobsLoading = false
-		}, 3000 - (endStart - timeStart))
+		setTimeout(
+			() => {
+				queuedJobsLoading = false
+			},
+			3000 - (endStart - timeStart)
+		)
 	}
 
 	async function scaleToZero() {
 		cancellingInProgress = true
 		await JobService.cancelPersistentQueuedJobs({
 			workspace: $workspaceStore ?? '',
-			path: script.path,
+			path: script?.path ?? '',
 			requestBody: {
 				reason: undefined
 			}
 		})
-		sendUserToast(`All jobs cancelled for ${script.path}`)
+		sendUserToast(`All jobs cancelled for ${script?.path}`)
 		cancellingInProgress = false
 	}
 
@@ -85,12 +88,12 @@
 		script = persistentScript!
 		loadQueuedJobs = true
 		continuouslyLoadQueuedJobs()
-		drawer.openDrawer?.()
+		drawer?.openDrawer?.()
 	}
 
 	async function exit() {
 		loadQueuedJobs = false
-		drawer.closeDrawer?.()
+		drawer?.closeDrawer?.()
 	}
 
 	onDestroy(() => {
@@ -114,71 +117,73 @@
 	>
 		<div class="flex gap-2 items-center justify-between">
 			<h2>
-				Queued jobs for {script.path}
+				Queued jobs for {script?.path}
 			</h2>
-			<Button
-				color="light"
-				size="md"
-				btnClasses="w-full h-8"
-				variant="border"
-				on:click={loadQueuedJobsOnce}
-			>
+			<Button size="md" btnClasses="w-full h-8" variant="default" on:click={loadQueuedJobsOnce}>
 				<RefreshCw class={queuedJobsLoading ? 'animate-spin' : ''} size={14} />
 			</Button>
 		</div>
 		<TableCustom>
-			<tr slot="header-row">
-				<th class="text-xs">Script Hash</th>
-				<th class="text-xs">Job ID</th>
-				<th class="text-xs">Status</th>
-				<th class="text-xs">Scheduled For</th>
-			</tr>
-			<tbody slot="body">
-				{#each queuedJobs as { jobId, status, scriptHash, scheduledFor }}
-					<tr class="">
-						<td class="text-xs">
-							<a
-								class="pr-3"
-								href="{base}/scripts/get/{scriptHash}?workspace={$workspaceStore}"
-								target="_blank"
-							>
-								{scriptHash}
-							</a>
-						</td>
-						<td class="text-xs">
-							<a class="pr-3" href="{base}/run/{jobId}?workspace={$workspaceStore}" target="_blank"
-								>{jobId.substring(24)}</a
-							>
-						</td>
-						<td class="text-xs">
-							{#if status === 'running'}
-								<Badge color="yellow" baseClass="!px-1.5">
-									<Play size={14} />
-								</Badge>
-							{:else}
-								<Badge baseClass="!px-1.5">
-									<Hourglass size={14} />
-								</Badge>
-							{/if}
-						</td>
-						<td class="text-xs">{scheduledFor}</td>
-					</tr>
-				{/each}
-			</tbody>
+			{#snippet headerRow()}
+				<tr>
+					<th class="text-xs">Script Hash</th>
+					<th class="text-xs">Job ID</th>
+					<th class="text-xs">Status</th>
+					<th class="text-xs">Scheduled For</th>
+				</tr>
+			{/snippet}
+			{#snippet body()}
+				<tbody>
+					{#each queuedJobs as { jobId, status, scriptHash, scheduledFor }}
+						<tr class="">
+							<td class="text-xs">
+								<a
+									class="pr-3"
+									href="{base}/scripts/get/{scriptHash}?workspace={$workspaceStore}"
+									target="_blank"
+								>
+									{scriptHash}
+								</a>
+							</td>
+							<td class="text-xs">
+								<a
+									class="pr-3"
+									href="{base}/run/{jobId}?workspace={$workspaceStore}"
+									target="_blank">{jobId.substring(24)}</a
+								>
+							</td>
+							<td class="text-xs">
+								{#if status === 'running'}
+									<Badge color="yellow" baseClass="!px-1.5">
+										<Play size={14} />
+									</Badge>
+								{:else}
+									<Badge baseClass="!px-1.5">
+										<Hourglass size={14} />
+									</Badge>
+								{/if}
+							</td>
+							<td class="text-xs">{scheduledFor}</td>
+						</tr>
+					{/each}
+				</tbody>
+			{/snippet}
 		</TableCustom>
 
-		<div slot="actions" class="flex gap-1">
-			<Button
-				color="red"
-				disabled={cancellingInProgress === true || queuedJobs.length === 0}
-				on:click={scaleToZero}
-			>
-				{#if cancellingInProgress}
-					<Loader2 class="animate-spin" /> Stopping jobs
-				{:else}
-					Scale down to 0
-				{/if}
-			</Button>
-		</div>
+		{#snippet actions()}
+			<div class="flex gap-1">
+				<Button
+					color="red"
+					disabled={cancellingInProgress === true || queuedJobs.length === 0}
+					on:click={scaleToZero}
+				>
+					{#if cancellingInProgress}
+						<Loader2 class="animate-spin" /> Stopping jobs
+					{:else}
+						Scale down to 0
+					{/if}
+				</Button>
+			</div>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

@@ -76,7 +76,11 @@ export const authorizedClassnames = [
 	'wm-conditional-tabs',
 
 	'wm-rich-result-header',
-	'wm-rich-result-container'
+	'wm-rich-result-container',
+
+	'wm-chat-container',
+	'wm-chat-messages',
+	'wm-chat-input'
 	// TODO: Select and mutltiselect
 ]
 
@@ -185,7 +189,11 @@ export const customisationByComponent: Customisation[] = [
 		components: ['modalcomponent'],
 		selectors: [
 			{ selector: '.wm-modal', comment: 'main modal element', customCssKey: 'popup' },
-			{ selector: '.wm-modal-button', comment: 'button to open modal', customCssKey: 'button' },
+			{
+				selector: '.wm-modal-container',
+				comment: 'container for modal',
+				customCssKey: 'container'
+			},
 			{
 				selector: '.wm-modal-button-container',
 				comment: 'container for button to open modal',
@@ -569,6 +577,19 @@ export const customisationByComponent: Customisation[] = [
 		variables: []
 	},
 	{
+		components: ['codeinputcomponent'],
+		selectors: [
+			{ selector: '.wm-code-editor', comment: 'Code editor wrapper', customCssKey: 'container' },
+			{ selector: '.wm-code-editor .monaco-editor-background', comment: 'Editor background' },
+			{ selector: '.wm-code-editor .monaco-editor .line-numbers', comment: 'Line numbers' },
+			{
+				selector: '.wm-code-editor .monaco-editor .current-line',
+				comment: 'Current line highlight'
+			}
+		],
+		variables: []
+	},
+	{
 		components: ['chartjscomponent'],
 		selectors: [{ selector: '.wm-chartjs', comment: 'ChartJS', customCssKey: 'container' }],
 		variables: []
@@ -598,6 +619,27 @@ export const customisationByComponent: Customisation[] = [
 				selector: '.wm-rich-result-container',
 				comment: 'Rich result container',
 				customCssKey: 'container'
+			}
+		],
+		variables: []
+	},
+	{
+		components: ['chatcomponent'],
+		selectors: [
+			{
+				selector: '.wm-chat-container',
+				comment: 'Main chat container',
+				customCssKey: 'container'
+			},
+			{
+				selector: '.wm-chat-messages',
+				comment: 'Messages container',
+				customCssKey: 'messagesContainer'
+			},
+			{
+				selector: '.wm-chat-input',
+				comment: 'Input container',
+				customCssKey: 'inputContainer'
 			}
 		],
 		variables: []
@@ -659,8 +701,8 @@ export const customisationByComponent: Customisation[] = [
 				comment: 'buttons to remove a single or all selected options at once'
 			},
 			{
-				selector: '.multiselect > input[autocomplete]',
-				comment: 'input inside the top-level wrapper div'
+				selector: '.multiselect.dropdown',
+				comment: 'dropdown container'
 			},
 			{
 				selector: '.multiselect > ul.options',
@@ -669,23 +711,6 @@ export const customisationByComponent: Customisation[] = [
 			{
 				selector: '.multiselect > ul.options > li',
 				comment: 'dropdown list items'
-			},
-			{
-				selector: '.multiselect > ul.options > li.selected',
-				comment: 'selected options in the dropdown list'
-			},
-			{
-				selector: '.multiselect > ul.options > li:not(.selected):hover',
-				comment: 'unselected but hovered options in the dropdown list'
-			},
-			{
-				selector: '.multiselect > ul.options > li.active',
-				comment:
-					'active item, navigated to with up/down arrow keys and ready to be selected by pressing enter'
-			},
-			{
-				selector: '.multiselect > ul.options > li.disabled',
-				comment: 'options with disabled key set to true'
 			}
 		],
 		variables: [
@@ -813,6 +838,26 @@ export const customisationByComponent: Customisation[] = [
 				selector: 'wm-alert-card-container',
 				comment: 'Alert container',
 				customCssKey: 'container'
+			},
+			{
+				selector: 'wm-alert-card-background',
+				comment: 'Alert background',
+				customCssKey: 'background'
+			},
+			{
+				selector: 'wm-alert-card-icon',
+				comment: 'Alert icon',
+				customCssKey: 'icon'
+			},
+			{
+				selector: 'wm-alert-card-title',
+				comment: 'Alert title',
+				customCssKey: 'title'
+			},
+			{
+				selector: 'wm-alert-card-description',
+				comment: 'Alert description',
+				customCssKey: 'description'
 			}
 		],
 		variables: []
@@ -846,4 +891,10 @@ export function hasStyleValue(obj: ComponentCssProperty | undefined) {
 	if (!obj) return false
 
 	return obj.style !== ''
+}
+
+export function appendClass(className: string | undefined, customCssKey: string) {
+	if (!className) return customCssKey
+
+	return `${className} ${customCssKey}`
 }

@@ -5,29 +5,53 @@
 	import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-json-language-features'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
-	import { editor as meditor } from 'monaco-editor'
+	import { editor as meditor, KeyMod, KeyCode } from 'monaco-editor'
 
 	import { initializeVscode } from './vscode'
+	import { editorFontSize } from '$lib/editorFontSize.svelte'
+	import { registerWebviewPaste } from '$lib/editorUtils'
 	import EditorTheme from './EditorTheme.svelte'
-	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
-
-	buildWorkerDefinition()
+	import Button from '$lib/components/common/button/Button.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import type { ButtonProp } from './diffEditorTypes'
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
 
-	export let automaticLayout = true
-	export let fixedOverflowWidgets = true
-	export let defaultLang: string | undefined = undefined
-	export let defaultModifiedLang: string | undefined = undefined
-	export let defaultOriginal: string | undefined = undefined
-	export let defaultModified: string | undefined = undefined
-	export let readOnly = false
+	interface Props {
+		open?: boolean
+		className?: string
+		automaticLayout?: boolean
+		fixedOverflowWidgets?: boolean
+		defaultLang?: string
+		defaultModifiedLang?: string
+		defaultOriginal?: string
+		defaultModified?: string
+		readOnly?: boolean
+		buttons?: ButtonProp[]
+		modifiedModel?: meditor.ITextModel | meditor.IEditorModel
+		inlineDiff?: boolean
+	}
 
-	let diffEditor: meditor.IStandaloneDiffEditor | undefined
-	let diffDivEl: HTMLDivElement | null = null
-	let editorWidth: number = SIDE_BY_SIDE_MIN_WIDTH
+	let {
+		open = false,
+		className = '',
+		automaticLayout = true,
+		fixedOverflowWidgets = true,
+		defaultLang,
+		defaultModifiedLang,
+		defaultOriginal = undefined,
+		defaultModified = undefined,
+		readOnly = false,
+		buttons = [],
+		modifiedModel,
+		inlineDiff = false
+	}: Props = $props()
 
-	export let open = false
+	let diffEditor: meditor.IStandaloneDiffEditor | undefined = $state(undefined)
+	let diffDivEl: HTMLDivElement | null = $state(null)
+	let pasteCleanup: (() => void) | undefined = undefined
+	let editorWidth: number = $state(SIDE_BY_SIDE_MIN_WIDTH)
+
 	async function loadDiffEditor() {
 		await initializeVscode()
 
@@ -37,7 +61,7 @@
 
 		diffEditor = meditor.createDiffEditor(diffDivEl!, {
 			automaticLayout,
-			renderSideBySide: editorWidth >= SIDE_BY_SIDE_MIN_WIDTH,
+			renderSideBySide: inlineDiff ? false : editorWidth >= SIDE_BY_SIDE_MIN_WIDTH,
 			originalEditable: false,
 			readOnly,
 			minimap: {
@@ -47,14 +71,33 @@
 			scrollBeyondLastLine: false,
 			lineDecorationsWidth: 15,
 			lineNumbersMinChars: 2,
+			fontSize: editorFontSize.regular,
 			scrollbar: { alwaysConsumeMouseWheel: false }
 		})
+
+		// In VSCode webview (iframe), clipboard operations need special handling
+		// because the webview has restricted clipboard API access
+		if (window.parent !== window) {
+			const modifiedEditor = diffEditor.getModifiedEditor()
+			modifiedEditor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyC, function () {
+				document.execCommand('copy')
+			})
+			modifiedEditor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyX, function () {
+				document.execCommand('cut')
+			})
+			// Paste is scoped to this editor's container instead of a global
+			// Ctrl+V keybinding, which would leak across editor instances.
+			pasteCleanup?.()
+			pasteCleanup = registerWebviewPaste(diffDivEl, () => diffEditor?.getModifiedEditor())
+		}
+
 		if (
-			defaultOriginal !== undefined &&
-			defaultModified !== undefined &&
-			defaultLang !== undefined
+			defaultLang !== undefined ||
+			defaultOriginal !== undefined ||
+			defaultModified !== undefined ||
+			modifiedModel !== undefined
 		) {
-			setupModel(defaultLang, defaultOriginal, defaultModified, defaultModifiedLang)
+			setupModel(defaultLang ?? 'plaintext', defaultOriginal, defaultModified, defaultModifiedLang)
 		}
 	}
 
@@ -64,16 +107,17 @@
 		modified?: string,
 		modifiedLang?: string
 	) {
+		defaultLang = lang
+		defaultOriginal = original
+		defaultModified = modified
+		defaultModifiedLang = modifiedLang
+
+		const o = meditor.createModel(original ?? '', lang)
+		const m = modifiedModel ?? meditor.createModel(modified ?? '', modifiedLang ?? lang)
 		diffEditor?.setModel({
-			original: meditor.createModel('', lang),
-			modified: meditor.createModel('', modifiedLang ?? lang)
+			original: o,
+			modified: m as meditor.ITextModel
 		})
-		if (original) {
-			setOriginal(original)
-		}
-		if (modified) {
-			setModified(modified)
-		}
 	}
 
 	export function setOriginal(code: string) {
@@ -90,6 +134,24 @@
 		defaultModified = code
 	}
 
+	export function setModifiedModel(model: meditor.ITextModel) {
+		modifiedModel = model
+		const curr = diffEditor?.getModel()
+		if (!curr) return
+		diffEditor?.setModel({
+			original: curr.original,
+			modified: model
+		})
+	}
+
+	export function showWithModelAndOriginal(
+		original: string,
+		model: meditor.ITextModel | meditor.IEditorModel
+	) {
+		setOriginal(original)
+		setModifiedModel(model as meditor.ITextModel)
+		show()
+	}
 	export function getModified(): string {
 		return diffEditor?.getModel()?.modified.getValue() ?? ''
 	}
@@ -101,17 +163,74 @@
 		open = false
 	}
 
-	function onWidthChange(editorWidth: number) {
-		diffEditor?.updateOptions({ renderSideBySide: editorWidth >= SIDE_BY_SIDE_MIN_WIDTH })
-	}
+	$effect(() => {
+		if (open && diffDivEl) {
+			loadDiffEditor()
+		}
+	})
 
-	$: onWidthChange(editorWidth)
+	$effect(() => {
+		if (diffEditor) {
+			diffEditor.updateOptions({
+				renderSideBySide: inlineDiff ? false : editorWidth >= SIDE_BY_SIDE_MIN_WIDTH
+			})
+		}
+	})
 
-	$: open && diffDivEl && loadDiffEditor()
+	$effect(() => {
+		const fontSize = editorFontSize.regular
+		if (diffEditor) {
+			diffEditor.updateOptions({ fontSize })
+		}
+	})
+
+	$effect(() => {
+		if (!diffEditor) {
+			return
+		}
+
+		const lang = defaultLang ?? 'plaintext'
+		const modifiedLang = defaultModifiedLang ?? lang
+		const currentModel = diffEditor.getModel()
+
+		if (!currentModel) {
+			setupModel(lang, defaultOriginal, defaultModified, defaultModifiedLang)
+			return
+		}
+
+		if (currentModel.original.getLanguageId() !== lang) {
+			meditor.setModelLanguage(currentModel.original, lang)
+		}
+
+		const originalValue = defaultOriginal ?? ''
+		if (currentModel.original.getValue() !== originalValue) {
+			currentModel.original.setValue(originalValue)
+		}
+
+		if (modifiedModel) {
+			if (currentModel.modified !== modifiedModel) {
+				diffEditor.setModel({
+					original: currentModel.original,
+					modified: modifiedModel as meditor.ITextModel
+				})
+			}
+			return
+		}
+
+		if (currentModel.modified.getLanguageId() !== modifiedLang) {
+			meditor.setModelLanguage(currentModel.modified, modifiedLang)
+		}
+
+		const modifiedValue = defaultModified ?? ''
+		if (currentModel.modified.getValue() !== modifiedValue) {
+			currentModel.modified.setValue(modifiedValue)
+		}
+	})
 
 	onMount(() => {
 		if (BROWSER) {
 			return () => {
+				pasteCleanup?.()
 				diffEditor?.dispose()
 			}
 		}
@@ -122,7 +241,18 @@
 	<EditorTheme />
 	<div
 		bind:this={diffDivEl}
-		class="{$$props.class} editor nonmain-editor"
+		class={twMerge('editor nonmain-editor', className)}
 		bind:clientWidth={editorWidth}
-	/>
+	></div>
+	{#if buttons.length > 0}
+		<div
+			class="absolute flex flex-row gap-2 bottom-10 left-1/2 z-10 -translate-x-1/2 rounded-md p-1 w-full justify-center"
+		>
+			{#each buttons as button}
+				<Button on:click={button.onClick} variant="contained" size="sm" color={button.color}
+					>{button.text}</Button
+				>
+			{/each}
+		</div>
+	{/if}
 {/if}

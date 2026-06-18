@@ -13,13 +13,11 @@ use itertools::Itertools;
 #[cfg(feature = "csharp")]
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 #[cfg(feature = "csharp")]
-use windmill_common::{
-    utils::calculate_hash,
-    worker::{save_cache, write_file},
-};
+use windmill_common::{utils::calculate_hash, worker::write_file};
 
+#[cfg(feature = "csharp")]
+use crate::global_cache::save_cache;
 use windmill_common::error::{self, Error};
-use windmill_common::jobs::QueuedJob;
 #[cfg(feature = "csharp")]
 use windmill_queue::append_logs;
 
@@ -28,18 +26,23 @@ use windmill_queue::CanceledBy;
 #[cfg(feature = "csharp")]
 use crate::{
     common::{
-        check_executor_binary_exists, create_args_and_out_file, get_reserved_variables,
-        read_result, start_child_process,
+        build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
+        get_reserved_variables, read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
+        start_child_process, DEV_CONF_NSJAIL,
     },
+    get_proxy_envs_for_lang,
     handle_child::handle_child,
-    CSHARP_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, DOTNET_PATH, HOME_ENV, NSJAIL_PATH,
-    NUGET_CONFIG, PATH_ENV, TZ_ENV,
+    is_sandboxing_enabled, read_ee_registry_with_workspace_override, CSHARP_CACHE_DIR,
+    DISABLE_NUSER, DOTNET_PATH, HOME_ENV, NSJAIL_PATH, NUGET_CONFIG, PATH_ENV,
+    TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
+#[cfg(feature = "csharp")]
+use windmill_common::scripts::ScriptLang;
 
 use crate::common::OccupancyMetrics;
-use crate::AuthedClientBackgroundTask;
+use windmill_common::client::AuthedClient;
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "csharp"))]
 use crate::SYSTEM_ROOT;
 
 #[cfg(feature = "csharp")]
@@ -54,12 +57,17 @@ const DOTNET_ROOT_DEFAULT: &str = "C:\\Program Files\\dotnet";
 const DOTNET_ROOT_DEFAULT: &str = "/usr/share/dotnet";
 
 #[cfg(feature = "csharp")]
+const DOTNET_TARGET_FRAMEWORK_DEFAULT: &str = "net9.0";
+
+#[cfg(feature = "csharp")]
 lazy_static::lazy_static! {
     static ref DOTNET_ROOT: String = std::env::var("DOTNET_ROOT").unwrap_or_else(|_| DOTNET_ROOT_DEFAULT.to_string());
+    static ref DOTNET_TARGET_FRAMEWORK: String = std::env::var("DOTNET_TARGET_FRAMEWORK").unwrap_or_else(|_| DOTNET_TARGET_FRAMEWORK_DEFAULT.to_string());
 }
 
 #[cfg(feature = "csharp")]
-const CSHARP_OBJECT_STORE_PREFIX: &str = "csharpbin/";
+const CSHARP_OBJECT_STORE_PREFIX: &str =
+    const_format::concatcp!(crate::global_cache::TARGET, "_csharpbin/");
 
 #[cfg(feature = "csharp")]
 pub async fn generate_nuget_lockfile(
@@ -68,15 +76,26 @@ pub async fn generate_nuget_lockfile(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     worker_name: &str,
     w_id: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
 
-    if let Some(nuget_config) = NUGET_CONFIG.read().await.clone() {
-        write_file(job_dir, "nuget.config", &nuget_config)?;
+    if let Some(nuget_config) = read_ee_registry_with_workspace_override(
+        NUGET_CONFIG.read().await.clone(),
+        "nuget_config",
+        "nuget config",
+        job_id,
+        w_id,
+        conn,
+    )
+    .await
+    {
+        if !nuget_config.trim().is_empty() {
+            write_file(job_dir, "nuget.config", &nuget_config)?;
+        }
     }
 
     let (reqs, lines_to_remove) = parse_csharp_reqs(code);
@@ -86,6 +105,12 @@ pub async fn generate_nuget_lockfile(
     let mut gen_lockfile_cmd = Command::new(DOTNET_PATH.as_str());
     gen_lockfile_cmd
         .current_dir(job_dir)
+        .env("DOTNET_CLI_HOME", &*CSHARP_CACHE_DIR)
+        .env("NUGET_PACKAGES", format!("{}/nuget", *CSHARP_CACHE_DIR))
+        .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
+        .env("DOTNET_NOLOGO", "true")
+        .env("MSBUILDDISABLENODEREUSE", "1")
+        .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
         .args(vec!["restore", "--use-lock-file"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -113,10 +138,11 @@ pub async fn generate_nuget_lockfile(
                 .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
         );
 
-    let gen_lockfile_process = start_child_process(gen_lockfile_cmd, DOTNET_PATH.as_str()).await?;
+    let gen_lockfile_process =
+        start_child_process(gen_lockfile_cmd, DOTNET_PATH.as_str(), true).await?;
     handle_child(
         job_id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         gen_lockfile_process,
@@ -127,6 +153,8 @@ pub async fn generate_nuget_lockfile(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
+        None,
     )
     .await?;
 
@@ -150,7 +178,7 @@ pub async fn generate_nuget_lockfile(
     _mem_peak: &mut i32,
     _canceled_by: &mut Option<CanceledBy>,
     _job_dir: &str,
-    _db: &sqlx::Pool<sqlx::Postgres>,
+    _conn: &Connection,
     _worker_name: &str,
     _w_id: &str,
     _occupancy_metrics: &mut OccupancyMetrics,
@@ -188,6 +216,7 @@ fn gen_cs_proj(
         )
     };
 
+    let target_framework = DOTNET_TARGET_FRAMEWORK.as_str();
     write_file(
         job_dir,
         "Main.csproj",
@@ -195,7 +224,7 @@ fn gen_cs_proj(
             r#"<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>{target_framework}</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <StartupObject>WindmillScriptCSharpInternal.Wrapper</StartupObject>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
@@ -311,15 +340,26 @@ async fn build_cs_proj(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     worker_name: &str,
     w_id: &str,
     base_internal_url: &str,
     hash: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
-    if let Some(nuget_config) = NUGET_CONFIG.read().await.clone() {
-        write_file(job_dir, "nuget.config", &nuget_config)?;
+    if let Some(nuget_config) = read_ee_registry_with_workspace_override(
+        NUGET_CONFIG.read().await.clone(),
+        "nuget_config",
+        "nuget config",
+        job_id,
+        w_id,
+        conn,
+    )
+    .await
+    {
+        if !nuget_config.trim().is_empty() {
+            write_file(job_dir, "nuget.config", &nuget_config)?;
+        }
     }
 
     let mut build_cs_cmd = Command::new(DOTNET_PATH.as_str());
@@ -329,15 +369,18 @@ async fn build_cs_proj(
         .env("PATH", PATH_ENV.as_str())
         .env("BASE_INTERNAL_URL", base_internal_url)
         .env("HOME", HOME_ENV.as_str())
+        .env("DOTNET_CLI_HOME", &*CSHARP_CACHE_DIR)
+        .env("NUGET_PACKAGES", format!("{}/nuget", *CSHARP_CACHE_DIR))
         .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
         .env("DOTNET_NOLOGO", "true")
+        .env("MSBUILDDISABLENODEREUSE", "1")
         .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
         .args(vec![
             "publish",
             "--configuration",
             "Release",
             "-o",
-            job_dir,
+            &format!("{job_dir}/out"),
             "--no-self-contained",
             "-p:PublishSingleFile=true",
             "-p:IncludeNativeLibrariesForSelfExtract=true",
@@ -368,10 +411,10 @@ async fn build_cs_proj(
                 .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
         );
 
-    let build_cs_process = start_child_process(build_cs_cmd, DOTNET_PATH.as_str()).await?;
+    let build_cs_process = start_child_process(build_cs_cmd, DOTNET_PATH.as_str(), true).await?;
     handle_child(
         job_id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         build_cs_process,
@@ -382,30 +425,33 @@ async fn build_cs_proj(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
+        None,
     )
     .await?;
-    append_logs(job_id, w_id, "\n\n", db).await;
+    append_logs(job_id, w_id, "\n\n", conn).await;
     if let Err(e) = std::fs::remove_file(Path::new(job_dir).join("nuget.config")) {
         if e.kind() != io::ErrorKind::NotFound {
             Err(anyhow!("Error erasing nuget.config: {}", e))?;
         }
     }
 
-    let bin_path = format!("{}/{hash}", CSHARP_CACHE_DIR);
+    let bin_path = format!("{}/{hash}", *CSHARP_CACHE_DIR);
     #[cfg(unix)]
-    let target = format!("{job_dir}/Main");
+    let target = format!("{job_dir}/out/Main");
     #[cfg(windows)]
-    let target = format!("{job_dir}/Main.exe");
+    let target = format!("{job_dir}/out/Main.exe");
 
     match save_cache(
         &bin_path,
         &format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}"),
         &target,
+        false,
     )
     .await
     {
         Err(e) => {
-            let em = format!("could not save {job_dir}/Main to C# cache: {e:?}",);
+            let em = format!("could not save {job_dir}/out/Main to C# cache: {e:?}",);
             tracing::error!(em);
             Ok(em)
         }
@@ -426,13 +472,17 @@ fn remove_lines_from_text(contents: &str, indices_to_remove: Vec<usize>) -> Stri
     result.join("\n")
 }
 
+use windmill_common::worker::Connection;
+use windmill_queue::MiniPulledJob;
+
 #[cfg(not(feature = "csharp"))]
 pub async fn handle_csharp_job(
     _mem_peak: &mut i32,
     _canceled_by: &mut Option<CanceledBy>,
-    _job: &QueuedJob,
-    _db: &sqlx::Pool<sqlx::Postgres>,
-    _client: &AuthedClientBackgroundTask,
+    _job: &MiniPulledJob,
+    _conn: &Connection,
+    _client: &AuthedClient,
+    _parent_runnable_path: Option<String>,
     _inner_content: &str,
     _job_dir: &str,
     _requirements_o: Option<&String>,
@@ -444,14 +494,14 @@ pub async fn handle_csharp_job(
 ) -> Result<Box<RawValue>, Error> {
     Err(anyhow!("C# is not available because the feature is not enabled").into())
 }
-
 #[cfg(feature = "csharp")]
 pub async fn handle_csharp_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    job: &MiniPulledJob,
+    conn: &Connection,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     inner_content: &str,
     job_dir: &str,
     requirements_o: Option<&String>,
@@ -463,24 +513,33 @@ pub async fn handle_csharp_job(
 ) -> Result<Box<RawValue>, Error> {
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
 
-    let hash = calculate_hash(&format!(
-        "{}{}",
+    let ws_suffix = crate::workspace_registry_cache_suffix(&job.workspace_id).await;
+    let mut hash = calculate_hash(&format!(
+        "{}{}{}",
         inner_content,
-        requirements_o.unwrap_or(&String::new())
+        requirements_o.unwrap_or(&String::new()),
+        DOTNET_TARGET_FRAMEWORK.as_str()
     ));
-    let bin_path = format!("{}/{hash}", CSHARP_CACHE_DIR);
+    hash.push_str(&ws_suffix);
+    let bin_path = format!("{}/{hash}", *CSHARP_CACHE_DIR);
     let remote_path = format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}");
 
-    let (cache, cache_logs) = windmill_common::worker::load_cache(&bin_path, &remote_path).await;
+    let (cache, cache_logs) = crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
 
     let cache_logs = if cache {
         #[cfg(unix)]
         {
-            let target = format!("{job_dir}/Main");
+            let out_dir = format!("{job_dir}/out");
+            std::fs::create_dir_all(&out_dir).map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "could not create output directory {out_dir}: {e:?}"
+                ))
+            })?;
+            let target = format!("{out_dir}/Main");
             let symlink = std::os::unix::fs::symlink(&bin_path, &target);
             symlink.map_err(|e| {
                 Error::ExecutionErr(format!(
-                    "could not copy cached binary from {bin_path} to {job_dir}/Main: {e:?}"
+                    "could not copy cached binary from {bin_path} to {target}: {e:?}"
                 ))
             })?;
         }
@@ -488,7 +547,7 @@ pub async fn handle_csharp_job(
         cache_logs
     } else {
         let logs1 = format!("{cache_logs}\n\n--- DOTNET BUILD ---\n");
-        append_logs(&job.id, &job.workspace_id, logs1, db).await;
+        append_logs(&job.id, &job.workspace_id, logs1, conn).await;
 
         let (reqs, lines_to_remove) = parse_csharp_reqs(inner_content);
         for req in &reqs {
@@ -500,7 +559,7 @@ pub async fn handle_csharp_job(
                     req.0,
                     req.1.as_ref().unwrap_or(&"".to_string())
                 ),
-                db,
+                conn,
             )
             .await;
         }
@@ -518,7 +577,7 @@ pub async fn handle_csharp_job(
             mem_peak,
             canceled_by,
             job_dir,
-            db,
+            conn,
             worker_name,
             &job.workspace_id,
             base_internal_url,
@@ -528,23 +587,33 @@ pub async fn handle_csharp_job(
         .await?
     };
 
-    create_args_and_out_file(client, job, job_dir, db).await?;
+    create_args_and_out_file(client, job, job_dir, conn).await?;
 
     let logs2 = format!("{cache_logs}\n\n--- C# CODE EXECUTION ---\n");
-    append_logs(&job.id, &job.workspace_id, format!("{}\n", logs2), db).await;
+    append_logs(&job.id, &job.workspace_id, format!("{}\n", logs2), conn).await;
 
-    let client = &client.get_authed().await;
-    let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
-    let child = if !*DISABLE_NSJAIL {
+    let child = if is_sandboxing_enabled() {
+        let nsjail_timeout =
+            resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
         write_file(
             job_dir,
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_CSHARP_CONTENT
                 .replace("{JOB_DIR}", job_dir)
-                .replace("{CACHE_DIR}", CSHARP_CACHE_DIR)
+                .replace("{CACHE_DIR}", &*CSHARP_CACHE_DIR)
+                .replace("{CACHE_HASH}", &hash)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount),
+                .replace("{SHARED_MOUNT}", shared_mount)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
+                .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
@@ -552,9 +621,21 @@ pub async fn handle_csharp_job(
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(
+                get_proxy_envs_for_lang(
+                    &ScriptLang::CSharp,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
+            )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("DOTNET_CLI_HOME", &*CSHARP_CACHE_DIR)
+            .env("NUGET_PACKAGES", format!("{}/nuget", *CSHARP_CACHE_DIR))
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
             .env("DOTNET_NOLOGO", "true")
             .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
@@ -565,29 +646,43 @@ pub async fn handle_csharp_job(
         #[cfg(windows)]
         nsjail_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
 
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), true).await?
     } else {
         #[cfg(unix)]
-        let compiled_executable_name = "./Main".to_string();
+        let compiled_executable_name = "./out/Main".to_string();
         #[cfg(windows)]
         let compiled_executable_name = if cache {
             bin_path.to_string()
         } else {
-            format!("{job_dir}/Main.exe")
+            format!("{job_dir}/out/Main.exe")
         };
-        let mut run_csharp = Command::new(&compiled_executable_name);
+
+        let mut run_csharp = build_command_with_isolation(&compiled_executable_name, &[]);
         run_csharp
             .current_dir(job_dir)
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(
+                get_proxy_envs_for_lang(
+                    &ScriptLang::CSharp,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
+            )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
+            .env("DOTNET_CLI_HOME", &*CSHARP_CACHE_DIR)
+            .env("NUGET_PACKAGES", format!("{}/nuget", *CSHARP_CACHE_DIR))
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
             .env("DOTNET_NOLOGO", "true")
             .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         #[cfg(windows)]
@@ -614,23 +709,25 @@ pub async fn handle_csharp_job(
                     .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
             );
 
-        start_child_process(run_csharp, &compiled_executable_name).await?
+        start_child_process(run_csharp, &compiled_executable_name, true).await?
     };
 
     handle_child(
         &job.id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         worker_name,
         &job.workspace_id,
         "csharp run",
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
+        None,
     )
     .await?;
-    read_result(job_dir).await
+    read_result(job_dir, None).await
 }

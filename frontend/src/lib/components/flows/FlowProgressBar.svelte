@@ -1,21 +1,49 @@
 <script lang="ts">
 	import { type Job } from '$lib/gen'
 	import ProgressBar from '../progressBar/ProgressBar.svelte'
+	import { forLater } from '$lib/forLater'
 
-	export let job: Job | undefined = undefined
-	export let currentSubJobProgress: number | undefined = undefined
+	interface Props {
+		job?: Job | undefined
+		currentSubJobProgress?: number | undefined
+		class?: string
+		slim?: boolean
+		textPosition?: 'top' | 'bottom'
+		// Prefer step ID over step index when both are available
+		showStepId?: boolean
+	}
 
-	let error: number | undefined = undefined
-	let index = 0
-	let subIndex: number | undefined = undefined
-	let subLength: number | undefined = undefined
-	let length = 1
-	let nextInProgress = false
-	let subIndexIsPercent: boolean = false
+	let {
+		job = undefined,
+		currentSubJobProgress = $bindable(undefined),
+		class: className,
+		slim = false,
+		textPosition = 'top',
+		showStepId = false
+	}: Props = $props()
 
-	$: if (job) updateJobProgress(job)
+	let error: number | undefined = $state(undefined)
+	let index = $state(0)
+	let subIndex: number | undefined = $state(undefined)
+	let subLength: number | undefined = $state(undefined)
+	let length = $state(1)
+	let nextInProgress = $state(false)
+	let subIndexIsPercent: boolean = $state(false)
+	let currentStepId: string | undefined = $state(undefined)
+	let isWaitingForEvents = $state(false)
+	let isCanceled = $state(false)
+	let isScheduled = $state(false)
+	let isSkipped = $state(false)
+
+	let progressBar = $state<ProgressBar | undefined>(undefined)
 
 	function updateJobProgress(job: Job) {
+		// Check if job is scheduled for later
+		const isJobScheduled = Boolean(
+			'running' in job && 'scheduled_for' in job && job.scheduled_for && forLater(job.scheduled_for)
+		)
+		isScheduled = isJobScheduled
+
 		const modules = job?.flow_status?.modules
 		if (!modules?.length) {
 			return
@@ -27,10 +55,39 @@
 		let newNextInProgress = false
 
 		let maxDone = Math.max(job?.flow_status?.step ?? 0, 0)
+		let newCurrentStepId: string | undefined = undefined
+		let newIsWaitingForEvents = false
+
+		// Error handler (failure_module) was triggered: backend sets step >= modules.length
+		// and runs the failure_module. Clamp progress to the failed module so the bar shows
+		// the error indicator at the correct position instead of overflowing past 100%.
+		if (
+			maxDone >= modules.length &&
+			job?.flow_status?.failure_module?.type !== 'WaitingForPriorSteps'
+		) {
+			const failedIdx = modules.findIndex((m) => m?.type === 'Failure')
+			if (failedIdx >= 0) {
+				newError = failedIdx
+				maxDone = failedIdx + 1
+			} else {
+				maxDone = modules.length
+			}
+		}
+
 		if (modules.length > maxDone) {
 			const nextModule = modules[maxDone]
 			if (nextModule.type === 'InProgress') {
 				newNextInProgress = true
+				// Get the step ID if available
+				if (nextModule.id) {
+					newCurrentStepId = nextModule.id
+				}
+			} else if (nextModule.type === 'WaitingForEvents') {
+				newIsWaitingForEvents = true
+				// Get the step ID if available for waiting events
+				if (nextModule.id) {
+					newCurrentStepId = nextModule.id
+				}
 			}
 		}
 
@@ -40,13 +97,13 @@
 				newError = maxDone
 				maxDone = maxDone + 1
 			}
-		}		
-		subIndexIsPercent = false;
+		}
+		subIndexIsPercent = false
 
 		// Loop is still iterating
 		if (module?.iterator) {
 			const stepIndex = module.iterator.index || 0
-			const stepLength = module.iterator.itered?.length || 0
+			const stepLength = module.iterator.itered_len || 0
 			if (module.iterator.index != undefined) {
 				subStepIndex = stepIndex
 				subStepLength = stepLength
@@ -54,12 +111,12 @@
 		} else if (module?.branchall) {
 			subStepIndex = module.branchall.branch
 			subStepLength = module.branchall.len
-		} else if (module?.progress) {		
+		} else if (module?.progress) {
 			const clamp = (num, min, max) => Math.min(Math.max(num, min), max)
 			subStepIndex = clamp(module?.progress, subIndex ?? 0, 99)
 			//                  Jitter protection >^^^^^^^^
 			subStepLength = 100
-			subIndexIsPercent = true;
+			subIndexIsPercent = true
 			currentSubJobProgress = subStepIndex
 		} else {
 			currentSubJobProgress = undefined
@@ -69,30 +126,61 @@
 		subLength = subStepLength ? Math.max(subStepLength, 1) : undefined
 		subIndex = subStepIndex
 		length = Math.max(modules.length, 1)
-		index = maxDone
+		const newIsSkipped = 'is_skipped' in job && Boolean(job.is_skipped)
+		// Early-stop completion: stop_after_if (without 'label as skipped') ends the flow
+		// with step < modules.length. Without this, the bar stays at < 100% with 'Running'.
+		if (
+			'success' in job &&
+			job.success === true &&
+			!newIsSkipped &&
+			newError === undefined &&
+			maxDone < modules.length
+		) {
+			index = modules.length
+		} else {
+			index = maxDone
+		}
 		nextInProgress = newNextInProgress
+		currentStepId = newCurrentStepId
+		isWaitingForEvents = newIsWaitingForEvents
+		isCanceled = job?.canceled || false
+		isSkipped = newIsSkipped
 	}
 
-	let resetP: any
-
 	export function reset() {
-		resetP?.()
+		progressBar?.resetP()
 		error = undefined
 		subIndex = undefined
 		subLength = undefined
 		length = 1
 		index = 0
+		currentStepId = undefined
+		isWaitingForEvents = false
+		isCanceled = false
+		isScheduled = false
+		isSkipped = false
 	}
+	$effect(() => {
+		job && updateJobProgress(job)
+	})
 </script>
 
 <ProgressBar
-	bind:resetP
+	bind:this={progressBar}
 	{length}
 	{index}
 	{nextInProgress}
 	{subLength}
 	{subIndex}
 	{error}
-	bind:subIndexIsPercent
-	class={$$props.class}
+	{subIndexIsPercent}
+	{slim}
+	class={className}
+	{textPosition}
+	stepId={currentStepId}
+	{showStepId}
+	{isWaitingForEvents}
+	{isCanceled}
+	{isScheduled}
+	{isSkipped}
 />

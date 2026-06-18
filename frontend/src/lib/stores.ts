@@ -1,14 +1,20 @@
 import { BROWSER } from 'esm-env'
 import { derived, type Readable, writable } from 'svelte/store'
 
+import type { IntrospectionQuery } from 'graphql'
 import {
-	type WorkspaceDefaultScripts,
+	CancelablePromise,
+	type OperatorSettings,
 	type TokenResponse,
 	type UserWorkspaceList,
-  type OperatorSettings
+	type Workspace,
+	type WorkspaceDefaultScripts,
+	WorkspaceService
 } from './gen'
-import type { IntrospectionQuery } from 'graphql'
-import { getLocalSetting } from './utils'
+import { getLocalSetting, type StateStore } from './utils'
+import { createState } from './svelte5Utils.svelte'
+import { DEFAULT_HUB_BASE_URL } from './hub'
+import type { DbManagerUriState } from './components/dbManagerDrawerModel.svelte'
 
 export interface UserExt {
 	email: string
@@ -22,22 +28,46 @@ export interface UserExt {
 	pgroups: string[]
 	folders: string[]
 	folders_owners: string[]
+	is_service_account?: boolean
+	impersonating_email?: string
 }
 
-const persistedWorkspace = BROWSER && getWorkspace()
+export interface UserWorkspace {
+	id: string
+	name: string
+	username: string
+	color?: string
+	operator_settings?: OperatorSettings
+	parent_workspace_id?: string | null
+	disabled: boolean
+}
 
-function getWorkspace(): string | undefined {
+const persistedWorkspace = BROWSER && getWorkspaceFromStorage()
+
+export function getWorkspaceFromStorage(): string | undefined {
 	try {
-		return localStorage.getItem('workspace') ?? undefined
+		return sessionStorage.getItem('workspace') ?? localStorage.getItem('workspace') ?? undefined
 	} catch (e) {
 		console.error('error interacting with local storage', e)
 	}
 	return undefined
 }
+export function clearWorkspaceFromStorage() {
+	localStorage.removeItem('workspace')
+	sessionStorage.removeItem('workspace')
+}
+
 export const tutorialsToDo = writable<number[]>([])
+export const skippedAll = writable<boolean>(false)
 export const globalEmailInvite = writable<string>('')
 export const awarenessStore = writable<Record<string, string>>(undefined)
 export const enterpriseLicense = writable<string | undefined>(undefined)
+export const whitelabelNameStore = derived([enterpriseLicense], ([enterpriseLicense]) => {
+	if (enterpriseLicense?.endsWith('__whitelabel')) {
+		return enterpriseLicense.split('__whitelabel')[0]
+	}
+	return undefined
+})
 export const workerTags = writable<string[] | undefined>(undefined)
 export const usageStore = writable<number>(0)
 export const workspaceUsageStore = writable<number>(0)
@@ -50,60 +80,84 @@ export const workspaceStore = writable<string | undefined>(
 export const defaultScripts = writable<WorkspaceDefaultScripts | undefined>(undefined)
 export const dbClockDrift = writable<number | undefined>(undefined)
 export const isPremiumStore = writable<boolean>(false)
-export const starStore = writable(1)
 export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undefined)
 export const superadmin = writable<string | false | undefined>(undefined)
 export const devopsRole = writable<string | false | undefined>(undefined)
 export const lspTokenStore = writable<string | undefined>(undefined)
-export const hubBaseUrlStore = writable<string>('https://hub.windmill.dev')
-export const userWorkspaces: Readable<
-	Array<{
-		id: string
-		name: string
-		username: string
-		color: string | null
-		operator_settings?: OperatorSettings
-	}>
-> = derived([usersWorkspaceStore, superadmin], ([store, superadmin]) => {
-	const originalWorkspaces = store?.workspaces ?? []
-	if (superadmin) {
-		return [
-			...originalWorkspaces.filter((x) => x.id != 'admins'),
-			{
-				id: 'admins',
-				name: 'Admins',
-				username: 'superadmin',
-				color: null,
-				operator_settings: null
-			}
-		]
-	} else {
-		return originalWorkspaces
+export const hubBaseUrlStore = writable<string>(DEFAULT_HUB_BASE_URL)
+export const wsBaseUrlStore = writable<string | undefined>(undefined)
+export const disableHubStore = writable<boolean>(false)
+export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
+	[usersWorkspaceStore, superadmin],
+	([store, superadmin]) => {
+		const originalWorkspaces = store?.workspaces ?? []
+		if (superadmin) {
+			return [
+				...originalWorkspaces.filter((x) => x.id != 'admins'),
+				{
+					id: 'admins',
+					name: 'Admins',
+					username: 'superadmin',
+					color: undefined,
+					operator_settings: undefined,
+					disabled: false
+				}
+			]
+		} else {
+			return originalWorkspaces
+		}
 	}
-})
-export const copilotInfo = writable<{
-	ai_provider: string
-	exists_ai_resource: boolean
-	code_completion_enabled: boolean
-}>({
-	ai_provider: '',
-	exists_ai_resource: false,
-	code_completion_enabled: false
-})
+)
+
 export const codeCompletionLoading = writable<boolean>(false)
 export const metadataCompletionEnabled = writable<boolean>(true)
 export const stepInputCompletionEnabled = writable<boolean>(true)
 export const FORMAT_ON_SAVE_SETTING_NAME = 'formatOnSave'
 export const VIM_MODE_SETTING_NAME = 'vimMode'
+export const RELATIVE_LINE_NUMBERS_SETTING_NAME = 'relativeLineNumbers'
 export const CODE_COMPLETION_SETTING_NAME = 'codeCompletionSessionEnabled'
+export const COPILOT_SESSION_MODEL_SETTING_NAME = 'copilotSessionModel'
+export const COPILOT_SESSION_PROVIDER_SETTING_NAME = 'copilotSessionProvider'
+export const COPILOT_SESSION_REASONING_SETTING_NAME = 'copilotSessionReasoning'
 export const formatOnSave = writable<boolean>(
 	getLocalSetting(FORMAT_ON_SAVE_SETTING_NAME) != 'false'
 )
 export const vimMode = writable<boolean>(getLocalSetting(VIM_MODE_SETTING_NAME) == 'true')
+export const relativeLineNumbers = writable<boolean>(
+	getLocalSetting(RELATIVE_LINE_NUMBERS_SETTING_NAME) == 'true'
+)
 export const codeCompletionSessionEnabled = writable<boolean>(
 	getLocalSetting(CODE_COMPLETION_SETTING_NAME) != 'false'
 )
+
+export const AI_USER_DISABLED_SETTING_NAME = 'aiUserDisabled'
+// Master per-user (per-device) opt-out for all Windmill AI features. Initialized at
+// module load so it applies on startup, not only once the settings panel mounts.
+export const aiUserDisabled = writable<boolean>(
+	getLocalSetting(AI_USER_DISABLED_SETTING_NAME) === 'true'
+)
+
 export const usedTriggerKinds = writable<string[]>([])
+
+export let globalDbManagerDrawer: StateStore<DbManagerUriState | undefined> = { val: undefined }
+export let globalForkModal: StateStore<GlobalForkModalState | undefined> = createState({
+	val: undefined
+})
+
+export type GlobalForkModalState = {
+	opened: true
+}
+
+export type ForkConflictModalState = {
+	kind: string
+	kindLabel: string
+	parentWorkspaceId: string
+	resolve: (proceed: boolean) => void
+}
+
+export let forkConflictModal: StateStore<ForkConflictModalState | undefined> = createState({
+	val: undefined
+})
 
 type SQLBaseSchema = {
 	[schemaKey: string]: {
@@ -117,8 +171,17 @@ type SQLBaseSchema = {
 	}
 }
 
+export const SQLSchemaLanguages = [
+	'mysql',
+	'bigquery',
+	'postgresql',
+	'snowflake',
+	'mssql',
+	'oracledb'
+] as const
+
 export interface SQLSchema {
-	lang: 'mysql' | 'bigquery' | 'postgresql' | 'snowflake' | 'mssql' | 'oracledb'
+	lang: (typeof SQLSchemaLanguages)[number] | 'ducklake'
 	schema: SQLBaseSchema
 	publicOnly: boolean | undefined
 	stringified: string
@@ -136,6 +199,58 @@ export type DBSchemas = Partial<Record<string, DBSchema>>
 
 export const dbSchemas = writable<DBSchemas>({})
 
-export const instanceSettingsSelectedTab = writable('Core')
+export const instanceSettingsSelectedTab = writable('users')
 
 export const isCriticalAlertsUIOpen = writable(false)
+
+let getWorkspacePromise: CancelablePromise<Workspace> | null = null
+export const workspaceColor: Readable<string | null | undefined> = derived(
+	[workspaceStore, usersWorkspaceStore, superadmin],
+	([workspaceStore, usersWorkspaceStore, superadmin], set: (value: string | undefined) => void) => {
+		if (!workspaceStore || !usersWorkspaceStore) {
+			return
+		}
+
+		// First try to get the color from usersWorkspaceStore
+		const workspace = usersWorkspaceStore.workspaces.find((w) => w.id === workspaceStore)
+
+		if (workspace) {
+			set(workspace.color)
+			return
+		}
+
+		// If workspace not found and user is superadmin, get it as superadmin
+		if (!superadmin) {
+			set(undefined)
+			return
+		}
+
+		getWorkspacePromise?.cancel()
+
+		getWorkspacePromise = WorkspaceService.getWorkspaceAsSuperAdmin({
+			workspace: workspaceStore
+		})
+
+		getWorkspacePromise
+			.then((workspace) => set(workspace.color))
+			.catch((error) => {
+				console.error('error getting workspace as superadmin', error)
+				set(undefined)
+			})
+	}
+)
+
+export const isCurrentlyInTutorial: StateStore<boolean> = createState({ val: false })
+
+export function getFlatTableNamesFromSchema(dbSchema: DBSchema | undefined): string[] {
+	const schema = dbSchema?.schema ?? {}
+	const tableNames: string[] = []
+
+	for (const schemaKey in schema) {
+		for (const tableKey in schema[schemaKey]) {
+			tableNames.push(`${schemaKey}.${tableKey}`)
+		}
+	}
+
+	return tableNames
+}

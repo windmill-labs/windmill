@@ -1,0 +1,325 @@
+<script lang="ts">
+	import { Button } from '$lib/components/common'
+	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
+	import { IndexSearchService } from '$lib/gen'
+	import type { GetIndexerStatusResponse, GetIndexDiskStorageSizesResponse } from '$lib/gen'
+	import { sendUserToast } from '$lib/toast'
+	import { displaySize } from '$lib/utils'
+	import Tooltip from '../Tooltip.svelte'
+	import IntegerInput from '../IntegerInput.svelte'
+	import InputError from '../InputError.svelte'
+	import Label from '../Label.svelte'
+	import Toggle from '../Toggle.svelte'
+	import { Loader2, RefreshCw } from 'lucide-svelte'
+	import type { Writable } from 'svelte/store'
+
+	interface Props {
+		values: Writable<Record<string, any>>
+		disabled?: boolean
+		errors?: Record<string, string>
+	}
+
+	let { values, disabled = false, errors = {} }: Props = $props()
+
+	let isTimeWindowCapped = $derived($values['indexer_settings'].max_index_time_window_secs !== 0)
+
+	function setTimeWindowCapped(checked: boolean) {
+		if (checked) {
+			const { max_index_time_window_secs: _, ...rest } = $values['indexer_settings']
+			$values['indexer_settings'] = rest
+		} else {
+			$values['indexer_settings'] = {
+				...$values['indexer_settings'],
+				max_index_time_window_secs: 0
+			}
+		}
+	}
+
+	let clearJobsIndexModalOpen = $state(false)
+	let clearServiceLogsIndexModalOpen = $state(false)
+
+	let status: GetIndexerStatusResponse | undefined = $state(undefined)
+	let diskSizes: GetIndexDiskStorageSizesResponse | undefined = $state(undefined)
+	let statusLoading = $state(true)
+	let statusError = $state(false)
+
+	function formatTimeAgo(isoDate: string): string {
+		const diffMs = Date.now() - new Date(isoDate).getTime()
+		const diffSecs = Math.floor(diffMs / 1000)
+		if (diffSecs < 60) return `${diffSecs}s ago`
+		const diffMins = Math.floor(diffSecs / 60)
+		if (diffMins < 60) return `${diffMins}m ago`
+		const diffHours = Math.floor(diffMins / 60)
+		return `${diffHours}h ago`
+	}
+
+	type IndexerEntry = GetIndexerStatusResponse['job_indexer']
+
+	function statusDescriptor(entry: IndexerEntry): {
+		label: string
+		dot: string
+		text: string
+		hint?: string
+	} {
+		// Backends that predate the `state` field only report `is_alive`: keep the
+		// prior Running / Stopped signal instead of falling through to "Unknown".
+		if (entry?.state == null) {
+			return entry?.is_alive
+				? { label: 'Running', dot: 'bg-green-500', text: 'text-green-600 dark:text-green-400' }
+				: { label: 'Stopped', dot: 'bg-red-500', text: 'text-red-600 dark:text-red-400' }
+		}
+		switch (entry.state) {
+			case 'running':
+				return { label: 'Running', dot: 'bg-green-500', text: 'text-green-600 dark:text-green-400' }
+			case 'stale':
+				return {
+					label: 'Stale',
+					dot: 'bg-yellow-500',
+					text: 'text-yellow-600 dark:text-yellow-400',
+					hint: 'The indexer acquired its lock before but has not refreshed it recently. It may have crashed, be blocked, or be handing over during a deployment. Check the indexer container logs.'
+				}
+			case 'never_started':
+				return {
+					label: 'Not started',
+					dot: 'bg-red-500',
+					text: 'text-red-600 dark:text-red-400',
+					hint: 'No instance has ever run this indexer. Make sure an instance is running in "indexer" mode (or a server with the indexer addon enabled) and that you are on Enterprise.'
+				}
+			default:
+				return { label: 'Unknown', dot: 'bg-gray-400', text: 'text-tertiary' }
+		}
+	}
+
+	async function loadStatus() {
+		statusLoading = true
+		statusError = false
+		try {
+			const [statusRes, diskRes] = await Promise.all([
+				IndexSearchService.getIndexerStatus(),
+				IndexSearchService.getIndexDiskStorageSizes().catch(() => undefined)
+			])
+			status = statusRes
+			diskSizes = diskRes
+		} catch (e) {
+			status = undefined
+			diskSizes = undefined
+			statusError = true
+		} finally {
+			statusLoading = false
+		}
+	}
+
+	loadStatus()
+</script>
+
+<div class="space-y-6">
+	<div class="flex flex-col gap-1">
+		<label for="writer_memory_budget" class="block text-xs font-semibold text-emphasis">
+			Index writer memory budget (MB)
+			<Tooltip>
+				The allocated memory arena for the indexer. A bigger value means less writing to disk and
+				potentially higher indexing throughput
+			</Tooltip>
+		</label>
+		<IntegerInput
+			placeholder="300"
+			id="writer_memory_budget"
+			{disabled}
+			error={errors.writer_memory_budget ?? ''}
+			value={$values['indexer_settings'].writer_memory_budget != null
+				? $values['indexer_settings'].writer_memory_budget / (1024 * 1024)
+				: undefined}
+			oninput={(v) => {
+				if (v == null) {
+					const { writer_memory_budget: _, ...rest } = $values['indexer_settings']
+					$values['indexer_settings'] = rest
+				} else {
+					$values['indexer_settings'] = {
+						...$values['indexer_settings'],
+						writer_memory_budget: v * (1024 * 1024)
+					}
+				}
+			}}
+		/>
+		<InputError error={errors.writer_memory_budget ?? ''} />
+	</div>
+	<div class="flex flex-col gap-2">
+		<div class="flex flex-row items-center gap-2">
+			<span class="block text-xs font-semibold text-emphasis">
+				Index time window
+				<Tooltip>
+					Cap the age of items the indexer keeps. Jobs and logs older than this window are not
+					indexed and are cleaned up from the index. Disable the cap to index everything within the
+					retention period.
+				</Tooltip>
+			</span>
+			<div class="ml-auto">
+				<Toggle
+					{disabled}
+					checked={isTimeWindowCapped}
+					on:change={(e) => setTimeWindowCapped(e.detail)}
+					options={{ right: 'Cap by time window' }}
+				/>
+			</div>
+		</div>
+		{#if isTimeWindowCapped}
+			<IntegerInput
+				placeholder="7"
+				id="max_index_time_window_secs"
+				{disabled}
+				error={errors.max_index_time_window_secs ?? ''}
+				value={$values['indexer_settings'].max_index_time_window_secs != null
+					? Math.round($values['indexer_settings'].max_index_time_window_secs / 86400)
+					: undefined}
+				oninput={(v) => {
+					if (v == null) {
+						const { max_index_time_window_secs: _, ...rest } = $values['indexer_settings']
+						$values['indexer_settings'] = rest
+					} else {
+						$values['indexer_settings'] = {
+							...$values['indexer_settings'],
+							max_index_time_window_secs: v * 86400
+						}
+					}
+				}}
+			/>
+			<span class="text-2xs text-tertiary">days (leave blank to use the default of 7 days)</span>
+			<InputError error={errors.max_index_time_window_secs ?? ''} />
+		{/if}
+	</div>
+	<Label label="Indexer status">
+		{#snippet action()}
+			<button
+				onclick={loadStatus}
+				disabled={statusLoading}
+				class="inline-flex items-center text-secondary hover:text-primary disabled:opacity-50"
+			>
+				{#if statusLoading}
+					<Loader2 size={14} class="animate-spin" />
+				{:else}
+					<RefreshCw size={14} />
+				{/if}
+			</button>
+		{/snippet}
+		{#if status}
+			<div class="flex flex-col gap-2">
+				{#each [{ label: 'Job indexer', entry: status.job_indexer }, { label: 'Service log indexer', entry: status.log_indexer }] as { label, entry } (label)}
+					{@const d = statusDescriptor(entry)}
+					<div class="flex flex-row items-center gap-2 text-xs">
+						<span class="inline-block w-2 h-2 rounded-full {d.dot}"></span>
+						<span class="text-primary font-medium">{label}:</span>
+						<span class="font-semibold {d.text}">
+							{d.label}
+						</span>
+						{#if d.hint}
+							<Tooltip>{d.hint}</Tooltip>
+						{/if}
+						{#if entry?.last_locked_at}
+							<span class="text-tertiary text-2xs">
+								Last active: {formatTimeAgo(entry.last_locked_at)}
+							</span>
+						{/if}
+					</div>
+				{/each}
+			</div>
+		{:else if statusError && !statusLoading}
+			<span class="text-2xs text-secondary">
+				Could not fetch indexer status. Search may not be enabled in this build.
+			</span>
+		{/if}
+	</Label>
+	<Label label="Index storage">
+		{#if status}
+			<div class="flex flex-col gap-1 text-2xs text-tertiary">
+				<span>
+					Jobs index:
+					{#if diskSizes?.job_index_disk_size_bytes != null}
+						Disk: {displaySize(diskSizes.job_index_disk_size_bytes) ?? 'N/A'}
+					{/if}
+					{#if status.job_indexer?.storage?.s3_size_bytes != null}
+						{#if diskSizes?.job_index_disk_size_bytes != null}&middot;{/if}
+						S3: {displaySize(status.job_indexer.storage.s3_size_bytes) ?? 'N/A'}
+					{/if}
+				</span>
+				<span>
+					Service logs index:
+					{#if diskSizes?.log_index_disk_size_bytes != null}
+						Disk: {displaySize(diskSizes.log_index_disk_size_bytes) ?? 'N/A'}
+					{/if}
+					{#if status.log_indexer?.storage?.s3_size_bytes != null}
+						{#if diskSizes?.log_index_disk_size_bytes != null}&middot;{/if}
+						S3: {displaySize(status.log_indexer.storage.s3_size_bytes) ?? 'N/A'}
+					{/if}
+				</span>
+			</div>
+		{/if}
+	</Label>
+	<Label label="Clear index">
+		<span class="text-xs text-secondary"
+			>These buttons will clear the whole index, and the service will start reindexing from scratch.
+			Full text search might be down during this time.</span
+		>
+		<div class="flex flex-col gap-3">
+			<div class="flex flex-row items-center gap-2">
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					onclick={() => {
+						clearJobsIndexModalOpen = true
+					}}
+				>
+					Clear jobs index
+				</Button>
+			</div>
+			<div class="flex flex-row items-center gap-2">
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					onclick={() => {
+						clearServiceLogsIndexModalOpen = true
+					}}
+				>
+					Clear service logs index
+				</Button>
+			</div>
+		</div>
+	</Label>
+	<ConfirmationModal
+		title="Clear jobs index"
+		confirmationText="Clear"
+		open={clearJobsIndexModalOpen}
+		type="danger"
+		on:canceled={() => {
+			clearJobsIndexModalOpen = false
+		}}
+		on:confirmed={async () => {
+			const r = await IndexSearchService.clearIndex({
+				idxName: 'JobIndex'
+			})
+			sendUserToast(r)
+			clearJobsIndexModalOpen = false
+		}}
+	>
+		Are you sure you want to clear the jobs index? The service will start reindexing from scratch.
+		Full text search might be down during this time.
+	</ConfirmationModal>
+	<ConfirmationModal
+		title="Clear service logs index"
+		confirmationText="Clear"
+		open={clearServiceLogsIndexModalOpen}
+		type="danger"
+		on:canceled={() => {
+			clearServiceLogsIndexModalOpen = false
+		}}
+		on:confirmed={async () => {
+			const r = await IndexSearchService.clearIndex({
+				idxName: 'ServiceLogIndex'
+			})
+			sendUserToast(r)
+			clearServiceLogsIndexModalOpen = false
+		}}
+	>
+		Are you sure you want to clear the service logs index? The service will start reindexing from
+		scratch. Full text search might be down during this time.
+	</ConfirmationModal>
+</div>

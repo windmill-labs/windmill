@@ -1,0 +1,142 @@
+{
+    "summary": "Order processing flow with type-based branching",
+    "value": {
+        "modules": [
+            {
+                "id": "get_orders",
+                "summary": "Fetch list of orders",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main() {\n  // Mock orders from database\n  return [\n    { id: \"ORD-001\", type: \"express\", items: 3, total: 150 },\n    { id: \"ORD-002\", type: \"standard\", items: 5, total: 280 },\n    { id: \"ORD-003\", type: \"pickup\", items: 2, total: 75 },\n    { id: \"ORD-004\", type: \"express\", items: 1, total: 50 }\n  ];\n}",
+                    "input_transforms": {}
+                }
+            },
+            {
+                "id": "loop_orders",
+                "summary": "Process each order",
+                "value": {
+                    "type": "forloopflow",
+                    "iterator": {
+                        "type": "javascript",
+                        "expr": "results.get_orders"
+                    },
+                    "skip_failures": false,
+                    "parallel": false,
+                    "modules": [
+                        {
+                            "id": "branch_order_type",
+                            "summary": "Branch based on order type",
+                            "value": {
+                                "type": "branchone",
+                                "branches": [
+                                    {
+                                        "summary": "Express Order",
+                                        "expr": "flow_input.iter.value.type === 'express'",
+                                        "modules": [
+                                            {
+                                                "id": "handle_express",
+                                                "summary": "Handle express order",
+                                                "value": {
+                                                    "type": "rawscript",
+                                                    "language": "bun",
+                                                    "content": "export async function main(order: any) {\n  // Mark as priority and calculate express shipping\n  const expressShippingCost = 15.99;\n  return {\n    orderId: order.id,\n    priority: true,\n    shippingCost: expressShippingCost,\n    shippingType: \"express\",\n    estimatedDays: 1\n  };\n}",
+                                                    "input_transforms": {
+                                                        "order": {
+                                                            "type": "javascript",
+                                                            "expr": "flow_input.iter.value"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "summary": "Standard Order",
+                                        "expr": "flow_input.iter.value.type === 'standard'",
+                                        "modules": [
+                                            {
+                                                "id": "handle_standard",
+                                                "summary": "Handle standard order",
+                                                "value": {
+                                                    "type": "rawscript",
+                                                    "language": "bun",
+                                                    "content": "export async function main(order: any) {\n  // Calculate standard shipping cost\n  const standardShippingCost = 5.99;\n  return {\n    orderId: order.id,\n    priority: false,\n    shippingCost: standardShippingCost,\n    shippingType: \"standard\",\n    estimatedDays: 5\n  };\n}",
+                                                    "input_transforms": {
+                                                        "order": {
+                                                            "type": "javascript",
+                                                            "expr": "flow_input.iter.value"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "summary": "Pickup Order",
+                                        "expr": "flow_input.iter.value.type === 'pickup'",
+                                        "modules": [
+                                            {
+                                                "id": "handle_pickup",
+                                                "summary": "Handle pickup order",
+                                                "value": {
+                                                    "type": "rawscript",
+                                                    "language": "bun",
+                                                    "content": "export async function main(order: any) {\n  // Mark as no shipping required\n  return {\n    orderId: order.id,\n    priority: false,\n    shippingCost: 0,\n    shippingType: \"pickup\",\n    estimatedDays: 0,\n    pickupLocation: \"Store #1\"\n  };\n}",
+                                                    "input_transforms": {
+                                                        "order": {
+                                                            "type": "javascript",
+                                                            "expr": "flow_input.iter.value"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ],
+                                "default": [
+                                    {
+                                        "id": "process_order",
+                                        "summary": "Process unknown order type",
+                                        "value": {
+                                            "type": "rawscript",
+                                            "language": "bun",
+                                            "content": "export async function main(order: any) {\n  console.log(`Processing order ${order.id} with unknown type`);\n  return {\n    orderId: order.id,\n    processed: true,\n    shippingType: \"unknown\",\n    timestamp: new Date().toISOString()\n  };\n}",
+                                            "input_transforms": {
+                                                "order": {
+                                                    "type": "javascript",
+                                                    "expr": "flow_input.iter.value"
+                                                }
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "id": "summarize",
+                "summary": "Return processing summary",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(results: any[]) {\n  return {\n    totalProcessed: results.length,\n    processedAt: new Date().toISOString()\n  };\n}",
+                    "input_transforms": {
+                        "results": {
+                            "type": "javascript",
+                            "expr": "results.loop_orders"
+                        }
+                    }
+                }
+            }
+        ]
+    },
+    "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {},
+        "required": [],
+        "type": "object"
+    }
+}

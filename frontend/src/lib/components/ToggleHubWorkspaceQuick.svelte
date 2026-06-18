@@ -3,13 +3,19 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { Building } from 'lucide-svelte'
-	export let selected: 'all' | 'hub' | 'workspace' = 'all'
+	interface Props {
+		selected?: 'all' | 'hub' | 'workspace'
+	}
+
+	let { selected = $bindable('all') }: Props = $props()
 </script>
 
 <div class="max-w-min">
 	<ToggleButtonGroup id="flow-editor-flow-providers" bind:selected>
-		<ToggleButton value="all" label="All" light small />
-		<ToggleButton value="hub" icon={WindmillIcon2} label="Hub" light small />
-		<ToggleButton value="workspace" icon={Building} label="Workspace" light small />
+		{#snippet children({ item })}
+			<ToggleButton size="sm" value="all" label="All" {item} />
+			<ToggleButton size="sm" value="hub" icon={WindmillIcon2} label="Hub" {item} />
+			<ToggleButton size="sm" value="workspace" icon={Building} label="Workspace" {item} />
+		{/snippet}
 	</ToggleButtonGroup>
 </div>

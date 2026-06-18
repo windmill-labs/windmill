@@ -1,73 +1,114 @@
 <script lang="ts">
 	import { enterpriseLicense } from '$lib/stores'
-	import { AlertTriangle, ChevronRight } from 'lucide-svelte'
+	import { ChevronRight } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { slide } from 'svelte/transition'
+	import EEOnly from './EEOnly.svelte'
 
-	export let label: string | undefined = undefined
-	export let tooltip: string | undefined = undefined
-	export let documentationLink: string | undefined = undefined
-	export let eeOnly = false
-	export let small: boolean = false
-	export let wrapperClass: string = ''
+	interface Props {
+		label?: string | undefined
+		tooltip?: string | undefined
+		documentationLink?: string | undefined
+		eeOnly?: boolean
+		small?: boolean
+		wrapperClass?: string
+		headerClass?: string
+		collapsable?: boolean
+		collapsed?: boolean
+		headless?: boolean
+		animate?: boolean
+		breakAll?: boolean
+		class?: string | undefined
+		description?: string | undefined
+		initiallyCollapsed?: boolean
+		header?: import('svelte').Snippet
+		action?: import('svelte').Snippet
+		badge?: import('svelte').Snippet
+		children?: import('svelte').Snippet
+		labelExtra?: import('svelte').Snippet
+	}
 
-	export let collapsable: boolean = false
-	export let collapsed: boolean = true
-	export let headless: boolean = false
-	export let animate: boolean = false
+	let {
+		label = undefined,
+		tooltip = undefined,
+		documentationLink = undefined,
+		eeOnly = false,
+		small = false,
+		wrapperClass = '',
+		headerClass = '',
+		collapsable = false,
+		initiallyCollapsed = true,
+		collapsed = $bindable(initiallyCollapsed),
+		headless = false,
+		animate = false,
+		breakAll = false,
+		class: clazz = undefined,
+		description = undefined,
+		header,
+		action,
+		badge,
+		children,
+		labelExtra
+	}: Props = $props()
 </script>
 
 <div class={twMerge('w-full flex flex-col', wrapperClass)}>
 	{#if !headless}
-		<div class="flex flex-row justify-between items-center mb-2">
+		<div class="flex flex-row justify-between items-center">
 			<h2
 				class={twMerge(
-					'font-semibold flex flex-row items-center gap-1',
-					small ? 'text-sm' : 'text-base'
+					'text-emphasis flex flex-row items-center gap-1',
+					breakAll ? 'break-all' : '',
+					small ? 'text-xs font-semibold' : 'text-sm font-semibold',
+					headerClass
 				)}
 			>
 				{#if collapsable}
-					<button class="flex items-center gap-1" on:click={() => (collapsed = !collapsed)}>
-						<ChevronRight
-							size={16}
-							class={twMerge(
-								'transition',
-								collapsed ? '' : 'rotate-90',
-								animate ? 'duration-200' : 'duration-0'
-							)}
-						/>
+					<button class="flex items-center gap-1" onclick={() => (collapsed = !collapsed)}>
 						{label}
+						{@render labelExtra?.()}
+						<ChevronRight
+							size={14}
+							class={twMerge('transition duration-200', collapsed ? '' : 'rotate-90')}
+						/>
 					</button>
 				{:else}
 					{label}
+					{@render labelExtra?.()}
 				{/if}
 
-				<slot name="header" />
+				{@render header?.()}
 				{#if tooltip}
 					<Tooltip {documentationLink}>{tooltip}</Tooltip>
 				{/if}
 				{#if eeOnly}
 					{#if !$enterpriseLicense}
-						<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap ml-8">
-							<AlertTriangle size={16} />
-							EE only <Tooltip>Enterprise Edition only feature</Tooltip>
-						</div>
+						<EEOnly />
 					{/if}
 				{/if}
 			</h2>
-			<slot name="action" />
+			{#if !(collapsable && collapsed)}
+				{@render action?.()}
+			{/if}
 			{#if collapsable && collapsed}
-				<slot name="badge" />
+				{@render badge?.()}
 			{/if}
 		</div>
 	{/if}
 	{#if !collapsable || !collapsed}
 		<div
-			class={twMerge('grow min-h-0', $$props.class)}
-			transition:slide={animate ? { duration: 200 } : { duration: 0 }}
+			class={'grow min-h-0 '}
+			transition:slide={animate || collapsable ? { duration: 200 } : { duration: 0 }}
 		>
-			<slot />
+			{#if description}
+				<div class="text-xs text-primary mt-1 mb-2">{@html description}</div>
+			{/if}
+			<div class="flex flex-col gap-6 grow min-h-0 mt-4">
+				<div class={twMerge('grow min-h-0', clazz)}>
+					{@render children?.()}
+				</div>
+			</div>
 		</div>
 	{/if}
 </div>

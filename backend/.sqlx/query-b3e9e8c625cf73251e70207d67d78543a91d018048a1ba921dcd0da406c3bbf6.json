@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT u.username, u.email\n            FROM usr u\n            WHERE u.workspace_id = $1\n              AND u.disabled = false\n              AND u.username = ANY($2::text[])\n              AND (\n                  u.is_admin = true\n                  OR EXISTS (\n                      SELECT 1 FROM usr_to_group g\n                      WHERE g.workspace_id = $1\n                        AND g.group_ = $3\n                        AND g.usr = u.username\n                  )\n              )\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "b3e9e8c625cf73251e70207d67d78543a91d018048a1ba921dcd0da406c3bbf6"
+}

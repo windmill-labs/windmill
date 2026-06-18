@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { stopPropagation } from 'svelte/legacy'
+
+	import { getContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -10,41 +12,64 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'timeinputcomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		customCss?: ComponentCustomCSS<'timeinputcomponent'> | undefined
+		render: boolean
+		onChange?: string[] | undefined
+	}
 
-	const { app, worldStore, selectedComponent, componentControl } =
+	let {
+		id,
+		configuration,
+		verticalAlignment = undefined,
+		customCss = undefined,
+		render,
+		onChange = undefined
+	}: Props = $props()
+
+	const { app, worldStore, selectedComponent, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let resolvedConfig = initConfig(
-		components['timeinputcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['timeinputcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	let value: string | undefined = undefined
+	let value: string | undefined = $state(undefined)
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: string) {
 			value = nvalue
 		}
 	}
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined as string | undefined,
 		validity: true as boolean
 	})
-
-	$: !value && handleDefault(resolvedConfig.defaultValue)
 
 	function convertToMinutes(time: string) {
 		const [hours, minutes] = time.split(':').map(Number)
 		return hours * 60 + minutes
 	}
 
-	$: {
+	function fireOnChange() {
+		if (onChange) {
+			onChange.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
+		}
+	}
+
+	function handleDefault(defaultValue: string | undefined) {
+		value = defaultValue
+	}
+	let css = $state(initCss($app.css?.timeinputcomponent, untrack(() => customCss)))
+	$effect.pre(() => {
+		resolvedConfig.defaultValue
+		!value && untrack(() => handleDefault(resolvedConfig.defaultValue))
+	})
+	$effect.pre(() => {
 		if (value) {
 			if (!resolvedConfig['24hFormat']) {
 				let time = value.split(':')
@@ -78,12 +103,8 @@
 			// At the end, set the validity
 			outputs?.validity.set(isValid)
 		}
-	}
-
-	function handleDefault(defaultValue: string | undefined) {
-		value = defaultValue
-	}
-	let css = initCss($app.css?.timeinputcomponent, customCss)
+		fireOnChange()
+	})
 </script>
 
 {#each Object.keys(components['timeinputcomponent'].initialData.configuration) as key (key)}
@@ -109,8 +130,8 @@
 
 <AlignWrapper {render} {verticalAlignment}>
 	<input
-		on:focus={() => ($selectedComponent = [id])}
-		on:pointerdown|stopPropagation={() => ($selectedComponent = [id])}
+		onfocus={() => ($selectedComponent = [id])}
+		onpointerdown={stopPropagation(() => ($selectedComponent = [id]))}
 		type="time"
 		bind:value
 		min={resolvedConfig.minTime}

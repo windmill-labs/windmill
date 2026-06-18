@@ -1,59 +1,138 @@
 <script lang="ts">
-	import { ScheduleService, JobService, type ScriptArgs, type ScheduleWJobs } from '$lib/gen'
+	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import {
+		ScheduleService,
+		type ScheduleWJobs,
+		type WorkspaceDeployUISettings,
+		WorkspaceService
+	} from '$lib/gen'
 	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Badge, Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
-	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
+	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
+	import { userStore, workspaceStore, userWorkspaces, enterpriseLicense } from '$lib/stores'
 	import {
-		Calendar,
 		Circle,
-		Code,
+		Copy,
 		Eye,
+		FileUp,
 		List,
 		Loader2,
 		Pen,
 		Play,
 		Plus,
-		Share,
+		Shield,
 		Trash
 	} from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
-	import SearchItems from '$lib/components/SearchItems.svelte'
+	import FilterSearchbar, {
+		useUrlSyncedFilterInstance
+	} from '$lib/components/FilterSearchbar.svelte'
+	import { buildSchedulesFilterSchema } from '$lib/components/schedules/schedulesFilter'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import JobPreview from '$lib/components/jobs/JobPreview.svelte'
-	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { setQuery } from '$lib/navigation'
-	import { onMount } from 'svelte'
+	import { untrack } from 'svelte'
+	import { page } from '$app/stores'
+	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
+	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
+	import { runScheduleNow } from '$lib/components/triggers/scheduled/utils'
+	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 
 	type ScheduleW = ScheduleWJobs & { canWrite: boolean }
 
-	let schedules: ScheduleW[] = []
-	let shareModal: ShareModal
-	let loading = true
-	let loadingSchedulesWithJobStats = true
+	let schedules: ScheduleW[] = $state([])
+	let shareModal: ShareModal | undefined = $state()
+	let loading = $state(true)
+	let loadingSchedulesWithJobStats = $state(true)
+	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
 
+	async function getDeployUiSettings() {
+		if (!$enterpriseLicense) {
+			deployUiSettings = ALL_DEPLOYABLE
+			return
+		}
+		let settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })
+		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
+	}
+	getDeployUiSettings()
 	async function loadSchedules(): Promise<void> {
-		schedules = (await ScheduleService.listSchedules({ workspace: $workspaceStore! })).map((x) => {
+		const currentFilters = filters.val
+
+		// Build API parameters from filters.
+		// `includeDraftOnly` surfaces per-user drafts at paths that have
+		// no deployed schedule — appended server-side when no narrowing
+		// filter is set, so the user sees AI-agent-created drafts on
+		// the home page.
+		const apiParams: any = {
+			workspace: $workspaceStore!,
+			includeDraftOnly: true
+		}
+
+		if (currentFilters.schedule_path) {
+			apiParams.schedulePath = currentFilters.schedule_path
+		}
+		if (currentFilters.path_start) {
+			apiParams.pathStart = currentFilters.path_start
+		}
+		if (currentFilters.path) {
+			apiParams.path = currentFilters.path
+		}
+		if (currentFilters.description) {
+			apiParams.description = currentFilters.description
+		}
+		if (currentFilters.summary) {
+			apiParams.summary = currentFilters.summary
+		}
+		if (currentFilters.args) {
+			apiParams.args = currentFilters.args
+		}
+		if (currentFilters._default_) {
+			apiParams.broadFilter = currentFilters._default_
+		}
+		if (currentFilters.label) {
+			apiParams.label = currentFilters.label
+		}
+
+		const result = (await ScheduleService.listSchedules(apiParams)).map((x) => {
 			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 		})
+
+		// Extract unique values for autocomplete
+		allPaths = Array.from(new Set(result.map((x) => x.path))).sort()
+		allScriptPaths = Array.from(new Set(result.map((x) => x.script_path))).sort()
+		allLabels = Array.from(
+			new Set(result.flatMap((x) => [...(x.labels ?? []), ...(x.inherited_labels ?? [])]))
+		).sort()
+
+		schedules = result
 		loading = false
 		// after the schedule core data has been loaded, load all the job stats
 		// TODO: we could potentially not reload the job stats on every call to loadSchedules, but for now it's
 		// simpler to always call it. Update if performance becomes an issue.
 		loadSchedulesWithJobStats()
 	}
+
+	// Reload schedules when filters change
+	$effect(() => {
+		filters.val
+		if ($workspaceStore) {
+			untrack(() => loadSchedules())
+		}
+	})
 
 	async function loadSchedulesWithJobStats(): Promise<void> {
 		loadingSchedulesWithJobStats = true
@@ -72,77 +151,135 @@
 		loadingSchedulesWithJobStats = false
 	}
 
+	// Per-path counter bumped when a schedule toggle is cancelled or errors,
+	// to force-remount that row's <Toggle>. Toggle uses `bind:checked` on
+	// its native input; once the user clicks, the local checkbox state
+	// diverges from the parent's prop expression, and Svelte 5 prop
+	// reactivity won't push a same-valued prop back down. Re-mounting
+	// re-initializes from the prop. List-page rows don't optimistically
+	// flip `enabled`, so they need this nudge — but only the affected row,
+	// not all rows on the page.
+	let toggleResetVersions = $state<Record<string, number>>({})
+	function bumpToggleReset(path: string) {
+		toggleResetVersions[path] = (toggleResetVersions[path] ?? 0) + 1
+	}
+
 	async function setScheduleEnabled(path: string, enabled: boolean): Promise<void> {
 		try {
-			await ScheduleService.setScheduleEnabled({
-				path,
-				workspace: $workspaceStore!,
-				requestBody: { enabled }
-			})
-			loadSchedules()
+			const ok = await withForkConflictRetry(
+				(force) =>
+					ScheduleService.setScheduleEnabled({
+						path,
+						workspace: $workspaceStore!,
+						requestBody: { enabled, force }
+					}),
+				'schedule'
+			)
+			if (ok) {
+				loadSchedules()
+			} else {
+				// Cancelled — nothing changed on the server, skip the reload
+				// (which would re-fetch job stats and flash the loading flag)
+				// and just nudge the toggle back to the prop value.
+				bumpToggleReset(path)
+			}
 		} catch (err) {
 			sendUserToast(`Cannot ` + (enabled ? 'enable' : 'disable') + ` schedule: ${err.body}`, true)
+			bumpToggleReset(path)
 			loadSchedules()
 		}
 	}
 
-	async function runScheduleNow(
-		path: string,
-		args: ScriptArgs | undefined,
-		isFlow: boolean
-	): Promise<void> {
-		try {
-			const runByPath = isFlow ? JobService.runFlowByPath : JobService.runScriptByPath
-
-			const run = await runByPath({
-				path,
-				requestBody: args ?? {},
-				workspace: $workspaceStore!
-			})
-
-			sendUserToast(`Schedule ${path} will run now`, false, [
-				{
-					label: 'Go to the run page',
-					callback: () => goto('/run/' + run + '?workspace=' + $workspaceStore)
-				}
-			])
-		} catch (err) {
-			sendUserToast(`Cannot run schedule now: ${err.body}`, true)
-		}
-	}
-
-	$: {
+	$effect(() => {
 		if ($workspaceStore && $userStore) {
-			loadSchedules()
+			untrack(() => {
+				loadSchedules()
+			})
 		}
-	}
-	let scheduleEditor: ScheduleEditor
+	})
+	let scheduleEditor: ScheduleEditor | undefined = $state()
 
-	let filteredItems: (ScheduleW & { marked?: any })[] | undefined = []
-	let items: typeof filteredItems | undefined = []
-	let preFilteredItems: typeof filteredItems | undefined = []
-	let filter = ''
-	let ownerFilter: string | undefined = undefined
-	let nbDisplayed = 15
+	let hashHandled = false
+	$effect(() => {
+		if (!hashHandled && schedules.length > 0 && scheduleEditor) {
+			let hash = $page.url.hash
+			if (hash.length > 1) {
+				let path = hash.slice(1)
+				let schedule = schedules.find((s) => s.path === path)
+				if (schedule) {
+					hashHandled = true
+					scheduleEditor?.openEdit(path, schedule.is_flow)
+				}
+			}
+		}
+	})
 
-	let filterEnabledDisabled: 'all' | 'enabled' | 'disabled' = 'all'
+	// Collect unique values for filter autocomplete
+	let allPaths: string[] = $state([])
+	let allScriptPaths: string[] = $state([])
+	let allLabels: string[] = $state([])
+
+	// FilterSearchbar setup
+	let userFoldersFilterType = $derived(
+		$userStore?.is_super_admin && $userStore.username.includes('@')
+			? 'only f/*'
+			: $userStore?.is_admin || $userStore?.is_super_admin
+				? 'u/username and f/*'
+				: undefined
+	)
+	let schedulesFilterSchema = $derived(
+		buildSchedulesFilterSchema({
+			paths: allPaths,
+			scriptPaths: allScriptPaths,
+			labels: allLabels,
+			showUserFoldersFilter: userFoldersFilterType !== undefined,
+			userFoldersLabel:
+				userFoldersFilterType === 'only f/*' ? 'Only f/*' : `Only u/${$userStore?.username} and f/*`
+		})
+	)
+	let filters = useUrlSyncedFilterInstance(untrack(() => schedulesFilterSchema))
+	let allFolders = $derived(
+		Array.from(
+			new Set(
+				(schedules ?? [])
+					.map((x) => x.path.split('/').slice(0, 2).join('/'))
+					.filter((x) => x.startsWith('f/'))
+			)
+		)
+			.sort()
+			.map((f) => f.replace(/^f\//, ''))
+	)
+	let presets = $derived([
+		...allFolders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
+		...allLabels.map((l) => ({ name: l, value: `label:\\ ${l}` })),
+		...(schedulesFilterSchema.user_folders_only
+			? [
+					{
+						name: schedulesFilterSchema.user_folders_only.label ?? '?',
+						value: 'user_folders_only:\\ true'
+					}
+				]
+			: [])
+	])
+
+	let nbDisplayed = $state(15)
+	let filterEnabledDisabled: 'all' | 'enabled' | 'disabled' = $state('all')
 
 	const SCHEDULE_PATH_KIND_FILTER_SETTING = 'schedulePathKindFilter'
-	const FILTER_USER_FOLDER_SETTING_NAME = 'user_and_folders_only'
-	let selectedFilterKind =
+	let selectedFilterKind = $state(
 		(getLocalSetting(SCHEDULE_PATH_KIND_FILTER_SETTING) as 'schedule' | 'script_flow') ?? 'schedule'
-	let filterUserFolders = getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true'
+	)
 
-	$: storeLocalSetting(SCHEDULE_PATH_KIND_FILTER_SETTING, selectedFilterKind)
-	$: storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
+	$effect(() => {
+		storeLocalSetting(SCHEDULE_PATH_KIND_FILTER_SETTING, selectedFilterKind)
+	})
 
 	function filterItemsPathsBaseOnUserFilters(
 		item: ScheduleW,
 		selectedFilterKind: 'schedule' | 'script_flow',
-		filterUserFolders: boolean
+		userFoldersOnly: boolean
 	) {
-		if ($workspaceStore == 'admins') return true
-		if (filterUserFolders) {
+		if (userFoldersOnly) {
 			if (selectedFilterKind === 'schedule') {
 				return (
 					!item.path.startsWith('u/') || item.path.startsWith('u/' + $userStore?.username + '/')
@@ -167,348 +304,327 @@
 		if (filterEnabledDisabled === 'disabled') return !item.enabled
 	}
 
-	$: preFilteredItems =
-		ownerFilter != undefined
-			? selectedFilterKind === 'schedule'
-				? schedules?.filter(
-						(x) =>
-							x.path.startsWith(ownerFilter + '/') &&
-							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders) &&
-							filterItemsBasedOnEnabledDisabled(x, filterEnabledDisabled)
-				  )
-				: schedules?.filter(
-						(x) =>
-							x.script_path.startsWith(ownerFilter + '/') &&
-							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders) &&
-							filterItemsBasedOnEnabledDisabled(x, filterEnabledDisabled)
-				  )
-			: schedules?.filter(
-					(x) =>
-						filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders) &&
-						filterItemsBasedOnEnabledDisabled(x, filterEnabledDisabled)
-			  )
-
-	$: if ($workspaceStore) {
-		ownerFilter = undefined
-	}
-
-	$: owners =
-		selectedFilterKind === 'schedule'
-			? Array.from(
-					new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
-			: Array.from(
-					new Set(filteredItems?.map((x) => x.script_path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
-
-	$: items = filter !== '' ? filteredItems : preFilteredItems
-
-	function updateQueryFilters(selectedFilterKind, filterUserFolders, filterEnabledDisabled) {
-		setQuery(new URL(window.location.href), 'filter_kind', selectedFilterKind).then(() => {
-			setQuery(
-				new URL(window.location.href),
-				'user_and_folders_only',
-				String(filterUserFolders)
-			).then(() => {
-				setQuery(new URL(window.location.href), 'status', filterEnabledDisabled)
-			})
-		})
-	}
-
-	function loadQueryFilters() {
-		let url = new URL(window.location.href)
-		let queryFilterKind = url.searchParams.get('filter_kind')
-		let queryFilterUserFolders = url.searchParams.get('user_and_folders_only')
-		let queryFilterEnabledDisabled = url.searchParams.get('status')
-		if (queryFilterKind) {
-			selectedFilterKind = queryFilterKind as 'schedule' | 'script_flow'
-		}
-		if (queryFilterUserFolders) {
-			filterUserFolders = queryFilterUserFolders == 'true'
-		}
-		if (queryFilterEnabledDisabled) {
-			filterEnabledDisabled = queryFilterEnabledDisabled as 'all' | 'enabled' | 'disabled'
-		}
-	}
-
-	onMount(() => {
-		console.log(`on mount: `, $userStore?.operator, $workspaceStore, $userWorkspaces)
-		loadQueryFilters()
+	// Filter schedules client-side for enabled/disabled and user folders
+	let filteredItems = $derived.by(() => {
+		return schedules?.filter(
+			(x) =>
+				filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, !!filters.val.user_folders_only) &&
+				filterItemsBasedOnEnabledDisabled(x, filterEnabledDisabled)
+		)
 	})
 
-	$: $userWorkspaces && $userStore && $workspaceStore && console.log(`user workspaces: `, $userWorkspaces)
-
-	$: updateQueryFilters(selectedFilterKind, filterUserFolders, filterEnabledDisabled)
+	let items = $derived(filteredItems)
 </script>
 
-<ScheduleEditor on:update={loadSchedules} bind:this={scheduleEditor} />
+<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
+<ScheduleEditor onUpdate={loadSchedules} bind:this={scheduleEditor} />
 
-<SearchItems
-	{filter}
-	items={preFilteredItems}
-	bind:filteredItems
-	f={(x) => (x.summary ?? '') + ' ' + x.path + ' (' + x.script_path + ')'}
-/>
-
-{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find(_ => _.id === $workspaceStore)?.operator_settings?.schedules}
-<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
-	<p class="font-bold">Unauthorized</p>
-	<p>Page not available for operators</p>
-</div>
+{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.schedules}
+	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
+		<p class="font-bold">Unauthorized</p>
+		<p>Page not available for operators</p>
+	</div>
 {:else}
-<CenteredPage>
-	<PageHeader
-		title="Schedules"
-		tooltip="Trigger Scripts and Flows according to a cron schedule"
-		documentationLink="https://www.windmill.dev/docs/core_concepts/scheduling"
-	>
-		<Button size="md" startIcon={{ icon: Plus }} on:click={() => scheduleEditor.openNew(false)}>
-			New&nbsp;schedule
-		</Button>
-	</PageHeader>
-	<div class="w-full h-full flex flex-col">
-		<div class="w-full pb-4 pt-6">
-			<input type="text" placeholder="Search schedule" bind:value={filter} class="search-item" />
-			<div class="flex flex-row items-center gap-2 mt-6">
-				<div class="text-sm shrink-0"> Filter by path of </div>
-				<ToggleButtonGroup bind:selected={selectedFilterKind}>
-					<ToggleButton small value="schedule" label="Schedule" icon={Calendar} />
-					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
+	<CenteredPage>
+		<PageHeader
+			title="Schedules"
+			tooltip="Trigger Scripts and Flows according to a cron schedule"
+			documentationLink="https://www.windmill.dev/docs/core_concepts/scheduling"
+		>
+			<Button
+				size="lg"
+				variant="accent"
+				startIcon={{ icon: Plus }}
+				on:click={() => scheduleEditor?.openNew(false)}
+				aiId="schedules-add-schedule"
+				aiDescription="Add schedule"
+			>
+				New schedule
+			</Button>
+		</PageHeader>
+		<div class="w-full h-full flex flex-col">
+			<div class="flex flex-row items-center justify-end gap-4 pb-4">
+				<ToggleButtonGroup bind:selected={filterEnabledDisabled} class="w-fit">
+					{#snippet children({ item })}
+						<ToggleButton value="all" label="All" {item} />
+						<ToggleButton value="enabled" label="Enabled" {item} />
+						<ToggleButton value="disabled" label="Disabled" {item} />
+					{/snippet}
 				</ToggleButtonGroup>
+				<FilterSearchbar
+					schema={schedulesFilterSchema}
+					bind:value={filters.val}
+					class="grow max-w-[26rem]"
+					{presets}
+				/>
 			</div>
-			<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
+			{#if loading}
+				{#each new Array(6) as _}
+					<Skeleton layout={[[6], 0.4]} />
+				{/each}
+			{:else if !schedules?.length}
+				<div class="text-center text-xs font-semibold text-emphasis mt-2"> No schedules </div>
+			{:else if items?.length}
+				<div class="border rounded-md divide-y">
+					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}
+						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
+						{@const avg_s = jobs
+							? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length
+							: undefined}
 
-			<div class="flex flex-row items-center justify-end gap-4">
-				<ToggleButtonGroup class="h-6 w-auto" bind:selected={filterEnabledDisabled}>
-					<ToggleButton small value="all" label="All" />
-					<ToggleButton small value="enabled" label="Enabled" />
-					<ToggleButton small value="disabled" label="Disabled" />
-				</ToggleButtonGroup>
-				{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
-					<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
-				{:else if $userStore?.is_admin || $userStore?.is_super_admin}
-					<Toggle
-						size="xs"
-						bind:checked={filterUserFolders}
-						options={{ right: `Only u/${$userStore.username} and f/*` }}
-					/>
-				{/if}
-			</div>
-		</div>
-		{#if loading}
-			{#each new Array(6) as _}
-				<Skeleton layout={[[6], 0.4]} />
-			{/each}
-		{:else if !schedules?.length}
-			<div class="text-center text-sm text-tertiary mt-2"> No schedules </div>
-		{:else if items?.length}
-			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, args, marked, jobs, paused_until } (path)}
-					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
-					{@const avg_s = jobs
-						? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length
-						: undefined}
-
-					<div
-						class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
+						<div
+							class="bg-surface-tertiary hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
 				first-of-type:rounded-t-md last-of-type:rounded-b-md flex flex-col"
-					>
-						<div class="w-full flex gap-5 items-center">
-							<RowIcon kind={is_flow ? 'flow' : 'script'} />
+						>
+							<div class="w-full flex gap-4 items-center">
+								<RowIcon kind={is_flow ? 'flow' : 'script'} />
 
-							<a
-								href="#{path}"
-								on:click={() => scheduleEditor?.openEdit(path, is_flow)}
-								class="min-w-0 grow hover:underline decoration-gray-400"
-							>
-								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
-									{#if marked}
-										<span class="text-xs">
-											{@html marked}
-										</span>
-									{:else}
-										{summary || script_path}
-									{/if}
-								</div>
-								<div class="text-secondary text-xs truncate text-left font-light">
-									schedule: {path}
-								</div>
-							</a>
-
-							{#if paused_until && new Date(paused_until) > new Date()}
-								<div class="pb-1">
-									<Badge color="yellow"
-										>Paused until {new Date(paused_until).toLocaleString()}</Badge
+								<a
+									href="#{path}"
+									onclick={() => scheduleEditor?.openEdit(path, is_flow)}
+									class="min-w-0 grow hover:underline decoration-gray-400"
+								>
+									<div
+										class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate"
 									>
-								</div>
-							{/if}
-
-							<div class="gap-2 items-center hidden md:flex">
-								<Badge large color="blue">{schedule}</Badge>
-								<Badge small color="gray">{timezone}</Badge>
-							</div>
-
-							<div class="hidden lg:flex flex-row gap-1 items-center">
-								<SharedBadge {canWrite} extraPerms={extra_perms} />
-							</div>
-
-							<div class="w-10">
-								{#if error}
-									<Popover notClickable>
-										<span class="flex h-4 w-4">
-											<Circle
-												class="text-red-600 animate-ping absolute inline-flex fill-current"
-												size={12}
-											/>
-											<Circle class="text-red-600 relative inline-flex fill-current" size={12} />
-										</span>
-										<div slot="text">
-											The schedule disabled itself because there was an error scheduling the next
-											job: {error}
-										</div>
-									</Popover>
+										{summary || script_path}{(getLocalDraftHint($workspaceStore, 'trigger_schedule', path) ?? is_draft) ? '*' : ''}
+									</div>
+									<div class="text-secondary text-xs truncate text-left">
+										schedule: {path}
+									</div>
+								</a>
+								{#if labels?.length}
+									{#each labels as label}
+										<Badge
+											color="blue"
+											small
+											class="px-1"
+											title="Label: {label}"
+											clickable
+											onclick={() => {
+												const arr = (filters.val.label ?? '').split(',').filter(Boolean)
+												const idx = arr.indexOf(label)
+												if (idx >= 0) arr.splice(idx, 1)
+												else arr.push(label)
+												const newFilters = { ...filters.val }
+												if (arr.length) newFilters.label = arr.join(',')
+												else delete newFilters.label
+												filters.val = newFilters
+											}}>{label}</Badge
+										>
+									{/each}
 								{/if}
-							</div>
+								<InheritedLabels labels={inherited_labels} />
 
-							<Toggle
-								checked={enabled}
-								on:change={(e) => {
-									if (canWrite) {
-										setScheduleEnabled(path, e.detail)
-									} else {
-										sendUserToast('not enough permission', true)
-									}
-								}}
-							/>
-							<div class="flex gap-2 items-center justify-end">
-								<Button
-									href={`${base}/runs/?schedule_path=${path}&show_schedules=true&show_future_jobs=true`}
-									size="xs"
-									startIcon={{ icon: List }}
-									color="light"
-									variant="border"
-								>
-									Runs
-								</Button>
-								<Button
-									on:click={() => scheduleEditor?.openEdit(path, is_flow)}
-									size="xs"
-									startIcon={{ icon: canWrite ? Pen : Eye }}
-									color="dark"
-								>
-									{canWrite ? 'Edit' : 'View'}
-								</Button>
-								<Dropdown
-									items={[
-										{
-											displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
-											icon: Eye,
-											action: () => {
-												goto(href)
-											}
-										},
-										{
-											displayName: 'Delete',
-											type: 'delete',
-											icon: Trash,
-											disabled: !canWrite,
-											action: async () => {
-												await ScheduleService.deleteSchedule({
-													workspace: $workspaceStore ?? '',
-													path
-												})
-												loadSchedules()
-											}
-										},
-										{
-											displayName: canWrite ? 'Edit' : 'View',
-											icon: canWrite ? Pen : Eye,
-											action: () => {
-												scheduleEditor?.openEdit(path, is_flow)
-											}
-										},
-										{
-											displayName: 'View runs',
-											icon: List,
-											href:
-												base +
-												'/runs/?schedule_path=' +
-												path +
-												'&show_schedules=true&show_future_jobs=true'
-										},
-										{
-											displayName: 'Audit logs',
-											icon: Eye,
-											href: `${base}/audit_logs?resource=${path}`
-										},
-										{
-											displayName: 'Run now',
-											icon: Play,
-											action: () => {
-												runScheduleNow(script_path, args, is_flow)
-											}
-										},
-										{
-											displayName: canWrite ? 'Share' : 'See Permissions',
-											icon: Share,
-											action: () => {
-												shareModal.openDrawer(path, 'schedule')
-											}
-										}
-									]}
-								/>
-							</div>
-						</div>
-						<div class="w-full flex justify-between items-baseline">
-							{#if loadingSchedulesWithJobStats}
-								<div class="flex gap-1 ml-0.5 text-[0.7em] text-tertiary items-center">
-									<Loader2 size={14} class="animate-spin" />
-									<span>Job stats loading...</span>
+								{#if paused_until && new Date(paused_until) > new Date()}
+									<div class="pb-1">
+										<Badge color="yellow"
+											>Paused until {new Date(paused_until).toLocaleString()}</Badge
+										>
+									</div>
+								{/if}
+
+								<div class="gap-2 items-center hidden md:flex">
+									<Badge large color="blue">{schedule}</Badge>
+									<Badge small color="gray">{timezone}</Badge>
 								</div>
-							{:else}
-								<div class="flex gap-1.5 ml-0.5 items-baseline flex-row-reverse">
-									{#if avg_s}
-										<div class="pl-2 text-tertiary text-2xs">Avg: {(avg_s / 1000).toFixed(2)}s</div>
+
+								<div class="hidden lg:flex flex-row gap-1 items-center">
+									<SharedBadge {canWrite} extraPerms={extra_perms} />
+									{#if draft_only}
+										<DraftBadge draft_only is_draft={false} />
 									{/if}
-									{#each jobs ?? [] as job}
-										{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}
-										<a href="{base}/run/{job.id}?workspace={$workspaceStore}">
-											<JobPreview id={job.id}>
+								</div>
+
+								<div class="w-10">
+									{#if error}
+										<Popover notClickable>
+											<span class="flex h-4 w-4">
+												<Circle
+													class="text-red-600 animate-ping absolute inline-flex fill-current"
+													size={12}
+												/>
+												<Circle class="text-red-600 relative inline-flex fill-current" size={12} />
+											</span>
+											{#snippet text()}
 												<div>
-													<div
-														class="{job.success ? 'bg-green-300' : 'bg-red-300'} mx-auto w-1.5"
-														style="height: {h}px"
-													/>
-													<!-- <div class="text-[0.6em] mt-0.5 text-center text-tertiary"
+													The schedule disabled itself because there was an error scheduling the
+													next job: {error}
+												</div>
+											{/snippet}
+										</Popover>
+									{/if}
+								</div>
+
+								{#key toggleResetVersions[path] ?? 0}
+									<Toggle
+										checked={enabled}
+										on:change={(e) => {
+											if (canWrite) {
+												setScheduleEnabled(path, e.detail)
+											} else {
+												sendUserToast('not enough permission', true)
+												// Permission denied — bump the row's reset
+												// counter so the Toggle remounts back to the
+												// prop value. Without this, the local
+												// `bind:checked` flip from the user's click
+												// stays stuck on.
+												bumpToggleReset(path)
+											}
+										}}
+									/>
+								{/key}
+								<div class="flex gap-2 items-center justify-end">
+									<Button
+										href={`${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
+										unifiedSize="md"
+										startIcon={{ icon: List }}
+										variant="subtle"
+									>
+										Runs
+									</Button>
+									<Button
+										on:click={() => scheduleEditor?.openEdit(path, is_flow)}
+										size="xs"
+										startIcon={{ icon: canWrite ? Pen : Eye }}
+										variant="subtle"
+									>
+										{canWrite ? 'Edit' : 'View'}
+									</Button>
+									<Dropdown
+										size="md"
+										items={[
+											{
+												displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
+												icon: Eye,
+												action: () => {
+													goto(href)
+												}
+											},
+											{
+												displayName: `Duplicate schedule`,
+												icon: Copy,
+												action: () => {
+													scheduleEditor?.openNew(is_flow, script_path, path)
+												}
+											},
+											{
+												displayName: 'Delete',
+												type: 'delete',
+												icon: Trash,
+												disabled: !canWrite,
+												action: async () => {
+													await ScheduleService.deleteSchedule({
+														workspace: $workspaceStore ?? '',
+														path
+													})
+													loadSchedules()
+												}
+											},
+											{
+												displayName: canWrite ? 'Edit' : 'View',
+												icon: canWrite ? Pen : Eye,
+												action: () => {
+													scheduleEditor?.openEdit(path, is_flow)
+												}
+											},
+											...(isDeployable('trigger', path, deployUiSettings)
+												? [
+														{
+															displayName: 'Deploy to prod/staging',
+															icon: FileUp,
+															action: () => {
+																deploymentDrawer?.openDrawer(path, 'trigger', {
+																	triggers: {
+																		kind: 'schedules'
+																	}
+																})
+															}
+														}
+													]
+												: []),
+											{
+												displayName: 'View runs',
+												icon: List,
+												href: `${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`
+											},
+											{
+												displayName: 'Audit logs',
+												icon: Eye,
+												href: `${base}/audit_logs?resource=${path}`
+											},
+											{
+												displayName: 'Run now',
+												icon: Play,
+												action: () => {
+													runScheduleNow(script_path, path, is_flow, $workspaceStore!)
+												}
+											},
+											{
+												displayName: 'Permissions',
+												icon: Shield,
+												action: () => {
+													shareModal?.openDrawer(path, 'schedule')
+												}
+											}
+										]}
+									/>
+								</div>
+							</div>
+							<div class="w-full flex justify-between items-baseline">
+								{#if loadingSchedulesWithJobStats}
+									<div class="flex gap-1 ml-0.5 text-xs text-secondary items-center">
+										<Loader2 size={14} class="animate-spin" />
+										<span>Job stats loading...</span>
+									</div>
+								{:else}
+									<div class="flex gap-1.5 ml-0.5 items-baseline flex-row-reverse">
+										{#if avg_s}
+											<div class="pl-2 text-secondary text-xs"
+												>Avg: {(avg_s / 1000).toFixed(2)}s</div
+											>
+										{/if}
+										{#each jobs ?? [] as job}
+											{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}
+											<a href="{base}/run/{job.id}?workspace={$workspaceStore}">
+												<JobPreview id={job.id} class="p-4">
+													<div>
+														<div
+															class="{job.success ? 'bg-green-300' : 'bg-red-300'} mx-auto w-1.5"
+															style="height: {h}px"
+														></div>
+														<!-- <div class="text-[0.6em] mt-0.5 text-center text-primary"
 														>{(job.duration_ms / 1000).toFixed(2)}s</div
 													> -->
-												</div>
-											</JobPreview>
-										</a>
-									{/each}
-								</div>
-							{/if}
-							<div
-								class="flex flex-wrap text-[0.7em] text-tertiary gap-1 items-center justify-end truncate pr-2"
-								><div class="truncate">edited by {edited_by}</div><div class="truncate"
-									>the {displayDate(edited_at)}</div
+													</div>
+												</JobPreview>
+											</a>
+										{/each}
+									</div>
+								{/if}
+								<div
+									class="flex flex-wrap text-xs text-secondary gap-1 items-center justify-end truncate pr-2"
+									><div class="truncate">edited by {edited_by}</div><div class="truncate"
+										>the {displayDate(edited_at)}</div
+									></div
 								></div
-							></div
-						>
-					</div>
-				{/each}
+							>
+						</div>
+					{/each}
+				</div>
+			{:else}
+				<NoItemFound />
+			{/if}
+		</div>
+		{#if items && items?.length > 15 && nbDisplayed < items.length}
+			<div class="flex items-center gap-4 text-xs font-semibold text-emphasis">
+				<span>{nbDisplayed} items out of {items.length}</span>
+				<Button size="xs" variant="subtle" on:click={() => (nbDisplayed += 30)}>
+					Load 30 more
+				</Button>
 			</div>
-		{:else}
-			<NoItemFound />
 		{/if}
-	</div>
-	{#if items && items?.length > 15 && nbDisplayed < items.length}
-		<span class="text-xs"
-			>{nbDisplayed} items out of {items.length}
-			<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
-		>
-	{/if}
-</CenteredPage>
+	</CenteredPage>
 {/if}
 
 <ShareModal

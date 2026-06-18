@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { FileInput } from '../../../common'
 	import { initConfig, initOutput } from '../../editor/appUtils'
@@ -10,23 +10,33 @@
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'fileinputcomponent'> | undefined = undefined
-	export let render: boolean
-	export let onFileChange: string[] | undefined = undefined
-	export let extraKey: string | undefined = undefined
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'fileinputcomponent'> | undefined
+		render: boolean
+		onFileChange?: string[] | undefined
+		extraKey?: string | undefined
+	}
+
+	let {
+		id,
+		configuration,
+		customCss = undefined,
+		render,
+		onFileChange = undefined,
+		extraKey = undefined
+	}: Props = $props()
 
 	const { app, worldStore, componentControl, mode, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		result: [] as { name: string; data: string }[] | undefined
 	})
 
-	let resolvedConfig = initConfig(
-		components['fileinputcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['fileinputcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	// Receives Base64 encoded strings from the input component
@@ -41,17 +51,17 @@
 		onFileChange?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
 	}
 
-	let css = initCss($app.css?.fileinputcomponent, customCss)
+	let css = $state(initCss($app.css?.fileinputcomponent, untrack(() => customCss)))
 
-	let fileInput: FileInput | undefined = undefined
+	let fileInput: FileInput | undefined = $state(undefined)
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		clearFiles: () => {
 			fileInput?.clearFiles()
 		}
 	}
 
-	let files: File[] | undefined = undefined
+	let files: File[] | undefined = $state(undefined)
 
 	function preFillFiles() {
 		const data = outputs?.result?.peak()
@@ -61,7 +71,9 @@
 		}
 	}
 
-	$: outputs.result && files === undefined && $mode === 'dnd' && preFillFiles()
+	$effect.pre(() => {
+		outputs.result && files === undefined && $mode === 'dnd' && untrack(() => preFillFiles())
+	})
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { AppInput, Runnable } from '../../inputType'
+	import { isRunnableByName, isRunnableByPath, type AppInput, type Runnable } from '../../inputType'
 	import { clearResultAppInput } from '../../utils'
 	import EmptyInlineScript from './EmptyInlineScript.svelte'
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
@@ -8,11 +8,21 @@
 	import type { AppViewerContext } from '../../types'
 	import InlineScriptRunnableByPath from './InlineScriptRunnableByPath.svelte'
 
-	export let componentInput: AppInput | undefined
-	export let defaultUserInput = false
-	export let componentType: string
-	export let id: string
-	export let transformer: boolean
+	interface Props {
+		componentInput: AppInput | undefined
+		defaultUserInput?: boolean
+		componentType: string
+		id: string
+		transformer: boolean
+	}
+
+	let {
+		componentInput = $bindable(),
+		defaultUserInput = false,
+		componentType,
+		id,
+		transformer
+	}: Props = $props()
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -49,19 +59,16 @@
 			}}
 		/>
 	{:else}
-		<div class="px-2 pt-4 text-tertiary">
+		<div class="px-2 pt-4 text-primary">
 			Selected editor component is a transformer but component has no transformer
 		</div>
 	{/if}
 {:else if componentInput?.type == 'runnable'}
-	{#if componentInput?.runnable?.type === 'runnableByName' && componentInput?.runnable?.name !== undefined}
+	{#if isRunnableByName(componentInput.runnable) && componentInput?.runnable?.name !== undefined}
 		{#if componentInput.runnable.inlineScript}
 			<InlineScriptEditor
 				on:createScriptFromInlineScript={() => {
-					if (
-						componentInput?.type == 'runnable' &&
-						componentInput?.runnable?.type === 'runnableByName'
-					) {
+					if (componentInput?.type == 'runnable' && isRunnableByName(componentInput.runnable)) {
 						dispatch('createScriptFromInlineScript', componentInput?.runnable)
 					}
 				}}
@@ -76,14 +83,14 @@
 			/>
 		{:else}
 			<EmptyInlineScript
+				unusedInlineScripts={$app?.unusedInlineScripts}
 				{componentType}
-				name={componentInput.runnable.name}
 				on:delete={clear}
 				on:new={(e) => {
 					if (
 						componentInput &&
 						componentInput.type == 'runnable' &&
-						componentInput?.runnable?.type === 'runnableByName'
+						isRunnableByName(componentInput.runnable)
 					) {
 						componentInput.runnable.inlineScript = e.detail
 						componentInput.autoRefresh = true
@@ -93,7 +100,7 @@
 				}}
 			/>
 		{/if}
-	{:else if componentInput?.runnable?.type === 'runnableByPath' && componentInput?.runnable?.path}
+	{:else if componentInput?.runnable && isRunnableByPath(componentInput.runnable) && componentInput.runnable.path}
 		<InlineScriptRunnableByPath
 			on:fork={(e) => fork(e.detail)}
 			bind:runnable={componentInput.runnable}

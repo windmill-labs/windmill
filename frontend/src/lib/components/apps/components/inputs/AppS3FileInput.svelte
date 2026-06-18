@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import type { FileUploadData } from '../../inputType'
 	import { initCss } from '../../utils'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
@@ -14,49 +15,49 @@
 	import { defaultIfEmptyString } from '$lib/utils'
 	import { userStore } from '$lib/stores'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'s3fileinputcomponent'> | undefined = undefined
-	export let render: boolean
-	export let extraKey: string | undefined = undefined
-	export let onFileChange: string[] | undefined = undefined
-
-	let resolvedConfig = initConfig(
-		components['s3fileinputcomponent'].initialData.configuration,
-		configuration
-	)
-
-	type FileUploadData = {
-		name: string
-		size: number
-		progress: number
-		cancelled?: boolean
-		errorMessage?: string
-		path?: string
-		file?: File
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'s3fileinputcomponent'> | undefined
+		render: boolean
+		extraKey?: string | undefined
+		onFileChange?: string[] | undefined
 	}
+
+	let {
+		id,
+		configuration,
+		customCss = undefined,
+		render,
+		extraKey = undefined,
+		onFileChange = undefined
+	}: Props = $props()
+
+	let resolvedConfig = $state(
+		initConfig(components['s3fileinputcomponent'].initialData.configuration, untrack(() => configuration))
+	)
 
 	let fileUploads: Writable<FileUploadData[]> = writable([])
 	const { app, worldStore, componentControl, runnableComponents, workspace } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		clearFiles: () => {
 			outputs.result.set([])
 			$fileUploads = []
 		}
 	}
 
-	let value: { path: string; filename: string }[] | undefined = undefined
-	const outputs = initOutput($worldStore, id, {
-		result: value ?? ([] as { path: string; filename: string }[] | undefined),
+	let value: { path: string; filename: string }[] | undefined = $state(undefined)
+	const outputs = initOutput($worldStore, untrack(() => id), {
+		result: untrack(() => value) ?? ([] as { path: string; filename: string }[] | undefined),
 		loading: false,
 		jobId: undefined
 	})
 
-	$: resolvedConfigS3 = resolvedConfig.type.configuration.s3
+	let resolvedConfigS3 = $derived(resolvedConfig.type.configuration.s3)
 
-	let css = initCss($app.css?.fileinputcomponent, customCss)
+	let css = $state(initCss($app.css?.fileinputcomponent, untrack(() => customCss)))
 	/*
 
 		{#if resolvedConfig.displayDirectLink && fileUpload.progress === 100}
@@ -132,6 +133,7 @@
 			: undefined}
 		pathTransformer={resolvedConfig?.type?.configuration?.s3?.pathTemplate}
 		allowMultiple={resolvedConfigS3.allowMultiple}
+		allowDelete={resolvedConfigS3.allowDelete}
 		containerText={resolvedConfigS3.text}
 		customResourcePath={resolvedConfigS3.resource}
 		customResourceType="s3"

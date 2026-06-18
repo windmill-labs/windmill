@@ -3,13 +3,17 @@
 	import { Button } from '../common'
 	import { sendUserToast } from '$lib/toast'
 
-	export let getContent: () => string
-	export let customText: string | undefined = undefined
+	interface Props {
+		getContent: () => string;
+		customText?: string | undefined;
+	}
+
+	let { getContent, customText = undefined }: Props = $props();
 </script>
 
 <Button
-	size="xs"
-	color="light"
+	unifiedSize="md"
+	variant="subtle"
 	startIcon={{ icon: Download }}
 	on:click={() => {
 		try {

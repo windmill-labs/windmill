@@ -3,12 +3,10 @@
 	import ToggleHubWorkspace from '$lib/components/ToggleHubWorkspace.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import FlowScriptPicker from '../pickers/FlowScriptPicker.svelte'
 	import PickHubScript from '../pickers/PickHubScript.svelte'
 	import WorkspaceScriptPicker from '../pickers/WorkspaceScriptPicker.svelte'
-	import { isCloudHosted } from '$lib/cloud'
-	import { sendUserToast } from '$lib/toast'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { Check, Code, Zap } from 'lucide-svelte'
@@ -18,43 +16,91 @@
 	import type { SupportedLanguage } from '$lib/common'
 	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
+	import { canHavePreprocessor } from '$lib/script_helpers'
 
-	export let failureModule: boolean
-	export let preprocessorModule: boolean
-	export let shouldDisableTriggerScripts: boolean = false
-	export let noEditor: boolean
-	export let summary: string | undefined = undefined
+	interface Props {
+		failureModule: boolean
+		preprocessorModule: boolean
+		shouldDisableTriggerScripts?: boolean
+		noEditor: boolean
+		summary?: string | undefined
+	}
+
+	let {
+		failureModule,
+		preprocessorModule,
+		shouldDisableTriggerScripts = false,
+		noEditor,
+		summary = $bindable(undefined)
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
-	let kind: 'script' | 'failure' | 'approval' | 'trigger' = failureModule
-		? 'failure'
-		: summary == 'Trigger'
-		? 'trigger'
-		: summary == 'Approval'
-		? 'approval'
-		: 'script'
-	let pick_existing: 'workspace' | 'hub' = 'hub'
-	let filter = ''
+	let kind: 'script' | 'failure' | 'approval' | 'trigger' = $state(
+		untrack(() => failureModule)
+			? 'failure'
+			: summary == 'Trigger'
+				? 'trigger'
+				: summary == 'Approval'
+					? 'approval'
+					: 'script'
+	)
+	let pick_existing: 'workspace' | 'hub' = $state('hub')
+	let filter = $state('')
 
-	$: langs = processLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
-		.map((l) => [defaultScriptLanguages[l], l])
-		.filter(
-			(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1])
-		) as [string, SupportedLanguage | 'docker'][]
+	let langs = $derived(
+		processLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
+			.map((l) => [defaultScriptLanguages[l], l])
+			.filter(
+				(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1])
+			) as [string, SupportedLanguage | 'docker'][]
+	)
 
 	function displayLang(lang: SupportedLanguage | 'docker', kind: string) {
-		if (lang == 'bun' || lang == 'python3' || lang == 'deno') {
+		if (preprocessorModule) {
+			return canHavePreprocessor(lang as SupportedLanguage)
+		}
+
+		if (failureModule || kind === 'trigger') {
+			if (
+				[
+					'postgresql',
+					'mysql',
+					'bigquery',
+					'snowflake',
+					'mssql',
+					'graphql',
+					'duckdb',
+					'oracledb'
+				].includes(lang)
+			) {
+				return false
+			}
 			return true
 		}
 
-		if (lang == 'go') {
-			return (kind == 'script' || kind == 'trigger' || failureModule) && !preprocessorModule
+		if (kind === 'script') {
+			return lang !== 'docker'
 		}
 
-		if (lang == 'bash' || lang == 'nativets') {
-			return kind == 'script' && !preprocessorModule
+		if (kind === 'approval') {
+			if (
+				[
+					'postgresql',
+					'mysql',
+					'bigquery',
+					'snowflake',
+					'mssql',
+					'graphql',
+					'duckdb',
+					'oracledb'
+				].includes(lang)
+			) {
+				return false
+			}
+			return true
 		}
-		return kind == 'script' && !failureModule && !preprocessorModule
+
+		return false
 	}
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
@@ -62,40 +108,45 @@
 
 <div class="p-4 h-full flex flex-col" id="flow-editor-flow-inputs">
 	{#if summary == 'Terminate flow'}
-		<Alert role="info" title="The flow stops here"
+		<Alert type="info" title="The flow stops here"
 			>This is an identity step with an early stop that has 'true' for expression</Alert
 		>
 	{:else}{#if !failureModule && !preprocessorModule}
 			<div class="center-center">
 				<div class="max-w-min">
 					<ToggleButtonGroup bind:selected={kind}>
-						<ToggleButton
-							value="script"
-							icon={Code}
-							label="Action"
-							tooltip="An action script is simply a script that is neither a trigger nor an approval script. Those are the majority of the scripts."
-						/>
-						{#if !shouldDisableTriggerScripts}
+						{#snippet children({ item })}
 							<ToggleButton
-								value="trigger"
-								icon={Zap}
-								label="Trigger"
-								tooltip="Used as a first step most commonly with a state and a schedule to watch for changes on an external system, compute the diff since last time and set the new state. The diffs are then treated one by one with a for-loop."
+								value="script"
+								icon={Code}
+								label="Action"
+								tooltip="An action script is simply a script that is neither a trigger nor an approval script. Those are the majority of the scripts."
+								{item}
 							/>
-						{/if}
-						<ToggleButton
-							value="approval"
-							icon={Check}
-							label="Approval"
-							tooltip="An approval step will suspend the execution of a flow until it has been approved through the resume endpoints or the approval page by and solely by the recipients of those secret urls."
-						/>
+							{#if !shouldDisableTriggerScripts}
+								<ToggleButton
+									value="trigger"
+									icon={Zap}
+									label="Trigger"
+									tooltip="Used as a first step most commonly with a state and a schedule to watch for changes on an external system, compute the diff since last time and set the new state. The diffs are then treated one by one with a for-loop."
+									{item}
+								/>
+							{/if}
+							<ToggleButton
+								value="approval"
+								icon={Check}
+								label="Approval"
+								tooltip="An approval step will suspend the execution of a flow until it has been approved through the resume endpoints or the approval page by and solely by the recipients of those secret urls."
+								{item}
+							/>
+						{/snippet}
 					</ToggleButtonGroup>
 				</div>
 			</div>
 		{/if}
 		{#if kind == 'trigger'}
-			<div class="mt-2" />
-			<Alert title="Trigger scripts" role="info">
+			<div class="mt-2"></div>
+			<Alert title="Trigger scripts" type="info">
 				Trigger scripts are designed to pull data from an external source and return all of the new
 				items since the last run, without resorting to external webhooks.<br /><br />
 
@@ -129,8 +180,8 @@
 		{/if}
 
 		{#if kind == 'script' && !noEditor && !preprocessorModule}
-			<div class="mt-2" />
-			<Alert title="Action Scripts" role="info">
+			<div class="mt-2"></div>
+			<Alert title="Action Scripts" type="info">
 				An action script is simply a script that is neither a trigger nor an approval script. Those
 				are the majority of the scripts.
 			</Alert>
@@ -138,8 +189,8 @@
 
 		{#if kind == 'approval'}
 			{#if !noEditor}
-				<div class="mt-2" />
-				<Alert title="Approval/Prompt Step" role="info">
+				<div class="mt-2"></div>
+				<Alert title="Approval/Prompt Step" type="info">
 					An approval/prompt step will suspend the execution of a flow until it has been approved
 					and/or the prompts have been filled in the UI or through the resume endpoints or the
 					approval page by and solely by the recipients of the secret urls. See details in
@@ -174,10 +225,10 @@
 					documentationLink={kind === 'script'
 						? 'https://www.windmill.dev/docs/flows/editor_components#flow-actions'
 						: kind === 'trigger'
-						? 'https://www.windmill.dev/docs/flows/flow_trigger'
-						: kind === 'approval'
-						? 'https://www.windmill.dev/docs/flows/flow_approval'
-						: 'https://www.windmill.dev/docs/getting_started/flows_quickstart#flow-editor'}
+							? 'https://www.windmill.dev/docs/flows/flow_trigger'
+							: kind === 'approval'
+								? 'https://www.windmill.dev/docs/flows/flow_approval'
+								: 'https://www.windmill.dev/docs/getting_started/flows_quickstart#flow-editor'}
 				>
 					Embed <span>{kind == 'script' ? 'action' : kind}</span> script directly inside a flow instead
 					of saving the script into your workspace for reuse. You can always save an inline script to
@@ -195,7 +246,7 @@
 				from the summary</div
 			>
 			<input class="w-full" type="text" bind:value={summary} placeholder="Summary" />
-			<div class="pb-2" />
+			<div class="pb-2"></div>
 		{/if}
 		<div class="flex flex-row flex-wrap gap-2" id="flow-editor-action-script">
 			{#each langs.filter((lang) => customUi?.languages == undefined || customUi?.languages?.includes(lang?.[1])) as [label, lang] (lang)}
@@ -206,23 +257,6 @@
 						{label}
 						lang={lang == 'docker' ? 'bash' : lang}
 						on:click={() => {
-							if (lang == 'docker') {
-								if (isCloudHosted()) {
-									sendUserToast(
-										'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
-										true,
-										[
-											{
-												label: 'Learn more',
-												callback: () => {
-													window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
-												}
-											}
-										]
-									)
-									return
-								}
-							}
 							dispatch('new', {
 								language: lang == 'docker' ? 'bash' : lang,
 								kind,
@@ -234,6 +268,24 @@
 				{/if}
 			{/each}
 		</div>
+
+		{#if !failureModule && !preprocessorModule && customUi?.aiSandbox != false}
+			<h3 class="pb-2 pt-4">AI Sandbox</h3>
+			<div class="flex flex-row flex-wrap gap-2">
+				<FlowScriptPicker
+					label="Claude Code"
+					lang="claudesandbox"
+					on:click={() => {
+						dispatch('new', {
+							language: 'bun',
+							kind,
+							subkind: 'claudesandbox',
+							summary
+						})
+					}}
+				/>
+			</div>
+		{/if}
 
 		<h3 class="mb-2 mt-6"
 			>Use pre-made <span class="text-blue-500 dark:text-blue-400"

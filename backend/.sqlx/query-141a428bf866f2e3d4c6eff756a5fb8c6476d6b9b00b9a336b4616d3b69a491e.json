@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO v2_job_completed (\n                id, workspace_id, started_at, completed_at, duration_ms, result, deleted,\n                canceled_by, canceled_reason, flow_status, memory_peak, status, worker,\n                workflow_as_code_status, result_columns, retries, extras\n            ) VALUES (\n                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17\n            )\n            ON CONFLICT (id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Timestamptz",
+        "Timestamptz",
+        "Int8",
+        "Jsonb",
+        "Bool",
+        "Varchar",
+        "Text",
+        "Jsonb",
+        "Int4",
+        {
+          "Custom": {
+            "name": "job_status",
+            "kind": {
+              "Enum": [
+                "success",
+                "failure",
+                "canceled",
+                "skipped"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Jsonb",
+        "TextArray",
+        "UuidArray",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "141a428bf866f2e3d4c6eff756a5fb8c6476d6b9b00b9a336b4616d3b69a491e"
+}

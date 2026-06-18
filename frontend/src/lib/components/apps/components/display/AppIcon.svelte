@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
@@ -11,25 +11,33 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 
-	export let id: string
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = 'left'
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'iconcomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		horizontalAlignment?: 'left' | 'center' | 'right' | undefined
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'iconcomponent'> | undefined
+		render: boolean
+	}
+
+	let {
+		id,
+		horizontalAlignment = 'left',
+		verticalAlignment = undefined,
+		configuration,
+		customCss = undefined,
+		render
+	}: Props = $props()
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	let resolvedConfig = initConfig(
-		components['iconcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['iconcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 	//used so that we can count number of outputs setup for first refresh
-	initOutput($worldStore, id, {})
+	initOutput($worldStore, untrack(() => id), {})
 
-	let iconComponent: any
-
-	$: handleIcon(resolvedConfig, iconComponent)
+	let iconComponent: any = $state()
 
 	async function handleIcon(conf, comp) {
 		if (conf.icon && comp) {
@@ -37,7 +45,10 @@
 		}
 	}
 
-	let css = initCss($app.css?.iconcomponent, customCss)
+	let css = $state(initCss($app.css?.iconcomponent, untrack(() => customCss)))
+	$effect(() => {
+		handleIcon(resolvedConfig, iconComponent)
+	})
 </script>
 
 {#each Object.keys(components['iconcomponent'].initialData.configuration) as key (key)}
@@ -73,6 +84,6 @@
 			bind:this={iconComponent}
 			class={twMerge(css?.icon?.class, 'wm-icon')}
 			style={css?.icon?.style ?? ''}
-		/>
+		></div>
 	{/if}
 </AlignWrapper>

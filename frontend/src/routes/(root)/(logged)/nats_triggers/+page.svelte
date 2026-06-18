@@ -1,22 +1,41 @@
 <script lang="ts">
-	import { NatsTriggerService, type NatsTrigger } from '$lib/gen'
+	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import { run } from 'svelte/legacy'
+
+	import {
+		NatsTriggerService,
+		WorkspaceService,
+		type NatsTrigger,
+		type TriggerMode,
+		type WorkspaceDeployUISettings
+	} from '$lib/gen'
 	import {
 		canWrite,
 		displayDate,
 		getLocalSetting,
 		sendUserToast,
-		storeLocalSetting
+		storeLocalSetting,
+		removeTriggerKindIfUnused
 	} from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
+	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Button, Skeleton } from '$lib/components/common'
+	import { Alert, Badge, Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
-	import { Code, Eye, Pen, Plus, Share, Trash, Circle } from 'lucide-svelte'
+	import {
+		userStore,
+		workspaceStore,
+		userWorkspaces,
+		enterpriseLicense,
+		usedTriggerKinds
+	} from '$lib/stores'
+	import { Code, Eye, Pen, Plus, Shield, Trash, Circle, FileUp, Pause } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -30,19 +49,34 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 	import NatsTriggerEditor from '$lib/components/triggers/nats/NatsTriggerEditor.svelte'
+	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
+	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
+	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
 
 	type TriggerW = NatsTrigger & { canWrite: boolean }
 
-	let triggers: TriggerW[] = []
-	let shareModal: ShareModal
-	let loading = true
+	let triggers: TriggerW[] = $state([])
+	let shareModal: ShareModal | undefined = $state()
+	let loading = $state(true)
+	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
 
+	async function getDeployUiSettings() {
+		if (!$enterpriseLicense) {
+			deployUiSettings = ALL_DEPLOYABLE
+			return
+		}
+		let settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })
+		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
+	}
+	getDeployUiSettings()
 	async function loadTriggers(): Promise<void> {
-		triggers = (await NatsTriggerService.listNatsTriggers({ workspace: $workspaceStore! })).map(
+		triggers = (await NatsTriggerService.listNatsTriggers({ workspace: $workspaceStore!, includeDraftOnly: true })).map(
 			(x) => {
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			}
 		)
+		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'nats', $usedTriggerKinds)
 		loading = false
 	}
 
@@ -58,7 +92,7 @@
 						...triggers[i],
 						error: newTrigger.error,
 						last_server_ping: newTrigger.last_server_ping,
-						enabled: newTrigger.enabled,
+						mode: newTrigger.mode,
 						server_id: newTrigger.server_id
 					}
 				}
@@ -72,45 +106,74 @@
 		clearInterval(interval)
 	})
 
-	async function setTriggerEnabled(path: string, enabled: boolean): Promise<void> {
+	async function onToggleMode(path: string, mode: TriggerMode): Promise<boolean> {
+		let committed = false
 		try {
-			await NatsTriggerService.setNatsTriggerEnabled({
-				path,
-				workspace: $workspaceStore!,
-				requestBody: { enabled }
-			})
+			const ok = await withForkConflictRetry(
+				(force) =>
+					NatsTriggerService.setNatsTriggerMode({
+						path,
+						workspace: $workspaceStore!,
+						requestBody: { mode, force }
+					}),
+				'NATS trigger'
+			)
+			committed = ok
+			if (ok) loadTriggers()
 		} catch (err) {
 			sendUserToast(
-				`Cannot ` + (enabled ? 'enable' : 'disable') + ` NATS trigger: ${err.body}`,
+				`Cannot ` +
+					(mode === 'enabled' ? 'enable' : mode === 'disabled' ? 'disable' : 'suspend') +
+					` NATS trigger: ${err.body}`,
 				true
 			)
-		} finally {
 			loadTriggers()
 		}
+		return committed
 	}
 
-	$: {
+	run(() => {
 		if ($workspaceStore && $userStore) {
 			loadTriggers()
 		}
-	}
-	let natsTriggerEditor: NatsTriggerEditor
+	})
+	let natsTriggerEditor: NatsTriggerEditor | undefined = $state()
 
-	let filteredItems: (TriggerW & { marked?: any })[] | undefined = []
-	let items: typeof filteredItems | undefined = []
-	let preFilteredItems: typeof filteredItems | undefined = []
-	let filter = ''
-	let ownerFilter: string | undefined = undefined
-	let nbDisplayed = 15
+	let hashHandled = false
+	$effect(() => {
+		if (!hashHandled && triggers.length > 0 && natsTriggerEditor) {
+			let hash = $page.url.hash
+			if (hash.length > 1) {
+				let path = hash.slice(1)
+				let trigger = triggers.find((t) => t.path === path)
+				if (trigger) {
+					hashHandled = true
+					natsTriggerEditor?.openEdit(path, trigger.is_flow)
+				}
+			}
+		}
+	})
+
+	let filteredItems: (TriggerW & { marked?: any })[] | undefined = $state([])
+	let items: typeof filteredItems | undefined = $state([])
+	let preFilteredItems: typeof filteredItems | undefined = $state([])
+	let filter = $state('')
+	let ownerFilter: string | undefined = $state(undefined)
+	let nbDisplayed = $state(15)
 
 	const TRIGGER_PATH_KIND_FILTER_SETTING = 'filter_path_of'
 	const FILTER_USER_FOLDER_SETTING_NAME = 'user_and_folders_only'
-	let selectedFilterKind =
+	let selectedFilterKind = $state(
 		(getLocalSetting(TRIGGER_PATH_KIND_FILTER_SETTING) as 'trigger' | 'script_flow') ?? 'trigger'
-	let filterUserFolders = getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true'
+	)
+	let filterUserFolders = $state(getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true')
 
-	$: storeLocalSetting(TRIGGER_PATH_KIND_FILTER_SETTING, selectedFilterKind)
-	$: storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
+	run(() => {
+		storeLocalSetting(TRIGGER_PATH_KIND_FILTER_SETTING, selectedFilterKind)
+	})
+	run(() => {
+		storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
+	})
 
 	function filterItemsPathsBaseOnUserFilters(
 		item: TriggerW,
@@ -134,48 +197,57 @@
 		}
 	}
 
-	$: preFilteredItems =
-		ownerFilter != undefined
-			? selectedFilterKind === 'trigger'
-				? triggers?.filter(
-						(x) =>
-							x.path.startsWith(ownerFilter + '/') &&
-							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-				  )
-				: triggers?.filter(
-						(x) =>
-							x.script_path.startsWith(ownerFilter + '/') &&
-							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-				  )
-			: triggers?.filter((x) =>
-					filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-			  )
+	run(() => {
+		preFilteredItems =
+			ownerFilter != undefined
+				? selectedFilterKind === 'trigger'
+					? triggers?.filter(
+							(x) =>
+								x.path.startsWith(ownerFilter + '/') &&
+								filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
+						)
+					: triggers?.filter(
+							(x) =>
+								x.script_path.startsWith(ownerFilter + '/') &&
+								filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
+						)
+				: triggers?.filter((x) =>
+						filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
+					)
+	})
 
-	$: if ($workspaceStore) {
-		ownerFilter = undefined
-	}
+	run(() => {
+		if ($workspaceStore) {
+			ownerFilter = undefined
+		}
+	})
 
-	$: owners =
+	let owners = $derived(
 		selectedFilterKind === 'trigger'
 			? Array.from(
 					new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
+				).sort()
 			: Array.from(
 					new Set(filteredItems?.map((x) => x.script_path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
+				).sort()
+	)
 
-	$: items = filter !== '' ? filteredItems : preFilteredItems
+	run(() => {
+		items = filter !== '' ? filteredItems : preFilteredItems
+	})
 
 	function updateQueryFilters(selectedFilterKind, filterUserFolders) {
 		setQuery(
 			new URL(window.location.href),
 			TRIGGER_PATH_KIND_FILTER_SETTING,
-			selectedFilterKind
+			selectedFilterKind,
+			window.location.hash || undefined
 		).then(() => {
 			setQuery(
 				new URL(window.location.href),
 				FILTER_USER_FOLDER_SETTING_NAME,
-				String(filterUserFolders)
+				String(filterUserFolders),
+				window.location.hash || undefined
 			)
 		})
 	}
@@ -196,10 +268,13 @@
 		loadQueryFilters()
 	})
 
-	$: updateQueryFilters(selectedFilterKind, filterUserFolders)
+	run(() => {
+		updateQueryFilters(selectedFilterKind, filterUserFolders)
+	})
 </script>
 
-<NatsTriggerEditor on:update={loadTriggers} bind:this={natsTriggerEditor} />
+<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
+<NatsTriggerEditor onUpdate={loadTriggers} bind:this={natsTriggerEditor} />
 
 <SearchItems
 	{filter}
@@ -208,223 +283,285 @@
 	f={(x) => (x.summary ?? '') + ' ' + x.path + ' (' + x.script_path + ')'}
 />
 
-{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find(_ => _.id === $workspaceStore)?.operator_settings?.triggers}
-<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
-	<p class="font-bold">Unauthorized</p>
-	<p>Page not available for operators</p>
-</div>
+{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.triggers}
+	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
+		<p class="font-bold">Unauthorized</p>
+		<p>Page not available for operators</p>
+	</div>
 {:else}
-<CenteredPage>
-	<PageHeader
-		title="NATS triggers"
-		tooltip="Windmill can consume NATS events and trigger scripts or flows based on them."
-	>
-		<Button size="md" startIcon={{ icon: Plus }} on:click={() => natsTriggerEditor.openNew(false)}>
-			New&nbsp;NATS trigger
-		</Button>
-	</PageHeader>
+	<CenteredPage>
+		<PageHeader
+			title="NATS triggers"
+			tooltip="Windmill can consume NATS events and trigger scripts or flows based on them."
+		>
+			<Button
+				unifiedSize="md"
+				variant="accent"
+				startIcon={{ icon: Plus }}
+				on:click={() => natsTriggerEditor?.openNew(false)}
+			>
+				New&nbsp;NATS trigger
+			</Button>
+		</PageHeader>
 
-	{#if isCloudHosted()}
-		<Alert title="Not compatible with multi-tenant cloud" type="warning">
-			NATS triggers are disabled in the multi-tenant cloud.
-		</Alert>
-		<div class="py-4" />
-	{/if}
-	<div class="w-full h-full flex flex-col">
-		<div class="w-full pb-4 pt-6">
-			<input
-				type="text"
-				placeholder="Search NATS triggers"
-				bind:value={filter}
-				class="search-item"
-			/>
-			<div class="flex flex-row items-center gap-2 mt-6">
-				<div class="text-sm shrink-0"> Filter by path of </div>
-				<ToggleButtonGroup bind:selected={selectedFilterKind}>
-					<ToggleButton small value="trigger" label="NATS trigger" icon={NatsIcon} />
-					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
-				</ToggleButtonGroup>
+		{#if isCloudHosted()}
+			<Alert title="Not compatible with multi-tenant cloud" type="warning">
+				NATS triggers are disabled in the multi-tenant cloud.
+			</Alert>
+			<div class="py-4"></div>
+		{/if}
+		<div class="w-full h-full flex flex-col">
+			<div class="w-full pb-4 pt-6">
+				<input
+					type="text"
+					placeholder="Search NATS triggers"
+					bind:value={filter}
+					class="search-item"
+				/>
+				<div class="flex flex-row items-center gap-2 mt-2">
+					<div class="text-xs font-semibold text-emphasis shrink-0"> Filter by path of </div>
+					<ToggleButtonGroup bind:selected={selectedFilterKind}>
+						{#snippet children({ item })}
+							<ToggleButton value="trigger" label="NATS trigger" icon={NatsIcon} {item} />
+							<ToggleButton value="script_flow" label="Script/Flow" icon={Code} {item} />
+						{/snippet}
+					</ToggleButtonGroup>
+				</div>
+				<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
+
+				<div class="flex flex-row items-center justify-end gap-4">
+					{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
+						<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
+					{:else if $userStore?.is_admin || $userStore?.is_super_admin}
+						<Toggle
+							size="xs"
+							bind:checked={filterUserFolders}
+							options={{ right: `Only u/${$userStore.username} and f/*` }}
+						/>
+					{/if}
+				</div>
 			</div>
-			<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
+			{#if loading}
+				{#each new Array(6) as _}
+					<Skeleton layout={[[6], 0.4]} />
+				{/each}
+			{:else if !triggers?.length}
+				<div class="text-center text-sm text-primary mt-2"> No NATS triggers </div>
+			{:else if items?.length}
+				<div class="border rounded-md divide-y">
+					{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, is_flow, nats_resource_path, subjects, extra_perms, canWrite, marked, server_id, error, last_server_ping, mode, retry, error_handler_path, error_handler_args, labels, draft_only, is_draft } (path)}
+						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
+						{@const ping = last_server_ping ? new Date(last_server_ping) : undefined}
+						{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
+						{@const enabled = mode === 'enabled' || mode === 'suspended'}
 
-			<div class="flex flex-row items-center justify-end gap-4">
-				{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
-					<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
-				{:else if $userStore?.is_admin || $userStore?.is_super_admin}
-					<Toggle
-						size="xs"
-						bind:checked={filterUserFolders}
-						options={{ right: `Only u/${$userStore.username} and f/*` }}
-					/>
-				{/if}
-			</div>
-		</div>
-		{#if loading}
-			{#each new Array(6) as _}
-				<Skeleton layout={[[6], 0.4]} />
-			{/each}
-		{:else if !triggers?.length}
-			<div class="text-center text-sm text-tertiary mt-2"> No NATS triggers </div>
-		{:else if items?.length}
-			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, is_flow, nats_resource_path, subjects, extra_perms, canWrite, marked, server_id, error, last_server_ping, enabled } (path)}
-					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
-					{@const ping = last_server_ping ? new Date(last_server_ping) : undefined}
-					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
-
-					<div
-						class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
+						<div
+							class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
 				first-of-type:rounded-t-md last-of-type:rounded-b-md flex flex-col"
-					>
-						<div class="w-full flex gap-5 items-center">
-							<RowIcon kind={is_flow ? 'flow' : 'script'} />
+						>
+							<div class="w-full flex gap-5 items-center">
+								<RowIcon kind={is_flow ? 'flow' : 'script'} />
 
-							<a
-								href="#{path}"
-								on:click={() => natsTriggerEditor?.openEdit(path, is_flow)}
-								class="min-w-0 grow hover:underline decoration-gray-400"
-							>
-								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
-									{#if marked}
-										<span class="text-xs">
-											{@html marked}
-										</span>
-									{:else}
-										{nats_resource_path} - {subjects.join(', ')}
+								<a
+									href="#{path}"
+									onclick={() => natsTriggerEditor?.openEdit(path, is_flow)}
+									class="min-w-0 grow hover:underline decoration-gray-400"
+								>
+									<div
+										class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate"
+									>
+										{#if marked}
+											<span class="text-xs">
+												{@html marked}
+											</span>
+										{:else}
+											{nats_resource_path} - {subjects.join(', ')}
+										{/if}{(getLocalDraftHint($workspaceStore, 'trigger_nats', path) ?? is_draft) ? '*' : ''}
+									</div>
+									<div class="text-secondary text-xs truncate text-left font-light">
+										{path}
+									</div>
+									<div class="text-secondary text-xs truncate text-left font-light">
+										runnable: {script_path}
+									</div>
+								</a>
+
+								<div class="hidden lg:flex flex-row gap-1 items-center">
+									<SharedBadge {canWrite} extraPerms={extra_perms} />
+									{#if draft_only}
+										<DraftBadge draft_only is_draft={false} />
+									{/if}
+									{#if labels?.length}
+										{#each labels as label}
+											<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
+										{/each}
 									{/if}
 								</div>
-								<div class="text-secondary text-xs truncate text-left font-light">
-									{path}
+
+								<div class="w-10">
+									{#if (enabled && (!pinging || error)) || (!enabled && error) || (enabled && !server_id)}
+										<Popover notClickable>
+											<span class="flex h-4 w-4">
+												<Circle
+													class="text-red-600 animate-ping absolute inline-flex fill-current"
+													size={12}
+												/>
+												<Circle class="text-red-600 relative inline-flex fill-current" size={12} />
+											</span>
+											{#snippet text()}
+												<div>
+													{#if enabled}
+														{#if !server_id}
+															Consumer is starting...
+														{:else}
+															Consumer is not connected{error ? ': ' + error : ''}
+														{/if}
+													{:else}
+														Consumer was disabled because of an error: {error}
+													{/if}
+												</div>
+											{/snippet}
+										</Popover>
+									{:else if enabled}
+										<Popover notClickable>
+											<span class="flex h-4 w-4">
+												<Circle
+													class="text-green-600 relative inline-flex fill-current"
+													size={12}
+												/>
+											</span>
+											{#snippet text()}
+												<div> Consumer is connected </div>
+											{/snippet}
+										</Popover>
+									{/if}
 								</div>
-								<div class="text-secondary text-xs truncate text-left font-light">
-									runnable: {script_path}
-								</div>
-							</a>
 
-							<div class="hidden lg:flex flex-row gap-1 items-center">
-								<SharedBadge {canWrite} extraPerms={extra_perms} />
-							</div>
-
-							<div class="w-10">
-								{#if (enabled && (!pinging || error)) || (!enabled && error) || (enabled && !server_id)}
-									<Popover notClickable>
-										<span class="flex h-4 w-4">
-											<Circle
-												class="text-red-600 animate-ping absolute inline-flex fill-current"
-												size={12}
-											/>
-											<Circle class="text-red-600 relative inline-flex fill-current" size={12} />
-										</span>
-										<div slot="text">
-											{#if enabled}
-												{#if !server_id}
-													Consumer is starting...
-												{:else}
-													Consumer is not connected{error ? ': ' + error : ''}
-												{/if}
-											{:else}
-												Consumer was disabled because of an error: {error}
-											{/if}
-										</div>
-									</Popover>
-								{:else if enabled}
-									<Popover notClickable>
-										<span class="flex h-4 w-4">
-											<Circle class="text-green-600 relative inline-flex fill-current" size={12} />
-										</span>
-										<div slot="text"> Consumer is connected </div>
-									</Popover>
-								{/if}
-							</div>
-
-							<Toggle
-								checked={enabled}
-								disabled={!canWrite}
-								on:change={(e) => {
-									setTriggerEnabled(path, e.detail)
-								}}
-							/>
-
-							<div class="flex gap-2 items-center justify-end">
-								<Button
-									on:click={() => natsTriggerEditor?.openEdit(path, is_flow)}
-									size="xs"
-									startIcon={canWrite
-										? { icon: Pen }
-										: {
-												icon: Eye
-										  }}
-									color="dark"
-								>
-									{canWrite ? 'Edit' : 'View'}
-								</Button>
-								<Dropdown
-									items={[
-										{
-											displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
-											icon: Eye,
-											action: () => {
-												goto(href)
-											}
-										},
-										{
-											displayName: 'Delete',
-											type: 'delete',
-											icon: Trash,
-											disabled: !canWrite,
-											action: async () => {
-												await NatsTriggerService.deleteNatsTrigger({
-													workspace: $workspaceStore ?? '',
-													path
-												})
-												loadTriggers()
-											}
-										},
-										{
-											displayName: canWrite ? 'Edit' : 'View',
-											icon: canWrite ? Pen : Eye,
-											action: () => {
-												natsTriggerEditor?.openEdit(path, is_flow)
-											}
-										},
-										{
-											displayName: 'Audit logs',
-											icon: Eye,
-											href: `${base}/audit_logs?resource=${path}`
-										},
-										{
-											displayName: canWrite ? 'Share' : 'See Permissions',
-											icon: Share,
-											action: () => {
-												shareModal.openDrawer(path, 'nats_trigger')
-											}
+								<TriggerModeToggle
+									onToggleMode={(newMode) => onToggleMode(path, newMode)}
+									triggerMode={mode}
+									includeModalConfig={{
+										triggerPath: path,
+										triggerKind: 'nats',
+										runnableConfig: {
+											path: script_path,
+											kind: is_flow ? 'flow' : 'script',
+											retry,
+											errorHandlerPath: error_handler_path,
+											errorHandlerArgs: error_handler_args
 										}
-									]}
+									}}
+									{canWrite}
+									hideToggleLabels
+									hideDropdown
 								/>
+
+								<div class="flex gap-2 items-center justify-end">
+									<Button
+										on:click={() => natsTriggerEditor?.openEdit(path, is_flow)}
+										unifiedSize="md"
+										startIcon={canWrite
+											? { icon: Pen }
+											: {
+													icon: Eye
+												}}
+										variant="subtle"
+									>
+										{canWrite ? 'Edit' : 'View'}
+									</Button>
+									<Dropdown
+										items={[
+											{
+												displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
+												icon: Eye,
+												action: () => {
+													goto(href)
+												}
+											},
+											...(canWrite && mode !== 'suspended'
+												? [
+														{
+															displayName: 'Suspend job execution',
+															icon: Pause,
+															action: () => {
+																onToggleMode(path, 'suspended')
+															}
+														}
+													]
+												: []),
+											{
+												displayName: canWrite ? 'Edit' : 'View',
+												icon: canWrite ? Pen : Eye,
+												action: () => {
+													natsTriggerEditor?.openEdit(path, is_flow)
+												}
+											},
+											...(isDeployable('trigger', path, deployUiSettings)
+												? [
+														{
+															displayName: 'Deploy to prod/staging',
+															icon: FileUp,
+															action: () => {
+																deploymentDrawer?.openDrawer(path, 'trigger', {
+																	triggers: {
+																		kind: 'nats'
+																	}
+																})
+															}
+														}
+													]
+												: []),
+											{
+												displayName: 'Audit logs',
+												icon: Eye,
+												href: `${base}/audit_logs?resource=${path}`
+											},
+											{
+												displayName: 'Permissions',
+												icon: Shield,
+												action: () => {
+													shareModal?.openDrawer(path, 'nats_trigger')
+												}
+											},
+											{
+												displayName: 'Delete',
+												type: 'delete',
+												icon: Trash,
+												disabled: !canWrite,
+												action: async () => {
+													await NatsTriggerService.deleteNatsTrigger({
+														workspace: $workspaceStore ?? '',
+														path
+													})
+													loadTriggers()
+												}
+											}
+										]}
+									/>
+								</div>
 							</div>
-						</div>
-						<div class="w-full flex justify-between items-baseline">
-							<div
-								class="flex flex-wrap text-[0.7em] text-tertiary gap-1 items-center justify-end truncate pr-2"
-								><div class="truncate">edited by {edited_by}</div><div class="truncate"
-									>the {displayDate(edited_at)}</div
+							<div class="w-full flex justify-between items-baseline">
+								<div
+									class="flex flex-wrap text-2xs text-secondary gap-1 items-center justify-end truncate pr-2"
+									><div class="truncate">edited by {edited_by}</div><div class="truncate"
+										>the {displayDate(edited_at)}</div
+									></div
 								></div
-							></div
-						>
-					</div>
-				{/each}
-			</div>
-		{:else}
-			<NoItemFound />
+							>
+						</div>
+					{/each}
+				</div>
+			{:else}
+				<NoItemFound />
+			{/if}
+		</div>
+		{#if items && items?.length > 15 && nbDisplayed < items.length}
+			<span class="text-xs"
+				>{nbDisplayed} items out of {items.length}
+				<button class="ml-4" onclick={() => (nbDisplayed += 30)}>load 30 more</button></span
+			>
 		{/if}
-	</div>
-	{#if items && items?.length > 15 && nbDisplayed < items.length}
-		<span class="text-xs"
-			>{nbDisplayed} items out of {items.length}
-			<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
-		>
-	{/if}
-</CenteredPage>
+	</CenteredPage>
 {/if}
 
 <ShareModal

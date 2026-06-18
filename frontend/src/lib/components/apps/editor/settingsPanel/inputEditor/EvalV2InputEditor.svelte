@@ -13,27 +13,49 @@
 	import { zIndexes } from '$lib/zIndexes'
 	import Popover from '$lib/components/Popover.svelte'
 
-	export let componentInput: EvalV2AppInput | undefined
-	export let id: string
-	export let field: string
-	export let fixedOverflowWidgets: boolean = true
-	export let acceptSelf: boolean = false
-	export let recomputeOnInputChanged = true
-	export let showOnDemandOnlyToggle = false
-	export let securedContext = false
+	interface Props {
+		componentInput: EvalV2AppInput | undefined
+		id: string
+		field: string
+		fixedOverflowWidgets?: boolean
+		acceptSelf?: boolean
+		recomputeOnInputChanged?: boolean
+		showOnDemandOnlyToggle?: boolean
+		securedContext?: boolean
+		disabled?: boolean
+	}
 
-	const { onchange, worldStore, state, app } = getContext<AppViewerContext>('AppViewerContext')
+	let {
+		componentInput = $bindable(),
+		id,
+		field,
+		fixedOverflowWidgets = true,
+		acceptSelf = false,
+		recomputeOnInputChanged = true,
+		showOnDemandOnlyToggle = false,
+		securedContext = false,
+		disabled = false
+	}: Props = $props()
+
+	const {
+		onchange,
+		worldStore,
+		state: stateStore,
+		app
+	} = getContext<AppViewerContext>('AppViewerContext')
 	const { evalPreview } = getContext<AppEditorContext>('AppEditorContext')
 
-	let editor: SimpleEditor
+	let editor: SimpleEditor | undefined = $state()
 	export function setCode(code: string) {
 		editor?.setCode(code)
 	}
 
-	$: extraLib =
-		componentInput?.expr && $worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {}, acceptSelf ? '' : id, $state, false)
+	let exprDefined = $derived(componentInput?.expr != undefined)
+	let extraLib = $derived(
+		exprDefined && $worldStore
+			? buildExtraLib($worldStore?.outputsById ?? {}, acceptSelf ? '' : id, $stateStore, false)
 			: undefined
+	)
 
 	if (
 		componentInput &&
@@ -53,8 +75,8 @@
 		}
 	}
 
-	let fullscreen = false
-	let focus = false
+	let fullscreen = $state(false)
+	let focus = $state(false)
 </script>
 
 {#if componentInput?.type === 'evalv2'}
@@ -68,10 +90,11 @@
 			<Splitpanes horizontal class="h-full">
 				<Pane size={50}>
 					<SimpleEditor
+						loadAsync
 						class="h-full w-full"
 						bind:this={editor}
 						lang="javascript"
-						bind:code={componentInput.expr}
+						bind:code={() => componentInput.expr ?? '', (e) => (componentInput.expr = e)}
 						shouldBindKey={false}
 						fixedOverflowWidgets={false}
 						{extraLib}
@@ -88,7 +111,7 @@
 						<div
 							class="p-1 !text-2xs absolute border border-l bg-surface w-full z-[5000] overflow-auto"
 						>
-							<pre class="text-tertiary"
+							<pre class="text-primary"
 								>{JSON.stringify($evalPreview[`${id}.${field}`] ?? null, null, 4) ?? 'null'}</pre
 							>
 						</div>
@@ -100,13 +123,22 @@
 	<div class="border relative">
 		{#if !fullscreen}
 			<SimpleEditor
+				loadAsync
 				small
 				bind:this={editor}
 				lang="javascript"
-				bind:code={componentInput.expr}
+				bind:code={
+					() => componentInput.expr ?? '',
+					(e) => {
+						if (componentInput.expr != e) {
+							componentInput.expr = e
+						}
+					}
+				}
 				shouldBindKey={false}
 				{extraLib}
 				autoHeight
+				{disabled}
 				{fixedOverflowWidgets}
 				on:focus={() => {
 					focus = true
@@ -125,26 +157,26 @@
 				<div class="border bg-surface absolute top-0.5 right-8 p-0.5">
 					<Popover notClickable>
 						<Shield size={12} />
-						<svelte:fragment slot="text">
+						{#snippet text()}
 							This context variable is securely provided by the backend and cannot be altered by
 							users
-						</svelte:fragment>
+						{/snippet}
 					</Popover>
 				</div>
 			{/if}
 			<button
 				title="Open in drawer"
 				class="border bg-surface absolute hover:text-primary top-0 right-2 p-0.5 text-secondary"
-				on:click={() => (fullscreen = true)}><Maximize2 size={10} /></button
+				onclick={() => (fullscreen = true)}><Maximize2 size={10} /></button
 			>
 			{#if focus}
 				<div class="relative w-full">
 					<div
 						class="p-1 !text-2xs absolute rounded-b border-b border-r border-l bg-surface w-full z-[5000] overflow-auto"
 					>
-						<!-- <div class="text-tertiary absolute top-0 right-0 !text-2xs">{id}.{field}</div> -->
-						<div class="float-right text-tertiary cursor-pointer"><X size={14} /></div>
-						<pre class="text-tertiary"
+						<!-- <div class="text-primary absolute top-0 right-0 !text-2xs">{id}.{field}</div> -->
+						<div class="float-right text-primary cursor-pointer"><X size={14} /></div>
+						<pre class="text-primary"
 							>{JSON.stringify($evalPreview[`${id}.${field}`] ?? null, null, 4) ?? 'null'}</pre
 						>
 					</div>
@@ -185,7 +217,7 @@
 					}}
 				/>
 			{/if}
-			<div class="text-2xs text-tertiary"
+			<div class="text-2xs text-primary"
 				>{componentInput.onDemandOnly ? 'NOT' : ''} Re-evaluated on changes to:</div
 			>
 			<div class="flex flex-wrap gap-1">

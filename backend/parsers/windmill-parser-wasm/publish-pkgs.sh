@@ -27,3 +27,18 @@ popd
 
 pushd "pkg-csharp" && npm publish ${args}
 popd
+
+pushd "pkg-nu" && npm publish ${args}
+popd
+
+pushd "pkg-java" && npm publish ${args}
+popd
+
+pushd "pkg-asset" && npm publish ${args}
+popd
+
+pushd "pkg-py-imports" && npm publish ${args}
+popd
+
+pushd "pkg-wac" && npm publish ${args}
+popd

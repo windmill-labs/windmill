@@ -7,7 +7,6 @@ services:
     # image: mcr.microsoft.com/vscode/devcontainers/rust:bullseye
     environment:
       - DENO_PATH=/usr/local/cargo/bin/deno
-      - PYTHON_PATH=/usr/bin/python3
       - NSJAIL_PATH=/bin/nsjail
     volumes:
       - .:/workspace:cached

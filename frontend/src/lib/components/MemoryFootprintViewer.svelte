@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { type MetricDataPoint, MetricsService } from '$lib/gen'
 	import { displayTime } from '$lib/utils'
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import {
 		CategoryScale,
 		Chart as ChartJS,
@@ -12,21 +14,25 @@
 		Title,
 		Tooltip
 	} from 'chart.js'
-	import { Line } from 'svelte-chartjs'
+	import { Line } from '$lib/components/chartjs-wrappers/chartJs'
 	import { Alert } from './common'
 
 	ChartJS.register(Title, Tooltip, Legend, LineElement, LinearScale, PointElement, CategoryScale)
 
-	export let jobId: string
-	export let jobUpdateLastFetch: Date | undefined
+	interface Props {
+		jobId: string;
+		jobUpdateLastFetch: Date | undefined;
+	}
+
+	let { jobId, jobUpdateLastFetch }: Props = $props();
 
 	let jobMetricsLastFetch: Date | undefined = undefined
-	let jobMemoryStats: MetricDataPoint[] | undefined = undefined
+	let jobMemoryStats: MetricDataPoint[] | undefined = $state(undefined)
 
 	let data: {
 		x: number
 		y: number
-	}[] = []
+	}[] = $state([])
 	let labels: string[] = []
 
 	async function loadMetricsData() {
@@ -66,15 +72,13 @@
 		data = [...data]
 	}
 
-	$: jobUpdateLastFetch && loadMetricsData()
+	run(() => {
+		jobUpdateLastFetch && loadMetricsData()
+	});
 </script>
 
 <div class="relative max-h-100">
-	{#if !$enterpriseLicense}
-		<Alert type="error" title="Enterprise Edition only feature">
-			Job metrics are only available on Windmill Enterprise Edition.
-		</Alert>
-	{:else if (jobMemoryStats?.length ?? 0) === 0}
+	{#if (jobMemoryStats?.length ?? 0) === 0}
 		<Alert type="info" title="No metric available"
 			>No data points available for this job. Metrics are recorded only for jobs running for more
 			than 500ms.</Alert

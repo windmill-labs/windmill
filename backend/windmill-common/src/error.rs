@@ -22,8 +22,8 @@ pub type JsonResult<T> = std::result::Result<Json<T>, Error>;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Uuid Error {0}")]
-    UuidErr(#[from] uuid::Error),
+    #[error("Bad gateway: {0}")]
+    BadGateway(String),
     #[error("Bad config: {0}")]
     BadConfig(String),
     #[error("Connecting to database: {0}")]
@@ -40,38 +40,175 @@ pub enum Error {
     RequireAdmin(String),
     #[error("{0}")]
     ExecutionErr(String),
-    #[error("IO error: {0}")]
-    IoErr(#[from] io::Error),
-    #[error("Sql error: {0}")]
-    SqlErr(#[from] sqlx::Error),
+    #[error("{0}")]
+    ResultTooLarge(String),
+    #[error("IoErr: {error:#} @{location:#}")]
+    IoErr { error: io::Error, location: String },
+    #[error("Utf8Err: {error:#} @{location:#}")]
+    Utf8Err { error: std::string::FromUtf8Error, location: String },
+    #[error("UuidErr: {error:#} @{location:#}")]
+    UuidErr { error: uuid::Error, location: String },
+    #[error("SqlErr: {error:#} @{location:#}")]
+    SqlErr { error: sqlx::Error, location: String },
+    #[error("SerdeJson: {error:#} @{location:#}")]
+    SerdeJson { error: serde_json::Error, location: String },
     #[error("Bad request: {0}")]
     BadRequest(String),
     #[error("Quota exceeded: {0}")]
     QuotaExceeded(String),
     #[error("Internal: {0}")]
     InternalErr(String),
+    #[error("Internal: {message} @{location}")]
+    InternalErrLoc { message: String, location: String },
     #[error("Internal: {0}: {1}")]
     InternalErrAt(&'static Location<'static>, String),
-    #[error("Hexadecimal decoding error: {0}")]
-    HexErr(#[from] hex::FromHexError),
+    #[error("HexErr: {error:#} @{location:#}")]
+    HexErr { error: hex::FromHexError, location: String },
     #[error("Migrating database: {0}")]
     DatabaseMigration(#[from] MigrateError),
-    #[error("Non-zero exit status: {0}")]
-    ExitStatus(i32),
-    #[error("Err: {0:#}")]
-    Anyhow(#[from] anyhow::Error),
-    #[error("Error: {0:#?}")]
+    #[error("Non-zero exit status for {0}: {1}")]
+    ExitStatus(String, i32),
+    #[error("ExecutionRawError: {0}")]
+    ExecutionRawError(Box<serde_json::value::RawValue>),
+    #[error("Error: {error:#} @{location:#}")]
+    Anyhow { error: anyhow::Error, location: String },
+    #[error("{}", format_json_err_message(.0))]
     JsonErr(serde_json::Value),
     #[error("{0}")]
-    AiError(String),
+    AIError(String),
     #[error("{0}")]
     AlreadyCompleted(String),
+    #[error("WAC job suspended: {0}")]
+    WacSuspended(String),
     #[error("Find python error: {0}")]
     FindPythonError(String),
-    #[error("{0}")]
-    Utf8(#[from] std::string::FromUtf8Error),
-    #[error("Encoding/decoding error: {0}")]
-    SerdeJson(#[from] serde_json::Error),
+    #[error("Problem with arguments: {0}")]
+    ArgumentErr(String),
+    #[error("{1}")]
+    Generic(StatusCode, String),
+    #[error("{feature} is unavailable due to some workers being behind. Do not use the feature or make sure all workers run at least {min_version}")]
+    WorkersAreBehind { feature: String, min_version: String },
+    #[error(
+        "Breaking change was introduced in v{version} ({feature}). Follow this migration guide: {guide_url}"
+    )]
+    MigrationNeeded { version: String, feature: String, guide_url: url::Url },
+    #[error("{0} is unavailable. It is possible for this worker to be behind.")]
+    FeatureUnavailable(String),
+}
+
+impl Error {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::ExecutionErr(_) => "ExecutionErr",
+            Self::ResultTooLarge(_) => "ResultTooLarge",
+            Self::BadRequest(_) => "BadRequest",
+            Self::QuotaExceeded(_) => "QuotaExceeded",
+            Self::InternalErr(_) => "InternalErr",
+            Self::InternalErrLoc { .. } => "InternalErr",
+            Self::InternalErrAt(_, _) => "InternalErr",
+            Self::Anyhow { .. } => "Anyhow",
+            Self::JsonErr(_) => "JsonErr",
+            Self::AIError(_) => "AIError",
+            Self::AlreadyCompleted(_) => "AlreadyCompleted",
+            Self::WacSuspended(_) => "WacSuspended",
+            Self::FindPythonError(_) => "FindPythonError",
+            Self::ArgumentErr(_) => "ArgumentErr",
+            Self::Generic(_, _) => "Generic",
+            Self::IoErr { .. } => "IoErr",
+            Self::Utf8Err { .. } => "Utf8Err",
+            Self::UuidErr { .. } => "UuidErr",
+            Self::SqlErr { .. } => "SqlErr",
+            Self::SerdeJson { .. } => "SerdeJson",
+            Self::HexErr { .. } => "HexErr",
+            Self::DatabaseMigration(_) => "DatabaseMigration",
+            Self::ExitStatus(_, _) => "ExitStatus",
+            Self::ExecutionRawError(_) => "ExecutionRawError",
+            Self::BadGateway(_) => "BadGateway",
+            Self::BadConfig(_) => "BadConfig",
+            Self::ConnectingToDatabase(_) => "ConnectingToDatabase",
+            Self::NotFound(_) => "NotFound",
+            Self::NotAuthorized(_) => "NotAuthorized",
+            Self::MetricNotFound(_) => "MetricNotFound",
+            Self::PermissionDenied(_) => "PermissionDenied",
+            _ => "InternalErr",
+        }
+    }
+}
+
+fn prettify_location(location: &'static Location<'static>) -> String {
+    location
+        .to_string()
+        .split("/")
+        .last()
+        .unwrap_or("unknown")
+        .to_string()
+}
+impl From<anyhow::Error> for Error {
+    #[track_caller]
+    fn from(e: anyhow::Error) -> Self {
+        Self::Anyhow { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
+}
+
+impl From<sqlx::Error> for Error {
+    #[track_caller]
+    fn from(e: sqlx::Error) -> Self {
+        Self::SqlErr { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
+}
+
+impl From<uuid::Error> for Error {
+    #[track_caller]
+    fn from(e: uuid::Error) -> Self {
+        Self::UuidErr { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
+}
+
+impl From<std::string::FromUtf8Error> for Error {
+    #[track_caller]
+    fn from(e: std::string::FromUtf8Error) -> Self {
+        Self::Utf8Err { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
+}
+
+impl From<io::Error> for Error {
+    #[track_caller]
+    fn from(e: io::Error) -> Self {
+        Self::IoErr { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
+}
+
+impl From<hex::FromHexError> for Error {
+    #[track_caller]
+    fn from(e: hex::FromHexError) -> Self {
+        Self::HexErr { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
+}
+
+impl From<serde_json::Error> for Error {
+    #[track_caller]
+    fn from(e: serde_json::Error) -> Self {
+        Self::SerdeJson { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
+}
+
+impl From<url::ParseError> for Error {
+    #[track_caller]
+    fn from(e: url::ParseError) -> Self {
+        Self::ArgumentErr(format!("Cannot parse provided url. \ne: {e}"))
+    }
+}
+
+impl From<tokio::time::error::Elapsed> for Error {
+    fn from(value: tokio::time::error::Elapsed) -> Self {
+        Self::InternalErr(value.to_string())
+    }
+}
+
+impl From<semver::Error> for Error {
+    fn from(e: semver::Error) -> Self {
+        Self::ArgumentErr(format!("Cannot parse provided semver: {e}"))
+    }
 }
 
 impl Error {
@@ -86,8 +223,18 @@ impl Error {
 
     pub fn relocate_internal(self, loc: &'static Location<'static>) -> Self {
         match self {
-            Self::InternalErr(s) | Self::InternalErrAt(_, s) => Self::InternalErrAt(loc, s),
+            Self::InternalErrLoc { message, .. }
+            | Self::InternalErrAt(_, message)
+            | Self::InternalErr(message) => Self::InternalErrAt(loc, message),
             _ => self,
+        }
+    }
+
+    #[track_caller]
+    pub fn internal_err<T: AsRef<str>>(msg: T) -> Self {
+        Self::InternalErrLoc {
+            message: msg.as_ref().to_string(),
+            location: prettify_location(std::panic::Location::caller()),
         }
     }
 }
@@ -102,18 +249,21 @@ pub fn to_anyhow<T: 'static + std::error::Error + Send + Sync>(e: T) -> anyhow::
 
 impl IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
-        let e = &self;
-        let body = Body::from(e.to_string());
-
         let status = match self {
             Self::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
             Self::NotAuthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
-            Self::RequireAdmin(_) => axum::http::StatusCode::FORBIDDEN,
-            Self::SqlErr(_) | Self::BadRequest(_) | Self::AiError(_) | Self::QuotaExceeded(_) => {
-                axum::http::StatusCode::BAD_REQUEST
-            }
+            Self::RequireAdmin(_) | Self::PermissionDenied(_) => axum::http::StatusCode::FORBIDDEN,
+            Self::SqlErr { .. }
+            | Self::BadRequest(_)
+            | Self::AIError(_)
+            | Self::JsonErr(_)
+            | Self::QuotaExceeded(_) => axum::http::StatusCode::BAD_REQUEST,
+            Self::BadGateway(_) => axum::http::StatusCode::BAD_GATEWAY,
+            Self::Generic(status_code, _) => status_code,
             _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         };
+
+        let e = &self;
 
         if matches!(status, axum::http::StatusCode::NOT_FOUND) {
             tracing::warn!(message = e.to_string());
@@ -121,12 +271,67 @@ impl IntoResponse for Error {
             tracing::error!(message = e.to_string(), error = ?e);
         };
 
+        let body = Body::from(e.to_string());
+
         axum::response::Response::builder()
             .header("Content-Type", "text/plain")
             .status(status)
             .body(body)
             .unwrap()
     }
+}
+
+/// Render a `JsonErr` payload as a readable message suitable for direct
+/// display in a toast: surface the `error` field as the headline, append a
+/// short summary of `details` (e.g. duplicate paths) when present, and fall
+/// back to pretty JSON for unknown shapes. Avoids the Rust `Debug` output
+/// (`Object { "error": String("..."), ... }`) that previously leaked to users.
+fn format_json_err_message(v: &serde_json::Value) -> String {
+    if let Some(obj) = v.as_object() {
+        let headline = obj
+            .get("error")
+            .and_then(|e| e.as_str())
+            .map(|s| s.to_string());
+        let details_summary = obj.get("details").and_then(|d| {
+            let arr = d.as_array()?;
+            if arr.is_empty() {
+                return None;
+            }
+            let preview = arr
+                .iter()
+                .take(5)
+                .map(|item| match item {
+                    serde_json::Value::Object(o) => {
+                        let parts: Vec<String> = o
+                            .iter()
+                            .map(|(k, val)| match val {
+                                serde_json::Value::String(s) => format!("{k}={s}"),
+                                _ => format!("{k}={val}"),
+                            })
+                            .collect();
+                        format!("- {}", parts.join(", "))
+                    }
+                    serde_json::Value::String(s) => format!("- {s}"),
+                    other => format!("- {other}"),
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let suffix = if arr.len() > 5 {
+                format!("\n... ({} more)", arr.len() - 5)
+            } else {
+                String::new()
+            };
+            Some(format!("{preview}{suffix}"))
+        });
+
+        match (headline, details_summary) {
+            (Some(h), Some(d)) => return format!("{h}\n{d}"),
+            (Some(h), None) => return h,
+            (None, Some(d)) => return d,
+            (None, None) => {}
+        }
+    }
+    serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())
 }
 
 pub trait OrElseNotFound<T> {
@@ -163,5 +368,55 @@ where
 {
     fn from(err: E) -> Self {
         Self(err.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn json_err_message_error_and_details() {
+        let v = json!({
+            "error": "Duplicate HTTP route paths detected",
+            "details": [
+                { "route_path": "a", "workspace_id": "admins", "http_method": "post" },
+                { "route_path": "a", "workspace_id": "starter", "http_method": "post" },
+            ],
+        });
+        let rendered = Error::JsonErr(v).to_string();
+        assert_eq!(
+            rendered,
+            "Duplicate HTTP route paths detected\n\
+             - route_path=a, workspace_id=admins, http_method=post\n\
+             - route_path=a, workspace_id=starter, http_method=post"
+        );
+    }
+
+    #[test]
+    fn json_err_message_error_only() {
+        let v = json!({ "error": "Something went wrong" });
+        assert_eq!(Error::JsonErr(v).to_string(), "Something went wrong");
+    }
+
+    #[test]
+    fn json_err_message_truncates_long_details() {
+        let details: Vec<_> = (0..8).map(|i| json!({ "k": i })).collect();
+        let v = json!({ "error": "boom", "details": details });
+        let rendered = Error::JsonErr(v).to_string();
+        assert!(rendered.starts_with("boom\n- k=0\n- k=1\n- k=2\n- k=3\n- k=4"));
+        assert!(rendered.ends_with("... (3 more)"));
+        // Items beyond the cap aren't enumerated.
+        assert!(!rendered.contains("- k=5"));
+    }
+
+    #[test]
+    fn json_err_message_fallback_to_pretty_json() {
+        let v = json!([1, 2, 3]);
+        // Non-object payload falls back to pretty JSON instead of leaking
+        // Rust `Debug` syntax.
+        let rendered = Error::JsonErr(v).to_string();
+        assert_eq!(rendered, "[\n  1,\n  2,\n  3\n]");
     }
 }

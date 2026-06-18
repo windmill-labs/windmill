@@ -1,0 +1,76 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Windmill Overview
+
+Windmill is an open-source developer platform for building internal tools, API integrations, background jobs, workflows, and user interfaces. It offers a unified system where scripts are automatically turned into sharable UIs and can be composed into flows or embedded in custom applications.
+
+## Core Capabilities
+
+- **Script Development and Execution**: Write and run scripts in Python, TypeScript/JavaScript (Deno/Bun), Go, Bash, SQL, and other languages
+- **Workflow Orchestration**: Compose scripts into multi-step flows with conditional logic, loops, and error handling
+- **UI Generation**: Automatically generate UIs from scripts or build custom applications with a low-code editor
+- **Job Scheduling**: Trigger scripts and flows on schedules, webhooks, or external events
+- **Resource Management**: Securely store and use credentials, databases, and other connections
+
+## Platform Architecture
+
+The Windmill platform consists of several key components:
+
+- **Frontend UI**: Web-based interface for script and flow development, app building, and result visualization
+- **API Server**: Central API that handles authentication, resource management, and job coordination
+- **Workers**: Execute scripts in their respective environments with proper sandboxing
+- **Database**: PostgreSQL database for storage of scripts, flows, resources, job results, and more
+- **Job Queue**: Queue system for managing job execution, implemented in PostgreSQL
+- **Client Libraries**: Libraries for interacting with Windmill from Python, TypeScript, or command line
+
+# Windmill Backend Architecture
+
+The Windmill backend is written in Rust and consists of several services working together. These services are designed for horizontal scaling with stateless API servers and workers that can be deployed across multiple machines.
+
+## Key Components
+
+- **API Server (`windmill-api`)**: Handles HTTP requests, authentication, and resource management
+- **Queue Manager (`windmill-queue`)**: Manages the job queue in PostgreSQL
+- **Worker System (`windmill-worker`)**: Executes jobs in sandboxed environments
+- **Common Utilities (`windmill-common`)**: Shared code used by multiple services
+- **Git Sync (`windmill-git-sync`)**: Synchronizes scripts with Git repositories
+
+## Job Execution System
+
+The job execution process follows these steps:
+
+1. The API server receives a request to run a script or flow and creates a job record in the database
+2. The job is added to the queue system in PostgreSQL
+3. Workers continuously poll the queue for jobs matching their capabilities
+4. When a job is picked up, it's routed to the appropriate language executor
+5. The script is executed in a sandboxed environment using NSJAIL for security
+6. Results are processed and stored in the database
+7. For flows, each step creates a new job that goes through the same process
+
+Windmill supports worker tags and groups to route jobs to workers with specific capabilities or resource access.
+
+# Windmill Frontend Architecture
+
+The Windmill frontend is built with Svelte and provides several key interfaces for interacting with the platform.
+
+## Key Components
+
+- **Script Builder**: Code editor with language support, schema inference, and dependency management
+- **Flow Builder**: Visual editor for creating multi-step workflows with branching and looping
+- **App Editor**: Grid-based editor for building custom UIs that integrate scripts and flows
+- **Schema Form System**: Generates form interfaces from script parameters automatically
+- **Result Viewer**: Visualizes job results, logs, and execution status
+
+The frontend uses the Monaco editor (same as VS Code) for code editing, with specialized language support for all supported script languages.
+
+## UI Framework
+
+The frontend is built with Svelte, providing a reactive and component-based architecture. Key frontend technologies include:
+
+- **Svelte/SvelteKit**: Core framework for UI components and routing
+- **Monaco Editor**: Code editing experience similar to VS Code
+- **Schema Form**: Automatic UI generation from TypeScript/JSON schemas
+- **Tailwind CSS**: Utility-first CSS framework for styling

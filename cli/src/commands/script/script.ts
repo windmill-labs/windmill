@@ -1,0 +1,1905 @@
+import { GlobalOptions } from "../../types.ts";
+import { requireLogin } from "../../core/auth.ts";
+import { resolveWorkspace, validatePath } from "../../core/context.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
+import { writeFile, stat, mkdir } from "node:fs/promises";
+import { Buffer } from "node:buffer";
+import { colors } from "@cliffy/ansi/colors";
+import { Command } from "@cliffy/command";
+import { Confirm } from "@cliffy/prompt/confirm";
+import { Table } from "@cliffy/table";
+import * as log from "../../core/log.ts";
+import { sep as SEP } from "node:path";
+import * as path from "node:path";
+import { stringify as yamlStringify } from "yaml";
+import { deepEqual, getHeaders, readTextFile, readTextFileSync } from "../../utils/utils.ts";
+import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
+import * as wmill from "../../../gen/services.gen.ts";
+import * as specificItems from "../../core/specific_items.ts";
+import { getCurrentGitBranch } from "../../utils/git.ts";
+
+import {
+  defaultScriptMetadata,
+  scriptBootstrapCode,
+} from "../../../bootstrap/script_bootstrap.ts";
+
+import { Workspace } from "../workspace/workspace.ts";
+import {
+  checkifMetadataUptodate,
+  generateScriptHash,
+  generateScriptMetadataInternal,
+  getRawWorkspaceDependencies,
+  parseMetadataFile,
+  readLockfile,
+} from "../../utils/metadata.ts";
+import { validateRequiredArgs } from "../../utils/utils.ts";
+import {
+  WorkspaceDependenciesLanguage,
+  ScriptLanguage,
+  inferContentTypeFromFilePath,
+  workspaceDependenciesLanguages,
+} from "../../utils/script_common.ts";
+import {
+  elementsToMap,
+  findCodebase,
+  readDirRecursiveWithIgnore,
+  Skips,
+  yamlOptions,
+} from "../sync/sync.ts";
+import { ignoreF } from "../sync/sync.ts";
+import { FSFSElement } from "../sync/sync.ts";
+import {
+  SyncOptions,
+  mergeConfigWithConfigFile,
+  readConfigFile,
+} from "../../core/conf.ts";
+import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
+import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
+import fs from "node:fs";
+import { createTarBlob, type TarEntry } from "../../utils/tar.ts";
+import { getEsbuild } from "../../utils/esbuild_loader.ts";
+
+import { execSync } from "node:child_process";
+import { NewScript, Script, ScriptModule } from "../../../gen/types.gen.ts";
+import {
+  isRawAppBackendPath as isRawAppBackendPathInternal,
+  isAppInlineScriptPath as isAppInlineScriptPathInternal,
+  isFlowInlineScriptPath as isFlowInlineScriptPathInternal,
+  isFlowPath,
+  isAppPath,
+  isScriptModulePath,
+  buildModuleFolderPath,
+  getModuleFolderSuffix,
+  isModuleEntryPoint,
+  getScriptBasePathFromModulePath,
+  scriptPathToRemotePath,
+  isRawAppPath,
+} from "../../utils/resource_folders.ts";
+
+export interface ScriptFile {
+  parent_hash?: string;
+  summary: string;
+  description: string;
+  schema?: any;
+  is_template?: boolean;
+  lock?: Array<string>;
+  kind?: "script" | "failure" | "trigger" | "command" | "approval";
+  // Mirrors granular ACLs on the script path. Omitted from .script.yaml when
+  // no perms are set. The CLI applies diffs through /acls/add and /acls/remove
+  // (see applyExtraPermsDiff) — never through create_script — so a perm-only
+  // change never bumps the script hash/version.
+  extra_perms?: Record<string, boolean>;
+}
+
+/**
+ * Checks if a path is inside a raw app backend folder.
+ * Matches patterns like: .../myApp.raw_app/backend/...
+ */
+export function isRawAppBackendPath(filePath: string): boolean {
+  return isRawAppBackendPathInternal(filePath);
+}
+
+/**
+ * Checks if a path is inside a normal app folder (inline script).
+ * Matches patterns like: .../myApp.app/... or .../myApp__app/...
+ */
+export function isAppInlineScriptPath(filePath: string): boolean {
+  return isAppInlineScriptPathInternal(filePath);
+}
+
+/**
+ * Checks if a path is inside a flow folder (inline script).
+ * Matches patterns like: .../myFlow.flow/... or .../myFlow__flow/...
+ */
+export function isFlowInlineScriptPath(filePath: string): boolean {
+  return isFlowInlineScriptPathInternal(filePath);
+}
+
+type PushOptions = GlobalOptions & { message?: string };
+export async function computePushMetadataHash(
+  filePath: string,
+  content: string
+): Promise<string> {
+  const remotePath = removeExtensionToPath(filePath).replaceAll(SEP, "/");
+  const metadataWithType = await parseMetadataFile(remotePath, undefined);
+  const metadataContent = await readTextFile(metadataWithType.path);
+  return await generateScriptHash({}, content, metadataContent);
+}
+
+async function push(opts: PushOptions, filePath: string) {
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+
+  if (!validatePath(filePath)) {
+    return;
+  }
+
+  const fstat = await stat(filePath);
+  if (!fstat.isFile()) {
+    throw new Error("file path must refer to a file.");
+  }
+
+  if (filePath.endsWith(".script.json") || filePath.endsWith(".script.yaml")) {
+    throw Error(
+      "Cannot push a script metadata file, point to the script content file instead (.py, .ts, .go|.sh)"
+    );
+  }
+
+  await requireLogin(opts);
+
+  // Warn about metadata state before pushing
+  try {
+    const content = await readTextFile(filePath);
+    const remotePath = removeExtensionToPath(filePath).replaceAll(SEP, "/");
+    const contentHash = await computePushMetadataHash(filePath, content);
+    const conf = await readLockfile();
+    const hasLockEntry = conf.locks && (conf.locks[remotePath] !== undefined || conf.locks[`${remotePath}.ts`] !== undefined);
+    if (!hasLockEntry) {
+      log.warn(colors.yellow(
+        `No metadata generated yet for ${filePath}. Run 'wmill generate-metadata' to generate schema and lock.`
+      ));
+    } else if (!(await checkifMetadataUptodate(remotePath, contentHash, conf))) {
+      log.warn(colors.yellow(
+        `Metadata for ${filePath} appears stale (content changed since last 'wmill generate-metadata').\n` +
+        `The schema and lock may not match the current code. Consider running 'wmill generate-metadata' first.`
+      ));
+    }
+  } catch {
+    // Don't block push if check fails
+  }
+
+  const codebases = await listSyncCodebases(opts as SyncOptions);
+
+  await handleFile(
+    filePath,
+    workspace,
+    [],
+    opts.message,
+    opts,
+    await getRawWorkspaceDependencies(true),
+    codebases
+  );
+  log.info(colors.bold.underline.green(`Script ${filePath} pushed`));
+}
+
+export async function findResourceFile(path: string) {
+  const splitPath = path.split(".");
+
+  let contentBasePathJSON = splitPath[0] + "." + splitPath[1] + ".json";
+  let contentBasePathYAML = splitPath[0] + "." + splitPath[1] + ".yaml";
+
+  // Check for workspace-specific metadata files first, using the wmill.yaml
+  // config key for the current git branch as the filename suffix (falls back
+  // to the branch name when no matching workspace entry exists).
+  const currentBranch = getCurrentGitBranch();
+  const wsName = currentBranch
+    ? await specificItems.resolveWsNameForGitBranch(currentBranch)
+    : null;
+
+  const candidates = [contentBasePathJSON, contentBasePathYAML];
+
+  if (wsName) {
+    // Add workspace-specific candidates at the beginning (higher priority)
+    const branchSpecificJSON = specificItems.toWorkspaceSpecificPath(
+      contentBasePathJSON,
+      wsName
+    );
+    const branchSpecificYAML = specificItems.toWorkspaceSpecificPath(
+      contentBasePathYAML,
+      wsName
+    );
+    candidates.unshift(branchSpecificJSON, branchSpecificYAML);
+  }
+
+  const validCandidates = (
+    await Promise.all(
+      candidates.map((x) => {
+        return stat(x)
+          .catch(() => undefined)
+          .then((x) => x?.isFile())
+          .then((e) => {
+            return { path: x, file: e };
+          });
+      })
+    )
+  )
+    .filter((x) => x.file)
+    .map((x) => x.path);
+  if (validCandidates.length > 1) {
+    throw new Error(
+      "Found two resource files for the same resource" +
+        validCandidates.join(", ")
+    );
+  }
+  if (validCandidates.length < 1) {
+    throw new Error(`No resource matching file resource: ${path}.`);
+  }
+  return validCandidates[0];
+}
+
+export async function handleScriptMetadata(
+  path: string,
+  workspace: Workspace,
+  alreadySynced: string[],
+  message: string | undefined,
+  rawWorkspaceDependencies: Record<string, string>,
+  codebases: SyncCodebase[],
+  opts: GlobalOptions,
+  permissionedAsContext?: PermissionedAsContext
+): Promise<boolean> {
+  // Flat layout: my_script.script.yaml
+  const isFlatMeta = path.endsWith(".script.json") ||
+    path.endsWith(".script.yaml") ||
+    path.endsWith(".script.lock");
+  // Folder layout: my_script__mod/script.yaml
+  const isFolderMeta = !isFlatMeta && isScriptModulePath(path) && (
+    path.endsWith("/script.yaml") ||
+    path.endsWith("/script.json") ||
+    path.endsWith("/script.lock")
+  );
+  if (isFlatMeta || isFolderMeta) {
+    const contentPath = await findContentFile(path);
+    return handleFile(
+      contentPath,
+      workspace,
+      alreadySynced,
+      message,
+      opts,
+      rawWorkspaceDependencies,
+      codebases,
+      permissionedAsContext
+    );
+  } else {
+    return false;
+  }
+}
+
+export interface OutputFile {
+  path: string;
+  contents: Uint8Array;
+  hash: string;
+  /** "contents" as text (changes automatically with "contents") */
+  readonly text: string;
+}
+
+export async function handleFile(
+  path: string,
+  workspace: Workspace,
+  alreadySynced: string[],
+  message: string | undefined,
+  opts: (GlobalOptions & { defaultTs?: "bun" | "deno" } & Skips) | undefined,
+  rawWorkspaceDependencies: Record<string, string>,
+  codebases: SyncCodebase[],
+  permissionedAsContext?: PermissionedAsContext
+): Promise<boolean> {
+  // Detect module entry point: e.g., my_script__mod/script.ts
+  const moduleEntryPoint = isModuleEntryPoint(path);
+  if (
+    !isAppInlineScriptPath(path) &&
+    !isFlowInlineScriptPath(path) &&
+    // Raw-app files (frontend included) belong to the app bundle, never
+    // standalone scripts — pushed via pushRawApp, not here.
+    !isRawAppPath(path) &&
+    (!isScriptModulePath(path) || moduleEntryPoint) &&
+    exts.some((exts) => path.endsWith(exts))
+  ) {
+    if (alreadySynced.includes(path)) {
+      return true;
+    }
+    log.debug(`Processing local script ${path}`);
+
+    alreadySynced.push(path);
+    const remotePath = scriptPathToRemotePath(path);
+
+    const language = inferContentTypeFromFilePath(path, opts?.defaultTs);
+
+    const codebase =
+      language == "bun" ? findCodebase(path, codebases) : undefined;
+
+    let bundleContent: string | Blob | undefined = undefined;
+
+    let forceTar = false;
+    if (codebase) {
+      let outputFiles: OutputFile[] = [];
+      if (codebase.customBundler) {
+        log.info(`Using custom bundler ${codebase.customBundler} for ${path}`);
+        bundleContent = execSync(codebase.customBundler + " " + path, {
+          maxBuffer: 1024 * 1024 * 50,
+        }).toString();
+        log.info("Custom bundler executed for " + path);
+      } else {
+        const esbuild = await getEsbuild();
+
+        log.info(`Started bundling ${path} ...`);
+        const startTime = performance.now();
+        const format = codebase.format ?? "cjs";
+        const out = await esbuild.build({
+          entryPoints: [path],
+          format: format,
+          bundle: true,
+          write: false,
+          external: codebase.external,
+          inject: codebase.inject,
+          define: codebase.define,
+          loader: codebase.loader ?? { ".node": "file" },
+          outdir: "/",
+          platform: "node",
+          packages: "bundle",
+          target: format == "cjs" ? "node20.15.1" : "esnext",
+          banner: codebase.banner,
+          // ...(codebase.banner != null && { banner: codebase.banner }),
+        });
+        const endTime = performance.now();
+        bundleContent = out.outputFiles[0].text;
+        outputFiles = out.outputFiles ?? [];
+        if (outputFiles.length == 0) {
+          throw new Error(`No output files found for ${path}`);
+        }
+        log.info(
+          `Finished bundling ${path}: ${(bundleContent.length / 1024).toFixed(
+            0
+          )}kB (${(endTime - startTime).toFixed(0)}ms)`
+        );
+      }
+      if (outputFiles.length > 1) {
+        log.info(
+          `Found multiple output files for ${path}, creating a tarball... ${outputFiles
+            .map((file) => file.path)
+            .join(", ")}`
+        );
+        forceTar = true;
+        const startTime = performance.now();
+        const mainPath = path.split(SEP).pop()?.split(".")[0] + ".js";
+        const mainContent =
+          outputFiles.find((file) => file.path == "/" + mainPath)?.text ?? "";
+        log.info(`Main content: ${mainContent.length}chars`);
+        const entries: TarEntry[] = [
+          { name: "main.js", content: mainContent },
+        ];
+        for (const file of outputFiles) {
+          if (file.path == "/" + mainPath) {
+            continue;
+          }
+          log.info(`Adding file: ${file.path.substring(1)}`);
+          entries.push({ name: file.path.substring(1), content: file.contents });
+        }
+        bundleContent = await createTarBlob(entries);
+        const endTime = performance.now();
+        log.info(
+          `Finished creating tarball for ${path}: ${(
+            bundleContent.size / 1024
+          ).toFixed(0)}kB (${(endTime - startTime).toFixed(0)}ms)`
+        );
+      } else {
+        if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
+          log.info(
+            `Using the following asset configuration for ${path}: ${JSON.stringify(
+              codebase.assets
+            )}`
+          );
+          const startTime = performance.now();
+          const entries: TarEntry[] = [
+            { name: "main.js", content: bundleContent },
+          ];
+          for (const asset of codebase.assets) {
+            const data = fs.readFileSync(asset.from);
+            entries.push({ name: asset.to, content: data });
+          }
+          bundleContent = await createTarBlob(entries);
+          const endTime = performance.now();
+          log.info(
+            `Finished creating tarball for ${path}: ${(
+              bundleContent.size / 1024
+            ).toFixed(0)}kB (${(endTime - startTime).toFixed(0)}ms)`
+          );
+        }
+      }
+    }
+    let typed = opts?.skipScriptsMetadata
+      ? undefined
+      : (
+          await parseMetadataFile(
+            remotePath,
+            opts
+              ? {
+                  ...opts,
+                  path,
+                  workspaceRemote: workspace,
+                  schemaOnly: codebase ? true : undefined,
+                  rawWorkspaceDependencies,
+                  codebases,
+                }
+              : undefined
+          )
+        )?.payload;
+
+    const workspaceId = workspace.workspaceId;
+
+    let remote = undefined;
+    try {
+      remote = await wmill.getScriptByPath({
+        workspace: workspaceId,
+        path: remotePath,
+      });
+      log.debug(`Script ${remotePath} exists on remote`);
+    } catch {
+      log.debug(`Script ${remotePath} does not exist on remote`);
+    }
+    const content = await readTextFile(path);
+
+    if (opts?.skipScriptsMetadata) {
+      // if (codebase) {
+      //   const typedBefore = JSON.parse(JSON.stringify(typed.schema));
+      //   await updateScriptSchema(content, language, typed, path);
+      //   if (typedBefore != typed.schema) {
+      //     log.info(`Updated metadata for bundle ${path}`);
+      typed = structuredClone(remote);
+      // }
+    }
+
+    if (typed && codebase) {
+      typed.codebase = await codebase.getDigest(forceTar);
+    }
+
+    // Scan for modules: folder layout (entry point inside __mod/) or flat layout
+    const scriptBasePath = moduleEntryPoint
+      ? getScriptBasePathFromModulePath(path)!
+      : path.substring(0, path.indexOf("."));
+    const moduleFolderPath = scriptBasePath + getModuleFolderSuffix();
+    const modules = await readModulesFromDisk(moduleFolderPath, opts?.defaultTs, moduleEntryPoint);
+
+    const requestBodyCommon: NewScript = {
+      content,
+      description: typed?.description ?? "",
+      language: language as NewScript["language"],
+      path: remotePath.replaceAll(SEP, "/"),
+      summary: typed?.summary ?? "",
+      kind: typed?.kind,
+      lock: typed?.lock,
+      schema: typed?.schema,
+      tag: typed?.tag,
+      ws_error_handler_muted: typed?.ws_error_handler_muted,
+      dedicated_worker: typed?.dedicated_worker,
+      cache_ttl: typed?.cache_ttl,
+      concurrency_time_window_s: typed?.concurrency_time_window_s,
+      concurrent_limit: typed?.concurrent_limit,
+      deployment_message: message,
+      restart_unless_cancelled: typed?.restart_unless_cancelled,
+      visible_to_runner_only: typed?.visible_to_runner_only,
+      has_preprocessor: typed?.has_preprocessor,
+      priority: typed?.priority,
+      concurrency_key: typed?.concurrency_key,
+      debounce_key: typed?.debounce_key,
+      debounce_delay_s: typed?.debounce_delay_s,
+      codebase: await codebase?.getDigest(forceTar),
+      timeout: typed?.timeout,
+      on_behalf_of_email: typed?.on_behalf_of_email,
+      envs: typed?.envs,
+      modules: modules,
+      labels: typed?.labels,
+    };
+
+    const hasOnBehalfOf = (typed as any)?.has_on_behalf_of ?? !!typed?.on_behalf_of_email;
+    delete (typed as any)?.has_on_behalf_of;
+
+    if (permissionedAsContext?.userIsAdminOrDeployer && hasOnBehalfOf) {
+      if (remote && remote.on_behalf_of_email) {
+        requestBodyCommon.on_behalf_of_email = remote.on_behalf_of_email;
+        (requestBodyCommon as any).preserve_on_behalf_of = true;
+        log.info(`Preserving ${remote.on_behalf_of_email} as on_behalf_of for script ${remotePath}`);
+      }
+      // On create: backend applies folder defaults — no client-side resolution needed
+    }
+
+    if (remote) {
+      if (content === remote.content) {
+        if (
+          typed == undefined ||
+          (typed.description === remote.description &&
+            typed.summary === remote.summary &&
+            typed.kind == remote.kind &&
+            !remote.archived &&
+            (Array.isArray(remote?.lock)
+              ? remote?.lock?.join("\n")
+              : remote?.lock ?? ""
+            ).trim() == (typed?.lock ?? "").trim() &&
+            deepEqual(typed.schema, remote.schema) &&
+            typed.tag == remote.tag &&
+            (typed.ws_error_handler_muted ?? false) ==
+              remote.ws_error_handler_muted &&
+            typed.dedicated_worker == remote.dedicated_worker &&
+            typed.cache_ttl == remote.cache_ttl &&
+            typed.concurrency_time_window_s ==
+              remote.concurrency_time_window_s &&
+            typed.concurrent_limit == remote.concurrent_limit &&
+            Boolean(typed.restart_unless_cancelled) ==
+              Boolean(remote.restart_unless_cancelled) &&
+            Boolean(typed.visible_to_runner_only) ==
+              Boolean(remote.visible_to_runner_only) &&
+            Boolean(typed.has_preprocessor) ==
+              Boolean(remote.has_preprocessor) &&
+            typed.priority == Boolean(remote.priority) &&
+            typed.timeout == remote.timeout &&
+            //@ts-ignore
+            typed.concurrency_key == remote["concurrency_key"] &&
+            typed.debounce_key == remote["debounce_key"] &&
+            typed.debounce_delay_s == remote["debounce_delay_s"] &&
+            typed.codebase == remote.codebase &&
+            (hasOnBehalfOf ? true : typed.on_behalf_of_email == remote.on_behalf_of_email) &&
+            deepEqual(typed.envs, remote.envs) &&
+            deepEqual(modules ?? null, remote.modules ?? null))
+        ) {
+          log.info(colors.green(`Script ${remotePath} is up to date`));
+          // Even when the body is unchanged, perms may still drift — sync them
+          // independently before returning.
+          await applyExtraPermsDiff(
+            workspaceId,
+            "script",
+            remotePath.replaceAll(SEP, "/"),
+            (typed as any)?.extra_perms,
+            (remote as any)?.extra_perms,
+          );
+          return true;
+        }
+      }
+
+      log.info(`Updating script ${remotePath} ...`);
+      const body = {
+        ...requestBodyCommon,
+        parent_hash: remote.hash,
+        auto_parent: true,
+      };
+      const execTime = await createScript(
+        bundleContent,
+        workspaceId,
+        body,
+        workspace
+      );
+      log.info(
+        colors.yellow.bold(
+          `Updated script ${remotePath} (${execTime.toFixed(0)}ms)`
+        )
+      );
+    } else {
+      log.info(`Creating new script ${remotePath} ...`);
+      const body = {
+        ...requestBodyCommon,
+        parent_hash: undefined,
+      };
+      const execTime = await createScript(
+        bundleContent,
+        workspaceId,
+        body,
+        workspace
+      );
+      log.info(
+        colors.yellow.bold(
+          `Created new script ${remotePath} (${execTime.toFixed(0)}ms)`
+        )
+      );
+    }
+
+    // Sync granular ACLs as an independent step — perm-only edits never reach
+    // create_script (which would bump the script hash) and instead route
+    // through /acls/* via applyExtraPermsDiff.
+    //
+    // No refetch is needed:
+    //  - folder perms are additive at auth time, never merged onto item rows;
+    //  - the body sent to create_script doesn't carry extra_perms, so a fresh
+    //    deploy of an existing path inherits the previous version's perms
+    //    unchanged. The diff against `remote` (captured before the deploy)
+    //    therefore matches what `wmill acl remove` would do — and the granular
+    //    ACL endpoint updates every matching row, so the inheritance on the
+    //    new version doesn't leave ghost entries.
+    await applyExtraPermsDiff(
+      workspaceId,
+      "script",
+      remotePath.replaceAll(SEP, "/"),
+      (typed as any)?.extra_perms,
+      (remote as any)?.extra_perms,
+    );
+
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Read module files from a __mod/ directory on disk.
+ * Returns the modules record for the API, or undefined if no module folder exists.
+ */
+export async function readModulesFromDisk(
+  moduleFolderPath: string,
+  defaultTs: "bun" | "deno" | undefined,
+  folderLayout: boolean = false,
+): Promise<Record<string, ScriptModule> | undefined> {
+  if (!fs.existsSync(moduleFolderPath) || !fs.statSync(moduleFolderPath).isDirectory()) {
+    return undefined;
+  }
+
+  const modules: Record<string, ScriptModule> = {};
+
+  // In folder layout mode, skip the entry point files (script.*, script.yaml, etc.)
+  const isEntryPointFile = (name: string, isTopLevel: boolean) => {
+    if (!folderLayout || !isTopLevel) return false;
+    return (
+      name.startsWith("script.") ||
+      name === "script.lock" ||
+      name === "script.yaml" ||
+      name === "script.json"
+    );
+  };
+
+  function readDir(dirPath: string, relPrefix: string) {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name);
+      const relPath = relPrefix ? relPrefix + "/" + entry.name : entry.name;
+      const isTopLevel = relPrefix === "";
+
+      if (entry.isDirectory()) {
+        readDir(fullPath, relPath);
+      } else if (entry.isFile() && !entry.name.endsWith(".lock") && !isEntryPointFile(entry.name, isTopLevel)) {
+        // Skip lock files — they're handled as the `lock` field on ScriptModule
+        if (exts.some((ext) => entry.name.endsWith(ext))) {
+          const content = readTextFileSync(fullPath);
+          const language = inferContentTypeFromFilePath(entry.name, defaultTs);
+
+          // Check for an accompanying lock file (helper.lock)
+          const baseName = entry.name.replace(/\.[^.]+$/, '');
+          const lockPath = path.join(dirPath, baseName + ".lock");
+          let lock: string | undefined;
+          if (fs.existsSync(lockPath)) {
+            lock = readTextFileSync(lockPath);
+          }
+
+          modules[relPath] = {
+            content,
+            language: language as ScriptModule["language"],
+            lock: lock ?? undefined,
+          };
+        }
+      }
+    }
+  }
+
+  readDir(moduleFolderPath, "");
+
+  if (Object.keys(modules).length === 0) {
+    return undefined;
+  }
+
+  log.debug(`Found ${Object.keys(modules).length} module(s) in ${moduleFolderPath}`);
+  return modules;
+}
+
+/**
+ * Write module files to a __mod/ directory on disk during pull.
+ */
+export async function writeModulesToDisk(
+  moduleFolderPath: string,
+  modules: Record<string, ScriptModule>,
+  defaultTs: "bun" | "deno" | undefined
+): Promise<void> {
+  // Ensure the module folder exists
+  fs.mkdirSync(moduleFolderPath, { recursive: true });
+
+  // Clean up stale module files that are no longer in the modules map
+  const expectedFiles = new Set<string>();
+  for (const [relPath, mod] of Object.entries(modules)) {
+    expectedFiles.add(relPath);
+    if (mod.lock) {
+      expectedFiles.add(relPath.replace(/\.[^.]+$/, '') + ".lock");
+    }
+  }
+
+  function cleanDir(dirPath: string, relPrefix: string) {
+    if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) return;
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const relPath = relPrefix ? relPrefix + "/" + entry.name : entry.name;
+      if (entry.isDirectory()) {
+        cleanDir(path.join(dirPath, entry.name), relPath);
+        // Remove empty directories after cleaning
+        try {
+          const remaining = fs.readdirSync(path.join(dirPath, entry.name));
+          if (remaining.length === 0) {
+            fs.rmdirSync(path.join(dirPath, entry.name));
+          }
+        } catch {}
+      } else if (!expectedFiles.has(relPath)) {
+        fs.unlinkSync(path.join(dirPath, entry.name));
+      }
+    }
+  }
+  cleanDir(moduleFolderPath, "");
+
+  for (const [relPath, mod] of Object.entries(modules)) {
+    const fullPath = path.join(moduleFolderPath, relPath);
+    const dir = path.dirname(fullPath);
+    fs.mkdirSync(dir, { recursive: true });
+
+    // Write the module content
+    fs.writeFileSync(fullPath, mod.content, "utf-8");
+
+    // Write the lock file if present
+    if (mod.lock) {
+      const baseName = relPath.replace(/\.[^.]+$/, '');
+      const lockPath = path.join(moduleFolderPath, baseName + ".lock");
+      const lockDir = path.dirname(lockPath);
+      fs.mkdirSync(lockDir, { recursive: true });
+      fs.writeFileSync(lockPath, mod.lock, "utf-8");
+    }
+  }
+}
+
+async function createScript(
+  bundleContent: string | Blob | undefined,
+  workspaceId: string,
+  body: NewScript,
+  workspace: Workspace
+): Promise<number> {
+  const start = performance.now();
+  // Preserve any user draft at this path: a CLI / git-sync deploy must not wipe
+  // an in-progress draft the way a UI "deploy from draft" intentionally does.
+  body = { ...body, skip_draft_deletion: true };
+  // skip_if_noop asks the backend to treat deploys identical to the parent
+  // (same content, lockfile, and metadata) as a no-op, so the CLI does not
+  // produce phantom git-sync / promotion commits on re-pushes.
+  const skipIfNoop = "skip_if_noop=true";
+  const extraHeaders = getHeaders();
+  if (!bundleContent) {
+    try {
+      const url =
+        workspace.remote +
+        "api/w/" +
+        workspaceId +
+        "/scripts/create?" +
+        skipIfNoop;
+      const req = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${workspace.token}`,
+          "Content-Type": "application/json",
+          ...extraHeaders,
+        },
+        body: JSON.stringify(body),
+      });
+      await detectAuthGatewayChallenge(req, url);
+      if (req.status != 201) {
+        throw Error(
+          `${req.status} - ${req.statusText} - ${await req.text()}`
+        );
+      }
+    } catch (e: any) {
+      throw Error(
+        `Script creation for ${body.path} with parent ${
+          body.parent_hash
+        }  was not successful: ${e.body ?? e.message} `
+      );
+    }
+  } else {
+    const form = new FormData();
+    form.append("script", JSON.stringify(body));
+    form.append(
+      "file",
+      typeof bundleContent == "string"
+        ? bundleContent
+        : bundleContent
+    );
+
+    const url =
+      workspace.remote +
+      "api/w/" +
+      workspace.workspaceId +
+      "/scripts/create_snapshot?" +
+      skipIfNoop;
+    const req = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${workspace.token} `,
+        ...extraHeaders,
+      },
+      body: form,
+    });
+    await detectAuthGatewayChallenge(req, url);
+    if (req.status != 201) {
+      throw Error(
+        `Script snapshot creation was not successful: ${req.status} - ${
+          req.statusText
+        } - ${await req.text()} `
+      );
+    }
+  }
+  return performance.now() - start;
+}
+
+export async function findContentFile(filePath: string) {
+  // Folder layout: __mod/script.yaml -> __mod/script.ts
+  const isModuleFolderMeta =
+    filePath.endsWith("/script.yaml") || filePath.endsWith("/script.json") || filePath.endsWith("/script.lock");
+  const candidates = isModuleFolderMeta
+    ? exts.map((x) => filePath.replace(/\/script\.(yaml|json|lock)$/, "/script" + x))
+    : filePath.endsWith("script.json")
+    ? exts.map((x) => filePath.replace(".script.json", x))
+    : filePath.endsWith("script.lock")
+    ? exts.map((x) => filePath.replace(".script.lock", x))
+    : exts.map((x) => filePath.replace(".script.yaml", x));
+
+  const validCandidates = (
+    await Promise.all(
+      candidates.map((x) => {
+        return stat(x)
+          .catch(() => undefined)
+          .then((x) => x?.isFile())
+          .then((e) => {
+            return { path: x, file: e };
+          });
+      })
+    )
+  )
+    .filter((x) => x.file)
+    .map((x) => x.path);
+  if (validCandidates.length > 1) {
+    throw new Error(
+      "No content path given and more than one candidate found: " +
+        validCandidates.join(", ")
+    );
+  }
+  if (validCandidates.length < 1) {
+    throw new Error(
+      `No content path given and no content file found for ${filePath}.`
+    );
+  }
+  return validCandidates[0];
+}
+
+export function filePathExtensionFromContentType(
+  language: ScriptLanguage,
+  defaultTs: "bun" | "deno" | undefined
+): string {
+  if (language === "python3") {
+    return ".py";
+  } else if (language === "nativets") {
+    return ".fetch.ts";
+  } else if (language === "bun") {
+    if (defaultTs == "deno") {
+      return ".bun.ts";
+    } else {
+      return ".ts";
+    }
+  } else if (language === "deno") {
+    if (defaultTs == undefined || defaultTs == "bun") {
+      return ".deno.ts";
+    } else {
+      return ".ts";
+    }
+  } else if (language === "go") {
+    return ".go";
+  } else if (language === "mysql") {
+    return ".my.sql";
+  } else if (language === "bigquery") {
+    return ".bq.sql";
+  } else if (language === "duckdb") {
+    return ".duckdb.sql";
+  } else if (language === "oracledb") {
+    return ".odb.sql";
+  } else if (language === "snowflake") {
+    return ".sf.sql";
+  } else if (language === "mssql") {
+    return ".ms.sql";
+  } else if (language === "postgresql") {
+    return ".pg.sql";
+  } else if (language === "graphql") {
+    return ".gql";
+  } else if (language === "bash") {
+    return ".sh";
+  } else if (language === "powershell") {
+    return ".ps1";
+  } else if (language === "php") {
+    return ".php";
+  } else if (language === "rust") {
+    return ".rs";
+  } else if (language === "ansible") {
+    return ".playbook.yml";
+  } else if (language === "csharp") {
+    return ".cs";
+  } else if (language === "nu") {
+    return ".nu";
+  } else if (language === "java") {
+    return ".java";
+  } else if (language === "ruby") {
+    return ".rb";
+  } else if (language === "rlang") {
+    return ".r";
+    // for related places search: ADD_NEW_LANG
+  } else {
+    throw new Error("Invalid language: " + language);
+  }
+}
+
+export const exts = [
+  ".fetch.ts",
+  ".deno.ts",
+  ".bun.ts",
+  ".ts",
+  ".py",
+  ".go",
+  ".sh",
+  ".pg.sql",
+  ".my.sql",
+  ".bq.sql",
+  ".odb.sql",
+  ".sf.sql",
+  ".ms.sql",
+  ".duckdb.sql",
+  ".sql",
+  ".gql",
+  ".ps1",
+  ".php",
+  ".rs",
+  ".cs",
+  ".nu",
+  ".playbook.yml",
+  ".java",
+  ".rb",
+  ".r",
+  // for related places search: ADD_NEW_LANG
+];
+
+export function removeExtensionToPath(path: string): string {
+  for (const ext of exts) {
+    if (path.endsWith(ext)) {
+      return path.substring(0, path.length - ext.length);
+    }
+  }
+  throw new Error("Invalid extension: " + path);
+}
+
+async function list(
+  opts: GlobalOptions & {
+    showArchived?: boolean;
+    includeWithoutMain?: boolean;
+    includeDraftOnly?: boolean;
+    json?: boolean;
+  }
+) {
+  if (opts.json) log.setSilent(true);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  let page = 0;
+  const perPage = 10;
+  const total: Script[] = [];
+  while (true) {
+    const res = await wmill.listScripts({
+      workspace: workspace.workspaceId,
+      page,
+      perPage,
+      showArchived: opts.showArchived ?? false,
+      includeWithoutMain: opts.includeWithoutMain ?? false,
+      includeDraftOnly: opts.includeDraftOnly ?? true,
+    });
+    page += 1;
+    total.push(...res);
+    if (res.length < perPage) {
+      break;
+    }
+  }
+
+  if (opts.json) {
+    console.log(JSON.stringify(total));
+  } else {
+    new Table()
+      .header(["path", "summary", "language", "created by"])
+      .padding(2)
+      .border(true)
+      .body(total.map((x) => [x.path, x.summary, x.language, x.created_by]))
+      .render();
+  }
+}
+
+export async function resolve(input: string): Promise<Record<string, any>> {
+  if (!input) {
+    throw new Error("No data given");
+  }
+
+  if (input == "@-") {
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) chunks.push(chunk);
+    input = new TextDecoder().decode(Buffer.concat(chunks));
+  }
+  if (input[0] == "@") {
+    input = await readTextFile(input.substring(1));
+  }
+  try {
+    return JSON.parse(input);
+  } catch (e) {
+    console.error("Impossible to parse input as JSON", input);
+    throw e;
+  }
+}
+
+async function run(
+  opts: GlobalOptions & {
+    data?: string;
+    silent: boolean;
+  },
+  path: string
+) {
+  if (opts.silent) {
+    log.setSilent(true);
+  }
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const input = opts.data ? await resolve(opts.data) : {};
+
+  // Validate required args against schema when no data provided
+  if (!opts.data) {
+    try {
+      const script = await wmill.getScriptByPath({
+        workspace: workspace.workspaceId,
+        path,
+      });
+      validateRequiredArgs(script.schema as Record<string, unknown>);
+    } catch (e: any) {
+      if (e.message?.startsWith("Missing required")) throw e;
+      log.warn(`Could not fetch schema to validate args: ${e.message}`);
+    }
+  }
+
+  let id: string;
+  try {
+    id = await wmill.runScriptByPath({
+      workspace: workspace.workspaceId,
+      path,
+      requestBody: input,
+    });
+  } catch (e: any) {
+    if (e?.status === 404) {
+      // Script might exist but have a lock/deployment error — check before giving up
+      try {
+        const script = await wmill.getScriptByPath({
+          workspace: workspace.workspaceId,
+          path,
+        });
+        if (script.lock_error_logs) {
+          throw new Error(
+            `Script '${path}' has a deployment error and cannot be run:\n${script.lock_error_logs}`
+          );
+        }
+      } catch (lookupErr: any) {
+        if (lookupErr?.message?.includes("deployment error")) throw lookupErr;
+        // Re-throw non-404 lookup errors (e.g. auth/network issues)
+        if (lookupErr?.status && lookupErr.status !== 404) throw lookupErr;
+      }
+      throw new Error(
+        `Script '${path}' not found. Run 'wmill script list' to see available scripts.`
+      );
+    }
+    throw e;
+  }
+
+  if (!opts.silent) {
+    await track_job(workspace.workspaceId, id);
+  }
+
+  const MAX_RETRIES = 600; // ~60 seconds at 100ms intervals
+  let retries = 0;
+  while (retries < MAX_RETRIES) {
+    try {
+      const completedJob = await wmill.getCompletedJob({
+        workspace: workspace.workspaceId,
+        id,
+      });
+
+      if (completedJob.success === false) {
+        process.exitCode = 1;
+      }
+
+      const result = completedJob.result ?? {};
+      if (opts.silent) {
+        console.log(JSON.stringify(result));
+      } else {
+        log.info(JSON.stringify(result, null, 2));
+      }
+
+      break;
+    } catch {
+      retries++;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  if (retries >= MAX_RETRIES) {
+    throw new Error(`Timed out waiting for job ${id} to complete`);
+  }
+}
+
+export async function track_job(workspace: string, id: string) {
+  try {
+    const result = await wmill.getCompletedJob({ workspace, id });
+
+    log.info(result.logs);
+    log.info("\n");
+    log.info(colors.bold.underline.green("Job Completed"));
+    log.info("\n");
+    return;
+  } catch {
+    /* ignore */
+  }
+
+  log.info(colors.yellow("Waiting for Job " + id + " to start..."));
+
+  let logOffset = 0;
+  let running = false;
+  let retry = 0;
+  while (true) {
+    let updates: {
+      running?: boolean | undefined;
+      completed?: boolean | undefined;
+      new_logs?: string | undefined;
+    };
+    try {
+      updates = await wmill.getJobUpdates({
+        workspace,
+        id,
+        logOffset,
+        running,
+      });
+    } catch {
+      retry++;
+      if (retry > 3) {
+        log.info("failed to get job updated. skipping log streaming.");
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      continue;
+    }
+
+    if (!running && updates.running === true) {
+      running = true;
+      log.info(colors.green("Job running. Streaming logs..."));
+    }
+
+    if (updates.new_logs) {
+      process.stdout.write(updates.new_logs);
+      logOffset += updates.new_logs.length;
+    }
+
+    if (updates.completed === true) {
+      running = false;
+      break;
+    }
+
+    if (running && updates.running === false) {
+      running = false;
+      log.info(colors.yellow("Job suspended. Waiting for it to continue..."));
+    }
+  }
+  await new Promise((resolve, _) => setTimeout(() => resolve(undefined), 1000));
+
+  try {
+    const final_job = await wmill.getCompletedJob({ workspace, id });
+    if ((final_job.logs?.length ?? -1) > logOffset) {
+      log.info(final_job.logs!.substring(logOffset));
+    }
+    log.info("\n");
+    if (final_job.success) {
+      log.info(colors.bold.underline.green("Job Completed"));
+    } else {
+      log.info(colors.bold.underline.red("Job Completed"));
+    }
+    log.info("\n");
+  } catch {
+    log.info("Job appears to have completed, but no data can be retrieved");
+  }
+}
+
+export async function pollForJobResult(
+  workspace: string,
+  jobId: string,
+): Promise<{ result: unknown; success: boolean }> {
+  return await pollJobWithQueueLogging(workspace, jobId);
+}
+
+async function show(opts: GlobalOptions, path: string) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const s = await wmill.getScriptByPath({
+    workspace: workspace.workspaceId,
+    path,
+  });
+  log.info(colors.underline(s.path));
+  if (s.description) log.info(s.description);
+  log.info("");
+  log.info(s.content);
+}
+
+async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  if (opts.json) log.setSilent(true);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const s = await wmill.getScriptByPath({
+    workspace: workspace.workspaceId,
+    path,
+  });
+  if (opts.json) {
+    console.log(JSON.stringify(s));
+  } else {
+    console.log(colors.bold("Path:") + " " + s.path);
+    console.log(colors.bold("Summary:") + " " + (s.summary ?? ""));
+    console.log(colors.bold("Description:") + " " + (s.description ?? ""));
+    console.log(colors.bold("Language:") + " " + s.language);
+    console.log(colors.bold("Kind:") + " " + (s.kind ?? "script"));
+    console.log(colors.bold("Created by:") + " " + (s.created_by ?? ""));
+    console.log(colors.bold("Created at:") + " " + (s.created_at ?? ""));
+  }
+}
+
+const languageAliases: Record<string, ScriptLanguage> = {
+  python: "python3",
+};
+
+async function bootstrap(
+  opts: GlobalOptions & { summary: string; description: string },
+  scriptPath: string,
+  language: ScriptLanguage | string
+) {
+  if (!validatePath(scriptPath)) {
+    return;
+  }
+
+  const resolvedLanguage = (languageAliases[language] ?? language) as ScriptLanguage;
+
+  const scriptInitialCode = scriptBootstrapCode[resolvedLanguage];
+  if (scriptInitialCode === undefined) {
+    const validLanguages = Object.keys(scriptBootstrapCode).sort().join(", ");
+    throw new Error(
+      `Unknown language '${language}'. Valid languages: ${validLanguages}`
+    );
+  }
+
+  const config = await readConfigFile();
+
+  const extension = filePathExtensionFromContentType(
+    resolvedLanguage,
+    config.defaultTs
+  );
+  const scriptCodeFileFullPath = scriptPath + extension;
+  const scriptMetadataFileFullPath = scriptPath + ".script.yaml";
+
+  try {
+    await stat(scriptCodeFileFullPath);
+    throw new Error("File already exists: " + scriptCodeFileFullPath);
+  } catch (e: any) {
+    if (e.message?.startsWith("File already exists")) throw e;
+  }
+  try {
+    await stat(scriptMetadataFileFullPath);
+    throw new Error("File already exists: " + scriptMetadataFileFullPath);
+  } catch (e: any) {
+    if (e.message?.startsWith("File already exists")) throw e;
+  }
+
+  const scriptMetadata = defaultScriptMetadata();
+  if (opts.summary !== undefined) {
+    scriptMetadata.summary = opts.summary;
+  }
+  if (opts.description !== undefined) {
+    scriptMetadata.description = opts.description;
+  }
+
+  const scriptInitialMetadataYaml = yamlStringify(
+    scriptMetadata as Record<string, any>,
+    yamlOptions
+  );
+
+  const parentDir = path.dirname(scriptCodeFileFullPath);
+  await mkdir(parentDir, { recursive: true });
+
+  await writeFile(scriptCodeFileFullPath, scriptInitialCode, {
+    flag: 'wx', encoding: 'utf-8',
+  });
+  await writeFile(
+    scriptMetadataFileFullPath,
+    scriptInitialMetadataYaml,
+    {
+      flag: 'wx', encoding: 'utf-8',
+    }
+  );
+}
+
+export type GlobalDeps = Map<
+  WorkspaceDependenciesLanguage,
+  Record<string, string>
+>;
+
+export async function generateMetadata(
+  opts: GlobalOptions & {
+    lockOnly?: boolean;
+    schemaOnly?: boolean;
+    yes?: boolean;
+  } & SyncOptions,
+  scriptPath: string | undefined
+) {
+  log.warn(
+    colors.yellow('This command is deprecated. Use "wmill generate-metadata" instead.')
+  );
+  log.info(
+    "This command only works for workspace scripts. For flows or apps, run `wmill generate-metadata` from the affected folder."
+  );
+  if (scriptPath == "") {
+    scriptPath = undefined;
+  }
+  if (scriptPath && !validatePath(scriptPath)) {
+    return;
+  }
+
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  opts = await mergeConfigWithConfigFile(opts);
+  const codebases = await listSyncCodebases(opts);
+
+  const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
+  if (scriptPath) {
+    // read script metadata file
+    await generateScriptMetadataInternal(
+      scriptPath,
+      workspace,
+      opts,
+      false,
+      false,
+      rawWorkspaceDependencies,
+      codebases,
+      false
+    );
+  } else {
+    // TODO: test this as well.
+    const ignore = await ignoreF(opts);
+    const elems = await elementsToMap(
+      await FSFSElement(process.cwd(), codebases, false),
+      (p, isD) => {
+        return (
+          (!isD && !exts.some((ext) => p.endsWith(ext))) ||
+          ignore(p, isD) ||
+          isFlowPath(p) ||
+          isAppPath(p) ||
+          isRawAppPath(p) ||
+          // Skip module helper files; only entry points (script.{ext}) are processed
+          (isScriptModulePath(p) && !isModuleEntryPoint(p))
+        );
+      },
+      false,
+      {}
+    );
+    let hasAny = false;
+    log.info("Generating metadata for all stale scripts:");
+    for (const e of Object.keys(elems)) {
+      const candidate = await generateScriptMetadataInternal(
+        e,
+        workspace,
+        opts,
+        true,
+        true,
+        rawWorkspaceDependencies,
+        codebases,
+        false
+      );
+      if (candidate) {
+        hasAny = true;
+        log.info(colors.green(`+ ${candidate} `));
+      }
+    }
+    if (hasAny) {
+      if (opts.dryRun) {
+        log.info(colors.gray(`Dry run complete.`));
+        return;
+      }
+      if (
+        !opts.yes &&
+        !(await Confirm.prompt({
+          message: "Update the metadata of the above scripts?",
+          default: true,
+        }))
+      ) {
+        return;
+      }
+    } else {
+      log.info(colors.green.bold("No metadata to update"));
+      return;
+    }
+
+    // Build a DoubleLinkedDependencyTree and upload mismatched scripts to
+    // raw_script_temp before the actual generation pass. Without this,
+    // dep jobs for scripts that import other not-yet-deployed scripts via
+    // relative paths would 404 on the import target (the very bug this
+    // alias was introducing on fresh-DB pushes).
+    const { DoubleLinkedDependencyTree, uploadScripts } = await import(
+      "../../utils/dependency_tree.ts"
+    );
+    const tree = new DoubleLinkedDependencyTree();
+    tree.setWorkspaceDeps(rawWorkspaceDependencies);
+    for (const e of Object.keys(elems)) {
+      await generateScriptMetadataInternal(
+        e,
+        workspace,
+        opts,
+        true, // dryRun: populate tree
+        true,
+        rawWorkspaceDependencies,
+        codebases,
+        false,
+        tree,
+      );
+    }
+    tree.propagateStaleness();
+    try {
+      await uploadScripts(tree, workspace);
+    } catch (e) {
+      log.warn(
+        colors.yellow(
+          `Failed to upload scripts to temp storage (backend may be too old): ${e}. ` +
+            `Locks will be generated using deployed script versions only — locally modified ` +
+            `relative imports may not be reflected.`,
+        ),
+      );
+    }
+    for (const e of Object.keys(elems)) {
+      await generateScriptMetadataInternal(
+        e,
+        workspace,
+        opts,
+        false,
+        true,
+        rawWorkspaceDependencies,
+        codebases,
+        false,
+        tree,
+      );
+    }
+  }
+}
+
+async function preview(
+  opts: GlobalOptions & {
+    data?: string;
+    silent: boolean;
+  } & SyncOptions,
+  filePath: string
+) {
+  if (opts.silent) {
+    log.setSilent(true);
+  }
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  if (!validatePath(filePath)) {
+    return;
+  }
+
+  const fstat = await stat(filePath);
+  if (!fstat.isFile()) {
+    throw new Error("file path must refer to a file.");
+  }
+
+  if (filePath.endsWith(".script.json") || filePath.endsWith(".script.yaml")) {
+    throw Error(
+      "Cannot preview a script metadata file, point to the script content file instead (.py, .ts, .go, .sh)"
+    );
+  }
+
+  const codebases = await listSyncCodebases(opts);
+  const language = inferContentTypeFromFilePath(filePath, opts?.defaultTs);
+  const content = await readTextFile(filePath);
+  const input = opts.data ? await resolve(opts.data) : {};
+
+  // Read modules from __mod/ folder if present
+  const isFolderLayout = isModuleEntryPoint(filePath);
+  const moduleFolderPath = isFolderLayout
+    ? path.dirname(filePath)
+    : filePath.substring(0, filePath.indexOf(".")) + getModuleFolderSuffix();
+  const modules = await readModulesFromDisk(moduleFolderPath, opts?.defaultTs, isFolderLayout);
+
+  // Check if this is a codebase script
+  const codebase =
+    language == "bun" ? findCodebase(filePath, codebases) : undefined;
+
+  // Resolve relative imports from local (not-yet-deployed) content so previewing
+  // a script that imports other locally-edited scripts uses the local versions
+  // instead of the deployed ones. Shared with `wmill flow preview` so both
+  // entry points behave identically; degrades gracefully on older backends.
+  // Short-circuit when the script has no relative imports: the full-workspace
+  // dependency walk + diff round-trip is pure overhead in that (common) case.
+  let tempScriptRefs: Record<string, string> | undefined = undefined;
+  const { extractRelativeImports } = await import(
+    "../../utils/relative_imports.ts"
+  );
+  const relImports = await extractRelativeImports(
+    content,
+    scriptPathToRemotePath(filePath),
+    language
+  );
+  if (relImports.length > 0) {
+    const { buildPreviewTempScriptRefs } = await import(
+      "../generate-metadata/generate-metadata.ts"
+    );
+    tempScriptRefs = await buildPreviewTempScriptRefs(
+      workspace,
+      opts,
+      codebases,
+      { kind: "script", path: filePath }
+    );
+  }
+
+  let bundledContent: string | Blob | undefined = undefined;
+  let isTar = false;
+
+  if (codebase) {
+    if (codebase.customBundler) {
+      if (!opts.silent) {
+        log.info(`Using custom bundler ${codebase.customBundler} for preview`);
+      }
+      bundledContent = execSync(codebase.customBundler + " " + filePath, {
+        maxBuffer: 1024 * 1024 * 50,
+      }).toString();
+    } else {
+      const esbuild = await getEsbuild();
+
+      if (!opts.silent) {
+        log.info(`Bundling ${filePath} for preview...`);
+      }
+      const startTime = performance.now();
+      const format = codebase.format ?? "cjs";
+      const out = await esbuild.build({
+        entryPoints: [filePath],
+        format: format,
+        bundle: true,
+        write: false,
+        external: codebase.external,
+        inject: codebase.inject,
+        define: codebase.define,
+        loader: codebase.loader ?? { ".node": "file" },
+        outdir: "/",
+        platform: "node",
+        packages: "bundle",
+        target: format == "cjs" ? "node20.15.1" : "esnext",
+        banner: codebase.banner,
+      });
+      const endTime = performance.now();
+      bundledContent = out.outputFiles[0].text;
+
+      // Handle multiple output files (create tarball)
+      if (out.outputFiles.length > 1) {
+        if (!opts.silent) {
+          log.info(`Creating tarball for multiple output files...`);
+        }
+        const mainPath = filePath.split(SEP).pop()?.split(".")[0] + ".js";
+        const mainContent =
+          out.outputFiles.find((file: OutputFile) => file.path == "/" + mainPath)?.text ?? "";
+        const entries: TarEntry[] = [
+          { name: "main.js", content: mainContent },
+        ];
+        for (const file of out.outputFiles) {
+          if (file.path == "/" + mainPath) continue;
+          entries.push({ name: file.path.substring(1), content: file.contents });
+        }
+        bundledContent = await createTarBlob(entries);
+        isTar = true;
+      } else if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
+        // Handle assets
+        if (!opts.silent) {
+          log.info(`Adding assets to tarball...`);
+        }
+        const entries: TarEntry[] = [
+          { name: "main.js", content: bundledContent },
+        ];
+        for (const asset of codebase.assets) {
+          const data = fs.readFileSync(asset.from);
+          entries.push({ name: asset.to, content: data });
+        }
+        bundledContent = await createTarBlob(entries);
+        isTar = true;
+      }
+
+      if (!opts.silent) {
+        const size = typeof bundledContent === "string" ? bundledContent.length : bundledContent.size;
+        log.info(
+          `Bundled ${filePath}: ${(size / 1024).toFixed(0)}kB (${(
+            endTime - startTime
+          ).toFixed(0)}ms)`
+        );
+      }
+    }
+  }
+
+  if (!opts.silent) {
+    log.info(colors.yellow(`Running preview for ${filePath}...`));
+  }
+
+  // For codebase scripts with bundles, we need to use a multipart form upload
+  if (bundledContent) {
+    const form = new FormData();
+    const previewPayload = {
+      content: content, // Pass the original content (frontend does this too)
+      path: filePath.substring(0, filePath.indexOf(".")).replaceAll(SEP, "/"),
+      args: input,
+      language: language,
+      kind: isTar ? "tarbundle" : "bundle",
+      format: codebase?.format ?? "cjs",
+      temp_script_refs: tempScriptRefs,
+    };
+    form.append("preview", JSON.stringify(previewPayload));
+    form.append(
+      "file",
+      typeof bundledContent === "string"
+        ? new Blob([bundledContent], { type: "application/javascript" })
+        : bundledContent
+    );
+
+    const url =
+      workspace.remote +
+      "api/w/" +
+      workspace.workspaceId +
+      "/jobs/run/preview_bundle";
+
+    const extraHeaders = getHeaders();
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${workspace.token}`,
+        ...extraHeaders,
+      },
+      body: form,
+    });
+
+    await detectAuthGatewayChallenge(response, url);
+
+    if (!response.ok) {
+      throw new Error(
+        `Preview failed: ${response.status} - ${response.statusText} - ${await response.text()}`
+      );
+    }
+
+    const jobId = await response.text();
+    if (!opts.silent) {
+      await track_job(workspace.workspaceId, jobId);
+    }
+
+    // Wait for the job to complete and get the result
+    while (true) {
+      try {
+        const completedJob = await wmill.getCompletedJob({
+          workspace: workspace.workspaceId,
+          id: jobId,
+        });
+
+        const result = completedJob.result ?? {};
+        if (opts.silent) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          log.info(JSON.stringify(result, null, 2));
+        }
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+  } else {
+    // For regular scripts, start the preview job then poll for completion
+    const jobId = await wmill.runScriptPreview({
+      workspace: workspace.workspaceId,
+      requestBody: {
+        content,
+        path: filePath.substring(0, filePath.indexOf(".")).replaceAll(SEP, "/"),
+        args: input,
+        language: language as any,
+        modules: modules ?? undefined,
+        temp_script_refs: tempScriptRefs,
+      },
+    });
+
+    const { result, success } = await pollForJobResult(workspace.workspaceId, jobId);
+
+    if (!success) {
+      if (opts.silent) {
+        console.log(JSON.stringify(result));
+      } else {
+        log.info(colors.red.bold("Preview failed"));
+        log.info(JSON.stringify(result, null, 2));
+      }
+      process.exitCode = 1;
+      return;
+    }
+
+    if (opts.silent) {
+      console.log(JSON.stringify(result));
+    } else {
+      log.info(colors.bold.underline.green("Preview completed"));
+      log.info(JSON.stringify(result, null, 2));
+    }
+  }
+}
+
+async function history(
+  opts: GlobalOptions & { json?: boolean },
+  scriptPath: string
+) {
+  if (opts.json) log.setSilent(true);
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const versions = await wmill.getScriptHistoryByPath({
+    workspace: workspace.workspaceId,
+    path: scriptPath,
+  });
+
+  if (opts.json) {
+    console.log(JSON.stringify(versions));
+  } else {
+    if (versions.length === 0) {
+      log.info("No version history found for " + scriptPath);
+      return;
+    }
+    new Table()
+      .header(["#", "Hash", "Created At", "Deployment Message"])
+      .padding(2)
+      .border(true)
+      .body(
+        versions.map((v, i) => [
+          String(versions.length - i),
+          v.script_hash,
+          v.created_at ? new Date(v.created_at).toLocaleString() : "-",
+          v.deployment_msg ?? "-",
+        ])
+      )
+      .render();
+  }
+}
+
+async function setPermissionedAs(
+  opts: GlobalOptions,
+  scriptPath: string,
+  email: string,
+) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const remote = await wmill.getScriptByPath({
+    workspace: workspace.workspaceId,
+    path: scriptPath,
+  });
+  if (!remote) throw new Error(`Script ${scriptPath} not found`);
+
+  await wmill.createScript({
+    workspace: workspace.workspaceId,
+    requestBody: {
+      ...(remote as any),
+      lock: Array.isArray(remote.lock) ? remote.lock.join("\n") : remote.lock ?? undefined,
+      parent_hash: remote.hash,
+      on_behalf_of_email: email,
+      preserve_on_behalf_of: true,
+      // Preserve any user draft at this path (see backend skip_draft_deletion).
+      skip_draft_deletion: true,
+    },
+  });
+  log.info(colors.green(`Updated permissioned_as for script ${scriptPath} to ${email}`));
+}
+
+const command = new Command()
+  .description("script related commands")
+  .option("--show-archived", "Show archived scripts instead of active ones")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(list as any)
+  .command("list", "list all scripts")
+  .option("--show-archived", "Show archived scripts instead of active ones")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(list as any)
+  .command(
+    "push",
+    "push a local script spec. This overrides any remote versions. Use the script file (.ts, .js, .py, .sh)"
+  )
+  .arguments("<path:file>")
+  .option("--message <message:string>", "Deployment message")
+  .action(push as any)
+  .command("get", "get a script's details")
+  .arguments("<path:file>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(get as any)
+  .command("show", "show a script's content (alias for get)")
+  .arguments("<path:file>")
+  .action(show as any)
+  .command("run", "run a script by path")
+  .arguments("<path:file>")
+  .option(
+    "-d --data <data:file>",
+    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-."
+  )
+  .option(
+    "-s --silent",
+    "Do not output anything other then the final output. Useful for scripting."
+  )
+  .action(run as any)
+  .command(
+    "preview",
+    "preview a local script without deploying it. Supports both regular and codebase scripts."
+  )
+  .arguments("<path:file>")
+  .option(
+    "-d --data <data:file>",
+    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-."
+  )
+  .option(
+    "-s --silent",
+    "Do not output anything other than the final output. Useful for scripting."
+  )
+  .action(preview as any)
+  .command("new", "create a new script")
+  .arguments("<path:file> <language:string>")
+  .option("--summary <summary:string>", "script summary")
+  .option("--description <description:string>", "script description")
+  .action(bootstrap as any)
+  .command("bootstrap", "create a new script (alias for new)")
+  .arguments("<path:file> <language:string>")
+  .option("--summary <summary:string>", "script summary")
+  .option("--description <description:string>", "script description")
+  .action(bootstrap as any)
+  .command(
+    "generate-metadata",
+    'DEPRECATED: re-generate script metadata. Use top-level "wmill generate-metadata" instead.'
+  )
+  // Deprecated compatibility command. Keep it working for older repos, but
+  // exclude it from generated system prompt docs.
+  // @deprecated use `wmill generate-metadata`
+  .arguments("[script:file]")
+  .option("--yes", "Skip confirmation prompt")
+  .option("--dry-run", "Perform a dry run without making changes")
+  .option("--lock-only", "re-generate only the lock")
+  .option("--schema-only", "re-generate only script schema")
+  .option(
+    "-i --includes <patterns:file[]>",
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
+  )
+  .option(
+    "-e --excludes <patterns:file[]>",
+    "Comma separated patterns to specify which file to NOT take into account."
+  )
+  .action(generateMetadata as any)
+  .command(
+    "set-permissioned-as",
+    "Set the on_behalf_of_email for a script (requires admin or wm_deployers group)"
+  )
+  .arguments("<path:string> <email:string>")
+  .action(setPermissionedAs as any)
+  .command(
+    "history",
+    "show version history for a script"
+  )
+  .arguments("<path:string>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(history as any);
+
+export default command;

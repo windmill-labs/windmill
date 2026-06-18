@@ -6,14 +6,20 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::error;
+use crate::db::{Authable, UserDB};
+use crate::error::{self, Error};
+use crate::scripts::ScriptHash;
+use crate::utils::WarnAfterExt;
+use crate::worker::Connection;
 use crate::{worker::WORKER_GROUP, BASE_URL, DB};
 use chrono::{SecondsFormat, Utc};
 use magic_crypt::{MagicCrypt256, MagicCryptError, MagicCryptTrait};
+use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 
 lazy_static::lazy_static! {
     pub static ref SECRET_SALT: Option<String> = std::env::var("SECRET_SALT").ok();
+    static ref RESERVED_WM_VAR_NAME: regex::Regex = regex::Regex::new(r"^WM_[A-Z_]+$").unwrap();
 }
 
 #[derive(Serialize, Clone)]
@@ -25,7 +31,7 @@ pub struct ContextualVariable {
     pub is_custom: bool,
 }
 
-#[derive(Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Serialize, Deserialize, sqlx::FromRow, Clone)]
 
 pub struct ListableVariable {
     pub workspace_id: String,
@@ -41,6 +47,31 @@ pub struct ListableVariable {
     pub refresh_error: Option<String>,
     pub is_linked: Option<bool>,
     pub expires_at: Option<chrono::DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
+    /// Labels inherited from the parent folder, computed at read time.
+    #[sqlx(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inherited_labels: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ws_specific: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edited_at: Option<chrono::DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edited_by: Option<String>,
+    /// True when this row is a per-user draft with no deployed variable
+    /// at the same path. Surfaced by `include_draft_only` so the frontend
+    /// can render a "Draft" badge and the editor can open from the draft
+    /// alone. `None`/omitted on rows fetched from the `variable` table.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub draft_only: Option<bool>,
+    /// True when the authed user has a per-user draft at this path —
+    /// layered over a deployed variable or a synthesized draft-only row.
+    /// Drives the `*` suffix on the variables page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub is_draft: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]
@@ -57,6 +88,8 @@ pub struct ExportableListableVariable {
     pub is_oauth: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<chrono::DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 fn is_none_or_false(b: &Option<bool>) -> bool {
@@ -72,16 +105,45 @@ pub struct CreateVariable {
     pub account: Option<i32>,
     pub is_oauth: Option<bool>,
     pub expires_at: Option<chrono::DateTime<Utc>>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
+    #[serde(default)]
+    pub ws_specific: Option<bool>,
 }
 
 pub async fn build_crypt(db: &DB, w_id: &str) -> crate::error::Result<MagicCrypt256> {
-    let key = get_workspace_key(w_id, db).await?;
-    let crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
-        format!("{}{}", key, salt)
+    // Check cache first (300-second staleness)
+    let cached_key_o = WORKSPACE_CRYPT_CACHE.get(w_id).and_then(|(ts, key)| {
+        if ts > chrono::Utc::now().timestamp() - 300 {
+            Some(key)
+        } else {
+            None
+        }
+    });
+
+    let crypt = if let Some(cached_key) = cached_key_o {
+        cached_key
     } else {
-        key
+        let key = get_workspace_key(w_id, db).await?;
+        tracing::info!(
+            "crypt for workspace {} with key {}*** expired, refetching",
+            w_id,
+            &key[..key.len().min(8)]
+        );
+        let crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
+            format!("{}{}", key, salt)
+        } else {
+            key
+        };
+        let ncrypt = magic_crypt::new_magic_crypt!(crypt_key, 256);
+        WORKSPACE_CRYPT_CACHE.insert(
+            w_id.to_string(),
+            (chrono::Utc::now().timestamp(), ncrypt.clone()),
+        );
+        ncrypt
     };
-    Ok(magic_crypt::new_magic_crypt!(crypt_key, 256))
+
+    Ok(crypt)
 }
 
 pub async fn build_crypt_with_key_suffix(
@@ -104,9 +166,49 @@ pub async fn get_workspace_key(w_id: &str, db: &DB) -> crate::error::Result<Stri
         w_id
     )
     .fetch_one(db)
+    .warn_after_seconds(5)
     .await
-    .map_err(|e| crate::Error::InternalErr(format!("fetching workspace key: {e:#}")))?;
+    .map_err(|e| crate::Error::internal_err(format!("fetching workspace key: {e:#}")))?;
+
     Ok(key)
+}
+
+/// Generate a stateless approval token from workspace key + job_id.
+/// This token grants access to view approval info and attempt to resume,
+/// but cannot be reversed to obtain the HMAC resume secret.
+pub async fn generate_approval_token(
+    w_id: &str,
+    job_id: uuid::Uuid,
+    db: &DB,
+) -> crate::error::Result<String> {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    let key = get_workspace_key(w_id, db).await?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(key.as_bytes())
+        .map_err(|e| crate::Error::internal_err(format!("HMAC key error: {e}")))?;
+    mac.update(job_id.as_bytes());
+    mac.update(b"approval_token");
+    Ok(hex::encode(mac.finalize().into_bytes()))
+}
+
+/// Stateless read-share signature for a job: `HMAC(workspace_key, job_id || "view_token")`.
+/// Mirrors [`generate_approval_token`] but in a distinct domain so an approval token can
+/// never be used as a view token (or vice-versa). Used to build a "share read link" that
+/// grants an authenticated workspace member read access to a job (and its flow subtree)
+/// they otherwise lack ACL on. No expiry/revocation (stateless), like the approval token.
+pub async fn generate_view_token(
+    w_id: &str,
+    job_id: uuid::Uuid,
+    db: &DB,
+) -> crate::error::Result<String> {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    let key = get_workspace_key(w_id, db).await?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(key.as_bytes())
+        .map_err(|e| crate::Error::internal_err(format!("HMAC key error: {e}")))?;
+    mac.update(job_id.as_bytes());
+    mac.update(b"view_token");
+    Ok(hex::encode(mac.finalize().into_bytes()))
 }
 
 pub async fn get_secret_value_as_admin(
@@ -133,7 +235,12 @@ pub async fn get_secret_value_as_admin(
         let value = variable.value;
         if !value.is_empty() {
             let mc = build_crypt(db, w_id).await?;
-            decrypt(&mc, value)?
+            decrypt(&mc, value).map_err(|e| {
+                crate::error::Error::internal_err(format!(
+                    "Error decrypting variable {}: {}",
+                    variable.path, e
+                ))
+            })?
         } else {
             "".to_string()
         }
@@ -150,18 +257,24 @@ pub fn encrypt(mc: &MagicCrypt256, value: &str) -> String {
 
 pub fn decrypt(mc: &MagicCrypt256, value: String) -> error::Result<String> {
     mc.decrypt_base64_to_string(value).map_err(|e| match e {
-        MagicCryptError::DecryptError(_) => error::Error::InternalErr(
+        MagicCryptError::DecryptError(_) => error::Error::internal_err(
             "Could not decrypt value. The value may have been encrypted with a different key."
                 .to_string(),
         ),
-        _ => error::Error::InternalErr(e.to_string()),
+        _ => error::Error::internal_err(e.to_string()),
     })
 }
 
 pub const WM_SCHEDULED_FOR: &str = "WM_SCHEDULED_FOR";
 
+lazy_static::lazy_static! {
+    pub static ref CUSTOM_ENVS_CACHE: Cache<String, (i64, Vec<(String, String)>)> = Cache::new(100);
+    pub static ref WORKSPACE_CRYPT_CACHE: Cache<String, (i64, MagicCrypt256)> = Cache::new(1000);
+
+}
+
 pub async fn get_reserved_variables(
-    db: &DB,
+    conn: &Connection,
     w_id: &str,
     token: &str,
     email: &str,
@@ -173,9 +286,12 @@ pub async fn get_reserved_variables(
     flow_path: Option<String>,
     schedule_path: Option<String>,
     step_id: Option<String>,
-    root_flow_id: Option<String>,
-    jwt_token: Option<String>,
+    flow_innermost_root_job: Option<String>,
+    root_job_id: Option<String>,
     scheduled_for: Option<chrono::DateTime<Utc>>,
+    runnable_id: Option<ScriptHash>,
+    end_user_email: Option<String>,
+    tested_runnable: Option<String>,
 ) -> Vec<ContextualVariable> {
     let state_path = {
         let trigger = if schedule_path.is_some() {
@@ -201,6 +317,8 @@ pub async fn get_reserved_variables(
         }
     };
 
+    let custom_envs = get_cached_workspace_envs(conn, w_id).await;
+
     let joined_schedule_path = schedule_path
         .clone()
         .unwrap_or("manual".to_string())
@@ -223,132 +341,267 @@ pub async fn get_reserved_variables(
     };
 
     vec![
-        ContextualVariable {
-            name: "WM_WORKSPACE".to_string(),
-            value: w_id.to_string(),
-            description: "Workspace id of the current script".to_string(),
+    ContextualVariable {
+        name: "WM_WORKSPACE".to_string(),
+        value: w_id.to_string(),
+        description: "Workspace id of the current script".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_TOKEN".to_string(),
+        value: token.to_string(),
+        description: "Token ephemeral to the current script with equal permission to the \
+                      permission of the run (Usable as a bearer token)"
+            .to_string(),
             is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_TOKEN".to_string(),
-            value: token.to_string(),
-            description: "Token ephemeral to the current script with equal permission to the \
-                          permission of the run (Usable as a bearer token)"
-                .to_string(),
-                is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_EMAIL".to_string(),
-            value: email.to_string(),
-            description: "Email of the user that executed the current script".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_USERNAME".to_string(),
-            value: username.to_string(),
-            description: "Username of the user that executed the current script".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_BASE_URL".to_string(),
-            value: BASE_URL.read().await.clone(),
-            description: "base url of this instance".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_JOB_ID".to_string(),
-            value: job_id.to_string(),
-            description: "Job id of the current script".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: WM_SCHEDULED_FOR.to_string(),
-            value: scheduled_for
-                .map(|ts| ts.to_rfc3339_opts(SecondsFormat::Secs, true))
-                .unwrap_or_else(|| "".to_string()),
-            description: "date-time in UTC (e.g: 2014-11-28T12:45:59.324310806Z) of when the job was scheduled".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_JOB_PATH".to_string(),
-            value: path.unwrap_or_else(|| "".to_string()),
-            description: "Path of the script or flow being run if any".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_FLOW_JOB_ID".to_string(),
-            value: flow_id.unwrap_or_else(|| "".to_string()),
-            description: "Job id of the encapsulating flow if the job is a flow step".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_ROOT_FLOW_JOB_ID".to_string(),
-            value: root_flow_id.unwrap_or_else(|| "".to_string()),
-            description: "Job id of the root flow if the job is a flow step".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_FLOW_PATH".to_string(),
-            value: flow_path.unwrap_or_else(|| "".to_string()),
-            description: "Path of the encapsulating flow if the job is a flow step".to_string(),
-            is_custom: false,
-        },
+    },
+    ContextualVariable {
+        name: "WM_EMAIL".to_string(),
+        value: email.to_string(),
+        description: "Email of the user that executed the current script".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_USERNAME".to_string(),
+        value: username.to_string(),
+        description: "Username of the user that executed the current script".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_BASE_URL".to_string(),
+        value: (**BASE_URL.load()).clone(),
+        description: "base url of this instance".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_JOB_ID".to_string(),
+        value: job_id.to_string(),
+        description: "Job id of the current script".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: WM_SCHEDULED_FOR.to_string(),
+        value: scheduled_for
+            .map(|ts| ts.to_rfc3339_opts(SecondsFormat::Secs, true))
+            .unwrap_or_else(|| "".to_string()),
+        description: "date-time in UTC (e.g: 2014-11-28T12:45:59.324310806Z) of when the job was scheduled".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_JOB_PATH".to_string(),
+        value: path.unwrap_or_else(|| "".to_string()),
+        description: "Path of the script or flow being run if any".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_FLOW_JOB_ID".to_string(),
+        value: flow_id.unwrap_or_else(|| "".to_string()),
+        description: "Job id of the encapsulating flow if the job is a flow step".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_ROOT_FLOW_JOB_ID".to_string(),
+        value: flow_innermost_root_job.unwrap_or_else(|| "".to_string()),
+        description: "Job id of the innermost root flow if the job is a flow step".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_ROOT_JOB_ID".to_string(),
+        value: root_job_id.unwrap_or_else(|| "".to_string()),
+        description: "Job id of the root job".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_FLOW_PATH".to_string(),
+        value: flow_path.unwrap_or_else(|| "".to_string()),
+        description: "Path of the encapsulating flow if the job is a flow step".to_string(),
+        is_custom: false,
+    },
 
-        ContextualVariable {
-            name: "WM_SCHEDULE_PATH".to_string(),
-            value: schedule_path.unwrap_or_else(|| "".to_string()),
-            description: "Path of the schedule if the job of the step or encapsulating step has \
-                          been triggered by a schedule"
-                .to_string(),
-                is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_PERMISSIONED_AS".to_string(),
-            value: permissioned_as.to_string(),
-            description: "Fully Qualified (u/g) owner name of executor of the job".to_string(),
+    ContextualVariable {
+        name: "WM_SCHEDULE_PATH".to_string(),
+        value: schedule_path.unwrap_or_else(|| "".to_string()),
+        description: "Path of the schedule if the job of the step or encapsulating step has \
+                      been triggered by a schedule"
+            .to_string(),
             is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_STATE_PATH".to_string(),
-            value: state_path.clone(),
-            description: "State resource path unique to a script and its trigger".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_FLOW_STEP_ID".to_string(),
-            value: step_id.unwrap_or_else(|| "".to_string()),
-            description: "The node id in a flow (like 'a', 'b', or 'f')".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_OBJECT_PATH".to_string(),
-            value: object_path,
-            description: "Script or flow step execution unique path, useful for storing results in an external service".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_OIDC_JWT".to_string(),
-            value: jwt_token.unwrap_or_else(|| "".to_string()),
-            description: "OIDC JWT token (EE only)".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_WORKER_GROUP".to_string(),
-            value: WORKER_GROUP.clone(),
-            description: "name of the worker group the job is running on".to_string(),
-            is_custom: false,
-        },
-    ].into_iter().chain( sqlx::query_as::<_, (String, String)>(
-        "SELECT name, value FROM workspace_env WHERE workspace_id = $1",
+    },
+    ContextualVariable {
+        name: "WM_PERMISSIONED_AS".to_string(),
+        value: permissioned_as.to_string(),
+        description: "Fully Qualified (u/g) owner name of executor of the job".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_STATE_PATH".to_string(),
+        value: state_path.clone(),
+        description: "State resource path unique to a script and its trigger".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_FLOW_STEP_ID".to_string(),
+        value: step_id.unwrap_or_else(|| "".to_string()),
+        description: "The node id in a flow (like 'a', 'b', or 'f')".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_OBJECT_PATH".to_string(),
+        value: object_path,
+        description: "Script or flow step execution unique path, useful for storing results in an external service".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_WORKER_GROUP".to_string(),
+        value: WORKER_GROUP.clone(),
+        description: "Name of the worker group the job is running on".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_RUNNABLE_ID".to_string(),
+        value: runnable_id.map(|x| x.to_string()).unwrap_or_else(|| "".to_string()),
+        description: "Hash of the script. Useful as cache key for cache that should be runnable specific.".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_END_USER_EMAIL".to_string(),
+        value: end_user_email.unwrap_or_else(|| "".to_string()),
+        description: "Email of the end user that executed the current script. Only available when triggered from an app.".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_TESTED_RUNNABLE".to_string(),
+        value: tested_runnable.unwrap_or_else(|| "".to_string()),
+        description: "Qualified path ({kind}/{path}) of the runnable that triggered this CI test. Empty string unless the job was triggered by a CI test annotation.".to_string(),
+        is_custom: false,
+    },
+].into_iter().chain(custom_envs.into_iter().map(|(name, value)| ContextualVariable {
+    name,
+    value,
+    description: "Custom workspace environment variable".to_string(),
+    is_custom: true,
+})).collect()
+}
+
+async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String, String)> {
+    let cached_envs_o = CUSTOM_ENVS_CACHE.get(w_id).and_then(|(ts, envs)| {
+        if ts > chrono::Utc::now().timestamp() - (60 * 15) {
+            Some(envs)
+        } else {
+            None
+        }
+    });
+
+    let custom_envs = if let Some(cached_envs) = cached_envs_o {
+        cached_envs
+    } else {
+        let raw_envs = match conn {
+            Connection::Sql(db) => sqlx::query_as::<_, (String, String)>(
+                "SELECT name, value FROM workspace_env WHERE workspace_id = $1",
+            )
+            .bind(w_id)
+            .fetch_all(db)
+            .await
+            .unwrap_or_default(),
+            Connection::Http(client) => client
+                .get(&format!("/api/w/{w_id}/agent_workers/custom_envs"))
+                .await
+                .unwrap_or_default(),
+        };
+        // Applied here (not in the SQL branch alone) so agent workers going
+        // through `Connection::Http` are covered too — drop any name that
+        // would shadow a built-in `%%WM_*%%` contextual var.
+        let custom_envs: Vec<(String, String)> = raw_envs
+            .into_iter()
+            .filter(|(name, _)| !RESERVED_WM_VAR_NAME.is_match(name))
+            .collect();
+        CUSTOM_ENVS_CACHE.insert(
+            w_id.to_string(),
+            (chrono::Utc::now().timestamp(), custom_envs.clone()),
+        );
+        custom_envs
+    };
+    custom_envs
+}
+
+pub async fn get_variable_or_self(
+    path: String,
+    db: &DB,
+    w_id: &str,
+) -> crate::error::Result<String> {
+    if !path.starts_with("$var:") {
+        return Ok(path);
+    }
+    let path = path.strip_prefix("$var:").unwrap().to_string();
+
+    let record = sqlx::query!(
+        "SELECT value, is_secret
+         FROM variable
+         WHERE path = $1 AND workspace_id = $2",
+        &path,
+        &w_id
     )
-    .bind(w_id)
-    .fetch_all(db)
-    .await
-    .unwrap_or_default()
-    .into_iter().map(|(name, value)| ContextualVariable {
-        name,
-        value,
-        description: "Custom workspace environment variable".to_string(),
-        is_custom: true,
-    })).collect()
+    .fetch_optional(db)
+    .await?;
+
+    if let Some(record) = record {
+        let mut value = record.value;
+        if record.is_secret {
+            let mc = build_crypt(db, w_id).await?;
+            value = decrypt(&mc, value).map_err(|e| {
+                Error::internal_err(format!("Error decrypting variable {}: {}", path, e))
+            })?;
+        }
+
+        Ok(value)
+    } else {
+        Err(Error::NotFound(format!(
+            "Variable not found when resolving `$var:{}`",
+            path
+        )))
+    }
+}
+
+/// Like `get_variable_or_self`, but uses an RLS-scoped connection to enforce
+/// that the caller has read access to the referenced variable.
+pub async fn get_variable_or_self_as<T: Authable + Sync>(
+    path: String,
+    db: &DB,
+    user_db: &UserDB,
+    authed: &T,
+    w_id: &str,
+) -> crate::error::Result<String> {
+    if !path.starts_with("$var:") {
+        return Ok(path);
+    }
+    let var_path = path.strip_prefix("$var:").unwrap().to_string();
+
+    // Use an RLS-scoped transaction so the query respects row-level security
+    let mut tx = user_db.clone().begin(authed).await?;
+    let record = sqlx::query!(
+        "SELECT value, is_secret
+         FROM variable
+         WHERE path = $1 AND workspace_id = $2",
+        &var_path,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    if let Some(record) = record {
+        let mut value = record.value;
+        if record.is_secret {
+            let mc = build_crypt(db, w_id).await?;
+            value = decrypt(&mc, value).map_err(|e| {
+                Error::internal_err(format!("Error decrypting variable {}: {}", var_path, e))
+            })?;
+        }
+
+        Ok(value)
+    } else {
+        Err(Error::NotFound(format!(
+            "Variable not found when resolving `$var:{}`",
+            var_path
+        )))
+    }
 }

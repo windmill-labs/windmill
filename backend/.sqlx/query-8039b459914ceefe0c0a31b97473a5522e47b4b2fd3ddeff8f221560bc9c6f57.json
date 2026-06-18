@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT display_name, owners, extra_perms, summary\n         FROM folder\n         WHERE workspace_id = $1 AND name = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "display_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "owners",
+        "type_info": "VarcharArray"
+      },
+      {
+        "ordinal": 2,
+        "name": "extra_perms",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "summary",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "8039b459914ceefe0c0a31b97473a5522e47b4b2fd3ddeff8f221560bc9c6f57"
+}

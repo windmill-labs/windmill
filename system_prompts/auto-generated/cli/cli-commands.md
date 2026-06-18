@@ -1,0 +1,774 @@
+# Windmill CLI Commands
+
+The Windmill CLI (`wmill`) provides commands for managing scripts, flows, apps, and other resources.
+
+## Global Options
+
+- `--workspace <workspace:string>` - Specify the target workspace. This overrides the default workspace.
+- `--debug --verbose` - Show debug/verbose logs
+- `--show-diffs` - Show diff informations when syncing (may show sensitive informations)
+- `--token <token:string>` - Specify an API token. This will override any stored token.
+- `--base-url <baseUrl:string>` - Specify the base URL of the API. If used, --token and --workspace are required and no local remote/workspace already set will be used.
+- `--config-dir <configDir:string>` - Specify a custom config directory. Overrides WMILL_CONFIG_DIR environment variable and default ~/.config location.
+
+## Commands
+
+### app
+
+app related commands
+
+**Options:**
+- `--json` - Output as JSON (for piping to jq)
+
+**Subcommands:**
+
+- `app list` - list all apps
+  - `--json` - Output as JSON (for piping to jq)
+- `app get <path:string>` - get an app's details
+  - `--json` - Output as JSON (for piping to jq)
+- `app push [file_path:string] [remote_path:string]` - push a local app. With no args, infers the app from the current directory and the remote path from its location relative to wmill.yaml.
+- `app dev [app_folder:string]` - Start a development server for building apps with live reload and hot module replacement
+  - `--port <port:number>` - Port to run the dev server on (will find next available port if occupied)
+  - `--host <host:string>` - Host to bind the dev server to
+  - `--entry <entry:string>` - Entry point file (default: index.ts for Svelte/Vue, index.tsx otherwise)
+  - `--no-open` - Don't automatically open the browser
+- `app lint [app_folder:string]` - Lint a raw app folder to validate structure and buildability
+  - `--fix` - Attempt to fix common issues (not implemented yet)
+- `app new` - create a new raw app from a template
+  - `--summary <summary:string>` - App summary (short description). Skips the prompt when provided. Triggers non-interactive mode.
+  - `--path <path:string>` - App path (e.g., f/folder/my_app or u/username/my_app). Skips the prompt when provided. Triggers non-interactive mode.
+  - `--framework <framework:string>` - Framework template: react19 | react18 | svelte5 | vue. Skips the prompt when provided. Triggers non-interactive mode.
+  - `--datatable <datatable:string>` - Datatable to wire up. Without this flag in non-interactive mode, no datatable is configured.
+  - `--schema <schema:string>` - Schema to use with --datatable. Created (CREATE SCHEMA IF NOT EXISTS) if it doesn't already exist.
+  - `--overwrite` - Overwrite the target directory if it already exists, without prompting.
+  - `--no-open-in-desktop` - Do not prompt to open the new app in Claude Desktop.
+- `app generate-agents [app_folder:string]` - regenerate AGENTS.md and DATATABLES.md from remote workspace
+- `app set-permissioned-as <path:string> <email:string>` - Set the on_behalf_of_email for an app (requires admin or wm_deployers group)
+
+### audit
+
+View audit logs (requires admin)
+
+**Subcommands:**
+
+- `audit list` - List audit log entries
+- `audit get <id:string>` - Get a specific audit log entry
+  - `--json` - Output as JSON (for piping to jq)
+
+### config
+
+Show all available wmill.yaml configuration options
+
+**Options:**
+- `--json` - Output as JSON for programmatic consumption
+
+**Subcommands:**
+
+- `config migrate` - Migrate wmill.yaml from gitBranches/environments to workspaces format
+
+### datatable
+
+datatable related commands
+
+**Subcommands:**
+
+- `datatable list` - list all datatables in the workspace
+  - `--json` - Output as JSON (for piping to jq)
+- `datatable run <sql:string>` - run a SQL query on a datatable
+  - `-n --name <name:string>` - Datatable name (default: main)
+  - `-s --silent` - Output only the final result as JSON. Useful for scripting.
+- `datatable serve` - Serve all datatables as a Postgres-wire endpoint (psql, DBeaver, pgAdmin); the client picks the datatable via the database name in its connection string
+  - `--port <port:number>` - Port to listen on (default: first free port in 5433-5500)
+  - `--host <host:string>` - Bind address (default: 127.0.0.1)
+  - `--password <password:string>` - Password for Postgres clients (default: generate a random password at startup)
+- `datatable psql` - Start a serve listener and launch psql connected to it
+  - `-n --name <name:string>` - Datatable to connect psql to (default: main)
+  - `--port <port:number>` - Port the proxy listens on (default: first free port in 5433-5500)
+  - `--host <host:string>` - Bind address for the proxy (default: 127.0.0.1)
+  - `--password <password:string>` - Password for the temporary Postgres proxy (default: generate a random password at startup)
+
+### dependencies
+
+workspace dependencies related commands
+
+**Alias:** `deps`
+
+**Subcommands:**
+
+- `dependencies push <file_path:string>` - Push workspace dependencies from a local file
+
+### dev
+
+Watch local file changes and live-reload the dev page for preview. Does NOT deploy to the remote workspace — use wmill sync push for that.
+
+**Options:**
+- `--includes <pattern...:string>` - Filter paths given a glob pattern or path
+- `--proxy-port <port:number>` - Port for a localhost reverse proxy to the remote Windmill server
+- `--path <path:string>` - Watch a specific windmill path (e.g., u/admin/my_script or f/my_flow)
+- `--no-open` - Do not open the browser automatically
+
+### docs
+
+Search Windmill documentation.
+
+**Arguments:** `<query:string>`
+
+**Options:**
+- `--json` - Output results as JSON.
+
+### ducklake
+
+ducklake related commands
+
+**Subcommands:**
+
+- `ducklake list` - list all ducklakes in the workspace
+  - `--json` - Output as JSON (for piping to jq)
+- `ducklake run <sql:string>` - run a SQL query on a ducklake
+  - `-n --name <name:string>` - Ducklake name (default: main)
+  - `-s --silent` - Output only the final result as JSON. Useful for scripting.
+
+### flow
+
+flow related commands
+
+**Options:**
+- `--show-archived` - Enable archived flows in output
+- `--json` - Output as JSON (for piping to jq)
+
+**Subcommands:**
+
+- `flow list` - list all flows
+  - `--show-archived` - Enable archived flows in output
+  - `--json` - Output as JSON (for piping to jq)
+- `flow get <path:string>` - get a flow's details
+  - `--json` - Output as JSON (for piping to jq)
+- `flow push <file_path:string> <remote_path:string>` - push a local flow spec. This overrides any remote versions.
+  - `--message <message:string>` - Deployment message
+- `flow run <path:string>` - run a flow by path.
+  - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-s --silent` - Do not ouput anything other then the final output. Useful for scripting.
+- `flow preview <flow_path:string>` - preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow).
+  - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
+  - `--remote` - Use deployed workspace scripts for PathScript steps instead of local files.
+  - `--step <step_id:string>` - Run only the named step instead of the whole flow. Honors --data as the step's args and --remote / local-PathScript resolution the same way the full-flow preview does.
+- `flow new <flow_path:string>` - create a new empty flow
+  - `--summary <summary:string>` - flow summary
+  - `--description <description:string>` - flow description
+- `flow bootstrap <flow_path:string>` - create a new empty flow (alias for new)
+  - `--summary <summary:string>` - flow summary
+  - `--description <description:string>` - flow description
+- `flow history <path:string>` - Show version history for a flow
+  - `--json` - Output as JSON (for piping to jq)
+- `flow show-version <path:string> <version:string>` - Show a specific version of a flow
+  - `--json` - Output as JSON (for piping to jq)
+- `flow set-permissioned-as <path:string> <email:string>` - Set the on_behalf_of_email for a flow (requires admin or wm_deployers group)
+
+### folder
+
+folder related commands
+
+**Options:**
+- `--json` - Output as JSON (for piping to jq)
+
+**Subcommands:**
+
+- `folder list` - list all folders
+  - `--json` - Output as JSON (for piping to jq)
+- `folder get <name:string>` - get a folder's details
+  - `--json` - Output as JSON (for piping to jq)
+- `folder new <name:string>` - create a new folder locally
+  - `--summary <summary:string>` - folder summary
+- `folder push <name:string>` - push a local folder to the remote by name. This overrides any remote versions.
+- `folder add-missing` - create default folder.meta.yaml for all subdirectories of f/ that are missing one
+  - `-y, --yes` - skip confirmation prompt
+- `folder show-rules <name:string>` - Show default_permissioned_as rules for a folder. Use --test-path to see which rule matches a given item path.
+  - `--test-path <path:string>` - Test which rule matches this item path (e.g. f/prod/jobs/my_script)
+  - `--json` - Output as JSON
+
+### generate-metadata
+
+Regenerate stale local locks and script schemas and refresh wmill-lock.yaml content hashes (scripts, flows, apps). Writes local files only, not a deploy. Run it after edits that add or remove imports or change a script's arguments, so the lock, the auto-generated UI schema, and wmill-lock.yaml stay in sync.
+
+**Arguments:** `[folder:string]`
+
+**Options:**
+- `--yes` - Skip confirmation prompt
+- `--dry-run` - Show what would be updated without making changes
+- `--lock-only` - Re-generate only the lock files
+- `--schema-only` - Re-generate only script schemas (skips flows and apps)
+- `--skip-scripts` - Skip processing scripts
+- `--skip-flows` - Skip processing flows
+- `--skip-apps` - Skip processing apps
+- `--strict-folder-boundaries` - Only update items inside the specified folder (requires folder argument)
+- `--parallel <n:number>` - Number of items to process in parallel
+- `-i --includes <patterns:file[]>` - Comma separated patterns to specify which files to include
+- `-e --excludes <patterns:file[]>` - Comma separated patterns to specify which files to exclude
+
+**Subcommands:**
+
+- `generate-metadata rehash [folder:string]` - Refresh wmill-lock.yaml content hashes from the on-disk .lock and .script.yaml without re-resolving dependencies or hitting the backend. Use when those files are already correct and only the hashes need updating: bootstrapping missing entries or recovering from hash drift.
+  - `--skip-scripts` - Skip processing scripts
+  - `--skip-flows` - Skip processing flows
+  - `--skip-apps` - Skip processing apps
+  - `--parallel <n:number>` - Number of items to process in parallel
+  - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which files to include
+  - `-e --excludes <patterns:file[]>` - Comma separated patterns to specify which files to exclude
+
+### gitsync-settings
+
+Manage git-sync settings between local wmill.yaml and Windmill backend
+
+**Subcommands:**
+
+- `gitsync-settings pull` - Pull git-sync settings from Windmill backend to local wmill.yaml
+  - `--repository <repo:string>` - Specify repository path (e.g., u/user/repo)
+  - `--default` - Write settings to top-level defaults instead of overrides
+  - `--replace` - Replace existing settings (non-interactive mode)
+  - `--override` - Add branch-specific override (non-interactive mode)
+  - `--diff` - Show differences without applying changes
+  - `--json-output` - Output in JSON format
+  - `--with-backend-settings <json:string>` - Use provided JSON settings instead of querying backend (for testing)
+  - `--yes` - Skip interactive prompts and use default behavior
+  - `--promotion <branch:string>` - Use promotionOverrides from the specified branch instead of regular overrides
+- `gitsync-settings push` - Push git-sync settings from local wmill.yaml to Windmill backend
+  - `--repository <repo:string>` - Specify repository path (e.g., u/user/repo)
+  - `--diff` - Show what would be pushed without applying changes
+  - `--json-output` - Output in JSON format
+  - `--with-backend-settings <json:string>` - Use provided JSON settings instead of querying backend (for testing)
+  - `--yes` - Skip interactive prompts and use default behavior
+  - `--promotion <branch:string>` - Use promotionOverrides from the specified branch instead of regular overrides
+
+### group
+
+Manage workspace groups
+
+**Options:**
+- `--json` - Output as JSON (for piping to jq)
+
+**Subcommands:**
+
+- `group list` - List all groups in the workspace
+  - `--json` - Output as JSON (for piping to jq)
+- `group get <name:string>` - Get group details and members
+  - `--json` - Output as JSON (for piping to jq)
+- `group create <name:string>` - Create a new group
+  - `--summary <summary:string>` - Group summary/description
+- `group delete <name:string>` - Delete a group
+- `group add-user <name:string> <username:string>` - Add a user to a group
+- `group remove-user <name:string> <username:string>` - Remove a user from a group
+
+### hub
+
+Hub related commands. EXPERIMENTAL. INTERNAL USE ONLY.
+
+**Subcommands:**
+
+- `hub pull` - pull any supported definitions. EXPERIMENTAL.
+
+### init
+
+Bootstrap a windmill project with a wmill.yaml file
+
+**Options:**
+- `--use-default` - Use default settings without checking backend
+- `--use-backend` - Use backend git-sync settings if available
+- `--repository <repo:string>` - Specify repository path (e.g., u/user/repo) when using backend settings
+- `--bind-profile` - Automatically bind active workspace profile to current Git branch
+- `--no-bind-profile` - Skip workspace profile binding prompt
+
+### instance
+
+sync local with a remote instance or the opposite (push or pull)
+
+**Subcommands:**
+
+- `instance add [instance_name:string] [remote:string] [token:string]` - Add a new instance
+- `instance remove <instance:string:instance>` - Remove an instance
+- `instance switch <instance:string:instance>` - Switch the current instance
+- `instance pull` - Pull instance settings, users, configs, instance groups and overwrite local
+  - `--yes` - Pull without needing confirmation
+  - `--dry-run` - Perform a dry run without making changes
+  - `--skip-users` - Skip pulling users
+  - `--skip-settings` - Skip pulling settings
+  - `--skip-configs` - Skip pulling configs (worker groups)
+  - `--skip-groups` - Skip pulling instance groups
+  - `--include-workspaces` - Also pull workspaces
+  - `--folder-per-instance` - Create a folder per instance
+  - `--instance <instance:string>` - Name of the instance to pull from, override the active instance
+  - `--prefix <prefix:string>` - Prefix of the local workspaces to pull, used to create the folders when using --include-workspaces
+  - `--prefix-settings` - Store instance yamls inside prefixed folders when using --prefix and --folder-per-instance
+- `instance push` - Push instance settings, users, configs, group and overwrite remote
+  - `--yes` - Push without needing confirmation
+  - `--dry-run` - Perform a dry run without making changes
+  - `--skip-users` - Skip pushing users
+  - `--skip-settings` - Skip pushing settings
+  - `--skip-configs` - Skip pushing configs (worker groups)
+  - `--skip-groups` - Skip pushing instance groups
+  - `--include-workspaces` - Also push workspaces
+  - `--folder-per-instance` - Create a folder per instance
+  - `--instance <instance:string>` - Name of the instance to push to, override the active instance
+  - `--prefix <prefix:string>` - Prefix of the local workspaces folders to push
+  - `--prefix-settings` - Store instance yamls inside prefixed folders when using --prefix and --folder-per-instance
+- `instance whoami` - Display information about the currently logged-in user
+- `instance get-config` - Dump the current instance config (global settings + worker configs) as YAML
+  - `-o, --output-file <file:string>` - Write YAML to a file instead of stdout
+  - `--show-secrets` - Include sensitive fields (license key, JWT secret) without prompting
+  - `--instance <instance:string>` - Name of the instance, override the active instance
+- `instance connect-slack` - Non-interactively connect Slack at the instance level using a pre-minted bot token (xoxb-...). Produces the same artifacts as the UI OAuth flow: global_settings 'slack' row + encrypted f/slack_bot/global_bot_token variable and resource in the admins workspace.
+  - `--bot-token <bot_token:string>` - Slack bot token (xoxb-...)
+  - `--team-id <team_id:string>` - Slack team id
+  - `--team-name <team_name:string>` - Slack team name
+  - `--instance <instance:string>` - Instance profile to connect against (defaults to the active instance)
+
+### job
+
+Manage jobs (list, inspect, cancel)
+
+**Subcommands:**
+
+- `job list` - List recent jobs
+- `job get <id:string>` - Get job details. For flows: shows step tree with sub-job IDs
+  - `--json` - Output as JSON (for piping to jq)
+- `job result <id:string>` - Get the result of a completed job (machine-friendly)
+- `job logs <id:string>` - Get job logs. For flows: aggregates all step logs
+- `job cancel <id:string>` - Cancel a running or queued job
+  - `--reason <reason:string>` - Reason for cancellation
+- `job rerun <id:string>` - Re-run a completed job with the same args. Prints the new job UUID on stdout.
+- `job restart <id:string>` - Restart a completed flow at a given top-level step. Prints the new flow job UUID on stdout.
+  - `--step <stepId:string>` - Top-level step id to restart the flow from
+  - `--iteration <n:number>` - For a top-level branchall or for-loop step, the iteration to restart at
+
+### jobs
+
+Pull completed and queued jobs from workspace
+
+**Arguments:** `[workspace:string]`
+
+**Options:**
+- `-c, --completed-output <file:string>` - Completed jobs output file (default: completed_jobs.json)
+- `-q, --queued-output <file:string>` - Queued jobs output file (default: queued_jobs.json)
+- `--skip-worker-check` - Skip checking for active workers before export
+
+**Subcommands:**
+
+- `jobs pull`
+- `jobs push`
+
+### lint
+
+Validate Windmill flow, schedule, and trigger YAML files in a directory
+
+**Arguments:** `[directory:string]`
+
+**Options:**
+- `--json` - Output results in JSON format
+- `--fail-on-warn` - Exit with code 1 when warnings are emitted
+- `--locks-required` - Fail if scripts or flow inline scripts that need locks have no locks
+- `-w, --watch` - Watch for file changes and re-lint automatically
+
+### object-storage
+
+Object storage (S3) related commands. Operates on the workspace's default object storage; use --storage to target a configured secondary storage.
+
+**Alias:** `s3`
+
+**Subcommands:**
+
+- `object-storage list` - List configured object storages for the workspace (default + secondary).
+  - `--json` - Output as JSON (for piping to jq)
+- `object-storage files [prefix:string]` - List files in an object storage. Optionally filter by prefix.
+  - `--json` - Output as JSON (for piping to jq)
+  - `--max-keys <maxKeys:number>` - Page size (default 100)
+  - `--marker <marker:string>` - Pagination marker from a previous response
+  - `--storage <storage:string>` - Secondary storage name (omit for the workspace default)
+- `object-storage upload <local_path:string> <file_key:string>` - Upload a local file to object storage at the given file key.
+  - `--storage <storage:string>` - Secondary storage name
+  - `--content-type <contentType:string>` - Content-Type header to set on the object
+  - `--content-disposition <contentDisposition:string>` - Content-Disposition header to set on the object
+- `object-storage download <file_key:string> [output_path:string]` - Download an object to a local file (or stdout). Default output path is the basename of the file key in the current directory.
+  - `--storage <storage:string>` - Secondary storage name
+  - `--stdout` - Write file contents to stdout instead of a file
+- `object-storage delete <file_key:string>` - Delete an object from object storage. Prompts for confirmation unless --yes is set.
+  - `--storage <storage:string>` - Secondary storage name
+  - `--yes` - Skip the confirmation prompt
+- `object-storage move <src_file_key:string> <dest_file_key:string>` - Move an object within the same storage (rename or relocate by key).
+  - `--storage <storage:string>` - Secondary storage name
+- `object-storage info <file_key:string>` - Show metadata (size, mime, last-modified) for an object.
+  - `--json` - Output as JSON (for piping to jq)
+  - `--storage <storage:string>` - Secondary storage name
+- `object-storage preview <file_key:string>` - Preview the contents of an object (text/CSV). Use --bytes-from / --bytes-length to peek at a slice of binary files.
+  - `--storage <storage:string>` - Secondary storage name
+  - `--mime <mime:string>` - Override the detected mime type (e.g. text/csv)
+  - `--bytes-from <bytesFrom:number>` - Start offset in bytes
+  - `--bytes-length <bytesLength:number>` - Number of bytes to read
+  - `--csv-separator <csvSeparator:string>` - CSV column separator (default ,)
+  - `--csv-header` - Treat the first CSV row as a header
+
+### protection-rules
+
+Sync workspace protection rules between protection-rules.yaml and Windmill. The file is keyed by workspace name; keys must match wmill.yaml 'workspaces'.
+
+**Subcommands:**
+
+- `protection-rules pull [workspace:string]` - Pull protection rules from Windmill into protection-rules.yaml for a workspace
+  - `--all` - Pull every workspace defined in wmill.yaml
+  - `--dry-run` - Show what would change without writing the file
+  - `--json-output` - Output in JSON format
+- `protection-rules push [workspace:string]` - Push protection rules from protection-rules.yaml to Windmill for a workspace (full reconcile: creates, updates, and deletes)
+  - `--all` - Push every workspace defined in protection-rules.yaml
+  - `--dry-run` - Show what would change without applying
+  - `--json-output` - Output in JSON format
+  - `--yes` - Skip the confirmation prompt (including deletions)
+
+### queues
+
+List all queues with their metrics
+
+**Arguments:** `[workspace:string] the optional workspace to filter by (default to all workspaces)`
+
+**Options:**
+- `--instance [instance]` - Name of the instance to push to, override the active instance
+- `--base-url [baseUrl]` - If used with --token, will be used as the base url for the instance
+
+### refresh
+
+Refresh wmill-managed project files (AGENTS.wmill.md, skills, tsconfig.wmill.json)
+
+**Subcommands:**
+
+- `refresh prompts` - Refresh AGENTS.wmill.md and managed skills. User-owned AGENTS.md and CLAUDE.md are never overwritten unless you opt in.
+  - `--yes` - Non-interactive: append the @AGENTS.wmill.md include to an existing AGENTS.md / CLAUDE.md without prompting. Without it, a non-interactive run leaves an unlinked file untouched.
+- `refresh tsconfig` - Refresh the wmill-managed tsconfig.wmill.json (and Deno import map for Deno projects)
+  - `--yes` - Non-interactive: wire an existing custom tsconfig.json/deno.json to the managed file without prompting (a previously-generated config is always migrated automatically).
+
+### resource
+
+resource related commands
+
+**Options:**
+- `--json` - Output as JSON (for piping to jq)
+
+**Subcommands:**
+
+- `resource list` - list all resources
+  - `--json` - Output as JSON (for piping to jq)
+- `resource get <path:string>` - get a resource's details
+  - `--json` - Output as JSON (for piping to jq)
+- `resource new <path:string>` - create a new resource locally
+- `resource push <file_path:string> <remote_path:string>` - push a local resource spec. This overrides any remote versions.
+
+### resource-type
+
+resource type related commands
+
+**Options:**
+- `--json` - Output as JSON (for piping to jq)
+
+**Subcommands:**
+
+- `resource-type list` - list all resource types
+  - `--schema` - Show schema in the output
+  - `--json` - Output as JSON (for piping to jq)
+- `resource-type get <path:string>` - get a resource type's details
+  - `--json` - Output as JSON (for piping to jq)
+- `resource-type new <name:string>` - create a new resource type locally
+- `resource-type push <file_path:string> <name:string>` - push a local resource spec. This overrides any remote versions.
+- `resource-type generate-namespace` - Create a TypeScript definition file with the RT namespace generated from the resource types
+
+### schedule
+
+schedule related commands
+
+**Options:**
+- `--json` - Output as JSON (for piping to jq)
+
+**Subcommands:**
+
+- `schedule list` - list all schedules
+  - `--json` - Output as JSON (for piping to jq)
+- `schedule get <path:string>` - get a schedule's details
+  - `--json` - Output as JSON (for piping to jq)
+- `schedule new <path:string>` - create a new schedule locally
+- `schedule push <file_path:string> <remote_path:string>` - push a local schedule spec. This overrides any remote versions.
+- `schedule enable <path:string>` - Enable a schedule
+  - `--force` - Bypass the fork-conflict warning when the parent workspace has the same schedule (acknowledges that both crons will fire)
+- `schedule disable <path:string>` - Disable a schedule
+- `schedule set-permissioned-as <path:string> <email:string>` - Set the email (run-as user) for a schedule (requires admin or wm_deployers group)
+
+### script
+
+script related commands
+
+**Options:**
+- `--show-archived` - Show archived scripts instead of active ones
+- `--json` - Output as JSON (for piping to jq)
+
+**Subcommands:**
+
+- `script list` - list all scripts
+  - `--show-archived` - Show archived scripts instead of active ones
+  - `--json` - Output as JSON (for piping to jq)
+- `script push <path:file>` - push a local script spec. This overrides any remote versions. Use the script file (.ts, .js, .py, .sh)
+  - `--message <message:string>` - Deployment message
+- `script get <path:file>` - get a script's details
+  - `--json` - Output as JSON (for piping to jq)
+- `script show <path:file>` - show a script's content (alias for get)
+- `script run <path:file>` - run a script by path
+  - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
+- `script preview <path:file>` - preview a local script without deploying it. Supports both regular and codebase scripts.
+  - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-s --silent` - Do not output anything other than the final output. Useful for scripting.
+- `script new <path:file> <language:string>` - create a new script
+  - `--summary <summary:string>` - script summary
+  - `--description <description:string>` - script description
+- `script bootstrap <path:file> <language:string>` - create a new script (alias for new)
+  - `--summary <summary:string>` - script summary
+  - `--description <description:string>` - script description
+- `script set-permissioned-as <path:string> <email:string>` - Set the on_behalf_of_email for a script (requires admin or wm_deployers group)
+- `script history <path:string>` - show version history for a script
+  - `--json` - Output as JSON (for piping to jq)
+
+### sync
+
+sync local with a remote workspaces or the opposite (push or pull)
+
+**Subcommands:**
+
+- `sync pull` - Pull any remote changes and apply them locally.
+  - `--yes` - Pull without needing confirmation
+  - `--dry-run` - Show changes that would be pulled without actually pushing
+  - `--plain-secrets` - Pull secrets as plain text
+  - `--json` - Use JSON instead of YAML
+  - `--skip-variables` - Skip syncing variables (including secrets)
+  - `--skip-secrets` - Skip syncing only secrets variables
+  - `--include-secrets` - Include secrets in sync (overrides skipSecrets in wmill.yaml)
+  - `--skip-resources` - Skip syncing  resources
+  - `--skip-resource-types` - Skip syncing  resource types
+  - `--skip-scripts` - Skip syncing scripts
+  - `--skip-flows` - Skip syncing flows
+  - `--skip-apps` - Skip syncing apps
+  - `--skip-folders` - Skip syncing folders
+  - `--skip-workspace-dependencies` - Skip syncing workspace dependencies
+  - `--skip-scripts-metadata` - Skip syncing scripts metadata, focus solely on logic
+  - `--include-schedules` - Include syncing  schedules
+  - `--include-triggers` - Include syncing triggers
+  - `--include-users` - Include syncing users
+  - `--include-groups` - Include syncing groups
+  - `--include-settings` - Include syncing workspace settings
+  - `--include-key` - Include workspace encryption key
+  - `--skip-branch-validation` - Skip git branch validation and prompts
+  - `--json-output` - Output results in JSON format
+  - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Overrides wmill.yaml includes
+  - `-e --excludes <patterns:file[]>` - Comma separated patterns to specify which file to NOT take into account. Overrides wmill.yaml excludes
+  - `--extra-includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy
+  - `--repository <repo:string>` - Specify repository path (e.g., u/user/repo) when multiple repositories exist
+  - `--promotion <branch:string>` - Use promotionOverrides from the specified branch instead of regular overrides
+  - `--branch, --env <branch:string>` - [Deprecated: use --workspace] Override the current git branch/environment
+- `sync push` - Push any local changes and apply them remotely.
+  - `--yes` - Push without needing confirmation
+  - `--dry-run` - Show changes that would be pushed without actually pushing
+  - `--plain-secrets` - Push secrets as plain text
+  - `--json` - Use JSON instead of YAML
+  - `--skip-variables` - Skip syncing variables (including secrets)
+  - `--skip-secrets` - Skip syncing only secrets variables
+  - `--include-secrets` - Include secrets in sync (overrides skipSecrets in wmill.yaml)
+  - `--skip-resources` - Skip syncing  resources
+  - `--skip-resource-types` - Skip syncing  resource types
+  - `--skip-scripts` - Skip syncing scripts
+  - `--skip-flows` - Skip syncing flows
+  - `--skip-apps` - Skip syncing apps
+  - `--skip-folders` - Skip syncing folders
+  - `--skip-workspace-dependencies` - Skip syncing workspace dependencies
+  - `--skip-scripts-metadata` - Skip syncing scripts metadata, focus solely on logic
+  - `--include-schedules` - Include syncing schedules
+  - `--include-triggers` - Include syncing triggers
+  - `--include-users` - Include syncing users
+  - `--include-groups` - Include syncing groups
+  - `--include-settings` - Include syncing workspace settings
+  - `--include-key` - Include workspace encryption key
+  - `--skip-reencrypt-on-key-change` - When the pushed encryption key differs from the remote, do NOT re-encrypt existing remote secrets. Only safe if they are already encrypted with the new key (e.g. workspace/instance migration). Default is to re-encrypt.
+  - `--skip-branch-validation` - Skip git branch validation and prompts
+  - `--json-output` - Output results in JSON format
+  - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)
+  - `-e --excludes <patterns:file[]>` - Comma separated patterns to specify which file to NOT take into account.
+  - `--extra-includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy
+  - `--message <message:string>` - Include a message that will be added to all scripts/flows/apps updated during this push
+  - `--parallel <number>` - Number of changes to process in parallel
+  - `--repository <repo:string>` - Specify repository path (e.g., u/user/repo) when multiple repositories exist
+  - `--branch, --env <branch:string>` - [Deprecated: use --workspace] Override the current git branch/environment
+  - `--lint` - Run lint validation before pushing
+  - `--locks-required` - Fail if scripts or flow inline scripts that need locks have no locks
+  - `--auto-metadata` - Automatically regenerate stale metadata (locks and schemas) before pushing
+  - `--accept-overriding-permissioned-as-with-self` - Accept that items with a different permissioned_as will be updated with your own user
+
+### token
+
+Manage API tokens
+
+**Options:**
+- `--json` - Output as JSON (for piping to jq)
+
+**Subcommands:**
+
+- `token list` - List API tokens
+  - `--json` - Output as JSON (for piping to jq)
+- `token create` - Create a new API token
+  - `--label <label:string>` - Token label
+  - `--expiration <expiration:string>` - Token expiration (ISO 8601 timestamp)
+- `token delete <token_prefix:string>` - Delete a token by its prefix
+
+### trigger
+
+trigger related commands
+
+**Options:**
+- `--json` - Output as JSON (for piping to jq)
+
+**Subcommands:**
+
+- `trigger list` - list all triggers
+  - `--json` - Output as JSON (for piping to jq)
+- `trigger get <path:string>` - get a trigger's details
+  - `--json` - Output as JSON (for piping to jq)
+  - `--kind <kind:string>` - Trigger kind (http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email). Recommended for faster lookup
+- `trigger new <path:string>` - create a new trigger locally
+  - `--kind <kind:string>` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)
+- `trigger push <file_path:string> <remote_path:string>` - push a local trigger spec. This overrides any remote versions.
+- `trigger set-permissioned-as <path:string> <email:string>` - Set the email (run-as user) for a trigger (requires admin or wm_deployers group)
+  - `--kind <kind:string>` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)
+
+### user
+
+user related commands
+
+**Subcommands:**
+
+- `user add <email:string> [password:string]` - Create a user
+  - `--superadmin` - Specify to make the new user superadmin.
+  - `--company <company:string>` - Specify to set the company of the new user.
+  - `--name <name:string>` - Specify to set the name of the new user.
+- `user remove <email:string>` - Delete a user
+- `user create-token` - Create a new API token for the authenticated user
+  - `--email <email:string>` - Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.
+  - `--password <password:string>` - Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.
+
+### variable
+
+variable related commands
+
+**Options:**
+- `--json` - Output as JSON (for piping to jq)
+
+**Subcommands:**
+
+- `variable list` - list all variables
+  - `--json` - Output as JSON (for piping to jq)
+- `variable get <path:string>` - get a variable's details
+  - `--json` - Output as JSON (for piping to jq)
+- `variable new <path:string>` - create a new variable locally
+- `variable push <file_path:string> <remote_path:string>` - Push a local variable spec. This overrides any remote versions.
+  - `--plain-secrets` - Push secrets as plain text
+- `variable add <value:string> <remote_path:string>` - Create a new variable on the remote. This will update the variable if it already exists.
+  - `--yes` - Skip confirmation prompt when updating an existing variable
+  - `--secret` - Mark the variable as secret (default when creating a new variable)
+  - `--no-secret` - Mark the variable as non-secret (when updating, the existing setting is preserved if neither --secret nor --no-secret is passed)
+  - `--description <description:string>` - Set the variable description (when updating, the existing description is preserved if not passed)
+  - `--plain-secrets` - Push secrets as plain text
+  - `--public` - Legacy option, use --no-secret instead
+
+### version
+
+Show version information
+
+### worker-groups
+
+display worker groups, pull and push worker groups configs
+
+**Subcommands:**
+
+- `worker-groups pull` - Pull worker groups (similar to `wmill instance pull --skip-users --skip-settings --skip-groups`)
+  - `--instance` - Name of the instance to push to, override the active instance
+  - `--base-url` - Base url to be passed to the instance settings instead of the local one
+  - `--yes` - Pull without needing confirmation
+- `worker-groups push` - Push worker groups (similar to `wmill instance push --skip-users --skip-settings --skip-groups`)
+  - `--instance [instance]` - Name of the instance to push to, override the active instance
+  - `--base-url [baseUrl]` - If used with --token, will be used as the base url for the instance
+  - `--yes` - Push without needing confirmation
+
+### workers
+
+List all workers grouped by worker groups
+
+**Options:**
+- `--instance [instance]` - Name of the instance to push to, override the active instance
+- `--base-url [baseUrl]` - If used with --token, will be used as the base url for the instance
+
+### workspace
+
+workspace related commands
+
+**Alias:** `profile`
+
+**Subcommands:**
+
+- `workspace switch <workspace_name:string:workspace>` - Switch to another workspace
+- `workspace add [workspace_name:string] [workspace_id:string] [remote:string]` - Add a workspace
+  - `-c --create` - Create the workspace if it does not exist
+  - `--create-workspace-name <workspace_name:string>` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
+  - `--create-username <username:string>` - Specify your own username in the newly created workspace. Ignored if --create is not specified, the workspace already exists or automatic username creation is enabled on the instance.
+- `workspace remove <workspace_name:string>` - Remove a workspace
+- `workspace whoami` - Show the currently active user
+- `workspace list` - List local workspace profiles
+- `workspace list-remote` - List workspaces on the remote server that you have access to
+  - `--as-superadmin` - List ALL workspaces on the instance (requires the token to belong to a superadmin/devops user)
+- `workspace list-forks` - List forked workspaces on the remote server
+- `workspace bind` - Create or update a workspace entry in wmill.yaml from the active profile
+  - `--workspace <name:string>` - Workspace name (default: current branch or workspaceId)
+  - `--branch <branch:string>` - Git branch to associate (default: workspace name)
+- `workspace unbind` - Remove baseUrl and workspaceId from a workspace entry
+  - `--workspace <name:string>` - Workspace to unbind
+- `workspace fork [workspace_name:string] [workspace_id:string]` - Create a forked workspace
+  - `--create-workspace-name <workspace_name:string>` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
+  - `--color <color:string>` - Workspace color (hex code, e.g. #ff0000)
+  - `--datatable-behavior <behavior:string>` - How to handle datatables: skip, schema_only, or schema_and_data (default: interactive prompt)
+  - `--from-branch <branch:string>` - Non-interactive override for the 'turn my current working branch into the fork' workflow: base the fork on <branch> (its bound workspace is the parent) and rename the current branch onto wm-fork/<branch>/<id>. Usually unneeded — from a working branch `wmill workspace fork` offers this interactively; from a base branch it creates a fresh fork branch.
+  - `-y --yes` - Skip interactive prompts (defaults datatable behavior to 'skip'). On a non-base branch, requires --from-branch since the base branch can't be prompted for.
+- `workspace delete-fork <fork_name:string>` - Delete a forked workspace and git branch
+  - `-y --yes` - Skip confirmation prompt
+- `workspace merge` - Compare and deploy changes between a fork and its parent workspace
+  - `--direction <direction:string>` - Deploy direction: to-parent or to-fork
+  - `--all` - Deploy all changed items including conflicts
+  - `--skip-conflicts` - Skip items modified in both workspaces
+  - `--include <items:string>` - Comma-separated kind:path items to include (e.g. script:f/test/main,flow:f/my/flow)
+  - `--exclude <items:string>` - Comma-separated kind:path items to exclude
+  - `--preserve-on-behalf-of` - Preserve original on_behalf_of/permissioned_as values
+  - `-y --yes` - Non-interactive mode (deploy without prompts)
+- `workspace connect-slack` - Non-interactively connect Slack to the active workspace using a pre-minted bot token (xoxb-...). Produces the same artifacts as the UI OAuth flow: workspace_settings fields, g/slack group, f/slack_bot folder, and the encrypted bot token variable + resource at f/slack_bot/bot_token.
+  - `--bot-token <bot_token:string>` - Slack bot token (xoxb-...)
+  - `--team-id <team_id:string>` - Slack team id
+  - `--team-name <team_name:string>` - Slack team name
+- `workspace disconnect-slack` - Clear slack_team_id / slack_name on the active workspace (marks the workspace as disconnected). Does NOT remove the bot token variable/resource/folder/group — delete those from the local sync folder and run 'wmill sync push' to tear them down. Does NOT remove the workspace-level OAuth override — set slack_oauth_client_id/_secret to '' in settings.yaml and push.
+
+
+
+# Object Storage CLI
+
+`wmill object-storage` (alias `wmill s3`) exposes the workspace's object storage (S3-compatible: AWS S3, MinIO, GCS, R2, Azure Blob) over the per-workspace `/job_helpers/*` endpoints.
+
+## Key concepts (not obvious from per-command --help)
+
+- **`file_key` is the path inside the bucket** (e.g. `reports/2026-05/orders.csv`), not a Windmill path. Do NOT pass `u/...` or `f/...` here — those are Windmill paths to scripts/flows/resources, unrelated to objects in the bucket.
+- **Scope is the active workspace.** Object storage is configured per-workspace (default storage + optional secondary storages). Switching workspaces switches which bucket the commands target.
+- **`--storage <name>` targets a secondary storage** configured on the workspace. Omit it to use the workspace's default object storage. Use `wmill object-storage list` to discover configured storages.
+- **`preview` vs `download`**: `preview` returns a peek (CSV first rows, text content, or a byte slice via `--bytes-from`/`--bytes-length`) without writing to disk. Use `download` when you want the full file on disk.
+
+## Choosing a subcommand
+
+- Look at what's there: `wmill object-storage files [prefix]` (alias `ls`) — paginated, use `--marker` to continue.
+- Inspect one file: `wmill object-storage info <file_key>` for size/mime/last-modified, `wmill object-storage preview <file_key>` for content peek.
+- Move data in: `wmill object-storage upload <local_path> <file_key>` — set `--content-type` if the receiver cares (e.g. `text/csv`).
+- Move data out: `wmill object-storage download <file_key> [output_path]` — `--stdout` to pipe.
+- Reorganize: `wmill object-storage move <src> <dest>` (same storage), `wmill object-storage delete <file_key>` (interactive confirm unless `--yes`).

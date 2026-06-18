@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE variable SET labels = $1, edited_at = now(), edited_by = $4 WHERE path = $2 AND workspace_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text",
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5494652553c59b72ca5db4350a8ba3d8bbf1608519b08f2544c64ecfe130c537"
+}

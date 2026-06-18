@@ -7,21 +7,20 @@
 	import { Highlight } from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
 	import { Button } from '../../common'
-	import type { App } from '../types'
-	import { Clipboard } from 'lucide-svelte'
+	import { Copy } from 'lucide-svelte'
 	import { yaml } from 'svelte-highlight/languages'
 	import YAML from 'yaml'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 
-	let jsonViewerDrawer: Drawer
+	let jsonViewerDrawer: Drawer | undefined = $state()
 
-	let app: App | undefined = undefined
+	let app: any | undefined = $state(undefined)
 
-	let rawType: 'json' | 'yaml' = 'yaml'
+	let rawType: 'json' | 'yaml' = $state('yaml')
 
-	export function open(app_l: App) {
+	export function open(app_l: any) {
 		app = app_l
 		jsonViewerDrawer?.toggleDrawer()
 	}
@@ -30,12 +29,12 @@
 <HighlightTheme />
 
 <Drawer bind:this={jsonViewerDrawer} size="800px">
-	<DrawerContent title="App Export" on:close={() => jsonViewerDrawer.toggleDrawer()}>
+	<DrawerContent title="App Export" on:close={() => jsonViewerDrawer?.toggleDrawer()}>
 		<div>
 			<Tabs bind:selected={rawType}>
-				<Tab value="yaml">YAML</Tab>
-				<Tab value="json">JSON</Tab>
-				<svelte:fragment slot="content">
+				<Tab value="yaml" label="YAML" />
+				<Tab value="json" label="JSON" />
+				{#snippet content()}
 					<div class="relative pt-2">
 						<Button
 							on:click={() =>
@@ -44,10 +43,9 @@
 										? YAML.stringify(app ?? {})
 										: JSON.stringify(app ?? {}, null, 4)
 								)}
-							color="dark"
-							variant="border"
+							variant="accent"
 							size="sm"
-							startIcon={{ icon: Clipboard }}
+							startIcon={{ icon: Copy }}
 							btnClasses="absolute top-2 right-2 w-min z-20"
 							iconOnly
 						/>
@@ -61,7 +59,7 @@
 							/>
 						{/key}
 					</div>
-				</svelte:fragment>
+				{/snippet}
 			</Tabs>
 		</div></DrawerContent
 	>

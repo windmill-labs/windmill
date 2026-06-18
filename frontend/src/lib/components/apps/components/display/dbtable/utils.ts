@@ -1,13 +1,8 @@
-import { JobService, type Preview, ResourceService } from '$lib/gen'
-import type { DBSchema, DBSchemas, GraphqlSchema, SQLSchema } from '$lib/stores'
-import {
-	buildClientSchema,
-	getIntrospectionQuery,
-	printSchema,
-	type IntrospectionQuery
-} from 'graphql'
-import { tryEvery } from '$lib/utils'
-import { stringifySchema } from '$lib/components/copilot/lib'
+import type { ScriptLang } from '$lib/gen'
+import type { SQLSchema } from '$lib/stores'
+import type { IntrospectionQuery } from 'graphql'
+
+import type { DbType } from '$lib/components/dbTypes'
 
 export enum ColumnIdentity {
 	ByDefault = 'By Default',
@@ -23,6 +18,7 @@ export type ColumnMetadata = {
 	isidentity: ColumnIdentity
 	isnullable: 'YES' | 'NO'
 	isenum: boolean
+	default_constraint_name?: string // MS SQL requires to know this to drop default
 }
 export type TableMetadata = ColumnMetadata[]
 
@@ -52,172 +48,6 @@ export type ColumnDef = {
 	defaultValueNull?: boolean
 } & ColumnMetadata
 
-export async function loadTableMetaData(
-	resource: string,
-	workspace: string | undefined,
-	table: string | undefined,
-	resourceType: string
-): Promise<TableMetadata | undefined> {
-	if (!resource || !table || !workspace) {
-		return undefined
-	}
-
-	let code: string = ''
-
-	if (resourceType === 'mysql') {
-		const resourceObj = (await ResourceService.getResourceValue({
-			workspace,
-			path: resource.split(':')[1]
-		})) as any
-		code = `
-	SELECT 
-			COLUMN_NAME as field,
-			COLUMN_TYPE as DataType,
-			COLUMN_DEFAULT as DefaultValue,
-			CASE WHEN COLUMN_KEY = 'PRI' THEN 'YES' ELSE 'NO' END as IsPrimaryKey,
-			CASE WHEN EXTRA like '%auto_increment%' THEN 'YES' ELSE 'NO' END as IsIdentity,
-			CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
-			CASE WHEN DATA_TYPE = 'enum' THEN true ELSE false END as IsEnum
-	FROM 
-			INFORMATION_SCHEMA.COLUMNS
-	WHERE 
-			TABLE_NAME = '${table.split('.').reverse()[0]}' AND TABLE_SCHEMA = '${
-			table.split('.').reverse()[1] ?? resourceObj?.database ?? ''
-		}'
-	ORDER BY 
-			ORDINAL_POSITION;
-	`
-	} else if (resourceType === 'postgresql') {
-		code = `
-		SELECT 
-		a.attname as field,
-		pg_catalog.format_type(a.atttypid, a.atttypmod) as DataType,
-		(SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid, true) for 128)
-		 FROM pg_catalog.pg_attrdef d
-		 WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef) as DefaultValue,
-		(SELECT CASE WHEN i.indisprimary THEN true ELSE 'NO' END
-		 FROM pg_catalog.pg_class tbl, pg_catalog.pg_class idx, pg_catalog.pg_index i, pg_catalog.pg_attribute att
-		 WHERE tbl.oid = a.attrelid AND idx.oid = i.indexrelid AND att.attrelid = tbl.oid
-								 AND i.indrelid = tbl.oid AND att.attnum = any(i.indkey) AND att.attname = a.attname LIMIT 1) as IsPrimaryKey,
-		CASE a.attidentity
-				WHEN 'd' THEN 'By Default'
-				WHEN 'a' THEN 'Always'
-				ELSE 'No'
-		END as IsIdentity,
-		CASE a.attnotnull
-				WHEN false THEN 'YES'
-				ELSE 'NO'
-		END as IsNullable,
-		(SELECT true
-		 FROM pg_catalog.pg_enum e
-		 WHERE e.enumtypid = a.atttypid FETCH FIRST ROW ONLY) as IsEnum
-	FROM pg_catalog.pg_attribute a
-	WHERE a.attrelid = (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid WHERE relname = '${
-		table.split('.').reverse()[0]
-	}' AND ns.nspname = '${table.split('.').reverse()[1] ?? 'public'}')
-		AND a.attnum > 0 AND NOT a.attisdropped
-	ORDER BY a.attnum;
-	
-	`
-	} else if (resourceType === 'ms_sql_server') {
-		code = `
-		SELECT 
-    COLUMN_NAME as field,
-    DATA_TYPE as DataType,
-    COLUMN_DEFAULT as DefaultValue,
-    CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 'By Default' ELSE 'No' END as IsIdentity,
-    CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 1 ELSE 0 END as IsPrimaryKey, -- This line still needs correction for primary key identification
-    CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
-    CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum
-FROM    
-    INFORMATION_SCHEMA.COLUMNS
-WHERE   
-    TABLE_NAME = '${table}'
-ORDER BY
-    ORDINAL_POSITION;
-
-	`
-	} else if (resourceType === 'snowflake' || resourceType === 'snowflake_oauth') {
-		code = `
-		select COLUMN_NAME as field,
-		DATA_TYPE as DataType,
-		COLUMN_DEFAULT as DefaultValue,
-		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 'By Default' ELSE 'No' END as IsIdentity,
-		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 1 ELSE 0 END as IsPrimaryKey,
-		CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
-		CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum
-	from information_schema.columns
-	where table_name = '${table.split('.').reverse()[0]}' and table_schema = '${
-			table.split('.').reverse()[1] ?? 'PUBLIC'
-		}'
-	order by ORDINAL_POSITION;
-	`
-	} else if (resourceType === 'bigquery') {
-		code = `SELECT 
-    c.COLUMN_NAME as field,
-    DATA_TYPE as DataType,
-    CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,
-    CASE WHEN constraint_name is not null THEN true ELSE false END as IsPrimaryKey,
-    'No' as IsIdentity,
-    IS_NULLABLE as IsNullable,
-    false as IsEnum
-FROM
-    ${table.split('.')[0]}.INFORMATION_SCHEMA.COLUMNS c
-    LEFT JOIN
-    test_dataset.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p
-    on c.table_name = p.table_name AND c.column_name = p.COLUMN_NAME
-WHERE   
-    c.TABLE_NAME = "${table.split('.')[1]}"
-order by c.ORDINAL_POSITION;`
-	} else {
-		throw new Error('Unsupported database type:' + resourceType)
-	}
-
-	const maxRetries = 3
-	let attempts = 0
-
-	while (attempts < maxRetries) {
-		try {
-			const job = await JobService.runScriptPreview({
-				workspace: workspace,
-				requestBody: {
-					language: getLanguageByResourceType(resourceType),
-					content: code,
-					args: {
-						database: resource
-					}
-				}
-			})
-
-			await new Promise((resolve) => setTimeout(resolve, 3000))
-
-			const testResult = (await JobService.getCompletedJob({
-				workspace: workspace,
-				id: job
-			})) as any
-
-			if (testResult.success) {
-				attempts = maxRetries
-
-				if (resourceType === 'ms_sql_server') {
-					return lowercaseKeys(testResult.result[0])
-				} else {
-					return lowercaseKeys(testResult.result)
-				}
-			} else {
-				attempts++
-			}
-		} catch (error) {
-			attempts++
-		}
-		// Exponential back-off
-		await new Promise((resolve) => setTimeout(resolve, 2000 * attempts))
-	}
-
-	console.error('Failed to load table metadata after maximum retries.')
-	return undefined
-}
-
 export function resourceTypeToLang(rt: string) {
 	if (rt === 'ms_sql_server') {
 		return 'mssql'
@@ -226,20 +56,10 @@ export function resourceTypeToLang(rt: string) {
 	}
 }
 
-function lowercaseKeys(arr: Array<Record<string, any>>): Array<any> {
-	return arr.map((obj) => {
-		const newObj = {}
-		Object.keys(obj).forEach((key) => {
-			newObj[key.toLowerCase()] = obj[key]
-		})
-		return newObj
-	})
-}
-
-const scripts: Record<
+const legacyScripts: Record<
 	string,
 	{
-		code: string
+		code: string | (() => Promise<string>)
 		lang: string
 		processingFn?: (any: any) => SQLSchema['schema']
 		argName: string
@@ -252,7 +72,7 @@ const scripts: Record<
 				const table_schema = a.table_schema
 				delete a.table_schema
 				acc[table_schema] = acc[table_schema] || []
-				acc[table_schema].push(a)
+				if (a.table_name || a.column_name) acc[table_schema].push(a)
 				return acc
 			}, {})
 
@@ -321,7 +141,7 @@ const scripts: Record<
 		argName: 'database'
 	},
 	graphql: {
-		code: getIntrospectionQuery(),
+		code: () => import('graphql').then((m) => m.getIntrospectionQuery()),
 		lang: 'graphql',
 		argName: 'api'
 	},
@@ -332,23 +152,34 @@ const bq = new BigQuery({
 	credentials: args
 })
 const [datasets] = await bq.getDatasets();
-const schema = {}
-for (const dataset of datasets) {
-	schema[dataset.id] = {}
-	const query = "SELECT table_name, ARRAY_AGG(STRUCT(if(is_nullable = 'YES', true, false) AS required, column_name AS name, data_type AS type, if(column_default = 'NULL', null, column_default) AS \`default\`) ORDER BY ordinal_position) AS schema \
-FROM \`{dataset.id}\`.INFORMATION_SCHEMA.COLUMNS \
-GROUP BY table_name".replace('{dataset.id}', dataset.id)
-	const [rows] = await bq.query(query)
-	for (const row of rows) {
-		schema[dataset.id][row.table_name] = {}
-		for (const col of row.schema) {
-			const colName = col.name
-			delete col.name
-			if (col.default === null) {
-				delete col.default
-			}
-			schema[dataset.id][row.table_name][colName] = col
+if (!datasets) return {}
+const schema = {} as any
+let queries = datasets.map(dataset => \`
+	SELECT 
+		table_name, 
+		'\${dataset.id}' as dataset,
+		ARRAY_AGG(STRUCT(
+			if(is_nullable = 'YES', true, false) AS required,
+			column_name AS name,
+			data_type AS type,
+			if(column_default = 'NULL', null, column_default) AS \\\`default\\\`
+		) ORDER BY ordinal_position)
+		AS schema 
+	FROM \\\`\${dataset.id}\\\`.INFORMATION_SCHEMA.COLUMNS 
+	GROUP BY table_name\`
+)
+let query = queries.join('\\nUNION ALL \\n')
+const [rows] = await bq.query(query)
+for (const row of rows) {
+	schema[row.dataset] ??= {}
+	schema[row.dataset][row.table_name] = {}
+	for (const col of row.schema) {
+		const colName = col.name
+		delete col.name
+		if (col.default === null) {
+			delete col.default
 		}
+		schema[row.dataset][row.table_name][colName] = col
 	}
 }
 return schema
@@ -404,12 +235,13 @@ return schema
 		},
 		argName: 'database'
 	},
-	ms_sql_server: {
+	mssql: {
 		argName: 'database',
 		code: `select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT from information_schema.columns where table_schema != 'sys'`,
 		lang: 'mssql',
 		processingFn: (rows) => {
-			const schemas = rows[0].reduce((acc, a) => {
+			if (!rows || rows.length === 0) return {}
+			const schemas = rows.reduce((acc, a) => {
 				const table_schema = a.TABLE_SCHEMA
 				delete a.TABLE_SCHEMA
 				acc[table_schema] = acc[table_schema] || []
@@ -442,116 +274,19 @@ return schema
 	}
 }
 
-export { scripts }
-export async function getDbSchemas(
-	resourceType: string,
-	resourcePath: string,
-	workspace: string | undefined,
-	dbSchemas: DBSchemas,
-	errorCallback: (message: string) => void
-): Promise<void> {
-	return new Promise(async (resolve, reject) => {
-		if (!resourceType || !resourcePath || !workspace) {
-			resolve()
-			return
-		}
-
-		const job = await JobService.runScriptPreview({
-			workspace: workspace,
-			requestBody: {
-				language: scripts[resourceType].lang as Preview['language'],
-				content: scripts[resourceType].code,
-				args: {
-					[scripts[resourceType].argName]: '$res:' + resourcePath
-				}
-			}
-		})
-
-		tryEvery({
-			tryCode: async () => {
-				if (resourcePath) {
-					const testResult = await JobService.getCompletedJob({
-						workspace,
-						id: job
-					})
-					if (!testResult.success) {
-						console.error(testResult.result?.['error']?.['message'])
-					} else {
-						if (testResult.result === 'WINDMILL_TOO_BIG') {
-							console.info('Result is too big, fetching result separately')
-							const data = await JobService.getCompletedJobResult({
-								workspace,
-								id: job
-							})
-							testResult.result = data
-						}
-						if (resourceType !== undefined) {
-							if (resourceType !== 'graphql') {
-								const { processingFn } = scripts[resourceType]
-								let schema: any
-								try {
-									schema =
-										processingFn !== undefined ? processingFn(testResult.result) : testResult.result
-								} catch (e) {
-									console.error(e)
-									errorCallback('Error processing schema')
-									resolve()
-									return
-								}
-								const dbSchema = {
-									lang: resourceTypeToLang(resourceType) as SQLSchema['lang'],
-									schema,
-									publicOnly: !!schema.public || !!schema.PUBLIC || !!schema.dbo
-								}
-								dbSchemas[resourcePath] = {
-									...dbSchema,
-									stringified: stringifySchema(dbSchema)
-								}
-							} else {
-								if (
-									typeof testResult.result !== 'object' ||
-									!('__schema' in (testResult?.result ?? {}))
-								) {
-									console.error('Invalid GraphQL schema')
-
-									errorCallback('Invalid GraphQL schema')
-								} else {
-									const dbSchema = {
-										lang: 'graphql' as GraphqlSchema['lang'],
-										schema: testResult.result
-									}
-									dbSchemas[resourcePath] = {
-										...(dbSchema as any),
-										stringified: stringifySchema(dbSchema as any)
-									}
-								}
-							}
-						}
-					}
-					resolve()
-				}
-			},
-			timeoutCode: async () => {
-				console.error('Could not query schema within 5s')
-				errorCallback('Could not query schema within 5s')
-				try {
-					await JobService.cancelQueuedJob({
-						workspace,
-						id: job,
-						requestBody: {
-							reason: 'Could not query schema within 5s'
-						}
-					})
-				} catch (err) {
-					console.error(err)
-				}
-				reject()
-			},
-			interval: 500,
-			timeout: 5000
-		})
-	})
+// We cannot modify the original legacyScripts because they are used to calculate app policies in AppDbExplorer
+// TODO: Refactor the app policy system to avoid this
+const scriptsV2: typeof legacyScripts = {
+	...legacyScripts,
+	postgresql: {
+		...legacyScripts.postgresql,
+		code: `
+SELECT table_name, column_name, udt_name, column_default, is_nullable, nsp.nspname AS table_schema FROM information_schema.columns
+RIGHT JOIN pg_namespace nsp ON table_schema = nsp.nspname WHERE nsp.nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')`
+	}
 }
+
+export { legacyScripts, scriptsV2 }
 
 export function formatSchema(dbSchema: {
 	lang: SQLSchema['lang']
@@ -565,42 +300,47 @@ export function formatSchema(dbSchema: {
 	}
 }
 
-export function formatGraphqlSchema(schema: IntrospectionQuery): string {
+export async function formatGraphqlSchema(schema: IntrospectionQuery): Promise<string> {
+	const { buildClientSchema, printSchema } = await import('graphql')
 	return printSchema(buildClientSchema(schema))
 }
-
-export type DbType = 'mysql' | 'ms_sql_server' | 'postgresql' | 'snowflake' | 'bigquery'
 
 export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
 	// Filter out hidden columns to avoid counting the wrong number of rows
 	return columnDefs
 		.filter((columnDef: ColumnDef) => columnDef && columnDef.ignored !== true)
-		.map((column) => {
-			switch (dbType) {
-				case 'postgresql':
-					return `"${column?.field}"` // PostgreSQL uses double quotes for identifiers
-				case 'ms_sql_server':
-					return `[${column?.field}]` // MSSQL uses square brackets for identifiers
-				case 'mysql':
-					return `\`${column?.field}\`` // MySQL uses backticks
-				case 'snowflake':
-					return `"${column?.field}"` // Snowflake uses double quotes for identifiers
-				case 'bigquery':
-					return `\`${column?.field}\`` // BigQuery uses backticks
-				default:
-					throw new Error('Unsupported database type')
-			}
-		})
+		.map((column) => renderDbQuotedIdentifier(column?.field, dbType))
 }
 
-export function getLanguageByResourceType(name: string): Preview['language'] {
+export function renderDbQuotedIdentifier(identifier: string, dbType: DbType): string {
+	switch (dbType) {
+		case 'postgresql':
+			return `"${identifier}"` // PostgreSQL uses double quotes for identifiers
+		case 'ms_sql_server':
+			return `[${identifier}]` // MSSQL uses square brackets for identifiers
+		case 'mysql':
+			return `\`${identifier}\`` // MySQL uses backticks
+		case 'snowflake':
+			return `"${identifier}"` // Snowflake uses double quotes for identifiers
+		case 'bigquery':
+			return `\`${identifier}\`` // BigQuery uses backticks
+		case 'duckdb':
+			return `"${identifier}"` // DuckDB uses double quotes for identifiers
+		default:
+			throw new Error('Unsupported database type: ' + dbType)
+	}
+}
+
+export function getLanguageByResourceType(name: string): ScriptLang {
 	const language = {
 		postgresql: 'postgresql',
 		mysql: 'mysql',
 		ms_sql_server: 'mssql',
+		mssql: 'mssql',
 		snowflake: 'snowflake',
 		snowflake_oauth: 'snowflake',
-		bigquery: 'bigquery'
+		bigquery: 'bigquery',
+		duckdb: 'duckdb'
 	}
 	return language[name]
 }
@@ -625,6 +365,8 @@ export function buildParameters(
 					return `-- ? ${column.field} (${column.datatype.split('(')[0]})`
 				case 'bigquery':
 					return `-- @${column.field} (${column.datatype.split('(')[0]})`
+				case 'duckdb':
+					return `-- $${column.field} (${column.datatype.split('(')[0]})`
 			}
 		})
 		.join('\n')
@@ -638,79 +380,63 @@ export function getPrimaryKeys(tableMetadata?: TableMetadata): string[] {
 	return r ?? []
 }
 
-export async function getTablesByResource(
-	schema: Partial<Record<string, DBSchema>>,
-	dbType: DbType | undefined,
-	resourcePath: string,
-	workspace: string
-): Promise<string[]> {
-	const s = Object.values(schema)?.[0]
-	switch (dbType) {
-		case 'ms_sql_server': {
-			const paths: string[] = []
-			for (const key in s?.schema) {
-				for (const subKey in s.schema[key]) {
-					if (key === 'dbo') {
-						paths.push(`${subKey}`)
-					}
-				}
-			}
-			return paths
-		}
-		case 'mysql': {
-			const resourceObj = (await ResourceService.getResourceValue({
-				workspace,
-				path: resourcePath
-			})) as any
-			const paths: string[] = []
-			for (const key in s?.schema) {
-				for (const subKey in s.schema[key]) {
-					if (key === resourceObj?.database) {
-						paths.push(`${subKey}`)
-					} else {
-						paths.push(`${key}.${subKey}`)
-					}
-				}
-			}
-			return paths
-		}
-		case 'snowflake': {
-			const paths: string[] = []
-			for (const key in s?.schema) {
-				for (const subKey in s.schema[key]) {
-					if (key === 'PUBLIC') {
-						paths.push(`${subKey}`)
-					} else {
-						paths.push(`${key}.${subKey}`)
-					}
-				}
-			}
-			return paths
-		}
-		case 'postgresql': {
-			const paths: string[] = []
-			for (const key in s?.schema) {
-				for (const subKey in s.schema[key]) {
-					if (key === 'public') {
-						paths.push(`${subKey}`)
-					} else {
-						paths.push(`${key}.${subKey}`)
-					}
-				}
-			}
-			return paths
-		}
-		case 'bigquery': {
-			const paths: string[] = []
-			for (const key in s?.schema) {
-				for (const subKey in s.schema[key]) {
-					paths.push(`${key}.${subKey}`)
-				}
-			}
-			return paths
-		}
+export function dbSupportsSchemas(dbType: DbType): boolean {
+	return (
+		dbType === 'postgresql' ||
+		dbType === 'snowflake' ||
+		dbType === 'bigquery' ||
+		dbType === 'duckdb'
+	)
+}
 
-		default:
-			return []
+export function datatypeHasLength(datatype: string): boolean {
+	datatype = datatype.toLowerCase()
+	const lengthDataTypes = [
+		'varchar',
+		'char',
+		'nvarchar',
+		'nchar',
+		'varbinary',
+		'binary',
+		'bit',
+		'character varying',
+		'character'
+	]
+	return lengthDataTypes.some((type) => datatype === type)
+}
+
+export function sqlDataTypeToJsTypeHeuristic(datatype: string): string {
+	datatype = datatype.toLowerCase()
+	if (
+		datatype.includes('int') ||
+		datatype === 'decimal' ||
+		datatype === 'numeric' ||
+		datatype === 'float' ||
+		datatype === 'real' ||
+		datatype === 'double'
+	) {
+		return 'number'
+	} else if (
+		datatype === 'varchar' ||
+		datatype === 'char' ||
+		datatype === 'text' ||
+		datatype === 'nvarchar' ||
+		datatype === 'nchar' ||
+		datatype === 'string'
+	) {
+		return 'string'
+	} else if (datatype === 'boolean' || datatype === 'bool' || datatype === 'bit') {
+		return 'boolean'
+	} else if (
+		datatype === 'date' ||
+		datatype === 'datetime' ||
+		datatype === 'timestamp' ||
+		datatype === 'timestamptz'
+	) {
+		return 'Date'
+	} else if (datatype === 'json' || datatype === 'jsonb') {
+		return 'object'
+	} else {
+		return 'any'
 	}
 }

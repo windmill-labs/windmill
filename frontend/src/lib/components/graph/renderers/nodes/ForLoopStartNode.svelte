@@ -1,56 +1,76 @@
 <script lang="ts">
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
-	import type { FlowModule, FlowStatusModule } from '$lib/gen'
-	import { getStateColor } from '../../util'
-	import type { GraphModuleState } from '../../model'
-	import type { GraphEventHandlers } from '../../graphBuilder'
+	import type { FlowModule } from '$lib/gen'
 	import { getContext } from 'svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
-
-	export let data: {
-		offset: number
+	import type { ForLoopStartN } from '../../graphBuilder.svelte'
+	import { getGraphContext } from '../../graphContext'
+	interface Props {
+		data: ForLoopStartN['data']
 		id: string
-		modules: FlowModule[]
-		flowModuleStates: Record<string, GraphModuleState> | undefined
-		eventHandlers: GraphEventHandlers
-		simplifiedTriggerView: boolean
 	}
+
+	let { data, id }: Props = $props()
+
+	const { selectionManager } = getGraphContext()
 
 	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
 	const pickablePropertiesFiltered = propPickerContext?.pickablePropertiesFiltered
 
-	$: filteredInput = filterIterFromInput($pickablePropertiesFiltered?.flow_input)
-
 	function filterIterFromInput(inputJson: Record<string, any> | undefined): Record<string, any> {
-		if (!inputJson || typeof inputJson !== 'object' || !inputJson.iter) return {}
-		return { iter: inputJson.iter }
+		if (!inputJson || typeof inputJson !== 'object' || (!inputJson.iter && !inputJson.iter_parent))
+			return {}
+		const selectedIdIsDescendant =
+			data.selectedId !== undefined && isSelectedDescendant(data.module, data.selectedId)
+		if (selectedIdIsDescendant === 'child') {
+			return { iter: inputJson.iter }
+		}
+		if (selectedIdIsDescendant === 'grandchild') {
+			return { iter_parent: inputJson.iter_parent }
+		}
+		return {}
 	}
 
-	function computeStatus(state: GraphModuleState | undefined): FlowStatusModule["type"] | undefined {
-		if (state?.type == 'InProgress' || state?.type == 'Success' || state?.type == 'Failure') {
-			let r = state?.flow_jobs_success?.[state?.selectedForloopIndex ?? 0] 
-			if (r == undefined) return 'InProgress'
-			return r ? 'Success' : 'InProgress'
+	function isSelectedDescendant(
+		module: FlowModule,
+		selectedId: string
+	): 'child' | 'grandchild' | 'none' {
+		if (!selectedId) return 'none'
+		// Check direct children
+		if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
+			const children = module.value.modules
+			if (children.some((m) => m.id === selectedId)) {
+				return 'child'
+			}
+			// Check grandchildren
+			return children.some(
+				(m) =>
+					(m.value.type === 'forloopflow' || m.value.type === 'whileloopflow') &&
+					m.value.modules.some((gm: FlowModule) => gm.id === selectedId)
+			)
+				? 'grandchild'
+				: 'none'
 		}
+		return 'none'
 	}
+	let filteredInput = $derived(filterIterFromInput($pickablePropertiesFiltered?.flow_input))
 </script>
 
-
-
-<NodeWrapper let:darkMode offset={data.offset}>
-	<VirtualItem
-		label={data.simplifiedTriggerView ? 'For each new event' : 'Do one iteration'}
-		selectable={false}
-		selected={false}
-		id={data.id}
-		hideId
-		bgColor={getStateColor(undefined, darkMode)}
-		borderColor={getStateColor(computeStatus(data.flowModuleStates?.[data.id]), darkMode)}
-		on:select={(e) => {
-			data?.eventHandlers?.select(e.detail)
-		}}
-		inputJson={filteredInput}
-		prefix="flow_input"
-	/>
+<NodeWrapper nodeId={id}>
+	{#snippet children({ darkMode })}
+		<VirtualItem
+			label={data.simplifiedTriggerView ? 'For each new event' : 'Do one iteration'}
+			selectable={false}
+			selected={selectionManager && selectionManager.isNodeSelected(id)}
+			id={data.id}
+			hideId
+			on:select={(e) => {
+				setTimeout(() => data?.eventHandlers?.select(e.detail))
+			}}
+			inputJson={filteredInput}
+			prefix="flow_input"
+			editMode={data.editMode}
+		/>
+	{/snippet}
 </NodeWrapper>

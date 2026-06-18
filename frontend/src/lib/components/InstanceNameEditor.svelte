@@ -1,20 +1,34 @@
 <script lang="ts">
+	import { stopPropagation, createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { Pencil } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from './common/button/Button.svelte'
-	import Popup from './common/popup/Popup.svelte'
+	import Popover from './meltComponents/Popover.svelte'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import ChangeInstanceUsernameInner from './ChangeInstanceUsernameInner.svelte'
 	import { UserService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import TextInput from './text_input/TextInput.svelte'
 
-	export let value: string | undefined
-	export let email: string
-	export let username: string | undefined = undefined
-	export let automateUsernameCreation: boolean = false
-	export let login_type: string
+	interface Props {
+		value: string | undefined
+		email: string
+		username?: string | undefined
+		automateUsernameCreation?: boolean
+		login_type: string
+	}
 
-	let password: string = ''
+	let {
+		value = $bindable(),
+		email,
+		username = undefined,
+		automateUsernameCreation = false,
+		login_type = $bindable()
+	}: Props = $props()
+
+	let password: string = $state('')
 
 	const dispatch = createEventDispatcher()
 
@@ -26,128 +40,133 @@
 			sendUserToast('Password must be at least 5 characters long', true)
 			return
 		}
-		await UserService.setPasswordForUser({user: email,  requestBody:{ password }})
+		await UserService.setPasswordForUser({ user: email, requestBody: { password } })
 		sendUserToast(`Password updated for ${email}`)
 	}
 
 	async function saveLoginType() {
-		await UserService.setLoginTypeForUser({user: email,  requestBody:{ login_type }})
+		await UserService.setLoginTypeForUser({ user: email, requestBody: { login_type } })
 		sendUserToast(`Login type updated for ${email}`)
 		dispatch('refresh')
 	}
 </script>
 
-<Popup
-	let:close
+<Popover
 	floatingConfig={{
 		strategy: 'fixed',
 		placement: 'left-end',
 		middleware: [offset(8), flip(), shift()]
 	}}
+	closeButton
 >
-	<svelte:fragment slot="button">
-		<Button nonCaptureEvent={true} size="xs" color="light" endIcon={{ icon: Pencil }}>Edit</Button>
-	</svelte:fragment>
-	<div class="flex flex-col gap-8 max-w-sm">
-		{#if automateUsernameCreation && username}
-			<ChangeInstanceUsernameInner {email} {username} on:renamed />
-		{/if}
-		<label class="block text-primary">
-			<div class="pb-2 text-sm font-semibold text-primary">Name</div>
-			<div class="flex w-full">
-				<input
-					type="text"
-					bind:value
-					class="!w-auto grow"
-					on:click|stopPropagation={() => {}}
-					on:keydown|stopPropagation
-					on:keypress|stopPropagation={({ key }) => {
-						if (key === 'Enter') {
-							saveName()
-							close(null)
-						}
+	{#snippet trigger()}
+		<Button unifiedSize="sm" nonCaptureEvent={true} variant="subtle" startIcon={{ icon: Pencil }}
+			>Edit</Button
+		>
+	{/snippet}
+	{#snippet content()}
+		<div class="flex flex-col gap-8 max-w-sm p-4">
+			{#if automateUsernameCreation && username}
+				<ChangeInstanceUsernameInner {email} {username} on:renamed noPadding />
+			{/if}
+			<label class="block text-primary">
+				<div class="pb-1 text-xs font-semibold text-emphasis">Name</div>
+				<div class="flex w-full">
+					<TextInput
+						inputProps={{
+							onclick: (e) => {
+								e.stopPropagation()
+							},
+							onkeydown: (e) => {
+								e.stopPropagation()
+							},
+							onkeypress: ({ key }) => {
+								if (key === 'Enter') {
+									saveName()
+								}
+							}
+						}}
+						bind:value
+					/>
+				</div>
+				<Button
+					unifiedSize="md"
+					variant="default"
+					buttonType="button"
+					btnClasses="mt-2 "
+					aria-label="Save ID"
+					onclick={() => {
+						saveName()
 					}}
-				/>
-			</div>
-			<Button
-				size="xs"
-				color="blue"
-				buttonType="button"
-				btnClasses="mt-2 "
-				aria-label="Save ID"
-				on:click={() => {
-					saveName()
-					close(null)
-				}}
-			>
-				Update name
-			</Button>
-		</label>
-		<label class="block text-primary">
-			<div class="pb-2 text-sm font-semibold text-primary">Password</div>
-			<div class="flex w-full">
-				<input
-					type="password"
-					bind:value={password}
-					class="!w-auto grow"
-					on:click|stopPropagation={() => {}}
-					on:keydown|stopPropagation
-					on:keypress|stopPropagation={({ key }) => {
-						if (key === 'Enter') {
-							savePassword()
-							close(null)
-						}
+				>
+					Update name
+				</Button>
+			</label>
+			<label class="block text-primary">
+				<div class="pb-1 text-xs font-semibold text-emphasis">Password</div>
+				<div class="flex w-full">
+					<input
+						type="password"
+						bind:value={password}
+						class="!w-auto grow"
+						onclick={stopPropagation(() => {})}
+						onkeydown={stopPropagation(bubble('keydown'))}
+						onkeypress={(e) => {
+							e.stopPropagation()
+							if (e.key === 'Enter') {
+								savePassword()
+							}
+						}}
+					/>
+				</div>
+				<Button
+					unifiedSize="md"
+					variant="default"
+					buttonType="button"
+					btnClasses="mt-2 "
+					aria-label="Save ID"
+					on:click={() => {
+						savePassword()
 					}}
-				/>
-			</div>
-			<Button
-				size="xs"
-				color="blue"
-				buttonType="button"
-				btnClasses="mt-2 "
-				aria-label="Save ID"
-				on:click={() => {
-					savePassword()
-					close(null)
-				}}
-			>
-				Update password
-			</Button>
-		</label>
-		<label class="block text-primary">
-			<div class="pb-2 text-sm font-semibold text-primary">Login type</div>
-			<div class="text-xs text-secondary mb-2">
-				Must match exact SSO name, "password" or "saml". Examples: password, google, saml, microsoft
-			</div>
+				>
+					Update password
+				</Button>
+			</label>
+			<label class="block text-primary">
+				<div class="mb-1 text-xs font-semibold text-emphasis">Login type</div>
 
-			<div class="flex w-full">
-				<input
-					type="text"
-					bind:value={login_type}
-					class="!w-auto grow"
-					on:click|stopPropagation={() => {}}
-					on:keydown|stopPropagation
-					on:keypress|stopPropagation={({ key }) => {
-						if (key === 'Enter') {
-							saveLoginType()
-							close(null)
-						}
+				<div class="flex w-full">
+					<input
+						type="text"
+						bind:value={login_type}
+						class="!w-auto grow"
+						onclick={stopPropagation(() => {})}
+						onkeydown={stopPropagation(bubble('keydown'))}
+						onkeypress={(e) => {
+							e.stopPropagation()
+							if (e.key === 'Enter') {
+								saveLoginType()
+							}
+						}}
+					/>
+				</div>
+				<div class="text-2xs text-secondary mb-1">
+					Must match exact SSO name, "password" or "saml". Examples: password, google, saml,
+					microsoft
+				</div>
+				<Button
+					unifiedSize="md"
+					variant="default"
+					buttonType="button"
+					btnClasses="mt-2 "
+					aria-label="Save login type"
+					on:click={() => {
+						saveLoginType()
 					}}
-				/>
-			</div>
-			<Button
-				size="xs"
-				color="blue"
-				buttonType="button"
-				btnClasses="mt-2 "
-				aria-label="Save login type"
-				on:click={() => {
-					saveLoginType()
-					close(null)
-				}}
-			>
-				Update login type
-			</Button>
-		</label>
-	</div>
-</Popup>
+				>
+					Update login type
+				</Button>
+			</label>
+		</div>
+	{/snippet}
+</Popover>

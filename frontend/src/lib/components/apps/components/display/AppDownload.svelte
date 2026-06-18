@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
@@ -12,30 +12,45 @@
 	import ComponentErrorHandler from '../helpers/ComponentErrorHandler.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
+	import { userStore } from '$lib/stores'
+	import { isPartialS3Object, getS3File } from '../../editor/appUtilsS3'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'downloadcomponent'> | undefined = undefined
-	export let render: boolean
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let noWFull = false
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'downloadcomponent'> | undefined
+		render: boolean
+		horizontalAlignment?: 'left' | 'center' | 'right' | undefined
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		noWFull?: boolean
+	}
 
-	const resolvedConfig = initConfig(
-		components['downloadcomponent'].initialData.configuration,
-		configuration
+	let {
+		id,
+		configuration,
+		customCss = undefined,
+		render,
+		horizontalAlignment = undefined,
+		verticalAlignment = undefined,
+		noWFull = false
+	}: Props = $props()
+
+	const resolvedConfig = $state(
+		initConfig(components['downloadcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, appPath, workspace, isEditor } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
-	initOutput($worldStore, id, {})
+	initOutput($worldStore, untrack(() => id), {})
 
-	let beforeIconComponent: any
-	let afterIconComponent: any
+	let beforeIconComponent: any = $state()
+	let afterIconComponent: any = $state()
 
-	$: resolvedConfig.beforeIcon && beforeIconComponent && handleBeforeIcon()
-	$: resolvedConfig.afterIcon && afterIconComponent && handleAfterIcon()
+	let downloadUrl: string | undefined = $state(undefined)
+
+	let token = getContext<{ token?: string }>('AuthToken')
 
 	async function handleBeforeIcon() {
 		if (resolvedConfig.beforeIcon) {
@@ -61,7 +76,46 @@
 		}
 	}
 
-	let css = initCss($app.css?.downloadcomponent, customCss)
+	async function loadSource() {
+		if (isPartialS3Object(resolvedConfig.source)) {
+			downloadUrl = await getS3File({
+				source: resolvedConfig.source.s3,
+				storage: resolvedConfig.source.storage,
+				presigned: resolvedConfig.source.presigned,
+				appPath: $appPath,
+				username: $userStore?.username,
+				workspace,
+				token: token?.token,
+				isEditor,
+				configuration
+			})
+		} else if (resolvedConfig.source && typeof resolvedConfig.source !== 'string') {
+			throw new Error('Invalid source object' + typeof resolvedConfig.source)
+		} else if (resolvedConfig.source?.startsWith('s3://')) {
+			downloadUrl = await getS3File({
+				source: resolvedConfig.source?.replace('s3://', ''),
+				appPath: $appPath,
+				username: $userStore?.username,
+				workspace,
+				token: token?.token,
+				isEditor,
+				configuration
+			})
+		} else {
+			downloadUrl = transformBareBase64IfNecessary(resolvedConfig.source)
+		}
+	}
+
+	let css = $state(initCss($app.css?.downloadcomponent, untrack(() => customCss)))
+	$effect(() => {
+		resolvedConfig.beforeIcon && beforeIconComponent && untrack(() => handleBeforeIcon())
+	})
+	$effect(() => {
+		resolvedConfig.afterIcon && afterIconComponent && untrack(() => handleAfterIcon())
+	})
+	$effect(() => {
+		resolvedConfig && loadSource()
+	})
 </script>
 
 <InitializeComponent {id} />
@@ -88,7 +142,9 @@
 {#if render}
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 		<ComponentErrorHandler
-			hasError={resolvedConfig?.source != undefined && typeof resolvedConfig.source !== 'string'}
+			hasError={resolvedConfig?.source != undefined &&
+				typeof resolvedConfig.source !== 'string' &&
+				!isPartialS3Object(resolvedConfig.source)}
 		>
 			<Button
 				on:pointerdown={(e) => e.stopPropagation()}
@@ -105,18 +161,19 @@
 				)}
 				style={css?.button?.style}
 				disabled={resolvedConfig.source == undefined}
-				size={resolvedConfig.size}
+				extendedSize={resolvedConfig.size}
 				color={resolvedConfig.color}
 				download={resolvedConfig.filename}
-				href={transformBareBase64IfNecessary(resolvedConfig.source)}
+				href={downloadUrl}
 				target="_blank"
 				ref="external"
 				nonCaptureEvent
+				variant="contained"
 			>
 				<span class="truncate inline-flex gap-2 items-center">
 					{#if resolvedConfig.beforeIcon}
 						{#key resolvedConfig.beforeIcon}
-							<div class="min-w-4" bind:this={beforeIconComponent} />
+							<div class="min-w-4" bind:this={beforeIconComponent}></div>
 						{/key}
 					{/if}
 					{#if resolvedConfig.label && resolvedConfig.label?.length > 0}
@@ -124,7 +181,7 @@
 					{/if}
 					{#if resolvedConfig.afterIcon}
 						{#key resolvedConfig.afterIcon}
-							<div class="min-w-4" bind:this={afterIconComponent} />
+							<div class="min-w-4" bind:this={afterIconComponent}></div>
 						{/key}
 					{/if}
 				</span>

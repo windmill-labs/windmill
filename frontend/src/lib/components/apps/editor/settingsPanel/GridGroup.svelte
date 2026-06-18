@@ -8,14 +8,18 @@
 	import { Plus } from 'lucide-svelte'
 	import { Alert } from '$lib/components/common'
 
-	export let groupFields: RichConfigurations | undefined
-	export let item: GridItem
+	interface Props {
+		groupFields: RichConfigurations | undefined
+		item: GridItem
+	}
 
-	let groupManagementDrawer: GroupManagementDrawer | undefined = undefined
+	let { groupFields = $bindable(), item }: Props = $props()
+
+	let groupManagementDrawer: GroupManagementDrawer | undefined = $state(undefined)
 
 	// const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
-	let fieldName: string = ''
+	let fieldName: string = $state('')
 	function addField(name: string) {
 		if (name == '') return
 		groupFields = {
@@ -72,7 +76,7 @@
 		}`}
 	>
 		{#if Object.keys(groupFields ?? {}).length == 0}
-			<span class="text-xs text-tertiary">No group fields</span>
+			<span class="text-xs text-primary">No group fields</span>
 		{/if}
 		<div class="w-full flex gap-2 flex-col mt-2">
 			<InputsSpecsEditor
@@ -92,7 +96,8 @@
 			<div class="flex flex-row gap-2 items-center relative">
 				<input
 					type="text"
-					on:keydown|stopPropagation={(event) => {
+					onkeydown={(event) => {
+						event.stopPropagation()
 						switch (event.key) {
 							case 'Enter':
 								event.preventDefault()
@@ -107,8 +112,7 @@
 				<Button
 					disabled={fieldName == ''}
 					size="sm"
-					color="light"
-					variant="border"
+					variant="default"
 					startIcon={{ icon: Plus }}
 					on:click={() => addField(fieldName)}
 					iconOnly
@@ -116,7 +120,7 @@
 			</div>
 		</div>
 
-		<div class="mt-2" />
+		<div class="mt-2"></div>
 		<Alert size="xs" title="Group fields are mutable" type="info">
 			You may set the value of a group field in a frontend script within the group using: <code
 				>group.x = 42</code

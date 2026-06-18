@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { preventDefault } from 'svelte/legacy'
+
 	import {
 		type CompletedJob,
 		type Job,
@@ -23,37 +25,70 @@
 	import type Editor from '../Editor.svelte'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import ScriptFix from '../copilot/ScriptFix.svelte'
+	import JobOtelTraces from '../JobOtelTraces.svelte'
 	import Cell from '../table/Cell.svelte'
 	import DataTable from '../table/DataTable.svelte'
 	import Head from '../table/Head.svelte'
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import type { PreviewPanelUi } from '../custom_ui'
+	import { getStringError } from '../copilot/chat/utils'
 
-	export let lang: Preview['language'] | undefined
-	export let previewIsLoading = false
-	export let previewJob: Job | undefined
-	export let pastPreviews: CompletedJob[] = []
-	export let editor: Editor | undefined = undefined
-	export let diffEditor: DiffEditor | undefined = undefined
-	export let args: Record<string, any> | undefined = undefined
-	export let workspace: string | undefined = undefined
-	export let showCaptures: boolean = false
+	interface Props {
+		lang: Preview['language'] | undefined
+		previewIsLoading?: boolean
+		previewJob: (Job & { result_stream?: string; result?: any; success?: boolean }) | undefined
+		pastPreviews?: CompletedJob[]
+		editor?: Editor | undefined
+		diffEditor?: DiffEditor | undefined
+		args?: Record<string, any> | undefined
+		workspace?: string | undefined
+		showCaptures?: boolean
+		customUi?: PreviewPanelUi | undefined
+		children?: import('svelte').Snippet
+		capturesTab?: import('svelte').Snippet
+		customResultPanel?: import('svelte').Snippet
+		showCustomResultPanel?: boolean
+		onTabChange?: (tab: string) => void
+	}
 
-	type DrawerContent = {
+	let {
+		lang,
+		previewIsLoading = false,
+		previewJob,
+		pastPreviews = [],
+		editor = undefined,
+		diffEditor = undefined,
+		args = undefined,
+		workspace = undefined,
+		showCaptures = false,
+		customUi = undefined,
+		children,
+		capturesTab,
+		customResultPanel,
+		showCustomResultPanel = false,
+		onTabChange
+	}: Props = $props()
+
+	type DContent = {
 		mode: 'json' | Preview['language'] | 'plain'
 		title: string
 		content: any
 	}
 
-	let selectedTab = 'logs'
-	let drawerOpen: boolean = false
-	let drawerContent: DrawerContent | undefined = undefined
+	let selectedTab = $state('logs')
+	let drawerOpen: boolean = $state(false)
+	let drawerContent: DContent | undefined = $state(undefined)
+
+	$effect(() => {
+		onTabChange?.(selectedTab)
+	})
 
 	export function setFocusToLogs() {
 		selectedTab = 'logs'
 	}
 
-	function openDrawer(newContent: DrawerContent) {
+	function openDrawer(newContent: DContent) {
 		drawerContent = newContent
 		drawerOpen = true
 	}
@@ -63,10 +98,24 @@
 	}
 
 	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
-		return x as Record<string, WorkflowStatus>
+		if (!x || typeof x !== 'object') return {}
+		const result: Record<string, WorkflowStatus> = {}
+		for (const [k, v] of Object.entries(x)) {
+			if (!k.startsWith('_') || k.startsWith('_step/')) result[k] = v as WorkflowStatus
+		}
+		return result
 	}
 
-	let forceJson = false
+	function getStepResults(x: any): Record<string, any> {
+		return x?._checkpoint?.completed_steps ?? {}
+	}
+
+	let forceJson = $state(false)
+	let isWac = $derived(!!previewJob?.workflow_as_code_status)
+	let wacDone = $derived(
+		previewJob?.type == 'CompletedJob' ||
+			(previewJob != undefined && !previewIsLoading && !!previewJob.workflow_as_code_status)
+	)
 </script>
 
 <Drawer bind:open={drawerOpen} size="800px">
@@ -76,6 +125,9 @@
 				workspaceId={previewJob?.workspace_id}
 				jobId={previewJob?.id}
 				result={drawerContent.content}
+				customUi={customUi?.displayResult}
+				language={lang}
+				result_stream={previewJob?.result_stream}
 			/>
 		{:else if drawerContent?.mode === 'plain'}
 			<pre
@@ -87,83 +139,97 @@
 		{/if}
 	</DrawerContent>
 </Drawer>
-
 <div class="h-full flex flex-col">
 	<Tabs bind:selected={selectedTab} class="pt-1" wrapperClass="flex-none">
-		<Tab value="logs" size="xs">Logs & Result</Tab>
-		<Tab value="history" size="xs">History</Tab>
-		{#if showCaptures}
-			<Tab value="captures" size="xs">Trigger captures</Tab>
+		<Tab value="logs" label="Logs & Result" />
+		{#if customUi?.disableHistory !== true}
+			<Tab value="history" label="History" />
+		{/if}
+		{#if showCaptures && customUi?.disableTriggerCaptures !== true}
+			<Tab value="captures" label="Trigger captures" />
+		{/if}
+		{#if customUi?.disableTracing !== true}
+			<Tab value="tracing" label="Tracing" />
 		{/if}
 
-		<svelte:fragment slot="content">
+		{#snippet content()}
 			<div class="grow min-h-0">
 				{#if selectedTab === 'logs'}
-					<SplitPanesWrapper>
-						<Splitpanes horizontal>
-							{#if previewJob?.is_flow_step == false && previewJob?.flow_status && !(typeof previewJob.flow_status == 'object' && '_metadata' in previewJob.flow_status)}
+					{#if isWac}
+						<div class="h-full overflow-auto">
+							<WorkflowTimeline
+								flow_status={asWorkflowStatus(previewJob?.workflow_as_code_status)}
+								flowDone={wacDone}
+								stepResults={getStepResults(previewJob?.workflow_as_code_status)}
+								result={previewJob?.result}
+								success={previewJob?.success !== false}
+								autoExpandResult
+								jobId={previewJob?.id}
+							/>
+						</div>
+					{:else}
+						<SplitPanesWrapper>
+							<Splitpanes horizontal>
 								<Pane class="relative">
-									<WorkflowTimeline
-										flow_status={asWorkflowStatus(previewJob.flow_status)}
-										flowDone={previewJob.type == 'CompletedJob'}
+									<LogViewer
+										jobId={previewJob?.id}
+										duration={previewJob?.['duration_ms']}
+										mem={previewJob?.['mem_peak']}
+										content={previewJob?.logs}
+										isLoading={previewJob?.['running'] == false && previewIsLoading}
+										tag={previewJob?.tag}
+										download={customUi?.disableDownload !== true}
+										tagLabel={customUi?.tagLabel}
 									/>
 								</Pane>
-							{/if}
-							<Pane class="relative">
-								<LogViewer
-									jobId={previewJob?.id}
-									duration={previewJob?.['duration_ms']}
-									mem={previewJob?.['mem_peak']}
-									content={previewJob?.logs}
-									isLoading={previewJob?.['running'] == false && previewIsLoading}
-									tag={previewJob?.tag}
-								/>
-							</Pane>
-							<Pane>
-								<slot />
-								{#if previewJob != undefined && 'result' in previewJob}
-									<div class="relative w-full h-full p-2">
-										<div class="relative">
-											<DisplayResult
-												bind:forceJson
-												workspaceId={previewJob?.workspace_id}
-												jobId={previewJob?.id}
-												result={previewJob.result}
-											>
-												<svelte:fragment slot="copilot-fix">
-													{#if lang && editor && diffEditor && args && previewJob?.result && typeof previewJob?.result == 'object' && `error` in previewJob?.result && previewJob?.result.error}
-														<ScriptFix
-															error={JSON.stringify(previewJob.result.error)}
-															{lang}
-															{editor}
-															{diffEditor}
-															{args}
-														/>
-													{/if}
-												</svelte:fragment>
-											</DisplayResult>
+								<Pane>
+									{@render children?.()}
+									{#if showCustomResultPanel && customResultPanel}
+										<div class="h-full">
+											{@render customResultPanel()}
 										</div>
-									</div>
-								{:else}
-									<div class="text-sm text-tertiary p-2 flex justify-between items-center">
-										<span>
-											{#if previewIsLoading}
-												<Loader2 class="animate-spin" />
-											{:else}
-												Test to see the result here
-											{/if}
-										</span>
-										<Tooltip
-											documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
-										>
-											The result renderer in Windmill supports rich display rendering, allowing you
-											to customize the display format of your results.
-										</Tooltip>
-									</div>
-								{/if}
-							</Pane>
-						</Splitpanes>
-					</SplitPanesWrapper>
+									{:else if previewJob != undefined && (previewJob.result_stream || previewJob.result)}
+										<div class="relative w-full h-full p-2">
+											<div class="relative h-full">
+												<DisplayResult
+													bind:forceJson
+													workspaceId={previewJob?.workspace_id}
+													jobId={previewJob?.id}
+													result={previewJob.result}
+													customUi={customUi?.displayResult}
+													language={lang}
+													result_stream={previewJob?.result_stream}
+													fixTableSizingToParent
+												>
+													{#snippet copilot_fix()}
+														{#if lang && editor && diffEditor && args && previewJob && !previewJob.success && getStringError(previewJob.result)}
+															<ScriptFix {lang} />
+														{/if}
+													{/snippet}
+												</DisplayResult>
+											</div>
+										</div>
+									{:else}
+										<div class="text-sm text-primary p-2 flex justify-between items-center">
+											<span>
+												{#if previewIsLoading}
+													<Loader2 class="animate-spin" />
+												{:else}
+													Test to see the result here
+												{/if}
+											</span>
+											<Tooltip
+												documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
+											>
+												The result renderer in Windmill supports rich display rendering, allowing
+												you to customize the display format of your results.
+											</Tooltip>
+										</div>
+									{/if}
+								</Pane>
+							</Splitpanes>
+						</SplitPanesWrapper>
+					{/if}
 				{/if}
 				{#if selectedTab === 'history'}
 					<div>
@@ -199,7 +265,7 @@
 										<Cell>
 											<button
 												class="text-xs"
-												on:click|preventDefault={() => {
+												onclick={preventDefault(() => {
 													openDrawer({ mode: 'json', content: undefined, title: 'Result' })
 													JobService.getCompletedJobResult({
 														workspace: workspace ?? $workspaceStore ?? 'NO_W',
@@ -207,7 +273,7 @@
 													}).then((res) => {
 														drawerContent && (drawerContent.content = res)
 													})
-												}}
+												})}
 											>
 												See Result
 											</button>
@@ -215,7 +281,7 @@
 										<Cell>
 											<button
 												class="text-xs"
-												on:click|preventDefault={async () => {
+												onclick={preventDefault(async () => {
 													const code = (
 														await JobService.getCompletedJob({
 															workspace: workspace ?? $workspaceStore ?? 'NO_W',
@@ -227,7 +293,7 @@
 														content: String(code),
 														title: `Code ${lang}`
 													})
-												}}
+												})}
 											>
 												View code
 											</button>
@@ -235,7 +301,7 @@
 										<Cell last>
 											<button
 												class="text-xs"
-												on:click|preventDefault={async () => {
+												onclick={preventDefault(async () => {
 													const logs = await (
 														await fetch(
 															OpenAPI.BASE +
@@ -248,7 +314,7 @@
 														content: String(logs),
 														title: `Logs for ${id}`
 													})
-												}}
+												})}
 											>
 												View logs
 											</button>
@@ -260,9 +326,16 @@
 					</div>
 				{/if}
 				{#if selectedTab === 'captures'}
-					<slot name="capturesTab" />
+					{@render capturesTab?.()}
+				{/if}
+				{#if selectedTab === 'tracing'}
+					{#if previewJob?.id}
+						<JobOtelTraces jobId={previewJob.id} />
+					{:else}
+						<div class="p-4 text-secondary"> Run a preview to see HTTP request traces </div>
+					{/if}
 				{/if}
 			</div>
-		</svelte:fragment>
+		{/snippet}
 	</Tabs>
 </div>

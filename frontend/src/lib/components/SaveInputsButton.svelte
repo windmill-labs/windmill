@@ -10,14 +10,25 @@
 
 	const dispatch = createEventDispatcher()
 
-	export let runnableId: string | undefined
-	export let runnableType: RunnableType | undefined
-	export let args: object
-	export let disabled: boolean = false
-	export let small: boolean | undefined = undefined
-	export let showTooltip: boolean | undefined = undefined
+	interface Props {
+		runnableId: string | undefined;
+		runnableType: RunnableType | undefined;
+		args: object;
+		disabled?: boolean;
+		small?: boolean | undefined;
+		showTooltip?: boolean | undefined;
+	}
 
-	let savingInputs = false
+	let {
+		runnableId,
+		runnableType,
+		args,
+		disabled = false,
+		small = undefined,
+		showTooltip = undefined
+	}: Props = $props();
+
+	let savingInputs = $state(false)
 
 	async function saveInput(args: object) {
 		savingInputs = true
@@ -49,9 +60,8 @@
 	{disabled}
 	loading={savingInputs}
 	startIcon={{ icon: Save }}
-	variant={small ? 'border' : 'contained'}
-	color="light"
-	size="xs"
+	variant={small ? 'subtle' : 'default'}
+	unifiedSize="sm"
 >
 	<span>{small ? 'Save inputs' : 'Save current input'}</span>
 	{#if showTooltip}

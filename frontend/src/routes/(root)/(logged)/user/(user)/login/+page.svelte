@@ -1,9 +1,15 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 
 	import { UserService, WorkspaceService } from '$lib/gen'
-	import { usersWorkspaceStore, workspaceStore, userStore, enterpriseLicense } from '$lib/stores'
+	import {
+		usersWorkspaceStore,
+		workspaceStore,
+		userStore,
+		enterpriseLicense,
+		whitelabelNameStore
+	} from '$lib/stores'
 	import { classNames, emptyString, parseQueryParams } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import { WindmillIcon } from '$lib/components/icons'
@@ -13,14 +19,26 @@
 	import { setLicense } from '$lib/enterpriseUtils'
 	import Login from '$lib/components/Login.svelte'
 	import { onMount } from 'svelte'
+	import { refreshSuperadmin } from '$lib/refreshUser'
+	import { isValidLogoutRedirect, toSameOriginRelativePath } from '$lib/logoutRedirect'
 
-	const email = $page.url.searchParams.get('email') ?? ''
-	const password = $page.url.searchParams.get('password') ?? ''
-	const error = $page.url.searchParams.get('error') ?? undefined
-	const rd = $page.url.searchParams.get('rd') ?? undefined
+	const email = page.url.searchParams.get('email') ?? ''
+	const password = page.url.searchParams.get('password') ?? ''
+	const error = page.url.searchParams.get('error') ?? undefined
+	const rdFromStorage = localStorage.getItem('rd') || undefined
+	if (rdFromStorage) {
+		localStorage.removeItem('rd')
+	}
+	const rawRd = page.url.searchParams.get('rd') ?? rdFromStorage
+	// Reduce same-origin full URLs (e.g. the page URL persisted from
+	// PublicApp.svelte's /a/[...path]) to relative paths so the post-login
+	// redirect can honor them. Without this, rd falls into the
+	// `startsWith('http')` branch and gets bounced to '/' (or worse, hung).
+	const sameOriginRd = toSameOriginRelativePath(rawRd)
+	const rd = sameOriginRd ?? rawRd
 
 	let showPassword = false
-	let firstTime = false
+	let firstTime = $state(false)
 
 	function clearWindmillCloudCookies() {
 		const domain = window.location.hostname
@@ -44,9 +62,21 @@
 
 	async function redirectUser() {
 		if (rd?.startsWith('http')) {
-			window.location.href = rd
+			if (isValidLogoutRedirect(rd)) {
+				window.location.href = rd
+				return
+			}
+			goto('/')
 			return
 		}
+
+		try {
+			if (!$usersWorkspaceStore) {
+				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+			}
+			await refreshSuperadmin()
+		} catch {}
+
 		if ($workspaceStore) {
 			goto(rd ?? '/')
 		} else {
@@ -55,12 +85,6 @@
 				$workspaceStore = workspaceTarget
 				goto(rd)
 				return
-			}
-
-			if (!$usersWorkspaceStore) {
-				try {
-					usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-				} catch {}
 			}
 
 			const allWorkspaces = $usersWorkspaceStore?.workspaces.filter((x) => x.id != 'admins')
@@ -74,7 +98,8 @@
 						workspace: $workspaceStore!
 					})
 					if (!emptyString(defaultApp.default_app_path)) {
-						goto(`/apps/get/${defaultApp.default_app_path}`)
+						const prefix = defaultApp.default_app_raw ? '/apps_raw/get' : '/apps/get'
+						goto(`${prefix}/${defaultApp.default_app_path}`)
 					} else {
 						goto(rd ?? '/')
 					}
@@ -115,14 +140,14 @@
 	<LoginPageHeader />
 	<div class="sm:mx-auto sm:w-full sm:max-w-md">
 		<div class="mx-auto flex justify-center">
-			{#if !$enterpriseLicense || !$enterpriseLicense?.endsWith('_whitelabel')}
+			{#if !$enterpriseLicense || !$whitelabelNameStore}
 				<WindmillIcon height="80px" width="80px" spin="slow" />
 			{/if}
 		</div>
-		<h2 class="mt-6 text-center text-3xl font-bold tracking-tight text-primary">
+		<h2 class="mt-6 text-center text-2xl font-semibold tracking-tight text-emphasis">
 			Log in or sign up
 		</h2>
-		<p class="mt-2 text-center text-sm text-secondary">
+		<p class="mt-2 text-center text-xs text-secondary">
 			Log in or sign up with any of the methods below
 		</p>
 	</div>
@@ -133,6 +158,6 @@
 		<div class="flex justify-end">
 			<DarkModeToggle forcedDarkMode={false} />
 		</div>
-		<Login {firstTime} {rd} {error} {password} {email} />
+		<Login {firstTime} {rd} {error} {password} {email} autoRedirect={false} />
 	</div>
 </div>

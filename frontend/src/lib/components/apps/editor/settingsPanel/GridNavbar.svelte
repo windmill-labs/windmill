@@ -16,16 +16,30 @@
 	import type { StaticAppInput } from '../../inputType'
 	import ResolveNavbarItemPath from '../../components/display/ResolveNavbarItemPath.svelte'
 
-	export let navbarItems: NavbarItem[] = []
-	export let id: string
+	interface Props {
+		navbarItems?: NavbarItem[]
+		id: string
+	}
+
+	let { navbarItems = $bindable(), id }: Props = $props()
+
+	$effect.pre(() => {
+		if (!navbarItems) {
+			navbarItems = []
+		}
+	})
 
 	const { appPath } = getContext<AppViewerContext>('AppViewerContext')
 
-	let items = navbarItems.map((tab, index) => {
-		return { value: tab, id: generateRandomString(), originalIndex: index }
-	})
+	let items = $state(
+		(navbarItems ?? []).map((tab, index) => {
+			return { value: tab, id: generateRandomString(), originalIndex: index }
+		})
+	)
 
-	$: navbarItems = items.map((item) => item.value)
+	$effect(() => {
+		navbarItems = items.map((item) => item.value)
+	})
 
 	function addPath() {
 		const emptyAppPath: NavbarItem = {
@@ -105,25 +119,28 @@
 		items = newItems
 	}
 
-	let resolvedPaths: string[] = []
-	let resolvedLabels: string[] = []
+	let resolvedPaths: string[] = $state([])
+	let resolvedLabels: string[] = $state([])
+
+	const rnd = generateRandomString()
 </script>
 
 <PanelSection
 	title={`Items ${navbarItems && navbarItems.length > 0 ? `(${navbarItems.length})` : ''}`}
 >
 	{#if !navbarItems || navbarItems.length == 0}
-		<span class="text-xs text-tertiary">No items</span>
+		<span class="text-xs text-primary">No items</span>
 	{/if}
 	<div class="w-full flex gap-2 flex-col mt-2">
 		<section
 			use:dragHandleZone={{
 				items,
 				flipDurationMs: 200,
-				dropTargetStyle: {}
+				dropTargetStyle: {},
+				type: rnd
 			}}
-			on:consider={handleConsider}
-			on:finalize={handleFinalize}
+			onconsider={handleConsider}
+			onfinalize={handleFinalize}
 		>
 			{#each items as item, index (item.id)}
 				{#key item.id}
@@ -153,18 +170,18 @@
 								/>
 							</div>
 							<NavbarWizard bind:value={items[index].value}>
-								<svelte:fragment slot="trigger">
+								{#snippet trigger()}
 									<Button color="light" size="xs2" nonCaptureEvent={true}>
 										<div class="flex flex-row items-center gap-2 text-xs font-normal">
 											<Settings size={16} />
 										</div>
 									</Button>
-								</svelte:fragment>
+								{/snippet}
 							</NavbarWizard>
 
 							<div class="flex flex-col justify-center gap-2">
-								<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
-								<!-- svelte-ignore a11y-no-static-element-interactions -->
+								<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
 								<div use:dragHandle class="handle w-4 h-4" aria-label="drag-handle">
 									<GripVertical size={16} />
 								</div>
@@ -179,7 +196,7 @@
 						/>
 
 						{#if resolvedPaths[item.originalIndex]}
-							<div class="text-xs text-tertiary flex gap-2 flex-row flex-wrap">
+							<div class="text-xs text-primary flex gap-2 flex-row flex-wrap">
 								Path: <Badge small>{resolvedPaths[item.originalIndex]}</Badge>
 								{#if $appPath && resolvedPaths[item.originalIndex]?.includes($appPath)}
 									<Badge small color="blue"
@@ -199,13 +216,6 @@
 				{/key}
 			{/each}
 		</section>
-		<Button
-			size="xs"
-			color="light"
-			variant="border"
-			startIcon={{ icon: Plus }}
-			on:click={addPath}
-			iconOnly
-		/>
+		<Button size="xs" variant="default" startIcon={{ icon: Plus }} on:click={addPath} iconOnly />
 	</div>
 </PanelSection>

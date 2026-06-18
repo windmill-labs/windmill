@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { createEventDispatcher, onMount } from 'svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -8,18 +11,24 @@
 	import { emptyString } from '$lib/utils'
 	import { Skeleton } from '$lib/components/common'
 
-	export let filter = ''
+	interface Props {
+		filter?: string
+		children?: import('svelte').Snippet
+	}
 
-	let flows: Flow[] | undefined = undefined
-	let filteredItems: (Flow & { marked?: string })[] = []
-	$: prefilteredItems = flows ?? []
+	let { filter = $bindable(''), children }: Props = $props()
+
+	let flows: Flow[] | undefined = $state(undefined)
+	let filteredItems: (Flow & { marked?: string })[] = $state([])
+	let prefilteredItems = $derived(flows ?? [])
 
 	const dispatch = createEventDispatcher()
 
 	async function loadFlow(): Promise<void> {
 		const loadedFlows = await FlowService.listFlows({
 			workspace: $workspaceStore!,
-			perPage: 300
+			perPage: 300,
+			withoutDescription: true
 		})
 
 		flows = loadedFlows
@@ -37,11 +46,11 @@
 	f={(x) => (emptyString(x.summary) ? x.path : x.summary + ' (' + x.path + ')')}
 />
 <div class="w-full flex mt-1 items-center gap-2">
-	<slot />
+	{@render children?.()}
 	<input
 		type="text"
 		placeholder="Search workspace flows"
-		on:keydown|stopPropagation
+		onkeydown={stopPropagation(bubble('keydown'))}
 		bind:value={filter}
 		class="text-2xl grow mb-4"
 	/>
@@ -56,7 +65,7 @@
 				<li class="flex flex-row w-full">
 					<button
 						class="p-4 gap-4 flex flex-row grow justify-between hover:bg-surface-hover bg-surface transition-all items-center rounded-md"
-						on:click={() => dispatch('pick', item.path)}
+						onclick={() => dispatch('pick', item.path)}
 					>
 						<div class="flex items-center gap-4">
 							<RowIcon kind="flow" />
@@ -69,7 +78,7 @@
 										{!item.summary || item.summary.length == 0 ? item.path : item.summary}
 									{/if}
 								</div>
-								<div class="text-tertiary text-xs">
+								<div class="text-primary text-xs">
 									{item.path}
 								</div>
 							</div>

@@ -1,85 +1,151 @@
-export const action = (node) => {
-	/* Constants */
-	const update = new Event('update')
+import { tick } from 'svelte'
 
-	/* Functions */
-	const init = () => {
-		addStyles()
-		observeElement()
-		addEventListeners()
-		setInitialHeight()
-	}
+type TextArea = HTMLTextAreaElement
 
-	const dispatchUpdateEvent = () => {
-		node.dispatchEvent(update)
-	}
+/**
+ * Optional parameters for the `autosize` action.
+ *
+ * `maxHeight` caps how tall the textarea may grow. Once the content exceeds it,
+ * the textarea stops growing and scrolls internally (overflow-y: auto) instead.
+ * Accepts a number (px) or a CSS-ish string ending in `vh`/`px` (e.g. `'40vh'`).
+ * When omitted the textarea grows without bound (the historical behaviour).
+ */
+export type AutosizeParams = { maxHeight?: number | string } | undefined
 
-	const setInitialHeight = () => {
-		let height = 0
-		if (node.value) {
-			height = Math.max(node.scrollHeight ?? 0, 30) + 2
-		} else {
-			if (node.placeholder) {
-				node.value = node.placeholder
-				height = Math.max(node.scrollHeight ?? 0, 30) + 2
-				node.value = ''
+/** Resolve a `maxHeight` param to a pixel value, or null when uncapped/invalid. */
+function resolveMaxHeight(maxHeight: number | string | undefined): number | null {
+	if (maxHeight == null) return null
+	if (typeof maxHeight === 'number') return maxHeight
+	const s = maxHeight.trim()
+	const v = parseFloat(s)
+	if (isNaN(v)) return null
+	if (s.endsWith('vh')) return (v / 100) * window.innerHeight
+	return v // 'px' or bare number → pixels
+}
+
+export const autosize = (node: TextArea, params?: AutosizeParams) => {
+	/* ------------------------------------------------------------------
+	 * Constants
+	 * ---------------------------------------------------------------- */
+	const UPDATE_EVENT = new Event('update')
+	const MIN_HEIGHT = 30 // px
+	const EXTRA = 2 // px added to scrollHeight
+
+	let width = 0
+	let maxHeight = params?.maxHeight
+	let capped = maxHeight != null
+
+	/* ------------------------------------------------------------------
+	 * Core resize routine
+	 * ---------------------------------------------------------------- */
+	const resize = () => {
+		node.style.height = 'auto'
+		let height = Math.max(node.scrollHeight, MIN_HEIGHT) + EXTRA
+
+		const maxPx = resolveMaxHeight(maxHeight)
+		if (maxPx != null) {
+			if (height > maxPx) {
+				height = maxPx
+				node.style.overflowY = 'auto'
 			} else {
-				node.value = '|'
-				node.style.height = '0px'
-				height = Math.max(node.scrollHeight ?? 0, 30) + 2
-				node.value = ''
+				node.style.overflowY = 'hidden'
 			}
+		} else {
+			// Uncapped — including after a capped→uncapped toggle: drop any inline
+			// overflow we set while capped so the textarea returns to its default
+			// (class-driven) behaviour rather than keeping a stale `auto`/`hidden`.
+			node.style.overflowY = ''
 		}
 
-		node.style.height = height + 'px'
+		node.style.height = `${height}px`
 	}
 
-	const setHeight = () => {
-		node.style.height = 'auto'
-		node.style.height = Math.max(node.scrollHeight ?? 0, 30) + 2 + 'px'
-	}
+	/* ------------------------------------------------------------------
+	 * Patch `value` so programmatic changes trigger resize
+	 * ---------------------------------------------------------------- */
+	const proto = Object.getPrototypeOf(node)
+	const desc = Object.getOwnPropertyDescriptor(proto, 'value')
 
-	const addStyles = () => {
-		node.style.boxSizing = 'border-box'
-	}
-
-	const observeElement = () => {
-		let elementPrototype = Object.getPrototypeOf(node)
-		let descriptor = Object.getOwnPropertyDescriptor(elementPrototype, 'value')
+	if (desc) {
 		Object.defineProperty(node, 'value', {
-			get: function () {
-				return descriptor?.get?.apply(this, arguments as any)
+			get() {
+				return desc.get?.call(this)
 			},
-			set: function () {
-				descriptor?.set?.apply(this, arguments as any)
-				dispatchUpdateEvent()
+			set(v: unknown) {
+				desc.set?.call(this, v)
+				node.dispatchEvent(UPDATE_EVENT)
 			}
 		})
 	}
 
-	const addEventListeners = () => {
-		node.addEventListener('input', (e) => {
-			dispatchUpdateEvent()
-		})
-		node.addEventListener('update', setHeight)
+	/* ------------------------------------------------------------------
+	 * Event listeners
+	 * ---------------------------------------------------------------- */
+	const onInput = () => node.dispatchEvent(UPDATE_EVENT)
+
+	node.addEventListener('input', onInput)
+	node.addEventListener('update', resize)
+
+	// A `vh`-based cap depends on the viewport height, so recompute on window
+	// resize. Only attached when a cap is configured to avoid adding listeners
+	// for the many uncapped textareas across the app.
+	if (capped) {
+		window.addEventListener('resize', resize)
 	}
 
-	const removeEventListeners = () => {
-		node.removeEventListener('input', dispatchUpdateEvent)
-		node.removeEventListener('update', setHeight)
-	}
+	/* ------------------------------------------------------------------
+	 * Inline styling
+	 * ---------------------------------------------------------------- */
+	node.style.boxSizing = 'border-box'
 
-	if (node.tagName.toLowerCase() !== 'textarea') {
-		throw new Error('svelte-textarea-auto-height can only be used on textarea elements.')
-	} else {
-		init()
+	/* ------------------------------------------------------------------
+	 * Wait for DOM mount, then do an initial measure.
+	 * If the <textarea> is already visible (offsetWidth > 0) this covers it;
+	 * otherwise the first ResizeObserver callback will.
+	 * ---------------------------------------------------------------- */
+	;(async () => {
+		await tick()
+		resize()
+	})()
 
-		return {
-			destroy() {
-				removeEventListeners()
+	/* ------------------------------------------------------------------
+	 * ResizeObserver – handles:
+	 *   • first time the element gets a real width
+	 *   • container/window resizes afterwards
+	 * ---------------------------------------------------------------- */
+	const ro = new ResizeObserver(([entry]) => {
+		const newWidth = entry.contentRect.width
+		if (newWidth !== width) {
+			width = newWidth
+			resize()
+		}
+	})
+	ro.observe(node)
+
+	/* ------------------------------------------------------------------
+	 * Action lifecycle
+	 * ---------------------------------------------------------------- */
+	return {
+		update(newParams?: AutosizeParams) {
+			maxHeight = newParams?.maxHeight
+			const nowCapped = maxHeight != null
+			if (nowCapped && !capped) {
+				window.addEventListener('resize', resize)
+			} else if (!nowCapped && capped) {
+				window.removeEventListener('resize', resize)
+			}
+			capped = nowCapped
+			resize()
+		},
+		destroy() {
+			ro.disconnect()
+			node.removeEventListener('input', onInput)
+			node.removeEventListener('update', resize)
+			if (capped) {
+				window.removeEventListener('resize', resize)
 			}
 		}
 	}
 }
 
-export default action
+export default autosize

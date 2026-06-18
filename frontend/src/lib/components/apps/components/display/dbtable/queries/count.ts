@@ -1,8 +1,19 @@
+/**
+ * LEGACY: These query builders generate full SQL on the frontend.
+ * They exist only for backwards compatibility with Database Studio (dbexplorercomponent) apps
+ * whose policies were generated with expanded SQL digests.
+ *
+ * New code (Database Manager) should use WM_INTERNAL_DB markers instead,
+ * which are expanded server-side by the Rust query_builders module.
+ * See: dbOps.ts → dbTableOpsWithPreviewScripts()
+ */
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
-import { buildParameters, type DbType } from '../utils'
+import { wrapDucklakeQuery } from '../../../../../ducklake'
+import type { DbType, DbInput } from '$lib/components/dbTypes'
+import { buildParameters } from '../utils'
 import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
 
-function makeCountQuery(
+export function makeCountQuery(
 	dbType: DbType,
 	table: string,
 	whereClause: string | undefined = undefined,
@@ -105,7 +116,16 @@ function makeCountQuery(
 			query += `SELECT COUNT(*) as count FROM \`${table}\``
 			break
 		}
-
+		case 'duckdb':
+			if (filteredColumns.length > 0) {
+				quicksearchCondition += ` ($quicksearch = '' OR CONCAT(' ', ${filteredColumns.join(
+					', '
+				)}) LIKE CONCAT('%', $quicksearch, '%'))`
+			} else {
+				quicksearchCondition += ` ($quicksearch = '' OR 1 = 1)`
+			}
+			query += `SELECT COUNT(*) as count FROM ${table}`
+			break
 		default:
 			throw new Error('Unsupported database type:' + dbType)
 	}
@@ -122,7 +142,8 @@ function makeCountQuery(
 		(dbType === 'mysql' ||
 			dbType === 'postgresql' ||
 			dbType === 'snowflake' ||
-			dbType === 'bigquery')
+			dbType === 'bigquery' ||
+			dbType === 'duckdb')
 	) {
 		query = query.replace(`${andCondition}`, wherePrefix)
 	}
@@ -131,35 +152,41 @@ function makeCountQuery(
 }
 
 export function getCountInput(
-	resource: string,
+	dbInput: DbInput,
 	table: string,
-	resourceType: DbType,
 	columnDefs: ColumnDef[],
 	whereClause: string | undefined
 ): AppInput | undefined {
-	if (!resource || !table || !columnDefs) {
-		// Return undefined if resource or table is not defined
-
+	if (
+		(dbInput.type == 'ducklake' && !dbInput.ducklake) ||
+		(dbInput.type == 'database' && !dbInput.resourcePath) ||
+		!table ||
+		!columnDefs?.length
+	) {
 		return undefined
 	}
-
-	const query = makeCountQuery(resourceType, table, whereClause, columnDefs)
+	const dbType = dbInput.type === 'ducklake' ? 'duckdb' : dbInput.resourceType
+	let query = makeCountQuery(dbType, table, whereClause, columnDefs)
+	if (dbInput.type === 'ducklake') query = wrapDucklakeQuery(query, dbInput.ducklake)
 
 	const updateRunnable: RunnableByName = {
 		name: 'AppDbExplorer',
-		type: 'runnableByName',
+		type: 'inline',
 		inlineScript: {
 			content: query,
-			language: getLanguageByResourceType(resourceType),
+			language: getLanguageByResourceType(dbType),
 			schema: {
 				$schema: 'https://json-schema.org/draft/2020-12/schema',
-				properties: {
-					database: {
-						description: 'Database name',
-						type: 'object',
-						format: `resource-${resourceType}`
-					}
-				},
+				properties:
+					dbInput.type === 'database'
+						? {
+								database: {
+									description: 'Database name',
+									type: 'object',
+									format: `resource-${dbType}`
+								}
+							}
+						: {},
 				required: ['database'],
 				type: 'object'
 			}
@@ -168,14 +195,19 @@ export function getCountInput(
 
 	const updateQuery: AppInput = {
 		runnable: updateRunnable,
-		fields: {
-			database: {
-				type: 'static',
-				value: resource,
-				fieldType: 'object',
-				format: `resource-${resourceType}`
-			}
-		},
+		fields:
+			dbInput.type === 'database'
+				? {
+						database: {
+							type: 'static',
+							value: dbInput.resourcePath.startsWith('datatable://')
+								? dbInput.resourcePath
+								: `$res:${dbInput.resourcePath}`,
+							fieldType: 'object',
+							format: `resource-${dbType}`
+						}
+					}
+				: {},
 		type: 'runnable',
 		fieldType: 'object'
 	}

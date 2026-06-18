@@ -1,16 +1,53 @@
 <script lang="ts">
-	import { HttpTriggerService, type HttpTrigger } from '$lib/gen'
-	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import { run } from 'svelte/legacy'
+
+	import {
+		HttpTriggerService,
+		SettingService,
+		WorkspaceService,
+		type HttpTrigger,
+		type TriggerMode,
+		type WorkspaceDeployUISettings
+	} from '$lib/gen'
+	import {
+		canWrite,
+		copyToClipboard,
+		displayDate,
+		getLocalSetting,
+		storeLocalSetting,
+		removeTriggerKindIfUnused,
+		sendUserToast
+	} from '$lib/utils'
 	import { base } from '$app/paths'
+	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
-	import { Route, Code, Eye, Pen, Plus, Share, Trash } from 'lucide-svelte'
+	import {
+		userStore,
+		workspaceStore,
+		userWorkspaces,
+		enterpriseLicense,
+		usedTriggerKinds
+	} from '$lib/stores'
+	import {
+		Route,
+		Code,
+		Eye,
+		Pen,
+		Plus,
+		Shield,
+		Trash,
+		FileUp,
+		ClipboardCopy,
+		Pause
+	} from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -21,44 +58,100 @@
 	import { setQuery } from '$lib/navigation'
 	import { onMount } from 'svelte'
 	import RouteEditor from '$lib/components/triggers/http/RouteEditor.svelte'
+	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
+	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
+	import { isCloudHosted } from '$lib/cloud'
+	import { getHttpRoute } from '$lib/components/triggers/http/utils'
+	import RoutesGenerator from '$lib/components/triggers/http/RoutesGenerator.svelte'
+	import OpenApiSpecGenerator from '$lib/components/triggers/http/OpenAPISpecGenerator.svelte'
+	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
 
 	type TriggerW = HttpTrigger & { canWrite: boolean }
 
-	let triggers: TriggerW[] = []
-	let shareModal: ShareModal
-	let loading = true
+	let triggers: TriggerW[] = $state([])
+	let shareModal: ShareModal | undefined = $state()
+	let loading = $state(true)
+	let openAPISpecGenerator: OpenApiSpecGenerator | undefined = $state()
+	let routesGenerator: RoutesGenerator | undefined = $state()
+	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
+	let globalHttpWorkspacedRoute = $state(false)
 
+	async function loadGlobalHttpWorkspacedRouteSetting() {
+		try {
+			const setting = await SettingService.getGlobal({ key: 'http_route_workspaced_route' })
+			globalHttpWorkspacedRoute = (setting as boolean) ?? false
+		} catch {
+			globalHttpWorkspacedRoute = false
+		}
+	}
+
+	loadGlobalHttpWorkspacedRouteSetting()
+
+	async function getDeployUiSettings() {
+		if (!$enterpriseLicense) {
+			deployUiSettings = ALL_DEPLOYABLE
+			return
+		}
+		let settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })
+		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
+	}
+	getDeployUiSettings()
 	async function loadTriggers(): Promise<void> {
-		triggers = (await HttpTriggerService.listHttpTriggers({ workspace: $workspaceStore! })).map(
-			(x) => {
-				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
-			}
-		)
+		triggers = (
+			await HttpTriggerService.listHttpTriggers({
+				workspace: $workspaceStore!,
+				includeDraftOnly: true
+			})
+		).map((x) => {
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+		})
+		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'routes', $usedTriggerKinds)
 		loading = false
 	}
 
-	$: {
+	run(() => {
 		if ($workspaceStore && $userStore) {
 			loadTriggers()
 		}
-	}
-	let routeEditor: RouteEditor
+	})
+	let routeEditor: RouteEditor | undefined = $state()
 
-	let filteredItems: (TriggerW & { marked?: any })[] | undefined = []
-	let items: typeof filteredItems | undefined = []
-	let preFilteredItems: typeof filteredItems | undefined = []
-	let filter = ''
-	let ownerFilter: string | undefined = undefined
-	let nbDisplayed = 15
+	let hashHandled = false
+	$effect(() => {
+		if (!hashHandled && triggers.length > 0 && routeEditor) {
+			let hash = $page.url.hash
+			if (hash.length > 1) {
+				let path = hash.slice(1)
+				let trigger = triggers.find((t) => t.path === path)
+				if (trigger) {
+					hashHandled = true
+					routeEditor?.openEdit(path, trigger.is_flow)
+				}
+			}
+		}
+	})
+
+	let filteredItems: (TriggerW & { marked?: any })[] | undefined = $state([])
+	let items: typeof filteredItems | undefined = $state([])
+	let preFilteredItems: typeof filteredItems | undefined = $state([])
+	let filter = $state('')
+	let ownerFilter: string | undefined = $state(undefined)
+	let nbDisplayed = $state(15)
 
 	const TRIGGER_PATH_KIND_FILTER_SETTING = 'filter_path_of'
 	const FILTER_USER_FOLDER_SETTING_NAME = 'user_and_folders_only'
-	let selectedFilterKind =
+	let selectedFilterKind = $state(
 		(getLocalSetting(TRIGGER_PATH_KIND_FILTER_SETTING) as 'trigger' | 'script_flow') ?? 'trigger'
-	let filterUserFolders = getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true'
+	)
+	let filterUserFolders = $state(getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true')
 
-	$: storeLocalSetting(TRIGGER_PATH_KIND_FILTER_SETTING, selectedFilterKind)
-	$: storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
+	run(() => {
+		storeLocalSetting(TRIGGER_PATH_KIND_FILTER_SETTING, selectedFilterKind)
+	})
+	run(() => {
+		storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
+	})
 
 	function filterItemsPathsBaseOnUserFilters(
 		item: TriggerW,
@@ -82,48 +175,61 @@
 		}
 	}
 
-	$: preFilteredItems =
-		ownerFilter != undefined
-			? selectedFilterKind === 'trigger'
-				? triggers?.filter(
-						(x) =>
-							x.path.startsWith(ownerFilter + '/') &&
-							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-				  )
-				: triggers?.filter(
-						(x) =>
-							x.script_path.startsWith(ownerFilter + '/') &&
-							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-				  )
-			: triggers?.filter((x) =>
-					filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-			  )
+	run(() => {
+		preFilteredItems =
+			ownerFilter != undefined
+				? selectedFilterKind === 'trigger'
+					? triggers?.filter(
+							(x) =>
+								x.path.startsWith(ownerFilter + '/') &&
+								filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
+						)
+					: triggers?.filter(
+							(x) =>
+								x.script_path.startsWith(ownerFilter + '/') &&
+								filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
+						)
+				: triggers?.filter((x) =>
+						filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
+					)
+	})
 
-	$: if ($workspaceStore) {
-		ownerFilter = undefined
-	}
+	run(() => {
+		if ($workspaceStore) {
+			ownerFilter = undefined
+		}
+	})
 
-	$: owners =
+	let owners = $derived(
 		selectedFilterKind === 'trigger'
 			? Array.from(
 					new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
+				).sort()
 			: Array.from(
-					new Set(filteredItems?.map((x) => x.script_path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
+					new Set(
+						filteredItems
+							?.filter((x) => x.script_path)
+							.map((x) => x.script_path.split('/').slice(0, 2).join('/')) ?? []
+					)
+				).sort()
+	)
 
-	$: items = filter !== '' ? filteredItems : preFilteredItems
+	run(() => {
+		items = filter !== '' ? filteredItems : preFilteredItems
+	})
 
 	function updateQueryFilters(selectedFilterKind, filterUserFolders) {
 		setQuery(
 			new URL(window.location.href),
 			TRIGGER_PATH_KIND_FILTER_SETTING,
-			selectedFilterKind
+			selectedFilterKind,
+			window.location.hash || undefined
 		).then(() => {
 			setQuery(
 				new URL(window.location.href),
 				FILTER_USER_FOLDER_SETTING_NAME,
-				String(filterUserFolders)
+				String(filterUserFolders),
+				window.location.hash || undefined
 			)
 		})
 	}
@@ -140,14 +246,41 @@
 		}
 	}
 
+	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
+		try {
+			// HTTP routes are always workspace-prefixed at runtime, so fork
+			// and parent live at distinct URLs — no fork-conflict warning.
+			await HttpTriggerService.setHttpTriggerMode({
+				path,
+				workspace: $workspaceStore!,
+				requestBody: { mode }
+			})
+		} catch (err) {
+			sendUserToast(
+				`Cannot ` +
+					(mode === 'enabled' ? 'enable' : mode === 'disabled' ? 'disable' : 'suspend') +
+					` http trigger: ${err.body}`,
+				true
+			)
+		} finally {
+			loadTriggers()
+		}
+	}
+
 	onMount(() => {
 		loadQueryFilters()
 	})
 
-	$: updateQueryFilters(selectedFilterKind, filterUserFolders)
+	run(() => {
+		updateQueryFilters(selectedFilterKind, filterUserFolders)
+	})
 </script>
 
-<RouteEditor on:update={loadTriggers} bind:this={routeEditor} />
+<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
+<RouteEditor onUpdate={loadTriggers} bind:this={routeEditor} />
+
+<RoutesGenerator closeFn={loadTriggers} bind:this={routesGenerator} />
+<OpenApiSpecGenerator bind:this={openAPISpecGenerator} />
 
 <SearchItems
 	{filter}
@@ -156,176 +289,282 @@
 	f={(x) => (x.summary ?? '') + ' ' + x.path + ' (' + x.script_path + ')'}
 />
 
-{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find(_ => _.id === $workspaceStore)?.operator_settings?.triggers}
-<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
-	<p class="font-bold">Unauthorized</p>
-	<p>Page not available for operators</p>
-</div>
-{:else}
-<CenteredPage>
-	<PageHeader
-		title="Custom HTTP routes"
-		tooltip="Every script and flow already has a canonical HTTP API endpoint/webhook attached to it, this is to create additional parametrizable ones."
-		documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing"
-	>
-		{#if $userStore?.is_admin || $userStore?.is_super_admin}
-			<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor.openNew(false)}>
-				New&nbsp;route
-			</Button>
-		{/if}
-	</PageHeader>
-	<div class="w-full h-full flex flex-col">
-		<div class="w-full pb-4 pt-6">
-			<input type="text" placeholder="Search routes" bind:value={filter} class="search-item" />
-			<div class="flex flex-row items-center gap-2 mt-6">
-				<div class="text-sm shrink-0"> Filter by path of </div>
-				<ToggleButtonGroup bind:selected={selectedFilterKind}>
-					<ToggleButton small value="trigger" label="Route" icon={Route} />
-					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
-				</ToggleButtonGroup>
-			</div>
-			<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
-
-			<div class="flex flex-row items-center justify-end gap-4">
-				{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
-					<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
-				{:else if $userStore?.is_admin || $userStore?.is_super_admin}
-					<Toggle
-						size="xs"
-						bind:checked={filterUserFolders}
-						options={{ right: `Only u/${$userStore.username} and f/*` }}
-					/>
-				{/if}
-			</div>
-		</div>
-		{#if loading}
-			{#each new Array(6) as _}
-				<Skeleton layout={[[6], 0.4]} />
-			{/each}
-		{:else if !triggers?.length}
-			<div class="text-center text-sm text-tertiary mt-2"> No routes </div>
-		{:else if items?.length}
-			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config } (path)}
-					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
-
-					<div
-						class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
-				first-of-type:rounded-t-md last-of-type:rounded-b-md flex flex-col"
-					>
-						<div class="w-full flex gap-5 items-center">
-							<RowIcon kind={is_flow ? 'flow' : 'script'} />
-
-							<a
-								href="#{path}"
-								on:click={() => routeEditor?.openEdit(path, is_flow)}
-								class="min-w-0 grow hover:underline decoration-gray-400"
-							>
-								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
-									{#if marked}
-										<span class="text-xs">
-											{@html marked}
-										</span>
-									{:else}
-										{http_method.toUpperCase()} /{route_path}
-									{/if}
-								</div>
-								<div class="text-secondary text-xs truncate text-left font-light">
-									{path}
-								</div>
-								<div class="text-secondary text-xs truncate text-left font-light">
-									{#if static_asset_config}
-										file: {static_asset_config.s3}
-									{:else}
-										runnable: {script_path}
-									{/if}
-								</div>
-							</a>
-
-							<div class="hidden lg:flex flex-row gap-1 items-center">
-								<SharedBadge {canWrite} extraPerms={extra_perms} />
-							</div>
-
-							<div class="flex gap-2 items-center justify-end">
-								<Button
-									on:click={() => routeEditor?.openEdit(path, is_flow)}
-									size="xs"
-									startIcon={canWrite
-										? { icon: Pen }
-										: {
-												icon: Eye
-										  }}
-									color="dark"
-								>
-									{canWrite ? 'Edit' : 'View'}
-								</Button>
-								<Dropdown
-									items={[
-										{
-											displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
-											icon: Eye,
-											action: () => {
-												goto(href)
-											}
-										},
-										{
-											displayName: 'Delete',
-											type: 'delete',
-											icon: Trash,
-											disabled: !canWrite || !($userStore?.is_admin || $userStore?.is_super_admin),
-											action: async () => {
-												await HttpTriggerService.deleteHttpTrigger({
-													workspace: $workspaceStore ?? '',
-													path
-												})
-												loadTriggers()
-											}
-										},
-										{
-											displayName: canWrite ? 'Edit' : 'View',
-											icon: canWrite ? Pen : Eye,
-											action: () => {
-												routeEditor?.openEdit(path, is_flow)
-											}
-										},
-										{
-											displayName: 'Audit logs',
-											icon: Eye,
-											href: `${base}/audit_logs?resource=${path}`
-										},
-										{
-											displayName: canWrite ? 'Share' : 'See Permissions',
-											icon: Share,
-											action: () => {
-												shareModal.openDrawer(path, 'http_trigger')
-											}
-										}
-									]}
-								/>
-							</div>
-						</div>
-						<div class="w-full flex justify-between items-baseline">
-							<div
-								class="flex flex-wrap text-[0.7em] text-tertiary gap-1 items-center justify-end truncate pr-2"
-							>
-								<div class="truncate">edited by {edited_by}</div>
-								<div class="truncate">at {displayDate(edited_at)}</div>
-							</div>
-						</div>
-					</div>
-				{/each}
-			</div>
-		{:else}
-			<NoItemFound />
-		{/if}
+{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.triggers}
+	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
+		<p class="font-bold">Unauthorized</p>
+		<p>Page not available for operators</p>
 	</div>
-	{#if items && items?.length > 15 && nbDisplayed < items.length}
-		<span class="text-xs"
-			>{nbDisplayed} items out of {items.length}
-			<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
+{:else}
+	<CenteredPage>
+		<PageHeader
+			title="Custom HTTP routes"
+			tooltip="Every script and flow already has a canonical HTTP API endpoint/webhook attached to it, this is to create additional parametrizable ones."
+			documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing"
 		>
-	{/if}
-</CenteredPage>
+			<div class="flex flex-row gap-2">
+				<Button
+					unifiedSize="md"
+					variant="default"
+					startIcon={{ icon: Plus }}
+					on:click={() => {
+						routesGenerator?.openDrawer()
+					}}
+				>
+					From OpenAPI spec
+				</Button>
+				<Button
+					unifiedSize="md"
+					variant="default"
+					startIcon={{ icon: Plus }}
+					on:click={() => {
+						openAPISpecGenerator?.openDrawer()
+					}}
+				>
+					To OpenAPI spec
+				</Button>
+				<Button
+					unifiedSize="md"
+					variant="accent"
+					startIcon={{ icon: Plus }}
+					on:click={() => routeEditor?.openNew(false)}
+				>
+					New&nbsp;route
+				</Button>
+			</div>
+		</PageHeader>
+		<div class="w-full h-full flex flex-col">
+			<div class="w-full pb-4 pt-6">
+				<input type="text" placeholder="Search routes" bind:value={filter} class="search-item" />
+				<div class="flex flex-row items-center gap-2 mt-2">
+					<div class="text-xs font-semibold text-emphasis shrink-0"> Filter by path of </div>
+					<ToggleButtonGroup bind:selected={selectedFilterKind}>
+						{#snippet children({ item })}
+							<ToggleButton value="trigger" label="Route" icon={Route} {item} />
+							<ToggleButton value="script_flow" label="Script/Flow" icon={Code} {item} />
+						{/snippet}
+					</ToggleButtonGroup>
+				</div>
+				<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
+
+				<div class="flex flex-row items-center justify-end gap-4">
+					{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
+						<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
+					{:else if $userStore?.is_admin || $userStore?.is_super_admin}
+						<Toggle
+							size="xs"
+							bind:checked={filterUserFolders}
+							options={{ right: `Only u/${$userStore.username} and f/*` }}
+						/>
+					{/if}
+				</div>
+			</div>
+			{#if loading}
+				{#each new Array(6) as _}
+					<Skeleton layout={[[6], 0.4]} />
+				{/each}
+			{:else if !triggers?.length}
+				<div class="text-center text-sm font-semibold text-emphasis mt-2"> No routes </div>
+			{:else if items?.length}
+				<div class="border rounded-md divide-y">
+					{#each items.slice(0, nbDisplayed) as { summary, workspace_id, workspaced_route, mode, path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config, retry, error_handler_path, error_handler_args, draft_only, is_draft } (path)}
+						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
+
+						<div
+							class="bg-surface-tertiary hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
+				first-of-type:rounded-t-md last-of-type:rounded-b-md flex flex-col"
+						>
+							<div class="w-full flex gap-4 items-center">
+								<RowIcon kind={is_flow ? 'flow' : 'script'} />
+
+								<a
+									href="#{path}"
+									onclick={() => routeEditor?.openEdit(path, is_flow)}
+									class="min-w-0 grow hover:underline decoration-gray-400"
+								>
+									<div
+										class="text-emphasis font-semibold flex-wrap text-left text-xs mb-1 truncate"
+									>
+										{#if marked}
+											<span class="text-xs">
+												{@html marked}
+											</span>
+										{:else if summary}
+											{summary}
+										{:else}
+											{http_method.toUpperCase()}
+											/{isCloudHosted() || workspaced_route || globalHttpWorkspacedRoute
+												? workspace_id + '/' + route_path
+												: route_path}
+										{/if}{(getLocalDraftHint($workspaceStore, 'trigger_http', path) ?? is_draft) ? '*' : ''}
+									</div>
+									<div class="text-secondary text-xs truncate text-left font-normal">
+										{path}
+									</div>
+									<div class="text-secondary text-xs truncate text-left font-normal">
+										{#if static_asset_config}
+											file: {static_asset_config.s3}
+										{:else}
+											runnable: {script_path}
+										{/if}
+									</div>
+								</a>
+
+								<div class="hidden lg:flex flex-row gap-1 items-center">
+									<SharedBadge {canWrite} extraPerms={extra_perms} />
+									{#if draft_only}
+										<DraftBadge draft_only is_draft={false} />
+									{/if}
+								</div>
+
+								<TriggerModeToggle
+									onToggleMode={(mode) => onToggleMode(path, mode)}
+									triggerMode={mode}
+									includeModalConfig={{
+										triggerPath: path,
+										triggerKind: 'http',
+										runnableConfig: {
+											path: script_path,
+											kind: is_flow ? 'flow' : 'script',
+											retry,
+											errorHandlerPath: error_handler_path,
+											errorHandlerArgs: error_handler_args
+										}
+									}}
+									{canWrite}
+									hideToggleLabels
+									hideDropdown
+								/>
+
+								<div class="flex gap-2 items-center justify-end">
+									<Button
+										on:click={() =>
+											copyToClipboard(
+												getHttpRoute(
+													'r',
+													route_path,
+													(workspaced_route ?? false) || globalHttpWorkspacedRoute,
+													workspace_id
+												)
+											)}
+										variant="subtle"
+										unifiedSize="md"
+										startIcon={{ icon: ClipboardCopy }}
+									>
+										Copy URL
+									</Button>
+									<Button
+										on:click={() => routeEditor?.openEdit(path, is_flow)}
+										unifiedSize="md"
+										startIcon={canWrite
+											? { icon: Pen }
+											: {
+													icon: Eye
+												}}
+										variant="subtle"
+									>
+										{canWrite ? 'Edit' : 'View'}
+									</Button>
+									<Dropdown
+										size="md"
+										items={[
+											{
+												displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
+												icon: Eye,
+												action: () => {
+													goto(href)
+												}
+											},
+											...(canWrite && mode !== 'suspended'
+												? [
+														{
+															displayName: 'Suspend job execution',
+															icon: Pause,
+															action: () => {
+																onToggleMode(path, 'suspended')
+															}
+														}
+													]
+												: []),
+											{
+												displayName: canWrite ? 'Edit' : 'View',
+												icon: canWrite ? Pen : Eye,
+												action: () => {
+													routeEditor?.openEdit(path, is_flow)
+												}
+											},
+											...(isDeployable('trigger', path, deployUiSettings)
+												? [
+														{
+															displayName: 'Deploy to prod/staging',
+															icon: FileUp,
+															action: () => {
+																deploymentDrawer?.openDrawer(path, 'trigger', {
+																	triggers: {
+																		kind: 'routes'
+																	}
+																})
+															}
+														}
+													]
+												: []),
+											{
+												displayName: 'Audit logs',
+												icon: Eye,
+												href: `${base}/audit_logs?resource=${path}`
+											},
+											{
+												displayName: 'Permissions',
+												icon: Shield,
+												action: () => {
+													shareModal?.openDrawer(path, 'http_trigger')
+												}
+											},
+											{
+												displayName: 'Delete',
+												type: 'delete',
+												icon: Trash,
+												disabled: !canWrite,
+												action: async () => {
+													try {
+														await HttpTriggerService.deleteHttpTrigger({
+															workspace: $workspaceStore ?? '',
+															path
+														})
+														sendUserToast(`Successfully deleted HTTP route: ${path}`)
+														loadTriggers()
+													} catch (error) {
+														sendUserToast(error.body || error.message, true)
+													}
+												}
+											}
+										]}
+									/>
+								</div>
+							</div>
+							<div class="w-full flex justify-end items-baseline">
+								<div
+									class="flex flex-wrap text-2xs font-normal text-secondary gap-1 items-center justify-end truncate pr-2"
+								>
+									<div class="truncate">edited by {edited_by}</div>
+									<div class="truncate">at {displayDate(edited_at)}</div>
+								</div>
+							</div>
+						</div>
+					{/each}
+				</div>
+			{:else}
+				<NoItemFound />
+			{/if}
+		</div>
+		{#if items && items?.length > 15 && nbDisplayed < items.length}
+			<span class="text-xs font-normal text-primary"
+				>{nbDisplayed} items out of {items.length}
+				<button class="ml-4 font-semibold text-emphasis" onclick={() => (nbDisplayed += 30)}
+					>load 30 more</button
+				></span
+			>
+		{/if}
+	</CenteredPage>
 {/if}
 
 <ShareModal

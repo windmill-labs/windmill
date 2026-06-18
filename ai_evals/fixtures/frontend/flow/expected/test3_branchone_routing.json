@@ -1,0 +1,24 @@
+{
+  "value": {
+    "modules": [
+      {
+        "id": "route_by_tier",
+        "value": {
+          "type": "branchone"
+        }
+      }
+    ]
+  },
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "tier": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "tier"
+    ]
+  }
+}

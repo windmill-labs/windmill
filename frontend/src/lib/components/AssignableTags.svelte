@@ -1,23 +1,28 @@
 <script lang="ts">
-	import { Button, Popup } from './common'
+	import { Button } from './common'
 	import { Pen } from 'lucide-svelte'
+	import Popover from './meltComponents/Popover.svelte'
 
 	import Tooltip from './Tooltip.svelte'
 	import AssignableTagsInner from './AssignableTagsInner.svelte'
 
-	export let placement: 'bottom-end' | 'top-end' = 'bottom-end'
-	export let color: 'nord' | 'dark' = 'dark'
-	export let disabled = false
-	export let showWorkspaceRestriction = false
+	interface Props {
+		placement?: 'bottom-end' | 'top-end'
+		variant?: 'default' | 'accent'
+		disabled?: boolean
+	}
+
+	let { placement = 'bottom-end', variant = 'default', disabled = false }: Props = $props()
 </script>
 
-<Popup
+<Popover
 	floatingConfig={{ strategy: 'absolute', placement: placement }}
-	containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
 	{disabled}
+	closeButton
+	usePointerDownOutside
 >
-	<svelte:fragment slot="button">
-		<Button {color} size="xs" nonCaptureEvent={true} {disabled}>
+	{#snippet trigger()}
+		<Button {variant} unifiedSize="md" nonCaptureEvent={true} {disabled}>
 			<div class="flex flex-row gap-1 items-center"
 				><Pen size={14} /> Custom tags&nbsp;<Tooltip light
 					>Tags are assigned to scripts and flows. Workers only accept jobs that correspond to their
@@ -27,6 +32,8 @@
 				></div
 			>
 		</Button>
-	</svelte:fragment>
-	<AssignableTagsInner {showWorkspaceRestriction} on:refresh />
-</Popup>
+	{/snippet}
+	{#snippet content()}
+		<AssignableTagsInner on:refresh />
+	{/snippet}
+</Popover>

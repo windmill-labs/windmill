@@ -264,24 +264,6 @@ export async function main({
   );
 
   const shutdown_start = Date.now();
-  // let zombie_jobs = 0;
-  // let incorrect_results = 0;
-  // workers.forEach((worker, i) => {
-  //   const l = (evt: MessageEvent<any>) => {
-  //     if (evt.data.type === "zombie_jobs") {
-  //       zombie_jobs += evt.data.zombie_jobs;
-  //       incorrect_results += evt.data.incorrect_results;
-  //       worker.removeEventListener("message", l);
-  //       workers = workers.filter((w) => w != worker);
-  //       jobsSent[i] = evt.data.jobs_sent;
-  //       worker.terminate();
-  //     }
-  //   };
-  //   worker.addEventListener("message", l);
-  //   worker.postMessage(
-  //     Number.isSafeInteger(zombieTimeout) ? zombieTimeout : 90000
-  //   );
-  // });
   workers.forEach((worker, i) => {
     const l = (evt: MessageEvent<any>) => {
       if (evt.data.type === "done") {
@@ -327,8 +309,6 @@ export async function main({
   console.log("time (s + tts):", time);
   console.log("throughput /s (jobs/time):", sum / time);
 
-  // console.log("zombie jobs: ", zombie_jobs);
-  // console.log("incorrect results: ", incorrect_results);
   console.log(
     "queue length:",
     (

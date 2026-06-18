@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
-	import { afterUpdate, onMount, setContext } from 'svelte'
+	import { getContext, onMount, setContext, tick, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -9,6 +12,7 @@
 	import type {
 		App,
 		AppEditorContext,
+		AppEditorProps,
 		AppViewerContext,
 		ConnectingInput,
 		ContextPanelContext,
@@ -21,19 +25,26 @@
 
 	import { Alert, Button, Tab } from '$lib/components/common'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
-	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Tabs from '$lib/components/common/tabs/TabsV2.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { classNames, encodeState, getModifierKey, sendUserToast } from '$lib/utils'
+	import {
+		classNames,
+		getModifierKey,
+		readFieldsRecursively,
+		sendUserToast,
+		urlParamsToObject
+	} from '$lib/utils'
+	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
 	import AppPreview from './AppPreview.svelte'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
 
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
-	import { VariableService, type Policy } from '$lib/gen'
-	import { initHistory } from '$lib/history'
+	import { VariableService } from '$lib/gen'
+	import { initHistory } from '$lib/history.svelte'
 	import { Component, Minus, Paintbrush, Plus, Smartphone, Scan, Hand, Grab } from 'lucide-svelte'
-	import { animateTo, findGridItem, findGridItemParentGrid } from './appUtils'
+	import { animateTo, findGridItemParentGrid } from './appUtils'
 	import ComponentNavigation from './component/ComponentNavigation.svelte'
 	import CssSettings from './componentsPanel/CssSettings.svelte'
 	import SettingsPanel from './SettingsPanel.svelte'
@@ -44,45 +55,87 @@
 		secondaryMenuRightStore
 	} from './settingsPanel/secondaryMenu'
 	import Popover from '../../Popover.svelte'
-	import { BG_PREFIX, migrateApp } from '../utils'
+	import { migrateApp } from '../utils'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import { getTheme } from './componentsPanel/themeUtils'
 	import StylePanel from './settingsPanel/StylePanel.svelte'
-	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import AppEditorBottomPanel from './AppEditorBottomPanel.svelte'
 	import panzoom from 'panzoom'
+	import { BG_PREFIX, findGridItem } from './appUtilsCore'
 
-	export let app: App
-	export let path: string
-	export let policy: Policy
-	export let summary: string
-	export let fromHub: boolean = false
-	export let diffDrawer: DiffDrawer | undefined = undefined
-	export let savedApp:
-		| {
-				value: App
-				draft?: any
-				path: string
-				summary: string
-				policy: any
-				draft_only?: boolean
-				custom_path?: string
-		  }
-		| undefined = undefined
-	export let version: number | undefined = undefined
-	export let newApp: boolean = false
-	export let newPath: string | undefined = undefined
-	export let replaceStateFn: (path: string) => void = (path: string) =>
-		window.history.replaceState(null, '', path)
-	export let gotoFn: (path: string, opt?: Record<string, any> | undefined) => void = (
-		path: string,
-		opt?: Record<string, any>
-	) => window.history.pushState(null, '', path)
+	let {
+		app,
+		path,
+		policy,
+		summary,
+		deployedBaseline = undefined,
+		fromHub = false,
+		diffDrawer = undefined,
+		savedApp = $bindable(undefined),
+		version = undefined,
+		newApp = false,
+		newPath = undefined,
+		replaceStateFn = (path: string) => window.history.replaceState(null, '', path),
+		gotoFn = (path: string, opt?: Record<string, any>) => window.history.pushState(null, '', path),
+		onSavedNewAppPath,
+		onNavigate,
+		onResetToDeployed,
+		loadedFromDraft = false,
+		othersDraftsCount = 0,
+		onOpenOthersDrafts
+	}: AppEditorProps = $props()
 
-	migrateApp(app)
+	migrateApp(untrack(() => app))
 
-	const appStore = writable<App>(app)
+	// Migrated clone of the deployed baseline for the autosave `discardIf`. The
+	// live `stateApp` is `migrateApp`'d on mount, so the baseline must be too or
+	// an unedited draft would never compare equal. Captured once per mount (the
+	// route remounts AppEditor on path change), `undefined` for draft-only paths.
+	const migratedDeployedBaseline = untrack(() => {
+		if (!deployedBaseline) return undefined
+		const clone = structuredClone($state.snapshot(deployedBaseline)) as App
+		migrateApp(clone)
+		return clone
+	})
+
+	// Inside a session pane the AIChatManager is injected via context. Sessions
+	// have their own state machinery (sessionRuntime + per-fork backend), and
+	// the user-facing $workspaceStore stays on the main workspace even when
+	// the session is editing in a fork — so a UserDraft handle here would
+	// share its LS key with the regular /apps/edit route and clobber both
+	// sides' autosaves. Skip UserDraft entirely in that case.
+	const inSessionPane = !!getContext('aiChatManager')
+
+	// Autosave keys on the URL path so a refresh of `.../draft_{uuid}` finds the
+	// saved draft and the listing's draft-only branch picks it up.
+	const appDraftPath = path ?? ''
+	const appDraftHandle = inSessionPane
+		? undefined
+		: // `canBeDisabled`: page editor's AutosaveIndicator carries the toggle.
+			// `discardIf`: an autosave reverting to the deployed app deletes the
+			// draft instead of persisting a no-op copy.
+			UserDraft.use<App>('app', appDraftPath, {
+				canBeDisabled: true,
+				discardIf: (val) =>
+					migratedDeployedBaseline !== undefined && draftValuesEqual(val, migratedDeployedBaseline)
+			})
+	// Suspend autosave around mount so the `firstMirror` seed write isn't POSTed
+	// as the user's first edit; `onMount`-then-`tick` resumes once effects settle.
+	if (appDraftHandle) UserDraft.stopSync('app', appDraftPath)
+	// Prefer a prior-session autosave over the prop (the route seeds an empty
+	// template on `new_draft=true`; it calls `UserDraft.remove` to force a reset).
+	const stateApp = $state(untrack(() => appDraftHandle?.draft ?? app))
+	const appStore = writable<App>(stateApp)
+	// Mirror `stateApp` mutations into the autosave cell. The first mirror is the
+	// seed — `acquireEntry`'s `skipNextWrite` swallows it; later writes POST.
+	$effect(() => {
+		readFieldsRecursively(stateApp)
+		if (!appDraftHandle) return
+		untrack(() => {
+			appDraftHandle.draft = stateApp
+		})
+	})
 	const selectedComponent = writable<string[] | undefined>(undefined)
 
 	// $: selectedComponent.subscribe((s) => {
@@ -90,20 +143,16 @@
 	// })
 	const mode = writable<EditorMode>('dnd')
 	const breakpoint = writable<EditorBreakpoint>('lg')
-	const summaryStore = writable(summary)
+	const summaryStore = writable(untrack(() => summary))
 	const connectingInput = writable<ConnectingInput>({
 		opened: false,
 		input: undefined,
 		hoveredComponent: undefined
 	})
 
-	summaryStore.subscribe((s) => {
-		$worldStore?.outputsById['ctx'].summary.set(s)
-	})
-
 	const cssEditorOpen = writable<boolean>(false)
 
-	const history = initHistory(app)
+	const history = initHistory(untrack(() => app))
 
 	const jobsById = writable<
 		Record<
@@ -120,30 +169,37 @@
 	>({})
 	const focusedGrid = writable<FocusedGrid | undefined>(undefined)
 	const pickVariableCallback: Writable<((path: string) => void) | undefined> = writable(undefined)
-	let context = {
+	let context = $state({
 		email: $userStore?.email,
 		groups: $userStore?.groups,
 		username: $userStore?.username,
 		name: $userStore?.name,
-		query: Object.fromEntries(new URL(window.location.href).searchParams.entries()),
+		query: urlParamsToObject(new URL(window.location.href).searchParams, { stripReserved: true }),
 		hash: window.location.hash.substring(1),
 		workspace: $workspaceStore,
 		mode: 'editor',
 		summary: $summaryStore,
-		author: policy.on_behalf_of_email
-	}
+		author: untrack(() => policy).on_behalf_of_email
+	})
 	const darkMode: Writable<boolean> = writable(document.documentElement.classList.contains('dark'))
 
-	const worldStore = buildWorld(context)
+	const worldStore = buildWorld(untrack(() => context))
 	const previewTheme: Writable<string | undefined> = writable(undefined)
-	const initialized = writable({ initialized: false, initializedComponents: [] })
+	const initialized = writable({
+		initialized: false,
+		initializedComponents: [],
+		runnableInitialized: {}
+	})
 	const panzoomActive = writable(false)
+
+	summaryStore.subscribe((s) => {
+		$worldStore?.outputsById['ctx'].summary.set(s)
+	})
 
 	$secondaryMenuRightStore.isOpen = false
 	$secondaryMenuLeftStore.isOpen = false
 
-	let writablePath = writable(path)
-	$: path && onPathChange()
+	let writablePath = writable(untrack(() => path))
 
 	function onPathChange() {
 		writablePath.set(path)
@@ -162,7 +218,7 @@
 		runnableComponents: writable({}),
 		appPath: writablePath,
 		workspace: $workspaceStore ?? '',
-		onchange: () => saveFrontendDraft(),
+		onchange: undefined,
 		isEditor: true,
 		jobs: writable([]),
 		staticExporter: writable({}),
@@ -181,8 +237,8 @@
 		cssEditorOpen,
 		previewTheme,
 		debuggingComponents: writable({}),
-		replaceStateFn: replaceStateFn,
-		policy: policy,
+		replaceStateFn: untrack(() => replaceStateFn),
+		policy: untrack(() => policy),
 		recomputeAllContext: writable({
 			loading: false,
 			componentNumber: 0,
@@ -215,50 +271,25 @@
 		stylePanel: () => StylePanel
 	})
 
-	let timeout: NodeJS.Timeout | undefined = undefined
-
-	$: $appStore && saveFrontendDraft()
-
-	function saveFrontendDraft() {
-		timeout && clearTimeout(timeout)
-		timeout = setTimeout(() => {
-			try {
-				localStorage.setItem(path != '' ? `app-${path}` : 'app', encodeState($appStore))
-			} catch (err) {
-				console.error(err)
-			}
-		}, 500)
-	}
-
 	function hashchange(e: HashChangeEvent) {
 		context.hash = e.newURL.split('#')[1]
 		context = context
 	}
 
-	$: context.mode = $mode == 'dnd' ? 'editor' : 'viewer'
+	let selectedTab: 'insert' | 'settings' | 'css' = $state('insert')
 
-	$: width =
-		$breakpoint === 'sm' && $appStore?.mobileViewOnSmallerScreens !== false
-			? 'min-w-[400px] max-w-[656px]'
-			: `min-w-[710px] ${$appStore.fullscreen ? 'w-full' : 'max-w-7xl'}`
-
-	let selectedTab: 'insert' | 'settings' | 'css' = 'insert'
-
-	let befSelected: string | undefined = undefined
-
-	$: if ($selectedComponent?.[0] != befSelected) {
-		befSelected = $selectedComponent?.[0]
-		if ($selectedComponent?.[0] != undefined) {
-			onSelectedComponentChange()
-		}
-	}
+	let befSelected: string | undefined = $state(undefined)
 
 	function onSelectedComponentChange() {
 		selectedTab = 'settings'
 		if (befSelected) {
 			if (!['ctx', 'state'].includes(befSelected) && !befSelected?.startsWith(BG_PREFIX)) {
 				let item = findGridItem($appStore, befSelected)
-				if (item?.data.type === 'containercomponent' || item?.data.type === 'listcomponent') {
+				if (
+					item?.data.type === 'containercomponent' ||
+					item?.data.type === 'listcomponent' ||
+					item?.data.type === 'modalcomponent'
+				) {
 					$focusedGrid = {
 						parentComponentId: befSelected,
 						subGridIndex: 0
@@ -288,20 +319,18 @@
 							}
 						} catch {}
 					} else {
-						$focusedGrid = undefined
+						if ($focusedGrid?.parentComponentId !== befSelected) {
+							$focusedGrid = undefined
+						}
 					}
 				}
 			}
 		}
 	}
 
-	let itemPicker: ItemPicker | undefined = undefined
+	let itemPicker: ItemPicker | undefined = $state(undefined)
 
-	$: if ($pickVariableCallback) {
-		itemPicker?.openDrawer()
-	}
-
-	let variableEditor: VariableEditor | undefined = undefined
+	let variableEditor: VariableEditor | undefined = $state(undefined)
 
 	setContext<ContextPanelContext>('ContextPanel', {
 		search: writable<string>(''),
@@ -313,12 +342,12 @@
 		$darkMode = document.documentElement.classList.contains('dark')
 	}
 
-	let runnablePanelSize = 30
-	let gridPanelSize = 70
+	let runnablePanelSize = $state(30)
+	let gridPanelSize = $state(70)
 
-	let leftPanelSize = 22
-	let centerPanelSize = 56
-	let rightPanelSize = 22
+	let leftPanelSize = $state(22)
+	let centerPanelSize = $state(56)
+	let rightPanelSize = $state(22)
 
 	let tmpRunnablePanelSize = -1
 	let tmpGridPanelSize = -1
@@ -329,13 +358,6 @@
 
 	let toggled = false
 	let cssToggled = false
-
-	// Animation logic for cssInput
-	$: animateCssInput($cssEditorOpen)
-	$: $cssEditorOpen &&
-		secondaryMenuLeft?.open(StylePanel, {
-			type: 'style'
-		})
 
 	function animateCssInput(cssEditorOpen: boolean) {
 		if (cssEditorOpen && !cssToggled) {
@@ -385,17 +407,13 @@
 		}
 	}
 
-	$: $cssEditorOpen && selectCss()
-
 	function selectCss() {
 		selectedTab !== 'css' && (selectedTab = 'css')
 	}
 
 	const cssId = 'wm-global-style'
 
-	$: addOrRemoveCss(true, $mode === 'preview')
-
-	let css: string | undefined = undefined
+	let css: string | undefined = $state(undefined)
 
 	let lastTheme: string | undefined = undefined
 	appStore.subscribe(async (currentAppStore) => {
@@ -415,8 +433,6 @@
 			lastTheme = JSON.stringify(currentAppStore.theme)
 		}
 	})
-
-	$: updateCssContent(css, $previewTheme)
 
 	function addOrRemoveCss(isPremium: boolean, isPreview: boolean = false) {
 		const existingElement = document.getElementById(cssId)
@@ -445,20 +461,31 @@
 		}
 	}
 
-	let appEditorHeader: AppEditorHeader | undefined = undefined
+	let appEditorHeader: AppEditorHeader | undefined = $state(undefined)
 
 	export function triggerTutorial() {
-		appEditorHeader?.toggleTutorial()
+		const urlParams = new URLSearchParams(window.location.search)
+		const tutorial = urlParams.get('tutorial')
+
+		if (tutorial) {
+			appEditorHeader?.runTutorialById(tutorial)
+		}
 	}
 
-	let box
+	let box: HTMLElement | undefined = $state(undefined)
 	function parseScroll() {
-		$yTop = box?.scrollTop
+		$yTop = box?.scrollTop ?? 0
+		// console.log('parse scroll', $yTop)
 	}
 
 	let mounted = false
 	onMount(() => {
 		mounted = true
+		// Resume autosave after mount-time effects run; `tick` lets the sync
+		// effect observe and drop the post-suspend seed writes first.
+		if (appDraftHandle) {
+			tick().then(() => UserDraft.restartSync('app', appDraftPath))
+		}
 
 		setTimeout(() => {
 			if ($initialized?.initialized === false) {
@@ -480,13 +507,13 @@
 		parseScroll()
 	})
 
-	$: setGridPanelSize($componentActive)
-
 	let lastComponentActive = false
 
-	afterUpdate(() => {
+	$effect(() => {
 		if ($componentActive != lastComponentActive) {
-			box.scrollTop = $yTop
+			if (box) {
+				box.scrollTop = $yTop
+			}
 			lastComponentActive = $componentActive
 		}
 	})
@@ -501,13 +528,13 @@
 		}
 	}
 
-	let runnableJobEnterTimeout: NodeJS.Timeout | undefined = undefined
-	let stillInJobEnter = false
+	let runnableJobEnterTimeout: number | undefined = $state(undefined)
+	let stillInJobEnter = $state(false)
 	let storedLeftPanelSize = 0
 	let storedRightPanelSize = 0
 	let storedBottomPanelSize = 0
 
-	let centerPanelWidth = 0
+	let centerPanelWidth = $state(0)
 
 	function hideLeftPanel(animate: boolean = false) {
 		storedLeftPanelSize = leftPanelSize
@@ -678,10 +705,6 @@
 		}
 	}
 
-	$: $connectingInput.opened, updatePannelInConnecting()
-
-	$: updateCursorStyle(!!$connectingInput.opened && !$panzoomActive)
-
 	function updateCursorStyle(disabled: boolean) {
 		if (disabled) {
 			// Select all elements that don't have data-connection-button and aren't children of elements with data-connection-button
@@ -701,7 +724,7 @@
 	}
 
 	let instance: any
-	let isModifierKeyPressed = false
+	let isModifierKeyPressed = $state(false)
 	function resetView() {
 		if (instance && box) {
 			instance.moveTo(0.5, 0)
@@ -768,41 +791,105 @@
 		isModifierKeyPressed = false
 	}
 
-	let mouseOverGridView = false
-	let handMode = false
-	let forceDeactivatePanzoom = false
+	let mouseOverGridView = $state(false)
+	let handMode = $state(false)
+	let forceDeactivatePanzoom = $state(false)
 
-	$: $panzoomActive =
-		(isModifierKeyPressed || handMode) &&
-		!forceDeactivatePanzoom &&
-		!$componentActive &&
-		mouseOverGridView
-
-	$: forceDeactivatePanzoom = isModifierKeyPressed && handMode
+	$effect(() => {
+		path && untrack(() => onPathChange())
+	})
+	$effect(() => {
+		context.mode = $mode == 'dnd' ? 'editor' : 'viewer'
+	})
+	let width = $derived(
+		$breakpoint === 'sm' && $appStore?.mobileViewOnSmallerScreens !== false
+			? 'min-w-[400px] max-w-[656px]'
+			: `min-w-[710px] ${$appStore.fullscreen ? 'w-full' : 'max-w-7xl'}`
+	)
+	$effect(() => {
+		if ($selectedComponent?.[0] != befSelected) {
+			befSelected = $selectedComponent?.[0]
+			if ($selectedComponent?.[0] != undefined) {
+				untrack(() => onSelectedComponentChange())
+			}
+		}
+	})
+	$effect(() => {
+		if ($pickVariableCallback) {
+			itemPicker?.openDrawer()
+		}
+	})
+	// Animation logic for cssInput
+	$effect(() => {
+		;[$cssEditorOpen]
+		untrack(() => animateCssInput($cssEditorOpen))
+	})
+	$effect(() => {
+		$cssEditorOpen &&
+			secondaryMenuLeft?.open(StylePanel, {
+				type: 'style'
+			})
+	})
+	$effect(() => {
+		$cssEditorOpen && untrack(() => selectCss())
+	})
+	$effect(() => {
+		;[$mode]
+		untrack(() => addOrRemoveCss(true, $mode === 'preview'))
+	})
+	$effect(() => {
+		;[css, $previewTheme]
+		untrack(() => updateCssContent(css, $previewTheme))
+	})
+	$effect(() => {
+		;[$componentActive]
+		untrack(() => setGridPanelSize($componentActive))
+	})
+	$effect(() => {
+		;($connectingInput.opened, untrack(() => updatePannelInConnecting()))
+	})
+	$effect(() => {
+		forceDeactivatePanzoom = isModifierKeyPressed && handMode
+	})
+	$effect(() => {
+		$panzoomActive =
+			(isModifierKeyPressed || handMode) &&
+			!forceDeactivatePanzoom &&
+			!$componentActive &&
+			mouseOverGridView
+	})
+	$effect(() => {
+		;[!!$connectingInput.opened, !$panzoomActive]
+		untrack(() => updateCursorStyle(!!$connectingInput.opened && !$panzoomActive))
+	})
 </script>
 
-<svelte:head>
-	<link rel="stylesheet" href="/tailwind_full.css" />
-</svelte:head>
+<svelte:head></svelte:head>
 
 <DarkModeObserver on:change={onThemeChange} />
 
 <svelte:window
-	on:hashchange={hashchange}
-	on:keydown={keydown}
-	on:keyup={handleKeyUp}
-	on:focus={() => {
+	onhashchange={hashchange}
+	onkeydown={keydown}
+	onkeyup={handleKeyUp}
+	onfocus={() => {
 		if (isModifierKeyPressed) {
 			isModifierKeyPressed = false
 		}
 	}}
 />
 
+<!-- {$focusedGrid?.parentComponentId} -->
 {#if !$userStore?.operator}
 	{#if $appStore}
 		<AppEditorHeader
 			{newPath}
 			{newApp}
+			userDraftPath={appDraftPath}
+			{onResetToDeployed}
+			{loadedFromDraft}
+			{othersDraftsCount}
+			{onOpenOthersDrafts}
 			on:restore
 			{policy}
 			{fromHub}
@@ -813,16 +900,17 @@
 			leftPanelHidden={leftPanelSize === 0}
 			rightPanelHidden={rightPanelSize === 0}
 			bottomPanelHidden={runnablePanelSize === 0}
-			on:savedNewAppPath
-			on:showLeftPanel={() => showLeftPanel()}
-			on:showRightPanel={() => showRightPanel()}
-			on:hideLeftPanel={() => hideLeftPanel()}
-			on:hideRightPanel={() => hideRightPanel()}
-			on:hideBottomPanel={() => hideBottomPanel()}
-			on:showBottomPanel={() => showBottomPanel()}
+			{onSavedNewAppPath}
+			{onNavigate}
+			onShowLeftPanel={() => showLeftPanel()}
+			onShowRightPanel={() => showRightPanel()}
+			onShowBottomPanel={() => showBottomPanel()}
+			onHideLeftPanel={() => hideLeftPanel()}
+			onHideRightPanel={() => hideRightPanel()}
+			onHideBottomPanel={() => hideBottomPanel()}
 		/>
 		{#if $mode === 'preview'}
-			<SplitPanesWrapper>
+			<SplitPanesWrapper class="border-t">
 				<div
 					class={twMerge(
 						'h-full w-full relative',
@@ -867,7 +955,7 @@
 				</div>
 			{/if}
 
-			<SplitPanesWrapper>
+			<SplitPanesWrapper class="border-t">
 				<Splitpanes id="o1" class="max-w-full overflow-hidden">
 					<Pane bind:size={leftPanelSize} minSize={5} maxSize={33}>
 						<div
@@ -885,8 +973,9 @@
 					<Pane bind:size={centerPanelSize}>
 						<Splitpanes id="o2" horizontal class="!overflow-visible">
 							<Pane bind:size={gridPanelSize} class="ovisible">
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
 								<div
-									on:pointerdown={(e) => {
+									onpointerdown={(e) => {
 										$selectedComponent = undefined
 										$focusedGrid = undefined
 									}}
@@ -930,10 +1019,11 @@
 										</div>
 									{/if}
 
+									<!-- svelte-ignore a11y_no_static_element_interactions -->
 									<div
 										class="absolute bottom-2 left-2 z-50 border bg-surface"
 										data-connection-button
-										on:pointerdown|stopPropagation
+										onpointerdown={stopPropagation(bubble('pointerdown'))}
 									>
 										<div class="flex flex-row gap-2 text-xs items-center h-8 px-1">
 											<Button
@@ -963,7 +1053,7 @@
 												<Scan size={14} />
 											</Button>
 											<Popover disappearTimeout={0} notClickable placement="bottom">
-												<svelte:fragment slot="text">
+												{#snippet text()}
 													<div class="flex flex-row gap-2">
 														<div class="flex-1">
 															Hand Mode
@@ -976,18 +1066,18 @@
 															<span class="ml-2">Exit</span>
 														</div>
 														<div>
-															<span class="float-left text-tertiary-inverse"
+															<span class="float-left text-primary-inverse"
 																>hold {getModifierKey()}</span
 															>
 															<br />
-															<span class="float-left text-tertiary-inverse">click & drag</span>
+															<span class="float-left text-primary-inverse">click & drag</span>
 															<br />
-															<span class="float-left text-tertiary-inverse">scroll</span>
+															<span class="float-left text-primary-inverse">scroll</span>
 															<br />
-															<span class="float-left text-tertiary-inverse">esc</span>
+															<span class="float-left text-primary-inverse">esc</span>
 														</div>
 													</div>
-												</svelte:fragment>
+												{/snippet}
 												<Button
 													color="light"
 													size="xs2"
@@ -1005,19 +1095,19 @@
 										</div>
 									</div>
 
-									<div id="app-editor-top-level-drawer" />
+									<div id="app-editor-top-level-drawer"></div>
 									<div
-										class="absolute pointer-events-none inset-0 h-full w-full surface-secondary bg-[radial-gradient(#dbdbdb_1px,transparent_1px)] dark:bg-[radial-gradient(#666666_1px,transparent_1px)] [background-size:16px_16px]"
-									/>
+										class="absolute pointer-events-none inset-0 h-full w-full surface-secondary bg-[radial-gradient(#dbdbdb_1px,transparent_1px)] dark:bg-[radial-gradient(#374457_1px,transparent_1px)] [background-size:16px_16px]"
+									></div>
 
-									<!-- svelte-ignore a11y-no-static-element-interactions -->
+									<!-- svelte-ignore a11y_no_static_element_interactions -->
 									<div
 										bind:this={box}
-										on:scroll={parseScroll}
-										on:mouseenter={() => {
+										onscroll={parseScroll}
+										onmouseenter={() => {
 											mouseOverGridView = true
 										}}
-										on:mouseleave={() => {
+										onmouseleave={() => {
 											mouseOverGridView = false
 										}}
 										class={classNames(
@@ -1056,8 +1146,7 @@
 														smaller screens.
 													</div>
 													<Button
-														color="light"
-														variant="border"
+														variant="default"
 														size="xs"
 														on:click={() => {
 															$appStore.mobileViewOnSmallerScreens = true
@@ -1103,16 +1192,22 @@
 						</Splitpanes>
 					</Pane>
 					{#if rightPanelSize === 0}
-						<div class="relative flex flex-col h-full" />
+						<div class="relative flex flex-col h-full"></div>
 					{:else}
 						<Pane bind:size={rightPanelSize} minSize={15} maxSize={33}>
-							<div bind:clientWidth={$runnableJob.width} class="relative flex flex-col h-full">
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<div
+								bind:clientWidth={$runnableJob.width}
+								class="relative flex flex-col h-full"
+								onkeydown={(e) => e.stopPropagation()}
+							>
 								<Tabs bind:selected={selectedTab} wrapperClass="!min-h-[42px]" class="!h-full">
 									<Popover disappearTimeout={0} notClickable placement="bottom">
-										<svelte:fragment slot="text">Component library</svelte:fragment>
+										{#snippet text()}
+											Component library
+										{/snippet}
 										<Tab
 											value="insert"
-											size="xs"
 											class="h-full"
 											on:pointerdown={() => {
 												if ($cssEditorOpen) {
@@ -1121,17 +1216,15 @@
 												}
 											}}
 											id="app-editor-component-library-tab"
-										>
-											<div class="m-1 center-center">
-												<Plus size={18} />
-											</div>
-										</Tab>
+											icon={Plus}
+										></Tab>
 									</Popover>
 									<Popover disappearTimeout={0} notClickable placement="bottom">
-										<svelte:fragment slot="text">Component settings</svelte:fragment>
+										{#snippet text()}
+											Component settings
+										{/snippet}
 										<Tab
 											value="settings"
-											size="xs"
 											class="h-full"
 											on:pointerdown={() => {
 												if ($cssEditorOpen) {
@@ -1139,17 +1232,15 @@
 													selectedTab = 'settings'
 												}
 											}}
-										>
-											<div class="m-1 center-center">
-												<Component size={18} />
-											</div>
-										</Tab>
+											icon={Component}
+										/>
 									</Popover>
 									<Popover disappearTimeout={0} notClickable placement="bottom">
-										<svelte:fragment slot="text">Global styling</svelte:fragment>
+										{#snippet text()}
+											Global styling
+										{/snippet}
 										<Tab
 											value="css"
-											size="xs"
 											class="h-full"
 											on:pointerdown={() => {
 												if (!$cssEditorOpen) {
@@ -1157,38 +1248,37 @@
 													selectedTab = 'css'
 												}
 											}}
-										>
-											<div class="m-1 center-center">
-												<Paintbrush size={18} />
-											</div>
-										</Tab>
+											icon={Paintbrush}
+										/>
 									</Popover>
 									<div class="h-full w-full flex justify-end px-1">
 										<HideButton on:click={() => hideRightPanel()} direction="right" />
 									</div>
-									<div slot="content" class="h-full overflow-y-auto">
-										<TabContent class="overflow-auto h-full" value="settings">
-											{#if $selectedComponent !== undefined}
-												<SettingsPanel
-													on:delete={() => {
-														befSelected = undefined
-														selectedTab = 'insert'
-													}}
-												/>
-												<SecondaryMenu right />
-											{:else}
-												<div class="min-w-[150px] text-sm !text-secondary text-center py-8 px-2">
-													Select a component to see the settings&nbsp;for&nbsp;it
-												</div>
-											{/if}
-										</TabContent>
-										<TabContent value="insert">
-											<ComponentList />
-										</TabContent>
-										<TabContent value="css" class="h-full">
-											<CssSettings />
-										</TabContent>
-									</div>
+									{#snippet content()}
+										<div class="h-full overflow-y-auto">
+											<TabContent class="overflow-auto h-full" value="settings">
+												{#if $selectedComponent !== undefined}
+													<SettingsPanel
+														on:delete={() => {
+															befSelected = undefined
+															selectedTab = 'insert'
+														}}
+													/>
+													<SecondaryMenu right />
+												{:else}
+													<div class="min-w-[150px] text-sm !text-secondary text-center py-8 px-2">
+														Select a component to see the settings for it
+													</div>
+												{/if}
+											</TabContent>
+											<TabContent value="insert">
+												<ComponentList />
+											</TabContent>
+											<TabContent value="css" class="h-full">
+												<CssSettings />
+											</TabContent>
+										</div>
+									{/snippet}
 								</Tabs>
 							</div>
 						</Pane>
@@ -1216,22 +1306,22 @@
 			...x
 		}))}
 >
-	<div
-		slot="submission"
-		class="flex flex-row-reverse w-full bg-surface border-t border-gray-200 rounded-bl-lg rounded-br-lg"
-	>
-		<Button
-			variant="border"
-			color="blue"
-			size="sm"
-			startIcon={{ icon: Plus }}
-			on:click={() => {
-				variableEditor?.initNew?.()
-			}}
+	{#snippet submission()}
+		<div
+			class="flex flex-row-reverse w-full bg-surface border-t border-gray-200 rounded-bl-lg rounded-br-lg"
 		>
-			New variable
-		</Button>
-	</div>
+			<Button
+				variant="default"
+				size="sm"
+				startIcon={{ icon: Plus }}
+				on:click={() => {
+					variableEditor?.initNew?.()
+				}}
+			>
+				New variable
+			</Button>
+		</div>
+	{/snippet}
 </ItemPicker>
 
 <VariableEditor bind:this={variableEditor} />

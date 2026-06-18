@@ -1,23 +1,24 @@
 <script lang="ts">
 	import { Loader2 } from 'lucide-svelte'
-	import { ClearableInput, Popup } from '../../../../common'
+	import { ClearableInput } from '../../../../common'
 	import { AllIcons } from './icons'
 	import type { ComputeConfig } from 'svelte-floating-ui'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 
-	export let value: string | undefined = ''
+	let loading = $state(false)
+	let items: string[] | undefined = $state()
+	let filteredItems: string[] | undefined = $state()
+	let search = $state('')
 
-	let loading = false
-	let items: string[]
-	let filteredItems: string[]
-	let search = ''
-
-	$: if (search) {
-		filteredItems = items.filter((item) => {
-			return item.toLowerCase().includes(search.toLowerCase())
-		})
-	} else {
-		filteredItems = items
-	}
+	$effect.pre(() => {
+		if (search) {
+			filteredItems = items?.filter((item) => {
+				return item.toLowerCase().includes(search.toLowerCase())
+			})
+		} else {
+			filteredItems = items
+		}
+	})
 
 	async function getData() {
 		loading = true
@@ -36,15 +37,22 @@
 		}
 	}
 
-	export let floatingConfig: ComputeConfig = {
-		strategy: 'absolute',
-		placement: 'bottom-end'
+	interface Props {
+		value?: string | undefined
+		floatingConfig?: ComputeConfig
 	}
-	export let shouldUsePortal: boolean = true
+
+	let {
+		value = $bindable(undefined),
+		floatingConfig = {
+			strategy: 'absolute',
+			placement: 'bottom-end'
+		}
+	}: Props = $props()
 </script>
 
-<Popup let:close {floatingConfig} {shouldUsePortal}>
-	<svelte:fragment slot="button">
+<Popover {floatingConfig} closeOnOtherPopoverOpen contentClasses="p-4">
+	{#snippet trigger()}
 		<div class="relative">
 			<ClearableInput
 				readonly
@@ -59,53 +67,55 @@
 				</div>
 			{/if}
 		</div>
-	</svelte:fragment>
-	{#if !loading}
-		{#if filteredItems}
-			<div class="w-72">
-				<input
-					on:keydown={(event) => {
-						if (!['ArrowDown', 'ArrowUp'].includes(event.key)) {
-							event.stopPropagation()
-						}
-					}}
-					bind:value={search}
-					type="text"
-					placeholder="Search"
-					class="col-span-4 mb-2"
-				/>
-				<div class="grid gap-1 grid-cols-4 max-h-[300px] overflow-auto">
-					{#each filteredItems as label}
-						<button
-							type="button"
-							title={label}
-							on:click={() => {
-								select(label)
-								close(null)
-							}}
-							class="w-full center-center flex-col font-normal p-1
-									hover:bg-gray-100 focus:bg-gray-100 rounded duration-200 dark:hover:bg-frost-900 dark:focus:bg-frost-900
-									{label === value ? 'text-blue-600 bg-blue-50 pointer-events-none' : ''}"
-						>
-							<!-- svelte-ignore a11y-missing-attribute -->
-							<img
-								class="dark:invert"
-								loading="lazy"
-								src="https://cdn.jsdelivr.net/npm/lucide-static@0.367.0/icons/{label}.svg"
-							/>
-							<span class="inline-block w-full text-[10px] ellipsize pt-0.5">
-								{label}
-							</span>
-						</button>
-					{:else}
-						<div class="col-span-4 text-center text-secondary text-sm p-2">
-							No icons match your search
-						</div>
-					{/each}
+	{/snippet}
+	{#snippet content({ close })}
+		{#if !loading}
+			{#if filteredItems}
+				<div class="w-72">
+					<input
+						onkeydown={(event) => {
+							if (!['ArrowDown', 'ArrowUp'].includes(event.key)) {
+								event.stopPropagation()
+							}
+						}}
+						bind:value={search}
+						type="text"
+						placeholder="Search"
+						class="col-span-4 mb-2"
+					/>
+					<div class="grid gap-1 grid-cols-4 max-h-[300px] overflow-auto">
+						{#each filteredItems as label}
+							<button
+								type="button"
+								title={label}
+								onclick={() => {
+									select(label)
+									close()
+								}}
+								class="w-full center-center flex-col font-normal p-1
+												hover:bg-gray-100 focus:bg-gray-100 rounded duration-200 dark:hover:bg-frost-900 dark:focus:bg-frost-900
+												{label === value ? 'text-blue-600 bg-blue-50 pointer-events-none' : ''}"
+							>
+								<!-- svelte-ignore a11y_missing_attribute -->
+								<img
+									class="dark:invert"
+									loading="lazy"
+									src="https://cdn.jsdelivr.net/npm/lucide-static@0.367.0/icons/{label}.svg"
+								/>
+								<span class="inline-block w-full text-[10px] ellipsize pt-0.5">
+									{label}
+								</span>
+							</button>
+						{:else}
+							<div class="col-span-4 text-center text-secondary text-sm p-2">
+								No icons match your search
+							</div>
+						{/each}
+					</div>
 				</div>
-			</div>
-		{:else}
-			<div class="text-center text-sm text-secondary p-2"> Couldn't load options </div>
+			{:else}
+				<div class="text-center text-sm text-secondary p-2"> Couldn't load options </div>
+			{/if}
 		{/if}
-	{/if}
-</Popup>
+	{/snippet}
+</Popover>

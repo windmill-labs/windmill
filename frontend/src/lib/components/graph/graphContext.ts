@@ -1,0 +1,27 @@
+import { getContext, setContext } from 'svelte'
+import type { SelectionManager } from './selectionUtils.svelte'
+import type { NoteManager } from './noteManager.svelte'
+import type { MoveManager } from './moveManager.svelte'
+import type { Writable } from 'svelte/store'
+import type { FlowDiffManager } from '../flows/flowDiffManager.svelte'
+import type { GroupDisplayState } from './groupEditor.svelte'
+
+export type GraphContext = {
+	selectionManager: SelectionManager
+	useDataflow: Writable<boolean | undefined>
+	showAssets: Writable<boolean | undefined>
+	noteManager?: NoteManager
+	moveManager?: MoveManager
+	clearFlowSelection?: () => void
+	yOffset?: number
+	diffManager: FlowDiffManager
+	/** Current flow nodes for group validation (set by FlowGraphV2) */
+	getFlowNodes?: () => { id: string; parentIds?: string[] }[]
+	groupDisplayState?: GroupDisplayState
+}
+
+const graphContextKey = 'FlowGraphContext'
+
+//TODO: use https://svelte.dev/docs/svelte/context#Type-safe-context after migrating svelte 5 to latest version
+export const getGraphContext = () => getContext<GraphContext>(graphContextKey)
+export const setGraphContext = (context: GraphContext) => setContext(graphContextKey, context)

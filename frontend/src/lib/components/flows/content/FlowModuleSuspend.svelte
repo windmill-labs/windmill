@@ -3,7 +3,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
 	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { getContext, tick } from 'svelte'
+	import { getContext, tick, untrack } from 'svelte'
 
 	import { Alert, Tab, Tabs } from '$lib/components/common'
 	import { GroupService, type FlowModule } from '$lib/gen'
@@ -18,19 +18,23 @@
 	import EditableSchemaDrawer from '$lib/components/schema/EditableSchemaDrawer.svelte'
 	import AddProperty from '$lib/components/schema/AddProperty.svelte'
 
-	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
-	const result = $flowStateStore[$selectedId]?.previewResult ?? {}
-	let editor: SimpleEditor | undefined = undefined
+	const { selectionManager, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const result = flowStateStore.val[selectionManager.getSelectedId()]?.previewResult ?? {}
+	let editor: SimpleEditor | undefined = $state(undefined)
 
-	export let flowModule: FlowModule
-	export let previousModuleId: string | undefined
+	interface Props {
+		flowModule: FlowModule
+		previousModuleId: string | undefined
+	}
 
-	let schema = emptySchema()
+	let { flowModule = $bindable(), previousModuleId }: Props = $props()
 
-	let allUserGroups: string[] = []
-	let suspendTabSelected: 'core' | 'form' | 'permissions' = 'core'
+	let schema = $state(emptySchema())
 
-	$: isSuspendEnabled = Boolean(flowModule.suspend)
+	let allUserGroups: string[] = $state([])
+	let suspendTabSelected: 'core' | 'form' | 'permissions' = $state('core')
+
+	let isSuspendEnabled = $derived(Boolean(flowModule.suspend))
 
 	async function loadGroups(): Promise<void> {
 		allUserGroups = await GroupService.listGroupNames({ workspace: $workspaceStore! })
@@ -43,20 +47,34 @@
 		}
 	}
 
-	$: {
+	$effect(() => {
 		if ($workspaceStore && allUserGroups.length === 0) {
-			loadGroups()
+			untrack(() => {
+				loadGroups()
+			})
 		}
-	}
+	})
 
-	let jsonView: boolean = false
+	$effect(() => {
+		// If the schema is empty, remove the form
+		if (Object.keys(flowModule?.suspend?.resume_form?.schema?.properties ?? {}).length === 0) {
+			untrack(() => {
+				tick().then(() => {
+					if (!flowModule.suspend) return
+					flowModule.suspend.resume_form = undefined
+				})
+			})
+		}
+	})
+
+	let jsonView: boolean = $state(false)
 </script>
 
 <Section label="Suspend/Approval/Prompt" class="w-full">
-	<svelte:fragment slot="action">
+	{#snippet action()}
 		<SuspendDrawer text="Approval/Prompt helpers" />
-	</svelte:fragment>
-	<svelte:fragment slot="header">
+	{/snippet}
+	{#snippet header()}
 		<div class="flex flex-row items-center gap-2">
 			<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_approval">
 				If defined, at the end of the step, the flow will be suspended until it receives external
@@ -81,19 +99,13 @@
 				}}
 			/>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 
 	<div class="overflow-x-auto scrollbar-hidden">
 		<Tabs bind:selected={suspendTabSelected}>
-			<Tab size="xs" value="core" disabled={!isSuspendEnabled}>
-				<div class="flex gap-2 items-center my-1">Core</div>
-			</Tab>
-			<Tab size="xs" value="form" disabled={!isSuspendEnabled}>
-				<div class="flex gap-2 items-center my-1">Form</div>
-			</Tab>
-			<Tab size="xs" value="permissions" disabled={!isSuspendEnabled}>
-				<div class="flex gap-2 items-center my-1">Permissions</div>
-			</Tab>
+			<Tab value="core" disabled={!isSuspendEnabled} label="Core" />
+			<Tab value="form" disabled={!isSuspendEnabled} label="Form" />
+			<Tab value="permissions" disabled={!isSuspendEnabled} label="Permissions" />
 		</Tabs>
 	</div>
 
@@ -122,8 +134,13 @@
 			<Toggle
 				options={{
 					right: 'Continue on disapproval/timeout',
-					rightTooltip:
-						'Instead of failing the flow and bubbling up the error, continue to the next step which would allow to put a branchone right after to handle both cases separately. If any disapproval/timeout event is received, the resume payload will be similar to every error result in Winmdill, an object containing an `error` field which you can use to distinguish between approvals and disapproval/timeouts'
+					rightTooltip: `Instead of failing the flow and bubbling up the error, continue to the next step which would allow to put a branchone right after to handle both cases separately. 
+						If any disapproval/timeout event is received, the resume payload will be similar to every error result in Windmill, an object containing an "error" field which you can use 
+						to distinguish between approvals and disapproval/timeouts. 
+						
+						We recommend using the expr "resume?.error" to handle null payload values. 
+						To filter timeout, use "resume?.error?.name === "SuspendedTimedOut" 
+						To filter disapproval, use "resume?.error?.name === "SuspendedDisapproved"`
 				}}
 				checked={Boolean(flowModule.suspend?.continue_on_disapprove_timeout)}
 				disabled={!Boolean(flowModule.suspend)}
@@ -133,6 +150,14 @@
 					}
 				}}
 			/>
+			{#if Boolean(flowModule.suspend?.continue_on_disapprove_timeout)}
+				<Alert type="info" title="Continue on disapproval/timeout">
+					We recommend using the expr <code>resume?.error</code> to handle null payload values.
+					<br />
+					To filter timeout, use <code>resume?.error?.name === "SuspendedTimedOut"</code>. <br />
+					To filter disapproval, use <code>resume?.error?.name === "SuspendedDisapproved"</code>
+				</Alert>
+			{/if}
 		</div>
 	{:else if suspendTabSelected === 'permissions'}
 		<div class="flex flex-col mt-4 gap-4">
@@ -177,7 +202,7 @@
 						}}
 					/>
 
-					<div class="mb-4" />
+					<div class="mb-4"></div>
 
 					{#if Boolean(flowModule.suspend.user_auth_required) && allUserGroups.length !== 0 && flowModule.suspend && schema.properties['groups']}
 						<span class="text-xs font-bold"
@@ -213,28 +238,13 @@
 		<div class="grid grid-cols-4 mt-4 gap-8">
 			<div class="col-span-2">
 				{#if flowModule?.suspend?.resume_form}
-					<EditableSchemaDrawer
-						bind:schema={flowModule.suspend.resume_form.schema}
-						on:change={(e) => {
-							const schema = e.detail
-
-							// If the schema is empty, remove the form
-							if (Object.keys(schema?.properties ?? {}).length === 0) {
-								tick().then(() => {
-									if (!flowModule.suspend) return
-									flowModule.suspend.resume_form = undefined
-								})
-							}
-						}}
-						{jsonView}
-					/>
+					<EditableSchemaDrawer bind:schema={flowModule.suspend.resume_form.schema} {jsonView} />
 				{:else if emptyString($enterpriseLicense)}
 					<Alert type="warning" title="Adding a form to the approval page is an EE feature" />
 				{:else}
 					<div class="flex flex-col items-end mb-2 w-full">
 						<Toggle
 							checked={false}
-							label="JSON View"
 							size="xs"
 							options={{
 								right: 'JSON editor',

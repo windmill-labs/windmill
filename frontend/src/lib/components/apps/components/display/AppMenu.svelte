@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components, type ButtonComponent } from '../../editor/component'
@@ -15,38 +15,46 @@
 	import { Button } from '$lib/components/common'
 	import { loadIcon } from '../icon'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	import Menu from '$lib/components/common/menu/MenuV2.svelte'
 	import { AppButton } from '../buttons'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
+	import { Menubar, Menu, MeltButton } from '$lib/components/meltComponents'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'menucomponent'> | undefined = undefined
-	export let render: boolean
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let menuItems: (BaseAppComponent & ButtonComponent)[]
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'menucomponent'> | undefined
+		render: boolean
+		horizontalAlignment?: 'left' | 'center' | 'right' | undefined
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		menuItems: (BaseAppComponent & ButtonComponent)[]
+	}
+
+	let {
+		id,
+		configuration,
+		customCss = undefined,
+		render,
+		horizontalAlignment = undefined,
+		verticalAlignment = undefined,
+		menuItems
+	}: Props = $props()
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		result: {
 			latestButtonClicked: undefined as string | undefined
 		}
 	})
 
-	const resolvedConfig = initConfig(
-		components['menucomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['menucomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	let css = initCss($app.css?.menucomponent, customCss)
+	let css = $state(initCss($app.css?.menucomponent, untrack(() => customCss)))
 
-	let beforeIconComponent: any
-	let afterIconComponent: any
-
-	$: resolvedConfig.beforeIcon && beforeIconComponent && handleBeforeIcon()
-	$: resolvedConfig.afterIcon && afterIconComponent && handleAfterIcon()
+	let beforeIconComponent: any = $state()
+	let afterIconComponent: any = $state()
 
 	async function handleBeforeIcon() {
 		if (resolvedConfig.beforeIcon) {
@@ -71,6 +79,14 @@
 			)
 		}
 	}
+	$effect(() => {
+		resolvedConfig.beforeIcon && beforeIconComponent && untrack(() => handleBeforeIcon())
+	})
+	$effect(() => {
+		resolvedConfig.afterIcon && afterIconComponent && untrack(() => handleAfterIcon())
+	})
+
+	let menu: Menu | undefined = $state()
 </script>
 
 <InitializeComponent {id} />
@@ -96,71 +112,92 @@
 
 {#if render}
 	<AlignWrapper {horizontalAlignment} {verticalAlignment}>
-		<Menu placement="bottom-end" justifyEnd={false} on:close on:open>
-			<div slot="trigger">
-				<Button
-					on:pointerdown={(e) => e.stopPropagation()}
-					btnClasses={twMerge(
-						css?.button?.class,
-						'wm-button',
-						'wm-menu-button',
-						resolvedConfig.fillContainer ? 'w-full h-full' : ''
-					)}
-					wrapperClasses={twMerge(
-						'wm-button-container',
-						'wm-menu-button-container',
-						resolvedConfig.fillContainer ? 'w-full h-full' : ''
-					)}
-					style={css?.button?.style}
-					size={resolvedConfig.size}
-					color={resolvedConfig.color}
-					nonCaptureEvent
+		<Menubar class={resolvedConfig.fillContainer ? 'w-full h-full' : ''}>
+			{#snippet children({ createMenu })}
+				<Menu
+					bind:this={menu}
+					{createMenu}
+					placement="bottom-end"
+					justifyEnd={false}
+					class={resolvedConfig.fillContainer ? 'w-full h-full' : ''}
+					usePointerDownOutside={true}
+					renderContent
 				>
-					<span class="truncate inline-flex gap-2 items-center">
-						{#if resolvedConfig.beforeIcon}
-							{#key resolvedConfig.beforeIcon}
-								<div class="min-w-4" bind:this={beforeIconComponent} />
-							{/key}
-						{/if}
-						{#if resolvedConfig.label && resolvedConfig.label?.length > 0}
-							<div>{resolvedConfig.label}</div>
-						{/if}
-						{#if resolvedConfig.afterIcon}
-							{#key resolvedConfig.afterIcon}
-								<div class="min-w-4" bind:this={afterIconComponent} />
-							{/key}
-						{/if}
-					</span>
-				</Button>
-			</div>
-
-			<div class="flex flex-col w-full p-1 gap-2">
-				{#if menuItems.length > 0}
-					{#each menuItems as actionButton, actionIndex (actionButton?.id)}
-						{#if actionButton.type == 'buttoncomponent'}
-							<div
-								on:pointerup={() => {
-									outputs?.result.set({
-										latestButtonClicked: actionButton.id
-									})
-								}}
+					{#snippet triggr({ trigger })}
+						<MeltButton meltElement={trigger} class="w-full h-full">
+							<Button
+								on:pointerdown={(e) => e.stopPropagation()}
+								btnClasses={twMerge(
+									css?.button?.class,
+									'wm-button',
+									'wm-menu-button',
+									resolvedConfig.fillContainer ? 'w-full h-full' : ''
+								)}
+								wrapperClasses={twMerge(
+									'wm-button-container',
+									'wm-menu-button-container',
+									resolvedConfig.fillContainer ? 'w-full h-full' : ''
+								)}
+								style={css?.button?.style}
+								extendedSize={resolvedConfig.size}
+								color={resolvedConfig.color}
+								nonCaptureEvent
+								variant="contained"
+								unifiedSize="sm"
 							>
-								<AppButton
-									extraKey={'idx' + actionIndex}
-									{render}
-									id={actionButton.id}
-									customCss={actionButton.customCss}
-									configuration={actionButton.configuration}
-									recomputeIds={actionButton.recomputeIds}
-									componentInput={actionButton.componentInput}
-									noWFull={false}
-									isMenuItem={true}
-								/>
-							</div>
+								<span class="truncate inline-flex gap-2 items-center">
+									{#if resolvedConfig.beforeIcon}
+										{#key resolvedConfig.beforeIcon}
+											<div class="min-w-4" bind:this={beforeIconComponent}></div>
+										{/key}
+									{/if}
+									{#if resolvedConfig.label && resolvedConfig.label?.length > 0}
+										<div>{resolvedConfig.label}</div>
+									{/if}
+									{#if resolvedConfig.afterIcon}
+										{#key resolvedConfig.afterIcon}
+											<div class="min-w-4" bind:this={afterIconComponent}></div>
+										{/key}
+									{/if}
+								</span>
+							</Button>
+						</MeltButton>
+					{/snippet}
+
+					<div class="flex flex-col w-full p-1 gap-2 max-h-[50vh] overflow-y-auto">
+						{#if menuItems.length > 0}
+							{#each menuItems as actionButton, actionIndex (actionButton?.id)}
+								{#if actionButton.type == 'buttoncomponent'}
+									<!-- svelte-ignore a11y_no_static_element_interactions -->
+									<div
+										onpointerup={() => {
+											outputs?.result.set({
+												latestButtonClicked: actionButton.id
+											})
+										}}
+									>
+										<AppButton
+											noInitialize
+											extraKey={'idx' + actionIndex}
+											render={true}
+											id={actionButton.id}
+											customCss={actionButton.customCss}
+											configuration={actionButton.configuration}
+											recomputeIds={actionButton.recomputeIds}
+											componentInput={actionButton.componentInput}
+											noWFull={false}
+											isMenuItem={true}
+											onDone={() => {
+												menu?.close()
+											}}
+										/>
+									</div>
+								{/if}
+							{/each}
 						{/if}
-					{/each}
-				{/if}
-			</div>
-		</Menu>
+					</div>
+				</Menu>
+			{/snippet}
+		</Menubar>
 	</AlignWrapper>
 {/if}

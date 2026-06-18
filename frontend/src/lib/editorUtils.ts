@@ -1,10 +1,13 @@
 import { languages } from 'monaco-editor/esm/vs/editor/editor.api'
-import { ShowLightbulbIconMode } from 'vscode/vscode/vs/editor/common/config/editorOptions'
+
+import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
+
 export function editorConfig(
 	code: string,
 	lang: string,
 	automaticLayout: boolean,
-	fixedOverflowWidgets: boolean
+	fixedOverflowWidgets: boolean,
+	relativeLineNumbers?: boolean
 ) {
 	return {
 		value: code,
@@ -12,9 +15,9 @@ export function editorConfig(
 		automaticLayout,
 		readOnly: false,
 		fixedOverflowWidgets,
-		lineNumbers: 'on' as const,
 		lineDecorationsWidth: 10,
 		lineNumbersMinChars: 3,
+		lineNumbers: (relativeLineNumbers ?? false) ? ('relative' as const) : ('on' as const),
 		scrollbar: { alwaysConsumeMouseWheel: false },
 		folding: false,
 		scrollBeyondLastLine: false,
@@ -23,7 +26,7 @@ export function editorConfig(
 			enabled: false
 		},
 		lightbulb: {
-			enabled: ShowLightbulbIconMode.On
+			enabled: meditor.ShowLightbulbIconMode.On
 		},
 		suggest: {
 			showKeywords: true
@@ -37,53 +40,6 @@ export function editorConfig(
 		},
 		'bracketPairColorization.enabled': true,
 		matchBrackets: 'always' as 'always'
-	}
-}
-
-export function createHash() {
-	return (Math.random() + 1).toString(36).substring(2)
-}
-
-export function langToExt(lang: string): string {
-	switch (lang) {
-		case 'javascript':
-			return 'ts'
-		case 'bunnative':
-			return 'ts'
-		case 'json':
-			return 'json'
-		case 'sql':
-			return 'sql'
-		case 'yaml':
-			return 'yaml'
-		case 'typescript':
-			return 'ts'
-		case 'python':
-			return 'py'
-		case 'go':
-			return 'go'
-		case 'bash':
-			return 'sh'
-		case 'powershell':
-			return 'ps1'
-		case 'php':
-			return 'php'
-		case 'rust':
-			return 'rs'
-		case 'deno':
-			return 'ts'
-		case 'nativets':
-			return 'ts'
-		case 'graphql':
-			return 'gql'
-		case 'css':
-			return 'css'
-		case 'ansible':
-			return 'yml'
-		case 'csharp':
-			return 'cs'
-		default:
-			return 'unknown'
 	}
 }
 
@@ -182,4 +138,71 @@ export function displayPartsToString(displayParts: any | undefined): string {
 		return displayParts.map((displayPart) => displayPart.text).join('')
 	}
 	return ''
+}
+
+// In the VSCode webview (iframe), Monaco's clipboard access is restricted:
+// `navigator.clipboard.readText()` and the native `paste` event's
+// `clipboardData` are both empty. The only reliable way to read the clipboard
+// is to focus a real <input> and run `document.execCommand('paste')`.
+//
+// Registering paste via `editor.addCommand(Ctrl+V)` is also broken with
+// multiple editors: standalone editors share a global keybinding registry, so
+// the last-registered handler wins and paste lands in the wrong editor.
+// Instead, scope a keydown listener to the editor's own container element and
+// insert into whichever editor currently has text focus.
+//
+// No-op (returns an empty cleanup) when not running inside a webview iframe.
+export function registerWebviewPaste(
+	container: HTMLElement | null | undefined,
+	getEditor: () => meditor.ICodeEditor | null | undefined
+): () => void {
+	if (!container || typeof window === 'undefined' || window.parent === window) {
+		return () => {}
+	}
+
+	const input = document.createElement('input')
+	input.type = 'text'
+	input.tabIndex = -1
+	input.setAttribute('aria-hidden', 'true')
+	input.style.cssText = 'height:0;width:0;opacity:0;position:absolute;top:0;left:0;z-index:-1;'
+	document.body.appendChild(input)
+
+	const onInput = () => {
+		const text = input.value
+		input.value = ''
+		if (!text) return
+		const editor = getEditor()
+		if (!editor) return
+		// Bail rather than fall back to {1,1,1,1}: pasting at document start
+		// would silently corrupt the document if the selection is ever lost.
+		const selection = editor.getSelection()
+		if (!selection) return
+		editor.executeEdits('paste', [
+			{
+				range: selection,
+				text,
+				forceMoveMarkers: true
+			}
+		])
+		editor.focus()
+	}
+	input.addEventListener('input', onInput)
+
+	const onKeydown = (e: KeyboardEvent) => {
+		const isPaste = (e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'v' || e.key === 'V')
+		if (!isPaste) return
+		const editor = getEditor()
+		if (!editor || !editor.hasTextFocus()) return
+		e.preventDefault()
+		e.stopPropagation()
+		input.focus()
+		document.execCommand('paste')
+	}
+	container.addEventListener('keydown', onKeydown, true)
+
+	return () => {
+		container.removeEventListener('keydown', onKeydown, true)
+		input.removeEventListener('input', onInput)
+		input.remove()
+	}
 }

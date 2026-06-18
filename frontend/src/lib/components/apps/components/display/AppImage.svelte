@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { createBubbler, preventDefault } from 'svelte/legacy'
+
+	const bubble = createBubbler()
+	import { getContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
@@ -10,17 +13,24 @@
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'imagecomponent'> | undefined = undefined
-	export let render: boolean
+	import { userStore } from '$lib/stores'
+	import { isPartialS3Object, getS3File } from '../../editor/appUtilsS3'
 
-	const resolvedConfig = initConfig(
-		components['imagecomponent'].initialData.configuration,
-		configuration
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'imagecomponent'> | undefined
+		render: boolean
+	}
+
+	let { id, configuration, customCss = undefined, render }: Props = $props()
+
+	const resolvedConfig = $state(
+		initConfig(components['imagecomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, appPath, worldStore, workspace, isEditor } =
+		getContext<AppViewerContext>('AppViewerContext')
 	const fit: Record<string, string> = {
 		cover: 'object-cover',
 		contain: 'object-contain',
@@ -28,9 +38,56 @@
 	}
 
 	//used so that we can count number of outputs setup for first refresh
-	initOutput($worldStore, id, {})
+	initOutput($worldStore, untrack(() => id), {})
 
-	let css = initCss($app.css?.imagecomponent, customCss)
+	let css = $state(initCss($app.css?.imagecomponent, untrack(() => customCss)))
+
+	let imageUrl: string | undefined = $state(undefined)
+
+	let token = getContext<{ token?: string }>('AuthToken')
+
+	async function loadImage() {
+		if (isPartialS3Object(resolvedConfig.source)) {
+			imageUrl = await getS3File({
+				source: resolvedConfig.source.s3,
+				storage: resolvedConfig.source.storage,
+				presigned: resolvedConfig.source.presigned,
+				appPath: $appPath,
+				username: $userStore?.username,
+				workspace,
+				token: token?.token,
+				isEditor,
+				configuration
+			})
+		} else if (resolvedConfig.source && typeof resolvedConfig.source !== 'string') {
+			throw new Error('Invalid image object' + typeof resolvedConfig.source)
+		} else if (
+			resolvedConfig.sourceKind === 's3 (workspace storage)' ||
+			resolvedConfig.source?.startsWith('s3://')
+		) {
+			imageUrl = await getS3File({
+				source: resolvedConfig.source?.replace('s3://', ''),
+				appPath: $appPath,
+				username: $userStore?.username,
+				workspace,
+				token: token?.token,
+				isEditor,
+				configuration
+			})
+		} else if (resolvedConfig.sourceKind === 'png encoded as base64') {
+			imageUrl = 'data:image/png;base64,' + resolvedConfig.source
+		} else if (resolvedConfig.sourceKind === 'jpeg encoded as base64') {
+			imageUrl = 'data:image/jpeg;base64,' + resolvedConfig.source
+		} else if (resolvedConfig.sourceKind === 'svg encoded as base64') {
+			imageUrl = 'data:image/svg+xml;base64,' + resolvedConfig.source
+		} else {
+			imageUrl = resolvedConfig.source
+		}
+	}
+
+	$effect(() => {
+		resolvedConfig && loadImage()
+	})
 </script>
 
 <InitializeComponent {id} />
@@ -55,23 +112,19 @@
 {/each}
 
 {#if render}
-	<Loader loading={resolvedConfig.source == undefined}>
-		<img
-			on:pointerdown|preventDefault
-			src={resolvedConfig.sourceKind == 'png encoded as base64'
-				? 'data:image/png;base64,' + resolvedConfig.source
-				: resolvedConfig.sourceKind == 'jpeg encoded as base64'
-				? 'data:image/jpeg;base64,' + resolvedConfig.source
-				: resolvedConfig.sourceKind == 'svg encoded as base64'
-				? 'data:image/svg+xml;base64,' + resolvedConfig.source
-				: resolvedConfig.source}
-			alt={resolvedConfig.altText}
-			style={css?.image?.style ?? ''}
-			class={twMerge(
-				`w-full h-full ${fit[resolvedConfig.imageFit || 'cover']}`,
-				css?.image?.class,
-				'wm-image'
-			)}
-		/>
+	<Loader loading={imageUrl === undefined}>
+		{#if imageUrl}
+			<img
+				onpointerdown={preventDefault(bubble('pointerdown'))}
+				src={imageUrl}
+				alt={resolvedConfig.altText}
+				style={css?.image?.style ?? ''}
+				class={twMerge(
+					`w-full h-full ${fit[resolvedConfig.imageFit || 'cover']}`,
+					css?.image?.class,
+					'wm-image'
+				)}
+			/>
+		{/if}
 	</Loader>
 {/if}

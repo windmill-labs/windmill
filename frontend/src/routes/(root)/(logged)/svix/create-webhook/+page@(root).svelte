@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { Button } from '$lib/components/common'
 	import { page } from '$app/stores'
@@ -8,17 +10,16 @@
 	import { generateRandomString } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
+	import { Menubar } from '$lib/components/meltComponents'
 
-	let itemPath: string | undefined = undefined
-	let itemKind: 'script' | 'flow' | 'app' = 'script'
+	let itemPath: string | undefined = $state(undefined)
+	let itemKind: 'script' | 'flow' | 'app' = $state('script')
 	let clientName = $page.url.searchParams.get('domain') ?? undefined
 	let redirectURI = $page.url.searchParams.get('redirect_uri')
 
-	let userSettings: UserSettings
-	let token: string | undefined = undefined
-	let scopes: string[] = []
-
-	$: updateTokenAndScope(itemPath)
+	let userSettings: UserSettings | undefined = $state()
+	let token: string | undefined = $state(undefined)
+	let scopes: string[] = $state([])
 
 	async function createWebhook(path: string, kind: 'script' | 'flow' | 'app', token: string) {
 		try {
@@ -63,8 +64,12 @@
 		}
 
 		token = undefined
-		scopes = [`run:${itemKind}/${scriptPath}`]
+
+		scopes = [`jobs:run:${itemKind}s:${scriptPath}`]
 	}
+	run(() => {
+		updateTokenAndScope(itemPath)
+	})
 </script>
 
 <UserSettings
@@ -95,7 +100,11 @@
 			<div class="flex flex-col items-center gap-3 w-full">
 				<div class="flex flex-row items-center justify-center w-full">
 					<span class="flex justify-end w-full items-right"> Selected Workspace: </span>
-					<WorkspaceMenu strictWorkspaceSelect />
+					<Menubar>
+						{#snippet children({ createMenu })}
+							<WorkspaceMenu strictWorkspaceSelect {createMenu} />
+						{/snippet}
+					</Menubar>
 				</div>
 				<ScriptPicker
 					allowEdit={false}
@@ -106,15 +115,11 @@
 				/>
 				<h4>or</h4>
 				<div class="flex flex-row gap-2">
-					<Button size="xs" color="light" variant="border" target="_blank" href="/scripts/add"
+					<Button size="xs" variant="default" target="_blank" href="/scripts/add"
 						>Create new script</Button
 					>
-					<Button
-						size="xs"
-						color="light"
-						variant="border"
-						target="_blank"
-						href="/flows/add?nodraft=true">Create new flow</Button
+					<Button size="xs" variant="default" target="_blank" href="/flows/add"
+						>Create new flow</Button
 					>
 				</div>
 			</div>
@@ -145,7 +150,7 @@
 						size="md"
 						btnClasses="whitespace-normal break-words flex flex-wrap"
 						disabled={itemPath == undefined}
-						on:click={userSettings.openDrawer}
+						on:click={() => userSettings?.openDrawer()}
 					>
 						Generate webhook-specific Token
 					</Button>

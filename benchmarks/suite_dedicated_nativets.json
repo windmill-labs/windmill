@@ -1,0 +1,6 @@
+[
+  { "kind": "nativets", "jobs": 5000, "noSave": true },
+  { "kind": "nativets", "jobs": 10000 },
+  { "kind": "dedicated_nativets", "jobs": 5000, "noSave": true },
+  { "kind": "dedicated_nativets", "jobs": 10000 }
+]

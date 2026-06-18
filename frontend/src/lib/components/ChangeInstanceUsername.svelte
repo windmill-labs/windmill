@@ -1,14 +1,19 @@
 <script lang="ts">
-	import { Button, Popup } from './common'
+	import { Button } from './common'
+	import Popover from './meltComponents/Popover.svelte'
 	import { autoPlacement } from '@floating-ui/core'
 	import ChangeInstanceUsernameInner from './ChangeInstanceUsernameInner.svelte'
 
-	export let email: string
-	export let username: string
-	export let isConflict = false
+	interface Props {
+		email: string
+		username: string
+		isConflict?: boolean
+	}
+
+	let { email, username, isConflict = false }: Props = $props()
 </script>
 
-<Popup
+<Popover
 	floatingConfig={{
 		middleware: [
 			autoPlacement({
@@ -16,19 +21,20 @@
 			})
 		]
 	}}
-	containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-	let:close
+	closeButton
 >
-	<svelte:fragment slot="button">
+	{#snippet trigger()}
 		<Button color={isConflict ? 'red' : 'light'} size="xs" spacingSize="xs2" nonCaptureEvent={true}
 			>{isConflict ? 'Fix username conflict' : 'Change username'}</Button
 		>
-	</svelte:fragment>
-	<ChangeInstanceUsernameInner
-		{email}
-		{username}
-		{isConflict}
-		on:close={() => close(null)}
-		on:renamed
-	/>
-</Popup>
+	{/snippet}
+	{#snippet content()}
+		<ChangeInstanceUsernameInner
+			{email}
+			{username}
+			{isConflict}
+			on:close={() => close()}
+			on:renamed
+		/>
+	{/snippet}
+</Popover>

@@ -1,8 +1,12 @@
 <script lang="ts">
 	import { ScanIcon } from 'lucide-svelte'
 
-	export let size = 14
-	export let variant: 'redDot' | undefined = undefined
+	interface Props {
+		size?: number;
+		variant?: 'redDot' | undefined;
+	}
+
+	let { size = 14, variant = undefined }: Props = $props();
 </script>
 
 <div class="relative">

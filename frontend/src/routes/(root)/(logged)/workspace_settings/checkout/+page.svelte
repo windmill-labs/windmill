@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Alert } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
@@ -8,7 +8,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 
-	let success = $page.url.searchParams.get('success') === 'true'
+	let success = page.url.searchParams.get('success') === 'true'
 
 	let attempt = 0
 	if (!success) {
@@ -30,7 +30,7 @@
 	}
 </script>
 
-<!-- svelte-ignore missing-declaration -->
+<!-- svelte-ignore missing_declaration -->
 <CenteredModal title="Subscription upgrade {success ? 'succeeded' : 'failed'}">
 	{#if !success}
 		<div class="my-2">
@@ -38,11 +38,11 @@
 				The checkout failed, your subscription has not been updated.
 			</Alert>
 		</div>
-		<p class="text-sm my-6 text-tertiary">
+		<p class="text-sm my-6 text-primary">
 			You will be redirected to the workspace settings page in 5 seconds...
 		</p>
 	{:else}
-		<p class="text-sm my-6 text-tertiary w-full text-center">
+		<p class="text-sm my-6 text-primary w-full text-center">
 			Waiting for your upgrade to be processed...
 		</p>
 	{/if}

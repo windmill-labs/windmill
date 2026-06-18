@@ -36,6 +36,7 @@ services:
     environment:
       - DATABASE_URL=postgres://postgres:changeme@db/windmill?sslmode=disable
       - MODE=server
+      - LISTEN_NEW_EVENTS_INTERVAL_SEC=1
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/api/version || exit 1"]
       interval: 10s
@@ -60,6 +61,7 @@ services:
       - DATABASE_URL=postgres://postgres:changeme@db/windmill?sslmode=disable
       - MODE=worker
       - WORKER_GROUP=default
+      - LISTEN_NEW_EVENTS_INTERVAL_SEC=1
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/api/version || exit 1"]
       interval: 10s

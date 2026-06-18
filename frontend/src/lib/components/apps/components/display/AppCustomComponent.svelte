@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onMount } from 'svelte'
+	import { getContext, onMount, untrack } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext } from '../../types'
 
@@ -22,24 +22,32 @@
 	import { Loader2 } from 'lucide-svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
-	export let id: string
-	export let render: boolean
-	export let componentInput: AppInput | undefined
-	export let customComponent: CustomComponentConfig
+	interface Props {
+		id: string
+		render: boolean
+		componentInput: AppInput | undefined
+		customComponent: CustomComponentConfig
+	}
 
-	let divId = `custom-component-${id}`
+	let { id, render, componentInput, customComponent }: Props = $props()
+
+	let divId = `custom-component-${untrack(() => id)}`
 	const { worldStore, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
-	const outputs = initOutput($worldStore, id, {
-		result: undefined,
-		output: undefined,
-		loading: false
-	})
+	const outputs = initOutput(
+		$worldStore,
+		untrack(() => id),
+		{
+			result: undefined,
+			output: undefined,
+			loading: false
+		}
+	)
 
-	let setInput
-	let setRender
+	let setInput = $state() as ((input: any) => void) | undefined
+	let setRender = $state() as ((render: boolean) => void) | undefined
 	let ccProps: CCProps<any> = {
-		render,
+		render: untrack(() => render),
 		id: divId,
 		passSetters: (setter) => {
 			setInput = setter.onInput
@@ -49,8 +57,8 @@
 			outputs.output.set(output)
 		}
 	}
-	let loaded = false
-
+	let loaded = $state(false)
+	let renderer: ((props: CCProps<number>) => void) | undefined = undefined
 	// $: renderer && divEl && renderer(ccProps)
 	onMount(async () => {
 		// //@ts-ignore
@@ -81,8 +89,7 @@
 		)
 		loaded = true
 		try {
-			let renderer: (props: CCProps<number>) => void =
-				globalThis.windmill[customComponent?.name ?? 'no_name']
+			renderer = globalThis.windmill[customComponent?.name ?? 'no_name']
 			if (!renderer) {
 				sendUserToast(
 					'Custom Component seem to be ill-defined (renderer missing). is COMPONENT_NAME in vite.config.ts matching the name of the custom component?',
@@ -95,28 +102,32 @@
 			sendUserToast('Custom Component seem to be ill-defined', true)
 			console.error(e)
 		}
+		console.log('mounted', render, setRender)
 	})
-	let result
+	let result = $state()
 
-	$: render != undefined && handleRender()
 	function handleRender() {
 		setRender?.(render)
 	}
-	$: result != undefined && handleResult()
+
 	function handleResult() {
 		setInput?.(result)
 	}
 	// $: result && setInput && setInput(result)
+	$effect(() => {
+		render != undefined && setRender && untrack(() => handleRender())
+	})
+	$effect(() => {
+		result != undefined && setInput && untrack(() => handleResult())
+	})
 </script>
 
 <InitializeComponent {id} />
-{#if render}
-	<div class="w-full h-full overflow-auto {customComponent?.name ?? 'no_name'}">
-		<RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:result>
-			{#if !loaded}
-				<Loader2 class="animate-spin" />
-			{/if}
-			<div id={divId} />
-		</RunnableWrapper>
-	</div>
-{/if}
+<div class="w-full h-full overflow-auto {customComponent?.name ?? 'no_name'}">
+	<RunnableWrapper {outputs} render autoRefresh {componentInput} {id} bind:result>
+		{#if !loaded && render}
+			<Loader2 class="animate-spin" />
+		{/if}
+		<div id={divId}></div>
+	</RunnableWrapper>
+</div>

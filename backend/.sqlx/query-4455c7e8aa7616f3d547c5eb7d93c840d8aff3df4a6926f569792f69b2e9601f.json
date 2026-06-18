@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select hash from script where path = $1 AND workspace_id = $2 AND deleted = false AND lock IS not NULL AND lock_error_logs IS NULL ORDER BY created_at DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hash",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4455c7e8aa7616f3d547c5eb7d93c840d8aff3df4a6926f569792f69b2e9601f"
+}

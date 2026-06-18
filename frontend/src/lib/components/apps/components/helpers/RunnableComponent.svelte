@@ -2,63 +2,112 @@
 	import type { Schema } from '$lib/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Popover from '$lib/components/Popover.svelte'
-	import { AppService, type ExecuteComponentData } from '$lib/gen'
-	import { classNames, defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
+	import { type ExecuteComponentData } from '$lib/gen'
+	import {
+		classNames,
+		defaultIfEmptyString,
+		emptySchema,
+		sendUserToast,
+		undefinedIfEmpty
+	} from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
 	import { Bug } from 'lucide-svelte'
-	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
-	import type { AppInputs, Runnable } from '../../inputType'
+	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
+	import {
+		isRunnableByName,
+		type AppInputs,
+		type InlineScript,
+		type Runnable
+	} from '../../inputType'
 	import type { Output } from '../../rx'
 	import type {
 		AppEditorContext,
 		AppViewerContext,
 		CancelablePromise,
 		GroupContext,
-		InlineScript,
 		ListContext
 	} from '../../types'
 	import { computeGlobalContext, eval_like } from './eval'
 	import InputValue from './InputValue.svelte'
-	import { collectOneOfFields, selectId } from '../../editor/appUtils'
-	import ResultJobLoader from '$lib/components/ResultJobLoader.svelte'
+	import { selectId } from '../../editor/appUtils'
+	import { collectOneOfFields } from '../../editor/appUtilsCore'
 	import { userStore } from '$lib/stores'
 	import { get } from 'svelte/store'
 	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
 	import { ctxRegex } from '../../utils'
 	import { computeWorkspaceS3FileInputPolicy } from '../../editor/appUtilsS3'
+	import { executeRunnable } from './executeRunnable'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import JobLoader, { type Callbacks } from '$lib/components/JobLoader.svelte'
 
-	// Component props
-	export let id: string
-	export let fields: AppInputs
-	export let runnable: Runnable
-	export let transformer: (InlineScript & { language: 'frontend' }) | undefined
-	export let extraQueryParams: Record<string, any> = {}
-	export let autoRefresh: boolean = true
-	export let result: any = undefined
-	export let forceSchemaDisplay: boolean = false
-	export let wrapperClass = ''
-	export let wrapperStyle = ''
-	export let initializing: boolean | undefined = undefined
-	export let render: boolean
-	export let outputs: {
-		result: Output<any>
-		loading: Output<boolean>
-		jobId?: Output<any> | undefined
+	interface Props {
+		// Component props
+		id: string
+		fields: AppInputs
+		runnable: Runnable
+		transformer: (InlineScript & { language: 'frontend' }) | undefined
+		extraQueryParams?: Record<string, any>
+		autoRefresh?: boolean
+		result?: any
+		result_stream?: string
+		forceSchemaDisplay?: boolean
+		wrapperClass?: string
+		wrapperStyle?: string
+		render: boolean
+		outputs: {
+			result: Output<any>
+			loading: Output<boolean>
+			jobId?: Output<any> | undefined
+		}
+		extraKey?: string
+		initializing?: boolean
+		recomputeOnInputChanged?: boolean
+		loading?: boolean
+		refreshOnStart?: boolean
+		recomputableByRefreshButton: boolean
+		errorHandledByComponent?: boolean
+		hideRefreshButton?: boolean
+		allowConcurentRequests?: boolean
+		noInitialize?: boolean
+		overrideCallback?: (() => CancelablePromise<void>) | undefined
+		overrideAutoRefresh?: boolean
+		replaceCallback?: boolean
+		onSuccess?: (result: any) => void
+		children?: import('svelte').Snippet
+		nonRenderedPlaceholder?: import('svelte').Snippet
 	}
-	export let extraKey = ''
-	export let recomputeOnInputChanged: boolean = true
-	export let loading = false
-	export let refreshOnStart: boolean = false
-	export let recomputableByRefreshButton: boolean
-	export let errorHandledByComponent: boolean = false
-	export let hideRefreshButton: boolean = false
-	export let hasChildrens: boolean
-	export let allowConcurentRequests = false
-	export let noInitialize = false
-	export let overrideCallback: (() => CancelablePromise<void>) | undefined = undefined
-	export let overrideAutoRefresh: boolean = false
-	export let replaceCallback: boolean = false
+
+	let {
+		id,
+		fields,
+		runnable,
+		transformer,
+		extraQueryParams = {},
+		autoRefresh = true,
+		result = $bindable(undefined),
+		result_stream = $bindable(undefined),
+		forceSchemaDisplay = false,
+		wrapperClass = '',
+		wrapperStyle = '',
+		render,
+		outputs,
+		extraKey = '',
+		initializing = false,
+		recomputeOnInputChanged = true,
+		loading = $bindable(false),
+		refreshOnStart = false,
+		recomputableByRefreshButton,
+		errorHandledByComponent = false,
+		hideRefreshButton = false,
+		allowConcurentRequests = false,
+		noInitialize = false,
+		overrideCallback = undefined,
+		overrideAutoRefresh = false,
+		replaceCallback = false,
+		children,
+		nonRenderedPlaceholder,
+		onSuccess
+	}: Props = $props()
 
 	const {
 		worldStore,
@@ -72,13 +121,14 @@
 		errorByComponent,
 		mode,
 		stateId,
-		state,
+		state: stateStore,
 		componentControl,
 		initialized,
 		selectedComponent,
 		app,
 		connectingInput,
-		bgRuns
+		bgRuns,
+		recomputeAllContext
 	} = getContext<AppViewerContext>('AppViewerContext')
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
@@ -94,17 +144,15 @@
 		args = value
 	}
 
-	let args: Record<string, any> | undefined = undefined
-	let runnableInputValues: Record<string, any> = {}
-	let executeTimeout: NodeJS.Timeout | undefined = undefined
-
-	$: outputs.loading?.set(loading)
+	let args: Record<string, any> | undefined = $state(undefined)
+	let runnableInputValues: Record<string, any> = $state({})
+	let executeTimeout: number | undefined = undefined
 
 	function setDebouncedExecute() {
 		executeTimeout && clearTimeout(executeTimeout)
 		executeTimeout = setTimeout(() => {
 			console.debug('debounce execute')
-			executeComponent(true)
+			executeComponent()
 		}, 200)
 	}
 
@@ -117,12 +165,9 @@
 	}
 
 	let lazyStaticValues = computeStaticValues()
-	let currentStaticValues = lazyStaticValues
+	let currentStaticValues = $state(lazyStaticValues)
 
-	let isBg = id.startsWith('bg_')
-	$: isBg && updateBgRuns(loading)
-	$: fields && (currentStaticValues = computeStaticValues())
-	$: currentStaticValues && refreshOnStaticChange()
+	let isBg = untrack(() => id).startsWith('bg_')
 
 	function refreshOnStaticChange() {
 		if (!deepEqual(currentStaticValues, lazyStaticValues)) {
@@ -131,28 +176,94 @@
 		}
 	}
 
-	// $: sendUserToast('args' + JSON.stringify(runnableInputValues) + Boolean(extraQueryParams) || args)
-	// $: console.log(runnableInputValues)
 	let firstRefresh = true
-	$: (runnableInputValues || extraQueryParams || args) &&
-		resultJobLoader &&
-		refreshIfAutoRefresh('arg changed')
 
-	$: runnableInputValues && dispatch('argsChanged')
-
-	$: refreshOn =
-		runnable && runnable.type === 'runnableByName' ? runnable.inlineScript?.refreshOn ?? [] : []
+	type RunnableCallback = {
+		onDone?: (r: any) => void
+		onCancel?: () => void
+		onError?: (e: any) => void
+	}
+	function genCallbacks({ onDone, onCancel, onError }: RunnableCallback) {
+		const callbacks: Callbacks & { doneWithoutCompute?: (r: any) => void } = {
+			started({ id }: { id: string }) {
+				console.log('started', id)
+				loading = true
+				outputs.jobId?.set(id)
+				dispatch('started', id)
+			},
+			doneWithoutCompute(r: any) {
+				onDone?.(r)
+			},
+			doneResult({ id, result }: { id: string; result: any }) {
+				onDone?.(result)
+				lastJobId = id
+				setResult(result, id)
+				loading = false
+				dispatch('done', { id, result })
+			},
+			resultStreamUpdate({
+				id,
+				result_stream: nresult_stream
+			}: {
+				id: string
+				result_stream?: string
+			}) {
+				setResult(nresult_stream, id, false)
+				dispatch('streamupdate', { id, result_stream: nresult_stream })
+			},
+			cancel({ id }: { id: string }) {
+				onCancel?.()
+				let jobId = id
+				console.debug('cancel', jobId)
+				let job = $jobsById[jobId]
+				if (job && job.created_at && !job.duration_ms) {
+					$jobsById[jobId] = {
+						...job,
+						started_at: job.started_at ?? Date.now(),
+						duration_ms: Date.now() - (job.started_at ?? job.created_at)
+					}
+				}
+				dispatch('cancel', { id })
+			},
+			doneError({ id, error }: { id?: string; error: any }) {
+				onError?.(error)
+				setResult({ error }, id)
+				loading = false
+				dispatch('doneError', { id, error })
+			}
+		}
+		if (isEditor) {
+			callbacks.running = ({ id }: { id: string }) => {
+				console.log('running', id)
+				let jobId = id
+				let job = $jobsById[jobId]
+				if (job && !job.started_at) {
+					$jobsById[jobId] = { ...job, started_at: Date.now() }
+				}
+			}
+		}
+		return callbacks
+	}
 
 	function refreshIfAutoRefresh(src: 'arg changed' | 'static changed') {
+		// console.log(
+		// 	'refreshIfAutoRefresh',
+		// 	src,
+		// 	id,
+		// 	iterContext ? $iterContext : undefined,
+		// 	$rowContext ? $rowContext : undefined,
+		// 	firstRefresh
+		// )
 		if (firstRefresh) {
 			firstRefresh = false
 			if (
 				src == 'arg changed' &&
 				args == undefined &&
+				result != undefined &&
 				Object.keys(runnableInputValues ?? {}).length == 0 &&
 				Object.keys(extraQueryParams ?? {}).length == 0
 			) {
-				// console.debug(`Skipping refreshing ${id} because ${_src} (first)`)
+				console.log('skipping refresh because first refresh')
 				return
 			}
 		}
@@ -166,7 +277,7 @@
 		}
 	}
 
-	let schemaForm: SchemaForm
+	let schemaForm: SchemaForm | undefined = $state()
 
 	export function invalidate(key: string, error: string) {
 		schemaForm?.invalidate(key, error)
@@ -181,21 +292,17 @@
 	}
 
 	// Test job internal state
-	let resultJobLoader: ResultJobLoader | undefined = undefined
+	let resultJobLoader: JobLoader | undefined = $state(undefined)
 
-	let schemaStripped: Schema | undefined =
-		autoRefresh || forceSchemaDisplay ? emptySchema() : undefined
-
-	$: (autoRefresh || forceSchemaDisplay) &&
-		Object.keys(fields ?? {}).length > 0 &&
-		(schemaStripped = stripSchema(fields, $stateId))
+	let schemaStripped: Schema | undefined = $state(
+		untrack(() => autoRefresh) || untrack(() => forceSchemaDisplay) ? emptySchema() : undefined
+	)
 
 	function stripSchema(inputs: AppInputs, s: any): Schema {
 		if (inputs === undefined) {
 			return emptySchema()
 		}
-		let schema =
-			runnable?.type == 'runnableByName' ? runnable.inlineScript?.schema : runnable?.schema
+		let schema = isRunnableByName(runnable) ? runnable.inlineScript?.schema : runnable?.schema
 		try {
 			schemaStripped = JSON.parse(JSON.stringify(schema))
 		} catch (e) {
@@ -253,17 +360,17 @@
 		inlineScriptOverride?: InlineScript,
 		setRunnableJobEditorPanel?: boolean,
 		dynamicArgsOverride?: Record<string, any>,
-		callbacks?: Callbacks
+		callbacks?: RunnableCallback
 	): Promise<string | undefined> {
 		let jobId: string | undefined
 		console.debug(`Executing ${id}`)
 		if (iterContext && $iterContext.disabled) {
-			callbacks?.done({})
+			callbacks?.onDone?.({})
 			console.debug(`Skipping execution of ${id} because it is part of a disabled list`)
 			return
 		}
 
-		if (runnable?.type === 'runnableByName' && runnable.inlineScript?.language === 'frontend') {
+		if (isRunnableByName(runnable) && runnable.inlineScript?.language === 'frontend') {
 			loading = true
 
 			let job: string | undefined
@@ -277,29 +384,38 @@
 			try {
 				r = await eval_like(
 					runnable.inlineScript?.content,
-					computeGlobalContext($worldStore, {
+					computeGlobalContext($worldStore, id, {
 						iter: iterContext ? $iterContext : undefined,
 						row: rowContext ? $rowContext : undefined,
 						group: groupContext ? get(groupContext.context) : undefined
 					}),
-					$state,
+					$stateStore,
 					isEditor,
 					$componentControl,
 					$worldStore,
 					$runnableComponents,
 					true,
-					groupContext?.id
+					groupContext?.id,
+					get(recomputeAllContext)?.onRefresh
 				)
 
 				await setResult(r, job)
-				$state = $state
+				$stateStore = $stateStore
 			} catch (e) {
-				sendUserToast(`Error running frontend script ${id}: ` + e.message, true)
-				r = { error: { message: e.body ?? e.message } }
+				let additionalInfo = ''
+				if (
+					e.message.includes('Maximum call stack size exceeded') ||
+					e.message.includes('too much recursion')
+				) {
+					additionalInfo =
+						'This is likely due to a call to globalRecompute() in the frontend script. Please check your script for circular recomputes and disable the "Run on start and app refresh" toggle.'
+				}
+				sendUserToast(`Error running frontend script ${id}: ` + e.message + additionalInfo, true)
+				r = { error: { message: (e.body ?? e.message) + additionalInfo } }
 				await setResult(r, job)
 			}
 			loading = false
-			callbacks?.done(r)
+			callbacks?.onDone?.(r)
 			if (setRunnableJobEditorPanel && editorContext) {
 				editorContext.runnableJobEditorPanel.update((p) => {
 					return {
@@ -313,100 +429,42 @@
 			if (!noToast) {
 				sendUserToast('This app is not connected to a windmill backend, it is a static preview')
 			}
-			callbacks?.done({})
+			callbacks?.onDone?.({})
 			return
 		}
-		if (runnable?.type === 'runnableByName' && !runnable.inlineScript) {
-			callbacks?.done({})
+		if (isRunnableByName(runnable) && !runnable.inlineScript) {
+			callbacks?.onDone?.({})
 			return
 		}
 
 		if (!resultJobLoader) {
 			console.warn('No test job loader')
-			callbacks?.done({})
+			callbacks?.onDone?.({})
 			return
 		}
 
 		try {
-			jobId = await resultJobLoader?.abstractRun(async () => {
-				const nonStaticRunnableInputs = dynamicArgsOverride ?? {}
-				const staticRunnableInputs = {}
-				const allowUserResources: string[] = []
-				for (const k of Object.keys(fields ?? {})) {
-					let field = fields[k]
-					if (field?.type == 'static' && fields[k]) {
-						if (isEditor) {
-							staticRunnableInputs[k] = field.value
-						}
-					} else if (field?.type == 'user') {
-						nonStaticRunnableInputs[k] = args?.[k]
-						if (isEditor && field.allowUserResources) {
-							allowUserResources.push(k)
-						}
-					} else if (field?.type == 'eval' || (field?.type == 'evalv2' && inputValues[k])) {
-						const ctxMatch = field.expr.match(ctxRegex)
-						if (ctxMatch) {
-							nonStaticRunnableInputs[k] = '$ctx:' + ctxMatch[1]
-						} else {
-							nonStaticRunnableInputs[k] = await inputValues[k]?.computeExpr()
-						}
-						if (isEditor && field?.type == 'evalv2' && field.allowUserResources) {
-							allowUserResources.push(k)
-						}
-					} else {
-						if (isEditor && field?.type == 'connected' && field.allowUserResources) {
-							allowUserResources.push(k)
-						}
-						nonStaticRunnableInputs[k] = runnableInputValues[k]
+			jobId = await resultJobLoader?.abstractRun(
+				async () => {
+					const uuid = await executeRunnable(
+						runnable,
+						workspace,
+						$app.version,
+						$userStore?.username,
+						$appPath,
+						id,
+						await buildRequestBody(dynamicArgsOverride),
+						inlineScriptOverride,
+						extraQueryParams
+					)
+					if (isEditor) {
+						addJob(uuid)
 					}
-				}
+					return uuid
+				},
+				genCallbacks(callbacks ?? {})
+			)
 
-				const oneOfRunnableInputs = isEditor ? collectOneOfFields(fields, $app) : {}
-
-				const requestBody: ExecuteComponentData['requestBody'] = {
-					args: nonStaticRunnableInputs,
-					component: id,
-					force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs,
-					force_viewer_one_of_fields: !isEditor ? undefined : oneOfRunnableInputs,
-					force_viewer_allow_user_resources: !isEditor ? undefined : allowUserResources
-				}
-
-				if (runnable?.type === 'runnableByName') {
-					const { inlineScript } = inlineScriptOverride
-						? { inlineScript: inlineScriptOverride }
-						: runnable
-
-					if (inlineScript) {
-						if (inlineScript.id !== undefined) {
-							requestBody['id'] = inlineScript.id
-						}
-						requestBody['raw_code'] = {
-							content: inlineScript.id === undefined ? inlineScript.content : '',
-							language: inlineScript.language ?? '',
-							path: inlineScript.path,
-							lock: inlineScript.id === undefined ? inlineScript.lock : undefined,
-							cache_ttl: inlineScript.cache_ttl
-						}
-					}
-				} else if (runnable?.type === 'runnableByPath') {
-					const { path, runType } = runnable
-					requestBody['path'] = runType !== 'hubscript' ? `${runType}/${path}` : `script/${path}`
-				}
-
-				if ($app.version !== undefined) {
-					requestBody['version'] = $app.version
-				}
-
-				const uuid = await AppService.executeComponent({
-					workspace,
-					path: defaultIfEmptyString($appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`),
-					requestBody
-				})
-				if (isEditor) {
-					addJob(uuid)
-				}
-				return uuid
-			}, callbacks)
 			if (setRunnableJobEditorPanel && editorContext) {
 				editorContext.runnableJobEditorPanel.update((p) => {
 					return {
@@ -421,19 +479,68 @@
 			updateResult({ error })
 			$errorByComponent[id] = { error }
 
-			callbacks?.done({ error })
+			callbacks?.onError?.({ error })
 			sendUserToast(error, true)
 			loading = false
 		}
 	}
-	type Callbacks = { done: (x: any) => void; cancel: () => void; error: (e: any) => void }
+
+	export async function buildRequestBody(dynamicArgsOverride: Record<string, any> | undefined) {
+		const nonStaticRunnableInputs: Record<string, any> = dynamicArgsOverride ?? {}
+		const staticRunnableInputs: Record<string, any> = {}
+		const allowUserResources: string[] = []
+
+		for (const k of Object.keys(fields ?? {})) {
+			const field = fields[k]
+
+			if (
+				isEditor &&
+				['user', 'evalv2', 'connected'].includes(field.type) &&
+				'allowUserResources' in field &&
+				field.allowUserResources
+			) {
+				allowUserResources.push(k)
+			}
+
+			if (field?.type == 'static') {
+				if (isEditor) {
+					staticRunnableInputs[k] = field.value
+				}
+			} else if (field?.type == 'user') {
+				nonStaticRunnableInputs[k] = args?.[k]
+			} else if (field?.type == 'eval' || (field?.type == 'evalv2' && inputValues[k])) {
+				const ctxMatch = field?.expr?.match(ctxRegex)
+				if (ctxMatch) {
+					nonStaticRunnableInputs[k] = '$ctx:' + ctxMatch[1]
+				} else {
+					nonStaticRunnableInputs[k] = await inputValues[k]?.computeExpr()
+				}
+			} else {
+				nonStaticRunnableInputs[k] = runnableInputValues[k]
+			}
+		}
+
+		const oneOfRunnableInputs = isEditor ? collectOneOfFields(fields, $app) : {}
+
+		// console.log(JSON.stringify({ id, nonStaticRunnableInputs, inputValues }))
+		const requestBody: ExecuteComponentData['requestBody'] = {
+			args: nonStaticRunnableInputs,
+			component: id,
+			force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs,
+			force_viewer_one_of_fields: !isEditor ? undefined : undefinedIfEmpty(oneOfRunnableInputs),
+			force_viewer_allow_user_resources: !isEditor
+				? undefined
+				: undefinedIfEmpty(allowUserResources)
+		}
+		return requestBody
+	}
 
 	export async function runComponent(
 		noToast = true,
 		inlineScriptOverride?: InlineScript,
 		setRunnableJobEditorPanel?: boolean,
 		dynamicArgsOverride?: Record<string, any>,
-		callbacks?: Callbacks
+		callbacks?: RunnableCallback
 	): Promise<string | undefined> {
 		try {
 			if (cancellableRun && !dynamicArgsOverride) {
@@ -452,11 +559,8 @@
 			let error = e?.body ?? e?.message
 			updateResult({ error })
 			$errorByComponent[id] = { error }
+			loading = false // Ensure loading is reset on any error
 		}
-	}
-
-	async function setJobId(jobId: string) {
-		outputs.jobId?.set(jobId)
 	}
 
 	function recordJob(
@@ -510,26 +614,27 @@
 				raw.set(res)
 				const transformerResult = await eval_like(
 					transformer.content,
-					computeGlobalContext($worldStore, {
+					computeGlobalContext($worldStore, id, {
 						iter: iterContext ? $iterContext : undefined,
 						row: rowContext ? $rowContext : undefined,
 						group: groupContext ? get(groupContext.context) : undefined,
 						result: res
 					}),
-					$state,
+					$stateStore,
 					isEditor,
 					$componentControl,
 					$worldStore,
 					$runnableComponents,
 					true,
-					groupContext?.id
+					groupContext?.id,
+					get(recomputeAllContext)?.onRefresh
 				)
 				return transformerResult
 			} catch (err) {
 				return {
 					error: {
 						name: 'TransformerError',
-						message: 'An error occured in the transformer',
+						message: 'An error occurred in the transformer',
 						stack: err.message
 					}
 				}
@@ -538,12 +643,12 @@
 	}
 
 	function updateResult(res) {
-		outputs.result?.set(res)
+		outputs.result?.set($state.snapshot(res))
 		result = res
 	}
 
-	async function setResult(res: any, jobId: string | undefined) {
-		dispatch('resultSet')
+	async function setResult(res: any, jobId: string | undefined, dispatchSuccess: boolean = true) {
+		dispatch('resultSet', res)
 		const errors = getResultErrors(res)
 
 		if (errors) {
@@ -581,7 +686,9 @@
 		recordJob(jobId, result, undefined, transformerResult)
 		delete $errorByComponent[id]
 
-		dispatch('success', result)
+		if (dispatchSuccess) {
+			onSuccess?.(result)
+		}
 		// callbacks?.done(res)
 	}
 
@@ -600,15 +707,16 @@
 			cancellableRun = (inlineScript?: InlineScript, setRunnableJobEditorPanel?: boolean) => {
 				let rejectCb: (err: Error) => void
 				let p: Partial<CancelablePromise<any>> = new Promise<any>((resolve, reject) => {
+					dispatch('recompute')
 					rejectCb = reject
 					executeComponent(true, inlineScript, setRunnableJobEditorPanel, undefined, {
-						done: (x) => {
+						onDone: (x) => {
 							resolve(x)
 						},
-						cancel: () => {
+						onCancel: () => {
 							reject()
 						},
-						error: (e) => {
+						onError: (e) => {
 							console.error(e)
 							reject(e)
 						}
@@ -624,15 +732,16 @@
 			}
 		}
 
+		const nautoRefresh = (autoRefresh && recomputableByRefreshButton) || overrideAutoRefresh
 		if (replaceCallback) {
 			$runnableComponents[id] = {
-				autoRefresh: (autoRefresh && recomputableByRefreshButton) || overrideAutoRefresh,
+				autoRefresh: nautoRefresh,
 				refreshOnStart: refreshOnStart,
 				cb: [cancellableRun]
 			}
 		} else {
 			$runnableComponents[id] = {
-				autoRefresh: (autoRefresh && recomputableByRefreshButton) || overrideAutoRefresh,
+				autoRefresh: nautoRefresh,
 				refreshOnStart: refreshOnStart,
 				cb: [...($runnableComponents[id]?.cb ?? []), cancellableRun]
 			}
@@ -640,6 +749,10 @@
 
 		if (!noInitialize && !$initialized.initializedComponents.includes(id)) {
 			$initialized.initializedComponents = [...$initialized.initializedComponents, id]
+		}
+		// console.log(initializing, $initialized.initialized, refreshOnStart)
+		if (initializing && $initialized.initialized && (refreshOnStart || nautoRefresh)) {
+			setDebouncedExecute()
 		}
 	})
 
@@ -656,7 +769,7 @@
 		}
 	})
 
-	let lastJobId: string | undefined = undefined
+	let lastJobId: string | undefined = $state(undefined)
 
 	let inputValues: Record<string, InputValue> = {}
 
@@ -687,6 +800,51 @@
 		const policy = computeWorkspaceS3FileInputPolicy()
 		return policy
 	}
+	$effect(() => {
+		outputs.loading?.set(loading)
+	})
+	$effect(() => {
+		isBg && untrack(() => updateBgRuns(loading))
+	})
+	$effect(() => {
+		fields && untrack(() => (currentStaticValues = computeStaticValues()))
+	})
+	$effect(() => {
+		currentStaticValues && untrack(() => refreshOnStaticChange())
+	})
+	$effect(() => {
+		if (runnableInputValues && typeof runnableInputValues === 'object') {
+			for (const key in runnableInputValues) {
+				runnableInputValues[key]
+			}
+		}
+		if (extraQueryParams && typeof extraQueryParams === 'object') {
+			for (const key in extraQueryParams) {
+				extraQueryParams[key]
+			}
+		}
+		if (args && typeof args === 'object') {
+			for (const key in args) {
+				args[key]
+			}
+		}
+		;(runnableInputValues || extraQueryParams || args) &&
+			resultJobLoader &&
+			untrack(() => refreshIfAutoRefresh('arg changed'))
+	})
+	let ignoreFirst = true
+	$effect(() => {
+		runnableInputValues && !ignoreFirst && dispatch('argsChanged')
+		ignoreFirst = false
+	})
+	let refreshOn = $derived(
+		runnable && isRunnableByName(runnable) ? (runnable.inlineScript?.refreshOn ?? []) : []
+	)
+	$effect(() => {
+		;(autoRefresh || forceSchemaDisplay) &&
+			Object.keys(fields ?? {}).length > 0 &&
+			untrack(() => (schemaStripped = stripSchema(fields, $stateId)))
+	})
 </script>
 
 {#each Object.entries(fields ?? {}) as [key, v] (key)}
@@ -702,7 +860,7 @@
 	{/if}
 {/each}
 
-{#if runnable?.type == 'runnableByName' && runnable.inlineScript?.language == 'frontend'}
+{#if isRunnableByName(runnable) && runnable.inlineScript?.language == 'frontend'}
 	{#each runnable.inlineScript.refreshOn ?? [] as { id: tid, key } (`${tid}-${key}`)}
 		{@const fkey = `${tid}-${key}${extraKey}`}
 		<InputValue
@@ -714,61 +872,20 @@
 	{/each}
 {/if}
 
-<ResultJobLoader
+<JobLoader
 	{allowConcurentRequests}
-	{isEditor}
-	on:started={(e) => {
-		console.log('started', e.detail)
-		loading = true
-		setJobId(e.detail)
-		dispatch('started', e.detail)
-	}}
+	onlyResult
 	workspaceOverride={workspace}
-	on:done={(e) => {
-		lastJobId = e.detail.id
-		setResult(e.detail.result, e.detail.id)
-		loading = false
-		dispatch('done', { id: e.detail.id, result: e.detail.result })
-	}}
-	on:cancel={(e) => {
-		let jobId = e.detail
-		console.debug('cancel', jobId)
-		let job = $jobsById[jobId]
-		if (job && job.created_at && !job.duration_ms) {
-			$jobsById[jobId] = {
-				...job,
-				started_at: job.started_at ?? Date.now(),
-				duration_ms: Date.now() - (job.started_at ?? job.created_at)
-			}
-		}
-		dispatch('cancel', { id: e.detail })
-	}}
-	on:running={(e) => {
-		let jobId = e.detail
-		let job = $jobsById[jobId]
-		if (job && !job.started_at) {
-			$jobsById[jobId] = { ...job, started_at: Date.now() }
-		}
-	}}
-	on:doneError={(e) => {
-		setResult({ error: e.detail.error }, e.detail.id)
-		loading = false
-		dispatch('doneError', { id: e.detail.id, result: e.detail.result })
-	}}
 	bind:this={resultJobLoader}
 />
 
-{#if render || hasChildrens}
-	<div
-		class="h-full flex relative flex-row flex-wrap {wrapperClass} {render
-			? 'visible'
-			: 'invisible h-0 overflow-hidden'}"
-		style={wrapperStyle}
-	>
+{#if render}
+	<div class="h-full flex relative flex-row flex-wrap {wrapperClass} visible" style={wrapperStyle}>
 		<!-- {Object.keys(schemaStripped?.properties ?? {}).length > 0} -->
 		{#if render && (autoRefresh || forceSchemaDisplay) && schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0}
-			<div class="px-2 h-fit min-h-0">
+			<div class="px-2 h-fit min-h-0 w-full min-w-[350px]">
 				<SchemaForm
+					noVariablePicker
 					onlyMaskPassword
 					schema={schemaStripped}
 					appPath={defaultIfEmptyString($appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`)}
@@ -794,42 +911,49 @@
 			>
 				<Popover notClickable placement="bottom" popupClass="!bg-surface border w-96">
 					<Bug size={14} />
-					<span slot="text">
-						<div class="bg-surface">
-							<Alert type="error" title="Error during execution">
-								<div class="flex flex-col gap-2 overflow-auto">
-									An error occured, please contact the app author.
+					{#snippet text()}
+						<span>
+							<div class="bg-surface">
+								<Alert type="error" title="Error during execution">
+									<div class="flex flex-col gap-2 overflow-auto">
+										An error occurred, please contact the app author.
 
-									{#if $errorByComponent?.[id]?.error}
-										<div class="font-bold">{$errorByComponent[id].error}</div>
-									{/if}
-									{#if lastJobId}
-										<a
-											href={`/run/${lastJobId}?workspace=${workspace}`}
-											class="font-semibold text-red-800 underline"
-											target="_blank"
-										>
-											Job id: {lastJobId}
-										</a>
-									{/if}
-								</div>
-							</Alert>
-						</div>
-					</span>
+										{#if $errorByComponent?.[id]?.error}
+											<div class="font-bold">{$errorByComponent[id].error}</div>
+										{/if}
+										{#if lastJobId}
+											<a
+												href={`/run/${lastJobId}?workspace=${workspace}`}
+												class="font-semibold text-red-800 underline"
+												target="_blank"
+											>
+												Job id: {lastJobId}
+											</a>
+										{/if}
+									</div>
+								</Alert>
+							</div>
+						</span>
+					{/snippet}
 				</Popover>
 			</div>
 			<div class="block grow w-full max-h-full border border-red-30 relative">
-				<slot />
+				{@render children?.()}
 			</div>
 		{:else}
 			<div class="block grow w-full max-h-full">
-				<slot />
+				{@render children?.()}
 			</div>
 		{/if}
-		{#if render && !initializing && autoRefresh === true && !hideRefreshButton}
+
+		{#if render && autoRefresh === true && !hideRefreshButton}
 			<div class="flex absolute top-1 right-1 z-50 app-component-refresh-btn">
 				<RefreshButton {loading} {id} />
 			</div>
 		{/if}
+	</div>
+{:else if nonRenderedPlaceholder}
+	<div class="invisible h-0 overflow-hidden">
+		{@render nonRenderedPlaceholder?.()}
 	</div>
 {/if}

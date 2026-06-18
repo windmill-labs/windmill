@@ -20,7 +20,7 @@ use crate::db::{ApiAuthed, DB};
 pub fn global_service() -> Router {
     Router::new()
         .route("/list_files", get(list_files))
-        .route("/get_log_file/*path", get(get_log_file))
+        .route("/get_log_file/{*path}", get(get_log_file))
 }
 use axum::extract::Path;
 
@@ -83,7 +83,7 @@ async fn list_files(
     if let Some(true) = lq.with_error {
         sqlb.and_where("err_lines > 0");
     }
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let rows = sqlx::query_as::<_, LogFile>(&sql).fetch_all(&db).await?;
     Ok(Json(rows))
 }
@@ -97,15 +97,19 @@ async fn get_log_file(
 
     require_devops_role(&db, &email).await?;
     let path = path.to_path();
+    if path.contains("..") {
+        return Err(Error::BadRequest("Invalid path".to_string()));
+    }
     #[cfg(feature = "parquet")]
-    let s3_client = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-        .read()
-        .await
-        .clone();
+    let s3_client = windmill_object_store::get_object_store().await;
     #[cfg(feature = "parquet")]
     if let Some(s3_client) = s3_client {
         let path = format!("{}{}", windmill_common::tracing_init::LOGS_SERVICE, path);
-        let file = s3_client.get(&object_store::path::Path::from(path)).await;
+        let file = s3_client
+            .get(&windmill_object_store::object_store_reexports::Path::from(
+                path,
+            ))
+            .await;
         match file {
             Ok(file) => {
                 let bytes = file.bytes().await;
@@ -114,7 +118,7 @@ async fn get_log_file(
                         return Ok(content_plain(Body::from(bytes::Bytes::from(bytes))));
                     }
                     Err(e) => {
-                        return Err(Error::InternalErr(format!(
+                        return Err(Error::internal_err(format!(
                             "Error pulling the bytes: {}",
                             e
                         )));
@@ -122,14 +126,25 @@ async fn get_log_file(
                 }
             }
             Err(e) => {
-                return Err(Error::InternalErr(format!(
+                return Err(Error::internal_err(format!(
                     "Error fetching the file: {}",
                     e
                 )));
             }
         }
     }
-    let file = tokio::fs::read(format!("{}{}", TMP_WINDMILL_LOGS_SERVICE, path)).await;
+    let full_path = format!("{}{}", *TMP_WINDMILL_LOGS_SERVICE, path);
+    // SECURITY (defense in depth): refuse to read through a symlink so a planted
+    // symlink in the logs directory cannot be used to exfiltrate arbitrary files.
+    // `symlink_metadata` returns the link's own metadata without following it.
+    match tokio::fs::symlink_metadata(&full_path).await {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            return Err(Error::BadRequest("Invalid path".to_string()));
+        }
+        Ok(_) => {}
+        Err(_) => return Err(Error::NotFound(format!("File {path} not found"))),
+    }
+    let file = tokio::fs::read(&full_path).await;
     if let Ok(bytes) = file {
         Ok(content_plain(Body::from(bytes::Bytes::from(bytes))))
     } else {

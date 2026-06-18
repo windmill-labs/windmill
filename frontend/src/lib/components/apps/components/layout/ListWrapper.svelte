@@ -1,16 +1,34 @@
 <script lang="ts">
-	import { setContext } from 'svelte'
+	import { setContext, untrack } from 'svelte'
 	import type { ListInputs, ListContext } from '../../types'
 	import { writable } from 'svelte/store'
 
-	export let index: number
-	export let value: any
-	export let disabled = false
-	export let onSet: ((id: string, value: any) => void) | undefined = undefined
-	export let onRemove: ((id: string) => void) | undefined = undefined
-	const ctx = writable({ index, value, disabled })
+	interface Props {
+		index: number
+		value: any
+		disabled?: boolean
+		onSet?: ((id: string, value: any) => void) | undefined
+		onRemove?: ((id: string) => void) | undefined
+		children?: import('svelte').Snippet
+	}
 
-	$: $ctx = { index, value, disabled }
+	let {
+		index,
+		value,
+		disabled = false,
+		onSet = undefined,
+		onRemove = undefined,
+		children
+	}: Props = $props()
+	const ctx = writable({
+		index: untrack(() => index),
+		value: untrack(() => value),
+		disabled: untrack(() => disabled)
+	})
+
+	$effect(() => {
+		$ctx = { index, value, disabled }
+	})
 	setContext<ListContext>('ListWrapperContext', ctx)
 	setContext<ListInputs>('ListInputs', {
 		set: (id: string, value: any) => {
@@ -22,4 +40,4 @@
 	})
 </script>
 
-<slot />
+{@render children?.()}

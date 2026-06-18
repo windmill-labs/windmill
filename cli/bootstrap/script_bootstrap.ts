@@ -39,7 +39,10 @@ export const scriptBootstrapCode = {
 }
 `,
 
-  bun: `export async function main() {
+  bun: `// there are multiple modes to add as header: //nobundling //native //npm //nodejs
+// https://www.windmill.dev/docs/getting_started/scripts_quickstart/typescript#modes
+
+export async function main() {
   return "Hello world";
 }
 `,
@@ -76,6 +79,7 @@ func main() (interface{}, error) {
 
   bash: `echo "Hello world"
 `,
+  duckdb: `SELECT 'Hello world' AS message`,
 
   oracledb: `SELECT 'Hello world' AS message`,
   powershell: `Write-Output "Hello world"`,
@@ -92,6 +96,11 @@ function main() {
     {
         Console.WriteLine("Hello World");
     }
+}
+  `,
+  nu: `
+def main [] {
+  print "Hello World"
 }
   `,
 
@@ -114,4 +123,22 @@ inventory:
     debug:
       msg: "Hello, world!"
 `,
+  java: `
+public class Main {
+  public static void main() {
+    System.out.println("Hello World");
+  }
+}
+`,
+  ruby: `
+def main a, b, c
+  puts a, b, c
+end
+`,
+  rlang: `
+main <- function(x, name = "default") {
+    return(list(result = x, name = name))
+}
+`,
+  // for related places search: ADD_NEW_LANG
 };

@@ -18,26 +18,50 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { tailwindClasses } from './tailwindUtils'
+	import { deepEqual } from 'fast-equals'
 
-	export let name: string
-	export let value: ComponentCssProperty = {}
-	export let forceStyle: boolean = false
-	export let forceClass: boolean = false
-	export let quickStyleProperties: PropertyGroup[] | undefined = undefined
-	export let componentType: TypedComponent['type'] | undefined = undefined
-	export let tooltip: string | undefined = undefined
-	export let shouldDisplayLeft: boolean = false
-	export let shouldDisplayRight: boolean = false
-	export let overriden: boolean = false
-	export let overridding: boolean = false
-	export let wmClass: string | undefined = undefined
+	interface Props {
+		name: string
+		value?: ComponentCssProperty
+		forceStyle?: boolean
+		forceClass?: boolean
+		quickStyleProperties?: PropertyGroup[] | undefined
+		componentType?: TypedComponent['type'] | undefined
+		tooltip?: string | undefined
+		shouldDisplayLeft?: boolean
+		shouldDisplayRight?: boolean
+		overriden?: boolean
+		overridding?: boolean
+		wmClass?: string | undefined
+	}
+
+	let {
+		name,
+		value = $bindable(),
+		forceStyle = false,
+		forceClass = false,
+		quickStyleProperties = undefined,
+		componentType = undefined,
+		tooltip = undefined,
+		shouldDisplayLeft = false,
+		shouldDisplayRight = false,
+		overriden = false,
+		overridding = false,
+		wmClass = undefined
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
-	let isQuickMenuOpen = false
+	let isQuickMenuOpen = $state(false)
 
-	$: dispatch('change', value)
+	let prevValue = structuredClone($state.snapshot(value))
+	$effect(() => {
+		if (deepEqual(prevValue, value)) return
+		prevValue = structuredClone($state.snapshot(value))
+		dispatch('change', value)
+	})
 
 	function toggleQuickMenu() {
+		if (!value) return
 		try {
 			if (!value.style) {
 				value.style = ''
@@ -50,10 +74,10 @@
 		}
 	}
 
-	let richEditorOpen = false
+	let richEditorOpen = $state(false)
 
-	let dynamicClass: boolean = value?.evalClass !== undefined
-	let render = 0
+	let dynamicClass: boolean = $state(value?.evalClass !== undefined)
+	let render = $state(0)
 </script>
 
 {#key render}
@@ -71,7 +95,9 @@
 						startIcon={{ icon: MoveLeft }}
 						on:click={() => dispatch('left')}
 					/>
-					<svelte:fragment slot="text">{'Copy for this component'}</svelte:fragment>
+					{#snippet text()}
+						{'Copy for this component'}
+					{/snippet}
 				</Popover>
 			{/if}
 			{#if shouldDisplayRight}
@@ -83,9 +109,9 @@
 						startIcon={{ icon: MoveRight }}
 						on:click={() => dispatch('right')}
 					/>
-					<svelte:fragment slot="text">
+					{#snippet text()}
 						Copy for every {componentType ? ccomponents[componentType].name : 'component'}
-					</svelte:fragment>
+					{/snippet}
 				</Popover>
 			{/if}
 			<Popover placement="bottom" notClickable disappearTimeout={0}>
@@ -96,9 +122,9 @@
 					startIcon={{ icon: Copy }}
 					on:click={() => copyToClipboard(wmClass)}
 				/>
-				<svelte:fragment slot="text">
+				{#snippet text()}
 					Copy {wmClass}
-				</svelte:fragment>
+				{/snippet}
 			</Popover>
 		</div>
 	</div>
@@ -106,15 +132,15 @@
 	{#if value}
 		<div class="p-2 flex flex-col gap-2">
 			{#if tooltip}
-				<div class="text-tertiary text-2xs py-2">{tooltip}</div>
+				<div class="text-primary text-2xs py-2">{tooltip}</div>
 			{/if}
 
 			{#if value.style !== undefined || forceStyle}
 				<div class="pb-2">
-					<!-- svelte-ignore a11y-label-has-associated-control -->
+					<!-- svelte-ignore a11y_label_has_associated_control -->
 					<div class="block w-full">
 						<div class="flex flex-row justify-between items-center w-full h-8 mb-1">
-							<div class="text-xs font-medium text-tertiary"> Plain CSS </div>
+							<div class="text-xs font-medium text-primary"> Plain CSS </div>
 
 							<div class="flex flex-row gap-1">
 								{#if overriden}
@@ -124,28 +150,31 @@
 								{/if}
 								{#if quickStyleProperties?.length}
 									<ToggleButtonGroup
-										bind:selected={richEditorOpen}
-										on:selected={() => {
+										selected={richEditorOpen ? 'true' : 'false'}
+										on:selected={({ detail }) => {
+											richEditorOpen = detail === 'true'
 											if (richEditorOpen !== isQuickMenuOpen) {
 												toggleQuickMenu()
 												richEditorOpen = isQuickMenuOpen
 											}
 										}}
 									>
-										<ToggleButton
-											small
-											light
-											value={false}
-											icon={Code}
-											tooltip="Edit the CSS directly"
-										/>
-										<ToggleButton
-											small
-											light
-											value={true}
-											icon={Paintbrush2}
-											tooltip="Open the rich editor to style the component with a visual interface"
-										/>
+										{#snippet children({ item })}
+											<ToggleButton
+												small
+												value={'false'}
+												icon={Code}
+												tooltip="Edit the CSS directly"
+												{item}
+											/>
+											<ToggleButton
+												small
+												value={'true'}
+												icon={Paintbrush2}
+												tooltip="Open the rich editor to style the component with a visual interface"
+												{item}
+											/>
+										{/snippet}
 									</ToggleButtonGroup>
 								{/if}
 							</div>
@@ -176,7 +205,8 @@
 								<Badge
 									small
 									baseClass="cursor-pointer"
-									on:click={() => {
+									clickable
+									onclick={() => {
 										value.style = value.style === '' ? `${v};` : `${value.style} ${v};`
 									}}
 								>
@@ -189,42 +219,41 @@
 			{/if}
 
 			{#if value.class !== undefined || forceClass}
-				<!-- svelte-ignore a11y-label-has-associated-control -->
-				<label class="block">
-					<div class="text-xs font-medium text-tertiary mb-1">
-						Tailwind classes
-						<Tooltip light documentationLink="https://tailwindcss.com/">
-							Use any tailwind classes to style your component
-						</Tooltip>
+				<!-- svelte-ignore a11y_label_has_associated_control -->
+				<div class="text-xs font-medium text-primary mb-1">
+					Tailwind classes
+					<Tooltip light documentationLink="https://tailwindcss.com/">
+						Use any tailwind classes to style your component
+					</Tooltip>
+				</div>
+				<div class="relative">
+					<SimpleEditor
+						class="h-24 border !rounded-none"
+						lang="tailwindcss"
+						{tailwindClasses}
+						bind:code={value.class}
+						fixedOverflowWidgets={true}
+						small
+						automaticLayout
+					/>
+				</div>
+				{#if componentType && ccomponents?.[componentType]?.quickstyle?.[name]?.quickTailwindClasses}
+					<div class="flex flex-row gap-1 items-center mt-1 flex-wrap">
+						{#each ccomponents?.[componentType]?.quickstyle?.[name]?.quickTailwindClasses ?? [] as cls}
+							<Badge
+								baseClass="cursor-pointer"
+								small
+								clickable
+								onclick={() => {
+									value.class = value.class === '' ? cls : `${value.class} ${cls}`
+									render++
+								}}
+							>
+								{cls}
+							</Badge>
+						{/each}
 					</div>
-					<div class="relative">
-						<SimpleEditor
-							class="h-24 border !rounded-none"
-							lang="tailwindcss"
-							{tailwindClasses}
-							bind:code={value.class}
-							fixedOverflowWidgets={true}
-							small
-							automaticLayout
-						/>
-					</div>
-					{#if componentType && ccomponents?.[componentType]?.quickstyle?.[name]?.quickTailwindClasses}
-						<div class="flex flex-row gap-1 items-center mt-1 flex-wrap">
-							{#each ccomponents?.[componentType]?.quickstyle?.[name]?.quickTailwindClasses ?? [] as cls}
-								<Badge
-									baseClass="cursor-pointer"
-									small
-									on:click={() => {
-										value.class = value.class === '' ? cls : `${value.class} ${cls}`
-										render++
-									}}
-								>
-									{cls}
-								</Badge>
-							{/each}
-						</div>
-					{/if}
-				</label>
+				{/if}
 			{/if}
 			<div class="flex flex-row justify-between items-center">
 				<div class="text-xs flex flex-row items-center justify-center">

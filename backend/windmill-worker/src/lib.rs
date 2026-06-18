@@ -5,44 +5,120 @@ mod mssql_executor;
 #[cfg(feature = "enterprise")]
 mod snowflake_executor;
 
+mod agent_workers;
 #[cfg(feature = "python")]
 mod ansible_executor;
 mod bash_executor;
+mod pwsh_executor;
 
+#[cfg(feature = "java")]
+mod java_executor;
+
+#[cfg(feature = "ruby")]
+mod ruby_executor;
+
+#[cfg(feature = "rlang")]
+mod r_executor;
+
+mod ai;
+mod ai_executor;
+
+// Exposed for the MCP resource-authorization regression test
+// (tests/mcp_resource_authz.rs): the AI agent worker must load MCP resources
+// through the job's permissioned client, not the raw DB pool.
+#[cfg(feature = "mcp")]
+pub use ai::utils::{load_mcp_tools, McpResourceConfig};
 mod bun_executor;
 pub mod common;
 mod config;
 mod csharp_executor;
-#[cfg(feature = "enterprise")]
-mod dedicated_worker;
+
+#[cfg(feature = "private")]
+mod dedicated_worker_ee;
+mod dedicated_worker_oss;
 mod deno_executor;
+mod docker_v2;
+#[cfg(feature = "duckdb")]
+mod duckdb_executor;
 mod global_cache;
 mod go_executor;
 mod graphql_executor;
 mod handle_child;
-mod job_logger;
-mod job_logger_ee;
+pub mod job_logger;
+#[cfg(feature = "private")]
+pub mod job_logger_ee;
+mod job_logger_oss;
 mod js_eval;
+pub mod memory_common;
+#[cfg(feature = "private")]
+pub mod memory_ee;
+pub mod memory_oss;
 #[cfg(feature = "mysql")]
 mod mysql_executor;
+#[cfg(feature = "nu")]
+mod nu_executor;
 #[cfg(feature = "oracledb")]
 mod oracledb_executor;
-mod pg_executor;
+#[cfg(feature = "private")]
+pub mod otel_ee;
+mod otel_oss;
+#[cfg(all(feature = "private", feature = "enterprise"))]
+mod otel_tracing_proxy_ee;
+mod otel_tracing_proxy_oss;
+pub mod pg_executor;
+mod pg_raw_output;
 #[cfg(feature = "php")]
 mod php_executor;
+mod prepare_deps;
 #[cfg(feature = "python")]
 mod python_executor;
-mod result_processor;
+#[cfg(feature = "python")]
+mod python_versions;
+pub mod result_processor;
 #[cfg(feature = "rust")]
 mod rust_executor;
+mod sanitized_sql_params;
+mod schema;
+mod sql_s3_input;
+pub mod sql_utils;
+#[cfg(feature = "private")]
+mod ssh_executor_ee;
+mod ssh_executor_oss;
+mod universal_pkg_installer;
+#[cfg(feature = "private")]
+mod volume_ee;
+mod volume_oss;
+pub mod wac_executor;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;
+mod worker_utils;
+
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub use otel_tracing_proxy_ee::start_jobs_otel_tracing;
+#[cfg(all(feature = "private", feature = "enterprise", feature = "deno_core"))]
+pub use otel_tracing_proxy_ee::{load_internal_otel_exporter, DENO_OTEL_INITIALIZED};
 pub use worker::*;
 
-pub use result_processor::handle_job_error;
-
 pub use bun_executor::{
-    get_common_bun_proc_envs, install_bun_lockfile, prebundle_bun_script, prepare_job_dir,
+    build_loader, compute_bundle_local_and_remote_path, ensure_bundle_output_exists,
+    generate_bun_bundle, get_common_bun_proc_envs, install_bun_lockfile, prebundle_bun_script,
+    prepare_job_dir, LoaderMode, BUN_DEDICATED_WORKER_ARGS, RELATIVE_BUN_BUILDER,
+    RELATIVE_BUN_LOADER,
 };
-pub use deno_executor::generate_deno_lock;
+#[cfg(any(feature = "private", test))]
+pub use bun_executor::{
+    compute_ts_codegen, generate_multi_script_wrapper, TsScriptCodegen, TsScriptEntry,
+};
+#[cfg(any(feature = "private", test))]
+pub use deno_executor::generate_dedicated_worker_wrapper as generate_deno_dedicated_worker_wrapper;
+pub use deno_executor::{generate_deno_lock, DENO_UNSTABLE_ARGS};
+pub use prepare_deps::run_prepare_deps_cli;
+
+#[cfg(all(feature = "python", any(feature = "private", test)))]
+pub use python_executor::{
+    compute_py_codegen, generate_multi_script_wrapper as generate_py_multi_script_wrapper,
+    PyScriptCodegen, PyScriptEntry,
+};
+#[cfg(feature = "python")]
+pub use python_versions::PyV;

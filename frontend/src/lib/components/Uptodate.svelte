@@ -3,13 +3,14 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import Tooltip from './Tooltip.svelte'
 
-	let uptodate: string | undefined = undefined
+	let uptodate: string | undefined = $state(undefined)
 
 	async function loadVersion() {
 		try {
 			const res = await SettingsService.backendUptodate()
 			if (res != 'yes') {
-				uptodate = res
+				const parts = res.split(' -> ')
+				uptodate = parts.length > 1 ? parts[parts.length - 1] : res
 			}
 		} catch (e) {
 			console.warn('Could not fetch latest version', e)
@@ -20,8 +21,8 @@
 </script>
 
 {#if uptodate}
-	<span class="text-blue-400">
-		{uptodate} &nbsp;
+	<span class="text-accent text-xs">
+		→ {uptodate} &nbsp;
 		<Tooltip>
 			{#if isCloudHosted()}
 				The cloud version is updated daily.

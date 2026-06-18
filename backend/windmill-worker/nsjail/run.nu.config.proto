@@ -1,0 +1,136 @@
+name: "nu run script"
+
+mode: ONCE
+hostname: "nu"
+log_level: ERROR
+time_limit: {TIMEOUT}
+
+disable_rl: true
+
+cwd: "/tmp"
+
+clone_newnet: false
+clone_newuser: {CLONE_NEWUSER}
+
+skip_setsid: true
+keep_caps: false
+keep_env: true
+mount_proc: true
+
+mount {
+    src: "/bin"
+    dst: "/bin"
+	is_bind: true
+}
+
+mount {
+    src: "/lib"
+    dst: "/lib"
+	is_bind: true
+}
+
+
+mount {
+    src: "/lib64"
+    dst: "/lib64"
+	is_bind: true
+    mandatory: false
+}
+
+
+mount {
+    src: "/usr"
+    dst: "/usr"
+	is_bind: true
+}
+
+mount {
+	src: "/dev/null"
+	dst: "/dev/null"
+	is_bind: true
+	rw: true
+}
+
+{TMP_MOUNT_BLOCK}
+
+mount {
+    src: "{NU_PATH}"
+    dst: "{NU_PATH}"
+  	is_bind: true
+}
+
+mount {
+    src: "{JOB_DIR}/main.nu"
+    dst: "/tmp/main.nu"
+    is_bind: true
+}
+
+mount {
+    src: "{JOB_DIR}/result.json"
+    dst: "/tmp/result.json"
+    rw: true
+    is_bind: true
+}
+
+mount {
+    src: "{JOB_DIR}/args.json"
+    dst: "/tmp/args.json"
+    rw: true
+    is_bind: true
+}
+mount {
+    src: "/etc"
+    dst: "/etc"
+	is_bind: true
+}
+
+# Container runtimes bind exactly these 3 files as separate submounts over
+# /etc; nsjail's ro remount of /etc is non-recursive so they stay writable.
+# Load-bearing -- do not remove as redundant with the /etc bind above.
+mount {
+    src: "/etc/resolv.conf"
+    dst: "/etc/resolv.conf"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/etc/hosts"
+    dst: "/etc/hosts"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/etc/hostname"
+    dst: "/etc/hostname"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/dev/random"
+    dst: "/dev/random"
+    is_bind: true
+}
+
+mount {
+    src: "/dev/urandom"
+    dst: "/dev/urandom"
+    is_bind: true
+}
+
+iface_no_lo: true
+
+{SHARED_MOUNT}
+
+envar: "HOME=/tmp"
+
+mount {
+    src: "{TRACING_PROXY_CA_CERT_PATH}"
+    dst: "{TRACING_PROXY_CA_CERT_PATH}"
+    is_bind: true
+    mandatory: false
+}
+
+#{DEV}

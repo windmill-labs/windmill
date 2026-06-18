@@ -1,83 +1,132 @@
+<script module lang="ts">
+	let listHubIntegrationsCached = createCache(
+		({ kind }: { kind: HubScriptKind & string; refreshCount?: number }) =>
+			IntegrationService.listHubIntegrations({ kind }),
+		{ initial: { kind: 'script', refreshCount: 0 }, invalidateMs: 1000 * 60 }
+	)
+
+	let listHubScriptsCached = createCache(
+		async ({
+			filter,
+			kind,
+			appFilter
+		}: {
+			filter: string
+			kind: HubScriptKind & string
+			appFilter: string | undefined
+			refreshCount?: number
+		}) => {
+			try {
+				return get(userStore)
+					? filter.length > 0
+						? await ScriptService.queryHubScripts({ text: filter, limit: 20, kind })
+						: ((await ScriptService.getTopHubScripts({ limit: 20, kind, app: appFilter })).asks ??
+							[])
+					: undefined
+			} catch (err) {
+				console.error('Failed to fetch hub scripts:', err)
+				return undefined
+			}
+		},
+		{
+			initial: { filter: '', kind: 'script', appFilter: undefined, refreshCount: 0 },
+			invalidateMs: 1000 * 60
+		}
+	)
+</script>
+
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { Skeleton } from '$lib/components/common'
-	import { classNames } from '$lib/utils'
+	import { classNames, createCache } from '$lib/utils'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
 	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
-	import { Circle } from 'lucide-svelte'
+	import { Circle, ExternalLink } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
+	import { disableHubStore, hubBaseUrlStore, userStore } from '$lib/stores'
+	import { get } from 'svelte/store'
+	import Button from '$lib/components/common/button/Button.svelte'
+	import { Alert } from '$lib/components/common'
+	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 
-	export let kind: HubScriptKind & string = 'script'
-	export let filter = ''
+	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 
-	export let loading = false
-	export let selected: number | undefined = undefined
-	let hubNotAvailable = false
+	let hubNotAvailable = $state(false)
 
 	const dispatch = createEventDispatcher()
 
-	export let appFilter: string | undefined = undefined
-	export let items: {
-		path: string
-		summary: string
-		id: number
-		version_id: number
-		ask_id: number
-		app: string
-		kind: HubScriptKind
-	}[] = []
-	export let displayPath = false
+	interface Props {
+		kind?: HubScriptKind & string
+		filter?: string
+		loading?: boolean
+		selected?: number | undefined
+		appFilter?: string | undefined
+		items?: {
+			path: string
+			summary: string
+			id: number
+			version_id: number
+			ask_id: number
+			app: string
+			kind: HubScriptKind
+		}[]
+		displayPath?: boolean
+		apps?: string[]
+		refreshCount?: number
+	}
 
-	export let apps: string[] = []
-	let allApps: string[] = []
-	$: applyFilter(filter, kind, appFilter)
-	$: getAllApps(kind)
+	let {
+		kind = 'script',
+		filter = $bindable(''),
+		loading = $bindable(false),
+		selected = undefined,
+		appFilter = undefined,
+		items = $bindable([]),
+		displayPath = false,
+		apps = $bindable([]),
+		refreshCount = 0
+	}: Props = $props()
+
+	let allApps: string[] = $state([])
+	$effect(() => {
+		if (filter.length > 0) {
+			apps = Array.from(new Set(items?.map((x) => x.app) ?? [])).sort()
+		} else {
+			apps = allApps
+		}
+	})
 
 	async function getAllApps(filterKind: typeof kind) {
+		if ($disableHubStore) return
 		try {
 			hubNotAvailable = false
-			allApps = (
-				await IntegrationService.listHubIntegrations({
-					kind: filterKind
-				})
-			).map((x) => x.name)
-			apps = allApps
+			allApps = (await listHubIntegrationsCached({ kind: filterKind, refreshCount })).map(
+				(x) => x.name
+			)
 		} catch (err) {
-			console.error('Hub is not available')
+			console.error('Failed to fetch hub integrations:', err)
 			allApps = []
-			apps = []
 			hubNotAvailable = true
 		}
 	}
 
-	let startTs = 0
-	async function applyFilter(
-		filter: string,
-		filterKind: typeof kind,
-		appFilter: string | undefined
-	) {
-		try {
-			loading = true
-			hubNotAvailable = false
-			const ts = Date.now()
-			startTs = ts
-			await new Promise((resolved, rejected) => setTimeout(resolved, 200))
-			if (ts < startTs) return
-			const scripts =
-				filter.length > 0
-					? await ScriptService.queryHubScripts({
-							text: `${filter}`,
-							limit: 40,
-							kind: filterKind
-					  })
-					: (
-							await ScriptService.getTopHubScripts({
-								limit: 40,
-								kind: filterKind,
-								app: appFilter
-							})
-					  ).asks ?? []
-
+	let hubScriptsFilteredPromise = usePromise(
+		() => listHubScriptsCached({ appFilter, filter, kind, refreshCount }),
+		{ loadInit: false }
+	)
+	$effect(() => {
+		;[filter, kind, appFilter, refreshCount]
+		if (!$disableHubStore) {
+			hubScriptsFilteredPromise.refresh()
+		}
+	})
+	$effect(() => {
+		loading = hubScriptsFilteredPromise.status === 'loading'
+		hubNotAvailable = !!hubScriptsFilteredPromise.error
+		const scripts = hubScriptsFilteredPromise.value
+		untrack(() => {
+			if (!scripts) return
 			const mappedItems = scripts.map(
 				(x: {
 					summary: string
@@ -92,24 +141,23 @@
 					summary: `${x.summary} (${x.app})`
 				})
 			)
-			if (filter.length > 0) {
-				apps = Array.from(new Set(mappedItems?.map((x) => x.app) ?? [])).sort()
-			} else {
-				apps = allApps
-			}
 
 			items = appFilter ? mappedItems.filter((x) => x.app === appFilter) : mappedItems
+		})
+	})
 
-			if (ts === startTs) {
-				loading = false
+	async function handlePickScript(item: (typeof items)[number]) {
+		if (item.path.startsWith('hub/')) {
+			try {
+				await ScriptService.pickHubScriptByPath({ path: item.path })
+			} catch (error) {
+				console.error('Failed to track hub script pick:', error)
+				// Don't block the flow if tracking fails
 			}
-
-			hubNotAvailable = false
-		} catch (err) {
-			hubNotAvailable = true
-			console.error('Hub not available')
-			loading = false
 		}
+
+		// Dispatch the event to continue with the selection
+		dispatch('pickScript', item)
 	}
 
 	function onKeyDown(e: KeyboardEvent) {
@@ -122,26 +170,37 @@
 		) {
 			e.preventDefault()
 			let item = items![selected]
-			dispatch('pickScript', item)
+			handlePickScript(item)
 		}
 	}
+	$effect(() => {
+		;[kind, refreshCount]
+		untrack(() => {
+			getAllApps(kind)
+		})
+	})
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
-{#if hubNotAvailable}
-	<div class="text-2xs text-red-400 ftext-2xs font-light text-center py-2 px-3 items-center">
-		Hub not available
+<svelte:window onkeydown={onKeyDown} />
+{#if $disableHubStore}
+	<!-- Hub disabled, show nothing -->
+{:else if hubNotAvailable}
+	<div class="px-3 py-2 mt-2">
+		<Alert type="warning" title="Hub not available" size="xs">
+			Could not connect to the Windmill Hub. If you are in a closed environment, you can disable the
+			Hub in the <a href="/#superadmin-settings?tab=private_hub">instance settings</a>.
+		</Alert>
 	</div>
 {:else if loading}
 	{#each Array(15).fill(0) as _}
 		<Skeleton layout={[0.1, [1.5]]} />
 	{/each}
 {:else if items.length > 0 && apps.length > 0}
-	<ul>
+	<ul class="gap-1 flex flex-col">
 		{#each items as item, index (item.path)}
 			<li class="w-full">
 				<Popover class="w-full" placement="right" forceOpen={index === selected}>
-					<svelte:fragment slot="text">
+					{#snippet text()}
 						<div class="flex flex-col">
 							<div class="text-left text-xs font-normal leading-tight py-0"
 								>{item.summary ?? ''}</div
@@ -150,37 +209,31 @@
 								{item.path ?? ''}
 							</div>
 						</div>
-					</svelte:fragment>
-					<button
-						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover transition-all items-center rounded-md {index ===
-						selected
-							? 'bg-surface-hover'
-							: ''}"
-						on:click={() => dispatch('pickScript', item)}
+					{/snippet}
+					<Button
+						selected={selected === index}
+						variant="subtle"
+						unifiedSize="sm"
+						btnClasses="justify-start"
+						onClick={() => handlePickScript(item)}
 					>
 						<div class={classNames('flex justify-center items-center')}>
 							{#if item['app'] in APP_TO_ICON_COMPONENT}
-								<svelte:component
-									this={APP_TO_ICON_COMPONENT[item['app']]}
-									height={14}
-									width={14}
-								/>
+								{@const SvelteComponent = APP_TO_ICON_COMPONENT[item['app']]}
+								<SvelteComponent height={13} width={13} />
 							{:else}
-								<div
-									class="w-[14px] h-[14px] text-gray-400 flex flex-row items-center justify-center"
-								>
-									<Circle size="12" />
+								<div class="text-gray-400 flex flex-row items-center justify-center">
+									<Circle size="13" />
 								</div>
 							{/if}
 						</div>
 
 						<div class="flex flex-col grow min-w-0">
-							<div
-								class="grow truncate text-left text-2xs text-primary font-normal leading-tight py-0.5"
+							<div class="grow truncate text-left font-normal leading-tight py-0.5"
 								>{item.summary ?? ''}</div
 							>
 							{#if displayPath && item.path}
-								<div class="grow truncate text-left text-2xs text-secondary font-[220]">
+								<div class="grow truncate text-left text-2xs font-thin">
 									{item.path}
 								</div>
 							{/if}
@@ -188,14 +241,27 @@
 						{#if index === selected}
 							<kbd class="!text-xs">&crarr;</kbd>
 						{/if}
-					</button>
+					</Button>
 				</Popover>
 			</li>
 		{/each}
 	</ul>
-	{#if items.length == 40}
+	{#if items.length == 20}
 		<div class="text-2xs text-tercary font-extralight text-center py-2 px-3 items-center">
 			There are more items than being displayed. Refine your search.
 		</div>
+	{:else if customUi?.suggestScript != false}
+		<div class="px-2 py-1">
+			<a
+				href={`${$hubBaseUrlStore}?suggest_script=true`}
+				target="_blank"
+				class="text-xs flex flex-row items-center gap-1 text-blue-500 hover:text-blue-600"
+				>Suggest script <ExternalLink class="size-3" />
+			</a>
+		</div>
 	{/if}
+{:else}
+	<div class="text-2xs text-primary font-light text-center py-2 px-3 items-center">
+		No scripts found.
+	</div>
 {/if}

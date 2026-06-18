@@ -1,53 +1,174 @@
 use serde_json::value::RawValue;
+#[cfg(not(windows))]
+use std::sync::Once;
 use std::{collections::HashMap, process::Stdio};
 use uuid::Uuid;
 use windmill_parser_rust::parse_rust_deps_into_manifest;
 
+use crate::global_cache::save_cache;
 use itertools::Itertools;
-use tokio::{fs::File, io::AsyncReadExt, process::Command};
+use tokio::{
+    fs::{create_dir_all, File},
+    io::AsyncReadExt,
+    process::Command,
+};
 use windmill_common::{
     error::{self, Error},
-    jobs::QueuedJob,
     utils::calculate_hash,
-    worker::{save_cache, write_file},
+    worker::{write_file, Connection},
 };
+use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
     common::{
-        check_executor_binary_exists, create_args_and_out_file, get_reserved_variables,
-        read_result, start_child_process, OccupancyMetrics,
+        build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
+        get_reserved_variables, read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
+        start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
+    get_proxy_envs_for_lang,
     handle_child::handle_child,
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    PROXY_ENVS, RUST_CACHE_DIR, TZ_ENV,
+    is_sandboxing_enabled, read_ee_registry_with_workspace_override, CARGO_REGISTRIES,
+    DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUST_CACHE_DIR,
+    TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
+use windmill_common::client::AuthedClient;
+use windmill_common::scripts::ScriptLang;
 
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
 
 const NSJAIL_CONFIG_RUN_RUST_CONTENT: &str = include_str!("../nsjail/run.rust.config.proto");
+const NSJAIL_CONFIG_COMPILE_RUST_CONTENT: &str =
+    include_str!("../nsjail/download.rust.config.proto");
+
+#[cfg(windows)]
+const RUST_BIN_NAME: &str = "main.exe";
+#[cfg(not(windows))]
+const RUST_BIN_NAME: &str = "main";
+
+fn find_cargo_path() -> String {
+    if let Ok(p) = std::env::var("CARGO_PATH") {
+        return p;
+    }
+    let candidates = if cfg!(windows) {
+        vec![format!("{}\\bin\\cargo.exe", CARGO_HOME.as_str())]
+    } else {
+        vec![
+            format!("{}/bin/cargo", CARGO_HOME.as_str()),
+            "/usr/local/cargo/bin/cargo".to_string(),
+            "/usr/bin/cargo".to_string(),
+        ]
+    };
+    for p in &candidates {
+        if std::path::Path::new(p).exists() {
+            return p.clone();
+        }
+    }
+    candidates.into_iter().next().unwrap()
+}
+
+#[cfg(not(windows))]
+fn find_preinstalled_dir(env_var: &str, candidates: &[&str]) -> String {
+    if let Ok(p) = std::env::var(env_var) {
+        return p;
+    }
+    for c in candidates {
+        if std::path::Path::new(c).exists() {
+            return c.to_string();
+        }
+    }
+    candidates[0].to_string()
+}
 
 lazy_static::lazy_static! {
-    static ref HOME_DIR: String = std::env::var("HOME").expect("Could not find the HOME environment variable");
     static ref CARGO_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| { CARGO_HOME_DEFAULT.clone() });
     static ref RUSTUP_HOME: String = std::env::var("RUSTUP_HOME").unwrap_or_else(|_| { RUSTUP_HOME_DEFAULT.clone() });
-    static ref CARGO_PATH: String = std::env::var("CARGO_PATH").unwrap_or_else(|_| format!("{}/bin/cargo", CARGO_HOME.as_str()));
+    static ref CARGO_PATH: String = find_cargo_path();
+    static ref SWEEP_MAXSIZE: String = std::env::var("CARGO_SWEEP_MAXSIZE").unwrap_or("25GB".to_owned());
+    static ref NO_SHARED_BUILD_DIR: bool = std::env::var("RUST_NO_SHARED_BUILD_DIR").ok().map(|flag| flag == "true").unwrap_or(false);
 }
 
 #[cfg(windows)]
 lazy_static::lazy_static! {
-    static ref CARGO_HOME_DEFAULT: String = format!("{}\\.cargo", *HOME_DIR);
-    static ref RUSTUP_HOME_DEFAULT: String = format!("{}\\.rustup", *HOME_DIR);
+    static ref CARGO_HOME_DEFAULT: String = format!("{}\\.cargo", HOME_ENV.as_str());
+    static ref RUSTUP_HOME_DEFAULT: String = format!("{}\\.rustup", HOME_ENV.as_str());
 }
 
-#[cfg(unix)]
+#[cfg(not(windows))]
 lazy_static::lazy_static! {
-    static ref CARGO_HOME_DEFAULT: String = format!("{}/.cargo", *HOME_DIR);
-    static ref RUSTUP_HOME_DEFAULT: String = format!("{}/.rustup", *HOME_DIR);
+    static ref CARGO_HOME_DEFAULT: String = format!("{}/.cargo", HOME_ENV.as_str());
+    static ref RUSTUP_HOME_DEFAULT: String = format!("{}/.rustup", HOME_ENV.as_str());
 }
 
-const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
+const RUST_OBJECT_STORE_PREFIX: &str =
+    const_format::concatcp!(crate::global_cache::TARGET, "_rustbin/");
+
+#[cfg(not(windows))]
+lazy_static::lazy_static! {
+    static ref PREINSTALLED_CARGO: String = find_preinstalled_dir(
+        "CARGO_PREINSTALL_DIR",
+        &["/usr/local/cargo", &format!("{}/.cargo", HOME_ENV.as_str())],
+    );
+    static ref PREINSTALLED_RUSTUP: String = find_preinstalled_dir(
+        "RUSTUP_PREINSTALL_DIR",
+        &["/usr/local/rustup", &format!("{}/.rustup", HOME_ENV.as_str())],
+    );
+}
+
+#[cfg(not(windows))]
+static RUST_DIRS_INIT: Once = Once::new();
+
+#[cfg(not(windows))]
+fn symlink_preinstalled_entries(preinstalled: &str, target: &str) {
+    use std::fs;
+    use std::os::unix::fs as unix_fs;
+    use std::path::Path;
+
+    if target == preinstalled || !Path::new(preinstalled).exists() {
+        return;
+    }
+    let _ = fs::create_dir_all(target);
+    let Ok(entries) = fs::read_dir(preinstalled) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let link_path = Path::new(target).join(&name);
+        if !link_path.exists() {
+            let _ = unix_fs::symlink(entry.path(), &link_path);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn symlink_single_entry(preinstalled: &str, target: &str, name: &str) {
+    use std::os::unix::fs as unix_fs;
+    use std::path::Path;
+
+    let src = Path::new(preinstalled).join(name);
+    if !src.exists() {
+        return;
+    }
+    let _ = std::fs::create_dir_all(target);
+    let dst = Path::new(target).join(name);
+    if !dst.exists() {
+        let _ = unix_fs::symlink(&src, &dst);
+    }
+}
+
+#[cfg(not(windows))]
+fn ensure_rust_runtime_dirs() {
+    RUST_DIRS_INIT.call_once(|| {
+        // Only symlink bin/ from cargo (registry/git must be writable)
+        symlink_single_entry(&PREINSTALLED_CARGO, CARGO_HOME.as_str(), "bin");
+        // Symlink all entries from rustup (toolchains, settings.toml, etc.)
+        symlink_preinstalled_entries(&PREINSTALLED_RUSTUP, RUSTUP_HOME.as_str());
+    });
+}
+
+#[cfg(windows)]
+fn ensure_rust_runtime_dirs() {}
 
 fn gen_cargo_crate(code: &str, job_dir: &str) -> anyhow::Result<()> {
     let manifest = parse_rust_deps_into_manifest(code)?;
@@ -121,39 +242,74 @@ pub fn __WINDMILL_RUN__(_args: __WINDMILL_ARGS__) -> Result<String, Box<dyn std:
     Ok(())
 }
 
+async fn write_cargo_config(
+    job_dir: &str,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> anyhow::Result<()> {
+    if let Some(cargo_registries) = read_ee_registry_with_workspace_override(
+        CARGO_REGISTRIES.read().await.clone(),
+        "cargo_registries",
+        "cargo registries",
+        job_id,
+        w_id,
+        conn,
+    )
+    .await
+    {
+        if !cargo_registries.trim().is_empty() {
+            let cargo_dir = format!("{job_dir}/.cargo");
+            create_dir_all(&cargo_dir).await?;
+            write_file(&cargo_dir, "config.toml", &cargo_registries)?;
+        }
+    }
+    Ok(())
+}
+
 pub async fn generate_cargo_lockfile(
     job_id: &Uuid,
     code: &str,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     worker_name: &str,
     w_id: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
+    ensure_rust_runtime_dirs();
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
     gen_cargo_crate(code, job_dir)?;
+    write_cargo_config(job_dir, job_id, w_id, conn).await?;
 
     let mut gen_lockfile_cmd = Command::new(CARGO_PATH.as_str());
     gen_lockfile_cmd
         .current_dir(job_dir)
+        .env_clear()
+        .env("PATH", PATH_ENV.as_str())
+        .env("HOME", HOME_ENV.as_str())
+        .env("CARGO_HOME", CARGO_HOME.as_str())
+        .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
+        .envs(PROXY_ENVS.clone())
         .args(vec!["generate-lockfile"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     #[cfg(windows)]
     {
         gen_lockfile_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+        gen_lockfile_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         gen_lockfile_cmd.env(
             "TMP",
             std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
         );
     }
-    let gen_lockfile_process = start_child_process(gen_lockfile_cmd, CARGO_PATH.as_str()).await?;
+    let gen_lockfile_process =
+        start_child_process(gen_lockfile_cmd, CARGO_PATH.as_str(), false).await?;
     handle_child(
         job_id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         gen_lockfile_process,
@@ -164,6 +320,8 @@ pub async fn generate_cargo_lockfile(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
+        None,
     )
     .await?;
 
@@ -174,84 +332,266 @@ pub async fn generate_cargo_lockfile(
     Ok(req_content)
 }
 
+async fn get_build_dir(
+    job: &MiniPulledJob,
+    job_dir: &str,
+    conn: &Connection,
+    worker_name: &str,
+    is_preview: bool,
+) -> anyhow::Result<String> {
+    let (bd, run_sweep) = job
+        .runnable_path
+        .as_ref()
+        .and_then(|p| {
+            if !is_preview || *NO_SHARED_BUILD_DIR {
+                None
+            } else {
+                if !is_sandboxing_enabled() {
+                    // If nsjail is disabled then entire worker has shared build directory
+                    // It drastically improves cache hit-rate.
+                    Some((format!("{}/build/{worker_name}", *RUST_CACHE_DIR), true))
+                } else {
+                    // If nsjail is enabled, having global shared directory is vulnerability and target for an attack
+                    // Instead we either:
+                    // 1. Create different build directory for workspace script and user. Balanced caching while mainining high degree of security.
+                    // 2. If user is not known or something else goes wrong - use random build dir. This is equivalent to no cache at all.
+                    Some((
+                        format!(
+                            "{}/build/{}@{}@{}",
+                            *RUST_CACHE_DIR,
+                            &job.workspace_id,
+                            p.replace('/', "."),
+                            &job.created_by
+                        ),
+                        true,
+                    ))
+                }
+            }
+        })
+        .unwrap_or((
+            format!("{}/build/{}", *RUST_CACHE_DIR, Uuid::new_v4()),
+            false,
+        ));
+
+    {
+        let (t, r, g) = (
+            create_dir_all(format!("{}/target", &bd)).await,
+            create_dir_all(format!("{}/registry", &bd)).await,
+            create_dir_all(format!("{}/git", &bd)).await,
+        );
+
+        t.and(r)
+            .and(g)
+            .map_err(|e| anyhow::anyhow!("Could not create build dir for rust.\ne: {e}"))?;
+    }
+
+    if run_sweep {
+        // Also run sweep to make sure target isn't using too much disk
+        let mut sweep_cmd = Command::new(CARGO_PATH.as_str());
+        let sweep_path = format!("{}/bin:{}", CARGO_HOME.as_str(), PATH_ENV.as_str());
+        sweep_cmd
+            .current_dir(job_dir)
+            .env_clear()
+            .env("PATH", &sweep_path)
+            .env("CARGO_HOME", CARGO_HOME.as_str())
+            .env("HOME", HOME_ENV.as_str())
+            .env("CARGO_TARGET_DIR", &(bd.clone() + "/target"))
+            .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
+            .args(["sweep", "--maxsize", SWEEP_MAXSIZE.as_str()])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        {
+            sweep_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+            sweep_cmd.env(
+                "TMP",
+                std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
+            );
+            sweep_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+        }
+
+        let (job_id, conn, w_id, wk_name) = (
+            job.id.clone(),
+            conn.clone(),
+            job.workspace_id.clone(),
+            worker_name.to_owned(),
+        );
+
+        tokio::spawn(async move {
+            if let Err(e) = match start_child_process(sweep_cmd, CARGO_PATH.as_str(), false).await {
+                Ok(sweep_process) => {
+                    handle_child(
+                        &job_id,
+                        &conn,
+                        &mut 0,
+                        &mut None,
+                        sweep_process,
+                        false,
+                        &wk_name,
+                        &w_id,
+                        "cargo sweep",
+                        None,
+                        false,
+                        &mut None,
+                        None,
+                        None,
+                    )
+                    .await
+                }
+                Err(e) => Err(e),
+            } {
+                tracing::warn!(
+                    workspace_id = %w_id,
+                    job_id = %job_id,
+                    "Failed to run `cargo sweep`. Rust cache may grow over time, cargo sweep is meant to clean up unused cache.\ne: {e}\n"
+                );
+            }
+        });
+    }
+    Ok(bd)
+}
+
 pub async fn build_rust_crate(
-    job_id: &Uuid,
+    job: &MiniPulledJob,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     worker_name: &str,
-    w_id: &str,
     base_internal_url: &str,
     hash: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    is_preview: bool,
 ) -> error::Result<String> {
-    let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
+    ensure_rust_runtime_dirs();
+    let bin_path = format!("{}/{hash}", *RUST_CACHE_DIR);
 
-    let mut build_rust_cmd = Command::new(CARGO_PATH.as_str());
-    build_rust_cmd
-        .current_dir(job_dir)
-        .env_clear()
-        .envs(PROXY_ENVS.clone())
-        .env("PATH", PATH_ENV.as_str())
-        .env("BASE_INTERNAL_URL", base_internal_url)
-        .env("HOME", HOME_ENV.as_str())
-        .env("CARGO_HOME", CARGO_HOME.as_str())
-        .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
-        .args(vec!["build", "--release"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    let build_dir = get_build_dir(job, job_dir, conn, worker_name, is_preview).await?;
 
-    #[cfg(windows)]
-    {
-        build_rust_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
-        build_rust_cmd.env(
-            "TMP",
-            std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
-        );
-        build_rust_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
-    }
+    let child = if is_sandboxing_enabled() {
+        let _ = write_file(
+            job_dir,
+            "download.config.proto",
+            &NSJAIL_CONFIG_COMPILE_RUST_CONTENT
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{CACHE_DIR}", &*RUST_CACHE_DIR)
+                .replace("{CARGO_HOME}", CARGO_HOME.as_str())
+                .replace("{RUSTUP_HOME}", RUSTUP_HOME.as_str())
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
+                .replace("{BUILD}", &build_dir),
+        )?;
+        let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd
+            .current_dir(job_dir)
+            .env_clear()
+            .env("PATH", PATH_ENV.as_str())
+            .env("TZ", TZ_ENV.as_str())
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .envs(PROXY_ENVS.clone())
+            .env("HOME", HOME_ENV.as_str())
+            .env("CARGO_HOME", CARGO_HOME.as_str())
+            .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
+            .env("CARGO_TARGET_DIR", &(build_dir.clone() + "/target"))
+            .args(vec![
+                "--config",
+                "download.config.proto",
+                "--",
+                CARGO_PATH.as_ref(),
+                "build",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if !is_preview {
+            nsjail_cmd.arg("--release");
+        }
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
+    } else {
+        let mut build_rust_cmd = Command::new(CARGO_PATH.as_str());
+        build_rust_cmd
+            .current_dir(job_dir)
+            .env_clear()
+            .envs(PROXY_ENVS.clone())
+            .env("PATH", PATH_ENV.as_str())
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("HOME", HOME_ENV.as_str())
+            .env("CARGO_HOME", CARGO_HOME.as_str())
+            .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
+            .env("CARGO_TARGET_DIR", &(build_dir.clone() + "/target"))
+            .args(vec!["build"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
 
-    let build_rust_process = start_child_process(build_rust_cmd, CARGO_PATH.as_str()).await?;
+        if !is_preview {
+            build_rust_cmd.arg("--release");
+        }
+        #[cfg(windows)]
+        {
+            build_rust_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+            build_rust_cmd.env(
+                "TMP",
+                std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
+            );
+            build_rust_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+            // MSVC linker needs LIB and INCLUDE to find kernel32.lib etc.
+            if let Ok(lib) = std::env::var("LIB") {
+                build_rust_cmd.env("LIB", lib);
+            }
+            if let Ok(include) = std::env::var("INCLUDE") {
+                build_rust_cmd.env("INCLUDE", include);
+            }
+        }
+        start_child_process(build_rust_cmd, CARGO_PATH.as_str(), false).await?
+    };
     handle_child(
-        job_id,
-        db,
+        &job.id,
+        conn,
         mem_peak,
         canceled_by,
-        build_rust_process,
+        child,
         false,
         worker_name,
-        w_id,
+        &job.workspace_id,
         "rust build",
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
+        None,
     )
     .await?;
-    append_logs(job_id, w_id, "\n\n", db).await;
+    append_logs(&job.id, &job.workspace_id, "\n\n", conn).await;
 
     tokio::fs::copy(
-        &format!("{job_dir}/target/release/main"),
-        format! {"{job_dir}/main"},
+        &format!(
+            "{build_dir}/target/{}/{RUST_BIN_NAME}",
+            if is_preview { "debug" } else { "release" },
+        ),
+        format!("{job_dir}/{RUST_BIN_NAME}"),
     )
     .await
     .map_err(|e| {
         Error::ExecutionErr(format!(
-            "could not copy built binary from [...]/target/release/main to {job_dir}/main: {e:?}"
+            "could not copy built binary from [...]/target/.../{RUST_BIN_NAME} to {job_dir}/{RUST_BIN_NAME}: {e:?}"
         ))
     })?;
 
     match save_cache(
         &bin_path,
         &format!("{RUST_OBJECT_STORE_PREFIX}{hash}"),
-        &format!("{job_dir}/main"),
+        &format!("{job_dir}/{RUST_BIN_NAME}"),
+        false,
     )
     .await
     {
         Err(e) => {
             let em = format!(
-                "could not save {bin_path} to {} to rust cache: {e:?}",
-                format!("{job_dir}/main"),
+                "could not save {bin_path} to {job_dir}/{RUST_BIN_NAME} to rust cache: {e:?}",
             );
             tracing::error!(em);
             Ok(em)
@@ -275,9 +615,10 @@ pub fn compute_rust_hash(code: &str, requirements_o: Option<&String>) -> String 
 pub async fn handle_rust_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    job: &MiniPulledJob,
+    conn: &Connection,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     inner_content: &str,
     job_dir: &str,
     requirements_o: Option<&String>,
@@ -287,35 +628,42 @@ pub async fn handle_rust_job(
     envs: HashMap<String, String>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
+    ensure_rust_runtime_dirs();
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
-    let hash = compute_rust_hash(inner_content, requirements_o);
-    let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
+    let ws_suffix = crate::workspace_registry_cache_suffix(&job.workspace_id).await;
+    let mut hash = compute_rust_hash(inner_content, requirements_o);
+    hash.push_str(&ws_suffix);
+    let bin_path = format!("{}/{hash}", *RUST_CACHE_DIR);
     let remote_path = format!("{RUST_OBJECT_STORE_PREFIX}{hash}");
 
-    let (cache, cache_logs) = windmill_common::worker::load_cache(&bin_path, &remote_path).await;
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+
+    let (cache, cache_logs) = crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
 
     let cache_logs = if cache {
-        let target = format!("{job_dir}/main");
+        let target = format!("{job_dir}/{RUST_BIN_NAME}");
 
         #[cfg(unix)]
         let symlink = std::os::unix::fs::symlink(&bin_path, &target);
         #[cfg(windows)]
-        let symlink = std::os::windows::fs::symlink_dir(&bin_path, &target);
+        let symlink = std::os::windows::fs::symlink_file(&bin_path, &target);
 
         symlink.map_err(|e| {
             Error::ExecutionErr(format!(
-                "could not copy cached binary from {bin_path} to {job_dir}/main: {e:?}"
+                "could not copy cached binary from {bin_path} to {target}: {e:?}"
             ))
         })?;
 
-        create_args_and_out_file(client, job, job_dir, db).await?;
+        create_args_and_out_file(client, job, job_dir, conn).await?;
         cache_logs
     } else {
         let logs1 = format!("{cache_logs}\n\n--- CARGO BUILD ---\n");
-        append_logs(&job.id, &job.workspace_id, logs1, db).await;
+        append_logs(&job.id, &job.workspace_id, logs1, conn).await;
 
         gen_cargo_crate(inner_content, job_dir)?;
+        write_cargo_config(job_dir, &job.id, &job.workspace_id, conn).await?;
 
         if let Some(reqs) = requirements_o {
             if !reqs.is_empty() {
@@ -323,38 +671,45 @@ pub async fn handle_rust_job(
             }
         }
 
-        create_args_and_out_file(client, job, job_dir, db).await?;
+        create_args_and_out_file(client, job, job_dir, conn).await?;
 
         build_rust_crate(
-            &job.id,
+            &job,
             mem_peak,
             canceled_by,
             job_dir,
-            db,
+            conn,
             worker_name,
-            &job.workspace_id,
             base_internal_url,
             &hash,
             occupancy_metrics,
+            requirements_o.is_none(),
         )
         .await?
     };
 
     let logs2 = format!("{cache_logs}\n\n--- RUST CODE EXECUTION ---\n");
-    append_logs(&job.id, &job.workspace_id, logs2, db).await;
+    append_logs(&job.id, &job.workspace_id, logs2, conn).await;
 
-    let client = &client.get_authed().await;
-    let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
-
-    let child = if !*DISABLE_NSJAIL {
+    let child = if is_sandboxing_enabled() {
+        let nsjail_timeout =
+            resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
         let _ = write_file(
             job_dir,
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_RUST_CONTENT
                 .replace("{JOB_DIR}", job_dir)
-                .replace("{CACHE_DIR}", RUST_CACHE_DIR)
+                .replace("{CACHE_DIR}", &*RUST_CACHE_DIR)
+                .replace("{CACHE_HASH}", &hash)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount),
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace("{SHARED_MOUNT}", shared_mount)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
+                .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
@@ -362,25 +717,46 @@ pub async fn handle_rust_job(
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(
+                get_proxy_envs_for_lang(
+                    &ScriptLang::Rust,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
+            )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(vec!["--config", "run.config.proto", "--", "/tmp/main"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let compiled_executable_name = "./main";
-        let mut run_rust = Command::new(compiled_executable_name);
+        let compiled_executable_name = &format!("{job_dir}/{RUST_BIN_NAME}");
+        let mut run_rust = build_command_with_isolation(compiled_executable_name, &[]);
         run_rust
             .current_dir(job_dir)
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(
+                get_proxy_envs_for_lang(
+                    &ScriptLang::Rust,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
+            )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -390,22 +766,24 @@ pub async fn handle_rust_job(
             run_rust.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         }
 
-        start_child_process(run_rust, compiled_executable_name).await?
+        start_child_process(run_rust, compiled_executable_name, false).await?
     };
     handle_child(
         &job.id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         worker_name,
         &job.workspace_id,
         "rust run",
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
+        None,
     )
     .await?;
-    read_result(job_dir).await
+    read_result(job_dir, None).await
 }

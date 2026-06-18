@@ -1,16 +1,22 @@
 <script lang="ts">
-	import { Button, Drawer, DrawerContent, Popup } from '$lib/components/common'
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
+	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import { base } from '$lib/base'
+	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
+	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
 	import FlowPathViewer from '$lib/components/flows/content/FlowPathViewer.svelte'
-	import { emptySchema } from '$lib/utils'
-	import { getContext, tick } from 'svelte'
+	import { emptySchema, getHubFlowIdFromPath, isHubFlowPath, sendUserToast } from '$lib/utils'
+	import { getContext, tick, untrack } from 'svelte'
 	import type {
 		ConnectedAppInput,
 		RowAppInput,
 		RunnableByPath,
 		StaticAppInput,
-		UserAppInput
+		UserAppInput,
+		CtxAppInput
 	} from '../../inputType'
 	import type { AppViewerContext } from '../../types'
 	import { workspaceStore } from '$lib/stores'
@@ -18,33 +24,72 @@
 	import { deepEqual } from 'fast-equals'
 	import { computeFields } from './utils'
 	import { inferArgs, loadSchema } from '$lib/infer'
-	import RunButton from './RunButton.svelte'
+	import AppRunButton from './AppRunButton.svelte'
 	import { getScriptByPath } from '$lib/scripts'
-	import { sendUserToast } from '$lib/toast'
 	import { autoPlacement } from '@floating-ui/core'
 	import { ExternalLink, Eye, GitFork, Pen, RefreshCw, Trash } from 'lucide-svelte'
+	import { get } from 'svelte/store'
+	import RunButton from '$lib/components/RunButton.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import ScriptEditorDrawer from '$lib/components/flows/content/ScriptEditorDrawer.svelte'
+	import FlowEditorDrawer from '$lib/components/flows/content/FlowEditorDrawer.svelte'
+	import { FlowService, ScriptService, type OpenFlow } from '$lib/gen'
+	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 
-	export let runnable: RunnableByPath
-	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
-	export let id: string
+	interface Props {
+		runnable: RunnableByPath
+		fields:
+			| Record<
+					string,
+					StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput | CtxAppInput
+			  >
+			| undefined
+		id: string
+		rawApps?: boolean
+		isLoading?: boolean
+		onRun?: any
+		onCancel?: any
+		hubFlowPreview?: OpenFlow | undefined
+	}
 
-	const { stateId } = getContext<AppViewerContext>('AppViewerContext')
+	let {
+		runnable = $bindable(),
+		fields = $bindable(),
+		id,
+		rawApps = false,
+		isLoading = false,
+		onRun = async () => {},
+		onCancel = async () => {},
+		hubFlowPreview = $bindable(undefined)
+	}: Props = $props()
 
-	let drawerFlowViewer: Drawer
-	let flowPath: string = ''
-	let notFound = false
+	const viewerContext = getContext<AppViewerContext>('AppViewerContext')
+
+	let drawerFlowViewer: Drawer | undefined = $state(undefined)
+	let flowPath: string = $state('')
+	let drawerShowsHubFlow = $state(false)
+	let notFound = $state(false)
+	let hubFlowId = $derived(getHubFlowIdFromPath(runnable.path))
+
+	// Key to force re-mounting of viewer components (bypasses FlowModuleScript cache)
+	let refreshKey = $state(0)
+
+	let scriptEditorDrawer: ScriptEditorDrawer | undefined = $state(undefined)
+	let flowEditorDrawer: FlowEditorDrawer | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 
-	async function refreshScript(x: RunnableByPath) {
+	async function refreshScript(runnable: RunnableByPath) {
+		hubFlowPreview = undefined
 		try {
-			let { schema } = await getScriptByPath(x.path)
-			if (!deepEqual(x.schema, schema)) {
-				x.schema = schema
-				if (!x.schema.order) {
-					x.schema.order = Object.keys(x.schema.properties ?? {})
+			const loaded = await getScriptByPath(runnable.path)
+			const schema = loaded.schema ?? emptySchema()
+			if (!deepEqual(runnable.schema, schema)) {
+				runnable.schema = schema
+				if (!runnable.schema.order) {
+					runnable.schema.order = Object.keys(runnable.schema.properties ?? {})
 				}
-				fields = computeFields(schema, false, fields)
+				fields = computeFields(schema, false, fields ?? {})
 			}
 		} catch (e) {
 			notFound = true
@@ -52,15 +97,48 @@
 		}
 	}
 
-	async function refreshFlow(x: RunnableByPath) {
+	async function refreshFlow(runnable: RunnableByPath) {
+		hubFlowPreview = undefined
 		try {
-			const { schema } = (await loadSchema($workspaceStore ?? '', x.path, 'flow')) ?? emptySchema()
-			if (!deepEqual(x.schema, schema)) {
-				x.schema = schema
-				if (!x.schema.order) {
-					x.schema.order = Object.keys(x.schema.properties ?? {})
+			const hubFlowId = getHubFlowIdFromPath(runnable.path)
+			if (hubFlowId !== undefined) {
+				const hub = await FlowService.getHubFlowById({ id: hubFlowId })
+				const flow = hub.flow ? structuredClone(hub.flow) : undefined
+				if (flow?.value.preprocessor_module?.value.type === 'rawscript') {
+					flow.value.preprocessor_module.value.content = replaceScriptPlaceholderWithItsValues(
+						String(hubFlowId),
+						flow.value.preprocessor_module.value.content
+					)
 				}
-				fields = computeFields(schema, false, fields)
+
+				if (!flow) {
+					notFound = true
+					return
+				}
+
+				hubFlowPreview = flow
+				const schema =
+					flow.schema && typeof flow.schema === 'object' && Object.keys(flow.schema).length > 0
+						? (flow.schema as any)
+						: emptySchema()
+				if (!deepEqual(runnable.schema, schema)) {
+					runnable.schema = schema
+					if (!runnable.schema.order) {
+						runnable.schema.order = Object.keys(runnable.schema.properties ?? {})
+					}
+					fields = computeFields(schema, false, fields ?? {})
+				}
+				return
+			}
+
+			const loaded = await loadSchema($workspaceStore ?? '', runnable.path, 'flow')
+			const schema = loaded?.schema ?? emptySchema()
+			if (!deepEqual(runnable.schema, schema)) {
+				runnable.schema = schema
+				if (!runnable.schema.order) {
+					runnable.schema.order = Object.keys(runnable.schema.properties ?? {})
+				}
+				fields = computeFields(schema, false, fields ?? {})
 			}
 		} catch (e) {
 			notFound = true
@@ -75,7 +153,7 @@
 			await inferArgs(language, content, schema)
 		}
 		dispatch('fork', {
-			type: 'runnableByName',
+			type: 'inline',
 			name: path,
 			inlineScript: {
 				content,
@@ -83,6 +161,34 @@
 				schema,
 				path
 			}
+		})
+	}
+
+	async function openScriptEditor(path: string) {
+		try {
+			const script = await ScriptService.getScriptByPath({
+				workspace: $workspaceStore!,
+				path
+			})
+			scriptEditorDrawer?.openDrawer(script.hash, () => {
+				// Increment refreshKey to force re-mounting of FlowModuleScript (bypasses cache)
+				refreshKey++
+				// Refresh the schema
+				lastRunnable = undefined
+				refresh(runnable)
+			})
+		} catch (e) {
+			sendUserToast(`Failed to load script: ${e}`, true)
+		}
+	}
+
+	function openFlowEditor(path: string) {
+		flowEditorDrawer?.openDrawer(path, () => {
+			// Increment refreshKey to force re-mounting of FlowPathViewer (bypasses cache)
+			refreshKey++
+			// Refresh the schema
+			lastRunnable = undefined
+			refresh(runnable)
 		})
 	}
 
@@ -96,38 +202,100 @@
 			refreshScript(runnable)
 		} else if (runnable.runType == 'flow') {
 			refreshFlow(runnable)
+		} else {
+			hubFlowPreview = undefined
 		}
 		lastRunnable = runnable
 	}
-	$: refresh(runnable)
+	$effect(() => {
+		runnable.path
+		untrack(() => {
+			refresh(runnable)
+		})
+	})
 </script>
 
 <Drawer bind:this={drawerFlowViewer} size="1200px">
-	<DrawerContent title="Flow {flowPath}" on:close={drawerFlowViewer.closeDrawer}>
-		<FlowPathViewer path={flowPath ?? ''} />
+	<DrawerContent
+		title="Flow {flowPath}"
+		on:close={() => {
+			flowPath = ''
+			drawerShowsHubFlow = false
+			drawerFlowViewer?.closeDrawer()
+		}}
+	>
+		{#if drawerShowsHubFlow}
+			<div class="flex flex-col flex-1 h-full min-h-0 overflow-auto">
+				{#if hubFlowPreview}
+					<FlowGraphViewer
+						triggerNode
+						provideTriggerContext
+						fillAvailableHeight
+						flow={{ ...hubFlowPreview, path: flowPath }}
+					/>
+				{:else if notFound}
+					<div class="p-4 text-red-400">Hub flow not found at {flowPath}</div>
+				{:else}
+					<div class="p-4">
+						<Skeleton layout={[[40]]} />
+					</div>
+				{/if}
+			</div>
+		{:else if flowPath}
+			<FlowPathViewer path={flowPath} fillAvailableHeight />
+		{/if}
 	</DrawerContent>
 </Drawer>
 
+<ScriptEditorDrawer
+	bind:this={scriptEditorDrawer}
+	on:save={() => {
+		// Increment refreshKey to force re-mounting of FlowModuleScript (bypasses cache)
+		refreshKey++
+		// Refresh the schema
+		lastRunnable = undefined
+		refresh(runnable)
+	}}
+/>
+
+<FlowEditorDrawer
+	bind:this={flowEditorDrawer}
+	on:save={() => {
+		// Increment refreshKey to force re-mounting of FlowPathViewer (bypasses cache)
+		refreshKey++
+		// Refresh the schema
+		lastRunnable = undefined
+		refresh(runnable)
+	}}
+/>
+
 <div class="p-2 h-full flex flex-col gap-2">
 	<div class="flex flex-row-reverse w-full gap-2">
-		<RunButton hideShortcut {id} />
+		{#if !rawApps}
+			<AppRunButton hideShortcut {id} />
+		{:else}
+			<RunButton {isLoading} {onRun} {onCancel} />
+		{/if}
 
 		<Button
-			variant="border"
+			variant="default"
 			size="xs"
-			color="light"
 			startIcon={{ icon: RefreshCw }}
 			on:click={async () => {
-				sendUserToast('Refreshing inputs')
+				sendUserToast('Getting latest runnable version at that path')
+				// Increment refreshKey to force re-mounting of viewer components (bypasses cache)
+				refreshKey++
+				lastRunnable = undefined
 				refresh(runnable)
-				$stateId = $stateId + 1
+				if (viewerContext) {
+					viewerContext.stateId.update((x) => x + 1)
+				}
 				await tick()
 			}}
 		/>
 		<Button
 			size="xs"
-			variant="border"
-			color="red"
+			variant="default"
 			startIcon={{ icon: Trash }}
 			on:click={() => {
 				dispatch('delete')
@@ -137,41 +305,64 @@
 		</Button>
 		{#if runnable.runType == 'flow'}
 			<Button
-				variant="border"
+				variant="default"
 				size="xs"
-				color="light"
 				startIcon={{ icon: Eye }}
 				on:click={() => {
 					flowPath = runnable.path
-					drawerFlowViewer.openDrawer()
+					drawerShowsHubFlow = isHubFlowPath(runnable.path)
+					drawerFlowViewer?.openDrawer()
 				}}
 			>
 				Expand
 			</Button>
-			<Button
-				variant="border"
-				size="xs"
-				color="light"
-				startIcon={{ icon: Pen }}
-				endIcon={{ icon: ExternalLink }}
-				target="_blank"
-				href="{base}/flows/edit/{runnable.path}?nodraft=true">Edit</Button
-			>
-			<Button
-				variant="border"
-				size="xs"
-				color="light"
-				startIcon={{ icon: Eye }}
-				endIcon={{ icon: ExternalLink }}
-				target="_blank"
-				href="{base}/flows/get/{runnable.path}?workspace={$workspaceStore}"
-			>
-				Details
-			</Button>
+			{#if hubFlowId}
+				<Button
+					variant="default"
+					size="xs"
+					startIcon={{ icon: GitFork }}
+					endIcon={{ icon: ExternalLink }}
+					target="_blank"
+					href="{base}/flows/add?hub={hubFlowId}"
+				>
+					Fork
+				</Button>
+			{:else}
+				<Button
+					variant="default"
+					size="xs"
+					startIcon={{ icon: Pen }}
+					on:click={() => {
+						openFlowEditor(runnable.path)
+					}}
+				>
+					Edit
+				</Button>
+				<Button
+					variant="default"
+					size="xs"
+					startIcon={{ icon: Eye }}
+					endIcon={{ icon: ExternalLink }}
+					target="_blank"
+					href="{base}/flows/get/{runnable.path}?workspace={$workspaceStore}"
+				>
+					Details
+				</Button>
+			{/if}
 		{:else}
 			<Button
 				size="xs"
-				variant="border"
+				variant="default"
+				startIcon={{ icon: Pen }}
+				on:click={() => {
+					openScriptEditor(runnable.path)
+				}}
+			>
+				Edit
+			</Button>
+			<Button
+				size="xs"
+				variant="default"
 				startIcon={{ icon: GitFork }}
 				on:click={() => {
 					fork(runnable.path)
@@ -180,7 +371,7 @@
 				Fork
 			</Button>
 		{/if}
-		<Popup
+		<Popover
 			floatingConfig={{
 				middleware: [
 					autoPlacement({
@@ -195,41 +386,69 @@
 					})
 				]
 			}}
+			closeButton
+			contentClasses="block text-primary text-xs p-4 w-[20vh]"
 		>
-			<svelte:fragment slot="button">
+			{#snippet trigger()}
 				<Button
 					nonCaptureEvent={true}
 					btnClasses={'bg-surface text-primay hover:bg-hover'}
-					color="light"
-					variant="border"
-					size="xs">Cache</Button
+					variant="default"
+					size="xs"
 				>
-			</svelte:fragment>
-			<div class="block text-primary">
-				Since this is a reference to a workspace {runnable.runType}, set the cache in the {runnable.runType}
-				settings directly by editing it. The cache will be shared by any app or flow that uses this {runnable.runType}.
-			</div>
-		</Popup>
+					Cache
+				</Button>
+			{/snippet}
+			{#snippet content()}
+				{#if runnable.runType == 'flow' && isHubFlowPath(runnable.path)}
+					Since this is a reference to a hub flow, cache settings are managed from the flow after
+					you fork it into your workspace.
+				{:else}
+					Since this is a reference to a workspace {runnable.runType}, set the cache in the
+					{runnable.runType} settings directly by editing it. The cache will be shared by any app or
+					flow that uses this {runnable.runType}.
+				{/if}
+			{/snippet}
+		</Popover>
 
 		<input
-			on:keydown|stopPropagation
+			onkeydown={stopPropagation(bubble('keydown'))}
 			bind:value={runnable.name}
 			placeholder="Background runnable name"
 			class="!text-xs !rounded-xs"
 		/>
 	</div>
-	<div class="w-full grow overflow-y-auto">
-		{#key $stateId}
+	<div class="w-full grow min-h-0 overflow-y-auto">
+		{#key `${viewerContext?.stateId ? get(viewerContext.stateId) : 0}-${refreshKey}`}
 			{#if notFound}
-				<div class="text-red-400"
-					>{runnable.runType} not found at {runnable.path} in workspace {$workspaceStore}</div
-				>
+				<div class="text-red-400">
+					{#if runnable.runType == 'flow' && isHubFlowPath(runnable.path)}
+						Hub flow not found at {runnable.path}
+					{:else}
+						{runnable.runType} not found at {runnable.path} in workspace {$workspaceStore}
+					{/if}
+				</div>
 			{:else if runnable.runType == 'script' || runnable.runType == 'hubscript'}
 				<div class="border">
 					<FlowModuleScript path={runnable.path} />
 				</div>
 			{:else if runnable.runType == 'flow'}
-				<FlowPathViewer path={runnable.path} />
+				{#if isHubFlowPath(runnable.path)}
+					{#if hubFlowPreview}
+						<div class="flex flex-col flex-1 h-full min-h-0 overflow-auto">
+							<FlowGraphViewer
+								triggerNode
+								provideTriggerContext
+								fillAvailableHeight
+								flow={{ ...hubFlowPreview, path: runnable.path }}
+							/>
+						</div>
+					{:else}
+						<Skeleton layout={[[40]]} />
+					{/if}
+				{:else}
+					<FlowPathViewer path={runnable.path} fillAvailableHeight />
+				{/if}
 			{:else}
 				Unrecognized runType {runnable.runType}
 			{/if}

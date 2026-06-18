@@ -1,14 +1,19 @@
 import type { Schema } from '$lib/common'
 import type { FlowModule, OpenFlow } from '$lib/gen'
 import { schemaToObject } from '$lib/schema'
-import { getAllSubmodules, getSubModules } from './flowExplorer'
 import type { FlowState } from './flowState'
+import {
+	collectDescendantFlowModules,
+	getChildModuleBranches,
+	getModuleArrayContainer
+} from './flowTree'
 
 export type PickableProperties = {
 	flow_input: Object
 	priorIds: Record<string, any>
 	previousId: string | undefined
 	hasResume: boolean
+	flow_env?: Record<string, any>
 }
 
 type StepPropPicker = {
@@ -41,7 +46,7 @@ export function dfsByModule(
 				if (module.id === id) {
 					return getParents ? [module] : modules.slice(0, i + 1).reverse()
 				} else {
-					const submodules = getSubModules(module)
+					const submodules = getChildModuleBranches(module)
 
 					if (submodules) {
 						let found: FlowModule[] | undefined = rec(id, submodules)
@@ -70,7 +75,6 @@ function getFlowInput(
 	const topFlowInput = schemaToObject(schema, args)
 
 	const parentState = parentModule ? flowState[parentModule.id] : undefined
-
 	if (parentState && parentModule) {
 		if (
 			parentState.previewArgs &&
@@ -88,7 +92,10 @@ function getFlowInput(
 			}
 		} else {
 			let parentFlowInput = getFlowInput(parentModules, flowState, args, schema)
-			if (parentModule.value.type === 'forloopflow') {
+			if (
+				parentModule.value.type === 'forloopflow' ||
+				parentModule.value.type === 'whileloopflow'
+			) {
 				let parentFlowInputIter = { ...parentFlowInput }
 				if (parentFlowInputIter.hasOwnProperty('iter')) {
 					parentFlowInputIter['iter_parent'] = parentFlowInputIter['iter']
@@ -123,9 +130,7 @@ export function getPreviousIds(id: string, flow: OpenFlow, include_node: boolean
 	}
 	return df
 		.map((x) => {
-			let submodules = getAllSubmodules(x)
-				.flat()
-				.map((x) => x.id)
+			let submodules = collectDescendantFlowModules(x).map((submodule) => submodule.id)
 
 			if (submodules.includes(id)) {
 				return [x.id]
@@ -154,7 +159,8 @@ export function getFailureStepPropPicker(flowState: FlowState, flow: OpenFlow, a
 			flow_input: schemaToObject(flow.schema as any, args),
 			priorIds: priorIds,
 			previousId: undefined,
-			hasResume: false
+			hasResume: false,
+			flow_env: flow.value.flow_env
 		},
 		extraLib: `
 /**
@@ -176,6 +182,17 @@ declare const results = ${JSON.stringify(priorIds)}
 * flow input as an object
 */
 declare const flow_input = ${JSON.stringify(flowInput)};
+
+${
+	flow.value.flow_env
+		? `
+/**
+* flow environment variables
+*/
+declare const flow_env = ${JSON.stringify(flow.value.flow_env)};
+`
+		: ''
+}
 		`
 	}
 }
@@ -199,14 +216,25 @@ export function getStepPropPicker(
 	const previousIds = getPreviousIds(id, flow, include_node)
 
 	let priorIds = Object.fromEntries(
-		previousIds.map((id) => [id, flowState[id]?.previewResult ?? {}]).reverse()
+		previousIds
+			.map((id) => {
+				const module = flow.value.modules.find((m) => m.id === id)
+				return [
+					id,
+					module?.mock?.enabled
+						? (module.mock.return_value ?? {})
+						: (flowState[id]?.previewResult ?? {})
+				]
+			})
+			.reverse()
 	)
 
 	const pickableProperties = {
 		flow_input: flowInput,
 		priorIds: priorIds,
 		previousId: previousIds[0],
-		hasResume: previousModule?.suspend != undefined
+		hasResume: previousModule?.suspend != undefined,
+		flow_env: flow.value.flow_env
 	}
 
 	if (pickableProperties.hasResume) {
@@ -218,7 +246,8 @@ export function getStepPropPicker(
 			flowInput,
 			priorIds,
 			previousModule?.suspend != undefined,
-			previousModule?.id
+			previousModule?.id,
+			flow.value.flow_env
 		),
 		pickableProperties
 	}
@@ -228,7 +257,8 @@ export function buildExtraLib(
 	flowInput: Record<string, any>,
 	results: Record<string, any>,
 	resume: boolean,
-	previousId: string | undefined
+	previousId: string | undefined,
+	flowEnv?: Record<string, any>
 ): string {
 	return `
 /**
@@ -262,6 +292,17 @@ declare const results = ${JSON.stringify(results)};
  * Result of the previous step
  */
 declare const previous_result: ${previousId ? JSON.stringify(results[previousId]) : 'any'};
+
+${
+	flowEnv
+		? `
+/**
+ * flow environment variables
+ */
+declare const flow_env = ${JSON.stringify(flowEnv)};
+`
+		: ''
+}
 
 ${
 	resume
@@ -313,4 +354,24 @@ export function filterNestedObject(obj: any, nestedKeys: string[]) {
 		return result
 	}
 	return {}
+}
+
+/**
+ * Get the ID of the previous module within the same container (loop or branch)
+ * based on the same logic used in FlowModuleWrapper.svelte
+ */
+export function getPreviousModule(moduleId: string, flow: OpenFlow): FlowModule | undefined {
+	const container = getModuleArrayContainer(flow.value, moduleId)
+	if (!container || container.index === 0) {
+		return undefined
+	}
+
+	for (let i = container.index - 1; i >= 0; i--) {
+		const mod = container.modules[i]
+		const toolType = (mod.value as any)?.tool_type
+		if (toolType === undefined || toolType === 'flowmodule') {
+			return mod
+		}
+	}
+	return undefined
 }

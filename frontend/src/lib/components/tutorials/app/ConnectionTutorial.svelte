@@ -2,16 +2,20 @@
 	import { insertNewGridItem, appComponentFromType } from '$lib/components/apps/editor/appUtils'
 	import type { AppComponent } from '$lib/components/apps/editor/component'
 	import type { AppViewerContext, AppEditorContext } from '$lib/components/apps/types'
-	import { push } from '$lib/history'
+	import { push } from '$lib/history.svelte'
 	import { getContext } from 'svelte'
 	import Tutorial from '../Tutorial.svelte'
 	import { clickButtonBySelector } from '../utils'
 	import { updateProgress } from '$lib/tutorialUtils'
 
-	export let name: string
-	export let index: number
+	interface Props {
+		name: string;
+		index: number;
+	}
 
-	let tutorial: Tutorial | undefined = undefined
+	let { name, index }: Props = $props();
+
+	let tutorial: Tutorial | undefined = $state(undefined)
 
 	const { app, selectedComponent, focusedGrid } = getContext<AppViewerContext>('AppViewerContext')
 	const { history } = getContext<AppEditorContext>('AppEditorContext')
@@ -68,12 +72,12 @@
 			}
 		},
 		{
-			element: '#plug',
+			element: '[data-connection-button] button[title="Connect"]',
 			popover: {
 				title: 'Connect the text component',
 				description: 'Click on the plug icon to connect the text component',
 				onNextClick: () => {
-					clickButtonBySelector('#plug')
+					clickButtonBySelector('[data-connection-button] button[title="Connect"]')
 					setTimeout(() => {
 						driver.moveNext()
 					})

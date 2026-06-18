@@ -2,64 +2,119 @@
 	import ConfirmationModal from './ConfirmationModal.svelte'
 	import { beforeNavigate } from '$app/navigation'
 	import { goto as gotoUrl } from '$app/navigation'
-	import Button from '../button/Button.svelte'
-	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import {
 		cleanValueProperties,
 		orderedJsonStringify,
 		replaceFalseWithUndefined,
 		type Value
 	} from '$lib/utils'
-	import { tick } from 'svelte'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
+	import type { GetInitialAndModifiedValues } from './unsavedTypes'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
-	export let savedValue: Value | undefined = undefined
-	export let modifiedValue: Value | undefined = undefined
-	export let diffDrawer: DiffDrawer | undefined = undefined
-	export let additionalExitAction: () => void = () => {}
+	interface Props {
+		getInitialAndModifiedValues?: GetInitialAndModifiedValues
+		additionalExitAction?: () => void
+		triggerOnSearchParamsChange?: boolean
+		onDiscardChanges?: () => void
+		tabMode?: boolean
+		/** Alternative dirty check. When provided it REPLACES the value diff:
+		 *  the modal engages whenever it returns true (the value-diff props can
+		 *  be omitted). The full-page editors pass the auto-save-off "parked
+		 *  unsaved changes" signal here. */
+		hasUnsavedChanges?: () => boolean
+		/** Adds a line to the confirmation telling the user they can enable
+		 *  auto-save to persist a draft automatically. */
+		showAutosaveTips?: boolean
+	}
 
-	let bypassBeforeNavigate = false
-	let open = false
-	let goingTo: URL | undefined = undefined
+	let {
+		getInitialAndModifiedValues = undefined,
+		additionalExitAction = () => {},
+		triggerOnSearchParamsChange = false,
+		onDiscardChanges = undefined,
+		tabMode = false,
+		hasUnsavedChanges = undefined,
+		showAutosaveTips = false
+	}: Props = $props()
+	let savedValue: Value | undefined = $state(undefined)
+	let modifiedValue: Value | undefined = $state(undefined)
+
+	let bypassBeforeNavigate = $state(false)
+	let open = $state(false)
+	let goingTo: URL | undefined = $state(undefined)
+
+	// The modal is wired up when either dirty-detection mode is configured.
+	let dirtyDetectionActive = $derived(!!getInitialAndModifiedValues || !!hasUnsavedChanges)
+
+	// Mirrors the modal condition: dirty when values differ, or when either
+	// value is missing (e.g. a never-saved draft). Also refreshes
+	// savedValue/modifiedValue for the diff drawer. `hasUnsavedChanges`, when
+	// passed, short-circuits the value diff with the caller's own predicate.
+	function checkUnsavedChanges(): boolean {
+		if (hasUnsavedChanges) return hasUnsavedChanges()
+		const state = getInitialAndModifiedValues?.()
+		savedValue = state?.savedValue
+		modifiedValue = state?.modifiedValue
+
+		if (savedValue && modifiedValue) {
+			const draftOrDeployed = cleanValueProperties((savedValue.draft || savedValue) ?? {})
+			const current = cleanValueProperties(modifiedValue ?? {})
+
+			return (
+				orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) !==
+				orderedJsonStringify(replaceFalseWithUndefined(current))
+			)
+		}
+		return true
+	}
 
 	beforeNavigate(async (newNavigationState) => {
-		// console.log('beforeNavigate', newNavigationState, bypassBeforeNavigate)
 		if (
 			!bypassBeforeNavigate &&
+			dirtyDetectionActive &&
 			newNavigationState.to &&
-			newNavigationState.to.url != $page.url &&
-			newNavigationState.to.url.pathname !== newNavigationState.from?.url.pathname
+			((newNavigationState.to.url != page.url &&
+				newNavigationState.to.url.pathname !== newNavigationState.from?.url.pathname) ||
+				(triggerOnSearchParamsChange && newNavigationState.to.url.search != page.url.search))
 		) {
-			// console.log('going to', newNavigationState.to.url)
 			goingTo = newNavigationState.to.url
-			newNavigationState.cancel()
-			if (newNavigationState.type != 'popstate') {
-				await tick() // make sure saved value is updated when clicking on save draft or deploy
-			}
-			if (savedValue && modifiedValue) {
-				const draftOrDeployed = cleanValueProperties({
-					...((savedValue.draft || savedValue) ?? {}),
-					path: undefined
-				})
-				const current = cleanValueProperties({ ...(modifiedValue ?? {}), path: undefined })
-				if (
-					orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) ===
-					orderedJsonStringify(replaceFalseWithUndefined(current))
-				) {
-					bypassBeforeNavigate = true
-					additionalExitAction?.()
-					gotoUrl(goingTo)
-				} else {
-					open = true
-				}
-			} else {
+
+			if (checkUnsavedChanges()) {
+				newNavigationState.cancel()
 				open = true
+			} else {
+				if (!tabMode) {
+					bypassBeforeNavigate = true
+				}
+				additionalExitAction?.()
 			}
 		} else if (bypassBeforeNavigate) {
 			bypassBeforeNavigate = false
 		}
 	})
+
+	function onBeforeUnload(event: BeforeUnloadEvent) {
+		if (!bypassBeforeNavigate && dirtyDetectionActive && checkUnsavedChanges()) {
+			// Triggers the browser's native "leave site?" confirmation
+			event.preventDefault()
+			// Required by some browsers (legacy mechanism)
+			event.returnValue = true
+		}
+	}
 </script>
+
+<svelte:window onbeforeunload={onBeforeUnload} />
+
+{#if open}
+	<div
+		style="display: none"
+		use:triggerableByAI={{
+			id: 'unsaved-changes-confirmation-modal',
+			description: 'Unsaved changes confirmation modal. Needs user confirmation to leave the page.'
+		}}
+	></div>
+{/if}
 
 <ConfirmationModal
 	{open}
@@ -69,6 +124,9 @@
 		open = false
 	}}
 	on:confirmed={() => {
+		open = false
+		// Discard changes before navigating
+		onDiscardChanges?.()
 		if (goingTo) {
 			bypassBeforeNavigate = true
 			additionalExitAction?.()
@@ -78,38 +136,12 @@
 >
 	<div class="flex flex-col w-full space-y-4">
 		<span>Are you sure you want to discard the changes you have made? </span>
-		{#if savedValue && modifiedValue && diffDrawer}
-			<Button
-				wrapperClasses="self-start"
-				color="light"
-				variant="border"
-				size="xs"
-				on:click={() => {
-					if (!savedValue || !modifiedValue) {
-						return
-					}
-					open = false
-					diffDrawer?.openDrawer()
-					diffDrawer?.setDiff({
-						mode: 'normal',
-						deployed: savedValue,
-						draft: savedValue.draft,
-						current: modifiedValue,
-						defaultDiffType: 'draft',
-						button: {
-							text: 'Leave anyway',
-							onClick: () => {
-								if (goingTo) {
-									bypassBeforeNavigate = true
-									additionalExitAction?.()
-									gotoUrl(goingTo)
-								}
-							}
-						}
-					})
-				}}
-				>Show diff
-			</Button>
+		{#if showAutosaveTips}
+			<span class="text-xs text-tertiary">
+				Auto-save is off, so these changes are not saved as a draft. Enable auto-save (the cloud
+				icon in the editor toolbar) to persist your changes automatically, or press Ctrl/Cmd+S to
+				save the current draft before leaving.
+			</span>
 		{/if}
 	</div>
 </ConfirmationModal>

@@ -1,21 +1,18 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, AppViewerContext, HiddenRunnable } from '../../types'
+	import type { AppEditorContext, AppViewerContext, GridItem } from '../../types'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import InlineScriptsPanelList from './InlineScriptsPanelList.svelte'
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
 	import InlineScriptsPanelWithTable from './InlineScriptsPanelWithTable.svelte'
-	import { findGridItem } from '../appUtils'
 	import InlineScriptHiddenRunnable from './InlineScriptHiddenRunnable.svelte'
-	import { BG_PREFIX } from '../../utils'
 	import { sendUserToast } from '$lib/toast'
-	import type { RunnableByName } from '../../inputType'
-	import { ScriptService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { findNextAvailablePath } from '$lib/path'
 	import { twMerge } from 'tailwind-merge'
+	import { createScriptFromInlineScript } from './utils'
+	import { BG_PREFIX } from '../appUtilsCore'
 
-	const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, runnableComponents, appPath } = getContext<AppViewerContext>('AppViewerContext')
 	const { selectedComponentInEditor } = getContext<AppEditorContext>('AppEditorContext')
 
 	function deleteBackgroundScript(index: number) {
@@ -29,79 +26,72 @@
 				inlineScript: undefined,
 				name: `Background Runnable ${index}`,
 				fields: {},
-				type: 'runnableByName',
+				type: 'inline',
 				recomputeIds: undefined
 			}
 			$app.hiddenInlineScripts = $app.hiddenInlineScripts
 		}
 
 		$selectedComponentInEditor = undefined
-		delete $runnableComponents[BG_PREFIX + index]
-		$runnableComponents = $runnableComponents
+		if (runnableComponents) {
+			delete $runnableComponents[BG_PREFIX + index]
+			$runnableComponents = $runnableComponents
+		}
 	}
 
-	$: gridItem =
-		$selectedComponentInEditor && !$selectedComponentInEditor.startsWith(BG_PREFIX)
-			? findGridItem($app, $selectedComponentInEditor?.split('_')?.[0])
-			: undefined
-
-	$: hiddenInlineScript = $app?.hiddenInlineScripts?.findIndex((k_, index) => {
-		const [prefix, id] = $selectedComponentInEditor?.split('_') || []
-
-		if (prefix !== 'bg') return false
-
-		return Number(id) === index
+	let prefixOrId = $derived.by(() => {
+		const sel = $selectedComponentInEditor
+		if (!sel) return undefined
+		if (sel.startsWith(BG_PREFIX)) return 'bg'
+		return sel.endsWith('_transformer') ? sel.slice(0, -'_transformer'.length) : sel
+	})
+	let id = $derived.by(() => {
+		const sel = $selectedComponentInEditor
+		if (!sel || !sel.startsWith(BG_PREFIX)) return undefined
+		const rest = sel.slice(BG_PREFIX.length)
+		return rest.endsWith('_transformer') ? rest.slice(0, -'_transformer'.length) : rest
 	})
 
-	$: unusedInlineScript = $app?.unusedInlineScripts?.findIndex(
-		(k_, index) => `unused-${index}` === $selectedComponentInEditor
-	)
-
-	async function createScriptFromInlineScript(
-		id: string,
-		runnable: HiddenRunnable | RunnableByName
-	) {
-		if (runnable.type != 'runnableByName') {
-			sendUserToast('Only inline scripts can be saved to workspace', true)
-			return
+	function containsAction(gridItem: GridItem, actionId: string): boolean {
+		if (!gridItem?.data) return false
+		const data = gridItem.data
+		if (data.type === 'tablecomponent') {
+			return data.actionButtons?.some((a) => a.id === actionId) ?? false
 		}
-		if (!runnable.inlineScript) {
-			sendUserToast('No inline script found', true)
-			return
+		if (
+			data.type === 'aggridcomponent' ||
+			data.type === 'aggridcomponentee' ||
+			data.type === 'dbexplorercomponent' ||
+			data.type === 'aggridinfinitecomponent' ||
+			data.type === 'aggridinfinitecomponentee'
+		) {
+			return data.actions?.some((a) => a.id === actionId) ?? false
 		}
-		let path = `${runnable.inlineScript.path}/inline_${id}`
-		path = await findNextAvailablePath(path)
-		let language = runnable.inlineScript.language
-		if (language == 'frontend') {
-			sendUserToast('Frontend scripts can not be saved to workspace', true)
-			return
+		if (data.type === 'menucomponent') {
+			return data.menuItems?.some((a) => a.id === actionId) ?? false
 		}
-		await ScriptService.createScript({
-			workspace: $workspaceStore!,
-			requestBody: {
-				path: path,
-				summary: runnable.name ?? '',
-				description: '',
-				content: runnable.inlineScript.content,
-				parent_hash: undefined,
-				schema: runnable.inlineScript.schema,
-				is_template: false,
-				language: language!
-			}
-		})
-
-		Object.assign(runnable, {
-			type: 'runnableByPath',
-			schema: runnable.inlineScript.schema,
-			runType: 'script',
-			recomputeIds: undefined,
-			path
-		})
-
-		$app = $app
+		return false
 	}
 
-	export let width: number | undefined = undefined
+	// Resolve which grid item ID to render — computed once per selection change
+	let matchedGridItemId = $derived.by(() => {
+		if (!prefixOrId || prefixOrId === 'bg' || prefixOrId.startsWith('unused-')) return undefined
+		const allItems: GridItem[] = [
+			...($app?.grid ?? []),
+			...Object.values($app?.subgrids ?? {}).flat()
+		]
+		// Fast path: direct ID match (most common)
+		if (allItems.some((item) => item?.id === prefixOrId)) return prefixOrId
+		// Slow path: check nested actions
+		const parent = allItems.find((item) => containsAction(item, prefixOrId))
+		return parent?.id
+	})
+
+	interface Props {
+		width?: number | undefined
+	}
+
+	let { width = undefined }: Props = $props()
 </script>
 
 <Splitpanes
@@ -114,47 +104,80 @@
 	<Pane size={75}>
 		{#if !$selectedComponentInEditor}
 			<div class="text-sm text-secondary text-center py-8 px-2">
-				Select a script on the left panel
+				Select a runnable on the left panel
 			</div>
-		{:else if gridItem}
-			{#key gridItem?.id}
-				<InlineScriptsPanelWithTable
-					on:createScriptFromInlineScript={(e) => {
-						createScriptFromInlineScript(gridItem?.id ?? 'unknown', e.detail)
-					}}
-					bind:gridItem
-				/>
-			{/key}
-		{:else if unusedInlineScript > -1 && $app.unusedInlineScripts?.[unusedInlineScript]}
-			{#key unusedInlineScript}
-				<InlineScriptEditor
-					on:createScriptFromInlineScript={() =>
-						sendUserToast('Cannot save to workspace unused scripts', true)}
-					id={`unused-${unusedInlineScript}`}
-					bind:name={$app.unusedInlineScripts[unusedInlineScript].name}
-					bind:inlineScript={$app.unusedInlineScripts[unusedInlineScript].inlineScript}
-					on:delete={() => {
-						// remove the script from the array at the index
-						$app.unusedInlineScripts.splice(unusedInlineScript, 1)
-						$app.unusedInlineScripts = [...$app.unusedInlineScripts]
-					}}
-				/>
-			{/key}
-		{:else if hiddenInlineScript > -1}
-			{#key hiddenInlineScript}
-				{#if $app.hiddenInlineScripts?.[hiddenInlineScript]}
+		{:else if prefixOrId != 'bg' && !prefixOrId?.startsWith('unused-')}
+			{#each $app.grid as gridItem, index (gridItem?.id)}
+				{#if gridItem?.id == matchedGridItemId}
+					<InlineScriptsPanelWithTable
+						on:createScriptFromInlineScript={(e) => {
+							createScriptFromInlineScript(
+								gridItem?.id ?? 'unknown',
+								e.detail,
+								$workspaceStore ?? '',
+								$appPath
+							)
+						}}
+						bind:gridItem={$app.grid[index]}
+					/>
+				{/if}
+			{/each}
+			{#each Object.keys($app.subgrids ?? {}) as subgrid (subgrid)}
+				{#each $app.subgrids?.[subgrid] ?? [] as subgridItem, index (subgridItem?.id)}
+					{#if subgridItem?.id == matchedGridItemId && $app.subgrids?.[subgrid]}
+						<InlineScriptsPanelWithTable
+							on:createScriptFromInlineScript={(e) => {
+								createScriptFromInlineScript(
+									subgridItem?.id ?? 'unknown',
+									e.detail,
+									$workspaceStore ?? '',
+									$appPath
+								)
+							}}
+							bind:gridItem={$app.subgrids[subgrid][index]}
+						/>
+					{/if}
+				{/each}
+			{/each}
+		{:else if prefixOrId != 'bg' && prefixOrId?.startsWith('unused-')}
+			{#each $app.unusedInlineScripts as unusedInlineScript, index}
+				{#if `unused-${index}` == prefixOrId}
+					<InlineScriptEditor
+						on:createScriptFromInlineScript={() =>
+							sendUserToast('Cannot save to workspace unused scripts', true)}
+						id={`unused-${index}`}
+						bind:name={unusedInlineScript.name}
+						bind:inlineScript={unusedInlineScript.inlineScript}
+						on:delete={() => {
+							$app.unusedInlineScripts.splice(index, 1)
+							$app.unusedInlineScripts = [...$app.unusedInlineScripts]
+						}}
+					/>
+				{/if}
+			{/each}
+		{:else if prefixOrId == 'bg'}
+			{#each $app.hiddenInlineScripts as _inlineScript, index}
+				{#if index.toString() == id}
 					<InlineScriptHiddenRunnable
 						on:createScriptFromInlineScript={(e) => {
-							createScriptFromInlineScript(BG_PREFIX + hiddenInlineScript, e.detail)
+							createScriptFromInlineScript(
+								BG_PREFIX + index,
+								e.detail,
+								$workspaceStore ?? '',
+								$appPath
+							)
+							$app = $app
 						}}
 						transformer={$selectedComponentInEditor?.endsWith('_transformer')}
-						on:delete={() => deleteBackgroundScript(hiddenInlineScript)}
-						id={BG_PREFIX + hiddenInlineScript}
-						bind:runnable={$app.hiddenInlineScripts[hiddenInlineScript]}
-					/>{/if}{/key}
+						on:delete={() => deleteBackgroundScript(index)}
+						id={BG_PREFIX + index}
+						bind:runnable={$app.hiddenInlineScripts[index]}
+					/>
+				{/if}
+			{/each}
 		{:else}
-			<div class="text-sm text-tertiary text-center py-8 px-2">
-				No script found at id {$selectedComponentInEditor}
+			<div class="text-sm text-primary text-center py-8 px-2">
+				No runnable found at id {$selectedComponentInEditor}
 			</div>
 		{/if}
 	</Pane>

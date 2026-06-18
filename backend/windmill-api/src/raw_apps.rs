@@ -5,25 +5,18 @@
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
-use crate::{
-    db::{ApiAuthed, DB},
-    users::require_owner_of_path,
-    webhook_util::{WebhookMessage, WebhookShared},
-};
+use crate::{db::ApiAuthed, utils::check_scopes};
 use axum::{
     body::Body,
     extract::{Extension, Json, Path, Query},
     response::Response,
-    routing::{delete, get, post},
+    routing::get,
     Router,
 };
-use hyper::{header, StatusCode};
+use hyper::header;
 use serde::{Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::FromRow;
-use std::str;
-use windmill_audit::audit_ee::audit_log;
-use windmill_audit::ActionKind;
 use windmill_common::{
     apps::ListAppQuery,
     db::UserDB,
@@ -34,11 +27,7 @@ use windmill_common::{
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_apps))
-        .route("/get_data/:version/*path", get(get_data))
-        .route("/exists/*path", get(exists_app))
-        .route("/update/*path", post(update_app))
-        .route("/delete/*path", delete(delete_app))
-        .route("/create", post(create_app))
+        .route("/get_data/{version}/{*path}", get(get_data))
 }
 
 #[derive(FromRow, Deserialize, Serialize)]
@@ -50,20 +39,12 @@ pub struct ListableApp {
     pub extra_perms: serde_json::Value,
     pub starred: bool,
     pub version: i32,
-}
-
-#[derive(Deserialize)]
-pub struct CreateApp {
-    pub path: String,
-    pub summary: String,
-    pub value: String,
-}
-
-#[derive(Deserialize)]
-pub struct EditApp {
-    pub path: Option<String>,
-    pub summary: Option<String>,
-    pub value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
+    /// Labels inherited from the parent folder, computed at read time.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inherited_labels: Option<Vec<String>>,
 }
 
 async fn list_apps(
@@ -84,6 +65,8 @@ async fn list_apps(
             "app.extra_perms",
             "app.version",
             "favorite.path IS NOT NULL as starred",
+            "app.labels",
+            "folder_labels(app.workspace_id, app.path) as inherited_labels",
         ])
         .left()
         .join("favorite")
@@ -110,7 +93,17 @@ async fn list_apps(
         sqlb.and_where_eq("app.path", "?".bind(path_exact));
     }
 
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    if let Some(label) = &lq.label {
+        for l in label.split(',') {
+            sqlb.and_where(
+                "(app.labels @> ARRAY[?] OR folder_labels(app.workspace_id, app.path) @> ARRAY[?])"
+                    .bind(&l.trim())
+                    .bind(&l.trim()),
+            );
+        }
+    }
+
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, ListableApp>(&sql)
         .fetch_all(&mut *tx)
@@ -127,6 +120,7 @@ async fn get_data(
     Path((w_id, _version, path)): Path<(String, u16, StripPath)>,
 ) -> Result<Response> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("raw_apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let app_o = sqlx::query_scalar!(
@@ -143,197 +137,4 @@ async fn get_data(
     let res = Response::builder().header(header::CONTENT_TYPE, "text/javascript");
 
     Ok(res.body(Body::from(app)).unwrap())
-}
-
-async fn create_app(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Extension(webhook): Extension<WebhookShared>,
-    Path(w_id): Path<String>,
-    Json(app): Json<CreateApp>,
-) -> Result<(StatusCode, String)> {
-    let mut tx = user_db.begin(&authed).await?;
-    if &app.path == "" {
-        return Err(Error::BadRequest("App path cannot be empty".to_string()));
-    }
-
-    let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM raw_app WHERE path = $1 AND workspace_id = $2)",
-        app.path,
-        w_id
-    )
-    .fetch_one(&mut *tx)
-    .await?
-    .unwrap_or(false);
-
-    if exists {
-        return Err(Error::BadRequest(format!(
-            "App with path {} already exists",
-            &app.path
-        )));
-    }
-
-    sqlx::query!(
-        "INSERT INTO raw_app
-            (workspace_id, path, summary, extra_perms, data)
-            VALUES ($1, $2, $3, '{}', $4)",
-        w_id,
-        app.path,
-        app.summary,
-        app.value,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    audit_log(
-        &mut *tx,
-        &authed,
-        "apps.create",
-        ActionKind::Create,
-        &w_id,
-        Some(&app.path),
-        None,
-    )
-    .await?;
-
-    tx.commit().await?;
-    webhook.send_message(
-        w_id.clone(),
-        WebhookMessage::CreateApp { workspace: w_id, path: app.path.clone() },
-    );
-
-    Ok((StatusCode::CREATED, app.path))
-}
-
-async fn delete_app(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Extension(webhook): Extension<WebhookShared>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-) -> Result<String> {
-    let path = path.to_path();
-    let mut tx = user_db.begin(&authed).await?;
-
-    sqlx::query!(
-        "DELETE FROM raw_app WHERE path = $1 AND workspace_id = $2",
-        path,
-        w_id
-    )
-    .execute(&mut *tx)
-    .await?;
-    audit_log(
-        &mut *tx,
-        &authed,
-        "apps.delete",
-        ActionKind::Delete,
-        &w_id,
-        Some(path),
-        None,
-    )
-    .await?;
-    tx.commit().await?;
-    webhook.send_message(
-        w_id.clone().clone(),
-        WebhookMessage::DeleteApp { workspace: w_id, path: path.to_owned() },
-    );
-
-    Ok(format!("app {} deleted", path))
-}
-
-async fn update_app(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Extension(webhook): Extension<WebhookShared>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-    Json(app): Json<EditApp>,
-) -> Result<String> {
-    use sql_builder::prelude::*;
-
-    let path = path.to_path();
-
-    let mut tx = user_db.begin(&authed).await?;
-    let mut sqlb = SqlBuilder::update_table("raw_app");
-    sqlb.and_where_eq("path", "?".bind(&path));
-    sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
-
-    let npath = &app.path;
-    if npath.is_some() || app.summary.is_some() {
-        if let Some(npath) = npath {
-            if npath != path {
-                require_owner_of_path(&authed, path)?;
-
-                let exists = sqlx::query_scalar!(
-                    "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)",
-                    npath,
-                    w_id
-                )
-                .fetch_one(&mut *tx)
-                .await?
-                .unwrap_or(false);
-
-                if exists {
-                    return Err(Error::BadRequest(format!(
-                        "App with path {} already exists",
-                        npath
-                    )));
-                }
-            }
-            sqlb.set_str("path", npath);
-        }
-
-        if let Some(nsummary) = &app.summary {
-            sqlb.set_str("summary", nsummary);
-        }
-    }
-
-    if let Some(value) = &app.value {
-        sqlb.set_str("data", value);
-        sqlb.set("version", "version + 1");
-    }
-
-    sqlb.returning("path");
-
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
-    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
-    not_found_if_none(npath_o, "Raw App", path)?;
-
-    let npath = app.path.clone().unwrap_or_else(|| path.to_owned());
-    audit_log(
-        &mut *tx,
-        &authed,
-        "apps.update",
-        ActionKind::Update,
-        &w_id,
-        Some(&path),
-        None,
-    )
-    .await?;
-    tx.commit().await?;
-    webhook.send_message(
-        w_id.clone(),
-        WebhookMessage::UpdateApp {
-            workspace: w_id,
-            old_path: path.to_owned(),
-            new_path: npath.clone(),
-        },
-    );
-
-    Ok(format!("app {} updated (npath: {:?})", path, npath))
-}
-
-async fn exists_app(
-    Extension(db): Extension<DB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<bool> {
-    let path = path.to_path();
-    let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM raw_app WHERE path = $1 AND workspace_id = $2)",
-        path,
-        w_id
-    )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(false);
-
-    Ok(Json(exists))
 }

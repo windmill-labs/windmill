@@ -1,4 +1,4 @@
-<script lang="ts" context="module">
+<script lang="ts" module>
 	export type ActionType = {
 		label: string
 		icon: any
@@ -8,7 +8,11 @@
 </script>
 
 <script lang="ts">
-	import type { ResultAppInput } from '$lib/components/apps/inputType'
+	import {
+		isRunnableByName,
+		isRunnableByPath,
+		type ResultAppInput
+	} from '$lib/components/apps/inputType'
 	import type { ButtonType } from '$lib/components/common/button/model'
 	import { isTriggerable, isFrontend } from './utils'
 
@@ -22,14 +26,20 @@
 	import ScriptSettingsSection from './shared/ScriptSettingsSection.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 
-	export let appInput: ResultAppInput
-	export let appComponent: AppComponent
-	export let hasScript: boolean
-
-	let runnable = appInput.runnable
-
 	const { runnableComponents, stateId } = getContext<AppViewerContext>('AppViewerContext')
-	export let actions: ActionType[] = []
+	interface Props {
+		appInput: ResultAppInput
+		appComponent: AppComponent
+		hasScript: boolean
+		actions?: ActionType[]
+	}
+
+	let {
+		appInput = $bindable(),
+		appComponent = $bindable(),
+		hasScript,
+		actions = []
+	}: Props = $props()
 
 	function updateAutoRefresh() {
 		const autoRefresh =
@@ -51,12 +61,13 @@
 
 <div>
 	{#key $stateId}
+		{@const runnable = appInput.runnable}
 		<ScriptSettingHeader
-			name={runnable?.type === 'runnableByName'
+			name={isRunnableByName(runnable)
 				? runnable.name
-				: runnable?.type === 'runnableByPath'
-				? runnable.path
-				: ''}
+				: isRunnableByPath(runnable)
+					? runnable.path
+					: ''}
 			{actions}
 		/>
 	{/key}

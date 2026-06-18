@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE ws_specific SET path = $1 WHERE workspace_id = $2 AND item_kind = 'resource' AND path = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "20ca0b26a0d2e9cfb9fb8e7066d6d5f3a154de0f76ce0d12ee678bcabd7b445c"
+}

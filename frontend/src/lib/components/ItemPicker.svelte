@@ -7,23 +7,41 @@
 	import SearchItems from './SearchItems.svelte'
 
 	type Item = Record<string, any>
-	export let pickCallback: (path: string, f: string) => void
-	export let loadItems: () => Promise<Item[] | undefined>
-	export let extraField: string = 'path'
-	export let extraField2: string | undefined = undefined
-	export let itemName: string
-	export let closeOnClick = true
-	/** Displayed if the load function returns no items. */
-	export let noItemMessage = 'There are no items in the list'
-	/** Displayed if the search returns no items. */
-	export let buttons: Record<string, (x: string) => void> = {}
-	export let tooltip: string = ''
-	export let documentationLink: string | undefined = undefined
 
-	let loading = false
-	let items: Item[] | undefined = []
-	let filteredItems: Item[] | undefined = []
-	let filter = ''
+	interface Props {
+		pickCallback: (path: string, extraField: string, extraField2: string) => void
+		loadItems: () => Promise<Item[] | undefined>
+		extraField?: string
+		extraField2?: string | undefined
+		itemName: string
+		closeOnClick?: boolean
+		/** Displayed if the load function returns no items. */
+		noItemMessage?: string
+		/** Displayed if the search returns no items. */
+		buttons?: Record<string, (x: string) => void>
+		tooltip?: string
+		documentationLink?: string | undefined
+		submission?: import('svelte').Snippet
+	}
+
+	let {
+		pickCallback,
+		loadItems,
+		extraField = 'path',
+		extraField2 = undefined,
+		itemName,
+		closeOnClick = true,
+		noItemMessage = 'There are no items in the list',
+		buttons = {},
+		tooltip = '',
+		documentationLink = undefined,
+		submission
+	}: Props = $props()
+
+	let loading = $state(false)
+	let items: Item[] | undefined = $state([])
+	let filteredItems: Item[] | undefined = $state([])
+	let filter = $state('')
 
 	export function openDrawer() {
 		loading = true
@@ -34,12 +52,12 @@
 			.finally(() => {
 				loading = false
 			})
-		drawer.openDrawer?.()
+		drawer?.openDrawer?.()
 	}
 
-	let drawer: Drawer
+	let drawer: Drawer | undefined = $state()
 
-	let refreshing = false
+	let refreshing = $state(false)
 </script>
 
 <SearchItems
@@ -50,9 +68,9 @@
 		(extraField2 ? x[extraField2] + ' ' : '') +
 		(x[extraField] ?? '') +
 		' ' +
-		(x['path'] && x['path'] != x[extraField] ? '(' + x['path'] + ')' ?? '' : '') +
+		(x['path'] && x['path'] != x[extraField] ? '(' + x['path'] + ')' : '') +
 		' ' +
-		(x['description'] != x[extraField] ? x['description'] ?? '' : '')}
+		(x['description'] != x[extraField] ? (x['description'] ?? '') : '')}
 />
 
 <Drawer bind:this={drawer} size="600px">
@@ -65,7 +83,7 @@
 	>
 		<div class="w-full h-full flex flex-col">
 			<div class="flex flex-row gap-2 pb-4">
-				<!-- svelte-ignore a11y-autofocus -->
+				<!-- svelte-ignore a11y_autofocus -->
 				<input
 					type="text"
 					placeholder="Search {itemName}s"
@@ -74,8 +92,6 @@
 					autofocus
 				/>
 				<Button
-					color="light"
-					variant="border"
 					on:click={() => {
 						refreshing = true
 						loadItems()
@@ -96,7 +112,7 @@
 					<Skeleton layout={[[5], 0.2]} />
 				{/each}
 			{:else if !items?.length}
-				<div class="text-center text-sm text-tertiary mt-2">
+				<div class="text-center text-sm text-primary mt-2">
 					{@html noItemMessage}
 				</div>
 			{:else if filteredItems?.length}
@@ -110,11 +126,11 @@
 								<button
 									class="py-2 px-1 gap-1 flex grow border-gray-300 border-opacity-0
 									 text-primary"
-									on:click={() => {
+									onclick={() => {
 										if (closeOnClick) {
-											drawer.closeDrawer()
+											drawer?.closeDrawer()
 										}
-										pickCallback(obj['path'], obj[extraField])
+										pickCallback(obj['path'], obj[extraField], extraField2 ? obj[extraField2] : '')
 									}}
 								>
 									{#if `app` in obj}
@@ -156,7 +172,7 @@
 										<div>
 											<Button
 												size="sm"
-												variant="border"
+												variant="default"
 												on:click={() => {
 													button(obj['path'] ?? '')
 												}}
@@ -174,8 +190,8 @@
 				<NoItemFound />
 			{/if}
 		</div>
-		<svelte:fragment slot="actions">
-			<slot name="submission" />
-		</svelte:fragment>
+		{#snippet actions()}
+			{@render submission?.()}
+		{/snippet}
 	</DrawerContent>
 </Drawer>

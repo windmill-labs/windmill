@@ -1,11 +1,20 @@
 from io import BufferedReader, BytesIO
-from json import JSONDecodeError
+from typing import Optional, Union
 
 import httpx
 
 
 class S3BufferedReader(BufferedReader):
-    def __init__(self, workspace: str, windmill_client: httpx.Client, file_key: str, s3_resource_path: str | None, storage: str | None):
+    """Streaming buffered reader for S3 files via Windmill's S3 proxy.
+
+    Args:
+        workspace: Windmill workspace ID
+        windmill_client: HTTP client for Windmill API
+        file_key: S3 file key/path
+        s3_resource_path: Optional path to S3 resource configuration
+        storage: Optional storage backend identifier
+    """
+    def __init__(self, workspace: str, windmill_client: httpx.Client, file_key: str, s3_resource_path: Optional[str], storage: Optional[str]):
         params = {
             "file_key": file_key,
         }
@@ -22,6 +31,17 @@ class S3BufferedReader(BufferedReader):
 
     def __enter__(self):
         reader = self._context_manager.__enter__()
+        if reader.status_code >= 400:
+            error_bytes = reader.read()
+            try:
+                error_text = error_bytes.decode('utf-8')
+            except UnicodeDecodeError:
+                error_text = str(error_bytes)
+            raise httpx.HTTPStatusError(
+                f"Failed to load S3 file: {reader.status_code} {reader.reason_phrase} - {error_text}",
+                request=reader.request,
+                response=reader
+            )
         self._iterator = reader.iter_bytes()
         return self
 
@@ -50,7 +70,15 @@ class S3BufferedReader(BufferedReader):
         self._context_manager.__exit__(*args)
 
 
-def bytes_generator(buffered_reader: BufferedReader | BytesIO):
+def bytes_generator(buffered_reader: Union[BufferedReader, BytesIO]):
+    """Yield 50KB chunks from a buffered reader.
+
+    Args:
+        buffered_reader: File-like object to read from
+
+    Yields:
+        Bytes chunks of up to 50KB
+    """
     while True:
         byte = buffered_reader.read(50 * 1024)
         if not byte:

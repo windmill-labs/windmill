@@ -1,0 +1,1 @@
+ALTER TABLE password DROP COLUMN IF EXISTS disabled;

@@ -1,22 +1,21 @@
 <script lang="ts">
-	import IconedResourceType from './IconedResourceType.svelte'
-	import Toggle from './Toggle.svelte'
+	import { run } from 'svelte/legacy'
 
-	export let value: any
+	import IconedResourceType from './IconedResourceType.svelte'
+	import TextInput from './text_input/TextInput.svelte'
+	import Password from './Password.svelte'
+	import Toggle from './Toggle.svelte'
+	import SettingCard from './instanceSettings/SettingCard.svelte'
+
+	interface Props {
+		value: any
+	}
+
+	let { value = $bindable() }: Props = $props()
 
 	const AUTH_URL_SUFFIX = '/ui/oauth2'
 
-	$: enabled = value != undefined
-
-	// If `baseUrl` is not already set in the form, try to parse it from the `auth_url` value
-	//
-	// The binding dance here allows us to avoid rendering the string 'undefined' in the input, and
-	// also allow lazy/async binding of the `value` prop.
-	$: derivedBaseUrl = value?.connect_config?.auth_url?.replace(AUTH_URL_SUFFIX, '')
-	let proxyUrlValue = undefined
-	$: baseUrl = proxyUrlValue ?? derivedBaseUrl ?? ''
-
-	$: changeValues({ baseUrl, id: value?.id ?? '' })
+	let proxyUrlValue = $state(undefined)
 
 	function changeValues({ baseUrl, id }) {
 		if (value) {
@@ -38,11 +37,21 @@
 			proxyUrlValue = baseUrl
 		}
 	}
+	let enabled = $derived(value != undefined)
+	// If `baseUrl` is not already set in the form, try to parse it from the `auth_url` value
+	//
+	// The binding dance here allows us to avoid rendering the string 'undefined' in the input, and
+	// also allow lazy/async binding of the `value` prop.
+	let derivedBaseUrl = $derived(value?.connect_config?.auth_url?.replace(AUTH_URL_SUFFIX, ''))
+	let baseUrl = $derived(proxyUrlValue ?? derivedBaseUrl ?? '')
+	run(() => {
+		changeValues({ baseUrl, id: value?.id ?? '' })
+	})
 </script>
 
 <div class="flex flex-col gap-1">
-	<!-- svelte-ignore a11y-label-has-associated-control -->
-	<label class="text-sm font-medium text-primary flex gap-4 items-center"
+	<!-- svelte-ignore a11y_label_has_associated_control -->
+	<label class="text-xs font-semibold text-emphasis flex gap-4 items-center"
 		><div class="w-[120px]"><IconedResourceType name={'kanidm'} after={true} /></div><Toggle
 			checked={enabled}
 			on:change={(e) => {
@@ -55,24 +64,34 @@
 		/></label
 	>
 	{#if enabled}
-		<div class="border rounded p-2">
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">Kanidm Url ({'KANIDM_URL/ui/oauth2'})</span
-				>
-				<input type="text" placeholder="Base URL" bind:value={baseUrl} />
+		<SettingCard class="flex flex-col gap-6">
+			<label class="flex flex-col gap-1">
+				<span class="text-emphasis font-semibold text-xs">Kanidm Url</span>
+				<span class="text-secondary font-normal text-xs">{'KANIDM_URL/ui/oauth2'}</span>
+				<TextInput inputProps={{ type: 'text', placeholder: 'Base URL' }} bind:value={baseUrl} />
 			</label>
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">Custom Name</span>
-				<input type="text" placeholder="Custom Name" bind:value={value['display_name']} />
+			<label class="flex flex-col gap-1">
+				<span class="text-emphasis font-semibold text-xs">Custom Name</span>
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'Custom Name' }}
+					bind:value={value['display_name']}
+				/>
 			</label>
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">Client Id</span>
-				<input type="text" placeholder="Client Id" bind:value={value['id']} />
+			<label class="flex flex-col gap-1">
+				<span class="text-emphasis font-semibold text-xs">Client Id</span>
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'Client Id' }}
+					bind:value={value['id']}
+				/>
 			</label>
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">Client Secret </span>
-				<input type="text" placeholder="Client Secret" bind:value={value['secret']} />
+			<label for="kanidm_client_secret" class="flex flex-col gap-1">
+				<span class="text-emphasis font-semibold text-xs">Client Secret </span>
+				<Password
+					id="kanidm_client_secret"
+					placeholder="Client Secret"
+					bind:password={value['secret']}
+				/>
 			</label>
-		</div>
+		</SettingCard>
 	{/if}
 </div>

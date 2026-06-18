@@ -1,32 +1,32 @@
 <script lang="ts">
+	import { preventDefault, stopPropagation, createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import type { EnumType, SchemaProperty } from '$lib/common'
 	import {
 		setInputCat as computeInputCat,
 		debounce,
+		emptySchema,
 		emptyString,
-		getSchemaFromProperties
+		getSchemaFromProperties,
+		type DynamicInput as DynamicInputTypes
 	} from '$lib/utils'
-	import { DollarSign, Pipette, Plus, X, Check, Loader2 } from 'lucide-svelte'
-	import { createEventDispatcher, onMount, tick } from 'svelte'
-	import Multiselect from 'svelte-multiselect'
+	import { DollarSign, Plus, X, Check, Loader2, ExternalLink } from 'lucide-svelte'
+	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import { Button, SecondsInput } from './common'
+	import { Alert, Button, SecondsInput } from './common'
 	import FieldHeader from './FieldHeader.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
 	import ObjectResourceInput from './ObjectResourceInput.svelte'
 	import Range from './Range.svelte'
 	import ResourcePicker from './ResourcePicker.svelte'
-	import type SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
 	import type VariableEditor from './VariableEditor.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ArgEnum from './ArgEnum.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
 	import DateInput from './DateInput.svelte'
-	import S3FilePicker from './S3FilePicker.svelte'
 	import CurrencyInput from './apps/components/inputs/currency/CurrencyInput.svelte'
-	import FileUpload from './common/fileUpload/FileUpload.svelte'
-	import autosize from '$lib/autosize'
 	import PasswordArgInput from './PasswordArgInput.svelte'
 	import Password from './Password.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -34,169 +34,265 @@
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import { deepEqual } from 'fast-equals'
-	import DynSelect from './DynSelect.svelte'
-	import type { Script } from '$lib/gen'
-	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
+	import DynamicInput from './DynamicInput.svelte'
+	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { ComponentCustomCSS } from './apps/types'
+	import MultiSelect from './select/MultiSelect.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
+	import S3ArgInput from './common/fileUpload/S3ArgInput.svelte'
+	import { base } from '$lib/base'
+	import { workspaceStore } from '$lib/stores'
+	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
+	import AIProviderPicker from './AIProviderPicker.svelte'
+	import TextInput from './text_input/TextInput.svelte'
+	import FileInput from './common/fileInput/FileInput.svelte'
+	import { randomUUID } from '$lib/utils/uuid'
 
-	export let label: string = ''
-	export let value: any
-	export let defaultValue: any = undefined
+	interface Props {
+		label?: string
+		value: any
+		defaultValue?: any
+		description?: string
+		format?: string
+		contentEncoding?: 'base64' | 'binary' | undefined
+		type?: string | undefined
+		oneOf?: SchemaProperty[] | undefined
+		required?: boolean
+		pattern?: undefined | string
+		valid?: boolean
+		enum_?: EnumType
+		disabled?: boolean
+		itemsType?:
+			| {
+					type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
+					contentEncoding?: 'base64'
+					enum?: string[]
+					multiselect?: string[]
+					resourceType?: string
+					properties?: { [name: string]: SchemaProperty }
+			  }
+			| undefined
+		lightHeaderFont?: boolean
+		displayHeader?: boolean
+		properties?: { [name: string]: SchemaProperty } | undefined
+		nestedRequired?: string[] | undefined
+		autofocus?: boolean | null
+		compact?: boolean
+		password?: boolean
+		pickForField?: string | undefined
+		variableEditor?: VariableEditor | undefined
+		itemPicker?: ItemPicker | undefined
+		noMargin?: boolean
+		extra?: Record<string, any>
+		minW?: boolean
+		prettifyHeader?: boolean
+		resourceTypes: string[] | undefined
+		disablePortal?: boolean
+		showSchemaExplorer?: boolean
+		simpleTooltip?: string | undefined
+		customErrorMessage?: string | undefined
+		onlyMaskPassword?: boolean
+		nullable?: boolean
+		title?: string | undefined
+		placeholder?: string | undefined
+		order?: string[] | undefined
+		editor?: any | undefined
+		orderEditable?: boolean
+		shouldDispatchChanges?: boolean
+		noDefaultOnSelectFirst?: boolean
+		helperScript?: DynamicInputTypes.HelperScript
+		otherArgs?: Record<string, any>
+		lightHeader?: boolean
+		diffStatus?: SchemaDiff | undefined
+		hideNested?: boolean
+		nestedParent?: { label: string; nestedParent: any | undefined } | undefined
+		nestedClasses?: string
+		displayType?: boolean
+		css?: ComponentCustomCSS<'schemaformcomponent'> | undefined
+		appPath?: string | undefined
+		computeS3ForceViewerPolicies?:
+			| (() =>
+					| {
+							allowed_resources: string[]
+							allow_user_resources: boolean
+							allow_workspace_resource: boolean
+							file_key_regex: string
+					  }
+					| undefined)
+			| undefined
+		workspace?: string | undefined
+		s3StorageConfigured?: boolean
+		chatInputEnabled?: boolean
+		actions?: import('svelte').Snippet
+		innerBottomSnippet?: import('svelte').Snippet
+		fieldHeaderActions?: import('svelte').Snippet
+	}
 
-	export let description: string = ''
-	export let format: string = ''
-	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
-	export let type: string | undefined = undefined
-	export let oneOf: SchemaProperty[] | undefined = undefined
-	export let required = false
-	export let pattern: undefined | string = undefined
-	export let valid = true
-	export let enum_: EnumType = undefined
-	export let disabled = false
-	export let itemsType:
-		| {
-				type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
-				contentEncoding?: 'base64'
-				enum?: string[]
-				multiselect?: string[]
-				resourceType?: string
-				properties?: { [name: string]: SchemaProperty }
-		  }
-		| undefined = undefined
+	let {
+		label = '',
+		value = $bindable(),
+		defaultValue = $bindable(undefined),
+		description = $bindable(undefined),
+		format = $bindable(undefined),
+		contentEncoding = undefined,
+		type = undefined,
+		oneOf = $bindable(undefined),
+		required = false,
+		pattern = $bindable(undefined),
+		valid = $bindable(undefined), // Note : this should not exist, valid and error should be one coherent state
+		enum_ = $bindable(undefined),
+		disabled = false,
+		itemsType = $bindable(undefined),
+		displayHeader = true,
+		properties = $bindable(undefined),
+		nestedRequired = undefined,
+		autofocus = null,
+		compact = false,
+		password = false,
+		pickForField = $bindable(undefined),
+		variableEditor = undefined,
+		itemPicker = undefined,
+		noMargin = false,
+		extra = {},
+		minW = true,
+		prettifyHeader = false,
+		resourceTypes,
+		disablePortal = false,
+		showSchemaExplorer = false,
+		simpleTooltip = undefined,
+		customErrorMessage = undefined,
+		onlyMaskPassword = false,
+		nullable = false,
+		title = $bindable(undefined),
+		placeholder = $bindable(undefined),
+		order = $bindable(undefined),
+		editor = $bindable(undefined),
+		orderEditable = false,
+		shouldDispatchChanges = false,
+		noDefaultOnSelectFirst = false,
+		helperScript = undefined,
+		otherArgs = {},
+		lightHeader = false,
+		diffStatus = undefined,
+		hideNested = false,
+		nestedParent = undefined,
+		nestedClasses = '',
+		displayType = true,
+		css = undefined,
+		appPath = undefined,
+		computeS3ForceViewerPolicies = undefined,
+		workspace = undefined,
+		s3StorageConfigured = true,
+		chatInputEnabled = false,
+		actions,
+		innerBottomSnippet,
+		fieldHeaderActions,
+		lightHeaderFont = false
+	}: Props = $props()
 
-	export let displayHeader = true
-	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
-	export let nestedRequired: string[] | undefined = undefined
-	export let autofocus: boolean | null = null
-	export let compact = false
-	export let password = false
-	export let pickForField: string | undefined = undefined
-	export let variableEditor: VariableEditor | undefined = undefined
-	export let itemPicker: ItemPicker | undefined = undefined
-	export let noMargin = false
-	export let extra: Record<string, any> = {}
-	export let minW = true
-	export let prettifyHeader = false
-	export let resourceTypes: string[] | undefined
-	export let disablePortal = false
-	export let showSchemaExplorer = false
-	export let simpleTooltip: string | undefined = undefined
-	export let customErrorMessage: string | undefined = undefined
-	export let onlyMaskPassword = false
-	export let nullable: boolean = false
-	export let title: string | undefined = undefined
-	export let placeholder: string | undefined = undefined
-	export let order: string[] | undefined = undefined
-	export let editor: SimpleEditor | undefined = undefined
-	export let orderEditable = false
-	export let shouldDispatchChanges: boolean = false
-	export let noDefaultOnSelectFirst: boolean = false
-	export let helperScript:
-		| { type: 'inline'; path?: string; lang: Script['language']; code: string }
-		| { type: 'hash'; hash: string }
-		| undefined = undefined
-	export let otherArgs: Record<string, any> = {}
-	export let lightHeader = false
-	export let diffStatus: SchemaDiff | undefined = undefined
-	export let hideNested = false
-	export let nestedParent: { label: string; nestedParent: any | undefined } | undefined = undefined
-	export let nestedClasses = ''
-	export let displayType = true
-	export let css: ComponentCustomCSS<'schemaformcomponent'> | undefined = undefined
-	export let appPath: string | undefined = undefined
-	export let computeS3ForceViewerPolicies:
-		| (() =>
-				| {
-						allowed_resources: string[]
-						allow_user_resources: boolean
-						allow_workspace_resource: boolean
-						file_key_regex: string
-				  }
-				| undefined)
-		| undefined = undefined
-	export let workspace: string | undefined = undefined
+	$effect(() => {
+		if (description == undefined) {
+			description = ''
+		}
+		if (format == undefined) {
+			format = ''
+		}
+		if (valid == undefined) {
+			valid = true
+		}
+	})
 
-	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
-
-	let oneOfSelected: string | undefined = undefined
+	let oneOfSelected: string | undefined = $state(undefined)
+	let tagKey = $derived(
+		oneOf?.find((o) => Object.keys(o.properties ?? {})?.includes('kind')) ? 'kind' : 'label'
+	)
 	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
 		if (
 			oneOf &&
 			oneOf.length >= 2 &&
-			(!oneOfSelected || !oneOf.some((o) => o.title === oneOfSelected))
+			(!oneOfSelected || !oneOf.some((o) => o.title === oneOfSelected) || !value)
 		) {
-			if (value && value['label'] && oneOf.some((o) => o.title === value['label'])) {
+			if (value && value[tagKey] && oneOf.some((o) => o.title === value[tagKey])) {
 				const existingValue = JSON.parse(JSON.stringify(value))
-				oneOfSelected = value['label']
+				oneOfSelected = value[tagKey]
 				await tick()
 				value = existingValue
 			} else {
-				oneOfSelected = oneOf[0]['title']
+				const variantTitle = oneOf[0]['title']
+				oneOfSelected = variantTitle
+				value = { ...(typeof value === 'object' ? (value ?? {}) : {}), [tagKey]: variantTitle }
 			}
 		}
 	}
-	function updateOneOfSelectedValue(oneOfSelected: string | undefined) {
-		if (oneOfSelected) {
-			value = { label: oneOfSelected }
+
+	function onOneOfChange() {
+		const label = value?.['label']
+		const kind = value?.['kind']
+		if (label && oneOf && oneOf.some((o) => o.title == label) && oneOfSelected != label) {
+			oneOfSelected = label
+		} else if (kind && oneOf && oneOf.some((o) => o.title == kind) && oneOfSelected != kind) {
+			oneOfSelected = kind
 		}
 	}
-	$: updateOneOfSelected(oneOf)
-	$: updateOneOfSelectedValue(oneOfSelected)
 
 	const dispatch = createEventDispatcher()
 
-	let ignoreValueUndefined = false
-	let error: string = ''
-	let s3FilePicker: S3FilePicker
-	let s3FileUploadRawMode: false
-	let isListJson = false
-	let hasIsListJsonChanged = false
+	let ignoreValueUndefined = $state(false)
+	let error: string = $state('')
+	let isListJson = $state(false)
+	let hasIsListJsonChanged = $state(false)
 
-	let el: HTMLTextAreaElement | undefined = undefined
+	let el: HTMLTextAreaElement | undefined = $state(undefined)
 
-	let rawValue: string | undefined = undefined
+	let rawValue: string | undefined = $state(undefined)
 
-	function computeDefaultValue(
-		nvalue?: any,
-		inputCat?: string,
-		defaultValue?: any,
-		nnullable?: boolean
-	) {
+	let lastValue: any = null
+
+	function computeDefaultValue(inputCat?: string, defaultValue?: any, nnullable?: boolean) {
+		let nvalue: any = null
 		if (label == 'toString' && typeof value == 'function') {
-			value = undefined
+			nvalue = undefined
 		}
 		if ((value == undefined || value == null) && !ignoreValueUndefined) {
-			value = defaultValue
+			nvalue = structuredClone($state.snapshot(defaultValue))
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
-					value = nullable ? null : ''
+					nvalue = nullable
+						? null
+						: format === 'uuid' && extra?.['x-auto-generate']
+							? randomUUID()
+							: ''
 				} else if (inputCat == 'enum' && required) {
-					value = enum_?.[0]
+					let firstV = enum_?.[0]
+					if (typeof firstV === 'string') {
+						nvalue = firstV
+					} else if (firstV && typeof firstV === 'object') {
+						nvalue = firstV.value
+					}
 				} else if (inputCat == 'boolean') {
-					value = false
+					nvalue = false
 				} else if (inputCat == 'list') {
-					value = []
+					nvalue = nullable ? null : []
 				}
 			} else if (inputCat === 'object') {
 				evalValueToRaw()
 			}
 		}
 
-		if (nnullable && type === 'string' && value === '') {
+		if (nnullable && type === 'string' && value === '' && nvalue == null) {
 			value = null
+		} else if (nvalue != null && !deepEqual(nvalue, value)) {
+			value = nvalue
+			lastValue = value
 		}
 	}
-
-	$: computeDefaultValue(value, inputCat, defaultValue, nullable)
-
-	let lastValue: any = undefined
 
 	// By setting isListJson to true, we can render inputs even if the value is not an array of the correct type
 	// This avoids the issue of the input being rendered as a string with value: [object Object], or as a number with value: NaN
 	function checkArrayValueType() {
 		try {
 			if (Array.isArray(value) && value.length > 0) {
-				const firstItem = value?.[0]
+				let firstItem = value?.[0]
 				const type = itemsType?.type
 
 				switch (type) {
@@ -219,21 +315,16 @@
 		lastValue = value
 	}
 
-	$: !isListJson &&
-		inputCat === 'list' &&
-		value != lastValue &&
-		itemsType?.type &&
-		!hasIsListJsonChanged &&
-		checkArrayValueType()
-
-	$: defaultValue != undefined && handleDefaultValueChange()
-
-	let oldDefaultValue = structuredClone(defaultValue)
+	let oldDefaultValue = structuredClone($state.snapshot(defaultValue))
 	function handleDefaultValueChange() {
-		if (deepEqual(value, oldDefaultValue)) {
+		if (
+			deepEqual(value, oldDefaultValue) &&
+			!deepEqual(value, defaultValue) &&
+			!deepEqual(defaultValue, oldDefaultValue)
+		) {
 			value = defaultValue
 		}
-		oldDefaultValue = structuredClone(defaultValue)
+		oldDefaultValue = structuredClone($state.snapshot(defaultValue))
 	}
 
 	function isObjectCat(inputCat?: string) {
@@ -242,35 +333,59 @@
 		)
 	}
 
-	function evalValueToRaw() {
-		rawValue = isObjectCat(inputCat) ? JSON.stringify(value, null, 2) : undefined
-		rawValue && editor?.getCode() != rawValue && editor?.setCode(rawValue)
-		// console.log('evalValueToRaw', value, rawValue, inputCat, label)
+	function isRawStringEditor(inputCat?: string) {
+		return inputCat == 'sql' || inputCat == 'yaml'
 	}
 
-	$: inputCat &&
-		isObjectCat(inputCat) &&
-		rawValue == undefined &&
-		value != undefined &&
-		evalValueToRaw()
+	function evalValueToRaw() {
+		if (setCodeDisabled) {
+			return
+		}
+		const newRawValue =
+			value == undefined || value == null
+				? ''
+				: isObjectCat(inputCat) || (inputCat == 'list' && isListJson)
+					? JSON.stringify(value, null, 2)
+					: isRawStringEditor(inputCat)
+						? typeof value == 'string'
+							? value
+							: JSON.stringify(value, null, 2)
+						: undefined
+
+		if (newRawValue != rawValue) {
+			rawValue = newRawValue
+			rawValue != undefined && editor?.getCode() != rawValue && editor?.setCode(rawValue)
+		}
+	}
+
+	let setCodeDisabled = false
+
+	let timeout: number | undefined = undefined
+	function setNewValueFromCode(nvalue: any) {
+		if (!deepEqual(nvalue, value)) {
+			value = nvalue
+			timeout && clearTimeout(timeout)
+			setCodeDisabled = true
+			timeout = setTimeout(() => {
+				setCodeDisabled = false
+			}, 1000)
+		}
+	}
 
 	onMount(() => {
-		computeDefaultValue()
-		// console.log('onMount', value, rawValue, inputCat)
 		evalValueToRaw()
 	})
 
-	function fileChanged(e: any, cb: (v: string | undefined) => void) {
-		let t = e.target
-		if (t && 'files' in t && t.files.length > 0) {
-			let reader = new FileReader()
-			reader.onload = (e: any) => {
-				cb(e.target.result.split('base64,')[1])
-			}
-			reader.readAsDataURL(t.files[0])
-		} else {
+	function fileChangedInner(file: File | undefined, cb: (v: string | undefined) => void) {
+		if (!file) {
 			cb(undefined)
+			return
 		}
+		let reader = new FileReader()
+		reader.onload = (e: any) => {
+			cb(e.target.result.split('base64,')[1])
+		}
+		reader.readAsDataURL(file)
 	}
 
 	export function focus() {
@@ -280,13 +395,40 @@
 			el.style.height = el.scrollHeight + 50 + 'px'
 		}
 	}
+	const EMAIL_PATTERN = '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$'
+	const IPV4_PATTERN =
+		'^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
+	const UUID_PATTERN = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+	const IPV6_PATTERN =
+		'^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$'
 
 	function validateInput(pattern: string | undefined, v: any, required: boolean): void {
 		if (nullable && emptyString(v)) {
 			error = ''
 			valid && (valid = true)
+		} else if (
+			typeof v === 'string' &&
+			(v.startsWith('$var:') || v.startsWith('$res:') || v.startsWith('$jsonvar:'))
+		) {
+			// $var/$res/$jsonvar are placeholders resolved at runtime; the literal
+			// string won't match format constraints (email/ipv4/uuid/custom pattern),
+			// so format-checking it produces a false-positive "invalid format" error.
+			error = ''
+			!valid && (valid = true)
 		} else if (required && (v == undefined || v == null || v === '') && inputCat != 'object') {
 			error = 'Required'
+			valid && (valid = false)
+		} else if (
+			required &&
+			inputCat == 'list' &&
+			extra?.['nonEmpty'] == true &&
+			Array.isArray(v) &&
+			v.length === 0
+		) {
+			error = 'Required'
+			valid && (valid = false)
+		} else if (inputCat == 'list' && !Array.isArray(v)) {
+			error = 'Expected an array, got ' + typeof v + ' instead'
 			valid && (valid = false)
 		} else {
 			if (inputCat == 'number' && typeof v === 'number') {
@@ -302,6 +444,14 @@
 					error = ''
 					!valid && (valid = true)
 				}
+			} else if (type == 'string' && format == 'email' && !testRegex(EMAIL_PATTERN, v)) {
+				error = 'invalid email address'
+			} else if (type == 'string' && format == 'ipv4' && !testRegex(IPV4_PATTERN, v)) {
+				error = 'invalid IPv4 address'
+			} else if (type == 'string' && format == 'ipv6' && !testRegex(IPV6_PATTERN, v)) {
+				error = 'invalid IPv6 address'
+			} else if (type == 'string' && format == 'uuid' && !testRegex(UUID_PATTERN, v)) {
+				error = 'invalid UUID'
 			} else if (pattern && !testRegex(pattern, v)) {
 				if (!emptyString(customErrorMessage)) {
 					error = customErrorMessage ?? ''
@@ -332,15 +482,16 @@
 			(e.ctrlKey || e.metaKey) &&
 			(e.key == 'Enter' || e.key == 'c' || e.key == 'v' || e.key == 'x')
 		) {
+			if (e.key == 'Enter') {
+				dispatch('keydownCmdEnter')
+			}
 			return
 		}
 		e.stopPropagation()
 	}
 
-	let redraw = 0
-	let itemsLimit = 50
-
-	$: validateInput(pattern, value, required)
+	let redraw = $state(0)
+	let itemsLimit = $state(50)
 
 	let oldValue = value
 
@@ -351,35 +502,112 @@
 		}
 	}
 
-	let debounced = debounce(() => compareValues(value), 50)
-	$: shouldDispatchChanges && debounced(value)
+	let { debounced, clearDebounce } = debounce(() => compareValues(value), 50)
+	let inputCat = $derived(computeInputCat(type, format, itemsType?.type, enum_, contentEncoding))
+	let isNonStringSecret = $derived((password || extra?.['password'] == true) && type === 'object')
+
+	let displayJsonToggleHeader = $derived(
+		displayHeader &&
+			inputCat === 'list' &&
+			!(itemsType?.resourceType === 's3_object' || itemsType?.resourceType === 's3object')
+	)
+	$effect(() => {
+		oneOf && untrack(() => updateOneOfSelected(oneOf))
+	})
+	$effect(() => {
+		oneOf && value && untrack(() => onOneOfChange())
+	})
+
+	$effect.pre(() => {
+		value
+		let args = [inputCat, defaultValue, nullable]
+
+		untrack(() => {
+			if (deepEqual(value, lastValue)) return
+			computeDefaultValue(...args)
+		})
+	})
+	$effect.pre(() => {
+		!isListJson &&
+			inputCat === 'list' &&
+			enum_ == undefined &&
+			value != lastValue &&
+			itemsType?.type &&
+			!hasIsListJsonChanged &&
+			untrack(() => checkArrayValueType())
+	})
+	$effect.pre(() => {
+		defaultValue != undefined && untrack(() => handleDefaultValueChange())
+	})
+	$effect.pre(() => {
+		;(inputCat &&
+			(isObjectCat(inputCat) || isRawStringEditor(inputCat)) &&
+			!oneOf &&
+			untrack(() => evalValueToRaw())) ||
+			value
+	})
+
+	$effect(() => {
+		extra?.['nonEmpty']
+		let args = [pattern, value, required] as const
+		untrack(() => validateInput(...args))
+	})
+	$effect(() => {
+		shouldDispatchChanges && debounced(value)
+	})
+
+	onDestroy(() => {
+		clearDebounce()
+	})
 </script>
 
-<S3FilePicker
-	bind:this={s3FilePicker}
-	bind:selectedFileKey={value}
-	on:close={() => {
-		rawValue = JSON.stringify(value, null, 2)
-		editor?.setCode(rawValue)
-	}}
-	readOnlyMode={false}
-/>
-
-<!-- svelte-ignore a11y-autofocus -->
+{#snippet variableInput()}
+	{#if variableEditor}
+		<div class="text-2xs text-hint">
+			{#if value && typeof value == 'string' && value?.startsWith('$var:')}
+				Linked to variable <button
+					class="text-accent underline font-normal"
+					onclick={() => variableEditor?.editVariable?.(value.slice(5))}>{value.slice(5)}</button
+				>
+			{:else if value && typeof value == 'string' && value?.startsWith('$jsonvar:')}
+				Linked to variable <button
+					class="text-accent underline font-normal"
+					onclick={() => variableEditor?.editVariable?.(value.slice('$jsonvar:'.length))}
+					>{value.slice('$jsonvar:'.length)}</button
+				>
+			{/if}
+		</div>
+	{/if}
+{/snippet}
+{#snippet resourceInput()}
+	{#if variableEditor}
+		<div class="text-sm text-primary">
+			{#if value && typeof value == 'string' && value?.startsWith('$res:')}
+				Linked to resource <a
+					target="_blank"
+					href="{base}/resources#/resource/{value.slice(5)}"
+					class="text-blue-500 underline"
+					>{value.slice(5)} <span class="inline-block -mb-0.5"><ExternalLink size={14} /></span></a
+				>
+			{/if}
+		</div>
+	{/if}
+{/snippet}
+<!-- svelte-ignore a11y_autofocus -->
 <div
 	class={twMerge(
-		'flex flex-col w-full rounded-md relative',
+		'flex flex-col gap-1 w-full rounded-md relative group',
 		minW ? 'min-w-[250px]' : '',
 		diffStatus?.diff ? 'px-2' : '',
 		diffStatus?.diff == 'added'
 			? 'bg-green-300 dark:bg-green-800'
 			: diffStatus?.diff === 'removed'
-			? 'bg-red-300 dark:bg-red-800'
-			: diffStatus?.diff === 'same'
-			? 'bg-surface'
-			: diffStatus?.diff === 'modified' || typeof diffStatus?.diff === 'object'
-			? 'border-2 border-green-500 bg-surface'
-			: ''
+				? 'bg-red-300 dark:bg-red-800'
+				: diffStatus?.diff === 'same'
+					? 'bg-surface'
+					: diffStatus?.diff === 'modified' || typeof diffStatus?.diff === 'object'
+						? 'border-2 border-green-500 bg-surface'
+						: ''
 	)}
 	data-schema-picker
 >
@@ -389,50 +617,83 @@
 		>
 			<button
 				class="p-1 bg-green-500 text-white hover:bg-green-600"
-				on:click|preventDefault|stopPropagation={() => {
-					dispatch('acceptChange', { label, nestedParent })
-				}}
+				onclick={stopPropagation(
+					preventDefault(() => {
+						dispatch('acceptChange', { label, nestedParent })
+					})
+				)}
 			>
 				<Check size={14} />
 			</button>
 			<button
 				class="p-1 hover:bg-red-500 hover:text-white"
-				on:click|preventDefault|stopPropagation={() => {
-					dispatch('rejectChange', { label, nestedParent })
-				}}
+				onclick={stopPropagation(
+					preventDefault(() => {
+						dispatch('rejectChange', { label, nestedParent })
+					})
+				)}
 			>
 				<X size={14} />
 			</button>
 		</div>
 	{/if}
 	{#if displayHeader}
-		<FieldHeader
-			prettify={prettifyHeader}
-			label={title && !emptyString(title) ? title : label}
-			{disabled}
-			{required}
-			{type}
-			{contentEncoding}
-			{format}
-			{simpleTooltip}
-			{lightHeader}
-			{displayType}
-			labelClass={css?.label?.class}
-		/>
+		<div class="flex items-end">
+			<FieldHeader
+				prettify={prettifyHeader}
+				label={title && !emptyString(title) ? title : label}
+				{disabled}
+				{required}
+				{type}
+				{contentEncoding}
+				{format}
+				{simpleTooltip}
+				{lightHeader}
+				{displayType}
+				labelClass={twMerge(lightHeaderFont ? '!font-normal text-primary' : '', css?.label?.class)}
+			/>
+			<div class="ml-auto flex gap-2">
+				{#if displayJsonToggleHeader}
+					<Toggle
+						on:change={(e) => {
+							// Once the user has changed the input type, we should not change it back automatically
+							if (!hasIsListJsonChanged) {
+								hasIsListJsonChanged = true
+							}
+
+							evalValueToRaw()
+							isListJson = !isListJson
+						}}
+						checked={isListJson}
+						textClass="text-secondary"
+						size="xs"
+						options={{ left: 'json' }}
+					/>
+				{/if}
+				{@render fieldHeaderActions?.()}
+			</div>
+		</div>
 	{/if}
 
 	{#if description}
-		<div class={twMerge('text-xs italic pb-1 text-secondary', css?.description?.class)}>
+		<div class={twMerge('text-xs text-secondary', css?.description?.class)}>
 			<pre class="font-main whitespace-normal">{description}</pre>
 		</div>
 	{/if}
 
 	<div class="flex space-x-1">
 		{#if inputCat == 'number'}
-			{#if extra['min'] != undefined && extra['max'] != undefined}
+			{#if extra['seconds'] !== undefined}
+				<div class="w-full">
+					<SecondsInput
+						bind:seconds={value}
+						onfocus={bubble('focus')}
+						{defaultValue}
+						clearable={extra['clearable'] !== false}
+					/>
+				</div>
+			{:else if extra['min'] != undefined && extra['max'] != undefined}
 				<Range bind:value min={extra['min']} max={extra['max']} {defaultValue} />
-			{:else if extra['seconds'] !== undefined}
-				<SecondsInput bind:seconds={value} on:focus />
 			{:else if extra?.currency}
 				<CurrencyInput
 					inputClasses={{
@@ -444,16 +705,32 @@
 					bind:value
 					currency={extra?.currency}
 					locale={extra?.currencyLocale ?? 'en-US'}
+					{disabled}
 				/>
 			{:else}
 				<div class="relative w-full">
-					<input
+					<TextInput
+						inputProps={{
+							autofocus,
+							onfocus: bubble('focus'),
+							onblur: bubble('blur'),
+							disabled,
+							type: 'number',
+							onkeydown: () => (ignoreValueUndefined = true),
+							placeholder: placeholder ?? defaultValue ?? '',
+							min: extra['min'],
+							max: extra['max']
+						}}
+						{error}
+						bind:value
+					/>
+					<!-- <input
 						{autofocus}
-						on:focus
-						on:blur
+						onfocus={bubble('focus')}
+						onblur={bubble('blur')}
 						{disabled}
 						type="number"
-						on:keydown={() => {
+						onkeydown={() => {
 							ignoreValueUndefined = true
 						}}
 						class={valid
@@ -463,7 +740,7 @@
 						bind:value
 						min={extra['min']}
 						max={extra['max']}
-					/>
+					/> -->
 				</div>
 			{/if}
 		{:else if inputCat == 'boolean'}
@@ -482,60 +759,175 @@
 					<span>&nbsp; Not set</span>
 				{/if}
 			</div>
+		{:else if (inputCat == 'resource-object' && format && format.split('-').length > 1 && format
+				.replace('resource-', '')
+				.replace('_', '')
+				.toLowerCase() == 's3object') || (inputCat == 'list' && (itemsType?.resourceType === 's3_object' || itemsType?.resourceType === 's3object'))}
+			<S3ArgInput
+				multiple={inputCat == 'list'}
+				bind:value
+				{defaultValue}
+				{setNewValueFromCode}
+				{workspace}
+				onFocus={() => dispatch('focus')}
+				onBlur={() => dispatch('blur')}
+				bind:editor
+				{appPath}
+				{computeS3ForceViewerPolicies}
+				bottom={innerBottomSnippet}
+				hideCatalogPicker={extra?.['hideCatalogPicker'] ?? false}
+				hideRawInput={extra?.['hideRawInput'] ?? false}
+			/>
+		{:else if inputCat == 'object' && format == 'json-schema'}
+			{#await import('$lib/components/EditableSchemaForm.svelte')}
+				<Loader2 class="animate-spin" />
+			{:then Module}
+				<Module.default
+					bind:schema={
+						() =>
+							value && typeof value === 'object' && !Array.isArray(value) ? value : emptySchema(),
+						(v) => {
+							value = v
+						}
+					}
+					isFlowInput
+					editTab="inputEditor"
+					noPreview
+					addPropertyInEditorTab
+					on:delete={(e) => {
+						// Handle property deletion
+						if (value && value.properties && value.properties[e.detail]) {
+							delete value.properties[e.detail]
+							// Also remove from order array if it exists
+							if (value.order) {
+								value.order = value.order.filter((key) => key !== e.detail)
+							}
+							// Update the value to trigger reactivity
+							value = { ...value }
+							dispatch('change')
+						}
+					}}
+				/>
+			{/await}
+		{:else if inputCat == 'object' && format?.startsWith('jsonschema-')}
+			{#await getJsonSchemaFromResource(format.substring('jsonschema-'.length), workspace ?? $workspaceStore ?? '')}
+				<Loader2 class="animate-spin" />
+			{:then schema}
+				{#if !schema || !schema.properties}
+					<div>
+						<div class="w-full">
+							{#await import('$lib/components/JsonEditor.svelte')}
+								<Loader2 class="animate-spin" />
+							{:then Module}
+								<Module.default code={JSON.stringify(value, null, 2)} bind:value />
+							{/await}
+						</div>
+						<div class="text-red-500 text-2xs">
+							Error loading json schema resource {format.substring('jsonschema-'.length)}, please
+							check if the resource exists and is a valid json schema.
+							<a
+								href="https://windmill.dev/docs/core_concepts/resources_and_types#json-schema-resources"
+								target="_blank"
+								class="text-blue-500 hover:text-blue-700 underline">See documentation</a
+							>
+						</div>
+					</div>
+				{:else}
+					<div class="px-4 pt-4 border rounded-md w-full">
+						<SchemaForm
+							lightHeaderFont
+							{onlyMaskPassword}
+							{disablePortal}
+							{disabled}
+							{prettifyHeader}
+							{schema}
+							bind:args={value}
+						/>
+					</div>
+				{/if}
+			{/await}
 		{:else if inputCat == 'list' && !isListJson}
 			<div class="w-full flex gap-4">
 				<div class="w-full">
 					{#if Array.isArray(itemsType?.multiselect) && Array.isArray(value)}
 						<div class="items-start">
-							<Multiselect
-								ulOptionsClass={'p-2 !bg-surface-secondary'}
+							<MultiSelect
 								{disabled}
-								bind:selected={value}
-								options={itemsType?.multiselect ?? []}
-								selectedOptionsDraggable={true}
-								on:open={() => {
-									dispatch('focus')
-								}}
+								bind:value
+								items={safeSelectItems(itemsType?.multiselect)}
+								onOpen={() => dispatch('focus')}
+								reorderable
 							/>
 						</div>
-					{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && Array.isArray(value)}
+					{:else if enum_ && (Array.isArray(value) || value == undefined)}
 						<div class="items-start">
-							<Multiselect
-								ulOptionsClass={'p-2 !bg-surface-secondary'}
+							<MultiSelect
 								{disabled}
-								bind:selected={value}
-								options={itemsType?.enum ?? []}
-								selectedOptionsDraggable={true}
-								on:open={() => {
-									dispatch('focus')
-								}}
+								bind:value
+								items={safeSelectItems(enum_)}
+								onOpen={() => dispatch('focus')}
+								reorderable
+							/>
+						</div>
+					{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && (Array.isArray(value) || value == undefined)}
+						<div class="items-start">
+							<MultiSelect
+								{disabled}
+								bind:value
+								items={safeSelectItems(itemsType?.enum)}
+								onOpen={() => dispatch('focus')}
+								reorderable
 							/>
 						</div>
 					{:else}
-						<div class="w-full">
+						<div class="w-full flex flex-col gap-y-1">
 							{#key redraw}
 								{#if Array.isArray(value)}
 									{#each value ?? [] as v, i}
 										{#if i < itemsLimit}
-											<div class="flex max-w-md mt-1 w-full items-center">
+											<div class="flex w-full items-center relative">
+												{#snippet deleteItemBtn()}
+													<button
+														transition:fade|local={{ duration: 100 }}
+														class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+														aria-label="Clear"
+														onclick={() => {
+															value = value.filter((_, index) => index !== i)
+															redraw += 1
+														}}
+													>
+														<X size={14} />
+													</button>
+												{/snippet}
 												{#if itemsType?.type == 'number'}
-													<input type="number" bind:value={v} id="arg-input-number-array" />
+													<TextInput
+														inputProps={{ type: 'number', id: 'arg-input-number-array' }}
+														class="pr-8"
+														bind:value={value[i]}
+													/>
+													<div class="absolute z-10 right-1.5">
+														{@render deleteItemBtn()}
+													</div>
 												{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
-													<input
-														type="file"
-														class="my-6"
-														on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
+													<FileInput
+														class="w-full"
+														on:change={(x) =>
+															fileChangedInner(x.detail?.[0], (val) => (value[i] = val))}
 														multiple={false}
 													/>
-												{:else if itemsType?.type == 'object' && itemsType?.resourceType === undefined && itemsType?.properties === undefined}
+													{@render deleteItemBtn()}
+												{:else if itemsType?.type == 'object' && itemsType?.resourceType === undefined && itemsType?.properties === undefined && !(format?.startsWith('resource-') && resourceTypes?.includes(format.split('-')[1]))}
 													{#await import('$lib/components/JsonEditor.svelte')}
 														<Loader2 class="animate-spin" />
 													{:then Module}
-														<Module.default code={JSON.stringify(v, null, 2)} bind:value={v} />
+														<Module.default
+															code={JSON.stringify(v, null, 2)}
+															bind:value={value[i]}
+														/>
 													{/await}
+													{@render deleteItemBtn()}
 												{:else if Array.isArray(itemsType?.enum)}
 													<ArgEnum
-														required
 														create={extra['disableCreate'] != true}
 														on:focus={() => {
 															dispatch('focus')
@@ -544,20 +936,27 @@
 															dispatch('blur')
 														}}
 														{defaultValue}
-														{valid}
+														valid={valid ?? true}
 														{disabled}
 														{autofocus}
-														bind:value={v}
+														bind:value={value[i]}
 														enum_={itemsType?.enum ?? []}
 														enumLabels={extra['enumLabels']}
 													/>
-												{:else if itemsType?.type == 'resource' && itemsType?.resourceType && resourceTypes?.includes(itemsType.resourceType)}
+													{@render deleteItemBtn()}
+												{:else if (itemsType?.type == 'resource' && itemsType?.resourceType && resourceTypes?.includes(itemsType.resourceType)) || (format?.startsWith('resource-') && resourceTypes?.includes(format.split('-')[1]))}
+													{@const resourceFormat =
+														itemsType?.type == 'resource' &&
+														itemsType.resourceType &&
+														resourceTypes.includes(itemsType.resourceType)
+															? `resource-${itemsType.resourceType}`
+															: format!}
 													<ObjectResourceInput
-														value={v ? `$res:${v}` : undefined}
-														bind:path={v}
-														format={'resource-' + itemsType?.resourceType}
+														bind:value={value[i]}
+														format={resourceFormat}
 														defaultValue={undefined}
 													/>
+													{@render deleteItemBtn()}
 												{:else if itemsType?.type == 'resource'}
 													{#await import('$lib/components/JsonEditor.svelte')}
 														<Loader2 class="animate-spin" />
@@ -571,253 +970,245 @@
 																dispatch('blur')
 															}}
 															code={JSON.stringify(v, null, 2)}
-															bind:value={v}
+															bind:value={value[i]}
 														/>
 													{/await}
+													{@render deleteItemBtn()}
 												{:else if itemsType?.type === 'object' && itemsType?.properties}
 													<div class="p-8 border rounded-md w-full">
 														<SchemaForm
+															lightHeaderFont
 															{onlyMaskPassword}
 															{disablePortal}
 															{disabled}
+															{prettifyHeader}
 															schema={getSchemaFromProperties(itemsType?.properties)}
-															bind:args={v}
+															bind:args={value[i]}
 														/>
 													</div>
+													{@render deleteItemBtn()}
 												{:else}
-													<input type="text" bind:value={v} id="arg-input-array" />
+													<TextInput
+														inputProps={{ type: 'text', id: 'arg-input-array' }}
+														class="pr-8"
+														bind:value={value[i]}
+													/>
+													<div class="absolute z-10 right-1.5">
+														{@render deleteItemBtn()}
+													</div>
 												{/if}
-												<button
-													transition:fade|local={{ duration: 100 }}
-													class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
-													aria-label="Clear"
-													on:click={() => {
-														value = value.filter((_, index) => index !== i)
-														redraw += 1
-													}}
-												>
-													<X size={14} />
-												</button>
 											</div>
 										{/if}
 									{/each}
 									{#if value.length > itemsLimit}
-										<button on:click={() => (itemsLimit += 50)} class="text-xs py-2 text-blue-600"
+										<button onclick={() => (itemsLimit += 50)} class="text-xs py-2 text-blue-600"
 											>{itemsLimit}/{value.length}: Load 50 more...</button
 										>
+									{/if}
+								{:else if typeof value === 'string'}
+									{#if value.startsWith('$res:')}
+										{@render resourceInput()}
+									{:else}
+										<div class="text-red-500 text-xs">
+											Invalid string value: "{value}", expected array. Click add item to turn it
+											into an array.
+										</div>
 									{/if}
 								{/if}
 							{/key}
 						</div>
-						<div class="flex mt-2 gap-20 items-baseline">
-							<Button
-								variant="border"
-								color="light"
-								size="xs"
-								btnClasses="mt-1"
-								on:click={() => {
-									if (value == undefined || !Array.isArray(value)) {
-										value = []
-									}
-									if (itemsType?.type == 'number') {
-										value = value.concat(0)
-									} else if (
-										itemsType?.type == 'object' ||
-										(itemsType?.type == 'resource' &&
-											!(
-												itemsType?.resourceType && resourceTypes?.includes(itemsType?.resourceType)
-											))
-									) {
-										value = value.concat({})
-									} else {
-										value = value.concat('')
-									}
-								}}
-								id="arg-input-add-item"
-								startIcon={{ icon: Plus }}
-							>
-								Add item
-							</Button>
-						</div>
+						<Button
+							variant="default"
+							color="light"
+							size="xs"
+							wrapperClasses="w-full {Array.isArray(value) && value.length > 0 ? 'mt-1.5' : ''}"
+							on:click={() => {
+								if (value == undefined || !Array.isArray(value)) {
+									value = []
+								}
+								if (itemsType?.type == 'number') {
+									value = value.concat(0)
+								} else if (
+									(itemsType?.type == 'object' &&
+										!(
+											format?.startsWith('resource-') &&
+											resourceTypes?.includes(format.split('-')[1])
+										)) ||
+									(itemsType?.type == 'resource' &&
+										!(itemsType?.resourceType && resourceTypes?.includes(itemsType?.resourceType)))
+								) {
+									value = value.concat({})
+								} else {
+									value = value.concat('')
+								}
+							}}
+							id="arg-input-add-item"
+							startIcon={{ icon: Plus }}
+						>
+							Add item
+						</Button>
 					{/if}
 				</div>
-				<div class="mt-2 mr-4">
-					<Toggle
-						on:change={(e) => {
-							// Once the user has changed the input type, we should not change it back automatically
-							if (!hasIsListJsonChanged) {
-								hasIsListJsonChanged = true
-							}
+				{#if !displayHeader}
+					<div class="block mt-2 pl-2">
+						<Toggle
+							on:change={(e) => {
+								// Once the user has changed the input type, we should not change it back automatically
+								if (!hasIsListJsonChanged) {
+									hasIsListJsonChanged = true
+								}
 
-							evalValueToRaw()
-							isListJson = !isListJson
-						}}
-						checked={isListJson}
-						textClass="text-secondary"
-						size="xs"
-						options={{ right: 'json' }}
-					/>
-				</div>
+								evalValueToRaw()
+								isListJson = !isListJson
+							}}
+							checked={isListJson}
+							textClass="text-secondary"
+							size="xs"
+							options={{ left: 'json' }}
+						/>
+					</div>
+				{/if}
 			</div>
-		{:else if inputCat == 'dynselect'}
-			<DynSelect
-				name={label}
-				args={otherArgs}
-				{helperScript}
-				bind:value
-				entrypoint={format.substring('dynselect_'.length)}
-			/>
+		{:else if inputCat == 'dynamic'}
+			<DynamicInput name={label} {otherArgs} {helperScript} bind:value format={format ?? ''} />
 		{:else if inputCat == 'resource-object' && resourceTypes == undefined}
-			<span class="text-2xs text-tertiary">Loading resource types...</span>
-		{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format.split('-').length > 1 && resourceTypes.includes(format.substring('resource-'.length))))}
+			<span class="text-2xs text-primary">Loading resource types...</span>
+		{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format && format?.split('-').length > 1 && resourceTypes.includes(format?.substring('resource-'.length))))}
+			<!-- {JSON.stringify(value)} -->
 			<ObjectResourceInput
+				datatableAsPgResource={label === 'database'}
+				{disabled}
 				{defaultValue}
-				selectFirst={!noDefaultOnSelectFirst}
+				selectFirst={!noDefaultOnSelectFirst && required}
 				{disablePortal}
-				{format}
+				format={format ?? ''}
 				bind:value
 				bind:editor
-				on:clear={() => {
+				onClear={() => {
 					defaultValue = null
 				}}
 				{showSchemaExplorer}
 			/>
-		{:else if inputCat == 'resource-object' && format.split('-').length > 1 && format
-				.replace('resource-', '')
-				.replace('_', '')
-				.toLowerCase() == 's3object'}
-			<div class="flex flex-col w-full gap-1">
-				<Toggle
-					class="flex justify-end"
-					bind:checked={s3FileUploadRawMode}
-					size="xs"
-					options={{ left: 'Raw S3 object input' }}
-				/>
-				{#if s3FileUploadRawMode}
-					{#await import('$lib/components/JsonEditor.svelte')}
-						<Loader2 class="animate-spin" />
-					{:then Module}
-						<Module.default
-							bind:editor
-							on:focus={(e) => {
-								dispatch('focus')
-							}}
-							on:blur={(e) => {
-								dispatch('blur')
-							}}
-							code={JSON.stringify(value ?? defaultValue ?? { s3: '' }, null, 2)}
-							bind:value
-						/>
-					{/await}
-					<Button
-						variant="border"
-						color="light"
-						size="xs"
-						btnClasses="mt-1"
-						on:click={() => {
-							s3FilePicker?.open?.(value)
-						}}
-						startIcon={{ icon: Pipette }}
-					>
-						Choose an object from the catalog
-					</Button>
-				{:else}
-					<FileUpload
-						{appPath}
-						computeForceViewerPolicies={computeS3ForceViewerPolicies}
-						{workspace}
-						allowMultiple={false}
-						randomFileKey={true}
-						on:addition={(evt) => {
-							value = {
-								s3: evt.detail?.path ?? '',
-								filename: evt.detail?.filename ?? ''
-							}
-						}}
-						on:deletion={(evt) => {
-							value = {
-								s3: ''
-							}
-						}}
-						defaultValue={defaultValue?.s3}
-					/>
-				{/if}
-			</div>
 		{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
 			{#if oneOf && oneOf.length >= 2}
-				<div class="flex flex-col gap-2 w-full">
+				<div class="flex flex-col gap-2 w-full border rounded-md p-4">
 					{#if oneOf && oneOf.length >= 2}
 						<ToggleButtonGroup
-							bind:selected={oneOfSelected}
-							on:selected={() => {
-								value = { label: oneOfSelected }
-								redraw += 1
+							selected={oneOfSelected}
+							wrap
+							class="mb-4"
+							on:selected={({ detail }) => {
+								oneOfSelected = detail
+								const selectedObjProperties =
+									oneOf?.find((o) => o.title == detail)?.properties ?? {}
+								const newValueKeys = Object.keys(selectedObjProperties)
+								const toKeep = {}
+								for (const key of newValueKeys) {
+									// Check if there is a select (enum) in the newly selected oneOf and if the current value is not in the enum, skip it
+									if (
+										!['kind', 'label'].includes(key) &&
+										selectedObjProperties[key]?.enum &&
+										value &&
+										value[key] !== undefined &&
+										!selectedObjProperties[key].enum.includes(value[key])
+									) {
+										continue
+									}
+									toKeep[key] = value[key]
+								}
+								const tagKey = oneOf.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
+									? 'kind'
+									: 'label'
+								value = { ...toKeep, [tagKey]: detail }
 							}}
 						>
-							{#each oneOf as obj}
-								<ToggleButton value={obj.title} label={obj.title} />
-							{/each}
+							{#snippet children({ item })}
+								{#each oneOf as obj}
+									<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
+								{/each}
+							{/snippet}
 						</ToggleButtonGroup>
 						{#if oneOfSelected}
 							{@const objIdx = oneOf.findIndex((o) => o.title === oneOfSelected)}
 							{@const obj = oneOf[objIdx]}
 							{#if obj && obj.properties && Object.keys(obj.properties).length > 0}
 								{#key redraw}
-									<div class="py-4 pr-2 pl-6 border rounded w-full">
-										{#if orderEditable}
-											<SchemaFormDnd
-												{nestedClasses}
-												{onlyMaskPassword}
-												{disablePortal}
-												{disabled}
-												schema={{
-													properties: obj.properties,
+									{#if orderEditable}
+										<SchemaFormDnd
+											lightHeaderFont
+											{nestedClasses}
+											{onlyMaskPassword}
+											{disablePortal}
+											{disabled}
+											{prettifyHeader}
+											bind:schema={
+												() => ({
+													properties: obj.properties ?? {},
 													order: obj.order,
 													$schema: '',
 													required: obj.required ?? [],
 													type: 'object'
-												}}
-												bind:args={value}
-												dndType={`nested-${title}`}
-												schemaSkippedValues={['label']}
-												on:reorder={(e) => {
-													if (oneOf && oneOf[objIdx]) {
-														const keys = e.detail
-														oneOf[objIdx].order = keys
-													}
-												}}
-												on:change={() => {
+												}),
+												() => {
 													dispatch('nestedChange')
-												}}
-												on:nestedChange
-												{shouldDispatchChanges}
-											/>
-										{:else}
-											<SchemaForm
-												{nestedClasses}
-												{onlyMaskPassword}
-												{disablePortal}
-												{disabled}
-												schemaSkippedValues={['label']}
-												schema={{
-													properties: obj.properties,
-													order: obj.order,
-													$schema: '',
-													required: obj.required ?? [],
-													type: 'object'
-												}}
-												bind:args={value}
-												{shouldDispatchChanges}
-												on:change={() => {
-													dispatch('nestedChange')
-												}}
-												on:nestedChange
-											/>
-										{/if}
-									</div>
+												}
+											}
+											bind:args={value}
+											hiddenArgs={[
+												oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
+													? 'kind'
+													: 'label'
+											]}
+											on:reorder={(e) => {
+												if (oneOf && oneOf[objIdx]) {
+													const keys = e.detail
+													oneOf[objIdx].order = keys
+												}
+											}}
+											on:nestedChange
+											{shouldDispatchChanges}
+										/>
+									{:else}
+										<SchemaForm
+											lightHeaderFont
+											{nestedClasses}
+											{onlyMaskPassword}
+											{disablePortal}
+											{disabled}
+											{prettifyHeader}
+											{chatInputEnabled}
+											hiddenArgs={['label', 'kind']}
+											schema={{
+												properties: obj.properties,
+												order: obj.order,
+												$schema: '',
+												required: obj.required ?? [],
+												type: 'object'
+											}}
+											bind:args={
+												() => value,
+												(v) => {
+													value = { ...v, [tagKey]: oneOfSelected }
+												}
+											}
+											{shouldDispatchChanges}
+											on:change={() => {
+												dispatch('nestedChange')
+											}}
+											on:nestedChange
+										/>
+									{/if}
 								{/key}
+								{#if !s3StorageConfigured && obj['x-no-s3-storage-workspace-warning']}
+									<Alert
+										type="warning"
+										title={obj['x-no-s3-storage-workspace-warning']}
+										size="xs"
+										titleClass="text-2xs"
+									/>
+								{/if}
 							{:else if disabled}
-								<textarea disabled />
+								<textarea disabled></textarea>
 							{:else}
 								{#await import('$lib/components/JsonEditor.svelte')}
 									<Loader2 class="animate-spin" />
@@ -831,13 +1222,15 @@
 											dispatch('blur')
 										}}
 										code={rawValue}
-										bind:value
+										on:changeValue={(e) => {
+											setNewValueFromCode(e.detail)
+										}}
 									/>
 								{/await}
 							{/if}
 						{/if}
 					{:else if disabled}
-						<textarea disabled />
+						<textarea disabled></textarea>
 					{:else}
 						{#await import('$lib/components/JsonEditor.svelte')}
 							<Loader2 class="animate-spin" />
@@ -851,19 +1244,23 @@
 									dispatch('blur')
 								}}
 								code={rawValue}
-								bind:value
+								on:change={(e) => {
+									value = e.detail
+								}}
 							/>
 						{/await}
 					{/if}
 				</div>
 			{:else if properties && Object.keys(properties).length > 0 && inputCat !== 'list'}
-				<div class={hideNested ? 'hidden' : 'py-4 pr-2 pl-6 border rounded-md w-full'}>
+				<div class={hideNested ? 'hidden' : 'px-4 pt-4 border rounded-md w-full'}>
 					{#if orderEditable}
 						<SchemaFormDnd
+							lightHeaderFont
 							{nestedClasses}
 							{onlyMaskPassword}
 							{disablePortal}
 							{disabled}
+							{prettifyHeader}
 							schema={{
 								properties,
 								$schema: '',
@@ -872,13 +1269,9 @@
 								order
 							}}
 							bind:args={value}
-							dndType={`nested-${title}`}
 							on:reorder={(e) => {
 								const keys = e.detail
 								order = keys
-							}}
-							on:change={() => {
-								dispatch('nestedChange')
 							}}
 							diff={diffStatus && typeof diffStatus.diff === 'object' ? diffStatus.diff : {}}
 							on:acceptChange={(e) => {
@@ -893,10 +1286,12 @@
 						/>
 					{:else}
 						<SchemaForm
+							lightHeaderFont
 							{nestedClasses}
 							{onlyMaskPassword}
 							{disablePortal}
 							{disabled}
+							{prettifyHeader}
 							schema={{
 								properties,
 								order,
@@ -922,7 +1317,7 @@
 					{/if}
 				</div>
 			{:else if disabled}
-				<textarea disabled />
+				<textarea disabled></textarea>
 			{:else}
 				{#await import('$lib/components/JsonEditor.svelte')}
 					<Loader2 class="animate-spin" />
@@ -936,12 +1331,14 @@
 							dispatch('blur')
 						}}
 						code={rawValue}
-						bind:value
+						on:changeValue={(e) => {
+							setNewValueFromCode(e.detail)
+						}}
 					/>
 				{/await}
 			{/if}
-			{#if inputCat == 'list'}
-				<div class="block">
+			{#if inputCat == 'list' && !displayHeader}
+				<div class="block mt-2.5 pl-2">
 					<Toggle
 						on:change={(e) => {
 							isListJson = !isListJson
@@ -949,17 +1346,20 @@
 						checked={isListJson}
 						textClass="text-secondary"
 						size="xs"
-						options={{ right: 'json' }}
+						options={{ left: 'json' }}
 					/>
 				</div>
 			{/if}
 		{:else if inputCat == 'enum'}
 			<div class="flex flex-row w-full gap-1">
 				<ArgEnum
-					{required}
+					onClear={() => {
+						lastValue = undefined
+						value = undefined
+					}}
 					create={extra['disableCreate'] != true}
 					{defaultValue}
-					{valid}
+					valid={valid ?? true}
 					{disabled}
 					bind:value
 					{enum_}
@@ -975,43 +1375,48 @@
 			</div>
 		{:else if inputCat == 'date'}
 			{#if format === 'date'}
-				<DateInput {autofocus} bind:value dateFormat={extra?.['dateFormat']} />
+				<DateInput {disabled} {autofocus} bind:value dateFormat={extra?.['dateFormat']} />
+			{:else if format === 'naive-date-time'}
+				<DateTimeInput {disabled} useDropdown {autofocus} bind:value timezone="naive" />
 			{:else}
-				<DateTimeInput useDropdown {autofocus} bind:value />
+				<DateTimeInput {disabled} useDropdown {autofocus} bind:value />
 			{/if}
-		{:else if inputCat == 'sql' || inputCat == 'yaml'}
-			<div class="border my-1 mb-4 w-full border-primary">
-				{#await import('$lib/components/SimpleEditor.svelte')}
-					<Loader2 class="animate-spin" />
-				{:then Module}
-					<Module.default
-						on:focus={(e) => {
-							dispatch('focus')
-						}}
-						on:blur={(e) => {
-							dispatch('blur')
-						}}
-						bind:this={editor}
-						lang={inputCat}
-						bind:code={value}
-						autoHeight
-					/>
-				{/await}
-			</div>
+		{:else if isRawStringEditor(inputCat)}
+			{#if disabled}
+				<textarea disabled></textarea>
+			{:else}
+				<div class="border my-1 mb-4 w-full">
+					{#await import('$lib/components/SimpleEditor.svelte')}
+						<Loader2 class="animate-spin" />
+					{:then Module}
+						<Module.default
+							on:focus={(e) => {
+								dispatch('focus')
+							}}
+							on:blur={(e) => {
+								dispatch('blur')
+							}}
+							on:change={(e) => {
+								setNewValueFromCode(e.detail?.code)
+							}}
+							bind:this={editor}
+							lang={inputCat}
+							code={typeof rawValue == 'string' ? rawValue : JSON.stringify(rawValue, null, 2)}
+							autoHeight
+						/>
+					{/await}
+				</div>
+			{/if}
 		{:else if inputCat == 'base64'}
-			<div class="flex flex-col my-6 w-full">
-				<input
-					{autofocus}
-					type="file"
-					on:change={(x) => fileChanged(x, (val) => (value = val))}
+			<div class="flex flex-col w-full">
+				<FileInput
+					on:change={(x) => fileChangedInner(x.detail?.[0], (val) => (value = val))}
 					multiple={false}
 				/>
 				{#if value?.length}
-					<div class="text-2xs text-tertiary mt-1"
-						>File length: {value.length} base64 chars ({(value.length / 1024 / 1024).toFixed(
-							2
-						)}MB)</div
-					>
+					<div class="text-2xs text-primary mt-1">
+						File length: {value.length} base64 chars ({(value.length / 1024 / 1024).toFixed(2)}MB)
+					</div>
 				{/if}
 			</div>
 		{:else if inputCat == 'resource-string'}
@@ -1025,11 +1430,13 @@
 					: undefined}
 				{showSchemaExplorer}
 			/>
+		{:else if inputCat == 'ai-provider'}
+			<AIProviderPicker bind:value {disabled} {actions} />
 		{:else if inputCat == 'email'}
 			<input
 				{autofocus}
-				on:focus
-				on:blur
+				onfocus={bubble('focus')}
+				onblur={bubble('blur')}
 				{disabled}
 				type="email"
 				class={valid
@@ -1048,71 +1455,72 @@
 							{:else}
 								<Password
 									{disabled}
+									minRows={extra?.['minRows']}
 									bind:password={value}
 									placeholder={placeholder ?? defaultValue ?? ''}
 								/>
 							{/if}
 						{:else}
-							<PasswordArgInput {disabled} bind:value />
+							<PasswordArgInput {disabled} minRows={extra?.['minRows']} bind:value />
 						{/if}
 					{:else}
 						{#key extra?.['minRows']}
-							<textarea
-								{autofocus}
-								rows={extra?.['minRows'] ? extra['minRows']?.toString() : '1'}
-								bind:this={el}
-								on:focus={(e) => {
-									dispatch('focus')
+							<TextInput
+								inputProps={{
+									autofocus,
+									onfocus: () => dispatch('focus'),
+									onblur: () => dispatch('blur'),
+									disabled,
+									onkeydown: onKeyDown,
+									placeholder: placeholder ?? defaultValue ?? '',
+									rows: extra?.['minRows'] ? extra['minRows']?.toString() : '1'
 								}}
-								on:blur={(e) => {
-									dispatch('blur')
-								}}
-								use:autosize
-								on:keydown={onKeyDown}
-								{disabled}
-								class={twMerge(
-									'w-full',
-									valid
-										? ''
-										: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'
-								)}
-								placeholder={placeholder ?? defaultValue ?? ''}
 								bind:value
+								{error}
+								unifiedHeight={false}
+								underlyingInputEl="textarea"
 							/>
 						{/key}
-						{#if !disabled && itemPicker && extra?.['disableVariablePicker'] != true}
-							<!-- svelte-ignore a11y-click-events-have-key-events -->
-							<button
-								class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
-								on:click={() => {
-									pickForField = label
-									itemPicker?.openDrawer?.()
-								}}
-								title="Insert a Variable"
-							>
-								<DollarSign class="!text-tertiary" size={14} />
-							</button>
-						{/if}
+					{/if}
+					{#if !disabled && itemPicker && extra?.['disableVariablePicker'] != true}
+						<Button
+							iconOnly
+							startIcon={{ icon: DollarSign }}
+							unifiedSize="sm"
+							onClick={() => {
+								pickForField = label
+								itemPicker?.openDrawer?.()
+							}}
+							wrapperClasses={twMerge(
+								'opacity-0 group-hover:opacity-100 transition-opacity absolute bg-surface-input',
+								password || extra?.['password'] == true ? 'right-8	' : 'right-2'
+							)}
+							variant="subtle"
+							title="Insert a Variable"
+						/>
 					{/if}
 				</div>
-				{#if variableEditor}
-					<div class="text-sm text-tertiary">
-						{#if value && typeof value == 'string' && value?.startsWith('$var:')}
-							Linked to variable <button
-								class="text-blue-500 underline"
-								on:click={() => variableEditor?.editVariable?.(value.slice(5))}
-								>{value.slice(5)}</button
-							>
-						{/if}
-					</div>
-				{/if}
+				{@render variableInput()}
+				{@render resourceInput()}
 			</div>
 		{/if}
-		<slot name="actions" />
+		{@render actions?.()}
 	</div>
 
+	{#if isNonStringSecret}
+		{#if typeof value === 'string' && value.startsWith('$jsonvar:')}
+			<div class="text-2xs text-tertiary">
+				Sensitive — stored as secret: <code class="text-2xs">{value.slice('$jsonvar:'.length)}</code
+				>
+			</div>
+		{:else}
+			<div class="text-2xs text-tertiary italic">Sensitive — will be stored as secret on submit</div
+			>
+		{/if}
+	{/if}
+
 	{#if !compact || (error && error != '')}
-		<div class="text-right text-xs text-red-600 dark:text-red-400">
+		<div class="text-right text-xs leading-3 text-red-600 dark:text-red-400 mb-2">
 			{#if disabled || error === ''}
 				&nbsp;
 			{:else}
@@ -1120,7 +1528,16 @@
 			{/if}
 		</div>
 	{:else if !noMargin}
-		<div class="mb-2" />
+		<div class="mb-2"></div>
+	{/if}
+
+	{#if !s3StorageConfigured && extra['x-no-s3-storage-workspace-warning']}
+		<Alert
+			type="warning"
+			title={extra['x-no-s3-storage-workspace-warning']}
+			size="xs"
+			titleClass="text-2xs"
+		/>
 	{/if}
 </div>
 
@@ -1129,11 +1546,5 @@
 	input::-webkit-inner-spin-button {
 		-webkit-appearance: none !important;
 		margin: 0;
-	}
-
-	/* Firefox */
-	input[type='number'] {
-		-moz-appearance: textfield !important;
-		appearance: textfield !important;
 	}
 </style>

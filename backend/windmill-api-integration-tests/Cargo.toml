@@ -1,0 +1,49 @@
+[package]
+name = "windmill-api-integration-tests"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_api_integration_tests"
+path = "src/lib.rs"
+
+[features]
+default = []
+private = ["windmill-test-utils/private", "dep:aws-config", "dep:aws-credential-types", "dep:aws-sdk-sqs", "windmill-git-sync/private", "windmill-queue/private"]
+enterprise = ["windmill-test-utils/enterprise", "dep:base64", "windmill-git-sync/enterprise"]
+deno_core = ["windmill-test-utils/deno_core"]
+mcp = ["windmill-test-utils/mcp", "dep:rmcp"]
+run_inline = ["dep:windmill-worker", "windmill-test-utils/run_inline", "windmill-test-utils/duckdb"]
+postgres_trigger = ["windmill-test-utils/postgres_trigger"]
+
+[dependencies]
+windmill-test-utils.workspace = true
+windmill-api-client.workspace = true
+windmill-common = { workspace = true, default-features = false }
+windmill-native-triggers = { workspace = true, features = ["native_trigger"] }
+windmill-api-auth.workspace = true
+windmill-git-sync.workspace = true
+windmill-queue.workspace = true
+windmill-worker = { workspace = true, optional = true }
+sqlx.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+futures.workspace = true
+rand.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+hex.workspace = true
+rumqttc.workspace = true
+rdkafka.workspace = true
+async-nats.workspace = true
+aws-config = { workspace = true, optional = true }
+aws-credential-types = { workspace = true, optional = true }
+aws-sdk-sqs = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }
+axum.workspace = true
+rmcp = { workspace = true, optional = true }

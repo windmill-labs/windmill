@@ -2,25 +2,43 @@
 	import {
 		CancelablePromise,
 		KafkaTriggerService,
+		MqttTriggerService,
 		NatsTriggerService,
-		WebsocketTriggerService
+		SqsTriggerService,
+		PostgresTriggerService,
+		WebsocketTriggerService,
+		GcpTriggerService
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import Button from '../common/button/Button.svelte'
 
-	export let kind: 'websocket' | 'nats' | 'kafka'
-	export let args: Record<string, any>
+	interface Props {
+		kind: 'websocket' | 'nats' | 'kafka' | 'postgres' | 'sqs' | 'mqtt' | 'gcp';
+		args: Record<string, any>;
+		noButton?: boolean;
+		testLoading?: boolean;
+	}
+
+	let {
+		kind,
+		args,
+		noButton = false,
+		testLoading = $bindable(false)
+	}: Props = $props();
 
 	const kindToName: { [key: string]: string } = {
 		websocket: 'WebSocket',
 		nats: 'NATS server(s)',
-		kafka: 'Kafka broker(s)'
+		kafka: 'Kafka broker(s)',
+		sqs: 'SQS',
+		postgres: 'Postgres',
+		mqtt: 'MQTT broker',
+		gcp: 'Google Cloud Pub/Sub'
 	}
 
-	let testLoading: boolean = false
 	let promise: CancelablePromise<any> | null = null
-	async function testTriggerConnection() {
+	export async function testTriggerConnection() {
 		if (testLoading) {
 			promise?.cancel()
 			return
@@ -43,6 +61,26 @@
 					workspace: $workspaceStore!,
 					requestBody: args as any
 				})
+			} else if (kind === 'mqtt') {
+				promise = MqttTriggerService.testMqttConnection({
+					workspace: $workspaceStore!,
+					requestBody: args as any
+				})
+			} else if (kind === 'sqs') {
+				promise = SqsTriggerService.testSqsConnection({
+					workspace: $workspaceStore!,
+					requestBody: args as any
+				})
+			} else if (kind === 'postgres') {
+				promise = PostgresTriggerService.testPostgresConnection({
+					workspace: $workspaceStore!,
+					requestBody: args as any
+				})
+			} else if (kind === 'gcp') {
+				promise = GcpTriggerService.testGcpConnection({
+					workspace: $workspaceStore!,
+					requestBody: args as any
+				})
 			}
 			await promise
 			sendUserToast(`Successfully connected to ${kindToName[kind]}`)
@@ -56,16 +94,17 @@
 	}
 </script>
 
-<div class="flex flex-row justify-end mt-1">
-	<Button
-		spacingSize="sm"
-		size="xs"
-		color="light"
-		variant="border"
-		on:click={testTriggerConnection}
-		loading={testLoading}
-		clickableWhileLoading
-	>
-		Test connection
-	</Button>
-</div>
+{#if !noButton}
+	<div class="flex flex-row justify-end mt-1">
+		<Button
+			spacingSize="sm"
+			size="xs"
+			variant="default"
+			on:click={testTriggerConnection}
+			loading={testLoading}
+			clickableWhileLoading
+		>
+			Test connection
+		</Button>
+	</div>
+{/if}

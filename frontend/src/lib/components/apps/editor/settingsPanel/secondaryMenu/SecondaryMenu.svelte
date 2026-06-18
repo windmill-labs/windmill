@@ -1,14 +1,19 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { fly } from 'svelte/transition'
 	import { secondaryMenuLeft, secondaryMenuRight } from './'
 	import CloseButton from '$lib/components/common/CloseButton.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import DocLink from '../DocLink.svelte'
 
-	export let right: boolean
+	interface Props {
+		right: boolean
+	}
 
-	let secondaryMenu = right ? secondaryMenuRight : secondaryMenuLeft
-	let width: number
+	let { right }: Props = $props()
+
+	let secondaryMenu = untrack(() => right) ? secondaryMenuRight : secondaryMenuLeft
+	let width: number | undefined = $state()
 </script>
 
 <div
@@ -39,7 +44,8 @@
 				{#if typeof $secondaryMenu.component === 'string'}
 					{@html $secondaryMenu.component}
 				{:else}
-					<svelte:component this={$secondaryMenu.component} {...$secondaryMenu.props} />
+					{@const SvelteComponent = $secondaryMenu.component}
+					<SvelteComponent {...$secondaryMenu.props} />
 				{/if}
 			</div>
 		</div>

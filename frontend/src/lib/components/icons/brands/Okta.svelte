@@ -1,8 +1,12 @@
 <script lang="ts">
-	export let size: number = 16
-	export let style: string = 'fill: white;'
-	let clazz = ''
-	export { clazz as class }
+	interface Props {
+		size?: number;
+		style?: string;
+		class?: string;
+	}
+
+	let { size = 16, style = 'fill: white;', class: clazz = '' }: Props = $props();
+	
 </script>
 
 <svg

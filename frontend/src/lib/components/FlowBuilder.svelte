@@ -1,122 +1,223 @@
 <script lang="ts">
 	import {
 		FlowService,
-		ScheduleService,
 		type Flow,
-		type FlowModule,
-		DraftService,
 		type PathScript,
-		ScriptService,
 		type OpenFlow,
-		type RawScript,
 		type InputTransform,
-		type TriggersCount
+		type TriggersCount,
+		CaptureService,
+		type Job
 	} from '$lib/gen'
-	import { initHistory, push, redo, undo } from '$lib/history'
+	import { initHistory, redo, undo } from '$lib/history.svelte'
+	import { enterpriseLicense, userStore, workspaceStore, usedTriggerKinds } from '$lib/stores'
 	import {
-		copilotInfo,
-		enterpriseLicense,
-		tutorialsToDo,
-		userStore,
-		workspaceStore
-	} from '$lib/stores'
-	import {
-		cleanValueProperties,
-		encodeState,
-		formatCron,
+		generateRandomString,
 		orderedJsonStringify,
+		readFieldsRecursively,
 		replaceFalseWithUndefined,
-		sleep,
+		isMac,
+		userPathPrefix,
+		type Item,
+		type StateStore,
 		type Value
 	} from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { Drawer } from '$lib/components/common'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
+	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
-	import { onMount, setContext, tick, type ComponentType } from 'svelte'
-	import { writable, type Writable } from 'svelte/store'
+	import { createRawSnippet, setContext, untrack } from 'svelte'
+	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
-	import { Badge, Button, UndoRedo } from './common'
+	import { Button } from './common'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
-	import type { FlowState } from './flows/flowState'
+	import FlowEditorDrawer from './flows/content/FlowEditorDrawer.svelte'
 	import { dfs as dfsApply } from './flows/dfs'
-	import { dfs, getPreviousIds } from './flows/previousResults'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
-	import { cleanInputs, emptyFlowModuleState } from './flows/utils'
+	import { SelectionManager } from './graph/selectionUtils.svelte'
+	import { NoteEditor } from './graph/noteEditor.svelte'
+	import { setNoteEditorContext } from './graph/noteEditor.svelte'
+	import { GroupEditor, setGroupEditorContext } from './graph/groupEditor.svelte'
+	import { cleanFlow } from './flows/utils.svelte'
 	import {
-		Calendar,
-		Pen,
-		Save,
 		DiffIcon,
-		MoreVertical,
 		HistoryIcon,
 		FileJson,
-		type Icon,
-		CornerDownLeft
+		Settings,
+		Undo,
+		Redo,
+		BookOpen,
+		Circle,
+		CheckCircle,
+		RefreshCw,
+		CheckCheck,
+		Disc
 	} from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
-	import {
-		stepCopilot,
-		type FlowCopilotModule,
-		glueCopilot,
-		type FlowCopilotContext
-	} from './copilot/flow'
-	import type { Schema, SchemaProperty } from '$lib/common'
-	import FlowCopilotDrawer from './copilot/FlowCopilotDrawer.svelte'
-	import FlowCopilotStatus from './copilot/FlowCopilotStatus.svelte'
-	import { fade } from 'svelte/transition'
-	import { loadFlowModuleState, pickScript } from './flows/flowStateUtils'
-	import FlowCopilotInputsModal from './copilot/FlowCopilotInputsModal.svelte'
-	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
-
+	import { type FlowCopilotContext } from './copilot/flow'
+	import { loadFlowModuleState } from './flows/flowStateUtils.svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import FlowTutorials from './FlowTutorials.svelte'
-	import { ignoredTutorials } from './tutorials/ignoredTutorials'
-	import type DiffDrawer from './DiffDrawer.svelte'
 	import FlowHistory from './flows/FlowHistory.svelte'
-	import ButtonDropdown from './common/button/ButtonDropdown.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
-	import { twMerge } from 'tailwind-merge'
-	import CustomPopover from './CustomPopover.svelte'
-	import Summary from './Summary.svelte'
+	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
+	import { tutorialsToDo } from '$lib/stores'
+	import { getTutorialIndex } from '$lib/tutorials/config'
+	import EditorHeader from './EditorHeader.svelte'
+	import AutosaveIndicator from './AutosaveIndicator.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
-	import type { AiProviderTypes } from './copilot/lib'
+	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
+	import DeployButton from './DeployButton.svelte'
+	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
+	import type { Trigger } from './triggers/utils'
+	import { deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
+	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
+	import { Triggers } from './triggers/triggers.svelte'
+	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
+	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
+	import type { GraphModuleState } from './graph'
+	import { validateRetryConfig } from '$lib/utils'
+	import {
+		setStepHistoryLoaderContext,
+		StepHistoryLoader,
+		type stepState
+	} from './stepHistoryLoader.svelte'
+	import type { FlowBuilderProps } from './flow_builder'
+	import { ModulesTestStates } from './modulesTest.svelte'
+	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
+	import { UserDraft } from '$lib/userDraft.svelte'
 
-	export let initialPath: string = ''
-	export let pathStoreInit: string | undefined = undefined
-	export let newFlow: boolean
-	export let selectedId: string | undefined
-	export let initialArgs: Record<string, any> = {}
-	export let loading = false
-	export let flowStore: Writable<OpenFlow>
-	export let flowStateStore: Writable<FlowState>
-	export let savedFlow:
-		| (Flow & {
-				draft?: Flow | undefined
-		  })
-		| undefined = undefined
-	export let diffDrawer: DiffDrawer | undefined = undefined
-	export let customUi: FlowBuilderWhitelabelCustomUi = {}
-	export let disableAi: boolean = false
-	export let disabledFlowInputs = false
-	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
-	export let version: number | undefined = undefined
-	export let setSavedraftCb: ((cb: () => void) => void) | undefined = undefined
+	let {
+		initialPath = $bindable(''),
+		pathStoreInit = undefined,
+		newFlow,
+		selectedId,
+		initialArgs = {},
+		loading = false,
+		flowStore,
+		flowStateStore,
+		savedFlow = $bindable(undefined),
+		diffDrawer = undefined,
+		customUi = {},
+		disableAi = false,
+		disabledFlowInputs = false,
+		savedPrimarySchedule = undefined,
+		version = undefined,
+		draftTriggersFromUrl = undefined,
+		selectedTriggerIndexFromUrl = undefined,
+		children,
+		loadedFromHistoryFromUrl,
+		noInitial = false,
+		liveEditorDraftStoragePath = undefined,
+		autosaveWorkspace = undefined,
+		autosavePath = undefined,
+		onDeploy,
+		onDeployError,
+		onDetails,
+		onHistoryRestore,
+		onNavigate,
+		onResetToDeployed,
+		loadedFromDraft = false,
+		othersDraftsCount = 0,
+		onOpenOthersDrafts,
+		onTestJob
+	}: FlowBuilderProps = $props()
+
+	// Key the AutosaveIndicator watches. Falls back to this component's own
+	// draft key, so the full-page editor is unchanged; the sessions preview
+	// overrides both to the (forked) workspace + path its autosave saves under.
+	const indicatorWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
+
+	let initialPathStore = writable(initialPath)
+
+	// For preserve_on_behalf_of feature
+	let preserveOnBehalfOf = writable(false)
+	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
+
+	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously
+	$effect(() => {
+		if (savedFlow?.on_behalf_of_email !== undefined) {
+			savedOnBehalfOfEmail.set(savedFlow.on_behalf_of_email)
+		}
+	})
+
+	// used for new flows for captures
+	let fakeInitialPath = userPathPrefix($userStore?.username) + generateRandomString(12)
 
 	// Used by multiplayer deploy collision warning
-	let deployedValue: Value | undefined = undefined // Value to diff against
-	let deployedBy: string | undefined = undefined // Author
-	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
-	let open: boolean = false // Is confirmation modal open
+	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
+	let deployedBy: string | undefined = $state(undefined) // Author
+	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
+	let open: boolean = $state(false) // Is confirmation modal open
 
-	$: setContext('customUi', customUi)
+	// Draft triggers confirmation modal
+	let draftTriggersModalOpen = $state(false)
 
+	// Top-bar responsive collapse. Measured via bind:clientWidth — we can't
+	// rely on viewport `md:` because the editor lives inside other panes
+	// (session pane, drawer, etc.) where the viewport stays wide.
+	let topbarWidth = $state(0)
+	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
+	let confirmDeploymentCallback: (triggersToDeploy: Trigger[]) => void = () => {}
+
+	// AI changes warning modal
+	let aiChangesWarningOpen = $state(false)
+	let aiChangesConfirmCallback = $state<() => void>(() => {})
+
+	// Flow preview
+	let flowPreviewButtons: FlowPreviewButtons | undefined = $state()
+	const flowPreviewContent = $derived(flowPreviewButtons?.getFlowPreviewContent())
+	const job: Job | undefined = $derived(flowPreviewContent?.getJob())
+	let showJobStatus = $state(false)
+
+	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
+		const { selectedTriggers } = event.detail
+		// Continue with saving the flow
+		draftTriggersModalOpen = false
+		confirmDeploymentCallback(selectedTriggers)
+	}
+
+	function hasAIChanges(): boolean {
+		return aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
+	}
+
+	function withAIChangesWarning(callback: () => void) {
+		if (hasAIChanges()) {
+			aiChangesConfirmCallback = () => {
+				aiChatManager.flowAiChatHelpers?.rejectAllModuleActions()
+				callback()
+			}
+			aiChangesWarningOpen = true
+		} else {
+			callback()
+		}
+	}
+
+	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
+		return {
+			savedValue: savedFlow,
+			modifiedValue: {
+				...flowStore.val,
+				// `$pathStore` is the live-edited path (the pen popover binds it).
+				// `flowStore.val.path` doesn't track those edits, so without this the
+				// rename wouldn't show up in the diff and the unsaved-changes warning
+				// wouldn't fire when leaving with a pending rename.
+				path: $pathStore,
+				draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
+			}
+		}
+	}
 	let onLatest = true
 	async function compareVersions() {
 		if (version === undefined) {
@@ -139,150 +240,51 @@
 		}
 	}
 
-	const dispatch = createEventDispatcher()
-
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule)
-	const triggersCount = writable<TriggersCount | undefined>(
-		savedPrimarySchedule
-			? { schedule_count: 1, primary_schedule: { schedule: savedPrimarySchedule.cron } }
-			: undefined
-	)
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(
+		untrack(() => savedPrimarySchedule)
+	) // kept for legacy reasons
+	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	const simplifiedPoll = writable(false)
+
+	// used to set the primary schedule in the legacy primaryScheduleStore
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
 		primaryScheduleStore.set(schedule)
+	}
+
+	export function setDraftTriggers(triggers: Trigger[] | undefined) {
+		triggersState.setTriggers([
+			...(triggers ?? []),
+			...triggersState.triggers.filter((t) => !t.draftConfig)
+		])
 		loadTriggers()
 	}
 
-	async function createSchedule(path: string) {
-		if ($primaryScheduleStore) {
-			const { cron, timezone, args, enabled, summary } = $primaryScheduleStore
-
-			try {
-				await ScheduleService.createSchedule({
-					workspace: $workspaceStore!,
-					requestBody: {
-						path: path,
-						schedule: formatCron(cron),
-						timezone,
-						script_path: path,
-						is_flow: true,
-						args,
-						enabled,
-						summary
-					}
-				})
-			} catch (err) {
-				sendUserToast(`The primary schedule could not be created: ${err}`, true)
-			}
-		} else {
-			sendUserToast('The primary schedule could not be created: no schedule data', true)
-		}
+	export function setSelectedTriggerIndex(index: number | undefined) {
+		triggersState.selectedTriggerIndex = index
 	}
 
-	let loadingSave = false
-	let loadingDraft = false
+	let loadingSave = $state(false)
 
-	export async function saveDraft(forceSave = false): Promise<void> {
-		if (!newFlow && !savedFlow) {
-			return
-		}
-		if (savedFlow) {
-			const draftOrDeployed = cleanValueProperties(savedFlow.draft || savedFlow)
-			const current = cleanValueProperties({ ...$flowStore, path: $pathStore })
-			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
-				sendUserToast('No changes detected, ignoring', false, [
-					{
-						label: 'Save anyway',
-						callback: () => {
-							saveDraft(true)
-						}
-					}
-				])
-				return
-			}
-		}
-		loadingDraft = true
-		try {
-			const flow = cleanInputs($flowStore)
-			try {
-				localStorage.removeItem('flow')
-				localStorage.removeItem(`flow-${$pathStore}`)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
-			if (newFlow || savedFlow?.draft_only) {
-				if (savedFlow?.draft_only) {
-					await FlowService.deleteFlowByPath({
-						workspace: $workspaceStore!,
-						path: initialPath
-					})
-				}
-				await FlowService.createFlow({
-					workspace: $workspaceStore!,
-					requestBody: {
-						path: $pathStore,
-						summary: flow.summary,
-						description: flow.description ?? '',
-						value: flow.value,
-						schema: flow.schema,
-						tag: flow.tag,
-						draft_only: true,
-						ws_error_handler_muted: flow.ws_error_handler_muted,
-						visible_to_runner_only: flow.visible_to_runner_only,
-						on_behalf_of_email: flow.on_behalf_of_email
-					}
-				})
-			}
-			await DraftService.createDraft({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path: newFlow || savedFlow?.draft_only ? $pathStore : initialPath,
-					typ: 'flow',
-					value: {
-						...flow,
-						path: $pathStore,
-						primary_schedule: $primaryScheduleStore
-					}
-				}
-			})
-
-			savedFlow = {
-				...(newFlow || savedFlow?.draft_only
-					? {
-							...structuredClone($flowStore),
-							path: $pathStore,
-							draft_only: true
-					  }
-					: savedFlow),
-				draft: {
-					...structuredClone($flowStore),
-					path: $pathStore
-				}
-			} as Flow & {
-				draft?: Flow
-			}
-
-			let savedAtNewPath = false
-			if (newFlow) {
-				dispatch('saveInitial', $pathStore)
-			} else if (savedFlow?.draft_only && $pathStore !== initialPath) {
-				savedAtNewPath = true
-				initialPath = $pathStore
-				// this is so we can use the flow builder outside of sveltekit
-				dispatch('saveDraftOnlyAtNewPath', { path: $pathStore, selectedId: getSelectedId() })
-			}
-			dispatch('saveDraft', { path: $pathStore, savedAtNewPath, newFlow })
-			sendUserToast('Saved as draft')
-		} catch (error) {
-			sendUserToast(`Error while saving the flow as a draft: ${error.body || error.message}`, true)
-			dispatch('saveDraftError', error)
-		}
-		loadingDraft = false
+	// Ctrl/Cmd+S forces an immediate save of whatever the page-level
+	// autosave has pending. Unlike ScriptBuilder we don't have a direct
+	// Monaco ref to flush — any focused module Monaco's pending text is
+	// constrained by the editor's own ~1s max-wait cap, so the flush
+	// here picks up whatever's already in `pendingSaveOpts`. Worst case
+	// the user's very last keystroke (<1s ago) isn't in this POST and
+	// follows in the next autosave round.
+	//
+	// No toast — the AutosaveIndicator narrates the flush (Saving... →
+	// Saved / Save failed). A toast here would also lie on network
+	// failure: `flush` never rejects (postSave catches and routes errors
+	// to the failures map), so the success branch fired regardless.
+	export async function saveDraft(): Promise<void> {
+		if (!$workspaceStore || !liveEditorDraftStoragePath) return
+		await UserDraftDbSyncer.flush({
+			workspace: $workspaceStore,
+			itemKind: 'flow',
+			path: liveEditorDraftStoragePath
+		})
 	}
-
-	onMount(() => {
-		setSavedraftCb?.(() => saveDraft())
-	})
 
 	export function computeUnlockedSteps(flow: Flow) {
 		return Object.fromEntries(
@@ -293,8 +295,14 @@
 	}
 
 	async function handleSaveFlow(deploymentMsg?: string) {
+		withAIChangesWarning(async () => {
+			await handleSaveFlowInternal(deploymentMsg)
+		})
+	}
+
+	async function handleSaveFlowInternal(deploymentMsg?: string) {
 		await compareVersions()
-		if (onLatest || initialPath == '' || savedFlow?.draft_only) {
+		if (onLatest || initialPath == '' || newFlow) {
 			// Handle directly
 			await saveFlow(deploymentMsg)
 		} else {
@@ -303,9 +311,9 @@
 
 			if (
 				deployedValue &&
-				$flowStore &&
+				flowStore.val &&
 				orderedJsonStringify(deployedValue) ===
-					orderedJsonStringify(replaceFalseWithUndefined({ ...$flowStore, path: $pathStore }))
+					orderedJsonStringify(replaceFalseWithUndefined({ ...flowStore.val, path: $pathStore }))
 			) {
 				await saveFlow(deploymentMsg)
 			} else {
@@ -333,26 +341,54 @@
 		deployedBy = flow.edited_by
 	}
 
-	async function saveFlow(deploymentMsg?: string): Promise<void> {
+	async function saveFlow(deploymentMsg?: string, triggersToDeploy?: Trigger[]): Promise<void> {
+		if (!triggersToDeploy) {
+			// Check if there are draft triggers that need confirmation
+			const draftTriggers = triggersState.triggers.filter((trigger) => trigger.draftConfig)
+			if (draftTriggers.length > 0) {
+				draftTriggersModalOpen = true
+				confirmDeploymentCallback = async (triggersToDeploy: Trigger[]) => {
+					await saveFlow(deploymentMsg, triggersToDeploy)
+				}
+				return
+			}
+		}
+
 		loadingSave = true
 		try {
-			const flow = cleanInputs($flowStore)
+			const flow = cleanFlow(flowStore.val)
+
+			if (flow.value?.modules) {
+				const validationErrors: string[] = []
+				dfsApply(flow.value.modules, (module) => {
+					const error = validateRetryConfig(module.retry)
+					if (error) {
+						validationErrors.push(`Step '${module.id}': ${error}`)
+					}
+				})
+
+				if (flow.value.failure_module) {
+					// add validation logic here for failure module
+				}
+
+				if (flow.value.preprocessor_module) {
+					// add validation logic here for preprocessor module
+				}
+
+				if (validationErrors.length > 0) {
+					throw new Error(validationErrors.join('\n'))
+				}
+			}
 			// console.log('flow', computeUnlockedSteps(flow)) // del
 			// loadingSave = false // del
 			// return
 
 			if (newFlow) {
-				try {
-					localStorage.removeItem('flow')
-					localStorage.removeItem(`flow-${$pathStore}`)
-				} catch (e) {
-					console.error('error interacting with local storage', e)
-				}
 				await FlowService.createFlow({
 					workspace: $workspaceStore!,
 					requestBody: {
 						path: $pathStore,
-						summary: flow.summary,
+						summary: flow.summary ?? '',
 						description: flow.description ?? '',
 						value: flow.value,
 						schema: flow.schema,
@@ -361,64 +397,38 @@
 						dedicated_worker: flow.dedicated_worker,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
-						deployment_message: deploymentMsg || undefined
+						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
+						deployment_message: deploymentMsg || undefined,
+						labels: (flow as any).labels
 					}
 				})
-				if ($primaryScheduleStore && $primaryScheduleStore.enabled) {
-					await createSchedule($pathStore)
+				await CaptureService.moveCapturesAndConfigs({
+					workspace: $workspaceStore!,
+					path: fakeInitialPath,
+					requestBody: {
+						new_path: $pathStore
+					},
+					runnableKind: 'flow'
+				})
+				if (triggersToDeploy) {
+					await deployTriggers(
+						triggersToDeploy,
+						$workspaceStore,
+						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+						usedTriggerKinds,
+						$pathStore,
+						true
+					)
 				}
 			} else {
-				try {
-					localStorage.removeItem(`flow-${initialPath}`)
-				} catch (e) {
-					console.error('error interacting with local storage', e)
-				}
-
-				const scheduleExists = await ScheduleService.existsSchedule({
-					workspace: $workspaceStore ?? '',
-					path: initialPath
-				})
-
-				if (scheduleExists) {
-					const schedule = await ScheduleService.getSchedule({
-						workspace: $workspaceStore ?? '',
-						path: initialPath
-					})
-					if ($primaryScheduleStore) {
-						const { cron, timezone, args, enabled, summary } = $primaryScheduleStore
-
-						if (
-							JSON.stringify(schedule.args) != JSON.stringify(args) ||
-							schedule.schedule != cron ||
-							schedule.timezone != timezone ||
-							schedule.summary != summary
-						) {
-							await ScheduleService.updateSchedule({
-								workspace: $workspaceStore ?? '',
-								path: initialPath,
-								requestBody: {
-									schedule: formatCron(cron),
-									timezone,
-									args,
-									summary
-								}
-							})
-						}
-						if (enabled != schedule.enabled) {
-							await ScheduleService.setScheduleEnabled({
-								workspace: $workspaceStore ?? '',
-								path: initialPath,
-								requestBody: { enabled }
-							})
-						}
-					} else if (scheduleExists && !$triggersCount?.primary_schedule) {
-						await ScheduleService.deleteSchedule({
-							workspace: $workspaceStore ?? '',
-							path: $pathStore
-						})
-					}
-				} else if ($primaryScheduleStore && $primaryScheduleStore.enabled) {
-					await createSchedule(initialPath)
+				if (triggersToDeploy) {
+					await deployTriggers(
+						triggersToDeploy,
+						$workspaceStore,
+						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+						usedTriggerKinds,
+						initialPath
+					)
 				}
 
 				await FlowService.updateFlow({
@@ -435,71 +445,70 @@
 						ws_error_handler_muted: flow.ws_error_handler_muted,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
-						deployment_message: deploymentMsg || undefined
+						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
+						deployment_message: deploymentMsg || undefined,
+						labels: (flow as any).labels
 					}
 				})
 			}
+
+			// New/updated path now exists server-side — drop the autocomplete
+			// cache so it shows up immediately instead of after the 60s TTL.
+			invalidateWorkspacePaths($workspaceStore!)
+
+			const { draft_triggers: _, ...newSavedFlow } = flowStore.val as OpenFlow & {
+				draft_triggers: Trigger[]
+			}
 			savedFlow = {
-				...structuredClone($flowStore),
+				...structuredClone($state.snapshot(newSavedFlow)),
 				path: $pathStore
 			} as Flow
+			setDraftTriggers([])
 			loadingSave = false
-			dispatch('deploy', $pathStore)
+			onDeploy?.({ path: $pathStore })
 		} catch (err) {
-			dispatch('deployError', err)
-			sendUserToast(`The flow could not be saved: ${err.body}`, true)
+			onDeployError?.({ error: err })
+			// this is so we can use the flow builder outside of sveltekit
+			sendUserToast(`The flow could not be saved: ${err.body ?? err}`, true)
 			loadingSave = false
 		}
 	}
 
-	let timeout: NodeJS.Timeout | undefined = undefined
-
-	$: {
-		if ($flowStore || $selectedIdStore) {
-			saveSessionDraft()
-		}
+	const selectionManager = new SelectionManager()
+	const selectedIdStore = $derived(selectionManager.getSelectedId())
+	// Initialize with selected id if provided
+	if (untrack(() => selectedId)) {
+		selectionManager.selectId(untrack(() => selectedId) ?? '')
+	} else {
+		selectionManager.selectId('settings-metadata')
 	}
-
-	function saveSessionDraft() {
-		timeout && clearTimeout(timeout)
-		timeout = setTimeout(() => {
-			try {
-				localStorage.setItem(
-					initialPath && initialPath != '' ? `flow-${initialPath}` : 'flow',
-					encodeState({
-						flow: $flowStore,
-						path: $pathStore,
-						selectedId: $selectedIdStore,
-						primarySchedule: $primaryScheduleStore
-					})
-				)
-			} catch (err) {
-				console.error(err)
-			}
-		}, 500)
-	}
-
-	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
-	const selectedTriggerStore = writable<
-		| 'webhooks'
-		| 'emails'
-		| 'schedules'
-		| 'cli'
-		| 'routes'
-		| 'websockets'
-		| 'postgres'
-		| 'scheduledPoll'
-	>('webhooks')
 
 	export function getSelectedId() {
-		return $selectedIdStore
+		return selectedIdStore
 	}
 
-	const previewArgsStore = writable<Record<string, any>>(initialArgs)
+	const previewArgsStore = $state({ val: untrack(() => initialArgs) })
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
-	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
-	const history = initHistory($flowStore)
-	const pathStore = writable<string>(pathStoreInit ?? initialPath)
+	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
+	const history = initHistory(untrack(() => flowStore).val)
+	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
+
+	$effect(() => {
+		if (liveEditorDraftStoragePath === undefined || !$workspaceStore) return
+		const workspace = $workspaceStore
+		UserDraft.setLiveEditorDraft({
+			workspace,
+			itemKind: 'flow',
+			storagePath: liveEditorDraftStoragePath,
+			effectivePath: $pathStore
+		})
+		return () =>
+			UserDraft.clearLiveEditorDraft('flow', {
+				workspace,
+				storagePath: liveEditorDraftStoragePath
+			})
+	})
+
 	const captureOn = writable<boolean>(false)
 	const showCaptureHint = writable<boolean | undefined>(undefined)
 	const flowInputEditorStateStore = writable<FlowInputEditorState>({
@@ -507,80 +516,135 @@
 		editPanelSize: 0,
 		payloadData: undefined
 	})
-	$: initialPath && ($pathStore = initialPath)
 
-	const testStepStore = writable<Record<string, any>>({})
+	const stepsInputArgs = new StepsInputArgs()
 
 	function select(selectedId: string) {
-		selectedIdStore.set(selectedId)
-	}
-
-	function selectTrigger(
-		selectedTrigger:
-			| 'webhooks'
-			| 'emails'
-			| 'schedules'
-			| 'cli'
-			| 'routes'
-			| 'websockets'
-			| 'postgres'
-			| 'scheduledPoll'
-	) {
-		selectedTriggerStore.set(selectedTrigger)
+		selectionManager.selectId(selectedId)
 	}
 
 	let insertButtonOpen = writable<boolean>(false)
+	let modulesTestStates = new ModulesTestStates()
+	let outputPickerOpenFns: Record<string, () => void> = $state({})
+	let flowEditor: FlowEditor | undefined = $state(undefined)
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
-		selectedId: selectedIdStore,
+		selectionManager,
+		currentEditor: writable(undefined),
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
-		moving,
+		flowEditorDrawer,
 		history,
-		flowStateStore,
-		flowStore,
+		flowStateStore: untrack(() => flowStateStore),
+		flowStore: untrack(() => flowStore),
 		pathStore,
-		testStepStore,
+		stepsInputArgs,
 		saveDraft,
-		initialPath,
+		initialPathStore,
+		fakeInitialPath,
 		flowInputsStore: writable<FlowInput>({}),
-		customUi,
+		customUi: untrack(() => customUi),
 		insertButtonOpen,
 		executionCount: writable(0),
-		flowInputEditorState: flowInputEditorStateStore
+		flowInputEditorState: flowInputEditorStateStore,
+		modulesTestStates,
+		outputPickerOpenFns,
+		preserveOnBehalfOf,
+		savedOnBehalfOfEmail
 	})
+
+	// Set up NoteEditor context for note editing capabilities
+	const noteEditor = new NoteEditor(
+		untrack(() => flowStore),
+		() => {
+			// Enable notes display when a note is created
+			flowEditor?.enableNotes?.()
+		}
+	)
+	setNoteEditorContext(noteEditor)
+
+	// Set up GroupEditor context for group editing capabilities
+	const groupEditor = new GroupEditor(flowStore)
+	let canCreateGroup = $state({ val: false })
+	setGroupEditorContext(groupEditor, canCreateGroup)
+
+	setContext(
+		'FlowGraphAssetContext',
+		initFlowGraphAssetsCtx({ getModules: () => flowStore.val.value.modules })
+	)
+
+	// Add triggers context store
+	const triggersState = $state(
+		new Triggers(
+			[
+				{ type: 'webhook', path: '', isDraft: false },
+				{ type: 'default_email', path: '', isDraft: false },
+				...(untrack(() => draftTriggersFromUrl) ?? [])
+			],
+			untrack(() => selectedTriggerIndexFromUrl)
+		)
+	)
 
 	setContext<TriggerContext>('TriggerContext', {
-		selectedTrigger: selectedTriggerStore,
-		primarySchedule: primaryScheduleStore,
 		triggersCount,
 		simplifiedPoll,
-		defaultValues: writable(undefined),
-		captureOn,
-		showCaptureHint
+		showCaptureHint,
+		triggersState
 	})
 
-	async function loadTriggers() {
+	export async function loadTriggers() {
+		if (initialPath == '') return
 		$triggersCount = await FlowService.getTriggersCountOfFlow({
 			workspace: $workspaceStore!,
 			path: initialPath
 		})
-		if ($primaryScheduleStore && $triggersCount.primary_schedule == undefined) {
-			$triggersCount = {
-				...($triggersCount ?? {}),
-				schedule_count: ($triggersCount.schedule_count ?? 0) + 1,
-				primary_schedule: {
-					schedule: $primaryScheduleStore.cron
+
+		// Initialize triggers using utility function
+		await triggersState.fetchTriggers(
+			triggersCount,
+			$workspaceStore,
+			initialPath,
+			true,
+			$primaryScheduleStore,
+			$userStore
+		)
+	}
+
+	function handleUndo() {
+		const currentModules = flowStore.val?.value?.modules
+		flowStore.val = undo(history, flowStore.val)
+		const newModules = flowStore.val?.value?.modules
+		const restoredModules = newModules?.filter(
+			(node) => !currentModules?.some((currentNode) => currentNode?.id === node?.id)
+		)
+		for (const mod of restoredModules) {
+			if (mod) {
+				try {
+					loadFlowModuleState(mod).then((state) => (flowStateStore.val[mod.id] = state))
+				} catch (e) {
+					console.error('Error loading state for restored node', e)
 				}
 			}
 		}
+		selectionManager.selectId('Input')
 	}
 
-	$: selectedId && select(selectedId)
+	function handleRedo() {
+		flowStore.val = redo(history)
+	}
 
-	$: initialPath && initialPath != '' && $workspaceStore && loadTriggers()
+	let flowBuilderRoot: HTMLDivElement | undefined = $state()
 
 	function onKeyDown(event: KeyboardEvent) {
+		// Defer to anything that has explicitly grabbed focus — menus, modals,
+		// drawers etc. live outside the flow root. Flow nodes aren't focusable,
+		// so the unfocused default (activeElement === body) means "flow is the
+		// canvas" and we should react.
+		const active = document.activeElement
+		if (active && active !== document.body && !flowBuilderRoot?.contains(active)) {
+			return
+		}
+
 		let classes = event.target?.['className']
 		if (
 			(typeof classes === 'string' && classes.includes('inputarea')) ||
@@ -589,17 +653,13 @@
 			return
 		}
 
-		switch (event.key) {
-			case 'Z':
-				if (event.ctrlKey || event.metaKey) {
-					$flowStore = redo(history)
-					event.preventDefault()
-				}
-				break
+		// Only lowercase single-char keys — named keys like `ArrowDown` must
+		// stay PascalCase to match their switch cases.
+		switch (event.key.length === 1 ? event.key.toLowerCase() : event.key) {
 			case 'z':
 				if (event.ctrlKey || event.metaKey) {
-					$flowStore = undo(history, $flowStore)
-					$selectedIdStore = 'Input'
+					if (event.shiftKey) handleRedo()
+					else handleUndo()
 					event.preventDefault()
 				}
 				break
@@ -610,22 +670,22 @@
 				}
 				break
 			case 'ArrowDown': {
-				if (!$insertButtonOpen) {
+				if (!$insertButtonOpen && !flowPreviewButtons?.getPreviewOpen()) {
 					let ids = generateIds()
-					let idx = ids.indexOf($selectedIdStore)
+					let idx = ids.indexOf(selectedIdStore!)
 					if (idx > -1 && idx < ids.length - 1) {
-						$selectedIdStore = ids[idx + 1]
+						selectionManager.selectId(ids[idx + 1])
 						event.preventDefault()
 					}
 				}
 				break
 			}
 			case 'ArrowUp': {
-				if (!$insertButtonOpen) {
+				if (!$insertButtonOpen && !flowPreviewButtons?.getPreviewOpen()) {
 					let ids = generateIds()
-					let idx = ids.indexOf($selectedIdStore)
+					let idx = ids.indexOf(selectedIdStore!)
 					if (idx > 0 && idx < ids.length) {
-						$selectedIdStore = ids[idx - 1]
+						selectionManager.selectId(ids[idx - 1])
 						event.preventDefault()
 					}
 				}
@@ -639,7 +699,7 @@
 			'settings-metadata',
 			'constants',
 			'preprocessor',
-			...dfsApply($flowStore.value.modules, (module) => module.id)
+			...dfsApply(flowStore.val.value.modules, (module) => module.id)
 		]
 	}
 
@@ -648,27 +708,50 @@
 		onClick: () => void
 	}> = []
 
-	if (customUi.topBar?.extraDeployOptions != false) {
-		if (savedFlow?.draft_only === false || savedFlow?.draft_only === undefined) {
+	if (untrack(() => customUi).topBar?.extraDeployOptions != false) {
+		if (!newFlow) {
 			dropdownItems.push({
 				label: 'Exit & see details',
-				onClick: () => dispatch('details', $pathStore)
+				// Use the deployed path, not the live `$pathStore` — the latter
+				// reflects local rename edits that haven't been deployed yet,
+				// which would land the user on a 404 details page.
+				onClick: () => onDetails?.({ path: initialPath })
 			})
 		}
 
-		if (!newFlow) {
+		if (!untrack(() => newFlow)) {
 			dropdownItems.push({
 				label: 'Fork',
 				onClick: () => window.open(`/flows/add?template=${initialPath}`)
 			})
 		}
+
+		if (!untrack(() => newFlow) && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')) {
+			dropdownItems.push({
+				label: 'Edit in workspace fork',
+				onClick: () => window.open(buildForkEditUrl('flow', initialPath))
+			})
+		}
 	}
 
-	let flowCopilotContext: FlowCopilotContext = {
-		drawerStore: writable<Drawer | undefined>(undefined),
-		modulesStore: writable<FlowCopilotModule[]>([]),
-		currentStepStore: writable<string | undefined>(undefined),
-		genFlow: undefined,
+	async function openDiffDrawer() {
+		if (!savedFlow) return
+		await syncWithDeployed()
+		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
+		diffDrawer?.openDrawer()
+		const currentFlow = flowStore.val
+		diffDrawer?.setDiff({
+			mode: 'normal',
+			deployed: deployedValue ?? savedFlow,
+			current: {
+				...currentFlow,
+				path: $pathStore,
+				draft_triggers: currentDraftTriggers
+			}
+		})
+	}
+
+	let flowCopilotContext: FlowCopilotContext = $state({
 		shouldUpdatePropertyType: writable<{
 			[key: string]: 'static' | 'javascript' | undefined
 		}>({}),
@@ -679,498 +762,16 @@
 			[key: string]: string | undefined
 		}>({}),
 		stepInputsLoading: writable<boolean>(false)
-	}
+	})
 
 	setContext('FlowCopilotContext', flowCopilotContext)
 
-	const {
-		drawerStore: copilotDrawerStore,
-		modulesStore: copilotModulesStore,
-		currentStepStore: copilotCurrentStepStore,
-		shouldUpdatePropertyType
-	} = flowCopilotContext
+	let renderCount = $state(0)
+	let flowTutorials: FlowTutorials | undefined = $state(undefined)
 
-	let doneTs = 0
-	async function getHubCompletions(text: string, idx: number, type: 'trigger' | 'script') {
-		try {
-			// make sure we display the results of the last request last
-			const ts = Date.now()
-			const scripts = (
-				await ScriptService.queryHubScripts({
-					text: `${text}`,
-					limit: 3,
-					kind: type
-				})
-			).map((s) => ({
-				...s,
-				path: `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`
-			}))
-			if (ts < doneTs) return
-			doneTs = ts
-
-			$copilotModulesStore[idx].hubCompletions = scripts as {
-				path: string
-				summary: string
-				kind: string
-				app: string
-				ask_id: number
-				id: number
-				version_id: number
-			}[]
-		} catch (err) {
-			if (err.name !== 'CancelError') throw err
-		}
-	}
-
-	let abortController: AbortController | undefined = undefined
-	let copilotLoading = false
-	let flowCopilotMode: 'trigger' | 'sequence' = 'sequence'
-	let copilotStatus: string = ''
-	let copilotFlowInputs: Record<string, SchemaProperty> = {}
-	let copilotFlowRequiredInputs: string[] = []
-	let openCopilotInputsModal = false
-
-	function setInitCopilotModules(mode: typeof flowCopilotMode) {
-		$copilotModulesStore = [
-			{
-				id: 'a',
-				type: mode === 'trigger' ? 'trigger' : 'script',
-				description: '',
-				code: '',
-				hubCompletions: [],
-				selectedCompletion: undefined,
-				source: undefined,
-				lang: undefined
-			},
-			{
-				id: 'b',
-				type: 'script',
-				description: '',
-				code: '',
-				hubCompletions: [],
-				selectedCompletion: undefined,
-				source: undefined,
-				lang: undefined
-			}
-		]
-	}
-
-	$: setInitCopilotModules(flowCopilotMode)
-
-	function applyCopilotFlowInputs() {
-		const properties = {
-			...($flowStore.schema?.properties as Record<string, SchemaProperty> | undefined),
-			...copilotFlowInputs
-		}
-		const required = [
-			...(($flowStore.schema?.required as string[] | undefined) ?? []),
-			...copilotFlowRequiredInputs
-		]
-		$flowStore.schema = {
-			$schema: 'https://json-schema.org/draft/2020-12/schema',
-			properties,
-			required,
-			type: 'object'
-		}
-	}
-
-	function clearFlowInputsFromStep(id: string | undefined) {
-		const module: FlowModule | undefined = dfs(id, $flowStore)[0]
-		if (module?.value.type === 'rawscript' || module?.value.type === 'script') {
-			// clear step inputs that start with flow_input. but not flow_input.iter
-			for (const key in module.value.input_transforms) {
-				const input = module.value.input_transforms[key]
-				if (
-					input.type === 'javascript' &&
-					input.expr.includes('flow_input.') &&
-					!input.expr.includes('flow_input.iter')
-				) {
-					module.value.input_transforms[key] = {
-						type: 'static',
-						value: undefined
-					}
-					$shouldUpdatePropertyType[key] = 'static'
-				}
-			}
-		}
-		$flowStore = $flowStore
-	}
-
-	async function finishStepGen() {
-		copilotFlowInputs = {}
-		copilotFlowRequiredInputs = []
-		setInitCopilotModules(flowCopilotMode)
-		copilotStatus = "Done! Just check the step's inputs and you're good to go!"
-		await sleep(3000)
-		copilotStatus = ''
-	}
-
-	function snakeCase(e: string): string {
-		if (e.toLowerCase() === e) {
-			return e
-		}
-
-		return (
-			e
-				.match(/([A-Z])/g)
-				?.reduce((str, c) => str.replace(new RegExp(c), '_' + c.toLowerCase()), e)
-				?.substring(e.slice(0, 1).match(/([A-Z])/g) ? 1 : 0) ?? e
-		)
-	}
-	async function genFlow(idx: number, flowModules: FlowModule[], stepOnly = false) {
-		try {
-			push(history, $flowStore)
-			let module = stepOnly ? $copilotModulesStore[0] : $copilotModulesStore[idx]
-			const aiProvider = $copilotInfo.ai_provider as AiProviderTypes
-
-			copilotLoading = true
-			copilotStatus = "Generating code for step '" + module.id + "'..."
-			$copilotCurrentStepStore = module.id
-			focusCopilot()
-
-			if (!stepOnly && flowModules.length > idx) {
-				select('')
-				await tick()
-				flowModules.splice(idx, flowModules.length - idx)
-				$flowStore = $flowStore
-				focusCopilot()
-			}
-
-			if (idx === 0 && !stepOnly) {
-				$flowStore.schema = {
-					$schema: 'https://json-schema.org/draft/2020-12/schema',
-					properties: {},
-					required: [],
-					type: 'object'
-				}
-			}
-
-			if (module.type === 'trigger') {
-				$primaryScheduleStore = {
-					summary: 'Scheduled poll of flow',
-					args: {},
-					cron: '0 */15 * * *',
-					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-					enabled: true
-				}
-			}
-
-			const flowModule: FlowModule & {
-				value: RawScript | PathScript
-			} = {
-				id: module.id,
-				stop_after_if:
-					module.type === 'trigger'
-						? {
-								expr: 'result == undefined || Array.isArray(result) && result.length == 0',
-								skip_if_stopped: true
-						  }
-						: undefined,
-				value: {
-					input_transforms: {},
-					content: '',
-					language: module.lang ?? 'bun',
-					type: 'rawscript'
-				},
-				summary: module.description
-			}
-
-			let isHubStep = false
-			if (module.source === 'hub' && module.selectedCompletion) {
-				isHubStep = true
-				const [hubScriptModule, hubScriptState] = await pickScript(
-					module.selectedCompletion.path,
-					`${module.selectedCompletion.summary} (${module.selectedCompletion.app})`,
-					module.id,
-					undefined
-				)
-				flowModule.value = hubScriptModule.value
-				flowModule.summary = hubScriptModule.summary
-				$flowStateStore[module.id] = hubScriptState
-			} else {
-				$flowStateStore[module.id] = emptyFlowModuleState()
-			}
-
-			if (stepOnly) {
-				flowModules.splice(idx, 0, flowModule)
-			} else if (idx === 1 && $copilotModulesStore[idx - 1].type === 'trigger') {
-				const loopModule: FlowModule = {
-					id: module.id + '_loop',
-					value: {
-						type: 'forloopflow',
-						iterator: {
-							type: 'javascript',
-							expr: 'results.a'
-						},
-						skip_failures: true,
-						modules: [flowModule]
-					}
-				}
-				const loopState = await loadFlowModuleState(loopModule)
-				$flowStateStore[loopModule.id] = loopState
-				flowModules.push(loopModule)
-			} else {
-				flowModules.push(flowModule)
-			}
-
-			$copilotDrawerStore?.closeDrawer()
-			await tick()
-			select(module.id)
-			await tick()
-			focusCopilot()
-
-			let isFirstInLoop = false
-			const parents = dfs(module.id, $flowStore).slice(1)
-			if (
-				parents[0]?.value.type === 'forloopflow' &&
-				parents[0].value.modules[0].id === module.id
-			) {
-				isFirstInLoop = true
-			}
-			const prevNodeId = getPreviousIds(module.id, $flowStore, false)[0] as string | undefined
-			const pastModule = dfs(prevNodeId, $flowStore, false)[0] as FlowModule | undefined
-
-			if (!module.source) {
-				throw new Error('Invalid copilot module source')
-			}
-
-			if (module.source === 'custom') {
-				const deltaStore = writable<string>('')
-				const unsubscribe = deltaStore.subscribe(async (delta) => {
-					module.editor?.append(delta)
-				})
-
-				abortController = new AbortController()
-				await stepCopilot(
-					module,
-					deltaStore,
-					$workspaceStore!,
-					pastModule?.value.type === 'rawscript' || pastModule?.value.type === 'script'
-						? (pastModule as FlowModule & {
-								value: RawScript | PathScript
-						  })
-						: undefined,
-					isFirstInLoop,
-					abortController,
-					aiProvider
-				)
-				unsubscribe()
-			}
-
-			copilotStatus = "Generating inputs for step '" + module.id + "'..."
-			await sleep(500) // make sure code was parsed
-
-			try {
-				if (
-					(flowModule.value.type === 'rawscript' || flowModule.value.type === 'script') &&
-					(pastModule === undefined ||
-						pastModule.value.type === 'rawscript' ||
-						pastModule.value.type === 'script')
-				) {
-					const stepSchema: Schema = JSON.parse(JSON.stringify($flowStateStore[module.id].schema)) // deep copy
-					if (isHubStep && pastModule !== undefined && $copilotInfo.exists_ai_resource) {
-						// ask AI to set step inputs
-						abortController = new AbortController()
-						const { inputs, allExprs } = await glueCopilot(
-							flowModule.value.input_transforms,
-							$workspaceStore!,
-							pastModule as FlowModule & {
-								value: RawScript | PathScript
-							},
-							isFirstInLoop,
-							abortController,
-							aiProvider
-						)
-
-						// create flow inputs used by AI for autocompletion
-						copilotFlowInputs = {}
-						copilotFlowRequiredInputs = []
-						Object.entries(allExprs).forEach(([key, expr]) => {
-							if (expr.includes('flow_input.') && !expr.includes('flow_input.iter.')) {
-								const flowInputKey = expr.match(/flow_input\.([A-Za-z0-9_]+)/)?.[1]
-								if (
-									flowInputKey !== undefined &&
-									(!$flowStore.schema ||
-										!(flowInputKey in (($flowStore.schema.properties as any) ?? {}))) // prevent overriding flow inputs
-								) {
-									if (key in stepSchema.properties) {
-										copilotFlowInputs[flowInputKey] = stepSchema.properties[key]
-										if (stepSchema.required.includes(key)) {
-											copilotFlowRequiredInputs.push(flowInputKey)
-										}
-									} else {
-										// when the key is nested (e.g. body.content)
-										const [firstKey, ...rest] = key.split('.')
-										const restKey = rest.join('.')
-										const firstKeyProperties = stepSchema.properties[firstKey]?.properties
-										if (firstKeyProperties !== undefined && restKey in firstKeyProperties) {
-											copilotFlowInputs[flowInputKey] = firstKeyProperties[restKey]
-											if (firstKeyProperties[restKey].required?.includes(flowInputKey)) {
-												copilotFlowRequiredInputs.push(flowInputKey)
-											}
-										}
-									}
-								}
-							}
-						})
-
-						if (!stepOnly) {
-							applyCopilotFlowInputs()
-						}
-
-						// set step inputs
-						Object.entries(inputs).forEach(([key, expr]) => {
-							flowModule.value.input_transforms[key] = {
-								type: 'javascript',
-								expr
-							}
-							$shouldUpdatePropertyType[key] = 'javascript'
-						})
-					} else {
-						if (isHubStep && pastModule !== undefined && !$copilotInfo.exists_ai_resource) {
-							sendUserToast(
-								'For better input generation, enable Windmill AI in the workspace settings',
-								true
-							)
-						}
-
-						// create possible flow inputs for autocompletion
-						copilotFlowInputs = {}
-						copilotFlowRequiredInputs = []
-						Object.keys(flowModule.value.input_transforms).forEach((key) => {
-							if (key !== 'prev_output') {
-								const schema = $flowStateStore[module.id].schema
-								const schemaProperty = Object.entries(schema?.properties ?? {}).find(
-									(x) => x[0] === key
-								)?.[1]
-								const snakeKey = snakeCase(key)
-								if (
-									schemaProperty &&
-									(!$flowStore.schema ||
-										!(snakeKey in ($flowStore?.schema?.properties ?? ({} as any)))) // prevent overriding flow inputs
-								) {
-									copilotFlowInputs[snakeKey] = schemaProperty
-									if (schema?.required.includes(snakeKey)) {
-										copilotFlowRequiredInputs.push(snakeKey)
-									}
-								}
-							}
-						})
-						if (!stepOnly) {
-							applyCopilotFlowInputs()
-						}
-
-						// programatically set step inputs
-						for (const key of Object.keys(flowModule.value.input_transforms)) {
-							const snakeKey = snakeCase(key)
-							flowModule.value.input_transforms[key] = {
-								type: 'javascript',
-								expr:
-									key === 'prev_output'
-										? isFirstInLoop
-											? 'flow_input.iter.value'
-											: pastModule
-											? 'results.' + pastModule.id
-											: 'flow_input.' + snakeKey
-										: 'flow_input.' + snakeKey
-							}
-							$shouldUpdatePropertyType[key] = 'javascript'
-						}
-					}
-
-					$flowStore = $flowStore // force rerendering
-				} else {
-					if (
-						pastModule !== undefined &&
-						pastModule.value.type !== 'rawscript' &&
-						pastModule.value.type !== 'script'
-					) {
-						sendUserToast(
-							`Linking to previous step ${pastModule.id} of type ${pastModule.value.type} is not yet supported`,
-							true
-						)
-					} else {
-						sendUserToast('Something went wrong, could not generate step inputs', true)
-					}
-				}
-			} catch (err) {
-				console.error(err)
-			}
-
-			if (stepOnly) {
-				$copilotCurrentStepStore = undefined
-				copilotLoading = false
-				copilotStatus = ''
-				if (Object.keys(copilotFlowInputs).length > 0) {
-					openCopilotInputsModal = true
-				} else {
-					finishStepGen()
-				}
-			} else {
-				copilotStatus =
-					"Waiting for the user to validate code and inputs of step '" + module.id + "'"
-			}
-		} catch (err) {
-			if (stepOnly) {
-				copilotStatus = ''
-				$copilotCurrentStepStore = undefined
-				setInitCopilotModules(flowCopilotMode)
-			}
-			if (err?.message) {
-				sendUserToast('Failed to generate code: ' + err.message, true)
-			} else {
-				sendUserToast('Failed to generate code', true)
-				console.error(err)
-			}
-		} finally {
-			copilotLoading = false
-		}
-	}
-
-	flowCopilotContext.genFlow = genFlow
-
-	async function finishCopilotFlowBuilder() {
-		copilotLoading = true
-		select('Input')
-		$copilotCurrentStepStore = 'Input'
-
-		copilotStatus = "Done! Just check the flow's inputs and you're good to go!"
-		$copilotCurrentStepStore = undefined
-		copilotLoading = false
-		await sleep(3000)
-		copilotStatus = ''
-	}
-
-	function focusCopilot() {
-		document.querySelectorAll('.splitpanes__splitter').forEach((el) => {
-			el.classList.add('hidden')
-		})
-		document.querySelectorAll('#flow-graph *').forEach((el) => {
-			if (el instanceof HTMLElement) {
-				el.style.pointerEvents = 'none'
-			}
-		})
-	}
-
-	function blurCopilot() {
-		document.querySelectorAll('.splitpanes__splitter').forEach((el) => {
-			el.classList.remove('hidden')
-		})
-		document.querySelectorAll('#flow-graph *').forEach((el) => {
-			if (el instanceof HTMLElement) {
-				el.style.pointerEvents = ''
-			}
-		})
-	}
-
-	$: $copilotCurrentStepStore === undefined && blurCopilot()
-
-	let renderCount = 0
-	let flowTutorials: FlowTutorials | undefined = undefined
-
-	let jsonViewerDrawer: Drawer | undefined = undefined
-	let yamlEditorDrawer: Drawer | undefined = undefined
-	let flowHistory: FlowHistory | undefined = undefined
+	let jsonViewerDrawer: Drawer | undefined = $state(undefined)
+	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
+	let flowHistory: FlowHistory | undefined = $state(undefined)
 
 	export function triggerTutorial() {
 		const urlParams = new URLSearchParams(window.location.search)
@@ -1178,22 +779,94 @@
 
 		if (tutorial) {
 			flowTutorials?.runTutorialById(tutorial)
-		} else if ($tutorialsToDo.includes(0) && !$ignoredTutorials.includes(0)) {
-			flowTutorials?.runTutorialById('action')
 		}
 	}
 
-	let moreItems: {
-		displayName: string
-		icon: ComponentType<Icon>
-		action: () => void
-		disabled?: boolean
-	}[] = []
+	let baseMenuItems: Item[] = $state([])
 
-	$: onCustomUiChange(customUi)
+	const mod = isMac() ? '⌘' : 'Ctrl+'
 
-	function onCustomUiChange(customUi: FlowBuilderWhitelabelCustomUi | undefined) {
-		moreItems = [
+	function getMoreItems(): Item[] {
+		return [
+			...baseMenuItems,
+			{
+				displayName: 'Undo',
+				icon: Undo,
+				action: () => handleUndo(),
+				disabled: $history.index === 0,
+				shortcut: `${mod}Z`,
+				separatorTop: baseMenuItems.length > 0
+			},
+			{
+				displayName: 'Redo',
+				icon: Redo,
+				action: () => handleRedo(),
+				disabled: $history.index === $history.history.length - 1,
+				shortcut: `${mod}⇧Z`
+			},
+			{
+				displayName: 'Tutorials',
+				icon: BookOpen,
+				separatorTop: true,
+				extra: (() => {
+					const remaining = [
+						getTutorialIndex('flow-live-tutorial'),
+						getTutorialIndex('troubleshoot-flow')
+					].filter((i) => $tutorialsToDo.includes(i)).length
+					return remaining > 0
+						? createRawSnippet(() => ({
+								render: () =>
+									`<span class="ml-auto inline-flex items-center justify-center w-4 h-4 text-[10px] font-medium text-white rounded-full bg-surface-accent-primary">${remaining}</span>`
+							}))
+						: undefined
+				})(),
+				submenuItems: [
+					{
+						displayName: 'Build a flow',
+						action: () => flowTutorials?.runTutorialById('flow-live-tutorial'),
+						icon: $tutorialsToDo.includes(getTutorialIndex('flow-live-tutorial'))
+							? Circle
+							: CheckCircle,
+						iconColor: $tutorialsToDo.includes(getTutorialIndex('flow-live-tutorial'))
+							? undefined
+							: 'green'
+					},
+					{
+						displayName: 'Fix a broken flow',
+						action: () => flowTutorials?.runTutorialById('troubleshoot-flow'),
+						icon: $tutorialsToDo.includes(getTutorialIndex('troubleshoot-flow'))
+							? Circle
+							: CheckCircle,
+						iconColor: $tutorialsToDo.includes(getTutorialIndex('troubleshoot-flow'))
+							? undefined
+							: 'green'
+					},
+					{
+						displayName: 'Reset tutorials',
+						action: () => resetAllTodos(),
+						icon: RefreshCw,
+						separatorTop: true
+					},
+					{
+						displayName: 'Skip tutorials',
+						action: () => skipAllTodos(),
+						icon: CheckCheck
+					}
+				]
+			},
+			{
+				displayName: 'Test flow & record',
+				icon: Disc,
+				action: () => flowPreviewButtons?.openRecordingPreview()
+			}
+		]
+	}
+
+	function onCustomUiChange(
+		customUi: FlowBuilderWhitelabelCustomUi | undefined,
+		hasAiDiff: boolean
+	) {
+		baseMenuItems = [
 			...(customUi?.topBar?.history != false
 				? [
 						{
@@ -1204,9 +877,9 @@
 							},
 							disabled: newFlow
 						}
-				  ]
+					]
 				: []),
-			...(customUi?.topBar?.history != false
+			...(customUi?.topBar?.export != false
 				? [
 						{
 							displayName: 'Export',
@@ -1216,294 +889,303 @@
 						{
 							displayName: 'Edit in YAML',
 							icon: FileJson,
-							action: () => yamlEditorDrawer?.openDrawer()
+							action: () => yamlEditorDrawer?.openDrawer(),
+							disabled: hasAiDiff
 						}
-				  ]
+					]
+				: []),
+			...(customUi?.topBar?.settings != false
+				? [
+						{
+							displayName: 'Flow settings',
+							icon: Settings,
+							action: () => {
+								select('settings-metadata')
+							}
+						}
+					]
 				: [])
 		]
 	}
 
-	let deploymentMsg = ''
-	let msgInput: HTMLInputElement | undefined = undefined
+	function handleDeployTrigger(_trigger: Trigger) {}
 
-	let flowPreviewButtons: FlowPreviewButtons
+	let forceTestTab: Record<string, boolean> = $state({})
+	let highlightArg: Record<string, string | undefined> = $state({})
+
+	$effect.pre(() => {
+		initialPathStore.set(initialPath)
+	})
+	$effect.pre(() => {
+		setContext('customUi', customUi)
+	})
+	$effect.pre(() => {
+		if (flowStore.val || selectedIdStore) {
+			readFieldsRecursively(flowStore.val)
+		}
+	})
+	// Sync `$pathStore` from `flowStore.val.path` (which `initFlow` populates
+	// from the loaded flow — including the draft's rename, when there is one).
+	// This effect only tracks `flowStore.val.path`, so popover edits that go
+	// straight to `$pathStore` don't trigger it and aren't overwritten.
+	// Replaces the previous `$pathStore = initialPath` push (added in #2536 for
+	// the VSCode extension), which silently dropped any draft-renamed path
+	// because `initialPath` is the URL, not the loaded path.
+	$effect.pre(() => {
+		// `flowStore.val` is typed `OpenFlow` here but `initFlow` actually puts a
+		// `Flow` (with `path`) in it.
+		const p = (flowStore.val as Flow | undefined)?.path
+		if (p) untrack(() => ($pathStore = p))
+	})
+
+	// Persist the user-typed path into the draft JSON as `draft_path`
+	// when it differs from the deployed/seeded `flow.path`. The Path
+	// widget binds `$pathStore` one-way to the popover input — without
+	// this, the friendly auto-name on `/flows/add` and any in-place
+	// rename never reach the autosaved Flow, so the home-list draft row
+	// kept showing the autogenerated `u/{user}/draft_{uuid}` slot. Drop
+	// the field once it matches the baseline again so it doesn't
+	// linger after a revert; deploy clears the whole draft, so the
+	// field naturally disappears post-deploy too.
+	$effect(() => {
+		const typed = $pathStore
+		const baseline = (flowStore.val as Flow | undefined)?.path ?? ''
+		const flow = flowStore.val as (Flow & { draft_path?: string }) | undefined
+		if (!flow) return
+		untrack(() => {
+			if (typed && typed !== baseline) {
+				flow.draft_path = typed
+			} else if (flow.draft_path !== undefined) {
+				delete (flow as any).draft_path
+			}
+		})
+	})
+
+	$effect.pre(() => {
+		selectedId && untrack(() => select(selectedId))
+	})
+	$effect.pre(() => {
+		initialPath && initialPath != '' && $workspaceStore && untrack(() => loadTriggers())
+	})
+	$effect.pre(() => {
+		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
+		customUi && untrack(() => onCustomUiChange(customUi, hasAiDiff))
+	})
+
+	export async function loadFlowState() {
+		await stepHistoryLoader.loadIndividualStepsStates(
+			flowStore.val as Flow,
+			flowStateStore,
+			$workspaceStore!,
+			$initialPathStore,
+			$pathStore
+		)
+	}
+
+	let stepHistoryLoader = new StepHistoryLoader(
+		untrack(() => loadedFromHistoryFromUrl)?.stepsState ?? {},
+		untrack(() => loadedFromHistoryFromUrl)?.flowJobInitial,
+		undefined,
+		untrack(() => noInitial)
+	)
+	setStepHistoryLoaderContext(stepHistoryLoader)
+
+	export function setLoadedFromHistory(
+		loadedFromHistoryUrl:
+			| {
+					flowJobInitial: boolean | undefined
+					stepsState: Record<string, stepState>
+			  }
+			| undefined
+	) {
+		if (!loadedFromHistoryUrl) {
+			return
+		}
+
+		stepHistoryLoader.setFlowJobInitial(loadedFromHistoryUrl.flowJobInitial)
+		stepHistoryLoader.stepStates = loadedFromHistoryUrl.stepsState
+	}
+
+	function onJobDone() {
+		if (!job) {
+			return
+		}
+		// job was running and is now stopped
+		if (!flowPreviewButtons?.getPreviewOpen()) {
+			if (
+				job.type === 'CompletedJob' &&
+				job.success &&
+				flowPreviewButtons?.getPreviewMode() === 'whole'
+			) {
+				if (flowEditor?.isNodeVisible('Result') && selectedIdStore !== 'Result') {
+					outputPickerOpenFns['Result']?.()
+				}
+			} else {
+				// Find last module with a job in flow_status
+				const lastModuleWithJob = job.flow_status?.modules
+					?.slice()
+					.reverse()
+					.find((module) => 'job' in module)
+				if (
+					lastModuleWithJob &&
+					lastModuleWithJob.id &&
+					flowEditor?.isNodeVisible(lastModuleWithJob.id)
+				) {
+					outputPickerOpenFns[lastModuleWithJob.id]?.()
+				}
+			}
+		}
+	}
+
+	let localModuleStates: Record<string, GraphModuleState> = $state({})
+	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
+
+	const flowHasChanged = $derived(flowPreviewContent?.flowHasChanged())
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} />
 
-<slot />
+{@render children?.()}
 
 <DeployOverrideConfirmationModal
-	bind:deployedBy
-	bind:confirmCallback
+	{deployedBy}
+	{confirmCallback}
 	bind:open
 	{diffDrawer}
 	bind:deployedValue
-	currentValue={$flowStore}
+	currentValue={flowStore.val}
 />
+
+<DraftTriggersConfirmationModal
+	bind:open={draftTriggersModalOpen}
+	draftTriggers={triggersState.triggers.filter((t) => t.draftConfig)}
+	isFlow={true}
+	on:canceled={() => {
+		draftTriggersModalOpen = false
+	}}
+	on:confirmed={handleDraftTriggersConfirmed}
+/>
+
+<AIChangesWarningModal bind:open={aiChangesWarningOpen} onConfirm={aiChangesConfirmCallback} />
 
 {#key renderCount}
 	{#if !$userStore?.operator}
-		<FlowCopilotDrawer {getHubCompletions} {genFlow} bind:flowCopilotMode />
 		{#if $pathStore}
-			<FlowHistory bind:this={flowHistory} path={$pathStore} on:historyRestore />
+			<FlowHistory bind:this={flowHistory} path={$pathStore} {onHistoryRestore} />
 		{/if}
 		<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 		<FlowImportExportMenu bind:drawer={jsonViewerDrawer} />
-		<FlowCopilotInputsModal
-			on:confirmed={async () => {
-				applyCopilotFlowInputs()
-				finishStepGen()
-			}}
-			on:canceled={async () => {
-				clearFlowInputsFromStep($copilotModulesStore[0]?.id)
-				finishStepGen()
-			}}
-			bind:open={openCopilotInputsModal}
-			inputs={Object.keys(copilotFlowInputs)}
-		/>
 		<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
+		<FlowEditorDrawer bind:this={$flowEditorDrawer} />
 
-		<div class="flex flex-col flex-1 h-screen">
+		<div bind:this={flowBuilderRoot} class="flex flex-col h-screen">
 			<!-- Nav between steps-->
 			<div
-				class="justify-between flex flex-row items-center pl-2.5 pr-6 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
+				bind:clientWidth={topbarWidth}
+				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
 			>
-				{#if $copilotCurrentStepStore !== undefined}
-					<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0" />
-				{/if}
-				<div class="flex w-full max-w-md gap-4 items-center">
-					<Summary
-						disabled={customUi?.topBar?.editableSummary == false}
-						bind:value={$flowStore.summary}
+				<div class="flex flex-row items-center gap-2 min-w-[200px] max-w-full">
+					<EditorHeader
+						bind:summary={flowStore.val.summary}
+						bind:path={$pathStore}
+						savedPath={initialPath}
+						onBehalfOfEmail={$savedOnBehalfOfEmail}
+						onNavigate={(item) => onNavigate?.(item)}
 					/>
-
-					<UndoRedo
-						undoProps={{ disabled: $history.index === 0 }}
-						redoProps={{ disabled: $history.index === $history.history.length - 1 }}
-						on:undo={() => {
-							const currentModules = $flowStore?.value?.modules
-
-							$flowStore = undo(history, $flowStore)
-
-							const newModules = $flowStore?.value?.modules
-							const restoredModules = newModules?.filter(
-								(node) => !currentModules?.some((currentNode) => currentNode?.id === node?.id)
-							)
-
-							for (const mod of restoredModules) {
-								if (mod) {
-									try {
-										loadFlowModuleState(mod).then((state) => ($flowStateStore[mod.id] = state))
-									} catch (e) {
-										console.error('Error loading state for restored node', e)
-									}
-								}
-							}
-
-							$selectedIdStore = 'Input'
-						}}
-						on:redo={() => {
-							$flowStore = redo(history)
-						}}
-					/>
-				</div>
-
-				<div class="gap-4 flex-row hidden md:flex w-full max-w-md">
-					{#if $primaryScheduleStore != undefined ? $primaryScheduleStore && $primaryScheduleStore?.enabled : $triggersCount?.primary_schedule}
-						<Button
-							btnClasses="hidden lg:inline-flex"
-							startIcon={{ icon: Calendar }}
-							variant="contained"
-							color="light"
-							size="xs"
-							on:click={async () => {
-								select('triggers')
-								selectTrigger('schedules')
-							}}
-						>
-							{$primaryScheduleStore != undefined
-								? $primaryScheduleStore
-									? $primaryScheduleStore?.cron
-									: ''
-								: $triggersCount?.primary_schedule?.schedule}
-						</Button>
-					{/if}
-
-					{#if customUi?.topBar?.path != false}
-						<div class="flex justify-start w-full">
-							<div>
-								<button
-									on:click={async () => {
-										select('settings-metadata')
-										document.getElementById('path')?.focus()
-									}}
-								>
-									<Badge
-										color="gray"
-										class="center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[28px]  !w-[70px] rounded-r-none"
-									>
-										<Pen size={12} class="mr-2" /> Path
-									</Badge>
-								</button>
-							</div>
-							<input
-								type="text"
-								readonly
-								value={$pathStore && $pathStore != '' ? $pathStore : 'Choose a path'}
-								class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none"
-								on:focus={({ currentTarget }) => {
-									currentTarget.select()
-								}}
-							/>
-						</div>
+					{#if indicatorWorkspace && indicatorPath !== undefined}
+						<AutosaveIndicator
+							workspace={indicatorWorkspace}
+							itemKind="flow"
+							path={indicatorPath}
+							draftOnly={newFlow}
+							{onResetToDeployed}
+							{loadedFromDraft}
+							{othersDraftsCount}
+							{onOpenOthersDrafts}
+						/>
 					{/if}
 				</div>
 				<div class="flex flex-row gap-2 items-center">
 					{#if $enterpriseLicense && !newFlow}
 						<Awareness />
 					{/if}
-					<div>
-						{#if moreItems?.length > 0}
-							<ButtonDropdown hasPadding={false}>
-								<svelte:fragment slot="buttonReplacement">
-									<Button nonCaptureEvent size="xs" color="light">
-										<div class="flex flex-row items-center">
-											<MoreVertical size={14} />
-										</div>
-									</Button>
-								</svelte:fragment>
-								<svelte:fragment slot="items">
-									{#each moreItems as item}
-										<MenuItem
-											on:click={item.action}
-											disabled={item.disabled}
-											class={item.disabled ? 'opacity-50' : ''}
-										>
-											<div
-												class={twMerge(
-													'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-												)}
-											>
-												<svelte:component this={item.icon} size={14} />
-												{item.displayName}
-											</div>
-										</MenuItem>
-									{/each}
-								</svelte:fragment>
-							</ButtonDropdown>
+					<div class="relative">
+						<Dropdown items={getMoreItems} />
+						{#if $tutorialsToDo.includes(getTutorialIndex('flow-live-tutorial')) || $tutorialsToDo.includes(getTutorialIndex('troubleshoot-flow'))}
+							<span
+								class="absolute top-0.5 right-0.5 block w-2 h-2 rounded-full bg-surface-accent-primary pointer-events-none"
+							></span>
 						{/if}
 					</div>
-					{#if customUi?.topBar?.tutorials != false}
-						<FlowBuilderTutorials
-							on:reload={() => {
-								renderCount += 1
-							}}
-						/>
-					{/if}
 					{#if customUi?.topBar?.diff != false}
-						<Button
-							color="light"
-							variant="border"
-							size="xs"
-							on:click={async () => {
-								if (!savedFlow) {
-									return
-								}
-
-								await syncWithDeployed()
-
-								diffDrawer?.openDrawer()
-								diffDrawer?.setDiff({
-									mode: 'normal',
-									deployed: deployedValue ?? savedFlow,
-									draft: savedFlow['draft'],
-									current: { ...$flowStore, path: $pathStore }
-								})
-							}}
-							disabled={!savedFlow}
-						>
-							<div class="flex flex-row gap-2 items-center">
-								<DiffIcon size={14} />
+						{@const isDraftOnly = savedFlow?.no_deployed === true}
+						{@const diffDisabled = !savedFlow || newFlow || isDraftOnly}
+						{@const diffTitle =
+							newFlow || isDraftOnly
+								? 'Deploy this flow once to compare against the deployed version'
+								: 'Diff'}
+						<!-- A disabled <button> fires no pointer events, so a title/tooltip on
+						     it never shows on hover. pointer-events-none on the button lets the
+						     hover reach this titled wrapper instead. -->
+						<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
+							<Button
+								variant="default"
+								unifiedSize="md"
+								on:click={() => openDiffDrawer()}
+								disabled={diffDisabled}
+								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
+								iconOnly={compactTopbar}
+								title={diffTitle}
+								startIcon={{ icon: DiffIcon }}
+							>
 								Diff
-							</div>
-						</Button>
+							</Button>
+						</div>
 					{/if}
-					{#if !disableAi && customUi?.topBar?.aiBuilder != false}
-						<FlowCopilotStatus
-							{copilotLoading}
-							bind:copilotStatus
-							{genFlow}
-							{finishCopilotFlowBuilder}
-							{abortController}
-						/>
+					{#if !compactTopbar}
+						{@render previewButtons()}
 					{/if}
-					<FlowPreviewButtons
-						on:openTriggers={(e) => {
-							select('triggers')
-							selectTrigger(e.detail.kind)
-							captureOn.set(true)
-							showCaptureHint.set(true)
-						}}
-						bind:this={flowPreviewButtons}
-						{loading}
-					/>
-					<Button
-						loading={loadingDraft}
-						size="xs"
-						startIcon={{ icon: Save }}
-						on:click={() => saveDraft()}
-						disabled={(!newFlow && !savedFlow) || loading}
-						shortCut={{
-							key: 'S'
-						}}
-					>
-						Draft
-					</Button>
 
-					<CustomPopover appearTimeout={0} focusEl={msgInput}>
-						<Button
-							disabled={loading}
-							loading={loadingSave}
-							size="xs"
-							startIcon={{ icon: Save }}
-							on:click={async () => {
-								await handleSaveFlow()
-							}}
-							dropdownItems={!newFlow ? dropdownItems : undefined}
-						>
-							Deploy
-						</Button>
-						<svelte:fragment slot="overlay">
-							<div class="flex flex-row gap-2 w-80">
-								<input
-									type="text"
-									placeholder="Deployment message"
-									bind:value={deploymentMsg}
-									on:keydown={async (e) => {
-										if (e.key === 'Enter') {
-											await handleSaveFlow(deploymentMsg)
-										}
-									}}
-									bind:this={msgInput}
-								/>
-								<Button
-									size="xs"
-									on:click={async () => await handleSaveFlow(deploymentMsg)}
-									endIcon={{ icon: CornerDownLeft }}
-									loading={loadingSave}
-								>
-									Deploy
-								</Button>
-							</div>
-						</svelte:fragment>
-					</CustomPopover>
+					<DeployButton
+						on:save={async ({ detail }) => await handleSaveFlow(detail)}
+						{loading}
+						{loadingSave}
+						{dropdownItems}
+					/>
 				</div>
 			</div>
-
+			<!-- Rendered either inline in the top bar (wide) or as a graph overlay
+			     (compactTopbar). Crossing the 720px threshold remounts
+			     FlowPreviewButtons; any open preview state will reset. -->
+			{#snippet previewButtons()}
+				<FlowPreviewButtons
+					{suspendStatus}
+					on:openTriggers={(e) => {
+						select('Trigger')
+						handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)
+						captureOn.set(true)
+						showCaptureHint.set(true)
+					}}
+					{onJobDone}
+					bind:localModuleStates
+					bind:this={flowPreviewButtons}
+					{loading}
+					onRunPreview={(jobId) => {
+						stepsInputArgs.resetManuallyEditedArgs()
+						modulesTestStates.hideJobsInGraph()
+						localModuleStates = {}
+						showJobStatus = true
+						if (jobId) {
+							onTestJob?.({ jobId })
+						}
+					}}
+				/>
+			{/snippet}
 			<!-- metadata -->
-			{#if $flowStateStore}
+			{#if flowStateStore.val}
 				<FlowEditor
+					bind:this={flowEditor}
+					graphOverlay={compactTopbar ? previewButtons : undefined}
 					{disabledFlowInputs}
 					disableAi={disableAi || customUi?.stepInputs?.ai == false}
 					disableSettings={customUi?.settingsPanel === false}
@@ -1514,14 +1196,55 @@
 					{newFlow}
 					on:applyArgs={(ev) => {
 						if (ev.detail.kind === 'preprocessor') {
-							$testStepStore['preprocessor'] = ev.detail.args ?? {}
-							$selectedIdStore = 'preprocessor'
+							stepsInputArgs.setStepArgs('preprocessor', ev.detail.args ?? {})
+							selectionManager.selectId('preprocessor')
 						}
 					}}
 					on:testWithArgs={(e) => {
-						$previewArgsStore = JSON.parse(JSON.stringify(e.detail))
+						previewArgsStore.val = JSON.parse(JSON.stringify(e.detail))
 						flowPreviewButtons?.openPreview(true)
 					}}
+					onTestUpTo={(id) => {
+						flowPreviewButtons?.testUpTo(id)
+					}}
+					{savedFlow}
+					onDeployTrigger={handleDeployTrigger}
+					onEditInput={(moduleId, key) => {
+						selectionManager.selectId(moduleId)
+						// Use new prop-based system
+						forceTestTab[moduleId] = true
+						highlightArg[moduleId] = key
+						// Reset the force flag after a short delay to allow re-triggering
+						setTimeout(() => {
+							forceTestTab[moduleId] = false
+							highlightArg[moduleId] = undefined
+						}, 500)
+					}}
+					{forceTestTab}
+					{highlightArg}
+					aiChatOpen={aiChatManager.open}
+					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
+					toggleAiChat={() => aiChatManager.toggleOpen()}
+					onOpenPreview={flowPreviewButtons?.openPreview}
+					localModuleStates={showJobStatus ? localModuleStates : {}}
+					{showJobStatus}
+					testModuleStates={modulesTestStates}
+					isOwner={flowPreviewContent?.getIsOwner()}
+					onTestFlow={flowPreviewButtons?.runPreview}
+					isRunning={flowPreviewContent?.getIsRunning()}
+					onCancelTestFlow={flowPreviewContent?.cancelTest}
+					onHideJobStatus={() => {
+						modulesTestStates.hideJobsInGraph()
+						showJobStatus = false
+					}}
+					{job}
+					{suspendStatus}
+					onDelete={(id) => {
+						delete localModuleStates[id]
+						delete modulesTestStates.states[id]
+					}}
+					{flowHasChanged}
+					previewOpen={flowPreviewButtons?.getPreviewOpen() ?? false}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>
@@ -1537,4 +1260,11 @@
 	on:reload={() => {
 		renderCount += 1
 	}}
+/>
+
+<FlowAssetsHandler
+	modules={flowStore.val.value.modules}
+	enableParser
+	enableDbExplore
+	enablePathScriptAndFlowAssets
 />

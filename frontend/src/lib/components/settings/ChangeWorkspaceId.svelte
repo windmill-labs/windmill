@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
+	import { run } from 'svelte/legacy';
+
+	import { workspaceStore, superadmin } from '$lib/stores'
 	import Alert from '../common/alert/Alert.svelte'
 	import Button from '../common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -8,14 +10,12 @@
 	import { Pen } from 'lucide-svelte'
 	import { isCloudHosted } from '$lib/cloud'
 
-	let newName = ''
-	let newId = ''
-	let checking = false
-	let errorId = ''
+	let newName = $state('')
+	let newId = $state('')
+	let checking = $state(false)
+	let errorId = $state('')
 
-	$: newId = newName.toLowerCase().replace(/\s/gi, '-')
 
-	$: validateName(newId)
 
 	async function validateName(id: string): Promise<void> {
 		checking = true
@@ -30,36 +30,54 @@
 		checking = false
 	}
 
+	let loading = $state(false)
 	async function renameWorkspace() {
-		open = false
-		await WorkspaceService.changeWorkspaceId({
-			workspace: $workspaceStore!,
-			requestBody: {
-				new_name: newName,
-				new_id: newId
-			}
-		})
+		try {
+			loading = true
+			await WorkspaceService.changeWorkspaceId({
+				workspace: $workspaceStore!,
+				requestBody: {
+					new_name: newName,
+					new_id: newId
+				}
+			})
+			open = false
 
-		sendUserToast(`Renamed workspace to ${newName}. Reloading...`)
-		await new Promise((resolve) => setTimeout(resolve, 1000))
-		window.location.href = '/workspace_settings?tab=general&workspace=' + newId
+			sendUserToast(`Moved workspace to ${newName}. Old workspace archived. Reloading...`)
+			await new Promise((resolve) => setTimeout(resolve, 1000))
+			window.location.href = '/workspace_settings?tab=general&workspace=' + newId
+		} catch (err) {
+			sendUserToast(`Error renaming workspace: ${err}`, true)
+		} finally {
+			loading = false
+		}
 	}
 
-	export let open = false
+	interface Props {
+		open?: boolean;
+	}
+
+	let { open = $bindable(false) }: Props = $props();
+	run(() => {
+		newId = newName.toLowerCase().replace(/\s/gi, '-')
+	});
+	run(() => {
+		validateName(newId)
+	});
 </script>
 
-<div>
-	<p class="font-semibold text-sm">Workspace ID</p>
+<div class="flex flex-col gap-1">
+	<p class="font-semibold text-xs text-emphasis">Workspace ID</p>
+	<p class="text-xs text-secondary font-normal">Slug to uniquely identify your workspace</p>
 	<div class="flex flex-row gap-0.5 items-center">
-		<p class="text-sm text-secondary">{$workspaceStore ?? ''}</p>
-		{#if !isCloudHosted()}
+		<p class="text-xs font-normal text-primary">{$workspaceStore ?? ''}</p>
+		{#if !isCloudHosted() || $superadmin}
 			<Button
 				on:click={() => {
 					open = true
 				}}
-				size="xs"
-				spacingSize="xs2"
-				color="light"
+				unifiedSize="sm"
+				variant="subtle"
 				iconOnly
 				startIcon={{
 					icon: Pen
@@ -67,23 +85,27 @@
 			/>
 		{/if}
 	</div>
-	<p class="italic text-xs">Slug to uniquely identify your workspace</p>
 </div>
 
 <Modal bind:open title="Change workspace ID">
 	<div class="flex flex-col gap-4">
-		<Alert type="warning" title="Warning">
-			You will have to update your webhook calls and your CLI sync configuration.
+		<Alert type="warning" title="What happens">
+			<ul class="list-disc list-inside text-xs mt-1 space-y-1">
+				<li>All content (scripts, flows, apps, resources, etc.) moves to the new ID</li>
+				<li>Old workspace is archived with completed jobs, logs, and audit history</li>
+				<li>Running jobs will be canceled</li>
+			</ul>
+			<p class="text-xs mt-2">Remember to update webhook URLs and CLI sync config afterward.</p>
 		</Alert>
-		<p class="text-secondary text-sm"
-			>Current ID <br /> <span class="font-bold">{$workspaceStore ?? ''}</span></p
+		<p class="text-secondary text-xs"
+			>Current ID <br /> <span class="text-emphasis">{$workspaceStore ?? ''}</span></p
 		>
-		<label class="block">
-			<span class="text-secondary text-sm">New name</span>
+		<label class="flex flex-col gap-1">
+			<span class="text-emphasis text-xs">New name</span>
 			<input type="text" bind:value={newName} />
 		</label>
 		<label class="block">
-			<span class="text-secondary text-sm">New ID</span>
+			<span class="text-emphasis text-xs">New ID</span>
 			<input type="text" bind:value={newId} />
 			{#if errorId}
 				<div class="text-red-500 text-xs mt-1">{errorId}</div>
@@ -91,15 +113,16 @@
 		</label>
 	</div>
 
-	<svelte:fragment slot="actions">
+	{#snippet actions()}
 		<Button
-			size="sm"
+			variant="accent"
 			disabled={checking || errorId.length > 0 || !newName || !newId}
+			{loading}
 			on:click={() => {
 				renameWorkspace()
 			}}
 		>
 			Save
 		</Button>
-	</svelte:fragment>
+	{/snippet}
 </Modal>

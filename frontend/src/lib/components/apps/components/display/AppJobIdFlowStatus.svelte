@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -10,20 +10,35 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
-	export let id: string
-	export let initializing: boolean | undefined = false
-	export let customCss: ComponentCustomCSS<'jobidflowstatuscomponent'> | undefined = undefined
-	export let configuration: RichConfigurations
-	export let render: boolean
+	interface Props {
+		id: string
+		initializing?: boolean | undefined
+		customCss?: ComponentCustomCSS<'jobidflowstatuscomponent'> | undefined
+		configuration: RichConfigurations
+		render: boolean
+	}
+
+	let {
+		id,
+		initializing = $bindable(undefined),
+		customCss = undefined,
+		configuration,
+		render
+	}: Props = $props()
+
+	$effect.pre(() => {
+		if (initializing) {
+			initializing = false
+		}
+	})
 
 	const { app, worldStore, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
-	const resolvedConfig = initConfig(
-		components['jobidlogcomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['jobidlogcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false,
 		jobId: undefined as string | undefined
@@ -31,9 +46,9 @@
 
 	initializing = false
 
-	let css = initCss($app.css?.jobidflowstatuscomponent, customCss)
+	let css = $state(initCss($app.css?.jobidflowstatuscomponent, untrack(() => customCss)))
 
-	$: jobId = resolvedConfig.jobId
+	let jobId = $derived(resolvedConfig.jobId)
 </script>
 
 {#each Object.keys(components['jobidflowstatuscomponent'].initialData.configuration) as key (key)}
@@ -83,13 +98,13 @@
 				<FlowStatusViewer
 					workspaceId={workspace}
 					{jobId}
-					on:start={() => {
+					onStart={() => {
 						outputs?.jobId.set(jobId)
 						outputs?.loading.set(true)
 					}}
-					on:done={(e) => {
+					onDone={({ job }) => {
 						outputs?.loading.set(false)
-						outputs?.result.set(e?.detail?.result)
+						outputs?.result.set(job?.result as any)
 					}}
 				/>
 			{:else}

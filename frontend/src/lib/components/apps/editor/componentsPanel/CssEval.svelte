@@ -3,12 +3,16 @@
 	import type { AppViewerContext, RichConfiguration } from '../../types'
 	import InputsSpecEditor from '../settingsPanel/InputsSpecEditor.svelte'
 
-	export let evalClass: RichConfiguration
-	export let key: string
+	interface Props {
+		evalClass: RichConfiguration
+		key: string
+	}
+
+	let { evalClass = $bindable(), key }: Props = $props()
 
 	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
-	$: id = Array.isArray($selectedComponent) ? $selectedComponent[0] : $selectedComponent
+	let id = $derived(Array.isArray($selectedComponent) ? $selectedComponent[0] : $selectedComponent)
 </script>
 
 {#if evalClass && id}

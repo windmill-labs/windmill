@@ -7,10 +7,19 @@
 	import { workspaceStore } from '$lib/stores'
 	import { tryEvery } from '$lib/utils'
 
-	export let workspaceOverride: string | undefined = undefined
-	export let resourceType: string | undefined
-	export let args: Record<string, any> | any = {}
-	export let buttonTextOverride: string | undefined = undefined
+	interface Props {
+		workspaceOverride?: string | undefined;
+		resourceType: string | undefined;
+		args?: Record<string, any> | any;
+		buttonTextOverride?: string | undefined;
+	}
+
+	let {
+		workspaceOverride = undefined,
+		resourceType,
+		args = {},
+		buttonTextOverride = undefined
+	}: Props = $props();
 
 	const scripts: {
 		[key: string]: {
@@ -45,7 +54,7 @@
 			lang: 'snowflake',
 			argName: 'database'
 		},
-		ms_sql_server: {
+		mssql: {
 			code: `SELECT 1`,
 			lang: 'mssql',
 			argName: 'database'
@@ -78,6 +87,34 @@ export async function main(s3: S3) {
 			access_key: s3.accessKey,
 			secret_key: s3.secretKey,
 			path_style: s3.pathStyle,
+		}),
+	}).then(async (res) => {
+		if (!res.ok) {
+			throw new Error(await res.text())
+		}
+		return res.text()
+	})
+}
+`,
+			lang: 'bun',
+			argName: 's3'
+		},
+		azure_blob: {
+			code: `
+import * as wmill from "windmill-client"
+
+type S3 = object
+
+export async function main(s3: S3) {
+	return fetch(process.env["BASE_URL"] + '/api/settings/test_object_storage_config', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: 'Bearer ' + process.env["WM_TOKEN"],
+		},
+		body: JSON.stringify({
+			type: "Azure",
+			...s3
 		}),
 	}).then(async (res) => {
 		if (!res.ok) {
@@ -138,7 +175,7 @@ export async function main(bucket: any) {
 		}
 	}
 
-	let loading = false
+	let loading = $state(false)
 	async function testConnection() {
 		if (!resourceType) return
 		loading = true
@@ -200,14 +237,7 @@ export async function main(bucket: any) {
 </script>
 
 {#if Object.keys(scripts).includes(resourceType || '')}
-	<Button
-		spacingSize="sm"
-		size="xs"
-		btnClasses="h-8"
-		color="light"
-		variant="border"
-		on:click={testConnection}
-	>
+	<Button spacingSize="sm" size="xs" unifiedSize="md" variant="default" on:click={testConnection}>
 		{#if loading}
 			<Loader2 class="animate-spin mr-2 !h-4 !w-4" />
 		{:else}

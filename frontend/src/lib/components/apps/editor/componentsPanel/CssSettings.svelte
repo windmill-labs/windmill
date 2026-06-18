@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { AlertTriangle, GitBranch } from 'lucide-svelte'
+	import { GitBranch } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import type { AppViewerContext } from '../../types'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -13,13 +13,13 @@
 	import { resolveTheme } from './themeUtils'
 	import ThemeCodePreview from './ThemeCodePreview.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import EEOnly from '$lib/components/EEOnly.svelte'
+	const { app, appPath } = getContext<AppViewerContext>('AppViewerContext')
 
-	const { app } = getContext<AppViewerContext>('AppViewerContext')
-
-	let cssEditor: SimpleEditor | undefined = undefined
-	let alertHeight: number | undefined = undefined
-	let themeViewer: any = undefined
-	let selectedTab: 'css' | 'theme' = 'css'
+	let cssEditor: SimpleEditor | undefined = $state(undefined)
+	let alertHeight: number | undefined = $state(undefined)
+	let themeViewer: any = $state(undefined)
+	let selectedTab: 'css' | 'theme' = $state('css')
 
 	function insertSelector(selector: string) {
 		if ($app?.theme?.type === 'path') {
@@ -41,9 +41,9 @@
 </Drawer>
 
 <Tabs bind:selected={selectedTab}>
-	<Tab size="xs" value="css">Code</Tab>
-	<Tab size="xs" value="theme">Theme</Tab>
-	<svelte:fragment slot="content">
+	<Tab value="css" label="Code" />
+	<Tab value="theme" label="Theme" />
+	{#snippet content()}
 		{#if selectedTab === 'css'}
 			<SplitPanesWrapper>
 				<Splitpanes horizontal>
@@ -51,10 +51,7 @@
 						{#if $enterpriseLicense === undefined}
 							<div bind:clientHeight={alertHeight} class="p-2 flex flex-row gap-2">
 								<div class="flex flex-row items-center text-yellow-500 text-xs">
-									<div class="flex items-center whitespace-nowrap">
-										<AlertTriangle size={16} />
-										EE only
-									</div>
+									<EEOnly />
 									<Tooltip light>
 										App CSS editor is an exclusive feature of the Enterprise Edition. You can
 										experiment with this feature in the editor, but please note that the changes
@@ -80,10 +77,11 @@
 									small
 									automaticLayout
 									bind:this={cssEditor}
+									key={`app-global-css-editor-${$workspaceStore}-${$appPath}`}
 								/>
 							{:else}
 								<ThemeCodePreview theme={$app.theme}>
-									<div class="p-2 w-min">
+									<div class="p-2 w-min whitespace-nowrap">
 										<Button
 											size="xs"
 											color="dark"
@@ -116,5 +114,5 @@
 				}}
 			/>
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 </Tabs>

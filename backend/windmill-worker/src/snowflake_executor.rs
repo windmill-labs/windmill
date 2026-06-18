@@ -2,24 +2,32 @@ use base64::{engine, Engine as _};
 use chrono::Datelike;
 use core::fmt::Write;
 use futures::future::BoxFuture;
-use futures::{FutureExt, TryFutureExt};
+use futures::{FutureExt, StreamExt, TryStreamExt};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::{Client, Response};
 use serde_json::{json, value::RawValue, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use uuid::Uuid;
 use windmill_common::error::to_anyhow;
+use windmill_common::worker::{Connection, SqlResultCollectionStrategy};
 
-use windmill_common::jobs::QueuedJob;
 use windmill_common::{error::Error, worker::to_raw_value};
-use windmill_parser_sql::{parse_db_resource, parse_snowflake_sig, parse_sql_blocks};
-use windmill_queue::{CanceledBy, HTTP_CLIENT};
+use windmill_parser_sql::{
+    parse_db_resource, parse_s3_mode, parse_snowflake_sig, parse_sql_blocks,
+};
+use windmill_queue::{CanceledBy, MiniPulledJob, HTTP_CLIENT};
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::{build_http_client, resolve_job_timeout, OccupancyMetrics};
+use crate::common::{build_args_values, get_reserved_variables};
+use crate::common::{
+    build_http_client, resolve_job_timeout, s3_mode_args_to_worker_data,
+    s3_stream_and_upload_with_logs, OccupancyMetrics, S3ModeWorkerData,
+};
 use crate::handle_child::run_future_with_polling_update_job_poller;
-use crate::{common::build_args_values, AuthedClientBackgroundTask};
+use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
+use windmill_common::client::AuthedClient;
 
 #[derive(Serialize)]
 struct Claims {
@@ -74,10 +82,81 @@ struct SnowflakeError {
     message: String,
 }
 
-trait SnowflakeResponseExt {
-    async fn parse_snowflake_response<T: for<'a> Deserialize<'a>>(
-        self,
-    ) -> windmill_common::error::Result<T>;
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct SnowflakeAsyncResponse {
+    statement_handle: String,
+}
+
+async fn poll_snowflake_async_query(
+    http_client: &Client,
+    account_identifier: &str,
+    statement_handle: &str,
+    token: &str,
+    token_is_keypair: bool,
+    deadline: std::time::Instant,
+) -> windmill_common::error::Result<SnowflakeResponse> {
+    let url = format!(
+        "https://{}.snowflakecomputing.com/api/v2/statements/{}",
+        account_identifier.to_uppercase(),
+        statement_handle
+    );
+
+    loop {
+        if std::time::Instant::now() > deadline {
+            return Err(Error::ExecutionErr(
+                "Snowflake query timed out while polling for results".to_string(),
+            ));
+        }
+
+        let mut request = http_client.get(&url).bearer_auth(token);
+        if token_is_keypair {
+            request = request.header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT");
+        }
+
+        let response = request.send().await.map_err(|e| {
+            Error::ExecutionErr(format!("Could not poll Snowflake status: {:?}", e))
+        })?;
+
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .map_err(|e| Error::ExecutionErr(format!("error reading poll response body: {}", e)))?;
+
+        tracing::debug!(
+            "Snowflake poll response status: {}, body: {}",
+            status,
+            &body[..body.len().min(500)]
+        );
+
+        if status == reqwest::StatusCode::ACCEPTED {
+            // Still running, wait and poll again
+            tracing::info!("Snowflake query still running, polling again in 1s...");
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            continue;
+        }
+
+        if !status.is_success() {
+            return Err(Error::ExecutionErr(format!(
+                "Snowflake poll returned error status {}: {}",
+                status,
+                &body[..body.len().min(500)]
+            )));
+        }
+
+        // Query completed, parse the response
+        let response: SnowflakeResponse = serde_json::from_str(&body).map_err(|e| {
+            Error::ExecutionErr(format!(
+                "error decoding poll response: {}. Status: {}. Body preview: {}",
+                e,
+                status,
+                &body[..body.len().min(500)]
+            ))
+        })?;
+
+        return Ok(response);
+    }
 }
 
 async fn handle_snowflake_result(
@@ -101,18 +180,6 @@ async fn handle_snowflake_result(
     }
 }
 
-impl SnowflakeResponseExt for Result<Response, reqwest::Error> {
-    async fn parse_snowflake_response<T: for<'a> Deserialize<'a>>(
-        self,
-    ) -> windmill_common::error::Result<T> {
-        let response = handle_snowflake_result(self).await?;
-        response
-            .json::<T>()
-            .await
-            .map_err(|e| Error::ExecutionErr(e.to_string()))
-    }
-}
-
 fn do_snowflake_inner<'a>(
     query: &'a str,
     job_args: &HashMap<String, Value>,
@@ -122,17 +189,32 @@ fn do_snowflake_inner<'a>(
     token_is_keypair: bool,
     column_order: Option<&'a mut Option<Vec<String>>>,
     skip_collect: bool,
+    first_row_only: bool,
     http_client: &'a Client,
-) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
-    body.insert("statement".to_string(), json!(query));
-
-    let mut bindings = serde_json::Map::new();
+    s3: Option<S3ModeWorkerData>,
+    reserved_variables: &HashMap<String, String>,
+    deadline: std::time::Instant,
+    job_id: Uuid,
+    workspace_id: &'a str,
+    log_conn: &'a Connection,
+) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Vec<Box<RawValue>>>>>
+{
     let sig = parse_snowflake_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
+    let (query, args_to_skip) =
+        &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args, reserved_variables)?;
+
+    body.insert("statement".to_string(), json!(query));
+
+    let mut bindings = serde_json::Map::new();
+
     let mut i = 1;
     for arg in &sig {
+        if args_to_skip.contains(&arg.name) {
+            continue;
+        }
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "string".to_string());
         let arg_v = job_args.get(&arg.name).cloned().unwrap_or(json!(""));
         let snowflake_v = convert_typ_val(arg_t, arg_v);
@@ -161,16 +243,96 @@ fn do_snowflake_inner<'a>(
         let result = request.send().await;
 
         if skip_collect {
-            handle_snowflake_result(result).await?;
-            Ok(to_raw_value(&Value::Array(vec![])))
-        } else {
-            let response = result
-                .parse_snowflake_response::<SnowflakeResponse>()
-                .await?;
+            // Still need to handle async (202) responses even when not collecting results
+            let raw_response = handle_snowflake_result(result).await?;
+            let status = raw_response.status();
 
-            if response.resultSetMetaData.numRows > 10000 {
+            if status == reqwest::StatusCode::ACCEPTED {
+                let body = raw_response.text().await.map_err(|e| {
+                    Error::ExecutionErr(format!("error reading response body: {}", e))
+                })?;
+                let async_resp: SnowflakeAsyncResponse =
+                    serde_json::from_str(&body).map_err(|e| {
+                        Error::ExecutionErr(format!(
+                            "error decoding async response: {}. Body preview: {}",
+                            e,
+                            &body[..body.len().min(500)]
+                        ))
+                    })?;
+
+                tracing::info!(
+                    "Snowflake statement running asynchronously, polling for completion (handle: {})",
+                    async_resp.statement_handle
+                );
+
+                // Poll until complete, but discard the results
+                poll_snowflake_async_query(
+                    http_client,
+                    account_identifier,
+                    &async_resp.statement_handle,
+                    token,
+                    token_is_keypair,
+                    deadline,
+                )
+                .await?;
+            }
+
+            Ok(vec![])
+        } else {
+            // Handle both sync (200) and async (202) responses
+            let raw_response = handle_snowflake_result(result).await?;
+            let status = raw_response.status();
+            let body = raw_response
+                .text()
+                .await
+                .map_err(|e| Error::ExecutionErr(format!("error reading response body: {}", e)))?;
+
+            tracing::debug!(
+                "Snowflake response status: {}, body: {}",
+                status,
+                &body[..body.len().min(1000)]
+            );
+
+            let response = if status == reqwest::StatusCode::ACCEPTED {
+                // Async execution - need to poll for results
+                let async_resp: SnowflakeAsyncResponse =
+                    serde_json::from_str(&body).map_err(|e| {
+                        Error::ExecutionErr(format!(
+                            "error decoding async response: {}. Body preview: {}",
+                            e,
+                            &body[..body.len().min(500)]
+                        ))
+                    })?;
+
+                tracing::info!(
+                    "Snowflake query running asynchronously, polling for results (handle: {})",
+                    async_resp.statement_handle
+                );
+
+                poll_snowflake_async_query(
+                    http_client,
+                    account_identifier,
+                    &async_resp.statement_handle,
+                    token,
+                    token_is_keypair,
+                    deadline,
+                )
+                .await?
+            } else {
+                // Sync execution - parse directly
+                serde_json::from_str::<SnowflakeResponse>(&body).map_err(|e| {
+                    Error::ExecutionErr(format!(
+                        "error decoding response body: {}. Status: {}. Body preview: {}",
+                        e,
+                        status,
+                        &body[..body.len().min(500)]
+                    ))
+                })?
+            };
+
+            if s3.is_none() && response.resultSetMetaData.numRows > 10000 {
                 return Err(Error::ExecutionErr(
-                    "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows"
+                    "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows or use S3 streaming for larger datasets: https://windmill.dev/docs/core_concepts/sql_to_s3_streaming"
                         .to_string(),
                 ));
             }
@@ -185,54 +347,182 @@ fn do_snowflake_inner<'a>(
                 );
             }
 
-            let mut rows = response.data;
+            // Clones are because, in s3 mode, reqwest::Body::wrap_stream requires the stream to be
+            // 'static even though it doesn't make sense to be in our case since the request is
+            // awaited and the stream is fully read before the function returns.
+            // Turns out it is a real pain to trick the compiler, even using unsafe
+            let cloned_account_identifier: String = account_identifier.to_string();
+            let cloned_token = token.to_string();
 
-            if response.resultSetMetaData.partitionInfo.len() > 1 {
-                for idx in 1..response.resultSetMetaData.partitionInfo.len() {
-                    let url = format!(
-                        "https://{}.snowflakecomputing.com/api/v2/statements/{}",
-                        account_identifier.to_uppercase(),
-                        response.statementHandle
-                    );
-                    let mut request = HTTP_CLIENT
-                        .get(url)
-                        .bearer_auth(token)
-                        .query(&[("partition", idx.to_string())]);
-
-                    if token_is_keypair {
-                        request =
-                            request.header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT");
-                    }
-
-                    let response = request
-                        .send()
-                        .await
-                        .parse_snowflake_response::<SnowflakeDataOnlyResponse>()
-                        .await?;
-
-                    rows.extend(response.data);
+            let rows_stream = async_stream::stream! {
+                for row in response.data {
+                    yield Ok::<Vec<Value>, windmill_common::error::Error>(row);
                 }
-            }
 
-            let rows = to_raw_value(
-                &rows
-                    .iter()
-                    .map(|row| {
-                        let mut row_map = serde_json::Map::new();
-                        row.iter()
-                            .zip(response.resultSetMetaData.rowType.iter())
-                            .for_each(|(val, row_type)| {
-                                row_map.insert(
-                                    row_type.name.clone(),
-                                    parse_val(&val, &row_type.r#type),
+                if response.resultSetMetaData.partitionInfo.len() > 1 {
+                    for idx in 1..response.resultSetMetaData.partitionInfo.len() {
+                        let url = format!(
+                            "https://{}.snowflakecomputing.com/api/v2/statements/{}",
+                            cloned_account_identifier.to_uppercase(),
+                            response.statementHandle
+                        );
+                        let mut request = HTTP_CLIENT
+                            .get(url)
+                            .bearer_auth(cloned_token.as_str())
+                            .query(&[("partition", idx.to_string())]);
+
+                        if token_is_keypair {
+                            request =
+                                request.header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT");
+                        }
+
+                        let result = request.send().await;
+                        let raw_response = match handle_snowflake_result(result).await {
+                            Ok(r) => r,
+                            Err(e) => {
+                                yield Err(e);
+                                return;
+                            }
+                        };
+                        let status = raw_response.status();
+                        let body = match raw_response.text().await {
+                            Ok(b) => b,
+                            Err(e) => {
+                                yield Err(Error::ExecutionErr(format!("error reading partition response: {}", e)));
+                                return;
+                            }
+                        };
+
+                        // Handle async (202) response for partition fetch
+                        let partition_data: SnowflakeDataOnlyResponse = if status == reqwest::StatusCode::ACCEPTED {
+                            // Poll until complete - partition fetches should be fast, but handle async just in case
+                            let mut poll_body = body;
+                            loop {
+                                if std::time::Instant::now() > deadline {
+                                    yield Err(Error::ExecutionErr(
+                                        "Snowflake partition fetch timed out while polling".to_string(),
+                                    ));
+                                    return;
+                                }
+
+                                let async_resp: SnowflakeAsyncResponse = match serde_json::from_str(&poll_body) {
+                                    Ok(r) => r,
+                                    Err(e) => {
+                                        yield Err(Error::ExecutionErr(format!(
+                                            "error decoding async partition response: {}",
+                                            e
+                                        )));
+                                        return;
+                                    }
+                                };
+
+                                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+                                let poll_url = format!(
+                                    "https://{}.snowflakecomputing.com/api/v2/statements/{}",
+                                    cloned_account_identifier.to_uppercase(),
+                                    async_resp.statement_handle
                                 );
-                            });
-                        row_map
-                    })
-                    .collect::<Vec<_>>(),
-            );
+                                let mut poll_request = HTTP_CLIENT.get(&poll_url).bearer_auth(cloned_token.as_str());
+                                if token_is_keypair {
+                                    poll_request = poll_request.header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT");
+                                }
 
-            Ok(rows)
+                                let poll_response = match poll_request.send().await {
+                                    Ok(r) => r,
+                                    Err(e) => {
+                                        yield Err(Error::ExecutionErr(format!("partition poll error: {:?}", e)));
+                                        return;
+                                    }
+                                };
+
+                                let poll_status = poll_response.status();
+                                poll_body = match poll_response.text().await {
+                                    Ok(b) => b,
+                                    Err(e) => {
+                                        yield Err(Error::ExecutionErr(format!("error reading partition poll response: {}", e)));
+                                        return;
+                                    }
+                                };
+
+                                if poll_status == reqwest::StatusCode::ACCEPTED {
+                                    continue;
+                                }
+
+                                if !poll_status.is_success() {
+                                    yield Err(Error::ExecutionErr(format!(
+                                        "partition poll returned error: {}",
+                                        &poll_body[..poll_body.len().min(500)]
+                                    )));
+                                    return;
+                                }
+
+                                match serde_json::from_str(&poll_body) {
+                                    Ok(r) => break r,
+                                    Err(e) => {
+                                        yield Err(Error::ExecutionErr(format!(
+                                            "error decoding partition poll response: {}",
+                                            e
+                                        )));
+                                        return;
+                                    }
+                                }
+                            }
+                        } else {
+                            match serde_json::from_str(&body) {
+                                Ok(r) => r,
+                                Err(e) => {
+                                    yield Err(Error::ExecutionErr(format!(
+                                        "error decoding partition response: {}. Body: {}",
+                                        e,
+                                        &body[..body.len().min(500)]
+                                    )));
+                                    return;
+                                }
+                            }
+                        };
+
+                        for row in partition_data.data {
+                            yield Ok(row);
+                        }
+                    }
+                }
+            };
+
+            let rows_stream = rows_stream.map_ok(move |row| {
+                let mut row_map = serde_json::Map::new();
+                row.iter()
+                    .zip(response.resultSetMetaData.rowType.iter())
+                    .for_each(|(val, row_type)| {
+                        row_map.insert(row_type.name.clone(), parse_val(&val, &row_type.r#type));
+                    });
+                row_map
+            });
+
+            let rows_stream = rows_stream.take(if first_row_only { 1 } else { usize::MAX });
+
+            if let Some(s3) = s3 {
+                let rows_stream =
+                    rows_stream.map(|r| serde_json::value::to_value(&r?).map_err(to_anyhow));
+                s3_stream_and_upload_with_logs(
+                    "Snowflake",
+                    rows_stream.boxed(),
+                    &s3,
+                    job_id,
+                    workspace_id,
+                    log_conn,
+                )
+                .await?;
+                Ok(vec![to_raw_value(&s3.to_return_s3_obj())])
+            } else {
+                let rows = rows_stream
+                    .collect::<Vec<_>>()
+                    .await
+                    .into_iter()
+                    .map(|x| x.map(|v| to_raw_value(&v)))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(rows)
+            }
         }
     };
 
@@ -240,25 +530,63 @@ fn do_snowflake_inner<'a>(
 }
 
 pub async fn do_snowflake(
-    job: &QueuedJob,
-    client: &AuthedClientBackgroundTask,
+    job: &MiniPulledJob,
+    client: &AuthedClient,
     query: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
+    parent_runnable_path: Option<String>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    let snowflake_args = build_args_values(job, client, db).await?;
+    let mut snowflake_args = build_args_values(job, client, conn).await?;
+
+    // Materialize any `(s3object)` args into JSON text. The catch-all branch in
+    // `convert_typ_val` binds a String value as `{type: "TEXT", value: ...}`, which
+    // the user wraps with `PARSE_JSON(?)` in their SQL.
+    {
+        let sig = parse_snowflake_sig(query)
+            .map_err(|x| Error::ExecutionErr(x.to_string()))?
+            .args;
+        for arg in sig.iter() {
+            if arg.otyp.as_deref() != Some("s3object") {
+                continue;
+            }
+            let raw = snowflake_args.remove(&arg.name).unwrap_or(Value::Null);
+            if matches!(raw, Value::Null) {
+                return Err(Error::BadRequest(format!(
+                    "Missing S3Object value for arg `{}`",
+                    arg.name
+                )));
+            }
+            let s3_obj: windmill_types::s3::S3Object =
+                serde_json::from_value(raw).map_err(|e| {
+                    Error::ExecutionErr(format!("Invalid S3Object for arg `{}`: {e}", arg.name))
+                })?;
+            let json_text = crate::sql_s3_input::fetch_s3object_as_json_text(
+                client,
+                &job.workspace_id,
+                &s3_obj,
+            )
+            .await
+            .map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "Failed to fetch S3 object for arg `{}`: {e}",
+                    arg.name
+                ))
+            })?;
+            snowflake_args.insert(arg.name.clone(), Value::String(json_text));
+        }
+    }
 
     let inline_db_res_path = parse_db_resource(&query);
+    let s3 = parse_s3_mode(&query)?.map(|s3| s3_mode_args_to_worker_data(s3, client.clone(), job));
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
         Some(
             client
-                .get_authed()
-                .await
                 .get_resource_value_interpolated::<serde_json::Value>(
                     &inline_db_res_path,
                     Some(job.id.to_string()),
@@ -276,7 +604,30 @@ pub async fn do_snowflake(
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
 
+    // Validate before it is interpolated into request URLs as the hostname
+    // (https://<account_identifier>.snowflakecomputing.com/...).
+    if database.account_identifier.is_empty()
+        || !database
+            .account_identifier
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+    {
+        return Err(Error::BadRequest(format!(
+            "Invalid Snowflake account identifier '{}': only alphanumeric, '.', '-' and '_' allowed",
+            database
+                .account_identifier
+                .chars()
+                .take(64)
+                .collect::<String>()
+        )));
+    }
+
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
+    let collection_strategy = if annotations.return_last_result {
+        SqlResultCollectionStrategy::LastStatementAllRows
+    } else {
+        annotations.result_collection
+    };
 
     // Check if the token is present in db_arg and use it if available
     let (token, token_is_keypair) = if let Some(token) = db_arg
@@ -297,14 +648,50 @@ pub async fn do_snowflake(
         )
         .to_uppercase();
 
-        let public_key = match database.public_key.as_deref() {
-            Some(key) => pem::parse(key.as_bytes()).map_err(|e| {
-                Error::ExecutionErr(format!("Failed to parse public key: {}", e.to_string()))
-            })?,
-            None => return Err(Error::ExecutionErr("Public key is missing".to_string())),
+        let public_key_der: Vec<u8> = match database
+            .public_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            Some(key) => pem::parse(key.as_bytes())
+                .map_err(|e| Error::ExecutionErr(format!("Failed to parse public key: {e}")))?
+                .into_contents(),
+            None => {
+                // Derive the public key from the private key — RSA private keys
+                // contain the public components (n, e).
+                use rsa::pkcs8::{DecodePrivateKey, EncodePublicKey};
+                let pk_pem = database
+                    .private_key
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(|| {
+                        Error::ExecutionErr(
+                            "Either public_key or private_key must be provided".to_string(),
+                        )
+                    })?;
+                let rsa_priv = rsa::RsaPrivateKey::from_pkcs8_pem(pk_pem)
+                    .or_else(|_| {
+                        use rsa::pkcs1::DecodeRsaPrivateKey;
+                        rsa::RsaPrivateKey::from_pkcs1_pem(pk_pem)
+                    })
+                    .map_err(|e| {
+                        Error::ExecutionErr(format!(
+                            "Failed to parse private key to derive public key: {e}"
+                        ))
+                    })?;
+                let rsa_pub = rsa::RsaPublicKey::from(&rsa_priv);
+                rsa_pub
+                    .to_public_key_der()
+                    .map_err(|e| {
+                        Error::ExecutionErr(format!("Failed to encode derived public key: {e}"))
+                    })?
+                    .to_vec()
+            }
         };
         let mut public_key_hash = Sha256::new();
-        public_key_hash.update(public_key.contents());
+        public_key_hash.update(&public_key_der);
 
         let public_key_fp = engine::general_purpose::STANDARD.encode(public_key_hash.finalize());
 
@@ -358,72 +745,68 @@ pub async fn do_snowflake(
             json!(database.database.unwrap().to_uppercase()),
         );
     }
-    let timeout = resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout)
+    let timeout = resolve_job_timeout(&conn, &job.workspace_id, job.id, job.timeout)
         .await
         .0
         .as_secs();
     body.insert("timeout".to_string(), json!(timeout));
 
-    let queries = parse_sql_blocks(query);
+    let queries = parse_sql_blocks(query, false);
 
     let (timeout_duration, _, _) =
-        resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout).await;
+        resolve_job_timeout(&conn, &job.workspace_id, job.id, job.timeout).await;
 
     let http_client = build_http_client(timeout_duration)?;
 
-    let result_f = if queries.len() > 1 {
-        let futures = queries
-            .iter()
-            .enumerate()
-            .map(|(i, x)| {
-                do_snowflake_inner(
-                    x,
-                    &snowflake_args,
-                    body.clone(),
-                    &database.account_identifier,
-                    &token,
-                    token_is_keypair,
-                    None,
-                    annotations.return_last_result && i < queries.len() - 1,
-                    &http_client,
-                )
-            })
-            .collect::<windmill_common::error::Result<Vec<_>>>()?;
+    let deadline = std::time::Instant::now() + timeout_duration;
 
-        let f = async {
-            let mut res: Vec<Box<RawValue>> = vec![];
-            for fut in futures {
-                let r = fut.await?;
-                res.push(r);
-            }
-            if annotations.return_last_result && res.len() > 0 {
-                Ok(res.pop().unwrap())
-            } else {
-                Ok(to_raw_value(&res))
-            }
-        };
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
-        f.boxed()
-    } else {
-        do_snowflake_inner(
-            query,
-            &snowflake_args,
-            body.clone(),
-            &database.account_identifier,
-            &token,
-            token_is_keypair,
-            Some(column_order),
-            false,
-            &http_client,
-        )?
+    let result_f = async move {
+        let mut results = vec![];
+        for (i, q) in queries.iter().enumerate() {
+            let result = do_snowflake_inner(
+                q,
+                &snowflake_args,
+                body.clone(),
+                &database.account_identifier,
+                &token,
+                token_is_keypair,
+                if i == queries.len() - 1
+                    && s3.is_none()
+                    && collection_strategy.collect_last_statement_only(queries.len())
+                    && !collection_strategy.collect_scalar()
+                {
+                    Some(column_order)
+                } else {
+                    None
+                },
+                collection_strategy.collect_last_statement_only(queries.len())
+                    && i < queries.len() - 1,
+                collection_strategy.collect_first_row_only(),
+                &http_client,
+                s3.clone(),
+                &reserved_variables,
+                deadline,
+                job.id,
+                &job.workspace_id,
+                conn,
+            )?
+            .await?;
+            results.push(result);
+        }
+
+        collection_strategy.collect(results)
     };
+
     let r = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
-        result_f.map_err(to_anyhow),
+        result_f,
         worker_name,
         &job.workspace_id,
         &mut Some(occupancy_metrics),

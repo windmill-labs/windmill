@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT nats_resource_path, subjects, use_jetstream, mode AS \"mode: String\"\n        FROM nats_trigger\n        WHERE workspace_id = $1 AND path = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "nats_resource_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "subjects",
+        "type_info": "VarcharArray"
+      },
+      {
+        "ordinal": 2,
+        "name": "use_jetstream",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "mode: String",
+        "type_info": {
+          "Custom": {
+            "name": "trigger_mode",
+            "kind": {
+              "Enum": [
+                "enabled",
+                "disabled",
+                "suspended"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d618ff98a2c7aceb6820007411ba7be2968d982ae84fe3294a6d78914afe3ecc"
+}

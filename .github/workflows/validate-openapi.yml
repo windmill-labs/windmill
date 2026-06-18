@@ -1,0 +1,34 @@
+name: Validate OpenAPI Spec
+
+on:
+  push:
+    paths:
+      - 'backend/windmill-api/openapi*'
+  pull_request:
+    paths:
+      - 'backend/windmill-api/openapi*'
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install openapi-generator-cli
+        run: npm install @openapitools/openapi-generator-cli -g
+
+      - name: Validate openapi.yaml
+        run: npx @openapitools/openapi-generator-cli validate -i backend/windmill-api/openapi.yaml
+
+      - name: Validate openapi-deref.json
+        run: npx @openapitools/openapi-generator-cli validate -i backend/windmill-api/openapi-deref.json
+
+      # Does not work well with dereferenced yaml
+      # - name: Validate openapi-deref.yaml
+      #   run: npx @openapitools/openapi-generator-cli validate -i backend/windmill-api/openapi-deref.yaml
+

@@ -1,6 +1,6 @@
 Source code in this repository is variously licensed under the Apache License
 Version 2.0 (see file ./LICENSE-APACHE), or the AGPLv3 License (see file
-./LICENSE-AGPL)
+./LICENSE-AGPL) and a proprietary license for certain enterprise features.
 
 Every file is under copyright (c) Windmill Labs, Inc 2022 unless otherwise
 specified. Every file is under License AGPL unless otherwise specified or
@@ -12,11 +12,23 @@ and commercial license. The files under frontend/ are AGPLv3 Licensed, except
 any snippets of code that require a positive license check to be activated.
 Those snippets and files are under a proprietary and commercial license. Private
 and public forks MUST not include any of the above proprietary and commercial
-code. Windmill Labs, Inc. provide tools to clean the codebase from those
-snippets upon demand. The files under python-client/ deno-client/ go-client/ powershell-client/ are
+code. The files under python-client/ deno-client/ go-client/ powershell-client/
+are Apache 2.0 Licensed. The openapi files, including the OpenFlow spec is
 Apache 2.0 Licensed.
 
-The openapi files, including the OpenFlow spec is Apache 2.0 Licensed.
+The binary compilable from source code in this repository without the
+"enterprise" feature flag is open-source under the AGPLv3 License terms and
+conditions.
+
+The "Community Edition" of Windmill available in the docker images hosted under
+ghcr.io/windmill-labs/windmill and the github binary releases contains the files
+under the AGPLv3 and Apache 2 sources but also includes proprietary and
+non-public code and features which are not open source and under the following
+terms: Windmill Labs, Inc. grants a right to use all the features of the
+"Community Edition" for free without restrictions other than the limits and
+quotas set in the software and a right to distribute the community edition as is
+but not to sell, resell, serve as a managed service, modify or wrap under any
+form without an explicit agreement.
 
 All third party components incorporated into the Windmill Software are licensed
 under the original license provided by the owner of the applicable component.

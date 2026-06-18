@@ -1,0 +1,523 @@
+<script lang="ts">
+	import { setContext } from 'svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import AIChat from '$lib/components/copilot/chat/AIChat.svelte'
+	import EditableInput from '$lib/components/common/EditableInput.svelte'
+	import { Button } from '$lib/components/common'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
+	import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { WorkspaceService } from '$lib/gen'
+	import { sendUserToast } from '$lib/toast'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import { copilotInfo, loadCopilot } from '$lib/aiStore'
+	import {
+		Archive,
+		ArchiveRestore,
+		EllipsisVertical,
+		PanelRightClose,
+		PanelRightOpen,
+		Pencil,
+		Trash2
+	} from 'lucide-svelte'
+	import type { WorkspaceItem } from '$lib/components/workspacePicker'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import WorkspaceItemDrillPicker from '$lib/components/WorkspaceItemDrillPicker.svelte'
+	import FlowEditorView from './FlowEditorView.svelte'
+	import ScriptEditorView from './ScriptEditorView.svelte'
+	import RawAppEditorView from './RawAppEditorView.svelte'
+	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
+	import SessionForkBar from './SessionForkBar.svelte'
+	import SessionDraftBar from './SessionDraftBar.svelte'
+	import {
+		createSession,
+		getEffectiveWorkspaceId,
+		moveSessionToNewFork,
+		moveSessionToWorkspace,
+		renameSession,
+		selectSession,
+		sessionState,
+		setSessionArchived,
+		setSessionTarget,
+		syncWorkspaceTo,
+		type SessionTarget
+	} from './sessionState.svelte'
+	import { editorWarmIds, getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
+	import { goto } from '$lib/navigation'
+	import { slide } from 'svelte/transition'
+
+	let { sessionId }: { sessionId: string } = $props()
+
+	// LRU-warm sessions get their editor pane mounted; others render
+	// chat-only. Reading from the reactive Set keeps SessionWrapper in
+	// sync with promoteEditorWarm without an explicit prop round-trip
+	// through the page route.
+	const mountEditor = $derived(editorWarmIds.has(sessionId))
+
+	// Parent keys by sessionId; this wrapper only mounts when the session exists.
+	// Captured at script-init so we can synchronously bind context.
+	const initialSession = sessionState.sessions.find((s) => s.id === sessionId)
+	const runtime = initialSession ? getOrCreateRuntime(initialSession) : undefined
+
+	if (runtime) {
+		setContext<AIChatManager>('aiChatManager', runtime.manager)
+	}
+
+	// Reactive session reference (mutations to summary/target propagate via the $state proxy)
+	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId))
+
+	$effect(() => {
+		if ($workspaceStore) {
+			loadCopilot($workspaceStore)
+		}
+	})
+
+	let summaryInput: EditableInput | undefined = $state(undefined)
+
+	// Drop the user on a fresh new-session page. Used after archiving or
+	// deleting the open session: the session they were on is no longer
+	// usable, and routing to a sibling would feel arbitrary.
+	async function resetToNewSession() {
+		const fresh = createSession()
+		selectSession(fresh.id)
+		await goto(`/sessions?session_name=${encodeURIComponent(fresh.name)}`)
+	}
+
+	// If the session targets a forked workspace that's still accessible,
+	// offer to delete / archive the fork alongside the session — otherwise
+	// the fork lingers as an orphan whose only purpose was this session.
+	const sessionForkId = $derived.by(() => {
+		const wsId = session?.workspace_id
+		if (!wsId || !wsId.startsWith('wm-fork-')) return undefined
+		const ws = $userWorkspaces.find((w) => w.id === wsId)
+		// Don't offer the option if the fork is gone or not user-accessible.
+		if (!ws || !ws.parent_workspace_id) return undefined
+		return wsId
+	})
+
+	let deleteConfirmOpen = $state(false)
+	let deleteAlsoFork = $state(false)
+	let archiveConfirmOpen = $state(false)
+	let archiveAlsoFork = $state(false)
+
+	async function refreshWorkspaceList() {
+		// Match the SidebarContent.deleteFork pattern: replace the in-memory
+		// list rather than nulling it. See B1 fix.
+		try {
+			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+		} catch (e) {
+			console.error('Failed to refresh workspaces', e)
+		}
+	}
+
+	async function handleConfirmedDelete() {
+		deleteConfirmOpen = false
+		if (!session) return
+		const forkToDelete = deleteAlsoFork ? sessionForkId : undefined
+		// Capture the fork's parent before the workspace list is refreshed
+		// below — afterwards the fork is gone from $userWorkspaces.
+		const forkParentId = forkToDelete
+			? $userWorkspaces.find((w) => w.id === forkToDelete)?.parent_workspace_id
+			: undefined
+		deleteAlsoFork = false
+		removeSession(session.id)
+		if (forkToDelete) {
+			try {
+				await WorkspaceService.deleteWorkspace({ workspace: forkToDelete })
+				sendUserToast(`Deleted forked workspace ${forkToDelete}`)
+				await refreshWorkspaceList()
+			} catch (e: any) {
+				sendUserToast(`Failed to delete fork ${forkToDelete}: ${e?.body ?? e}`, true)
+			}
+		}
+		// If the deleted fork was the active workspace, fall back to its parent
+		// so the new session (created below) opens against a live workspace
+		// instead of the one we just removed.
+		if (forkToDelete && forkParentId && $workspaceStore === forkToDelete) {
+			syncWorkspaceTo(forkParentId)
+		}
+		await resetToNewSession()
+	}
+
+	async function handleConfirmedArchive() {
+		archiveConfirmOpen = false
+		if (!session) return
+		const forkToArchive = archiveAlsoFork ? sessionForkId : undefined
+		archiveAlsoFork = false
+		setSessionArchived(session.id, true)
+		if (forkToArchive) {
+			try {
+				await WorkspaceService.archiveWorkspace({ workspace: forkToArchive })
+				sendUserToast(`Archived forked workspace ${forkToArchive}`)
+				await refreshWorkspaceList()
+			} catch (e: any) {
+				sendUserToast(`Failed to archive fork ${forkToArchive}: ${e?.body ?? e}`, true)
+			}
+		}
+		await resetToNewSession()
+	}
+
+	// Kept for the "Archive" entry that doesn't go through the confirmation
+	// modal — when the session isn't in a fork, no extra question to ask.
+	async function archiveAndReset() {
+		if (!session) return
+		// If the session is in a fork, route through the confirm modal so the
+		// user can opt into archiving the fork. Otherwise skip the modal.
+		if (sessionForkId) {
+			archiveAlsoFork = false
+			archiveConfirmOpen = true
+			return
+		}
+		setSessionArchived(session.id, true)
+		await resetToNewSession()
+	}
+
+	// Workspace bar is shown only before the session sends its first user
+	// message — after that the session's workspace is immutable. The
+	// commit itself happens in `AIChatManager.beforeSend` (wired in
+	// `createRuntime`) so it fires exactly once at send-time. A reactive
+	// commit here would retry forever on backend failures (e.g. fork-id
+	// collision after a previously-successful create whose response was
+	// dropped) — restoration self-heal lives in `initRuntime` instead.
+	const hasFirstUserMessage = $derived(
+		runtime?.manager.displayMessages.some((m) => m.role === 'user') ?? false
+	)
+
+	// Effective workspace for routing editor views — committed if set,
+	// otherwise the pending pick, otherwise the current active workspace.
+	const effectiveWorkspaceId = $derived(
+		session ? (getEffectiveWorkspaceId(session) ?? $workspaceStore ?? '') : ''
+	)
+
+	// Core mutation: assign a target via the canonical setter, then re-open
+	// the editor pane. Shared by every code path that swaps the session's
+	// editor target (drill picker, fork-bar dropdown, …).
+	function applyEditorTarget(target: SessionTarget, summary?: string) {
+		if (!session) return
+		setSessionTarget(session.id, target, summary)
+		// Picking a target also re-opens the editor pane (the user just chose
+		// what to view).
+		editorVisible = true
+	}
+
+	function pickEditorTarget(item: WorkspaceItem) {
+		// Legacy drag-and-drop apps aren't hosted in the session preview pane —
+		// open them in the standalone app editor instead. Only code-based raw
+		// apps (item.raw_app) are previewable here.
+		if (item.kind === 'app' && !item.raw_app) {
+			goto(`/apps/edit/${item.path}?workspace=${effectiveWorkspaceId}`)
+			return
+		}
+		// WorkspaceItem.kind is 'flow'|'script'|'app'; any 'app' reaching here is
+		// a raw app. The diff-API uses 'raw_app' as its kind so we align
+		// SessionTarget on the same canonical string.
+		const kind: SessionTarget['kind'] = item.kind === 'app' ? 'raw_app' : item.kind
+		applyEditorTarget({ kind, path: item.path }, item.summary)
+	}
+
+	// Editor pane visibility. Toggling this just hides/shows the pane via CSS
+	// — the editor stays mounted, so re-opening doesn't pay a remount cost
+	// and xy-flow / Monaco keep their viewport state.
+	let editorVisible = $state(true)
+
+	// Focus the chat input whenever this session is the active one.
+	// The textarea is disabled until copilotInfo loads (otherwise focus is
+	// a silent no-op), so we wait for that too. Triggers on initial mount,
+	// warm-session switch via the picker, and the moment copilot finishes
+	// loading.
+	let aiChat: AIChat | undefined = $state(undefined)
+	$effect(() => {
+		if (sessionState.currentSessionId !== sessionId) return
+		if (!aiChat) return
+		if (!$copilotInfo.enabled) return
+		const chat = aiChat
+		setTimeout(() => chat.focusInput(), 0)
+	})
+
+	// True when the session committed to a workspace that's no longer in
+	// the user's list (deleted / archived / access revoked). The chat is
+	// disabled and SessionForkBar shows a move/discard banner.
+	const isUnavailable = $derived(
+		!!session?.workspace_id && !$userWorkspaces.find((w) => w.id === session!.workspace_id)
+	)
+
+	async function moveAndActivate(targetWorkspaceId: string) {
+		if (!session) return
+		moveSessionToWorkspace(session.id, targetWorkspaceId)
+		// Point the app at the moved-to workspace too. Without this the global
+		// workspace stays on the old (now-unavailable) one, so scope/editor keep
+		// resolving against a dead workspace — mirrors what moveSessionToNewFork
+		// does internally and handleConfirmedDelete does explicitly.
+		syncWorkspaceTo(targetWorkspaceId)
+	}
+
+	async function createForkAndMove(fork: {
+		parent_workspace_id: string
+		id: string
+		name: string
+	}) {
+		if (!session) return
+		await moveSessionToNewFork(session.id, fork)
+	}
+</script>
+
+{#if !session || !runtime}
+	<div class="p-8 text-secondary text-sm">Session not found</div>
+{:else}
+	{@const hasTarget =
+		session.target?.kind === 'flow' ||
+		session.target?.kind === 'script' ||
+		session.target?.kind === 'raw_app'}
+	{@const hasEditor = mountEditor && hasTarget && editorVisible}
+
+	{#snippet inputPreface()}
+		{#if !hasFirstUserMessage}
+			<SessionWorkspaceBar {session} />
+		{/if}
+		<!-- gap-1 (4px) spaces the fork bar and draft bar when both are visible.
+		     Each bar renders a single in-flow root (or nothing); the draft drawer
+		     is position:fixed, so it doesn't count as a flex item — no stray gap
+		     when only one bar shows. -->
+		<div class="flex flex-col gap-1">
+			<SessionForkBar
+				{session}
+				onMove={(workspaceId) => moveAndActivate(workspaceId)}
+				onCreateForkAndMove={(fork) => createForkAndMove(fork)}
+				onArchive={() => archiveAndReset()}
+				onDelete={() => (deleteConfirmOpen = true)}
+			/>
+			<SessionDraftBar {session} />
+		</div>
+	{/snippet}
+
+	<!-- Override the chat's default keyboard-shortcut hint with nothing —
+	     sessions have their own empty-state affordances above. -->
+	{#snippet sessionEmptyHint()}{/snippet}
+
+	<!-- Undefined pane sizes (not an explicit `size`): Splitpanes auto-distributes —
+	     a lone chat pane fills 100%, and when the editor pane mounts the two split
+	     50/50. A reactive `size={hasEditor ? 50 : 100}` here instead races the
+	     sibling pane appearing on reload → "Could not resize panes due to constraints"
+	     and a wrong split. -->
+	<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
+		<Pane minSize={25} class="flex flex-col min-h-0 pb-2">
+			<header class="flex flex-row items-center gap-1 pl-4 pr-4 py-2 shrink-0">
+				<EditableInput
+					bind:this={summaryInput}
+					value={session.summary ?? ''}
+					placeholder="Untitled session"
+					onSave={(v) => renameSession(session.id, v)}
+					class="text-sm font-semibold"
+					inputClass="!text-sm !font-semibold"
+				/>
+				<DropdownV2
+					fixedHeight={false}
+					placement="bottom-start"
+					items={[
+						{
+							displayName: 'Rename',
+							icon: Pencil,
+							action: () => summaryInput?.edit()
+						},
+						session.archived
+							? {
+									displayName: 'Unarchive',
+									icon: ArchiveRestore,
+									action: () => setSessionArchived(session.id, false)
+								}
+							: {
+									displayName: 'Archive',
+									icon: Archive,
+									action: () => archiveAndReset()
+								},
+						{
+							displayName: 'Delete',
+							icon: Trash2,
+							type: 'delete',
+							action: () => (deleteConfirmOpen = true)
+						}
+					]}
+				>
+					{#snippet buttonReplacement()}
+						<span
+							class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
+							title="More"
+						>
+							<EllipsisVertical size={14} />
+						</span>
+					{/snippet}
+				</DropdownV2>
+				{#if !session.target && hasFirstUserMessage}
+					<!-- Drill-picker for sessions that have started but haven't
+				     picked an editor target yet. Hidden on fresh sessions
+				     (no messages yet) — the workspace bar is the only
+				     header affordance during the empty state. -->
+					<div class="ml-auto">
+						<Popover
+							placement="bottom-end"
+							usePointerDownOutside
+							disableFocusTrap
+							class="inline-flex"
+						>
+							{#snippet trigger()}
+								<Button variant="default" unifiedSize="xs" startIcon={{ icon: PanelRightOpen }}>
+									Open editor
+								</Button>
+							{/snippet}
+							{#snippet content()}
+								<WorkspaceItemDrillPicker
+									onPick={(item: WorkspaceItem) => pickEditorTarget(item)}
+								/>
+							{/snippet}
+						</Popover>
+					</div>
+				{:else if hasTarget && mountEditor && !editorVisible}
+					<div class="ml-auto">
+						<Button
+							variant="subtle"
+							unifiedSize="xs"
+							startIcon={{ icon: PanelRightOpen }}
+							onclick={() => (editorVisible = true)}
+						>
+							Show editor
+						</Button>
+					</div>
+				{:else if hasEditor}
+					<div class="ml-auto flex flex-row items-center gap-1">
+						<button
+							type="button"
+							onclick={() => (editorVisible = false)}
+							title="Close editor"
+							aria-label="Close editor"
+							class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
+						>
+							<PanelRightClose size={14} />
+						</button>
+					</div>
+				{/if}
+			</header>
+			<div class="flex-1 min-h-0 w-full flex flex-col {hasFirstUserMessage ? '' : 'pt-8'}">
+				<AIChat
+					bind:this={aiChat}
+					hideHeader
+					hideModeSelector
+					wideLayout
+					forceDisabled={isUnavailable}
+					forceDisabledMessage={isUnavailable
+						? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'
+						: ''}
+					emptyHint={sessionEmptyHint}
+					{inputPreface}
+				/>
+			</div>
+		</Pane>
+		{#if hasEditor && session.target}
+			<Pane minSize={30} class="flex flex-col min-h-0 p-2 pl-0">
+				<div
+					transition:slide={{ axis: 'x', duration: 200 }}
+					class="flex flex-col flex-1 min-h-0 rounded-md border border-light overflow-hidden relative"
+				>
+					{#if session.target.kind === 'flow'}
+						<FlowEditorView
+							{runtime}
+							path={session.target.path}
+							workspaceId={effectiveWorkspaceId}
+							onNavigate={pickEditorTarget}
+							isActiveSession={sessionState.currentSessionId === sessionId}
+						/>
+					{:else if session.target.kind === 'script'}
+						<ScriptEditorView
+							{runtime}
+							path={session.target.path}
+							workspaceId={effectiveWorkspaceId}
+							onNavigate={pickEditorTarget}
+							initialTestPanelCollapsed
+							isActiveSession={sessionState.currentSessionId === sessionId}
+						/>
+					{:else if session.target.kind === 'raw_app'}
+						<RawAppEditorView
+							{runtime}
+							path={session.target.path}
+							workspaceId={effectiveWorkspaceId}
+							onNavigate={pickEditorTarget}
+							isActiveSession={sessionState.currentSessionId === sessionId}
+						/>
+					{/if}
+				</div>
+			</Pane>
+		{/if}
+	</Splitpanes>
+
+	<ConfirmationModal
+		open={deleteConfirmOpen}
+		title="Delete session"
+		confirmationText="Delete"
+		onConfirmed={handleConfirmedDelete}
+		onCanceled={() => {
+			deleteConfirmOpen = false
+			deleteAlsoFork = false
+		}}
+	>
+		<div class="flex flex-col gap-3">
+			<p>
+				Delete session <span class="font-medium text-primary"
+					>{session?.summary ?? session?.name}</span
+				>? This cannot be undone.
+			</p>
+			{#if sessionForkId}
+				<div class="flex items-start gap-2 border rounded-md p-3 bg-surface-secondary">
+					<Toggle size="xs" bind:checked={deleteAlsoFork} />
+					<div class="flex flex-col">
+						<span class="text-xs font-medium text-primary"
+							>Also delete forked workspace <span class="font-mono">{sessionForkId}</span></span
+						>
+						<span class="text-3xs text-tertiary"
+							>The fork won't be reachable from any other session — leaving it would orphan it.</span
+						>
+					</div>
+				</div>
+			{/if}
+		</div>
+	</ConfirmationModal>
+
+	<ConfirmationModal
+		open={archiveConfirmOpen}
+		title="Archive session"
+		confirmationText="Archive"
+		onConfirmed={handleConfirmedArchive}
+		onCanceled={() => {
+			archiveConfirmOpen = false
+			archiveAlsoFork = false
+		}}
+	>
+		<div class="flex flex-col gap-3">
+			<p>
+				Archive session <span class="font-medium text-primary"
+					>{session?.summary ?? session?.name}</span
+				>? You can restore it later from the archived list.
+			</p>
+			{#if sessionForkId}
+				<div class="flex items-start gap-2 border rounded-md p-3 bg-surface-secondary">
+					<Toggle size="xs" bind:checked={archiveAlsoFork} />
+					<div class="flex flex-col">
+						<span class="text-xs font-medium text-primary"
+							>Also archive forked workspace <span class="font-mono">{sessionForkId}</span></span
+						>
+						<span class="text-3xs text-tertiary"
+							>Archived workspaces can be unarchived later from instance settings.</span
+						>
+					</div>
+				</div>
+			{/if}
+		</div>
+	</ConfirmationModal>
+{/if}
+
+<style>
+	:global(.splitter-hidden .splitpanes__splitter) {
+		background-color: transparent !important;
+		border: none !important;
+		opacity: 0 !important;
+	}
+</style>

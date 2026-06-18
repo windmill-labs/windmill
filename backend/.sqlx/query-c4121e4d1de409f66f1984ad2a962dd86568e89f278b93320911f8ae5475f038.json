@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at)\n         SELECT $2, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at\n         FROM variable\n         WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c4121e4d1de409f66f1984ad2a962dd86568e89f278b93320911f8ae5475f038"
+}

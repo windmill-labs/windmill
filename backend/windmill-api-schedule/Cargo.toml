@@ -1,0 +1,29 @@
+[package]
+name = "windmill-api-schedule"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_api_schedule"
+path = "src/lib.rs"
+
+[features]
+default = []
+enterprise = []
+
+[dependencies]
+windmill-api-auth.workspace = true
+windmill-api-settings.workspace = true
+windmill-common = { workspace = true, default-features = false }
+windmill-audit.workspace = true
+windmill-git-sync.workspace = true
+windmill-queue.workspace = true
+axum.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sql-builder.workspace = true
+sqlx.workspace = true
+tracing.workspace = true

@@ -12,17 +12,39 @@
 	import rust from 'svelte-highlight/languages/rust'
 	import csharp from 'svelte-highlight/languages/csharp'
 	import yaml from 'svelte-highlight/languages/yaml'
+	import java from 'svelte-highlight/languages/java'
+	import ruby from 'svelte-highlight/languages/ruby'
+	import r from 'svelte-highlight/languages/r'
 	import type { Script } from '$lib/gen'
 	import { Button } from './common'
 	import { copyToClipboard } from '$lib/utils'
 	import { ClipboardCopy } from 'lucide-svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
+	import { json, type LanguageType } from 'svelte-highlight/languages'
 
-	export let code: string = ''
-	export let language: Script['language'] | 'bunnative' | 'frontend' | undefined
-	export let lines = false
+	interface Props {
+		code?: string
+		language: Script['language'] | 'bunnative' | 'frontend' | 'json' | undefined
+		highlightLanguage?: LanguageType<string> | undefined
+		lines?: boolean
+		className?: string
+		onApplyCode?: () => void
+		showApplyButton?: boolean
+		applyButtonIcon?: typeof ClipboardCopy
+	}
 
-	function getLang(lang: Script['language'] | 'bunnative' | 'frontend' | undefined) {
+	let {
+		code = '',
+		language,
+		highlightLanguage = undefined,
+		lines = false,
+		className = '',
+		onApplyCode = undefined,
+		showApplyButton = false,
+		applyButtonIcon = undefined
+	}: Props = $props()
+
+	function getLang(lang: Script['language'] | 'bunnative' | 'frontend' | 'json' | undefined) {
 		switch (lang) {
 			case 'python3':
 				return python
@@ -52,6 +74,8 @@
 				return sql
 			case 'oracledb':
 				return sql
+			case 'duckdb':
+				return sql
 			case 'powershell':
 				return powershell
 			case 'php':
@@ -60,40 +84,67 @@
 				return rust
 			case 'csharp':
 				return csharp
+			case 'nu':
+				return python
 			case 'ansible':
-				return yaml;
+				return yaml
+			case 'java':
+				return java
+			case 'ruby':
+				return ruby
+			case 'rlang':
+				return r
+			case 'json':
+				return json
+			// for related places search: ADD_NEW_LANG
 			default:
 				return typescript
 		}
 	}
 
-	$: lang = getLang(language)
+	const lang = $derived(highlightLanguage ?? getLang(language))
 </script>
 
 <HighlightTheme />
 
-<div class="relative overflow-x-auto">
+<div class="relative">
 	<Button
 		wrapperClasses="absolute top-2 right-2 z-20"
-		on:click={() => copyToClipboard(code)}
+		onclick={() => copyToClipboard(code)}
 		color="light"
 		size="xs2"
 		startIcon={{
 			icon: ClipboardCopy
 		}}
 		iconOnly
+		title="Copy to clipboard"
 	/>
-	{#if code?.length < 10000}
-		{#if !lines}
-			<Highlight class="nowrap {$$props.class}" language={lang} {code} />
-		{:else}
-			<Highlight class="nowrap {$$props.class}" language={lang} {code} let:highlighted>
-				<LineNumbers {highlighted} />
-			</Highlight>
-		{/if}
-	{:else}
-		<pre class="overflow-auto max-h-screen text-xs {$$props.class}"
-			><code class="language-{language}">{code}</code></pre
-		>
+	{#if showApplyButton}
+		<Button
+			wrapperClasses="absolute top-2 right-10 z-20"
+			onclick={onApplyCode}
+			color="light"
+			size="xs2"
+			startIcon={{
+				icon: applyButtonIcon
+			}}
+			iconOnly
+			title="Apply code"
+		/>
 	{/if}
+	<div class="overflow-x-auto">
+		{#if code?.length < 10000}
+			{#if !lines}
+				<Highlight class="nowrap {className}" language={lang} {code} />
+			{:else}
+				<Highlight class="nowrap {className}" language={lang} {code} let:highlighted>
+					<LineNumbers {highlighted} />
+				</Highlight>
+			{/if}
+		{:else}
+			<pre class="overflow-auto max-h-screen text-xs {className}"
+				><code class="language-{language}">{code}</code></pre
+			>
+		{/if}
+	</div>
 </div>

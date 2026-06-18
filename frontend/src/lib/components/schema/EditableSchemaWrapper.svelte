@@ -1,40 +1,59 @@
 <script lang="ts">
-	import type { Schema } from '$lib/common'
 	import { twMerge } from 'tailwind-merge'
 	import EditableSchemaForm from '../EditableSchemaForm.svelte'
-	import { createEventDispatcher } from 'svelte'
-	import Toggle from '../Toggle.svelte'
 	import { emptySchema, validateFileExtension } from '$lib/utils'
-	import AutoComplete from 'simple-svelte-autocomplete'
 	import { Alert } from '../common'
 	import AddPropertyV2 from '$lib/components/schema/AddPropertyV2.svelte'
 	import { Plus } from 'lucide-svelte'
+	import Select from '../select/Select.svelte'
+	import { safeSelectItems } from '../select/utils.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import type { EditableSchemaWrapperProps } from './editable_schema_wrapper'
 
-	export let schema: Schema | undefined | any
-	export let uiOnly: boolean = false
-	export let noPreview: boolean = false
-	export let fullHeight: boolean = true
-	export let formatExtension: string | undefined = undefined
+	type ResourceMode = 'schema' | 'file' | 'fileset'
 
-	let resourceIsTextFile: boolean = false
-	let addProperty: AddPropertyV2 | undefined = undefined
-	let editableSchemaForm: EditableSchemaForm | undefined = undefined
+	let {
+		schema = $bindable(),
+		uiOnly = false,
+		noPreview = false,
+		fullHeight = true,
+		formatExtension = $bindable(undefined),
+		isFileset = $bindable(undefined),
+		showSensitiveToggle = false,
+		customUi
+	}: EditableSchemaWrapperProps = $props()
 
-	const dispatch = createEventDispatcher()
+	let resourceMode: ResourceMode = $state('schema')
+	let addPropertyComponent: AddPropertyV2 | undefined = $state(undefined)
+	let editableSchemaForm: EditableSchemaForm | undefined = $state(undefined)
 
-	$: !resourceIsTextFile && (formatExtension = undefined)
+	$effect(() => {
+		if (resourceMode === 'schema') {
+			if (formatExtension !== undefined) {
+				formatExtension = undefined
+			}
+			if (isFileset) {
+				isFileset = undefined
+			}
+		}
+	})
 
-	$: invalidExtension =
+	let invalidExtension = $derived(
 		formatExtension && formatExtension != ''
 			? !validateFileExtension(formatExtension ?? 'txt')
 			: false
+	)
 
-	function switchResourceIsFile() {
-		if (!resourceIsTextFile) {
+	function switchResourceMode(mode: ResourceMode) {
+		resourceMode = mode
+		if (mode === 'schema') {
 			schema = emptySchema()
 			formatExtension = undefined
-		} else {
+			isFileset = undefined
+		} else if (mode === 'file') {
 			formatExtension = ''
+			isFileset = undefined
 			schema = emptySchema()
 			schema.order = ['content']
 			schema.properties = {
@@ -43,26 +62,14 @@
 					description: 'Text contents of the file'
 				}
 			}
+		} else if (mode === 'fileset') {
+			formatExtension = undefined
+			isFileset = true
+			schema = emptySchema()
 		}
-		dispatch('change', schema)
 	}
 
-	function numberOfMatches(listItem: string | undefined, searchWords: string[]): number {
-		if (!listItem) {
-			return 0
-		}
-
-		let matches = 0
-		searchWords.forEach((searchWord) => {
-			const searchLetters = searchWord.split('')
-			if (searchLetters.every((l) => listItem.includes(l))) {
-				matches++
-			}
-		})
-		return matches
-	}
-
-	let suggestedFileExtensions = [
+	let suggestedFileExtensions = $state([
 		'json',
 		'yaml',
 		'jinja',
@@ -73,11 +80,10 @@
 		'html',
 		'xml',
 		'yml'
-	]
-	let autocompleteExtension = true
+	])
 </script>
 
-{#if !resourceIsTextFile}
+{#if resourceMode === 'schema'}
 	<div
 		class={twMerge(
 			fullHeight ? 'h-full' : 'h-80',
@@ -87,106 +93,68 @@
 	>
 		{#if noPreview}
 			<AddPropertyV2
+				noPopover={customUi?.noAddPopover}
 				bind:schema
-				bind:this={addProperty}
-				on:change={() => dispatch('change', schema)}
-				on:addNew={(e) => {
-					editableSchemaForm?.openField(e.detail)
+				bind:this={addPropertyComponent}
+				onAddNew={(argName) => {
+					editableSchemaForm?.openField(argName)
 				}}
 			>
-				<svelte:fragment slot="trigger">
+				{#snippet trigger()}
 					<div
 						class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
 					>
 						<Plus size={14} />
 					</div>
-				</svelte:fragment>
+				{/snippet}
 			</AddPropertyV2>
 		{/if}
 		<EditableSchemaForm
+			onlyMaskPassword
 			bind:this={editableSchemaForm}
 			bind:schema
-			on:change={() => dispatch('change', schema)}
 			isFlowInput
-			on:edit={(e) => {
-				addProperty?.openDrawer(e.detail)
-			}}
+			{showSensitiveToggle}
 			on:delete={(e) => {
-				addProperty?.handleDeleteArgument([e.detail])
+				addPropertyComponent?.handleDeleteArgument([e.detail])
 			}}
 			{uiOnly}
 			{noPreview}
 			editTab="inputEditor"
 		>
-			<svelte:fragment slot="addProperty">
+			{#snippet addProperty()}
 				{#if !noPreview}
 					<AddPropertyV2
+						noPopover={customUi?.noAddPopover}
 						bind:schema
-						bind:this={addProperty}
-						on:change={() => dispatch('change', schema)}
+						bind:this={addPropertyComponent}
 					>
-						<svelte:fragment slot="trigger">
+						{#snippet trigger()}
 							<div
 								class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
 							>
 								<Plus size={14} />
 							</div>
-						</svelte:fragment>
+						{/snippet}
 					</AddPropertyV2>
 				{/if}
-			</svelte:fragment>
+			{/snippet}
 		</EditableSchemaForm>
 	</div>
 {/if}
-{#if resourceIsTextFile}
-	<div class="flex items-center space-x-2 w-5/12">
-		<label for="format-extension" class="text-base font-medium whitespace-nowrap">
-			File extension{autocompleteExtension ? '' : ' (free text)'}:
-		</label>
-		{#if autocompleteExtension}
-			<AutoComplete
-				inputId="format-extension"
-				autofocus={true}
-				items={[...suggestedFileExtensions, 'Choose another extension']}
-				onChange={(a) => {
-					if (a == 'Choose another extension') {
-						formatExtension = ''
-						autocompleteExtension = false
-					}
-				}}
-				itemFilterFunction={(listItem, searchWords) => {
-					if (searchWords.length == 0 || listItem === 'Choose another extension') {
-						return true
-					}
-					return numberOfMatches(listItem, searchWords) > 0
-				}}
-				noResultsText="No matches, try the 'Choose another extension' option"
-				bind:selectedItem={formatExtension}
-				inputClassName="!h-[32px] py-1 !text-xs !w-64"
-				hideArrow
-				className={'!font-bold'}
-				dropdownClassName="!font-normal !w-64 !max-w-64"
-				maxItemsToShowInList={8}
-				moreItemsText={null}
-				lock={true}
-			/>
-		{:else}
-			<input
-				autofocus={true}
-				bind:value={formatExtension}
-				class="!h-[32px] py-1 !text-xs !w-64"
-				placeholder="Enter your extension"
-				on:keydown={(event) => {
-					if (event.key === 'Enter') {
-						if (formatExtension && !suggestedFileExtensions.includes(formatExtension))
-							suggestedFileExtensions.push(formatExtension)
-
-						autocompleteExtension = true
-					}
-				}}
-			/>
-		{/if}
-	</div>
+{#if resourceMode === 'file'}
+	<label
+		for="format-extension"
+		class="text-xs font-semibold text-emphasis whitespace-nowrap flex items-center gap-4"
+	>
+		File extension:
+		<Select
+			autofocus
+			items={safeSelectItems(suggestedFileExtensions)}
+			bind:value={formatExtension}
+			onCreateItem={(ext) => ((formatExtension = ext), suggestedFileExtensions.push(ext))}
+		/>
+	</label>
 
 	{#if invalidExtension}
 		<Alert title="Invalid file extension" type="error">
@@ -200,15 +168,19 @@
 			the format when displaying the content and this is also how the resource will appear when pulling
 			via the CLI.
 		</Alert>
-		<div />
+		<div></div>
 	{/if}
 {/if}
-<Toggle
-	bind:checked={resourceIsTextFile}
-	options={{
-		right: 'This resource type represents a plain text file (clears current schema)',
-		rightTooltip:
-			'A text file such as a config file, template, or any other file format that contains plain text'
-	}}
-	on:change={() => switchResourceIsFile()}
-/>
+{#if resourceMode === 'fileset'}
+	<Alert title="Fileset resource type" type="info">
+		This resource type represents a collection of files. Each file is identified by its relative
+		path and contains text content. In the CLI, filesets are stored as directories.
+	</Alert>
+{/if}
+<ToggleButtonGroup selected={resourceMode} onSelected={(mode) => switchResourceMode(mode)}>
+	{#snippet children({ item })}
+		<ToggleButton value="schema" label="JSON" {item} size="sm" />
+		<ToggleButton value="file" label="File" {item} size="sm" />
+		<ToggleButton value="fileset" label="Fileset" {item} size="sm" />
+	{/snippet}
+</ToggleButtonGroup>

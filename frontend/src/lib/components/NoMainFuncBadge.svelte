@@ -4,6 +4,8 @@
 </script>
 
 <Popover notClickable>
-	<svelte:fragment slot="text">The script has no main function exported</svelte:fragment>
-	<Badge small color="yellow" baseClass="border border-indigo-200">No main</Badge>
+	{#snippet text()}
+		Library script (no exported main function)
+	{/snippet}
+	<Badge small color="yellow" baseClass="border">Library</Badge>
 </Popover>

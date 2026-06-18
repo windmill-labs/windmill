@@ -4,7 +4,10 @@
 
 	import Highlight from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
-	import TableCustom from './TableCustom.svelte'
+	import DataTable from './table/DataTable.svelte'
+	import Head from './table/Head.svelte'
+	import Cell from './table/Cell.svelte'
+	import Row from './table/Row.svelte'
 	import Tab from './common/tabs/Tab.svelte'
 	import TabContent from './common/tabs/TabContent.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
@@ -13,7 +16,11 @@
 	import Button from './common/button/Button.svelte'
 	import { ClipboardCopy } from 'lucide-svelte'
 
-	export let schema: Schema | undefined | any = emptySchema()
+	interface Props {
+		schema?: Schema | undefined | any
+	}
+
+	let { schema = emptySchema() }: Props = $props()
 
 	function getProperties(schema: Schema) {
 		if (schema.properties) {
@@ -27,60 +34,67 @@
 
 <div class="w-full">
 	<Tabs selected="arguments">
-		<Tab value="arguments">Arguments</Tab>
-		<Tab value="advanced">Advanced</Tab>
-		<svelte:fragment slot="content">
+		<Tab value="arguments" label="Inputs" />
+		<Tab value="json" label="JSON" />
+		{#snippet content()}
 			<div class="overflow-auto pt-2">
 				<TabContent value="arguments">
 					{#if schema && schema.properties && Object.keys(schema.properties).length > 0 && schema.required}
-						<div class="flex flex-row">
-							<TableCustom>
-								<tr slot="header-row" class="underline">
-									<th>name</th>
-									<th>type</th>
-									<th>description</th>
-									<th>default</th>
-									<th>format</th>
-									<th>required</th>
+						<DataTable size="sm" containerClass="bg-surface-tertiary">
+							<Head>
+								<tr class="w-full">
+									<Cell head first>Name</Cell>
+									<Cell head>Type</Cell>
+									<Cell head>Description</Cell>
+									<Cell head>Default</Cell>
+									<Cell head>Format</Cell>
+									<Cell head last>Required</Cell>
 								</tr>
-								<tbody slot="body">
-									{#each getProperties(schema) as [name, property] (name)}
-										<tr>
-											<td class="font-semibold pl-1">{name}</td>
-											<td
-												><Badge color="blue"
-													>{#if !property.type} any {:else} {property.type} {/if}</Badge
-												></td
-											>
-											<td>{property.description ?? ''}</td>
-											<td
-												>{property.default == '<function call>'
-													? '<function call>'
-													: property.default
+							</Head>
+
+							<tbody class="divide-y w-full">
+								{#each getProperties(schema) as [name, property] (name)}
+									<Row>
+										<Cell first>
+											<span class="font-semibold">{name}</span>
+										</Cell>
+										<Cell>
+											<Badge color="blue">
+												{#if !property.type}
+													any
+												{:else}
+													{property.type}
+												{/if}
+											</Badge>
+										</Cell>
+										<Cell wrap>
+											{property.description ?? ''}
+										</Cell>
+										<Cell>
+											{property.default == '<function call>'
+												? '<function call>'
+												: property.default
 													? JSON.stringify(property.default)
-													: ''}</td
-											>
-											<td
-												>{property.format ?? ''}
-												{property.contentEncoding
-													? `(encoding: ${property.contentEncoding})`
-													: ''}</td
-											>
-											<td
-												>{#if schema.required.includes(name)}
-													<span class="text-red-600 font-bold text-lg">*</span>
-												{/if}</td
-											>
-										</tr>
-									{/each}
-								</tbody>
-							</TableCustom>
-						</div>
+													: ''}
+										</Cell>
+										<Cell>
+											{property.format ?? ''}
+											{property.contentEncoding ? `(encoding: ${property.contentEncoding})` : ''}
+										</Cell>
+										<Cell last>
+											{#if schema.required.includes(name)}
+												<span class="text-red-600 font-bold text-lg">*</span>
+											{/if}
+										</Cell>
+									</Row>
+								{/each}
+							</tbody>
+						</DataTable>
 					{:else}
 						<div class="text-secondary text-xs italic m-1">No arguments</div>
 					{/if}
 				</TabContent>
-				<TabContent value="advanced">
+				<TabContent value="json">
 					<div class="h-full relative">
 						<Button
 							wrapperClasses="absolute top-2 right-2 z-20"
@@ -96,6 +110,6 @@
 					</div>
 				</TabContent>
 			</div>
-		</svelte:fragment>
+		{/snippet}
 	</Tabs>
 </div>

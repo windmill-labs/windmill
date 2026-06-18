@@ -1,0 +1,39 @@
+{
+  "value": {
+    "modules": [
+      {
+        "id": "call_add_numbers_flow",
+        "value": {
+          "type": "flow",
+          "path": "f/evals/add_numbers_flow",
+          "input_transforms": {
+            "a": {
+              "type": "javascript",
+              "expr": "flow_input.a"
+            },
+            "b": {
+              "type": "javascript",
+              "expr": "flow_input.b"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "a": {
+        "type": "number"
+      },
+      "b": {
+        "type": "number"
+      }
+    },
+    "required": [
+      "a",
+      "b"
+    ]
+  }
+}

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
@@ -14,16 +14,31 @@
 	import RunnableComponent from '../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
-	export let id: string
-	export let componentContainerHeight: number
-	export let tabs: string[]
-	export let customCss: ComponentCustomCSS<'steppercomponent'> | undefined = undefined
-	export let render: boolean
-	export let recomputeIds: string[] | undefined = undefined
-	export let extraQueryParams: Record<string, any> = {}
-	export let componentInput: AppInput | undefined
-	export let onNext: string[] | undefined = undefined
-	export let onPrevious: string[] | undefined = undefined
+	interface Props {
+		id: string
+		componentContainerHeight: number
+		tabs: string[]
+		customCss?: ComponentCustomCSS<'steppercomponent'> | undefined
+		render: boolean
+		recomputeIds?: string[] | undefined
+		extraQueryParams?: Record<string, any>
+		componentInput: AppInput | undefined
+		onNext?: string[] | undefined
+		onPrevious?: string[] | undefined
+	}
+
+	let {
+		id,
+		componentContainerHeight,
+		tabs,
+		customCss = undefined,
+		render,
+		recomputeIds = undefined,
+		extraQueryParams = {},
+		componentInput,
+		onNext = undefined,
+		onPrevious = undefined
+	}: Props = $props()
 
 	const {
 		app,
@@ -36,16 +51,21 @@
 		runnableComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	let selected = tabs[0]
-	let tabHeight: number = 0
-	let footerHeight: number = 0
-	let runnableComponent: RunnableComponent
-	let selectedIndex = tabs?.indexOf(selected) ?? -1
-	let maxReachedIndex = -1
-	let statusByStep = [] as Array<'success' | 'error' | 'pending'>
+	let everRender = $state(untrack(() => render))
+	$effect.pre(() => {
+		render && !everRender && (everRender = true)
+	})
+
+	let selected = $state(untrack(() => tabs)[0])
+	let tabHeight: number = $state(0)
+	let footerHeight: number = $state(0)
+	let runnableComponent: RunnableComponent | undefined = $state()
+	let selectedIndex = $state(untrack(() => tabs)?.indexOf(untrack(() => selected)) ?? -1)
+	let maxReachedIndex = $state(-1)
+	let statusByStep = $state([] as Array<'success' | 'error' | 'pending'>)
 	let debugMode: boolean = false
 
-	let outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, untrack(() => id), {
 		currentStepIndex: 0,
 		result: undefined,
 		loading: false,
@@ -71,7 +91,8 @@
 		}
 	}
 
-	let result: { error: { name: string; message: string; stack: string } } | undefined = undefined
+	let result: { error: { name: string; message: string; stack: string } } | undefined =
+		$state(undefined)
 
 	async function runStep(targetIndex: number) {
 		statusByStep[selectedIndex] = 'pending'
@@ -92,7 +113,7 @@
 		directionClicked = undefined
 	}
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		left: () => {
 			const index = tabs.indexOf(selected)
 			if (index > 0) {
@@ -119,14 +140,22 @@
 			}
 
 			handleTabSelection()
+		},
+		setSelectedIndex(index) {
+			if (index >= 0 && index < tabs.length) {
+				selected = tabs[index]
+				handleTabSelection()
+			}
 		}
 	}
 
-	$: selected != undefined && handleTabSelection()
-	let css = initCss($app.css?.steppercomponent, customCss)
-	$: lastStep = selectedIndex === tabs.length - 1
+	$effect.pre(() => {
+		selected != undefined && untrack(() => handleTabSelection())
+	})
+	let css = $state(initCss($app.css?.steppercomponent, untrack(() => customCss)))
+	let lastStep = $derived(selectedIndex === tabs.length - 1)
 
-	let directionClicked: 'left' | 'right' | undefined = undefined
+	let directionClicked: 'left' | 'right' | undefined = $state(undefined)
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -140,8 +169,13 @@
 {/each}
 
 <InitializeComponent {id} />
+
+{#snippet nonRenderedPlaceholder()}
+	{#each tabs ?? [] as _res, i}
+		<SubGridEditor {id} visible={false} subGridId={`${id}-${i}`} />
+	{/each}
+{/snippet}
 <RunnableWrapper
-	hasChildrens
 	{recomputeIds}
 	{render}
 	bind:runnableComponent
@@ -154,98 +188,107 @@
 	{outputs}
 	bind:result
 	errorHandledByComponent={true}
+	{nonRenderedPlaceholder}
 >
-	<div class="w-full overflow-auto">
-		<div bind:clientHeight={tabHeight}>
-			<Stepper
-				on:click={(e) => {
-					const index = e.detail.index
-					if (index <= maxReachedIndex || $mode === 'dnd') {
-						runStep(index)
-					}
-				}}
-				{tabs}
-				{selectedIndex}
-				{maxReachedIndex}
-				{statusByStep}
-				hasValidations={Boolean(runnableComponent)}
-			/>
-		</div>
-
-		<div class="w-full">
-			{#if $app.subgrids}
-				{#each tabs ?? [] as _res, i}
-					<SubGridEditor
-						{id}
-						visible={render && i === selectedIndex}
-						subGridId={`${id}-${i}`}
-						class={twMerge(css?.container?.class, 'wm-stepper')}
-						style={css?.container?.style}
-						containerHeight={componentContainerHeight - tabHeight - footerHeight}
-						on:focus={() => {
-							if (!$connectingInput.opened) {
-								$selectedComponent = [id]
-								handleTabSelection()
+	{#if everRender}
+		<div class="w-full overflow-auto">
+			{#if render}
+				<div bind:clientHeight={tabHeight}>
+					<Stepper
+						on:click={(e) => {
+							const index = e.detail.index
+							if (index <= maxReachedIndex || $mode === 'dnd') {
+								runStep(index)
 							}
 						}}
+						{tabs}
+						{selectedIndex}
+						{maxReachedIndex}
+						{statusByStep}
+						hasValidations={Boolean(runnableComponent)}
 					/>
-				{/each}
+				</div>
+			{/if}
+
+			<div class="w-full">
+				{#if $app.subgrids}
+					{#each tabs ?? [] as _res, i}
+						<SubGridEditor
+							{id}
+							visible={render && i === selectedIndex}
+							subGridId={`${id}-${i}`}
+							class={twMerge(css?.container?.class, 'wm-stepper')}
+							style={css?.container?.style}
+							containerHeight={componentContainerHeight - tabHeight - footerHeight}
+							onFocus={() => {
+								if (!$connectingInput.opened) {
+									$selectedComponent = [id]
+									handleTabSelection()
+								}
+							}}
+						/>
+					{/each}
+				{/if}
+			</div>
+
+			{#if render}
+				<div bind:clientHeight={footerHeight}>
+					<div class="flex justify-between h-10 p-2">
+						<div class="flex items-center gap-2">
+							<span class="text-sm font-medium text-primary">
+								Step {selectedIndex + 1} of {tabs.length}
+							</span>
+						</div>
+						<div class="flex items-center gap-2">
+							<Button
+								size="xs"
+								variant="subtle"
+								disabled={selectedIndex === 0}
+								on:click={(e) => {
+									e.preventDefault()
+									directionClicked = 'left'
+									onPrevious?.forEach((id) =>
+										$runnableComponents?.[id]?.cb?.forEach((cb) => cb?.())
+									)
+									runStep(selectedIndex - 1)
+								}}
+							>
+								<div class="flex flex-row gap-2">
+									{#if statusByStep[selectedIndex] === 'pending' && directionClicked === 'left'}
+										<Loader2 class="w-4 h-4 animate-spin" />
+									{:else}
+										<ArrowLeftIcon class="w-4 h-4" />
+									{/if}
+									Previous
+								</div>
+							</Button>
+
+							<Button
+								size="xs"
+								variant="accent"
+								disabled={lastStep}
+								on:click={(e) => {
+									e.preventDefault()
+									directionClicked = 'right'
+									onNext?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
+									runStep(selectedIndex + 1)
+								}}
+							>
+								<div class="flex flex-row gap-2">
+									Next
+									{#if statusByStep[selectedIndex] === 'pending' && directionClicked === 'right'}
+										<Loader2 class="w-4 h-4 animate-spin" />
+									{:else}
+										<ArrowRightIcon class="w-4 h-4" />
+									{/if}
+								</div>
+							</Button>
+						</div>
+					</div>
+				</div>
 			{/if}
 		</div>
-
-		<div bind:clientHeight={footerHeight}>
-			<div class="flex justify-between h-10 p-2">
-				<div class="flex items-center gap-2">
-					<span class="text-sm font-medium text-tertiary">
-						Step {selectedIndex + 1} of {tabs.length}
-					</span>
-				</div>
-				<div class="flex items-center gap-2">
-					<Button
-						size="xs"
-						color="light"
-						variant="contained"
-						disabled={selectedIndex === 0}
-						on:click={(e) => {
-							e.preventDefault()
-							directionClicked = 'left'
-							onPrevious?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
-							runStep(selectedIndex - 1)
-						}}
-					>
-						<div class="flex flex-row gap-2">
-							{#if statusByStep[selectedIndex] === 'pending' && directionClicked === 'left'}
-								<Loader2 class="w-4 h-4 animate-spin" />
-							{:else}
-								<ArrowLeftIcon class="w-4 h-4" />
-							{/if}
-							Previous
-						</div>
-					</Button>
-
-					<Button
-						size="xs"
-						color="dark"
-						variant="contained"
-						disabled={lastStep}
-						on:click={(e) => {
-							e.preventDefault()
-							directionClicked = 'right'
-							onNext?.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb?.()))
-							runStep(selectedIndex + 1)
-						}}
-					>
-						<div class="flex flex-row gap-2">
-							Next
-							{#if statusByStep[selectedIndex] === 'pending' && directionClicked === 'right'}
-								<Loader2 class="w-4 h-4 animate-spin" />
-							{:else}
-								<ArrowRightIcon class="w-4 h-4" />
-							{/if}
-						</div>
-					</Button>
-				</div>
-			</div>
-		</div>
-	</div>
+	{:else if $app.subgrids}
+		{@render nonRenderedPlaceholder?.()}
+	{/if}
 </RunnableWrapper>

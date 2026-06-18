@@ -2,6 +2,12 @@ import { type Script } from './gen'
 
 import type { SupportedLanguage } from './common'
 
+import CLAUDE_SANDBOX_INIT_CODE from './templates/claude_sandbox.ts.template?raw'
+import WAC_PYTHON_INIT_CODE from './templates/wac_python.py.template?raw'
+import WAC_TYPESCRIPT_INIT_CODE from './templates/wac_typescript.ts.template?raw'
+import CI_TEST_BUN_INIT_CODE from './templates/ci_test_bun.ts.template?raw'
+import CI_TEST_PYTHON_INIT_CODE from './templates/ci_test_python.py.template?raw'
+
 const PYTHON_FAILURE_MODULE_CODE = `import os
 
 def main(message: str, name: str, step_id: str):
@@ -30,6 +36,9 @@ def main():
     # wmill.setState(newState)
     # 4. Return the new rows
     # return range from (state to newState)
+    #
+    # For more complex states, consider using Data Tables:
+    # https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables
     return [1, 2, 3]`
 
 const PYTHON_INIT_CODE = `import os
@@ -248,8 +257,12 @@ export async function main(message: string, name: string, step_id: string) {
 }
 `
 
-const POSTGRES_INIT_CODE = `-- to pin the database use '-- database f/your/path'
--- to only return the result of the last query use '--return_last_result'
+const POSTGRES_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
+-- to feed an S3Object (json/jsonl/parquet/csv) as a parameter, declare it as (s3object):
+--   -- $5 input_file (s3object)
+--   INSERT INTO demo SELECT * FROM jsonb_to_recordset(\$5::jsonb) AS x(id INT, name TEXT);
 -- $1 name1 = default arg
 -- $2 name2
 -- $3 name3
@@ -258,7 +271,12 @@ INSERT INTO demo VALUES (\$1::TEXT, \$2::INT, \$3::TEXT[]) RETURNING *;
 UPDATE demo SET col2 = \$4::INT WHERE col2 = \$2::INT;
 `
 
-const MYSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const MYSQL_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
+-- to feed an S3Object (json/jsonl/parquet/csv) as a parameter, declare it as (s3object):
+--   -- :input_file (s3object)
+--   INSERT INTO demo SELECT * FROM JSON_TABLE(:input_file, '$[*]' COLUMNS (id INT PATH '$.id', name VARCHAR(255) PATH '$.name')) AS x;
 -- :name1 (text) = default arg
 -- :name2 (int)
 -- :name3 (int)
@@ -266,7 +284,12 @@ INSERT INTO demo VALUES (:name1, :name2);
 UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
 `
 
-const BIGQUERY_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const BIGQUERY_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
+-- to feed an S3Object (json/jsonl/parquet/csv) as a parameter, declare it as (s3object):
+--   -- @input_file (s3object)
+--   SELECT * FROM UNNEST(JSON_QUERY_ARRAY(@input_file)) AS row;
 -- @name1 (string) = default arg
 -- @name2 (integer)
 -- @name3 (string[])
@@ -275,7 +298,9 @@ INSERT INTO \`demodb.demo\` VALUES (@name1, @name2, @name3);
 UPDATE \`demodb.demo\` SET col2 = @name4 WHERE col2 = @name2;
 `
 
-const ORACLEDB_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const ORACLEDB_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
 -- :name1 (text) = default arg
 -- :name2 (int)
 -- :name3 (int)
@@ -283,7 +308,13 @@ INSERT INTO demo VALUES (:name1, :name2);
 UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
 `
 
-const SNOWFLAKE_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const SNOWFLAKE_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
+-- to feed an S3Object (json/jsonl/parquet/csv) as a parameter, declare it as (s3object):
+--   -- ? input_file (s3object)
+--   SELECT v.value:id::int AS id, v.value:name::string AS name
+--   FROM TABLE(FLATTEN(input => PARSE_JSON(?))) v;
 -- ? name1 (varchar) = default arg
 -- ? name2 (int)
 INSERT INTO demo VALUES (?, ?);
@@ -292,13 +323,48 @@ INSERT INTO demo VALUES (?, ?);
 UPDATE demo SET col2 = ? WHERE col2 = ?;
 `
 
-const MSSQL_INIT_CODE = `-- return_last_result
+const MSSQL_INIT_CODE = `-- result_collection=last_statement_all_rows
 -- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
+-- to feed an S3Object (json/jsonl/parquet/csv) as a parameter, declare it as (s3object):
+--   -- @P4 input_file (s3object)
+--   INSERT INTO demo
+--   SELECT id, name FROM OPENJSON(@P4) WITH (id INT '$.id', name NVARCHAR(255) '$.name');
 -- @P1 name1 (varchar) = default arg
 -- @P2 name2 (int)
 -- @P3 name3 (int)
 INSERT INTO demo VALUES (@P1, @P2);
 UPDATE demo SET col2 = @P3 WHERE col2 = @P2;
+`
+
+const DUCKDB_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- $name (text) = Ben
+-- $age (text) = 20
+-- -- $friends_csv (s3object)
+
+-- Click the +Database button to connect to a database
+-- https://www.windmill.dev/docs/getting_started/scripts_quickstart/sql#duckdb-1
+--
+-- ATTACH '$res:u/demo/amazed_postgresql' AS db (TYPE postgres);
+-- SELECT * FROM db.public.friends;
+
+-- Click the +Ducklake button to use a ducklake
+-- https://www.windmill.dev/docs/core_concepts/persistent_storage/ducklake
+--
+-- ATTACH 'ducklake' AS dl;
+-- USE dl;
+-- SELECT * FROM customers;
+
+CREATE TABLE friends (
+  name text,
+  age int
+);
+
+INSERT INTO friends VALUES ($name, $age);
+-- INSERT INTO friends
+--   SELECT name, age FROM read_csv($friends_csv);
+
+SELECT * FROM friends;
 `
 
 const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {
@@ -414,6 +480,52 @@ class Script
 }
 `
 
+const NU_INIT_CODE = `use std assert
+
+# Nushell
+# A new type of shell
+def main [
+    no_default: string,
+    name = "Nicolas Bourbaki",
+    age: int = 42,
+    date_of_birth?: datetime,
+    obj: record = {"records": "included"},
+    l: list<string> = ["or", "lists!"],
+    tables?: table,
+    enable_kill_mode?: bool = true,
+] {
+    # Test
+    # https://www.nushell.sh/book/testing.html
+		assert ($age == 42)
+
+    print $"Hello World and a warm welcome especially to ($name)"
+    print "and its acolytes.." $age $obj $l
+    print $tables
+
+    let secret = try { 
+      get_variable f/examples/secret
+    } catch { 
+      'No secret yet at f/examples/secret !' 
+    };
+
+    print $"The variable at \`f/examples/secret\`: ($secret)"
+    # fetch context variables
+    let user = $env.WM_USERNAME
+
+    # Nu pipelines
+    ls | where size > 1kb | sort-by modified | print "ls:" $in
+
+    # Nu works with existing data
+    # Nu speaks JSON, YAML, SQLite, Excel, and more out of the box. 
+    # It's easy to bring data into a Nu pipeline whether it's in a file, a database, or a web API:
+    let nu_license = http get https://api.github.com/repos/nushell/nushell | get license
+
+    return { splitted: ($name | split words), user: $user, nu_license: $nu_license}
+    # Interested in learning more?
+    # https://www.nushell.sh/book/getting_started.html
+}
+`
+
 const FETCH_INIT_CODE = `export async function main(
 	url: string | undefined,
 	method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' = 'GET',
@@ -441,7 +553,7 @@ const FETCH_INIT_CODE = `export async function main(
 	return await fetch(url, requestOptions)
 		.then((res) => res.json())
 		.catch(() => {
-			throw new Error('An error occured')
+			throw new Error('An error occurred')
 		})
 }`
 
@@ -468,6 +580,9 @@ export async function main() {
   // await wmill.setState(newState)
   // 4. Return the new rows
   // return range from (state to newState)
+  //
+  // For more complex states, consider using Data Tables:
+  // https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables
 
   return [1,2,3]
 
@@ -489,6 +604,9 @@ export async function main() {
   // await wmill.setState(newState)
   // 4. Return the new rows
   // return range from (state to newState)
+  //
+  // For more complex states, consider using Data Tables:
+  // https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables
 
   return [1,2,3]
 
@@ -513,6 +631,9 @@ func main() (interface{}, error) {
 	// 3. Compare the two states and update the internal state
 	wmill.SetState(4)
 	// 4. Return the new rows
+	//
+	// For more complex states, consider using Data Tables:
+	// https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables
 
 	return state, nil
 
@@ -577,78 +698,142 @@ export async function main(approver?: string) {
 // add a form in Advanced - Suspend
 // all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
-export const BUN_PREPROCESSOR_MODULE_CODE = `
-export async function preprocessor(
-	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres',
-		http?: {
-			route: string // The route path, e.g. "/users/:id"
-			path: string // The actual path called, e.g. "/users/123"
-			method: string
-			params: Record<string, string> // path parameters
-			query: Record<string, string> // query parameters
-			headers: Record<string, string>
-		},
-		websocket?: {
-			url: string // The websocket url
-		},
-		kafka?: {
-			brokers: string[]
-			topic: string
-			group_id: string
-		},
-		nats?: {
-			servers: string[]
-			subject: string
-			headers?: Record<string, string[]>
-			status?: number
-			description?: string
-			length: number
-		}
-	},
-	/* your other args */ 
-) {
-	return {
-		// return the args to be passed to the runnable
-	}
-}
-`
+export const TS_PREPROCESSOR_SCRIPT_INTRO = `/**
+ * Trigger preprocessor
+ *
+ * ⚠️ This function runs BEFORE the main function.
+ *
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email)
+ * before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated runnable UI clean.
+ *
+ * The returned object defines the parameter values passed to \`main()\`.
+ * e.g., { b: 1, a: 2 } → Calls \`main(2, 1)\`, assuming \`main\` is defined as \`main(a: number, b: number)\`.
+ * Ensure that the parameter names in \`main\` match the keys in the returned object.
+ * 
+ * Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors
+ */\n`
 
-const DENO_PREPROCESSOR_MODULE_CODE = `
-export async function preprocessor(
-	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres',
-		http?: {
-			route: string // The route path, e.g. "/users/:id"
-			path: string // The actual path called, e.g. "/users/123"
-			method: string
-			params: Record<string, string> // path parameters
-			query: Record<string, string> // query parameters
-			headers: Record<string, string>
-		},
-		websocket?: {
-			url: string // The websocket url
-		},
-		kafka?: {
-			brokers: string[]
-			topic: string
-			group_id: string
-		},
-		nats?: {
-			servers: string[]
-			subject: string
-			headers?: Record<string, string[]>
-			status?: number
-			description?: string
-			length: number
-		}
-	},
-	/* your other args */ 
-) {
-	return {
-		// return the args to be passed to the runnable
-	}
+export const TS_PREPROCESSOR_FLOW_INTRO = `/**
+ * Trigger preprocessor
+ *
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+ * before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+ * 
+ * The returned object determines the parameter values passed to the flow.
+ * e.g., \`{ b: 1, a: 2 }\` → Calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+ * Ensure that the input names of the flow match the keys in the returned object.
+ * 
+ * Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors
+ */\n`
+
+export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(event: TriggerEvent) {
+  return {
+    // return the args to be passed to the runnable
+  };
 }
+
+type TriggerEvent =
+  | {
+      kind: "webhook";
+      body: any;
+      raw_string: string | null;
+      query: Record<string, string>;
+      headers: Record<string, string>;
+    }
+  | {
+      kind: "http";
+      trigger_path: string;
+      body: any;
+      raw_string: string | null;
+      route: string;
+      path: string;
+      method: string;
+      params: Record<string, string>;
+      query: Record<string, string>;
+      headers: Record<string, string>;
+    }
+  | {
+      kind: "email";
+      trigger_path: string;
+      parsed_email: any;
+      raw_email: string;
+      email_extra_args?: Record<string, string>;
+    }
+  | { kind: "websocket"; trigger_path: string; msg: string; url: string }
+  | {
+      kind: "kafka";
+      trigger_path: string;
+      payload: string;
+      brokers: string[];
+      topic: string;
+      partition: number;
+      offset: number;
+      group_id: string;
+    }
+  | {
+      kind: "nats";
+      trigger_path: string;
+      payload: string;
+      servers: string[];
+      subject: string;
+      headers?: Record<string, string[]>;
+      status?: number;
+      description?: string;
+      length: number;
+    }
+  | {
+      kind: "sqs";
+      trigger_path: string;
+      msg: string;
+      queue_url: string;
+      message_id?: string;
+      receipt_handle?: string;
+      attributes: Record<string, string>;
+      message_attributes?: Record<
+        string,
+        { string_value?: string; data_type: string }
+      >;
+    }
+  | {
+      kind: "mqtt";
+      trigger_path: string;
+      payload: string;
+      topic: string;
+      retain: boolean;
+      pkid: number;
+      qos: number;
+      v5?: {
+        payload_format_indicator?: number;
+        topic_alias?: number;
+        response_topic?: string;
+        correlation_data?: Array<number>;
+        user_properties?: Array<[string, string]>;
+        subscription_identifiers?: Array<number>;
+        content_type?: string;
+      };
+    }
+  | {
+      kind: "gcp";
+      trigger_path: string;
+      payload: string;
+      message_id: string;
+      subscription: string;
+      ordering_key?: string;
+      attributes?: Record<string, string>;
+      delivery_type: "push" | "pull";
+      headers?: Record<string, string>;
+      publish_time?: string;
+      ack_id?: string;
+    }
+  | {
+      kind: "postgres";
+      trigger_path: string;
+      transaction_type: "insert" | "update" | "delete";
+      schema_name: string;
+      table_name: string;
+      old_row?: Record<string, any>;
+      row: Record<string, any>;
+    };
 `
 
 const PYTHON_INIT_CODE_APPROVAL = `import wmill
@@ -678,67 +863,272 @@ def main():
 # add a form in Advanced - Suspend
 # all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
-export const PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import TypedDict, Literal
+export const PYTHON_PREPROCESSOR_SCRIPT_INTRO = `# Trigger preprocessor
+#
+# ⚠️ This function runs BEFORE the main function.
+#
+# It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+# before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated UI clean.
+#
+# The returned object defines the parameter values passed to \`main()\`.
+# e.g., { b: 1, a: 2 } → Calls \`main(2, 1)\`, assuming \`main\` is defined as \`main(a: int, b: int)\`.
+# Ensure that the parameter names in \`main\` match the keys in the returned object.
+#
+# Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors\n\n`
 
-class Http(TypedDict):
-	route: str # The route path, e.g. "/users/:id"
-	path: str # The actual path called, e.g. "/users/123"
-	method: str
-	params: dict[str, str]
-	query: dict[str, str]
-	headers: dict[str, str]
+export const PYTHON_PREPROCESSOR_FLOW_INTRO = `# Trigger preprocessor
+#
+# It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+# before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+# 
+# The returned object determines the parameter values passed to the flow.
+# e.g., \`{ b: 1, a: 2 }\` → Calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+# Ensure that the input names of the flow match the keys in the returned object.
+#
+# Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors\n\n`
 
-class Websocket(TypedDict):
-	url: str # The websocket url
+export const PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import TypedDict, Literal, Optional, Union
 
-class Kafka(TypedDict):
-	topic: str
-	brokers: list[str]
-	group_id: str
 
-class Nats(TypedDict):
-	servers: list[str]
-	subject: str
-	headers: dict[str, list[str]] | None
-	status: int | None
-	description: str | None
-	length: int
+class WebhookEvent(TypedDict):
+    kind: Literal["webhook"]
+    body: dict
+    raw_string: Optional[str]
+    query: dict[str, str]
+    headers: dict[str, str]
 
-class WmTrigger(TypedDict):
-	kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats"]
-	http: Http | None
-	websocket: Websocket | None
-	kafka: Kafka | None
-	nats: Nats | None
 
-def preprocessor(
-	wm_trigger: WmTrigger,
-	# your other args
-):
-	return {
-		# return the args to be passed to the runnable
-	}
+class HttpEvent(TypedDict):
+    kind: Literal["http"]
+    trigger_path: str
+    body: dict
+    raw_string: Optional[str]
+    route: str
+    path: str
+    method: str
+    params: dict[str, str]
+    query: dict[str, str]
+    headers: dict[str, str]
+
+
+class EmailEvent(TypedDict):
+    kind: Literal["email"]
+    trigger_path: str
+    parsed_email: dict
+    raw_email: str
+    email_extra_args: Optional[dict[str, str]]
+
+
+class WebsocketEvent(TypedDict):
+    kind: Literal["websocket"]
+    trigger_path: str
+    msg: str
+    url: str
+
+
+class KafkaEvent(TypedDict):
+    kind: Literal["kafka"]
+    trigger_path: str
+    payload: str
+    brokers: list[str]
+    topic: str
+    partition: int
+    offset: int
+    group_id: str
+
+
+class NatsEvent(TypedDict):
+    kind: Literal["nats"]
+    trigger_path: str
+    payload: str
+    servers: list[str]
+    subject: str
+    headers: Optional[dict[str, list[str]]]
+    status: Optional[int]
+    description: Optional[str]
+    length: int
+
+
+class MessageAttribute(TypedDict):
+    string_value: Optional[str]
+    data_type: str
+
+
+class SqsEvent(TypedDict):
+    kind: Literal["sqs"]
+    trigger_path: str
+    msg: str
+    queue_url: str
+    message_id: Optional[str]
+    receipt_handle: Optional[str]
+    attributes: dict[str, str]
+    message_attributes: Optional[dict[str, MessageAttribute]]
+
+
+class MqttV5Properties(TypedDict, total=False):
+    payload_format_indicator: Optional[int]
+    topic_alias: Optional[int]
+    response_topic: Optional[str]
+    correlation_data: Optional[list[int]]
+    user_properties: Optional[list[tuple[str, str]]]
+    subscription_identifiers: Optional[list[int]]
+    content_type: Optional[str]
+
+
+class MqttEvent(TypedDict):
+    kind: Literal["mqtt"]
+    trigger_path: str
+    payload: str
+    topic: str
+    retain: bool
+    pkid: int
+    qos: int
+    v5: Optional[MqttV5Properties]
+
+
+class GcpEvent(TypedDict):
+    kind: Literal["gcp"]
+    trigger_path: str
+    payload: str
+    message_id: str
+    subscription: str
+    ordering_key: Optional[str]
+    attributes: Optional[dict[str, str]]
+    delivery_type: Literal["push", "pull"]
+    headers: Optional[dict[str, str]]
+    publish_time: Optional[str]
+    ack_id: Optional[str]
+
+
+class PostgresEvent(TypedDict):
+    kind: Literal["postgres"]
+    trigger_path: str
+    transaction_type: Literal["insert", "update", "delete"]
+    schema_name: str
+    table_name: str
+    old_row: Optional[dict[str, any]]
+    row: dict[str, any]
+
+
+Event = Union[
+    WebhookEvent,
+    HttpEvent,
+    EmailEvent,
+    WebsocketEvent,
+    KafkaEvent,
+    NatsEvent,
+    SqsEvent,
+    MqttEvent,
+    GcpEvent,
+    PostgresEvent,
+]
+
+
+def preprocessor(event: Event):
+    return {
+        # return the args to be passed to the runnable
+    }
+`
+
+export const PHP_PREPROCESSOR_SCRIPT_INTRO = `<?php
+/**
+ * Trigger preprocessor
+ *
+ * ⚠️ This function runs BEFORE the main function.
+ *
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email)
+ * before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated runnable UI clean.
+ *
+ * The returned object defines the parameter values passed to \`main()\`.
+ * e.g., ['b' => 1, 'a' => 2] → Calls \`main(2, 1)\`, assuming \`main\` is defined as \`main($a, $b)\`.
+ * Ensure that the parameter names in \`main\` match the keys in the returned array.
+ * 
+ * Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors
+ */
+
+`
+
+export const PHP_PREPROCESSOR_FLOW_INTRO = `<?php
+/**
+ * Trigger preprocessor
+ *
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+ * before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+ * 
+ * The returned object determines the parameter values passed to the flow.
+ * e.g., ['b' => 1, 'a' => 2] → Calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+ * Ensure that the input names of the flow match the keys in the returned array.
+ * 
+ * Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors
+ */
+
+`
+
+export const PHP_PREPROCESSOR_MODULE_CODE = `function preprocessor(object $event) {
+    // $event can be one of the following types:
+    // 
+    // All events (except webhook) include 'trigger_path' => '...' (the path of the trigger in Windmill)
+    //
+    // Webhook event:
+    // ['kind' => 'webhook', 'body' => [...], 'raw_string' => '...', 'query' => [...], 'headers' => [...]]
+    //
+    // HTTP event:
+    // ['kind' => 'http', 'trigger_path' => '...', 'body' => [...], 'raw_string' => '...', 'route' => '...', 'path' => '...',
+    //  'method' => '...', 'params' => [...], 'query' => [...], 'headers' => [...]]
+    //
+    // Email event:
+    // ['kind' => 'email', 'trigger_path' => '...', 'parsed_email' => [...], 'raw_email' => '...', 'email_extra_args' => [...]]
+    //
+    // WebSocket event:
+    // ['kind' => 'websocket', 'trigger_path' => '...', 'msg' => '...', 'url' => '...']
+    //
+    // Kafka event:
+    // ['kind' => 'kafka', 'trigger_path' => '...', 'payload' => '...', 'brokers' => [...], 'topic' => '...',
+    //  'partition' => 0, 'offset' => 0, 'group_id' => '...']
+    //
+    // NATS event:
+    // ['kind' => 'nats', 'trigger_path' => '...', 'payload' => '...', 'servers' => [...], 'subject' => '...',
+    //  'headers' => [...], 'status' => 200, 'description' => '...', 'length' => 100]
+    //
+    // SQS event:
+    // ['kind' => 'sqs', 'trigger_path' => '...', 'msg' => '...', 'queue_url' => '...', 'message_id' => '...',
+    //  'receipt_handle' => '...', 'attributes' => [...], 'message_attributes' => [...]]
+    //
+    // MQTT event:
+    // ['kind' => 'mqtt', 'trigger_path' => '...', 'payload' => '...', 'topic' => '...', 'retain' => true, 'pkid' => 1,
+    //  'qos' => 1, 'v5' => [...]]
+    //
+    // GCP event:
+    // ['kind' => 'gcp', 'trigger_path' => '...', 'payload' => '...', 'message_id' => '...', 'subscription' => '...',
+    //  'ordering_key' => '...', 'attributes' => [...], 'delivery_type' => 'push',
+    //  'headers' => [...], 'publish_time' => '...', 'ack_id' => '...']
+    //
+    // Postgres event:
+    // ['kind' => 'postgres', 'trigger_path' => '...', 'transaction_type' => 'insert', 'schema_name' => '...',
+    //  'table_name' => '...', 'old_row' => [...], 'row' => [...]]
+
+    return [
+        // return the args to be passed to the runnable
+    ];
+}
 `
 
 const DOCKER_INIT_CODE = `# shellcheck shell=bash
-# docker
-# The annotation "docker" above is important, it tells windmill that after 
-# the end of the bash script, it should manage the container at id $WM_JOB_ID:
-# pipe logs, monitor memory usage, kill container if job is cancelled.
+# sandbox alpine:latest
+# The "# sandbox <image>" annotation runs this script INSIDE the image above,
+# sandboxed via nsjail: the image's rootfs is extracted (rootless podman) and the
+# body runs chrooted in it, inheriting the job's confinement. The body runs with
+# the image's /bin/sh and windmill args bind positionally as $1, $2, ...
+# Daemonless — no docker run/-d/exec/build and no host -v bind mounts.
+# (A bare "# docker" still uses the legacy daemon runtime instead.)
 
 msg="\${1:-world}"
 
-IMAGE="alpine:latest"
-COMMAND="/bin/echo Hello $msg"
-
-# ensure that the image is up-to-date
-docker pull $IMAGE
-
-# if using the 'docker' mode, name it with $WM_JOB_ID for windmill to monitor it
-docker run --name $WM_JOB_ID -it -d $IMAGE $COMMAND
+echo "Hello $msg"
+cat /etc/os-release | head -1
 `
 
-const POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$Nb = 3)
+const POWERSHELL_INIT_CODE = `param($Msg, [string[]]$Names, [PSCustomObject]$Obj, $Dflt = "default value", [int]$Nb = 3)
 
 # Import-Module MyModule
 
@@ -754,6 +1144,12 @@ inventory:
   - resource_type: ansible_inventory
     # You can pin an inventory to this script by hardcoding the resource path:
     # resource: u/user/your_resource
+# - name: hcloud.yml
+#   resource_type: dynamic_inventory
+
+options:
+  - verbosity: vvv
+
 
 # File resources will be written in the relative \`target\` location before
 # running the playbook
@@ -769,11 +1165,15 @@ extra_vars:
   world_qualifier:
     type: string
 
+# If using Ansible Vault:
+# vault_password: u/user/ansible_vault_password
+
 dependencies:
   galaxy:
     collections:
       - name: community.general
       - name: community.vmware
+    roles:
   python:
     - jmespath
 ---
@@ -796,6 +1196,130 @@ dependencies:
       content: "{{ my_result | to_json }}"
       dest: result.json
 `
+const JAVA_INIT_CODE = `//requirements:
+//com.google.code.gson:gson:2.8.9
+//com.github.ricksbrown:cowsay:1.1.0
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.github.ricksbrown.cowsay.Cowsay;
+import com.github.ricksbrown.cowsay.plugin.CowExecutor;
+
+public class Main {
+  public static class Person {
+    private String name;
+    private int age;
+
+    // Constructor
+    public Person(String name, int age) {
+        this.name = name;
+        this.age = age;
+    }
+  }
+
+  public static Object main(
+    // Primitive
+    int a,
+    float b,
+    // Objects
+    Integer age,
+    Float d,
+    Object e,
+    String name,
+    // Lists
+    String[] f
+    // No trailing commas!
+    ){
+    Gson gson = new Gson();
+
+    // Get resources
+    var theme = Wmill.getResource("f/app_themes/theme_0");
+    System.out.println("Theme: " + theme);
+    
+    // Create a Person object
+    Person person = new Person( (name == "") ? "Alice" : name, (age == null) ? 30 : age);
+
+    // Serialize the Person object to JSON
+    String json = gson.toJson(person);
+    System.out.println("Serialized JSON: " + json);
+
+    // Use cowsay
+    String[] args = new String[]{"-f", "dragon", json };
+    String result = Cowsay.say(args);
+    return result;
+  }
+}
+`
+const RUBY_INIT_CODE = `require 'windmill/inline'
+require 'windmill/mini'
+
+# Dependency management: declare gems in gemfile block for automatic installation
+# Windmill uses bundler/inline compatible syntax with automatic requiring
+gemfile do
+  source 'https://rubygems.org'
+  gem 'amazing_print', '~> 1.6'
+end
+
+def main(
+  no_default,
+  name = "Nicolas Bourbaki", 
+  age = 42,
+  obj = { "even": "hashes" },
+  list = ["or", "arrays!"]
+)
+  puts "Hello World and a warm welcome especially to #{name}"
+  puts "and its acolytes.. #{age} #{obj} #{list}"
+
+  # Retrieve variables using the Windmill mini client
+  begin
+    secret = get_variable("f/examples/secret")
+  rescue => e
+    secret = "No secret yet at f/examples/secret!"
+  end
+  puts "The variable at 'f/examples/secret': #{secret}"
+
+  # Get typed resources using the mini client
+  # database = get_resource("u/user/my_postgresql") 
+
+  # Access environment variables provided by Windmill
+  user = ENV['WM_USERNAME']
+
+  # Pretty print results using amazing_print (automatically required from gemfile)
+  result = {
+    "splitted" => name.split,
+    "user" => user,
+    "age" => age,
+    "obj" => obj,
+    "list" => list
+  }
+  
+  ap result
+  
+  # Return value is automatically converted to JSON
+  return result
+end
+`
+const R_INIT_CODE = `library(dplyr)
+library(jsonlite)
+
+main <- function(
+    x,
+    name = "default",
+    age = 25,
+    data = list(1, 2, 3),
+    flag = TRUE
+) {
+    # Use Windmill helpers:
+    # var <- get_variable("f/my_var")
+    # res <- get_resource("f/my_resource")
+
+    df <- tibble(name = name, age = age, x = x)
+    result <- df %>% mutate(greeting = paste("Hello", name))
+
+    return(toJSON(result, auto_unbox = TRUE))
+}
+`
+// for related places search: ADD_NEW_LANG
 export const INITIAL_CODE = {
 	bun: {
 		scriptInitCodeBlock: BUN_INIT_BLOCK,
@@ -803,7 +1327,7 @@ export const INITIAL_CODE = {
 		trigger: BUN_INIT_CODE_TRIGGER,
 		approval: BUN_INIT_CODE_APPROVAL,
 		failure: BUN_FAILURE_MODULE_CODE,
-		preprocessor: BUN_PREPROCESSOR_MODULE_CODE,
+		preprocessor: TS_PREPROCESSOR_FLOW_INTRO + TS_PREPROCESSOR_MODULE_CODE,
 		clear: BUN_INIT_CODE_CLEAR
 	},
 	python3: {
@@ -811,7 +1335,7 @@ export const INITIAL_CODE = {
 		trigger: PYTHON_INIT_CODE_TRIGGER,
 		approval: PYTHON_INIT_CODE_APPROVAL,
 		failure: PYTHON_FAILURE_MODULE_CODE,
-		preprocessor: PYTHON_PREPROCESSOR_MODULE_CODE,
+		preprocessor: PYTHON_PREPROCESSOR_FLOW_INTRO + PYTHON_PREPROCESSOR_MODULE_CODE,
 		clear: PYTHON_INIT_CODE_CLEAR
 	},
 	deno: {
@@ -820,7 +1344,7 @@ export const INITIAL_CODE = {
 		trigger: DENO_INIT_CODE_TRIGGER,
 		approval: DENO_INIT_CODE_APPROVAL,
 		failure: DENO_FAILURE_MODULE_CODE,
-		preprocessor: DENO_PREPROCESSOR_MODULE_CODE,
+		preprocessor: TS_PREPROCESSOR_FLOW_INTRO + TS_PREPROCESSOR_MODULE_CODE,
 		fetch: FETCH_INIT_CODE,
 		clear: DENO_INIT_CODE_CLEAR
 	},
@@ -853,6 +1377,9 @@ export const INITIAL_CODE = {
 	mssql: {
 		script: MSSQL_INIT_CODE
 	},
+	duckdb: {
+		script: DUCKDB_INIT_CODE
+	},
 	graphql: {
 		script: GRAPHQL_INIT_CODE
 	},
@@ -860,7 +1387,8 @@ export const INITIAL_CODE = {
 		script: ORACLEDB_INIT_CODE
 	},
 	php: {
-		script: PHP_INIT_CODE
+		script: PHP_INIT_CODE,
+		preprocessor: PHP_PREPROCESSOR_FLOW_INTRO + PHP_PREPROCESSOR_MODULE_CODE
 	},
 	rust: {
 		script: RUST_INIT_CODE
@@ -871,23 +1399,50 @@ export const INITIAL_CODE = {
 	csharp: {
 		script: CSHARP_INIT_CODE
 	},
+	nu: {
+		script: NU_INIT_CODE
+	},
 	docker: {
 		script: DOCKER_INIT_CODE
 	},
 	bunnative: {
 		script: BUNNATIVE_INIT_CODE
+	},
+	java: {
+		script: JAVA_INIT_CODE
+	},
+	ruby: {
+		script: RUBY_INIT_CODE
+	},
+	rlang: {
+		script: R_INIT_CODE
+	},
+	claudesandbox: {
+		script: CLAUDE_SANDBOX_INIT_CODE
+	},
+	wac_python: {
+		script: WAC_PYTHON_INIT_CODE
+	},
+	wac_typescript: {
+		script: WAC_TYPESCRIPT_INIT_CODE
+	},
+	ci_test_bun: {
+		script: CI_TEST_BUN_INIT_CODE
+	},
+	ci_test_python: {
+		script: CI_TEST_PYTHON_INIT_CODE
 	}
+	// for related places search: ADD_NEW_LANG
 }
 
 export function isInitialCode(content: string): boolean {
-	Object.values(INITIAL_CODE).forEach((lang) => {
-		Object.values(lang).forEach((code) => {
+	for (const lang of Object.values(INITIAL_CODE)) {
+		for (const code of Object.values(lang)) {
 			if (content === code) {
 				return true
 			}
-		})
-	})
-
+		}
+	}
 	return false
 }
 
@@ -903,6 +1458,11 @@ export function initialCode(
 		| 'docker'
 		| 'powershell'
 		| 'bunnative'
+		| 'claudesandbox'
+		| 'wac_python'
+		| 'wac_typescript'
+		| 'ci_test_bun'
+		| 'ci_test_python'
 		| undefined,
 	templateScript?: boolean
 ): string {
@@ -933,6 +1493,14 @@ export function initialCode(
 		} else {
 			return INITIAL_CODE.deno.script
 		}
+	} else if (subkind === 'ci_test_bun') {
+		return INITIAL_CODE.ci_test_bun.script
+	} else if (subkind === 'ci_test_python') {
+		return INITIAL_CODE.ci_test_python.script
+	} else if (subkind === 'wac_python') {
+		return INITIAL_CODE.wac_python.script
+	} else if (subkind === 'wac_typescript') {
+		return INITIAL_CODE.wac_typescript.script
 	} else if (language === 'python3') {
 		if (kind === 'trigger') {
 			return INITIAL_CODE.python3.trigger
@@ -971,7 +1539,12 @@ export function initialCode(
 		return INITIAL_CODE.mssql.script
 	} else if (language == 'graphql') {
 		return INITIAL_CODE.graphql.script
+	} else if (language == 'duckdb') {
+		return INITIAL_CODE.duckdb.script
 	} else if (language == 'php') {
+		if (kind == 'preprocessor') {
+			return INITIAL_CODE.php.preprocessor
+		}
 		return INITIAL_CODE.php.script
 	} else if (language == 'rust') {
 		return INITIAL_CODE.rust.script
@@ -979,8 +1552,19 @@ export function initialCode(
 		return INITIAL_CODE.ansible.script
 	} else if (language == 'csharp') {
 		return INITIAL_CODE.csharp.script
+	} else if (language == 'nu') {
+		return INITIAL_CODE.nu.script
+	} else if (language == 'java') {
+		return INITIAL_CODE.java.script
+	} else if (language == 'ruby') {
+		return INITIAL_CODE.ruby.script
+	} else if (language == 'rlang') {
+		return INITIAL_CODE.rlang.script
+		// for related places search: ADD_NEW_LANG
 	} else if (language == 'bun' || language == 'bunnative') {
-		if (kind == 'trigger') {
+		if (subkind === 'claudesandbox') {
+			return INITIAL_CODE.claudesandbox.script
+		} else if (kind == 'trigger') {
 			return INITIAL_CODE.bun.trigger
 		} else if (language == 'bunnative' || subkind === 'bunnative') {
 			return INITIAL_CODE.bunnative.script
@@ -1020,6 +1604,11 @@ export function getResetCode(
 		| 'docker'
 		| 'powershell'
 		| 'bunnative'
+		| 'claudesandbox'
+		| 'wac_python'
+		| 'wac_typescript'
+		| 'ci_test_bun'
+		| 'ci_test_python'
 		| undefined
 ) {
 	if (language === 'deno') {
@@ -1034,5 +1623,117 @@ export function getResetCode(
 		return BUNNATIVE_INIT_CODE
 	} else {
 		return initialCode(language, kind, subkind)
+	}
+}
+
+export const PREPROCESSOR_SUPPORTED_LANGUAGES = [
+	'typescript',
+	'python',
+	'python3',
+	'deno',
+	'bun',
+	'php'
+] as const
+
+export function canHavePreprocessor(language: string | undefined): boolean {
+	if (!language) {
+		return false
+	}
+
+	return PREPROCESSOR_SUPPORTED_LANGUAGES.includes(language as any)
+}
+
+export function canHaveTrigger(language: SupportedLanguage | undefined): boolean {
+	if (!language) {
+		return false
+	}
+
+	return ['python3', 'bun', 'deno', 'go'].includes(language)
+}
+
+export function canHaveApproval(language: SupportedLanguage | undefined): boolean {
+	if (!language) {
+		return false
+	}
+
+	return ['python3', 'bun'].includes(language)
+}
+
+export function canHaveFailure(language: SupportedLanguage | undefined): boolean {
+	if (!language) {
+		return false
+	}
+
+	return ['python3', 'bun', 'deno', 'go'].includes(language)
+}
+
+export function getPreprocessorIntro(
+	language: SupportedLanguage | 'docker' | 'bunnative' | undefined,
+	isFlow: boolean = false
+): string {
+	if (!language || !PREPROCESSOR_SUPPORTED_LANGUAGES.includes(language as any)) {
+		return ''
+	}
+
+	switch (language) {
+		case 'python3':
+			return isFlow ? PYTHON_PREPROCESSOR_FLOW_INTRO : PYTHON_PREPROCESSOR_SCRIPT_INTRO
+		case 'deno':
+		case 'bun':
+			return isFlow ? TS_PREPROCESSOR_FLOW_INTRO : TS_PREPROCESSOR_SCRIPT_INTRO
+		case 'php':
+			return isFlow ? PHP_PREPROCESSOR_FLOW_INTRO : PHP_PREPROCESSOR_SCRIPT_INTRO
+		default:
+			return ''
+	}
+}
+
+export function getPreprocessorModuleCode(
+	language: SupportedLanguage | 'docker' | 'bunnative' | undefined
+): string {
+	if (!language || !PREPROCESSOR_SUPPORTED_LANGUAGES.includes(language as any)) {
+		return ''
+	}
+
+	switch (language) {
+		case 'python3':
+			return PYTHON_PREPROCESSOR_MODULE_CODE
+		case 'deno':
+		case 'bun':
+			return TS_PREPROCESSOR_MODULE_CODE
+		case 'php':
+			return PHP_PREPROCESSOR_MODULE_CODE
+		default:
+			return ''
+	}
+}
+
+export function getPreprocessorFullCode(
+	language: SupportedLanguage | 'docker' | 'bunnative' | undefined,
+	isFlow: boolean = false
+): string {
+	const intro = getPreprocessorIntro(language, isFlow)
+	const moduleCode = getPreprocessorModuleCode(language)
+	return intro + moduleCode
+}
+
+export function getMainFunctionPattern(
+	language: SupportedLanguage | 'docker' | 'bunnative' | undefined
+): string {
+	if (!language) {
+		return ''
+	}
+
+	switch (language) {
+		case 'python3':
+			return 'def main'
+		case 'deno':
+		case 'bun':
+		case 'nativets':
+			return 'export async function main'
+		case 'php':
+			return 'function main'
+		default:
+			return 'main'
 	}
 }

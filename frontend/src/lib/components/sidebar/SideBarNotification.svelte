@@ -1,12 +1,16 @@
 <script lang="ts">
 	import Notification from '$lib/components/common/alert/Notification.svelte'
 
-	export let notificationCount = 0
-	export let small: boolean = false
+	interface Props {
+		notificationCount?: number
+		small?: boolean
+	}
+
+	let { notificationCount = 0, small = false }: Props = $props()
 </script>
 
 {#if !small}
 	<Notification {notificationCount} notificationLimit={9} />
 {:else}
-	<div class="bg-red-500 rounded-md w-3 h-3 flex items-center justify-center" />
+	<div class="bg-red-500 rounded-full w-2 h-2 flex items-center justify-center"></div>
 {/if}

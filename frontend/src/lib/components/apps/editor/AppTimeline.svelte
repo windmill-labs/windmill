@@ -1,23 +1,30 @@
 <script lang="ts">
 	import { debounce } from '$lib/utils'
-	import { getContext, onDestroy } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 
 	import TimelineBar from '$lib/components/TimelineBar.svelte'
-	import type { AppViewerContext } from '../types'
+	import type { JobById } from '../types'
 
-	const { jobs, jobsById } = getContext<AppViewerContext>('AppViewerContext')
+	interface Props {
+		jobs: string[]
+		jobsById: Record<string, JobById>
+	}
 
-	let min: undefined | number = undefined
+	let { jobs, jobsById }: Props = $props()
+
+	let min: undefined | number = $state(undefined)
 	let max: undefined | number = undefined
-	let total: number | undefined = undefined
+	let total: number | undefined = $state(undefined)
 
-	let debounced = debounce(() => computeItems($jobs), 30)
-	$: $jobs && $jobsById && debounced()
+	let { debounced, clearDebounce } = debounce(() => computeItems(jobs), 30)
+	$effect(() => {
+		jobs && jobsById && untrack(() => debounced())
+	})
 
 	let items: Record<
 		string,
 		{ created_at?: number; started_at?: number; duration_ms?: number; id: string }[]
-	> = {}
+	> = $state({})
 
 	export function reset() {
 		min = undefined
@@ -35,7 +42,7 @@
 			{ created_at?: number; started_at?: number; duration_ms?: number; id: string }[]
 		> = {}
 		jobs.forEach((k) => {
-			let v = $jobsById[k]
+			let v = jobsById[k]
 			if (v.created_at) {
 				if (!nmin) {
 					nmin = v.created_at
@@ -87,7 +94,7 @@
 		items = nitems
 	}
 
-	let now = Date.now()
+	let now = $state(Date.now())
 
 	let interval = setInterval((x) => {
 		if (!max) {
@@ -100,6 +107,7 @@
 
 	onDestroy(() => {
 		interval && clearInterval(interval)
+		clearDebounce()
 	})
 </script>
 
@@ -111,12 +119,12 @@
 		<div class="flex gap-4 items-center">
 			<div class="flex gap-2 items-center text-xs">
 				<div>Waiting for executor</div>
-				<div class="h-4 w-4 bg-gray-300 dark:bg-gray-600 rounded" />
+				<div class="h-4 w-4 bg-gray-300 dark:bg-gray-600 rounded"></div>
 			</div>
 
 			<div class="flex gap-2 items-center text-xs">
 				<div>Execution</div>
-				<div class="h-4 w-4 bg-blue-500/90 rounded" />
+				<div class="h-4 w-4 bg-blue-500/90 rounded"></div>
 			</div>
 		</div>
 	</div>
@@ -131,8 +139,8 @@
 								? b.started_at
 									? b.started_at - b?.created_at
 									: b.duration_ms
-									? 0
-									: now - b?.created_at
+										? 0
+										: now - b?.created_at
 								: 0}
 							<div class="flex w-full">
 								<TimelineBar
@@ -153,7 +161,7 @@
 										{min}
 										concat
 										started_at={b.started_at}
-										len={b.started_at ? b?.duration_ms ?? now - b?.started_at : 0}
+										len={b.started_at ? (b?.duration_ms ?? now - b?.started_at) : 0}
 										running={b?.duration_ms == undefined}
 									/>
 								{/if}

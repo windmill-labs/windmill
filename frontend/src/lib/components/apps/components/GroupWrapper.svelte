@@ -1,12 +1,20 @@
 <script lang="ts">
-	import { setContext } from 'svelte'
+	import { setContext, untrack } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import type { GroupContext } from '../types'
 
-	export let context: Writable<Record<string, any>>
-	export let id: string
+	interface Props {
+		context: Writable<Record<string, any>>
+		id: string
+		children?: import('svelte').Snippet
+	}
 
-	setContext<GroupContext>('GroupContext', { id, context })
+	let { context, id, children }: Props = $props()
+
+	setContext<GroupContext>('GroupContext', {
+		id: untrack(() => id),
+		context: untrack(() => context)
+	})
 </script>
 
-<slot />
+{@render children?.()}

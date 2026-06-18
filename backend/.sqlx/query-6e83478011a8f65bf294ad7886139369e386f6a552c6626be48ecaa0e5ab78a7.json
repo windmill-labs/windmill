@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE account SET\n                   refresh_token = $1,\n                   expires_at = now() + interval '1 hour',\n                   refresh_error = NULL\n                 WHERE workspace_id = $2 AND client = $3 AND is_workspace_integration = true",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6e83478011a8f65bf294ad7886139369e386f6a552c6626be48ecaa0e5ab78a7"
+}

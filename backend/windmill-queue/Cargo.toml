@@ -10,10 +10,13 @@ path = "src/lib.rs"
 
 [features]
 default = []
+private = []
 enterprise = ["windmill-common/enterprise"]
 cloud = []
 benchmark = ["windmill-common/benchmark"]
+failpoints = []
 prometheus = ["dep:prometheus"]
+smtp = []
 
 [dependencies]
 windmill-audit.workspace = true
@@ -30,6 +33,7 @@ uuid.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 hex.workspace = true
+rand.workspace = true
 reqwest.workspace = true
 lazy_static.workspace = true
 prometheus = { workspace = true, optional = true }
@@ -43,3 +47,7 @@ axum.workspace = true
 serde_urlencoded.workspace = true
 regex.workspace = true
 backon.workspace = true
+quick_cache.workspace = true
+thiserror.workspace = true
+dashmap.workspace = true
+once_cell.workspace = true

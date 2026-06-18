@@ -1,5 +1,16 @@
+/**
+ * LEGACY: These query builders generate full SQL on the frontend.
+ * They exist only for backwards compatibility with Database Studio (dbexplorercomponent) apps
+ * whose policies were generated with expanded SQL digests.
+ *
+ * New code (Database Manager) should use WM_INTERNAL_DB markers instead,
+ * which are expanded server-side by the Rust query_builders module.
+ * See: dbOps.ts → dbTableOpsWithPreviewScripts()
+ */
 import type { AppInput } from '$lib/components/apps/inputType'
-import { buildParameters, ColumnIdentity, type DbType } from '../utils'
+import { wrapDucklakeQuery } from '../../../../../ducklake'
+import type { DbType, DbInput } from '$lib/components/dbTypes'
+import { buildParameters, ColumnIdentity } from '../utils'
 import { getLanguageByResourceType, type ColumnDef } from '../utils'
 
 function formatInsertValues(columns: ColumnDef[], dbType: DbType, startIndex: number = 1): string {
@@ -14,6 +25,8 @@ function formatInsertValues(columns: ColumnDef[], dbType: DbType, startIndex: nu
 			return columns.map(() => `?`).join(', ')
 		case 'bigquery':
 			return columns.map((c) => `@${c.field}`).join(', ')
+		case 'duckdb':
+			return columns.map((c) => `$${c.field}`).join(', ')
 		default:
 			throw new Error('Unsupported database type')
 	}
@@ -80,7 +93,9 @@ function shouldOmitColumnInInsert(column: ColumnDef) {
 export function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbType) {
 	if (!table) throw new Error('Table name is required')
 
-	const columnsInsert = columns.filter((x) => !x.hideInsert)
+	const columnsInsert = columns.filter(
+		(x) => !x.hideInsert && !(dbType == 'postgresql' && x.defaultvalue?.startsWith('nextval('))
+	)
 	const columnsDefault = columns.filter((c) => !shouldOmitColumnInInsert(c))
 	const allInsertColumns = columnsInsert.concat(columnsDefault)
 
@@ -93,24 +108,23 @@ export function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbT
 	const insertValues = formatInsertValues(columnsInsert, dbType)
 	const defaultValues = formatDefaultValues(columnsDefault)
 	const commaOrEmpty = shouldInsertComma ? ', ' : ''
+	const valuesStr = `${insertValues}${commaOrEmpty}${defaultValues}`
 
-	query += `INSERT INTO ${table} (${columnNames}) VALUES (${insertValues}${commaOrEmpty}${defaultValues})`
-
+	if (!valuesStr.trim()) return `INSERT INTO ${table} DEFAULT VALUES`
+	query += `INSERT INTO ${table} (${columnNames}) VALUES (${valuesStr})`
 	return query
 }
 
-export function getInsertInput(
-	table: string,
-	columns: ColumnDef[],
-	resource: string,
-	dbType: DbType
-): AppInput {
+export function getInsertInput(dbInput: DbInput, table: string, columns: ColumnDef[]): AppInput {
+	const dbType = dbInput.type === 'ducklake' ? 'duckdb' : dbInput.resourceType
+	let query = makeInsertQuery(table, columns, dbType)
+	if (dbInput.type === 'ducklake') query = wrapDucklakeQuery(query, dbInput.ducklake)
 	return {
 		runnable: {
 			name: 'AppDbExplorer',
-			type: 'runnableByName',
+			type: 'inline',
 			inlineScript: {
-				content: makeInsertQuery(table, columns, dbType),
+				content: query,
 				language: getLanguageByResourceType(dbType),
 				schema: {
 					$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -120,14 +134,19 @@ export function getInsertInput(
 				}
 			}
 		},
-		fields: {
-			database: {
-				type: 'static',
-				value: resource,
-				fieldType: 'object',
-				format: `resource-${dbType}`
-			}
-		},
+		fields:
+			dbInput.type === 'database'
+				? {
+						database: {
+							type: 'static',
+							value: dbInput.resourcePath.startsWith('datatable://')
+								? dbInput.resourcePath
+								: `$res:${dbInput.resourcePath}`,
+							fieldType: 'object',
+							format: `resource-${dbType}`
+						}
+					}
+				: {},
 		type: 'runnable',
 		fieldType: 'object'
 	}

@@ -1,0 +1,187 @@
+<script lang="ts" module>
+	export function initFlowGraphAssetsCtx({
+		getModules
+	}: {
+		getModules: () => FlowModule[]
+	}): FlowGraphAssetContext {
+		let s = $state({
+			val: {
+				selectedAsset: undefined,
+				s3FilePicker: undefined,
+				resourceEditorDrawer: undefined,
+				resourceMetadataCache: {},
+				additionalAssetsMap: {},
+				computeAssetsCount: (asset) => {
+					return getAllModules(getModules())
+						.flatMap((m) => getFlowModuleAssets(m, s.val.additionalAssetsMap) ?? [])
+						.filter((a) => assetEq(asset, a)).length
+				},
+				sqlQueries: {}
+			}
+		} satisfies FlowGraphAssetContext)
+		return s
+	}
+</script>
+
+<script lang="ts">
+	import { inferAssets } from '$lib/infer'
+	import {
+		assetEq,
+		getFlowModuleAssets,
+		type AssetWithAccessType,
+		type AssetWithAltAccessType
+	} from '../assets/lib'
+	import { getAllModules } from './flowExplorer'
+	import { getContext } from 'svelte'
+	import type { FlowEditorContext, FlowGraphAssetContext } from './types'
+	import {
+		AssetService,
+		ResourceService,
+		type AssetUsageKind,
+		type FlowModule,
+		type RawScript
+	} from '$lib/gen'
+	import { deepEqual } from 'fast-equals'
+	import { workspaceStore } from '$lib/stores'
+	import S3FilePicker from '../S3FilePicker.svelte'
+	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
+	import { watch } from 'runed'
+	import { sendUserToast } from '$lib/toast'
+
+	let {
+		modules,
+		enableParser = false,
+		enableDbExplore = false,
+		enablePathScriptAndFlowAssets = false
+	}: {
+		modules: FlowModule[]
+		enableParser?: boolean
+		enableDbExplore?: boolean
+		enablePathScriptAndFlowAssets?: boolean
+	} = $props()
+
+	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
+	const { selectionManager } = getContext<FlowEditorContext>('FlowEditorContext') || {}
+	let selectedId = $derived(selectionManager?.getSelectedId())
+
+	let allModules = $derived(getAllModules(modules))
+
+	// Fetch resource metadata for the ExploreAssetButton
+	const resMetadataCache = $derived(flowGraphAssetsCtx?.val.resourceMetadataCache)
+	$effect(() => {
+		if (!resMetadataCache || !enableDbExplore) return
+		const assets: AssetWithAccessType[] =
+			allModules.flatMap(
+				(m) => getFlowModuleAssets(m, flowGraphAssetsCtx?.val.additionalAssetsMap) ?? []
+			) ?? []
+		for (const asset of assets) {
+			if (asset.kind == 'resource') {
+				let truncatedPath = asset.path.split('?table=')[0]
+				if (truncatedPath in resMetadataCache) continue
+				resMetadataCache[truncatedPath] = undefined // avoid fetching multiple times because of async
+				ResourceService.getResource({ path: truncatedPath, workspace: $workspaceStore! })
+					.then((r) => (resMetadataCache[truncatedPath] = { resource_type: r.resource_type }))
+					.catch((err) => console.error("Couldn't fetch resource", truncatedPath, err))
+			}
+		}
+	})
+
+	// Fetch transitive assets (path scripts and flows)
+	$effect(() => {
+		if (!$workspaceStore || !flowGraphAssetsCtx || !enablePathScriptAndFlowAssets) return
+		let usages: { path: string; kind: AssetUsageKind }[] = []
+		let modIds: string[] = []
+		for (const mod of allModules) {
+			if (mod.id in flowGraphAssetsCtx.val.additionalAssetsMap) continue
+			flowGraphAssetsCtx.val.additionalAssetsMap[mod.id] = [] // avoid fetching multiple times because of async
+			if (mod.value.type === 'flow' || mod.value.type === 'script') {
+				usages.push({ path: mod.value.path, kind: mod.value.type })
+				modIds.push(mod.id)
+			}
+		}
+		if (usages.length) {
+			AssetService.listAssetsByUsage({
+				workspace: $workspaceStore,
+				requestBody: { usages }
+			}).then((result) => {
+				result.forEach((assets, idx) => {
+					flowGraphAssetsCtx.val.additionalAssetsMap[modIds[idx]] = assets
+				})
+			})
+		}
+	})
+	// Prune all additionalAssetsMap entries from deleted modules
+	$effect(() => {
+		if (!flowGraphAssetsCtx) return
+		const modulesSet = new Set(allModules.map((m) => m.id))
+		for (const key of Object.keys(flowGraphAssetsCtx.val.additionalAssetsMap)) {
+			if (!modulesSet.has(key)) {
+				delete flowGraphAssetsCtx.val.additionalAssetsMap[key]
+			}
+		}
+	})
+
+	function analyzeEntireFlow() {
+		for (const mod of allModules) {
+			if (mod.value.type === 'rawscript') {
+				parseAndUpdateRawScriptModule(mod.value, mod.id)
+			}
+		}
+	}
+
+	async function parseAndUpdateRawScriptModule(
+		v: RawScript,
+		modId: string,
+		isUserEdit: boolean = true
+	) {
+		console.log('Parsing assets for RawScript module', modId)
+		let inferAssetsResult = await inferAssets(v.language, v.content)
+		if (inferAssetsResult.status === 'error') return
+		if (flowGraphAssetsCtx) flowGraphAssetsCtx.val.sqlQueries[modId] = inferAssetsResult.sql_queries
+		let newAssets = inferAssetsResult.assets as AssetWithAltAccessType[]
+		for (const asset of newAssets) {
+			const old = v.assets?.find((a) => assetEq(a, asset))
+			if (old?.alt_access_type) asset.alt_access_type = old.alt_access_type
+		}
+		const normalizedAssets = newAssets.length > 0 ? newAssets : undefined
+		if (!deepEqual(v.assets, normalizedAssets)) {
+			if (!isUserEdit && normalizedAssets && normalizedAssets.length > 0) {
+				sendUserToast(
+					'Assets were detected in this step. Analyze entire flow for assets?',
+					'warning',
+					[{ label: 'Analyze entire flow', callback: () => analyzeEntireFlow() }]
+				)
+			} else {
+				v.assets = normalizedAssets
+			}
+		}
+	}
+
+	$effect(() => {
+		if (!enableParser) return
+		for (const mod of allModules) {
+			const modValue = mod.value
+			if (modValue.type === 'rawscript') {
+				// Recompute any raw script module assets when its content changes
+				watch(
+					[() => modValue.content],
+					() => {
+						parseAndUpdateRawScriptModule(modValue, mod.id)
+					},
+					{ lazy: true }
+				)
+
+				// Also recompute if the module is selected
+				watch([() => selectedId === mod.id], () => {
+					if (selectedId === mod.id)
+						parseAndUpdateRawScriptModule(modValue, mod.id, modValue.assets !== undefined)
+				})
+			}
+		}
+	})
+</script>
+
+{#if flowGraphAssetsCtx}
+	<S3FilePicker bind:this={flowGraphAssetsCtx.val.s3FilePicker} readOnlyMode />
+	<ResourceEditorDrawer bind:this={flowGraphAssetsCtx.val.resourceEditorDrawer} />
+{/if}

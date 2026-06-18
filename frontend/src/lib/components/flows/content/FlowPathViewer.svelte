@@ -1,30 +1,31 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
-	import type { ScheduleTrigger, TriggerContext } from '$lib/components/triggers'
+	import type { TriggerContext } from '$lib/components/triggers'
+	import { Triggers } from '$lib/components/triggers/triggers.svelte'
 	import { FlowService, type Flow, type TriggersCount } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { setContext } from 'svelte'
 	import { writable } from 'svelte/store'
 
-	export let path: string
-	export let noSide = false
+	interface Props {
+		path: string;
+		noSide?: boolean;
+		fillAvailableHeight?: boolean;
+	}
 
-	let flow: Flow | undefined = undefined
+	let { path, noSide = false, fillAvailableHeight = false }: Props = $props();
 
-	const selectedTriggerStore = writable<
-		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'scheduledPoll'
-	>('webhooks')
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
+	let flow: Flow | undefined = $state(undefined)
+
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
-		primarySchedule: primaryScheduleStore,
-		selectedTrigger: selectedTriggerStore,
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),
-		defaultValues: writable(undefined),
-		captureOn: writable(undefined),
-		showCaptureHint: writable(undefined)
+		showCaptureHint: writable(undefined),
+		triggersState: new Triggers()
 	})
 
 	async function loadFlow(path: string) {
@@ -34,12 +35,14 @@
 		)
 	}
 
-	$: path && loadFlow(path)
+	run(() => {
+		path && loadFlow(path)
+	});
 </script>
 
 <div class="flex flex-col flex-1 h-full overflow-auto">
 	{#if flow}
-		<FlowGraphViewer triggerNode={true} {noSide} {flow} />
+		<FlowGraphViewer triggerNode={true} {noSide} {flow} {fillAvailableHeight} />
 	{:else}
 		<Skeleton layout={[[40]]} />
 	{/if}

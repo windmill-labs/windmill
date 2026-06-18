@@ -1,0 +1,670 @@
+import { expect, test } from "bun:test";
+import { withTestBackend } from "./test_backend.ts";
+import { addWorkspace } from "../workspace.ts";
+import * as path from "node:path";
+import { writeFile, readFile, stat, rm, mkdir, readdir } from "node:fs/promises";
+
+// =============================================================================
+// RAW APP SYNC TESTS
+// Tests for raw app sync pull/push workflow
+// =============================================================================
+
+// Raw app file contents
+const APP_TSX = `import React, { useState } from 'react'
+import { backend } from './wmill'
+import './index.css'
+
+const App = () => {
+    const [value, setValue] = useState(undefined as string | undefined)
+    const [loading, setLoading] = useState(false)
+
+    async function runA() {
+        setLoading(true)
+        try {
+            setValue(await backend.a({ x: 42 }))
+        } catch (e) {
+            console.error()
+        }
+        setLoading(false)
+    }
+
+    return <div style={{ width: "100%" }}>
+        <h1>hello world</h1>
+
+        <button style={{ marginTop: "2px" }} onClick={runA}>Run 'a'</button>
+
+        <div style={{ marginTop: "20px", width: '250px' }} className='myclass'>
+            {loading ? 'Loading ...' : value ?? 'Click button to see value here'}
+        </div>
+    </div>;
+};
+
+export default App;
+`;
+
+const INDEX_CSS = `.myclass {
+    border: 1px solid gray;
+    padding: 2px;
+}`;
+
+const INDEX_TSX = `
+import React from 'react'
+
+import { createRoot } from 'react-dom/client'
+import App from './App'
+
+const root = createRoot(document.getElementById('root')!);
+root.render(<App/>);
+`;
+
+const PACKAGE_JSON = `{
+    "dependencies": {
+        "react": "19.0.0",
+        "react-dom": "19.0.0",
+        "windmill-client": "^1"
+    },
+    "devDependencies": {
+        "@types/react-dom": "^19.0.0",
+        "@types/react": "^19.0.0"
+    }
+}`;
+
+const INLINE_SCRIPT_A = `// import * as wmill from "windmill-client"
+
+export async function main(x: string) {
+  return x
+}
+`;
+
+const INLINE_SCRIPT_A_LOCK = `{
+  "dependencies": {}
+}
+//bun.lock
+<empty>`;
+
+// raw_app.yaml metadata file
+const RAW_APP_YAML = `summary: Test Raw App
+policy:
+  execution_mode: publisher
+  triggerables: {}
+  triggerables_v2: {}
+`;
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await stat(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readFileContent(filePath: string): Promise<string> {
+  return await readFile(filePath, "utf-8");
+}
+
+/**
+ * Create a raw app directory structure on disk
+ * Uses .raw_app folder suffix with raw_app.yaml metadata
+ */
+async function createRawAppOnDisk(appDir: string, includeBackend: boolean = false): Promise<void> {
+  await mkdir(appDir, { recursive: true });
+  await mkdir(path.join(appDir, "inline_scripts"), { recursive: true });
+
+  // Create raw_app.yaml metadata file
+  await writeFile(path.join(appDir, "raw_app.yaml"), RAW_APP_YAML, "utf-8");
+
+  // Create app source files
+  await writeFile(path.join(appDir, "App.tsx"), APP_TSX, "utf-8");
+  await writeFile(path.join(appDir, "index.css"), INDEX_CSS, "utf-8");
+  await writeFile(path.join(appDir, "index.tsx"), INDEX_TSX, "utf-8");
+  await writeFile(path.join(appDir, "package.json"), PACKAGE_JSON, "utf-8");
+
+  // Create inline script in inline_scripts folder
+  await writeFile(
+    path.join(appDir, "inline_scripts", "a.inline_script.ts"),
+    INLINE_SCRIPT_A,
+    "utf-8"
+  );
+  await writeFile(
+    path.join(appDir, "inline_scripts", "a.inline_script.lock"),
+    INLINE_SCRIPT_A_LOCK,
+    "utf-8"
+  );
+
+  // Optionally create backend runnable (type: inline)
+  if (includeBackend) {
+    await mkdir(path.join(appDir, "backend"), { recursive: true });
+    await writeFile(path.join(appDir, "backend", "query.yaml"), "type: inline\n", "utf-8");
+    await writeFile(path.join(appDir, "backend", "query.ts"), `export async function main(x: number): Promise<string> {
+  return \`Result: \${x}\`;
+}
+`, "utf-8");
+  }
+}
+
+test("Raw App: full sync workflow - push, pull, modify, push, clear, pull", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      // Set up workspace
+      const testWorkspace = {
+        remote: backend.baseUrl,
+        workspaceId: backend.workspace,
+        name: "raw_app_test",
+        token: backend.token
+      };
+      await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+
+      // Create wmill.yaml
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - "**"
+excludes: []`, "utf-8");
+
+      // Create folder structure
+      const appDir = path.join(tempDir, "f", "test", "my_raw_app.raw_app");
+      await mkdir(path.join(tempDir, "f", "test"), { recursive: true });
+      await createRawAppOnDisk(appDir, true);  // Include backend for metadata test
+
+      // =========================================================================
+      // STEP 1: Initial push - create raw app on backend
+      // =========================================================================
+      const pushResult1 = await backend.runCLICommand([
+        'sync', 'push',
+        '--yes'
+      ], tempDir, "raw_app_test");
+
+      expect(pushResult1.code).toEqual(0);
+
+      // =========================================================================
+      // STEP 2: Clear disk and pull - verify raw app is pulled correctly
+      // =========================================================================
+      await rm(appDir, { recursive: true });
+      expect(!(await fileExists(appDir))).toBeTruthy();
+
+      const pullResult1 = await backend.runCLICommand([
+        'sync', 'pull',
+        '--yes'
+      ], tempDir, "raw_app_test");
+
+      expect(pullResult1.code).toEqual(0);
+
+      // Verify raw app directory structure was created
+      expect(await fileExists(appDir)).toBeTruthy();
+
+      // Verify files were pulled
+      const appTsxPath = path.join(appDir, "App.tsx");
+      const indexCssPath = path.join(appDir, "index.css");
+      const indexTsxPath = path.join(appDir, "index.tsx");
+      const packageJsonPath = path.join(appDir, "package.json");
+      const inlineScriptPath = path.join(appDir, "inline_scripts", "a.inline_script.ts");
+
+      expect(await fileExists(appTsxPath)).toBeTruthy();
+      expect(await fileExists(indexCssPath)).toBeTruthy();
+      expect(await fileExists(indexTsxPath)).toBeTruthy();
+      expect(await fileExists(packageJsonPath)).toBeTruthy();
+      expect(await fileExists(inlineScriptPath)).toBeTruthy();
+
+      // Verify file contents
+      const appTsxContent = await readFileContent(appTsxPath);
+      expect(appTsxContent).toContain("hello world");
+      expect(appTsxContent).toContain("backend.a");
+
+      const indexCssContent = await readFileContent(indexCssPath);
+      expect(indexCssContent).toContain(".myclass");
+
+      const inlineScriptContent = await readFileContent(inlineScriptPath);
+      expect(inlineScriptContent).toContain("export async function main");
+
+      // =========================================================================
+      // STEP 3: Modify files locally
+      // =========================================================================
+
+      // Modify App.tsx - change the heading
+      const modifiedAppTsx = appTsxContent.replace("hello world", "hello modified world");
+      await writeFile(appTsxPath, modifiedAppTsx, "utf-8");
+
+      // Modify index.css - change the border color
+      const modifiedIndexCss = indexCssContent.replace("gray", "blue");
+      await writeFile(indexCssPath, modifiedIndexCss, "utf-8");
+
+      // Modify inline script - change the return value
+      const modifiedInlineScript = inlineScriptContent.replace("return x", "return `modified: ${x}`");
+      await writeFile(inlineScriptPath, modifiedInlineScript, "utf-8");
+
+      // =========================================================================
+      // STEP 4: Push changes
+      // =========================================================================
+      const pushResult2 = await backend.runCLICommand([
+        'sync', 'push',
+        '--yes'
+      ], tempDir, "raw_app_test");
+
+      expect(pushResult2.code).toEqual(0);
+
+      // =========================================================================
+      // STEP 5: Clear disk (delete the app directory)
+      // =========================================================================
+      await rm(appDir, { recursive: true });
+      expect(!(await fileExists(appDir))).toBeTruthy();
+
+      // =========================================================================
+      // STEP 6: Pull again and verify modifications persisted
+      // =========================================================================
+      const pullResult2 = await backend.runCLICommand([
+        'sync', 'pull',
+        '--yes'
+      ], tempDir, "raw_app_test");
+
+      expect(pullResult2.code).toEqual(0);
+
+      // Verify app directory exists again
+      expect(await fileExists(appDir)).toBeTruthy();
+
+      // Verify all files were pulled again
+      expect(await fileExists(appTsxPath)).toBeTruthy();
+      expect(await fileExists(indexCssPath)).toBeTruthy();
+      expect(await fileExists(indexTsxPath)).toBeTruthy();
+      expect(await fileExists(packageJsonPath)).toBeTruthy();
+      expect(await fileExists(inlineScriptPath)).toBeTruthy();
+
+      // Verify modifications were persisted
+      const pulledAppTsx = await readFileContent(appTsxPath);
+      expect(pulledAppTsx).toContain("hello modified world");
+
+      const pulledIndexCss = await readFileContent(indexCssPath);
+      expect(pulledIndexCss).toContain("blue");
+
+      const pulledInlineScript = await readFileContent(inlineScriptPath);
+      expect(pulledInlineScript).toContain("modified:");
+
+      // =========================================================================
+      // STEP 7: Test that script generate-metadata does NOT process backend runnables
+      // =========================================================================
+
+      // Create a standalone script (should be processed by script generate-metadata)
+      await writeFile(path.join(tempDir, "f", "test", "standalone.ts"), `export async function main(): Promise<string> {
+  return "hello";
+}
+`, "utf-8");
+
+      // Run script generate-metadata
+      const metaResult1 = await backend.runCLICommand(
+        ['script', 'generate-metadata', '--yes'],
+        tempDir, "raw_app_test"
+      );
+      expect(metaResult1.code).toEqual(0);
+
+      // Run generate-metadata --skip-flows --skip-apps
+      const metaResult2 = await backend.runCLICommand(
+        ['generate-metadata', '--skip-flows', '--skip-apps', '--yes'],
+        tempDir, "raw_app_test"
+      );
+      expect(metaResult2.code).toEqual(0);
+
+      // Backend runnables should NOT have .script.yaml files
+      const backendDir = path.join(appDir, "backend");
+      expect(await fileExists(path.join(backendDir, "query.yaml"))).toBeTruthy();
+      expect(await fileExists(path.join(backendDir, "query.ts"))).toBeTruthy();
+      expect(await fileExists(path.join(backendDir, "query.script.yaml"))).toBeFalsy();
+      expect(await fileExists(path.join(backendDir, "query.script.lock"))).toBeFalsy();
+
+      // Bug: raw app backend files get misprocessed and create script files at wrong location
+      // The path f/test/my_raw_app.raw_app/backend/query.ts gets truncated at first "."
+      // becoming f/test/my_raw_app.script.yaml (stripping .raw_app/backend/query.ts)
+      expect(await fileExists(path.join(tempDir, "f", "test", "my_raw_app.script.yaml"))).toBeFalsy();
+      expect(await fileExists(path.join(tempDir, "f", "test", "my_raw_app.script.lock"))).toBeFalsy();
+
+      // Standalone script SHOULD have metadata
+      expect(await fileExists(path.join(tempDir, "f", "test", "standalone.script.yaml"))).toBeTruthy();
+      expect(await fileExists(path.join(tempDir, "f", "test", "standalone.script.lock"))).toBeTruthy();
+    });
+});
+
+test("Raw App: add new file and push", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      // Set up workspace
+      const testWorkspace = {
+        remote: backend.baseUrl,
+        workspaceId: backend.workspace,
+        name: "raw_app_new_file_test",
+        token: backend.token
+      };
+      await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+
+      // Create wmill.yaml
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - "**"
+excludes: []`, "utf-8");
+
+      // Create initial raw app
+      const appDir = path.join(tempDir, "f", "test", "new_file_app.raw_app");
+      await mkdir(path.join(tempDir, "f", "test"), { recursive: true });
+      await createRawAppOnDisk(appDir);
+
+      // Initial push
+      const pushResult1 = await backend.runCLICommand([
+        'sync', 'push',
+        '--yes'
+      ], tempDir, "raw_app_new_file_test");
+
+      expect(pushResult1.code).toEqual(0);
+
+      // Add a new file
+      const newFilePath = path.join(appDir, "utils.ts");
+      await writeFile(newFilePath, `export function formatValue(val: string): string {
+  return \`Formatted: \${val}\`;
+}
+`, "utf-8");
+
+      // Push changes
+      const pushResult2 = await backend.runCLICommand([
+        'sync', 'push',
+        '--yes'
+      ], tempDir, "raw_app_new_file_test");
+
+      expect(pushResult2.code).toEqual(0);
+
+      // Clear and pull again
+      await rm(appDir, { recursive: true });
+
+      const pullResult = await backend.runCLICommand([
+        'sync', 'pull',
+        '--yes'
+      ], tempDir, "raw_app_new_file_test");
+
+      expect(pullResult.code).toEqual(0);
+
+      // Verify new file was persisted
+      expect(await fileExists(newFilePath)).toBeTruthy();
+      const newFileContent = await readFileContent(newFilePath);
+      expect(newFileContent).toContain("formatValue");
+    });
+});
+
+test("Raw App: frontend .ts file sorting first does not short-circuit the app push", async () => {
+    // Regression: in the push apply loop, raw-app changes are collapsed to a
+    // single representative change (changes[0]). Because every file inside a
+    // raw_app folder shares the same sort order, changes[0] is just the
+    // alphabetically-first changed path. When that path was a frontend file
+    // with a script extension (e.g. "Api.ts", which sorts before "App.tsx"),
+    // handleFile() mistook it for a standalone script: it pushed a bogus script
+    // at the truncated path (f/test/<app>) AND returned true, so the loop
+    // `continue`d and pushRawApp() never ran. Result: the whole raw app silently
+    // failed to deploy while the CLI still reported success.
+    await withTestBackend(async (backend, tempDir) => {
+      const testWorkspace = {
+        remote: backend.baseUrl,
+        workspaceId: backend.workspace,
+        name: "raw_app_ts_first_test",
+        token: backend.token
+      };
+      await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - "**"
+excludes: []`, "utf-8");
+
+      const appDir = path.join(tempDir, "f", "test", "ts_first_app.raw_app");
+      await mkdir(path.join(tempDir, "f", "test"), { recursive: true });
+      await createRawAppOnDisk(appDir);
+
+      // A frontend .ts file whose name sorts before "App.tsx".
+      const apiTsPath = path.join(appDir, "Api.ts");
+      await writeFile(apiTsPath, "export const API = '/api/v1'\n", "utf-8");
+
+      // Initial push: create the raw app on the backend.
+      const pushResult1 = await backend.runCLICommand(
+        ['sync', 'push', '--yes'],
+        tempDir, "raw_app_ts_first_test"
+      );
+      expect(pushResult1.code).toEqual(0);
+
+      // Edit App.tsx (and the .ts file that sorts first) and push again.
+      const appTsxPath = path.join(appDir, "App.tsx");
+      const appTsxContent = await readFileContent(appTsxPath);
+      await writeFile(
+        appTsxPath,
+        appTsxContent.replace("hello world", "REGRESSION MARKER"),
+        "utf-8"
+      );
+      await writeFile(apiTsPath, "export const API = '/api/v2'\n", "utf-8");
+
+      const pushResult2 = await backend.runCLICommand(
+        ['sync', 'push', '--yes'],
+        tempDir, "raw_app_ts_first_test"
+      );
+      expect(pushResult2.code).toEqual(0);
+
+      // The App.tsx edit must have landed on the remote app's bundled files.
+      const appResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/apps/get/p/f/test/ts_first_app`
+      );
+      expect(appResp.status).toEqual(200);
+      const appJson = await appResp.json();
+      const files = appJson?.value?.files ?? {};
+      expect(files["/App.tsx"]).toContain("REGRESSION MARKER");
+      // The first-sorting .ts file is part of the app bundle, with fresh content.
+      expect(files["/Api.ts"]).toContain("/api/v2");
+
+      // And no bogus standalone script was created at the truncated path
+      // (f/test/ts_first_app.raw_app/Api.ts -> f/test/ts_first_app).
+      const scriptResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/scripts/get/p/f/test/ts_first_app`
+      );
+      expect(scriptResp.status).toEqual(404);
+    });
+});
+
+test("Raw App: delete file and push", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      // Set up workspace
+      const testWorkspace = {
+        remote: backend.baseUrl,
+        workspaceId: backend.workspace,
+        name: "raw_app_delete_file_test",
+        token: backend.token
+      };
+      await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+
+      // Create wmill.yaml
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - "**"
+excludes: []`, "utf-8");
+
+      // Create initial raw app
+      const appDir = path.join(tempDir, "f", "test", "delete_file_app.raw_app");
+      await mkdir(path.join(tempDir, "f", "test"), { recursive: true });
+      await createRawAppOnDisk(appDir);
+
+      // Initial push
+      const pushResult1 = await backend.runCLICommand([
+        'sync', 'push',
+        '--yes'
+      ], tempDir, "raw_app_delete_file_test");
+
+      expect(pushResult1.code).toEqual(0);
+
+      const indexCssPath = path.join(appDir, "index.css");
+      const appTsxPath = path.join(appDir, "App.tsx");
+      expect(await fileExists(indexCssPath)).toBeTruthy();
+
+      // First, update App.tsx to remove the CSS import (otherwise bundle will fail)
+      const appTsxContent = await readFileContent(appTsxPath);
+      const updatedAppTsx = appTsxContent.replace("import './index.css'\n", "");
+      await writeFile(appTsxPath, updatedAppTsx, "utf-8");
+
+      // Delete the CSS file
+      await rm(indexCssPath);
+      expect(!(await fileExists(indexCssPath))).toBeTruthy();
+
+      // Push changes
+      const pushResult2 = await backend.runCLICommand([
+        'sync', 'push',
+        '--yes'
+      ], tempDir, "raw_app_delete_file_test");
+
+      expect(pushResult2.code).toEqual(0);
+
+      // Clear and pull again
+      await rm(appDir, { recursive: true });
+
+      const pullResult = await backend.runCLICommand([
+        'sync', 'pull',
+        '--yes'
+      ], tempDir, "raw_app_delete_file_test");
+
+      expect(pullResult.code).toEqual(0);
+
+      // Verify the deleted file is NOT pulled (it was deleted from backend)
+      expect(!(await fileExists(indexCssPath))).toBeTruthy();
+
+      // But other files should still exist
+      expect(await fileExists(appTsxPath)).toBeTruthy();
+    });
+});
+
+test("Raw App: dry-run push shows expected changes", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      // Set up workspace
+      const testWorkspace = {
+        remote: backend.baseUrl,
+        workspaceId: backend.workspace,
+        name: "raw_app_dry_run_test",
+        token: backend.token
+      };
+      await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+
+      // Create wmill.yaml
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - "**"
+excludes: []`, "utf-8");
+
+      // Create raw app
+      const appDir = path.join(tempDir, "f", "test", "dry_run_app.raw_app");
+      await mkdir(path.join(tempDir, "f", "test"), { recursive: true });
+      await createRawAppOnDisk(appDir);
+
+      // Dry-run push
+      const dryRunResult = await backend.runCLICommand([
+        'sync', 'push',
+        '--dry-run',
+        '--json-output'
+      ], tempDir, "raw_app_dry_run_test");
+
+      expect(dryRunResult.code).toEqual(0);
+
+      // Parse JSON output (may be pretty-printed across multiple lines)
+      let jsonOutput = null;
+      try {
+        // Try parsing the entire stdout as JSON
+        jsonOutput = JSON.parse(dryRunResult.stdout.trim());
+      } catch {
+        // If that fails, try to find JSON object in the output
+        const jsonMatch = dryRunResult.stdout.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try {
+            jsonOutput = JSON.parse(jsonMatch[0]);
+          } catch {
+            // Ignore parse errors
+          }
+        }
+      }
+
+      expect(jsonOutput !== null).toBeTruthy();
+      expect(Array.isArray(jsonOutput.changes)).toBeTruthy();
+
+      // Should include raw app in changes
+      const changePaths = jsonOutput.changes.map((c: any) => c.path);
+      const hasRawApp = changePaths.some((p: string) => p.includes("dry_run_app"));
+      expect(hasRawApp).toBeTruthy();
+    });
+});
+
+test("Raw App: CamelCase backend runnableId round-trips without duplicates", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const testWorkspace = {
+        remote: backend.baseUrl,
+        workspaceId: backend.workspace,
+        name: "raw_app_camelcase_test",
+        token: backend.token
+      };
+      await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - "**"
+excludes: []`, "utf-8");
+
+      const appDir = path.join(tempDir, "f", "test", "camelcase_app.raw_app");
+      const backendDir = path.join(appDir, "backend");
+      await mkdir(path.join(tempDir, "f", "test"), { recursive: true });
+      await createRawAppOnDisk(appDir);
+
+      // Add a backend runnable whose id contains uppercase letters. The YAML
+      // metadata file is named `${runnableId}.yaml` and must stay in sync with
+      // the code file's casing — the bug fixed here desynced them.
+      await mkdir(backendDir, { recursive: true });
+      await writeFile(path.join(backendDir, "CamelCaseTSRunnable.yaml"), "type: inline\n", "utf-8");
+      await writeFile(
+        path.join(backendDir, "CamelCaseTSRunnable.ts"),
+        `export async function main(x: number): Promise<string> {\n  return \`Result: \${x}\`;\n}\n`,
+        "utf-8"
+      );
+
+      const pushResult1 = await backend.runCLICommand(
+        ["sync", "push", "--yes"],
+        tempDir, "raw_app_camelcase_test"
+      );
+      expect(pushResult1.code).toEqual(0);
+
+      await rm(appDir, { recursive: true });
+
+      const pullResult = await backend.runCLICommand(
+        ["sync", "pull", "--yes"],
+        tempDir, "raw_app_camelcase_test"
+      );
+      expect(pullResult.code).toEqual(0);
+
+      // YAML and code file must both come back with the original case so
+      // loadRunnablesFromBackend pairs them as one runnable, not two.
+      // Use readdir for exact-case comparison: Windows is case-insensitive at
+      // the filesystem level, so fileExists("camelcasetsrunnable.ts") would
+      // resolve to CamelCaseTSRunnable.ts and false-positive the orphan check.
+      const backendEntries = await readdir(backendDir);
+      expect(backendEntries).toContain("CamelCaseTSRunnable.yaml");
+      expect(backendEntries).toContain("CamelCaseTSRunnable.ts");
+      expect(backendEntries).not.toContain("camelcasetsrunnable.ts");
+      expect(backendEntries).not.toContain("camelcasetsrunnable.yaml");
+
+      const pulledContent = await readFileContent(path.join(backendDir, "CamelCaseTSRunnable.ts"));
+      expect(pulledContent).toContain("Result:");
+
+      // A second push must not surface a duplicate lowercase runnable: the
+      // dry-run change list should only mention the one app, no orphan code
+      // file getting registered as a separate inline runnable.
+      const dryRun = await backend.runCLICommand(
+        ["sync", "push", "--dry-run", "--json-output"],
+        tempDir, "raw_app_camelcase_test"
+      );
+      expect(dryRun.code).toEqual(0);
+
+      let jsonOutput: any = null;
+      try {
+        jsonOutput = JSON.parse(dryRun.stdout.trim());
+      } catch {
+        const jsonMatch = dryRun.stdout.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try { jsonOutput = JSON.parse(jsonMatch[0]); } catch { /* ignore */ }
+        }
+      }
+      expect(jsonOutput !== null).toBeTruthy();
+      const changes = (jsonOutput.changes ?? []) as Array<{ path: string }>;
+      // No change should reference a lowercased runnable filename.
+      const lowercased = changes.filter((c) => c.path.includes("camelcasetsrunnable"));
+      expect(lowercased).toEqual([]);
+    });
+});

@@ -1,0 +1,46 @@
+FROM debian:bookworm-slim
+
+# ── Minimal system deps ──────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl git openssh-client sudo xz-utils \
+    # PostgreSQL client (server provided by Nix profile)
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Nix (single-user, Determinate installer) ────────────────────────────────
+RUN curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | \
+    sh -s -- install linux --no-confirm --init none
+ENV PATH="/root/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"
+
+# ── Install default sandbox profile ─────────────────────────────────────────
+COPY flake.nix flake.lock /tmp/flake/
+RUN cd /tmp/flake && nix profile install .#sandbox \
+    && rm -rf /tmp/flake
+
+# ── Browser env (Puppeteer / Mermaid point to Nix Chromium) ─────────────────
+ENV PUPPETEER_SKIP_DOWNLOAD="true"
+RUN printf '{"args":["--no-sandbox","--disable-setuid-sandbox"],"executablePath":"%s"}\n' \
+    "$(readlink -f "$(which chromium)")" > /root/.puppeteerrc.json
+
+# ── Claude Code ──────────────────────────────────────────────────────────────
+RUN curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH="/root/.local/bin:$PATH"
+
+# ── npm globals (install to /usr/local so bins land on PATH) ─────────────────
+ENV NPM_CONFIG_PREFIX=/usr/local
+RUN npm i -g @openai/codex
+RUN PUPPETEER_SKIP_DOWNLOAD=true npm i -g @mermaid-js/mermaid-cli
+
+# ── Runtime env ──────────────────────────────────────────────────────────────
+ENV CARGO_HOME=/tmp/.cargo
+
+# ── Allow non-root UID (--user) to access tools installed in /root ───────────
+# Give UID 1000 a proper passwd entry, passwordless sudo, and full access to /root
+RUN chmod -R 777 /root \
+    && useradd -u 1000 -g 100 -d /root -s /bin/bash -M agent \
+    && echo "agent ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/agent \
+    && chmod 0440 /etc/sudoers.d/agent
+
+# ── Entrypoint ───────────────────────────────────────────────────────────────
+COPY sandbox-image/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh

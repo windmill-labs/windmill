@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
@@ -7,22 +7,32 @@
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'htmlcomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		initializing?: boolean | undefined
+		customCss?: ComponentCustomCSS<'htmlcomponent'> | undefined
+		render: boolean
+	}
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	let {
+		id,
+		componentInput,
+		initializing = $bindable(undefined),
+		customCss = undefined,
+		render
+	}: Props = $props()
 
-	const outputs = initOutput($worldStore, id, {
+	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')
+
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false
 	})
 
-	let result: string | undefined = undefined
+	let result: string | undefined = $state(undefined)
 
-	let css = initCss($app.css?.htmlcomponent, customCss)
+	let css = $state(initCss($app.css?.htmlcomponent, untrack(() => customCss)))
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -35,25 +45,32 @@
 	/>
 {/each}
 
-<div
-	on:pointerdown={(e) => {
-		e?.preventDefault()
-	}}
-	class="h-full w-full"
->
-	<RunnableWrapper
-		{outputs}
-		{render}
-		autoRefresh
-		{componentInput}
-		{id}
-		bind:initializing
-		bind:result
+{#if render}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		onpointerdown={(e) => {
+			if ($mode !== 'preview') {
+				e?.preventDefault()
+			}
+		}}
+		class="h-full w-full"
 	>
-		<div class="w-full h-full overflow-auto">
-			{#key result}
-				{@html result}
-			{/key}
-		</div>
-	</RunnableWrapper>
-</div>
+		<RunnableWrapper
+			{outputs}
+			{render}
+			autoRefresh
+			{componentInput}
+			{id}
+			bind:initializing
+			bind:result
+		>
+			<div class="w-full h-full overflow-auto">
+				{#key result}
+					{@html result}
+				{/key}
+			</div>
+		</RunnableWrapper>
+	</div>
+{:else}
+	<RunnableWrapper {outputs} render={false} autoRefresh {componentInput} {id} />
+{/if}

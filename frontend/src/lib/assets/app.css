@@ -3,11 +3,37 @@
 @tailwind components;
 @tailwind utilities;
 
+@media (min-width: 1760px) {
+	:root {
+		font-size: 18px;
+	}
+}
+
 @layer base {
-	*,
-	::before,
-	::after {
-		@apply dark:border-gray-600;
+	/* Light mode: default border color */
+	.border,
+	.border-t,
+	.border-r,
+	.border-b,
+	.border-l,
+	.border-x,
+	.border-y,
+	.divide-x > :not([hidden]) ~ :not([hidden]),
+	.divide-y > :not([hidden]) ~ :not([hidden]) {
+		border-color: rgb(var(--color-border-light));
+	}
+
+	/* Dark mode: change border color */
+	.dark .border,
+	.dark .border-t,
+	.dark .border-r,
+	.dark .border-b,
+	.dark .border-l,
+	.dark .border-x,
+	.dark .border-y,
+	.dark .divide-x > :not([hidden]) ~ :not([hidden]),
+	.dark .divide-y > :not([hidden]) ~ :not([hidden]) {
+		border-color: rgb(var(--color-border-light));
 	}
 
 	/* Chrome, Edge, and Safari */
@@ -46,6 +72,29 @@
 		padding-left: 3rem;
 	}
 
+	/* The '- ' list markers, horizontal rules and blockquote bars otherwise
+	   fall through to Tailwind Typography's default bullet/border colors, which
+	   are nearly invisible on dark backgrounds (e.g. the AI chat). Use
+	   theme-aware tokens so they stay readable in both light and dark mode. */
+	.prose-xs ul > li::marker,
+	.prose ul > li::marker {
+		color: rgb(var(--color-text-secondary));
+	}
+
+	.prose-xs hr,
+	.prose hr {
+		border-top-color: rgb(var(--color-border-normal));
+	}
+
+	.prose-xs blockquote,
+	.prose blockquote {
+		border-left-color: rgb(var(--color-border-normal));
+	}
+
+	.prose a {
+		@apply text-accent no-underline;
+	}
+
 	.autocomplete-list-item-create {
 		@apply !text-primary-inverse !bg-surface-inverse;
 	}
@@ -80,6 +129,22 @@
 			scrollbar-width: none; /* Firefox */
 		}
 	}
+}
+
+.driver-popover-title {
+	@apply leading-6 !text-primary !text-base;
+}
+
+.driver-popover-description {
+	@apply !text-secondary !text-sm;
+}
+
+.driver-popover {
+	@apply p-6 !bg-surface !max-w-2xl;
+}
+
+.panel-item {
+	@apply border dark:border-gray-600 border-gray-200 flex gap-1 truncate font-normal justify-between w-full items-center py-1 px-2 rounded-sm duration-200;
 }
 
 .splitpanes--vertical > .splitpanes__pane {
@@ -164,4 +229,26 @@ svelte-virtual-list-contents > * + * {
 		rgba(0, 0, 128, 0.6) 10px,
 		rgba(0, 0, 192, 0.6) 20px
 	);
+}
+
+/* Prevent clock icon in input[type="time"] making the input taller */
+
+/* Chrome, Safari, Edge, Opera */
+input[type='time']::-webkit-calendar-picker-indicator {
+	margin: 0;
+	padding: 0;
+}
+
+/* Settings search highlight (used by both the drawer and the setup page) */
+[data-setting-key] {
+	transition: outline 0.8s ease;
+	outline: 2px solid transparent;
+	outline-offset: -2px;
+}
+[data-setting-key].setting-highlight {
+	outline: 2px solid rgb(var(--color-border-accent, 59 130 246));
+}
+
+.svelte-flow__edges {
+	z-index: -10;
 }

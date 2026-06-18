@@ -765,5 +765,18 @@ return {
 }`,
 		python3: `def main():
     return [{"foo": 1}, {"foo": 2}, {"foo": 3}]`
+	},
+	chatcomponent: {
+		deno: `export async function main(user_message: string) {
+    // Process the user message here
+    // You can call APIs, query databases, use AI models, etc.
+
+    return "Hi, how are you?";
+}`,
+		python3: `def main(user_message: str):
+    # Process the user message here
+    # You can call APIs, query databases, use AI models, etc.
+
+    return "Hi, how are you?"`
 	}
 } as const

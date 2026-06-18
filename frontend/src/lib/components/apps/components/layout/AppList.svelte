@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -15,27 +15,42 @@
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'listcomponent'> | undefined = undefined
-	export let render: boolean
-	export let initializing: boolean | undefined
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'listcomponent'> | undefined
+		render: boolean
+		initializing: boolean | undefined
+	}
+
+	let {
+		id,
+		componentInput,
+		configuration,
+		customCss = undefined,
+		render,
+		initializing = $bindable()
+	}: Props = $props()
 
 	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, allIdsInPath, mode } =
 		getContext<AppViewerContext>('AppViewerContext')
-	let page = 0
+	let page = $state(0)
 
-	const outputs = initOutput($worldStore, id, {
+	let everRender = $state(untrack(() => render))
+	$effect.pre(() => {
+		render && !everRender && (everRender = true)
+	})
+
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		result: undefined,
 		loading: false,
 		inputs: {},
 		page: 0
 	})
 
-	let resolvedConfig = initConfig(
-		components['listcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['listcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	function onFocus() {
@@ -45,20 +60,22 @@
 		}
 	}
 
-	let css = initCss($app.css?.listcomponent, customCss)
-	let result: any[] | undefined = undefined
+	let css = $state(initCss($app.css?.listcomponent, untrack(() => customCss)))
+	let result: any[] | undefined = $state(undefined)
 
-	$: isCard = resolvedConfig.width?.selected == 'card'
+	let isCard = $derived(resolvedConfig.width?.selected == 'card')
 
-	let inputs = {}
-	let loading: boolean = false
-	let isPreviousLoading = false
-	let isNextLoading = false
+	let inputs = $state({})
+	let loading: boolean = $state(false)
+	let isPreviousLoading = $state(false)
+	let isNextLoading = $state(false)
 
-	$: if (!loading) {
-		isPreviousLoading = false
-		isNextLoading = false
-	}
+	$effect.pre(() => {
+		if (!loading) {
+			isPreviousLoading = false
+			isNextLoading = false
+		}
+	})
 
 	function getPagination(
 		configuration: {
@@ -72,8 +89,8 @@
 		const l = initialData ? initialData.length : 0
 		if (mode === 'auto') {
 			const pageSize: number = configuration.auto.pageSize ?? 0
-			const shouldDisplayPagination = pageSize < l ?? false
-			const total = Math.ceil(l / pageSize ?? 0)
+			const shouldDisplayPagination = (pageSize ?? 0) < l
+			const total = Math.ceil(l / (pageSize ?? 0))
 
 			return {
 				shouldDisplayPagination,
@@ -96,11 +113,13 @@
 		}
 	}
 
-	$: pagination = getPagination(
-		resolvedConfig.pagination?.configuration,
-		resolvedConfig.pagination?.selected,
-		result,
-		page
+	let pagination = $derived(
+		getPagination(
+			resolvedConfig.pagination?.configuration,
+			resolvedConfig.pagination?.selected,
+			result,
+			page
+		)
 	)
 </script>
 
@@ -125,8 +144,12 @@
 
 <InitializeComponent {id} />
 
+{#snippet nonRenderedPlaceholder()}
+	<ListWrapper disabled value={undefined} index={0}>
+		<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
+	</ListWrapper>
+{/snippet}
 <RunnableWrapper
-	hasChildrens
 	{render}
 	{outputs}
 	autoRefresh
@@ -135,22 +158,23 @@
 	bind:initializing
 	bind:result
 	bind:loading
+	{nonRenderedPlaceholder}
 >
-	<div
-		class={twMerge('w-full h-full', css?.container?.class, 'wm-list')}
-		style={css?.container?.style}
-	>
+	{#if everRender}
 		<div
-			class="w-full h-full shrink flex {$allIdsInPath.includes(id) && $mode == 'dnd'
-				? 'overflow-visible'
-				: 'overflow-auto'} {isCard
-				? 'gap-2 flex-wrap'
-				: resolvedConfig?.displayBorders
-				? 'divide-y flex-col'
-				: 'flex-col'}"
+			class={twMerge('w-full h-full', css?.container?.class, 'wm-list')}
+			style={css?.container?.style}
 		>
-			{#if $app.subgrids?.[`${id}-0`]}
-				{#if Array.isArray(result) && result.length > 0}
+			<div
+				class="w-full h-full shrink flex {$allIdsInPath.includes(id) && $mode == 'dnd'
+					? 'overflow-visible'
+					: 'overflow-auto'} {isCard
+					? 'gap-2 flex-wrap'
+					: resolvedConfig?.displayBorders
+						? 'divide-y flex-col'
+						: 'flex-col'}"
+			>
+				{#if $app.subgrids?.[`${id}-0`] && Array.isArray(result) && result.length > 0}
 					{#each result ?? [] as value, index (index)}
 						{@const inRange = index <= pagination.maxIndex && index >= pagination.indexOffset}
 						<div
@@ -159,16 +183,16 @@
 										isCard
 											? `min-width: ${resolvedConfig.width?.configuration?.card?.minWidthPx}px; `
 											: ''
-								  } max-height: ${resolvedConfig.heightPx}px;`
+									} max-height: ${resolvedConfig.heightPx}px;`
 								: ''}
 							class={inRange
 								? `${
 										$allIdsInPath.includes(id)
 											? 'overflow-visible'
 											: resolvedConfig.heightPx
-											? 'overflow-auto'
-											: ''
-								  } ${!isCard ? 'w-full' : resolvedConfig?.displayBorders ? 'border' : ''}`
+												? 'overflow-auto'
+												: ''
+									} ${!isCard ? 'w-full' : resolvedConfig?.displayBorders ? 'border' : ''}`
 								: 'h-0 float overflow-hidden invisible absolute'}
 						>
 							<ListWrapper
@@ -201,7 +225,7 @@
 									{id}
 									subGridId={`${id}-0`}
 									containerHeight={resolvedConfig.heightPx}
-									on:focus={() => {
+									onFocus={() => {
 										if (!$connectingInput.opened) {
 											$selectedComponent = [id]
 										}
@@ -212,60 +236,60 @@
 						</div>
 					{/each}
 				{:else}
-					<ListWrapper disabled value={undefined} index={0}>
-						<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
-					</ListWrapper>
+					{@render nonRenderedPlaceholder?.()}
 					{#if !Array.isArray(result)}
-						<div class="text-center text-tertiary">Input data is not an array</div>
+						<div class="text-center text-primary">Input data is not an array</div>
 					{/if}
 				{/if}
+			</div>
+			{#if pagination.shouldDisplayPagination}
+				<div
+					class="bg-surface-secondary z-20 h-8 flex flex-row gap-1 p-1 items-center wm-list-pagination absolute bottom-0 w-full"
+				>
+					<Button
+						size="xs2"
+						variant="default"
+						btnClasses="flex flex-row gap-1 items-center wm-list-pagination-buttons"
+						on:click={() => {
+							isPreviousLoading = true
+							page = page - 1
+							outputs?.page.set(page, true)
+						}}
+						disabled={page === 0}
+					>
+						{#if isPreviousLoading && loading}
+							<Loader2 size={14} class="animate-spin" />
+						{:else}
+							<ChevronLeft size={14} />
+						{/if}
+						Previous
+					</Button>
+					<Button
+						size="xs2"
+						variant="default"
+						btnClasses="flex flex-row gap-1 items-center wm-list-pagination-buttons"
+						on:click={() => {
+							isNextLoading = true
+							page = page + 1
+							outputs?.page.set(page, true)
+						}}
+						disabled={pagination.disableNext && pagination.total > 0}
+					>
+						Next
+
+						{#if isNextLoading && loading}
+							<Loader2 size={14} class="animate-spin" />
+						{:else}
+							<ChevronRight size={14} />
+						{/if}
+					</Button>
+					<div class="text-xs"
+						>{page + 1} {pagination.total > 0 ? `of ${pagination.total}` : ''}</div
+					>
+				</div>
 			{/if}
 		</div>
-		{#if pagination.shouldDisplayPagination}
-			<div
-				class="bg-surface-secondary z-20 h-8 flex flex-row gap-1 p-1 items-center wm-list-pagination absolute bottom-0 w-full"
-			>
-				<Button
-					size="xs2"
-					variant="border"
-					color="light"
-					btnClasses="flex flex-row gap-1 items-center wm-list-pagination-buttons"
-					on:click={() => {
-						isPreviousLoading = true
-						page = page - 1
-						outputs?.page.set(page, true)
-					}}
-					disabled={page === 0}
-				>
-					{#if isPreviousLoading && loading}
-						<Loader2 size={14} class="animate-spin" />
-					{:else}
-						<ChevronLeft size={14} />
-					{/if}
-					Previous
-				</Button>
-				<Button
-					size="xs2"
-					variant="border"
-					color="light"
-					btnClasses="flex flex-row gap-1 items-center wm-list-pagination-buttons"
-					on:click={() => {
-						isNextLoading = true
-						page = page + 1
-						outputs?.page.set(page, true)
-					}}
-					disabled={pagination.disableNext && pagination.total > 0}
-				>
-					Next
-
-					{#if isNextLoading && loading}
-						<Loader2 size={14} class="animate-spin" />
-					{:else}
-						<ChevronRight size={14} />
-					{/if}
-				</Button>
-				<div class="text-xs">{page + 1} {pagination.total > 0 ? `of ${pagination.total}` : ''}</div>
-			</div>
-		{/if}
-	</div>
+	{:else if $app.subgrids}
+		{@render nonRenderedPlaceholder?.()}
+	{/if}
 </RunnableWrapper>

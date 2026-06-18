@@ -1,32 +1,123 @@
 <script lang="ts">
-	import { classNames } from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
-	import { Code2, LayoutDashboard } from 'lucide-svelte'
+	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
+	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
+	import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
+	import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
+	import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
+	import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
+	import {
+		Boxes,
+		Calendar,
+		Code2,
+		Database,
+		DollarSign,
+		Folder,
+		LayoutDashboard,
+		Mail,
+		Route,
+		Unplug
+	} from 'lucide-svelte'
 
-	export let kind: 'script' | 'flow' | 'app' | 'raw_app'
-	export let href: string = '#'
+	interface Props {
+		kind:
+			| 'script'
+			| 'flow'
+			| 'app'
+			| 'raw_app'
+			| 'resource'
+			| 'variable'
+			| 'resource_type'
+			| 'folder'
+			| 'schedule'
+			| 'trigger'
+			| 'routes'
+			| 'schedules'
+			| 'websockets'
+			| 'postgres'
+			| 'kafka'
+			| 'nats'
+			| 'mqtt'
+			| 'sqs'
+			| 'gcp'
+			| 'emails'
+			| 'http_trigger'
+			| 'websocket_trigger'
+			| 'kafka_trigger'
+			| 'nats_trigger'
+			| 'postgres_trigger'
+			| 'mqtt_trigger'
+			| 'sqs_trigger'
+			| 'gcp_trigger'
+			| 'azure_trigger'
+			| 'email_trigger'
+		/** For 'trigger' kind, specifies the specific trigger type (routes, schedules, etc.) */
+		triggerKind?: string | undefined
+		size?: number
+	}
 
-	const color = {
-		script: 'bg-blue-50 border-blue-200 dark:bg-blue-800/20 dark:border-blue-500/70',
-		flow: 'bg-[#f0fdfa] border-[#99f6e4] dark:bg-teal-800/20 dark:border-teal-600/70',
-		app: 'bg-[#fff7ed] border-orange-300 dark:bg-orange-800/20 dark:border-orange-400/70',
-		raw_app: 'bg-[#fff7ed] border-orange-300 dark:bg-orange-800/20 dark:border-orange-400/70'
-	}[kind]
+	let { kind, triggerKind = undefined, size = 16 }: Props = $props()
 
-	const iconColor = {
-		script: '#60A5FA',
-		flow: '#14b8a6',
-		app: '#fb923c',
-		raw_app: '#fb923c'
-	}[kind]
+	// Map per-kind backend names (e.g. `kafka_trigger`) to the legacy short
+	// names the icon switch already handles, so we don't have to duplicate cases.
+	const PER_KIND_TO_SHORT: Record<string, string> = {
+		http_trigger: 'routes',
+		websocket_trigger: 'websockets',
+		kafka_trigger: 'kafka',
+		nats_trigger: 'nats',
+		postgres_trigger: 'postgres',
+		mqtt_trigger: 'mqtt',
+		sqs_trigger: 'sqs',
+		gcp_trigger: 'gcp',
+		azure_trigger: 'azure',
+		email_trigger: 'emails'
+	}
+
+	let effectiveKind = $derived(
+		kind === 'trigger' && triggerKind ? triggerKind : (PER_KIND_TO_SHORT[kind] ?? kind)
+	)
 </script>
 
-<a {href} class={classNames('rounded-md p-1 flex justify-center items-center border', color)}>
-	{#if kind === 'flow'}
-		<BarsStaggered size={20} class=" text-[#14b8a6] p-0.5" />
-	{:else if kind === 'app' || kind === 'raw_app'}
-		<LayoutDashboard size={20} color={iconColor} />
-	{:else if kind === 'script'}
-		<Code2 size={20} color={iconColor} />
+<div class="flex justify-center items-center" title={effectiveKind}>
+	{#if effectiveKind === 'flow'}
+		<BarsStaggered {size} class="text-teal-500" />
+	{:else if effectiveKind === 'app' || effectiveKind === 'raw_app'}
+		<LayoutDashboard {size} class="text-orange-500" />
+	{:else if effectiveKind === 'script'}
+		<Code2 {size} class="text-blue-500" />
+	{:else if effectiveKind === 'variable'}
+		<DollarSign {size} class="text-gray-400" />
+	{:else if effectiveKind === 'resource'}
+		<Boxes {size} class="text-gray-400" />
+	{:else if effectiveKind === 'resource_type'}
+		<div style="width: {size}px; height: {size}px;" class="bg-gray-100 rounded-full"></div>
+	{:else if effectiveKind === 'folder'}
+		<Folder {size} class="text-gray-400" />
+	{:else if effectiveKind === 'schedule' || effectiveKind === 'schedules'}
+		<Calendar {size} class="text-gray-400" />
+	{:else if effectiveKind === 'routes'}
+		<Route {size} class="text-gray-400" />
+	{:else if effectiveKind === 'websockets'}
+		<Unplug {size} class="text-gray-400" />
+	{:else if effectiveKind === 'postgres'}
+		<Database {size} class="text-gray-400" />
+	{:else if effectiveKind === 'kafka'}
+		<KafkaIcon {size} class="text-gray-400" />
+	{:else if effectiveKind === 'nats'}
+		<NatsIcon {size} class="text-gray-400" />
+	{:else if effectiveKind === 'mqtt'}
+		<MqttIcon {size} class="text-gray-400" />
+	{:else if effectiveKind === 'sqs'}
+		<AwsIcon {size} class="text-gray-400" />
+	{:else if effectiveKind === 'gcp'}
+		<GoogleCloudIcon {size} />
+	{:else if effectiveKind === 'azure'}
+		<AzureIcon {size} />
+	{:else if effectiveKind === 'emails'}
+		<Mail {size} class="text-gray-400" />
+	{:else if effectiveKind === 'trigger'}
+		<Calendar {size} class="text-gray-400" />
+	{:else}
+		<div style="width: {size}px;"></div>
 	{/if}
-</a>
+</div>

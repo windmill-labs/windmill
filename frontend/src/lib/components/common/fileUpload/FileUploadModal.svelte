@@ -6,12 +6,16 @@
 	import { X } from 'lucide-svelte'
 	import FileUpload from './FileUpload.svelte'
 
-	export let title: string
-	export let open: boolean = false
 
-	export let fileKey: string | undefined = undefined
+	interface Props {
+		title: string;
+		open?: boolean;
+		fileKey?: string | undefined;
+	}
 
-	let s3Folder: string = ''
+	let { title, open = false, fileKey = $bindable(undefined) }: Props = $props();
+
+	let s3Folder: string = $state('')
 	const dispatch = createEventDispatcher()
 
 	function fadeFast(node: HTMLElement) {
@@ -32,7 +36,7 @@
 {#if open}
 	<div
 		transition:fadeFast|local
-		class={'absolute top-0 bottom-0 left-0 right-0 z-[5000]'}
+		class={'fixed top-0 bottom-0 left-0 right-0 z-[5000]'}
 		role="dialog"
 	>
 		<div
@@ -40,7 +44,7 @@
 				'fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity',
 				open ? 'ease-out duration-300 opacity-100' : 'ease-in duration-200 opacity-0'
 			)}
-		/>
+		></div>
 
 		<div class="fixed inset-0 z-10 overflow-y-auto">
 			<div class="flex min-h-full items-center justify-center p-4">
@@ -54,7 +58,7 @@
 				>
 					<div class="flex flex-col gap-2">
 						<div class="flex justify-between">
-							<h3 class="text-lg font-medium text-primary">
+							<h3 class="text-lg font-semibold text-primary">
 								{title}
 							</h3>
 							<Button

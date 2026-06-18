@@ -1,22 +1,27 @@
 <script lang="ts">
-	import Section from './Section.svelte'
-	import { Button, Popup } from './common'
+	import { Button } from './common'
 	import { Clock } from 'lucide-svelte'
+	import Popover from './meltComponents/Popover.svelte'
+	interface Props {
+		children?: import('svelte').Snippet<[any]>
+	}
+
+	let { children }: Props = $props()
 </script>
 
-<Popup
+<Popover
 	floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-	containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-	let:close
+	closeButton
+	contentClasses="p-4"
 >
-	<svelte:fragment slot="button">
-		<Button color="dark" size="xs" nonCaptureEvent={true} startIcon={{ icon: Clock }}>
-			Use simplified builder
+	{#snippet trigger()}
+		<Button variant="accent" size="xs" nonCaptureEvent={true} startIcon={{ icon: Clock }}>
+			Cron builder
 		</Button>
-	</svelte:fragment>
-	<Section label="CRON Builder">
+	{/snippet}
+	{#snippet content({ close })}
 		<div class="flex flex-col w-72">
-			<slot {close} />
+			{@render children?.({ close })}
 		</div>
-	</Section>
-</Popup>
+	{/snippet}
+</Popover>

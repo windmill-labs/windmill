@@ -1,37 +1,85 @@
 <script lang="ts">
-	import { getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleWrapper from './FlowModuleWrapper.svelte'
 	import FlowSettings from './FlowSettings.svelte'
 	import FlowInput from './FlowInput.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
-	import FlowConstants from './FlowConstants.svelte'
-	import TriggersEditor from '../../triggers/TriggersEditor.svelte'
-	import type { FlowModule } from '$lib/gen'
-	import { initFlowStepWarnings } from '../utils'
-	import { dfs } from '../dfs'
+	import FlowEnvironmentVariables from './FlowEnvironmentVariables.svelte'
+	import type { FlowModule, Flow, Job } from '$lib/gen'
 	import FlowPreprocessorModule from './FlowPreprocessorModule.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
-	import { insertNewPreprocessorModule } from '../flowStateUtils'
+	import { insertNewPreprocessorModule } from '../flowStateUtils.svelte'
+	import TriggersEditor from '../../triggers/TriggersEditor.svelte'
+	import { handleSelectTriggerFromKind, type Trigger } from '$lib/components/triggers/utils'
+	import { computeMissingInputWarnings } from '../missingInputWarnings'
+	import FlowResult from './FlowResult.svelte'
+	import type { StateStore } from '$lib/utils'
+	import FlowSelectionPanel from './FlowSelectionPanel.svelte'
+	import {
+		resolveSelectedModuleIds,
+		locateModules,
+		areContiguousSiblings
+	} from '../multiSelectUtils'
 
-	export let noEditor = false
-	export let enableAi = false
-	export let newFlow = false
-	export let disabledFlowInputs = false
+	interface Props {
+		noEditor?: boolean
+		enableAi?: boolean
+		newFlow?: boolean
+		disabledFlowInputs?: boolean
+		savedFlow?:
+			| (Flow & {
+					draft?: Flow | undefined
+			  })
+			| undefined
+		onDeployTrigger?: (trigger: Trigger) => void
+		forceTestTab?: Record<string, boolean>
+		highlightArg?: Record<string, string | undefined>
+		onTestFlow?: (conversationId?: string) => Promise<string | undefined>
+		job?: Job
+		isOwner?: boolean
+		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
+		onOpenDetails?: () => void
+		previewOpen?: boolean
+		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
+	}
+
+	let {
+		noEditor = false,
+		enableAi = false,
+		newFlow = false,
+		disabledFlowInputs = false,
+		savedFlow = undefined,
+		onDeployTrigger = () => {},
+		forceTestTab,
+		highlightArg,
+		onTestFlow,
+		job,
+		isOwner,
+		suspendStatus,
+		onOpenDetails,
+		previewOpen = false,
+		flowModuleSchemaMap = undefined
+	}: Props = $props()
 
 	const {
-		selectedId,
+		selectionManager,
 		flowStore,
 		flowStateStore,
 		flowInputsStore,
 		pathStore,
-		initialPath,
+		initialPathStore,
+		fakeInitialPath,
 		previewArgs,
-		flowInputEditorState
+		flowInputEditorState,
+		stepsInputArgs
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
-	const { selectedTrigger, defaultValues, captureOn, showCaptureHint } =
+	const selectedId = $derived(selectionManager.getSelectedId())
+
+	const { showCaptureHint, triggersState, triggersCount } =
 		getContext<TriggerContext>('TriggerContext')
+
 	function checkDup(modules: FlowModule[]): string | undefined {
 		let seenModules: string[] = []
 		for (const m of modules) {
@@ -43,101 +91,109 @@
 		}
 	}
 
-	async function initWarnings() {
-		for (const module of $flowStore?.value?.modules) {
-			if (!module) {
-				continue
-			}
-
-			if (!$flowInputsStore) {
-				$flowInputsStore = {}
-			}
-
-			$flowInputsStore[module?.id] = {
-				flowStepWarnings: await initFlowStepWarnings(
-					module.value,
-					$flowStateStore?.[module?.id]?.schema,
-					dfs($flowStore.value.modules, (fm) => fm.id)
-				)
-			}
-		}
-	}
-
-	onMount(() => {
-		initWarnings()
+	$effect(() => {
+		computeMissingInputWarnings(flowStore, flowStateStore.val, flowInputsStore)
 	})
+
+	// Derived state for multi-select operations in the side panel
+	let resolvedModuleIds = $derived(
+		resolveSelectedModuleIds(selectionManager.selectedIds, flowStore.val.value.modules ?? [])
+	)
+	let canMoveSelected = $derived(
+		resolvedModuleIds.length > 0 &&
+			areContiguousSiblings(locateModules(resolvedModuleIds, flowStore.val.value.modules ?? []))
+	)
 </script>
 
-{#if $selectedId?.startsWith('settings')}
-	<FlowSettings {noEditor} />
-{:else if $selectedId === 'Input'}
+{#if selectionManager && selectionManager.selectedIds.length > 1}
+	<FlowSelectionPanel
+		{selectionManager}
+		{noEditor}
+		onDeleteSelected={() => flowModuleSchemaMap?.deleteMultiple(resolvedModuleIds)}
+		onDuplicateSelected={() => flowModuleSchemaMap?.duplicateMultiple(resolvedModuleIds)}
+		onMoveSelected={() => flowModuleSchemaMap?.moveMultiple(resolvedModuleIds)}
+		onCreateGroup={() => flowModuleSchemaMap?.createGroup(selectionManager.selectedIds)}
+		{canMoveSelected}
+		resolvedCount={resolvedModuleIds.length}
+	/>
+{:else if selectedId?.startsWith('settings')}
+	<FlowSettings {enableAi} {noEditor} />
+{:else if selectedId === 'Input'}
 	<FlowInput
 		{noEditor}
 		disabled={disabledFlowInputs}
 		on:openTriggers={(ev) => {
-			$selectedId = 'triggers'
-			selectedTrigger.set(ev.detail.kind)
-			defaultValues.set(ev.detail.config)
-			captureOn.set(true)
+			selectionManager.selectId('Trigger')
+			handleSelectTriggerFromKind(triggersState, triggersCount, savedFlow?.path, ev.detail.kind)
 			showCaptureHint.set(true)
 		}}
 		on:applyArgs
+		{onTestFlow}
+		{previewOpen}
+		{flowModuleSchemaMap}
 	/>
-{:else if $selectedId === 'Result'}
-	<p class="p-4 text-secondary">The result of the flow will be the result of the last node.</p>
-{:else if $selectedId === 'constants'}
-	<FlowConstants {noEditor} />
-{:else if $selectedId === 'failure'}
-	<FlowFailureModule {noEditor} />
-{:else if $selectedId === 'preprocessor'}
-	<FlowPreprocessorModule {noEditor} />
-{:else if $selectedId === 'triggers'}
+{:else if selectedId === 'Result'}
+	<FlowResult {noEditor} {job} {isOwner} {suspendStatus} {onOpenDetails} />
+{:else if selectedId === 'constants'}
+	<FlowEnvironmentVariables {noEditor} />
+{:else if selectedId === 'failure'}
+	<FlowFailureModule {noEditor} savedModule={savedFlow?.value.failure_module} />
+{:else if selectedId === 'preprocessor'}
+	<FlowPreprocessorModule {noEditor} savedModule={savedFlow?.value.preprocessor_module} />
+{:else if selectedId === 'Trigger'}
 	<TriggersEditor
 		on:applyArgs
-		on:addPreprocessor={async () => {
+		on:addPreprocessor={async (e) => {
 			await insertNewPreprocessorModule(flowStore, flowStateStore, {
 				language: 'bun'
 			})
-			$selectedId = 'preprocessor'
+			stepsInputArgs.setStepArgs('preprocessor', e.detail.args ?? {})
+			selectionManager.selectId('preprocessor')
 		}}
 		on:updateSchema={(e) => {
 			const { payloadData, redirect } = e.detail
 			if (payloadData) {
-				$previewArgs = JSON.parse(JSON.stringify(payloadData))
+				previewArgs.val = JSON.parse(JSON.stringify(payloadData))
 			}
 			if (redirect) {
-				$selectedId = 'Input'
+				selectionManager.selectId('Input')
 				$flowInputEditorState.selectedTab = 'captures'
 				$flowInputEditorState.payloadData = payloadData
 			}
 		}}
 		on:testWithArgs
-		args={$previewArgs}
 		currentPath={$pathStore}
-		{initialPath}
-		schema={$flowStore.schema}
+		initialPath={$initialPathStore}
+		{fakeInitialPath}
 		{noEditor}
 		newItem={newFlow}
 		isFlow={true}
-		hasPreprocessor={!!$flowStore.value.preprocessor_module}
+		hasPreprocessor={!!flowStore.val.value.preprocessor_module}
 		canHavePreprocessor={true}
+		args={previewArgs.val}
+		isDeployed={savedFlow && !savedFlow?.draft_only}
+		schema={flowStore.val.schema}
+		{onDeployTrigger}
 	/>
-{:else if $selectedId.startsWith('subflow:')}
+{:else if selectedId?.startsWith('subflow:')}
 	<div class="p-4"
 		>Selected step is witin an expanded subflow and is not directly editable in the flow editor</div
 	>
 {:else}
-	{@const dup = checkDup($flowStore.value.modules)}
+	{@const dup = checkDup(flowStore.val.value.modules)}
 	{#if dup}
 		<div class="text-red-600 text-xl p-2">There are duplicate modules in the flow at id: {dup}</div>
 	{:else}
-		{#key $selectedId}
-			{#each $flowStore.value.modules as flowModule, index (flowModule.id ?? index)}
+		{#key selectedId}
+			{#each flowStore.val.value.modules as flowModule, index (flowModule.id ?? index)}
 				<FlowModuleWrapper
 					{noEditor}
-					bind:flowModule
-					previousModule={$flowStore.value.modules[index - 1]}
+					bind:flowModule={flowStore.val.value.modules[index]}
+					previousModule={flowStore.val.value.modules[index - 1]}
 					{enableAi}
+					savedModule={savedFlow?.value.modules[index]}
+					{forceTestTab}
+					{highlightArg}
 				/>
 			{/each}
 		{/key}

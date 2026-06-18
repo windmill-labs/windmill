@@ -1,57 +1,66 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext, tick } from 'svelte'
+	import { createEventDispatcher, getContext, tick, untrack } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type { AppViewerContext } from '../../../types'
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { type ColumnDef, type DbType } from './utils'
+	import { type ColumnDef } from './utils'
 	import { sendUserToast } from '$lib/toast'
 	import { getInsertInput } from './queries/insert'
+	import type { DbInput } from '$lib/components/dbTypes'
 
-	export let id: string
+	interface Props {
+		id: string
+	}
+
+	let { id }: Props = $props()
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	let outputs = initOutput($worldStore, `${id}_insert`, {
+	let outputs = initOutput($worldStore, `${untrack(() => id)}_insert`, {
 		result: undefined,
 		loading: false,
 		jobId: undefined
 	})
 
-	let runnableComponent: RunnableComponent
-	let loading = false
-	let input: AppInput | undefined = undefined
+	let runnableComponent: RunnableComponent | undefined = $state()
+	let loading = $state(false)
+	let input: AppInput | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 
 	export async function insertRow(
-		resource: string,
+		dbInput: DbInput,
 		workspace: string | undefined,
 		table: string | undefined,
 		columns: ColumnDef[],
-		values: Record<string, any>,
-		resourceType: string
+		values: Record<string, any>
 	): Promise<boolean> {
-		if (!resource || !table || !workspace) {
+		if (
+			(dbInput.type == 'ducklake' && !dbInput.ducklake) ||
+			(dbInput.type == 'database' && !dbInput.resourcePath) ||
+			!table ||
+			!workspace
+		) {
 			return false
 		}
 
-		input = getInsertInput(table, columns, resource, resourceType as DbType)
+		input = getInsertInput(dbInput, table, columns)
 
 		await tick()
 
 		if (runnableComponent) {
 			await runnableComponent?.runComponent(undefined, undefined, undefined, values, {
-				done: (x) => {
+				onDone: (_x) => {
 					dispatch('insert')
 					sendUserToast('Row inserted', false)
 				},
-				cancel: () => {
+				onCancel: () => {
 					sendUserToast('Error inserting row', true)
 				},
-				error: () => {
-					sendUserToast('Error inserting row', true)
+				onError: (e) => {
+					sendUserToast(`Error inserting row: ${e?.message ?? e}`, true)
 				}
 			})
 		}

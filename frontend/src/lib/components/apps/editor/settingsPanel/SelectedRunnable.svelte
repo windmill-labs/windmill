@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { ResultAppInput } from '../../inputType'
+	import { isRunnableByName, isRunnableByPath, type ResultAppInput } from '../../inputType'
 	import type { AppViewerContext } from '../../types'
 	import { clearResultAppInput } from '../../utils'
 	import type { AppComponent } from '../component'
@@ -9,15 +9,29 @@
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
-	export let appInput: ResultAppInput
-	export let appComponent: AppComponent
-
-	$: if (appInput.autoRefresh === undefined) {
-		appInput.autoRefresh = true
+	interface Props {
+		appInput: ResultAppInput
+		appComponent: AppComponent
 	}
 
+	let { appInput = $bindable(), appComponent = $bindable() }: Props = $props()
+
+	$effect.pre(() => {
+		if (appInput.autoRefresh === undefined) {
+			appInput.autoRefresh = true
+		}
+		if (appInput.recomputeOnInputChanged === undefined) {
+			appInput.recomputeOnInputChanged = true
+		}
+		//TODO: remove after migration is done
+		if (appInput.doNotRecomputeOnInputChanged != undefined) {
+			appInput.recomputeOnInputChanged = !appInput.doNotRecomputeOnInputChanged
+			appInput.doNotRecomputeOnInputChanged = undefined
+		}
+	})
+
 	function detach() {
-		if (appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript) {
+		if (isRunnableByName(appInput.runnable) && appInput.runnable.inlineScript) {
 			$app.unusedInlineScripts.push({
 				name: appInput.runnable.name,
 				inlineScript: appInput.runnable.inlineScript
@@ -31,54 +45,33 @@
 		appInput = clearResultAppInput(appInput)
 	}
 
-	$: {
-		if (appInput.recomputeOnInputChanged === undefined) {
-			appInput.recomputeOnInputChanged = true
-		}
-		//TODO: remove after migration is done
-		if (appInput.doNotRecomputeOnInputChanged != undefined) {
-			appInput.recomputeOnInputChanged = !appInput.doNotRecomputeOnInputChanged
-			appInput.doNotRecomputeOnInputChanged = undefined
-		}
+	let hasScript = $derived(
+		isRunnableByPath(appInput?.runnable) ||
+			(isRunnableByName(appInput?.runnable) && appInput.runnable?.inlineScript !== undefined)
+	)
+
+	function getActions(_hasScript: boolean): ActionType[] {
+		return [
+			...(isRunnableByName(appInput.runnable) && appInput.runnable.inlineScript
+				? ([
+						{
+							label: 'Detach',
+							icon: ExternalLink,
+							color: 'light',
+							callback: detach
+						}
+					] as const)
+				: []),
+			{
+				label: 'Clear',
+				icon: X,
+				color: 'red',
+				callback: clear
+			}
+		]
 	}
 
-	$: hasScript =
-		appInput?.runnable?.type === 'runnableByPath' ||
-		(appInput?.runnable?.type === 'runnableByName' && appInput.runnable?.inlineScript !== undefined)
-
-	function getActions(hasScript: boolean): ActionType[] {
-		if (hasScript) {
-			return [
-				...(appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript
-					? ([
-							{
-								label: 'Detach',
-								icon: ExternalLink,
-								color: 'light',
-								callback: detach
-							}
-					  ] as const)
-					: []),
-				{
-					label: 'Clear',
-					icon: X,
-					color: 'red',
-					callback: clear
-				}
-			]
-		} else {
-			return [
-				{
-					label: 'Clear',
-					icon: X,
-					color: 'red',
-					callback: clear
-				}
-			]
-		}
-	}
-
-	$: actions = getActions(hasScript)
+	let actions = $derived(getActions(hasScript))
 </script>
 
 <ComponentScriptSettings bind:appInput bind:appComponent {hasScript} {actions} />

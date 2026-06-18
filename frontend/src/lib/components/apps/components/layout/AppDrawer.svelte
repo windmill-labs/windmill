@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import Portal from '$lib/components/Portal.svelte'
@@ -14,15 +14,34 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 
-	export let customCss: ComponentCustomCSS<'drawercomponent'> | undefined = undefined
-	export let id: string
-	export let configuration: RichConfigurations
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let noWFull = false
-	export let render: boolean
-	export let onOpenRecomputeIds: string[] | undefined = undefined
-	export let onCloseRecomputeIds: string[] | undefined = undefined
+	interface Props {
+		customCss?: ComponentCustomCSS<'drawercomponent'> | undefined
+		id: string
+		configuration: RichConfigurations
+		horizontalAlignment?: 'left' | 'center' | 'right' | undefined
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		noWFull?: boolean
+		render: boolean
+		onOpenRecomputeIds?: string[] | undefined
+		onCloseRecomputeIds?: string[] | undefined
+	}
+
+	let {
+		customCss = undefined,
+		id,
+		configuration,
+		horizontalAlignment = undefined,
+		verticalAlignment = undefined,
+		noWFull = false,
+		render,
+		onOpenRecomputeIds = undefined,
+		onCloseRecomputeIds = undefined
+	}: Props = $props()
+
+	let everRender = $state(untrack(() => render))
+	$effect(() => {
+		render && !everRender && (everRender = true)
+	})
 
 	const {
 		app,
@@ -35,17 +54,18 @@
 		runnableComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	const resolvedConfig = initConfig(
-		components['drawercomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['drawercomponent'].initialData.configuration, untrack(() => configuration))
 	)
-	const outputs = initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, untrack(() => id), {
 		open: false
 	})
 
-	let appDrawer: Drawer
+	let containerHeight: number = $state(0)
 
-	$componentControl[id] = {
+	let appDrawer: Drawer | undefined = $state()
+
+	$componentControl[untrack(() => id)] = {
 		open: () => {
 			appDrawer?.openDrawer()
 		},
@@ -54,7 +74,7 @@
 		}
 	}
 
-	let css = initCss($app.css?.drawercomponent, customCss)
+	let css = $state(initCss($app.css?.drawercomponent, untrack(() => customCss)))
 </script>
 
 {#each Object.keys(components['drawercomponent'].initialData.configuration) as key (key)}
@@ -77,87 +97,78 @@
 {/each}
 
 <InitializeComponent {id} />
-
-<div class="h-full w-full">
-	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
-		<Button
-			btnClasses={twMerge(css?.button?.class, 'wm-drawer-button')}
-			wrapperClasses={twMerge(
-				css?.container?.class,
-				'wm-drawer-button-container',
-				resolvedConfig?.fillContainer ? 'w-full h-full' : '',
-				resolvedConfig?.hideButtonOnView && $mode == 'preview'
-					? 'invisible h-0 overflow-hidden'
-					: ''
-			)}
-			wrapperStyle={css?.container?.style}
-			disabled={resolvedConfig?.disabled}
-			on:pointerdown={(e) => {
-				e?.stopPropagation()
-			}}
-			on:click={async (e) => {
-				$focusedGrid = {
-					parentComponentId: id,
-					subGridIndex: 0
-				}
-				appDrawer.toggleDrawer()
-			}}
-			size={resolvedConfig.size}
-			color={resolvedConfig.color}
-			style={css?.button?.style}
-		>
-			{#if resolvedConfig.label && resolvedConfig.label?.length > 0}
-				<div>{resolvedConfig.label}</div>
-			{/if}
-		</Button>
-	</AlignWrapper>
-</div>
-
-<Portal target="#app-editor-top-level-drawer" name="app-drawer">
-	<Drawer
-		let:open
-		bind:this={appDrawer}
-		size="800px"
-		alwaysOpen
-		positionClass={$mode == 'dnd' ? '!absolute' : '!fixed'}
-		shouldUsePortal={false}
-		on:open={() => {
-			outputs?.open.set(true)
-			onOpenRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
-		}}
-		on:close={() => {
-			outputs?.open.set(false)
-			onCloseRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
-		}}
-	>
-		<DrawerContent
-			title={resolvedConfig.drawerTitle}
-			on:close={() => {
-				appDrawer?.toggleDrawer()
-				$focusedGrid = undefined
-			}}
-			fullScreen={$mode !== 'dnd'}
-		>
-			<div
-				class={twMerge('h-full', css?.drawer?.class, 'wm-drawer')}
-				style={css?.drawer?.style}
+{#if render}
+	<div class="h-full w-full">
+		<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
+			<Button
+				btnClasses={twMerge(css?.button?.class, 'wm-drawer-button')}
+				wrapperClasses={twMerge(
+					css?.container?.class,
+					'wm-drawer-button-container',
+					resolvedConfig?.fillContainer ? 'w-full h-full' : '',
+					resolvedConfig?.hideButtonOnView && $mode == 'preview'
+						? 'invisible h-0 overflow-hidden'
+						: ''
+				)}
+				wrapperStyle={css?.container?.style}
+				disabled={resolvedConfig?.disabled}
 				on:pointerdown={(e) => {
 					e?.stopPropagation()
-					if (!$connectingInput.opened) {
-						$selectedComponent = [id]
-						$focusedGrid = {
-							parentComponentId: id,
-							subGridIndex: 0
-						}
-					}
 				}}
+				on:click={async (e) => {
+					$focusedGrid = {
+						parentComponentId: id,
+						subGridIndex: 0
+					}
+					appDrawer?.toggleDrawer()
+				}}
+				extendedSize={resolvedConfig.size}
+				color={resolvedConfig.color}
+				style={css?.button?.style}
+				variant="contained"
 			>
-				{#if $app.subgrids?.[`${id}-0`]}
-					<SubGridEditor
-						visible={open && render}
-						{id}
-						subGridId={`${id}-0`}
-						on:focus={() => {
+				{#if resolvedConfig.label && resolvedConfig.label?.length > 0}
+					<div>{resolvedConfig.label}</div>
+				{/if}
+			</Button>
+		</AlignWrapper>
+	</div>
+{/if}
+
+{#if everRender}
+	<Portal target="#app-editor-top-level-drawer" name="app-drawer">
+		<Drawer
+			bind:this={appDrawer}
+			size="800px"
+			alwaysOpen
+			positionClass={$mode == 'dnd' ? '!absolute' : '!fixed'}
+			shouldUsePortal={false}
+			on:open={() => {
+				outputs?.open.set(true)
+				onOpenRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
+			}}
+			on:close={() => {
+				outputs?.open.set(false)
+				onCloseRecomputeIds?.forEach((id) => $runnableComponents?.[id]?.cb?.map((cb) => cb?.()))
+			}}
+			disableChatOffset={true}
+		>
+			{#snippet children({ open })}
+				<DrawerContent
+					title={resolvedConfig.drawerTitle}
+					on:close={() => {
+						appDrawer?.toggleDrawer()
+						$focusedGrid = undefined
+					}}
+					fullScreen={$mode !== 'dnd'}
+				>
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						class={twMerge('h-full', css?.drawer?.class, 'wm-drawer')}
+						style={css?.drawer?.style}
+						bind:clientHeight={containerHeight}
+						onpointerdown={(e) => {
+							e?.stopPropagation()
 							if (!$connectingInput.opened) {
 								$selectedComponent = [id]
 								$focusedGrid = {
@@ -166,9 +177,29 @@
 								}
 							}
 						}}
-					/>
-				{/if}
-			</div>
-		</DrawerContent>
-	</Drawer>
-</Portal>
+					>
+						{#if $app.subgrids?.[`${id}-0`]}
+							<SubGridEditor
+								visible={open && render}
+								{id}
+								{containerHeight}
+								subGridId={`${id}-0`}
+								onFocus={() => {
+									if (!$connectingInput.opened) {
+										$selectedComponent = [id]
+										$focusedGrid = {
+											parentComponentId: id,
+											subGridIndex: 0
+										}
+									}
+								}}
+							/>
+						{/if}
+					</div>
+				</DrawerContent>
+			{/snippet}
+		</Drawer>
+	</Portal>
+{:else if $app.subgrids?.[`${id}-0`]}
+	<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
+{/if}

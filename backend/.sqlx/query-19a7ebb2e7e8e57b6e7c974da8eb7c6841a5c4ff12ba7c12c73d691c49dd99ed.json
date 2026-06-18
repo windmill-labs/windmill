@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT email FROM token WHERE token = $1 AND (expiration > NOW() OR expiration IS NULL)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "19a7ebb2e7e8e57b6e7c974da8eb7c6841a5c4ff12ba7c12c73d691c49dd99ed"
+}

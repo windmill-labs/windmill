@@ -1,5 +1,5 @@
 use serde_json::Value;
-use windmill_parser::{to_snake_case, Arg, MainArgSignature, Typ};
+use windmill_parser::{to_snake_case, Arg, MainArgSignature, ObjectType, Typ};
 
 use php_parser_rs::parser::{
     self,
@@ -18,7 +18,7 @@ fn parse_php_type(e: Type) -> Typ {
         Type::Integer(_) => Typ::Int,
         Type::String(_) => Typ::Str(None),
         Type::Array(_) => Typ::List(Box::new(Typ::Str(None))),
-        Type::Object(_) => Typ::Object(vec![]),
+        Type::Object(_) => Typ::Object(ObjectType::new(None, Some(vec![]))),
         Type::Named(_, name) => Typ::Resource(to_snake_case(name.to_string().as_ref())),
         _ => Typ::Unknown,
     }
@@ -44,23 +44,41 @@ fn parse_default_expr(e: Expression) -> Option<Value> {
 
 pub fn parse_php_signature(
     code: &str,
-    override_main: Option<String>,
+    override_entrypoint: Option<String>,
 ) -> anyhow::Result<MainArgSignature> {
-    let main_name = override_main.unwrap_or("main".to_string());
+    let entrypoint_fn_name = override_entrypoint.unwrap_or("main".to_string());
 
     let ast = parser::parse(code)
         .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?;
 
-    let params = ast.into_iter().find_map(|x| match x {
-        Statement::Function(FunctionStatement {
-            name,
-            parameters: FunctionParameterList { parameters, .. },
-            ..
-        }) if name.to_string() == main_name => Some(parameters),
-        _ => None,
-    });
+    let mut entrypoint_params = None;
+    let mut has_preprocessor = None;
+    for node in ast.into_iter() {
+        match node {
+            Statement::Function(FunctionStatement {
+                name,
+                parameters: FunctionParameterList { parameters, .. },
+                ..
+            }) => {
+                let fn_name = name.to_string();
 
-    if let Some(params) = params {
+                if has_preprocessor.is_none() && fn_name == "preprocessor" {
+                    has_preprocessor = Some(true);
+                }
+
+                if entrypoint_params.is_none() && fn_name == entrypoint_fn_name {
+                    entrypoint_params = Some(parameters);
+                }
+
+                if has_preprocessor.is_some() && entrypoint_params.is_some() {
+                    break;
+                }
+            }
+            _ => {}
+        };
+    }
+
+    if let Some(params) = entrypoint_params {
         let args = params
             .into_iter()
             .map(|x| {
@@ -73,6 +91,7 @@ pub fn parse_php_signature(
                     has_default: default.is_some(),
                     default,
                     oidx: None,
+                otyp_inferred: false,
                 }
             })
             .collect();
@@ -81,16 +100,18 @@ pub fn parse_php_signature(
             star_args: false,
             star_kwargs: false,
             args,
-            no_main_func: Some(false),
-            has_preprocessor: None,
+            auto_kind: None,
+            has_preprocessor,
+            ..Default::default()
         })
     } else {
         Ok(MainArgSignature {
             star_args: false,
             star_kwargs: false,
             args: vec![],
-            no_main_func: Some(true),
-            has_preprocessor: None,
+            auto_kind: Some("lib".to_string()),
+            has_preprocessor,
+            ..Default::default()
         })
     }
 }
@@ -126,7 +147,8 @@ function main(string $input1 = \"hey\", bool $input2 = false, int $input3 = 3, f
                         typ: Typ::Str(None),
                         has_default: true,
                         default: Some(Value::String("hey".to_string())),
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -134,7 +156,8 @@ function main(string $input1 = \"hey\", bool $input2 = false, int $input3 = 3, f
                         typ: Typ::Bool,
                         has_default: true,
                         default: Some(Value::Bool(false)),
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -142,7 +165,8 @@ function main(string $input1 = \"hey\", bool $input2 = false, int $input3 = 3, f
                         typ: Typ::Int,
                         has_default: true,
                         default: Some(Value::Number(Number::from(3))),
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -150,7 +174,8 @@ function main(string $input1 = \"hey\", bool $input2 = false, int $input3 = 3, f
                         typ: Typ::Float,
                         has_default: true,
                         default: Some(Value::Number(Number::from_f64(f64::from(4.5)).unwrap())),
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -158,11 +183,13 @@ function main(string $input1 = \"hey\", bool $input2 = false, int $input3 = 3, f
                         typ: Typ::Resource("stripe".to_string()),
                         has_default: false,
                         default: None,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     }
                 ],
-                no_main_func: Some(false),
-                has_preprocessor: None
+                auto_kind: None,
+                has_preprocessor: None,
+                ..Default::default()
             }
         );
 

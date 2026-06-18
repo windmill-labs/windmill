@@ -3,23 +3,35 @@
 	import { InputService, type Input, type RunnableType } from '$lib/gen/index.js'
 	import { userStore, workspaceStore } from '$lib/stores.js'
 	import { sendUserToast } from '$lib/utils.js'
-	import { createEventDispatcher, onDestroy } from 'svelte'
-	import { Edit, Trash2, Save, Eye } from 'lucide-svelte'
+	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
+	import { Trash2, Save, Pencil } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import { Cell } from './table/index'
 	import SaveInputsButton from '$lib/components/SaveInputsButton.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import InfiniteList from './InfiniteList.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import PopoverV2 from '$lib/components/meltComponents/Popover.svelte'
-	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
+	import SavedInputsPickerViewer from './SavedInputsPickerViewer.svelte'
 
-	export let previewArgs: any = undefined
-	export let runnableId: string | undefined = undefined
-	export let runnableType: RunnableType | undefined = undefined
-	export let isValid: boolean = false
-	export let noButton: boolean = false
-	export let jsonView: boolean = false
+	interface Props {
+		previewArgs?: any
+		runnableId?: string | undefined
+		runnableType?: RunnableType | undefined
+		isValid?: boolean
+		noButton?: boolean
+		jsonView?: boolean
+		limitPayloadSize?: boolean
+	}
+
+	let {
+		previewArgs = undefined,
+		runnableId = undefined,
+		runnableType = undefined,
+		isValid = false,
+		noButton = false,
+		jsonView = false,
+		limitPayloadSize = false
+	}: Props = $props()
 
 	interface EditableInput extends Input {
 		isEditing?: boolean
@@ -30,10 +42,13 @@
 		getFullPayload?: () => Promise<any>
 	}
 
-	let infiniteList: InfiniteList | null = null
-	let draft = true
-	let selectedInput: string | null = null
-	let isEditing: EditableInput | null = null
+	let infiniteList: InfiniteList | null = $state(null)
+	let draft = $state(true)
+	let selectedInput: string | null = $state(null)
+	let isEditing: EditableInput | null = $state(null)
+	let viewerOpen = $state(false)
+	let openStates: Record<string, boolean> = $state({})
+	let clientWidth: number = $state(0)
 
 	const dispatch = createEventDispatcher()
 
@@ -122,7 +137,7 @@
 				const fullPayload = await input.getFullPayload?.()
 				dispatch('select', fullPayload)
 			} else {
-				selectedArgs = structuredClone(input.payloadData ?? {})
+				selectedArgs = structuredClone($state.snapshot(input.payloadData) ?? {})
 				dispatch('select', selectedArgs)
 			}
 		}
@@ -177,25 +192,32 @@
 		}
 	}
 
-	$: $workspaceStore &&
-		runnableId &&
-		runnableType &&
-		(infiniteList && initLoadInputs(), (draft = false))
+	function updateViewerOpenState(itemId: string, isOpen: boolean) {
+		openStates[itemId] = isOpen
+		viewerOpen = Object.values(openStates).some((state) => state)
+	}
+
+	$effect(() => {
+		$workspaceStore &&
+			runnableId &&
+			runnableType &&
+			(infiniteList && untrack(() => initLoadInputs()), (draft = false))
+	})
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} />
 
-<div class="w-full flex flex-col gap-1 h-full overflow-y-auto">
+<div class="w-full flex flex-col gap-1 h-full overflow-y-auto pb-4">
 	{#if !noButton}
 		<div>
 			<Popover class="w-full" placement="bottom" disablePopup={runnableId && previewArgs}>
-				<svelte:fragment slot="text">
+				{#snippet text()}
 					{#if !runnableId}
 						Save draft first before you can save inputs
 					{:else if !previewArgs}
 						Add inputs before saving
 					{/if}
-				</svelte:fragment>
+				{/snippet}
 				<SaveInputsButton
 					{runnableId}
 					{runnableType}
@@ -217,13 +239,17 @@
 				on:error={(e) => handleError(e.detail)}
 				on:select={(e) => handleSelect(e.detail)}
 			>
-				<svelte:fragment slot="columns">
+				{#snippet columns()}
 					<colgroup>
 						<col class="w-8" />
 						<col />
 					</colgroup>
-				</svelte:fragment>
-				<svelte:fragment let:item>
+				{/snippet}
+				{#snippet children({ item, hover })}
+					{@const editOptions =
+						item.created_by == $userStore?.username ||
+						$userStore?.is_admin ||
+						$userStore?.is_super_admin}
 					<Cell>
 						<div class="center-center">
 							<Save size={12} />
@@ -232,11 +258,12 @@
 					<Cell>
 						<div
 							class="w-full flex items-center text-sm justify-between gap-4 py-1 text-left transition-all"
+							bind:clientWidth
 						>
 							<div class="w-full h-full items-center justify-between flex gap-1 min-w-0">
 								{#if isEditing && isEditing.id === item.id}
 									<form
-										on:submit={() => {
+										onsubmit={() => {
 											updateInput(isEditing)
 											setEditing(null)
 										}}
@@ -251,29 +278,22 @@
 										{item.name}
 									</small>
 								{/if}
-								{#if item.created_by == $userStore?.username || $userStore?.is_admin || $userStore?.is_super_admin}
-									<div class="items-center flex gap-2">
-										<PopoverV2 displayArrow={false} closeButton={false} openOnHover={true}>
-											<svelte:fragment slot="trigger">
-												<Eye class="w-4 h-4 group-hover:block hidden" />
-											</svelte:fragment>
-											<svelte:fragment slot="content">
-												<div class="p-2">
-													{#if item.payloadData === 'WINDMILL_TOO_BIG'}
-														<div class="text-center text-tertiary text-xs">
-															Payload too big to preview but can still be loaded
-														</div>
-													{:else}
-														<div class="max-w-60 overflow-auto">
-															<ObjectViewer json={item.payloadData} />
-														</div>
-													{/if}
-												</div>
-											</svelte:fragment>
-										</PopoverV2>
 
+								<div class="items-center flex gap-2">
+									<SavedInputsPickerViewer
+										payloadData={item.payloadData}
+										{limitPayloadSize}
+										{hover}
+										{viewerOpen}
+										on:openChange={(e) => {
+											updateViewerOpenState(item.id, e.detail)
+										}}
+										maxWidth={clientWidth}
+										{editOptions}
+									/>
+									{#if editOptions}
 										{#if !isEditing || isEditing?.id !== item.id}
-											<div class="group-hover:block hidden -my-2">
+											<div class={hover || openStates[item.id] ? 'block -my-2' : 'hidden'}>
 												<Toggle
 													size="xs"
 													options={{ right: 'shared' }}
@@ -287,11 +307,10 @@
 
 										<Button
 											loading={isEditing?.id === item.id && isEditing?.isSaving}
-											color="light"
-											size="xs"
-											variant="border"
+											unifiedSize="sm"
+											variant="subtle"
 											spacingSize="xs2"
-											btnClasses={'group-hover:block hidden -my-2'}
+											btnClasses={hover || openStates[item.id] ? 'block -my-2 ' : 'hidden'}
 											on:click={(e) => {
 												e.stopPropagation()
 												if (isEditing?.id === item.id) {
@@ -301,35 +320,36 @@
 													setEditing(item)
 												}
 											}}
-										>
-											<Edit class="w-4 h-4" />
-										</Button>
+											startIcon={{ icon: Pencil }}
+										></Button>
 										<Button
-											color="light"
-											size="xs"
-											spacingSize="xs2"
-											variant="contained"
+											unifiedSize="sm"
+											variant="subtle"
 											btnClasses={twMerge(
-												isEditing?.id === item.id ? 'block' : 'group-hover:block hidden -my-2',
-												'hover:text-white hover:bg-red-500 text-red-500'
+												isEditing?.id === item.id || hover || openStates[item.id]
+													? 'block -my-2'
+													: 'hidden'
 											)}
+											destructive
 											on:click={() => {
 												infiniteList?.deleteItem(item.id)
 											}}
+											startIcon={{ icon: Trash2 }}
+											iconOnly
+										></Button>
+									{:else}
+										<span class="text-xs text-primary px-2 w-28 truncate" title={item.created_by}
+											>{item.created_by}</span
 										>
-											<Trash2 class="w-4 h-4" />
-										</Button>
-									</div>
-								{:else}
-									<span class="text-xs text-tertiary">By {item.created_by}</span>
-								{/if}
+									{/if}
+								</div>
 							</div>
 						</div>
 					</Cell>
-				</svelte:fragment>
-				<svelte:fragment slot="empty">
-					<div class="text-center text-xs text-tertiary">No saved Inputs</div>
-				</svelte:fragment>
+				{/snippet}
+				{#snippet empty()}
+					<div class="text-center text-xs text-primary mt-2">No saved Inputs</div>
+				{/snippet}
 			</InfiniteList>
 		{/if}
 	</div>

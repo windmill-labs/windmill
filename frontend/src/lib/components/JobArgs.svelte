@@ -13,15 +13,27 @@
 	import HighlightTheme from './HighlightTheme.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { isWindmillTooBigObject } from './job_args'
+	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
+	import { appendViewToken } from '$lib/viewToken'
 
-	export let id: string | undefined = undefined
-	export let args: any
-	export let argLabel: string | undefined = undefined
-	export let workspace: string | undefined = undefined
+	interface Props {
+		id?: string | undefined
+		args: any
+		argLabel?: string | undefined
+		workspace?: string | undefined
+	}
 
-	let jsonViewer: Drawer
-	let runLocally: Drawer
-	let jsonStr = ''
+	let { id = undefined, args, argLabel = undefined, workspace = undefined }: Props = $props()
+
+	let jsonViewer: Drawer | undefined = $state()
+	let runLocally: Drawer | undefined = $state()
+	let jsonStr = $state('')
+
+	const argsDownloadName = 'windmill-args.json'
+	let argsApiPath = $derived(
+		id && workspace ? appendViewToken(`/w/${workspace}/jobs_u/get_args/${id}`) : undefined
+	)
+	let argsDataHref = $derived(`data:text/json;charset=utf-8,${encodeURIComponent(jsonStr)}`)
 
 	function pythonCode() {
 		return `
@@ -53,41 +65,49 @@ ${Object.entries(args)
 	}
 </script>
 
-{#if args && typeof args === 'object' && deepEqual( Object.keys(args), ['reason'] ) && args['reason'] == 'PREPROCESSOR_ARGS_ARE_DISCARDED'}
+{#if args && typeof args === 'object' && deepEqual( Object.keys(args ?? {}), ['reason'] ) && args['reason'] == 'PREPROCESSOR_ARGS_ARE_DISCARDED'}
 	Preprocessor args are discarded
-{:else if id && workspace && args && typeof args === 'object' && deepEqual( Object.keys(args), ['reason'] ) && args['reason'] == 'WINDMILL_TOO_BIG'}
-	The args are too big in size to be able to fetch alongside job. Please <a
-		href="/api/w/{workspace}/jobs_u/get_args/{id}"
-		target="_blank">download the JSON file to view them</a
-	>.
+{:else if id && workspace && args && typeof args === 'object' && deepEqual( Object.keys(args ?? {}), ['reason'] ) && args['reason'] == 'WINDMILL_TOO_BIG'}
+	The args are too big in size to be able to fetch alongside job. Please {#if shouldDownloadViaClient()}<button
+			class="text-blue-500 hover:underline"
+			onclick={() => downloadViaClient(argsApiPath!, argsDownloadName)}
+			>download the JSON file to view them</button
+		>{:else}<a href="/api{argsApiPath}" target="_blank">download the JSON file to view them</a
+		>{/if}.
 {:else}
 	<div class="relative">
-		<DataTable size="sm">
+		<DataTable size="sm" containerClass="bg-surface-tertiary">
 			<Head>
 				<tr class="w-full">
-					<Cell head first>{argLabel ?? 'Arg'}</Cell>
+					<Cell head first>{argLabel ?? 'Input'}</Cell>
 					<Cell head last>Value</Cell>
 				</tr>
-				<svelte:fragment slot="headerAction">
-					<button
-						on:click={() => {
-							jsonStr = JSON.stringify(args, null, 4)
-							jsonViewer.openDrawer()
-						}}
-					>
-						<Expand size={18} />
-					</button>
-				</svelte:fragment>
+				{#snippet headerAction()}
+					<div class="center-center -m-1">
+						<Button
+							unifiedSize="md"
+							variant="subtle"
+							onClick={() => {
+								jsonStr = JSON.stringify(args, null, 4)
+								jsonViewer?.openDrawer()
+							}}
+							iconOnly
+							startIcon={{ icon: Expand }}
+						></Button>
+					</div>
+				{/snippet}
 			</Head>
 
 			<tbody class="divide-y w-full">
-				{#if args && Object.keys(args).length > 0}
-					{#each Object.entries(args).sort((a, b) => a[0].localeCompare(b[0])) as [arg, value]}
+				{#if args && typeof args === 'object' && Object.keys(args ?? {}).length > 0}
+					{#each Object.entries(args ?? {}).sort( (a, b) => a?.[0]?.localeCompare(b?.[0]) ) as [arg, value]}
 						<Row>
 							<Cell first>{arg}</Cell>
-							<Cell last><ArgInfo {value} /></Cell>
+							<Cell><ArgInfo {value} /></Cell>
 						</Row>
 					{/each}
+				{:else if args && typeof args !== 'object'}
+					<Row><Cell>Argument is not an object (type: {typeof args})</Cell></Row>
 				{:else if args}
 					<Row><Cell>No arguments</Cell></Row>
 				{:else}
@@ -109,20 +129,29 @@ ${Object.entries(args)
 
 <Drawer bind:this={jsonViewer} size="900px">
 	<DrawerContent title="Expanded Args" on:close={jsonViewer.closeDrawer}>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
+			{#if argsApiPath && shouldDownloadViaClient()}
+				<Button
+					on:click={() => downloadViaClient(argsApiPath!, argsDownloadName)}
+					startIcon={{ icon: Download }}
+					size="xs"
+					color="light"
+				>
+					Download
+				</Button>
+			{:else}
+				<Button
+					download={argsDownloadName}
+					href={argsApiPath ? `/api${argsApiPath}` : argsDataHref}
+					startIcon={{ icon: Download }}
+					size="xs"
+					color="light"
+				>
+					Download
+				</Button>
+			{/if}
 			<Button
-				download="windmill-args.json"
-				href={id && workspace
-					? `/api/w/${workspace}/jobs_u/get_args/${id}`
-					: `data:text/json;charset=utf-8,${encodeURIComponent(jsonStr)}`}
-				startIcon={{ icon: Download }}
-				size="xs"
-				color="light"
-			>
-				Download
-			</Button>
-			<Button
-				on:click={runLocally.openDrawer}
+				on:click={() => runLocally?.openDrawer()}
 				color="light"
 				size="xs"
 				startIcon={{ icon: ChevronRightSquare }}
@@ -137,18 +166,22 @@ ${Object.entries(args)
 			>
 				Copy to clipboard
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 		{#if jsonStr.length > 100000 || (id && workspace && args && isWindmillTooBigObject(args))}
-			<div class="text-sm mb-2 text-tertiary">
-				<a
-					download="windmill-args.json"
-					href={id && workspace
-						? `/api/w/${workspace}/jobs_u/get_args/${id}`
-						: `data:text/json;charset=utf-8,${encodeURIComponent(jsonStr)}`}
-				>
-					JSON is too large to be displayed in full.
-				</a></div
-			>
+			<div class="text-sm mb-2 text-primary">
+				{#if argsApiPath && shouldDownloadViaClient()}
+					<button
+						class="underline"
+						onclick={() => downloadViaClient(argsApiPath!, argsDownloadName)}
+					>
+						JSON is too large to be displayed in full.
+					</button>
+				{:else}
+					<a download={argsDownloadName} href={argsApiPath ? `/api${argsApiPath}` : argsDataHref}>
+						JSON is too large to be displayed in full.
+					</a>
+				{/if}
+			</div>
 		{:else}
 			<Highlight language={json} code={jsonStr.replace(/\\n/g, '\n')} />
 		{/if}

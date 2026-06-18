@@ -5,13 +5,23 @@
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
 
-	export let kind: 'script' | 'flow'
-	export let scriptOrFlowPath: string
-	export let errorHandlerMuted: boolean | undefined
-	export let textDisabled = false
-	let toggleState = errorHandlerMuted
+	interface Props {
+		kind: 'script' | 'flow'
+		scriptOrFlowPath: string
+		errorHandlerMuted: boolean | undefined
+		textDisabled?: boolean
+		color?: 'nord' | 'red' | 'blue' | undefined
+	}
 
-	export let color: 'nord' | 'red' | 'blue' = 'nord'
+	let {
+		kind,
+		scriptOrFlowPath,
+		errorHandlerMuted = $bindable(),
+		textDisabled = false,
+		color = undefined
+	}: Props = $props()
+
+	let toggleState = $state(errorHandlerMuted)
 
 	async function toggleErrorHandler(): Promise<void> {
 		toggleState = !toggleState
@@ -49,20 +59,20 @@
 				false
 			)
 		}
-		toggleState = false
 	}
 </script>
 
 <Toggle
+	textClass="font-medium"
 	{color}
-	textClass="font-normal text-sm"
 	size="xs"
 	checked={toggleState}
 	on:change={toggleErrorHandler}
 	options={{
 		right: 'Mute',
 		rightTooltip: 'Disable workspace error handler, EE only',
-		rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler'
+		rightDocumentationLink:
+			'https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler'
 	}}
 	{textDisabled}
 />

@@ -10,7 +10,7 @@ import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
 import * as windmill from "https://deno.land/x/windmill@v1.174.0/mod.ts";
 import * as api from "https://deno.land/x/windmill@v1.174.0/windmill-api/index.ts";
 
-import { VERSION, createBenchScript, getFlowPayload, login } from "./lib.ts";
+import { VERSION, createBenchScript, createWacBenchScript, getFlowPayload, login, WAC_KINDS, STEPS_PER_WORKFLOW } from "./lib.ts";
 
 async function verifyOutputs(uuids: string[], workspace: string) {
   console.log("Verifying outputs");
@@ -26,7 +26,7 @@ async function verifyOutputs(uuids: string[], workspace: string) {
         incorrectResults++;
       }
       if (job.result !== uuid) {
-        console.log(`Job ${uuid} did not output the correct value`);
+        console.log(`Job ${uuid} did not output the correct value: ${JSON.stringify(job)}`);
         incorrectResults++;
       }
     } catch (_) {
@@ -37,6 +37,9 @@ async function verifyOutputs(uuids: string[], workspace: string) {
   console.log(`Incorrect results: ${incorrectResults}`);
 }
 
+export const NON_TEST_TAGS = ["deno", "python", "go", "bash", "dedicated", "bun", "nativets", "dedicated_nativets", "flow"]
+
+const FLOW_COMPARISON_KINDS = ["flow_seq_2_bun", "flow_par_2_bun", "flow_seq_3_bun"];
 export async function main({
   host,
   email,
@@ -96,11 +99,11 @@ export async function main({
   windmill.setClient(final_token, host);
   const enc = (s: string) => new TextEncoder().encode(s);
 
-  async function getQueueCount() {
+  async function getQueueCount(tags?: string[]) {
     return (
       await (
         await fetch(
-          config.server + "/api/w/" + config.workspace_id + "/jobs/queue/count",
+          config.server + "/api/w/" + config.workspace_id + "/jobs/queue/count" + (tags && tags.length > 0 ? "?tags=" + tags.join(",") : ""),
           { headers: { ["Authorization"]: "Bearer " + config.token } }
         )
       ).json()
@@ -132,11 +135,11 @@ export async function main({
   }
 
   let pastJobs = 0;
-  async function getCompletedJobsCount(): Promise<number> {
+  async function getCompletedJobsCount(tags?: string[]): Promise<number> {
     const completedJobs = (
       await (
         await fetch(
-          host + "/api/w/" + config.workspace_id + "/jobs/completed/count",
+          host + "/api/w/" + config.workspace_id + "/jobs/completed/count" + (tags && tags.length > 0 ? "?tags=" + tags.join(",") : ""),
           { headers: { ["Authorization"]: "Bearer " + config.token } }
         )
       ).json()
@@ -145,14 +148,15 @@ export async function main({
   }
 
   if (
-    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets"].includes(
+    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets", "dedicated_nativets"].includes(
       kind
     )
   ) {
     await createBenchScript(kind, workspace);
+  } else if (WAC_KINDS.includes(kind)) {
+    await createWacBenchScript(kind, workspace);
   }
 
-  pastJobs = await getCompletedJobsCount();
 
   const jobsSent = jobs;
   console.log(`Bulk creating ${jobsSent} jobs`);
@@ -165,13 +169,27 @@ export async function main({
       kind: "noop",
     });
   } else if (
-    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets"].includes(
+    ["deno", "python", "go", "bash", "dedicated", "bun", "nativets", "dedicated_nativets"].includes(
       kind
     )
   ) {
     body = JSON.stringify({
       kind: "script",
       path: "f/benchmarks/" + kind,
+    });
+  } else if (WAC_KINDS.includes(kind)) {
+    // WAC v2 scripts are deployed as bun scripts, run via script path
+    nStepsFlow = STEPS_PER_WORKFLOW[kind] ?? 0;
+    body = JSON.stringify({
+      kind: "script",
+      path: "f/benchmarks/" + kind,
+    });
+  } else if (FLOW_COMPARISON_KINDS.includes(kind)) {
+    nStepsFlow = STEPS_PER_WORKFLOW[kind] ?? 0;
+    const payload = getFlowPayload(kind);
+    body = JSON.stringify({
+      kind: "flow",
+      flow_value: payload.value,
     });
   } else if (["2steps", "bigscriptinflow"].includes(kind)) {
     nStepsFlow = kind == "2steps" ? 2 : 1;
@@ -182,7 +200,7 @@ export async function main({
     });
   } else if (kind.startsWith("flow:")) {
     console.log("Detected custom flow ");
-    let flow_path = kind.substr(5);
+    let flow_path = kind.substring(5);
     nStepsFlow = await getFlowStepCount(config.workspace_id, flow_path);
     console.log(`Total steps of flow including sub-flows: ${nStepsFlow}`);
     body = JSON.stringify({
@@ -193,7 +211,7 @@ export async function main({
     console.log("Detected custom script");
     body = JSON.stringify({
       kind: "script",
-      path: kind.substr(7),
+      path: kind.substring(7),
     });
   } else if (kind == "bigrawscript") {
     noVerify = true;
@@ -201,18 +219,51 @@ export async function main({
       kind: "rawscript",
       rawscript: {
         language: api.RawScript.language.BASH,
-        content: "# let's bloat that bash script, 3.. 2.. 1.. BOOM\n".repeat(25000) + "echo \"$WM_FLOW_JOB_ID\"\n",
+        content: "# let's bloat that bash script, 3.. 2.. 1.. BOOM\n".repeat(100) + "echo \"$WM_FLOW_JOB_ID\"\n",
       },
     });
   } else {
     throw new Error("Unknown script pattern " + kind);
   }
 
-  const response = await fetch(
-    config.server +
+  let testOtherTag = false;
+  if (testOtherTag) {
+    const otherTagTodo = 2000000;
+
+    let parsed = JSON.parse(body);
+    parsed.tag = "test";
+    let nbody = JSON.stringify(parsed);
+    let response2 = await fetch(
+      config.server +
       "/api/w/" +
       config.workspace_id +
-      `/jobs/add_batch_jobs/${jobsSent}`,
+      `/jobs/add_batch_jobs/${otherTagTodo}`,
+      {
+        method: "POST",
+        headers: {
+          ["Authorization"]: "Bearer " + config.token,
+          "Content-Type": "application/json",
+        },
+        body: nbody,
+      }
+    );
+    if (!response2.ok) {
+      throw new Error(
+        "Failed to create jobs: " +
+        response2.statusText +
+        " " +
+        (await response2.text())
+      );
+    }
+  }
+
+  pastJobs = await getCompletedJobsCount(NON_TEST_TAGS);
+
+  const response = await fetch(
+    config.server +
+    "/api/w/" +
+    config.workspace_id +
+    `/jobs/add_batch_jobs/${jobsSent}`,
     {
       method: "POST",
       headers: {
@@ -222,20 +273,24 @@ export async function main({
       body,
     }
   );
+
+
+
+
+
   if (!response.ok) {
     throw new Error(
       "Failed to create jobs: " +
-        response.statusText +
-        " " +
-        (await response.text())
+      response.statusText +
+      " " +
+      (await response.text())
     );
   }
   const uuids = await response.json();
   const end_create = Date.now();
   const create_duration = end_create - start_create;
   console.log(
-    `Jobs successfully added to the queue in ${
-      create_duration / 1000
+    `Jobs successfully added to the queue in ${create_duration / 1000
     }s. Windmill will start pulling them\n`
   );
   let start = Date.now();
@@ -244,18 +299,25 @@ export async function main({
   let lastElapsed = 0;
   let lastCompletedJobs = 0;
 
+  // Timeout: 10 minutes for the polling loop to prevent hanging forever
+  // (e.g. if WAC suspend/resume fails or jobs get stuck)
+  const POLL_TIMEOUT_MS = 10 * 60 * 1000;
   let didStart = false;
   while (completedJobs < jobsSent) {
     const loopStart = Date.now();
     if (!didStart) {
-      const actual_queue = await getQueueCount();
+      const actual_queue = await getQueueCount(NON_TEST_TAGS);
       if (actual_queue < jobsSent) {
         start = Date.now();
         didStart = true;
       }
     } else {
       const elapsed = start ? Date.now() - start : 0;
-      completedJobs = await getCompletedJobsCount();
+      if (elapsed > POLL_TIMEOUT_MS) {
+        console.error(`\nTimeout: benchmark did not complete within ${POLL_TIMEOUT_MS / 1000}s (${completedJobs}/${jobsSent} completed)`);
+        break;
+      }
+      completedJobs = await getCompletedJobsCount(NON_TEST_TAGS);
       if (nStepsFlow > 0) {
         completedJobs = Math.floor(completedJobs / (nStepsFlow + 1));
       }
@@ -263,9 +325,9 @@ export async function main({
       const instThr =
         lastElapsed > 0
           ? (
-              ((completedJobs - lastCompletedJobs) / (elapsed - lastElapsed)) *
-              1000
-            ).toFixed(2)
+            ((completedJobs - lastCompletedJobs) / (elapsed - lastElapsed)) *
+            1000
+          ).toFixed(2)
           : 0;
 
       lastElapsed = elapsed;
@@ -275,8 +337,7 @@ export async function main({
         enc(
           `elapsed: ${(elapsed / 1000).toFixed(
             2
-          )} | jobs executed: ${completedJobs}/${jobsSent} (thr: inst ${instThr} - avg ${avgThr}) | remaining: ${
-            jobsSent - completedJobs
+          )} | jobs executed: ${completedJobs}/${jobsSent} (thr: inst ${instThr} - avg ${avgThr}) | remaining: ${jobsSent - completedJobs
           }                          \r`
         )
       );
@@ -294,14 +355,17 @@ export async function main({
   console.log(`avg. throughput (jobs/time): ${jobsSent / total_duration_sec}`);
 
   console.log("completed jobs", completedJobs);
-  console.log("queue length:", await getQueueCount());
+  console.log("queue length:", await getQueueCount(NON_TEST_TAGS));
 
   if (
     !noVerify &&
     kind !== "noop" &&
     kind !== "nativets" &&
+    kind !== "dedicated_nativets" &&
     !kind.startsWith("flow:") &&
-    !kind.startsWith("script:")
+    !kind.startsWith("script:") &&
+    !WAC_KINDS.includes(kind) &&
+    !FLOW_COMPARISON_KINDS.includes(kind)
   ) {
     await verifyOutputs(uuids, config.workspace_id);
   }
@@ -350,7 +414,7 @@ if (import.meta.main) {
     )
     .option(
       "--kind <kind:string>",
-      "Specifiy the benchmark kind among: deno, identity, python, go, bash, dedicated, bun, noop, 2steps, nativets",
+      "Specifiy the benchmark kind among: deno, identity, python, go, bash, dedicated, bun, noop, 2steps, nativets, dedicated_nativets, wac_seq_2, wac_par_2, wac_seq_3, wac_inline_2, flow_seq_2_bun, flow_par_2_bun, flow_seq_3_bun",
       {
         required: true,
       }

@@ -5,7 +5,11 @@
 	import type { ConnectedAppInput, InputConnection } from '../../../inputType'
 	import { Plug, Unplug } from 'lucide-svelte'
 
-	export let componentInput: ConnectedAppInput
+	interface Props {
+		componentInput: ConnectedAppInput
+	}
+
+	let { componentInput = $bindable() }: Props = $props()
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -27,14 +31,14 @@
 	<Button
 		size="xs"
 		startIcon={{ icon: Unplug }}
-		color="red"
-		variant="border"
+		variant="default"
 		on:click={() => {
 			if (componentInput.type === 'connected') {
 				componentInput.connection = undefined
 			}
 			$app = $app
 		}}
+		destructive
 	>
 		Disconnect
 	</Button>

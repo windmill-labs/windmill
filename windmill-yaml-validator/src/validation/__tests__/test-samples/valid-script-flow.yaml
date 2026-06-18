@@ -1,0 +1,20 @@
+summary: Simple Script Flow
+description: A basic flow that runs a TypeScript script
+schema:
+  type: object
+  properties:
+    message:
+      type: string
+      default: "Hello World"
+value:
+  modules:
+    - id: script_step
+      value:
+        type: rawscript
+        input_transforms: {}
+        content: |
+          export async function main(message: string) {
+            console.log(message);
+            return { result: message.toUpperCase() };
+          }
+        language: deno

@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { getContext, onDestroy } from 'svelte'
+	import { stopPropagation, createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput, selectId } from '../../editor/appUtils'
 	import type {
@@ -17,74 +20,99 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { loadIcon } from '../icon'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let inputType = 'text'
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'textinputcomponent'> | undefined = undefined
-	export let appCssKey:
-		| 'textinputcomponent'
-		| 'passwordinputcomponent'
-		| 'emailinputcomponent'
-		| 'textareainputcomponent' = 'textinputcomponent'
-	export let render: boolean
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		inputType?: string
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		customCss?: ComponentCustomCSS<'textinputcomponent'> | undefined
+		appCssKey?:
+			| 'textinputcomponent'
+			| 'passwordinputcomponent'
+			| 'emailinputcomponent'
+			| 'textareainputcomponent'
+		render: boolean
+		onChange?: string[] | undefined
+	}
 
-	const { app, worldStore, selectedComponent, connectingInput, componentControl } =
-		getContext<AppViewerContext>('AppViewerContext')
+	let {
+		id,
+		configuration,
+		inputType = 'text',
+		verticalAlignment = undefined,
+		customCss = undefined,
+		appCssKey = 'textinputcomponent',
+		render,
+		onChange = undefined
+	}: Props = $props()
 
-	let resolvedConfig = initConfig(
-		components['textinputcomponent'].initialData.configuration,
-		configuration
+	const {
+		app,
+		worldStore,
+		selectedComponent,
+		connectingInput,
+		componentControl,
+		runnableComponents
+	} = getContext<AppViewerContext>('AppViewerContext')
+
+	let resolvedConfig = $state(
+		initConfig(components['textinputcomponent'].initialData.configuration, untrack(() => configuration))
 	)
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
-	let value: string | undefined = resolvedConfig.defaultValue
-
-	let outputs = initOutput($worldStore, id, {
-		result: value ?? ''
+	let outputs = initOutput($worldStore, untrack(() => id), {
+		result: undefined as string | undefined
 	})
+
+	let initValue = outputs?.result.peak()
+	let value: string | undefined = $state(
+		!iterContext && initValue && initValue != '' ? initValue : resolvedConfig.defaultValue
+	)
 
 	onDestroy(() => {
 		listInputs?.remove(id)
 	})
 
-	$componentControl[id] = {
+	$componentControl[untrack(() => id)] = {
 		setValue(nvalue: string) {
 			value = nvalue
+			outputs?.result.set(value)
 		}
 	}
 
-	$: handleDefault(resolvedConfig.defaultValue)
+	let initialHandleDefault = true
 
-	$: {
+	function onValueChange() {
 		let val = value ?? ''
 		outputs?.result.set(val)
 		if (iterContext && listInputs) {
 			listInputs.set(id, val)
 		}
+		fireOnChange()
+	}
+
+	function fireOnChange() {
+		if (onChange) {
+			onChange.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
+		}
 	}
 
 	function handleDefault(defaultValue: string | undefined) {
+		if (initialHandleDefault) {
+			initialHandleDefault = false
+			if (value != undefined && value != '') {
+				return
+			}
+		}
 		value = defaultValue
 	}
 
-	let css = initCss($app.css?.[appCssKey], customCss)
+	let css = $state(initCss($app.css?.[untrack(() => appCssKey)], untrack(() => customCss)))
 
-	$: classInput = twMerge(
-		'windmillapp w-full py-1.5 px-2 text-sm',
-		'app-editor-input',
-		css?.input?.class ?? '',
-		'wm-input',
-		'wm-text-input'
-	)
-
-	let beforeIconComponent: any
-	let afterIconComponent: any
-
-	$: resolvedConfig.beforeIcon && beforeIconComponent && handleBeforeIcon()
-	$: resolvedConfig.afterIcon && afterIconComponent && handleAfterIcon()
+	let beforeIconComponent: any = $state()
+	let afterIconComponent: any = $state()
 
 	async function handleBeforeIcon() {
 		if (resolvedConfig.beforeIcon) {
@@ -109,6 +137,29 @@
 			)
 		}
 	}
+	$effect.pre(() => {
+		resolvedConfig.defaultValue
+		untrack(() => handleDefault(resolvedConfig.defaultValue))
+	})
+	$effect.pre(() => {
+		value
+		untrack(() => onValueChange())
+	})
+	let classInput = $derived(
+		twMerge(
+			'windmillapp w-full py-1.5 px-2 text-sm',
+			'app-editor-input',
+			css?.input?.class ?? '',
+			'wm-input',
+			'wm-text-input'
+		)
+	)
+	$effect.pre(() => {
+		resolvedConfig.beforeIcon && beforeIconComponent && untrack(() => handleBeforeIcon())
+	})
+	$effect.pre(() => {
+		resolvedConfig.afterIcon && afterIconComponent && untrack(() => handleAfterIcon())
+	})
 </script>
 
 {#each Object.keys(components['textinputcomponent'].initialData.configuration) as key (key)}
@@ -143,20 +194,22 @@
 				'h-full'
 			)}
 			style="resize:none; {css?.input?.style ?? ''}"
-			on:pointerdown|stopPropagation={(e) =>
-				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
-			on:keydown|stopPropagation
+			onpointerdown={(e) => {
+				e.stopPropagation()
+				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)
+			}}
+			onkeydown={stopPropagation(bubble('keydown'))}
 			bind:value
 			placeholder={resolvedConfig.placeholder}
 			disabled={resolvedConfig.disabled}
-		/>
+		></textarea>
 	{:else}
 		<AlignWrapper {render} {verticalAlignment}>
 			<div class="relative w-full">
 				<div class="absolute top-1/2 -translate-y-1/2 left-2">
 					{#if resolvedConfig.beforeIcon}
 						{#key resolvedConfig.beforeIcon}
-							<div class="min-w-4" bind:this={beforeIconComponent} />
+							<div class="min-w-4" bind:this={beforeIconComponent}></div>
 						{/key}
 					{/if}
 				</div>
@@ -169,9 +222,11 @@
 							resolvedConfig.afterIcon ? '!pr-8' : ''
 						)}
 						style={css?.input?.style ?? ''}
-						on:pointerdown|stopPropagation={(e) =>
-							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
-						on:keydown|stopPropagation
+						onpointerdown={(e) => {
+							e.stopPropagation()
+							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)
+						}}
+						onkeydown={stopPropagation(bubble('keydown'))}
 						type="password"
 						autocomplete="new-password"
 						bind:value
@@ -186,9 +241,11 @@
 							resolvedConfig.afterIcon ? '!pr-8' : ''
 						)}
 						style={css?.input?.style ?? ''}
-						on:pointerdown|stopPropagation={(e) =>
-							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
-						on:keydown|stopPropagation
+						onpointerdown={(e) => {
+							e.stopPropagation()
+							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)
+						}}
+						onkeydown={stopPropagation(bubble('keydown'))}
 						type="text"
 						bind:value
 						placeholder={resolvedConfig.placeholder}
@@ -202,9 +259,11 @@
 							resolvedConfig.afterIcon ? '!pr-8' : ''
 						)}
 						style={css?.input?.style ?? ''}
-						on:pointerdown|stopPropagation={(e) =>
-							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
-						on:keydown|stopPropagation
+						onpointerdown={(e) => {
+							e.stopPropagation()
+							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)
+						}}
+						onkeydown={stopPropagation(bubble('keydown'))}
 						type="email"
 						bind:value
 						placeholder={resolvedConfig.placeholder}
@@ -215,7 +274,7 @@
 				<div class="absolute top-1/2 -translate-y-1/2 right-2">
 					{#if resolvedConfig.afterIcon}
 						{#key resolvedConfig.afterIcon}
-							<div class="min-w-4" bind:this={afterIconComponent} />
+							<div class="min-w-4" bind:this={afterIconComponent}></div>
 						{/key}
 					{/if}
 				</div>

@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { emptySchema, sendUserToast } from '$lib/utils'
+	import { emptySchema, sendUserToast, type StateStore } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { onDestroy, onMount, setContext } from 'svelte'
+	import { onDestroy, onMount, setContext, untrack } from 'svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import FlowPreviewButtons from '$lib/components/flows/header/FlowPreviewButtons.svelte'
 	import type {
@@ -9,29 +9,34 @@
 		FlowInput,
 		FlowInputEditorState
 	} from '$lib/components/flows/types'
+	import { SelectionManager } from '$lib/components/graph/selectionUtils.svelte'
 	import { writable } from 'svelte/store'
-	import { OpenAPI, type FlowModule, type OpenFlow, type TriggersCount } from '$lib/gen'
-	import { initHistory } from '$lib/history'
+	import { OpenAPI, type Job, type OpenFlow, type TriggersCount } from '$lib/gen'
+	import { initHistory } from '$lib/history.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
 	import FlowEditorPanel from '$lib/components/flows/content/FlowEditorPanel.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { page } from '$app/stores'
+	import { findModuleInFlow } from '$lib/components/flows/flowDiff'
+	import { page } from '$app/state'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
-	import type { ScheduleTrigger, TriggerContext } from '$lib/components/triggers'
+	import type { TriggerContext } from '$lib/components/triggers'
 	import type { FlowPropPickerConfig, PropPickerContext } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
+	import { Triggers } from '$lib/components/triggers/triggers.svelte'
+	import { StepsInputArgs } from '$lib/components/flows/stepsInputArgs.svelte'
+	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
 
-	let token = $page.url.searchParams.get('wm_token') ?? undefined
-	let workspace = $page.url.searchParams.get('workspace') ?? undefined
-	let themeDarkRaw = $page.url.searchParams.get('activeColorTheme')
+	let token = page.url.searchParams.get('wm_token') ?? undefined
+	let workspace = page.url.searchParams.get('workspace') ?? undefined
+	let themeDarkRaw = page.url.searchParams.get('activeColorTheme')
 	let themeDark = themeDarkRaw == '2' || themeDarkRaw == '4'
 
 	if (token) {
 		OpenAPI.WITH_CREDENTIALS = true
-		OpenAPI.TOKEN = $page.url.searchParams.get('wm_token')!
+		OpenAPI.TOKEN = page.url.searchParams.get('wm_token')!
 	}
 
 	if (workspace) {
@@ -47,63 +52,57 @@
 		userStore.set(user)
 	}
 
-	let darkModeToggle: DarkModeToggle
-	let darkMode: boolean | undefined = undefined
-	let modeInitialized = false
+	let darkModeToggle: DarkModeToggle | undefined = $state()
+	let darkMode: boolean = $state(document.documentElement.classList.contains('dark'))
+	let modeInitialized = $state(false)
+	let paneWidth = $state(0)
+	let compactPreview = $derived(paneWidth < 800)
 	function initializeMode() {
 		modeInitialized = true
-		darkModeToggle.toggle()
+		darkModeToggle?.toggle()
 	}
-	$: darkModeToggle &&
-		themeDark != darkMode &&
-		darkMode != undefined &&
-		!modeInitialized &&
-		initializeMode()
 
-	const flowStore = writable({
-		summary: '',
-		value: { modules: [] },
-		extra_perms: {},
-		schema: emptySchema()
-	} as OpenFlow)
+	const flowStore = $state({
+		val: {
+			summary: '',
+			value: { modules: [] },
+			extra_perms: {},
+			schema: emptySchema()
+		} as OpenFlow
+	})
 
-	let initialCode = JSON.stringify($flowStore, null, 4)
-	const flowStateStore = writable({} as FlowState)
+	let initialCode = JSON.stringify(flowStore, null, 4)
+	const flowStateStore = $state({ val: {} }) as StateStore<FlowState>
+	const suspendStatus = $state({ val: {} }) as StateStore<Record<string, { job: Job; nb: number }>>
 
-	const previewArgsStore = writable<Record<string, any>>({})
+	const previewArgsStore = $state({ val: {} })
 	const scriptEditorDrawer = writable(undefined)
-	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
-	const history = initHistory($flowStore)
+	const history = initHistory(flowStore.val)
 
-	const testStepStore = writable<Record<string, any>>({})
-	const selectedIdStore = writable('settings-metadata')
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
+	const stepsInputArgs = new StepsInputArgs()
+	const selectionManager = new SelectionManager()
+	selectionManager.selectId('settings-metadata')
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
-	const selectedTriggerStore = writable<
-		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll'
-	>('webhooks')
 	setContext<TriggerContext>('TriggerContext', {
-		primarySchedule: primaryScheduleStore,
-		selectedTrigger: selectedTriggerStore,
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),
-		defaultValues: writable(undefined),
-		captureOn: writable(undefined),
-		showCaptureHint: writable(undefined)
+		showCaptureHint: writable(undefined),
+		triggersState: new Triggers()
 	})
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
-		selectedId: selectedIdStore,
+		selectionManager,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
-		moving,
+		flowEditorDrawer: writable(undefined),
 		history,
 		pathStore: writable(''),
 		flowStateStore,
 		flowStore,
-		testStepStore,
+		stepsInputArgs,
 		saveDraft: () => {},
-		initialPath: '',
+		initialPathStore: writable(''),
+		fakeInitialPath: '',
 		flowInputsStore: writable<FlowInput>({}),
 		customUi: {},
 		insertButtonOpen: writable(false),
@@ -112,7 +111,12 @@
 			selectedTab: undefined,
 			editPanelSize: undefined,
 			payloadData: undefined
-		})
+		}),
+		currentEditor: writable(undefined),
+		modulesTestStates: new ModulesTestStates(),
+		outputPickerOpenFns: {},
+		preserveOnBehalfOf: writable(false),
+		savedOnBehalfOfEmail: writable<string | undefined>(undefined)
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
@@ -194,7 +198,7 @@
 			return
 		}
 		//@ts-ignore
-		testJobLoader.runPreview(currentScript.path, currentScript.content, args, undefined)
+		jobLoader.runPreview(currentScript.path, currentScript.content, args, undefined)
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
@@ -220,30 +224,53 @@
 		// 	validCode = false
 		// }
 	}
-	let editor: SimpleEditor
+	let editor: SimpleEditor | undefined = $state()
 
-	$: updateCode(editor, $flowStore)
-
-	function updateCode(editor: SimpleEditor, flow: OpenFlow) {
-		if (editor && !deepEqual(flow, JSON.parse(editor.getCode()))) {
-			editor.setCode(JSON.stringify(flow, null, 4))
+	function updateCode(editor: SimpleEditor | undefined, flow: OpenFlow) {
+		if (!editor) return
+		const code = editor.getCode()
+		if (!code) return
+		try {
+			if (!deepEqual(flow, JSON.parse(code))) {
+				editor.setCode(JSON.stringify(flow, null, 4))
+			}
+		} catch (e) {
+			// editor not ready yet
 		}
 	}
 
 	function updateFromCode(code: string) {
 		try {
-			if (!deepEqual(JSON.parse(code), $flowStore)) {
-				$flowStore = JSON.parse(code)
+			if (!deepEqual(JSON.parse(code), flowStore)) {
+				flowStore.val = JSON.parse(code)
 			}
 		} catch (e) {
 			console.error('issue parsing new change:', code, e)
 		}
 	}
 
-	let flowPreviewButtons: FlowPreviewButtons
+	const selectedId = $derived(selectionManager.getSelectedId())
+	const selectedModule = $derived(
+		selectedId && flowStore.val?.value
+			? findModuleInFlow(flowStore.val.value, selectedId) ?? undefined
+			: undefined
+	)
+
+	let flowPreviewButtons: FlowPreviewButtons | undefined = $state()
+	$effect(() => {
+		darkModeToggle &&
+			themeDark != darkMode &&
+			darkMode != undefined &&
+			!modeInitialized &&
+			untrack(() => initializeMode())
+	})
+	$effect(() => {
+		const args = [editor, flowStore.val] as const
+		untrack(() => updateCode(...args))
+	})
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} />
 
 <main class="h-screen w-full">
 	<div class="h-full w-full grid grid-cols-2">
@@ -255,7 +282,8 @@
 				updateFromCode(e.detail.code)
 			}}
 		/>
-		<div class="flex flex-col max-h-screen h-full relative">
+		<div class="flex flex-col max-h-screen h-full relative" bind:clientWidth={paneWidth}>
+			<div id="flow-editor"></div>
 			<div class="absolute top-0 left-2">
 				<DarkModeToggle bind:darkMode bind:this={darkModeToggle} forcedDarkMode={false} />
 				{#if $userStore}
@@ -265,14 +293,13 @@
 				{/if}
 			</div>
 
-			<div class="flex justify-center pt-1 z-50 absolute right-2 top-2 gap-2">
-				<FlowPreviewButtons bind:this={flowPreviewButtons} />
+			<div class="flex justify-center pt-1 z-50 absolute gap-2 {compactPreview ? 'left-1/2 -translate-x-1/2 top-14' : 'right-2 top-2'}">
+				<FlowPreviewButtons bind:this={flowPreviewButtons} {suspendStatus} />
 			</div>
-			<Splitpanes horizontal class="h-full max-h-screen grow">
+			<Splitpanes horizontal class="max-h-screen grow min-h-0">
 				<Pane size={33}>
-					{#if $flowStore?.value?.modules}
+					{#if flowStore.val?.value?.modules}
 						<FlowModuleSchemaMap
-							bind:modules={$flowStore.value.modules}
 							disableAi
 							disableTutorials
 							smallErrorHandler={true}
@@ -287,16 +314,27 @@
 						noEditor
 						on:applyArgs={(ev) => {
 							if (ev.detail.kind === 'preprocessor') {
-								$testStepStore['preprocessor'] = ev.detail.args ?? {}
-								$selectedIdStore = 'preprocessor'
+								stepsInputArgs.setStepArgs('preprocessor', ev.detail.args ?? {})
+								selectionManager.selectId('preprocessor')
 							} else {
-								$previewArgsStore = ev.detail.args ?? {}
+								previewArgsStore.val = ev.detail.args ?? {}
 								flowPreviewButtons?.openPreview()
 							}
 						}}
 					/>
 				</Pane>
 			</Splitpanes>
+			{#if selectedModule}
+				<div class="flex items-center gap-2 px-3 py-1.5 border-t border-border bg-surface shrink-0">
+					<span class="text-xs text-secondary shrink-0">{selectedModule.id} summary</span>
+					<input
+						type="text"
+						class="text-xs w-full bg-transparent border border-border rounded px-2 py-1 focus:outline-none focus:border-blue-500"
+						placeholder="Summary"
+						bind:value={selectedModule.summary}
+					/>
+				</div>
+			{/if}
 		</div>
 	</div>
 </main>

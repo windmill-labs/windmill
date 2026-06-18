@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { page } from '$app/stores'
 	import {
 		FlowService,
 		JobService,
@@ -9,13 +8,13 @@
 		type TriggersCount,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
-	import { canWrite, copyToClipboard, defaultIfEmptyString, emptyString } from '$lib/utils'
+	import { canWrite, defaultIfEmptyString, emptyString, urlParamsToObject } from '$lib/utils'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
-	import { Alert, Badge as HeaderBadge, Skeleton } from '$lib/components/common'
+	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -23,76 +22,94 @@
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
+	import AIFormAssistant from '$lib/components/copilot/AIFormAssistant.svelte'
 	import {
 		FolderOpen,
 		Archive,
 		Trash,
 		ChevronUpSquare,
-		Share,
-		Badge,
+		Shield,
 		Loader2,
 		GitFork,
 		Play,
 		History,
-		Columns,
 		Pen,
 		Eye,
 		HistoryIcon,
-		ClipboardCopy
+		LayoutDashboard
 	} from 'lucide-svelte'
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
-	import WebhooksPanel from '$lib/components/triggers/webhook/WebhooksPanel.svelte'
-	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
-	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
 	import { createAppFromFlow } from '$lib/components/details/createAppFromScript'
 	import { importStore } from '$lib/components/apps/store'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
-	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import FlowGraphViewerStep from '$lib/components/FlowGraphViewerStep.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
-	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 	import Star from '$lib/components/Star.svelte'
-	import RoutesPanel from '$lib/components/triggers/http/RoutesPanel.svelte'
-	import { Highlight } from 'svelte-highlight'
-	import json from 'svelte-highlight/languages/json'
+
 	import { writable } from 'svelte/store'
-	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
 	import InputSelectedBadge from '$lib/components/schema/InputSelectedBadge.svelte'
-	import WebsocketTriggersPanel from '$lib/components/triggers/websocket/WebsocketTriggersPanel.svelte'
-	import KafkaTriggersPanel from '$lib/components/triggers/kafka/KafkaTriggersPanel.svelte'
-	import NatsTriggersPanel from '$lib/components/triggers/nats/NatsTriggersPanel.svelte'
-	import PostgresTriggersPanel from '$lib/components/triggers/postgres/PostgresTriggersPanel.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import { onDestroy, tick, untrack } from 'svelte'
+	import LogViewer from '$lib/components/LogViewer.svelte'
+	import TriggersEditor from '$lib/components/triggers/TriggersEditor.svelte'
+	import type { TriggerContext } from '$lib/components/triggers'
+	import { setContext } from 'svelte'
+	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
+	import { Triggers } from '$lib/components/triggers/triggers.svelte'
+	import FlowAssetsHandler, {
+		initFlowGraphAssetsCtx
+	} from '$lib/components/flows/FlowAssetsHandler.svelte'
+	import { page } from '$app/state'
+	import FlowChat from '$lib/components/flows/conversations/FlowChat.svelte'
+	import { slide } from 'svelte/transition'
+	import { twMerge } from 'tailwind-merge'
+	import CiTestResults from '$lib/components/CiTestResults.svelte'
+	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { isCloudHosted } from '$lib/cloud'
 
-	let flow: Flow | undefined
-	let can_write = false
-	$: path = $page.params.path
-	let shareModal: ShareModal
-	let deploymentInProgress = false
+	let flow: Flow | undefined = $state()
+	let can_write = $state(false)
+	let shareModal: ShareModal | undefined = $state()
 
-	let scheduledForStr: string | undefined = undefined
-	let invisible_to_owner: boolean | undefined = undefined
-	let overrideTag: string | undefined = undefined
-	let inputSelected: 'saved' | 'history' | undefined = undefined
-	let jsonView = false
+	let scheduledForStr: string | undefined = $state(undefined)
+	let invisible_to_owner: boolean | undefined = $state(undefined)
+	let overrideTag: string | undefined = $state(undefined)
+	let inputSelected: 'saved' | 'history' | undefined = $state(undefined)
+	let jsonView = $state(false)
+	let deploymentInProgress = $state(false)
+	let deploymentJobId: string | undefined = $state(undefined)
+
+	let intervalId: number | undefined = undefined
 
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 
-	$: cliCommand = `wmill flow run ${flow?.path} -d '${JSON.stringify(args)}'`
+	// Add triggers context store
+	const triggersState = $state(
+		new Triggers([
+			{ type: 'webhook', path: '', isDraft: false },
+			{ type: 'default_email', path: '', isDraft: false },
+			{ type: 'cli', path: '', isDraft: false }
+		])
+	)
+	setContext<TriggerContext>('TriggerContext', {
+		triggersCount,
+		simplifiedPoll: writable(false),
+		showCaptureHint: writable(undefined),
+		triggersState
+	})
 
-	let previousPath: string | undefined = undefined
-	$: {
-		if ($workspaceStore && $userStore && $page.params.path) {
-			if (previousPath !== path) {
-				previousPath = path
-				loadFlow()
-				loadTriggersCount()
-			}
-		}
-	}
+	setContext(
+		'FlowGraphAssetContext',
+		initFlowGraphAssetsCtx({ getModules: () => flow?.value.modules ?? [] })
+	)
+
+	// `${path}|${version}` so navigating between pinned and latest re-runs loadFlow.
+	let previousLoadKey: string | undefined = $state(undefined)
 
 	async function archiveFlow(): Promise<void> {
 		await FlowService.archiveFlowByPath({
@@ -109,8 +126,6 @@
 		goto('/')
 	}
 
-	let starred: boolean | undefined = undefined
-
 	async function loadTriggersCount() {
 		$triggersCount = await FlowService.getTriggersCountOfFlow({
 			workspace: $workspaceStore!,
@@ -118,21 +133,72 @@
 		})
 	}
 
-	async function loadFlow(): Promise<void> {
-		flow = await FlowService.getFlowByPath({
-			workspace: $workspaceStore!,
+	async function loadTriggers(): Promise<void> {
+		await triggersState.fetchTriggers(
+			triggersCount,
+			$workspaceStore,
 			path,
-			withStarredInfo: true
-		})
-		starred = flow.starred
+			true,
+			undefined,
+			$userStore
+		)
+	}
+
+	let pinnedVersion: number | undefined = $state(undefined)
+
+	async function loadFlow(): Promise<void> {
+		const versionParam = page.url.searchParams.get('version')
+		const versionId = versionParam ? Number(versionParam) : NaN
+		if (Number.isFinite(versionId)) {
+			const versioned = await FlowService.getFlowVersion({
+				workspace: $workspaceStore!,
+				version: versionId
+			})
+			if (versioned.path !== path) {
+				sendUserToast(`Flow version ${versionId} belongs to ${versioned.path}, not ${path}.`, true)
+				goto(`/flows/get/${versioned.path}?workspace=${$workspaceStore}&version=${versionId}`)
+				return
+			}
+			flow = versioned
+			pinnedVersion = versionId
+		} else {
+			flow = await FlowService.getFlowByPath({
+				workspace: $workspaceStore!,
+				path,
+				withStarredInfo: true
+			})
+			pinnedVersion = undefined
+		}
 		if (!flow.path.startsWith(`u/${$userStore?.username}`) && flow.path.split('/').length > 2) {
 			invisible_to_owner = flow.visible_to_runner_only
+		}
+		intervalId && clearInterval(intervalId)
+		deploymentInProgress = flow.lock_error_logs == ''
+		if (deploymentInProgress) {
+			intervalId = setInterval(syncer, 500)
 		}
 		can_write = canWrite(flow.path, flow.extra_perms!, $userStore)
 	}
 
-	let isValid = true
-	let loading = false
+	let isValid = $state(true)
+	let loading = $state(false)
+
+	async function syncer(): Promise<void> {
+		if (flow) {
+			const status = await FlowService.getFlowDeploymentStatus({
+				workspace: $workspaceStore!,
+				path: flow.path
+			})
+			if (status.lock_error_logs == undefined || status.lock_error_logs != '') {
+				deploymentInProgress = false
+				deploymentJobId = undefined
+				flow.lock_error_logs = status.lock_error_logs
+				clearInterval(intervalId)
+			} else if (status.job_id) {
+				deploymentJobId = status.job_id
+			}
+		}
+	}
 
 	async function runFlow(
 		scheduledForStr: string | undefined,
@@ -160,22 +226,40 @@
 		}
 	}
 
-	let args: Record<string, any> | undefined = undefined
+	async function runFlowForChat(
+		userMessage: string,
+		conversationId: string,
+		additionalInputs?: Record<string, any>
+	): Promise<string> {
+		const run = await JobService.runFlowByPath({
+			workspace: $workspaceStore!,
+			path,
+			memoryId: conversationId,
+			requestBody: { user_message: userMessage, ...(additionalInputs ?? {}) },
+			skipPreprocessor: true
+		})
+		return run
+	}
+
+	let args: Record<string, any> | undefined = $state(undefined)
 
 	let hash = window.location.hash
 	if (hash.length > 1) {
 		try {
 			let searchParams = new URLSearchParams(hash.slice(1))
-			let params = [...searchParams.entries()].map(([k, v]) => [k, JSON.parse(v)])
+			let params = [...Object.entries(urlParamsToObject(searchParams))].map(([k, v]) => [
+				k,
+				JSON.parse(v)
+			])
 			args = Object.fromEntries(params)
 		} catch (e) {
 			console.error('Was not able to transform hash as args', e)
 		}
 	}
 
-	let moveDrawer: MoveDrawer
-	let deploymentDrawer: DeployWorkspaceDrawer
-	let runForm: RunForm
+	let moveDrawer: MoveDrawer | undefined = $state()
+	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
+	let runForm: RunForm | undefined = $state()
 
 	function getMainButtons(flow: Flow | undefined, args: object | undefined) {
 		const buttons: any = []
@@ -185,8 +269,26 @@
 				label: 'Fork',
 				buttonProps: {
 					href: `${base}/flows/add?template=${flow.path}`,
-					color: 'light',
-					size: 'xs',
+					variant: 'subtle',
+					unifiedSize: 'md',
+					disabled: !showEditButtons,
+					startIcon: GitFork
+				}
+			})
+		}
+
+		if (
+			flow &&
+			!$userStore?.operator &&
+			!isCloudHosted() &&
+			!isRuleActive('DisableWorkspaceForking')
+		) {
+			buttons.push({
+				label: 'Edit in fork',
+				buttonProps: {
+					href: buildForkEditUrl('flow', flow.path),
+					unifiedSize: 'md',
+					variant: !showEditButtons ? 'default' : 'subtle',
 					startIcon: GitFork
 				}
 			})
@@ -197,11 +299,11 @@
 		}
 
 		buttons.push({
-			label: `View runs`,
+			label: `Runs`,
 			buttonProps: {
 				href: `${base}/runs/${flow.path}`,
-				size: 'xs',
-				color: 'light',
+				unifiedSize: 'md',
+				variant: 'subtle',
 				startIcon: Play
 			}
 		})
@@ -209,12 +311,9 @@
 		buttons.push({
 			label: `History`,
 			buttonProps: {
-				onClick: () => {
-					flowHistory?.open()
-				},
-
-				size: 'xs',
-				color: 'light',
+				onClick: () => flowHistory?.open(),
+				unifiedSize: 'md',
+				variant: 'subtle',
 				startIcon: History
 			}
 		})
@@ -230,23 +329,22 @@
 					onClick: async () => {
 						const app = createAppFromFlow(flow.path, flow.schema)
 						$importStore = JSON.parse(JSON.stringify(app))
-						await goto('/apps/add?nodraft=true')
+						await goto('/apps/add')
 					},
-
-					size: 'xs',
-					color: 'light',
-					startIcon: Columns
+					unifiedSize: 'md',
+					variant: 'subtle',
+					disabled: !showEditButtons,
+					startIcon: LayoutDashboard
 				}
 			})
 
 			buttons.push({
 				label: 'Edit',
 				buttonProps: {
-					href: `${base}/flows/edit/${path}?nodraft=true`,
-					variant: 'contained',
-					size: 'xs',
-					color: 'dark',
-					disabled: !can_write,
+					href: `${base}/flows/edit/${path}`,
+					variant: 'accent',
+					unifiedSize: 'md',
+					disabled: !can_write || !showEditButtons,
 					startIcon: Pen
 				}
 			})
@@ -254,16 +352,14 @@
 		return buttons
 	}
 
-	$: mainButtons = getMainButtons(flow, args)
-
-	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
 
 	async function getDeployUiSettings() {
 		if (!$enterpriseLicense) {
 			deployUiSettings = ALL_DEPLOYABLE
 			return
 		}
-		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		let settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })
 		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
 	}
 	getDeployUiSettings()
@@ -277,17 +373,19 @@
 		const menuItems: any = []
 
 		menuItems.push({
-			label: 'Share',
-			onclick: () => shareModal.openDrawer(flow?.path ?? '', 'flow'),
-			Icon: Share,
+			label: 'Permissions',
+			onclick: () => shareModal?.openDrawer(flow?.path ?? '', 'flow'),
+			Icon: Shield,
 			disabled: !can_write
 		})
 
-		menuItems.push({
-			label: 'Move/Rename',
-			onclick: () => moveDrawer.openDrawer(flow?.path ?? '', flow?.summary, 'flow'),
-			Icon: FolderOpen
-		})
+		if (showEditButtons) {
+			menuItems.push({
+				label: 'Move/Rename',
+				onclick: () => moveDrawer?.openDrawer(flow?.path ?? '', flow?.summary, 'flow'),
+				Icon: FolderOpen
+			})
+		}
 
 		menuItems.push({
 			label: 'Audit logs',
@@ -300,12 +398,12 @@
 		if (isDeployable('flow', flow?.path ?? '', deployUiSettings)) {
 			menuItems.push({
 				label: 'Deploy to staging/prod',
-				onclick: () => deploymentDrawer.openDrawer(flow?.path ?? '', 'flow'),
+				onclick: () => deploymentDrawer?.openDrawer(flow?.path ?? '', 'flow'),
 				Icon: ChevronUpSquare
 			})
 		}
 
-		if (can_write) {
+		if (can_write && showEditButtons) {
 			menuItems.push({
 				label: 'Deployments',
 				onclick: () => flowHistory?.open(),
@@ -327,6 +425,10 @@
 		return menuItems
 	}
 
+	onDestroy(() => {
+		intervalId && clearInterval(intervalId)
+	})
+
 	function onKeyDown(event: KeyboardEvent) {
 		switch (event.key) {
 			case 'Enter':
@@ -341,19 +443,59 @@
 				break
 		}
 	}
-	let stepDetail: FlowModule | string | undefined = undefined
-	let token = 'TOKEN_TO_CREATE'
-	let rightPaneSelected = 'saved_inputs'
-	let savedInputsV2: SavedInputsV2 | undefined = undefined
-	let flowHistory: FlowHistory | undefined = undefined
+	let stepDetail: FlowModule | string | undefined = $state(undefined)
+	let rightPaneSelected = $state('saved_inputs')
+	let savedInputsV2: SavedInputsV2 | undefined = $state(undefined)
+	let flowHistory: FlowHistory | undefined = $state(undefined)
+	let path = $derived(page.params.path ?? '')
+
+	let topSectionHeight = $state(0)
+	let paneHeight = $state(0)
+	let flowGraphHeight = $state(0)
+
+	let graphMinHeight = $derived.by(() => {
+		if (!topSectionHeight || !paneHeight) return 400
+		const availableHeight = paneHeight - topSectionHeight - 1 // Account for the separator between the top section and the graph
+		return Math.max(400, availableHeight)
+	})
+
+	$effect(() => {
+		const cliTrigger = triggersState.triggers.find((t) => t.type === 'cli')
+		if (cliTrigger) {
+			cliTrigger.extra = {
+				cliCommand: `wmill flow run ${flow?.path} -d '${JSON.stringify(args)}'`
+			}
+		}
+	})
+	$effect(() => {
+		if ($workspaceStore && $userStore && page.params.path) {
+			const versionParam = page.url.searchParams.get('version') ?? ''
+			const loadKey = `${$workspaceStore}|${path}|${versionParam}`
+			if (previousLoadKey !== loadKey) {
+				previousLoadKey = loadKey
+				untrack(() => {
+					loadFlow()
+					loadTriggersCount()
+					loadTriggers()
+				})
+			}
+		}
+	})
+	let showEditButtons = $state(false)
+	let mainButtons = $derived(getMainButtons(flow, args))
+	let chatInputEnabled = $derived(flow?.value?.chat_input_enabled ?? false)
+	let shouldUseStreaming = $derived.by(() => {
+		const modules = flow?.value?.modules
+		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
+		return (
+			lastModule?.value?.type === 'aiagent' &&
+			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
+			lastModule?.value?.input_transforms?.streaming?.value === true
+		)
+	})
 </script>
 
-<Skeleton
-	class="!max-w-7xl !px-4 sm:!px-6 md:!px-8"
-	loading={!flow}
-	layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }], 0.2, [{ h: 1, w: 30 }]]}
-/>
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} />
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <ShareModal bind:this={shareModal} />
 <MoveDrawer
@@ -364,260 +506,333 @@
 	}}
 />
 {#if flow}
-	<FlowHistory bind:this={flowHistory} path={flow.path} on:historyRestore={loadFlow} />
+	<FlowHistory bind:this={flowHistory} path={flow.path} onHistoryRestore={loadFlow} />
 {/if}
 
-{#if flow}
-	<DetailPageLayout
-		{triggersCount}
-		bind:selected={rightPaneSelected}
-		isOperator={$userStore?.operator}
-		flow_json={{
-			value: flow.value,
-			summary: flow.summary,
-			description: flow.description,
-			schema: flow.schema
-		}}
-	>
-		<svelte:fragment slot="header">
-			<DetailPageHeader
-				on:seeTriggers={() => {
-					rightPaneSelected = 'triggers'
-				}}
-				{mainButtons}
-				menuItems={getMenuItems(flow, deployUiSettings)}
-				title={defaultIfEmptyString(flow.summary, flow.path)}
-				bind:errorHandlerMuted={flow.ws_error_handler_muted}
-				scriptOrFlowPath={flow.path}
-				errorHandlerKind="flow"
-				tag={flow.tag}
-			>
-				<svelte:fragment slot="trigger-badges">
-					<TriggersBadge
-						showOnlyWithCount={true}
-						{path}
-						newItem={false}
-						isFlow
-						selected={rightPaneSelected == 'triggers'}
-						on:select={() => {
-							rightPaneSelected = 'triggers'
-						}}
-					/>
-				</svelte:fragment>
-				{#if $workspaceStore}
-					<Star
-						kind="flow"
-						path={flow.path}
-						{starred}
-						workspace_id={$workspaceStore}
-						on:starred={() => {
-							starred = !starred
-						}}
-					/>
-				{/if}
-				{#if flow?.value?.priority != undefined}
-					<div class="hidden md:block">
-						<HeaderBadge color="blue" variant="outlined" size="xs">
-							{`Priority: ${flow?.value?.priority}`}
-						</HeaderBadge>
-					</div>
-				{/if}
-				{#if flow?.value?.concurrent_limit != undefined && flow?.value?.concurrency_time_window_s != undefined}
-					<div class="hidden md:block">
-						<HeaderBadge color="gray" variant="outlined" size="xs">
-							{`Concurrency limit: ${flow?.value?.concurrent_limit} runs every ${flow?.value?.concurrency_time_window_s}s`}
-						</HeaderBadge>
-					</div>
-				{/if}
-			</DetailPageHeader>
-		</svelte:fragment>
-		<svelte:fragment slot="form">
-			<div class="flex-col flex h-full justify-between">
-				<div class="p-8 w-full max-w-3xl mx-auto gap-2 bg-surface">
-					<div class="mb-1">
+<DetailPageLayout
+	bind:selected={rightPaneSelected}
+	isOperator={$userStore?.operator}
+	forceSmallScreen={chatInputEnabled}
+	isChatMode={chatInputEnabled}
+	flow_json={{
+		value: flow?.value,
+		summary: flow?.summary,
+		description: flow?.description,
+		schema: flow?.schema
+	}}
+>
+	{#snippet header()}
+		<DetailPageHeader
+			on:seeTriggers={() => {
+				rightPaneSelected = 'triggers'
+			}}
+			{mainButtons}
+			menuItems={getMenuItems(flow, deployUiSettings)}
+			bind:errorHandlerMuted={
+				() => flow?.ws_error_handler_muted ?? false,
+				(v) => {
+					if (flow !== undefined) flow.ws_error_handler_muted = v
+				}
+			}
+			scriptOrFlowPath={flow?.path ?? ''}
+			errorHandlerKind="flow"
+			tag={flow?.tag ?? ''}
+			labels={flow?.labels}
+			inheritedLabels={flow?.inherited_labels}
+			summary={flow?.summary}
+			path={flow?.path}
+			onSaved={can_write
+				? async (newPath) => {
+						if (newPath !== flow?.path) {
+							await goto(`/flows/get/${newPath}?workspace=${$workspaceStore}`)
+						} else {
+							loadFlow()
+						}
+					}
+				: undefined}
+		>
+			{#snippet trigger_badges()}
+				<TriggersBadge
+					showOnlyWithCount={true}
+					showDraft={false}
+					{path}
+					newItem={false}
+					isFlow
+					selected={rightPaneSelected == 'triggers'}
+					onSelect={async (triggerIndex: number) => {
+						rightPaneSelected = 'triggers'
+						await tick()
+						triggersState.selectedTriggerIndex = triggerIndex
+					}}
+					small={false}
+				/>
+			{/snippet}
+			{#if $workspaceStore && flow}
+				<Star kind="flow" path={flow.path} summary={flow.summary} />
+			{/if}
+			{#if flow?.value?.priority != undefined}
+				<div class="hidden md:block">
+					<HeaderBadge color="blue" variant="outlined" size="xs">
+						{`Priority: ${flow?.value?.priority}`}
+					</HeaderBadge>
+				</div>
+			{/if}
+			{#if flow?.value?.concurrent_limit != undefined && flow?.value?.concurrency_time_window_s != undefined}
+				<div class="hidden md:block">
+					<HeaderBadge color="gray" variant="outlined" size="xs">
+						{`Concurrency limit: ${flow?.value?.concurrent_limit} runs every ${flow?.value?.concurrency_time_window_s}s`}
+					</HeaderBadge>
+				</div>
+			{/if}
+		</DetailPageHeader>
+	{/snippet}
+	{#snippet form()}
+		<div class="px-3">
+			<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showEditButtons = v)} />
+		</div>
+		{#if flow}
+			<div class="flex flex-col h-full bg-surface divide-y" bind:clientHeight={paneHeight}>
+				<div bind:clientHeight={topSectionHeight} class={twMerge(chatInputEnabled ? 'h-full' : '')}>
+					<div
+						class={twMerge(
+							'w-full flex flex-col',
+							chatInputEnabled ? 'p-3 h-full' : 'max-w-3xl p-6 min-h-[300px] justify-center',
+							'mx-auto'
+						)}
+					>
+						{#if flow?.path}
+							<CiTestResults path={flow.path} kind="flow" />
+						{/if}
+
+						{#if flow?.archived}
+							<Alert type="error" title="Archived">This flow was archived</Alert>
+							<div class="h-4"></div>
+						{/if}
+
+						{#if pinnedVersion !== undefined}
+							<Alert type="info" title="Viewing pinned version {pinnedVersion}">
+								This is a historical version of the flow, not the latest.
+								<a class="underline" href="/flows/get/{path}?workspace={$workspaceStore}">
+									View latest
+								</a>
+							</Alert>
+							<div class="h-4"></div>
+						{/if}
+
 						{#if !emptyString(flow?.description)}
-							<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} />
+							<div class="p-4 rounded-md bg-surface-secondary">
+								<GfmMarkdown
+									md={defaultIfEmptyString(flow?.description, 'No description')}
+									noPadding
+								/>
+							</div>
+							<div class="h-4"></div>
+						{/if}
+
+						{#if deploymentInProgress}
+							<div class="pb-4" transition:slide={{ duration: 150 }}>
+								<HeaderBadge color="yellow">
+									<Loader2 size={12} class="inline animate-spin mr-1" />
+									Deployment in progress
+									{#if deploymentJobId}
+										<a
+											href="/run/{deploymentJobId}?workspace={$workspaceStore}"
+											class="underline"
+											target="_blank">view job</a
+										>
+									{/if}
+								</HeaderBadge>
+							</div>
+						{/if}
+						{#if flow.lock_error_logs && flow.lock_error_logs != ''}
+							<Alert type="error" title="Deployment failed">
+								<p>
+									This flow has not been deployed successfully because of the following errors:
+								</p>
+								<LogViewer content={flow.lock_error_logs} isLoading={false} tag={undefined} />
+							</Alert>
+							<div class="h-4"></div>
+						{/if}
+
+						{#if chatInputEnabled}
+							<!-- Chat Layout with Sidebar -->
+							<FlowChat
+								onRunFlow={runFlowForChat}
+								{deploymentInProgress}
+								path={flow?.path ?? ''}
+								useStreaming={shouldUseStreaming}
+								inputSchema={flow?.schema}
+							/>
+						{:else}
+							{@const hasSchema =
+								flow.schema && Object.keys(flow.schema.properties ?? {}).length > 0}
+							<!-- Normal Mode: Form Layout -->
+							<div class="flex flex-col align-left">
+								{#if hasSchema || inputSelected}
+									<div
+										class="flex flex-row justify-between min-h-12"
+										transition:slide={{ duration: 150 }}
+									>
+										<InputSelectedBadge
+											onReject={() => {
+												savedInputsV2?.resetSelected()
+											}}
+											{inputSelected}
+										/>
+
+										{#if hasSchema}
+											<Toggle
+												bind:checked={jsonView}
+												size="xs"
+												options={{
+													right: 'JSON',
+													rightTooltip: 'Fill args from JSON'
+												}}
+												lightMode
+												on:change={(e) => {
+													runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+												}}
+											/>
+										{/if}
+									</div>
+								{/if}
+
+								{#if flow.schema?.prompt_for_ai !== undefined}
+									<AIFormAssistant
+										instructions={flow.schema?.prompt_for_ai as string}
+										onEditInstructions={() => {
+											goto(`/flows/edit/${flow?.path}`)
+										}}
+										runnableType="flow"
+									/>
+								{/if}
+
+								<RunForm
+									bind:scheduledForStr
+									bind:invisible_to_owner
+									bind:overrideTag
+									viewKeybinding
+									{loading}
+									autofocus
+									detailed={false}
+									bind:isValid
+									runnable={flow}
+									runAction={runFlow}
+									bind:args
+									bind:this={runForm}
+									{jsonView}
+								/>
+							</div>
+
+							<div class="pt-4 flex flex-col gap-1 w-full items-end">
+								<span class="text-2xs text-secondary">
+									Edited <TimeAgo date={flow.edited_at ?? ''} noSeconds /> by {flow.edited_by}
+								</span>
+							</div>
 						{/if}
 					</div>
-
-					{#if deploymentInProgress}
-						<Badge color="yellow">
-							<Loader2 size={12} class="inline animate-spin mr-1" />
-							Deployment in progress
-						</Badge>
-					{/if}
-
-					<div class="flex flex-col align-left">
-						<div class="flex flex-row justify-between">
-							<InputSelectedBadge
-								on:click={() => {
-									savedInputsV2?.resetSelected()
-								}}
-								{inputSelected}
-							/>
-							<Toggle
-								bind:checked={jsonView}
-								label="JSON View"
-								size="xs"
-								options={{
-									right: 'JSON',
-									rightTooltip: 'Fill args from JSON'
-								}}
-								lightMode
-								on:change={(e) => {
-									runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
-								}}
-							/>
-						</div>
-
-						<RunForm
-							bind:scheduledForStr
-							bind:invisible_to_owner
-							bind:overrideTag
-							viewKeybinding
-							{loading}
-							autofocus
-							detailed={false}
-							bind:isValid
-							runnable={flow}
-							runAction={runFlow}
-							bind:args
-							bind:this={runForm}
-							{jsonView}
+				</div>
+				{#if !chatInputEnabled}
+					<div class="grow min-h-0">
+						<FlowGraphViewer
+							triggerNode={true}
+							download
+							{flow}
+							noSide={true}
+							minHeight={graphMinHeight}
+							on:select={(e) => {
+								if (e.detail) {
+									stepDetail = e.detail
+									rightPaneSelected = 'flow_step'
+								} else {
+									stepDetail = undefined
+									rightPaneSelected = 'saved_inputs'
+								}
+							}}
+							on:triggerDetail={(e) => {
+								rightPaneSelected = 'triggers'
+							}}
+							noBorder={true}
 						/>
 					</div>
+				{/if}
+			</div>
+		{/if}
+	{/snippet}
+	{#snippet save_inputs()}
+		<SavedInputsV2
+			bind:this={savedInputsV2}
+			schema={flow?.schema}
+			{jsonView}
+			flowPath={flow?.path}
+			{isValid}
+			args={args ?? {}}
+			bind:inputSelected
+			on:selected_args={(e) => {
+				const nargs = JSON.parse(JSON.stringify(e.detail))
+				args = nargs
+				if (jsonView) {
+					runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+				}
+			}}
+		/>
+	{/snippet}
 
-					<div class="py-10" />
-
-					{#if !emptyString(flow.summary)}
-						<div class="mb-2">
-							<span class="!text-tertiary">{flow.path}</span>
-						</div>
-					{/if}
-					<div class="flex flex-row gap-x-2 flex-wrap items-center">
-						<span class="text-sm text-tertiary">
-							Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
-						</span>
-
-						{#if flow.archived}
-							<div class="" />
-							<Alert type="error" title="Archived">This flow was archived</Alert>
-						{/if}
-					</div>
-				</div>
-				<div class="mt-8">
-					<FlowGraphViewer
-						triggerNode={true}
-						download
-						{flow}
-						overflowAuto
-						noSide={true}
-						on:select={(e) => {
-							if (e.detail) {
-								stepDetail = e.detail
-								rightPaneSelected = 'flow_step'
-							} else {
-								stepDetail = undefined
-								rightPaneSelected = 'saved_inputs'
-							}
-						}}
-						on:triggerDetail={(e) => {
-							rightPaneSelected = 'triggers'
-						}}
-					/>
-				</div>
-			</div>
-		</svelte:fragment>
-		<svelte:fragment slot="save_inputs">
-			<SavedInputsV2
-				bind:this={savedInputsV2}
-				{jsonView}
-				flowPath={flow?.path}
-				{isValid}
-				args={args ?? {}}
-				bind:inputSelected
-				on:selected_args={(e) => {
-					const nargs = JSON.parse(JSON.stringify(e.detail))
-					args = nargs
-				}}
-			/>
-		</svelte:fragment>
-		<svelte:fragment slot="schema">
-			<div class="p-1 relative">
-				<button
-					on:click={() => copyToClipboard(JSON.stringify(flow?.schema, null, 4))}
-					class="absolute top-2 right-2"
-				>
-					<ClipboardCopy size={14} />
-				</button>
-				<Highlight language={json} code={JSON.stringify(flow?.schema, null, 4)} />
-			</div>
-		</svelte:fragment>
-		<svelte:fragment slot="webhooks">
-			<div class="p-2">
-				<WebhooksPanel
-					bind:token
-					scopes={[`run:flow/${flow?.path}`]}
-					path={flow?.path}
-					isFlow={true}
-					{args}
-				/>
-			</div>
-		</svelte:fragment>
-		<svelte:fragment slot="routes">
-			<div class="p-2">
-				<RoutesPanel path={flow.path ?? ''} isFlow />
-			</div>
-		</svelte:fragment>
-		<svelte:fragment slot="websockets">
-			<div class="p-2">
-				<WebsocketTriggersPanel path={flow.path ?? ''} isFlow />
-			</div>
-		</svelte:fragment>
-
-		<svelte:fragment slot="kafka">
-			<div class="p-2">
-				<KafkaTriggersPanel path={flow.path ?? ''} isFlow />
-			</div>
-		</svelte:fragment>
-
-		<svelte:fragment slot="postgres">
-			<div class="p-2">
-				<PostgresTriggersPanel path={flow.path ?? ''} isFlow />
-			</div>
-		</svelte:fragment>
-		<svelte:fragment slot="nats">
-			<div class="p-2">
-				<NatsTriggersPanel path={flow.path ?? ''} isFlow />
-			</div>
-		</svelte:fragment>
-
-		<svelte:fragment slot="emails">
-			<div class="p-2">
-				<EmailTriggerPanel
-					bind:token
-					scopes={[`run:flow/${flow?.path}`]}
-					path={flow?.path}
-					isFlow={true}
-				/>
-			</div>
-		</svelte:fragment>
-		<svelte:fragment slot="schedules">
-			<div class="p-2">
-				<RunPageSchedules schema={flow.schema} isFlow={true} path={flow.path ?? ''} {can_write} />
-			</div>
-		</svelte:fragment>
-		<svelte:fragment slot="cli">
-			<div class="p-2">
-				<ClipboardPanel content={cliCommand} />
-				<CliHelpBox />
-			</div>
-		</svelte:fragment>
-
-		<svelte:fragment slot="flow_step">
+	{#snippet flow_step()}
+		{#if flow}
 			{#if stepDetail}
 				<FlowGraphViewerStep schema={flow.schema} {stepDetail} />
 			{/if}
-		</svelte:fragment>
-	</DetailPageLayout>
-{/if}
+		{/if}
+	{/snippet}
+	{#snippet triggers()}
+		{#if flow}
+			<TriggersEditor
+				{args}
+				runnableVersion={flow.version_id?.toString()}
+				initialPath={flow.path}
+				currentPath={flow.path}
+				noEditor={true}
+				newItem={false}
+				isFlow={true}
+				schema={flow.schema}
+				isDeployed={true}
+				noCapture={true}
+				isEditor={false}
+			/>
+		{/if}
+	{/snippet}
+
+	{#snippet flow_graph()}
+		{#if flow}
+			<div class="h-full overflow-auto" bind:clientHeight={flowGraphHeight}>
+				<FlowGraphViewer
+					triggerNode={true}
+					download
+					{flow}
+					noSide={false}
+					noBorder
+					minHeight={flowGraphHeight}
+					on:select={(e) => {
+						if (e.detail) {
+							stepDetail = e.detail
+							rightPaneSelected = 'flow_step'
+						} else {
+							stepDetail = undefined
+							rightPaneSelected = 'saved_inputs'
+						}
+					}}
+					on:triggerDetail={(e) => {
+						rightPaneSelected = 'triggers'
+					}}
+				/>
+			</div>
+		{/if}
+	{/snippet}
+</DetailPageLayout>
+
+<FlowAssetsHandler
+	modules={flow?.value.modules ?? []}
+	enableDbExplore
+	enablePathScriptAndFlowAssets
+/>

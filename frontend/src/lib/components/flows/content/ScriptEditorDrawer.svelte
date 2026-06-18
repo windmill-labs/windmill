@@ -17,18 +17,19 @@
 	import { fade } from 'svelte/transition'
 	import WorkerTagSelect from '$lib/components/WorkerTagSelect.svelte'
 
-	let scriptEditorDrawer: Drawer
+	let scriptEditorDrawer: Drawer | undefined = $state()
 
 	const dispatch = createEventDispatcher()
 
 	export async function openDrawer(hash: string, cb: () => void): Promise<void> {
 		script = undefined
-		scriptEditorDrawer.openDrawer?.()
+		closeAnyway = false
+		scriptEditorDrawer?.openDrawer?.()
 		script = await ScriptService.getScriptByHash({
 			workspace: $workspaceStore!,
 			hash
 		})
-		savedScript = structuredClone(script)
+		savedScript = structuredClone($state.snapshot(script))
 		callback = cb
 	}
 
@@ -49,10 +50,10 @@
 				dedicated_worker?: boolean
 				visible_to_runner_only?: boolean
 				on_behalf_of_email?: string
-				no_main_func?: boolean
+				auto_kind?: string
 				has_preprocessor?: boolean
 		  }
-		| undefined = undefined
+		| undefined = $state(undefined)
 
 	let savedScript:
 		| {
@@ -70,10 +71,10 @@
 				dedicated_worker?: boolean
 				visible_to_runner_only?: boolean
 				on_behalf_of_email?: string
-				no_main_func?: boolean
+				auto_kind?: string
 				has_preprocessor?: boolean
 		  }
-		| undefined = undefined
+		| undefined = $state(undefined)
 
 	async function saveScript(): Promise<void> {
 		if (script) {
@@ -81,7 +82,7 @@
 				script.schema = script.schema ?? emptySchema()
 				try {
 					const result = await inferArgs(script.language, script.content, script.schema)
-					script.no_main_func = result?.no_main_func || undefined
+					script.auto_kind = result?.auto_kind || undefined
 					script.has_preprocessor = result?.has_preprocessor || undefined
 				} catch (error) {
 					sendUserToast(`Could not parse code, are you sure it is valid?`, true)
@@ -100,7 +101,7 @@
 						lock: undefined
 					}
 				})
-				savedScript = structuredClone(script)
+				savedScript = structuredClone($state.snapshot(script))
 				callback?.()
 			} catch (error) {
 				sendUserToast(`Impossible to save the script: ${error.body}`, true)
@@ -108,13 +109,12 @@
 		}
 	}
 
-	let closeAnyway = false
-	let diffDrawer: DiffDrawer
-	let unsavedModalOpen = false
+	let closeAnyway = $state(false)
+	let diffDrawer: DiffDrawer | undefined = $state()
+	let unsavedModalOpen = $state(false)
 	async function checkForUnsavedChanges() {
 		if (closeAnyway) {
-			scriptEditorDrawer.closeDrawer()
-			closeAnyway = false
+			scriptEditorDrawer?.closeDrawer()
 			return
 		}
 		if (savedScript && script) {
@@ -122,14 +122,16 @@
 			const current = cleanValueProperties(script)
 			if (orderedJsonStringify(saved) !== orderedJsonStringify(current)) {
 				unsavedModalOpen = true
+				scriptEditorDrawer?.openDrawer()
 			} else {
-				scriptEditorDrawer.closeDrawer()
+				scriptEditorDrawer?.closeDrawer()
 			}
 		}
 	}
-</script>
+	let args = $state({})
 
-<!-- <UnsavedConfirmationModal savedValue={savedScript} modifiedValue={script} {diffDrawer} /> -->
+	let displayEditor = $state(true)
+</script>
 
 <ConfirmationModal
 	open={unsavedModalOpen}
@@ -139,17 +141,17 @@
 		unsavedModalOpen = false
 	}}
 	on:confirmed={() => {
-		unsavedModalOpen = false
+		console.log('confirmed')
 		closeAnyway = true
-		scriptEditorDrawer.closeDrawer()
+		unsavedModalOpen = false
+		scriptEditorDrawer?.closeDrawer()
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
 		<span>Are you sure you want to discard the changes you have made? </span>
 		<Button
 			wrapperClasses="self-start"
-			color="light"
-			variant="border"
+			variant="default"
 			size="xs"
 			on:click={() => {
 				if (!savedScript || !script) {
@@ -157,9 +159,9 @@
 				}
 				unsavedModalOpen = false
 				closeAnyway = true
-				scriptEditorDrawer.closeDrawer()
-				diffDrawer.openDrawer()
-				diffDrawer.setDiff({
+				displayEditor = false
+				diffDrawer?.openDrawer()
+				diffDrawer?.setDiff({
 					title: 'Saved <> Current',
 					mode: 'simple',
 					original: savedScript,
@@ -168,7 +170,7 @@
 						text: 'Close anyway',
 						onClick: () => {
 							closeAnyway = true
-							diffDrawer.closeDrawer()
+							diffDrawer?.closeDrawer()
 						}
 					}
 				})
@@ -183,7 +185,6 @@
 	bind:this={scriptEditorDrawer}
 	size="1200px"
 	on:close={() => {
-		scriptEditorDrawer.openDrawer()
 		checkForUnsavedChanges()
 	}}
 >
@@ -193,50 +194,54 @@
 		forceOverflowVisible
 		fullScreen
 		on:close={() => {
-			scriptEditorDrawer.closeDrawer()
+			scriptEditorDrawer?.closeDrawer()
 		}}
 	>
-		{#if script}
+		{#if script && displayEditor}
 			{#key script.hash}
 				<ScriptEditor
+					showCaptures={false}
 					on:saveDraft={() => {
 						saveScript()
 					}}
 					noSyncFromGithub
 					lang={script.language}
 					path={script.path}
+					autoKind={script.auto_kind}
 					tag={script.tag}
 					fixedOverflowWidgets={false}
 					bind:code={script.content}
 					bind:schema={script.schema}
+					{args}
 				>
-					<div slot="editor-bar-right">
-						<WorkerTagSelect bind:tag={script.tag} />
-					</div>
+					{#snippet editorBarRight()}
+						<div>
+							<WorkerTagSelect bind:tag={() => script?.tag, (v) => script && (script.tag = v)} />
+						</div>
+					{/snippet}
 				</ScriptEditor>
 			{/key}
 		{:else}
 			<div
 				out:fade={{ duration: 200 }}
-				class="absolute inset-0 center-center flex-col bg-surface text-tertiary border"
+				class="absolute inset-0 center-center flex-col bg-surface text-primary border"
 			>
 				<Loader2 class="animate-spin" size={16} />
 				<span class="text-xs mt-1">Loading</span>
 			</div>
 		{/if}
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button
 				disabled={!savedScript || !script}
-				color="light"
-				variant="border"
+				variant="default"
 				on:click={async () => {
 					if (!savedScript || !script) {
 						return
 					}
 					closeAnyway = true
-					scriptEditorDrawer.closeDrawer()
-					diffDrawer.openDrawer()
-					diffDrawer.setDiff({
+					displayEditor = false
+					diffDrawer?.openDrawer()
+					diffDrawer?.setDiff({
 						mode: 'simple',
 						original: savedScript,
 						current: script,
@@ -244,8 +249,8 @@
 						button: {
 							text: 'Restore to saved',
 							onClick: () => {
-								script = structuredClone(savedScript)
-								diffDrawer.closeDrawer()
+								script = structuredClone($state.snapshot(savedScript))
+								diffDrawer?.closeDrawer()
 							}
 						}
 					})
@@ -260,24 +265,20 @@
 				on:click={async () => {
 					await saveScript()
 					dispatch('save')
-					scriptEditorDrawer.closeDrawer()
+					scriptEditorDrawer?.closeDrawer()
 				}}
 				disabled={!script}
 				startIcon={{ icon: Save }}
 			>
 				Save
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>
 
 <DiffDrawer
 	bind:this={diffDrawer}
 	on:close={() => {
-		if (!closeAnyway) {
-			scriptEditorDrawer.openDrawer()
-		} else {
-			closeAnyway = false
-		}
+		displayEditor = true
 	}}
 />

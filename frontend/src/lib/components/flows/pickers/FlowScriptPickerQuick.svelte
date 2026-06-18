@@ -1,15 +1,25 @@
 <script lang="ts">
 	import type { SupportedLanguage } from '$lib/common'
+	import Button from '$lib/components/common/button/Button.svelte'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { createEventDispatcher } from 'svelte'
-	import { twMerge } from 'tailwind-merge'
 
-	export let label: string
-	export let lang: SupportedLanguage | 'docker' | 'javascript' | undefined = undefined
-	export let selected = false
-	export let eeRestricted: boolean
-	export let enterpriseLangs: string[] = []
+	interface Props {
+		label: string
+		lang?: SupportedLanguage | 'docker' | 'javascript' | 'claudesandbox' | undefined
+		selected?: boolean
+		eeRestricted: boolean
+		enterpriseLangs?: string[]
+	}
+
+	let {
+		label,
+		lang = undefined,
+		selected = false,
+		eeRestricted,
+		enterpriseLangs = []
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 	function handleKeydown(event: KeyboardEvent & { currentTarget: EventTarget & Window }) {
@@ -30,28 +40,27 @@
 	}
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} />
 
-<button
+<Button
 	id={`flow-editor-new-${lang}`}
-	class={twMerge(
-		'px-3 py-2 gap-2 w-full text-left hover:bg-surface-hover flex flex-row items-center transition-all rounded-md',
-		selected ? 'bg-surface-hover' : ''
-	)}
-	on:click={click}
+	{selected}
+	onClick={click}
 	role="menuitem"
+	variant="subtle"
+	unifiedSize="sm"
+	btnClasses="justify-start"
 >
 	{#if lang}
-		<LanguageIcon {lang} width={14} height={14} />
+		<LanguageIcon {lang} width={13} height={13} />
 	{/if}
-	<span
-		class="grow truncate text-left text-2xs font-normal {eeRestricted
-			? 'text-secondary'
-			: 'text-primary'}"
-	>
+	<span class="grow truncate text-left {eeRestricted ? 'text-disabled' : ''}">
 		{label}{#if eeRestricted}&nbsp;(EE){/if}
+		{#if lang === 'claudesandbox'}
+			<span class="text-primary !text-xs">(new)</span>
+		{/if}
 	</span>
 	{#if selected}
 		<kbd class="!text-xs">&crarr;</kbd>
 	{/if}
-</button>
+</Button>

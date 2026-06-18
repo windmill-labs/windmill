@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM script WHERE hash = 1004 AND workspace_id = 'test-workspace'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "99db4c9cb15a6780c1965f0a9e0b20f047c0b4a84e870806391c8c5051a0e24e"
+}

@@ -13,16 +13,15 @@
 
 	const dispatch = createEventDispatcher()
 
-	export let openDetails: boolean = false
-	export let scriptPath: string
+	let { openDetails = false, scriptPath }: { openDetails?: boolean; scriptPath: string } = $props()
 
-	let deploymentMsgUpdateMode = false
-	let deploymentMsgUpdate: string | undefined = undefined
+	let deploymentMsgUpdateMode = $state(false)
+	let deploymentMsgUpdate: string | undefined = $state()
 
-	let selectedVersion: ScriptHistory | undefined = undefined
-	let selectedVersionIndex: number | undefined = undefined
-	let versions: ScriptHistory[] | undefined = undefined
-	let loading: boolean = false
+	let selectedVersion: ScriptHistory | undefined = $state()
+	let selectedVersionIndex: number | undefined = $state()
+	let versions: ScriptHistory[] | undefined = $state()
+	let loading: boolean = $state(false)
 
 	async function loadVersions() {
 		loading = true
@@ -56,8 +55,8 @@
 
 	loadVersions()
 
-	let showDiff: boolean = false
-	let previousHash: string | undefined = undefined
+	let showDiff: boolean = $state(false)
+	let previousHash: string | undefined = $state()
 </script>
 
 <Splitpanes class="!overflow-visible">
@@ -67,15 +66,15 @@
 				{#if versions && versions.length > 0}
 					<div class="flex gap-2 flex-col">
 						{#each versions ?? [] as version, versionIndex}
-							<!-- svelte-ignore a11y-click-events-have-key-events -->
-							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							<!-- svelte-ignore a11y_click_events_have_key_events -->
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
 							<div
 								class={classNames(
 									'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer ',
 									selectedVersion?.script_hash == version.script_hash ? 'bg-surface-selected' : '',
 									'hover:bg-surface-hover'
 								)}
-								on:click={() => {
+								onclick={() => {
 									selectedVersion = version
 									selectedVersionIndex = versionIndex
 
@@ -116,7 +115,7 @@
 						{/each}
 					</div>
 				{:else}
-					<div class="text-sm text-tertiary">No items</div>
+					<div class="text-sm text-primary">No items</div>
 				{/if}
 			{:else}
 				<Skeleton layout={[[40], [40], [40], [40], [40]]} />
@@ -128,17 +127,22 @@
 			{#if selectedVersion}
 				{#key selectedVersion}
 					<div class="flex flex-col min-h-full">
-						<span class="flex flex-row text-sm p-2 text-tertiary">
+						<span class="flex flex-row text-sm p-2 text-primary">
 							{#if deploymentMsgUpdateMode}
 								<div class="flex w-full">
 									<input
 										type="text"
 										bind:value={deploymentMsgUpdate}
 										class="!w-auto grow"
-										on:click|stopPropagation={() => {}}
-										on:keydown|stopPropagation
-										on:keypress|stopPropagation={({ key }) => {
-											if (key === 'Enter') updateDeploymentMsg(selectedVersion?.script_hash)
+										onclick={(e) => {
+											e.stopPropagation()
+										}}
+										onkeydown={(e) => {
+											e.stopPropagation()
+										}}
+										onkeypress={(e) => {
+											e.stopPropagation()
+											if (e.key === 'Enter') updateDeploymentMsg(selectedVersion?.script_hash)
 										}}
 									/>
 									<Button
@@ -174,7 +178,7 @@
 									Version {selectedVersion.script_hash}
 								{/if}
 								<button
-									on:click={() => {
+									onclick={() => {
 										deploymentMsgUpdate = selectedVersion?.deployment_msg
 										deploymentMsgUpdateMode = true
 									}}
@@ -190,9 +194,16 @@
 						{#if selectedVersionIndex !== undefined && versions?.slice(selectedVersionIndex + 1).length}
 							<div class="p-2 flex flex-row items-center gap-2 h-8">
 								<div class="w-min">
-									<ToggleButtonGroup bind:selected={showDiff}>
-										<ToggleButton light small value={false} label="Code" icon={Code} />
-										<ToggleButton light small value={true} label="Diff" icon={Diff} />
+									<ToggleButtonGroup
+										selected={showDiff ? 'diff' : 'code'}
+										on:selected={({ detail }) => {
+											showDiff = detail === 'diff'
+										}}
+									>
+										{#snippet children({ item })}
+											<ToggleButton small value="code" label="Code" icon={Code} {item} />
+											<ToggleButton small value="diff" label="Diff" icon={Diff} {item} />
+										{/snippet}
 									</ToggleButtonGroup>
 								</div>
 
@@ -224,7 +235,7 @@
 					</div>
 				{/key}
 			{:else}
-				<div class="text-sm p-2 text-tertiary">Select a deployment version to see its details</div>
+				<div class="text-sm p-2 text-primary">Select a deployment version to see its details</div>
 			{/if}
 		</div>
 	</Pane>
