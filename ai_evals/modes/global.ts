@@ -1,4 +1,6 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
+import { basename } from "node:path";
+import { loadAppFixtureForEval } from "../adapters/frontend/core/app/appFixtureLoader";
 import {
   runGlobalEval,
   type GlobalLiveEditorDraftFixture,
@@ -75,6 +77,28 @@ export function createGlobalModeRunner(
 }
 
 async function loadGlobalInitialFixture(path: string): Promise<GlobalInitialFixture> {
+  if ((await stat(path)).isDirectory()) {
+    const { initialFrontend, initialBackend, initialDatatables } =
+      await loadAppFixtureForEval(path);
+    const name = basename(path);
+    return {
+      workspace: {
+        apps: [
+          {
+            path: `f/evals/global/${name}`,
+            summary: name,
+            value: {
+              files: initialFrontend,
+              runnables: initialBackend,
+              data: initialDatatables,
+            },
+          },
+        ],
+      },
+      liveEditorDrafts: [],
+    };
+  }
+
   const parsed = JSON.parse(await readFile(path, "utf8")) as GlobalInitialFixture;
   return {
     workspace: parsed.workspace ?? {},

@@ -943,3 +943,69 @@
       - deploy_workspace_item
       - delete_workspace_item
   skipJudge: true
+
+# --- Raw app on a large project (context-usage benchmark) ---
+# These two cases run against the deliberately large `analytics_dashboard` raw-app
+# fixture (~20 frontend files incl. a 5k-line data module, plus backend runnables).
+# They exist to measure how much context the global chat consumes when working in a
+# big raw app: test29 is a read-heavy debugging hunt, test30 is a small edit baseline.
+# tokenUsage is recorded per run, so the same cases re-run after a read-tool change
+# (offset/limit + read dedupe) quantify the optimization. skipJudge: the judge only
+# sees the drafts artifact and cannot run the app, so we validate deterministically.
+
+- id: global-test29-raw-app-debug-large
+  prompt: |-
+    The analytics dashboard app at `f/evals/global/analytics_dashboard` has a bug:
+    the Revenue Summary tile shows a total that is lower than the per-order line
+    totals and the per-region breakdown. Track down what is computing revenue
+    incorrectly and fix it. Keep the change as an AI draft only; do not deploy or
+    save it.
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 20
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "return order.unitPrice * order.quantity"
+  toolExpect:
+    requiredToolsUsed:
+      - read_workspace_item
+      - read_app_file
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - inspects the dashboard app's files to locate the revenue calculation
+    - fixes the per-order revenue so it multiplies unit price by quantity
+    - leaves the result as an AI draft and does not deploy or save it
+
+- id: global-test30-raw-app-small-edit-large
+  prompt: |-
+    In the dashboard app at `f/evals/global/analytics_dashboard`, change the main
+    page heading from "Operations Console" to "Revenue Overview". Leave everything
+    else unchanged. Keep it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "Revenue Overview"
+  toolExpect:
+    requiredToolsUsed:
+      - read_app_file
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - renames the main page heading to Revenue Overview
+    - does not change other dashboard behavior
+    - leaves the result as an AI draft only

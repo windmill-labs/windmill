@@ -83,6 +83,8 @@ export async function runGlobalEval(
     const model = options.model ?? "claude-haiku-4-5-20251001";
     const injectActiveEditorContext =
       process.env[DISABLE_ACTIVE_EDITOR_CONTEXT_ENV] !== "1";
+    // One ledger per run so the read-dedupe state persists across the chat loop.
+    const appReadLedger = new Map();
     const rawResult = await runEval({
       userPrompt,
       systemMessage: prepareGlobalSystemMessage(),
@@ -93,6 +95,16 @@ export async function runGlobalEval(
       ),
       tools: getGlobalEvalTools(),
       helpers: {},
+      decorateHelpers: ({ messages }) => ({
+        appReadLedger,
+        isToolResultRetained: (id: string) =>
+          messages.some(
+            (m: any) =>
+              (m.role === "tool" && m.tool_call_id === id) ||
+              (m.role === "assistant" &&
+                (m.tool_calls ?? []).some((c: any) => c.id === id)),
+          ),
+      }),
       apiKey,
       getOutput: () => ({ drafts: listGlobalDrafts(workspaceRoot) }),
       onAssistantMessageStart: options.runContext?.onAssistantMessageStart,
