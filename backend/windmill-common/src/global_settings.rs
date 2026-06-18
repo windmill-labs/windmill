@@ -1,3 +1,8 @@
+// Adding a global setting? Decide whether agent workers may read it. Agent
+// workers (remote workers connected over HTTP) fetch settings through an
+// endpoint that is deny-by-exception: every key is served except those in
+// AGENT_WORKER_BLOCKED_SETTINGS (defined below). If a new setting holds an
+// instance secret the server should keep to itself, add its key there.
 pub const CUSTOM_TAGS_SETTING: &str = "custom_tags";
 pub const DEFAULT_TAGS_PER_WORKSPACE_SETTING: &str = "default_tags_per_workspace";
 pub const DEFAULT_TAGS_WORKSPACES_SETTING: &str = "default_tags_workspaces";
