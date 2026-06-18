@@ -8000,6 +8000,35 @@ paths:
         "404":
           description: no draft for that owner at that path
 
+  /w/{workspace}/drafts/get_own/{kind}/{path}:
+    get:
+      summary: fetch the current user's own draft content at a path (any kind)
+      operationId: getOwnDraft
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/UserDraftItemKind"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: the user's draft content, or null when none exists
+          content:
+            application/json:
+              schema:
+                nullable: true
+                type: object
+                properties:
+                  value: {}
+                  created_at:
+                    type: string
+                    format: date-time
+                required: [value, created_at]
+
   /w/{workspace}/drafts/update/{kind}/{path}:
     post:
       summary: upsert (or clear) the current user's draft at a path
@@ -12981,6 +13010,147 @@ paths:
                     type: integer
                 required:
                   - created_at
+
+  /w/{workspace}/jobs_u/dispatch_events/{id}:
+    get:
+      summary: list asset-trigger dispatch events for a producer job
+      description: >
+        Returns the chronological log of decisions the asset-trigger
+        dispatcher made after this producer job completed. Each row is one
+        (subscriber, asset write) decision: `dispatched` (with
+        `child_job_id`), `join_pending` (with `received_inputs` /
+        `required_inputs` / `partition`), or `skipped` (with `reason`).
+        Rows are reaped automatically when the producer's `v2_job` row is
+        deleted by the retention sweep.
+      operationId: listDispatchEvents
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: dispatch events for this producer job
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    subscriber_path:
+                      type: string
+                    asset_kind:
+                      type: string
+                      enum:
+                        - s3object
+                        - resource
+                        - variable
+                        - ducklake
+                        - datatable
+                        - volume
+                    asset_path:
+                      type: string
+                    outcome:
+                      type: string
+                      enum:
+                        - dispatched
+                        - join_pending
+                        - skipped
+                    child_job_id:
+                      type: string
+                      format: uuid
+                    partition:
+                      type: string
+                    received_inputs:
+                      type: integer
+                    required_inputs:
+                      type: integer
+                    debounce_s:
+                      type: integer
+                    reason:
+                      type: string
+                    created_at:
+                      type: string
+                      format: date-time
+                  required:
+                    - subscriber_path
+                    - asset_kind
+                    - asset_path
+                    - outcome
+                    - created_at
+
+  /w/{workspace}/jobs/asset_dispatch_edges:
+    get:
+      summary: list asset-cascade producer→child job edges for a folder
+      description: >
+        Returns the `dispatched` asset-trigger edges (producer job → child job)
+        whose subscriber lives under `path_start`. Lets a pipeline view
+        reconstruct the cascade tree of a folder by job id and group connected
+        runs. Visibility follows the producer job's RLS.
+      operationId: listAssetDispatchEdges
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: path_start
+          in: query
+          required: true
+          description: Folder path prefix the children live under, e.g. `f/orders/`.
+          schema:
+            type: string
+        - name: created_after
+          in: query
+          required: false
+          description: Only edges dispatched at/after this instant.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: asset-cascade edges for the folder
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    producer_job_id:
+                      type: string
+                      format: uuid
+                    child_job_id:
+                      type: string
+                      format: uuid
+                      description: Set for `dispatched`; absent for `join_pending` inputs.
+                    subscriber_path:
+                      type: string
+                    outcome:
+                      type: string
+                      enum:
+                        - dispatched
+                        - join_pending
+                    asset_kind:
+                      type: string
+                      enum:
+                        - s3object
+                        - resource
+                        - variable
+                        - ducklake
+                        - datatable
+                        - volume
+                    asset_path:
+                      type: string
+                    created_at:
+                      type: string
+                      format: date-time
+                  required:
+                    - producer_job_id
+                    - subscriber_path
+                    - outcome
+                    - asset_kind
+                    - asset_path
+                    - created_at
 
   /w/{workspace}/jobs/completed/delete/{id}:
     post:
@@ -20598,6 +20768,149 @@ paths:
                       type: string
                       description: The asset path
 
+  /w/{workspace}/assets/graph:
+    get:
+      summary: Get the workspace-wide asset <-> runnable graph
+      operationId: getAssetsGraph
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: asset_kinds
+          in: query
+          description: Filter by asset kinds (comma-separated list)
+          schema:
+            type: string
+        - name: folder
+          in: query
+          description: Scope the graph to runnables in a single folder
+          schema:
+            type: string
+      responses:
+        "200":
+          description: asset graph nodes, lineage edges and trigger edges
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [assets, runnables, edges, triggers]
+                properties:
+                  assets:
+                    type: array
+                    items:
+                      type: object
+                      required: [kind, path]
+                      properties:
+                        kind:
+                          $ref: "#/components/schemas/AssetKind"
+                        path:
+                          type: string
+                  runnables:
+                    type: array
+                    items:
+                      type: object
+                      required: [path, usage_kind]
+                      properties:
+                        path:
+                          type: string
+                        usage_kind:
+                          $ref: "#/components/schemas/AssetUsageKind"
+                        in_pipeline:
+                          type: boolean
+                          description: True iff the script is a pipeline member (deployed with `// pipeline`). Omitted when false.
+                  edges:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        [runnable_path, runnable_kind, asset_kind, asset_path]
+                      properties:
+                        runnable_path:
+                          type: string
+                        runnable_kind:
+                          $ref: "#/components/schemas/AssetUsageKind"
+                        asset_kind:
+                          $ref: "#/components/schemas/AssetKind"
+                        asset_path:
+                          type: string
+                        access_type:
+                          $ref: "#/components/schemas/AssetUsageAccessType"
+                  triggers:
+                    type: array
+                    items:
+                      oneOf:
+                        - type: object
+                          description: Asset trigger edge (`// on <asset>`)
+                          required:
+                            [
+                              trigger_kind,
+                              asset_kind,
+                              asset_path,
+                              runnable_kind,
+                              runnable_path,
+                            ]
+                          properties:
+                            trigger_kind:
+                              type: string
+                              enum: [asset]
+                            asset_kind:
+                              $ref: "#/components/schemas/AssetKind"
+                            asset_path:
+                              type: string
+                            runnable_kind:
+                              $ref: "#/components/schemas/AssetUsageKind"
+                            runnable_path:
+                              type: string
+                        - type: object
+                          description: Native trigger edge (schedule, email, kafka, ...). `path` is the trigger row's path.
+                          required:
+                            [trigger_kind, path, runnable_kind, runnable_path]
+                          properties:
+                            trigger_kind:
+                              type: string
+                              enum:
+                                - schedule
+                                - email
+                                - kafka
+                                - mqtt
+                                - nats
+                                - postgres
+                                - sqs
+                                - gcp
+                            path:
+                              type: string
+                            runnable_kind:
+                              $ref: "#/components/schemas/AssetUsageKind"
+                            runnable_path:
+                              type: string
+
+  /w/{workspace}/assets/pipelines:
+    get:
+      summary: List folders that contain at least one pipeline-member script
+      operationId: listPipelineFolders
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: folders containing pipeline scripts, with their script counts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [folder, script_count]
+                  properties:
+                    folder:
+                      type: string
+                      description: The folder name (without the `f/` prefix)
+                    script_count:
+                      type: integer
+                      format: int64
+                      description: Number of pipeline-member scripts in the folder
+
   /w/{workspace}/volumes/list:
     get:
       summary: List all volumes in the workspace
@@ -21332,6 +21645,7 @@ components:
         - trigger_nextcloud
         - trigger_google
         - trigger_github
+        - data_pipeline
     # Do not change next line. It is used by python-client for pre-processing
     # -- INLINE START --
     OpenFlow:
@@ -24494,6 +24808,7 @@ components:
         - azure
         - google
         - github
+        - asset
 
     TriggerMode:
       description: job trigger mode

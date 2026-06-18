@@ -112,6 +112,27 @@ export function getAccessType(asset: AssetWithAltAccessType): AssetUsageAccessTy
 	if (asset.alt_access_type) return asset.alt_access_type
 }
 
+function refsByAccess(
+	assets: AssetWithAltAccessType[],
+	match: (at: AssetUsageAccessType | undefined) => boolean
+): Array<{ kind: AssetKind; path: string }> {
+	return assets.filter((a) => match(getAccessType(a))).map((a) => ({ kind: a.kind, path: a.path }))
+}
+
+/** Write/rw assets reduced to their `{ kind, path }` identity. */
+export function extractWrites(
+	assets: AssetWithAltAccessType[]
+): Array<{ kind: AssetKind; path: string }> {
+	return refsByAccess(assets, (at) => at === 'w' || at === 'rw')
+}
+
+/** Read/rw assets reduced to their `{ kind, path }` identity. */
+export function extractReads(
+	assets: AssetWithAltAccessType[]
+): Array<{ kind: AssetKind; path: string }> {
+	return refsByAccess(assets, (at) => at === 'r' || at === 'rw')
+}
+
 export function getFlowModuleAssets(
 	flowModuleValue: FlowModule,
 	additionalAssetsMap?: Record<string, AssetWithAccessType[]>

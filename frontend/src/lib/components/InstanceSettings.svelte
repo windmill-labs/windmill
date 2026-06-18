@@ -312,7 +312,7 @@
 			instanceInputs[name] = v
 			if (oauths[name].connect_config?.extra_params?.[key] === v) continue
 			oauths[name].connect_config = {
-				scopes: [],
+				scopes: tmpl.scopes ?? [],
 				// CC-only templated providers have no auth_url; store an empty string
 				// (not omitted) so the instance-config parser still types the entry.
 				// The backend treats an empty auth_url as the unused placeholder for
