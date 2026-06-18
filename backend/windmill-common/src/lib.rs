@@ -81,7 +81,13 @@ pub mod oidc_oss;
 #[cfg(feature = "private")]
 pub mod otel_ee;
 pub mod otel_oss;
-pub mod partition;
+#[cfg(feature = "private")]
+pub mod partition_ee;
+pub mod partition_oss;
+#[cfg(feature = "private")]
+pub use partition_ee as partition;
+#[cfg(not(feature = "private"))]
+pub use partition_oss as partition;
 pub mod query_builders;
 pub mod queue;
 pub mod result_stream;
