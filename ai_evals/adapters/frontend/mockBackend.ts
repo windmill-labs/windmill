@@ -10,7 +10,11 @@ import type {
 import type {
 	DataTableTables,
 	DataTableTableSchema,
-	ScriptLang
+	GetDraftForUserResponse,
+	ListDraftsResponse,
+	ScriptLang,
+	UpdateDraftResponse,
+	UserDraftItemKind
 } from '../../../frontend/src/lib/gen/types.gen'
 import { buildScriptLintResult } from './core/script/preview'
 import { applyDatatableSql, type BenchmarkDatatableSeed } from './datatableSqlEngine'
@@ -83,6 +87,7 @@ export function resetBenchmarkMockBackend(): void {
 	benchmarkWorkspaces.clear()
 	benchmarkWorkspaceRunnables.clear()
 	benchmarkJobs.clear()
+	benchmarkDrafts.clear()
 }
 
 export function registerBenchmarkWorkspace(workspace: string): void {
@@ -94,6 +99,8 @@ export function registerBenchmarkWorkspaceRunnables(
 	runnables: BenchmarkWorkspaceRunnables
 ): void {
 	benchmarkWorkspaces.add(workspace)
+	// Fresh case: drop any drafts left from a prior run on this workspace id.
+	clearBenchmarkDrafts(workspace)
 	// Datatables are mutated in place by exec_datatable_sql (a write must be visible
 	// to later reads), so store an isolated deep copy — never mutate the caller's seed.
 	benchmarkWorkspaceRunnables.set(workspace, {
@@ -118,6 +125,7 @@ export function registerBenchmarkWorkspaceRunnables(
 export function unregisterBenchmarkWorkspace(workspace: string): void {
 	benchmarkWorkspaces.delete(workspace)
 	benchmarkWorkspaceRunnables.delete(workspace)
+	clearBenchmarkDrafts(workspace)
 	for (const [jobId, entry] of benchmarkJobs.entries()) {
 		if (entry.workspace === workspace) {
 			benchmarkJobs.delete(jobId)
@@ -272,6 +280,110 @@ export function getBenchmarkJobLogs(workspace: string, jobId: string): string {
 		throw new Error(`Job Logs not found for "${jobId}"`)
 	}
 	return job.logs ?? ''
+}
+
+// ============= Drafts (per-user, DB-backed in production) =============
+
+/**
+ * In-memory stand-in for the per-user draft backend (`DraftService`). The global
+ * AI chat now persists and reads drafts through the backend DB instead of an
+ * in-tab `UserDraft` cell, so the eval mocks the three draft endpoints it
+ * exercises (`updateDraft` / `getDraftForUser` / `listDrafts`) and keeps the
+ * saved values here, keyed by workspace + draft kind + storage path. Mirrors the
+ * semantics of the production unit test's mock in
+ * `frontend/src/lib/components/copilot/chat/global/core.test.ts`.
+ */
+const benchmarkDrafts = new Map<
+	string,
+	{ workspace: string; kind: UserDraftItemKind; path: string; value: unknown }
+>()
+
+// Fixed timestamp so artifacts stay deterministic. No eval simulates a
+// concurrent writer, so every save is accepted and the conflict branch is
+// never taken — the syncer just records this as its `last_sync` baseline.
+const BENCHMARK_DRAFT_TIMESTAMP = '1970-01-01T00:00:00.000Z'
+
+function benchmarkDraftKey(workspace: string, kind: string, path: string): string {
+	return `${workspace}::${kind}::${path}`
+}
+
+export function clearBenchmarkDrafts(workspace: string): void {
+	for (const [key, entry] of benchmarkDrafts.entries()) {
+		if (entry.workspace === workspace) {
+			benchmarkDrafts.delete(key)
+		}
+	}
+}
+
+/**
+ * Seed a draft straight into the store — used by the eval's live-editor draft
+ * fixtures, which model "the user already has this draft open/saved". Writing it
+ * here (instead of through `UserDraft.save`) keeps it a backend draft row with no
+ * shadowing in-tab cell, so a model edit that persists to the backend is what the
+ * output read-back captures — not the stale seed.
+ */
+export function seedBenchmarkDraft(
+	workspace: string,
+	kind: UserDraftItemKind,
+	path: string,
+	value: unknown
+): void {
+	benchmarkDrafts.set(benchmarkDraftKey(workspace, kind, path), {
+		workspace,
+		kind,
+		path,
+		value
+	})
+}
+
+/** Mirror `DraftService.updateDraft`: a `null`/omitted value deletes the row. */
+export function updateBenchmarkDraft(input: {
+	workspace: string
+	kind: UserDraftItemKind
+	path: string
+	requestBody?: { value?: unknown }
+}): UpdateDraftResponse {
+	const key = benchmarkDraftKey(input.workspace, input.kind, input.path)
+	const value = input.requestBody?.value
+	if (value == null) {
+		benchmarkDrafts.delete(key)
+	} else {
+		benchmarkDrafts.set(key, {
+			workspace: input.workspace,
+			kind: input.kind,
+			path: input.path,
+			value
+		})
+	}
+	return { status: 'saved', current_timestamp: BENCHMARK_DRAFT_TIMESTAMP }
+}
+
+/** Mirror `DraftService.getDraftForUser`: 404-shaped throw when absent so the
+ * adapter's narrowed catch treats it as "no draft" instead of re-throwing. */
+export function getBenchmarkDraftForUser(input: {
+	workspace: string
+	kind: UserDraftItemKind
+	path: string
+}): GetDraftForUserResponse {
+	const entry = benchmarkDrafts.get(benchmarkDraftKey(input.workspace, input.kind, input.path))
+	if (!entry) {
+		throw Object.assign(new Error(`no draft for "${input.path}"`), { status: 404 })
+	}
+	return { value: entry.value, created_at: BENCHMARK_DRAFT_TIMESTAMP }
+}
+
+/** Mirror `DraftService.listDrafts`: metadata rows (no value) for a workspace. */
+export function listBenchmarkDrafts(workspace: string): ListDraftsResponse {
+	return [...benchmarkDrafts.values()]
+		.filter((entry) => entry.workspace === workspace)
+		.map((entry) => ({
+			kind: entry.kind,
+			path: entry.path,
+			summary: (entry.value as { summary?: string } | null)?.summary,
+			draft_only: true,
+			legacy_draft: false,
+			created_at: BENCHMARK_DRAFT_TIMESTAMP
+		}))
 }
 
 // ============= Datatables (best-effort in-memory SQL) =============

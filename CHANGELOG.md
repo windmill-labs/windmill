@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.729.0](https://github.com/windmill-labs/windmill/compare/v1.728.1...v1.729.0) (2026-06-18)
+
+
+### Features
+
+* add ducklake schema support to the database manager ([#9633](https://github.com/windmill-labs/windmill/issues/9633)) ([3eeccaf](https://github.com/windmill-labs/windmill/commit/3eeccaf9682b7803fdf5be8dcbc4d243e0ba2e49))
+* **ai-chat:** self-hosted docs tools via windmill.dev llms.txt + ask benchmark ([#9578](https://github.com/windmill-labs/windmill/issues/9578)) ([f4425fc](https://github.com/windmill-labs/windmill/commit/f4425fca9fb0d02b845bd72888ade54905c5a30b))
+* **frontend:** View Diff and in-place Load for other users' drafts ([#9621](https://github.com/windmill-labs/windmill/issues/9621)) ([5508f1d](https://github.com/windmill-labs/windmill/commit/5508f1da9cd04c2583eb3f7ee6bce19d067f2227))
+* per-user draft review & deploy page (gating, badges, rename, raw-app deploy fixes) ([#9625](https://github.com/windmill-labs/windmill/issues/9625)) ([e09cd58](https://github.com/windmill-labs/windmill/commit/e09cd5862cb636e143027fe8d9a5be9c7097b031))
+* queue messages typed while ai chat is streaming ([#9525](https://github.com/windmill-labs/windmill/issues/9525)) ([51bd869](https://github.com/windmill-labs/windmill/commit/51bd8692a482850f7ac8b04dd16db5876336b5b9))
+* zero-setup oauth client credentials for registry providers ([#9559](https://github.com/windmill-labs/windmill/issues/9559)) ([e26a923](https://github.com/windmill-labs/windmill/commit/e26a9239a62a25abf90ef06ade4dde7f36e791bb))
+
+
+### Bug Fixes
+
+* **ai_evals:** adapt global eval harness to DB-backed user drafts ([#9641](https://github.com/windmill-labs/windmill/issues/9641)) ([e87ff79](https://github.com/windmill-labs/windmill/commit/e87ff79ecf6a6e0958916ed1b3756fb3addf719f))
+* **drafts:** preserve original timestamp when migrating localStorage drafts ([#9638](https://github.com/windmill-labs/windmill/issues/9638)) ([8021775](https://github.com/windmill-labs/windmill/commit/8021775f5f961ef6fd01b022639b85855326a1da))
+* **frontend:** don't save drafts on leave when auto-save is off, warn instead ([#9630](https://github.com/windmill-labs/windmill/issues/9630)) ([2523465](https://github.com/windmill-labs/windmill/commit/252346500945a9571af744c839ac0c7d6870504f))
+* **frontend:** render Modal2 dialogs above the AI chat panel ([#9636](https://github.com/windmill-labs/windmill/issues/9636)) ([b67c8cf](https://github.com/windmill-labs/windmill/commit/b67c8cf42b477575fc1bc448058ec0d3b7e54fee))
+* **frontend:** show AI sessions when AI unconfigured, with disabled chat ([#9644](https://github.com/windmill-labs/windmill/issues/9644)) ([ba69d81](https://github.com/windmill-labs/windmill/commit/ba69d8147b615e160cf3d2885fc65a0777b78b71))
+* **git-sync:** bump default sync script to hub/28719 (windmill-cli 1.728.1) for WAC modules ([#9649](https://github.com/windmill-labs/windmill/issues/9649)) ([3c0e38b](https://github.com/windmill-labs/windmill/commit/3c0e38b5890d77983cb5cf5f422a62a73e7a4f22))
+
 ## [1.728.1](https://github.com/windmill-labs/windmill/compare/v1.728.0...v1.728.1) (2026-06-17)
 
 

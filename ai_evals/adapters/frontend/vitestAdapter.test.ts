@@ -37,6 +37,7 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkCompletedJob,
 		getBenchmarkCompletedJobResultMaybe,
 		getBenchmarkDatatableSchema,
+		getBenchmarkDraftForUser,
 		getBenchmarkFlowByPath,
 		getBenchmarkJobLogs,
 		getBenchmarkScriptByHash,
@@ -44,6 +45,7 @@ vi.mock('$lib/gen', async () => {
 		hasBenchmarkWorkspace,
 		listBenchmarkApps,
 		listBenchmarkDatatables,
+		listBenchmarkDrafts,
 		listBenchmarkFlows,
 		listBenchmarkJobs,
 		listBenchmarkScripts,
@@ -52,7 +54,8 @@ vi.mock('$lib/gen', async () => {
 		previewBenchmarkSchedule,
 		runBenchmarkDatatableSql,
 		runBenchmarkFlowByPath,
-		runBenchmarkScriptPreview
+		runBenchmarkScriptPreview,
+		updateBenchmarkDraft
 	} = await import('./mockBackend')
 
 	function wrapService<T extends object>(target: T, overrides: Record<string, unknown>): T {
@@ -68,6 +71,25 @@ vi.mock('$lib/gen', async () => {
 
 	return {
 		...actual,
+		DraftService: wrapService(actual.DraftService, {
+			updateDraft: async (data: {
+				workspace: string
+				kind: any
+				path: string
+				requestBody?: { value?: unknown }
+			}) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? updateBenchmarkDraft(data)
+					: actual.DraftService.updateDraft(data),
+			getDraftForUser: async (data: { workspace: string; kind: any; path: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkDraftForUser(data)
+					: actual.DraftService.getDraftForUser(data),
+			listDrafts: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? listBenchmarkDrafts(data.workspace)
+					: actual.DraftService.listDrafts(data)
+		}),
 		ScriptService: wrapService(actual.ScriptService, {
 			listScripts: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace)

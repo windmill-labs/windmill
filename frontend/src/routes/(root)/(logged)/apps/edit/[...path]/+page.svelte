@@ -7,6 +7,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
+	import { migrateApp } from '$lib/components/apps/migrateApp'
 	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -17,6 +18,7 @@
 	import { tick, untrack } from 'svelte'
 	import { page } from '$app/state'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { runResetToDeployed } from '$lib/userDraftToast'
 
 	let app = $state(undefined as (AppWithLastVersion & { value: any }) | undefined)
@@ -197,7 +199,14 @@
 		// there's no deployed row (draft-only path).
 		deployedBaseline = backendApp.no_deployed
 			? undefined
-			: (structuredClone(stateSnapshot(backendApp.value)) as App)
+			: // Carry the deployed summary onto the baseline: the autosave mirrors the
+				// summary onto the live App value, so the `discardIf` no-op comparison must
+				// see the deployed summary here too — otherwise a reverted-to-deployed draft
+				// never compares equal (and a summary-only edit still counts as a change).
+				({
+					...(structuredClone(stateSnapshot(backendApp.value)) as App),
+					summary: backendApp.summary
+				} as App)
 		// `other_drafts_users` only computed when `getDraft`; don't clobber the
 		// known list on a `getDraft:false` reload. See /scripts/edit's loader.
 		if (getDraft) {
@@ -220,7 +229,9 @@
 		isNewApp = !!backendApp.no_deployed
 		if (backendApp.no_deployed) {
 			backendApp = {
-				summary: '',
+				// Draft-only app: the summary rides on the autosaved App value
+				// (no deployed column to read it from).
+				summary: savedDraftApp?.summary ?? '',
 				value: (savedDraftApp ?? {}) as App,
 				path: page.params.path ?? '',
 				// `execution_mode` required; matches the new-app seed above.
@@ -237,11 +248,18 @@
 				no_deployed: true
 			} as unknown as typeof backendApp
 		} else if (savedDraftApp) {
-			backendApp = { ...backendApp, value: savedDraftApp } as typeof backendApp
+			// Deployed app with a draft: swap in the draft value and honor a draft
+			// summary edit (falls back to the deployed summary when the draft has none).
+			backendApp = {
+				...backendApp,
+				value: savedDraftApp,
+				summary: savedDraftApp.summary ?? backendApp.summary
+			} as typeof backendApp
 		}
-		if (backendApp.is_draft) {
-			loadedFromDraft = true
-		}
+		// Per-response, NOT sticky: a later no-own-draft load in the same editor
+		// must reset this so it can't wrongly force overlay mode.
+		const hasOwnDraft = !!backendApp.is_draft
+		loadedFromDraft = hasOwnDraft
 		// Pass both timestamps for DraftEditorModals' staleness compare: `created_at`
 		// is the deploy time, `draft_saved_at` the draft's. Skip `deployedAt` when
 		// `no_deployed` — no baseline to be older than.
@@ -254,6 +272,41 @@
 			path: backendApp_.path,
 			policy: backendApp_.policy,
 			custom_path: backendApp_.custom_path
+		}
+		// "Load another user's draft" handoff: render their value. Overlay mode (we
+		// have our own draft) hard-locks saves until the user confirms overwriting
+		// it (AppEditor's own autosave is blocked by the lock). See /scripts/edit.
+		const pendingLoad = getDraft
+			? OtherUserDraftLoad.takePending($workspaceStore!, 'app', path)
+			: undefined
+		// Revisiting a path whose overlay was never confirmed/reset: drop the stale
+		// lock so editing our own draft works again. See /scripts/edit's loader.
+		if (!pendingLoad && OtherUserDraftLoad.isActive($workspaceStore!, 'app', path)) {
+			OtherUserDraftLoad.clear($workspaceStore!, 'app', path)
+		}
+		if (pendingLoad) {
+			backendApp = { ...backendApp, value: pendingLoad.value as App } as typeof backendApp
+			if (hasOwnDraft) {
+				// AppEditor `migrateApp`s the value in place on mount (see its
+				// `migratedDeployedBaseline`), so the draft cell settles to the
+				// MIGRATED app. Match it here, else the first post-mount mirror write
+				// would diverge from the raw value and trip the overwrite prompt
+				// before any edit. Mirrors raw_app's bundle-matching baseline.
+				const overlayBaseline = structuredClone($state.snapshot(pendingLoad.value)) as App
+				migrateApp(overlayBaseline)
+				OtherUserDraftLoad.beginOverlay({
+					workspace: $workspaceStore!,
+					itemKind: 'app',
+					path,
+					ownerLabel: pendingLoad.ownerLabel,
+					// AppEditor stores the bare (migrated) App in the draft cell.
+					loadedValue: overlayBaseline,
+					onResetToOwnDraft: async () => {
+						await loadApp({ getDraft: true })
+						redraw++
+					}
+				})
+			}
 		}
 		// Assign the fresh response onto `app`. The path-change $effect sets
 		// `app = undefined` first, unmounting AppEditor and releasing the UserDraft
@@ -337,6 +390,8 @@
 	itemKind="app"
 	{path}
 	{otherDraftsUsers}
+	draftOnly={isNewApp}
+	hasOwnDraft={loadedFromDraft}
 	onLoadFromServer={async () => {
 		// AppEditor's `stateApp` is captured at mount and ignores prop changes,
 		// so `redraw++` remounts it against the fresh `app`.
