@@ -528,6 +528,20 @@ const readAppFileSchema = z.object({
 		.string()
 		.describe(
 			'Frontend file path like /index.tsx, or backend inline runnable path like backend/<key>/main.ts (or main.py).'
+		),
+	offset: z
+		.number()
+		.int()
+		.min(1)
+		.optional()
+		.describe('1-based line number to start reading from. Use to page through a large file.'),
+	limit: z
+		.number()
+		.int()
+		.min(1)
+		.optional()
+		.describe(
+			'Maximum number of lines to return. Large files are truncated by default; pass offset/limit to read a specific range.'
 		)
 })
 
@@ -1400,7 +1414,7 @@ function getAppInstructions(): string {
 - \`/wmill.d.ts\` (or \`wmill.ts\`) is generated automatically from the backend runnables — never write it directly.
 - Inline runnables only support \`bun\` or \`python3\` in chat. Path runnables (\`script\`/\`flow\`/\`hubscript\`) reference an existing item.
 - Use \`deploy_workspace_item\` after explicit user deploy intent. The deploy tool bundles JS/CSS before saving the raw app.
-- Use \`read_workspace_item\` with \`type: 'app'\` for a metadata summary (file paths and runnable list, no contents). Use \`read_app_file\` to read an individual file.
+- Use \`read_workspace_item\` with \`type: 'app'\` for a metadata summary (file paths and runnable list, no contents). Use \`read_app_file\` to read an individual file; large files are truncated to a head slice, so pass \`offset\`/\`limit\` to page through the rest rather than re-reading the whole file.
 - Note: the authoring reference below mentions the CLI on-disk layout (\`backend/<id>.<ext>\`, \`raw_app.yaml\`, \`sql_to_apply/\`). That layout is only relevant for the terminal workflow — in chat, apps are addressed via the tool surface above.
 
 # Windmill raw app authoring reference
@@ -1934,7 +1948,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			readAppFileSchema,
 			'read_app_file',
-			'Read one raw app frontend file or inline backend runnable.'
+			'Read one raw app frontend file or inline backend runnable. Large files are truncated to a head slice; pass offset/limit to page through the rest.'
 		),
 		fn: async (ctx) => {
 			const parsed = readAppFileSchema.parse(ctx.args)
@@ -2108,8 +2122,22 @@ type WriteDraftCtx = {
 // handlers below would route a backgrounded session's tool call to whatever
 // session the user happens to be viewing.
 export type SessionToolHelpers = { sessionId?: string }
+
+// Per-conversation record of what `read_app_file` has already returned, keyed by
+// `${appPath}::${filePath}`. Lets a repeat read of an unchanged file return a
+// short stub instead of resending the body. The originating tool-call id anchors
+// the entry to a specific result so it self-heals if compaction drops it.
+export type AppFileReadLedgerEntry = { hash: string; toolCallId: string; rangeLabel: string }
+export type AppFileReadLedger = Map<string, AppFileReadLedgerEntry>
+
 export type GlobalToolHelpers = SessionToolHelpers & {
 	testActiveFlow?: (args?: Record<string, any>) => Promise<string | undefined>
+	// Supplied by the chat manager (and the ai_evals bridge); used by
+	// read_app_file to dedupe re-reads. Absent in unit tests, where dedupe is
+	// simply inert. `isToolResultRetained` reports whether a prior read's tool
+	// result is still present in the live message history.
+	appReadLedger?: AppFileReadLedger
+	isToolResultRetained?: (toolCallId: string) => boolean
 }
 
 function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {
@@ -2967,9 +2995,95 @@ async function initApp(
 	}))
 }
 
+// read_app_file caps: a large frontend file or inline runnable would otherwise
+// enter context in full and persist for the rest of the session. Default to a
+// head slice with a pointer to page further; the model widens with offset/limit.
+const READ_APP_FILE_DEFAULT_LINE_LIMIT = 1500
+const READ_APP_FILE_CHAR_BUDGET = 50_000
+
+// cyrb53 — fast, dependency-free, collision-resistant enough to tell whether a
+// re-read would resend identical bytes.
+function hashAppFileContent(str: string): string {
+	let h1 = 0xdeadbeef
+	let h2 = 0x41c6ce57
+	for (let i = 0; i < str.length; i++) {
+		const ch = str.charCodeAt(i)
+		h1 = Math.imul(h1 ^ ch, 2654435761)
+		h2 = Math.imul(h2 ^ ch, 1597334677)
+	}
+	h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+	h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+	return (h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0')
+}
+
+type AppFileSlice = {
+	body: string
+	startLine: number
+	endLine: number
+	totalLines: number
+	truncated: boolean
+}
+
+function sliceAppFileForRead(content: string, offset?: number, limit?: number): AppFileSlice {
+	const lines = content.split('\n')
+	const totalLines = lines.length
+	const start = Math.min(Math.max((offset ?? 1) - 1, 0), totalLines)
+	const lineLimit = limit ?? READ_APP_FILE_DEFAULT_LINE_LIMIT
+	let end = Math.min(start + lineLimit, totalLines)
+	let selected = lines.slice(start, end)
+	let body = selected.join('\n')
+	let charTruncated = false
+	// Guard against minified/generated files where a few lines blow the budget.
+	if (body.length > READ_APP_FILE_CHAR_BUDGET) {
+		let acc = 0
+		let kept = 0
+		for (const line of selected) {
+			const next = acc + line.length + 1
+			if (next > READ_APP_FILE_CHAR_BUDGET && kept > 0) break
+			acc = next
+			kept++
+		}
+		selected = selected.slice(0, Math.max(kept, 1))
+		body = selected.join('\n')
+		end = start + selected.length
+		charTruncated = true
+	}
+	return {
+		body,
+		startLine: start + 1,
+		endLine: end,
+		totalLines,
+		truncated: start > 0 || end < totalLines || charTruncated
+	}
+}
+
+function appReadLedgerFromCtx(ctx: { helpers?: unknown }): AppFileReadLedger | undefined {
+	return (ctx.helpers as GlobalToolHelpers | undefined)?.appReadLedger
+}
+
+function toolResultRetainedFromCtx(
+	ctx: { helpers?: unknown }
+): ((toolCallId: string) => boolean) | undefined {
+	return (ctx.helpers as GlobalToolHelpers | undefined)?.isToolResultRetained
+}
+
+// Small files (returned whole, starting at line 1) keep the raw body so
+// patch_app_file's exact-match stays trivial; truncated/windowed reads get a
+// one-line annotation describing the range (not part of the file).
+function formatAppFileReadResult(filePath: string, slice: AppFileSlice): string {
+	if (!slice.truncated && slice.startLine === 1) {
+		return slice.body
+	}
+	const more =
+		slice.endLine < slice.totalLines
+			? ` Call read_app_file again with offset=${slice.endLine + 1} to continue.`
+			: ''
+	return `[read_app_file] ${filePath}: lines ${slice.startLine}-${slice.endLine} of ${slice.totalLines}.${more}\n\n${slice.body}`
+}
+
 async function readAppFile(
-	args: { path: string; file_path: string },
-	ctx: WriteDraftCtx
+	args: { path: string; file_path: string; offset?: number; limit?: number },
+	ctx: WriteDraftCtx & { helpers?: unknown }
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
 	const target = resolveAppFileTarget(args.file_path)
@@ -2979,18 +3093,39 @@ async function readAppFile(
 
 	const value = await loadAppValueForRead(args.path, workspace)
 
+	let content: string
 	if (target.kind === 'frontend') {
-		const content = value.files[target.filePath]
-		if (content === undefined) {
+		const frontend = value.files[target.filePath]
+		if (frontend === undefined) {
 			throw new Error(`Frontend file "${target.filePath}" not found in app "${args.path}".`)
 		}
-		toolCallbacks.setToolStatus(toolId, { content: `Read ${target.filePath}` })
-		return content
+		content = frontend
+	} else {
+		content = getInlineRunnableContent(value, target, args.path).content
 	}
 
-	const { content } = getInlineRunnableContent(value, target, args.path)
+	const slice = sliceAppFileForRead(content, args.offset, args.limit)
+	const rangeLabel = slice.truncated
+		? `lines ${slice.startLine}-${slice.endLine} of ${slice.totalLines}`
+		: `the full file (${slice.totalLines} lines)`
+
+	// Re-read dedupe: if this exact slice was already returned earlier and that
+	// result is still in context, point back to it instead of resending the body.
+	const ledger = appReadLedgerFromCtx(ctx)
+	const hash = hashAppFileContent(slice.body)
+	if (ledger) {
+		const key = `${args.path}::${target.filePath}`
+		const prior = ledger.get(key)
+		const retained = toolResultRetainedFromCtx(ctx)
+		if (prior && prior.hash === hash && (retained?.(prior.toolCallId) ?? true)) {
+			toolCallbacks.setToolStatus(toolId, { content: `Read ${target.filePath} (unchanged)` })
+			return `[read_app_file] ${target.filePath} is unchanged since you read it earlier in this conversation (${prior.rangeLabel}); that content is still above. Pass offset/limit to view a different range, or use the write/patch tools to modify it.`
+		}
+		ledger.set(key, { hash, toolCallId: toolId, rangeLabel })
+	}
+
 	toolCallbacks.setToolStatus(toolId, { content: `Read ${target.filePath}` })
-	return content
+	return formatAppFileReadResult(target.filePath, slice)
 }
 
 async function writeAppFile(
