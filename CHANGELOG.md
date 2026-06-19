@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.731.0](https://github.com/windmill-labs/windmill/compare/v1.730.0...v1.731.0) (2026-06-19)
+
+
+### Features
+
+* **backend:** auto-reconnect postgres trigger listener with backoff (WIN-2073) ([#9666](https://github.com/windmill-labs/windmill/issues/9666)) ([a425431](https://github.com/windmill-labs/windmill/commit/a425431e9067bcf85474fdc7b7ef7f73e41b9071))
+
+
+### Bug Fixes
+
+* **backend:** grant notify_event access to windmill roles ([#9665](https://github.com/windmill-labs/windmill/issues/9665)) ([a682d02](https://github.com/windmill-labs/windmill/commit/a682d02311a2110bfc0d5e0a5b52e96147fe0dd7))
+* **mcp:** repair invalid type keywords in tool JSON schemas ([#9667](https://github.com/windmill-labs/windmill/issues/9667)) ([c30bdec](https://github.com/windmill-labs/windmill/commit/c30bdecea77ff9b4d74d52961f3101201099b683))
+* trigger flow error handler on unrecoverable (OOM/zombie) step failures ([#9662](https://github.com/windmill-labs/windmill/issues/9662)) ([7e4df02](https://github.com/windmill-labs/windmill/commit/7e4df02bd60c4d6ee8c92d3dfd19f4e587ff9632))
+
 ## [1.730.0](https://github.com/windmill-labs/windmill/compare/v1.729.0...v1.730.0) (2026-06-18)
 
 
