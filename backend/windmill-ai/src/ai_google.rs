@@ -676,6 +676,29 @@ pub fn gemini_event_to_openai_sse_chunks(
         *tool_call_index += 1;
     }
 
+    // Gemini reports token counts in `usageMetadata` on its final event. Mirror
+    // OpenAI's `stream_options.include_usage` terminal chunk (top-level `usage`,
+    // empty `choices`) so the frontend's `'usage' in chunk` path records them.
+    if let Some(usage) = &parsed.usage {
+        let prompt_tokens = usage.prompt_token_count.unwrap_or(0);
+        let completion_tokens = usage.candidates_token_count.unwrap_or(0);
+        let total_tokens = usage
+            .total_token_count
+            .unwrap_or(prompt_tokens + completion_tokens);
+        let chunk = serde_json::json!({
+            "id": id,
+            "object": "chat.completion.chunk",
+            "model": model,
+            "choices": [],
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+            }
+        });
+        chunks.push(format!("data: {}\n\n", chunk));
+    }
+
     chunks
 }
 
@@ -836,8 +859,17 @@ fn openai_tool_call_json(
 mod tests {
     use super::{
         gemini_event_to_openai_sse_chunks, gemini_response_to_openai, parse_gemini_sse_event,
-        sanitize_schema_for_google, GeminiParsedEvent, GeminiToolCallEvent,
+        sanitize_schema_for_google, GeminiParsedEvent, GeminiToolCallEvent, GeminiUsageMetadata,
     };
+
+    /// Strip the `data: ...\n\n` SSE framing and parse the payload as JSON.
+    fn parse_sse_chunk(chunk: &str) -> serde_json::Value {
+        let payload = chunk
+            .strip_prefix("data: ")
+            .and_then(|c| c.strip_suffix("\n\n"))
+            .expect("chunk should be wrapped as SSE data");
+        serde_json::from_str(payload).expect("chunk should be valid JSON")
+    }
 
     #[test]
     fn gemini_response_to_openai_preserves_thought_signature() {
@@ -901,6 +933,94 @@ mod tests {
             "stream-thought-signature"
         );
         assert_eq!(tool_call["index"], 0);
+    }
+
+    #[test]
+    fn gemini_streaming_emits_usage_chunk() {
+        let parsed = GeminiParsedEvent {
+            text: Some("the answer".to_string()),
+            usage: Some(GeminiUsageMetadata {
+                prompt_token_count: Some(12),
+                candidates_token_count: Some(7),
+                total_token_count: Some(19),
+            }),
+            ..Default::default()
+        };
+
+        let mut tool_call_index = 0;
+        let chunks = gemini_event_to_openai_sse_chunks(
+            &parsed,
+            "chatcmpl-test",
+            "gemini-3-flash-preview",
+            &mut tool_call_index,
+        );
+
+        // Mirrors OpenAI's `stream_options.include_usage`: a terminal chunk with
+        // top-level `usage` and empty `choices`.
+        let usage_chunk = chunks
+            .iter()
+            .map(|c| parse_sse_chunk(c))
+            .find(|v| v.get("usage").map(|u| !u.is_null()).unwrap_or(false))
+            .expect("a chunk should carry top-level usage");
+
+        assert_eq!(usage_chunk["usage"]["prompt_tokens"], 12);
+        assert_eq!(usage_chunk["usage"]["completion_tokens"], 7);
+        assert_eq!(usage_chunk["usage"]["total_tokens"], 19);
+        assert_eq!(usage_chunk["choices"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn gemini_streaming_usage_total_falls_back_to_prompt_plus_completion() {
+        let parsed = GeminiParsedEvent {
+            usage: Some(GeminiUsageMetadata {
+                prompt_token_count: Some(5),
+                candidates_token_count: Some(3),
+                total_token_count: None,
+            }),
+            ..Default::default()
+        };
+
+        let mut tool_call_index = 0;
+        let chunks = gemini_event_to_openai_sse_chunks(
+            &parsed,
+            "chatcmpl-test",
+            "gemini-3-flash-preview",
+            &mut tool_call_index,
+        );
+
+        let usage_chunk = chunks
+            .iter()
+            .map(|c| parse_sse_chunk(c))
+            .find(|v| v.get("usage").map(|u| !u.is_null()).unwrap_or(false))
+            .expect("a chunk should carry top-level usage");
+
+        assert_eq!(usage_chunk["usage"]["prompt_tokens"], 5);
+        assert_eq!(usage_chunk["usage"]["completion_tokens"], 3);
+        assert_eq!(usage_chunk["usage"]["total_tokens"], 8);
+    }
+
+    #[test]
+    fn gemini_streaming_without_usage_emits_no_usage_chunk() {
+        let parsed = GeminiParsedEvent {
+            text: Some("the answer".to_string()),
+            ..Default::default()
+        };
+
+        let mut tool_call_index = 0;
+        let chunks = gemini_event_to_openai_sse_chunks(
+            &parsed,
+            "chatcmpl-test",
+            "gemini-3-flash-preview",
+            &mut tool_call_index,
+        );
+
+        assert!(
+            chunks
+                .iter()
+                .map(|c| parse_sse_chunk(c))
+                .all(|v| v.get("usage").map(|u| u.is_null()).unwrap_or(true)),
+            "no usage chunk should be emitted when the event has no usageMetadata"
+        );
     }
 
     #[test]
