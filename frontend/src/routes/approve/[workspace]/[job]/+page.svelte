@@ -146,6 +146,15 @@
 	// strips the approval details (form, description, args, approvers) and getJob is denied.
 	// Hide the empty detail scaffolding and show only the sign-in / not-authorized state.
 	let isLocked = $derived(!!approvalInfo?.user_auth_required && !approvalInfo?.can_approve)
+	// Carry the share-read-link token so a workspace-member approver can open the run
+	// details of a flow they don't otherwise have read access to.
+	let runDetailsHref = $derived.by(() => {
+		let url = `${base}/run/${job?.id}?workspace=${job?.workspace_id}`
+		if (approvalInfo?.view_token) {
+			url += `&view_token=${encodeURIComponent(approvalInfo.view_token)}`
+		}
+		return url
+	})
 	let isWac = $derived(!!(job as any)?.workflow_as_code_status)
 	let filteredArgs = $derived.by(() => {
 		if (!job?.args) return job?.args
@@ -346,12 +355,7 @@
 
 		{#if !isLocked}
 			<div class="mt-4 flex flex-row flex-wrap justify-between">
-				<a
-					class="text-accent text-xs"
-					target="_blank"
-					rel="noreferrer"
-					href="{base}/run/{job?.id}?workspace={job?.workspace_id}"
-				>
+				<a class="text-accent text-xs" target="_blank" rel="noreferrer" href={runDetailsHref}>
 					Open run details (require auth) <ExternalLink size={12} class="inline" />
 				</a>
 			</div>

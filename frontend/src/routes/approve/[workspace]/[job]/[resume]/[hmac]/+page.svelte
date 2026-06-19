@@ -26,6 +26,7 @@
 
 	let job: Job | undefined = $state(undefined)
 	let currentApprovers: { resume_id: number; approver: string }[] = $state([])
+	let viewToken: string | undefined = $state(undefined)
 	let approver = page.url.searchParams.get('approver') ?? undefined
 
 	let completed: boolean = $state(false)
@@ -101,6 +102,7 @@
 		})
 		job = suspendedJobFlow.job as Job
 		currentApprovers = suspendedJobFlow.approvers
+		viewToken = suspendedJobFlow.view_token
 	}
 
 	async function resume() {
@@ -143,6 +145,15 @@
 			.includes(new Number(page.params.resume ?? '').valueOf())
 	)
 	let approvalStep = $derived.by(() => (job?.flow_status?.step ?? 1) - 1)
+	// Carry the share-read-link token so a workspace-member approver can open the run
+	// details of a flow they don't otherwise have read access to.
+	let runDetailsHref = $derived.by(() => {
+		let url = `${base}/run/${job?.id}?workspace=${job?.workspace_id}`
+		if (viewToken) {
+			url += `&view_token=${encodeURIComponent(viewToken)}`
+		}
+		return url
+	})
 	let schema = $derived.by(
 		() => job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? dynamicSchema
 	)
@@ -290,11 +301,7 @@
 		</div>
 
 		<div class="mt-4 flex flex-row flex-wrap justify-between">
-			<a
-				class="text-accent text-xs"
-				target="_blank"
-				rel="noreferrer"
-				href="{base}/run/{job?.id}?workspace={job?.workspace_id}"
+			<a class="text-accent text-xs" target="_blank" rel="noreferrer" href={runDetailsHref}
 				>Open run details (require auth) <ExternalLink size={12} class="inline" /></a
 			>
 		</div>

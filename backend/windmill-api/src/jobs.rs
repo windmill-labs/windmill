@@ -3204,6 +3204,12 @@ struct ApprovalInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     hide_cancel: Option<bool>,
     approvers: Vec<Approval>,
+    /// Share-read-link token for the flow, minted only for callers allowed to view this
+    /// approval. Lets an authenticated workspace-member approver open the run details of
+    /// a flow they don't otherwise have read access to (the run page reads it as a
+    /// `view_token` query param).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    view_token: Option<String>,
 }
 
 /// Whether `opt_authed` is allowed to approve — and therefore view — this approval step.
@@ -3426,6 +3432,7 @@ async fn get_approval_info(
             user_auth_required,
             hide_cancel: None,
             approvers: vec![],
+            view_token: None,
         }));
     }
 
@@ -3443,6 +3450,12 @@ async fn get_approval_info(
     })
     .collect();
 
+    // Possession of view rights over this approval is sufficient to mint a
+    // share-read-link token for the flow: it only grants read (no resume), and only to
+    // an authenticated workspace member, so it never widens what the approver can do.
+    let hmac = generate_view_token(&w_id, row.id, &db).await?;
+    let view_token = Some(format!("{}.{hmac}", row.id));
+
     Ok(Json(ApprovalInfo {
         flow_id: row.id,
         form_schema,
@@ -3454,6 +3467,7 @@ async fn get_approval_info(
         user_auth_required,
         hide_cancel,
         approvers,
+        view_token,
     }))
 }
 
@@ -3848,6 +3862,12 @@ pub async fn cancel_suspended_job(
 pub struct SuspendedJobFlow {
     pub job: Job,
     pub approvers: Vec<Approval>,
+    /// Share-read-link token for the parent flow, minted because the caller proved
+    /// possession of the approval secret. Lets an authenticated workspace-member
+    /// approver open the run details of a flow they don't otherwise have read access
+    /// to (the run page reads it as a `view_token` query param).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub view_token: Option<String>,
 }
 
 pub async fn get_suspended_job_flow(
@@ -3932,7 +3952,13 @@ pub async fn get_suspended_job_flow(
     )
     .await?;
 
-    Ok(Json(SuspendedJobFlow { job: flow, approvers }).into_response())
+    // Possession of a valid approval secret is sufficient to mint a share-read-link
+    // token for the parent flow: it only grants read (no resume), and only to an
+    // authenticated workspace member, so it never widens what the approver can do.
+    let hmac = generate_view_token(&w_id, flow_id, &db).await?;
+    let view_token = Some(format!("{flow_id}.{hmac}"));
+
+    Ok(Json(SuspendedJobFlow { job: flow, approvers, view_token }).into_response())
 }
 
 fn conditionally_require_authed_user(
