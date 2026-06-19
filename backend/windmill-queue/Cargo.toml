@@ -17,10 +17,14 @@ benchmark = ["windmill-common/benchmark"]
 failpoints = []
 prometheus = ["dep:prometheus"]
 smtp = []
+# Enables native evaluation of `retry_if` expressions on the job-failure path
+# (otherwise such policies fall back to the one-step-flow retry path).
+quickjs = ["dep:windmill-jseval", "windmill-jseval/quickjs"]
 
 [dependencies]
 windmill-audit.workspace = true
 windmill-common = { workspace = true, default-features = false }
+windmill-jseval = { workspace = true, optional = true }
 anyhow.workspace = true
 hmac.workspace = true
 sql-builder.workspace = true

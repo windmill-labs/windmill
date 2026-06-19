@@ -15129,6 +15129,7 @@ dependencies = [
  "uuid",
  "windmill-audit",
  "windmill-common",
+ "windmill-jseval",
 ]
 
 [[package]]

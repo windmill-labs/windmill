@@ -964,7 +964,16 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // attempt is still recorded as a completed job below. `maybe_enqueue_…`
     // self-guards on kind/cancellation/policy, so the success path is unaffected.
     let retry_pending = if !success && !skipped && !from_cache {
-        match maybe_enqueue_native_script_retry(db, completed_job, &canceled_by).await {
+        // Serialized once for an optional `retry_if` evaluation (failure path only).
+        let result_raw = serde_json::value::to_raw_value(&result).ok();
+        match maybe_enqueue_native_script_retry(
+            db,
+            completed_job,
+            &canceled_by,
+            result_raw.as_deref(),
+        )
+        .await
+        {
             Ok(enqueued) => enqueued,
             Err(e) => {
                 tracing::error!(
@@ -1338,6 +1347,9 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         success,
                         result,
                         job_id,
+                        // Current occurrence's root: the terminal native-retry
+                        // attempt's parent, else the job itself.
+                        completed_job.parent_job.unwrap_or(job_id),
                         completed_job.started_at.unwrap_or(chrono::Utc::now()),
                         completed_job.priority,
                     )
@@ -1639,10 +1651,51 @@ async fn restart_job_if_perpetual_inner(
 /// Returns `true` if a retry was enqueued. Must be called while the failed job's
 /// queue row still exists (before it is moved to `v2_job_completed`), since the
 /// attempt counter is read from that row.
+/// Evaluate a `retry_if` JS expression. `result`/`previous_result` are the
+/// failure output and `flow_input` the job args. Defaults to retrying on eval
+/// error (an unevaluable gate shouldn't silently swallow retries).
+#[cfg(feature = "quickjs")]
+async fn eval_retry_if(
+    expr: &str,
+    result: Option<&serde_json::value::RawValue>,
+    args: &HashMap<String, Box<serde_json::value::RawValue>>,
+) -> bool {
+    let result_val = result
+        .and_then(|r| serde_json::from_str::<serde_json::Value>(r.get()).ok())
+        .unwrap_or(serde_json::Value::Null);
+    let mut globals = HashMap::new();
+    globals.insert("result".to_string(), result_val.clone());
+    globals.insert("previous_result".to_string(), result_val);
+    globals.insert(
+        "flow_input".to_string(),
+        serde_json::to_value(args).unwrap_or(serde_json::Value::Null),
+    );
+    match windmill_jseval::eval_simple_js(format!("Boolean({expr})"), globals).await {
+        Ok(v) => v.get() == "true",
+        Err(e) => {
+            tracing::warn!("Failed to evaluate retry_if expression, retrying anyway: {e:#}");
+            true
+        }
+    }
+}
+
+/// Unreachable without the `quickjs` feature: `push` keeps `retry_if` policies on
+/// the one-step-flow path when native eval is unavailable.
+#[cfg(not(feature = "quickjs"))]
+async fn eval_retry_if(
+    _expr: &str,
+    _result: Option<&serde_json::value::RawValue>,
+    _args: &HashMap<String, Box<serde_json::value::RawValue>>,
+) -> bool {
+    tracing::warn!("retry_if encountered without quickjs feature; not retrying");
+    false
+}
+
 pub async fn maybe_enqueue_native_script_retry(
     db: &Pool<Postgres>,
     job: &MiniCompletedJob,
     canceled_by: &Option<CanceledBy>,
+    result: Option<&serde_json::value::RawValue>,
 ) -> Result<bool, Error> {
     // Only plain top-level scripts retry natively; cancellation always wins.
     if canceled_by.is_some() || !matches!(job.kind, JobKind::Script) || job.is_flow_step() {
@@ -1700,6 +1753,16 @@ pub async fn maybe_enqueue_native_script_retry(
     .await?
     .flatten()
     .unwrap_or_default();
+
+    // Optional `retry_if`: gate the retry on a JS expression over the failure
+    // `result` and `flow_input` (the job args). Evaluated natively only when the
+    // `quickjs` feature is compiled in; `push` keeps `retry_if` policies on the
+    // flow path otherwise, so this is unreachable without quickjs.
+    if let Some(retry_if) = policy.retry_if.as_ref() {
+        if !eval_retry_if(&retry_if.expr, result, &args.0).await {
+            return Ok(false);
+        }
+    }
 
     // Re-push as a one-step-flow request; `push` materializes it back into a
     // native retryable `Script` carrying the policy again. `parent_job = root`
@@ -5470,9 +5533,11 @@ async fn push_inner<'c, 'd>(
                 && error_handler_path.is_none()
                 && hash.is_some()
                 && language.is_some()
-                // `retry_if` is evaluated by the flow runtime; native retry does
-                // not yet support it, so those policies stay on the flow path.
-                && retry.as_ref().is_some_and(|r| r.retry_if.is_none())
+                // `retry_if` needs JS eval on the failure path — only available
+                // with the `quickjs` feature; otherwise keep it on the flow path.
+                && retry
+                    .as_ref()
+                    .is_some_and(|r| r.retry_if.is_none() || cfg!(feature = "quickjs"))
                 && windmill_common::runnable_settings::min_version_supports_runnable_settings_v0()
                     .await;
             if native_retry {
