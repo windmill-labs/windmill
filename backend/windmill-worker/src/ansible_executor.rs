@@ -1805,4 +1805,31 @@ mod tests {
         assert!(validate_relative_path("", "playbook").is_err());
         assert!(validate_relative_path("   ", "playbook").is_err());
     }
+
+    #[test]
+    fn test_create_ansible_cfg_writes_valid_vault_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let job_dir = dir.path().to_str().unwrap();
+        let reqs = AnsibleRequirements {
+            vault_id: vec!["dev@vault_pass.txt".to_string()],
+            ..Default::default()
+        };
+        create_ansible_cfg(Some(&reqs), job_dir, false).unwrap();
+        let cfg = std::fs::read_to_string(dir.path().join("ansible.cfg")).unwrap();
+        assert!(cfg.contains("vault_identity_list = dev@vault_pass.txt"));
+        assert!(!cfg.contains("library"));
+    }
+
+    #[test]
+    fn test_create_ansible_cfg_rejects_vault_id_injection() {
+        let dir = tempfile::tempdir().unwrap();
+        let job_dir = dir.path().to_str().unwrap();
+        let reqs = AnsibleRequirements {
+            vault_id: vec!["default@/tmp/wm/x\nlibrary = /tmp/wm/evil_modules".to_string()],
+            ..Default::default()
+        };
+        // Defense-in-depth boundary: a poisoned entry must error before any config is written.
+        assert!(create_ansible_cfg(Some(&reqs), job_dir, false).is_err());
+        assert!(!dir.path().join("ansible.cfg").exists());
+    }
 }
