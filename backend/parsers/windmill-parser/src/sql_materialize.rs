@@ -91,8 +91,14 @@ pub fn split_statements(sql: &str) -> Vec<String> {
     let n = bytes.len();
     while i < n {
         let c = bytes[i] as char;
-        // line comment
-        if c == '-' && i + 1 < n && bytes[i + 1] == b'-' {
+        // line comment — `--` (SQL) or `//`. The `//` form is not SQL, but it
+        // is how Windmill pipeline annotations (`// materialize`, `// pipeline`,
+        // …) are written, and they sit above the SQL in the same script; strip
+        // them so they don't pollute the first statement block's classification
+        // or the generated setup SQL.
+        if (c == '-' && i + 1 < n && bytes[i + 1] == b'-')
+            || (c == '/' && i + 1 < n && bytes[i + 1] == b'/')
+        {
             while i < n && bytes[i] != b'\n' {
                 i += 1;
             }
@@ -505,6 +511,19 @@ mod tests {
         let s = split_statements("SELECT 'it''s; fine' AS a;");
         assert_eq!(s.len(), 1);
         assert!(s[0].contains("it''s; fine"));
+    }
+
+    #[test]
+    fn pipeline_annotations_are_stripped() {
+        // The real shape: `//` annotation lines above the SQL must not pollute
+        // the first block's classification (regression — they were being read
+        // as a leading `pipeline` keyword and rejected).
+        let p = ok("// pipeline\n// materialize wrap ducklake://main/t\n// partitioned daily\nATTACH 'ducklake://main' AS dl;\nSELECT 1 AS id");
+        assert_eq!(p.setup.len(), 1);
+        // The annotation lines are gone — the setup block starts at the real
+        // SQL (the `//` inside `ducklake://main` is legitimately retained).
+        assert!(p.setup[0].starts_with("ATTACH"));
+        assert!(p.output.starts_with("SELECT"));
     }
 
     #[test]
