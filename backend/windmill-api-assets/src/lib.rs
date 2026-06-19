@@ -22,6 +22,34 @@ pub fn workspaced_service() -> Router {
         .route("/list_favorites", get(list_favorites))
         .route("/graph", get(asset_graph))
         .route("/pipelines", get(list_pipeline_folders))
+        .route("/partitions", get(list_partitions))
+}
+
+#[derive(Deserialize)]
+struct PartitionsQuery {
+    // The materialized asset path (`<ducklake>/<table>`).
+    path: String,
+}
+
+// Per-partition materialization status for a ducklake asset — drives the
+// partition-status grid and the backfill worklist. Materialization targets are
+// ducklake-only in v1, so the kind is fixed.
+async fn list_partitions(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+    Query(q): Query<PartitionsQuery>,
+) -> JsonResult<Vec<windmill_common::materialization::MaterializedPartition>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = windmill_common::materialization::list_materialized_partitions(
+        &mut *tx,
+        &w_id,
+        AssetKind::Ducklake,
+        &q.path,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(rows))
 }
 
 #[derive(Deserialize)]

@@ -52,10 +52,7 @@ pub async fn record_materialization<'e>(
     job_id: Option<Uuid>,
     error: Option<&str>,
 ) -> Result<()> {
-    // Unchecked query: keeps the offline sqlx cache untouched for a brand-new
-    // table. Convert to `query!` + `cargo sqlx prepare` once the migration is
-    // applied to the check DB (see the update-sqlx skill).
-    sqlx::query(
+    sqlx::query!(
         "INSERT INTO materialized_partition
            (workspace_id, asset_kind, asset_path, partition, status,
             snapshot_id, row_count, job_id, materialized_at, error)
@@ -67,16 +64,16 @@ pub async fn record_materialization<'e>(
                        job_id = EXCLUDED.job_id,
                        materialized_at = now(),
                        error = EXCLUDED.error",
+        workspace_id,
+        asset_kind as AssetKind,
+        asset_path,
+        partition,
+        status as MaterializationStatus,
+        snapshot_id,
+        row_count,
+        job_id,
+        error,
     )
-    .bind(workspace_id)
-    .bind(asset_kind)
-    .bind(asset_path)
-    .bind(partition)
-    .bind(status)
-    .bind(snapshot_id)
-    .bind(row_count)
-    .bind(job_id)
-    .bind(error)
     .execute(executor)
     .await?;
     Ok(())
@@ -104,16 +101,18 @@ pub async fn list_materialized_partitions<'e>(
     asset_kind: AssetKind,
     asset_path: &str,
 ) -> Result<Vec<MaterializedPartition>> {
-    let rows = sqlx::query_as::<_, MaterializedPartition>(
-        "SELECT asset_kind, asset_path, partition, status, snapshot_id,
-                row_count, job_id, materialized_at, error
-           FROM materialized_partition
-          WHERE workspace_id = $1 AND asset_kind = $2 AND asset_path = $3
-          ORDER BY partition DESC",
+    let rows = sqlx::query_as!(
+        MaterializedPartition,
+        r#"SELECT asset_kind AS "asset_kind: AssetKind", asset_path, partition,
+                  status AS "status: MaterializationStatus", snapshot_id,
+                  row_count, job_id, materialized_at, error
+             FROM materialized_partition
+            WHERE workspace_id = $1 AND asset_kind = $2 AND asset_path = $3
+            ORDER BY partition DESC"#,
+        workspace_id,
+        asset_kind as AssetKind,
+        asset_path,
     )
-    .bind(workspace_id)
-    .bind(asset_kind)
-    .bind(asset_path)
     .fetch_all(executor)
     .await?;
     Ok(rows)
