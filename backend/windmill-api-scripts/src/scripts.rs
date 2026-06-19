@@ -1302,6 +1302,7 @@ async fn create_script_internal<'c>(
         RunnableSettings {
             debouncing_settings: ns.debouncing_settings.insert_cached(&db).await?,
             concurrency_settings: ns.concurrency_settings.insert_cached(&db).await?,
+            retry_settings: None,
         },
         &db,
     )

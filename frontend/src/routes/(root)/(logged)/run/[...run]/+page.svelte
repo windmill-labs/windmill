@@ -56,6 +56,7 @@
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { ActionRow, Button, Skeleton, Tab, Alert, DrawerContent } from '$lib/components/common'
 	import JobDetailHeader from '$lib/components/runs/JobDetailHeader.svelte'
+	import ScriptRetryChain from '$lib/components/runs/ScriptRetryChain.svelte'
 	import FlowExecutionStatus from '$lib/components/runs/FlowExecutionStatus.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
@@ -867,6 +868,10 @@
 				{/if}
 			</div>
 		</div>
+
+		{#if job}
+			<ScriptRetryChain {job} />
+		{/if}
 
 		{#if isNotFlow(job?.job_kind)}
 			{#if ['python3', 'bun', 'deno'].includes(job?.language ?? '') && (job?.job_kind == 'script' || isScriptPreview(job?.job_kind))}

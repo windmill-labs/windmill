@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT concurrency_settings, debouncing_settings, retry_settings FROM runnable_settings WHERE hash = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "concurrency_settings",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "debouncing_settings",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "retry_settings",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "82e2bdf46cb463a3bc0cba32d8a066b02c2793a58dde6e3804aa2151903fe496"
+}

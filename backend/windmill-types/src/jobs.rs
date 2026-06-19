@@ -473,6 +473,10 @@ pub enum JobPayload {
         path: String,
         hash: Option<ScriptHash>,
         flow_version: Option<i64>,
+        // Set when wrapping a script (not a flow). Lets `push` materialize a
+        // bare-script-with-retry as a native retryable `Script` job instead of
+        // spawning a one-step flow.
+        language: Option<ScriptLang>,
         args: HashMap<String, Box<serde_json::value::RawValue>>,
         retry: Option<Retry>,
         error_handler_path: Option<String>,

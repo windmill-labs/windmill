@@ -626,6 +626,7 @@ async fn push_subscriber(
             path: subscriber_path.to_string(),
             hash: Some(hash),
             flow_version: None,
+            language: Some(script.language),
             args: HashMap::new(),
             retry: Some(retry),
             error_handler_path: None,

@@ -255,6 +255,7 @@ pub async fn push_scheduled_job<'c>(
                 path: schedule.script_path.clone(),
                 hash,
                 flow_version,
+                language: None,
                 args: args.clone(),
                 retry,
                 error_handler_path: None,
@@ -371,12 +372,28 @@ pub async fn push_scheduled_job<'c>(
             for (arg_name, arg_value) in args.clone() {
                 static_args.insert(arg_name, arg_value);
             }
+            // Native retry drives the schedule completion handlers from the
+            // terminal attempt (see commit_completed_job). It supports handlers
+            // that don't need per-occurrence failure/recovery *counting*, since
+            // each native attempt is its own completed job: simple `on_failure`
+            // (times == 1, not exact) and `on_success` are fine. `on_recovery`
+            // and multi-count / exact `on_failure` still rely on per-occurrence
+            // status (which a retried occurrence's first attempt records as a
+            // failure), so those keep the one-step-flow path for now.
+            let native_retry_eligible = schedule.on_recovery.is_none()
+                && schedule.on_failure_times.unwrap_or(1) <= 1
+                && !schedule.on_failure_exact.unwrap_or(false);
             // if retry is set, we wrap the script into a one step flow with a retry on the module
             (
                 JobPayload::SingleStepFlow {
                     path: schedule.script_path.clone(),
                     hash: Some(hash),
                     flow_version: None,
+                    language: if native_retry_eligible {
+                        Some(language)
+                    } else {
+                        None
+                    },
                     retry: Some(parsed_retry),
                     error_handler_path: None,
                     error_handler_args: None,

@@ -924,6 +924,8 @@ async fn trigger_script_with_retry_and_error_handler<'c>(
             path,
             hash: Some(hash),
             flow_version: None,
+            // Keep the flow path until native retry covers handler semantics.
+            language: None,
             args: HashMap::from(&push_args),
             retry,
             error_handler_path,

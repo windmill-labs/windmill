@@ -1604,6 +1604,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     windmill_common::runnable_settings::RunnableSettings {
                         debouncing_settings: debouncing_hash,
                         concurrency_settings: None,
+                        retry_settings: None,
                     },
                     db,
                 )
