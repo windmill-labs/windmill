@@ -113,10 +113,12 @@ pub const ALLOW_PRIVATE_WEBSOCKET_URLS_ENV: &str = "ALLOW_PRIVATE_WEBSOCKET_URLS
 /// endpoints.
 ///
 /// `ws://`/`wss://` are mapped to `http`/`https` so the shared
-/// `validate_url_for_ssrf` host + DNS-resolution checks apply. Must be called on
-/// the *resolved* URL immediately before each outbound connect (the test handler
-/// and every listener (re)connect), so a `$flow:`/`$script:` URL is validated on
-/// its returned value and re-checked on each reconnect (DNS rebinding).
+/// `validate_url_for_ssrf` host + DNS-resolution checks apply. The
+/// security-critical call sites are the outbound connects (the test handler and
+/// every listener (re)connect): validating the *resolved* URL there means a
+/// `$flow:`/`$script:` URL is checked on its returned value and re-checked on
+/// each reconnect (DNS rebinding). `validate_config` also calls this at save
+/// time to reject static URLs early.
 pub async fn validate_websocket_url_for_ssrf(url: &str) -> Result<()> {
     if std::env::var(ALLOW_PRIVATE_WEBSOCKET_URLS_ENV)
         .ok()
