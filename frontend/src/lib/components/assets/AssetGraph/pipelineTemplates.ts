@@ -3,14 +3,22 @@ import { random_adj } from '$lib/components/random_positive_adjetive'
 import { parseDbInputFromAssetSyntax } from '$lib/utils'
 
 // What kind of asset the new script will produce. Drives the random output
-// path scheme and the body skeleton. The output asset is NOT declared in a
-// comment annotation — it's reconstructed from the body's SDK calls / SQL by
-// the asset parser, same as production scripts, so it can't go stale.
+// path scheme and the body skeleton. For most kinds the output asset is NOT
+// declared in a comment annotation — it's reconstructed from the body's SDK
+// calls / SQL by the asset parser, same as production scripts, so it can't go
+// stale. The exception is `materialize`, which declares its target explicitly
+// via the `// materialize` annotation (the runtime generates the write).
 //
 // `none` is the conservative default — body just has a "fill in" comment. The
 // other kinds inject their respective wmill SDK calls / SQL setup so the
 // script is runnable (modulo schema definition) the moment it's created.
-export type PipelineOutputKind = 'none' | 'datatable' | 'ducklake' | 's3_parquet' | 's3_object'
+export type PipelineOutputKind =
+	| 'none'
+	| 'datatable'
+	| 'ducklake'
+	| 'materialize'
+	| 's3_parquet'
+	| 's3_object'
 
 export type PipelineOutputKindMeta = {
 	id: PipelineOutputKind
@@ -24,6 +32,11 @@ export type PipelineOutputKindMeta = {
 // picking it disables the whole "auto-generated output" feature.
 export const PIPELINE_OUTPUT_KINDS: PipelineOutputKindMeta[] = [
 	{
+		id: 'materialize',
+		label: 'Materialized table',
+		description: 'Managed DuckLake table — idempotent, versioned, tracked'
+	},
+	{
 		id: 'datatable',
 		label: 'Data table',
 		description: 'Postgres-backed typed table'
@@ -31,7 +44,7 @@ export const PIPELINE_OUTPUT_KINDS: PipelineOutputKindMeta[] = [
 	{
 		id: 'ducklake',
 		label: 'Ducklake',
-		description: 'DuckDB lakehouse table'
+		description: 'DuckDB lakehouse table (raw write)'
 	},
 	{
 		id: 's3_parquet',
@@ -60,7 +73,11 @@ const LANG_COMPATIBILITY: Record<ScriptLang, PipelineOutputKind[]> = {
 	bun: ['datatable', 'ducklake', 's3_parquet', 's3_object', 'none'],
 	deno: ['datatable', 'ducklake', 's3_parquet', 's3_object', 'none'],
 	python3: ['datatable', 'ducklake', 's3_parquet', 's3_object', 'none'],
-	duckdb: ['datatable', 'ducklake', 's3_parquet', 's3_object', 'none'],
+	// `materialize` is DuckDB-only: it generates the managed write around a
+	// single SELECT. The Python/TS `wmll.ducklake` helper currently takes a SQL
+	// SELECT (not in-memory rows), so a polyglot managed materialize is a
+	// separate follow-up — those langs keep the `ducklake` raw-write kind.
+	duckdb: ['materialize', 'datatable', 'ducklake', 's3_parquet', 's3_object', 'none'],
 	postgresql: ['datatable', 'none'],
 	mysql: ['none'],
 	mssql: ['none'],
@@ -135,6 +152,7 @@ export function autoOutputAsset(
 		case 'datatable':
 			return { kind: 'datatable', path: `main/${adj}_${pick(TABLE_NOUNS)}_${slug}` }
 		case 'ducklake':
+		case 'materialize':
 			return { kind: 'ducklake', path: `main/${adj}_${pick(TABLE_NOUNS)}_${slug}` }
 		// s3 paths carry the canonical leading slash of a default-storage
 		// object (`s3:///<key>` parses to path `/<key>`). The deploy-time
@@ -286,7 +304,8 @@ export type TemplateContext = {
 // Header: `// pipeline` + every trigger source as its own annotation line.
 // Output asset is NOT declared here — it's reconstructed from the body's
 // SDK calls / SQL by the asset parser, same as production scripts.
-function header(language: ScriptLang, triggers: DraftTriggerSource[]): string {
+function header(ctx: TemplateContext): string {
+	const { language, triggers, output, outputKind } = ctx
 	const p = commentPrefix(language)
 	const lines = triggers.map((t) => {
 		switch (t.kind) {
@@ -298,6 +317,11 @@ function header(language: ScriptLang, triggers: DraftTriggerSource[]): string {
 				return `${p} on ${t.kind}`
 		}
 	})
+	// Managed materialization is the one kind that declares its output
+	// explicitly — the runtime generates the write around the body's SELECT, so
+	// the target can't be inferred from the body. Emit `// materialize <uri>`.
+	const matLine =
+		outputKind === 'materialize' && output ? [`${p} materialize ${assetUri(output)}`] : []
 	// Discoverability hint — the three annotations users most often miss
 	// when authoring their first pipeline script. Single line, real
 	// example values (not placeholders) so users see the syntax. Docs
@@ -305,7 +329,7 @@ function header(language: ScriptLang, triggers: DraftTriggerSource[]): string {
 	// line separates it from the parsed annotations above (`// pipeline`,
 	// `// on …`) so the editor reads as "real annotations, then a hint".
 	const more = `${p} More: partitioned daily, freshness 1h, retry 3, tag heavy — https://www.windmill.dev/docs/pipelines/annotations`
-	return [`${p} pipeline`, ...lines, '', more, ''].join('\n')
+	return [`${p} pipeline`, ...lines, ...matLine, '', more, ''].join('\n')
 }
 
 // Bun / Deno bodies. These share the wmill SDK surface, so we treat them
@@ -579,6 +603,15 @@ function bodyDuckdb(ctx: TemplateContext): string {
 				)
 			}
 			break
+		case 'materialize':
+			// Managed materialization: the body is just the SELECT that produces
+			// the slice — the runtime wraps it into the idempotent write +
+			// snapshot (see the `// materialize` annotation in the header). No
+			// CREATE TABLE / INSERT, and the target is NOT attached here (the
+			// runtime attaches it). Add `// partitioned daily` + a `{partition}`
+			// filter for a partitioned table.
+			lines.push(`SELECT * FROM ${inSql ?? '(SELECT 1 AS placeholder)'};`)
+			break
 		case 'datatable':
 			if (output) {
 				// 2-part `pg.<table>` so the asset parser resolves the
@@ -664,7 +697,7 @@ function genericBody(ctx: TemplateContext): string {
 // The returned content is ready to drop into a Script as `content` — no
 // further mutation needed, including for the trigger annotations.
 export function generatePipelineDraft(ctx: TemplateContext): string {
-	const head = header(ctx.language, ctx.triggers)
+	const head = header(ctx)
 	const body = (() => {
 		switch (ctx.language) {
 			case 'bun':
