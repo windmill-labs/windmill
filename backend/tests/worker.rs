@@ -4193,6 +4193,58 @@ async fn test_unrecoverable_failure_skips_retry_runs_failure_module(
     Ok(())
 }
 
+/// WIN-2070: an unrecoverable failure on a `continue_on_error` step must still route to the
+/// error handler rather than silently advancing to the next step (which would hide the worker
+/// death). A normal failure on a `continue_on_error` step is tolerated and the flow continues;
+/// a worker crash/OOM is not.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_unrecoverable_failure_on_continue_on_error_runs_failure_module(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Step 'a' hangs (and tolerates failures via continue_on_error); step 'b' would run next
+    // if the unrecoverable failure were (wrongly) tolerated.
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [
+            {
+                "id": "a",
+                "value": hanging_step_value(),
+                "continue_on_error": true,
+            },
+            {
+                "id": "b",
+                "value": {
+                    "input_transforms": {},
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return { ran_b: true }; }",
+                },
+            },
+        ],
+        "failure_module": marker_failure_module(),
+    }))
+    .unwrap();
+
+    let result = run_flow_until_step_running_then_fail_unrecoverably(&db, port, flow).await;
+
+    server.close().await.unwrap();
+
+    assert_eq!(
+        result["handled_unrecoverable"],
+        json!(true),
+        "unrecoverable failure on a continue_on_error step should run the failure module, got: {result}"
+    );
+    assert!(
+        result.get("ran_b").is_none(),
+        "the step after a continue_on_error step must NOT run on an unrecoverable failure, got: {result}"
+    );
+    Ok(())
+}
+
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_run_wait_result_early_return_with_failure_module(

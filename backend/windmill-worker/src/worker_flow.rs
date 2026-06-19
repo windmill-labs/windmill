@@ -1279,7 +1279,11 @@ pub async fn update_flow_status_after_job_completion_internal(
                         }),
                     )
                 } else {
-                    let inc = if continue_on_error {
+                    // An unrecoverable failure (worker crash/OOM) must reach the error handler
+                    // even on a continue_on_error step, so don't advance the step counter past
+                    // the failed module — otherwise the flow would silently continue to the next
+                    // step and hide the worker death.
+                    let inc = if !unrecoverable && continue_on_error {
                         let retry = current_module
                             .as_ref()
                             .and_then(|x| x.retry.clone())
@@ -3694,8 +3698,13 @@ async fn push_next_flow_job(
         None
     };
     let get_args_from_id = match &status_module {
+        // `|| unrecoverable`: a worker crash/OOM routes to the failure module even on a
+        // continue_on_error step (whose failures are normally tolerated), matching the
+        // `unrecoverable` decision in update_flow_status_after_job_completion_internal.
         FlowStatusModule::Failure { job, .. }
-            if retry.as_ref().is_some() || !module.continue_on_error.is_some_and(|x| x) =>
+            if retry.as_ref().is_some()
+                || !module.continue_on_error.is_some_and(|x| x)
+                || unrecoverable =>
         {
             if let Some((fail_count, retry_in)) = retry {
                 tracing::debug!(
