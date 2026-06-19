@@ -1057,6 +1057,10 @@ async fn test_connection<T: TriggerCrud>(
     Path(workspace_id): Path<String>,
     Json(config): Json<T::TestConnectionConfig>,
 ) -> Result<()> {
+    // Test connection opens an outbound connection to a caller-supplied target,
+    // so gate it behind write access like the other mutating trigger routes.
+    check_scopes(&authed, || format!("{}:write", T::scope_domain_name()))?;
+
     let connect_f = async move {
         handler
             .test_connection(&db, &authed, &user_db, &workspace_id, config)
