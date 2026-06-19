@@ -33,9 +33,22 @@ pub async fn insert_static_asset_usage<'e>(
         .as_ref()
         .map(|cols| serde_json::to_value(cols).unwrap_or(serde_json::Value::Null));
 
+    // Invalidate the per-workspace producer-writes cache only when this insert
+    // actually adds a write producer: the cache (asset_dispatch::
+    // ASSET_PRODUCER_WRITES_CACHE) tracks script rows with 'w'/'rw' access, so
+    // a row that was a no-op (ON CONFLICT skipped), a flow usage, or read-only
+    // can't change it. Emitting in the same statement keeps the notify atomic
+    // with the insert and visible to pollers only on commit. See the matching
+    // delete-side guard in clear_static_asset_usage.
     sqlx::query!(
-        r#"INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, columns)
-                VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING"#,
+        r#"WITH ins AS (
+             INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, columns)
+                VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING
+             RETURNING usage_kind, usage_access_type
+           )
+           INSERT INTO notify_event (channel, payload)
+           SELECT 'notify_asset_producer_change', $1
+           FROM ins WHERE usage_kind = 'script' AND usage_access_type IN ('w', 'rw')"#,
         workspace_id,
         asset.path,
         asset.kind as AssetKind,
@@ -58,19 +71,23 @@ pub async fn clear_static_asset_usage<'e>(
 ) -> error::Result<()> {
     // Invalidate the per-workspace producer-writes cache that gates the
     // asset-trigger dispatch hook (windmill-queue
-    // asset_dispatch::ASSET_PRODUCER_WRITES_CACHE), but only for script
-    // usage. The notify is unconditional (not gated on rows deleted) so a
-    // deploy where the script *gains* its first asset still invalidates;
-    // emitting it in the same statement keeps it atomic with the change and
-    // visible to pollers only on commit. Flow usage doesn't affect the
-    // script producer set, so the INSERT is skipped via the `$3 = 'script'`
-    // guard.
+    // asset_dispatch::ASSET_PRODUCER_WRITES_CACHE). That cache only tracks
+    // script rows with 'w'/'rw' access, so emit the notify only when the
+    // delete actually removed such a write producer: flow usage, read-only
+    // usage, and deletes that matched no producer row leave the cache
+    // unchanged (the common case — most deploys touch no write asset). The
+    // matching add side lives in insert_static_asset_usage. Emitting in the
+    // same statement keeps the notify atomic with the delete and visible to
+    // pollers only on commit.
     sqlx::query!(
         r#"WITH del AS (
              DELETE FROM asset WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = $3
+             RETURNING usage_access_type
            )
            INSERT INTO notify_event (channel, payload)
-           SELECT 'notify_asset_producer_change', $1 WHERE $3 = 'script'"#,
+           SELECT 'notify_asset_producer_change', $1
+           WHERE $3 = 'script'
+             AND EXISTS (SELECT 1 FROM del WHERE usage_access_type IN ('w', 'rw'))"#,
         workspace_id,
         usage_path,
         usage_kind as AssetUsageKind
@@ -85,16 +102,18 @@ pub async fn clear_static_asset_usage_by_script_hash<'e>(
     workspace_id: &str,
     script_hash: ScriptHash,
 ) -> error::Result<()> {
-    // Always script usage → unconditionally invalidate the producer-writes
-    // cache for this workspace (see clear_static_asset_usage), atomically
-    // with the delete.
+    // Always script usage → invalidate the producer-writes cache for this
+    // workspace, but only when the delete actually removed a write producer
+    // ('w'/'rw'); see clear_static_asset_usage. Atomic with the delete.
     sqlx::query!(
         r#"WITH del AS (
              DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script'
                AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)
+             RETURNING usage_access_type
            )
            INSERT INTO notify_event (channel, payload)
-           VALUES ('notify_asset_producer_change', $1)"#,
+           SELECT 'notify_asset_producer_change', $1
+           WHERE EXISTS (SELECT 1 FROM del WHERE usage_access_type IN ('w', 'rw'))"#,
         workspace_id,
         script_hash.0
     )
