@@ -29,6 +29,7 @@
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import S3FilePreview from '$lib/components/S3FilePreview.svelte'
 	import DataTablePreview from './DataTablePreview.svelte'
+	import PartitionStatusGrid from './PartitionStatusGrid.svelte'
 	import AssetRunsPanel from './AssetRunsPanel.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { fade } from 'svelte/transition'
@@ -976,6 +977,8 @@
 									class="h-full"
 									refreshKey={previewRefreshKey}
 								/>
+							{:else if selection.asset_kind === 'ducklake'}
+								<PartitionStatusGrid path={selection.path} {workspace} />
 							{:else}
 								<div class="p-3 text-xs text-secondary">
 									No inline preview yet for {selection.asset_kind}. Use the producer/consumer arrows
