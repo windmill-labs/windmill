@@ -1347,7 +1347,7 @@ describe('global AI tools', () => {
 			file_path: '/big.tsx'
 		})
 
-		expect(result).toContain('[read_app_file] /big.tsx: lines 1-1500 of 2000.')
+		expect(result).toContain('lines 1-1500 of 2000.')
 		expect(result).toContain('offset=1501')
 		expect(result).toContain('line 1500')
 		expect(result).not.toContain('line 1501')
@@ -1366,7 +1366,7 @@ describe('global AI tools', () => {
 			limit: 3
 		})
 
-		expect(result).toContain('[read_app_file] /big.tsx: lines 5-7 of 2000.')
+		expect(result).toContain('lines 5-7 of 2000.')
 		expect(result).toContain('line 5\nline 6\nline 7')
 		expect(result).not.toContain('line 4')
 		expect(result).not.toContain('line 8')
@@ -1384,7 +1384,7 @@ describe('global AI tools', () => {
 		})
 
 		expect(result).toContain(
-			'[read_app_file] /min.tsx: lines 1-3 of 3, truncated to the first 50000 of 90002 chars.'
+			'lines 1-3 of 3, truncated to the first 50000 of 90002 chars.'
 		)
 		expect(result).toContain('the file is likely minified')
 		expect(result.split('\n\n')[1]).toHaveLength(50_000)
@@ -1402,7 +1402,7 @@ describe('global AI tools', () => {
 		})
 
 		expect(result).toContain(
-			'[read_app_file] /generated.js: lines 1-1 of 1, truncated to the first 50000 of 60000 chars.'
+			'lines 1-1 of 1, truncated to the first 50000 of 60000 chars.'
 		)
 		expect(result).toContain('re-read with a smaller limit')
 		expect(result.split('\n\n')[1]).toBe('x'.repeat(50_000))
@@ -1420,7 +1420,7 @@ describe('global AI tools', () => {
 				file_path: '/small.tsx',
 				offset: 50
 			})
-		).resolves.toBe('[read_app_file] /small.tsx: offset 50 is past the end of the file (10 lines).')
+		).resolves.toBe('offset 50 is past the end of the file (10 lines).')
 	})
 
 	// Deterministic micro-benchmark: measures how much context the read_app_file cap
@@ -1517,8 +1517,8 @@ describe('global AI tools', () => {
 			query: 'computeRevenue'
 		})
 
-		// header counts every match across the (non-generated) files
-		expect(result).toContain('[search_app] "computeRevenue"')
+		// header counts every match across the (non-generated) files, without echoing the query
+		expect(result).toMatch(/\d+ match(?:es)? in \d+ files?/)
 		// frontend rows use read_app_file's leading-slash addressing
 		expect(result).toContain('/lib/aggregations.ts')
 		expect(result).toContain('1: export function computeRevenue(o) {')
@@ -1577,7 +1577,8 @@ describe('global AI tools', () => {
 			query: 'nonexistent_symbol_xyz'
 		})
 
-		expect(result).toContain('[search_app] 0 matches for "nonexistent_symbol_xyz"')
+		expect(result).toContain('No matches')
+		expect(result).toContain('Try a broader')
 	})
 
 	it('truncates very long matching lines to keep results sparse', async () => {

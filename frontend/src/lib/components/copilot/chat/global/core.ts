@@ -563,7 +563,9 @@ const searchAppSchema = z.object({
 		.int()
 		.min(1)
 		.optional()
-		.describe('Maximum number of match rows to return (default 100, hard cap 200).')
+		.describe(
+			'Maximum number of matching lines to return (default 100, hard cap 200); each is shown with a few lines of surrounding context, so the output has more rows than this.'
+		)
 })
 
 const writeAppFileSchema = z.object({
@@ -3071,10 +3073,10 @@ function formatAppFileReadRangeLabel(slice: AppFileSlice): string {
 // Small files (returned whole, starting at line 1) keep the raw body so
 // patch_app_file's exact-match stays trivial; truncated/windowed reads get a
 // one-line annotation describing the range (not part of the file).
-function formatAppFileReadResult(filePath: string, slice: AppFileSlice): string {
+function formatAppFileReadResult(slice: AppFileSlice): string {
 	// offset past the last line: report it plainly instead of a backwards range.
 	if (slice.requestedStartLine > slice.totalLines) {
-		return `[read_app_file] ${filePath}: offset ${slice.requestedStartLine} is past the end of the file (${slice.totalLines} lines).`
+		return `offset ${slice.requestedStartLine} is past the end of the file (${slice.totalLines} lines).`
 	}
 	if (!slice.truncated && slice.startLine === 1) {
 		return slice.body
@@ -3086,7 +3088,9 @@ function formatAppFileReadResult(filePath: string, slice: AppFileSlice): string 
 	} else if (slice.endLine < slice.totalLines) {
 		more = ` Call read_app_file again with offset=${slice.endLine + 1} to continue.`
 	}
-	return `[read_app_file] ${filePath}: ${formatAppFileReadRangeLabel(slice)}.${more}\n\n${slice.body}`
+	// No tool-name/path prefix: the model already has them from the call args. The
+	// range line orients it; the body follows after a blank line.
+	return `${formatAppFileReadRangeLabel(slice)}.${more}\n\n${slice.body}`
 }
 
 async function readAppFile(
@@ -3120,7 +3124,7 @@ async function readAppFile(
 	const slice = sliceAppFileForRead(content, args.offset, args.limit)
 
 	toolCallbacks.setToolStatus(toolId, { content: `Read ${target.filePath}` })
-	return formatAppFileReadResult(target.filePath, slice)
+	return formatAppFileReadResult(slice)
 }
 
 // search_app caps: a single query must stay sparse and cheap even when it hits a
@@ -3240,12 +3244,13 @@ async function searchApp(
 
 	if (totalMatchCount === 0) {
 		toolCallbacks.setToolStatus(toolId, { content: `No matches for "${query}"` })
-		return `[search_app] 0 matches for "${query}"${
-			args.file_glob ? ` in files matching "${args.file_glob}"` : ''
-		}. Try a broader or differently-spelled term, or drop the file_glob.`
+		return `No matches. Try a broader or differently-spelled term${
+			args.file_glob ? ', or drop the file_glob' : ''
+		}.`
 	}
 
-	const header = `[search_app] "${query}" — ${totalMatchCount} match${
+	// No tool-name/query prefix: the model already has them from the call args.
+	const header = `${totalMatchCount} match${
 		totalMatchCount === 1 ? '' : 'es'
 	} in ${fileCount} file${fileCount === 1 ? '' : 's'}${
 		truncated ? ` (showing the first ${maxMatches}; narrow with file_glob or a more specific query)` : ''
