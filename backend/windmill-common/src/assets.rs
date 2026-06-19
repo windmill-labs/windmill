@@ -1,4 +1,6 @@
-use sqlx::PgExecutor;
+use std::collections::HashSet;
+
+use sqlx::{PgExecutor, Postgres, Transaction};
 
 use crate::{error, scripts::ScriptHash};
 
@@ -33,9 +35,22 @@ pub async fn insert_static_asset_usage<'e>(
         .as_ref()
         .map(|cols| serde_json::to_value(cols).unwrap_or(serde_json::Value::Null));
 
+    // Invalidate the per-workspace producer-writes cache only when this insert
+    // actually adds a write producer: the cache (asset_dispatch::
+    // ASSET_PRODUCER_WRITES_CACHE) tracks script rows with 'w'/'rw' access, so
+    // a row that was a no-op (ON CONFLICT skipped), a flow usage, or read-only
+    // can't change it. Emitting in the same statement keeps the notify atomic
+    // with the insert and visible to pollers only on commit. See the matching
+    // delete-side guard in clear_static_asset_usage.
     sqlx::query!(
-        r#"INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, columns)
-                VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING"#,
+        r#"WITH ins AS (
+             INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, columns)
+                VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING
+             RETURNING usage_kind, usage_access_type
+           )
+           INSERT INTO notify_event (channel, payload)
+           SELECT 'notify_asset_producer_change', $1
+           FROM ins WHERE usage_kind = 'script' AND usage_access_type IN ('w', 'rw')"#,
         workspace_id,
         asset.path,
         asset.kind as AssetKind,
@@ -58,19 +73,23 @@ pub async fn clear_static_asset_usage<'e>(
 ) -> error::Result<()> {
     // Invalidate the per-workspace producer-writes cache that gates the
     // asset-trigger dispatch hook (windmill-queue
-    // asset_dispatch::ASSET_PRODUCER_WRITES_CACHE), but only for script
-    // usage. The notify is unconditional (not gated on rows deleted) so a
-    // deploy where the script *gains* its first asset still invalidates;
-    // emitting it in the same statement keeps it atomic with the change and
-    // visible to pollers only on commit. Flow usage doesn't affect the
-    // script producer set, so the INSERT is skipped via the `$3 = 'script'`
-    // guard.
+    // asset_dispatch::ASSET_PRODUCER_WRITES_CACHE). That cache only tracks
+    // script rows with 'w'/'rw' access, so emit the notify only when the
+    // delete actually removed such a write producer: flow usage, read-only
+    // usage, and deletes that matched no producer row leave the cache
+    // unchanged (the common case — most deploys touch no write asset). The
+    // matching add side lives in insert_static_asset_usage. Emitting in the
+    // same statement keeps the notify atomic with the delete and visible to
+    // pollers only on commit.
     sqlx::query!(
         r#"WITH del AS (
              DELETE FROM asset WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = $3
+             RETURNING usage_access_type
            )
            INSERT INTO notify_event (channel, payload)
-           SELECT 'notify_asset_producer_change', $1 WHERE $3 = 'script'"#,
+           SELECT 'notify_asset_producer_change', $1
+           WHERE $3 = 'script'
+             AND EXISTS (SELECT 1 FROM del WHERE usage_access_type IN ('w', 'rw'))"#,
         workspace_id,
         usage_path,
         usage_kind as AssetUsageKind
@@ -85,21 +104,117 @@ pub async fn clear_static_asset_usage_by_script_hash<'e>(
     workspace_id: &str,
     script_hash: ScriptHash,
 ) -> error::Result<()> {
-    // Always script usage → unconditionally invalidate the producer-writes
-    // cache for this workspace (see clear_static_asset_usage), atomically
-    // with the delete.
+    // Always script usage → invalidate the producer-writes cache for this
+    // workspace, but only when the delete actually removed a write producer
+    // ('w'/'rw'); see clear_static_asset_usage. Atomic with the delete.
     sqlx::query!(
         r#"WITH del AS (
              DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script'
                AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)
+             RETURNING usage_access_type
            )
            INSERT INTO notify_event (channel, payload)
-           VALUES ('notify_asset_producer_change', $1)"#,
+           SELECT 'notify_asset_producer_change', $1
+           WHERE EXISTS (SELECT 1 FROM del WHERE usage_access_type IN ('w', 'rw'))"#,
         workspace_id,
         script_hash.0
     )
     .execute(executor)
     .await?;
+    Ok(())
+}
+
+fn is_write_access(access: Option<AssetUsageAccessType>) -> bool {
+    matches!(
+        access,
+        Some(AssetUsageAccessType::W) | Some(AssetUsageAccessType::RW)
+    )
+}
+
+/// Clear and reinsert the full static-asset usage set of a script in one tx,
+/// invalidating the producer-writes cache at most once and only on a real
+/// change. The cache (asset_dispatch::ASSET_PRODUCER_WRITES_CACHE) keys a
+/// workspace by the set of (kind, path) script rows with 'w'/'rw' access, so a
+/// redeploy that keeps the same write producers must leave it untouched. We
+/// diff the old write set (captured from the clearing DELETE's RETURNING)
+/// against the new one and emit a single notify only when they differ —
+/// emitting per statement, as clear/insert_static_asset_usage do, would fire
+/// twice on every write-asset redeploy (the clear removes the row, the reinsert
+/// adds it back). The notify rides the deploy tx, so it stays atomic with the
+/// DML and visible to pollers only on commit.
+///
+/// DELETE and INSERT of the same primary key cannot share a single statement
+/// (both would read the pre-statement snapshot, so the reinsert's ON CONFLICT
+/// would silently drop the row), which is why this clears and reinserts as
+/// separate statements rather than one CTE.
+///
+/// Performs no authorization itself: `tx` must already be scoped to a caller
+/// authorized for `workspace_id`/`usage_path` (e.g. `user_db.begin(&authed)`,
+/// which applies RLS), exactly like the sibling clear/insert helpers.
+pub async fn replace_static_asset_usage(
+    tx: &mut Transaction<'_, Postgres>,
+    workspace_id: &str,
+    usage_path: &str,
+    assets: &[AssetWithAltAccessType],
+) -> error::Result<()> {
+    let cleared = sqlx::query!(
+        r#"DELETE FROM asset
+           WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = 'script'
+           RETURNING kind AS "kind!: AssetKind", path,
+                     usage_access_type AS "usage_access_type: AssetUsageAccessType""#,
+        workspace_id,
+        usage_path,
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    let old_writes: HashSet<(AssetKind, String)> = cleared
+        .into_iter()
+        .filter(|r| is_write_access(r.usage_access_type))
+        .map(|r| (r.kind, r.path))
+        .collect();
+
+    // Build new_writes from rows actually inserted (RETURNING), not the
+    // requested slice: ON CONFLICT DO NOTHING is first-writer-wins, so a payload
+    // with duplicate (kind, path) entries at conflicting access types persists
+    // only the first. Since the DELETE above emptied this usage_path, every
+    // non-conflicting insert lands, so the inserted rows are exactly the new
+    // persisted set.
+    let mut new_writes: HashSet<(AssetKind, String)> = HashSet::new();
+    for asset in assets {
+        let access = asset.access_type.or(asset.alt_access_type);
+        let columns_json = asset
+            .columns
+            .as_ref()
+            .map(|cols| serde_json::to_value(cols).unwrap_or(serde_json::Value::Null));
+        let inserted = sqlx::query!(
+            r#"INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, columns)
+               VALUES ($1, $2, $3, $4, $5, 'script', $6) ON CONFLICT DO NOTHING
+               RETURNING usage_access_type AS "usage_access_type: AssetUsageAccessType""#,
+            workspace_id,
+            asset.path,
+            asset.kind as AssetKind,
+            access as Option<AssetUsageAccessType>,
+            usage_path,
+            columns_json as Option<serde_json::Value>,
+        )
+        .fetch_optional(&mut **tx)
+        .await?;
+        if let Some(row) = inserted {
+            if is_write_access(row.usage_access_type) {
+                new_writes.insert((asset.kind, asset.path.clone()));
+            }
+        }
+    }
+
+    if old_writes != new_writes {
+        sqlx::query!(
+            r#"INSERT INTO notify_event (channel, payload)
+               VALUES ('notify_asset_producer_change', $1)"#,
+            workspace_id,
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
     Ok(())
 }
 
