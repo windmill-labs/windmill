@@ -43,6 +43,10 @@ export function usePipelineHistory(
 	// Generation counter: a folder/days change mid-flight must not write a
 	// stale response into the new scope (mirrors the page's bodyFetchGen).
 	let gen = 0
+	// Edges-only refetches fire one-per-new-id during a cascade; `gen` only
+	// guards scope changes, so this sequences same-scope calls — a slower
+	// earlier response must not overwrite a newer one.
+	let edgeSeq = 0
 
 	async function load(ws: string, prefix: string, days: number) {
 		const myGen = ++gen
@@ -105,17 +109,16 @@ export function usePipelineHistory(
 		}
 	}
 
-	// Edges-only refetch (one cheap query, no completed-jobs paging). The
-	// `dispatch_event` rows that group a cascade are written server-side only
-	// once the producer COMPLETES, so a run launched live (manual or scheduled)
-	// has no edges in this one-shot preload — its producer and just-dispatched
-	// children would show as separate rows. The page calls this when the live
-	// poll surfaces new jobs so fresh cascades group with their producer.
+	// Edges-only refetch (one cheap query, no completed-jobs paging): the
+	// `dispatch_event` rows that group a cascade are written server-side when a
+	// producer completes, so a run launched live has none in the one-shot
+	// preload. The page calls this when the live poll surfaces new jobs.
 	async function loadEdges(ws: string, prefix: string, days: number) {
 		// Skip while a full load owns `edges`; that load sets fresher edges and
 		// a concurrent write here could clobber it with a slightly older window.
 		if (loading) return
 		const myGen = gen
+		const mySeq = ++edgeSeq
 		const cutoff = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString()
 		try {
 			const edgeRows = (await JobService.listAssetDispatchEdges({
@@ -123,7 +126,8 @@ export function usePipelineHistory(
 				pathStart: prefix,
 				createdAfter: cutoff
 			})) as DispatchEdge[]
-			if (gen !== myGen) return
+			// Drop a stale-scope write, or one a newer refetch already superseded.
+			if (gen !== myGen || mySeq !== edgeSeq) return
 			edges = edgeRows
 		} catch (e) {
 			console.warn('failed to refetch pipeline dispatch edges', e)

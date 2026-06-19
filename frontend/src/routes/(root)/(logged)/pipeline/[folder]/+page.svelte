@@ -1589,13 +1589,11 @@
 		for (const e of activeRunnables.events) byId.set(e.id, e)
 		return Array.from(byId.values()).sort((a, b) => b.at.localeCompare(a.at))
 	})
-	// The activity panel groups a cascade by its dispatch edges, but those
-	// edges are written server-side only when a producer completes — so a run
-	// launched live (the user just hit Run) has no edge in the one-shot history
-	// preload, and its producer + freshly-dispatched children would show as
-	// separate ungrouped rows. The live poll's id set changes the instant a new
-	// job appears (a dispatched child is a new id), which is exactly when fresh
-	// edges exist; re-pull them then so live cascades group like historic ones.
+	// Keep dispatch edges live so freshly-launched runs group (see `loadEdges`).
+	// The poll's id set changes the instant a new job appears (a dispatched
+	// child is a new id) — exactly when fresh edges exist — so re-pull then.
+	// Keyed on ids, not status, so queued→done ticks don't refetch;
+	// `lastLiveEventSig` is a plain `let` so writing it can't retrigger this.
 	let lastLiveEventSig = ''
 	$effect(() => {
 		const sig = activeRunnables.events
