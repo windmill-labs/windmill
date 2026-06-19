@@ -329,11 +329,17 @@
 	let allLabels = $derived(
 		Array.from(new Set(combinedItems?.flatMap((x) => itemLabels(x)) ?? [])).sort()
 	)
+	let prevWorkspace: string | undefined = undefined
+	// Clear filters only when the workspace actually changes. The initial
+	// resolution must be left alone so URL-loaded filter values (set by
+	// ListFilters.loadFilterFromUrl on mount) survive the async store settling.
 	$effect(() => {
-		if ($workspaceStore) {
+		const ws = $workspaceStore
+		if (ws && prevWorkspace !== undefined && ws !== prevWorkspace) {
 			ownerFilter = undefined
 			labelFilter = undefined
 		}
+		prevWorkspace = ws
 	})
 	let preFilteredItems = $derived(
 		ownerFilter != undefined
