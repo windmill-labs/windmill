@@ -329,8 +329,17 @@
 	let allLabels = $derived(
 		Array.from(new Set(combinedItems?.flatMap((x) => itemLabels(x)) ?? [])).sort()
 	)
+	let firstFilterReset = true
+	// Skip the first workspace resolution so that URL-loaded filter values
+	// (set by ListFilters.loadFilterFromUrl on mount) survive the async store
+	// settling. On actual workspace switches firstFilterReset is already false
+	// and the reset runs normally.
 	$effect(() => {
 		if ($workspaceStore) {
+			if (firstFilterReset) {
+				firstFilterReset = false
+				return
+			}
 			ownerFilter = undefined
 			labelFilter = undefined
 		}
