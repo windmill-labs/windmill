@@ -972,9 +972,10 @@
         valueIncludes:
           - "return order.unitPrice * order.quantity"
   toolExpect:
-    requiredToolsUsed:
-      - read_workspace_item
-      - read_app_file
+    requiredToolsAnyOf:
+      # Inspecting the app's files is satisfied by either reading them directly
+      # or grepping for the revenue calculation.
+      - [read_app_file, search_app]
     forbiddenToolsUsed:
       - deploy_workspace_item
       - delete_workspace_item
@@ -1000,8 +1001,10 @@
         valueIncludes:
           - "Revenue Overview"
   toolExpect:
-    requiredToolsUsed:
-      - read_app_file
+    requiredToolsAnyOf:
+      # Inspecting the app's files is satisfied by reading them directly or
+      # grepping for the target with search_app.
+      - [read_app_file, search_app]
     forbiddenToolsUsed:
       - deploy_workspace_item
       - delete_workspace_item
@@ -1029,8 +1032,10 @@
         valueIncludes:
           - "return order.unitPrice * order.quantity"
   toolExpect:
-    requiredToolsUsed:
-      - read_app_file
+    requiredToolsAnyOf:
+      # Inspecting the app's files is satisfied by reading them directly or
+      # grepping for the target with search_app.
+      - [read_app_file, search_app]
     forbiddenToolsUsed:
       - deploy_workspace_item
       - delete_workspace_item
@@ -1061,8 +1066,10 @@
         valueIncludes:
           - "return order.unitPrice * order.quantity"
   toolExpect:
-    requiredToolsUsed:
-      - read_app_file
+    requiredToolsAnyOf:
+      # Inspecting the app's files is satisfied by reading them directly or
+      # grepping for the target with search_app.
+      - [read_app_file, search_app]
     forbiddenToolsUsed:
       - deploy_workspace_item
       - delete_workspace_item

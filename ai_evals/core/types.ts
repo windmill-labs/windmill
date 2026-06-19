@@ -168,6 +168,13 @@ export interface ToolCallArgumentRule {
 
 export interface ToolValidationSpec {
   requiredToolsUsed?: string[];
+  /**
+   * Each inner array is an alternatives group: the check passes when at least
+   * one tool in the group was used. Use when several tools satisfy the same
+   * intent so a model that picks any valid path passes — e.g. inspecting an
+   * app's files via either `read_app_file` or `search_app`.
+   */
+  requiredToolsAnyOf?: string[][];
   forbiddenToolsUsed?: string[];
   toolCallArgs?: ToolCallArgumentRule[];
 }
