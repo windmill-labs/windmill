@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.732.0](https://github.com/windmill-labs/windmill/compare/v1.731.0...v1.732.0) (2026-06-19)
+
+
+### Features
+
+* **ansible:** add AI chat and editor bar buttons for ansible ([#9671](https://github.com/windmill-labs/windmill/issues/9671)) ([017c3d3](https://github.com/windmill-labs/windmill/commit/017c3d3343c2577501103be4b2dd8dac9727d80d))
+
+
+### Bug Fixes
+
+* **ai:** emit token usage in gemini proxy streaming translation ([#9669](https://github.com/windmill-labs/windmill/issues/9669)) ([0cc2257](https://github.com/windmill-labs/windmill/commit/0cc2257596a3965cf6db21a0090edcce6e1b8419))
+* **backend:** grant script_trigger access to windmill roles ([#9674](https://github.com/windmill-labs/windmill/issues/9674)) ([3361736](https://github.com/windmill-labs/windmill/commit/33617367d09537667d2ab3f91135c736194b9e7e))
+* **frontend:** ignore hash/assets in script diffs and drafts (WIN-2071) ([#9664](https://github.com/windmill-labs/windmill/issues/9664)) ([3371265](https://github.com/windmill-labs/windmill/commit/33712653821e83f2562dd5f271dbec0188d5d2f8))
+
 ## [1.731.0](https://github.com/windmill-labs/windmill/compare/v1.730.0...v1.731.0) (2026-06-19)
 
 
