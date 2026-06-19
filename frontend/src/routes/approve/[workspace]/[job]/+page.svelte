@@ -34,6 +34,9 @@
 	let loading = $state(false)
 	let valid = $state(true)
 	let actionTaken: 'approved' | 'denied' | undefined = $state(undefined)
+	// Whether the current visitor is a logged-in member of this workspace — if so we can
+	// surface a clear, ready-to-use run-details link (the view token grants them access).
+	let isWorkspaceMember = $state(false)
 
 	let pollInterval: number | undefined = undefined
 	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
@@ -57,6 +60,7 @@
 		}
 		loadData()
 		pollInterval = setInterval(loadData, 2000)
+		getUserExt(page.params.workspace ?? '').then((u) => (isWorkspaceMember = !!u))
 	})
 
 	onDestroy(() => {
@@ -355,9 +359,21 @@
 
 		{#if !isLocked}
 			<div class="mt-4 flex flex-row flex-wrap justify-between">
-				<a class="text-accent text-xs" target="_blank" rel="noreferrer" href={runDetailsHref}>
-					Open run details (require auth) <ExternalLink size={12} class="inline" />
-				</a>
+				{#if isWorkspaceMember}
+					<Button
+						size="xs"
+						variant="accent-secondary"
+						href={runDetailsHref}
+						target="_blank"
+						endIcon={{ icon: ExternalLink }}
+					>
+						Open run details
+					</Button>
+				{:else}
+					<a class="text-accent text-xs" target="_blank" rel="noreferrer" href={runDetailsHref}>
+						Open run details (require auth) <ExternalLink size={12} class="inline" />
+					</a>
+				{/if}
 			</div>
 		{/if}
 
