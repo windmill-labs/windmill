@@ -385,6 +385,64 @@ export function ducklake(name: string = "main"): SqlTemplateFunction {
   return buildSqlTemplateFunction(ducklakeProvider(n, schema));
 }
 
+/** Options for the ducklake materialization helpers. `partition` is bound as a
+ * DuckDB arg (never interpolated); `selectSql`, `table`, `schema`, `uniqueKey`
+ * are trusted structural SQL inlined via `raw`. */
+export interface DucklakeMaterializeOptions {
+  /** ducklake name (default "main"), optionally "name:schema". */
+  ducklake?: string;
+  /** target table within the ducklake. */
+  table: string;
+  /** the SELECT producing the rows for this partition. */
+  selectSql: string;
+  /** the partition value (bound). */
+  partition: string;
+  /** dedup key → MERGE (upsert in slice); omit → DELETE+INSERT (replace). */
+  uniqueKey?: string;
+  /** physical partition column (default "_wm_partition"). */
+  partitionCol?: string;
+}
+
+/** Idempotently materialize `selectSql` into a ducklake table for one
+ * partition — the client-side equivalent of the `// materialize` engine.
+ * With `uniqueKey` it MERGEs; otherwise it DELETEs the partition then INSERTs.
+ * Safe to re-run for the same partition (backfill / failure-recovery). */
+export function upsertPartition(opts: DucklakeMaterializeOptions) {
+  let { name: n, schema } = parseName(opts.ducklake ?? "main");
+  let sql = buildSqlTemplateFunction(ducklakeProvider(n, schema));
+  let pcol = sql.raw(opts.partitionCol ?? "_wm_partition");
+  let t = sql.raw(`dl.${opts.table}`);
+  let body = sql.raw(opts.selectSql);
+  if (opts.uniqueKey) {
+    let uk = sql.raw(opts.uniqueKey);
+    return sql`CREATE TABLE IF NOT EXISTS ${t} AS SELECT *, CAST(NULL AS VARCHAR) AS ${pcol} FROM (${body}) WHERE false;
+ALTER TABLE ${t} SET PARTITIONED BY (${pcol});
+BEGIN TRANSACTION;
+MERGE INTO ${t} AS tgt USING (SELECT *, ${opts.partition} AS ${pcol} FROM (${body})) AS s ON tgt.${uk} = s.${uk} WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *;
+COMMIT;`;
+  }
+  return sql`CREATE TABLE IF NOT EXISTS ${t} AS SELECT *, CAST(NULL AS VARCHAR) AS ${pcol} FROM (${body}) WHERE false;
+ALTER TABLE ${t} SET PARTITIONED BY (${pcol});
+BEGIN TRANSACTION;
+DELETE FROM ${t} WHERE ${pcol} = ${opts.partition};
+INSERT INTO ${t} SELECT *, ${opts.partition} AS ${pcol} FROM (${body});
+COMMIT;`;
+}
+
+/** INSERT-only materialization (no dedup/replace) for append-only tables.
+ * Re-running the same partition duplicates rows — use only for immutable
+ * event-log sources. */
+export function appendPartition(opts: Omit<DucklakeMaterializeOptions, "uniqueKey">) {
+  let { name: n, schema } = parseName(opts.ducklake ?? "main");
+  let sql = buildSqlTemplateFunction(ducklakeProvider(n, schema));
+  let pcol = sql.raw(opts.partitionCol ?? "_wm_partition");
+  let t = sql.raw(`dl.${opts.table}`);
+  let body = sql.raw(opts.selectSql);
+  return sql`CREATE TABLE IF NOT EXISTS ${t} AS SELECT *, CAST(NULL AS VARCHAR) AS ${pcol} FROM (${body}) WHERE false;
+ALTER TABLE ${t} SET PARTITIONED BY (${pcol});
+INSERT INTO ${t} SELECT *, ${opts.partition} AS ${pcol} FROM (${body});`;
+}
+
 // ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
