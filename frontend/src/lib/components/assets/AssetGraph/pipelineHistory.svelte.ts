@@ -105,6 +105,31 @@ export function usePipelineHistory(
 		}
 	}
 
+	// Edges-only refetch (one cheap query, no completed-jobs paging). The
+	// `dispatch_event` rows that group a cascade are written server-side only
+	// once the producer COMPLETES, so a run launched live (manual or scheduled)
+	// has no edges in this one-shot preload — its producer and just-dispatched
+	// children would show as separate rows. The page calls this when the live
+	// poll surfaces new jobs so fresh cascades group with their producer.
+	async function loadEdges(ws: string, prefix: string, days: number) {
+		// Skip while a full load owns `edges`; that load sets fresher edges and
+		// a concurrent write here could clobber it with a slightly older window.
+		if (loading) return
+		const myGen = gen
+		const cutoff = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString()
+		try {
+			const edgeRows = (await JobService.listAssetDispatchEdges({
+				workspace: ws,
+				pathStart: prefix,
+				createdAfter: cutoff
+			})) as DispatchEdge[]
+			if (gen !== myGen) return
+			edges = edgeRows
+		} catch (e) {
+			console.warn('failed to refetch pipeline dispatch edges', e)
+		}
+	}
+
 	$effect(() => {
 		const ws = getWorkspace()
 		const prefix = getPathPrefix()
@@ -142,6 +167,13 @@ export function usePipelineHistory(
 			const prefix = getPathPrefix()
 			if (!ws || !prefix || !getEnabled()) return
 			void load(ws, prefix, getDays())
+		},
+		/** Re-pull just the dispatch edges (see `loadEdges`). */
+		refetchEdges() {
+			const ws = getWorkspace()
+			const prefix = getPathPrefix()
+			if (!ws || !prefix || !getEnabled()) return
+			void loadEdges(ws, prefix, getDays())
 		}
 	}
 }
