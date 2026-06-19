@@ -3676,7 +3676,10 @@ async fn push_next_flow_job(
         }
     };
 
-    let retry = if matches!(&status_module, FlowStatusModule::Failure { .. },) {
+    // An unrecoverable failure (worker crash/OOM) must not be retried — the original worker
+    // and its state are gone — so skip retry evaluation and fall straight through to the
+    // failure module below.
+    let retry = if !unrecoverable && matches!(&status_module, FlowStatusModule::Failure { .. },) {
         let retry = &module.retry.clone().unwrap_or_default();
         evaluate_retry(
             retry,

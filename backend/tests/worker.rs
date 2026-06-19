@@ -3990,19 +3990,16 @@ async fn test_failure_module(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Regression test for WIN-2070: a flow step that fails *unrecoverably* — e.g. its worker was
-/// OOM-killed and the failure is surfaced by the zombie job handler — must still trigger the
-/// flow's error handler (failure module). Previously, `unrecoverable` failures silently
-/// completed the flow with an error and skipped the failure module entirely.
-///
-/// This drives a real worker on a flow whose first step hangs forever, then simulates the
-/// zombie handler by calling `handle_job_error(..., unrecoverable = true, ...)` against that
-/// running step exactly as `monitor::handle_zombie_jobs` does.
+/// Push `flow`, run it on a real worker until its first step is running, then simulate
+/// `monitor::handle_zombie_jobs` reaping that step unrecoverably (its worker crashed/OOM'd)
+/// by calling `handle_job_error(..., unrecoverable = true, ...)` exactly as the monitor does.
+/// Returns the flow's completed result.
 #[cfg(feature = "deno_core")]
-#[sqlx::test(fixtures("base"))]
-async fn test_failure_module_triggered_on_unrecoverable_failure(
-    db: Pool<Postgres>,
-) -> anyhow::Result<()> {
+async fn run_flow_until_step_running_then_fail_unrecoverably(
+    db: &Pool<Postgres>,
+    port: u16,
+    flow: FlowValue,
+) -> serde_json::Value {
     use std::sync::atomic::AtomicU16;
     use std::sync::Arc;
     use tokio::sync::mpsc;
@@ -4012,44 +4009,18 @@ async fn test_failure_module_triggered_on_unrecoverable_failure(
     use windmill_queue::{get_queued_job_v2, MiniCompletedJob, SameWorkerPayload};
     use windmill_worker::{JobCompletedSender, SameWorkerSender};
 
-    initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    let port = server.addr.port();
-
-    // Step 'a' hangs forever, so it is only ever completed by the simulated zombie handler.
-    let flow: FlowValue = serde_json::from_value(serde_json::json!({
-        "modules": [{
-            "id": "a",
-            "value": {
-                "input_transforms": {},
-                "type": "rawscript",
-                "language": "deno",
-                "content": "export async function main() { await new Promise((r) => setTimeout(r, 600000)); }",
-            },
-        }],
-        "failure_module": {
-            "value": {
-                "input_transforms": { "error": { "type": "javascript", "expr": "previous_result", } },
-                "type": "rawscript",
-                "language": "deno",
-                "content": "export function main(error) { return { handled_unrecoverable: true, error } }",
-            }
-        },
-    }))
-    .unwrap();
-
     let flow_id =
         RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-            .push(&db)
+            .push(db)
             .await;
 
     let db_ = db.clone();
     in_test_worker(
-        &db,
+        db,
         async move {
             let db = db_;
 
-            // Wait for step 'a' to be running on the worker.
+            // Wait for the first step to be running on the worker.
             let step_job = loop {
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                 let running = sqlx::query_scalar!(
@@ -4067,9 +4038,7 @@ async fn test_failure_module_triggered_on_unrecoverable_failure(
                 }
             };
 
-            // Simulate `monitor::handle_zombie_jobs` failing the step unrecoverably (the worker
-            // running it has crashed/OOM'd). The dummy `same_worker_tx` mirrors the monitor,
-            // which has no live worker channel.
+            // The dummy `same_worker_tx` mirrors the monitor, which has no live worker channel.
             let (sw_tx, _sw_rx) = mpsc::channel::<SameWorkerPayload>(1);
             let sw_tx = SameWorkerSender(sw_tx, Arc::new(AtomicU16::new(0)));
             let (jc_tx, _jc_rx) = JobCompletedSender::new_never_used();
@@ -4132,13 +4101,94 @@ async fn test_failure_module_triggered_on_unrecoverable_failure(
     )
     .await;
 
+    completed_job(flow_id, db).await.json_result().unwrap()
+}
+
+/// The hanging-forever first step: only ever completed by the simulated zombie handler.
+#[cfg(feature = "deno_core")]
+fn hanging_step_value() -> serde_json::Value {
+    serde_json::json!({
+        "input_transforms": {},
+        "type": "rawscript",
+        "language": "deno",
+        "content": "export async function main() { await new Promise((r) => setTimeout(r, 600000)); }",
+    })
+}
+
+/// The error handler module that marks itself so tests can assert it ran.
+#[cfg(feature = "deno_core")]
+fn marker_failure_module() -> serde_json::Value {
+    serde_json::json!({
+        "value": {
+            "input_transforms": { "error": { "type": "javascript", "expr": "previous_result", } },
+            "type": "rawscript",
+            "language": "deno",
+            "content": "export function main(error) { return { handled_unrecoverable: true, error } }",
+        }
+    })
+}
+
+/// Regression test for WIN-2070: a flow step that fails *unrecoverably* — e.g. its worker was
+/// OOM-killed and the failure is surfaced by the zombie job handler — must still trigger the
+/// flow's error handler (failure module). Previously, `unrecoverable` failures silently
+/// completed the flow with an error and skipped the failure module entirely.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_failure_module_triggered_on_unrecoverable_failure(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [{ "id": "a", "value": hanging_step_value() }],
+        "failure_module": marker_failure_module(),
+    }))
+    .unwrap();
+
+    let result = run_flow_until_step_running_then_fail_unrecoverably(&db, port, flow).await;
+
     server.close().await.unwrap();
 
-    let result = completed_job(flow_id, &db).await.json_result().unwrap();
     assert_eq!(
         result["handled_unrecoverable"],
         json!(true),
         "failure module (flow error handler) should run for an unrecoverable step failure, got: {result}"
+    );
+    Ok(())
+}
+
+/// WIN-2070: an unrecoverable failure must NOT be retried even when the step has a retry
+/// policy — the original worker is gone, so retrying is pointless. It should fall straight
+/// through to the error handler (failure module) instead.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_unrecoverable_failure_skips_retry_runs_failure_module(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "id": "a",
+            "value": hanging_step_value(),
+            "retry": { "constant": { "attempts": 5, "seconds": 0 } },
+        }],
+        "failure_module": marker_failure_module(),
+    }))
+    .unwrap();
+
+    let result = run_flow_until_step_running_then_fail_unrecoverably(&db, port, flow).await;
+
+    server.close().await.unwrap();
+
+    assert_eq!(
+        result["handled_unrecoverable"],
+        json!(true),
+        "unrecoverable failure should skip retry and run the failure module, got: {result}"
     );
     Ok(())
 }
