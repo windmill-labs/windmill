@@ -542,22 +542,6 @@ const readAppFileSchema = z.object({
 		.optional()
 		.describe(
 			'Maximum number of lines to return. Large files are truncated by default; pass offset/limit to read a specific line range.'
-		),
-	char_offset: z
-		.number()
-		.int()
-		.min(0)
-		.optional()
-		.describe(
-			'0-based character offset within the selected line window. Use for minified or generated files with very long lines.'
-		),
-	char_limit: z
-		.number()
-		.int()
-		.min(1)
-		.optional()
-		.describe(
-			'Maximum characters to return from the selected line window. The tool still caps results at the context budget.'
 		)
 })
 
@@ -1458,7 +1442,7 @@ function getAppInstructions(): string {
 - \`/wmill.d.ts\` (or \`wmill.ts\`) is generated automatically from the backend runnables — never write it directly.
 - Inline runnables only support \`bun\` or \`python3\` in chat. Path runnables (\`script\`/\`flow\`/\`hubscript\`) reference an existing item.
 - Use \`deploy_workspace_item\` after explicit user deploy intent. The deploy tool bundles JS/CSS before saving the raw app.
-- Use \`read_workspace_item\` with \`type: 'app'\` for a metadata summary (file paths and runnable list, no contents). Use \`read_app_file\` to read an individual file; large files are truncated to a head slice, so pass \`offset\`/\`limit\` or \`char_offset\`/\`char_limit\` to page through the rest rather than re-reading the whole file.
+- Use \`read_workspace_item\` with \`type: 'app'\` for a metadata summary (file paths and runnable list, no contents). Use \`read_app_file\` to read an individual file; large files are truncated to a head slice, so pass \`offset\`/\`limit\` to page through the rest rather than re-reading the whole file.
 - To find where a symbol or string lives across the app, call \`search_app\` (greps every frontend file and inline runnable, returns matching \`file:line\` rows) instead of reading files one by one — then \`read_app_file\` only the ranges you need. The loop is list (\`read_workspace_item\`) → locate (\`search_app\`) → inspect (\`read_app_file\` with \`offset\`/\`limit\`).
 - Note: the authoring reference below mentions the CLI on-disk layout (\`backend/<id>.<ext>\`, \`raw_app.yaml\`, \`sql_to_apply/\`). That layout is only relevant for the terminal workflow — in chat, apps are addressed via the tool surface above.
 
@@ -1993,7 +1977,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			readAppFileSchema,
 			'read_app_file',
-			'Read one raw app frontend file or inline backend runnable. Large files are truncated to a head slice; pass offset/limit or char_offset/char_limit to page through the rest.'
+			'Read one raw app frontend file or inline backend runnable. Large files are truncated to a head slice; pass offset/limit to page through the rest.'
 		),
 		fn: async (ctx) => {
 			const parsed = readAppFileSchema.parse(ctx.args)
@@ -3041,6 +3025,10 @@ async function initApp(
 // read_app_file caps: a large frontend file or inline runnable would otherwise
 // enter context in full and persist for the rest of the session. Default to a
 // head slice with a pointer to page further; the model widens with offset/limit.
+// The char budget is a hard ceiling on a single read: a selected line window over
+// it is truncated and the model is told to narrow the line range.
+// TODO: char-level paging for minified/long-line files (a single line larger than
+// the budget) was removed as unused — revisit if such files must be readable here.
 const READ_APP_FILE_DEFAULT_LINE_LIMIT = 1500
 const READ_APP_FILE_CHAR_BUDGET = 50_000
 
@@ -3050,20 +3038,12 @@ type AppFileSlice = {
 	endLine: number
 	requestedStartLine: number
 	totalLines: number
-	requestedCharOffset: number
-	charStart: number
-	charEnd: number
 	lineWindowChars: number
+	charTruncated: boolean
 	truncated: boolean
 }
 
-function sliceAppFileForRead(
-	content: string,
-	offset?: number,
-	limit?: number,
-	charOffset = 0,
-	charLimit?: number
-): AppFileSlice {
+function sliceAppFileForRead(content: string, offset?: number, limit?: number): AppFileSlice {
 	const lines = content.split('\n')
 	const totalLines = lines.length
 	const requestedStartLine = offset ?? 1
@@ -3072,11 +3052,8 @@ function sliceAppFileForRead(
 	const end = Math.min(start + lineLimit, totalLines)
 	const selectedBody = lines.slice(start, end).join('\n')
 	const lineWindowChars = selectedBody.length
-	const requestedCharOffset = charOffset
-	const charStart = Math.min(charOffset, lineWindowChars)
-	const maxChars = Math.min(charLimit ?? READ_APP_FILE_CHAR_BUDGET, READ_APP_FILE_CHAR_BUDGET)
-	const charEnd = Math.min(charStart + maxChars, lineWindowChars)
-	const body = selectedBody.slice(charStart, charEnd)
+	const body = selectedBody.slice(0, READ_APP_FILE_CHAR_BUDGET)
+	const charTruncated = lineWindowChars > READ_APP_FILE_CHAR_BUDGET
 
 	return {
 		body,
@@ -3084,20 +3061,18 @@ function sliceAppFileForRead(
 		endLine: end,
 		requestedStartLine,
 		totalLines,
-		requestedCharOffset,
-		charStart,
-		charEnd,
 		lineWindowChars,
-		truncated: start > 0 || end < totalLines || charStart > 0 || charEnd < lineWindowChars
+		charTruncated,
+		truncated: start > 0 || end < totalLines || charTruncated
 	}
 }
 
 function formatAppFileReadRangeLabel(slice: AppFileSlice): string {
 	const lineRange = `lines ${slice.startLine}-${slice.endLine} of ${slice.totalLines}`
-	if (slice.charStart === 0 && slice.charEnd === slice.lineWindowChars) {
+	if (!slice.charTruncated) {
 		return lineRange
 	}
-	return `${lineRange}, chars ${slice.charStart + 1}-${slice.charEnd} of ${slice.lineWindowChars} in this line window`
+	return `${lineRange}, truncated to the first ${READ_APP_FILE_CHAR_BUDGET} of ${slice.lineWindowChars} chars`
 }
 
 // Small files (returned whole, starting at line 1) keep the raw body so
@@ -3108,16 +3083,13 @@ function formatAppFileReadResult(filePath: string, slice: AppFileSlice): string 
 	if (slice.requestedStartLine > slice.totalLines) {
 		return `[read_app_file] ${filePath}: offset ${slice.requestedStartLine} is past the end of the file (${slice.totalLines} lines).`
 	}
-	if (slice.requestedCharOffset >= slice.lineWindowChars && slice.lineWindowChars > 0) {
-		return `[read_app_file] ${filePath}: char_offset ${slice.requestedCharOffset} is past the selected line window (${slice.lineWindowChars} chars).`
-	}
 	if (!slice.truncated && slice.startLine === 1) {
 		return slice.body
 	}
 
 	let more = ''
-	if (slice.charEnd < slice.lineWindowChars) {
-		more = ` Call read_app_file again with char_offset=${slice.charEnd} to continue within this line window.`
+	if (slice.charTruncated) {
+		more = ` Reached the ${READ_APP_FILE_CHAR_BUDGET}-char limit; re-read with a smaller limit (fewer lines). If a single line exceeds the limit the file is likely minified and not readable this way.`
 	} else if (slice.endLine < slice.totalLines) {
 		more = ` Call read_app_file again with offset=${slice.endLine + 1} to continue.`
 	}
@@ -3130,8 +3102,6 @@ async function readAppFile(
 		file_path: string
 		offset?: number
 		limit?: number
-		char_offset?: number
-		char_limit?: number
 	},
 	ctx: WriteDraftCtx
 ): Promise<string> {
@@ -3154,13 +3124,7 @@ async function readAppFile(
 		content = getInlineRunnableContent(value, target, args.path).content
 	}
 
-	const slice = sliceAppFileForRead(
-		content,
-		args.offset,
-		args.limit,
-		args.char_offset,
-		args.char_limit
-	)
+	const slice = sliceAppFileForRead(content, args.offset, args.limit)
 
 	toolCallbacks.setToolStatus(toolId, { content: `Read ${target.filePath}` })
 	return formatAppFileReadResult(target.filePath, slice)

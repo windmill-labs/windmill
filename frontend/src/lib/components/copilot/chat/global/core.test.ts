@@ -1384,9 +1384,9 @@ describe('global AI tools', () => {
 		})
 
 		expect(result).toContain(
-			'[read_app_file] /min.tsx: lines 1-3 of 3, chars 1-50000 of 90002 in this line window.'
+			'[read_app_file] /min.tsx: lines 1-3 of 3, truncated to the first 50000 of 90002 chars.'
 		)
-		expect(result).toContain('char_offset=50000')
+		expect(result).toContain('the file is likely minified')
 		expect(result.split('\n\n')[1]).toHaveLength(50_000)
 	})
 
@@ -1402,30 +1402,10 @@ describe('global AI tools', () => {
 		})
 
 		expect(result).toContain(
-			'[read_app_file] /generated.js: lines 1-1 of 1, chars 1-50000 of 60000 in this line window.'
+			'[read_app_file] /generated.js: lines 1-1 of 1, truncated to the first 50000 of 60000 chars.'
 		)
-		expect(result).toContain('char_offset=50000')
+		expect(result).toContain('re-read with a smaller limit')
 		expect(result.split('\n\n')[1]).toBe('x'.repeat(50_000))
-	})
-
-	it('can page through a single-line generated file with char_offset', async () => {
-		const bigLine = 'x'.repeat(60_000)
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(
-			deployedAppWithFile('/generated.js', bigLine)
-		)
-
-		const result = await callGlobalTool('read_app_file', {
-			path: 'f/apps/report',
-			file_path: '/generated.js',
-			char_offset: 50_000,
-			char_limit: 20_000
-		})
-
-		expect(result).toContain(
-			'[read_app_file] /generated.js: lines 1-1 of 1, chars 50001-60000 of 60000 in this line window.'
-		)
-		expect(result).not.toContain('char_offset=60000')
-		expect(result.split('\n\n')[1]).toBe('x'.repeat(10_000))
 	})
 
 	it('reports an offset past the end of the file plainly', async () => {
@@ -1463,13 +1443,12 @@ describe('global AI tools', () => {
 		}
 
 		// A plausible pass over a large app: read a big file head, page deeper into it,
-		// read a generated bundle, page deeper into the bundle. The old tool returned
+		// then hit a generated bundle (capped at the char budget). The old tool returned
 		// every file in full on every read.
 		const sequence = [
 			{ file_path: '/big.tsx' }, // 1. big file head (line cap)
 			{ file_path: '/big.tsx', offset: 1501 }, // 2. next line chunk
-			{ file_path: '/min.js' }, // 3. minified bundle head (char budget)
-			{ file_path: '/min.js', char_offset: 50_000 } // 4. next char chunk
+			{ file_path: '/min.js' } // 3. minified bundle head (char budget)
 		]
 
 		let baselineChars = 0
@@ -1495,7 +1474,6 @@ describe('global AI tools', () => {
 		expect(perRead[0]).toBeLessThan(fullSize['/big.tsx']) // head slice < whole file
 		expect(perRead[1]).toBeLessThan(fullSize['/big.tsx']) // a paged line chunk too
 		expect(perRead[2]).toBeLessThan(51_000) // ~50k char budget + a short annotation
-		expect(perRead[3]).toBeLessThan(51_000) // a paged char chunk too
 		// Overall: well under half the bytes the old tool would have returned.
 		expect(actualChars).toBeLessThan(baselineChars * 0.5)
 	})
