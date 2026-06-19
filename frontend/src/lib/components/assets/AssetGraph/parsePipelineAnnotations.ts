@@ -74,6 +74,15 @@ export type RetrySpec = {
 	delay?: string
 }
 
+// `// materialize [wrap] <asset>` — see backend MaterializeSpec. `wrap` means
+// the script body is a single SELECT and the runtime generates the write DDL;
+// without it the script writes its own DDL (literal mode).
+export type MaterializeSpec = {
+	targetKind: AssetKind
+	targetPath: string
+	wrap: boolean
+}
+
 export type PipelineAnnotations = {
 	inPipeline: boolean
 	triggerAssets: PipelineTriggerAsset[]
@@ -82,6 +91,13 @@ export type PipelineAnnotations = {
 	freshness?: FreshnessSpec
 	tag?: string
 	retry?: RetrySpec
+	// `// materialize [wrap] <asset>` — managed-materialization target.
+	materialize?: MaterializeSpec
+	// `// unique_key <col>` — dedup within a partition (MERGE vs replace).
+	uniqueKey?: string
+	// `// append` — INSERT-only. Set only when present (mirrors the optional
+	// shape of the other fields; absent === false).
+	append?: boolean
 }
 
 // Tokenize a `key=value [key="quoted value"] ...` option string. Bare
@@ -128,6 +144,32 @@ function parseAssetSyntax(s: string): PipelineTriggerAsset | undefined {
 		}
 	}
 	return undefined
+}
+
+// Mirror of Rust `parse_asset_syntax(s, enable_default_syntax=true)`: the bare
+// words `ducklake` / `datatable` are shorthand for their `…://main` form. Used
+// by `// materialize` (but NOT by `// on`, which is default-syntax off, so the
+// trigger parser keeps using `parseAssetSyntax`).
+function parseAssetSyntaxDefault(s: string): PipelineTriggerAsset | undefined {
+	if (s === 'datatable') return { kind: 'datatable', path: 'main' }
+	if (s === 'ducklake') return { kind: 'ducklake', path: 'main' }
+	return parseAssetSyntax(s)
+}
+
+// Parse a `// materialize [wrap] <asset>` right-hand side. Optional leading
+// `wrap` word selects wrap mode; the remainder is the target asset URI with
+// default-syntax shorthands enabled. Missing/empty target → undefined (dropped).
+function parseMaterializeSpec(s: string): MaterializeSpec | undefined {
+	let wrap = false
+	let refPart = s
+	const afterWrap = consumeKeyword(s, 'wrap')
+	if (afterWrap !== undefined) {
+		wrap = true
+		refPart = afterWrap.trimStart()
+	}
+	const asset = parseAssetSyntaxDefault(refPart.trim())
+	if (!asset || asset.path === '') return undefined
+	return { targetKind: asset.kind, targetPath: asset.path, wrap }
 }
 
 type ParsedTriggerSpec =
@@ -283,6 +325,29 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 				const spec = parseRetrySpec(afterRetry.trim())
 				if (spec) out.retry = spec
 			}
+			continue
+		}
+
+		const afterMaterialize = consumeKeyword(inner, 'materialize')
+		if (afterMaterialize !== undefined) {
+			if (!out.materialize) {
+				const spec = parseMaterializeSpec(afterMaterialize.trim())
+				if (spec) out.materialize = spec
+			}
+			continue
+		}
+
+		const afterUniqueKey = consumeKeyword(inner, 'unique_key')
+		if (afterUniqueKey !== undefined) {
+			const col = afterUniqueKey.trim()
+			if (col && !out.uniqueKey) out.uniqueKey = col
+			continue
+		}
+
+		const afterAppend = consumeKeyword(inner, 'append')
+		if (afterAppend !== undefined) {
+			// Strict bare keyword, mirroring `// pipeline`.
+			if (afterAppend.trim() === '') out.append = true
 			continue
 		}
 

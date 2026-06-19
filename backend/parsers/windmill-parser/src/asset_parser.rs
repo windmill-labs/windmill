@@ -107,6 +107,20 @@ pub struct ParseAssetsOutput {
     // The delay is a raw duration string parsed at deploy (parser-light).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub retry: Option<RetrySpec>,
+    // `// materialize [wrap] <asset>` — managed-materialization target. At most
+    // one per script. Drives the worker's write-strategy + snapshot capture.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub materialize: Option<MaterializeSpec>,
+    // `// unique_key <col>` — dedup *within* a partition: selects MERGE over
+    // the default DELETE-by-partition + INSERT (replace). Ignored unless
+    // `materialize` is present.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub unique_key: Option<String>,
+    // `// append` — INSERT-only, no dedup or partition-replace. Mutually
+    // exclusive with `unique_key` (append wins if both are present, surfaced
+    // as a deploy-time warning). Ignored unless `materialize` is present.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub append: bool,
 }
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
@@ -209,6 +223,22 @@ pub struct RetrySpec {
     pub delay: Option<String>,
 }
 
+// `// materialize [wrap] <asset>` — declares that this script's purpose is to
+// produce a *managed* materialization of `<asset>` (a `ducklake://` table).
+// "Managed" means the runtime owns idempotency, partition-state and snapshot
+// capture for the write, rather than the write being whatever the script body
+// happened to do. `wrap` (opt-in) means the script body is a single `SELECT`
+// and the runtime generates the surrounding write DDL; without it the script
+// writes its own DDL (literal mode) and the runtime only records state. The
+// reconciliation strategy is orthogonal and comes from `unique_key`/`append`.
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct MaterializeSpec {
+    pub target_kind: AssetKind,
+    pub target_path: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub wrap: bool,
+}
+
 // `// trigger any` (default) vs `// trigger all`. `Any` = OR: any trigger
 // firing runs the script (current behaviour). `All` = AND: the script
 // runs only once every partition-bearing input has materialized at the
@@ -239,6 +269,9 @@ pub struct PipelineAnnotations {
     pub debounce_default: Option<String>,
     pub tag: Option<String>,
     pub retry: Option<RetrySpec>,
+    pub materialize: Option<MaterializeSpec>,
+    pub unique_key: Option<String>,
+    pub append: bool,
 }
 
 impl ParseAssetsOutput {
@@ -262,6 +295,9 @@ impl ParseAssetsOutput {
             debounce_default: pipeline.debounce_default,
             tag: pipeline.tag,
             retry: pipeline.retry,
+            materialize: pipeline.materialize,
+            unique_key: pipeline.unique_key,
+            append: pipeline.append,
         }
     }
 }
@@ -571,6 +607,33 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
             continue;
         }
 
+        if let Some(after_kw) = consume_keyword(rest, "materialize") {
+            if out.materialize.is_none() {
+                if let Some(spec) = parse_materialize_spec(after_kw.trim()) {
+                    out.materialize = Some(spec);
+                }
+            }
+            continue;
+        }
+
+        // `unique_key` before `tag`/`on` already matched above; checked here so
+        // its underscore form isn't shadowed (no existing keyword is a prefix).
+        if let Some(after_kw) = consume_keyword(rest, "unique_key") {
+            let col = after_kw.trim();
+            if !col.is_empty() && out.unique_key.is_none() {
+                out.unique_key = Some(col.to_string());
+            }
+            continue;
+        }
+
+        if let Some(after_kw) = consume_keyword(rest, "append") {
+            // Strict bare keyword, mirroring `// pipeline`.
+            if after_kw.trim().is_empty() {
+                out.append = true;
+            }
+            continue;
+        }
+
         if let Some(after_kw) = consume_keyword(rest, "on") {
             let spec_text = after_kw.trim();
             if spec_text.is_empty() {
@@ -616,6 +679,25 @@ fn parse_retry_spec(s: &str) -> Option<RetrySpec> {
         .map(|d| d.trim().to_string())
         .filter(|d| !d.is_empty());
     Some(RetrySpec { count, delay })
+}
+
+// Parse a `// materialize [wrap] <asset>` right-hand side. An optional leading
+// `wrap` token (whitespace-delimited, like `consume_keyword`) selects wrap
+// mode; the remainder is the target asset URI parsed with the default-syntax
+// shorthands enabled (so `ducklake` → `ducklake://main`). A missing/empty
+// target yields `None` (the annotation is dropped, fail-safe).
+fn parse_materialize_spec(s: &str) -> Option<MaterializeSpec> {
+    let (wrap, ref_part) = match s.strip_prefix("wrap") {
+        Some(after) if after.is_empty() || after.starts_with(char::is_whitespace) => {
+            (true, after.trim_start())
+        }
+        _ => (false, s),
+    };
+    let (target_kind, path) = parse_asset_syntax(ref_part.trim(), true)?;
+    if path.is_empty() {
+        return None;
+    }
+    Some(MaterializeSpec { target_kind, target_path: path.to_string(), wrap })
 }
 
 // Parse a `// partitioned <kind> [opts]` right-hand side. Recognized kinds:
@@ -1045,6 +1127,61 @@ mod pipeline_annotation_tests {
     }
 
     #[test]
+    fn materialize_wrap_target() {
+        let out =
+            parse_pipeline_annotations("// materialize wrap ducklake://analytics/orders_daily");
+        let m = out.materialize.expect("materialize");
+        assert_eq!(m.target_kind, AssetKind::Ducklake);
+        assert_eq!(m.target_path, "analytics/orders_daily");
+        assert!(m.wrap);
+    }
+
+    #[test]
+    fn materialize_no_wrap_is_literal() {
+        let out = parse_pipeline_annotations("// materialize ducklake://analytics/orders_daily");
+        let m = out.materialize.expect("materialize");
+        assert!(!m.wrap);
+        assert_eq!(m.target_path, "analytics/orders_daily");
+    }
+
+    #[test]
+    fn materialize_default_syntax_shorthand() {
+        let out = parse_pipeline_annotations("// materialize ducklake");
+        let m = out.materialize.expect("materialize");
+        assert_eq!(m.target_kind, AssetKind::Ducklake);
+        assert_eq!(m.target_path, "main");
+        assert!(!m.wrap);
+    }
+
+    #[test]
+    fn materialize_wrap_only_is_dropped() {
+        // `wrap` with no target is not a valid materialization.
+        let out = parse_pipeline_annotations("// materialize wrap");
+        assert!(out.materialize.is_none());
+    }
+
+    #[test]
+    fn materialize_first_wins() {
+        let out = parse_pipeline_annotations(
+            "// materialize ducklake://a/x\n# materialize wrap ducklake://b/y",
+        );
+        let m = out.materialize.expect("materialize");
+        assert_eq!(m.target_path, "a/x");
+        assert!(!m.wrap);
+    }
+
+    #[test]
+    fn unique_key_and_append() {
+        let out = parse_pipeline_annotations("// unique_key order_id");
+        assert_eq!(out.unique_key.as_deref(), Some("order_id"));
+        let out = parse_pipeline_annotations("// append");
+        assert!(out.append);
+        // `append` is strict-bare: a trailing token is ignored.
+        let out = parse_pipeline_annotations("// append something");
+        assert!(!out.append);
+    }
+
+    #[test]
     fn combined() {
         let code = concat!(
             "// pipeline\n",
@@ -1053,7 +1190,9 @@ mod pipeline_annotation_tests {
             "// partitioned daily tz=\"UTC\"\n",
             "// freshness 2h\n",
             "// tag heavy\n",
-            "// retry 3 5s\n"
+            "// retry 3 5s\n",
+            "// materialize wrap ducklake://analytics/orders_daily\n",
+            "// unique_key order_id\n"
         );
         let out = parse_pipeline_annotations(code);
         assert!(out.in_pipeline);
@@ -1064,6 +1203,10 @@ mod pipeline_annotation_tests {
         let r = out.retry.expect("retry");
         assert_eq!(r.count, 3);
         assert_eq!(r.delay.as_deref(), Some("5s"));
+        let m = out.materialize.expect("materialize");
+        assert!(m.wrap);
+        assert_eq!(m.target_path, "analytics/orders_daily");
+        assert_eq!(out.unique_key.as_deref(), Some("order_id"));
     }
 
     #[test]
