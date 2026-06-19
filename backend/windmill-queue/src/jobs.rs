@@ -1679,15 +1679,16 @@ async fn eval_retry_if(
     }
 }
 
-/// Unreachable without the `quickjs` feature: `push` keeps `retry_if` policies on
-/// the one-step-flow path when native eval is unavailable.
+/// `retry_if` is unsupported on a worker built without the `quickjs` feature
+/// (the expression cannot be evaluated). Such a worker can't run JS jobs either,
+/// so this is not reached in practice; we fail closed and do not retry.
 #[cfg(not(feature = "quickjs"))]
 async fn eval_retry_if(
     _expr: &str,
     _result: Option<&serde_json::value::RawValue>,
     _args: &HashMap<String, Box<serde_json::value::RawValue>>,
 ) -> bool {
-    tracing::warn!("retry_if encountered without quickjs feature; not retrying");
+    tracing::warn!("retry_if is unsupported without the quickjs feature; not retrying");
     false
 }
 
@@ -5528,16 +5529,16 @@ async fn push_inner<'c, 'd>(
             // Gated on the runnable-settings min version: on a mixed-version
             // fleet the policy can't be persisted (`insert_rs` would drop it), so
             // we fall back to the flow wrapper to preserve retry semantics.
+            // `retry_if` is always materialized natively: it is evaluated on the
+            // failure path by the worker (which always has the `quickjs` feature),
+            // regardless of whether this pusher does. On a worker built without
+            // quickjs, `retry_if` is unsupported (see `eval_retry_if`) — the flow
+            // path is not a fallback, since the flow runtime needs quickjs too.
             let native_retry = !is_flow
                 && skip_handler.is_none()
                 && error_handler_path.is_none()
                 && hash.is_some()
                 && language.is_some()
-                // `retry_if` needs JS eval on the failure path — only available
-                // with the `quickjs` feature; otherwise keep it on the flow path.
-                && retry
-                    .as_ref()
-                    .is_some_and(|r| r.retry_if.is_none() || cfg!(feature = "quickjs"))
                 && windmill_common::runnable_settings::min_version_supports_runnable_settings_v0()
                     .await;
             if native_retry {
