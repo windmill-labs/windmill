@@ -1615,8 +1615,11 @@ describe('global AI tools', () => {
 
 		expect(result).toContain('500 matches')
 		expect(result).toContain('showing the first 50')
-		// only 50 rows (+ header) made it into the body
-		expect(result.split('\n').filter((l) => /^\s+\d+: /.test(l)).length).toBe(50)
+		// 50 capped match lines, each rendered with its fixed context window (deduped),
+		// so the body is bounded near max_matches and nowhere near the 500 total.
+		const rows = result.split('\n').filter((l) => /^\s+\d+: /.test(l)).length
+		expect(rows).toBeGreaterThanOrEqual(50)
+		expect(rows).toBeLessThan(60)
 	})
 
 	// Deterministic micro-benchmark: how much context a single search_app call

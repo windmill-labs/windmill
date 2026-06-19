@@ -550,7 +550,7 @@ const searchAppSchema = z.object({
 	query: z
 		.string()
 		.describe(
-			'Literal text to find across all of the app files (case-insensitive). Returns matching file:line rows, not file bodies — use it to locate a symbol or string, then read_app_file to inspect the relevant ranges.'
+			'Literal substring to find across all app files (case-insensitive) — not a regex, so spaces and operators match verbatim. Returns matching file:line rows, not file bodies. To find call sites and skip similarly-named helpers, include the call paren (e.g. "formatCurrency(" matches calls but not "formatCurrencyPrecise"). Then read_app_file to inspect the ranges.'
 		),
 	file_glob: z
 		.string()
@@ -558,13 +558,6 @@ const searchAppSchema = z.object({
 		.describe(
 			'Optional path filter. A pattern without "/" matches the file name anywhere (e.g. "*.tsx"); a pattern with "/" matches the full path (e.g. "/components/*", "backend/**"). Supports * (any chars except /), ** (any chars), and ?.'
 		),
-	context_lines: z
-		.number()
-		.int()
-		.min(0)
-		.max(2)
-		.optional()
-		.describe('Lines of surrounding context to include around each match (0-2, default 0).'),
 	max_matches: z
 		.number()
 		.int()
@@ -3138,6 +3131,10 @@ const SEARCH_APP_DEFAULT_MAX_MATCHES = 100
 const SEARCH_APP_MAX_MATCHES_CEILING = 200
 const SEARCH_APP_MAX_LINE_CHARS = 200
 const SEARCH_APP_TOTAL_CHAR_BUDGET = 12_000
+// Fixed surrounding-context window per match. Was a 0-2 param, but models varied it
+// to little effect, so it's baked in to keep the tool schema lean. Bump if matches
+// need more context than the line ± this.
+const SEARCH_APP_CONTEXT_LINES = 1
 
 type AppSearchableFile = { filePath: string; content: string }
 
@@ -3185,7 +3182,6 @@ async function searchApp(
 		path: string
 		query: string
 		file_glob?: string
-		context_lines?: number
 		max_matches?: number
 	},
 	ctx: WriteDraftCtx
@@ -3204,7 +3200,7 @@ async function searchApp(
 		args.max_matches ?? SEARCH_APP_DEFAULT_MAX_MATCHES,
 		SEARCH_APP_MAX_MATCHES_CEILING
 	)
-	const contextLines = Math.max(0, Math.min(args.context_lines ?? 0, 2))
+	const contextLines = SEARCH_APP_CONTEXT_LINES
 	const needle = query.toLowerCase()
 
 	let files = collectSearchableAppFiles(value).sort((a, b) => a.filePath.localeCompare(b.filePath))
@@ -3214,6 +3210,9 @@ async function searchApp(
 
 	const matches: AppSearchMatch[] = []
 	let totalMatchCount = 0
+	// Cap on matching LINES, not pushed rows — each match expands to its context
+	// window, so counting rows would make `max_matches`/"showing the first N" wrong.
+	let renderedMatchCount = 0
 	let fileCount = 0
 	let truncated = false
 	for (const file of files) {
@@ -3222,10 +3221,11 @@ async function searchApp(
 		for (let i = 0; i < lines.length; i++) {
 			if (!lines[i].toLowerCase().includes(needle)) continue
 			totalMatchCount++
-			if (matches.length >= maxMatches) {
+			if (renderedMatchCount >= maxMatches) {
 				truncated = true
 				continue
 			}
+			renderedMatchCount++
 			fileHadMatch = true
 			const lo = Math.max(0, i - contextLines)
 			const hi = Math.min(lines.length - 1, i + contextLines)
