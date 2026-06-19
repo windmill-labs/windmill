@@ -847,12 +847,11 @@ pub(crate) async fn delete_workspace(
         .execute(&mut *tx)
         .await?;
 
-    sqlx::query!(
-        "DELETE FROM unique_ext_jwt_token WHERE workspace_id = $1",
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
+    // Intentionally do NOT delete from unique_ext_jwt_token here: its rows feed the
+    // trailing-30-day external-JWT usage telemetry, and deleting them on workspace
+    // deletion would drop genuine in-window usage from the billed count (abusable by
+    // delete/recreate). Rows age out of the telemetry window naturally; orphans whose
+    // workspace no longer exists are filtered out of the superadmin listing on read.
 
     sqlx::query!("DELETE FROM http_trigger WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)

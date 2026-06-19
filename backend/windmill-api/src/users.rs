@@ -124,7 +124,9 @@ async fn list_ext_jwt_tokens(
         ExternalJwtToken,
         "SELECT jwt_hash, email, username, is_admin, is_operator, workspace_id, label, scopes, last_used_at
          FROM unique_ext_jwt_token
-         WHERE NOT $3 OR last_used_at > NOW() - INTERVAL '30 days'
+         WHERE (NOT $3 OR last_used_at > NOW() - INTERVAL '30 days')
+           AND (workspace_id IS NULL
+                OR EXISTS (SELECT 1 FROM workspace w WHERE w.id = unique_ext_jwt_token.workspace_id))
          ORDER BY last_used_at DESC
          LIMIT $1 OFFSET $2",
         per_page as i64,
