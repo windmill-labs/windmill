@@ -249,12 +249,14 @@ use windmill_object_store::build_object_store_from_settings;
 
 #[cfg(feature = "parquet")]
 pub async fn test_s3_bucket(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Json(test_s3_bucket): Json<ObjectSettings>,
 ) -> error::Result<String> {
     use bytes::Bytes;
     use futures::StreamExt;
+
+    require_super_admin(&db, &authed.email).await?;
 
     let client = build_object_store_from_settings(test_s3_bucket, Some(&db))
         .await?
