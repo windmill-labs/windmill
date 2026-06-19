@@ -847,13 +847,6 @@ pub(crate) async fn delete_workspace(
         .execute(&mut *tx)
         .await?;
 
-    sqlx::query!(
-        "DELETE FROM unique_ext_jwt_token WHERE workspace_id = $1",
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
     sqlx::query!("DELETE FROM http_trigger WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
