@@ -99,6 +99,7 @@ async function main() {
       "comma-separated model aliases to run sequentially",
     )
     .option("--verbose", "stream assistant output during frontend runs")
+    .option("--skip-judge", "skip LLM judge scoring for this run")
     .option(
       "--record",
       "append a compact summary line to ai_evals/history/<mode>.jsonl",
@@ -117,6 +118,7 @@ async function main() {
           model?: string;
           models?: string;
           verbose?: boolean;
+          skipJudge?: boolean;
           record?: boolean;
           backendValidation?: string;
         },
@@ -129,6 +131,7 @@ async function main() {
           model: options.model,
           models: options.models,
           verbose: options.verbose ?? false,
+          skipJudge: options.skipJudge ?? false,
           record: options.record ?? false,
           backendValidation: options.backendValidation,
         });
@@ -177,6 +180,7 @@ async function handleRun(input: {
   model?: string;
   models?: string;
   verbose: boolean;
+  skipJudge: boolean;
   record: boolean;
   backendValidation?: string;
 }) {
@@ -232,6 +236,7 @@ async function handleRun(input: {
             input.runs,
             getCliEvalModel(model),
             runModel,
+            input.skipJudge,
           )
         : await runFrontendBenchmarkAdapter({
             mode: input.mode,
@@ -239,6 +244,7 @@ async function handleRun(input: {
             runs: input.runs,
             model: model.id,
             verbose: input.verbose,
+            skipJudge: input.skipJudge,
             backendValidation,
           });
 
@@ -280,21 +286,23 @@ async function runCliBenchmark(
   runs: number,
   model: ReturnType<typeof getCliEvalModel>,
   runModel: string,
+  skipJudge: boolean,
 ) {
   const { createCliModeRunner } = await import("../modes/cli");
+  const judgeModel = skipJudge ? null : DEFAULT_JUDGE_MODEL;
   const caseResults = await runSuite({
     modeRunner: createCliModeRunner(model),
     cases,
     runs,
     runModel,
-    judgeModel: DEFAULT_JUDGE_MODEL,
+    judgeModel,
   });
 
   return buildRunResult({
     mode: "cli",
     runs,
     runModel,
-    judgeModel: DEFAULT_JUDGE_MODEL,
+    judgeModel,
     caseResults,
   });
 }

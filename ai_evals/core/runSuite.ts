@@ -19,7 +19,8 @@ export async function runSuite<TInitial, TExpected, TActual>(input: {
   verbose?: boolean;
   onProgress?: (event: FrontendBenchmarkProgressEvent) => void;
 }): Promise<BenchmarkCaseResult[]> {
-  const judgeModel = input.judgeModel ?? DEFAULT_JUDGE_MODEL;
+  const judgeModel =
+    input.judgeModel === undefined ? DEFAULT_JUDGE_MODEL : input.judgeModel;
   const concurrency = Math.max(1, input.concurrency ?? input.modeRunner.concurrency);
   const results = new Array<BenchmarkCaseResult>(input.cases.length);
   let cursor = 0;
@@ -72,7 +73,7 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
   caseIndex: number;
   evalCase: EvalCase;
   runs: number;
-  judgeModel: string;
+  judgeModel: string | null;
   judgeThreshold: number;
   modeRunner: ModeRunner<TInitial, TExpected, TActual>;
   totalCases: number;
@@ -218,7 +219,11 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
       let judgeScore: number | null = null;
       let judgeSummary: string | null = null;
 
-      if (run.success && !input.evalCase.skipJudge) {
+      if (
+        run.success &&
+        input.judgeModel !== null &&
+        !input.evalCase.skipJudge
+      ) {
         const judge = await judgeOutput({
           mode: input.modeRunner.mode,
           prompt: input.evalCase.prompt,

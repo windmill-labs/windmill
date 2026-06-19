@@ -130,7 +130,7 @@ jobs:
           for m in haiku 4o gemini-3-flash-preview deepseek-v4-flash; do
             echo "::group::global-test1-script-create ($m)"
             if ! bun run cli -- run global global-test1-script-create \
-                  --model "$m" --output "$PWD/results/ci-$m.json"; then
+                  --model "$m" --skip-judge --output "$PWD/results/ci-$m.json"; then
               echo "$m: harness/proxy errored"
               fail=1
               echo "::endgroup::"
