@@ -3134,7 +3134,7 @@ const SEARCH_APP_TOTAL_CHAR_BUDGET = 12_000
 // Fixed surrounding-context window per match. Was a 0-2 param, but models varied it
 // to little effect, so it's baked in to keep the tool schema lean. Bump if matches
 // need more context than the line ± this.
-const SEARCH_APP_CONTEXT_LINES = 1
+const SEARCH_APP_CONTEXT_LINES = 2
 
 type AppSearchableFile = { filePath: string; content: string }
 
