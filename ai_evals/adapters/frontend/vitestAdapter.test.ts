@@ -33,6 +33,7 @@ vi.mock('$lib/components/vscode', () => ({}))
 vi.mock('$lib/gen', async () => {
 	const actual = await vi.importActual<any>('$lib/gen')
 	const {
+		getBenchmarkAppByPath,
 		getBenchmarkCompletedJob,
 		getBenchmarkCompletedJobResultMaybe,
 		getBenchmarkDatatableSchema,
@@ -42,6 +43,7 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkScriptByHash,
 		getBenchmarkScriptByPath,
 		hasBenchmarkWorkspace,
+		listBenchmarkApps,
 		listBenchmarkDatatables,
 		listBenchmarkDrafts,
 		listBenchmarkFlows,
@@ -299,12 +301,20 @@ vi.mock('$lib/gen', async () => {
 		}),
 		AppService: wrapService(actual.AppService, {
 			existsApp: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? false : actual.AppService.existsApp(data),
+				hasBenchmarkWorkspace(data.workspace)
+					? Boolean(getBenchmarkAppByPath(data.workspace, data.path))
+					: actual.AppService.existsApp(data),
 			listApps: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.AppService.listApps(data),
+				hasBenchmarkWorkspace(data.workspace)
+					? (listBenchmarkApps(data.workspace) ?? [])
+					: actual.AppService.listApps(data),
 			getAppByPath: async (data: { workspace: string; path: string }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
-					throw new Error(`App "${data.path}" not found in benchmark workspace`)
+					const app = getBenchmarkAppByPath(data.workspace, data.path)
+					if (!app) {
+						throw new Error(`App "${data.path}" not found in benchmark workspace`)
+					}
+					return app
 				}
 				return actual.AppService.getAppByPath(data)
 			}
