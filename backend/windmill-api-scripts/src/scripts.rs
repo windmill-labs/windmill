@@ -1251,6 +1251,33 @@ async fn create_script_internal<'c>(
             windmill_common::pipeline_advanced::freshness_enforcement_todo()
         );
     }
+    // `// materialize wrap` generates the write DDL around a single trailing
+    // SELECT — only DuckDB can be wrapped, and the script must be wrap-eligible
+    // (setup statements then one SELECT). Validate at deploy with the shared
+    // classifier so the failure is a clear save-time error, not a run-time one.
+    if let Some(m) = pipeline_annotations.materialize.as_ref() {
+        if m.wrap {
+            if ns.language != ScriptLang::DuckDb {
+                return Err(Error::BadRequest(format!(
+                    "`// materialize wrap` is only supported for DuckDB scripts, not {}. \
+                     Remove `wrap` to write the materialization DDL yourself.",
+                    ns.language.as_str()
+                )));
+            }
+            if let Err(e) = windmill_parser::sql_materialize::classify_wrap(&ns.content) {
+                return Err(Error::BadRequest(e.message()));
+            }
+        }
+        // `unique_key` and `append` are mutually exclusive reconciliation modes;
+        // append (INSERT-only) wins. Surface the conflict rather than silently
+        // dropping the dedup the author may have intended.
+        if pipeline_annotations.unique_key.is_some() && pipeline_annotations.append {
+            tracing::warn!(
+                "script {}: both `// unique_key` and `// append` set; append wins (INSERT-only, no dedup)",
+                ns.path
+            );
+        }
+    }
     let in_pipeline = pipeline_annotations.in_pipeline;
     // `// trigger all` → AND join barrier (else OR, the default).
     let pipeline_join_all = !pipeline_annotations.join_mode.is_any();
