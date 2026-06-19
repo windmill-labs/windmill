@@ -3019,9 +3019,9 @@ async function initApp(
 // enter context in full and persist for the rest of the session. Default to a
 // head slice with a pointer to page further; the model widens with offset/limit.
 // The char budget is a hard ceiling on a single read: a selected line window over
-// it is truncated and the model is told to narrow the line range.
-// TODO: char-level paging for minified/long-line files (a single line larger than
-// the budget) was removed as unused — revisit if such files must be readable here.
+// it is truncated and the model is told to narrow the line range. There is no
+// char-level paging, so a single line longer than the budget can't be read past —
+// add paging here if minified/long-line files must be fully readable.
 const READ_APP_FILE_DEFAULT_LINE_LIMIT = 1500
 const READ_APP_FILE_CHAR_BUDGET = 50_000
 
@@ -3131,9 +3131,8 @@ const SEARCH_APP_DEFAULT_MAX_MATCHES = 100
 const SEARCH_APP_MAX_MATCHES_CEILING = 200
 const SEARCH_APP_MAX_LINE_CHARS = 200
 const SEARCH_APP_TOTAL_CHAR_BUDGET = 12_000
-// Fixed surrounding-context window per match. Was a 0-2 param, but models varied it
-// to little effect, so it's baked in to keep the tool schema lean. Bump if matches
-// need more context than the line ± this.
+// Fixed surrounding-context window per match, kept off the tool schema to keep it
+// lean. Bump if matches need more context than the line ± this.
 const SEARCH_APP_CONTEXT_LINES = 2
 
 type AppSearchableFile = { filePath: string; content: string }
@@ -3164,9 +3163,9 @@ function appFileMatchesGlob(filePath: string, glob: string): boolean {
 	const subject = hasSlash ? filePath : filePath.slice(filePath.lastIndexOf('/') + 1)
 	const body = glob
 		.replace(/[.+^${}()|[\]\\]/g, '\\$&')
-		.replace(/\*\*/g, ' ')
+		.replace(/\*\*/g, '\u0000')
 		.replace(/\*/g, '[^/]*')
-		.replace(/ /g, '.*')
+		.replace(/\u0000/g, '.*')
 		.replace(/\?/g, '[^/]')
 	try {
 		return new RegExp(`^${body}$`).test(subject)
@@ -3221,12 +3220,15 @@ async function searchApp(
 		for (let i = 0; i < lines.length; i++) {
 			if (!lines[i].toLowerCase().includes(needle)) continue
 			totalMatchCount++
+			// Count the file on its first match, before the render cap, so the
+			// "N matches in M files" header counts every file with the symbol — not
+			// only the ones whose matches landed in the rendered slice (find-all-usages).
+			fileHadMatch = true
 			if (renderedMatchCount >= maxMatches) {
 				truncated = true
 				continue
 			}
 			renderedMatchCount++
-			fileHadMatch = true
 			const lo = Math.max(0, i - contextLines)
 			const hi = Math.min(lines.length - 1, i + contextLines)
 			for (let j = lo; j <= hi; j++) {

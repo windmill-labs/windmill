@@ -1622,6 +1622,30 @@ describe('global AI tools', () => {
 		expect(rows).toBeLessThan(60)
 	})
 
+	it('counts every file with a match, even matches past the render cap', async () => {
+		// The first (sorted) file exhausts max_matches; the later file's match falls
+		// past the cap but the symbol still lives there, so the header must count it.
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
+			path: 'f/apps/report',
+			summary: 'app',
+			versions: [5],
+			value: {
+				files: { '/a.tsx': 'hit\nhit\nhit\nhit\nhit', '/b.tsx': 'hit' },
+				runnables: {},
+				data: {}
+			}
+		} as any)
+
+		const result = await callGlobalTool('search_app', {
+			path: 'f/apps/report',
+			query: 'hit',
+			max_matches: 3
+		})
+
+		expect(result).toContain('6 matches in 2 files')
+		expect(result).toContain('showing the first 3')
+	})
+
 	// Deterministic micro-benchmark: how much context a single search_app call
 	// saves over locating a symbol by reading the candidate files whole. Baseline
 	// is the conservative "read only the files that actually contain the symbol"
