@@ -2316,7 +2316,7 @@ class DucklakeClient:
         if unique_key:
             body = (
                 f"MERGE INTO {t} AS t USING ({src}) AS s "
-                f"ON t.{unique_key} = s.{unique_key} "
+                f"ON t.{unique_key} = s.{unique_key} AND t.{partition_col} = s.{partition_col} "
                 f"WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *;"
             )
         else:

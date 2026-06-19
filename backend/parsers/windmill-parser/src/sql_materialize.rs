@@ -407,9 +407,18 @@ impl<'a> MaterializeCodegen<'a> {
                 out.push(format!("INSERT INTO {t} {source};"));
             }
             MaterializeStrategy::Merge { unique_key } => {
+                // Scope the match to the current partition when partitioned, so
+                // the merge is slice-local: a row with the same unique_key in
+                // another partition must not match (and so must not have its
+                // partition column rewritten by `UPDATE SET *`). Without this
+                // the dedup key would have to be globally unique.
+                let on = if self.partitioned {
+                    format!("t.{unique_key} = s.{unique_key} AND t.{pcol} = s.{pcol}")
+                } else {
+                    format!("t.{unique_key} = s.{unique_key}")
+                };
                 out.push(format!(
-                    "MERGE INTO {t} AS t USING ({source}) AS s \
-                     ON t.{unique_key} = s.{unique_key} \
+                    "MERGE INTO {t} AS t USING ({source}) AS s ON {on} \
                      WHEN MATCHED THEN UPDATE SET * \
                      WHEN NOT MATCHED THEN INSERT *;"
                 ));
@@ -625,6 +634,8 @@ mod tests {
             .find(|s| s.starts_with("MERGE INTO"))
             .expect("merge stmt");
         assert!(merge.contains("ON t.order_id = s.order_id"));
+        // partitioned merge must be slice-local (see codegen comment)
+        assert!(merge.contains("AND t._wm_partition = s._wm_partition"));
         assert!(merge.contains("WHEN MATCHED THEN UPDATE SET *"));
         assert!(!st.iter().any(|s| s.starts_with("DELETE")));
     }
