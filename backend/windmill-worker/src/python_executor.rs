@@ -361,7 +361,9 @@ pub async fn uv_pip_compile(
             args.extend(["--index-url", url]);
         }
         if let Some(host) = TRUSTED_HOST.as_ref() {
-            args.extend(["--trusted-host", host]);
+            host.split_whitespace().for_each(|h| {
+                args.extend(["--trusted-host", h]);
+            });
         }
         if let Some(cert_path) = INDEX_CERT.as_ref() {
             args.extend(["--cert", cert_path]);
@@ -2192,7 +2194,9 @@ async fn spawn_uv_install(
             command_args.extend(["--index-url", url]);
         }
         if let Some(host) = TRUSTED_HOST.as_ref() {
-            command_args.extend(["--trusted-host", &host]);
+            host.split_whitespace().for_each(|h| {
+                command_args.extend(["--trusted-host", h]);
+            });
         }
         if *NATIVE_CERT {
             command_args.extend(["--native-tls"]);
