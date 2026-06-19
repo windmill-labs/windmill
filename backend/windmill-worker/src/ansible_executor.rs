@@ -22,7 +22,8 @@ use windmill_common::{
 use windmill_queue::MiniPulledJob;
 
 use windmill_parser_yaml::{
-    AnsibleRequirements, GitRepo, PreexistingAnsibleInventory, ResourceOrVariablePath,
+    validate_vault_id, AnsibleRequirements, GitRepo, PreexistingAnsibleInventory,
+    ResourceOrVariablePath,
 };
 use windmill_queue::{append_logs, CanceledBy};
 
@@ -910,6 +911,11 @@ pub fn create_ansible_cfg(
     }
     if let Some(vault_ids) = reqs.as_ref().map(|r| &r.vault_id) {
         if !vault_ids.is_empty() {
+            // Defense in depth: entries are validated at parse time, but re-check here
+            // since they are interpolated raw into ansible.cfg (config-directive injection).
+            for vault_id in vault_ids {
+                validate_vault_id(vault_id)?;
+            }
             let password_files = vault_ids.join(",");
 
             passwords_cfg.push_str(&format!("vault_identity_list = {password_files}\n"));
