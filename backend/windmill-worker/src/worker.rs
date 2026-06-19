@@ -3808,6 +3808,9 @@ pub async fn handle_queued_job(
                 worker_name,
                 flow_runners,
                 &killpill_rx,
+                // A freshly pulled flow job is being executed by a live worker; the prior
+                // step (if any) completed normally, so this is never unrecoverable here.
+                false,
             ))
             .warn_after_seconds(10)
             .await

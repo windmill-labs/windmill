@@ -3990,6 +3990,159 @@ async fn test_failure_module(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Regression test for WIN-2070: a flow step that fails *unrecoverably* — e.g. its worker was
+/// OOM-killed and the failure is surfaced by the zombie job handler — must still trigger the
+/// flow's error handler (failure module). Previously, `unrecoverable` failures silently
+/// completed the flow with an error and skipped the failure module entirely.
+///
+/// This drives a real worker on a flow whose first step hangs forever, then simulates the
+/// zombie handler by calling `handle_job_error(..., unrecoverable = true, ...)` against that
+/// running step exactly as `monitor::handle_zombie_jobs` does.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_failure_module_triggered_on_unrecoverable_failure(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use std::sync::atomic::AtomicU16;
+    use std::sync::Arc;
+    use tokio::sync::mpsc;
+    use windmill_common::auth::create_token_for_owner;
+    use windmill_common::client::AuthedClient;
+    use windmill_common::KillpillSender;
+    use windmill_queue::{get_queued_job_v2, MiniCompletedJob, SameWorkerPayload};
+    use windmill_worker::{JobCompletedSender, SameWorkerSender};
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Step 'a' hangs forever, so it is only ever completed by the simulated zombie handler.
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "id": "a",
+            "value": {
+                "input_transforms": {},
+                "type": "rawscript",
+                "language": "deno",
+                "content": "export async function main() { await new Promise((r) => setTimeout(r, 600000)); }",
+            },
+        }],
+        "failure_module": {
+            "value": {
+                "input_transforms": { "error": { "type": "javascript", "expr": "previous_result", } },
+                "type": "rawscript",
+                "language": "deno",
+                "content": "export function main(error) { return { handled_unrecoverable: true, error } }",
+            }
+        },
+    }))
+    .unwrap();
+
+    let flow_id =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .push(&db)
+            .await;
+
+    let db_ = db.clone();
+    in_test_worker(
+        &db,
+        async move {
+            let db = db_;
+
+            // Wait for step 'a' to be running on the worker.
+            let step_job = loop {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                let running = sqlx::query_scalar!(
+                    "SELECT q.id FROM v2_job_queue q JOIN v2_job j USING (id)
+                     WHERE j.parent_job = $1 AND q.running = true",
+                    flow_id
+                )
+                .fetch_optional(&db)
+                .await
+                .unwrap();
+                if let Some(step_id) = running {
+                    if let Some(job) = get_queued_job_v2(&db, &step_id).await.unwrap() {
+                        break job;
+                    }
+                }
+            };
+
+            // Simulate `monitor::handle_zombie_jobs` failing the step unrecoverably (the worker
+            // running it has crashed/OOM'd). The dummy `same_worker_tx` mirrors the monitor,
+            // which has no live worker channel.
+            let (sw_tx, _sw_rx) = mpsc::channel::<SameWorkerPayload>(1);
+            let sw_tx = SameWorkerSender(sw_tx, Arc::new(AtomicU16::new(0)));
+            let (jc_tx, _jc_rx) = JobCompletedSender::new_never_used();
+            let (_kp_tx, kp_rx) = KillpillSender::new(1);
+            let token = create_token_for_owner(
+                &db,
+                "test-workspace",
+                "u/test-user",
+                "",
+                100,
+                "",
+                &Uuid::nil(),
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+            let client = AuthedClient::new(
+                format!("http://localhost:{port}"),
+                "test-workspace".to_string(),
+                token,
+                None,
+            );
+
+            windmill_worker::result_processor::handle_job_error(
+                &db,
+                &client,
+                &MiniCompletedJob::from(step_job),
+                0,
+                None,
+                windmill_common::error::Error::ExecutionErr(
+                    "simulated worker OOM crash".to_string(),
+                ),
+                true, // unrecoverable
+                Some(&sw_tx),
+                "",
+                "test-monitor",
+                jc_tx,
+                &kp_rx,
+            )
+            .await;
+
+            // The flow should now run its failure module and complete.
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                let done = sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM v2_job_completed WHERE id = $1)",
+                    flow_id
+                )
+                .fetch_one(&db)
+                .await
+                .unwrap()
+                .unwrap_or(false);
+                if done {
+                    break;
+                }
+            }
+        },
+        port,
+    )
+    .await;
+
+    server.close().await.unwrap();
+
+    let result = completed_job(flow_id, &db).await.json_result().unwrap();
+    assert_eq!(
+        result["handled_unrecoverable"],
+        json!(true),
+        "failure module (flow error handler) should run for an unrecoverable step failure, got: {result}"
+    );
+    Ok(())
+}
+
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_run_wait_result_early_return_with_failure_module(
