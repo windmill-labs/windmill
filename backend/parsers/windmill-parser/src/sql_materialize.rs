@@ -478,11 +478,25 @@ pub fn build_wrap_blocks(
         strategy,
     };
     let mut blocks: Vec<String> = Vec::new();
-    blocks.extend(plan.setup.iter().cloned());
+    // Setup blocks come from the splitter with their `;` stripped — re-terminate
+    // each so that when the executor re-joins and re-splits the assembled query,
+    // adjacent statements (e.g. the user ATTACH and the synthetic target ATTACH)
+    // don't merge into one malformed statement.
+    blocks.extend(plan.setup.iter().map(|s| terminate(s)));
     blocks.push(target_attach.to_string());
     blocks.extend(cg.statements());
     blocks.push(snapshot_capture_sql(TARGET_ALIAS));
     blocks
+}
+
+// Ensure a statement ends with a single `;`.
+fn terminate(stmt: &str) -> String {
+    let t = stmt.trim_end();
+    if t.ends_with(';') {
+        t.to_string()
+    } else {
+        format!("{t};")
+    }
 }
 
 #[cfg(test)]
@@ -699,6 +713,9 @@ mod tests {
         );
         // setup block first, then the target ATTACH, then codegen, then capture.
         assert!(blocks[0].starts_with("ATTACH 'ducklake://main' AS dl"));
+        // every setup block must be `;`-terminated so re-splitting can't merge it
+        // with the synthetic target ATTACH that follows.
+        assert!(blocks[0].ends_with(';'));
         assert_eq!(
             blocks[1],
             "ATTACH 'ducklake:postgres:…' AS _wm_target (DATA_PATH 's3://b/p');"
