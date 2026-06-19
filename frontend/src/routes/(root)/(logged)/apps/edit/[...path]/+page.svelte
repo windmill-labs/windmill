@@ -429,7 +429,7 @@
 				summary={app.summary}
 				app={app.value}
 				{deployedBaseline}
-				newPath={app.value?.draft_path ?? app.path}
+				newPath={app.value?.path ?? app.path}
 				path={page.params.path ?? ''}
 				policy={app.policy}
 				bind:savedApp

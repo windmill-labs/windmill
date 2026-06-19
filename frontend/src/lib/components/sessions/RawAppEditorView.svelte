@@ -31,16 +31,16 @@
 	let diffDrawer: DiffDrawer | undefined = $state()
 
 	// Path typed in the editor header, surfaced when it differs from the stored
-	// path. Mirror it into the runtime draft as `draft_path` so the rename
-	// mutates runtime.rawApp.val → the autosave sig changes → the draft is saved
-	// (and the home/review/Drafts lists show the friendly name). Mirrors the
-	// full-page /apps_raw/edit route.
+	// path. Mirror it into the runtime draft as `typedPath` (persisted as the
+	// draft's own `path`) so the rename mutates runtime.rawApp.val → the autosave
+	// sig changes → the draft is saved (and the home/review/Drafts lists show the
+	// friendly name). Mirrors the full-page /apps_raw/edit route.
 	let pendingDraftPath = $state<string | undefined>(undefined)
 	// The header collapses both "not yet bound" and "reverted to baseline" to
 	// `undefined`. `surfacedDraftPath` tells them apart: the initial undefined
-	// (before the header binds) must not clobber the `draft_path` seeded by
+	// (before the header binds) must not clobber the `typedPath` seeded by
 	// loadRawApp, but a revert/clear after a real typed path must drop the stale
-	// friendly name — mirroring the script codec's `else delete draft_path`.
+	// friendly name.
 	let surfacedDraftPath = false
 	$effect(() => {
 		const dp = pendingDraftPath
@@ -49,9 +49,9 @@
 			if (!val) return
 			if (dp !== undefined) {
 				surfacedDraftPath = true
-				if (val.draft_path !== dp) val.draft_path = dp
-			} else if (surfacedDraftPath && val.draft_path !== undefined) {
-				val.draft_path = undefined
+				if (val.typedPath !== dp) val.typedPath = dp
+			} else if (surfacedDraftPath && val.typedPath !== undefined) {
+				val.typedPath = undefined
 			}
 		})
 	})
@@ -104,7 +104,7 @@
 				bind:data={runtime.rawApp.val.data}
 				bind:summary={runtime.rawApp.val.summary}
 				bind:pendingDraftPath
-				newPath={runtime.rawApp.val.draft_path ?? runtime.rawApp.val.path}
+				newPath={runtime.rawApp.val.typedPath ?? runtime.rawApp.val.path}
 				{path}
 				autosaveWorkspace={workspaceId}
 				autosavePath={path}

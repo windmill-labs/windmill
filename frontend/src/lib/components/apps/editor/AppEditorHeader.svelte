@@ -176,19 +176,23 @@
 		darkMode
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	// Mirror the user-typed path into the draft as `draft_path` when it differs
-	// from the baseline, so the home row shows the friendly name instead of
-	// `draft_{uuid}`. Drop the field once it matches the baseline again.
+	// Mirror the user-typed path into the autosaved App's own `path` when it
+	// differs from the deployed baseline, so the home row shows the friendly name
+	// instead of the `draft_{uuid}` storage key (and the backend reads it from
+	// `value->>'path'`). Only-when-different keeps an unedited draft byte-equal to
+	// the deployed value (which carries no `path`) so it still dedups/discards;
+	// drop the field once it matches the baseline again. The deployed/original
+	// path is the URL, not this field.
 	$effect(() => {
 		const typed = newEditedPath
 		const baseline = savedApp?.path ?? ''
-		const a = $app
+		const a = $app as (App & { path?: string }) | undefined
 		if (!a) return
 		untrack(() => {
 			if (typed && typed !== baseline) {
-				a.draft_path = typed
-			} else if (a.draft_path !== undefined) {
-				delete a.draft_path
+				a.path = typed
+			} else if (a.path !== undefined) {
+				delete a.path
 			}
 		})
 	})
@@ -197,7 +201,7 @@
 	// autosave stores the bare App value, which has no summary of its own — it
 	// lives in the `app` table column, set only on deploy). Without this the
 	// summary is lost when reopening a draft or deploying it from the Review &
-	// Deploy page. Parallels `draft_path`.
+	// Deploy page. Parallels the path mirror above.
 	$effect(() => {
 		const s = $summary
 		const a = $app

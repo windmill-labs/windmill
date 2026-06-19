@@ -42,9 +42,9 @@
 		summary: string
 		policy?: any
 		custom_path?: string
-		/** User-typed path the home list renders, set only when it differs
-		 *  from the deployed/seeded `savedApp.path`. */
-		draft_path?: string
+		/** User-typed path the home list renders (read from `value->>'path'`), set
+		 *  only when it differs from the deployed/seeded `savedApp.path`. */
+		path?: string
 	}
 
 	let files: Record<string, string> | undefined = $state(undefined)
@@ -56,7 +56,7 @@
 	let policy: any = $state({})
 	let summary = $state('')
 	/** User-typed path from `RawAppEditorHeader` when it differs from
-	 *  `savedApp.path`; mirrored into the draft below as `draft_path` for the
+	 *  `savedApp.path`; mirrored into the draft below as its own `path` for the
 	 *  home list's friendly name. */
 	let pendingDraftPath = $state<string | undefined>(undefined)
 
@@ -113,12 +113,12 @@
 			summary,
 			policy,
 			custom_path: savedApp?.custom_path,
-			// Persist the typed path as `draft_path` only when it actually differs
-			// from the current path — a `draft_path` equal to the baseline is a
+			// Persist the typed path as the draft's own `path` only when it actually
+			// differs from the current path — a `path` equal to the baseline is a
 			// no-op that would block the draft from deduping against the deployed
 			// app (which carries none). Drops back out on a revert or deploy.
 			...(pendingDraftPath && pendingDraftPath !== (savedApp?.path ?? '')
-				? { draft_path: pendingDraftPath }
+				? { path: pendingDraftPath }
 				: {})
 		} as RawAppDraft
 	})
@@ -135,9 +135,9 @@
 		summary = app.summary
 		// lastVersion = app.version
 		policy = app.policy
-		// Prefer the saved `draft_path` so the topbar shows the pending name, not
-		// the `draft_{uuid}` URL. See /flows/edit's loader.
-		newPath = (app as any).draft_path ?? app.path
+		// Deployed/URL path; the loader overrides this with the draft's own typed
+		// `path` afterwards so the topbar shows the pending name when renamed.
+		newPath = app.path
 	}
 
 	/** Increments per `loadApp` call. Stale loads (e.g. when picker
@@ -273,7 +273,7 @@
 		deployedAt = backendApp.no_deployed ? undefined : (backendApp.created_at as string | undefined)
 		// Deployed baseline for the autosave `discardIf`, captured BEFORE the swap
 		// below mutates `backendApp`. Mirrors the bundle `$effect`'s shape (minus
-		// the edit-only `draft_path`) so an unedited draft compares equal.
+		// the edit-only `path`) so an unedited draft compares equal.
 		// `undefined` when there's no deployed row.
 		deployedBaseline = backendApp.no_deployed
 			? undefined
@@ -300,14 +300,9 @@
 					summary?: string
 					policy?: any
 					custom_path?: string
-					draft_path?: string
+					path?: string
 			  }
 			| undefined
-		// Surface the saved `draft_path` on `backendApp` so `extractRawApp` seeds
-		// `newPath` with the friendly name, not the `draft_{uuid}` URL.
-		if (savedRawAppDraft?.draft_path) {
-			;(backendApp as any).draft_path = savedRawAppDraft.draft_path
-		}
 		if (backendApp.no_deployed) {
 			backendApp.value = {
 				files: savedRawAppDraft?.files ?? {},
@@ -344,6 +339,10 @@
 		// $effect re-mirrors them into `draftSync.draft`; the first write is
 		// swallowed by `acquireEntry`'s seed guard, so no POST.
 		extractRawApp(backendApp)
+		// The draft's own typed `path` (set only on a rename) is the friendly name
+		// the topbar shows; `extractRawApp` seeded `newPath` from the deployed/URL
+		// path, so override it here. The deployed/original path stays the URL.
+		if (savedRawAppDraft?.path) newPath = savedRawAppDraft.path
 		// "Load another user's draft" handoff: their value is a flat RawAppDraft
 		// bundle. Override the local pieces with it; overlay mode (we have our own
 		// draft) hard-locks saves until the user confirms overwriting. The bundle
@@ -363,7 +362,7 @@
 			data = v.data ?? { ...DEFAULT_DATA }
 			summary = v.summary ?? ''
 			policy = v.policy ?? {}
-			newPath = v.draft_path ?? savedApp?.path ?? path
+			newPath = v.path ?? savedApp?.path ?? path
 			if (hasOwnDraft) {
 				OtherUserDraftLoad.beginOverlay({
 					workspace: $workspaceStore!,
@@ -379,7 +378,7 @@
 						summary,
 						policy,
 						custom_path: savedApp?.custom_path,
-						...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
+						...(pendingDraftPath ? { path: pendingDraftPath } : {})
 					} as RawAppDraft,
 					onResetToOwnDraft: () => loadApp({ getDraft: true })
 				})

@@ -60,21 +60,26 @@ describe('appDraftCodec — custom_path round-trip', () => {
 	})
 })
 
-describe('appDraftCodec — draft_path round-trip', () => {
-	it('serializes draft_path so a path edit changes the draft (and its sig)', () => {
-		const draft = runtimeRawAppToDraft(runtime({ draft_path: 'u/admin/friendly' }))
-		expect(draft.draft_path).toBe('u/admin/friendly')
-		// The autosave keys on JSON.stringify(draft); without draft_path a rename
+describe('appDraftCodec — typed path round-trip', () => {
+	it('serializes the typed path as the draft `path` so an edit changes the draft (and its sig)', () => {
+		const draft = runtimeRawAppToDraft(runtime({ typedPath: 'u/admin/friendly' }))
+		expect(draft.path).toBe('u/admin/friendly')
+		// The autosave keys on JSON.stringify(draft); without the path a rename
 		// would be invisible and never persist.
 		expect(JSON.stringify(draft)).toContain('u/admin/friendly')
 	})
 
+	it('omits the draft `path` when there is no rename', () => {
+		const draft = runtimeRawAppToDraft(runtime({ typedPath: undefined }))
+		expect(draft.path).toBeUndefined()
+	})
+
 	it('survives a full runtime → draft → runtime round-trip', () => {
-		const original = runtime({ draft_path: 'u/admin/renamed' })
+		const original = runtime({ typedPath: 'u/admin/renamed' })
 		const back = applyDraftToRuntimeRawApp(
-			runtime({ draft_path: undefined }),
+			runtime({ typedPath: undefined }),
 			runtimeRawAppToDraft(original)
 		)
-		expect(back.draft_path).toBe('u/admin/renamed')
+		expect(back.typedPath).toBe('u/admin/renamed')
 	})
 })

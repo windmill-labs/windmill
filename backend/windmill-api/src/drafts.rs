@@ -36,11 +36,11 @@ pub struct DraftListItem {
     /// Best-effort, read from the draft JSON's `summary` field when present.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
-    /// User-typed friendly path read from the draft JSON's `draft_path` (set by
-    /// the editors when it differs from the storage path, e.g. a never-deployed
-    /// item parked at `u/{user}/draft_{uuid}`). `None` when absent. Lets the
-    /// review page show the friendly name instead of the storage path, like the
-    /// home-page list endpoints.
+    /// User-typed friendly path read from the draft JSON's own `path`, when it
+    /// differs from the storage path (e.g. a never-deployed item parked at
+    /// `u/{user}/draft_{uuid}`). `None` when absent. Lets the review page show
+    /// the friendly name instead of the storage path, like the home-page list
+    /// endpoints.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_path: Option<String>,
     /// No deployed counterpart exists at this path — the draft is the whole
@@ -195,19 +195,12 @@ fn list_drafts_query(all_users: bool) -> String {
                   d.created_at,
                   d.value ->> 'summary' AS summary,
                   {draft_users} AS draft_users,
-                  -- Friendly typed path, by kind (mirrors the home-page list
-                  -- endpoints): scripts bind the Path widget to `script.path`,
-                  -- so it round-trips through the draft JSON's own `path`;
-                  -- flows/apps/raw-apps carry a separate `draft_path`. NULLIF
-                  -- drops it when empty or equal to the storage path.
-                  NULLIF(
-                    NULLIF(
-                      CASE WHEN d.typ::text = 'script'
-                           THEN d.value ->> 'path'
-                           ELSE d.value ->> 'draft_path' END,
-                      ''),
-                    d.path
-                  ) AS draft_path,
+                  -- Friendly typed path: every editor binds the Path widget to
+                  -- the content's own `path`, so the draft JSON's `path` IS the
+                  -- user-typed target (a never-deployed item is parked at a
+                  -- synthetic draft storage key). NULLIF drops it when empty or
+                  -- equal to the storage path.
+                  NULLIF(NULLIF(d.value ->> 'path', ''), d.path) AS draft_path,
                   (d.email IS NULL) AS legacy_draft,
                   (d.email = $2 OR d.email IS NULL) AS mine,
                   {case} AS draft_only

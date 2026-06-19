@@ -23,9 +23,9 @@ export interface DraftItem {
 	kind: DraftKind
 	path: string
 	summary?: string
-	/** User-typed friendly path (from the draft JSON's `draft_path`) when it
-	 * differs from the storage `path` — e.g. a never-deployed item parked at
-	 * `u/{user}/draft_{uuid}`. Display this instead of `path` when present. */
+	/** User-typed friendly path (computed by the backend from the draft JSON's
+	 * own `path`) when it differs from the storage `path` — e.g. a never-deployed
+	 * item parked at `u/{user}/draft_{uuid}`. Display this instead of `path`. */
 	draft_path?: string
 	/** Never deployed — exists only as a draft. */
 	draft_only: boolean

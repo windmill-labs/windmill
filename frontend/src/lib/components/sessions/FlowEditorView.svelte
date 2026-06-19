@@ -79,14 +79,19 @@
 		     newFlow: a draft-only flow has a synthesized `savedFlow` (no_deployed=true)
 		     but no deployed row, so it must deploy via createFlow — treating it as
 		     !newFlow would updateFlow the draft_<uuid> path and 404 "Flow not found".
-		     initialPath: a brand-new flow is stored under a `draft_<uuid>` path with
-		     its intended name in `draft_path`; seed the builder from `draft_path`
-		     (as the full-page editor does) so the Path widget and deploy use the
-		     friendly name rather than creating a flow literally named draft_<uuid>. -->
+		     initialPath: the Path widget's rename baseline. For a deployed flow
+		     it's the URL/storage path (deployed/original); the draft's intended
+		     name rides in the flow value's own `path`, which FlowBuilder seeds into
+		     the Path widget — so the topbar shows the friendly name while
+		     `initialPath` stays the original. A never-deployed flow (parked at a
+		     `draft_<uuid>` key) has no original, so seed the baseline from its own
+		     friendly path instead of flagging the storage key as a rename. -->
 		<FlowBuilder
 			flowStore={runtime.flowStore}
 			flowStateStore={runtime.flowStateStore}
-			initialPath={(runtime.savedFlow.val as any)?.draft_path ?? path}
+			initialPath={runtime.savedFlow.val?.no_deployed
+				? (runtime.flowStore.val?.path ?? path)
+				: path}
 			autosaveWorkspace={workspaceId}
 			autosavePath={path}
 			newFlow={!runtime.savedFlow.val || runtime.savedFlow.val.no_deployed === true}

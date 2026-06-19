@@ -219,7 +219,7 @@
 	bind:dirty={dirtyPath}
 	bind:error={pathError}
 	bind:path={newEditedPath}
-	initialPath={newPath}
+	initialPath={newApp ? newPath : (savedApp?.path ?? newPath)}
 	namePlaceholder="app"
 	kind="app"
 	autofocus={false}

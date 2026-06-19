@@ -171,7 +171,7 @@ pub struct ListableApp {
     /// over the deployed row). See ListableScript in windmill-types/src/scripts.rs.
     #[serde(default, skip_serializing_if = "is_false")]
     pub is_draft: bool,
-    /// User-typed staged path from the draft JSON's `draft_path`; `None` = unchanged.
+    /// User-typed staged path from the draft JSON's own `path`; `None` = unchanged.
     /// See ListableScript in windmill-types/src/scripts.rs.
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -505,10 +505,10 @@ async fn list_apps(
         for row in draft_only_rows {
             let v: serde_json::Value =
                 serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
-            // App/raw-app drafts are the bare editor value with no `path`, so the editor
-            // writes a separate `draft_path` only when it differs from deployed; see flows.rs.
+            // App/raw-app drafts carry the user-typed path in the value's own
+            // `path`; surface it when it differs from the storage path. See flows.rs.
             let draft_path = v
-                .get("draft_path")
+                .get("path")
                 .and_then(|s| s.as_str())
                 .filter(|s| !s.is_empty() && *s != row.path.as_str())
                 .map(|s| s.to_string());

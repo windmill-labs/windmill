@@ -150,7 +150,7 @@
 			deployedBaseline = undefined
 			// Suspend autosave around the bootstrap cascade: the Path widget's
 			// `initPath → reset → bind:path` chain seeds a friendly auto-name that
-			// FlowBuilder mirrors into `flow.draft_path` — a programmatic write that
+			// FlowBuilder mirrors into `flow.path` — a programmatic write that
 			// must not post as the user's first save. Resume on first interaction
 			// (with a 5s fallback) rather than guessing the cascade's length.
 			if ($workspaceStore) {
@@ -349,16 +349,26 @@
 			? ({ ...deployedFlow, ...draftFromBackend } as Flow)
 			: (deployedFlow as Flow)
 		savedFlow = structuredClone($state.snapshot(effectiveFlow)) as Flow
+		// `savedFlow` is the deployed baseline (diff "deployed" side + restore
+		// target), so its path must stay the deployed path even when the draft
+		// overlay renamed `effectiveFlow.path`.
+		if (!backendFlow.no_deployed) savedFlow.path = (deployedFlow as Flow).path
 		// Baseline for the autosave `discardIf`: the deployed flow WITHOUT the
 		// draft overlay (matches the unedited seed when no draft exists).
 		deployedBaseline = backendFlow.no_deployed
 			? undefined
 			: (structuredClone($state.snapshot(deployedFlow)) as Flow)
-		// Surface the saved `draft_path` to the Path widget so the topbar shows the
-		// pending name, not the `draft_{uuid}` URL. Else the widget seeds from the
-		// URL, the first edit clobbers `draft_path`, and the friendly name is lost.
-		const renderedDraftPath = (effectiveFlow as any).draft_path as string | undefined
-		if (renderedDraftPath) flowInitialPath = renderedDraftPath
+		// `flowInitialPath` is the Path widget's rename baseline and the
+		// `updateFlow` target on deploy. For a deployed flow it stays the URL
+		// (deployed/original) path, while the draft's renamed path rides in
+		// `effectiveFlow.path` (seeded into the Path widget via FlowBuilder's
+		// `$pathStore`) — so the topbar shows the pending name without conflating
+		// it with the original. A never-deployed draft (parked at a `draft_{uuid}`
+		// storage key) has no original, so seed the baseline from its own friendly
+		// path: else the storage key would be flagged as a rename target.
+		if (backendFlow.no_deployed) {
+			flowInitialPath = (effectiveFlow.path as string) || flowInitialPath
+		}
 
 		// "Load another user's draft" handoff: render their value over the deployed
 		// metadata. Overlay mode (we have our own draft) never saves until the user
