@@ -54,6 +54,7 @@ export function createGlobalModeRunner(
         toolCallDetails: result.toolCallDetails,
         skillsInvoked: [],
         tokenUsage: result.tokenUsage,
+        finalContextTokens: result.finalContextTokens,
       };
     },
     validate({ evalCase, actual, expected }) {

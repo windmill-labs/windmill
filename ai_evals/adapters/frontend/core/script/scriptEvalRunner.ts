@@ -25,6 +25,7 @@ export interface ScriptEvalResult {
   toolsUsed: string[];
   toolCallDetails: ToolCallDetail[];
   tokenUsage: TokenUsage;
+  finalContextTokens: number | null;
 }
 
 export interface ScriptEvalOptions {
@@ -111,6 +112,7 @@ export async function runScriptEval(
       toolsUsed: rawResult.toolsCalled,
       toolCallDetails: rawResult.toolCallDetails,
       tokenUsage: rawResult.tokenUsage,
+      finalContextTokens: rawResult.finalContextTokens,
     };
   } finally {
     await cleanup();

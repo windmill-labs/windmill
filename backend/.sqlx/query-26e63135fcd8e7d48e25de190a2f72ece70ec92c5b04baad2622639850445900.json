@@ -1,0 +1,97 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n              subscriber_path AS \"subscriber_path!\",\n              asset_kind AS \"asset_kind!: windmill_common::assets::AssetKind\",\n              asset_path AS \"asset_path!\",\n              outcome::text AS \"outcome!\",\n              child_job_id,\n              partition,\n              received_inputs,\n              required_inputs,\n              debounce_s,\n              reason,\n              created_at AS \"created_at!\"\n           FROM dispatch_event\n           WHERE producer_job_id = $1 AND workspace_id = $2\n           ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "subscriber_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "asset_kind!: windmill_common::assets::AssetKind",
+        "type_info": {
+          "Custom": {
+            "name": "asset_kind",
+            "kind": {
+              "Enum": [
+                "s3object",
+                "resource",
+                "variable",
+                "ducklake",
+                "datatable",
+                "volume"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "asset_path!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "outcome!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "child_job_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "partition",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "received_inputs",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "required_inputs",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "debounce_s",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "26e63135fcd8e7d48e25de190a2f72ece70ec92c5b04baad2622639850445900"
+}

@@ -82,6 +82,9 @@ datatable related commands
 - `datatable run <sql:string>` - run a SQL query on a datatable
   - `-n --name <name:string>` - Datatable name (default: main)
   - `-s --silent` - Output only the final result as JSON. Useful for scripting.
+- `datatable create [name:string]` - register a datatable database in the workspace (default: instance-backed 'main') so scripts can use datatable://<name>
+  - `--resource <resource:string>` - Back the datatable with an existing postgresql resource path instead of the instance database
+  - `--force` - Allow adding to a workspace that already has datatables (fork metadata on existing ones is not preserved)
 - `datatable serve` - Serve all datatables as a Postgres-wire endpoint (psql, DBeaver, pgAdmin); the client picks the datatable via the database name in its connection string
   - `--port <port:number>` - Port to listen on (default: first free port in 5433-5500)
   - `--host <host:string>` - Bind address (default: 127.0.0.1)
@@ -410,6 +413,17 @@ Object storage (S3) related commands. Operates on the workspace's default object
   - `--bytes-length <bytesLength:number>` - Number of bytes to read
   - `--csv-separator <csvSeparator:string>` - CSV column separator (default ,)
   - `--csv-header` - Treat the first CSV row as a header
+
+### pipeline
+
+inspect asset-driven pipelines (scripts marked `// pipeline`, wired by `// on <spec>` annotations)
+
+**Subcommands:**
+
+- `pipeline list` - list pipeline folders in the workspace
+  - `--json` - Output as JSON (for piping to jq)
+- `pipeline show <folder:string>` - render a pipeline folder's DAG (sources, lineage, subscriptions) in the terminal
+  - `--json` - Output the raw asset graph as JSON
 
 ### protection-rules
 

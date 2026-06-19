@@ -8,6 +8,7 @@
 	import { updateItemPathAndSummary, checkFlowOnBehalfOf } from './moveRenameManager'
 	import Label from './Label.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import { FlowService, ScriptService, type TriggersCount } from '$lib/gen'
 
 	const dispatch = createEventDispatcher()
 
@@ -24,7 +25,45 @@
 
 	let own = $state(false)
 	let onBehalfOfEmail = $state<string | undefined>(undefined)
+	// Counts of triggers/schedules/etc. that reference this script or flow.
+	// The backend cascades `script_path` on rename across all trigger tables
+	// (see `windmill_common::triggers::update_triggers_script_path` invoked
+	// from script/flow create), so the user just needs to know what will be
+	// moved along — not opt in per-row.
+	let attachedTriggers = $state<TriggersCount | undefined>(undefined)
 	let hasChanges = $derived((summary ?? '') !== initialSummary || dirtyPath)
+
+	// Flatten the count buckets into a uniform list for rendering. Order
+	// reflects user-facing prominence: schedules first (most common), then
+	// the seven native trigger kinds, then HTTP / webhook / websocket /
+	// email-default / cloud-service installations. Buckets with count 0
+	// are dropped so the panel only mentions triggers that actually exist.
+	let attachedSummary = $derived.by<Array<{ label: string; count: number }>>(() => {
+		const c = attachedTriggers
+		if (!c) return []
+		const out: Array<{ label: string; count: number }> = []
+		const push = (label: string, n: number | undefined) => {
+			if (typeof n === 'number' && n > 0) out.push({ label, count: n })
+		}
+		push('schedule', c.schedule_count)
+		push('kafka', c.kafka_count)
+		push('mqtt', c.mqtt_count)
+		push('nats', c.nats_count)
+		push('postgres', c.postgres_count)
+		push('sqs', c.sqs_count)
+		push('gcp', c.gcp_count)
+		push('email', c.email_count)
+		push('http route', c.http_routes_count)
+		push('websocket', c.websocket_count)
+		push('webhook token', c.webhook_count)
+		push('default-email token', c.default_email_count)
+		push('nextcloud', c.nextcloud_count)
+		push('google', c.google_count)
+		push('github', c.github_count)
+		push('azure', c.azure_count)
+		return out
+	})
+	let attachedTotal = $derived(attachedSummary.reduce((s, { count }) => s + count, 0))
 
 	export async function openDrawer(
 		initialPath_l: string,
@@ -35,6 +74,7 @@
 		path = undefined
 		dirtyPath = false
 		onBehalfOfEmail = undefined
+		attachedTriggers = undefined
 		initialPath = initialPath_l
 		initialSummary = summary_l ?? ''
 		summary = summary_l
@@ -42,6 +82,22 @@
 		drawer.openDrawer()
 		if (kind === 'flow') {
 			onBehalfOfEmail = await checkFlowOnBehalfOf($workspaceStore!, initialPath_l)
+		}
+		if (kind === 'script' || kind === 'flow') {
+			void loadAttachedTriggers()
+		}
+	}
+
+	async function loadAttachedTriggers() {
+		try {
+			const workspace = $workspaceStore!
+			attachedTriggers =
+				kind === 'flow'
+					? await FlowService.getTriggersCountOfFlow({ workspace, path: initialPath })
+					: await ScriptService.getTriggersCountOfScript({ workspace, path: initialPath })
+		} catch {
+			// Non-fatal: the rename still works without the summary panel.
+			attachedTriggers = undefined
 		}
 	}
 
@@ -74,6 +130,23 @@
 		{#if own && onBehalfOfEmail}
 			<Alert type="info" title="Run on behalf of" class="mb-4">
 				This flow will be redeployed on behalf of you ({$userStore?.email}) instead of {onBehalfOfEmail}
+			</Alert>
+		{/if}
+		{#if (kind === 'script' || kind === 'flow') && attachedTotal > 0}
+			<Alert
+				type="info"
+				title={`Will also update ${attachedTotal} attached trigger${attachedTotal === 1 ? '' : 's'}`}
+				class="mb-4"
+			>
+				<div class="flex flex-wrap gap-x-3 gap-y-1 mt-1">
+					{#each attachedSummary as { label, count } (label)}
+						<span class="text-xs"
+							><span class="font-mono font-semibold">{count}</span> {label}{count === 1
+								? ''
+								: 's'}</span
+						>
+					{/each}
+				</div>
 			</Alert>
 		{/if}
 		<Label label="Summary" class="mb-6">

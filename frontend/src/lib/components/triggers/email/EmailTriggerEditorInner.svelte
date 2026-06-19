@@ -3,8 +3,7 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import Required from '$lib/components/Required.svelte'
-	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
 	import {
 		EmailTriggerService,
 		type ErrorHandler,
@@ -117,7 +116,8 @@
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
-		defaultConfig?: Partial<NewEmailTrigger>
+		defaultConfig?: Partial<NewEmailTrigger>,
+		fixedScriptPath_?: string
 	) {
 		drawerLoading = true
 		let loader = setTimeout(() => {
@@ -131,6 +131,7 @@
 			edit = true
 			dirtyPath = false
 			dirtyLocalPart = false
+			fixedScriptPath = fixedScriptPath_ ?? ''
 			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultConfig)
 			// Draft-only triggers open as "new trigger prefilled from the
 			// draft" — no deployed row exists, so saving must CREATE (the
@@ -237,8 +238,8 @@
 		return {
 			noDeployed: !!(s as any)?.no_deployed,
 			overlay: draftFromBackend
-			? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
-			: undefined
+				? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
+				: undefined
 		}
 	}
 
@@ -387,23 +388,16 @@
 
 			{#if !hideTarget}
 				<Section label="Target">
-					<p class="text-xs mt-3 mb-1 text-primary">
-						Pick a script or flow to be triggered<Required required={true} />
-					</p>
-					<div class="flex flex-col gap-2">
-						<div class="flex flex-row mb-2">
-							<ScriptPicker
-								disabled={fixedScriptPath != '' || !can_write}
-								initialPath={fixedScriptPath || initialScriptPath}
-								kinds={['script']}
-								allowFlow={true}
-								bind:itemKind
-								bind:scriptPath={script_path}
-								allowRefresh={can_write}
-								allowEdit={!$userStore?.operator}
-								clearable
-							/>
-
+					<TriggerRunnablePicker
+						{fixedScriptPath}
+						bind:itemKind
+						bind:scriptPath={script_path}
+						{initialScriptPath}
+						canWrite={can_write}
+						isOperator={!!$userStore?.operator}
+						promptClass="text-xs mt-3 mb-1 text-primary"
+					>
+						{#snippet createButton()}
 							{#if emptyString(script_path)}
 								<Button
 									btnClasses="ml-4"
@@ -413,8 +407,8 @@
 									target="_blank">Create from template</Button
 								>
 							{/if}
-						</div>
-					</div>
+						{/snippet}
+					</TriggerRunnablePicker>
 				</Section>
 			{/if}
 

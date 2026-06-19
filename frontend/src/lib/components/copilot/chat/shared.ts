@@ -525,7 +525,22 @@ export type AssistantDisplayMessage = BaseDisplayMessage & {
 	streaming?: boolean
 }
 
-export type DisplayMessage = UserDisplayMessage | ToolDisplayMessage | AssistantDisplayMessage
+/**
+ * Compaction boundary: replaces the summarized prefix in BOTH displayMessages
+ * and the API messages (where it is a plain user message). It carries no index
+ * because it is never a restart target — only the surviving tail's user
+ * messages are rewound to.
+ */
+export type SummaryDisplayMessage = {
+	role: 'summary'
+	content: string
+}
+
+export type DisplayMessage =
+	| UserDisplayMessage
+	| ToolDisplayMessage
+	| AssistantDisplayMessage
+	| SummaryDisplayMessage
 
 // A tool message whose askUserQuestion is still awaiting an answer: the AI loop
 // is paused on the user. Drives the question card's interactivity, the
