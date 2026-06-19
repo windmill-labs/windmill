@@ -32,6 +32,142 @@ use crate::sql_utils::remove_comments;
 use windmill_common::client::AuthedClient;
 use windmill_object_store::DEFAULT_STORAGE;
 
+// What a `// materialize` run records into `materialized_partition` once it
+// finishes. `asset_path` is the full `<name>/<table>` (the asset identity);
+// `partition` is "" for an unpartitioned (whole-table) materialization.
+struct MaterializeExec {
+    asset_kind: windmill_common::assets::AssetKind,
+    asset_path: String,
+    partition: String,
+}
+
+// If `query` declares `// materialize <ducklake>`, return what to record plus,
+// for wrap mode, the rewritten managed-write SQL (in literal mode the script
+// writes its own DDL, so the rewrite is `None`). The rewritten SQL contains a
+// synthetic `ATTACH 'ducklake://<name>' AS _wm_target` that the normal
+// ATTACH-transform pass resolves to real credentials — the same path as the
+// user's own ATTACH. Returns `None` when there is no materialize annotation or
+// the target isn't a ducklake (only ducklake is materialized in v1).
+fn build_materialized_query(
+    query: &str,
+    partition_value: Option<&str>,
+) -> Result<Option<(Option<String>, MaterializeExec)>> {
+    use windmill_parser::asset_parser::{parse_pipeline_annotations, AssetKind as PAssetKind};
+    use windmill_parser::sql_materialize::{
+        build_wrap_blocks, classify_wrap, MaterializeStrategy, TARGET_ALIAS,
+    };
+
+    let ann = parse_pipeline_annotations(query);
+    let Some(m) = ann.materialize else {
+        return Ok(None);
+    };
+    if m.target_kind != PAssetKind::Ducklake {
+        return Ok(None);
+    }
+    let partitioned = ann.partition.is_some();
+    let partition = partition_value.unwrap_or("").to_string();
+    // Partition *resolution* is enterprise; in its absence a partitioned
+    // materialize only runs with an explicit `partition` arg. Fail loudly rather
+    // than silently materialize the wrong (empty) slice.
+    if partitioned && partition.is_empty() {
+        return Err(Error::ExecutionErr(
+            "materialize: a `// partitioned` script ran with no resolved partition — pass an \
+             explicit `partition` arg, or enable enterprise partition resolution"
+                .to_string(),
+        ));
+    }
+    // Convention: `ducklake://<name>/<table>` — <name> is the configured
+    // ducklake (resolved like a user ATTACH), <table> is the rest.
+    let (ducklake_name, table) = m
+        .target_path
+        .split_once('/')
+        .unwrap_or((m.target_path.as_str(), ""));
+    let meta = MaterializeExec {
+        asset_kind: windmill_common::assets::AssetKind::Ducklake,
+        asset_path: m.target_path.clone(),
+        partition: partition.clone(),
+    };
+
+    if !m.wrap {
+        // Literal mode: the script owns its DDL; we only record state.
+        return Ok(Some((None, meta)));
+    }
+    if table.is_empty() {
+        return Err(Error::ExecutionErr(format!(
+            "materialize wrap: target `ducklake://{}` has no table (use ducklake://<name>/<table>)",
+            m.target_path
+        )));
+    }
+    let plan = classify_wrap(query).map_err(|e| Error::ExecutionErr(e.message()))?;
+    let strategy = if ann.append {
+        MaterializeStrategy::Append
+    } else if let Some(uk) = ann.unique_key {
+        MaterializeStrategy::Merge { unique_key: uk }
+    } else {
+        MaterializeStrategy::Replace
+    };
+    // Inline the partition as an escaped SQL literal (DuckLake has no bind for
+    // the partition column in our generated DDL).
+    let pval = format!("'{}'", partition.replace('\'', "''"));
+    let synthetic_attach = format!("ATTACH 'ducklake://{ducklake_name}' AS {TARGET_ALIAS};");
+    let blocks = build_wrap_blocks(
+        &plan,
+        &synthetic_attach,
+        table,
+        "_wm_partition",
+        &pval,
+        partitioned,
+        strategy,
+    );
+    Ok(Some((Some(blocks.join("\n")), meta)))
+}
+
+// Pull the DuckLake snapshot id out of the trailing `ducklake_snapshots(...)`
+// read — which in wrap mode is the job result. Shape-tolerant (object / array /
+// nested), returns None if absent (literal mode, or capture failed).
+fn extract_snapshot_id(result: &RawValue) -> Option<i64> {
+    fn find(v: &Value) -> Option<i64> {
+        match v {
+            Value::Number(n) => n.as_i64(),
+            Value::Object(m) => m.get("snapshot_id").and_then(find),
+            Value::Array(a) => a.iter().find_map(find),
+            _ => None,
+        }
+    }
+    find(&serde_json::from_str::<Value>(result.get()).ok()?)
+}
+
+// Best-effort record of a materialization outcome (Sql connections only; agent
+// workers skip). Never fails the job — a lost row degrades the grid, not the run.
+async fn record_mat(
+    conn: &Connection,
+    w_id: &str,
+    job_id: Uuid,
+    meta: &MaterializeExec,
+    status: windmill_common::materialization::MaterializationStatus,
+    snapshot_id: Option<i64>,
+    error: Option<&str>,
+) {
+    if let Connection::Sql(db) = conn {
+        if let Err(e) = windmill_common::materialization::record_materialization(
+            db,
+            w_id,
+            meta.asset_kind,
+            &meta.asset_path,
+            &meta.partition,
+            status,
+            snapshot_id,
+            None,
+            Some(job_id),
+            error,
+        )
+        .await
+        {
+            tracing::warn!("failed to record materialization state: {e:#}");
+        }
+    }
+}
+
 pub async fn do_duckdb(
     job: &MiniPulledJob,
     client: &AuthedClient,
@@ -67,6 +203,30 @@ pub async fn do_duckdb(
     let result_f = async {
         let mut hidden_passwords = hidden_passwords.clone();
         let mut bigquery_credentials = None;
+
+        // Materialization (`// materialize`): rewrite a wrap script into managed
+        // DDL (its synthetic target ATTACH is resolved by the transform pass
+        // below, like the user's own ATTACH); a literal script is left as-is.
+        // `materialize` also carries what to record once the run finishes.
+        let partition_value: Option<String> = job
+            .args
+            .as_ref()
+            .and_then(|a| a.0.get(windmill_common::partition::PARTITION_ARG))
+            .and_then(|rv| serde_json::from_str::<String>(rv.get()).ok())
+            .filter(|s| !s.is_empty());
+        let materialize = if query.contains("materialize") {
+            build_materialized_query(query, partition_value.as_deref())?
+        } else {
+            None
+        };
+        let materialized_query;
+        let query: &str = match &materialize {
+            Some((Some(rewritten), _)) => {
+                materialized_query = rewritten.clone();
+                &materialized_query
+            }
+            _ => query,
+        };
 
         let sig = parse_duckdb_sig(query)?.args;
         let mut job_args = build_args_values(job, client, conn).await?;
@@ -199,6 +359,18 @@ pub async fn do_duckdb(
         let (result, column_order) = match result {
             Ok(r) => r,
             Err(e) => {
+                if let Some((_, meta)) = &materialize {
+                    record_mat(
+                        conn,
+                        &job.workspace_id,
+                        job.id,
+                        meta,
+                        windmill_common::materialization::MaterializationStatus::Failed,
+                        None,
+                        Some(&e.to_string()),
+                    )
+                    .await;
+                }
                 if let Some(s3_proxy_err) = S3_PROXY_LAST_ERRORS_CACHE.get(&client.token) {
                     return Err(Error::ExecutionErr(format!(
                         "{}\n\nS3 Related Error: {}",
@@ -209,6 +381,22 @@ pub async fn do_duckdb(
                 return Err(e);
             }
         };
+
+        if let Some((_, meta)) = &materialize {
+            // In wrap mode the job result is the snapshot-capture read; in
+            // literal mode there is none, so snapshot_id stays None.
+            let snapshot_id = extract_snapshot_id(&result);
+            record_mat(
+                conn,
+                &job.workspace_id,
+                job.id,
+                meta,
+                windmill_common::materialization::MaterializationStatus::Materialized,
+                snapshot_id,
+                None,
+            )
+            .await;
+        }
 
         drop(bigquery_credentials);
 
