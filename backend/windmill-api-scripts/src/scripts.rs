@@ -1609,10 +1609,9 @@ async fn create_script_internal<'c>(
         );
     }
 
-    // Clear + reinsert this script's producer rows, invalidating the
-    // producer-writes cache once iff the write-producer set changed (see
-    // replace_static_asset_usage). script_path == ns.path here; on a rename the
-    // old path's rows are already cleared via the by-hash clear on the parent.
+    // Clear + reinsert this script's producer rows at script_path (== ns.path),
+    // invalidating the producer-writes cache once iff the write-producer set
+    // changed (see replace_static_asset_usage).
     replace_static_asset_usage(
         &mut tx,
         &w_id,
