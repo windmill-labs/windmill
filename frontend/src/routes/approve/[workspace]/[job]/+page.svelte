@@ -151,9 +151,12 @@
 	// Hide the empty detail scaffolding and show only the sign-in / not-authorized state.
 	let isLocked = $derived(!!approvalInfo?.user_auth_required && !approvalInfo?.can_approve)
 	// Carry the share-read-link token so a workspace-member approver can open the run
-	// details of a flow they don't otherwise have read access to.
+	// details of a flow they don't otherwise have read access to. Build from the route
+	// params (not `job`): `getJob` is fire-and-forget and gets denied for exactly the
+	// approver this link serves, leaving `job` undefined — and `page.params.job` is the
+	// flow id the token is minted for anyway.
 	let runDetailsHref = $derived.by(() => {
-		let url = `${base}/run/${job?.id}?workspace=${job?.workspace_id}`
+		let url = `${base}/run/${page.params.job}?workspace=${page.params.workspace}`
 		if (approvalInfo?.view_token) {
 			url += `&view_token=${encodeURIComponent(approvalInfo.view_token)}`
 		}
