@@ -290,27 +290,11 @@ impl Listener for PostgresTrigger {
                     }
                 };
 
-            // Connected: clear the error/ping status, and if we had been retrying,
-            // report that the trigger recovered.
-            if let None = self
-                .update_ping_and_loop_ping_status(db, listening_trigger, err_message.clone(), None)
-                .await
-            {
-                return;
-            }
-            if tries > 0 {
-                if listening_trigger.trigger_mode {
-                    report_recovered_critical_error(
-                        format!("Postgres trigger {} reconnected", &listening_trigger.path),
-                        db.clone(),
-                        Some(&listening_trigger.workspace_id),
-                        Some(&format!("postgres_trigger:{}", &listening_trigger.path)),
-                    )
-                    .await;
-                }
-                tries = 0;
-            }
-
+            // The retry counter is reset (and recovery reported, ping cleared) only
+            // once the stream actually delivers a message in the inner loop. A
+            // connection that drops before making any progress therefore keeps
+            // counting toward the reconnection alert instead of ping-ponging
+            // silently.
             pin_mut!(logical_replication_stream);
             let mut relations = RelationConverter::new();
             tracing::info!(
@@ -349,18 +333,14 @@ impl Listener for PostgresTrigger {
                 let message = match message {
                     Some(message) => message,
                     None => {
-                        tracing::error!(
-                            "Stream for postgres trigger {} closed, reconnecting in {} seconds",
-                            &listening_trigger.path,
-                            RECONNECT_DELAY_SECS
-                        );
                         if let None = self
                             .update_ping_and_loop_ping_status(
                                 db,
                                 listening_trigger,
                                 err_message.clone(),
                                 Some(format!(
-                                    "Stream closed, reconnecting in {} seconds",
+                                    "Stream closed (attempt {}), reconnecting in {} seconds",
+                                    tries + 1,
                                     RECONNECT_DELAY_SECS
                                 )),
                             )
@@ -368,6 +348,27 @@ impl Listener for PostgresTrigger {
                         {
                             return;
                         }
+                        tracing::error!(
+                            "Stream for postgres trigger {} closed (attempt {}), reconnecting in {} seconds",
+                            &listening_trigger.path,
+                            tries + 1,
+                            RECONNECT_DELAY_SECS
+                        );
+                        if tries % 10 == 0 && listening_trigger.trigger_mode {
+                            report_critical_error(
+                                format!(
+                                    "Postgres trigger {} stream closed (attempt {}), reconnecting in {} seconds. This alert will repeat every 10 failed attempts.",
+                                    &listening_trigger.path,
+                                    tries + 1,
+                                    RECONNECT_DELAY_SECS
+                                ),
+                                db.clone(),
+                                Some(&listening_trigger.workspace_id),
+                                Some(&format!("postgres_trigger:{}", &listening_trigger.path)),
+                            )
+                            .await;
+                        }
+                        tries += 1;
                         tokio::time::sleep(Duration::from_secs(RECONNECT_DELAY_SECS)).await;
                         break 'stream;
                     }
@@ -376,30 +377,78 @@ impl Listener for PostgresTrigger {
                 let message = match message {
                     Ok(message) => message,
                     Err(err) => {
-                        tracing::error!(
-                        "Postgres trigger {} had an error while receiving a message, reconnecting in {} seconds: {}",
-                        &listening_trigger.path,
-                        RECONNECT_DELAY_SECS,
-                        err.to_string()
-                    );
                         if let None = self
                             .update_ping_and_loop_ping_status(
                                 db,
                                 listening_trigger,
                                 err_message.clone(),
                                 Some(format!(
-                                    "Error receiving message, reconnecting in {} seconds: {}",
-                                    RECONNECT_DELAY_SECS, err
+                                    "Error receiving message (attempt {}), reconnecting in {} seconds: {}",
+                                    tries + 1,
+                                    RECONNECT_DELAY_SECS,
+                                    err
                                 )),
                             )
                             .await
                         {
                             return;
                         }
+                        tracing::error!(
+                            "Postgres trigger {} had an error while receiving a message (attempt {}), reconnecting in {} seconds: {}",
+                            &listening_trigger.path,
+                            tries + 1,
+                            RECONNECT_DELAY_SECS,
+                            err.to_string()
+                        );
+                        if tries % 10 == 0 && listening_trigger.trigger_mode {
+                            report_critical_error(
+                                format!(
+                                    "Postgres trigger {} error while receiving a message (attempt {}), reconnecting in {} seconds. This alert will repeat every 10 failed attempts. Error: {}",
+                                    &listening_trigger.path,
+                                    tries + 1,
+                                    RECONNECT_DELAY_SECS,
+                                    err
+                                ),
+                                db.clone(),
+                                Some(&listening_trigger.workspace_id),
+                                Some(&format!("postgres_trigger:{}", &listening_trigger.path)),
+                            )
+                            .await;
+                        }
+                        tries += 1;
                         tokio::time::sleep(Duration::from_secs(RECONNECT_DELAY_SECS)).await;
                         break 'stream;
                     }
                 };
+
+                // First successful read after a (re)connection means the stream is
+                // making progress: clear the error status, report recovery, and
+                // reset the retry counter. Deferred to here (rather than on connect)
+                // so a stream that drops before delivering anything keeps counting
+                // toward the reconnection alert.
+                if tries > 0 {
+                    if let None = self
+                        .update_ping_and_loop_ping_status(
+                            db,
+                            listening_trigger,
+                            err_message.clone(),
+                            None,
+                        )
+                        .await
+                    {
+                        return;
+                    }
+                    if listening_trigger.trigger_mode {
+                        report_recovered_critical_error(
+                            format!("Postgres trigger {} reconnected", &listening_trigger.path),
+                            db.clone(),
+                            Some(&listening_trigger.workspace_id),
+                            Some(&format!("postgres_trigger:{}", &listening_trigger.path)),
+                        )
+                        .await;
+                    }
+                    tries = 0;
+                }
 
                 let logical_message = match ReplicationMessage::parse(message) {
                     Ok(logical_message) => logical_message,
