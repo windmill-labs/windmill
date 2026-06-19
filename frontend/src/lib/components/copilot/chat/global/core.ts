@@ -2430,13 +2430,13 @@ function draftWriteFailure(result: DraftPersistResult, ctx: WriteDraftCtx): stri
 function finishAppDraftWrite(
 	result: DraftPersistResult,
 	ctx: WriteDraftCtx,
-	onSaved: (item: WorkspaceItem) => { content: string; message: string }
+	onSaved: () => { content: string; message: string }
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
-	const { content, message } = onSaved(result.item)
+	const { content, message } = onSaved()
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content, result: 'Saved as draft' })
-	return JSON.stringify({ success: true, message, item: result.item }, null, 2)
+	return JSON.stringify({ success: true, message }, null, 2)
 }
 
 function finishDraftWrite(

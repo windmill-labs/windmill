@@ -282,6 +282,12 @@ pub async fn migrate(
         20260207000002,
         20260207000003,
         20260207000004,
+        // Squashed pre-release pipeline migrations: the per-column ALTERs on
+        // script_trigger and the dispatch_event subscriber index were folded
+        // back into these two CREATEs, changing their checksum. Both are
+        // idempotent, so re-applying on an already-migrated DB is a no-op.
+        20260423050000,
+        20260523055641,
     ];
     for m in migrator.migrations.iter() {
         if m.migration_type.is_down_migration() {

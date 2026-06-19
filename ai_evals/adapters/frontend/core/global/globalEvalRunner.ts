@@ -55,6 +55,7 @@ export interface GlobalEvalResult {
   toolsUsed: string[];
   toolCallDetails: ToolCallDetail[];
   tokenUsage: TokenUsage;
+  finalContextTokens: number | null;
 }
 
 export interface GlobalEvalOptions {
@@ -121,6 +122,7 @@ export async function runGlobalEval(
       toolsUsed: rawResult.toolsCalled,
       toolCallDetails: rawResult.toolCallDetails,
       tokenUsage: rawResult.tokenUsage,
+      finalContextTokens: rawResult.finalContextTokens,
     };
   } finally {
     clearGlobalDrafts(workspaceRoot);
