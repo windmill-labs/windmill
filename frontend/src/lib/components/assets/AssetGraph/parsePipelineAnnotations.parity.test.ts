@@ -18,9 +18,7 @@ const ASSERTED_TS_FIELDS: Record<keyof PipelineAnnotations, true> = {
 	freshness: true,
 	tag: true,
 	retry: true,
-	materialize: true,
-	uniqueKey: true,
-	append: true
+	materialize: true
 }
 
 // Parser-parity guard: this TS parser (drives the live graph preview) and
@@ -61,9 +59,13 @@ type Fixture = {
 		freshness: string | null
 		tag: string | null
 		retry: { count: number; delay: string | null } | null
-		materialize?: { target_kind: string; target_path: string; wrap?: boolean } | null
-		unique_key?: string | null
-		append?: boolean
+		materialize?: {
+			target_kind: string
+			target_path: string
+			manual?: boolean
+			append?: boolean
+			unique_key?: string | null
+		} | null
 	}
 }
 
@@ -142,10 +144,16 @@ describe('parsePipelineAnnotations matches the shared Rust fixture corpus', () =
 				expect(got.materialize?.targetPath, 'materialize target path').toBe(
 					f.expected.materialize.target_path
 				)
-				expect(got.materialize?.wrap, 'materialize wrap').toBe(f.expected.materialize.wrap ?? false)
+				expect(got.materialize?.manual ?? false, 'materialize manual').toBe(
+					f.expected.materialize.manual ?? false
+				)
+				expect(got.materialize?.append ?? false, 'materialize append').toBe(
+					f.expected.materialize.append ?? false
+				)
+				expect(got.materialize?.uniqueKey, 'materialize key').toEqual(
+					f.expected.materialize.unique_key ?? undefined
+				)
 			}
-			expect(got.uniqueKey, 'unique_key').toEqual(f.expected.unique_key ?? undefined)
-			expect(got.append ?? false, 'append').toBe(f.expected.append ?? false)
 		})
 	}
 })

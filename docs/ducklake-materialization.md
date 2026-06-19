@@ -37,18 +37,35 @@ wrapper + snapshot capture — not a dbt rebuild. This is exactly the
 argued for; DuckLake is what makes the remaining 20% (versioning, reproducible
 reads, materialization history) nearly free instead of a second project.
 
-## Annotation grammar (reconciled, unchanged from Path C)
+## Annotation grammar (final)
 
-No new top-level concept. Partition-first decomposition:
+One self-documenting line; managed-by-default. Strategy options live *on* the
+`materialize` line (they have no meaning without it), while `// partitioned`
+stays separate because it is cross-cutting (cascade + scheduling + materialize).
 
-- `// partitioned <kind>` — unit of work + state + backfill (already parsed,
-  `asset_parser.rs:172`).
-- `// unique_key <col>` — opt-in dedup *within* a partition → selects the MERGE
-  template over DELETE+INSERT.
-- `// append` — opt out of dedup entirely (INSERT-only).
-- `// materialize wrap` — **opt-in** convenience (Path C step 6): the script is
-  a single `SELECT`, Windmill generates the surrounding DDL. DuckDB-only first.
-  Default stays literal/WYSIWYG.
+```
+// materialize ducklake://analytics/orders_daily              → managed, replace (default)
+// materialize ducklake://analytics/orders_daily key=order_id → managed, merge
+// materialize ducklake://analytics/orders_daily append       → managed, append
+// materialize manual ducklake://analytics/orders_daily       → track-only escape hatch
+```
+
+- **managed (default)** — the script is *setup + one trailing `SELECT`*; Windmill
+  generates the write DDL, captures the DuckLake snapshot, and records state.
+  DuckDB-only; validated at deploy (a non-SELECT script is rejected with a clear
+  error pointing to the `wmll.ducklake` helpers).
+- **`manual`** — escape hatch: the script writes its own DDL; Windmill only
+  records state (no snapshot capture, no idempotency guarantee). Rare; explicit.
+- **`key=<col>`** → MERGE (dedup within slice); **`append`** → INSERT-only;
+  neither → DELETE-by-partition + INSERT (replace). `append` wins over `key` if
+  both are given (deploy warning).
+- **`// partitioned <kind>`** — unit of work + state + backfill (separate;
+  cross-cutting). Polyglot / multi-statement writes use the `wmll.ducklake`
+  helpers instead of `// materialize`.
+
+There is no `wrap` keyword — `materialize` *is* "manage the write," so it was
+redundant; the only reason for it was to carve out the weak track-only mode,
+which is now the explicit `manual` opt-out.
 
 DuckLake snapshots are **orthogonal to all of the above** — they apply to every
 strategy automatically because every write is a DuckLake commit. The user never

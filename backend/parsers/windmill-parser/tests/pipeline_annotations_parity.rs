@@ -34,14 +34,10 @@ struct Expected {
     freshness: Option<String>,
     tag: Option<String>,
     retry: Option<ExpectedRetry>,
-    // Default-on-absent so the pre-existing fixtures (which omit these) keep
-    // deserializing; only fixtures exercising materialization set them.
+    // Default-on-absent so the pre-existing fixtures (which omit it) keep
+    // deserializing; only fixtures exercising materialization set it.
     #[serde(default)]
     materialize: Option<ExpectedMaterialize>,
-    #[serde(default)]
-    unique_key: Option<String>,
-    #[serde(default)]
-    append: bool,
 }
 
 #[derive(Deserialize)]
@@ -49,7 +45,11 @@ struct ExpectedMaterialize {
     target_kind: String,
     target_path: String,
     #[serde(default)]
-    wrap: bool,
+    manual: bool,
+    #[serde(default)]
+    append: bool,
+    #[serde(default)]
+    unique_key: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -179,7 +179,9 @@ fn pipeline_annotation_fixtures_match() {
                     "{ctx}: materialize kind"
                 );
                 assert_eq!(m.target_path, e.target_path, "{ctx}: materialize path");
-                assert_eq!(m.wrap, e.wrap, "{ctx}: materialize wrap");
+                assert_eq!(m.manual, e.manual, "{ctx}: materialize manual");
+                assert_eq!(m.append, e.append, "{ctx}: materialize append");
+                assert_eq!(m.unique_key, e.unique_key, "{ctx}: materialize key");
             }
             (got, want) => panic!(
                 "{ctx}: materialize mismatch — got {:?}, want present={}",
@@ -187,7 +189,5 @@ fn pipeline_annotation_fixtures_match() {
                 want.is_some()
             ),
         }
-        assert_eq!(got.unique_key, f.expected.unique_key, "{ctx}: unique_key");
-        assert_eq!(got.append, f.expected.append, "{ctx}: append");
     }
 }

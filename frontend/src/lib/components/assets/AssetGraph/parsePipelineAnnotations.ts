@@ -74,13 +74,19 @@ export type RetrySpec = {
 	delay?: string
 }
 
-// `// materialize [wrap] <asset>` — see backend MaterializeSpec. `wrap` means
-// the script body is a single SELECT and the runtime generates the write DDL;
-// without it the script writes its own DDL (literal mode).
+// `// materialize [manual] <asset> [append] [key=<col>]` — see backend
+// MaterializeSpec. Managed by default (the runtime generates the write DDL
+// around a single SELECT); `manual` opts out (the script writes its own DDL,
+// track-only). `append` / `key` are managed-mode strategy options.
 export type MaterializeSpec = {
 	targetKind: AssetKind
 	targetPath: string
-	wrap: boolean
+	// track-only escape hatch; absent === false (managed)
+	manual?: boolean
+	// INSERT-only strategy; absent === false
+	append?: boolean
+	// merge key; absent === replace (or append)
+	uniqueKey?: string
 }
 
 export type PipelineAnnotations = {
@@ -91,13 +97,8 @@ export type PipelineAnnotations = {
 	freshness?: FreshnessSpec
 	tag?: string
 	retry?: RetrySpec
-	// `// materialize [wrap] <asset>` — managed-materialization target.
+	// `// materialize [manual] <asset> [append] [key=<col>]` — target + strategy.
 	materialize?: MaterializeSpec
-	// `// unique_key <col>` — dedup within a partition (MERGE vs replace).
-	uniqueKey?: string
-	// `// append` — INSERT-only. Set only when present (mirrors the optional
-	// shape of the other fields; absent === false).
-	append?: boolean
 }
 
 // Tokenize a `key=value [key="quoted value"] ...` option string. Bare
@@ -156,20 +157,29 @@ function parseAssetSyntaxDefault(s: string): PipelineTriggerAsset | undefined {
 	return parseAssetSyntax(s)
 }
 
-// Parse a `// materialize [wrap] <asset>` right-hand side. Optional leading
-// `wrap` word selects wrap mode; the remainder is the target asset URI with
-// default-syntax shorthands enabled. Missing/empty target → undefined (dropped).
+// Parse a `// materialize [manual] <asset> [append] [key=<col>]` right-hand
+// side. Optional leading `manual` word opts out of managed mode; the next token
+// is the target asset URI (default-syntax shorthands enabled); the remainder
+// are strategy options (`append` flag, `key=<col>`). Missing/empty target →
+// undefined (dropped).
 function parseMaterializeSpec(s: string): MaterializeSpec | undefined {
-	let wrap = false
-	let refPart = s
-	const afterWrap = consumeKeyword(s, 'wrap')
-	if (afterWrap !== undefined) {
-		wrap = true
-		refPart = afterWrap.trimStart()
+	let manual = false
+	let rest = s
+	const afterManual = consumeKeyword(s, 'manual')
+	if (afterManual !== undefined) {
+		manual = true
+		rest = afterManual.trimStart()
 	}
-	const asset = parseAssetSyntaxDefault(refPart.trim())
+	rest = rest.trim()
+	const m = rest.match(/^(\S+)(?:\s+(.*))?$/)
+	if (!m) return undefined
+	const asset = parseAssetSyntaxDefault(m[1])
 	if (!asset || asset.path === '') return undefined
-	return { targetKind: asset.kind, targetPath: asset.path, wrap }
+	const optsStr = m[2] ?? ''
+	const append = optsStr.split(/\s+/).some((t) => t === 'append')
+	const key = parseKvOpts(optsStr).get('key')
+	const uniqueKey = key && key !== '' ? key : undefined
+	return { targetKind: asset.kind, targetPath: asset.path, manual, append, uniqueKey }
 }
 
 type ParsedTriggerSpec =
@@ -334,20 +344,6 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 				const spec = parseMaterializeSpec(afterMaterialize.trim())
 				if (spec) out.materialize = spec
 			}
-			continue
-		}
-
-		const afterUniqueKey = consumeKeyword(inner, 'unique_key')
-		if (afterUniqueKey !== undefined) {
-			const col = afterUniqueKey.trim()
-			if (col && !out.uniqueKey) out.uniqueKey = col
-			continue
-		}
-
-		const afterAppend = consumeKeyword(inner, 'append')
-		if (afterAppend !== undefined) {
-			// Strict bare keyword, mirroring `// pipeline`.
-			if (afterAppend.trim() === '') out.append = true
 			continue
 		}
 

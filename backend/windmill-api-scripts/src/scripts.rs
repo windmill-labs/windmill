@@ -1251,16 +1251,19 @@ async fn create_script_internal<'c>(
             windmill_common::pipeline_advanced::freshness_enforcement_todo()
         );
     }
-    // `// materialize wrap` generates the write DDL around a single trailing
-    // SELECT — only DuckDB can be wrapped, and the script must be wrap-eligible
-    // (setup statements then one SELECT). Validate at deploy with the shared
-    // classifier so the failure is a clear save-time error, not a run-time one.
+    // Managed `// materialize` (the default — anything but `manual`) generates
+    // the write DDL around a single trailing SELECT: only DuckDB can be managed,
+    // and the script must be a valid setup-then-SELECT. Validate at deploy with
+    // the shared classifier so the failure is a clear save-time error, not a
+    // run-time one. `manual` scripts own their DDL, so they skip both checks.
     if let Some(m) = pipeline_annotations.materialize.as_ref() {
-        if m.wrap {
+        if !m.manual {
             if ns.language != ScriptLang::DuckDb {
                 return Err(Error::BadRequest(format!(
-                    "`// materialize wrap` is only supported for DuckDB scripts, not {}. \
-                     Remove `wrap` to write the materialization DDL yourself.",
+                    "`// materialize` is only supported for DuckDB scripts, not {}. Use the \
+                     wmll.ducklake helpers from {}, or `// materialize manual` to write the DDL \
+                     yourself.",
+                    ns.language.as_str(),
                     ns.language.as_str()
                 )));
             }
@@ -1268,12 +1271,12 @@ async fn create_script_internal<'c>(
                 return Err(Error::BadRequest(e.message()));
             }
         }
-        // `unique_key` and `append` are mutually exclusive reconciliation modes;
-        // append (INSERT-only) wins. Surface the conflict rather than silently
-        // dropping the dedup the author may have intended.
-        if pipeline_annotations.unique_key.is_some() && pipeline_annotations.append {
+        // `key=` (merge) and `append` are mutually exclusive reconciliation
+        // strategies; append (INSERT-only) wins. Surface the conflict rather
+        // than silently dropping the dedup the author may have intended.
+        if m.unique_key.is_some() && m.append {
             tracing::warn!(
-                "script {}: both `// unique_key` and `// append` set; append wins (INSERT-only, no dedup)",
+                "script {}: both `key=` and `append` set on // materialize; append wins (INSERT-only, no dedup)",
                 ns.path
             );
         }

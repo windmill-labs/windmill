@@ -42,12 +42,12 @@ struct MaterializeExec {
 }
 
 // If `query` declares `// materialize <ducklake>`, return what to record plus,
-// for wrap mode, the rewritten managed-write SQL (in literal mode the script
-// writes its own DDL, so the rewrite is `None`). The rewritten SQL contains a
-// synthetic `ATTACH 'ducklake://<name>' AS _wm_target` that the normal
-// ATTACH-transform pass resolves to real credentials — the same path as the
-// user's own ATTACH. Returns `None` when there is no materialize annotation or
-// the target isn't a ducklake (only ducklake is materialized in v1).
+// for the default managed mode, the rewritten managed-write SQL (in `manual`
+// mode the script writes its own DDL, so the rewrite is `None`). The rewritten
+// SQL contains a synthetic `ATTACH 'ducklake://<name>' AS _wm_target` that the
+// normal ATTACH-transform pass resolves to real credentials — the same path as
+// the user's own ATTACH. Returns `None` when there is no materialize annotation
+// or the target isn't a ducklake (only ducklake is materialized in v1).
 fn build_materialized_query(
     query: &str,
     partition_value: Option<&str>,
@@ -88,20 +88,20 @@ fn build_materialized_query(
         partition: partition.clone(),
     };
 
-    if !m.wrap {
-        // Literal mode: the script owns its DDL; we only record state.
+    if m.manual {
+        // Escape hatch: the script owns its DDL; we only record state.
         return Ok(Some((None, meta)));
     }
     if table.is_empty() {
         return Err(Error::ExecutionErr(format!(
-            "materialize wrap: target `ducklake://{}` has no table (use ducklake://<name>/<table>)",
+            "materialize: target `ducklake://{}` has no table (use ducklake://<name>/<table>)",
             m.target_path
         )));
     }
     let plan = classify_wrap(query).map_err(|e| Error::ExecutionErr(e.message()))?;
-    let strategy = if ann.append {
+    let strategy = if m.append {
         MaterializeStrategy::Append
-    } else if let Some(uk) = ann.unique_key {
+    } else if let Some(uk) = m.unique_key {
         MaterializeStrategy::Merge { unique_key: uk }
     } else {
         MaterializeStrategy::Replace

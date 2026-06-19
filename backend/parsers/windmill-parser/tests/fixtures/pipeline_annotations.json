@@ -236,8 +236,8 @@
 		}
 	},
 	{
-		"name": "materialize wrap with unique_key",
-		"code": "// pipeline\n// materialize wrap ducklake://analytics/orders_daily\n// unique_key order_id\nSELECT 1;",
+		"name": "materialize managed (default) with merge key",
+		"code": "// pipeline\n// materialize ducklake://analytics/orders_daily key=order_id\nSELECT 1;",
 		"expected": {
 			"in_pipeline": true,
 			"asset_triggers": [],
@@ -249,14 +249,13 @@
 			"materialize": {
 				"target_kind": "ducklake",
 				"target_path": "analytics/orders_daily",
-				"wrap": true
-			},
-			"unique_key": "order_id"
+				"unique_key": "order_id"
+			}
 		}
 	},
 	{
-		"name": "materialize without wrap is literal mode, first value wins",
-		"code": "// materialize ducklake://analytics/orders_daily\n// materialize wrap ducklake://other/x\nexport function main() {}",
+		"name": "materialize manual escape hatch, first value wins",
+		"code": "// materialize manual ducklake://analytics/orders_daily\n// materialize ducklake://other/x\nexport function main() {}",
 		"expected": {
 			"in_pipeline": false,
 			"asset_triggers": [],
@@ -268,13 +267,13 @@
 			"materialize": {
 				"target_kind": "ducklake",
 				"target_path": "analytics/orders_daily",
-				"wrap": false
+				"manual": true
 			}
 		}
 	},
 	{
-		"name": "materialize default-syntax shorthand and bare append",
-		"code": "// materialize ducklake\n// append\nexport function main() {}",
+		"name": "materialize default-syntax shorthand with append",
+		"code": "// materialize ducklake append\nexport function main() {}",
 		"expected": {
 			"in_pipeline": false,
 			"asset_triggers": [],
@@ -286,14 +285,13 @@
 			"materialize": {
 				"target_kind": "ducklake",
 				"target_path": "main",
-				"wrap": false
-			},
-			"append": true
+				"append": true
+			}
 		}
 	},
 	{
-		"name": "materialize wrap with no target is dropped, append with trailing text ignored",
-		"code": "// materialize wrap\n// append now\nexport function main() {}",
+		"name": "materialize manual with no target is dropped",
+		"code": "// materialize manual\nexport function main() {}",
 		"expected": {
 			"in_pipeline": false,
 			"asset_triggers": [],
