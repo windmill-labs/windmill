@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.733.1](https://github.com/windmill-labs/windmill/compare/v1.733.0...v1.733.1) (2026-06-19)
+
+
+### Bug Fixes
+
+* **backend:** validate ansible vault_id entries before config generation ([#9681](https://github.com/windmill-labs/windmill/issues/9681)) ([c1f31c0](https://github.com/windmill-labs/windmill/commit/c1f31c0e4777bf0cfed0dd7f03249e9a61cd8cb9))
+* **frontend:** group live pipeline runs in the activity panel ([#9684](https://github.com/windmill-labs/windmill/issues/9684)) ([1be4df9](https://github.com/windmill-labs/windmill/commit/1be4df9acb935250d4cc12e83cf67e366d870d5a))
+* require super admin for object storage config test endpoint ([#9683](https://github.com/windmill-labs/windmill/issues/9683)) ([fb44fe7](https://github.com/windmill-labs/windmill/commit/fb44fe7af2b8ebe8ef64ffb0e5acce8580bf4200))
+* validate websocket trigger urls and gate trigger test route ([#9682](https://github.com/windmill-labs/windmill/issues/9682)) ([c39ee07](https://github.com/windmill-labs/windmill/commit/c39ee07c0bcd2249dd19ffa5cd988125eefc6c9f))
+
 ## [1.733.0](https://github.com/windmill-labs/windmill/compare/v1.732.0...v1.733.0) (2026-06-19)
 
 
