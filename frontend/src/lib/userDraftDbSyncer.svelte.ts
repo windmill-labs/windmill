@@ -31,8 +31,14 @@ function draftKey(workspace: string, itemKind: UserDraftItemKind, path: string):
  * on load) and `assets` is re-derived from the script content by the editor —
  * neither is draft content, so saving them bloats the row and resurfaces as
  * fork/workspace diff noise. The editing object carries them because
- * `getScriptByPath` returns the full DB row (since #9351). Kept in sync with the
- * diff-view strip in `CLEANED_VALUE_KEYS` (frontend/src/lib/utils.ts).
+ * `getScriptByPath` returns the full DB row (since #9351).
+ *
+ * `CLEANED_VALUE_KEYS` (frontend/src/lib/utils.ts) strips a SUPERSET of these
+ * from the diff view (it also drops `inherited_labels` and other bookkeeping
+ * keys). The two lists are deliberately NOT the same: the diff hides every
+ * non-content key, while this sanitizer only trims the two that meaningfully
+ * bloat the persisted draft. Just keep the hash/assets entries here in step
+ * with that set; the rest may diverge.
  */
 const SCRIPT_DRAFT_OMITTED_FIELDS = ['hash', 'assets'] as const
 
