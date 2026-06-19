@@ -45,8 +45,8 @@ use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 use windmill_common::{
     assets::{
         clear_script_triggers, clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
-        insert_script_trigger, insert_static_asset_usage, parse_duration_secs,
-        parse_pipeline_annotations, trigger_spec_to_row, AssetUsageKind, TriggerSpec,
+        insert_script_trigger, parse_duration_secs, parse_pipeline_annotations,
+        replace_static_asset_usage, trigger_spec_to_row, AssetUsageKind, TriggerSpec,
     },
     error::{self, to_anyhow},
     min_version::{MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2},
@@ -1609,11 +1609,17 @@ async fn create_script_internal<'c>(
         );
     }
 
-    clear_static_asset_usage(&mut *tx, &w_id, &script_path, AssetUsageKind::Script).await?;
-    for asset in effective_assets.as_ref().into_iter().flatten() {
-        insert_static_asset_usage(&mut *tx, &w_id, &asset, &ns.path, AssetUsageKind::Script)
-            .await?;
-    }
+    // Clear + reinsert this script's producer rows, invalidating the
+    // producer-writes cache once iff the write-producer set changed (see
+    // replace_static_asset_usage). script_path == ns.path here; on a rename the
+    // old path's rows are already cleared via the by-hash clear on the parent.
+    replace_static_asset_usage(
+        &mut tx,
+        &w_id,
+        &script_path,
+        effective_assets.as_deref().unwrap_or(&[]),
+    )
+    .await?;
 
     // Pipeline trigger edges: wipe-and-reinsert per deploy so removing an
     // `// on ...` annotation drops the edge. Only Asset / Schedule produce

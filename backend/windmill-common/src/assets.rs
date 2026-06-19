@@ -1,4 +1,6 @@
-use sqlx::PgExecutor;
+use std::collections::HashSet;
+
+use sqlx::{PgExecutor, Postgres, Transaction};
 
 use crate::{error, scripts::ScriptHash};
 
@@ -119,6 +121,87 @@ pub async fn clear_static_asset_usage_by_script_hash<'e>(
     )
     .execute(executor)
     .await?;
+    Ok(())
+}
+
+fn is_write_access(access: Option<AssetUsageAccessType>) -> bool {
+    matches!(
+        access,
+        Some(AssetUsageAccessType::W) | Some(AssetUsageAccessType::RW)
+    )
+}
+
+/// Clear and reinsert the full static-asset usage set of a script in one tx,
+/// invalidating the producer-writes cache at most once and only on a real
+/// change. The cache (asset_dispatch::ASSET_PRODUCER_WRITES_CACHE) keys a
+/// workspace by the set of (kind, path) script rows with 'w'/'rw' access, so a
+/// redeploy that keeps the same write producers must leave it untouched. We
+/// diff the old write set (captured from the clearing DELETE's RETURNING)
+/// against the new one and emit a single notify only when they differ —
+/// emitting per statement, as clear/insert_static_asset_usage do, would fire
+/// twice on every write-asset redeploy (the clear removes the row, the reinsert
+/// adds it back). The notify rides the deploy tx, so it stays atomic with the
+/// DML and visible to pollers only on commit.
+///
+/// DELETE and INSERT of the same primary key cannot share a single statement
+/// (both would read the pre-statement snapshot, so the reinsert's ON CONFLICT
+/// would silently drop the row), which is why this clears and reinserts as
+/// separate statements rather than one CTE.
+pub async fn replace_static_asset_usage(
+    tx: &mut Transaction<'_, Postgres>,
+    workspace_id: &str,
+    usage_path: &str,
+    assets: &[AssetWithAltAccessType],
+) -> error::Result<()> {
+    let cleared = sqlx::query!(
+        r#"DELETE FROM asset
+           WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = 'script'
+           RETURNING kind AS "kind!: AssetKind", path,
+                     usage_access_type AS "usage_access_type: AssetUsageAccessType""#,
+        workspace_id,
+        usage_path,
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    let old_writes: HashSet<(AssetKind, String)> = cleared
+        .into_iter()
+        .filter(|r| is_write_access(r.usage_access_type))
+        .map(|r| (r.kind, r.path))
+        .collect();
+
+    let mut new_writes: HashSet<(AssetKind, String)> = HashSet::new();
+    for asset in assets {
+        let access = asset.access_type.or(asset.alt_access_type);
+        let columns_json = asset
+            .columns
+            .as_ref()
+            .map(|cols| serde_json::to_value(cols).unwrap_or(serde_json::Value::Null));
+        sqlx::query!(
+            r#"INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, columns)
+               VALUES ($1, $2, $3, $4, $5, 'script', $6) ON CONFLICT DO NOTHING"#,
+            workspace_id,
+            asset.path,
+            asset.kind as AssetKind,
+            access as Option<AssetUsageAccessType>,
+            usage_path,
+            columns_json as Option<serde_json::Value>,
+        )
+        .execute(&mut **tx)
+        .await?;
+        if is_write_access(access) {
+            new_writes.insert((asset.kind, asset.path.clone()));
+        }
+    }
+
+    if old_writes != new_writes {
+        sqlx::query!(
+            r#"INSERT INTO notify_event (channel, payload)
+               VALUES ('notify_asset_producer_change', $1)"#,
+            workspace_id,
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
     Ok(())
 }
 

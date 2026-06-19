@@ -10,11 +10,36 @@
 use sqlx::{Pool, Postgres};
 use windmill_common::assets::{
     clear_static_asset_usage, clear_static_asset_usage_by_script_hash, insert_static_asset_usage,
-    AssetKind, AssetUsageAccessType, AssetUsageKind, AssetWithAltAccessType,
+    replace_static_asset_usage, AssetKind, AssetUsageAccessType, AssetUsageKind,
+    AssetWithAltAccessType,
 };
 use windmill_common::scripts::ScriptHash;
 
 const WS: &str = "test-workspace";
+
+/// Run the deploy-time clear+reinsert against `usage_path` in its own tx,
+/// mirroring how create_script_internal calls it.
+async fn replace(db: &Pool<Postgres>, usage_path: &str, assets: &[AssetWithAltAccessType]) {
+    let mut tx = db.begin().await.expect("begin");
+    replace_static_asset_usage(&mut tx, WS, usage_path, assets)
+        .await
+        .expect("replace static asset usage");
+    tx.commit().await.expect("commit");
+}
+
+fn asset_at(
+    path: &str,
+    kind: AssetKind,
+    access: Option<AssetUsageAccessType>,
+) -> AssetWithAltAccessType {
+    AssetWithAltAccessType {
+        path: path.to_string(),
+        kind,
+        access_type: access,
+        alt_access_type: None,
+        columns: None,
+    }
+}
 
 async fn producer_notify_count(db: &Pool<Postgres>) -> i64 {
     sqlx::query_scalar::<_, i64>(
@@ -228,5 +253,140 @@ async fn clear_by_script_hash_gated_on_write(db: Pool<Postgres>) {
         producer_notify_count(&db).await,
         1,
         "by-hash clear of write usage must emit"
+    );
+}
+
+const SP: &str = "u/test-user/script";
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn replace_plain_deploy_does_not_emit(db: Pool<Postgres>) {
+    replace(&db, SP, &[]).await;
+    assert_eq!(
+        producer_notify_count(&db).await,
+        0,
+        "deploy with no assets must not emit"
+    );
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn replace_gaining_write_emits_once(db: Pool<Postgres>) {
+    replace(
+        &db,
+        SP,
+        &[asset_at(
+            "u/test-user/res",
+            AssetKind::Resource,
+            Some(AssetUsageAccessType::W),
+        )],
+    )
+    .await;
+    assert_eq!(
+        producer_notify_count(&db).await,
+        1,
+        "gaining a write producer must emit exactly once"
+    );
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn replace_unchanged_write_set_does_not_emit(db: Pool<Postgres>) {
+    let assets = [asset_at(
+        "u/test-user/res",
+        AssetKind::Resource,
+        Some(AssetUsageAccessType::W),
+    )];
+    replace(&db, SP, &assets).await;
+    reset_notify(&db).await; // isolate the redeploy
+
+    // Redeploy with the identical write-producer set: clear removes the row and
+    // the reinsert adds it back, but the cache value is unchanged → no emit.
+    replace(&db, SP, &assets).await;
+    assert_eq!(
+        producer_notify_count(&db).await,
+        0,
+        "redeploy keeping the same write producers must not emit"
+    );
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn replace_dropping_write_emits(db: Pool<Postgres>) {
+    let assets = [asset_at(
+        "u/test-user/res",
+        AssetKind::Resource,
+        Some(AssetUsageAccessType::RW),
+    )];
+    replace(&db, SP, &assets).await;
+    reset_notify(&db).await;
+
+    // Redeploy with no assets: the write producer disappears → emit.
+    replace(&db, SP, &[]).await;
+    assert_eq!(
+        producer_notify_count(&db).await,
+        1,
+        "dropping the last write producer must emit"
+    );
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn replace_readonly_to_write_emits(db: Pool<Postgres>) {
+    replace(
+        &db,
+        SP,
+        &[asset_at(
+            "u/test-user/res",
+            AssetKind::Resource,
+            Some(AssetUsageAccessType::R),
+        )],
+    )
+    .await;
+    reset_notify(&db).await;
+
+    // Same asset path, access flips read-only → write: cache gains a row → emit.
+    replace(
+        &db,
+        SP,
+        &[asset_at(
+            "u/test-user/res",
+            AssetKind::Resource,
+            Some(AssetUsageAccessType::W),
+        )],
+    )
+    .await;
+    assert_eq!(
+        producer_notify_count(&db).await,
+        1,
+        "read-only → write transition must emit"
+    );
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn replace_changing_only_readonly_does_not_emit(db: Pool<Postgres>) {
+    replace(
+        &db,
+        SP,
+        &[asset_at(
+            "u/test-user/res",
+            AssetKind::Resource,
+            Some(AssetUsageAccessType::R),
+        )],
+    )
+    .await;
+    reset_notify(&db).await;
+
+    // Swap one read-only producer for another: no write producer either side, so
+    // the write-set cache is untouched → no emit.
+    replace(
+        &db,
+        SP,
+        &[asset_at(
+            "u/test-user/other",
+            AssetKind::Resource,
+            Some(AssetUsageAccessType::R),
+        )],
+    )
+    .await;
+    assert_eq!(
+        producer_notify_count(&db).await,
+        0,
+        "changes confined to read-only producers must not emit"
     );
 }
