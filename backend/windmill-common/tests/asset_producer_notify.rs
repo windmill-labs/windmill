@@ -359,6 +359,88 @@ async fn replace_readonly_to_write_emits(db: Pool<Postgres>) {
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn replace_duplicate_entries_use_persisted_state(db: Pool<Postgres>) {
+    replace(
+        &db,
+        SP,
+        &[asset_at(
+            "u/test-user/res",
+            AssetKind::Resource,
+            Some(AssetUsageAccessType::W),
+        )],
+    )
+    .await;
+    reset_notify(&db).await;
+
+    // Redeploy with conflicting duplicates for the same (kind, path), read-only
+    // first: ON CONFLICT DO NOTHING persists the read-only row and drops the
+    // write one, so the write producer is really gone → must emit (the diff must
+    // follow the persisted state, not the requested slice).
+    replace(
+        &db,
+        SP,
+        &[
+            asset_at(
+                "u/test-user/res",
+                AssetKind::Resource,
+                Some(AssetUsageAccessType::R),
+            ),
+            asset_at(
+                "u/test-user/res",
+                AssetKind::Resource,
+                Some(AssetUsageAccessType::W),
+            ),
+        ],
+    )
+    .await;
+    assert_eq!(
+        producer_notify_count(&db).await,
+        1,
+        "duplicate entries losing the persisted write producer must emit"
+    );
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn replace_duplicate_entries_keeping_write_does_not_emit(db: Pool<Postgres>) {
+    replace(
+        &db,
+        SP,
+        &[asset_at(
+            "u/test-user/res",
+            AssetKind::Resource,
+            Some(AssetUsageAccessType::W),
+        )],
+    )
+    .await;
+    reset_notify(&db).await;
+
+    // Same duplicates but write first: the write row persists, so the write set
+    // is unchanged → no emit.
+    replace(
+        &db,
+        SP,
+        &[
+            asset_at(
+                "u/test-user/res",
+                AssetKind::Resource,
+                Some(AssetUsageAccessType::W),
+            ),
+            asset_at(
+                "u/test-user/res",
+                AssetKind::Resource,
+                Some(AssetUsageAccessType::R),
+            ),
+        ],
+    )
+    .await;
+    assert_eq!(
+        producer_notify_count(&db).await,
+        0,
+        "duplicate entries keeping the persisted write producer must not emit"
+    );
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn replace_changing_only_readonly_does_not_emit(db: Pool<Postgres>) {
     replace(
         &db,

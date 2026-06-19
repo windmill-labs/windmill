@@ -147,6 +147,10 @@ fn is_write_access(access: Option<AssetUsageAccessType>) -> bool {
 /// (both would read the pre-statement snapshot, so the reinsert's ON CONFLICT
 /// would silently drop the row), which is why this clears and reinserts as
 /// separate statements rather than one CTE.
+///
+/// Performs no authorization itself: `tx` must already be scoped to a caller
+/// authorized for `workspace_id`/`usage_path` (e.g. `user_db.begin(&authed)`,
+/// which applies RLS), exactly like the sibling clear/insert helpers.
 pub async fn replace_static_asset_usage(
     tx: &mut Transaction<'_, Postgres>,
     workspace_id: &str,
@@ -169,6 +173,12 @@ pub async fn replace_static_asset_usage(
         .map(|r| (r.kind, r.path))
         .collect();
 
+    // Build new_writes from rows actually inserted (RETURNING), not the
+    // requested slice: ON CONFLICT DO NOTHING is first-writer-wins, so a payload
+    // with duplicate (kind, path) entries at conflicting access types persists
+    // only the first. Since the DELETE above emptied this usage_path, every
+    // non-conflicting insert lands, so the inserted rows are exactly the new
+    // persisted set.
     let mut new_writes: HashSet<(AssetKind, String)> = HashSet::new();
     for asset in assets {
         let access = asset.access_type.or(asset.alt_access_type);
@@ -176,9 +186,10 @@ pub async fn replace_static_asset_usage(
             .columns
             .as_ref()
             .map(|cols| serde_json::to_value(cols).unwrap_or(serde_json::Value::Null));
-        sqlx::query!(
+        let inserted = sqlx::query!(
             r#"INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, columns)
-               VALUES ($1, $2, $3, $4, $5, 'script', $6) ON CONFLICT DO NOTHING"#,
+               VALUES ($1, $2, $3, $4, $5, 'script', $6) ON CONFLICT DO NOTHING
+               RETURNING usage_access_type AS "usage_access_type: AssetUsageAccessType""#,
             workspace_id,
             asset.path,
             asset.kind as AssetKind,
@@ -186,10 +197,12 @@ pub async fn replace_static_asset_usage(
             usage_path,
             columns_json as Option<serde_json::Value>,
         )
-        .execute(&mut **tx)
+        .fetch_optional(&mut **tx)
         .await?;
-        if is_write_access(access) {
-            new_writes.insert((asset.kind, asset.path.clone()));
+        if let Some(row) = inserted {
+            if is_write_access(row.usage_access_type) {
+                new_writes.insert((asset.kind, asset.path.clone()));
+            }
         }
     }
 
