@@ -42,6 +42,7 @@ quickjs = ["windmill-jseval/quickjs"]
 bedrock = ["windmill-ai/bedrock"]
 
 [dependencies]
+libc = "0.2"  # AGENT_PROF: thread CPU time (CLOCK_THREAD_CPUTIME_ID) to split gap into cpu vs parked
 windmill-ai = { workspace = true, default-features = false }
 windmill-queue.workspace = true
 windmill-dep-map.workspace = true

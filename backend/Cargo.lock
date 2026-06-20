@@ -14050,6 +14050,7 @@ dependencies = [
 name = "windmill-api-agent-workers"
 version = "1.719.0"
 dependencies = [
+ "arc-swap",
  "axum 0.8.9",
  "chrono",
  "http 1.4.1",
@@ -15645,6 +15646,7 @@ dependencies = [
  "itertools 0.14.0",
  "jsonwebtoken 8.3.0",
  "lazy_static",
+ "libc",
  "libffi-sys",
  "libloading",
  "mappable-rc",

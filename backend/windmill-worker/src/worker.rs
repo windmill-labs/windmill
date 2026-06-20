@@ -1841,6 +1841,7 @@ fn start_interactive_worker_shell(
                         }
                         _ => Duration::from_millis(sleep_queue() * 10),
                     };
+                    let _nap_start = Instant::now();
                     tokio::select! {
                         _ = tokio::time::sleep(nap_time) => {
                         }
@@ -1848,6 +1849,7 @@ fn start_interactive_worker_shell(
                             break;
                         }
                     }
+                    crate::agent_workers::record_nap(_nap_start.elapsed());
                 }
 
                 Err(err) => {
@@ -2734,10 +2736,14 @@ pub async fn run_worker(
                         }
                     }
 
-                    Connection::Http(client) => crate::agent_workers::pull_job(&client, None, None)
-                        .await
-                        .map_err(|e| error::Error::InternalErr(e.to_string()))
-                        .map(|x| x.map(|y| NextJob::Http(y))),
+                    Connection::Http(client) => {
+                        let _ag_pt = Instant::now();
+                        let _ag_r = crate::agent_workers::pull_job(&client, None, None).await;
+                        tracing::info!(target: "agent_timing", "[agent-timing] pull={}ms got_job={}", _ag_pt.elapsed().as_millis(), _ag_r.as_ref().map(|x| x.is_some()).unwrap_or(false));
+                        _ag_r
+                            .map_err(|e| error::Error::InternalErr(e.to_string()))
+                            .map(|x| x.map(|y| NextJob::Http(y)))
+                    }
                 }
             }
         };
@@ -2887,6 +2893,7 @@ pub async fn run_worker(
                 }
 
                 if matches!(job.kind, JobKind::Noop) {
+                    let _ag_noop = Instant::now();
                     add_time!(bench, "send job completed START");
                     job_completed_tx
                         .send_job(
@@ -2911,6 +2918,7 @@ pub async fn run_worker(
                         .await
                         .expect("send job completed END");
                     add_time!(bench, "sent job completed");
+                    tracing::info!(target: "agent_timing", "[agent-timing] noop send_result={}ms", _ag_noop.elapsed().as_millis());
                 } else {
                     if !was_suspended_job {
                         add_outstanding_wait_time(&conn, &job, *OUTSTANDING_WAIT_TIME_THRESHOLD_MS);
@@ -2972,6 +2980,7 @@ pub async fn run_worker(
                       // fields macro we can make a job id that only appears when
                       // the job is defined?
 
+                    let _ag_t0 = Instant::now();
                     let job_dir = create_job_dir(&worker_dir, job.id).await;
 
                     let same_worker = job.same_worker;
@@ -3053,6 +3062,7 @@ pub async fn run_worker(
                     let span = create_span_with_name(&arc_job, &worker_name, Some(hostname), "job");
                     let log_ctx = log_context_for_job(&arc_job, &worker_name, Some(hostname));
 
+                    let _ag_t2 = Instant::now();
                     let job_result = windmill_common::log_context::with_log_context(
                         log_ctx,
                         async {
@@ -3085,6 +3095,7 @@ pub async fn run_worker(
                         .instrument(span),
                     )
                     .await;
+                    tracing::info!(target: "agent_timing", "[agent-timing] total={}ms handle={}ms", _ag_t0.elapsed().as_millis(), _ag_t2.elapsed().as_millis());
 
                     match job_result {
                         Ok(ref outcome) if !outcome.is_success() && is_init_script => {

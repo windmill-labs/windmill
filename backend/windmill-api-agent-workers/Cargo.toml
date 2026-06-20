@@ -22,6 +22,7 @@ windmill-queue.workspace = true
 windmill-worker.workspace = true
 axum.workspace = true
 lazy_static.workspace = true
+arc-swap.workspace = true
 chrono.workspace = true
 http.workspace = true
 hyper.workspace = true
