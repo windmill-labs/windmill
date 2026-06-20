@@ -20,15 +20,22 @@
 		datatable: string
 		/** Called after a successful create; `ran` is true when it was also run. */
 		onCreated?: (ran: boolean) => void
-		onClose?: () => void
+		/** Called whenever the modal closes. `result` reports whether the close
+		 * was due to a create (and whether that create was also run) vs a cancel —
+		 * computed synchronously so callers don't depend on onCreated/onClose order. */
+		onClose?: (result: { created: boolean; ran: boolean }) => void
 	} = $props()
 
 	let isOpen = $state(false)
-	// Notify the parent whenever the modal closes (after a create or a cancel),
-	// so callers that sequence modals (e.g. the DDL guard) can advance.
+	// The reason the modal is about to close, set synchronously before `isOpen`
+	// flips so the onClose effect reports it reliably regardless of effect timing.
+	let closeResult = { created: false, ran: false }
 	let prevOpen = false
 	$effect(() => {
-		if (prevOpen && !isOpen) onClose?.()
+		if (prevOpen && !isOpen) {
+			onClose?.(closeResult)
+			closeResult = { created: false, ran: false }
+		}
 		prevOpen = isOpen
 	})
 	let tab = $state('up')
@@ -106,9 +113,10 @@
 					return
 				}
 			}
-			isOpen = false
-			sendUserToast(run ? 'Migration created and run' : 'Migration created')
+			closeResult = { created: true, ran: run }
 			onCreated?.(run)
+			sendUserToast(run ? 'Migration created and run' : 'Migration created')
+			isOpen = false
 		} catch (e: any) {
 			sendUserToast(`Failed to create migration: ${e?.body ?? e?.message ?? e}`, true)
 		} finally {
@@ -117,7 +125,16 @@
 	}
 </script>
 
-<Modal2 bind:isOpen title="New migration — {datatable}" fixedWidth="md" fixedHeight="adaptive">
+<!-- closeOnOutsideClick is off: the "Create and run" split-button menu renders in a
+	portal outside the modal, so an outside-click close would fire on its items and be
+	mistaken for a cancel. Close via the header X or Escape instead. -->
+<Modal2
+	bind:isOpen
+	title="New migration — {datatable}"
+	fixedWidth="md"
+	fixedHeight="adaptive"
+	closeOnOutsideClick={false}
+>
 	<div class="flex flex-col gap-3 w-full grow min-h-0">
 		<TextInput
 			bind:value={name}

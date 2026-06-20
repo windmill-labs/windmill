@@ -11,8 +11,7 @@
 	let promptStatement = $state<string | undefined>(undefined)
 	let promptOpen = $state(false)
 	let resolvePrompt: ((choice: Choice) => void) | undefined = undefined
-	let resolveMigrationClosed: (() => void) | undefined = undefined
-	let migrationCreated = false
+	let resolveMigrationClosed: ((created: boolean) => void) | undefined = undefined
 	// Set when a migration is created *and run* during a guard() call, so the
 	// caller can refresh the schema afterwards.
 	let migrationRan = false
@@ -41,23 +40,18 @@
 		})
 	}
 
-	function handleMigrationCreated(ran: boolean) {
-		migrationCreated = true
-		if (ran) migrationRan = true
-	}
-
-	function handleMigrationClosed() {
+	function handleMigrationClosed(result: { created: boolean; ran: boolean }) {
+		if (result.ran) migrationRan = true
 		const r = resolveMigrationClosed
 		resolveMigrationClosed = undefined
-		r?.()
+		r?.(result.created)
 	}
 
 	// Open the prefilled new-migration modal. Resolves with whether a migration
 	// was actually created (false if the user cancelled / closed it).
 	function openMigrationModal(statement: string): Promise<boolean> {
 		return new Promise((resolve) => {
-			migrationCreated = false
-			resolveMigrationClosed = () => resolve(migrationCreated)
+			resolveMigrationClosed = (created: boolean) => resolve(created)
 			newMigrationModal?.open({ codeUp: statement })
 		})
 	}
@@ -135,6 +129,5 @@
 	bind:this={newMigrationModal}
 	{workspace}
 	{datatable}
-	onCreated={handleMigrationCreated}
 	onClose={handleMigrationClosed}
 />
