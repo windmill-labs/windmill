@@ -27,8 +27,12 @@ export {
 export {
   datatable,
   ducklake,
+  upsertPartition,
+  appendPartition,
   type SqlTemplateFunction,
   type DatatableSqlTemplateFunction,
+  type DucklakeMaterializeOptions,
+  type SqlStatement,
 } from "./sqlUtils";
 
 // Services are NOT re-exported here to enable tree-shaking

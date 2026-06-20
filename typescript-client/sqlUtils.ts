@@ -407,8 +407,11 @@ export interface DucklakeMaterializeOptions {
  * partition — the client-side equivalent of the `// materialize` engine.
  * With `uniqueKey` it upserts the slice (delete-by-key + insert); otherwise it
  * replaces the partition (delete + insert).
- * Safe to re-run for the same partition (backfill / failure-recovery). */
-export function upsertPartition(opts: DucklakeMaterializeOptions) {
+ * Safe to re-run for the same partition (backfill / failure-recovery).
+ *
+ * Returns a lazy statement — call `.execute()` to run it:
+ * `await wmill.upsertPartition({ table, selectSql, partition }).execute()`. */
+export function upsertPartition(opts: DucklakeMaterializeOptions): SqlStatement<any> {
   let { name: n, schema } = parseName(opts.ducklake ?? "main");
   let sql = buildSqlTemplateFunction(ducklakeProvider(n, schema));
   let pcol = sql.raw(opts.partitionCol ?? "_wm_partition");
@@ -435,8 +438,13 @@ COMMIT;`;
 
 /** INSERT-only materialization (no dedup/replace) for append-only tables.
  * Re-running the same partition duplicates rows — use only for immutable
- * event-log sources. */
-export function appendPartition(opts: Omit<DucklakeMaterializeOptions, "uniqueKey">) {
+ * event-log sources.
+ *
+ * Returns a lazy statement — call `.execute()` to run it:
+ * `await wmill.appendPartition({ table, selectSql, partition }).execute()`. */
+export function appendPartition(
+  opts: Omit<DucklakeMaterializeOptions, "uniqueKey">,
+): SqlStatement<any> {
   let { name: n, schema } = parseName(opts.ducklake ?? "main");
   let sql = buildSqlTemplateFunction(ducklakeProvider(n, schema));
   let pcol = sql.raw(opts.partitionCol ?? "_wm_partition");

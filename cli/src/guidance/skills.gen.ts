@@ -1109,15 +1109,21 @@ ducklake(name: string = "main"): SqlTemplateFunction
  * With \`uniqueKey\` it upserts the slice (delete-by-key + insert); otherwise it
  * replaces the partition (delete + insert).
  * Safe to re-run for the same partition (backfill / failure-recovery).
+ * 
+ * Returns a lazy statement — call \`.execute()\` to run it:
+ * \`await wmill.upsertPartition({ table, selectSql, partition }).execute()\`.
  */
-upsertPartition(opts: DucklakeMaterializeOptions): void
+upsertPartition(opts: DucklakeMaterializeOptions): SqlStatement<any>
 
 /**
  * INSERT-only materialization (no dedup/replace) for append-only tables.
  * Re-running the same partition duplicates rows — use only for immutable
  * event-log sources.
+ * 
+ * Returns a lazy statement — call \`.execute()\` to run it:
+ * \`await wmill.appendPartition({ table, selectSql, partition }).execute()\`.
  */
-appendPartition(opts: Omit<DucklakeMaterializeOptions, "uniqueKey">): void
+appendPartition(opts: Omit<DucklakeMaterializeOptions, "uniqueKey">,): SqlStatement<any>
 `,
   "write-script-bunnative": `---
 name: write-script-bunnative
@@ -1856,15 +1862,21 @@ ducklake(name: string = "main"): SqlTemplateFunction
  * With \`uniqueKey\` it upserts the slice (delete-by-key + insert); otherwise it
  * replaces the partition (delete + insert).
  * Safe to re-run for the same partition (backfill / failure-recovery).
+ * 
+ * Returns a lazy statement — call \`.execute()\` to run it:
+ * \`await wmill.upsertPartition({ table, selectSql, partition }).execute()\`.
  */
-upsertPartition(opts: DucklakeMaterializeOptions): void
+upsertPartition(opts: DucklakeMaterializeOptions): SqlStatement<any>
 
 /**
  * INSERT-only materialization (no dedup/replace) for append-only tables.
  * Re-running the same partition duplicates rows — use only for immutable
  * event-log sources.
+ * 
+ * Returns a lazy statement — call \`.execute()\` to run it:
+ * \`await wmill.appendPartition({ table, selectSql, partition }).execute()\`.
  */
-appendPartition(opts: Omit<DucklakeMaterializeOptions, "uniqueKey">): void
+appendPartition(opts: Omit<DucklakeMaterializeOptions, "uniqueKey">,): SqlStatement<any>
 `,
   "write-script-csharp": `---
 name: write-script-csharp
@@ -2695,15 +2707,21 @@ ducklake(name: string = "main"): SqlTemplateFunction
  * With \`uniqueKey\` it upserts the slice (delete-by-key + insert); otherwise it
  * replaces the partition (delete + insert).
  * Safe to re-run for the same partition (backfill / failure-recovery).
+ * 
+ * Returns a lazy statement — call \`.execute()\` to run it:
+ * \`await wmill.upsertPartition({ table, selectSql, partition }).execute()\`.
  */
-upsertPartition(opts: DucklakeMaterializeOptions): void
+upsertPartition(opts: DucklakeMaterializeOptions): SqlStatement<any>
 
 /**
  * INSERT-only materialization (no dedup/replace) for append-only tables.
  * Re-running the same partition duplicates rows — use only for immutable
  * event-log sources.
+ * 
+ * Returns a lazy statement — call \`.execute()\` to run it:
+ * \`await wmill.appendPartition({ table, selectSql, partition }).execute()\`.
  */
-appendPartition(opts: Omit<DucklakeMaterializeOptions, "uniqueKey">): void
+appendPartition(opts: Omit<DucklakeMaterializeOptions, "uniqueKey">,): SqlStatement<any>
 `,
   "write-script-duckdb": `---
 name: write-script-duckdb
