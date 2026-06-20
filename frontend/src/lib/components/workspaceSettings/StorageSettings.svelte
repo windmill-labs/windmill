@@ -69,20 +69,29 @@
 	}
 
 	// Primary storage exists once it has been saved with a resource. Until then the row is
-	// hidden and the user is offered an "Add primary storage" button instead.
+	// hidden and the user is offered an "Add primary storage" button instead. Visibility is an
+	// explicit toggle (driven by Add/Delete) so editing or clearing the resource picker doesn't
+	// make the row vanish.
 	let primaryStorageSaved: boolean = $derived(!emptyString(s3ResourceSavedSettings.resourcePath))
-	let addingPrimary: boolean = $state(false)
-	let showPrimaryRow: boolean = $derived(primaryStorageSaved || addingPrimary)
+	let showPrimaryRow: boolean = $state(primaryStorageSaved)
 
-	// Any discard (footer or the page-level "discard all changes") resets the whole settings
-	// object to the saved clone. Collapse a revealed-but-unsaved primary row when that happens.
+	// The parent reassigns the whole settings object on load and on every discard (footer or the
+	// page-level "discard all changes"). Re-sync the row to the saved state when that happens.
 	let prevSettings = s3ResourceSettings
 	$effect(() => {
 		if (s3ResourceSettings !== prevSettings) {
 			prevSettings = s3ResourceSettings
-			addingPrimary = false
+			showPrimaryRow = primaryStorageSaved
 		}
 	})
+
+	function clearPrimaryStorage() {
+		s3ResourceSettings.resourceType = 's3'
+		s3ResourceSettings.resourcePath = undefined
+		s3ResourceSettings.publicResource = undefined
+		s3ResourceSettings.advancedPermissions = defaultS3AdvancedPermissions(!!$enterpriseLicense)
+		showPrimaryRow = false
+	}
 
 	let tableRows: [string | null, S3ResourceSettingsItem][] = $derived([
 		...(showPrimaryRow
@@ -276,6 +285,8 @@
 									}
 								}}
 							/>
+						{:else if (s3ResourceSettings.secondaryStorage?.length ?? 0) === 0}
+							<CloseButton small on:close={clearPrimaryStorage} />
 						{/if}
 					</Cell>
 				</Row>
@@ -320,7 +331,7 @@
 								size="sm"
 								btnClasses="max-w-fit mt-2"
 								variant="default"
-								on:click={() => (addingPrimary = true)}
+								on:click={() => (showPrimaryRow = true)}
 							>
 								<Plus /> Add primary storage
 							</Button>
