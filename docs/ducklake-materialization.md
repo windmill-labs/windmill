@@ -216,9 +216,10 @@ Don't try to give both the full treatment for v1.
    pipeline-partition-runtime work).
 2. **Physical partition wiring** — `_wm_partition` column + `SET PARTITIONED BY`
    on first materialize for `ducklake://` targets.
-3. **Strategy templates** — DELETE+INSERT default; MERGE when `// unique_key`;
-   INSERT when `// append`. Literal scaffolds first; `// materialize wrap` for
-   single-SELECT DuckDB behind the same templates.
+3. **Strategy templates** — DELETE+INSERT default (`CREATE OR REPLACE` for the
+   whole table); delete-by-key + insert when `key=<col>`; INSERT-only when
+   `append`. Managed `// materialize` wraps a single-SELECT DuckDB script behind
+   these templates; `// materialize manual` opts out.
 4. **Snapshot + metadata capture** — append `ducklake_snapshots` read, persist
    `materialized_partition` rows.
 5. **Surface it** — last-materialized/snapshot/row-count on the asset node;
@@ -242,6 +243,8 @@ forces"; DuckLake-specific:
    we expire old ones, and does pinning hold a snapshot alive past retention?
 3. **Pin scope.** Pin only direct producers, or the full transitive upstream
    set per run? Storage and "stale pin" semantics differ.
-4. **Wrap-mode multi-statement.** `// materialize wrap` assumes one trailing
-   SELECT; define behavior (reject? last-SELECT-wins?) when the script has
-   setup statements before it.
+4. **Managed multi-statement.** *Resolved:* managed `// materialize` accepts
+   setup statements (ATTACH/SET/…) followed by exactly one trailing SELECT, and
+   rejects anything else at deploy with a clear error pointing to
+   `// materialize manual`. The classifier (`sql_materialize.rs`) is the single
+   source of truth.

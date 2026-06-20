@@ -1,16 +1,17 @@
-//! Wrap-mode classifier + materialization SQL codegen for `// materialize`.
+//! Eligibility classifier + materialization SQL codegen for managed `// materialize`.
 //!
-//! `// materialize wrap` promises the script is "setup statements, then one
-//! trailing SELECT" — Windmill generates the write DDL around that SELECT. This
-//! module is the single source of truth for *which block is that SELECT* and
-//! *what DDL gets generated*, so save-time validation (deploy path) and
-//! run-time codegen (DuckDB executor) can never disagree about it.
+//! Managed `// materialize` (the default) promises the script is "setup
+//! statements, then one trailing SELECT" — Windmill generates the write DDL
+//! around that SELECT (the `// materialize manual` escape hatch opts out and
+//! writes its own DDL). This module is the single source of truth for *which
+//! block is that SELECT* and *what DDL gets generated*, so save-time validation
+//! (deploy path) and run-time codegen (DuckDB executor) can never disagree.
 //!
 //! Everything here is pure and string-level: no SQL is executed, no type
 //! inference is done. The classifier is leading-keyword based and deliberately
 //! conservative — anything it can't positively recognize as a read-only output
 //! or a known-safe setup statement is rejected, so a script is only accepted
-//! for wrapping when its shape is unambiguous.
+//! for managed mode when its shape is unambiguous.
 
 /// One top-level statement's role in a wrap-mode script.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,7 +25,7 @@ pub enum BlockClass {
     /// Anything that writes or whose effect we can't vouch for: non-temp
     /// `CREATE` / `INSERT` / `UPDATE` / `DELETE` / `MERGE` / `DROP` / `COPY` /
     /// `ALTER` / `TRUNCATE`, or an unrecognized leading keyword. Disqualifies
-    /// wrap (the user wants literal mode).
+    /// managed mode (the user should use `// materialize manual`).
     Disallowed,
 }
 
@@ -37,8 +38,8 @@ pub struct WrapPlan {
     pub output: String,
 }
 
-/// Why a script is not eligible for `// materialize wrap`. Carries enough to
-/// render the targeted save-time messages from the spec.
+/// Why a script is not eligible for managed `// materialize`. Carries enough to
+/// render the targeted save-time messages.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WrapError {
     /// No statements at all (empty / comments only).
@@ -57,21 +58,21 @@ pub enum WrapError {
 impl WrapError {
     /// Human-facing, actionable message (matches the spec's rejection text).
     pub fn message(&self) -> String {
-        let base = "`// materialize wrap` requires the script to end in a single SELECT";
+        let base =
+            "managed `// materialize` requires the script to be setup statements then a single trailing SELECT";
+        let manual = "use `// materialize manual` to write the DDL yourself";
         match self {
             WrapError::Empty => format!("{base}: the script is empty."),
-            WrapError::NoOutput => {
-                format!("{base}: found no SELECT — remove `wrap` to write the DDL yourself.")
-            }
+            WrapError::NoOutput => format!("{base}: found no SELECT — {manual}."),
             WrapError::MultipleOutputs { count } => format!(
-                "{base}: found {count} SELECT statements; combine them with a CTE, or use no-wrap."
+                "{base}: found {count} SELECT statements; combine them with a CTE, or {manual}."
             ),
             WrapError::OutputNotLast => format!(
-                "{base}: found statements after the SELECT — move them above it, or use no-wrap."
+                "{base}: found statements after the SELECT — move them above it, or {manual}."
             ),
-            WrapError::DisallowedBlock { snippet } => format!(
-                "{base}: `{snippet}` writes or is unrecognized — remove `wrap` to write the DDL yourself."
-            ),
+            WrapError::DisallowedBlock { snippet } => {
+                format!("{base}: `{snippet}` writes or is unrecognized — {manual}.")
+            }
         }
     }
 }
@@ -275,7 +276,7 @@ pub fn classify_block(stmt: &str) -> BlockClass {
     BlockClass::Disallowed
 }
 
-/// Validate a script for `// materialize wrap` and, on success, return the
+/// Validate a script for managed `// materialize` and, on success, return the
 /// setup/output split. Enforces the four conditions from the spec:
 /// 1. exactly one Output block, 2. it is last, 3. all preceding blocks are
 /// Setup, 4. nothing after it.
@@ -460,7 +461,7 @@ pub fn snapshot_capture_sql(alias: &str) -> String {
 pub const TARGET_ALIAS: &str = "_wm_target";
 
 /// Assemble the full ordered statement list the DuckDB executor runs for a
-/// `// materialize wrap` script. This is the single entry point the worker
+/// managed `// materialize` script. This is the single entry point the worker
 /// calls; it composes the already-tested pieces (classifier split → target
 /// ATTACH → strategy codegen → snapshot capture) so their ordering lives in one
 /// tested place rather than inline in the executor.
@@ -585,7 +586,7 @@ mod tests {
         // The real shape: `//` annotation lines above the SQL must not pollute
         // the first block's classification (regression — they were being read
         // as a leading `pipeline` keyword and rejected).
-        let p = ok("// pipeline\n// materialize wrap ducklake://main/t\n// partitioned daily\nATTACH 'ducklake://main' AS dl;\nSELECT 1 AS id");
+        let p = ok("// pipeline\n// materialize ducklake://main/t\n// partitioned daily\nATTACH 'ducklake://main' AS dl;\nSELECT 1 AS id");
         assert_eq!(p.setup.len(), 1);
         // The annotation lines are gone — the setup block starts at the real
         // SQL (the `//` inside `ducklake://main` is legitimately retained).
