@@ -524,7 +524,7 @@ function finishMaterialize(
   };
   return {
     ...stmt,
-    execute: () => run(),
+    execute: (() => run()) as any,
     fetch: (() => run()) as any,
     fetchOne: (() => run()) as any,
     fetchOneScalar: (() => run()) as any,
