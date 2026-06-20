@@ -37,9 +37,17 @@
 	let codeDown = $state('')
 	let creating = $state(false)
 
+	// Frame the migration body in an explicit transaction so it applies atomically.
+	function wrapInTransaction(body: string): string {
+		return `BEGIN;\n\n${body}\n\nEND;`
+	}
+	const UP_PLACEHOLDER = wrapInTransaction('-- Add your migration here')
+
 	export function open(prefill?: { name?: string; codeUp?: string; codeDown?: string }) {
 		name = prefill?.name ?? ''
-		codeUp = prefill?.codeUp ?? ''
+		// Start from the transaction template; when prefilled from detected DDL,
+		// wrap that DDL in the same BEGIN; ... END; frame.
+		codeUp = prefill?.codeUp ? wrapInTransaction(prefill.codeUp) : UP_PLACEHOLDER
 		codeDown = prefill?.codeDown ?? ''
 		enableDown = (prefill?.codeDown ?? '') !== ''
 		tab = 'up'
