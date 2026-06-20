@@ -319,9 +319,17 @@ function header(ctx: TemplateContext): string {
 	})
 	// Managed materialization is the one kind that declares its output
 	// explicitly — the runtime generates the write around the body's SELECT, so
-	// the target can't be inferred from the body. Emit `// materialize <uri>`.
+	// the target can't be inferred from the body. Emit `// materialize <uri>`
+	// plus a hint about the strategy options that go on the same line. The hint
+	// must NOT start with a parser keyword (`materialize`, `on`, …) or it would
+	// be read as an annotation — `Strategy:` is safe.
 	const matLine =
-		outputKind === 'materialize' && output ? [`${p} materialize ${assetUri(output)}`] : []
+		outputKind === 'materialize' && output
+			? [
+					`${p} materialize ${assetUri(output)}`,
+					`${p} Strategy: add key=<col> to merge (upsert), or append for insert-only; default replaces the partition`
+				]
+			: []
 	// Discoverability hint — the three annotations users most often miss
 	// when authoring their first pipeline script. Single line, real
 	// example values (not placeholders) so users see the syntax. Docs
