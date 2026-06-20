@@ -397,10 +397,13 @@ async fn list_apps(
             "draft.path IS NOT NULL as is_draft",
             // Per-path draft owners as a JSON array; see scripts.rs for the rationale
             // (admins-workspace identity fallback, legacy NULL-email row).
+            // `app`/`raw_app` are separate draft kinds over one `app` table — match
+            // either (like the `is_draft` join below), else a deployed raw app's draft
+            // owners are dropped and the row shows "Draft" with no user badge.
             "(SELECT json_agg(json_build_object('username', COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END)) ORDER BY COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) NULLS LAST) \
               FROM draft d \
               LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
-              WHERE d.workspace_id = app.workspace_id AND d.path = app.path AND d.typ = 'app') as draft_users",
+              WHERE d.workspace_id = app.workspace_id AND d.path = app.path AND d.typ IN ('app', 'raw_app')) as draft_users",
             "folder_labels(app.workspace_id, app.path) as inherited_labels",
         ])
         .left()

@@ -523,6 +523,14 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'smtp_connect',
 			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'Disable workspace invite emails',
+			description:
+				'Do not send email notifications when a user is invited or added to a workspace. Useful for automated workflows that add users programmatically.',
+			key: 'disable_workspace_invite_emails',
+			fieldType: 'boolean',
+			storage: 'setting'
 		}
 	],
 	'Auth/OAuth/SAML': [

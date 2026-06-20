@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n              de.producer_job_id AS \"producer_job_id!\",\n              de.child_job_id,\n              de.subscriber_path AS \"subscriber_path!\",\n              de.outcome::text AS \"outcome!\",\n              de.asset_kind AS \"asset_kind!: windmill_common::assets::AssetKind\",\n              de.asset_path AS \"asset_path!\",\n              de.created_at AS \"created_at!\"\n           FROM dispatch_event de\n           JOIN v2_job pj ON pj.id = de.producer_job_id\n           WHERE de.workspace_id = $1\n             AND de.outcome IN ('dispatched', 'join_pending')\n             AND de.subscriber_path LIKE $2\n             AND ($3::timestamptz IS NULL OR de.created_at >= $3)\n           ORDER BY de.created_at DESC, de.id DESC\n           LIMIT 4000",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "producer_job_id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "child_job_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "subscriber_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "outcome!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "asset_kind!: windmill_common::assets::AssetKind",
+        "type_info": {
+          "Custom": {
+            "name": "asset_kind",
+            "kind": {
+              "Enum": [
+                "s3object",
+                "resource",
+                "variable",
+                "ducklake",
+                "datatable",
+                "volume"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "asset_path!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      null,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8cd02a5378bea03012e6cb937f23460b6438d0a320b5554acec0beddbdeb008b"
+}

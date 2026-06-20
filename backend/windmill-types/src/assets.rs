@@ -16,6 +16,23 @@ pub enum AssetKind {
     Volume,
 }
 
+impl AssetKind {
+    /// The canonical URI prefix used in asset trigger refs (e.g. `s3://`,
+    /// `$res:`). Single source of truth for both trigger-ref construction
+    /// and runtime cascade dispatch. `Variable` is deprecated and has no
+    /// canonical ref, so it returns `None`.
+    pub fn canonical_prefix(&self) -> Option<&'static str> {
+        match self {
+            AssetKind::S3Object => Some("s3://"),
+            AssetKind::Resource => Some("$res:"),
+            AssetKind::Ducklake => Some("ducklake://"),
+            AssetKind::DataTable => Some("datatable://"),
+            AssetKind::Volume => Some("volume://"),
+            AssetKind::Variable => None,
+        }
+    }
+}
+
 #[derive(
     Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type, PartialOrd, Ord,
 )]

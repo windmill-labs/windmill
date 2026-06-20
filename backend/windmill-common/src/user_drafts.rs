@@ -53,6 +53,10 @@ pub enum UserDraftItemKind {
     TriggerNextcloud,
     TriggerGoogle,
     TriggerGithub,
+    /// All unsaved scripts of one data pipeline, bundled into a single draft
+    /// keyed at the pipeline's folder path. Not a runnable: it has no deployed
+    /// backing table and is private to its owner.
+    DataPipeline,
 }
 
 impl UserDraftItemKind {
@@ -84,12 +88,13 @@ impl UserDraftItemKind {
             UserDraftItemKind::TriggerNextcloud => "trigger_nextcloud",
             UserDraftItemKind::TriggerGoogle => "trigger_google",
             UserDraftItemKind::TriggerGithub => "trigger_github",
+            UserDraftItemKind::DataPipeline => "data_pipeline",
         }
     }
 
     /// Every variant, for code that must enumerate kinds (e.g. generating
     /// the `draft_only` existence SQL).
-    pub const ALL: [UserDraftItemKind; 24] = [
+    pub const ALL: [UserDraftItemKind; 25] = [
         UserDraftItemKind::Script,
         UserDraftItemKind::Flow,
         UserDraftItemKind::App,
@@ -114,6 +119,7 @@ impl UserDraftItemKind {
         UserDraftItemKind::TriggerNextcloud,
         UserDraftItemKind::TriggerGoogle,
         UserDraftItemKind::TriggerGithub,
+        UserDraftItemKind::DataPipeline,
     ];
 
     /// The deployed table backing this kind, keyed by `(workspace_id, path)`.
@@ -144,6 +150,9 @@ impl UserDraftItemKind {
             TriggerEmail | TriggerDefaultEmail => Some("email_trigger"),
             TriggerWebhook | TriggerPoll | TriggerCli | TriggerNextcloud | TriggerGoogle
             | TriggerGithub => None,
+            // Keyed at a folder path, not a runnable; access falls back to the
+            // path-only (folder write) check.
+            DataPipeline => None,
         }
     }
 
