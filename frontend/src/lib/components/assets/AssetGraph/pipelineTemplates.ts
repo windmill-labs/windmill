@@ -365,27 +365,24 @@ function bodyTs(ctx: TemplateContext): string {
 		switch (input.kind) {
 			case 's3object':
 				return [
-					`  // Upstream: ${assetUri(input)}`,
 					`  const buf = await wmill.loadS3File({ s3: ${JSON.stringify(s3Key(input.path))} })`,
 					`  const rows = JSON.parse(new TextDecoder().decode(buf))`,
 					``
 				].join('\n')
 			case 'datatable':
 				return [
-					`  // Upstream: ${assetUri(input)}`,
 					`  const src = wmill.datatable(${JSON.stringify(input.path.split('/')[0] ?? 'main')})`,
 					`  const rows = await src\`SELECT * FROM ${input.path.split('/').slice(1).join('_') || 'table_name'}\`.fetch()`,
 					``
 				].join('\n')
 			case 'ducklake':
 				return [
-					`  // Upstream: ${assetUri(input)}`,
 					`  const lake = wmill.ducklake(${JSON.stringify(input.path.split('/')[0] ?? 'main')})`,
 					`  const rows = await lake\`SELECT * FROM ${input.path.split('/').slice(1).join('_') || 'table_name'}\`.fetch()`,
 					``
 				].join('\n')
 			default:
-				return `  // Upstream: ${assetUri(input)}\n`
+				return ''
 		}
 	})()
 
@@ -451,24 +448,21 @@ function bodyPython(ctx: TemplateContext): string {
 		switch (input.kind) {
 			case 's3object':
 				return [
-					`    # Upstream: ${assetUri(input)}`,
 					`    buf = wmill.load_s3_file(${JSON.stringify(s3Key(input.path))})`,
 					`    import json; rows = json.loads(buf.decode("utf-8"))`
 				].join('\n')
 			case 'datatable':
 				return [
-					`    # Upstream: ${assetUri(input)}`,
 					`    src = wmill.datatable(${JSON.stringify(input.path.split('/')[0] ?? 'main')})`,
 					`    rows = src.query("SELECT * FROM ${input.path.split('/').slice(1).join('_') || 'table_name'}").fetch()`
 				].join('\n')
 			case 'ducklake':
 				return [
-					`    # Upstream: ${assetUri(input)}`,
 					`    lake = wmill.ducklake(${JSON.stringify(input.path.split('/')[0] ?? 'main')})`,
 					`    rows = lake.query("SELECT * FROM ${input.path.split('/').slice(1).join('_') || 'table_name'}").fetch()`
 				].join('\n')
 			default:
-				return `    # Upstream: ${assetUri(input)}`
+				return ''
 		}
 	})()
 
@@ -522,7 +516,6 @@ function bodyDuckdb(ctx: TemplateContext): string {
 		lines.push(`-- $file (s3object)`)
 		lines.push(`-- \`file\` is uploaded via the S3 picker on the run form.`)
 	}
-	if (input) lines.push(`-- Upstream: ${assetUri(input)}`)
 	lines.push('')
 
 	// Resolve the catalog db name to ATTACH. Output's db wins when both sides
@@ -560,9 +553,9 @@ function bodyDuckdb(ctx: TemplateContext): string {
 			case 'datatable':
 				// `pg` is the attached Postgres catalog (see ATTACH above).
 				// Use a 2-part `pg.<table>` ref so the asset parser maps it
-				// back to `datatable://<db>/<table>` — matching the
-				// `// Upstream` annotation. Schema is only emitted if the
-				// asset path explicitly includes one (`main/myschema.mytable`).
+				// back to `datatable://<db>/<table>` — matching the input asset.
+				// Schema is only emitted if the asset path explicitly includes
+				// one (`main/myschema.mytable`).
 				return `pg.${catalogTableRef(input.path)}`
 			case 'ducklake':
 				return `lake.${catalogTableRef(input.path)}`
@@ -638,9 +631,8 @@ function bodyDuckdb(ctx: TemplateContext): string {
 }
 
 function bodyPostgres(ctx: TemplateContext): string {
-	const { input, output, outputKind } = ctx
+	const { output, outputKind } = ctx
 	const lines: string[] = []
-	if (input) lines.push(`-- Upstream: ${assetUri(input)}`)
 	lines.push('')
 
 	if (outputKind === 'datatable' && output) {
@@ -669,9 +661,8 @@ function bodyPostgres(ctx: TemplateContext): string {
 }
 
 function bodyBash(ctx: TemplateContext): string {
-	const { input, output, outputKind } = ctx
+	const { output, outputKind } = ctx
 	const lines: string[] = []
-	if (input) lines.push(`# Upstream: ${assetUri(input)}`)
 	if (outputKind === 's3_object' && output) {
 		lines.push(
 			``,
@@ -688,7 +679,6 @@ function bodyBash(ctx: TemplateContext): string {
 function genericBody(ctx: TemplateContext): string {
 	const p = commentPrefix(ctx.language)
 	const lines: string[] = []
-	if (ctx.input) lines.push(`${p} Upstream: ${assetUri(ctx.input)}`)
 	lines.push(`${p} Fill in pipeline logic.`)
 	return lines.join('\n') + '\n'
 }
