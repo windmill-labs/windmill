@@ -80,6 +80,8 @@ pub async fn get_datatable_resource_from_agent_http(
 
 /// Record a materialization outcome from an agent worker (no direct DB) via the
 /// API, so `materialized_partition` state lands the same as on a Sql worker.
+// Only called from the duckdb executor (feature-gated), like its siblings above.
+#[allow(dead_code)]
 pub async fn record_materialization_from_agent_http(
     client: &HttpClient,
     w_id: &str,
