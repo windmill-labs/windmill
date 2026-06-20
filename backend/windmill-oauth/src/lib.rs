@@ -151,6 +151,10 @@ pub struct ConnectConfigTemplate {
     pub token_url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub req_body_auth: Option<bool>,
+    /// Scopes copied into the built `connect_config` (e.g. NetSuite's
+    /// `rest_webservices`). Templated providers default to no scopes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scopes: Option<Vec<String>>,
     /// Key under `connect_config.extra_params` where the instance name is
     /// stored (defaults to `instance`). Snowflake uses `account_identifier` for
     /// backward compatibility with previously-saved configs.

@@ -25,6 +25,7 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_drafts))
         .route("/get/{kind}/{*path}", get(get_draft_for_user))
+        .route("/get_own/{kind}/{*path}", get(get_own_draft))
         .route("/update/{kind}/{*path}", post(update_draft))
         .route("/migrate_legacy/{kind}/{*path}", post(migrate_legacy_draft))
 }
@@ -275,7 +276,17 @@ async fn update_draft(
 ) -> Result<Json<SaveDraftResponse>> {
     let email = &authed.email;
     let path = path.to_path();
-    require_can_write_path(&authed, &db, &user_db, &w_id, kind, path).await?;
+    // Saving a draft requires write permission on the underlying path. Deleting
+    // (discarding) one's OWN draft does not: the email-scoped row belongs to the
+    // authed user, so they can always discard it even after losing write access
+    // to the underlying item (e.g. a draft-only item whose folder perms changed).
+    // The DELETE below is scoped to `email = authed.email`, so it can only ever
+    // touch the caller's own row. Legacy (NULL-email) rows aren't owned by anyone
+    // — they keep the write gate.
+    let is_own_discard = req.value.is_none() && !req.legacy;
+    if !is_own_discard {
+        require_can_write_path(&authed, &db, &user_db, &w_id, kind, path).await?;
+    }
 
     let applied_at = if let Some(value) = &req.value {
         // Secret variable values must never sit in `draft.value` in plaintext
@@ -285,6 +296,10 @@ async fn update_draft(
         } else {
             serde_json::to_string(value).unwrap()
         };
+        // `draft.value` is a `json` column, so a U+0000 (NUL) would persist as an
+        // escape and later make any `->>`/`to_jsonb` extraction raise `22P05`.
+        // Strip it here so a NUL never reaches the column.
+        let serialized = strip_json_nul(serialized);
         // Upsert. The conflict check rides on the DO UPDATE WHERE clause —
         // when the row is newer than `last_sync`, RETURNING yields nothing.
         // `created_at` defaults to `now()` but the migration overrides it ($8)
@@ -452,6 +467,53 @@ async fn migrate_legacy_draft(
     }
 }
 
+/// Remove every U+0000 (NUL) from a serialized JSON document so it is safe to
+/// store in the `json`-typed `draft.value` (a NUL there would later make any
+/// `->>`/`to_jsonb` extraction raise `22P05`).
+///
+/// A NUL can only appear in JSON text as a backslash-u0000 escape, and a
+/// backslash only ever occurs inside a string, so one backslash-parity-aware
+/// pass removes every real NUL escape — covering values and keys alike — while
+/// leaving a legitimate `\\u0000` (an escaped backslash followed by the literal
+/// text `u0000`) intact. O(n) over the bytes with no `serde_json::Value` tree to
+/// allocate, and the fast path (no such substring at all) returns the input
+/// untouched. The slow path is reached not only by genuinely poisoned values but
+/// by any value that legitimately contains `u0000` after a backslash (e.g. script
+/// source), so it must stay allocation-light for potentially large drafts.
+fn strip_json_nul(serialized: String) -> String {
+    if !serialized.contains("\\u0000") {
+        return serialized;
+    }
+    let bytes = serialized.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'\\' {
+            out.push(bytes[i]);
+            i += 1;
+            continue;
+        }
+        // Consume the whole run of backslashes. An even run is N/2 escaped
+        // backslashes and leaves the next char unescaped; an odd run ends in an
+        // escaping backslash, so a following `u0000` is a real NUL escape.
+        let run_start = i;
+        while i < bytes.len() && bytes[i] == b'\\' {
+            i += 1;
+        }
+        let run = i - run_start;
+        if run % 2 == 1 && bytes[i..].starts_with(b"u0000") {
+            // Drop the escaping backslash + `u0000`; keep the leading literal pairs.
+            out.extend(std::iter::repeat(b'\\').take(run - 1));
+            i += 5;
+        } else {
+            out.extend(std::iter::repeat(b'\\').take(run));
+        }
+    }
+    // Only whole ASCII backslash-u0000 escapes were removed, so the bytes remain
+    // valid UTF-8 (and valid JSON).
+    String::from_utf8(out).expect("removing a NUL escape preserves valid UTF-8")
+}
+
 /// For variable-kind drafts with `variable.is_secret == true`, encrypt
 /// `variable.value` with the workspace crypt key and mark it
 /// `$encrypted:<base64>` so the secret never persists in plaintext at rest.
@@ -562,6 +624,37 @@ async fn get_draft_for_user(
             query.username.as_deref().unwrap_or("<legacy>")
         ))
     })
+}
+
+/// Fetch the AUTHED user's OWN draft at a path, for any kind — including
+/// private kinds (`shares_drafts_across_users() == false`). Backs editors with
+/// no deployed-item GET to overlay a draft onto: the `data_pipeline` bundle is
+/// keyed at a folder path with no runnable to hang `get_draft` on, so it loads
+/// its in-flight state from here. Returns `null` (200) when the user has no
+/// draft there, so a fresh pipeline isn't a 404. Secret-variable values come
+/// back `$encrypted:`-prefixed, same as `get_draft_for_user` — variable editors
+/// use their own overlay GET, not this route.
+async fn get_own_draft(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, kind, path)): Path<(String, UserDraftItemKind, windmill_common::utils::StripPath)>,
+) -> Result<Json<Option<DraftForUser>>> {
+    let path = path.to_path();
+    require_can_read_path(&authed, &user_db, &w_id, kind, path).await?;
+    let row = sqlx::query_as!(
+        DraftForUser,
+        r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>", created_at
+           FROM draft
+           WHERE workspace_id = $1 AND path = $2 AND typ = $3 AND email = $4"#,
+        &w_id,
+        path,
+        kind as UserDraftItemKind,
+        &authed.email,
+    )
+    .fetch_optional(&db)
+    .await?;
+    Ok(Json(row))
 }
 
 /// The deployed table RLS resolves item-level `extra_perms` against.
@@ -710,4 +803,65 @@ async fn require_can_read_path(
         }
     }
     Err(Error::NotFound(format!("no draft visible at {path}")))
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::strip_json_nul;
+
+    // Parse the (NUL-free) result so assertions read clearly.
+    fn parsed(s: String) -> serde_json::Value {
+        serde_json::from_str(&s).expect("strip_json_nul must return valid JSON")
+    }
+
+    #[test]
+    fn clean_value_is_returned_byte_for_byte() {
+        let s = r#"{"summary":"all good","n":1}"#.to_string();
+        assert_eq!(strip_json_nul(s.clone()), s);
+    }
+
+    #[test]
+    fn real_nul_in_value_is_stripped() {
+        let out = strip_json_nul(r#"{"summary":"hi\u0000there"}"#.to_string());
+        assert!(!out.contains(r"\u0000"));
+        assert_eq!(parsed(out)["summary"], "hithere");
+    }
+
+    #[test]
+    fn legit_escaped_backslash_is_a_noop() {
+        // JSON "a\\u0000b" decodes to the 8-char string a,backslash,u,0,0,0,0,b
+        // — not a NUL — so the value is already clean and round-trips byte-for-byte.
+        let s = r#"{"summary":"a\\u0000b"}"#.to_string();
+        assert_eq!(strip_json_nul(s.clone()), s);
+    }
+
+    #[test]
+    fn collision_real_and_literal_both_handled() {
+        // "a" carries a real NUL; "b" carries the literal text backslash-u0000.
+        // The value walk strips the former and leaves the latter intact — the
+        // pathological case that needed a fallback in SQL is trivial in Rust.
+        let v = parsed(strip_json_nul(r#"{"a":"x\u0000y","b":"p\\u0000q"}"#.to_string()));
+        assert_eq!(v["a"], "xy");
+        assert_eq!(v["b"], "p\\u0000q");
+    }
+
+    #[test]
+    fn nested_values_and_keys_are_cleaned() {
+        let out = strip_json_nul(
+            r#"{"o":{"k\u0000":["a\u0000b",{"deep\u0000":"v\u0000"}]}}"#.to_string(),
+        );
+        assert!(!out.contains(r"\u0000"));
+        let v = parsed(out);
+        assert_eq!(v["o"]["k"][0], "ab");
+        assert_eq!(v["o"]["k"][1]["deep"], "v");
+    }
+
+    #[test]
+    fn odd_backslash_run_keeps_literal_drops_nul() {
+        // JSON "a\\\u0000b" is an escaped backslash (kept) immediately followed by
+        // a real NUL escape (dropped) -> decodes to a,backslash,b.
+        let v = parsed(strip_json_nul(r#"{"x":"a\\\u0000b"}"#.to_string()));
+        assert_eq!(v["x"], "a\\b");
+    }
 }

@@ -257,6 +257,7 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
         judgeSummary,
         error: run.error ?? null,
         tokenUsage: run.tokenUsage ?? null,
+        finalContextTokens: run.finalContextTokens ?? null,
         artifactsPath: null,
         artifactFiles,
       };
@@ -293,6 +294,7 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
         judgeSummary: null,
         error: message,
         tokenUsage: null,
+        finalContextTokens: null,
       };
       if (surface) {
         input.onProgress?.({

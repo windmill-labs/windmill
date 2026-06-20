@@ -270,6 +270,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/run/dynamic_select", post(run_dynamic_select))
         .route("/list", get(list_jobs))
+        .route("/asset_dispatch_edges", get(list_asset_dispatch_edges))
         .route(
             "/list_selected_job_groups",
             // We use post because sending a huge array as a query param can produce
@@ -403,6 +404,7 @@ pub fn workspace_unauthed_service() -> Router {
             get(get_completed_job_result_maybe),
         )
         .route("/completed/get_timing/{id}", get(get_completed_job_timing))
+        .route("/dispatch_events/{id}", get(get_dispatch_events))
         .route("/getupdate/{id}", get(get_job_update))
         .route("/getupdate_sse/{id}", get(get_job_update_sse))
         .route("/get_log_file/{*file_path}", get(get_log_file))
@@ -3202,6 +3204,12 @@ struct ApprovalInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     hide_cancel: Option<bool>,
     approvers: Vec<Approval>,
+    /// Share-read-link token for the flow, minted only for callers allowed to view this
+    /// approval. Lets an authenticated workspace-member approver open the run details of
+    /// a flow they don't otherwise have read access to (the run page reads it as a
+    /// `view_token` query param).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    view_token: Option<String>,
 }
 
 /// Whether `opt_authed` is allowed to approve — and therefore view — this approval step.
@@ -3424,6 +3432,7 @@ async fn get_approval_info(
             user_auth_required,
             hide_cancel: None,
             approvers: vec![],
+            view_token: None,
         }));
     }
 
@@ -3441,6 +3450,12 @@ async fn get_approval_info(
     })
     .collect();
 
+    // Possession of view rights over this approval is sufficient to mint a
+    // share-read-link token for the flow: it only grants read (no resume), and only to
+    // an authenticated workspace member, so it never widens what the approver can do.
+    let hmac = generate_view_token(&w_id, row.id, &db).await?;
+    let view_token = Some(format!("{}.{hmac}", row.id));
+
     Ok(Json(ApprovalInfo {
         flow_id: row.id,
         form_schema,
@@ -3452,6 +3467,7 @@ async fn get_approval_info(
         user_auth_required,
         hide_cancel,
         approvers,
+        view_token,
     }))
 }
 
@@ -3846,6 +3862,12 @@ pub async fn cancel_suspended_job(
 pub struct SuspendedJobFlow {
     pub job: Job,
     pub approvers: Vec<Approval>,
+    /// Share-read-link token for the parent flow, minted because the caller proved
+    /// possession of the approval secret. Lets an authenticated workspace-member
+    /// approver open the run details of a flow they don't otherwise have read access
+    /// to (the run page reads it as a `view_token` query param).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub view_token: Option<String>,
 }
 
 pub async fn get_suspended_job_flow(
@@ -3930,7 +3952,13 @@ pub async fn get_suspended_job_flow(
     )
     .await?;
 
-    Ok(Json(SuspendedJobFlow { job: flow, approvers }).into_response())
+    // Possession of a valid approval secret is sufficient to mint a share-read-link
+    // token for the parent flow: it only grants read (no resume), and only to an
+    // authenticated workspace member, so it never widens what the approver can do.
+    let hmac = generate_view_token(&w_id, flow_id, &db).await?;
+    let view_token = Some(format!("{flow_id}.{hmac}"));
+
+    Ok(Json(SuspendedJobFlow { job: flow, approvers, view_token }).into_response())
 }
 
 fn conditionally_require_authed_user(
@@ -9030,6 +9058,198 @@ struct JobTiming {
     created_at: chrono::DateTime<Utc>,
     started_at: Option<chrono::DateTime<Utc>>,
     duration_ms: Option<i64>,
+}
+
+/// One row of the producer's "Dispatch" panel — what the asset-trigger
+/// dispatcher decided for a single (subscriber, asset write) pair. See
+/// `windmill_queue::asset_dispatch` for the writer and the discriminants
+/// of the `outcome` / `reason` fields.
+#[derive(Serialize)]
+struct DispatchEvent {
+    subscriber_path: String,
+    asset_kind: windmill_common::assets::AssetKind,
+    asset_path: String,
+    outcome: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    child_job_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    partition: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    received_inputs: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    required_inputs: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    debounce_s: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    created_at: chrono::DateTime<Utc>,
+}
+
+async fn get_dispatch_events(
+    OptViewToken(view_token): OptViewToken,
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::JsonResult<Vec<DispatchEvent>> {
+    let tags = opt_authed
+        .as_ref()
+        .map(|authed| get_scope_tags(authed))
+        .flatten();
+
+    // Gate on the producer job's visibility, exactly like
+    // get_completed_job_timing on the same unauthed router: scope tags
+    // first, then per-job read access for authed users, anonymous-only
+    // jobs otherwise. The dispatch_event FK to v2_job(id) guarantees the
+    // producer row exists for any extant event.
+    let producer = sqlx::query!(
+        r#"SELECT created_by AS "created_by!"
+           FROM v2_job
+           WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))"#,
+        id,
+        &w_id,
+        tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
+    )
+    .fetch_optional(&db)
+    .await?;
+    let producer = not_found_if_none(producer, "Job", id.to_string())?;
+
+    if let Some(authed) = opt_authed.as_ref() {
+        require_job_read_access(
+            &db,
+            &user_db,
+            authed,
+            &w_id,
+            &id,
+            &producer.created_by,
+            view_token.as_deref(),
+        )
+        .await?;
+    } else if producer.created_by != "anonymous" {
+        return Err(Error::BadRequest(
+            "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+        ));
+    }
+
+    let rows = sqlx::query!(
+        r#"SELECT
+              subscriber_path AS "subscriber_path!",
+              asset_kind AS "asset_kind!: windmill_common::assets::AssetKind",
+              asset_path AS "asset_path!",
+              outcome::text AS "outcome!",
+              child_job_id,
+              partition,
+              received_inputs,
+              required_inputs,
+              debounce_s,
+              reason,
+              created_at AS "created_at!"
+           FROM dispatch_event
+           WHERE producer_job_id = $1 AND workspace_id = $2
+           ORDER BY id"#,
+        id,
+        &w_id,
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| DispatchEvent {
+                subscriber_path: r.subscriber_path,
+                asset_kind: r.asset_kind,
+                asset_path: r.asset_path,
+                outcome: r.outcome,
+                child_job_id: r.child_job_id,
+                partition: r.partition,
+                received_inputs: r.received_inputs,
+                required_inputs: r.required_inputs,
+                debounce_s: r.debounce_s,
+                reason: r.reason,
+                created_at: r.created_at,
+            })
+            .collect(),
+    ))
+}
+
+/// One asset-cascade dispatch record, for reconstructing the cascade graph of a
+/// pipeline folder in the Activity panel. `dispatched` rows carry the resolved
+/// `child_job_id` (a real producer→child job edge); `join_pending` rows are the
+/// pre-completion inputs of an AND-join (no child yet) — the client links them
+/// to the eventual child of the same `subscriber_path` so a join's separate
+/// trigger chains merge into one group. `skipped` is omitted.
+#[derive(Serialize)]
+struct AssetDispatchEdge {
+    producer_job_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    child_job_id: Option<Uuid>,
+    subscriber_path: String,
+    outcome: String,
+    asset_kind: windmill_common::assets::AssetKind,
+    asset_path: String,
+    created_at: chrono::DateTime<Utc>,
+}
+
+#[derive(Deserialize)]
+struct AssetDispatchEdgesQuery {
+    /// Folder path prefix the children live under, e.g. `f/orders/`. Matched
+    /// against `subscriber_path` — every intra-pipeline cascade edge has its
+    /// child in the folder, so this captures the whole folder's cascades.
+    path_start: String,
+    /// Only edges dispatched at/after this instant (align with the activity
+    /// window the client already loaded). Omit for the default cap.
+    created_after: Option<chrono::DateTime<Utc>>,
+}
+
+/// Asset-cascade edges for a pipeline folder. RLS on the joined `v2_job`
+/// producer row limits this to cascades whose producer the caller can already
+/// see (same visibility as the folder's job list).
+async fn list_asset_dispatch_edges(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(query): Query<AssetDispatchEdgesQuery>,
+) -> error::JsonResult<Vec<AssetDispatchEdge>> {
+    let like = format!("{}%", query.path_start);
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = sqlx::query!(
+        r#"SELECT
+              de.producer_job_id AS "producer_job_id!",
+              de.child_job_id,
+              de.subscriber_path AS "subscriber_path!",
+              de.outcome::text AS "outcome!",
+              de.asset_kind AS "asset_kind!: windmill_common::assets::AssetKind",
+              de.asset_path AS "asset_path!",
+              de.created_at AS "created_at!"
+           FROM dispatch_event de
+           JOIN v2_job pj ON pj.id = de.producer_job_id
+           WHERE de.workspace_id = $1
+             AND de.outcome IN ('dispatched', 'join_pending')
+             AND de.subscriber_path LIKE $2
+             AND ($3::timestamptz IS NULL OR de.created_at >= $3)
+           ORDER BY de.created_at DESC, de.id DESC
+           LIMIT 4000"#,
+        &w_id,
+        like,
+        query.created_after,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| AssetDispatchEdge {
+                producer_job_id: r.producer_job_id,
+                child_job_id: r.child_job_id,
+                subscriber_path: r.subscriber_path,
+                outcome: r.outcome,
+                asset_kind: r.asset_kind,
+                asset_path: r.asset_path,
+                created_at: r.created_at,
+            })
+            .collect(),
+    ))
 }
 
 async fn get_completed_job_timing(

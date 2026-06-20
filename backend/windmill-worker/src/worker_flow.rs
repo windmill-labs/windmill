@@ -1279,7 +1279,11 @@ pub async fn update_flow_status_after_job_completion_internal(
                         }),
                     )
                 } else {
-                    let inc = if continue_on_error {
+                    // An unrecoverable failure (worker crash/OOM) must reach the error handler
+                    // even on a continue_on_error step, so don't advance the step counter past
+                    // the failed module — otherwise the flow would silently continue to the next
+                    // step and hide the worker death.
+                    let inc = if !unrecoverable && continue_on_error {
                         let retry = current_module
                             .as_ref()
                             .and_then(|x| x.retry.clone())
@@ -1708,7 +1712,16 @@ pub async fn update_flow_status_after_job_completion_internal(
             _ if stop_early => stop_early_err_msg.is_some() && flow_value.failure_module.is_some(), // if stop_early_err_msg some, we want to trigger the error handler before stopping the flow, if any
             _ if flow_job.is_canceled() => false,
             true => !is_last_step,
-            false if unrecoverable => false,
+            // An unrecoverable failure (a step killed by a worker crash/OOM and surfaced by
+            // the zombie handler, or an error raised while updating the flow status itself)
+            // must not be retried or silently skipped, but it should still trigger the flow's
+            // error handler: an OOM/worker death is precisely when the error handler is expected
+            // to run. Continue the flow only to reach the failure module, never to retry.
+            false if unrecoverable => {
+                !is_failure_step
+                    && !has_triggered_error_handler
+                    && flow_value.failure_module.is_some()
+            }
             false if skip_seq_branch_failure || skip_loop_failures || continue_on_error => {
                 !is_last_step
             }
@@ -2059,6 +2072,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             worker_name,
             flow_runners,
             &killpill_rx,
+            unrecoverable,
         ))
         .warn_after_seconds(10)
         .await
@@ -2749,6 +2763,10 @@ pub async fn handle_flow(
     worker_name: &str,
     flow_runners: Option<Arc<FlowRunners>>,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
+    // The previous step failed unrecoverably (e.g. a worker crash/OOM surfaced by the
+    // zombie handler). The next pushed step can only be the error handler (failure
+    // module), and it must not be pinned to the dead worker via same_worker.
+    unrecoverable: bool,
 ) -> anyhow::Result<()> {
     let flow = flow_data.value();
 
@@ -2922,6 +2940,7 @@ pub async fn handle_flow(
             flow_runners.clone(),
             job_completed_tx.clone(),
             &killpill_rx,
+            unrecoverable,
         ))
         .warn_after_seconds(10)
         .await?;
@@ -3104,6 +3123,10 @@ async fn push_next_flow_job(
     flow_runners: Option<Arc<FlowRunners>>,
     job_completed_tx: JobCompletedSender,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
+    // The prior step failed unrecoverably (worker crash/OOM). The only step pushed
+    // from here is the error handler, which must run on a live worker rather than
+    // being pinned to the dead one via same_worker / dedicated runners.
+    unrecoverable: bool,
 ) -> error::Result<PushNextFlowJob> {
     let job_root = flow_job
         .flow_innermost_root_job
@@ -3657,7 +3680,10 @@ async fn push_next_flow_job(
         }
     };
 
-    let retry = if matches!(&status_module, FlowStatusModule::Failure { .. },) {
+    // An unrecoverable failure (worker crash/OOM) must not be retried — the original worker
+    // and its state are gone — so skip retry evaluation and fall straight through to the
+    // failure module below.
+    let retry = if !unrecoverable && matches!(&status_module, FlowStatusModule::Failure { .. },) {
         let retry = &module.retry.clone().unwrap_or_default();
         evaluate_retry(
             retry,
@@ -3672,8 +3698,13 @@ async fn push_next_flow_job(
         None
     };
     let get_args_from_id = match &status_module {
+        // `|| unrecoverable`: a worker crash/OOM routes to the failure module even on a
+        // continue_on_error step (whose failures are normally tolerated), matching the
+        // `unrecoverable` decision in update_flow_status_after_job_completion_internal.
         FlowStatusModule::Failure { job, .. }
-            if retry.as_ref().is_some() || !module.continue_on_error.is_some_and(|x| x) =>
+            if retry.as_ref().is_some()
+                || !module.continue_on_error.is_some_and(|x| x)
+                || unrecoverable =>
         {
             if let Some((fail_count, retry_in)) = retry {
                 tracing::debug!(
@@ -4022,7 +4053,8 @@ async fn push_next_flow_job(
             .as_ref()
             .is_some_and(|fr| fr.job_id == flow_job.id);
 
-    let continue_with_runners = (start_runners || (flow_runners.is_some() && !do_not_pass_runners))
+    let continue_with_runners = !unrecoverable
+        && (start_runners || (flow_runners.is_some() && !do_not_pass_runners))
         && module.suspend.is_none()
         && module.sleep.is_none();
 
@@ -4031,8 +4063,13 @@ async fn push_next_flow_job(
     let job_same_worker = flow_job.same_worker
         && matches!(flow_job.kind, JobKind::Flow)
         && flow_job.runnable_id.is_some();
-    let continue_on_same_worker =
-        (flow.same_worker || job_same_worker) && module.suspend.is_none() && module.sleep.is_none();
+    // After an unrecoverable failure the original worker is gone, so the error handler
+    // step is pushed as a regular queued job (any live worker can pick it up) instead of
+    // being signaled to the dead worker via same_worker — which would strand it forever.
+    let continue_on_same_worker = !unrecoverable
+        && (flow.same_worker || job_same_worker)
+        && module.suspend.is_none()
+        && module.sleep.is_none();
 
     /* Finally, push the job into the queue */
     let mut uuids = vec![];

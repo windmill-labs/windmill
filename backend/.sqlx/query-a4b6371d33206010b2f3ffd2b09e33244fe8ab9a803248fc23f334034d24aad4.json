@@ -190,7 +190,8 @@
                 "google",
                 "ci_test",
                 "github",
-                "azure"
+                "azure",
+                "asset"
               ]
             }
           }
