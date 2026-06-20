@@ -39,6 +39,13 @@
 	let table = $derived(
 		input && 'specificTable' in input ? (input.specificTable as string | undefined) : undefined
 	)
+	// Explicit schema from `ducklake://<lake>/<schema>.<table>` (default `main`).
+	// The preview SELECT is `FROM <tableKey>` unquoted, so a `schema.table` key
+	// resolves to the right schema — without this the read hits the default one.
+	let schema = $derived(
+		input && 'specificSchema' in input ? (input.specificSchema as string | undefined) : undefined
+	)
+	let tableKey = $derived(schema && table ? `${schema}.${table}` : table)
 
 	// Scope rows to the partition slice via the preview SELECT's whereClause.
 	// The value is single-quote-escaped (it's raw-injected server-side).
@@ -63,7 +70,7 @@
 	let tableColDefs = $derived.by(() => {
 		const defs = colDefs.current
 		if (!table || !defs) return undefined
-		const direct = defs[`main.${table}`] ?? defs[table]
+		const direct = defs[`${schema ?? 'main'}.${table}`] ?? defs[table]
 		const found =
 			direct ??
 			(() => {
@@ -78,10 +85,10 @@
 	})
 
 	let dbTableOps = $derived.by(() => {
-		if (!(input && tableColDefs && table && $workspaceStore)) return undefined
+		if (!(input && tableColDefs && tableKey && $workspaceStore)) return undefined
 		const ops = dbTableOpsWithPreviewScripts({
 			input,
-			tableKey: table,
+			tableKey,
 			colDefs: tableColDefs,
 			workspace: $workspaceStore,
 			whereClause
