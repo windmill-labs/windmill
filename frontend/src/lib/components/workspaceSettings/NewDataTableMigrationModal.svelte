@@ -41,13 +41,22 @@
 	function wrapInTransaction(body: string): string {
 		return `BEGIN;\n\n${body}\n\nEND;`
 	}
+	// A statement inside BEGIN; ... END; must be `;`-terminated. The SQL splitter
+	// strips the trailing `;` when extracting a detected DDL statement, so re-add
+	// it when missing.
+	function ensureTrailingSemicolon(body: string): string {
+		const trimmed = body.trimEnd()
+		return trimmed.endsWith(';') ? trimmed : `${trimmed};`
+	}
 	const UP_PLACEHOLDER = wrapInTransaction('-- Add your migration here')
 
 	export function open(prefill?: { name?: string; codeUp?: string; codeDown?: string }) {
 		name = prefill?.name ?? ''
 		// Start from the transaction template; when prefilled from detected DDL,
 		// wrap that DDL in the same BEGIN; ... END; frame.
-		codeUp = prefill?.codeUp ? wrapInTransaction(prefill.codeUp) : UP_PLACEHOLDER
+		codeUp = prefill?.codeUp
+			? wrapInTransaction(ensureTrailingSemicolon(prefill.codeUp))
+			: UP_PLACEHOLDER
 		codeDown = prefill?.codeDown ?? ''
 		enableDown = (prefill?.codeDown ?? '') !== ''
 		tab = 'up'
