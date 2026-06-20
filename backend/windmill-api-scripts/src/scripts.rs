@@ -1251,22 +1251,36 @@ async fn create_script_internal<'c>(
             windmill_common::pipeline_advanced::freshness_enforcement_todo()
         );
     }
-    // Managed `// materialize` (the default — anything but `manual`) generates
-    // the write DDL around a single trailing SELECT: only DuckDB can be managed,
-    // and the script must be a valid setup-then-SELECT. Validate at deploy with
-    // the shared classifier so the failure is a clear save-time error, not a
-    // run-time one. `manual` scripts own their DDL, so they skip both checks.
+    // `// materialize` materializes a `ducklake://<name>/<table>` target from a
+    // DuckDB script. These two constraints hold for *both* modes: a non-DuckLake
+    // target would otherwise deploy, register a producer in the asset graph, then
+    // silently no-op at run time (`build_materialized_query` returns `Ok(None)`),
+    // and a non-DuckDB script never reaches the executor that records state. The
+    // managed-only checks (single trailing SELECT, no SQL args) come after — a
+    // `manual` script owns its DDL and skips them.
     if let Some(m) = pipeline_annotations.materialize.as_ref() {
+        if ns.language != ScriptLang::DuckDb {
+            return Err(Error::BadRequest(format!(
+                "`// materialize` is only supported for DuckDB scripts, not {}. Use the \
+                 wmll.ducklake helpers to materialize from other languages.",
+                ns.language.as_str()
+            )));
+        }
+        if m.target_kind != windmill_parser::asset_parser::AssetKind::Ducklake {
+            return Err(Error::BadRequest(
+                "`// materialize` only supports a DuckLake target \
+                 (`ducklake://<name>/<table>`); other asset kinds aren't materializable."
+                    .to_string(),
+            ));
+        }
+        if !m.target_path.contains('/') {
+            return Err(Error::BadRequest(format!(
+                "`// materialize` needs a table in the target: \
+                 `ducklake://{0}/<table>` (got `ducklake://{0}`).",
+                m.target_path
+            )));
+        }
         if !m.manual {
-            if ns.language != ScriptLang::DuckDb {
-                return Err(Error::BadRequest(format!(
-                    "`// materialize` is only supported for DuckDB scripts, not {}. Use the \
-                     wmll.ducklake helpers from {}, or `// materialize manual` to write the DDL \
-                     yourself.",
-                    ns.language.as_str(),
-                    ns.language.as_str()
-                )));
-            }
             if let Err(e) = windmill_parser::sql_materialize::classify_wrap(&ns.content) {
                 return Err(Error::BadRequest(e.message()));
             }
