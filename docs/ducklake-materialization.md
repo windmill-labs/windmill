@@ -84,53 +84,63 @@ let query_block_list = parse_sql_blocks(&query, true);
 // each block: remove_comments → if ducklake/datatable ATTACH, expand; else passthrough
 ```
 
-All blocks run in order on one DuckDB connection. Two integration points:
+All blocks run in order on one DuckDB connection. Materialize has two modes:
 
-1. **Literal mode (default).** The user writes their own DELETE+INSERT / MERGE
-   inside their own `BEGIN … COMMIT` (the template scaffolds it — see Path A
-   example in `pipelines-vs-dbt.md`). Windmill injects nothing into the body;
-   it only (a) binds `WM_PARTITION_*` context and (b) appends a snapshot-capture
-   block (below). DuckLake makes the user's `BEGIN…COMMIT` atomic for free.
-
-2. **Wrap mode (`// materialize wrap`).** The user writes one `SELECT`. Windmill
-   replaces that block with generated statements, wrapped in an *explicit
+1. **Managed (default).** The user writes *setup + one trailing `SELECT`*. Windmill
+   replaces that SELECT with generated statements, wrapped in an *explicit
    DuckLake transaction it controls* — never textual `BEGIN/COMMIT` injected
    around the user's other statements (fragile across their own `ATTACH`s and
-   multi-statement SQL). Concretely, the single SELECT block expands to:
+   multi-statement SQL). For a partitioned `replace` the SELECT block expands to:
 
    ```sql
-   -- generated for: // partitioned daily ; target = dl.orders_daily
+   -- generated for: // partitioned daily ; target = dl.orders_daily ; partition = '2026-06-19'
+   CREATE TABLE IF NOT EXISTS dl.orders_daily AS
+     SELECT *, CAST(NULL AS VARCHAR) AS _wm_partition FROM (<user_select>) WHERE false;  -- first-run bootstrap
+   ALTER TABLE dl.orders_daily SET PARTITIONED BY (_wm_partition);
    BEGIN TRANSACTION;
-   CREATE TABLE IF NOT EXISTS dl.orders_daily AS <user_select> WHERE false;  -- first-run bootstrap, schema only
-   DELETE FROM dl.orders_daily WHERE _wm_partition = $WM_PARTITION;
-   INSERT INTO dl.orders_daily
-     SELECT *, $WM_PARTITION AS _wm_partition FROM (<user_select>);
+   DELETE FROM dl.orders_daily WHERE _wm_partition = '2026-06-19';
+   INSERT INTO dl.orders_daily SELECT *, '2026-06-19' AS _wm_partition FROM (<user_select>);
    COMMIT;
    ```
 
-   With `// unique_key order_id`, the DELETE+INSERT becomes a `MERGE INTO
-   dl.orders_daily USING (<user_select>) ON order_id` (dedup within slice).
-   With `// append`, the DELETE is dropped. This is the *only* place dialect
-   templating lives, and it's DuckDB-only — we never pay dbt's cross-warehouse
-   MERGE tax.
+   The strategy variants are all DELETE+INSERT-shaped — no `MERGE INTO`, which
+   DuckLake can't reliably run on a fresh partition (it 404s writing the first
+   rows):
+   - **whole-table replace** (no `// partitioned`) → a single `CREATE OR REPLACE
+     TABLE … AS <user_select>` (handles schema changes, still snapshots).
+   - **`key=<col>`** → `DELETE FROM … WHERE [<partition> AND] <col> IN (SELECT
+     <col> FROM (<user_select>))` then `INSERT` (upsert within the slice).
+   - **`append`** → the `DELETE` is dropped (insert-only).
 
-The `_wm_partition` column is the physical link the current orchestration layer
-lacks: on first materialize, Windmill also runs `ALTER TABLE dl.orders_daily
-SET PARTITIONED BY (_wm_partition)` so DuckLake prunes on read and the
-DELETE-by-partition rewrites only that partition's Parquet files.
+2. **`manual`.** The user writes their own DDL inside their own `BEGIN … COMMIT`;
+   Windmill injects nothing into the body and only records state (no snapshot
+   capture, no idempotency guarantee).
 
-### Snapshot capture
+The `_wm_partition` column is the physical link the orchestration layer lacks: on
+first materialize Windmill runs `ALTER TABLE … SET PARTITIONED BY (_wm_partition)`
+so DuckLake prunes on read and DELETE-by-partition rewrites only that partition's
+Parquet files.
 
-After the user's (or generated) blocks, append one read block and record the
-result onto the run:
+> Storage: DuckLake writes go to `s3://_default_/` through the windmill S3 proxy
+> (`/api/w/{ws}/s3_proxy`, gated behind the `parquet` + `private` features). The
+> proxy must sign the SigV4 canonical URI with **single** percent-encoding — the
+> SigV4 default (`Double`) 401s Hive-partition keys like `_wm_partition=2026-06-19`
+> (the `=` double-encodes to `%253D` vs the client's `%3D`).
+
+### Run summary capture
+
+After the generated blocks, Windmill appends one read block — it is both the job's
+result (a useful preview rendered as the materialized table) and the row it records:
 
 ```sql
-SELECT max(snapshot_id) AS snapshot_id FROM ducklake_snapshots('dl');
+SELECT 'ducklake://<name>/<table>' AS materialized,
+       '<partition>' AS partition,            -- only when partitioned
+       (SELECT count(*) FROM <target> [WHERE _wm_partition = '<partition>']) AS rows,
+       (SELECT max(snapshot_id) FROM ducklake_snapshots('<target>')) AS snapshot_id;
 ```
 
-The returned `snapshot_id` (plus `INSERT`/`MERGE` row count, already available
-from DuckDB's result) is persisted as materialization metadata. This is a
-single extra round-trip per materialization, no new infra.
+The `snapshot_id` and `rows` are persisted as `materialized_partition` metadata.
+One extra round-trip per materialization, no new infra.
 
 ## Metadata schema
 
