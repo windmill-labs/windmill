@@ -22576,6 +22576,13 @@ components:
           type: string
         parent_hash:
           type: string
+        auto_parent:
+          type: boolean
+          description: >-
+            When true, the backend resolves the parent to the current deployed
+            head for this path within the transaction (ignoring parent_hash),
+            instead of failing with a "lineage must be linear" error when the
+            supplied parent_hash is stale.
         summary:
           type: string
         description:
