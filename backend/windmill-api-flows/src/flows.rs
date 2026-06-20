@@ -154,6 +154,11 @@ async fn list_flows(
             "ws_error_handler_muted",
             "o.labels",
             "draft.email IS NOT NULL as is_draft",
+            // Authed user's staged rename, if any: the draft JSON's own `path`
+            // when it differs from the deployed path. Lets the home row show the
+            // pending name for a deployed flow with a rename draft, not just
+            // never-deployed (draft-only) items.
+            "NULLIF(NULLIF(draft.value ->> 'path', ''), o.path) as draft_path",
             // Per-path draft owners as a JSON array; see scripts.rs for the rationale
             // (admins-workspace identity fallback, legacy NULL-email row).
             "(SELECT json_agg(json_build_object('username', COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END)) ORDER BY COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) NULLS LAST) \

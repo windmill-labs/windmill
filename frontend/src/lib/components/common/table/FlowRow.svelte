@@ -137,6 +137,14 @@
 	{depth}
 	{keyboardSelected}
 >
+	{#snippet pathDisplay()}
+		{#if !flow.draft_only && flow.draft_path && flow.draft_path !== flow.path}
+			<span class="line-through">{flow.path}</span>
+			{flow.draft_path}
+		{:else}
+			{flow.draft_path ?? flow.path}
+		{/if}
+	{/snippet}
 	{#snippet badges()}
 		{#if flow.archived}
 			<Badge color="red" baseClass="border">archived</Badge>

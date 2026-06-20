@@ -114,6 +114,14 @@
 	{depth}
 	{keyboardSelected}
 >
+	{#snippet pathDisplay()}
+		{#if !app.draft_only && (app as any).draft_path && (app as any).draft_path !== app.path}
+			<span class="line-through">{app.path}</span>
+			{(app as any).draft_path}
+		{:else}
+			{(app as any).draft_path ?? app.path}
+		{/if}
+	{/snippet}
 	{#snippet badges()}
 		{#if app.execution_mode == 'anonymous'}
 			<Badge small icon={{ icon: Eye }}>Public</Badge>

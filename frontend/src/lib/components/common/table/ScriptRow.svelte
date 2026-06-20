@@ -157,6 +157,14 @@
 	{depth}
 	{keyboardSelected}
 >
+	{#snippet pathDisplay()}
+		{#if !script.draft_only && script.draft_path && script.draft_path !== script.path}
+			<span class="line-through">{script.path}</span>
+			{script.draft_path}
+		{:else}
+			{script.draft_path ?? script.path}
+		{/if}
+	{/snippet}
 	{#snippet badges()}
 		{#if script.lock_error_logs}
 			<Badge color="red" baseClass="border border-red-200">Deployment failed</Badge>

@@ -395,6 +395,11 @@ async fn list_apps(
             "app_version.raw_app",
             "app.labels",
             "draft.path IS NOT NULL as is_draft",
+            // Authed user's staged rename, if any: the draft JSON's own `path` when it
+            // differs from the deployed path (the `draft` subquery below exposes `value`).
+            // Shows the pending name on the home row for a deployed app with a rename
+            // draft, not just never-deployed (draft-only) items.
+            "NULLIF(NULLIF(draft.value ->> 'path', ''), app.path) as draft_path",
             // Per-path draft owners as a JSON array; see scripts.rs for the rationale
             // (admins-workspace identity fallback, legacy NULL-email row).
             // `app`/`raw_app` are separate draft kinds over one `app` table — match
@@ -417,7 +422,7 @@ async fn list_apps(
         // for `is_draft`. DISTINCT in the subquery: a path with both kinds for the same
         // user would otherwise fan the deployed row into two identical entries.
         .join(
-            "(SELECT DISTINCT path, workspace_id FROM draft WHERE typ IN ('app', 'raw_app') AND email = ?) draft"
+            "(SELECT DISTINCT ON (path, workspace_id) path, workspace_id, value FROM draft WHERE typ IN ('app', 'raw_app') AND email = ? ORDER BY path, workspace_id) draft"
                 .bind(&authed.email),
         )
         .on("draft.path = app.path AND draft.workspace_id = app.workspace_id")
