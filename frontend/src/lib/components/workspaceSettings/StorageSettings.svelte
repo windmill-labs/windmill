@@ -129,6 +129,9 @@
 	let hasUnsavedChanges = $derived.by(() => {
 		return !deepEqual(s3ResourceSettings, s3ResourceSavedSettings)
 	})
+
+	// A visible storage row without a selected resource can't be saved.
+	let hasMissingResource = $derived(tableRows.some(([, item]) => emptyString(item.resourcePath)))
 </script>
 
 <Portal name="workspace-settings">
@@ -361,6 +364,7 @@
 		class="mt-5 mb-5"
 		inline
 		{hasUnsavedChanges}
+		disabled={hasMissingResource}
 		onSave={editWindmillLFSSettings}
 		onDiscard={() => onDiscard?.()}
 		saveLabel="Save storage settings"
