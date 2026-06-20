@@ -912,6 +912,9 @@
 				s.properties['partition'] = {
 					type: 'string',
 					...(format ? { format } : {}),
+					// ISO output so partition keys sort lexicographically (the date
+					// picker defaults to dd-MM-yyyy otherwise).
+					...(format === 'date' ? { dateFormat: 'yyyy-MM-dd' } : {}),
 					description:
 						part.kind === 'dynamic'
 							? 'Partition key value to materialize.'
