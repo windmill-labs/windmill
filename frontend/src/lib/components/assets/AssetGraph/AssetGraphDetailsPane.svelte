@@ -572,6 +572,12 @@
 					// deployed script, or a draft promoted from unsaved edits
 					// to a deployed script) chains off it.
 					parent_hash: script.hash ? String(script.hash) : undefined,
+					// Let the backend resolve the parent to the current head for
+					// this path (atomically, under an advisory lock) instead of
+					// rejecting a stale parent_hash with a "lineage must be
+					// linear" error — the pane is opened from a graph snapshot
+					// that can fall behind the deployed head between renders.
+					auto_parent: true,
 					is_template: false,
 					tag: script.tag,
 					kind: script.kind as Script['kind'] | undefined,
