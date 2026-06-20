@@ -453,11 +453,11 @@
 				<Tab value="down" label="Down" />
 				{#snippet content()}
 					<TabContent value="up" class="h-80">
-						<SimpleEditor class="h-full" lang="sql" code={viewMigration?.code_up ?? ''} disabled />
+						<SimpleEditor class="h-full" lang="sql" code={viewMigration?.code_up ?? ''} readOnly />
 					</TabContent>
 					<TabContent value="down" class="h-80">
 						{#if viewMigration?.code_down}
-							<SimpleEditor class="h-full" lang="sql" code={viewMigration.code_down} disabled />
+							<SimpleEditor class="h-full" lang="sql" code={viewMigration.code_down} readOnly />
 						{:else}
 							<div class="p-6 text-center text-sm text-tertiary">No down migration</div>
 						{/if}

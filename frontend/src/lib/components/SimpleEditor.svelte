@@ -95,6 +95,7 @@
 		loadAsync = false,
 		key,
 		disabled = false,
+		readOnly = false,
 		minHeight = 1000,
 		renderLineHighlight = 'none',
 		suggestion
@@ -123,6 +124,9 @@
 		initialCursorPos?: IPosition
 		key?: string
 		disabled?: boolean
+		/** Read-only Monaco mode: not editable, but still scrollable/selectable
+		 * (unlike `disabled`, which makes the editor non-interactive). */
+		readOnly?: boolean
 		minHeight?: number
 		renderLineHighlight?: 'all' | 'line' | 'gutter' | 'none'
 		suggestion?: string
@@ -239,6 +243,9 @@
 			lineNumbers: $relativeLineNumbers ? 'relative' : 'on'
 		})
 	})
+	$effect(() => {
+		editor?.updateOptions({ readOnly })
+	})
 
 	function onVimDisable() {
 		vimDisposable?.dispose()
@@ -342,6 +349,7 @@
 				),
 				model,
 				...(yPadding !== undefined ? { padding: { bottom: yPadding, top: yPadding } } : {}),
+				readOnly,
 				renderLineHighlight,
 				lineDecorationsWidth: 0,
 				lineNumbersMinChars: 2,
