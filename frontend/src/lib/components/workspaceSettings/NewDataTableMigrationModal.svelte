@@ -18,7 +18,8 @@
 	}: {
 		workspace: string
 		datatable: string
-		onCreated?: () => void
+		/** Called after a successful create; `ran` is true when it was also run. */
+		onCreated?: (ran: boolean) => void
 		onClose?: () => void
 	} = $props()
 
@@ -107,7 +108,7 @@
 			}
 			isOpen = false
 			sendUserToast(run ? 'Migration created and run' : 'Migration created')
-			onCreated?.()
+			onCreated?.(run)
 		} catch (e: any) {
 			sendUserToast(`Failed to create migration: ${e?.body ?? e?.message ?? e}`, true)
 		} finally {

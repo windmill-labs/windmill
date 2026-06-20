@@ -18,8 +18,11 @@
 		input: DbInput
 		onData: (data: Record<string, any>[]) => void
 		placeholderTableName?: string
+		/** Called after a migration is run via the DDL guard, so the schema view
+		 * can be refreshed to reflect the applied change. */
+		onSchemaChange?: () => void
 	}
-	let { input, onData, placeholderTableName }: Props = $props()
+	let { input, onData, placeholderTableName, onSchemaChange }: Props = $props()
 	let dbType = $derived(getDbType(input))
 
 	// A datatable REPL targets `datatable://<name>`; surface DDL statements as
@@ -51,6 +54,8 @@
 		// migrations; the user may strip some, leaving the rest to run.
 		if (datatableName && ddlGuard && !doPostgresRowToJsonFix) {
 			const res = await ddlGuard.guard(code)
+			// A migration that was created and run changes the schema; refresh it.
+			if (res.ranMigration) onSchemaChange?.()
 			if (!res.proceed) return
 			if (res.code !== code) code = res.code
 			if (pruneComments(code).trim() === '') return

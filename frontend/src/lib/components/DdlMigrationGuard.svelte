@@ -13,6 +13,9 @@
 	let resolvePrompt: ((choice: Choice) => void) | undefined = undefined
 	let resolveMigrationClosed: (() => void) | undefined = undefined
 	let migrationCreated = false
+	// Set when a migration is created *and run* during a guard() call, so the
+	// caller can refresh the schema afterwards.
+	let migrationRan = false
 	let newMigrationModal = $state<NewDataTableMigrationModal | undefined>(undefined)
 
 	function finishPrompt(choice: Choice) {
@@ -38,8 +41,9 @@
 		})
 	}
 
-	function handleMigrationCreated() {
+	function handleMigrationCreated(ran: boolean) {
 		migrationCreated = true
+		if (ran) migrationRan = true
 	}
 
 	function handleMigrationClosed() {
@@ -63,10 +67,13 @@
 	 * anyway or turn it into a migration (prompts shown one at a time). Returns
 	 * whether to proceed and the code to run (with migrated statements stripped).
 	 */
-	export async function guard(code: string): Promise<{ proceed: boolean; code: string }> {
+	export async function guard(
+		code: string
+	): Promise<{ proceed: boolean; code: string; ranMigration: boolean }> {
+		migrationRan = false
 		const statements = splitSqlStatements(code)
 		if (!statements.some((s) => isDdlStatement(s))) {
-			return { proceed: true, code }
+			return { proceed: true, code, ranMigration: false }
 		}
 
 		const kept: string[] = []
@@ -80,7 +87,7 @@
 			for (;;) {
 				const choice = await promptDdl(statement)
 				if (choice === 'cancel') {
-					return { proceed: false, code }
+					return { proceed: false, code, ranMigration: migrationRan }
 				}
 				if (choice === 'run') {
 					kept.push(statement)
@@ -95,7 +102,7 @@
 			}
 		}
 
-		return { proceed: true, code: kept.join(';\n') }
+		return { proceed: true, code: kept.join(';\n'), ranMigration: migrationRan }
 	}
 </script>
 
