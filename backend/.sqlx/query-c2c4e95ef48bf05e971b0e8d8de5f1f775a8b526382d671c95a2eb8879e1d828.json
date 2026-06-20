@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job SET args = coalesce(args, '{}'::jsonb) || jsonb_build_object('partition', $1::text) WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c2c4e95ef48bf05e971b0e8d8de5f1f775a8b526382d671c95a2eb8879e1d828"
+}

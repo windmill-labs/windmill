@@ -35,6 +35,7 @@ import TelegramIcon from './TelegramIcon.svelte'
 import FunkwhaleIcon from './FunkwhaleIcon.svelte'
 import GdocsIcon from './GdocsIcon.svelte'
 import NextcloudIcon from './NextcloudIcon.svelte'
+import NetsuiteIcon from './NetsuiteIcon.svelte'
 import FaunadbIcon from './FaunadbIcon.svelte'
 import ClickhouseIcon from './ClickhouseIcon.svelte'
 import OpenaiIcon from './OpenaiIcon.svelte'
@@ -250,6 +251,7 @@ export const APP_TO_ICON_COMPONENT = {
 	hubspot: HubspotIcon,
 	datadog: DatadogIcon,
 	databricks: DatabricksIcon,
+	netsuite: NetsuiteIcon,
 	coupa: CoupaIcon,
 	adobe_acrobat_sign: AdobeAcrobatSignIcon,
 	stripe: StripeIcon,

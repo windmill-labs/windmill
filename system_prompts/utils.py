@@ -184,6 +184,11 @@ LANGUAGE_METADATA = {
         'description': 'MUST use when writing R scripts.',
         'use_cases': 'R statistical computing, data analysis, visualization'
     },
+    'ansible': {
+        'name': 'Ansible',
+        'description': 'MUST use when writing Ansible playbooks.',
+        'use_cases': 'infrastructure automation, configuration management, remote execution'
+    },
 }
 
 # Languages that use TypeScript SDK. 'nativets' is kept here (despite having no

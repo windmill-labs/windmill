@@ -413,7 +413,12 @@
 	function updateRecursiveRefresh(jobId: string) {
 		if (jobId) {
 			updateRecursiveRefreshFn?.(jobId, async (clear, root) => {
-				if (globalModuleStates.length > 0 || isSubflow) {
+				// During a clear pass we must descend into children even when this
+				// subtree is currently deselected (globalModuleStates empty): clearing
+				// the parent loop's selection deselects its iteration viewers before the
+				// recursion reaches them, and their stale branch-step states would leak
+				// into the newly selected iteration otherwise.
+				if (clear || globalModuleStates.length > 0 || isSubflow) {
 					await refresh(clear, root)
 				}
 			})

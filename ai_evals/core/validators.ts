@@ -169,6 +169,16 @@ export function validateToolExpectations(input: {
     );
   }
 
+  for (const group of expect.requiredToolsAnyOf ?? []) {
+    checks.push(
+      check(
+        `uses one of ${group.join(", ")}`,
+        group.some((toolName) => input.run.toolsUsed.includes(toolName)),
+        `tools used: ${input.run.toolsUsed.join(", ") || "none"}`
+      )
+    );
+  }
+
   for (const toolName of expect.forbiddenToolsUsed ?? []) {
     checks.push(
       check(

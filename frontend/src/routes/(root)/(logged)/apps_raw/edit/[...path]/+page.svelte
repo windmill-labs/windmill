@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
+	import { onDestroy } from 'svelte'
+	import { stripNewDraftFlagOnSave } from '$lib/newDraftFlag'
 
 	import { AppService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -84,12 +86,17 @@
 	 * self-destruct by matching a non-existent baseline. */
 	let deployedBaseline = $state<RawAppDraft | undefined>(undefined)
 
-	// Page-level draft orchestration. `path` is a mount-scoped plain `let` (the
-	// editor remounts per path), so this re-keys only on workspace change.
+	// Page-level draft orchestration. Keyed on the REACTIVE `page.params.path`,
+	// not the mount-scoped `path` `let`: this page is not remounted on a
+	// same-route navigation, so the post-deploy `goto` (draft_{uuid} → the
+	// chosen path) must re-key the autosave handle onto the new path. Keying on
+	// the non-reactive `path` left the handle stuck on the old draft path, so
+	// edits to the just-deployed app autosaved to a dead key (autosave appeared
+	// broken). See /scripts/edit, which derives its draft path the same way.
 	// effectivePath omitted: the live-editor-draft entry is owned by RawAppEditor.
 	const draftSync = usePageDraftSync<RawAppDraft>({
 		itemKind: 'raw_app',
-		path: () => path,
+		path: () => page.params.path ?? '',
 		workspace: () => $workspaceStore,
 		// Autosaves landing back on the deployed raw app become deletes, so
 		// reverting edits clears the draft instead of leaving a no-op behind.
@@ -144,6 +151,9 @@
 	 * navigation races a draft-discard reload) bail at the next checkpoint
 	 * after their captured token no longer matches. */
 	let loadAppToken = 0
+	/** Drops the previous load's `new_draft` strip-on-save listener. */
+	let cleanupNewDraftFlag: (() => void) | undefined
+	onDestroy(() => cleanupNewDraftFlag?.())
 	/** No deployed row at the URL path; flips RawAppEditor's deploy from
 	 * `updateApp` to `createApp`. See /apps/edit's `isNewApp`. */
 	let isNewApp = $state(false)
@@ -155,6 +165,8 @@
 	async function loadApp(opts: { getDraft?: boolean } = {}): Promise<void> {
 		const getDraft = opts.getDraft ?? true
 		const tok = ++loadAppToken
+		cleanupNewDraftFlag?.()
+		cleanupNewDraftFlag = undefined
 		// `?new_draft=true` (from `/apps_raw/add`'s redirect): a fresh, never-saved
 		// `draft_{uuid}` path. Skip the backend fetch (would 404) and seed every
 		// piece of state RawAppEditor needs — rendering gates on `files`, so an
@@ -176,10 +188,15 @@
 			if ($workspaceStore) {
 				UserDraft.stopSync('raw_app', path, { workspace: $workspaceStore })
 				armRestartOnFirstInteraction($workspaceStore, 'raw_app', path)
+				// Keep `?new_draft=true` until the backend confirms the first autosave,
+				// so a refresh before any edit re-seeds here instead of 404-ing on the
+				// never-persisted `draft_{uuid}` path.
+				cleanupNewDraftFlag = stripNewDraftFlagOnSave({
+					workspace: $workspaceStore,
+					itemKind: 'raw_app',
+					path
+				})
 			}
-			const url = new URL(window.location.href)
-			url.searchParams.delete('new_draft')
-			window.history.replaceState(window.history.state, '', url.toString())
 			// Backend's `Policy` requires `execution_mode` (empty object fails to deserialize).
 			const defaultPolicy = {
 				on_behalf_of: $userStore?.username.includes('@')

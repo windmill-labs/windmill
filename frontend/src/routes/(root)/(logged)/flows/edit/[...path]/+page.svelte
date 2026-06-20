@@ -17,7 +17,8 @@
 	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
-	import { tick, untrack } from 'svelte'
+	import { onDestroy, tick, untrack } from 'svelte'
+	import { stripNewDraftFlagOnSave } from '$lib/newDraftFlag'
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 	import { page } from '$app/state'
 	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
@@ -124,10 +125,15 @@
 	 * (e.g. picker navigation while a draft-discard reload is in flight),
 	 * the older promise no-ops at the next checkpoint. */
 	let loadFlowToken = 0
+	/** Drops the previous load's `new_draft` strip-on-save listener. */
+	let cleanupNewDraftFlag: (() => void) | undefined
+	onDestroy(() => cleanupNewDraftFlag?.())
 	async function loadFlow(opts: { getDraft?: boolean } = {}): Promise<void> {
 		const getDraft = opts.getDraft ?? true
 		const tok = ++loadFlowToken
 		loading = true
+		cleanupNewDraftFlag?.()
+		cleanupNewDraftFlag = undefined
 		let flow: Flow
 		// Builder-dependent setup is captured here and applied AFTER the builder
 		// remounts (see end of loadFlow): during a reload renderEditor is false,
@@ -160,7 +166,6 @@
 			// Empty `initialPath` so `initPath` takes the `reset()` branch and seeds
 			// the auto-name, else the topbar shows the raw `draft_{uuid}`.
 			flowInitialPath = ''
-			// Capture every seeding param BEFORE stripping the URL flag.
 			const hubId = page.url.searchParams.get('hub')
 			const templatePath = page.url.searchParams.get('template')
 			const templateId = page.url.searchParams.get('template_id')
@@ -187,9 +192,16 @@
 			if (page.url.hash != '') {
 				forkState = decodeState(page.url.hash.slice(1))
 			}
-			const url = new URL(window.location.href)
-			url.searchParams.delete('new_draft')
-			window.history.replaceState(window.history.state, '', url.toString())
+			// Keep `?new_draft=true` until the backend confirms the first autosave,
+			// so a refresh before any edit re-seeds here instead of 404-ing on the
+			// never-persisted `draft_{uuid}` path.
+			if ($workspaceStore) {
+				cleanupNewDraftFlag = stripNewDraftFlagOnSave({
+					workspace: $workspaceStore,
+					itemKind: 'flow',
+					path: flowDraftPath
+				})
+			}
 			const empty: Flow = {
 				path: '',
 				summary: '',
