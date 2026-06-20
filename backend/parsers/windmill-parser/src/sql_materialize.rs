@@ -333,8 +333,8 @@ pub enum MaterializeStrategy {
     /// DELETE the current partition, then INSERT — partition becomes exactly
     /// what the SELECT returned. Full-refresh of the slice.
     Replace,
-    /// MERGE on `unique_key` — upsert within the slice; rows absent from the
-    /// SELECT are left in place.
+    /// Upsert within the slice on `unique_key` (delete-by-key + insert); rows
+    /// absent from the SELECT are left in place.
     Merge { unique_key: String },
     /// INSERT only — immutable event-log semantics.
     Append,
@@ -366,12 +366,9 @@ impl<'a> MaterializeCodegen<'a> {
     /// The ordered statements that perform the materialization, to be run after
     /// the setup blocks and inside the caller's execution. The first-run
     /// bootstrap is idempotent (`IF NOT EXISTS`), so this is safe to run every
-    /// time. The DELETE/INSERT/MERGE body is wrapped in one transaction so a
-    /// partial failure leaves the prior snapshot intact.
-    ///
-    /// Note: the exact MERGE / `INSERT *` dialect targets DuckDB+DuckLake and
-    /// must be validated against the deployed DuckDB version — this function
-    /// fixes the *shape*, not the dialect minutiae.
+    /// time. The DELETE/INSERT body is wrapped in one transaction so a partial
+    /// failure leaves the prior snapshot intact. Every strategy reduces to
+    /// DELETE+INSERT (no `MERGE INTO`) — see the `Merge` arm for why.
     pub fn statements(&self) -> Vec<String> {
         let t = self.target_qualified;
         let sel = self.select_sql;
@@ -413,21 +410,24 @@ impl<'a> MaterializeCodegen<'a> {
                 out.push(format!("INSERT INTO {t} {source};"));
             }
             MaterializeStrategy::Merge { unique_key } => {
-                // Scope the match to the current partition when partitioned, so
-                // the merge is slice-local: a row with the same unique_key in
-                // another partition must not match (and so must not have its
-                // partition column rewritten by `UPDATE SET *`). Without this
-                // the dedup key would have to be globally unique.
-                let on = if self.partitioned {
-                    format!("t.{unique_key} = s.{unique_key} AND t.{pcol} = s.{pcol}")
+                // Upsert within the slice via delete-by-key + insert (dbt's
+                // `delete+insert`): rows whose key is in the incoming SELECT are
+                // replaced, others are left in place. This deliberately avoids
+                // `MERGE INTO` — DuckLake's MERGE fails writing the first rows of
+                // a fresh partition (HTTP 404 on the new parquet), and a failed
+                // write leaves the table needing a DROP. DELETE+INSERT is the
+                // same write shape as `replace`, which is reliable. The DELETE is
+                // scoped to the current partition when partitioned so it stays
+                // slice-local (a key present in another partition is untouched).
+                let scope = if self.partitioned {
+                    format!("{pcol} = {pval} AND ")
                 } else {
-                    format!("t.{unique_key} = s.{unique_key}")
+                    String::new()
                 };
                 out.push(format!(
-                    "MERGE INTO {t} AS t USING ({source}) AS s ON {on} \
-                     WHEN MATCHED THEN UPDATE SET * \
-                     WHEN NOT MATCHED THEN INSERT *;"
+                    "DELETE FROM {t} WHERE {scope}{unique_key} IN (SELECT {unique_key} FROM ({sel}));"
                 ));
+                out.push(format!("INSERT INTO {t} {source};"));
             }
         }
         out.push("COMMIT;".to_string());
@@ -652,7 +652,7 @@ mod tests {
     }
 
     #[test]
-    fn codegen_merge_uses_unique_key() {
+    fn codegen_merge_is_delete_by_key_plus_insert() {
         let cg = MaterializeCodegen {
             target_qualified: "_wm_target.orders_daily",
             select_sql: "SELECT order_id, amount FROM dl.orders",
@@ -662,15 +662,19 @@ mod tests {
             strategy: MaterializeStrategy::Merge { unique_key: "order_id".to_string() },
         };
         let st = cg.statements();
-        let merge = st
+        // upsert = delete-by-key (partition-scoped) + insert — NO `MERGE INTO`
+        // (DuckLake's MERGE fails on fresh partitions).
+        assert!(!st.iter().any(|s| s.contains("MERGE INTO")));
+        let del = st
             .iter()
-            .find(|s| s.starts_with("MERGE INTO"))
-            .expect("merge stmt");
-        assert!(merge.contains("ON t.order_id = s.order_id"));
-        // partitioned merge must be slice-local (see codegen comment)
-        assert!(merge.contains("AND t._wm_partition = s._wm_partition"));
-        assert!(merge.contains("WHEN MATCHED THEN UPDATE SET *"));
-        assert!(!st.iter().any(|s| s.starts_with("DELETE")));
+            .find(|s| s.starts_with("DELETE FROM"))
+            .expect("delete stmt");
+        assert!(del.contains(
+            "WHERE _wm_partition = '2026-06-19' AND order_id IN (SELECT order_id FROM (SELECT order_id, amount FROM dl.orders))"
+        ));
+        assert!(st
+            .iter()
+            .any(|s| s.starts_with("INSERT INTO _wm_target.orders_daily SELECT *, '2026-06-19'")));
     }
 
     #[test]

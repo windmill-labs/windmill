@@ -2303,10 +2303,10 @@ class DucklakeClient:
     ):
         """Idempotently materialize the rows of `select_sql` into ducklake
         `table` for one `partition`. Client-side equivalent of the
-        `// materialize` engine: with `unique_key` it MERGEs (upsert within the
-        slice); without it, DELETEs the partition then INSERTs (replace the
-        slice). Re-running the same partition is safe — the backfill /
-        failure-recovery contract.
+        `// materialize` engine: with `unique_key` it upserts within the slice
+        (delete-by-key + insert); without it, it replaces the slice (delete the
+        partition + insert). Re-running the same partition is safe — the
+        backfill / failure-recovery contract.
 
         The partition value is bound as a DuckDB arg (never string-interpolated)
         so it cannot inject SQL. `select_sql` is trusted (your own query).
@@ -2314,10 +2314,12 @@ class DucklakeClient:
         t = self._qualified(table, schema)
         src = f"SELECT *, $_wm_partition AS {partition_col} FROM ({select_sql})"
         if unique_key:
+            # Upsert via delete-by-key + insert (not MERGE — DuckLake's MERGE
+            # fails writing the first rows of a fresh partition).
             body = (
-                f"MERGE INTO {t} AS t USING ({src}) AS s "
-                f"ON t.{unique_key} = s.{unique_key} AND t.{partition_col} = s.{partition_col} "
-                f"WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *;"
+                f"DELETE FROM {t} WHERE {partition_col} = $_wm_partition "
+                f"AND {unique_key} IN (SELECT {unique_key} FROM ({select_sql}));\n"
+                f"INSERT INTO {t} {src};"
             )
         else:
             body = (

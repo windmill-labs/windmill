@@ -415,10 +415,13 @@ export function upsertPartition(opts: DucklakeMaterializeOptions) {
   let body = sql.raw(opts.selectSql);
   if (opts.uniqueKey) {
     let uk = sql.raw(opts.uniqueKey);
+    // Upsert via delete-by-key + insert (not MERGE — DuckLake's MERGE fails
+    // writing the first rows of a fresh partition).
     return sql`CREATE TABLE IF NOT EXISTS ${t} AS SELECT *, CAST(NULL AS VARCHAR) AS ${pcol} FROM (${body}) WHERE false;
 ALTER TABLE ${t} SET PARTITIONED BY (${pcol});
 BEGIN TRANSACTION;
-MERGE INTO ${t} AS tgt USING (SELECT *, ${opts.partition} AS ${pcol} FROM (${body})) AS s ON tgt.${uk} = s.${uk} AND tgt.${pcol} = s.${pcol} WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *;
+DELETE FROM ${t} WHERE ${pcol} = ${opts.partition} AND ${uk} IN (SELECT ${uk} FROM (${body}));
+INSERT INTO ${t} SELECT *, ${opts.partition} AS ${pcol} FROM (${body});
 COMMIT;`;
   }
   return sql`CREATE TABLE IF NOT EXISTS ${t} AS SELECT *, CAST(NULL AS VARCHAR) AS ${pcol} FROM (${body}) WHERE false;
