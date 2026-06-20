@@ -176,10 +176,41 @@ export function dbSchemaOpsWithPreviewScripts({
 		return safe ? `${op}_${safe}_${slug}` : `${op}_${slug}`
 	}
 
+	// A dropped SERIAL column reports its default as `nextval()` of an owned
+	// sequence that is dropped along with the column. When the down re-adds such a
+	// column, recreate it as its SERIAL type so a fresh sequence is created
+	// instead of referencing the gone one.
+	const SERIAL_FOR: Record<string, string> = {
+		BIGINT: 'BIGSERIAL',
+		INT8: 'BIGSERIAL',
+		INTEGER: 'SERIAL',
+		INT: 'SERIAL',
+		INT4: 'SERIAL',
+		SMALLINT: 'SMALLSERIAL',
+		INT2: 'SMALLSERIAL'
+	}
+	function reverseSerialFix(reverse: AlterTableValues): AlterTableValues {
+		return {
+			...reverse,
+			operations: reverse.operations.map((op) => {
+				if (op.kind !== 'addColumn' || !/nextval\s*\(/i.test(op.column.defaultValue ?? '')) {
+					return op
+				}
+				const serial = SERIAL_FOR[(op.column.datatype ?? '').toUpperCase()]
+				return serial
+					? { ...op, column: { ...op.column, datatype: serial, defaultValue: undefined } }
+					: op
+			})
+		}
+	}
+
 	// Frame a single (or multi-) statement body in an explicit, `;`-terminated
-	// transaction, matching the data table migration convention.
+	// transaction, matching the data table migration convention. Some expanded
+	// markers (e.g. ALTER TABLE) already come wrapped in their own transaction, so
+	// avoid nesting BEGIN/COMMIT in that case.
 	function wrapMigration(sql: string): string {
-		const t = sql.trimEnd()
+		const t = sql.trim()
+		if (/^BEGIN\b/i.test(t)) return t
 		return `BEGIN;\n\n${t.endsWith(';') ? t : `${t};`}\n\nEND;`
 	}
 
@@ -266,7 +297,7 @@ export function dbSchemaOpsWithPreviewScripts({
 			const downContent = reverse
 				? makeMarker('ALTER_TABLE', {
 						name: reverse.name,
-						operations: reverse.operations,
+						operations: reverseSerialFix(reverse).operations,
 						schema
 					})
 				: undefined
