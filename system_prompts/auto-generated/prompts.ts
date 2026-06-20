@@ -2619,15 +2619,22 @@ Show all available wmill.yaml configuration options
 
 ### datatable
 
-datatable related commands
+manage datatable migrations
 
 **Subcommands:**
 
+- \`datatable new <name:string>\` - scaffold a new migration (.up.sql / .down.sql files)
+  - \`-d --datatable <datatable:string>\` - Target datatable (default: main)
+- \`datatable up\` - apply all pending migrations to every datatable (or one via --datatable)
+  - \`-d --datatable <datatable:string>\` - Target a specific datatable (default: all datatables in the workspace)
+- \`datatable down\` - datatable related commands
+  - \`-d --datatable <datatable:string>\` - Target a specific datatable (default: all datatables in the workspace)
 - \`datatable list\` - list all datatables in the workspace
   - \`--json\` - Output as JSON (for piping to jq)
 - \`datatable run <sql:string>\` - run a SQL query on a datatable
   - \`-n --name <name:string>\` - Datatable name (default: main)
   - \`-s --silent\` - Output only the final result as JSON. Useful for scripting.
+- \`datatable migrate\`
 - \`datatable serve\` - Serve all datatables as a Postgres-wire endpoint (psql, DBeaver, pgAdmin); the client picks the datatable via the database name in its connection string
   - \`--port <port:number>\` - Port to listen on (default: first free port in 5433-5500)
   - \`--host <host:string>\` - Bind address (default: 127.0.0.1)
