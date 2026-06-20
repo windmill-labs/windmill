@@ -728,3 +728,19 @@ datatable(name: string = "main"): DatatableSqlTemplateFunction
  * let sql = wmill.ducklake("my_lake:analytics")
  */
 ducklake(name: string = "main"): SqlTemplateFunction
+
+/**
+ * Idempotently materialize `selectSql` into a ducklake table for one
+ * partition — the client-side equivalent of the `// materialize` engine.
+ * With `uniqueKey` it upserts the slice (delete-by-key + insert); otherwise it
+ * replaces the partition (delete + insert).
+ * Safe to re-run for the same partition (backfill / failure-recovery).
+ */
+upsertPartition(opts: DucklakeMaterializeOptions): void
+
+/**
+ * INSERT-only materialization (no dedup/replace) for append-only tables.
+ * Re-running the same partition duplicates rows — use only for immutable
+ * event-log sources.
+ */
+appendPartition(opts: Omit<DucklakeMaterializeOptions, "uniqueKey">): void

@@ -397,7 +397,7 @@ export interface DucklakeMaterializeOptions {
   selectSql: string;
   /** the partition value (bound). */
   partition: string;
-  /** dedup key → MERGE (upsert in slice); omit → DELETE+INSERT (replace). */
+  /** dedup key → upsert in slice (delete-by-key + insert); omit → replace (delete partition + insert). */
   uniqueKey?: string;
   /** physical partition column (default "_wm_partition"). */
   partitionCol?: string;
@@ -405,7 +405,8 @@ export interface DucklakeMaterializeOptions {
 
 /** Idempotently materialize `selectSql` into a ducklake table for one
  * partition — the client-side equivalent of the `// materialize` engine.
- * With `uniqueKey` it MERGEs; otherwise it DELETEs the partition then INSERTs.
+ * With `uniqueKey` it upserts the slice (delete-by-key + insert); otherwise it
+ * replaces the partition (delete + insert).
  * Safe to re-run for the same partition (backfill / failure-recovery). */
 export function upsertPartition(opts: DucklakeMaterializeOptions) {
   let { name: n, schema } = parseName(opts.ducklake ?? "main");
