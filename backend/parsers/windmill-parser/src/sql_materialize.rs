@@ -520,16 +520,24 @@ pub fn materialize_result_sql(
     partition_value_sql: &str,
     partitioned: bool,
 ) -> String {
-    let count_expr = if partitioned {
-        format!(
-            "(SELECT count(*) FROM {target_qualified} WHERE {partition_col} = {partition_value_sql})"
+    let (count_expr, partition_sel) = if partitioned {
+        // Row count is the slice this run wrote (the partition); `partition`
+        // lets the UI label the count and scope the preview to it.
+        (
+            format!(
+                "(SELECT count(*) FROM {target_qualified} WHERE {partition_col} = {partition_value_sql})"
+            ),
+            format!("{partition_value_sql} AS partition, "),
         )
     } else {
-        format!("(SELECT count(*) FROM {target_qualified})")
+        (
+            format!("(SELECT count(*) FROM {target_qualified})"),
+            String::new(),
+        )
     };
     format!(
         "SELECT 'ducklake://{asset_path}' AS materialized, \
-         {count_expr} AS rows, \
+         {partition_sel}{count_expr} AS rows, \
          (SELECT max(snapshot_id) FROM ducklake_snapshots('{TARGET_ALIAS}')) AS snapshot_id;"
     )
 }
@@ -801,6 +809,7 @@ mod tests {
         // partition-scoped for the row count
         let last = blocks.last().unwrap();
         assert!(last.contains("'ducklake://main/orders_daily' AS materialized"));
+        assert!(last.contains("'2026-06-19' AS partition"));
         assert!(last.contains("WHERE _wm_partition = '2026-06-19') AS rows"));
         assert!(last.contains("ducklake_snapshots('_wm_target')"));
     }

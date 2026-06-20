@@ -203,7 +203,9 @@
 	// value plus a `snapshot_id` key) so an ordinary user result isn't hijacked.
 	function parseMaterializedResult(
 		res: any
-	): { materialized: string; rows?: number; snapshot_id?: number | null } | undefined {
+	):
+		| { materialized: string; partition?: string; rows?: number; snapshot_id?: number | null }
+		| undefined {
 		const obj = Array.isArray(res) && res.length === 1 ? res[0] : res
 		if (
 			obj &&
@@ -869,8 +871,14 @@
 							<div class="flex items-center gap-2 flex-wrap text-xs">
 								<Database size={14} class="text-tertiary shrink-0" />
 								<span class="font-mono text-emphasis break-all">{m.materialized}</span>
+								{#if m.partition}
+									<Badge color="blue">partition {m.partition}</Badge>
+								{/if}
 								{#if typeof m.rows === 'number'}
-									<Badge color="green">{m.rows} {m.rows === 1 ? 'row' : 'rows'}</Badge>
+									<Badge color="green">
+										{m.rows}
+										{m.rows === 1 ? 'row' : 'rows'}{m.partition ? ' in partition' : ''}
+									</Badge>
 								{/if}
 								{#if m.snapshot_id != null}
 									<Badge color="gray">snapshot {m.snapshot_id}</Badge>

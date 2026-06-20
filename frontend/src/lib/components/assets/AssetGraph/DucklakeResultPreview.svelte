@@ -49,9 +49,15 @@
 		const defs = colDefs.current
 		if (!table || !defs) return undefined
 		const direct = defs[`main.${table}`] ?? defs[table]
-		if (direct) return direct
-		const key = Object.keys(defs).find((k) => k === table || k.endsWith(`.${table}`))
-		return key ? defs[key] : undefined
+		const found =
+			direct ??
+			(() => {
+				const key = Object.keys(defs).find((k) => k === table || k.endsWith(`.${table}`))
+				return key ? defs[key] : undefined
+			})()
+		// Drop the internal partition column Windmill adds to partitioned
+		// materialize targets — it's an implementation detail, not user data.
+		return found?.filter((c: { field?: string }) => c.field !== '_wm_partition')
 	})
 
 	let dbTableOps = $derived.by(() => {
