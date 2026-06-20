@@ -3,7 +3,6 @@
 	import { OpenAPI } from '$lib/gen'
 	import { Button } from '$lib/components/common'
 	import { Loader2, RefreshCw, History } from 'lucide-svelte'
-	import { enterpriseLicense } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import BackfillRangeDialog from './BackfillRangeDialog.svelte'
 
@@ -68,12 +67,17 @@
 				onclick={() => partitions.refetch()}
 				title="Refresh"
 			/>
+			<!-- The backfill range runner (POST /assets/backfill) is a planned
+			     enterprise follow-up and not yet implemented on the backend, so the
+			     button stays disabled — enabling it would 404. Re-enable when the
+			     endpoint lands. -->
 			<Button
 				variant="default"
 				unifiedSize="sm"
 				startIcon={{ icon: History }}
+				disabled
 				onclick={() => (backfillOpen = true)}
-				title={$enterpriseLicense ? 'Backfill a range of partitions' : 'Backfill (enterprise)'}
+				title="Backfill a range of partitions — coming soon (enterprise)"
 			>
 				Backfill
 			</Button>
