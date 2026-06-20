@@ -213,6 +213,7 @@
 										class="flex-1"
 										bind:value={tableRow[1].resourcePath}
 										resourceType={tableRow[1].resourceType}
+										error={emptyString(tableRow[1].resourcePath)}
 									/>
 								{/if}
 							</div>
