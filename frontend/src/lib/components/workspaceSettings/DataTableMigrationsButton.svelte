@@ -7,11 +7,24 @@
 	import SimpleEditor from '../SimpleEditor.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
-	import { ChevronDown, Play, Trash2, Plus, Undo2, Loader2, Camera } from 'lucide-svelte'
+	import {
+		ChevronDown,
+		Play,
+		Trash2,
+		Plus,
+		Undo2,
+		Loader2,
+		Camera,
+		Settings,
+		Power,
+		PowerOff
+	} from 'lucide-svelte'
 	import { WorkspaceService, type DatatableMigrationWithStatus } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import NewDataTableMigrationModal from './NewDataTableMigrationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
+	import DropdownV2 from '../DropdownV2.svelte'
+	import { superadmin, userStore } from '$lib/stores'
 
 	let {
 		workspace,
@@ -21,9 +34,13 @@
 
 	let listOpen = $state(false)
 	let migrations = $state<DatatableMigrationWithStatus[]>([])
+	let enabled = $state(true)
 	let loadError = $state<string | undefined>(undefined)
 	let loading = $state(false)
 	let busy = $state(false)
+
+	// Only workspace admins and super admins can opt a data table in or out.
+	const canManage = $derived(!!$userStore?.is_admin || !!$superadmin)
 
 	let newMigrationModal = $state<NewDataTableMigrationModal | undefined>(undefined)
 	let newMigrationOpen = $state(false)
@@ -31,6 +48,7 @@
 	let viewOpen = $state(false)
 	let viewMigration = $state<DatatableMigrationWithStatus | undefined>(undefined)
 	let viewTab = $state('up')
+	let settingsDropdownOpen = $state(false)
 
 	function openView(m: DatatableMigrationWithStatus) {
 		viewMigration = m
@@ -54,6 +72,7 @@
 				workspace,
 				datatableName: datatable
 			})
+			enabled = res.enabled
 			migrations = res.migrations
 			loadError = res.error
 		} catch (e: any) {
@@ -185,6 +204,41 @@
 		}
 	}
 
+	async function enableMigrations() {
+		busy = true
+		try {
+			await WorkspaceService.enableDatatableMigrations({ workspace, datatableName: datatable })
+			sendUserToast('Migrations enabled')
+			await loadMigrations()
+		} catch (e: any) {
+			sendUserToast(`Failed to enable migrations: ${e?.body ?? e?.message ?? e}`, true)
+			return
+		} finally {
+			busy = false
+		}
+		// Right after enabling, offer to snapshot the current schema as the initial migration.
+		await generateInitial()
+	}
+
+	async function disableMigrations() {
+		const confirmed = await confirmationModal.ask({
+			title: 'Disable migrations',
+			confirmationText: 'Disable and delete',
+			children: `Disabling migrations for "${datatable}" will delete ALL of its migrations. This cannot be undone. The data table's data and schema are not affected. Continue?`
+		})
+		if (!confirmed) return
+		busy = true
+		try {
+			await WorkspaceService.disableDatatableMigrations({ workspace, datatableName: datatable })
+			sendUserToast('Migrations disabled')
+			await loadMigrations()
+		} catch (e: any) {
+			sendUserToast(`Failed to disable migrations: ${e?.body ?? e?.message ?? e}`, true)
+		} finally {
+			busy = false
+		}
+	}
+
 	async function deleteMigration(m: DatatableMigrationWithStatus) {
 		const body =
 			m.status === 'ran'
@@ -234,100 +288,146 @@
 	title="Migrations — {datatable}"
 	fixedWidth="md"
 	fixedHeight="lg"
-	closeOnOutsideClick={!newMigrationOpen && !viewOpen && !confirmationModal.props.open}
+	closeOnOutsideClick={!newMigrationOpen &&
+		!viewOpen &&
+		!confirmationModal.props.open &&
+		!settingsDropdownOpen}
 >
-	<div class="flex flex-col gap-2 w-full grow min-h-0">
-		{#if loadError}
-			<div class="text-xs text-red-500">
-				Could not read applied status from the data table: {loadError}
-			</div>
-		{/if}
-		<div class="flex flex-col grow min-h-0 overflow-auto border rounded-md divide-y">
-			{#if loading}
-				<div class="flex items-center justify-center p-6 text-tertiary">
-					<Loader2 size={18} class="animate-spin" />
-				</div>
-			{:else if migrations.length === 0}
-				<div class="flex flex-col items-center gap-3 p-6 text-sm text-tertiary">
-					<span>No migrations yet</span>
+	{#snippet headerRight()}
+		{#if enabled && canManage}
+			<DropdownV2
+				bind:open={settingsDropdownOpen}
+				items={[
+					{
+						displayName: 'Disable migrations',
+						icon: PowerOff,
+						type: 'delete',
+						action: () => disableMigrations()
+					}
+				]}
+			>
+				{#snippet buttonReplacement()}
 					<Button
 						variant="subtle"
 						size="xs"
-						startIcon={{ icon: Camera }}
+						iconOnly
+						startIcon={{ icon: Settings }}
+						title="Migration settings"
 						disabled={busy}
-						on:click={generateInitial}
+					/>
+				{/snippet}
+			</DropdownV2>
+		{/if}
+	{/snippet}
+	<div class="flex flex-col gap-2 w-full grow min-h-0">
+		{#if loading}
+			<div class="flex items-center justify-center grow text-tertiary">
+				<Loader2 size={18} class="animate-spin" />
+			</div>
+		{:else if !enabled}
+			<div class="flex flex-col items-center justify-center gap-3 grow text-sm text-tertiary">
+				<span>Migrations are disabled for this data table.</span>
+				{#if canManage}
+					<Button
+						variant="subtle"
+						size="sm"
+						startIcon={{ icon: Power }}
+						disabled={busy}
+						on:click={enableMigrations}
 					>
-						Generate initial migration
+						Enable migrations
 					</Button>
+				{/if}
+			</div>
+		{:else}
+			{#if loadError}
+				<div class="text-xs text-red-500">
+					Could not read applied status from the data table: {loadError}
 				</div>
-			{:else}
-				{#each migrations as m (m.timestamp)}
-					<div class="flex items-center gap-3 px-3 py-2">
-						<div
-							class="shrink-0 w-2.5 h-2.5 rounded-full {statusColor[m.status]}"
-							title={statusTitle[m.status]}
-						></div>
-						<button
-							type="button"
-							class="flex flex-col min-w-0 grow text-left rounded -mx-1 px-1 py-0.5 hover:bg-surface-hover"
-							title="View migration"
-							onclick={() => openView(m)}
-						>
-							<span class="text-sm text-primary truncate">{m.name}</span>
-							<span class="text-xs text-hint">{m.timestamp}</span>
-						</button>
-						<Button
-							variant="subtle"
-							size="xs"
-							iconOnly
-							startIcon={{ icon: Play }}
-							title="Run this migration"
-							disabled={busy || m.status === 'ran'}
-							on:click={() => runMigration(m)}
-						/>
-						<Button
-							variant="subtle"
-							size="xs"
-							iconOnly
-							startIcon={{ icon: Undo2 }}
-							title="Revert this migration"
-							disabled={busy || m.status !== 'ran'}
-							on:click={() => revertMigration(m)}
-						/>
-						<Button
-							variant="subtle"
-							size="xs"
-							iconOnly
-							color="red"
-							startIcon={{ icon: Trash2 }}
-							title="Delete migration"
-							disabled={busy}
-							on:click={() => deleteMigration(m)}
-						/>
-					</div>
-				{/each}
 			{/if}
-		</div>
-		<div class="flex justify-between gap-2 pt-2">
-			<Button
-				variant="default"
-				size="sm"
-				startIcon={{ icon: Plus }}
-				on:click={() => {
-					newMigrationOpen = true
-					newMigrationModal?.open()
-				}}>New</Button
-			>
-			<Button
-				variant="accent"
-				size="sm"
-				startIcon={{ icon: Play }}
-				disabled={busy || !hasPending}
-				on:click={() => runUpTo(undefined)}
-			>
-				Run all
-			</Button>
-		</div>
+			<div class="flex flex-col grow min-h-0 overflow-auto border rounded-md divide-y">
+				{#if migrations.length === 0}
+					<div class="flex flex-col items-center gap-3 p-6 text-sm text-tertiary">
+						<span>No migrations yet</span>
+						<Button
+							variant="subtle"
+							size="xs"
+							startIcon={{ icon: Camera }}
+							disabled={busy}
+							on:click={generateInitial}
+						>
+							Generate initial migration
+						</Button>
+					</div>
+				{:else}
+					{#each migrations as m (m.timestamp)}
+						<div class="flex items-center gap-3 px-3 py-2">
+							<div
+								class="shrink-0 w-2.5 h-2.5 rounded-full {statusColor[m.status]}"
+								title={statusTitle[m.status]}
+							></div>
+							<button
+								type="button"
+								class="flex flex-col min-w-0 grow text-left rounded -mx-1 px-1 py-0.5 hover:bg-surface-hover"
+								title="View migration"
+								onclick={() => openView(m)}
+							>
+								<span class="text-sm text-primary truncate">{m.name}</span>
+								<span class="text-xs text-hint">{m.timestamp}</span>
+							</button>
+							<Button
+								variant="subtle"
+								size="xs"
+								iconOnly
+								startIcon={{ icon: Play }}
+								title="Run this migration"
+								disabled={busy || m.status === 'ran'}
+								on:click={() => runMigration(m)}
+							/>
+							<Button
+								variant="subtle"
+								size="xs"
+								iconOnly
+								startIcon={{ icon: Undo2 }}
+								title="Revert this migration"
+								disabled={busy || m.status !== 'ran'}
+								on:click={() => revertMigration(m)}
+							/>
+							<Button
+								variant="subtle"
+								size="xs"
+								iconOnly
+								color="red"
+								startIcon={{ icon: Trash2 }}
+								title="Delete migration"
+								disabled={busy}
+								on:click={() => deleteMigration(m)}
+							/>
+						</div>
+					{/each}
+				{/if}
+			</div>
+			<div class="flex justify-between gap-2 pt-2">
+				<Button
+					variant="default"
+					size="sm"
+					startIcon={{ icon: Plus }}
+					on:click={() => {
+						newMigrationOpen = true
+						newMigrationModal?.open()
+					}}>New</Button
+				>
+				<Button
+					variant="accent"
+					size="sm"
+					startIcon={{ icon: Play }}
+					disabled={busy || !hasPending}
+					on:click={() => runUpTo(undefined)}
+				>
+					Run all
+				</Button>
+			</div>
+		{/if}
 	</div>
 </Modal2>
 

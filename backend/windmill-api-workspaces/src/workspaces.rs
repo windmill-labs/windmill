@@ -150,6 +150,14 @@ pub fn workspaced_service() -> Router {
             get(datatable_migrations_status),
         )
         .route(
+            "/enable_datatable_migrations/{datatable_name}",
+            post(enable_datatable_migrations),
+        )
+        .route(
+            "/disable_datatable_migrations/{datatable_name}",
+            post(disable_datatable_migrations),
+        )
+        .route(
             "/create_datatable_migration/{datatable_name}",
             post(create_datatable_migration),
         )
@@ -2352,12 +2360,33 @@ async fn edit_datatable_config(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     ApiAuthed { is_admin, username, email, .. }: ApiAuthed,
-    Json(new_config): Json<EditDataTableConfig>,
+    Json(mut new_config): Json<EditDataTableConfig>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
     let is_superadmin = require_super_admin(&db, &email).await.is_ok();
 
     let mut tx = db.begin().await?;
+
+    let old_datatables: HashMap<String, DataTable> = serde_json::from_value(
+        sqlx::query_scalar!(
+            "SELECT ws.datatable->'datatables' FROM workspace_settings ws WHERE ws.workspace_id = $1",
+            &w_id
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(serde_json::Value::Null),
+    )
+    .unwrap_or_default();
+
+    // Migrations opt-in is owned by the enable/disable endpoints, not this config
+    // form: preserve each existing data table's flag, and default brand-new data
+    // tables to enabled.
+    for (name, dt) in new_config.settings.datatables.iter_mut() {
+        dt.migrations_enabled = match old_datatables.get(name) {
+            Some(old) => old.migrations_enabled,
+            None => Some(true),
+        };
+    }
 
     let args_for_audit = format!("{:?}", new_config.settings);
     audit_log(
@@ -2373,19 +2402,6 @@ async fn edit_datatable_config(
 
     // Check that non-superadmins are not abusing Instance databases
     if !is_superadmin {
-        let old_datatables = sqlx::query_scalar!(
-            r#"
-                SELECT ws.datatable->'datatables' AS datatable_name
-                FROM workspace_settings ws
-                WHERE ws.workspace_id = $1
-            "#,
-            &w_id
-        )
-        .fetch_one(&db)
-        .await?
-        .unwrap_or(serde_json::Value::Null);
-        let old_datatables: HashMap<String, DataTable> =
-            serde_json::from_value(old_datatables).unwrap_or_default();
         for (name, dt) in new_config.settings.datatables.iter() {
             if dt.database.resource_type == DataTableCatalogResourceType::Instance {
                 let old_dt = old_datatables.get(name);
@@ -2932,10 +2948,55 @@ struct DatatableMigrationWithStatus {
 
 #[derive(Serialize)]
 struct DatatableMigrationsStatusResult {
+    /// Whether the migrations feature is opted in for this data table.
+    enabled: bool,
     migrations: Vec<DatatableMigrationWithStatus>,
     /// Set when the applied status couldn't be read from the data table.
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+}
+
+/// Whether the SQL-migrations feature is enabled for a data table. Honors the
+/// explicit `migrations_enabled` flag; when unset (data tables predating the
+/// feature) it is considered enabled only if migrations already exist.
+async fn datatable_migrations_enabled(db: &DB, w_id: &str, datatable_name: &str) -> Result<bool> {
+    let flag: Option<bool> = sqlx::query_scalar!(
+        "SELECT (ws.datatable->'datatables'->$2->>'migrations_enabled')::boolean \
+         FROM workspace_settings ws WHERE ws.workspace_id = $1",
+        w_id,
+        datatable_name,
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+
+    match flag {
+        Some(v) => Ok(v),
+        None => Ok(sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM datatable_migrations \
+             WHERE workspace_id = $1 AND datatable = $2)",
+            w_id,
+            datatable_name,
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(false)),
+    }
+}
+
+/// Reject the request when migrations are not enabled for the data table.
+async fn ensure_datatable_migrations_enabled(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+) -> Result<()> {
+    if !datatable_migrations_enabled(db, w_id, datatable_name).await? {
+        return Err(Error::BadRequest(format!(
+            "Migrations are not enabled for data table '{}'. Enable them first.",
+            datatable_name
+        )));
+    }
+    Ok(())
 }
 
 /// Read the versions recorded in a data table's `_wm_migrations` table. A
@@ -2975,6 +3036,15 @@ async fn datatable_migrations_status(
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<DatatableMigrationsStatusResult> {
+    let enabled = datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
+    if !enabled {
+        return Ok(Json(DatatableMigrationsStatusResult {
+            enabled: false,
+            migrations: vec![],
+            error: None,
+        }));
+    }
+
     let defs = sqlx::query!(
         "SELECT timestamp, name, code_up, code_down FROM datatable_migrations \
          WHERE workspace_id = $1 AND datatable = $2 ORDER BY timestamp ASC",
@@ -3008,7 +3078,115 @@ async fn datatable_migrations_status(
         })
         .collect();
 
-    Ok(Json(DatatableMigrationsStatusResult { migrations, error }))
+    Ok(Json(DatatableMigrationsStatusResult {
+        enabled: true,
+        migrations,
+        error,
+    }))
+}
+
+/// Only workspace admins and super admins may opt a data table in or out of
+/// migrations.
+async fn require_datatable_migrations_manager(db: &DB, authed: &ApiAuthed) -> Result<()> {
+    if authed.is_admin || require_super_admin(db, &authed.email).await.is_ok() {
+        Ok(())
+    } else {
+        Err(Error::BadRequest(
+            "Only workspace admins and super admins can enable or disable data table migrations"
+                .to_string(),
+        ))
+    }
+}
+
+async fn enable_datatable_migrations(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, datatable_name)): Path<(String, String)>,
+) -> Result<String> {
+    require_datatable_migrations_manager(&db, &authed).await?;
+
+    let updated = sqlx::query_scalar!(
+        "UPDATE workspace_settings \
+         SET datatable = jsonb_set(datatable, ARRAY['datatables', $2::text, 'migrations_enabled'], 'true'::jsonb) \
+         WHERE workspace_id = $1 AND jsonb_exists(datatable->'datatables', $2) \
+         RETURNING 1",
+        &w_id,
+        &datatable_name,
+    )
+    .fetch_optional(&db)
+    .await?;
+    if updated.is_none() {
+        return Err(Error::NotFound(format!(
+            "data table {datatable_name} not found"
+        )));
+    }
+
+    audit_log(
+        &db,
+        &authed,
+        "workspaces.enable_datatable_migrations",
+        ActionKind::Update,
+        &w_id,
+        Some(datatable_name.as_str()),
+        None,
+    )
+    .await?;
+
+    Ok(format!(
+        "Enabled migrations for data table {datatable_name}"
+    ))
+}
+
+/// Opt a data table out of migrations. Deletes ALL of its migration definitions.
+async fn disable_datatable_migrations(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, datatable_name)): Path<(String, String)>,
+) -> Result<String> {
+    require_datatable_migrations_manager(&db, &authed).await?;
+
+    let mut tx = db.begin().await?;
+
+    let updated = sqlx::query_scalar!(
+        "UPDATE workspace_settings \
+         SET datatable = jsonb_set(datatable, ARRAY['datatables', $2::text, 'migrations_enabled'], 'false'::jsonb) \
+         WHERE workspace_id = $1 AND jsonb_exists(datatable->'datatables', $2) \
+         RETURNING 1",
+        &w_id,
+        &datatable_name,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    if updated.is_none() {
+        return Err(Error::NotFound(format!(
+            "data table {datatable_name} not found"
+        )));
+    }
+
+    sqlx::query!(
+        "DELETE FROM datatable_migrations WHERE workspace_id = $1 AND datatable = $2",
+        &w_id,
+        &datatable_name,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.disable_datatable_migrations",
+        ActionKind::Delete,
+        &w_id,
+        Some(datatable_name.as_str()),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!(
+        "Disabled migrations for data table {datatable_name} and deleted its migrations"
+    ))
 }
 
 #[derive(Deserialize)]
@@ -3061,6 +3239,7 @@ async fn create_datatable_migration(
     require_admin(authed.is_admin, &authed.username)?;
     validate_datatable_path_segment(&datatable_name)?;
     validate_migration_name(&payload.name)?;
+    ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
 
     let now_ts: i64 = Utc::now()
         .format("%Y%m%d%H%M%S")
@@ -3168,6 +3347,7 @@ async fn upsert_datatable_migration(
     require_admin(authed.is_admin, &authed.username)?;
     validate_datatable_path_segment(&datatable_name)?;
     validate_migration_name(&payload.name)?;
+    ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
 
     sqlx::query!(
         "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) \
@@ -3211,6 +3391,7 @@ async fn generate_initial_datatable_migration(
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<DatatableMigration> {
     require_admin(authed.is_admin, &authed.username)?;
+    ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
 
     let db_resource = get_datatable_resource_from_db_unchecked(&db, &w_id, &datatable_name).await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)

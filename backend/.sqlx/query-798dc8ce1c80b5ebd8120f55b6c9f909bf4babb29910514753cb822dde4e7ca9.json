@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (ws.datatable->'datatables'->$2->>'migrations_enabled')::boolean FROM workspace_settings ws WHERE ws.workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "bool",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "798dc8ce1c80b5ebd8120f55b6c9f909bf4babb29910514753cb822dde4e7ca9"
+}

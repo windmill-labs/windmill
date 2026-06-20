@@ -4506,14 +4506,58 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [migrations]
+                required: [enabled, migrations]
                 properties:
+                  enabled:
+                    type: boolean
                   migrations:
                     type: array
                     items:
                       $ref: "#/components/schemas/DatatableMigrationWithStatus"
                   error:
                     type: string
+
+  /w/{workspace}/workspaces/enable_datatable_migrations/{datatable_name}:
+    post:
+      summary: opt a datatable in to migrations (admins / super admins only)
+      operationId: enableDatatableMigrations
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/disable_datatable_migrations/{datatable_name}:
+    post:
+      summary: opt a datatable out of migrations, deleting all of them (admins / super admins only)
+      operationId: disableDatatableMigrations
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/workspaces/create_datatable_migration/{datatable_name}:
     post:
@@ -27956,6 +28000,9 @@ components:
                     type: string
                 required:
                   - resource_type
+              migrations_enabled:
+                type: boolean
+                description: Whether the SQL migrations feature is opted in for this data table
               forked_from:
                 type: object
                 description: Fork origin info with schema snapshot
