@@ -7597,6 +7597,15 @@ async fn compare_workspaces(
                 compare_two_folders(&db, &source_workspace_id, &fork_workspace_id, &item.path)
                     .await?,
             ),
+            "datatable_migration" => Some(
+                compare_two_datatable_migration(
+                    &db,
+                    &source_workspace_id,
+                    &fork_workspace_id,
+                    &item.path,
+                )
+                .await?,
+            ),
             // Triggers and schedules are diffed against a hardcoded ignore list
             // (mode/enabled/server_id/last_server_ping/edited_at/by/error/extra_perms/permissioned_as/email)
             // so that fork-clones — which differ from the parent only in the runtime
@@ -8347,6 +8356,65 @@ async fn compare_two_variables(
         exists_in_source: source_variable.is_some(),
         exists_in_fork: target_variable.is_some(),
     });
+}
+
+/// A datatable migration diff item has path `<datatable>/<timestamp>_<name>`.
+/// Parse out the (datatable, timestamp) needed to look it up.
+fn parse_datatable_migration_diff_path(path: &str) -> Option<(String, i64)> {
+    let (datatable, file) = path.split_once('/')?;
+    let ts_str: String = file.chars().take_while(|c| c.is_ascii_digit()).collect();
+    let timestamp = ts_str.parse::<i64>().ok()?;
+    Some((datatable.to_string(), timestamp))
+}
+
+async fn compare_two_datatable_migration(
+    db: &DB,
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    path: &str,
+) -> Result<ItemComparison> {
+    let (datatable, timestamp) = match parse_datatable_migration_diff_path(path) {
+        Some(v) => v,
+        None => {
+            return Ok(ItemComparison {
+                has_changes: false,
+                exists_in_source: false,
+                exists_in_fork: false,
+            })
+        }
+    };
+
+    let source = sqlx::query!(
+        "SELECT name, code_up, code_down FROM datatable_migrations \
+         WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3",
+        source_workspace_id,
+        datatable,
+        timestamp,
+    )
+    .fetch_optional(db)
+    .await?;
+    let target = sqlx::query!(
+        "SELECT name, code_up, code_down FROM datatable_migrations \
+         WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3",
+        fork_workspace_id,
+        datatable,
+        timestamp,
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let has_changes = match (&source, &target) {
+        (Some(s), Some(t)) => {
+            s.name != t.name || s.code_up != t.code_up || s.code_down != t.code_down
+        }
+        _ => source.is_some() || target.is_some(),
+    };
+
+    Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source.is_some(),
+        exists_in_fork: target.is_some(),
+    })
 }
 
 async fn compare_two_resource_types(

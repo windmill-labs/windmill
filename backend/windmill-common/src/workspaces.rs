@@ -163,6 +163,7 @@ pub enum ObjectType {
     Settings,
     Key,
     WorkspaceDependencies,
+    DatatableMigration,
 }
 
 pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28261/sync-script-to-git-repo-windmill";
