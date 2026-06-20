@@ -195,7 +195,8 @@
 			'nu',
 			'java',
 			'ruby',
-			'rlang'
+			'rlang',
+			'ansible'
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
 	)
@@ -216,7 +217,8 @@
 			'nu',
 			'java',
 			'ruby',
-			'rlang'
+			'rlang',
+			'ansible'
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
 	)
@@ -677,6 +679,10 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 			editor.insertAtCursor(`get_variable("${path}")`)
 		} else if (lang == 'rlang') {
 			editor.insertAtCursor(`get_variable("${path}")`)
+		} else if (lang == 'ansible') {
+			// Ansible references Windmill variables by bare path in the YAML header
+			// (e.g. `- variable: u/user/ssh_key` or `vault_password: u/user/...`)
+			editor.insertAtCursor(path)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -767,6 +773,10 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			} else {
 				editor.insertAtCursor(`ATTACH 'res://${path}' AS db (TYPE ${t});`)
 			}
+		} else if (lang == 'ansible') {
+			// Ansible references Windmill resources by bare path in the YAML header
+			// (e.g. `- resource: u/user/...` under `inventory:` or `files:`)
+			editor.insertAtCursor(path)
 		}
 
 		sendUserToast(`${path} inserted at cursor`)
