@@ -2307,7 +2307,10 @@ class DucklakeClient:
             f"(SELECT max(snapshot_id) FROM ducklake_snapshots('dl')) AS snapshot_id;"
         )
         q = self.query(sql + summary, **bind)
-        asset_path = f"{self.name}/{table}"
+        # Asset path mirrors the `// materialize` engine: <lake>/<schema>.<table>
+        # for an explicit schema, else <lake>/<table>. Dropping the schema would
+        # hide the row from the grid and collide distinct schemas under one key.
+        asset_path = f"{self.name}/{schema}.{table}" if schema else f"{self.name}/{table}"
         return _RecordingSqlQuery(q, self.client, asset_path, partition or "")
 
     def upsert_partition(
