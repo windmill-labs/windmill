@@ -22,6 +22,7 @@
 	import { WorkspaceService, type DatatableMigrationWithStatus } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import NewDataTableMigrationModal from './NewDataTableMigrationModal.svelte'
+	import Tooltip from '../Tooltip.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import DropdownV2 from '../DropdownV2.svelte'
 	import { superadmin, userStore } from '$lib/stores'
@@ -293,6 +294,13 @@
 		!confirmationModal.props.open &&
 		!settingsDropdownOpen}
 >
+	{#snippet headerLeft()}
+		<Tooltip>
+			Each schema edit made in the database manager is captured here as a migration. Tracking schema
+			changes as migrations makes it easy to export data tables to other workspaces, and to
+			reproduce their schema when forking a workspace.
+		</Tooltip>
+	{/snippet}
 	{#snippet headerRight()}
 		{#if enabled && canManage}
 			<DropdownV2
