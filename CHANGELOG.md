@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.734.0](https://github.com/windmill-labs/windmill/compare/v1.733.1...v1.734.0) (2026-06-20)
+
+
+### Features
+
+* ducklake materialization for data pipelines ([#9689](https://github.com/windmill-labs/windmill/issues/9689)) ([3ebf243](https://github.com/windmill-labs/windmill/commit/3ebf24359d66048d6361ce65cd879cdc04b737ed))
+
+
+### Bug Fixes
+
+* **frontend:** clear branch step state when switching outer loop iterations ([#9650](https://github.com/windmill-labs/windmill/issues/9650)) ([09a8004](https://github.com/windmill-labs/windmill/commit/09a80040ca268a4379d5302e3401435ba93247e0))
+
 ## [1.733.1](https://github.com/windmill-labs/windmill/compare/v1.733.0...v1.733.1) (2026-06-19)
 
 
