@@ -48,7 +48,9 @@ use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
 use windmill_common::{
     error::{Error, JsonResult, Result},
-    global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
+    global_settings::{
+        AUTOMATE_USERNAME_CREATION_SETTING, DISABLE_WORKSPACE_INVITE_EMAILS_SETTING,
+    },
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
@@ -4774,6 +4776,30 @@ async fn check_fork_w_id_conflict(db: &DB, w_id: &str) -> Result<()> {
     }
 }
 
+/// A fork id is reusable: it is freed when a fork is deleted and can be claimed
+/// again under the same name. `workspace_diff` and `skip_workspace_diff_tally`
+/// are keyed by workspace id with no FK cascade, so a freshly created fork could
+/// inherit cached diff state from a previous occupant of its id — a stale skip
+/// row suppresses comparison entirely, and stale workspace_diff rows produce a
+/// spurious "changes not visible" warning that hides the deploy button. Clear
+/// both so a new fork always starts with clean diff state, regardless of how the
+/// id was freed.
+async fn purge_stale_fork_diff_state(db: &DB, fork_id: &str) -> Result<()> {
+    sqlx::query!(
+        "DELETE FROM workspace_diff WHERE source_workspace_id = $1 OR fork_workspace_id = $1",
+        fork_id
+    )
+    .execute(db)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM skip_workspace_diff_tally WHERE workspace_id = $1",
+        fork_id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 lazy_static::lazy_static! {
 
     pub static ref CREATE_WORKSPACE_REQUIRE_SUPERADMIN: bool = {
@@ -5977,6 +6003,7 @@ async fn create_workspace_fork_branch(
     // Fail before creating any git branch so a name conflict doesn't leave a
     // dangling branch on the synced repos.
     check_fork_w_id_conflict(&db, &nw.id).await?;
+    purge_stale_fork_diff_state(&db, &nw.id).await?;
 
     Ok(Json(
         handle_fork_branch_creation(&authed.email, &authed.username, &db, &w_id, &nw.id).await?,
@@ -6121,6 +6148,7 @@ async fn create_workspace_fork(
     // re-using a taken (possibly archived) fork id reports the actual
     // conflict instead of a misleading "maximum number of workspaces" error.
     check_fork_w_id_conflict(&db, &nw.id).await?;
+    purge_stale_fork_diff_state(&db, &nw.id).await?;
 
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
@@ -6441,6 +6469,20 @@ async fn unarchive_workspace(
     Ok(format!("Unarchived workspace {}", &w_id))
 }
 
+/// Whether the instance is configured to suppress the email notifications sent
+/// when a user is invited or added to a workspace. Defaults to false (emails on).
+async fn workspace_invite_emails_disabled(db: &DB) -> Result<bool> {
+    Ok(
+        windmill_common::global_settings::load_value_from_global_settings(
+            db,
+            DISABLE_WORKSPACE_INVITE_EMAILS_SETTING,
+        )
+        .await?
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false),
+    )
+}
+
 async fn invite_user(
     ApiAuthed { username, is_admin, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -6499,16 +6541,18 @@ async fn invite_user(
 
     tx.commit().await?;
 
-    send_email_if_possible(
-        &format!("Invited to Windmill's workspace: {w_id}"),
-        &format!(
-            "You have been granted access to Windmill's workspace {w_id}
+    if !workspace_invite_emails_disabled(&db).await? {
+        send_email_if_possible(
+            &format!("Invited to Windmill's workspace: {w_id}"),
+            &format!(
+                "You have been granted access to Windmill's workspace {w_id}
 
 If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
-            (**BASE_URL.load()).clone()
-        ),
-        &nu.email,
-    );
+                (**BASE_URL.load()).clone()
+            ),
+            &nu.email,
+        );
+    }
 
     webhook.send_instance_event(InstanceEvent::UserInvitedWorkspace {
         email: nu.email.clone(),
@@ -6651,17 +6695,19 @@ async fn add_user(
     )
     .await?;
 
-    send_email_if_possible(
-        &format!("Added to Windmill's workspace: {w_id}"),
-        &format!(
-            "You have been granted access to Windmill's workspace {w_id} by {}
+    if !workspace_invite_emails_disabled(&db).await? {
+        send_email_if_possible(
+            &format!("Added to Windmill's workspace: {w_id}"),
+            &format!(
+                "You have been granted access to Windmill's workspace {w_id} by {}
 
 If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
-            authed.email,
-            (**BASE_URL.load()).clone()
-        ),
-        &nu.email,
-    );
+                authed.email,
+                (**BASE_URL.load()).clone()
+            ),
+            &nu.email,
+        );
+    }
 
     webhook.send_instance_event(InstanceEvent::UserAddedWorkspace {
         workspace: w_id.clone(),

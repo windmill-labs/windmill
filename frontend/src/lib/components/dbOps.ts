@@ -47,12 +47,16 @@ export function dbTableOpsWithPreviewScripts({
 	input,
 	tableKey,
 	colDefs,
-	workspace
+	workspace,
+	whereClause
 }: {
 	input: DbInput
 	tableKey: string
 	colDefs: ColumnDef[]
 	workspace: string
+	// Optional raw SQL predicate AND-ed into the read queries (count + rows).
+	// Caller-trusted — build it with escaped values.
+	whereClause?: string
 }): IDbTableOps {
 	const dbType = getDbType(input)
 	const language = getLanguageByResourceType(dbType)
@@ -69,7 +73,11 @@ export function dbTableOpsWithPreviewScripts({
 		tableKey,
 		colDefs,
 		getCount: async ({ quicksearch }) => {
-			const content = makeMarker('COUNT', { table: tableKey, columnDefs: colDefs })
+			const content = makeMarker('COUNT', {
+				table: tableKey,
+				columnDefs: colDefs,
+				...(whereClause ? { whereClause } : {})
+			})
 			const result = await runScriptAndPollResult({
 				workspace,
 				requestBody: { args: { ...dbArg, quicksearch }, language, content }
@@ -81,7 +89,8 @@ export function dbTableOpsWithPreviewScripts({
 			const content = makeMarker('SELECT', {
 				table: tableKey,
 				columnDefs: colDefs,
-				fixPgIntTypes: true
+				fixPgIntTypes: true,
+				...(whereClause ? { whereClause } : {})
 			})
 			let items = (await runScriptAndPollResult({
 				workspace,
@@ -402,35 +411,45 @@ export async function getDucklakeSchema({
 			args: {}
 		}
 	})
-	let mainSchema = Array.isArray(result) && result.length && (result?.[0]?.['result'] ?? [])
+	let schemas = Array.isArray(result) && result.length && (result?.[0]?.['result'] ?? {})
 	// Safety for agent workers (duckdb ffi lib used to return JSON as stringified json)
-	if (typeof mainSchema === 'string') mainSchema = JSON.parse(mainSchema)
+	if (typeof schemas === 'string') schemas = JSON.parse(schemas)
 
-	if (!mainSchema) throw new Error('Failed to get Ducklake schema: ' + JSON.stringify(result))
-	assert('mainSchema is an object', typeof mainSchema === 'object')
+	if (!schemas) throw new Error('Failed to get Ducklake schema: ' + JSON.stringify(result))
+	assert('schemas is an object', typeof schemas === 'object')
 	let schema: Omit<SQLSchema, 'stringified'> = {
-		schema: { main: mainSchema },
-		publicOnly: true,
+		schema: schemas,
+		publicOnly: false,
 		lang: 'ducklake'
 	}
 	return { ...schema, stringified: stringifySchema(schema) }
 }
 
+// Returns every schema in the ducklake (including empty ones, e.g. freshly created)
+// as a nested map { schema: { table: { column: {...} } } }.
 const DUCKLAKE_GET_SCHEMA_QUERY = `
-SELECT json_group_object(table_name, table_data) AS result FROM (
+SELECT json_group_object(schema_name, COALESCE(schema_data, json_object())) AS result FROM (
 	SELECT
-		table_name,
-		json_group_object(
-			c.column_name,
-			json_object(
-				'type', c.data_type,
-				'default', c.column_default,
-				'required', c.is_nullable == 'NO'
+		s.schema_name,
+		(
+			SELECT json_group_object(table_name, table_data) FROM (
+				SELECT
+					c.table_name,
+					json_group_object(
+						c.column_name,
+						json_object(
+							'type', c.data_type,
+							'default', c.column_default,
+							'required', c.is_nullable == 'NO'
+						)
+					) AS table_data
+				FROM information_schema.columns c
+				WHERE c.table_catalog = '__ducklake__' AND c.table_schema = s.schema_name
+				GROUP BY c.table_name
 			)
-		) AS table_data
-	FROM information_schema.columns c
-	WHERE table_catalog = '__ducklake__' AND table_schema = current_schema()
-	GROUP BY c.table_name
+		) AS schema_data
+	FROM information_schema.schemata s
+	WHERE s.catalog_name = '__ducklake__'
 )`
 
 export function getDbType(input: DbInput): DbType {

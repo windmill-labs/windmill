@@ -110,8 +110,16 @@ export function inferContentTypeFromFilePath(
     return "rlang";
 	// for related places search: ADD_NEW_LANG
   } else {
+    const ext = contentPath.substring(contentPath.lastIndexOf("."));
+    let hint = "";
+    if (ext === ".sql") {
+      hint =
+        "\nBare .sql is ambiguous — use a dialect extension: .pg.sql (postgresql), .my.sql (mysql), .bq.sql (bigquery), .sf.sql (snowflake), .ms.sql (mssql), .odb.sql (oracledb), .duckdb.sql (duckdb)";
+    }
     throw new Error(
-      "Invalid language: " + contentPath.substring(contentPath.lastIndexOf("."))
+      `Cannot infer script language from extension '${ext}' (file ${contentPath}).` +
+        hint +
+        "\nSupported extensions: .ts (bun/deno), .py, .go, .sh, .ps1, .php, .rs, .cs, .nu, .java, .rb, .r, .gql, .playbook.yml, .pg.sql, .my.sql, .bq.sql, .sf.sql, .ms.sql, .odb.sql, .duckdb.sql"
     );
   }
 }

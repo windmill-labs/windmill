@@ -150,7 +150,7 @@
 				{/if}
 			</div>
 			<DbManager
-				dbSupportsSchemas={input?.type == 'database' && dbSupportsSchemas(input.resourceType)}
+				dbSupportsSchemas={dbSupportsSchemas(dbType)}
 				databaseIsEmpty={!Object.values(dbSchema.schema).flatMap((s) => Object.values(s)).length}
 				{dbSchema}
 				colDefs={colDefs.current}
@@ -166,7 +166,7 @@
 					workspace: $workspaceStore
 				})}
 				initialTableKey={input.specificTable}
-				initialSchemaKey={input.type == 'database' ? input.specificSchema : undefined}
+				initialSchemaKey={input.specificSchema}
 				asset={_input.type == 'ducklake'
 					? { kind: 'ducklake', path: _input.ducklake }
 					: _input.resourcePath.startsWith('datatable://')

@@ -870,3 +870,246 @@
   judgeChecklist:
     - fetches the logs for the requested job id
     - explains the failure from the returned logs (connection refused to the upstream API)
+
+# --- Documentation search (search_docs) ---
+# Pure product-knowledge questions: the assistant should consult the docs via
+# search_docs and answer conversationally, not draft or mutate anything. No
+# draft is produced, so the global judge is skipped and we validate tool use.
+
+- id: global-docs-ai-agent-step
+  prompt: |-
+    Does Windmill support a flow step where an LLM decides which of my scripts to call based on the input?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_docs
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+
+- id: global-docs-retry-step
+  prompt: |-
+    How does automatic retry work for a flow step that calls a flaky API?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_docs
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+
+- id: global-docs-key-value-store
+  prompt: |-
+    Can I use a Redis-style key-value store from my Windmill scripts, and how?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_docs
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+
+- id: global-docs-cron-schedule-format
+  prompt: |-
+    How do Windmill's cron schedules work, and what format does the schedule expression use?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - search_docs
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+
+# --- Raw app on a large project (context-usage benchmark) ---
+# These cases run against the deliberately large `analytics_dashboard` raw-app
+# fixture (~20 frontend files incl. a 5k-line data module, plus backend runnables).
+# They exist to measure how much context the global chat consumes when working in a
+# big raw app: test29 is a read-heavy debugging hunt, test30 is a small edit baseline.
+# tokenUsage is recorded per run, so the same cases re-run after a read-tool change
+# (the read_app_file cap + offset/limit paging) quantify the optimization. skipJudge:
+# the judge only sees the drafts artifact and cannot run the app, so we validate
+# deterministically.
+
+- id: global-test29-raw-app-debug-large
+  prompt: |-
+    The analytics dashboard app at `f/evals/global/analytics_dashboard` has a bug:
+    the Revenue Summary tile shows a total that is lower than the per-order line
+    totals and the per-region breakdown. Track down what is computing revenue
+    incorrectly and fix it. Keep the change as an AI draft only; do not deploy or
+    save it.
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 20
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "return order.unitPrice * order.quantity"
+  toolExpect:
+    requiredToolsAnyOf:
+      # Inspecting the app's files is satisfied by either reading them directly
+      # or grepping for the revenue calculation.
+      - [read_app_file, search_app]
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - inspects the dashboard app's files to locate the revenue calculation
+    - fixes the per-order revenue so it multiplies unit price by quantity
+    - leaves the result as an AI draft and does not deploy or save it
+
+- id: global-test30-raw-app-small-edit-large
+  prompt: |-
+    In the dashboard app at `f/evals/global/analytics_dashboard`, change the main
+    page heading from "Operations Console" to "Revenue Overview". Leave everything
+    else unchanged. Keep it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "Revenue Overview"
+  toolExpect:
+    requiredToolsAnyOf:
+      # Inspecting the app's files is satisfied by reading them directly or
+      # grepping for the target with search_app.
+      - [read_app_file, search_app]
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - renames the main page heading to Revenue Overview
+    - does not change other dashboard behavior
+    - leaves the result as an AI draft only
+
+- id: global-test31-raw-app-debug-inspect-data
+  prompt: |-
+    The raw app dashboard at `f/evals/global/analytics_dashboard` is reporting
+    revenue totals that look too low. Inspect the app's files — both the sample
+    order data module and the revenue calculation — to work out whether the bug is
+    in the data or in the calculation, then fix the actual cause. Keep the change as
+    an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 22
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "return order.unitPrice * order.quantity"
+  toolExpect:
+    requiredToolsAnyOf:
+      # Inspecting the app's files is satisfied by reading them directly or
+      # grepping for the target with search_app.
+      - [read_app_file, search_app]
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - inspects both the sample order data module and the revenue aggregation logic
+    - identifies the per-order revenue bug and fixes it to multiply unit price by quantity
+    - leaves the result as an AI draft only
+
+- id: global-test32-raw-app-cross-file-consistency
+  prompt: |-
+    The raw app dashboard at `f/evals/global/analytics_dashboard` shows revenue
+    totals that disagree between the Revenue Summary tile, the orders table, and the
+    regional breakdown. Investigate how each of those computes revenue, work out
+    which calculation is wrong, and fix it. Keep the change as an AI draft only; do
+    not deploy or save it.
+  # Cross-file investigation: forces the model through several overlapping files
+  # (the summary's aggregation helper, the orders table, the regional breakdown) —
+  # a realistic multi-file read load that exercises the read_app_file cap.
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 24
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "return order.unitPrice * order.quantity"
+  toolExpect:
+    requiredToolsAnyOf:
+      # Inspecting the app's files is satisfied by reading them directly or
+      # grepping for the target with search_app.
+      - [read_app_file, search_app]
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - inspects the revenue calculation behind the summary tile, the orders table, and the regional breakdown
+    - identifies that the per-order revenue helper omits quantity and fixes it to multiply unit price by quantity
+    - leaves the result as an AI draft only
+
+- id: global-test33-raw-app-rename-across-files
+  prompt: |-
+    In the dashboard app at `f/evals/global/analytics_dashboard`, rename the
+    `formatCurrency` helper to `formatMoney` everywhere it is defined, imported, and
+    called. Leave the separate `formatCurrencyPrecise` helper exactly as it is. Keep
+    the change as an AI draft only; do not deploy or save it.
+  # Find-all-usages rename: formatCurrency is defined once and called in 6 places
+  # spread across 4 component files (and imported in 4). Locating every usage is the
+  # exact task search_app is meant to make cheap — one grep returns all file:line
+  # rows instead of reading each component whole. valueExcludes "formatCurrency("
+  # asserts the definition and all call sites were renamed while tolerating the
+  # preserved formatCurrencyPrecise (which is never followed by "(").
+  initial: ai_evals/fixtures/frontend/global/initial/analytics_dashboard
+  runtime:
+    maxTurns: 22
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        path: f/evals/global/analytics_dashboard
+        valueIncludes:
+          - "export function formatMoney"
+          - "formatMoney("
+        valueExcludes:
+          - "formatCurrency("
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - renames the formatCurrency definition, imports, and all call sites to formatMoney
+    - leaves the unrelated formatCurrencyPrecise helper unchanged
+    - leaves the result as an AI draft only

@@ -199,6 +199,7 @@
 			workspace={$workspaceStore ?? undefined}
 			itemKind="script"
 			path={script.path}
+			onMigrated={() => dispatch('change')}
 		/>
 		{#if script.labels?.length}
 			<div class="flex items-center gap-0.5">
@@ -295,7 +296,10 @@
 								}
 							},
 							type: dlt,
-							disabled: !canEdit
+							// A draft-only row is always the authed user's own draft (the
+							// list endpoint only surfaces own/legacy draft-only rows), so
+							// discarding it never requires write permission on the path.
+							disabled: !showEditButton
 						}
 					]
 				}

@@ -1302,6 +1302,11 @@ function replaceFalseWithUndefinedRec(obj: any) {
 // carries these while the deployed side is fetched trimmed — leaving them in would
 // render as spurious metadata diff.
 //
+// `hash` is the deployed version's identity, `assets` is re-derived from the
+// script content by the editor, and `inherited_labels` is computed at read time
+// from the parent folder — none is editable content, so all three are noise in a
+// fork/workspace or version diff.
+//
 // `lock` and `extra_perms` are deliberately NOT in this set: both are legitimate,
 // user-meaningful fields in some diff contexts (lockfile changes in version-to-version
 // diffs, folder sharing-permission changes in workspace/fork diffs). The script-editor
@@ -1309,6 +1314,9 @@ function replaceFalseWithUndefinedRec(obj: any) {
 // in `ScriptBuilder.syncWithDeployed`, the current side in `ScriptBuilder.openDiffDrawer`).
 const CLEANED_VALUE_KEYS = new Set([
 	'parent_hash',
+	'hash',
+	'assets',
+	'inherited_labels',
 	'draft',
 	'draft_only',
 	'draft_saved_at',
@@ -2113,7 +2121,12 @@ export function parseDbInputFromAssetSyntax(path: string): DbInput | null {
 	const [p2, _p3] = _p2.split('/')
 	const [p3, p4] = _p3.split('.')
 	return p1 === 'ducklake'
-		? { type: 'ducklake', ducklake: p2 || 'main', specificTable: p4 ?? p3 }
+		? {
+				type: 'ducklake',
+				ducklake: p2 || 'main',
+				specificTable: p4 ?? p3,
+				specificSchema: p4 ? p3 : undefined
+			}
 		: p1 === 'datatable'
 			? {
 					type: 'database',

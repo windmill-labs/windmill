@@ -18,8 +18,7 @@
 		type TriggerMode
 	} from '$lib/gen'
 	import Section from '$lib/components/Section.svelte'
-	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import Required from '$lib/components/Required.svelte'
+	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
 	import GcpTriggerEditorConfigSection from './GcpTriggerEditorConfigSection.svelte'
 	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
@@ -128,7 +127,8 @@
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
-		defaultValues?: Record<string, any>
+		defaultValues?: Record<string, any>,
+		fixedScriptPath_?: string
 	) {
 		drawerLoading = true
 		try {
@@ -137,6 +137,7 @@
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
+			fixedScriptPath = fixedScriptPath_ ?? ''
 			const { overlay: draftOverlay, noDeployed } = await loadTrigger(defaultValues)
 			// Draft-only triggers open as "new trigger prefilled from the
 			// draft" — no deployed row exists, so saving must CREATE (the
@@ -210,11 +211,11 @@
 			const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
 			loadTriggerConfig(deployedTrigger)
 			return {
-			noDeployed: !!(s as any)?.no_deployed,
-			overlay: draftFromBackend
-				? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
-				: undefined
-		}
+				noDeployed: !!(s as any)?.no_deployed,
+				overlay: draftFromBackend
+					? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
+					: undefined
+			}
 		} catch (error) {
 			sendUserToast(`Could not load GCP Pub/Sub trigger: ${error.body}`, true)
 			return { overlay: undefined, noDeployed: false }
@@ -474,32 +475,28 @@
 
 			{#if !hideTarget}
 				<Section label="Runnable">
-					<p class="text-xs mb-1 text-primary">
-						Pick a script or flow to be triggered <Required required={true} />
-					</p>
-					<div class="flex flex-row mb-2">
-						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write}
-							initialPath={fixedScriptPath || initialScriptPath}
-							kinds={['script']}
-							allowFlow={true}
-							bind:itemKind
-							bind:scriptPath={script_path}
-							allowRefresh={can_write}
-							allowEdit={!$userStore?.operator}
-							clearable
-						/>
-						{#if emptyString(script_path)}
-							<Button
-								btnClasses="ml-4"
-								variant="default"
-								unifiedSize="md"
-								disabled={!can_write}
-								href={itemKind === 'flow' ? '/flows/add?hub=68' : '/scripts/add?hub=hub%2F19796'}
-								target="_blank">Create from template</Button
-							>
-						{/if}
-					</div>
+					<TriggerRunnablePicker
+						{fixedScriptPath}
+						bind:itemKind
+						bind:scriptPath={script_path}
+						{initialScriptPath}
+						canWrite={can_write}
+						isOperator={!!$userStore?.operator}
+						promptText="Pick a script or flow to be triggered "
+					>
+						{#snippet createButton()}
+							{#if emptyString(script_path)}
+								<Button
+									btnClasses="ml-4"
+									variant="default"
+									unifiedSize="md"
+									disabled={!can_write}
+									href={itemKind === 'flow' ? '/flows/add?hub=68' : '/scripts/add?hub=hub%2F19796'}
+									target="_blank">Create from template</Button
+								>
+							{/if}
+						{/snippet}
+					</TriggerRunnablePicker>
 				</Section>
 			{/if}
 

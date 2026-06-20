@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
+	import { onDestroy } from 'svelte'
+	import { stripNewDraftFlagOnSave } from '$lib/newDraftFlag'
 
 	import { AppService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -11,12 +13,19 @@
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
-	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
+	import {
+		type RawAppData,
+		DEFAULT_DATA,
+		extractDataConfig
+	} from '$lib/components/raw_apps/dataTableRefUtils'
 	import { importStore } from '$lib/components/apps/store'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
+	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { armRestartOnFirstInteraction, runResetToDeployed } from '$lib/userDraftToast'
 	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
+	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import RawAppTemplatePicker, {
 		type RawAppTemplatePickerResult
@@ -72,13 +81,26 @@
 	 * React/Svelte + data config + optional AI prompt before the editor goes live. */
 	let templatePicker = $state(false)
 
-	// Page-level draft orchestration. `path` is a mount-scoped plain `let` (the
-	// editor remounts per path), so this re-keys only on workspace change.
+	/** Deployed raw-app bundle this load, the baseline the autosave `discardIf`
+	 * compares against. `undefined` for draft-only paths so they never
+	 * self-destruct by matching a non-existent baseline. */
+	let deployedBaseline = $state<RawAppDraft | undefined>(undefined)
+
+	// Page-level draft orchestration. Keyed on the REACTIVE `page.params.path`,
+	// not the mount-scoped `path` `let`: this page is not remounted on a
+	// same-route navigation, so the post-deploy `goto` (draft_{uuid} → the
+	// chosen path) must re-key the autosave handle onto the new path. Keying on
+	// the non-reactive `path` left the handle stuck on the old draft path, so
+	// edits to the just-deployed app autosaved to a dead key (autosave appeared
+	// broken). See /scripts/edit, which derives its draft path the same way.
 	// effectivePath omitted: the live-editor-draft entry is owned by RawAppEditor.
 	const draftSync = usePageDraftSync<RawAppDraft>({
 		itemKind: 'raw_app',
-		path: () => path,
-		workspace: () => $workspaceStore
+		path: () => page.params.path ?? '',
+		workspace: () => $workspaceStore,
+		// Autosaves landing back on the deployed raw app become deletes, so
+		// reverting edits clears the draft instead of leaving a no-op behind.
+		discardIf: (val) => deployedBaseline !== undefined && draftValuesEqual(val, deployedBaseline)
 	})
 
 	// Persist the bundle whenever any of the four pieces of state changes.
@@ -98,30 +120,24 @@
 			summary,
 			policy,
 			custom_path: savedApp?.custom_path,
-			// Only persist when set, so the field disappears from the saved JSON
-			// once the typed path matches the baseline again (or on deploy).
-			...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
+			// Persist the typed path as `draft_path` only when it actually differs
+			// from the current path — a `draft_path` equal to the baseline is a
+			// no-op that would block the draft from deduping against the deployed
+			// app (which carries none). Drops back out on a revert or deploy.
+			...(pendingDraftPath && pendingDraftPath !== (savedApp?.path ?? '')
+				? { draft_path: pendingDraftPath }
+				: {})
 		} as RawAppDraft
 	})
 
+	/** Normalize a raw-app `value` into the editor's `data` config, supporting
+	 * the old nested `creation` / `datatables` shapes. `undefined` when the
+	 * value carries no data config (caller keeps the current/default `data`). */
 	function extractRawApp(app: any) {
 		runnables = app.value.runnables
 		// Support old formats and new format
-		if (app.value.data) {
-			const d = app.value.data
-			// Handle old nested creation format
-			if (d.creation) {
-				data = {
-					tables: d.tables ?? [],
-					datatable: d.creation.datatable,
-					schema: d.creation.schema
-				}
-			} else {
-				data = d
-			}
-		} else if (app.value.datatables) {
-			data = { ...DEFAULT_DATA, tables: app.value.datatables }
-		}
+		const extractedData = extractDataConfig(app.value)
+		if (extractedData) data = extractedData
 		files = app.value.files
 		summary = app.summary
 		// lastVersion = app.version
@@ -135,6 +151,9 @@
 	 * navigation races a draft-discard reload) bail at the next checkpoint
 	 * after their captured token no longer matches. */
 	let loadAppToken = 0
+	/** Drops the previous load's `new_draft` strip-on-save listener. */
+	let cleanupNewDraftFlag: (() => void) | undefined
+	onDestroy(() => cleanupNewDraftFlag?.())
 	/** No deployed row at the URL path; flips RawAppEditor's deploy from
 	 * `updateApp` to `createApp`. See /apps/edit's `isNewApp`. */
 	let isNewApp = $state(false)
@@ -146,6 +165,8 @@
 	async function loadApp(opts: { getDraft?: boolean } = {}): Promise<void> {
 		const getDraft = opts.getDraft ?? true
 		const tok = ++loadAppToken
+		cleanupNewDraftFlag?.()
+		cleanupNewDraftFlag = undefined
 		// `?new_draft=true` (from `/apps_raw/add`'s redirect): a fresh, never-saved
 		// `draft_{uuid}` path. Skip the backend fetch (would 404) and seed every
 		// piece of state RawAppEditor needs — rendering gates on `files`, so an
@@ -158,6 +179,8 @@
 			loadedFromDraft = false
 			draftSavedAt = undefined
 			deployedAt = undefined
+			// Brand-new raw app: no deployed baseline, so never discard-on-equal.
+			deployedBaseline = undefined
 			// Suspend autosave across the bootstrap: the seed template and the
 			// picker's `onStart` are programmatic writes that must not POST as the
 			// first edit. Resume on first interaction (the template-card click or
@@ -165,10 +188,15 @@
 			if ($workspaceStore) {
 				UserDraft.stopSync('raw_app', path, { workspace: $workspaceStore })
 				armRestartOnFirstInteraction($workspaceStore, 'raw_app', path)
+				// Keep `?new_draft=true` until the backend confirms the first autosave,
+				// so a refresh before any edit re-seeds here instead of 404-ing on the
+				// never-persisted `draft_{uuid}` path.
+				cleanupNewDraftFlag = stripNewDraftFlagOnSave({
+					workspace: $workspaceStore,
+					itemKind: 'raw_app',
+					path
+				})
 			}
-			const url = new URL(window.location.href)
-			url.searchParams.delete('new_draft')
-			window.history.replaceState(window.history.state, '', url.toString())
 			// Backend's `Policy` requires `execution_mode` (empty object fails to deserialize).
 			const defaultPolicy = {
 				on_behalf_of: $userStore?.username.includes('@')
@@ -252,13 +280,30 @@
 		}
 		draftSync.recordRemoteSync(backendApp.draft_saved_at as string | undefined)
 		isNewApp = !!backendApp.no_deployed
-		if (backendApp.is_draft) {
-			loadedFromDraft = true
-		}
+		// Per-response, NOT sticky: a later no-own-draft load in the same editor
+		// must reset this so it can't wrongly force overlay mode.
+		const hasOwnDraft = !!backendApp.is_draft
+		loadedFromDraft = hasOwnDraft
 		// Deploy timestamp is `backendApp.created_at`; skip when `no_deployed`.
 		// See /apps/edit's loader.
 		draftSavedAt = backendApp.draft_saved_at as string | undefined
 		deployedAt = backendApp.no_deployed ? undefined : (backendApp.created_at as string | undefined)
+		// Deployed baseline for the autosave `discardIf`, captured BEFORE the swap
+		// below mutates `backendApp`. Mirrors the bundle `$effect`'s shape (minus
+		// the edit-only `draft_path`) so an unedited draft compares equal.
+		// `undefined` when there's no deployed row.
+		deployedBaseline = backendApp.no_deployed
+			? undefined
+			: (structuredClone(
+					stateSnapshot({
+						files: backendApp.value?.files ?? {},
+						runnables: backendApp.value?.runnables ?? {},
+						data: extractDataConfig(backendApp.value) ?? { ...DEFAULT_DATA },
+						summary: backendApp.summary ?? '',
+						policy: backendApp.policy,
+						custom_path: backendApp.custom_path
+					})
+				) as RawAppDraft)
 		// The raw-app autosave stores a flat `RawAppDraft`, but this loader (and
 		// `extractRawApp`) needs the deployed shape with `files`/`runnables`/`data`
 		// under `.value` and the rest top-level. Re-wrap the saved draft (`.draft`):
@@ -316,6 +361,47 @@
 		// $effect re-mirrors them into `draftSync.draft`; the first write is
 		// swallowed by `acquireEntry`'s seed guard, so no POST.
 		extractRawApp(backendApp)
+		// "Load another user's draft" handoff: their value is a flat RawAppDraft
+		// bundle. Override the local pieces with it; overlay mode (we have our own
+		// draft) hard-locks saves until the user confirms overwriting. The bundle
+		// $effect's write to `draftSync.draft` is blocked by the lock. See /scripts.
+		const pendingLoad = getDraft
+			? OtherUserDraftLoad.takePending($workspaceStore!, 'raw_app', path)
+			: undefined
+		// Revisiting a path whose overlay was never confirmed/reset: drop the stale
+		// lock so editing our own draft works again. See /scripts/edit's loader.
+		if (!pendingLoad && OtherUserDraftLoad.isActive($workspaceStore!, 'raw_app', path)) {
+			OtherUserDraftLoad.clear($workspaceStore!, 'raw_app', path)
+		}
+		if (pendingLoad) {
+			const v = pendingLoad.value as RawAppDraft
+			files = v.files ?? {}
+			runnables = v.runnables ?? {}
+			data = v.data ?? { ...DEFAULT_DATA }
+			summary = v.summary ?? ''
+			policy = v.policy ?? {}
+			newPath = v.draft_path ?? savedApp?.path ?? path
+			if (hasOwnDraft) {
+				OtherUserDraftLoad.beginOverlay({
+					workspace: $workspaceStore!,
+					itemKind: 'raw_app',
+					path,
+					ownerLabel: pendingLoad.ownerLabel,
+					// Mirror the bundle the persist-$effect produces from these pieces,
+					// so the cascade write that re-mirrors them isn't seen as an edit.
+					loadedValue: {
+						files,
+						runnables,
+						data,
+						summary,
+						policy,
+						custom_path: savedApp?.custom_path,
+						...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
+					} as RawAppDraft,
+					onResetToOwnDraft: () => loadApp({ getDraft: true })
+				})
+			}
+		}
 	}
 
 	run(() => {
@@ -403,11 +489,30 @@
 </script>
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
+<!-- Auto-save off: edits aren't persisted on leave, so warn before navigating
+	away (and on tab close). Inert while auto-save is on. -->
+<UnsavedConfirmationModal
+	showAutosaveTips
+	hasUnsavedChanges={() =>
+		UserDraftDbSyncer.hasUnsavedDisabledChanges({
+			workspace: $workspaceStore ?? '',
+			itemKind: 'raw_app',
+			path
+		})}
+	onDiscardChanges={() =>
+		UserDraftDbSyncer.dropPending({
+			workspace: $workspaceStore ?? '',
+			itemKind: 'raw_app',
+			path
+		})}
+/>
 <DraftEditorModals
 	workspace={$workspaceStore ?? ''}
 	itemKind="raw_app"
 	{path}
 	{otherDraftsUsers}
+	draftOnly={isNewApp}
+	hasOwnDraft={loadedFromDraft}
 	onLoadFromServer={() => loadApp()}
 	getLocalDraft={() => draftSync.draft}
 	bind:othersModalOpen

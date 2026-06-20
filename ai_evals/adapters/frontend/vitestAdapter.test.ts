@@ -33,15 +33,19 @@ vi.mock('$lib/components/vscode', () => ({}))
 vi.mock('$lib/gen', async () => {
 	const actual = await vi.importActual<any>('$lib/gen')
 	const {
+		getBenchmarkAppByPath,
 		getBenchmarkCompletedJob,
 		getBenchmarkCompletedJobResultMaybe,
 		getBenchmarkDatatableSchema,
+		getBenchmarkDraftForUser,
 		getBenchmarkFlowByPath,
 		getBenchmarkJobLogs,
 		getBenchmarkScriptByHash,
 		getBenchmarkScriptByPath,
 		hasBenchmarkWorkspace,
+		listBenchmarkApps,
 		listBenchmarkDatatables,
+		listBenchmarkDrafts,
 		listBenchmarkFlows,
 		listBenchmarkJobs,
 		listBenchmarkScripts,
@@ -50,7 +54,8 @@ vi.mock('$lib/gen', async () => {
 		previewBenchmarkSchedule,
 		runBenchmarkDatatableSql,
 		runBenchmarkFlowByPath,
-		runBenchmarkScriptPreview
+		runBenchmarkScriptPreview,
+		updateBenchmarkDraft
 	} = await import('./mockBackend')
 
 	function wrapService<T extends object>(target: T, overrides: Record<string, unknown>): T {
@@ -66,6 +71,25 @@ vi.mock('$lib/gen', async () => {
 
 	return {
 		...actual,
+		DraftService: wrapService(actual.DraftService, {
+			updateDraft: async (data: {
+				workspace: string
+				kind: any
+				path: string
+				requestBody?: { value?: unknown }
+			}) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? updateBenchmarkDraft(data)
+					: actual.DraftService.updateDraft(data),
+			getDraftForUser: async (data: { workspace: string; kind: any; path: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkDraftForUser(data)
+					: actual.DraftService.getDraftForUser(data),
+			listDrafts: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? listBenchmarkDrafts(data.workspace)
+					: actual.DraftService.listDrafts(data)
+		}),
 		ScriptService: wrapService(actual.ScriptService, {
 			listScripts: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace)
@@ -277,12 +301,20 @@ vi.mock('$lib/gen', async () => {
 		}),
 		AppService: wrapService(actual.AppService, {
 			existsApp: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? false : actual.AppService.existsApp(data),
+				hasBenchmarkWorkspace(data.workspace)
+					? Boolean(getBenchmarkAppByPath(data.workspace, data.path))
+					: actual.AppService.existsApp(data),
 			listApps: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.AppService.listApps(data),
+				hasBenchmarkWorkspace(data.workspace)
+					? (listBenchmarkApps(data.workspace) ?? [])
+					: actual.AppService.listApps(data),
 			getAppByPath: async (data: { workspace: string; path: string }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
-					throw new Error(`App "${data.path}" not found in benchmark workspace`)
+					const app = getBenchmarkAppByPath(data.workspace, data.path)
+					if (!app) {
+						throw new Error(`App "${data.path}" not found in benchmark workspace`)
+					}
+					return app
 				}
 				return actual.AppService.getAppByPath(data)
 			}
@@ -434,5 +466,6 @@ benchmarkIt(
 			resetBenchmarkMockBackend()
 		}
 	},
-	600_000
+	// Full-suite runs (30+ cases at concurrency 2-3) routinely exceed 10 minutes.
+	7_200_000
 )
