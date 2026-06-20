@@ -59,6 +59,10 @@
 			sendUserToast('Migration name is required', true)
 			return
 		}
+		if (!/^[a-zA-Z0-9_-]+$/.test(name.trim())) {
+			sendUserToast("Invalid migration name: use only letters, digits, '_' and '-'", true)
+			return
+		}
 		creating = true
 		try {
 			const created = await WorkspaceService.createDatatableMigration({

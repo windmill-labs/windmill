@@ -2844,6 +2844,11 @@ async fn update_datatable_migrations(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
+    for m in &payload.migrations {
+        validate_datatable_path_segment(&m.datatable)?;
+        validate_migration_name(&m.name)?;
+    }
+
     let datatables: Vec<String> = payload
         .migrations
         .iter()
@@ -3014,6 +3019,36 @@ pub struct CreateDatatableMigration {
     pub code_down: Option<String>,
 }
 
+/// Migration names map onto on-disk file names and the `_wm_migrations` record,
+/// so keep them to a safe path-segment charset (matches the CLI scaffold).
+fn validate_migration_name(name: &str) -> Result<()> {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(Error::BadRequest(format!(
+            "Invalid migration name '{name}': use only letters, digits, '_' and '-'"
+        )));
+    }
+    Ok(())
+}
+
+/// The data table name becomes a directory segment in the sync export
+/// (`migrations/datatable/<datatable>/...`); reject anything that could escape it.
+fn validate_datatable_path_segment(datatable: &str) -> Result<()> {
+    if datatable.is_empty()
+        || datatable.contains('/')
+        || datatable.contains('\\')
+        || datatable.contains("..")
+    {
+        return Err(Error::BadRequest(format!(
+            "Invalid data table name '{datatable}': must not contain '/', '\\' or '..'"
+        )));
+    }
+    Ok(())
+}
+
 /// Create a single migration for a data table. The version is generated
 /// server-side (current UTC `YYYYMMDDHHMMSS`), bumped past any existing version
 /// so it stays unique and monotonically increasing.
@@ -3024,6 +3059,8 @@ async fn create_datatable_migration(
     Json(payload): Json<CreateDatatableMigration>,
 ) -> JsonResult<DatatableMigration> {
     require_admin(authed.is_admin, &authed.username)?;
+    validate_datatable_path_segment(&datatable_name)?;
+    validate_migration_name(&payload.name)?;
 
     let now_ts: i64 = Utc::now()
         .format("%Y%m%d%H%M%S")
@@ -3129,6 +3166,8 @@ async fn upsert_datatable_migration(
     Json(payload): Json<UpsertDatatableMigration>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+    validate_datatable_path_segment(&datatable_name)?;
+    validate_migration_name(&payload.name)?;
 
     sqlx::query!(
         "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) \
