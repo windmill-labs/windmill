@@ -2292,6 +2292,24 @@ class DucklakeClient:
     def _qualified(self, table: str, schema: str = None) -> str:
         return f'dl."{schema}"."{table}"' if schema else f"dl.{table}"
 
+    def _materialize_finish(self, sql, table, schema, partition, partition_col):
+        """Return the materialize query; in a pipeline (WM_PIPELINE) append a
+        summary read and record materialized_partition state after a successful
+        run so SDK-materialized slices appear in the grid like `// materialize`
+        ones. Outside a pipeline it stays a plain query (no recording)."""
+        bind = {} if partition is None else {"_wm_partition": partition}
+        if os.environ.get("WM_PIPELINE") != "true":
+            return self.query(sql, **bind)
+        t = self._qualified(table, schema)
+        where = f" WHERE {partition_col} = $_wm_partition" if partition is not None else ""
+        summary = (
+            f"\nSELECT (SELECT count(*) FROM {t}{where}) AS rows, "
+            f"(SELECT max(snapshot_id) FROM ducklake_snapshots('dl')) AS snapshot_id;"
+        )
+        q = self.query(sql + summary, **bind)
+        asset_path = f"{self.name}/{table}"
+        return _RecordingSqlQuery(q, self.client, asset_path, partition or "")
+
     def upsert_partition(
         self,
         table: str,
@@ -2326,7 +2344,7 @@ class DucklakeClient:
                 )
             else:
                 sql = f"CREATE OR REPLACE TABLE {t} AS SELECT * FROM ({select_sql});"
-            return self.query(sql)
+            return self._materialize_finish(sql, table, schema, partition, partition_col)
         src = f"SELECT *, $_wm_partition AS {partition_col} FROM ({select_sql})"
         if unique_key:
             # Upsert via delete-by-key + insert (not MERGE — DuckLake's MERGE
@@ -2347,7 +2365,7 @@ class DucklakeClient:
             f"ALTER TABLE {t} SET PARTITIONED BY ({partition_col});\n"
             f"BEGIN TRANSACTION;\n{body}\nCOMMIT;"
         )
-        return self.query(sql, _wm_partition=partition)
+        return self._materialize_finish(sql, table, schema, partition, partition_col)
 
     def append_partition(
         self,
@@ -2368,14 +2386,14 @@ class DucklakeClient:
                 f"CREATE TABLE IF NOT EXISTS {t} AS SELECT * FROM ({select_sql}) WHERE false;\n"
                 f"INSERT INTO {t} SELECT * FROM ({select_sql});"
             )
-            return self.query(sql)
+            return self._materialize_finish(sql, table, schema, partition, partition_col)
         sql = (
             f"CREATE TABLE IF NOT EXISTS {t} AS "
             f"SELECT *, CAST(NULL AS VARCHAR) AS {partition_col} FROM ({select_sql}) WHERE false;\n"
             f"ALTER TABLE {t} SET PARTITIONED BY ({partition_col});\n"
             f"INSERT INTO {t} SELECT *, $_wm_partition AS {partition_col} FROM ({select_sql});"
         )
-        return self.query(sql, _wm_partition=partition)
+        return self._materialize_finish(sql, table, schema, partition, partition_col)
 
     def read(
         self,
@@ -2440,6 +2458,60 @@ class SqlQuery:
         """Execute query and don't return any results.
         """
         self.fetch_one()
+
+
+class _RecordingSqlQuery:
+    """Wraps a ducklake materialize query so that, on a successful run, the
+    trailing summary (row count + snapshot id) is captured and the
+    materialized_partition state is recorded (best-effort). Only used in pipeline
+    context — outside it the helpers return a plain SqlQuery. Mirrors SqlQuery's
+    terminal methods so `.execute()` / `.fetch_one()` behave the same."""
+
+    def __init__(self, inner, client, asset_path, partition):
+        self._inner = inner
+        self._client = client
+        self._asset_path = asset_path
+        self._partition = partition
+        self.sql = inner.sql
+
+    def execute(self):
+        self._run()
+
+    def fetch_one(self):
+        return self._run()
+
+    def fetch(self, result_collection=None):
+        return self._run()
+
+    def _run(self):
+        try:
+            row = self._inner.fetch_one()
+        except Exception as e:
+            self._record("failed", None, None, str(e))
+            raise
+        snap = row.get("snapshot_id") if isinstance(row, dict) else None
+        rows = row.get("rows") if isinstance(row, dict) else None
+        self._record("materialized", snap, rows, None)
+        return row
+
+    def _record(self, status, snapshot_id, row_count, error):
+        try:
+            self._client.post(
+                f"/w/{self._client.workspace}/assets/record_materialization",
+                json={
+                    "asset_kind": "ducklake",
+                    "asset_path": self._asset_path,
+                    "partition": self._partition,
+                    "status": status,
+                    "snapshot_id": snapshot_id,
+                    "row_count": row_count,
+                    "job_id": os.environ.get("WM_JOB_ID"),
+                    "error": error,
+                },
+            )
+        except Exception:
+            pass  # best-effort; never fail the user's materialization
+
 
 def infer_sql_type(value) -> str:
     """

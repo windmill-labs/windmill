@@ -1,4 +1,5 @@
-import { getWorkspace, workerHasInternalServer } from "./client";
+import { getEnv, getWorkspace, workerHasInternalServer } from "./client";
+import { OpenAPI } from "./core/OpenAPI";
 import { JobService } from "./services.gen";
 
 type ResultCollection =
@@ -414,6 +415,9 @@ export interface DucklakeMaterializeOptions {
  * Returns a lazy statement — call `.execute()` to run it:
  * `await wmill.upsertPartition({ table, selectSql, partition }).execute()`. */
 export function upsertPartition(opts: DucklakeMaterializeOptions): SqlStatement<any> {
+  return finishMaterialize(buildUpsertStatement(opts), opts);
+}
+function buildUpsertStatement(opts: DucklakeMaterializeOptions): SqlStatement<any> {
   let { name: n, schema } = parseName(opts.ducklake ?? "main");
   let sql = buildSqlTemplateFunction(ducklakeProvider(n, schema));
   let pcol = sql.raw(opts.partitionCol ?? "_wm_partition");
@@ -460,6 +464,11 @@ COMMIT;`;
 export function appendPartition(
   opts: Omit<DucklakeMaterializeOptions, "uniqueKey">,
 ): SqlStatement<any> {
+  return finishMaterialize(buildAppendStatement(opts), opts);
+}
+function buildAppendStatement(
+  opts: Omit<DucklakeMaterializeOptions, "uniqueKey">,
+): SqlStatement<any> {
   let { name: n, schema } = parseName(opts.ducklake ?? "main");
   let sql = buildSqlTemplateFunction(ducklakeProvider(n, schema));
   let pcol = sql.raw(opts.partitionCol ?? "_wm_partition");
@@ -473,6 +482,84 @@ INSERT INTO ${t} SELECT * FROM (${body});`;
   return sql`CREATE TABLE IF NOT EXISTS ${t} AS SELECT *, CAST(NULL AS VARCHAR) AS ${pcol} FROM (${body}) WHERE false;
 ALTER TABLE ${t} SET PARTITIONED BY (${pcol});
 INSERT INTO ${t} SELECT *, ${opts.partition} AS ${pcol} FROM (${body});`;
+}
+
+// In pipeline context (WM_PIPELINE), wrap a materialize statement so a
+// successful run captures the slice's row count + snapshot and records
+// materialized_partition state — making SDK materializations appear in the grid
+// like `// materialize` ones. Outside a pipeline it's a passthrough (no record).
+function finishMaterialize(
+  stmt: SqlStatement<any>,
+  opts: Pick<DucklakeMaterializeOptions, "ducklake" | "table" | "partition" | "partitionCol">,
+): SqlStatement<any> {
+  if (getEnv("WM_PIPELINE") !== "true") return stmt;
+  let { name: n, schema } = parseName(opts.ducklake ?? "main");
+  let sql = buildSqlTemplateFunction(ducklakeProvider(n, schema));
+  let t = sql.raw(`dl.${opts.table}`);
+  let pcol = opts.partitionCol ?? "_wm_partition";
+  let where =
+    opts.partition !== undefined
+      ? sql.raw(`WHERE ${pcol} = '${String(opts.partition).replaceAll("'", "''")}'`)
+      : sql.raw("");
+  let summary = sql`SELECT (SELECT count(*) FROM ${t} ${where}) AS rows, (SELECT max(snapshot_id) FROM ducklake_snapshots('dl')) AS snapshot_id`;
+  let assetPath = `${n}/${opts.table}`;
+  let partition = opts.partition ?? "";
+  let run = async () => {
+    try {
+      await stmt.execute();
+    } catch (e) {
+      await recordMaterialization(assetPath, partition, "failed", null, null, String(e));
+      throw e;
+    }
+    let snapshot_id: number | null = null;
+    let row_count: number | null = null;
+    try {
+      let s: any = await summary.fetchOne();
+      snapshot_id = s?.snapshot_id ?? null;
+      row_count = s?.rows ?? null;
+    } catch {
+      /* summary read is best-effort */
+    }
+    await recordMaterialization(assetPath, partition, "materialized", snapshot_id, row_count, null);
+  };
+  return {
+    ...stmt,
+    execute: () => run(),
+    fetch: (() => run()) as any,
+    fetchOne: (() => run()) as any,
+    fetchOneScalar: (() => run()) as any,
+  };
+}
+
+async function recordMaterialization(
+  assetPath: string,
+  partition: string,
+  status: string,
+  snapshot_id: number | null,
+  row_count: number | null,
+  error: string | null,
+): Promise<void> {
+  try {
+    await fetch(`${OpenAPI.BASE}/w/${getWorkspace()}/assets/record_materialization`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${OpenAPI.TOKEN as string}`,
+      },
+      body: JSON.stringify({
+        asset_kind: "ducklake",
+        asset_path: assetPath,
+        partition,
+        status,
+        snapshot_id,
+        row_count,
+        job_id: getEnv("WM_JOB_ID") ?? null,
+        error,
+      }),
+    });
+  } catch {
+    // best-effort; never fail the user's materialization
+  }
 }
 
 // ---------------------------------------------------------------------------

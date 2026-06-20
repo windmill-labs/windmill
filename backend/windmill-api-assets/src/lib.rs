@@ -23,6 +23,7 @@ pub fn workspaced_service() -> Router {
         .route("/graph", get(asset_graph))
         .route("/pipelines", get(list_pipeline_folders))
         .route("/partitions", get(list_partitions))
+        .route("/record_materialization", post(record_materialization))
 }
 
 #[derive(Deserialize)]
@@ -50,6 +51,34 @@ async fn list_partitions(
     .await?;
     tx.commit().await?;
     Ok(Json(rows))
+}
+
+// Record a materialization outcome from a polyglot (Python/TS) `wmill.ducklake`
+// helper running as a pipeline step. The DuckDB `// materialize` engine records
+// this itself; the SDK helpers post here instead so SDK-materialized slices show
+// up in the grid identically. RLS-scoped to the caller's workspace.
+async fn record_materialization(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+    Json(req): Json<windmill_common::materialization::RecordMaterializationRequest>,
+) -> JsonResult<()> {
+    let mut tx = user_db.begin(&authed).await?;
+    windmill_common::materialization::record_materialization(
+        &mut *tx,
+        &w_id,
+        req.asset_kind,
+        &req.asset_path,
+        &req.partition,
+        req.status,
+        req.snapshot_id,
+        req.row_count,
+        req.job_id,
+        req.error.as_deref(),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(()))
 }
 
 #[derive(Deserialize)]

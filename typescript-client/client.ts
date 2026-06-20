@@ -75,7 +75,7 @@ function getPublicBaseUrl(): string {
   return getEnv("WM_BASE_URL") ?? "http://localhost:3000";
 }
 
-const getEnv = (key: string) => {
+export const getEnv = (key: string) => {
   if (typeof window === "undefined") {
     // node
     return process?.env?.[key];
