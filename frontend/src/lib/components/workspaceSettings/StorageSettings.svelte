@@ -68,8 +68,26 @@
 			'Which resource the workspace storage will point to. Note that all users of the workspace will be able to access the workspace storage regardless of the resource visibility.'
 	}
 
+	// Primary storage exists once it has been saved with a resource. Until then the row is
+	// hidden and the user is offered an "Add primary storage" button instead.
+	let primaryStorageSaved: boolean = $derived(!emptyString(s3ResourceSavedSettings.resourcePath))
+	let addingPrimary: boolean = $state(false)
+	let showPrimaryRow: boolean = $derived(primaryStorageSaved || addingPrimary)
+
+	// Any discard (footer or the page-level "discard all changes") resets the whole settings
+	// object to the saved clone. Collapse a revealed-but-unsaved primary row when that happens.
+	let prevSettings = s3ResourceSettings
+	$effect(() => {
+		if (s3ResourceSettings !== prevSettings) {
+			prevSettings = s3ResourceSettings
+			addingPrimary = false
+		}
+	})
+
 	let tableRows: [string | null, S3ResourceSettingsItem][] = $derived([
-		[null, s3ResourceSettings],
+		...(showPrimaryRow
+			? ([[null, s3ResourceSettings]] as [string | null, S3ResourceSettingsItem][])
+			: []),
 		...(s3ResourceSettings.secondaryStorage ?? [])
 	])
 	let secondaryStorageIsDirty: Record<string, boolean> = $derived(
@@ -144,7 +162,7 @@
 			</tr>
 		</Head>
 		<tbody class="divide-y bg-surface-tertiary">
-			{#each tableRows as tableRow, idx}
+			{#each tableRows as tableRow}
 				<Row>
 					<Cell first class="w-48 relative">
 						{#if tableRow[0] === null}
@@ -161,27 +179,27 @@
 						<div class="flex gap-2">
 							<div class="relative">
 								{#if tableRow[1].resourceType === 'filesystem'}
-								<Select
-									items={[{ value: 'filesystem', label: 'Filesystem' }]}
-									value={'filesystem'}
-									disabled
-									id="storage-resource-type-select"
-									class="w-40"
-								/>
-							{:else}
-								<Select
-									items={[
-										{ value: 's3', label: 'S3' },
-										{ value: 'azure_blob', label: 'Azure Blob' },
-										{ value: 's3_aws_oidc', label: 'AWS OIDC' },
-										{ value: 'azure_workload_identity', label: 'Azure Workload Identity' },
-										{ value: 'gcloud_storage', label: 'Google Cloud Storage' }
-									]}
-									bind:value={tableRow[1].resourceType}
-									id="storage-resource-type-select"
-									class="w-40"
-								/>
-							{/if}
+									<Select
+										items={[{ value: 'filesystem', label: 'Filesystem' }]}
+										value={'filesystem'}
+										disabled
+										id="storage-resource-type-select"
+										class="w-40"
+									/>
+								{:else}
+									<Select
+										items={[
+											{ value: 's3', label: 'S3' },
+											{ value: 'azure_blob', label: 'Azure Blob' },
+											{ value: 's3_aws_oidc', label: 'AWS OIDC' },
+											{ value: 'azure_workload_identity', label: 'Azure Workload Identity' },
+											{ value: 'gcloud_storage', label: 'Google Cloud Storage' }
+										]}
+										bind:value={tableRow[1].resourceType}
+										id="storage-resource-type-select"
+										class="w-40"
+									/>
+								{/if}
 							</div>
 							<div class="flex flex-1">
 								{#if tableRow[1].resourceType === 'filesystem'}
@@ -223,19 +241,15 @@
 									class="cursor-not-allowed"
 								>
 									{#snippet trigger()}
-
-											<ExploreAssetButton asset={{ kind: 's3object', path: '' }} disabled />
-
-																	{/snippet}
+										<ExploreAssetButton asset={{ kind: 's3object', path: '' }} disabled />
+									{/snippet}
 									{#snippet content()}
-
-											{#if emptyString(tableRow[1].resourcePath)}
-												Please select a storage resource
-											{:else if isDirty(tableRow[0])}
-												Please save your changes
-											{/if}
-
-																	{/snippet}
+										{#if emptyString(tableRow[1].resourcePath)}
+											Please select a storage resource
+										{:else if isDirty(tableRow[0])}
+											Please save your changes
+										{/if}
+									{/snippet}
 								</Popover>
 							{:else}
 								<ExploreAssetButton
@@ -251,8 +265,13 @@
 								small
 								on:close={() => {
 									if (s3ResourceSettings.secondaryStorage) {
-										s3ResourceSettings.secondaryStorage.splice(idx - 1, 1)
-										s3ResourceSettings.secondaryStorage = [...s3ResourceSettings.secondaryStorage]
+										const realIdx = s3ResourceSettings.secondaryStorage.findIndex(
+											(s) => s === tableRow
+										)
+										if (realIdx !== -1) {
+											s3ResourceSettings.secondaryStorage.splice(realIdx, 1)
+											s3ResourceSettings.secondaryStorage = [...s3ResourceSettings.secondaryStorage]
+										}
 									}
 								}}
 							/>
@@ -295,7 +314,16 @@
 						</Button>
 					{/snippet}
 					<div class="flex justify-center w-full">
-						{#if !s3ResourceSettings.resourcePath}
+						{#if !showPrimaryRow}
+							<Button
+								size="sm"
+								btnClasses="max-w-fit mt-2"
+								variant="default"
+								on:click={() => (addingPrimary = true)}
+							>
+								<Plus /> Add primary storage
+							</Button>
+						{:else if !s3ResourceSettings.resourcePath}
 							<Popover
 								class="cursor-not-allowed"
 								openOnHover
