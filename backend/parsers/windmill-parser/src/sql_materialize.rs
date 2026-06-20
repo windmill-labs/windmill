@@ -376,8 +376,22 @@ impl<'a> MaterializeCodegen<'a> {
         let pval = self.partition_value_sql;
         let mut out = Vec::new();
 
-        // First-run bootstrap: create the managed table with the SELECT's
-        // schema (+ partition col) but no rows.
+        // Whole-table replace: rebuild the table to match the SELECT's *current*
+        // schema each run with one atomic `CREATE OR REPLACE` (which DuckLake
+        // still snapshots). This is the only path that survives a changed SELECT
+        // or a pre-existing table with a different schema — the persist-and-
+        // mutate paths below fix the schema at first create.
+        if !self.partitioned && matches!(self.strategy, MaterializeStrategy::Replace) {
+            out.push(format!(
+                "CREATE OR REPLACE TABLE {t} AS SELECT * FROM ({sel});"
+            ));
+            return out;
+        }
+
+        // Persist-and-mutate (partitioned, or merge/append): bootstrap the table
+        // if absent, then write into it. The schema is fixed at first create —
+        // a later SELECT-schema change needs a manual rebuild (schema evolution
+        // is a follow-up).
         if self.partitioned {
             out.push(format!(
                 "CREATE TABLE IF NOT EXISTS {t} AS \
@@ -399,11 +413,8 @@ impl<'a> MaterializeCodegen<'a> {
         };
         match &self.strategy {
             MaterializeStrategy::Replace => {
-                if self.partitioned {
-                    out.push(format!("DELETE FROM {t} WHERE {pcol} = {pval};"));
-                } else {
-                    out.push(format!("DELETE FROM {t};"));
-                }
+                // Only reached when partitioned (whole-table replace returned above).
+                out.push(format!("DELETE FROM {t} WHERE {pcol} = {pval};"));
                 out.push(format!("INSERT INTO {t} {source};"));
             }
             MaterializeStrategy::Append => {
@@ -693,6 +704,29 @@ mod tests {
             .any(|s| s.starts_with("INSERT INTO _wm_target.events")));
         assert!(!st.iter().any(|s| s.starts_with("DELETE")));
         assert!(!st.iter().any(|s| s.starts_with("MERGE")));
+    }
+
+    #[test]
+    fn codegen_whole_table_replace_is_create_or_replace() {
+        // Unpartitioned replace must use CREATE OR REPLACE so a changed SELECT
+        // schema (or a pre-existing table with a different schema) doesn't break
+        // — and nothing else (no bootstrap / DELETE / INSERT / txn).
+        let cg = MaterializeCodegen {
+            target_qualified: "_wm_target.customer_dim",
+            select_sql: "SELECT a, b, c FROM dl.src",
+            partition_col: "_wm_partition",
+            partition_value_sql: "''",
+            partitioned: false,
+            strategy: MaterializeStrategy::Replace,
+        };
+        let st = cg.statements();
+        assert_eq!(
+            st,
+            vec![
+                "CREATE OR REPLACE TABLE _wm_target.customer_dim AS SELECT * FROM (SELECT a, b, c FROM dl.src);"
+                    .to_string()
+            ]
+        );
     }
 
     #[test]
