@@ -231,7 +231,7 @@
 	<div
 		bind:this={outputEl}
 		class={twMerge(
-			'flex flex-col gap-1 p-2 grow w-56 overflow-auto transition-opacity',
+			'flex flex-col gap-1 p-2 grow w-64 overflow-auto transition-opacity',
 			selected.triggerId && selected.language ? '' : 'opacity-20'
 		)}
 		{@attach arrowTabNav({ onKeyDown: selectAndAdvanceTo(() => pathEl, { timeout: 50 }) })}
