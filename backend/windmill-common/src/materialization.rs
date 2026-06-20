@@ -50,8 +50,9 @@ pub struct RecordMaterializationRequest {
 }
 
 /// Upsert the latest materialization state for one (asset, partition) slice.
-/// The worker records `Running` before the write, then `Materialized` (with the
-/// DuckLake `snapshot_id` + `row_count`) or `Failed` (with `error`) after.
+/// The worker records the terminal outcome once the write finishes:
+/// `Materialized` (with the DuckLake `snapshot_id` + `row_count`) or `Failed`
+/// (with `error`). `Running` mirrors the pg enum but has no writer in this flow.
 /// Idempotent: re-running the same partition overwrites the row — exactly the
 /// backfill / failure-recovery contract.
 #[allow(clippy::too_many_arguments)]
