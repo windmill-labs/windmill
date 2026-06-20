@@ -114,6 +114,7 @@ fn build_materialized_query(
         &plan,
         &synthetic_attach,
         table,
+        &m.target_path,
         "_wm_partition",
         &pval,
         partitioned,
@@ -122,19 +123,19 @@ fn build_materialized_query(
     Ok(Some((Some(blocks.join("\n")), meta)))
 }
 
-// Pull the DuckLake snapshot id out of the trailing `ducklake_snapshots(...)`
+// Pull a named i64 field (`snapshot_id` / `rows`) out of the trailing summary
 // read — which in wrap mode is the job result. Shape-tolerant (object / array /
 // nested), returns None if absent (literal mode, or capture failed).
-fn extract_snapshot_id(result: &RawValue) -> Option<i64> {
-    fn find(v: &Value) -> Option<i64> {
+fn extract_i64(result: &RawValue, field: &str) -> Option<i64> {
+    fn find(v: &Value, field: &str) -> Option<i64> {
         match v {
             Value::Number(n) => n.as_i64(),
-            Value::Object(m) => m.get("snapshot_id").and_then(find),
-            Value::Array(a) => a.iter().find_map(find),
+            Value::Object(m) => m.get(field).and_then(|x| find(x, field)),
+            Value::Array(a) => a.iter().find_map(|x| find(x, field)),
             _ => None,
         }
     }
-    find(&serde_json::from_str::<Value>(result.get()).ok()?)
+    find(&serde_json::from_str::<Value>(result.get()).ok()?, field)
 }
 
 // Best-effort record of a materialization outcome (Sql connections only; agent
@@ -146,6 +147,7 @@ async fn record_mat(
     meta: &MaterializeExec,
     status: windmill_common::materialization::MaterializationStatus,
     snapshot_id: Option<i64>,
+    row_count: Option<i64>,
     error: Option<&str>,
 ) {
     if let Connection::Sql(db) = conn {
@@ -157,7 +159,7 @@ async fn record_mat(
             &meta.partition,
             status,
             snapshot_id,
-            None,
+            row_count,
             Some(job_id),
             error,
         )
@@ -367,6 +369,7 @@ pub async fn do_duckdb(
                         meta,
                         windmill_common::materialization::MaterializationStatus::Failed,
                         None,
+                        None,
                         Some(&e.to_string()),
                     )
                     .await;
@@ -383,9 +386,10 @@ pub async fn do_duckdb(
         };
 
         if let Some((_, meta)) = &materialize {
-            // In wrap mode the job result is the snapshot-capture read; in
-            // literal mode there is none, so snapshot_id stays None.
-            let snapshot_id = extract_snapshot_id(&result);
+            // In wrap mode the job result is the summary read (snapshot_id +
+            // rows); in literal mode there is none, so both stay None.
+            let snapshot_id = extract_i64(&result, "snapshot_id");
+            let row_count = extract_i64(&result, "rows");
             record_mat(
                 conn,
                 &job.workspace_id,
@@ -393,6 +397,7 @@ pub async fn do_duckdb(
                 meta,
                 windmill_common::materialization::MaterializationStatus::Materialized,
                 snapshot_id,
+                row_count,
                 None,
             )
             .await;

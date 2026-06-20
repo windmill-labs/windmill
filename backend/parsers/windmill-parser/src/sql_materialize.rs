@@ -468,12 +468,15 @@ pub const TARGET_ALIAS: &str = "_wm_target";
 /// `target_attach` is the real `ATTACH 'ducklake:…' AS _wm_target (…);` string
 /// the worker built from config (it depends on resolved credentials, so it
 /// can't be generated here). `target_table` is the table within that catalog
-/// (e.g. `orders_daily`), referenced as `_wm_target.<table>`. The trailing
-/// statement is the snapshot-capture read whose scalar the worker records.
+/// (e.g. `orders_daily`), referenced as `_wm_target.<table>`. `asset_path` is
+/// the full `<name>/<table>` for the result summary. The trailing statement is
+/// a one-row summary read (asset / rows / snapshot_id) that is both the job's
+/// result (a useful preview) and what the worker records.
 pub fn build_wrap_blocks(
     plan: &WrapPlan,
     target_attach: &str,
     target_table: &str,
+    asset_path: &str,
     partition_col: &str,
     partition_value_sql: &str,
     partitioned: bool,
@@ -496,8 +499,39 @@ pub fn build_wrap_blocks(
     blocks.extend(plan.setup.iter().map(|s| terminate(s)));
     blocks.push(target_attach.to_string());
     blocks.extend(cg.statements());
-    blocks.push(snapshot_capture_sql(TARGET_ALIAS));
+    blocks.push(materialize_result_sql(
+        &target_qualified,
+        asset_path,
+        partition_col,
+        partition_value_sql,
+        partitioned,
+    ));
     blocks
+}
+
+/// The trailing one-row summary the materialize run returns: the asset it
+/// produced, the row count of the materialized slice (the partition when
+/// partitioned, else the whole table), and the DuckLake snapshot it created.
+/// This is both a useful preview result and the row the worker records.
+pub fn materialize_result_sql(
+    target_qualified: &str,
+    asset_path: &str,
+    partition_col: &str,
+    partition_value_sql: &str,
+    partitioned: bool,
+) -> String {
+    let count_expr = if partitioned {
+        format!(
+            "(SELECT count(*) FROM {target_qualified} WHERE {partition_col} = {partition_value_sql})"
+        )
+    } else {
+        format!("(SELECT count(*) FROM {target_qualified})")
+    };
+    format!(
+        "SELECT 'ducklake://{asset_path}' AS materialized, \
+         {count_expr} AS rows, \
+         (SELECT max(snapshot_id) FROM ducklake_snapshots('{TARGET_ALIAS}')) AS snapshot_id;"
+    )
 }
 
 // Ensure a statement ends with a single `;`.
@@ -744,12 +778,13 @@ mod tests {
             &plan,
             "ATTACH 'ducklake:postgres:…' AS _wm_target (DATA_PATH 's3://b/p');",
             "orders_daily",
+            "main/orders_daily",
             "_wm_partition",
             "'2026-06-19'",
             true,
             MaterializeStrategy::Replace,
         );
-        // setup block first, then the target ATTACH, then codegen, then capture.
+        // setup block first, then the target ATTACH, then codegen, then result.
         assert!(blocks[0].starts_with("ATTACH 'ducklake://main' AS dl"));
         // every setup block must be `;`-terminated so re-splitting can't merge it
         // with the synthetic target ATTACH that follows.
@@ -762,9 +797,11 @@ mod tests {
         assert!(blocks.iter().any(|b| b.starts_with(
             "DELETE FROM _wm_target.orders_daily WHERE _wm_partition = '2026-06-19'"
         )));
-        assert!(blocks
-            .last()
-            .unwrap()
-            .contains("ducklake_snapshots('_wm_target')"));
+        // the trailing block is the one-row summary (asset / rows / snapshot_id),
+        // partition-scoped for the row count
+        let last = blocks.last().unwrap();
+        assert!(last.contains("'ducklake://main/orders_daily' AS materialized"));
+        assert!(last.contains("WHERE _wm_partition = '2026-06-19') AS rows"));
+        assert!(last.contains("ducklake_snapshots('_wm_target')"));
     }
 }
