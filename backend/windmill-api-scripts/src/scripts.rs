@@ -1320,6 +1320,26 @@ async fn create_script_internal<'c>(
         &ns.content,
         ns.assets.take(),
     );
+    // Register the `// materialize` target as a write asset so the deployed
+    // asset graph shows this script as the producer of the managed table — the
+    // body's `SELECT` doesn't express the write (the runtime generates it), so
+    // server-side inference wouldn't otherwise link it.
+    let effective_assets = if let Some(m) = pipeline_annotations.materialize.as_ref() {
+        let kind = windmill_common::assets::asset_kind_from_parser(m.target_kind);
+        let mut a = effective_assets.unwrap_or_default();
+        if !a.iter().any(|x| x.kind == kind && x.path == m.target_path) {
+            a.push(windmill_common::assets::AssetWithAltAccessType {
+                path: m.target_path.clone(),
+                kind,
+                access_type: Some(windmill_common::assets::AssetUsageAccessType::W),
+                alt_access_type: None,
+                columns: None,
+            });
+        }
+        Some(a)
+    } else {
+        effective_assets
+    };
     let auto_kind = if in_pipeline {
         Some("pipeline".to_string())
     } else if ci_test_refs.is_some() {
