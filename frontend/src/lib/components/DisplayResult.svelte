@@ -892,7 +892,11 @@
 							/>
 							{#if showMaterializedPreview}
 								<div class="border rounded-md h-80 min-h-0 overflow-hidden">
-									<DucklakeResultPreview assetUri={m.materialized} class="h-full" />
+									<DucklakeResultPreview
+										assetUri={m.materialized}
+										partition={m.partition}
+										class="h-full"
+									/>
 								</div>
 							{/if}
 						</div>
