@@ -14354,6 +14354,7 @@ dependencies = [
  "windmill-parser",
  "windmill-parser-py",
  "windmill-parser-py-asset",
+ "windmill-parser-sql",
  "windmill-parser-sql-asset",
  "windmill-parser-ts",
  "windmill-parser-ts-asset",
