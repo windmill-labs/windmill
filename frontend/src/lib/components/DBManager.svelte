@@ -599,7 +599,9 @@
 					onConfirm={async ({ values }) => {
 						if (dbTableEditorState.alterTableKey && dbTableEditorAlterTableData.current) {
 							let diff = diffTableEditorValues(dbTableEditorAlterTableData.current, values)
-							await dbSchemaOps.onAlter({ schema: selected.schemaKey, values: diff })
+							// Reverse diff (new → old) so the migration's down undoes the alter.
+							let reverse = diffTableEditorValues(values, dbTableEditorAlterTableData.current)
+							await dbSchemaOps.onAlter({ schema: selected.schemaKey, values: diff, reverse })
 						} else {
 							await dbSchemaOps.onCreate({ values, schema: selected.schemaKey })
 						}

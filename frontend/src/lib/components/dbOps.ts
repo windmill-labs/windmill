@@ -128,7 +128,12 @@ export type IDbSchemaOps = {
 	onDelete: (params: { tableKey: string; schema?: string }) => Promise<void>
 	onCreate: (params: { values: TableEditorValues; schema?: string }) => Promise<void>
 	previewCreateSql: (params: { values: TableEditorValues; schema?: string }) => Promise<string>
-	onAlter: (params: { values: AlterTableValues; schema?: string }) => Promise<void>
+	onAlter: (params: {
+		values: AlterTableValues
+		/** Reverse diff (new → old), used to generate the down migration. */
+		reverse?: AlterTableValues
+		schema?: string
+	}) => Promise<void>
 	previewAlterSql: (params: { values: AlterTableValues; schema?: string }) => Promise<string>
 	onCreateSchema: (params: { schema: string }) => Promise<void>
 	onDeleteSchema: (params: { schema: string }) => Promise<void>
@@ -171,10 +176,18 @@ export function dbSchemaOpsWithPreviewScripts({
 		return safe ? `${op}_${safe}_${slug}` : `${op}_${slug}`
 	}
 
+	// Frame a single (or multi-) statement body in an explicit, `;`-terminated
+	// transaction, matching the data table migration convention.
+	function wrapMigration(sql: string): string {
+		const t = sql.trimEnd()
+		return `BEGIN;\n\n${t.endsWith(';') ? t : `${t};`}\n\nEND;`
+	}
+
 	// Apply a DDL marker. For a data table that has migrations enabled this
 	// creates a migration and runs it (rolling the record back if the run fails);
-	// otherwise it runs ad-hoc via the internal-db job as before.
-	async function applyDdl(migName: string, content: string): Promise<void> {
+	// otherwise it runs ad-hoc via the internal-db job as before. `downContent`,
+	// when provided, is expanded into the migration's down SQL (Postgres only).
+	async function applyDdl(migName: string, content: string, downContent?: string): Promise<void> {
 		let migrationsEnabled = false
 		if (datatableName) {
 			try {
@@ -191,12 +204,17 @@ export function dbSchemaOpsWithPreviewScripts({
 			await runScriptAndPollResult({ workspace, requestBody: { args: dbArg, content, language } })
 			return
 		}
-		const sql = (await expandMarker(workspace, language, content)).trimEnd()
-		const body = sql.endsWith(';') ? sql : `${sql};`
+		const codeUp = wrapMigration(await expandMarker(workspace, language, content))
+		// Down migrations are only generated for Postgres for now.
+		let codeDown: string | undefined
+		if (downContent && dbType === 'postgresql') {
+			const downSql = (await expandMarker(workspace, language, downContent)).trim()
+			if (downSql) codeDown = wrapMigration(downSql)
+		}
 		const created = await WorkspaceService.createDatatableMigration({
 			workspace,
 			datatableName,
-			requestBody: { name: migName, code_up: `BEGIN;\n\n${body}\n\nEND;` }
+			requestBody: { name: migName, code_up: codeUp, ...(codeDown ? { code_down: codeDown } : {}) }
 		})
 		try {
 			await WorkspaceService.runDatatableMigrations({
@@ -226,7 +244,8 @@ export function dbSchemaOpsWithPreviewScripts({
 				foreignKeys: values.foreignKeys,
 				schema
 			})
-			await applyDdl(migrationName('create', values.name), content)
+			const downContent = makeMarker('DROP_TABLE', { table: values.name, schema })
+			await applyDdl(migrationName('create', values.name), content, downContent)
 		},
 		previewCreateSql: async ({ values, schema }) => {
 			const content = makeMarker('CREATE_TABLE', {
@@ -237,13 +256,21 @@ export function dbSchemaOpsWithPreviewScripts({
 			})
 			return expandMarker(workspace, language, content)
 		},
-		onAlter: async ({ values, schema }) => {
+		onAlter: async ({ values, reverse, schema }) => {
 			const content = makeMarker('ALTER_TABLE', {
 				name: values.name,
 				operations: values.operations,
 				schema
 			})
-			await applyDdl(migrationName('alter', values.name), content)
+			// The down is the same alter run in the opposite direction.
+			const downContent = reverse
+				? makeMarker('ALTER_TABLE', {
+						name: reverse.name,
+						operations: reverse.operations,
+						schema
+					})
+				: undefined
+			await applyDdl(migrationName('alter', values.name), content, downContent)
 		},
 		previewAlterSql: async ({ values, schema }) => {
 			const content = makeMarker('ALTER_TABLE', {
@@ -255,11 +282,13 @@ export function dbSchemaOpsWithPreviewScripts({
 		},
 		onCreateSchema: async ({ schema }) => {
 			const content = makeMarker('CREATE_SCHEMA', { schema })
-			await applyDdl(migrationName('create_schema', schema), content)
+			const downContent = makeMarker('DROP_SCHEMA', { schema })
+			await applyDdl(migrationName('create_schema', schema), content, downContent)
 		},
 		onDeleteSchema: async ({ schema }) => {
 			const content = makeMarker('DROP_SCHEMA', { schema })
-			await applyDdl(migrationName('drop_schema', schema), content)
+			const downContent = makeMarker('CREATE_SCHEMA', { schema })
+			await applyDdl(migrationName('drop_schema', schema), content, downContent)
 		},
 		onFetchTableEditorDefinition: async ({ table, schema, colDefs }) => {
 			let foreignKeys: import('./apps/components/display/dbtable/tableEditor').TableEditorForeignKey[] =
