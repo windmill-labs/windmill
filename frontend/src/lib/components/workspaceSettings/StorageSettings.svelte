@@ -264,7 +264,6 @@
 							size="sm"
 							btnClasses="max-w-fit"
 							variant="default"
-							disabled={!s3ResourceSettings.resourcePath}
 							on:click={() => {
 								if (s3ResourceSettings.secondaryStorage === undefined) {
 									s3ResourceSettings.secondaryStorage = []
@@ -282,30 +281,15 @@
 							}}
 						>
 							<Plus /> Add secondary storage
-							{#if s3ResourceSettings.resourcePath}
-								<Tooltip>
-									Secondary storage is a feature that allows you to read and write from storage that
-									isn't your main storage by specifying it in the s3 object as "secondary_storage"
-									with the name of it
-								</Tooltip>
-							{/if}
+							<Tooltip>
+								Secondary storage is a feature that allows you to read and write from storage that
+								isn't your main storage by specifying it in the s3 object as "secondary_storage"
+								with the name of it
+							</Tooltip>
 						</Button>
 					{/snippet}
 					<div class="flex justify-center w-full">
-						{#if !s3ResourceSettings.resourcePath}
-							<Popover
-								class="cursor-not-allowed"
-								openOnHover
-								contentClasses="p-2 text-xs text-secondary"
-							>
-								{#snippet trigger()}
-									{@render addSecondaryStorageBtn()}
-								{/snippet}
-								{#snippet content()}
-									Setup a primary storage to use secondary storages
-								{/snippet}
-							</Popover>
-						{:else}
+						{#if s3ResourceSettings.resourcePath}
 							{@render addSecondaryStorageBtn()}
 						{/if}
 					</div>
