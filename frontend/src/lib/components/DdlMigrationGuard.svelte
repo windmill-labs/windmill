@@ -12,6 +12,7 @@
 	let promptOpen = $state(false)
 	let resolvePrompt: ((choice: Choice) => void) | undefined = undefined
 	let resolveMigrationClosed: (() => void) | undefined = undefined
+	let migrationCreated = false
 	let newMigrationModal = $state<NewDataTableMigrationModal | undefined>(undefined)
 
 	function finishPrompt(choice: Choice) {
@@ -37,17 +38,22 @@
 		})
 	}
 
+	function handleMigrationCreated() {
+		migrationCreated = true
+	}
+
 	function handleMigrationClosed() {
 		const r = resolveMigrationClosed
 		resolveMigrationClosed = undefined
 		r?.()
 	}
 
-	// Open the prefilled new-migration modal and resolve once it closes (whether
-	// the migration was created or the user cancelled).
-	function openMigrationModal(statement: string): Promise<void> {
+	// Open the prefilled new-migration modal. Resolves with whether a migration
+	// was actually created (false if the user cancelled / closed it).
+	function openMigrationModal(statement: string): Promise<boolean> {
 		return new Promise((resolve) => {
-			resolveMigrationClosed = resolve
+			migrationCreated = false
+			resolveMigrationClosed = () => resolve(migrationCreated)
 			newMigrationModal?.open({ codeUp: statement })
 		})
 	}
@@ -69,16 +75,24 @@
 				kept.push(statement)
 				continue
 			}
-			const choice = await promptDdl(statement)
-			if (choice === 'cancel') {
-				return { proceed: false, code }
+			// Re-prompt for this statement until the user makes a terminal choice;
+			// cancelling the migration modal returns to the prompt with the DDL intact.
+			for (;;) {
+				const choice = await promptDdl(statement)
+				if (choice === 'cancel') {
+					return { proceed: false, code }
+				}
+				if (choice === 'run') {
+					kept.push(statement)
+					break
+				}
+				// migrate: only strip the statement once a migration is actually
+				// created; if the modal was cancelled, loop back to the prompt.
+				const created = await openMigrationModal(statement)
+				if (created) {
+					break
+				}
 			}
-			if (choice === 'run') {
-				kept.push(statement)
-				continue
-			}
-			// migrate: strip from the executed code and open the prefilled modal
-			await openMigrationModal(statement)
 		}
 
 		return { proceed: true, code: kept.join(';\n') }
@@ -114,5 +128,6 @@
 	bind:this={newMigrationModal}
 	{workspace}
 	{datatable}
+	onCreated={handleMigrationCreated}
 	onClose={handleMigrationClosed}
 />
