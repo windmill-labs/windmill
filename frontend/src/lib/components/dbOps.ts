@@ -8,6 +8,8 @@ import type { DBSchema, SQLSchema } from '$lib/stores'
 import { stringifySchema } from './copilot/lib'
 import type { DbInput, DbType } from './dbTypes'
 import { assert } from '$lib/utils'
+import { WorkspaceService } from '$lib/gen'
+import { randomUUID } from '$lib/utils/uuid'
 import {
 	buildTableEditorValues,
 	type TableEditorValues
@@ -149,18 +151,73 @@ export function dbSchemaOpsWithPreviewScripts({
 	const language = getLanguageByResourceType(dbType)
 	const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
 
+	// When managing a data table, schema changes are recorded as migrations
+	// instead of being run ad-hoc, so the manager stays the source of truth.
+	const datatableName =
+		input.type === 'database' && input.resourcePath.startsWith('datatable://')
+			? input.resourcePath.slice('datatable://'.length)
+			: undefined
+
 	function makeMarker(op: string, payload: Record<string, unknown>): string {
 		if (ducklake) payload.ducklake = ducklake
 		return `-- WM_INTERNAL_DB_${op} ${JSON.stringify(payload)}`
 	}
 
+	// Auto-generated migration name, e.g. `create_customers_2da8`. The slug keeps
+	// successive changes to the same object from colliding on the same timestamp.
+	function migrationName(op: string, target: string): string {
+		const slug = randomUUID().slice(0, 4)
+		const safe = target.replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '')
+		return safe ? `${op}_${safe}_${slug}` : `${op}_${slug}`
+	}
+
+	// Apply a DDL marker. For a data table that has migrations enabled this
+	// creates a migration and runs it (rolling the record back if the run fails);
+	// otherwise it runs ad-hoc via the internal-db job as before.
+	async function applyDdl(migName: string, content: string): Promise<void> {
+		let migrationsEnabled = false
+		if (datatableName) {
+			try {
+				const status = await WorkspaceService.getDatatableMigrationsStatus({
+					workspace,
+					datatableName
+				})
+				migrationsEnabled = status.enabled
+			} catch {
+				migrationsEnabled = false
+			}
+		}
+		if (!datatableName || !migrationsEnabled) {
+			await runScriptAndPollResult({ workspace, requestBody: { args: dbArg, content, language } })
+			return
+		}
+		const sql = (await expandMarker(workspace, language, content)).trimEnd()
+		const body = sql.endsWith(';') ? sql : `${sql};`
+		const created = await WorkspaceService.createDatatableMigration({
+			workspace,
+			datatableName,
+			requestBody: { name: migName, code_up: `BEGIN;\n\n${body}\n\nEND;` }
+		})
+		try {
+			await WorkspaceService.runDatatableMigrations({
+				workspace,
+				datatableName,
+				only: created.timestamp
+			})
+		} catch (e) {
+			await WorkspaceService.deleteDatatableMigration({
+				workspace,
+				datatableName,
+				timestamp: created.timestamp
+			}).catch(() => {})
+			throw e
+		}
+	}
+
 	return {
 		onDelete: async ({ tableKey, schema }) => {
 			const content = makeMarker('DROP_TABLE', { table: tableKey, schema })
-			await runScriptAndPollResult({
-				workspace,
-				requestBody: { args: { ...dbArg }, language, content }
-			})
+			await applyDdl(migrationName('drop', tableKey), content)
 		},
 		onCreate: async ({ values, schema }) => {
 			const content = makeMarker('CREATE_TABLE', {
@@ -169,10 +226,7 @@ export function dbSchemaOpsWithPreviewScripts({
 				foreignKeys: values.foreignKeys,
 				schema
 			})
-			await runScriptAndPollResult({
-				workspace,
-				requestBody: { args: dbArg, content, language }
-			})
+			await applyDdl(migrationName('create', values.name), content)
 		},
 		previewCreateSql: async ({ values, schema }) => {
 			const content = makeMarker('CREATE_TABLE', {
@@ -189,10 +243,7 @@ export function dbSchemaOpsWithPreviewScripts({
 				operations: values.operations,
 				schema
 			})
-			await runScriptAndPollResult({
-				workspace,
-				requestBody: { args: dbArg, content, language }
-			})
+			await applyDdl(migrationName('alter', values.name), content)
 		},
 		previewAlterSql: async ({ values, schema }) => {
 			const content = makeMarker('ALTER_TABLE', {
@@ -204,17 +255,11 @@ export function dbSchemaOpsWithPreviewScripts({
 		},
 		onCreateSchema: async ({ schema }) => {
 			const content = makeMarker('CREATE_SCHEMA', { schema })
-			await runScriptAndPollResult({
-				workspace,
-				requestBody: { args: { ...dbArg }, language, content }
-			})
+			await applyDdl(migrationName('create_schema', schema), content)
 		},
 		onDeleteSchema: async ({ schema }) => {
 			const content = makeMarker('DROP_SCHEMA', { schema })
-			await runScriptAndPollResult({
-				workspace,
-				requestBody: { args: { ...dbArg }, language, content }
-			})
+			await applyDdl(migrationName('drop_schema', schema), content)
 		},
 		onFetchTableEditorDefinition: async ({ table, schema, colDefs }) => {
 			let foreignKeys: import('./apps/components/display/dbtable/tableEditor').TableEditorForeignKey[] =
