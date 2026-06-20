@@ -499,7 +499,7 @@ function finishMaterialize(
   let pcol = opts.partitionCol ?? "_wm_partition";
   let where =
     opts.partition !== undefined
-      ? sql.raw(`WHERE ${pcol} = '${String(opts.partition).replaceAll("'", "''")}'`)
+      ? sql.raw(`WHERE ${pcol} = '${String(opts.partition).replace(/'/g, "''")}'`)
       : sql.raw("");
   let summary = sql`SELECT (SELECT count(*) FROM ${t} ${where}) AS rows, (SELECT max(snapshot_id) FROM ducklake_snapshots('dl')) AS snapshot_id`;
   // Asset path mirrors the `// materialize` engine: <lake>/<schema>.<table> for
