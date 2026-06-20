@@ -34,6 +34,21 @@ pub enum MaterializationStatus {
     Failed,
 }
 
+/// The materialization outcome an agent worker (`Connection::Http`, no direct
+/// DB) sends to the API to be recorded. Mirrors the `record_materialization`
+/// args; the API handler unpacks it and calls that function with its own DB.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecordMaterializationRequest {
+    pub asset_kind: AssetKind,
+    pub asset_path: String,
+    pub partition: String,
+    pub status: MaterializationStatus,
+    pub snapshot_id: Option<i64>,
+    pub row_count: Option<i64>,
+    pub job_id: Option<Uuid>,
+    pub error: Option<String>,
+}
+
 /// Upsert the latest materialization state for one (asset, partition) slice.
 /// The worker records `Running` before the write, then `Materialized` (with the
 /// DuckLake `snapshot_id` + `row_count`) or `Failed` (with `error`) after.

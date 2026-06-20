@@ -138,8 +138,10 @@ fn extract_i64(result: &RawValue, field: &str) -> Option<i64> {
     find(&serde_json::from_str::<Value>(result.get()).ok()?, field)
 }
 
-// Best-effort record of a materialization outcome (Sql connections only; agent
-// workers skip). Never fails the job — a lost row degrades the grid, not the run.
+// Best-effort record of a materialization outcome. On a Sql connection it writes
+// the row directly; on an agent worker (Http, no direct DB) it posts to the API
+// so state lands the same way. Never fails the job — a lost row degrades the
+// grid, not the run.
 async fn record_mat(
     conn: &Connection,
     w_id: &str,
@@ -150,23 +152,37 @@ async fn record_mat(
     row_count: Option<i64>,
     error: Option<&str>,
 ) {
-    if let Connection::Sql(db) = conn {
-        if let Err(e) = windmill_common::materialization::record_materialization(
+    let req = windmill_common::materialization::RecordMaterializationRequest {
+        asset_kind: meta.asset_kind,
+        asset_path: meta.asset_path.clone(),
+        partition: meta.partition.clone(),
+        status,
+        snapshot_id,
+        row_count,
+        job_id: Some(job_id),
+        error: error.map(|e| e.to_string()),
+    };
+    let res: anyhow::Result<()> = match conn {
+        Connection::Sql(db) => windmill_common::materialization::record_materialization(
             db,
             w_id,
-            meta.asset_kind,
-            &meta.asset_path,
-            &meta.partition,
-            status,
-            snapshot_id,
-            row_count,
-            Some(job_id),
-            error,
+            req.asset_kind,
+            &req.asset_path,
+            &req.partition,
+            req.status,
+            req.snapshot_id,
+            req.row_count,
+            req.job_id,
+            req.error.as_deref(),
         )
         .await
-        {
-            tracing::warn!("failed to record materialization state: {e:#}");
+        .map_err(|e| anyhow::anyhow!("{e:#}")),
+        Connection::Http(client) => {
+            crate::agent_workers::record_materialization_from_agent_http(client, w_id, &req).await
         }
+    };
+    if let Err(e) = res {
+        tracing::warn!("failed to record materialization state: {e:#}");
     }
 }
 
