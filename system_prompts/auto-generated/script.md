@@ -1993,9 +1993,10 @@ ducklake(name: string = "main"): SqlTemplateFunction
 
 /**
  * Idempotently materialize `selectSql` into a ducklake table for one
- * partition — the client-side equivalent of the `// materialize` engine.
+ * partition (or the whole table when `partition` is omitted) — the client-side
+ * equivalent of the `// materialize` engine.
  * With `uniqueKey` it upserts the slice (delete-by-key + insert); otherwise it
- * replaces the partition (delete + insert).
+ * replaces it (whole table → `CREATE OR REPLACE`; partition → delete + insert).
  * Safe to re-run for the same partition (backfill / failure-recovery).
  * 
  * Returns a lazy statement — call `.execute()` to run it:
@@ -2569,20 +2570,22 @@ def stream_result(stream) -> None
 def query(sql: str, *args) -> SqlQuery
 
 # Idempotently materialize the rows of `select_sql` into ducklake
-# `table` for one `partition`. Client-side equivalent of the
-# `// materialize` engine: with `unique_key` it upserts within the slice
-# (delete-by-key + insert); without it, it replaces the slice (delete the
-# partition + insert). Re-running the same partition is safe — the
+# `table` for one `partition` (or the whole table when `partition` is
+# None). Client-side equivalent of the `// materialize` engine: with
+# `unique_key` it upserts within the slice (delete-by-key + insert);
+# without it, it replaces (whole table → CREATE OR REPLACE; partition →
+# delete the partition + insert). Re-running the same slice is safe — the
 # backfill / failure-recovery contract.
 # 
 # The partition value is bound as a DuckDB arg (never string-interpolated)
 # so it cannot inject SQL. `select_sql` is trusted (your own query).
-def upsert_partition(table: str, select_sql: str, partition: str, unique_key: str = None, partition_col: str = '_wm_partition', schema: str = None)
+def upsert_partition(table: str, select_sql: str, partition: str = None, unique_key: str = None, partition_col: str = '_wm_partition', schema: str = None)
 
 # INSERT-only materialization (no dedup / no replace) for an immutable
-# event-log table. NOTE: unlike `upsert_partition`, re-running the same
-# partition duplicates rows — use only for append-only sources.
-def append_partition(table: str, select_sql: str, partition: str, partition_col: str = '_wm_partition', schema: str = None)
+# event-log table — for one `partition`, or the whole table when
+# `partition` is None. NOTE: unlike `upsert_partition`, re-running the same
+# slice duplicates rows — use only for append-only sources.
+def append_partition(table: str, select_sql: str, partition: str = None, partition_col: str = '_wm_partition', schema: str = None)
 
 # Read a materialized ducklake table, optionally a single partition.
 def read(table: str, partition: str = None, partition_col: str = '_wm_partition', schema: str = None)

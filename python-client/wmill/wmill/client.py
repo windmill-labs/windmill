@@ -2296,22 +2296,37 @@ class DucklakeClient:
         self,
         table: str,
         select_sql: str,
-        partition: str,
+        partition: str = None,
         unique_key: str = None,
         partition_col: str = "_wm_partition",
         schema: str = None,
     ):
         """Idempotently materialize the rows of `select_sql` into ducklake
-        `table` for one `partition`. Client-side equivalent of the
-        `// materialize` engine: with `unique_key` it upserts within the slice
-        (delete-by-key + insert); without it, it replaces the slice (delete the
-        partition + insert). Re-running the same partition is safe — the
+        `table` for one `partition` (or the whole table when `partition` is
+        None). Client-side equivalent of the `// materialize` engine: with
+        `unique_key` it upserts within the slice (delete-by-key + insert);
+        without it, it replaces (whole table → CREATE OR REPLACE; partition →
+        delete the partition + insert). Re-running the same slice is safe — the
         backfill / failure-recovery contract.
 
         The partition value is bound as a DuckDB arg (never string-interpolated)
         so it cannot inject SQL. `select_sql` is trusted (your own query).
         """
         t = self._qualified(table, schema)
+        # Whole-table (no partition): no partition column; replace rebuilds the
+        # table with CREATE OR REPLACE, merge upserts the whole table by key.
+        if partition is None:
+            if unique_key:
+                sql = (
+                    f"CREATE TABLE IF NOT EXISTS {t} AS SELECT * FROM ({select_sql}) WHERE false;\n"
+                    f"BEGIN TRANSACTION;\n"
+                    f"DELETE FROM {t} WHERE {unique_key} IN (SELECT {unique_key} FROM ({select_sql}));\n"
+                    f"INSERT INTO {t} SELECT * FROM ({select_sql});\n"
+                    f"COMMIT;"
+                )
+            else:
+                sql = f"CREATE OR REPLACE TABLE {t} AS SELECT * FROM ({select_sql});"
+            return self.query(sql)
         src = f"SELECT *, $_wm_partition AS {partition_col} FROM ({select_sql})"
         if unique_key:
             # Upsert via delete-by-key + insert (not MERGE — DuckLake's MERGE
@@ -2338,14 +2353,22 @@ class DucklakeClient:
         self,
         table: str,
         select_sql: str,
-        partition: str,
+        partition: str = None,
         partition_col: str = "_wm_partition",
         schema: str = None,
     ):
         """INSERT-only materialization (no dedup / no replace) for an immutable
-        event-log table. NOTE: unlike `upsert_partition`, re-running the same
-        partition duplicates rows — use only for append-only sources."""
+        event-log table — for one `partition`, or the whole table when
+        `partition` is None. NOTE: unlike `upsert_partition`, re-running the same
+        slice duplicates rows — use only for append-only sources."""
         t = self._qualified(table, schema)
+        # Whole-table (no partition): insert into the bare table, no partition col.
+        if partition is None:
+            sql = (
+                f"CREATE TABLE IF NOT EXISTS {t} AS SELECT * FROM ({select_sql}) WHERE false;\n"
+                f"INSERT INTO {t} SELECT * FROM ({select_sql});"
+            )
+            return self.query(sql)
         sql = (
             f"CREATE TABLE IF NOT EXISTS {t} AS "
             f"SELECT *, CAST(NULL AS VARCHAR) AS {partition_col} FROM ({select_sql}) WHERE false;\n"

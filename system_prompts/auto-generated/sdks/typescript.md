@@ -560,9 +560,10 @@ ducklake(name: string = "main"): SqlTemplateFunction
 
 /**
  * Idempotently materialize `selectSql` into a ducklake table for one
- * partition — the client-side equivalent of the `// materialize` engine.
+ * partition (or the whole table when `partition` is omitted) — the client-side
+ * equivalent of the `// materialize` engine.
  * With `uniqueKey` it upserts the slice (delete-by-key + insert); otherwise it
- * replaces the partition (delete + insert).
+ * replaces it (whole table → `CREATE OR REPLACE`; partition → delete + insert).
  * Safe to re-run for the same partition (backfill / failure-recovery).
  * 
  * Returns a lazy statement — call `.execute()` to run it:

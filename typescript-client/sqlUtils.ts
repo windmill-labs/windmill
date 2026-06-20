@@ -393,10 +393,11 @@ export interface DucklakeMaterializeOptions {
   ducklake?: string;
   /** target table within the ducklake. */
   table: string;
-  /** the SELECT producing the rows for this partition. */
+  /** the SELECT producing the rows for this slice. */
   selectSql: string;
-  /** the partition value (bound). */
-  partition: string;
+  /** the partition value (bound). Omit for a whole-table materialization — no
+   * partition column, and replace becomes a `CREATE OR REPLACE TABLE`. */
+  partition?: string;
   /** dedup key → upsert in slice (delete-by-key + insert); omit → replace (delete partition + insert). */
   uniqueKey?: string;
   /** physical partition column (default "_wm_partition"). */
@@ -404,9 +405,10 @@ export interface DucklakeMaterializeOptions {
 }
 
 /** Idempotently materialize `selectSql` into a ducklake table for one
- * partition — the client-side equivalent of the `// materialize` engine.
+ * partition (or the whole table when `partition` is omitted) — the client-side
+ * equivalent of the `// materialize` engine.
  * With `uniqueKey` it upserts the slice (delete-by-key + insert); otherwise it
- * replaces the partition (delete + insert).
+ * replaces it (whole table → `CREATE OR REPLACE`; partition → delete + insert).
  * Safe to re-run for the same partition (backfill / failure-recovery).
  *
  * Returns a lazy statement — call `.execute()` to run it:
@@ -417,6 +419,19 @@ export function upsertPartition(opts: DucklakeMaterializeOptions): SqlStatement<
   let pcol = sql.raw(opts.partitionCol ?? "_wm_partition");
   let t = sql.raw(`dl.${opts.table}`);
   let body = sql.raw(opts.selectSql);
+  // Whole-table (no partition): no partition column. Replace rebuilds the table
+  // with CREATE OR REPLACE (handles schema changes); merge upserts by key.
+  if (opts.partition === undefined) {
+    if (opts.uniqueKey) {
+      let uk = sql.raw(opts.uniqueKey);
+      return sql`CREATE TABLE IF NOT EXISTS ${t} AS SELECT * FROM (${body}) WHERE false;
+BEGIN TRANSACTION;
+DELETE FROM ${t} WHERE ${uk} IN (SELECT ${uk} FROM (${body}));
+INSERT INTO ${t} SELECT * FROM (${body});
+COMMIT;`;
+    }
+    return sql`CREATE OR REPLACE TABLE ${t} AS SELECT * FROM (${body});`;
+  }
   if (opts.uniqueKey) {
     let uk = sql.raw(opts.uniqueKey);
     // Upsert via delete-by-key + insert (not MERGE — DuckLake's MERGE fails
@@ -450,6 +465,11 @@ export function appendPartition(
   let pcol = sql.raw(opts.partitionCol ?? "_wm_partition");
   let t = sql.raw(`dl.${opts.table}`);
   let body = sql.raw(opts.selectSql);
+  // Whole-table (no partition): insert into the bare table, no partition column.
+  if (opts.partition === undefined) {
+    return sql`CREATE TABLE IF NOT EXISTS ${t} AS SELECT * FROM (${body}) WHERE false;
+INSERT INTO ${t} SELECT * FROM (${body});`;
+  }
   return sql`CREATE TABLE IF NOT EXISTS ${t} AS SELECT *, CAST(NULL AS VARCHAR) AS ${pcol} FROM (${body}) WHERE false;
 ALTER TABLE ${t} SET PARTITIONED BY (${pcol});
 INSERT INTO ${t} SELECT *, ${opts.partition} AS ${pcol} FROM (${body});`;
