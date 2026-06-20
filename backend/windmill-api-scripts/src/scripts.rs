@@ -1270,6 +1270,28 @@ async fn create_script_internal<'c>(
             if let Err(e) = windmill_parser::sql_materialize::classify_wrap(&ns.content) {
                 return Err(Error::BadRequest(e.message()));
             }
+            // Managed materialize strips line comments when it wraps the SELECT,
+            // so a `-- $name (TYPE)` declaration is lost while its `$name`
+            // reference survives in the embedded SELECT — it would run unbound.
+            // Managed materialize takes no SQL args (the partition is supplied by
+            // the engine, not bound). Reject declared args with a clear error.
+            if let Ok(sig) = windmill_parser_sql::parse_duckdb_sig(&ns.content) {
+                if !sig.args.is_empty() {
+                    let names = sig
+                        .args
+                        .iter()
+                        .map(|a| format!("${}", a.name))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    return Err(Error::BadRequest(format!(
+                        "managed `// materialize` cannot take SQL arguments ({names}): wrapping your \
+                         SELECT drops the `-- $arg` declarations, so they would run unbound. The \
+                         partition is supplied by the engine — reference its value with the \
+                         `{{partition}}` token, or use `// materialize manual` to write the DDL (and \
+                         bind args) yourself."
+                    )));
+                }
+            }
         }
         // `key=` (merge) and `append` are mutually exclusive reconciliation
         // strategies; append (INSERT-only) wins. Surface the conflict rather
