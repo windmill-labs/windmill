@@ -98,7 +98,20 @@ fn build_materialized_query(
             m.target_path
         )));
     }
-    let plan = classify_wrap(query).map_err(|e| Error::ExecutionErr(e.message()))?;
+    let mut plan = classify_wrap(query).map_err(|e| Error::ExecutionErr(e.message()))?;
+    // Resolve the `{partition}` token (same token `// on` asset URIs use) to the
+    // current partition value everywhere in the managed script, so a partitioned
+    // materialize can filter its source by the active slice, e.g.
+    // `WHERE day = '{partition}'`. Escaped for single-quote context (the user
+    // writes it quoted). Only meaningful when partitioned.
+    if partitioned {
+        let escaped = partition.replace('\'', "''");
+        let tok = windmill_common::assets::PARTITION_TOKEN;
+        plan.output = plan.output.replace(tok, &escaped);
+        for s in plan.setup.iter_mut() {
+            *s = s.replace(tok, &escaped);
+        }
+    }
     let strategy = if m.append {
         MaterializeStrategy::Append
     } else if let Some(uk) = m.unique_key {
