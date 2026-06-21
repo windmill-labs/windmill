@@ -682,15 +682,17 @@ type FolderPromptContext = { folders: string[]; foldersRead: string[]; isAdmin: 
 
 // Renders the folders the current user can act on into the system prompt so the
 // model can pick an `f/<folder>/...` path without a discovery round-trip (there
-// is no folder-listing tool). `folders` is the writable set from whoami; for a
-// non-admin that is exactly what they can write to, so read-only folders are
-// listed separately as off-limits. Capped so a folder-heavy workspace can't
-// dominate the prompt.
+// is no folder-listing tool). For a non-admin, `folders` (from whoami) is exactly
+// the writable set, so read-only folders are listed separately as off-limits.
+// Admins bypass folder ACLs and can write anywhere, but `folders` only carries
+// their explicitly-permissioned subset, so for admins it is offered as a
+// non-exhaustive hint alongside permission-agnostic guidance (the complete set
+// needs a folder-listing tool — follow-up).
+// Capped so a folder-heavy workspace can't dominate the prompt.
 function buildFolderGuidance(username: string, ctx?: FolderPromptContext): string {
 	if (!ctx) return ''
 	const MAX = 40
 	const writable = ctx.folders ?? []
-	const readOnly = (ctx.foldersRead ?? []).filter((f) => !writable.includes(f))
 	const fmt = (names: string[]) => {
 		const shown = names
 			.slice(0, MAX)
@@ -698,6 +700,14 @@ function buildFolderGuidance(username: string, ctx?: FolderPromptContext): strin
 			.join(', ')
 		return names.length > MAX ? `${shown} (+${names.length - MAX} more)` : shown
 	}
+	if (ctx.isAdmin) {
+		const known =
+			writable.length > 0
+				? ` Folders here include ${fmt(writable)} (you can also write to others not listed).`
+				: ''
+		return `- As a workspace admin you can write to any existing folder.${known} If the user names a folder, use it; otherwise ask them.`
+	}
+	const readOnly = (ctx.foldersRead ?? []).filter((f) => !writable.includes(f))
 	const lines: string[] = []
 	if (writable.length > 0) {
 		lines.push(
