@@ -678,22 +678,62 @@ const initAppSchema = z.object({
 		)
 })
 
+type FolderPromptContext = { folders: string[]; foldersRead: string[]; isAdmin: boolean }
+
+// Renders the folders the current user can act on into the system prompt so the
+// model can pick an `f/<folder>/...` path without a discovery round-trip (there
+// is no folder-listing tool). `folders` is the writable set from whoami; for a
+// non-admin that is exactly what they can write to, so read-only folders are
+// listed separately as off-limits. Capped so a folder-heavy workspace can't
+// dominate the prompt.
+function buildFolderGuidance(username: string, ctx?: FolderPromptContext): string {
+	if (!ctx) return ''
+	const MAX = 40
+	const writable = ctx.folders ?? []
+	const readOnly = (ctx.foldersRead ?? []).filter((f) => !writable.includes(f))
+	const fmt = (names: string[]) => {
+		const shown = names
+			.slice(0, MAX)
+			.map((n) => `\`f/${n}\``)
+			.join(', ')
+		return names.length > MAX ? `${shown} (+${names.length - MAX} more)` : shown
+	}
+	const lines: string[] = []
+	if (writable.length > 0) {
+		lines.push(
+			`- Folders you can write to in this workspace: ${fmt(writable)}. For shared/team work, pick the one whose purpose matches the request; if none clearly fits, ask which folder to use (askUserQuestion) rather than inventing one.`
+		)
+	} else {
+		lines.push(
+			`- You have no shared folders you can write to in this workspace, so use \`u/${username}/<name>\`. If shared placement is needed, ask the user to create or grant access to a folder first.`
+		)
+	}
+	if (readOnly.length > 0) {
+		lines.push(
+			`- You can see but NOT write to: ${fmt(readOnly)} — never create or deploy items there.`
+		)
+	}
+	return lines.join('\n')
+}
+
 const buildGlobalSystemPrompt = (
 	username: string,
-	previewTools: boolean
-) => `You are Windmill's global workspace assistant.
+	previewTools: boolean,
+	folderCtx?: FolderPromptContext
+) => {
+	const folderGuidance = buildFolderGuidance(username, folderCtx)
+	const folderGuidanceBlock = folderGuidance ? `\n${folderGuidance}` : ''
+	return `You are Windmill's global workspace assistant.
 
 The current user's workspace username is "${username}".
 
 Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.
 
 Path conventions:
-- Every workspace path has exactly three segments and starts with one of two namespaces:
-  - \`u/${username}/<name>\` — the current user's personal scope. Default for ad-hoc, exploratory, or scratch work.
-  - \`f/<folder>/<name>\` — a shared folder scope. The folder must already exist; bare \`f/<name>\` is INVALID and will fail.
-- When the user gives a bare name without a namespace prefix (e.g. "create a flow called myflow"), default to \`u/${username}/<name>\`. Do NOT invent \`f/<name>\` — that is a structurally invalid path.
-- If the request implies shared / team work but doesn't name a specific folder (e.g. "the marketing flow"), ask which folder to use rather than guessing. Call \`list_workspace_items\` with \`type: ['folder']\` (or rely on the user's hint) before assuming a folder exists.
-- Only use an \`f/<folder>/<name>\` path when the user explicitly named the folder or you confirmed it exists.
+- A workspace path starts with one of two namespaces; its trailing <name> may itself contain "/", so a path has three or more segments:
+  - \`u/${username}/<name>\` — your personal scope. Default for ad-hoc, exploratory, or scratch work.
+  - \`f/<folder>/<name>\` — a shared folder scope; the <folder> must already exist (a bare \`f/<name>\` with no folder segment is INVALID and will fail).
+- Default a bare name with no namespace prefix (e.g. "create a flow called myflow") to \`u/${username}/<name>\`. Never invent an \`f/<folder>/...\` path for a folder that does not exist.${folderGuidanceBlock}
 
 Rules:
 - Draft tools create or update drafts only; they do not deploy or mutate deployed workspace items.
@@ -741,6 +781,7 @@ Data Tables:
 - Use get_datatable_table_schema only when you need a table's column names/types; list_datatables is enough for table-list or availability summaries.
 - Use exec_datatable_sql to explore data, run queries, mutate rows, or change schema (CREATE/ALTER/DROP). Creating a table is a normal CREATE TABLE statement — it appears in list_datatables afterward, with no registration step.
 - When writing runnable code (inline app runnables, scripts, flow modules) that reads or writes datatable data at runtime, it accesses a datatable via wmill.datatable(). Default to TypeScript (bun) unless the user asked for another language. Call get_instructions with subject "datatable" and language "bun" for the TypeScript SQL SDK reference (or language "python3" for Python) — it returns only that language so you get just what you need.`
+}
 
 const DEFAULT_LIST_TYPES = ['script', 'flow'] as const satisfies readonly WorkspaceItemType[]
 
@@ -3864,8 +3905,17 @@ export function prepareGlobalSystemMessage(
 	customPrompt?: string,
 	opts?: { previewTools?: boolean }
 ): ChatCompletionSystemMessageParam {
-	const username = get(userStore)?.username ?? ''
-	let content = buildGlobalSystemPrompt(username, opts?.previewTools ?? false)
+	const user = get(userStore)
+	const username = user?.username ?? ''
+	const folderCtx: FolderPromptContext | undefined = user
+		? {
+				folders: user.folders ?? [],
+				foldersRead:
+					((user as { folders_read?: string[] }).folders_read ?? user.folders ?? []),
+				isAdmin: user.is_admin ?? false
+			}
+		: undefined
+	let content = buildGlobalSystemPrompt(username, opts?.previewTools ?? false, folderCtx)
 	if (customPrompt?.trim()) {
 		content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
 	}
