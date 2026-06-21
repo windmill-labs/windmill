@@ -139,6 +139,24 @@
 		// editor passes it, so the asset-graph page is unaffected. The page
 		// clears it once the pan has had time to settle.
 		panToNodeId?: string | undefined
+		// Script paths eligible to *start* a bounded-cascade run (schedule
+		// roots + manual roots — see boundedCascade.validStarts). When a path is
+		// in this set and `onStartBoundedRun` is wired, its node's cascade menu
+		// gains a "Run downstream up to…" entry.
+		validStartPaths?: ReadonlySet<string>
+		onStartBoundedRun?: (startPath: string) => void
+		// Active bounded-run pick mode. Ids are in *canvas* space (`script:path`
+		// for runnables, `asset:${kind}:${path}` for assets). When set the canvas
+		// dims nodes outside `eligible ∪ {start}`, rings the `bounded` set, marks
+		// `ends`, and routes clicks on eligible nodes to `onPickEnd` instead of
+		// selecting.
+		boundPick?: {
+			start: string
+			eligible: ReadonlySet<string>
+			ends: ReadonlySet<string>
+			bounded: ReadonlySet<string>
+		}
+		onPickEnd?: (canvasNodeId: string) => void
 	}
 	let {
 		graph,
@@ -160,7 +178,11 @@
 		onOpenDataUpload,
 		hoveredPaths,
 		selectedRunPaths,
-		panToNodeId
+		panToNodeId,
+		validStartPaths,
+		onStartBoundedRun,
+		boundPick,
+		onPickEnd
 	}: Props = $props()
 
 	// `${kind}:${path}` ids for the hovered / pinned runs (both script and flow
@@ -325,6 +347,16 @@
 					downstreamCount: downstreamByScript.get(r.path) ?? 0,
 					downstreamUnsavedCount: downstreamUnsavedByScript.get(r.path) ?? 0,
 					runState,
+					// Bounded-cascade entrypoint: only valid starts (schedule /
+					// manual roots) with downstream get the "Run downstream up
+					// to…" menu item.
+					onStartBoundedRun:
+						r.usage_kind === 'script' &&
+						onStartBoundedRun &&
+						validStartPaths?.has(r.path) &&
+						(downstreamByScript.get(r.path) ?? 0) > 0
+							? () => onStartBoundedRun(r.path)
+							: undefined,
 					onRequestRemove: onRunnableMenuRemove
 						? () =>
 								onRunnableMenuRemove({
@@ -573,12 +605,22 @@
 					: assetEmph === 'input'
 						? 'wm-asset-input'
 						: undefined
+			// Bounded-run pick overlay takes precedence over the activity rings
+			// (it's a transient, modal selection). start ring > end mark > in-set
+			// ring > eligible (clickable, no style) > dimmed (out of reach).
+			let boundClass: string | undefined
+			if (boundPick && n.type !== 'add' && n.type !== 'trigger') {
+				if (n.id === boundPick.start) boundClass = 'wm-bound-start'
+				else if (boundPick.ends.has(n.id)) boundClass = 'wm-bound-end'
+				else if (boundPick.bounded.has(n.id)) boundClass = 'wm-bound-in'
+				else if (!boundPick.eligible.has(n.id)) boundClass = 'wm-bound-dim'
+			}
 			return {
 				id: n.id,
 				type: n.type,
 				position: { x: p.x + xCenter + xShift, y: p.y + 40 },
 				data: n.data,
-				class: runClass ?? assetClass,
+				class: boundClass ?? runClass ?? assetClass,
 				selected: n.id === selectedId,
 				// All nodes non-draggable: the layout is sugiyama-computed,
 				// dragging would fight the reactive re-layout. Selection is
@@ -792,6 +834,17 @@
 	}
 
 	function handleNodeClick({ node }: { node: Node }) {
+		// Bounded-run pick mode intercepts clicks: an eligible (downstream)
+		// node toggles as an end bound; the start, dimmed nodes, and
+		// triggers/+ are inert. Selection (details pane) is suppressed so the
+		// modal pick stays focused.
+		if (boundPick && onPickEnd) {
+			if (node.type !== 'asset' && node.type !== 'runnable') return
+			if (node.id === boundPick.start) return
+			if (!boundPick.eligible.has(node.id)) return
+			onPickEnd(node.id)
+			return
+		}
 		if (!onselect) return
 		const data = node.data as any
 		if (node.type === 'asset') {
@@ -869,5 +922,21 @@
 	}
 	:global(.svelte-flow__node.wm-asset-input .drop-shadow-sm) {
 		@apply outline outline-2 outline-gray-400;
+	}
+	/* Bounded-run pick mode. The start is a solid blue ring; chosen end
+	   bounds get a thicker amber ring; nodes inside the path-between set ring
+	   blue; everything out of reach fades back so the matched subset reads at
+	   a glance. */
+	:global(.svelte-flow__node.wm-bound-start .drop-shadow-sm) {
+		@apply outline outline-2 outline-blue-500;
+	}
+	:global(.svelte-flow__node.wm-bound-in .drop-shadow-sm) {
+		@apply outline outline-2 outline-blue-400/70;
+	}
+	:global(.svelte-flow__node.wm-bound-end .drop-shadow-sm) {
+		@apply outline outline-[3px] outline-amber-500;
+	}
+	:global(.svelte-flow__node.wm-bound-dim) {
+		@apply opacity-30;
 	}
 </style>

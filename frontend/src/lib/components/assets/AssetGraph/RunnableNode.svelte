@@ -11,6 +11,7 @@
 		Play,
 		RotateCw,
 		Tag,
+		Target,
 		Timer,
 		Trash2,
 		XCircle,
@@ -67,6 +68,10 @@
 			// "Discard" for drafts, "Delete…" (which the page maps to its
 			// archive/delete confirmation flow) for persisted scripts.
 			onRequestRemove?: () => void
+			// Wired only for valid bounded-run starts (schedule / manual roots
+			// with downstream). Enters the page's end-node pick mode for a
+			// bounded cascade rooted at this script.
+			onStartBoundedRun?: () => void
 		}
 		// SvelteFlow injects this when the user clicks the node. Combined with
 		// hover state to drive the run-button visibility (same pattern as
@@ -113,11 +118,21 @@
 		}
 	}
 
-	// Cascade option is surfaced directly on the Run button (via a caret +
-	// popover) when `downstreamCount > 0`, so the kebab menu stays focused
-	// on lifecycle actions only.
-	let menuItems: Item[] = $derived(
-		data.onRequestRemove
+	// Kebab menu: the bounded-run entry (a run action available on valid
+	// starts even in view mode, where the on-node Run pill is hidden) plus the
+	// edit-only lifecycle action. The single-step / cascade run options stay on
+	// the Run button's caret popover.
+	let menuItems: Item[] = $derived([
+		...(data.onStartBoundedRun
+			? [
+					{
+						displayName: 'Run downstream up to…',
+						icon: Target,
+						action: () => data.onStartBoundedRun?.()
+					}
+				]
+			: []),
+		...(data.onRequestRemove
 			? [
 					{
 						displayName: data.unsaved ? 'Discard' : 'Delete…',
@@ -126,8 +141,8 @@
 						action: () => data.onRequestRemove?.()
 					}
 				]
-			: []
-	)
+			: [])
+	])
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->

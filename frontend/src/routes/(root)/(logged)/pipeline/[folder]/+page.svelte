@@ -36,8 +36,21 @@
 		type PipelineAnnotations
 	} from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
-	import { computeDownstreamClosure } from '$lib/components/assets/AssetGraph/graphTraversal'
-	import { runCascade } from '$lib/components/assets/AssetGraph/cascadeOrchestrator'
+	import {
+		computeDownstreamClosure,
+		computeInducedSchedule
+	} from '$lib/components/assets/AssetGraph/graphTraversal'
+	import { runCascade, runSelection } from '$lib/components/assets/AssetGraph/cascadeOrchestrator'
+	import {
+		boundedSet,
+		buildLineageDag,
+		buildLineageDownstreamMap,
+		descendants,
+		isScriptNode,
+		scriptNodeId,
+		scriptsOf,
+		validStarts
+	} from '$lib/components/assets/AssetGraph/boundedCascade'
 	import {
 		diffDeployedGraph,
 		extractCascadeFacts,
@@ -65,8 +78,10 @@
 		History,
 		Loader2,
 		NetworkIcon,
+		Play,
 		RefreshCw,
 		Save,
+		Target,
 		Telescope
 	} from 'lucide-svelte'
 	import {
@@ -1761,6 +1776,137 @@
 		}
 		return rootJobId
 	}
+
+	// ── Bounded-cascade selective execution ──────────────────────────────
+	// "Run downstream up to…" lets the user run a *prefix* of a cascade: start
+	// at a schedule/manual root, fan downstream, but stop at chosen end node(s).
+	// The matched set is the path-between of start and ends over the lineage DAG.
+	// Pick state is in engine node-id space (`script:path`, `${kind}:${path}`);
+	// it is converted to canvas ids only at the canvas boundary.
+	let boundPickStart = $state<string | undefined>(undefined)
+	let boundPickEnds = $state<Set<string>>(new Set())
+
+	// Script paths eligible to start a bounded run, for the canvas menu gate.
+	let validStartPaths = $derived(new Set(scriptsOf(validStarts(displayGraph))))
+
+	// Rebuilt only while a pick is active (cheap to skip otherwise).
+	let boundDag = $derived(boundPickStart ? buildLineageDag(displayGraph) : undefined)
+	let boundEligible = $derived(
+		boundDag && boundPickStart ? descendants(boundDag, boundPickStart) : new Set<string>()
+	)
+	let boundResult = $derived(
+		boundDag && boundPickStart
+			? boundedSet(boundDag, boundPickStart, [...boundPickEnds])
+			: undefined
+	)
+	let boundScripts = $derived(boundResult ? scriptsOf(boundResult.nodes) : [])
+
+	// Engine id → canvas id: scripts keep `script:path`; assets gain the
+	// canvas's `asset:` prefix (AssetGraphCanvas node ids).
+	const toCanvasId = (eid: string): string => (isScriptNode(eid) ? eid : `asset:${eid}`)
+	const fromCanvasId = (cid: string): string =>
+		cid.startsWith('asset:') ? cid.slice('asset:'.length) : cid
+	// Short label for a `script:f/folder/name` start id (last path segment).
+	const shortPath = (scriptId: string): string => {
+		const p = isScriptNode(scriptId) ? scriptId.slice('script:'.length) : scriptId
+		return p.split('/').pop() ?? p
+	}
+	let boundPick = $derived(
+		boundPickStart && boundDag
+			? {
+					start: boundPickStart,
+					eligible: new Set([...boundEligible].map(toCanvasId)),
+					ends: new Set([...boundPickEnds].map(toCanvasId)),
+					bounded: new Set([...(boundResult?.nodes ?? [])].map(toCanvasId))
+				}
+			: undefined
+	)
+
+	function startBoundedRun(path: string) {
+		boundPickStart = scriptNodeId(path)
+		boundPickEnds = new Set()
+	}
+	function pickBoundEnd(canvasNodeId: string) {
+		const eid = fromCanvasId(canvasNodeId)
+		if (eid === boundPickStart) return
+		const next = new Set(boundPickEnds)
+		if (next.has(eid)) next.delete(eid)
+		else next.add(eid)
+		boundPickEnds = next
+	}
+	function cancelBoundedRun() {
+		boundPickStart = undefined
+		boundPickEnds = new Set()
+	}
+	async function confirmBoundedRun() {
+		const scripts = boundScripts
+		cancelBoundedRun()
+		await runBoundedCascade(scripts)
+	}
+	// Run an arbitrary selected set of scripts in topological order. Same
+	// per-hop launch + poll as the draft-aware cascade (it skips the backend
+	// dispatcher so the page owns the whole closure), but multi-root: every
+	// selected script with no in-set upstream is seeded at once.
+	async function runBoundedCascade(scripts: string[]): Promise<void> {
+		if (scripts.length === 0) {
+			sendUserToast('No scripts to run in this selection', true)
+			return
+		}
+		if (cascadeRunningRoot) {
+			sendUserToast(`A chain run from ${cascadeRunningRoot} is still in progress`, true)
+			return
+		}
+		// Read-aware adjacency so a pure-reader member runs after its producer
+		// (parity with the CLI `topoOrder`); see buildLineageDownstreamMap.
+		const schedule = computeInducedSchedule(
+			displayGraph,
+			new Set(scripts),
+			buildLineageDownstreamMap(displayGraph)
+		)
+		if (schedule.cyclic.length > 0) {
+			sendUserToast(
+				`Not running ${schedule.cyclic.length} script(s) on a dependency cycle: ${schedule.cyclic.join(', ')}`,
+				true
+			)
+		}
+		if (schedule.nodes.length === 0) {
+			sendUserToast('No runnable scripts in this selection', true)
+			return
+		}
+		cascadeRunningRoot = schedule.roots[0] ?? scripts[0]
+		let firstJobId: string | undefined
+		try {
+			const res = await runSelection({
+				schedule,
+				launch: async (path) => {
+					const jobId = await launchCascadeScript(path)
+					activeRunnables.arm(`script:${path}`)
+					if (firstJobId === undefined) {
+						firstJobId = jobId
+						runsPendingJobId = jobId
+						runsRefreshKey++
+					}
+					return jobId
+				},
+				waitTerminal: waitJobTerminal
+			})
+			const n = res.statuses.size
+			if (res.ok) {
+				sendUserToast(`Bounded run complete — ${n} script${n === 1 ? '' : 's'} succeeded`)
+			} else {
+				const failed = [...res.statuses.entries()].filter(([, s]) => s.status === 'failure')
+				const skipped = [...res.statuses.values()].filter((s) => s.status === 'skipped').length
+				sendUserToast(
+					`Bounded run failed at ${failed.map(([p]) => p).join(', ')}` +
+						(skipped > 0 ? ` — ${skipped} downstream skipped` : ''),
+					true
+				)
+			}
+		} finally {
+			cascadeRunningRoot = undefined
+		}
+	}
+
 	// Counter bumped when the canvas Run button targets the currently-open
 	// script — the pane intercepts and routes through ScriptEditor.runTest
 	// so logs/result/cancel land in the test panel instead of going off
@@ -2278,8 +2424,42 @@
 							onAddPipelineScript={mode === 'edit' ? handleAddPipelineScript : undefined}
 							onRunnableMenuRemove={mode === 'edit' ? handleRunnableMenuRemove : undefined}
 							onRunProducer={mode === 'edit' ? handleRunProducer : undefined}
+							validStartPaths={isOperator ? undefined : validStartPaths}
+							onStartBoundedRun={isOperator ? undefined : startBoundedRun}
+							{boundPick}
+							onPickEnd={pickBoundEnd}
 							{panToNodeId}
 						/>
+						{#if boundPick}
+							<!-- Bounded-run control bar: overlays the canvas while the
+							     user is picking end node(s). Anchored bottom-center so it
+							     doesn't collide with the top status chip / hide button. -->
+							<div
+								class="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-3 py-2 rounded-lg bg-surface shadow-lg border border-gray-200 dark:border-gray-700"
+							>
+								<Target size={15} class="text-blue-500 shrink-0" />
+								<div class="flex flex-col leading-tight">
+									<span class="text-xs font-semibold text-emphasis">
+										{boundPickEnds.size === 0
+											? 'Click end node(s) to bound the run'
+											: `${boundScripts.length} script${boundScripts.length === 1 ? '' : 's'} up to ${boundPickEnds.size} end${boundPickEnds.size === 1 ? '' : 's'}`}
+									</span>
+									<span class="text-2xs text-tertiary">
+										from {boundPickStart ? shortPath(boundPickStart) : ''}
+									</span>
+								</div>
+								<Button variant="subtle" unifiedSize="sm" onclick={cancelBoundedRun}>Cancel</Button>
+								<Button
+									variant="accent"
+									unifiedSize="sm"
+									startIcon={{ icon: Play }}
+									disabled={boundPickEnds.size === 0 || boundScripts.length === 0}
+									onclick={confirmBoundedRun}
+								>
+									Run selection
+								</Button>
+							</div>
+						{/if}
 						{#if mode === 'edit'}
 							<!-- View mode surfaces activity as a full right pane
 							     instead — the overlay would double up. -->
