@@ -1487,6 +1487,29 @@ datatable(name: string = "main"): DatatableSqlTemplateFunction
  * let sql = wmill.ducklake("my_lake:analytics")
  */
 ducklake(name: string = "main"): SqlTemplateFunction
+
+/**
+ * Idempotently materialize \`selectSql\` into a ducklake table for one
+ * partition (or the whole table when \`partition\` is omitted) — the client-side
+ * equivalent of the \`// materialize\` engine.
+ * With \`uniqueKey\` it upserts the slice (delete-by-key + insert); otherwise it
+ * replaces it (whole table → \`CREATE OR REPLACE\`; partition → delete + insert).
+ * Safe to re-run for the same partition (backfill / failure-recovery).
+ * 
+ * Returns a lazy statement — call \`.execute()\` to run it:
+ * \`await wmill.upsertPartition({ table, selectSql, partition }).execute()\`.
+ */
+upsertPartition(opts: DucklakeMaterializeOptions): SqlStatement<any>
+
+/**
+ * INSERT-only materialization (no dedup/replace) for append-only tables.
+ * Re-running the same partition duplicates rows — use only for immutable
+ * event-log sources.
+ * 
+ * Returns a lazy statement — call \`.execute()\` to run it:
+ * \`await wmill.appendPartition({ table, selectSql, partition }).execute()\`.
+ */
+appendPartition(opts: Omit<DucklakeMaterializeOptions, "uniqueKey">,): SqlStatement<any>
 `;
 
 export const SDK_PYTHON = `# Python SDK (wmill)
@@ -2042,6 +2065,27 @@ def stream_result(stream) -> None
 # Returns:
 #     SqlQuery instance for fetching results
 def query(sql: str, *args) -> SqlQuery
+
+# Idempotently materialize the rows of \`select_sql\` into ducklake
+# \`table\` for one \`partition\` (or the whole table when \`partition\` is
+# None). Client-side equivalent of the \`// materialize\` engine: with
+# \`unique_key\` it upserts within the slice (delete-by-key + insert);
+# without it, it replaces (whole table → CREATE OR REPLACE; partition →
+# delete the partition + insert). Re-running the same slice is safe — the
+# backfill / failure-recovery contract.
+# 
+# The partition value is bound as a DuckDB arg (never string-interpolated)
+# so it cannot inject SQL. \`select_sql\` is trusted (your own query).
+def upsert_partition(table: str, select_sql: str, partition: str = None, unique_key: str = None, partition_col: str = '_wm_partition', schema: str = None)
+
+# INSERT-only materialization (no dedup / no replace) for an immutable
+# event-log table — for one \`partition\`, or the whole table when
+# \`partition\` is None. NOTE: unlike \`upsert_partition\`, re-running the same
+# slice duplicates rows — use only for append-only sources.
+def append_partition(table: str, select_sql: str, partition: str = None, partition_col: str = '_wm_partition', schema: str = None)
+
+# Read a materialized ducklake table, optionally a single partition.
+def read(table: str, partition: str = None, partition_col: str = '_wm_partition', schema: str = None)
 
 # Execute query and fetch results.
 # 
@@ -3340,6 +3384,97 @@ workspace related commands
 - Move data in: \`wmill object-storage upload <local_path> <file_key>\` — set \`--content-type\` if the receiver cares (e.g. \`text/csv\`).
 - Move data out: \`wmill object-storage download <file_key> [output_path]\` — \`--stdout\` to pipe.
 - Reorganize: \`wmill object-storage move <src> <dest>\` (same storage), \`wmill object-storage delete <file_key>\` (interactive confirm unless \`--yes\`).
+`;
+
+export const LANG_ANSIBLE = `# Ansible
+
+Windmill runs Ansible playbooks with \`ansible-playbook\`. A script is a single YAML
+document made of two parts separated by a \`---\` line: a Windmill **header** and one or
+more standard Ansible **plays**.
+
+## Structure
+
+\`\`\`yaml
+---
+# Windmill header: configures inventories, file resources, arguments and dependencies
+extra_vars:
+  world_qualifier:
+    type: string
+dependencies:
+  galaxy:
+    collections:
+      - name: community.general
+  python:
+    - jmespath
+---
+# Standard Ansible plays
+- name: Echo
+  hosts: 127.0.0.1
+  connection: local
+  tasks:
+    - name: Print debug message
+      debug:
+        msg: "Hello, {{ world_qualifier }} world!"
+\`\`\`
+
+## Header
+
+The header is **not** standard Ansible — it is parsed by Windmill to build the script's
+inputs and runtime environment. Supported keys:
+
+- \`extra_vars\`: defines the script arguments. Each entry is passed to the playbook via
+  \`--extra-vars\` and becomes a Jinja variable usable as \`{{ name }}\` in the plays. Give
+  each argument a \`type\` (\`string\`, \`number\`, \`boolean\`, \`object\`, ...) so Windmill can
+  generate the input form.
+- \`inventory\`: lists inventories. Use \`resource_type: ansible_inventory\` (optionally
+  pinned with \`resource: u/user/your_resource\`) or \`resource_type: dynamic_inventory\`.
+- \`files\`: writes Windmill resources/variables to files before the run, e.g.
+  \`- resource: u/user/template\` with \`target: ./config.j2\`, or
+  \`- variable: u/user/ssh_key\` with \`target: ./ssh_key\` and \`mode: '0600'\`.
+- \`dependencies\`: \`galaxy\` collections/roles (installed with \`ansible-galaxy\`) and
+  \`python\` pip packages available to the playbook.
+- \`options\`: extra \`ansible-playbook\` flags such as \`- verbosity: vvv\`.
+- \`vault_password\`: a Windmill variable path to use as the Ansible Vault password.
+
+## Arguments
+
+Reference header \`extra_vars\` directly as Jinja variables in the plays:
+
+\`\`\`yaml
+extra_vars:
+  name:
+    type: string
+  count:
+    type: number
+---
+- hosts: localhost
+  tasks:
+    - debug:
+        msg: "{{ name }} x {{ count }}"
+\`\`\`
+
+## Environment variables
+
+Windmill contextual variables are available as environment variables and read with the
+\`env\` lookup:
+
+\`\`\`yaml
+- debug:
+    msg: "Running in workspace {{ lookup('env', 'WM_WORKSPACE') }}"
+\`\`\`
+
+## Output
+
+To return a result, write JSON to a \`result.json\` file in the job directory:
+
+\`\`\`yaml
+- hosts: localhost
+  tasks:
+    - name: Write result
+      copy:
+        content: "{{ { 'ok': true, 'value': 42 } | to_json }}"
+        dest: result.json
+\`\`\`
 `;
 
 export const LANG_BASH = `# Bash

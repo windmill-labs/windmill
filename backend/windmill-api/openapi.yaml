@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.730.0
+  version: 1.734.0
   title: Windmill API
 
   contact:
@@ -13598,6 +13598,12 @@ paths:
                           type: integer
                         approver:
                           type: string
+                  view_token:
+                    type: string
+                    description: >-
+                      Share-read-link token for the flow. An authenticated workspace
+                      member can append it as a `view_token` query param on the run
+                      page to read a flow they don't otherwise have access to.
 
   /w/{workspace}/jobs_u/resume/{id}/{resume_id}/{signature}:
     get:
@@ -13849,6 +13855,13 @@ paths:
                       required:
                         - resume_id
                         - approver
+                  view_token:
+                    type: string
+                    description: >-
+                      Share-read-link token for the parent flow. An authenticated
+                      workspace member can append it as a `view_token` query param
+                      on the run page to read a flow they don't otherwise have
+                      access to.
                 required:
                   - job
                   - approvers
@@ -22563,6 +22576,13 @@ components:
           type: string
         parent_hash:
           type: string
+        auto_parent:
+          type: boolean
+          description: >-
+            When true, the backend resolves the parent to the current deployed
+            head for this path within the transaction (ignoring parent_hash),
+            instead of failing with a "lineage must be linear" error when the
+            supplied parent_hash is stale.
         summary:
           type: string
         description:

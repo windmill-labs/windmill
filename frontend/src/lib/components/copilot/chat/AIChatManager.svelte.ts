@@ -85,6 +85,8 @@ import {
 import { isGlobalAiEnabled } from './global/gate'
 import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
+import { AttachedFilesStore } from './files/attachedFiles.svelte'
+import { appendAttachedFilesRoster } from './files/fileTools'
 
 // Compaction of the stored history: once the projected request size
 // (contextTokens — the provider's report when current, a fresh chars/4
@@ -230,6 +232,8 @@ function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean)
 export class AIChatManager {
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
+	/** Files the user attached to the current GLOBAL-mode conversation. */
+	attachedFiles = new AttachedFilesStore()
 	abortController: AbortController | undefined = undefined
 	inlineAbortController: AbortController | undefined = undefined
 	// Flag to skip Responses API if it's not available (e.g., Azure region doesn't support it)
@@ -815,7 +819,9 @@ export class AIChatManager {
 			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
 			this.helpers = {
 				...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
-				testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args)
+				testActiveFlow: async (args?: Record<string, any>) =>
+					this.flowAiChatHelpers?.testFlow(args),
+				attachedFiles: this.attachedFiles
 			} satisfies GlobalToolHelpers
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
@@ -1015,7 +1021,13 @@ export class AIChatManager {
 				messages,
 				addedMessages,
 				get systemMessage() {
-					return systemMessageOverride ?? self.systemMessage
+					const base = systemMessageOverride ?? self.systemMessage
+					// Inject the attached-files roster at request time (re-read each iteration)
+					// so it always reflects the live file list without reactive bookkeeping.
+					if (self.mode === AIMode.GLOBAL && self.attachedFiles.count > 0) {
+						return appendAttachedFilesRoster(base, self.attachedFiles)
+					}
+					return base
 				},
 				get tools() {
 					return self.tools
@@ -1205,6 +1217,19 @@ export class AIChatManager {
 		}
 		if (!this.instructions.trim()) {
 			return false
+		}
+		// Re-grant any locked File System Access handles within this send gesture, so the
+		// file tools can read the live files. requestPermission() needs a user gesture, and
+		// this runs before the first await/network call while the Send click is still active.
+		// Attachment upkeep must never block the send — affected files just stay locked/stale
+		// and the tools report their status to the model.
+		try {
+			await this.attachedFiles.regrantLocked()
+			// Re-enumerate linked folders so on-disk changes (renamed/added/removed/edited
+			// files) are reflected in the roster + indexes before this turn runs.
+			await this.attachedFiles.refreshFolders()
+		} catch (e) {
+			console.error('Attached-files upkeep failed before send', e)
 		}
 		if (this.beforeSend) {
 			try {
@@ -1714,6 +1739,11 @@ export class AIChatManager {
 		this.displayMessages = []
 		this.messages = []
 		this.contextUsage = undefined
+		// In an AI session, linked files are session-scoped: they persist across conversations
+		// (cleared only when the session is deleted). The ephemeral global side-panel chat has no
+		// session, so "New chat" must clear them — otherwise the next, unrelated conversation
+		// would still get the previous file roster and could read/search it.
+		if (!this.isSessionChat) this.attachedFiles.clear()
 	}
 
 	loadPastChat = async (id: string) => {
@@ -1722,6 +1752,9 @@ export class AIChatManager {
 			// Drop any message queued in the current conversation so it doesn't
 			// auto-send into the loaded one or linger as a card across the switch.
 			this.queuedMessage = ''
+			// Same isolation as saveAndClear: the ephemeral global chat's attachments belong to
+			// the conversation being left, not the one being loaded; sessions keep them.
+			if (!this.isSessionChat) this.attachedFiles.clear()
 			this.displayMessages = chat.displayMessages
 			this.messages = chat.actualMessages
 			this.contextUsage = normalizeContextUsage(chat.contextUsage)

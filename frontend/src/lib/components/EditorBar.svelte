@@ -173,6 +173,7 @@
 			'java',
 			'ruby',
 			'rlang',
+			'ansible',
 			'postgresql',
 			'mysql',
 			'bigquery',
@@ -612,6 +613,8 @@
 			editor.insertAtCursor(`ENV['${name}']`)
 		} else if (lang == 'rlang') {
 			editor.insertAtCursor(`Sys.getenv("${name}")`)
+		} else if (lang == 'ansible') {
+			editor.insertAtCursor(`{{ lookup('env', '${name}') }}`)
 		} else if (
 			['postgresql', 'mysql', 'bigquery', 'mssql', 'oracledb', 'snowflake', 'duckdb'].includes(
 				lang ?? ''

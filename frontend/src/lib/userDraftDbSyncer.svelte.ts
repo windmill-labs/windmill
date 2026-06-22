@@ -25,6 +25,48 @@ function draftKey(workspace: string, itemKind: UserDraftItemKind, path: string):
 	return `${workspace}/${itemKind}/${path}`
 }
 
+/**
+ * Top-level script fields stripped before a draft is persisted. `hash` is the
+ * deployed version's identity (server-managed, re-supplied from the deployed row
+ * on load) and `assets` is re-derived from the script content by the editor —
+ * neither is draft content, so saving them bloats the row and resurfaces as
+ * fork/workspace diff noise. The editing object carries them because
+ * `getScriptByPath` returns the full DB row (since #9351).
+ *
+ * `CLEANED_VALUE_KEYS` (frontend/src/lib/utils.ts) strips a SUPERSET of these
+ * from the diff view (it also drops `inherited_labels` and other bookkeeping
+ * keys). The two lists are deliberately NOT the same: the diff hides every
+ * non-content key, while this sanitizer only trims the two that meaningfully
+ * bloat the persisted draft. Just keep the hash/assets entries here in step
+ * with that set; the rest may diverge.
+ */
+const SCRIPT_DRAFT_OMITTED_FIELDS = ['hash', 'assets'] as const
+
+/**
+ * Drop server-managed / re-derived fields a draft must not persist. Runs at the
+ * single persistence chokepoint (`save`) so every path — reactive autosave,
+ * Ctrl/Cmd+S flush, the `pagehide` keepalive — sends the same trimmed payload.
+ * Only scripts carry these fields; other kinds pass through untouched.
+ */
+export function sanitizeDraftValueForSave(
+	itemKind: UserDraftItemKind,
+	value: unknown | null
+): unknown | null {
+	if (
+		itemKind !== 'script' ||
+		value === null ||
+		typeof value !== 'object' ||
+		Array.isArray(value)
+	) {
+		return value
+	}
+	const obj = value as Record<string, unknown>
+	if (!SCRIPT_DRAFT_OMITTED_FIELDS.some((f) => f in obj)) return value
+	const clone = { ...obj }
+	for (const f of SCRIPT_DRAFT_OMITTED_FIELDS) delete clone[f]
+	return clone
+}
+
 function getLastSyncEntry(key: string): DraftLastSyncEntry | undefined {
 	return lastSyncMap.get(key)
 }
@@ -383,6 +425,9 @@ export const UserDraftDbSyncer = {
 	},
 
 	async save(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
+		// Trim non-draft fields once, here, so the parked opts the unload
+		// keepalive flush replays carry the same payload as the live POST.
+		opts = { ...opts, value: sanitizeDraftValueForSave(opts.itemKind, opts.value) }
 		const key = draftKey(opts.workspace, opts.itemKind, opts.path)
 		// Hard lock (editing another user's loaded draft): block EVERY save path
 		// for this key — no parking, no POST. Notify the overlay so the first

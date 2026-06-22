@@ -45,8 +45,8 @@ use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 use windmill_common::{
     assets::{
         clear_script_triggers, clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
-        insert_script_trigger, insert_static_asset_usage, parse_duration_secs,
-        parse_pipeline_annotations, trigger_spec_to_row, AssetUsageKind, TriggerSpec,
+        insert_script_trigger, parse_duration_secs, parse_pipeline_annotations,
+        replace_static_asset_usage, trigger_spec_to_row, AssetUsageKind, TriggerSpec,
     },
     error::{self, to_anyhow},
     min_version::{MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2},
@@ -1251,6 +1251,72 @@ async fn create_script_internal<'c>(
             windmill_common::pipeline_advanced::freshness_enforcement_todo()
         );
     }
+    // `// materialize` materializes a `ducklake://<name>/<table>` target from a
+    // DuckDB script. These two constraints hold for *both* modes: a non-DuckLake
+    // target would otherwise deploy, register a producer in the asset graph, then
+    // silently no-op at run time (`build_materialized_query` returns `Ok(None)`),
+    // and a non-DuckDB script never reaches the executor that records state. The
+    // managed-only checks (single trailing SELECT, no SQL args) come after — a
+    // `manual` script owns its DDL and skips them.
+    if let Some(m) = pipeline_annotations.materialize.as_ref() {
+        if ns.language != ScriptLang::DuckDb {
+            return Err(Error::BadRequest(format!(
+                "`// materialize` is only supported for DuckDB scripts, not {}. Use the \
+                 wmll.ducklake helpers to materialize from other languages.",
+                ns.language.as_str()
+            )));
+        }
+        if m.target_kind != windmill_parser::asset_parser::AssetKind::Ducklake {
+            return Err(Error::BadRequest(
+                "`// materialize` only supports a DuckLake target \
+                 (`ducklake://<name>/<table>`); other asset kinds aren't materializable."
+                    .to_string(),
+            ));
+        }
+        if !m.target_path.contains('/') {
+            return Err(Error::BadRequest(format!(
+                "`// materialize` needs a table in the target: \
+                 `ducklake://{0}/<table>` (got `ducklake://{0}`).",
+                m.target_path
+            )));
+        }
+        if !m.manual {
+            if let Err(e) = windmill_parser::sql_materialize::classify_wrap(&ns.content) {
+                return Err(Error::BadRequest(e.message()));
+            }
+            // Managed materialize strips line comments when it wraps the SELECT,
+            // so a `-- $name (TYPE)` declaration is lost while its `$name`
+            // reference survives in the embedded SELECT — it would run unbound.
+            // Managed materialize takes no SQL args (the partition is supplied by
+            // the engine, not bound). Reject declared args with a clear error.
+            if let Ok(sig) = windmill_parser_sql::parse_duckdb_sig(&ns.content) {
+                if !sig.args.is_empty() {
+                    let names = sig
+                        .args
+                        .iter()
+                        .map(|a| format!("${}", a.name))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    return Err(Error::BadRequest(format!(
+                        "managed `// materialize` cannot take SQL arguments ({names}): wrapping your \
+                         SELECT drops the `-- $arg` declarations, so they would run unbound. The \
+                         partition is supplied by the engine — reference its value with the \
+                         `{{partition}}` token, or use `// materialize manual` to write the DDL (and \
+                         bind args) yourself."
+                    )));
+                }
+            }
+        }
+        // `key=` (merge) and `append` are mutually exclusive reconciliation
+        // strategies; append (INSERT-only) wins. Surface the conflict rather
+        // than silently dropping the dedup the author may have intended.
+        if m.unique_key.is_some() && m.append {
+            tracing::warn!(
+                "script {}: both `key=` and `append` set on // materialize; append wins (INSERT-only, no dedup)",
+                ns.path
+            );
+        }
+    }
     let in_pipeline = pipeline_annotations.in_pipeline;
     // `// trigger all` → AND join barrier (else OR, the default).
     let pipeline_join_all = !pipeline_annotations.join_mode.is_any();
@@ -1290,6 +1356,26 @@ async fn create_script_internal<'c>(
         &ns.content,
         ns.assets.take(),
     );
+    // Register the `// materialize` target as a write asset so the deployed
+    // asset graph shows this script as the producer of the managed table — the
+    // body's `SELECT` doesn't express the write (the runtime generates it), so
+    // server-side inference wouldn't otherwise link it.
+    let effective_assets = if let Some(m) = pipeline_annotations.materialize.as_ref() {
+        let kind = windmill_common::assets::asset_kind_from_parser(m.target_kind);
+        let mut a = effective_assets.unwrap_or_default();
+        if !a.iter().any(|x| x.kind == kind && x.path == m.target_path) {
+            a.push(windmill_common::assets::AssetWithAltAccessType {
+                path: m.target_path.clone(),
+                kind,
+                access_type: Some(windmill_common::assets::AssetUsageAccessType::W),
+                alt_access_type: None,
+                columns: None,
+            });
+        }
+        Some(a)
+    } else {
+        effective_assets
+    };
     let auto_kind = if in_pipeline {
         Some("pipeline".to_string())
     } else if ci_test_refs.is_some() {
@@ -1609,11 +1695,16 @@ async fn create_script_internal<'c>(
         );
     }
 
-    clear_static_asset_usage(&mut *tx, &w_id, &script_path, AssetUsageKind::Script).await?;
-    for asset in effective_assets.as_ref().into_iter().flatten() {
-        insert_static_asset_usage(&mut *tx, &w_id, &asset, &ns.path, AssetUsageKind::Script)
-            .await?;
-    }
+    // Clear + reinsert this script's producer rows at script_path (== ns.path),
+    // invalidating the producer-writes cache once iff the write-producer set
+    // changed (see replace_static_asset_usage).
+    replace_static_asset_usage(
+        &mut tx,
+        &w_id,
+        &script_path,
+        effective_assets.as_deref().unwrap_or(&[]),
+    )
+    .await?;
 
     // Pipeline trigger edges: wipe-and-reinsert per deploy so removing an
     // `// on ...` annotation drops the edge. Only Asset / Schedule produce

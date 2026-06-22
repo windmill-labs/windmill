@@ -1589,6 +1589,21 @@
 		for (const e of activeRunnables.events) byId.set(e.id, e)
 		return Array.from(byId.values()).sort((a, b) => b.at.localeCompare(a.at))
 	})
+	// Keep dispatch edges live so freshly-launched runs group (see `loadEdges`).
+	// The poll's id set changes the instant a new job appears (a dispatched
+	// child is a new id) — exactly when fresh edges exist — so re-pull then.
+	// Keyed on ids, not status, so queued→done ticks don't refetch;
+	// `lastLiveEventSig` is a plain `let` so writing it can't retrigger this.
+	let lastLiveEventSig = ''
+	$effect(() => {
+		const sig = activeRunnables.events
+			.map((e) => e.id)
+			.sort()
+			.join(',')
+		if (sig === lastLiveEventSig) return
+		lastLiveEventSig = sig
+		pipelineHistory.refetchEdges()
+	})
 	// Node run-count/status badges, derived from the SAME merged event set the
 	// Activity panel shows (historic preload + live poll) so the graph badges
 	// and the panel never disagree. `activityEvents` is newest-first, so the

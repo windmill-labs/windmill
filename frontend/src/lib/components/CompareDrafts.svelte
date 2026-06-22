@@ -167,11 +167,20 @@
 		)
 	}
 
-	// Why a row can't be deployed/discarded (drives the disabled-checkbox tooltip
-	// and the Discard button's title). `undefined` ⇒ actionable.
+	// Why a row can't be deployed (drives the disabled-checkbox tooltip).
+	// `undefined` ⇒ actionable.
 	function blockedReason(item: Row): string | undefined {
 		if (!item.mine) return 'This draft belongs to another user'
 		if (!item.can_write) return "You don't have write permission on this path"
+		return undefined
+	}
+
+	// Why a row can't be discarded (drives the Discard button's title).
+	// Discarding only removes the caller's own draft row, which they always own,
+	// so — unlike deploy — it never requires write permission on the path. The
+	// only block is someone else's draft (view-only in the "all drafts" view).
+	function discardBlockedReason(item: Row): string | undefined {
+		if (!item.mine) return 'This draft belongs to another user'
 		return undefined
 	}
 
@@ -628,7 +637,7 @@
 							</Button>
 						{/if}
 					{:else}
-						{@const discardBlock = blockedReason(draftItem)}
+						{@const discardBlock = discardBlockedReason(draftItem)}
 						<!-- Show diff fetches the *current user's* draft overlay, so it's only
 						     meaningful for your own/legacy rows. Another user's draft (view-only,
 						     `mine=false`) would diff against the wrong draft or 404 — hide it. -->

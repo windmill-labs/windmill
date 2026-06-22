@@ -97,7 +97,8 @@ export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
 	'powershell',
 	'csharp',
 	'java',
-	'duckdb'
+	'duckdb',
+	'ansible'
 ]
 
 export function getLangContext(
@@ -308,7 +309,11 @@ INSTRUCTIONS:
 export function prepareScriptSystemMessage(
 	currentModel: AIProviderModel,
 	language: ScriptLang | 'bunnative',
-	options: { isPreprocessor?: boolean; allowResourcesFetch?: boolean; workflowAsCode?: boolean } = {},
+	options: {
+		isPreprocessor?: boolean
+		allowResourcesFetch?: boolean
+		workflowAsCode?: boolean
+	} = {},
 	customPrompt?: string
 ): ChatCompletionSystemMessageParam {
 	let content = buildChatSystemPrompt(currentModel)

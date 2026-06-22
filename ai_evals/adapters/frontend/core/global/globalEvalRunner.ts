@@ -32,6 +32,10 @@ const MUTATING_GLOBAL_TOOLS = new Set([
 ]);
 const DISABLE_ACTIVE_EDITOR_CONTEXT_ENV =
   "WMILL_AI_EVAL_DISABLE_ACTIVE_EDITOR_CONTEXT";
+// A/B gate for the search_app read tool: set to "1" to run the baseline arm
+// (toolset without search_app) so its token cost can be compared against the arm
+// that offers it.
+const DISABLE_SEARCH_APP_ENV = "WMILL_AI_EVAL_DISABLE_SEARCH_APP";
 
 const LIVE_EDITOR_ITEM_KINDS = {
   script: "script",
@@ -193,25 +197,28 @@ function clearLiveEditorDrafts(
 }
 
 function getGlobalEvalTools(): ProductionTool<{}>[] {
-  return (globalTools as ProductionTool<{}>[]).map((tool) => {
-    if (!MUTATING_GLOBAL_TOOLS.has(tool.def.function.name)) {
-      return tool;
-    }
+  const disableSearchApp = process.env[DISABLE_SEARCH_APP_ENV] === "1";
+  return (globalTools as ProductionTool<{}>[])
+    .filter((tool) => !(disableSearchApp && tool.def.function.name === "search_app"))
+    .map((tool) => {
+      if (!MUTATING_GLOBAL_TOOLS.has(tool.def.function.name)) {
+        return tool;
+      }
 
-    return {
-      ...tool,
-      requiresConfirmation: false,
-      validateBeforeConfirmation: undefined,
-      fn: async () =>
-        JSON.stringify(
-          {
-            success: false,
-            error:
-              "This mutating workspace tool is disabled during ai_evals global mode.",
-          },
-          null,
-          2,
-        ),
-    };
-  });
+      return {
+        ...tool,
+        requiresConfirmation: false,
+        validateBeforeConfirmation: undefined,
+        fn: async () =>
+          JSON.stringify(
+            {
+              success: false,
+              error:
+                "This mutating workspace tool is disabled during ai_evals global mode.",
+            },
+            null,
+            2,
+          ),
+      };
+    });
 }
