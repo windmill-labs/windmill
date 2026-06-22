@@ -14,7 +14,8 @@ import {
 	ScriptService,
 	SqsTriggerService,
 	VariableService,
-	WebsocketTriggerService
+	WebsocketTriggerService,
+	WorkspaceService
 } from '$lib/gen'
 import { $ScriptLang } from '$lib/gen/schemas.gen'
 import type {
@@ -732,7 +733,8 @@ function buildFolderGuidance(username: string, ctx?: FolderPromptContext): strin
 const buildGlobalSystemPrompt = (
 	username: string,
 	previewTools: boolean,
-	folderCtx?: FolderPromptContext
+	folderCtx?: FolderPromptContext,
+	skills: AiSkillListItem[] = []
 ) => {
 	const folderGuidance = buildFolderGuidance(username, folderCtx)
 	const folderGuidanceBlock = folderGuidance ? `\n${folderGuidance}` : ''
@@ -793,7 +795,16 @@ Data Tables:
 - Use list_datatables to discover the available datatables and their tables. Reuse an existing table rather than creating a duplicate. If list_datatables reports none, this is a blocking prerequisite — tell the user to set up a datatable in their workspace settings and stop; do not assume a "main" datatable exists or call exec_datatable_sql.
 - Use get_datatable_table_schema only when you need a table's column names/types; list_datatables is enough for table-list or availability summaries.
 - Use exec_datatable_sql to explore data, run queries, mutate rows, or change schema (CREATE/ALTER/DROP). Creating a table is a normal CREATE TABLE statement — it appears in list_datatables afterward, with no registration step.
-- When writing runnable code (inline app runnables, scripts, flow modules) that reads or writes datatable data at runtime, it accesses a datatable via wmill.datatable(). Default to TypeScript (bun) unless the user asked for another language. Call get_instructions with subject "datatable" and language "bun" for the TypeScript SQL SDK reference (or language "python3" for Python) — it returns only that language so you get just what you need.`
+- When writing runnable code (inline app runnables, scripts, flow modules) that reads or writes datatable data at runtime, it accesses a datatable via wmill.datatable(). Default to TypeScript (bun) unless the user asked for another language. Call get_instructions with subject "datatable" and language "bun" for the TypeScript SQL SDK reference (or language "python3" for Python) — it returns only that language so you get just what you need.${
+	skills.length > 0
+		? `
+
+Skills:
+- Skills are reusable instruction sets curated for this workspace, each covering a specific kind of task. The available skills are listed below by name and description.
+- When a user's request matches a skill's description, call read_skill with its exact name to load the full instructions BEFORE acting, then follow them.
+${skills.map((s) => `- ${s.name}: ${s.description}`).join('\n')}`
+		: ''
+}`
 }
 
 const DEFAULT_LIST_TYPES = ['script', 'flow'] as const satisfies readonly WorkspaceItemType[]
@@ -1545,7 +1556,51 @@ function getInstructions(subject: InstructionSubject, language?: ScriptLang): st
 	}
 }
 
+export type AiSkillListItem = { name: string; description: string }
+
+/** Fetch the workspace's AI skills (name + description) for the global system prompt. */
+export async function loadWorkspaceSkills(workspace: string): Promise<AiSkillListItem[]> {
+	if (!workspace) return []
+	try {
+		return await WorkspaceService.listAiSkills({ workspace })
+	} catch (e) {
+		console.error('Failed to load AI skills', e)
+		return []
+	}
+}
+
+const readSkillSchema = z.object({
+	name: z
+		.string()
+		.describe('The exact skill name as listed in the Skills section of the system prompt.')
+})
+
+export const readSkillTool: Tool<{}> = {
+	def: createToolDef(
+		readSkillSchema,
+		'read_skill',
+		'Load the full instructions for a workspace AI skill by name. Skills are listed in the system prompt under "Skills"; call this before acting on a task a skill covers, then follow its instructions.'
+	),
+	fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+		const parsed = readSkillSchema.parse(args)
+		toolCallbacks.setToolStatus(toolId, { content: `Reading skill "${parsed.name}"...` })
+		try {
+			const skill = await WorkspaceService.getAiSkill({ workspace, name: parsed.name })
+			toolCallbacks.setToolStatus(toolId, { content: `Read skill "${parsed.name}"` })
+			return `Skill: ${skill.name}\nDescription: ${skill.description}\n\nInstructions:\n${skill.instructions}`
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Error reading skill "${parsed.name}"`,
+				error: msg
+			})
+			return `Failed to read skill "${parsed.name}": ${msg}. Check the name against the Skills list in the system prompt.`
+		}
+	}
+}
+
 export const globalTools: Tool<{}>[] = [
+	readSkillTool,
 	{
 		def: createToolDef(
 			getInstructionsSchema,
@@ -4001,6 +4056,7 @@ export function prepareGlobalSystemMessage(
 		// (read from userStore); callers that must not touch the process-global
 		// store (the eval harness) pass it explicitly instead.
 		user?: { username: string; is_admin?: boolean; folders?: string[]; folders_read?: string[] }
+		skills?: AiSkillListItem[]
 	}
 ): ChatCompletionSystemMessageParam {
 	const user = opts?.user ?? get(userStore)
@@ -4012,7 +4068,12 @@ export function prepareGlobalSystemMessage(
 				isAdmin: user.is_admin ?? false
 			}
 		: undefined
-	let content = buildGlobalSystemPrompt(username, opts?.previewTools ?? false, folderCtx)
+	let content = buildGlobalSystemPrompt(
+		username,
+		opts?.previewTools ?? false,
+		folderCtx,
+		opts?.skills ?? []
+	)
 	if (customPrompt?.trim()) {
 		content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
 	}
