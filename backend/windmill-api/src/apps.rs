@@ -1245,8 +1245,6 @@ async fn create_app_raw<'a>(
     )
     .await?;
 
-    check_scopes(&authed, || format!("apps:write:{}", path))?;
-
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::CreateApp { workspace: w_id, path: path.clone() },
@@ -1290,7 +1288,6 @@ async fn create_app(
         ));
     }
     let path = app.path.clone();
-    check_scopes(&authed, || format!("apps:write:{}", &path))?;
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -1304,6 +1301,7 @@ async fn create_app(
         return Err(Error::PermissionDenied(msg));
     }
 
+    // scope is enforced inside create_app_internal, before any persistence.
     let (new_tx, _path, _id) = create_app_internal(authed, db, user_db, &w_id, false, app).await?;
 
     new_tx.commit().await?;
@@ -1350,6 +1348,10 @@ async fn create_app_internal<'a>(
     raw_app: bool,
     mut app: CreateApp,
 ) -> Result<(sqlx::Transaction<'a, sqlx::Postgres>, String, i64)> {
+    // Enforce scope before any persistence: the raw-app create path commits
+    // inside process_app_multipart!, so checking after this call would leave a
+    // denied app committed in the DB.
+    check_scopes(&authed, || format!("apps:write:{}", &app.path))?;
     if *CLOUD_HOSTED {
         let nb_apps =
             sqlx::query_scalar!("SELECT COUNT(*) FROM app WHERE workspace_id = $1", &w_id)
@@ -1891,6 +1893,13 @@ async fn update_app_internal<'a>(
     ns: EditApp,
 ) -> Result<(sqlx::Transaction<'a, sqlx::Postgres>, String, i64)> {
     use sql_builder::prelude::*;
+
+    // A rename moves the app to ns.path, so the destination must also be within
+    // the token's write scope, not just the source path.
+    if let Some(npath) = ns.path.as_deref() {
+        check_scopes(&authed, || format!("apps:write:{}", npath))?;
+    }
+
     let mut tx = user_db.clone().begin(&authed).await?;
 
     let mut preserved_on_behalf_of: Option<String> = None;
