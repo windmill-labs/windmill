@@ -242,17 +242,18 @@
 			</div>
 		</Label>
 
-		<div class="flex items-center gap-2">
-			<span class="text-xs text-secondary">or</span>
-			<Button
-				onclick={() => dirInput?.click()}
-				variant="default"
-				unifiedSize="sm"
-				startIcon={{ icon: FolderUp }}
-				disabled={uploading}
-			>
-				{uploading ? 'Importing…' : 'Import folder'}
-			</Button>
+		<Label label="Import a folder of skills">
+			<div class="flex mt-1">
+				<Button
+					onclick={() => dirInput?.click()}
+					variant="default"
+					unifiedSize="sm"
+					startIcon={{ icon: FolderUp }}
+					disabled={uploading}
+				>
+					{uploading ? 'Importing…' : 'Import folder'}
+				</Button>
+			</div>
 			<input
 				bind:this={dirInput}
 				type="file"
@@ -260,7 +261,7 @@
 				onchange={onDirSelected}
 				{...{ webkitdirectory: true, directory: true }}
 			/>
-		</div>
+		</Label>
 
 		{#if skills.length > 0}
 			<div class="rounded-md border divide-y">
