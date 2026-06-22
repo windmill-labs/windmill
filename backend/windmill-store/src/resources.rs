@@ -816,6 +816,12 @@ pub async fn transform_json_value_tracked(
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
 
+            // A scoped token must hold read scope on the nested variable, not
+            // just on the resource that references it. No authed = worker/system
+            // context (unscoped), so this is a no-op there.
+            if let Some(authed) = db_with_opt_authed.authed() {
+                check_scopes(authed, || format!("variables:read:{}", path))?;
+            }
             let v =
                 crate::variables::get_value_internal(&db_with_opt_authed, workspace, path, false)
                     .await?;
@@ -824,6 +830,9 @@ pub async fn transform_json_value_tracked(
         Value::String(y) if y.starts_with("$jsonvar:") => {
             let path = y.strip_prefix("$jsonvar:").unwrap();
 
+            if let Some(authed) = db_with_opt_authed.authed() {
+                check_scopes(authed, || format!("variables:read:{}", path))?;
+            }
             let v =
                 crate::variables::get_value_internal(&db_with_opt_authed, workspace, path, false)
                     .await?;
@@ -837,6 +846,9 @@ pub async fn transform_json_value_tracked(
                 return Err(Error::internal_err(format!(
                     "Invalid resource path: {path}"
                 )));
+            }
+            if let Some(authed) = db_with_opt_authed.authed() {
+                check_scopes(authed, || format!("resources:read:{}", path))?;
             }
             let mut tx: Transaction<'_, Postgres> = db_with_opt_authed.begin().await?;
             let v = sqlx::query_scalar!(
@@ -1212,6 +1224,13 @@ async fn delete_resource(
         collect_var_refs(value, &mut linked_var_paths);
     }
 
+    // Deleting the resource also deletes its linked secret variables, so a
+    // scoped token must hold write scope on each of them, not just on the
+    // resource path.
+    for var_path in &linked_var_paths {
+        check_scopes(&authed, || format!("variables:write:{}", var_path))?;
+    }
+
     // Capture linked variables for trashbin before deleting them
     let trash_linked_vars: Vec<serde_json::Value> = if linked_var_paths.is_empty() {
         Vec::new()
@@ -1534,6 +1553,12 @@ async fn delete_resources_bulk(
     linked_var_paths.sort();
     linked_var_paths.dedup();
 
+    // Cascade-deleting linked secret variables requires write scope on each of
+    // them, not just on the resource paths. A failure here rolls back the tx.
+    for var_path in &linked_var_paths {
+        check_scopes(&authed, || format!("variables:write:{}", var_path))?;
+    }
+
     sqlx::query!(
         "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = ANY($2)",
         w_id,
@@ -1634,6 +1659,12 @@ async fn update_resource(
 
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:write:{}", path))?;
+    // A rename moves the resource (and its linked variable) to ns.path, so the
+    // destination must also be within the token's write scope, not just the
+    // source path.
+    if let Some(npath) = ns.path.as_deref() {
+        check_scopes(&authed, || format!("resources:write:{}", npath))?;
+    }
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
