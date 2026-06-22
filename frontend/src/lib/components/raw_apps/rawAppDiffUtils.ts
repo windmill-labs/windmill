@@ -202,6 +202,10 @@ export function parseRawAppDiff(
 export interface RawAppFileItem {
 	kind: 'raw_app_file'
 	path: string
+	/** Friendly composite path (`<displayAppPath>/<file>`) for tree display only;
+	 * `path` stays storage-keyed so a never-deployed draft still loads/edits via
+	 * its `…/draft_<uuid>` path. Defaults to `path` when no friendly path differs. */
+	displayPath?: string
 	ahead: number
 	behind: number
 	has_changes: boolean
@@ -229,6 +233,8 @@ export interface RawAppFileItem {
 export interface RawAppRunnableItem {
 	kind: 'script' | 'flow'
 	path: string
+	/** Friendly composite path for tree display only (see RawAppFileItem). */
+	displayPath?: string
 	ahead: number
 	behind: number
 	has_changes: boolean
@@ -287,13 +293,15 @@ function runnableKind(...sides: unknown[]): 'script' | 'flow' {
 export function rawAppDiffToItems(
 	appPath: string,
 	original: RawAppish | undefined,
-	current: RawAppish | undefined
+	current: RawAppish | undefined,
+	displayAppPath: string = appPath
 ): RawAppSyntheticItem[] {
 	// Files + metadata (runnables handled separately as script/flow rows).
 	const fileItems = parseRawAppDiff(original, current, { includeRunnables: false }).map(
 		(e): RawAppFileItem => ({
 			kind: 'raw_app_file',
 			path: joinAppPath(appPath, e.path),
+			displayPath: joinAppPath(displayAppPath, e.path),
 			ahead: 0,
 			behind: 0,
 			has_changes: true,
@@ -327,6 +335,7 @@ export function rawAppDiffToItems(
 		runnableItems.push({
 			kind: runnableKind(oRun[name], cRun[name]),
 			path: joinAppPath(appPath, `${RUNNABLES_PREFIX}${name}`),
+			displayPath: joinAppPath(displayAppPath, `${RUNNABLES_PREFIX}${name}`),
 			ahead: 0,
 			behind: 0,
 			has_changes: true,

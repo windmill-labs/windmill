@@ -159,7 +159,8 @@
 						...rawAppDiffToItems(
 							d.path,
 							loaded.before as RawAppish | undefined,
-							loaded.after as RawAppish | undefined
+							loaded.after as RawAppish | undefined,
+							displayPathOf(d)
 						)
 					)
 					continue
@@ -223,11 +224,32 @@
 		fullPath: string
 		isScope: boolean
 		children: TreeNode[]
+		/** Present when this folder is a raw app's root: its files are nested
+		 * children but the header renders as the raw-app row (icon + summary +
+		 * status) instead of a plain folder. */
+		app?: AppRootMeta
 	}
 	type FileNode = { type: 'file'; name: string; diff: DisplayDiff }
 	type TreeNode = FolderNode | FileNode
 
-	function buildTree(rows: DisplayDiff[]): FolderNode {
+	type AppRootMeta = { summaryKey: string; summary?: string }
+
+	// Friendly app path → app metadata, for tagging the matching tree folder as a
+	// raw-app root. Keyed on `displayPathOf` so it lines up with the friendly
+	// virtual paths the synthetic file items carry.
+	const appRootMeta = $derived.by(() => {
+		const m = new Map<string, AppRootMeta>()
+		for (const d of diffs) {
+			if (d.kind !== 'raw_app') continue
+			m.set(displayPathOf(d), {
+				summaryKey: itemKey(d),
+				summary: 'summary' in d ? d.summary : undefined
+			})
+		}
+		return m
+	})
+
+	function buildTree(rows: DisplayDiff[], appMeta: Map<string, AppRootMeta>): FolderNode {
 		const root: FolderNode = {
 			type: 'folder',
 			name: '',
@@ -276,6 +298,11 @@
 			for (const c of n.children) if (c.type === 'folder') sortRec(c)
 		}
 		sortRec(root)
+		// Tag the folder matching each raw app's friendly path as its app root.
+		for (const [fp, meta] of appMeta) {
+			const f = folderCache.get(fp)
+			if (f) f.app = meta
+		}
 		return root
 	}
 
@@ -293,7 +320,7 @@
 		return (searchedDiffs ?? []) as DisplayDiff[]
 	})
 
-	const tree = $derived(buildTree(filteredDiffs))
+	const tree = $derived(buildTree(filteredDiffs, appRootMeta))
 
 	function rowId(d: DisplayDiff): string {
 		return `ws-diff-${itemKey(d)}`
@@ -382,7 +409,10 @@
 	}
 
 	function parentFolderKeyFor(entry: NavEntry): string | undefined {
-		const path = entry.type === 'folder' ? entry.node.fullPath : entry.diff.path
+		// Use the display path so the derived parent key matches the folder keys,
+		// which are built from `displayPathOf` (a raw app's files key on their
+		// storage `…/draft_<uuid>` path but nest under the friendly folder).
+		const path = entry.type === 'folder' ? entry.node.fullPath : displayPathOf(entry.diff)
 		return parentFolderKey(entry.type, path)
 	}
 
@@ -456,34 +486,78 @@
 			ontoggle={(e) => (folderOpen[fkey] = (e.currentTarget as HTMLDetailsElement).open)}
 			class="select-none"
 		>
-			<summary
-				role="option"
-				aria-selected={isHl}
-				data-nav-key={fkey}
-				onmouseenter={() => setHoverHighlight(fkey)}
-				class="flex items-center gap-1.5 px-3 py-1 cursor-pointer text-xs font-medium font-mono text-emphasis hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
-					? 'bg-surface-hover'
-					: ''}"
-				style="padding-left: {depth * 12 + 8}px"
-			>
-				<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
-				<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
-				{#if isUserScope}
-					<User size={12} class="shrink-0 text-tertiary" />
-				{:else}
-					<Folder size={12} class="shrink-0 text-tertiary" />
-				{/if}
-				<span class="truncate" title={node.name}>{node.name}</span>
-			</summary>
-			<div>
+			{#if node.app}
+				{@const appSummary = summaries[node.app.summaryKey] ?? node.app.summary}
+				<!-- Raw-app root: expandable folder, but its header reads as a normal
+				     item row (icon + summary + name) rather than a plain folder. Shows
+				     the short name, not the full path — the tree already places it under
+				     its scope. The expand chevron sits at the end of the row. -->
+				<summary
+					role="option"
+					aria-selected={isHl}
+					data-nav-key={fkey}
+					onmouseenter={() => setHoverHighlight(fkey)}
+					title={node.fullPath}
+					class="flex items-center gap-1.5 px-3 py-1 cursor-pointer hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
+						? 'bg-surface-hover'
+						: ''}"
+					style="padding-left: {depth * 12 + 8}px"
+				>
+					<RowIcon kind="raw_app" size={12} />
+					<div class="min-w-0 flex-1">
+						{#if appSummary}
+							<div class="text-xs text-primary truncate">{appSummary}</div>
+							<div class="text-2xs text-secondary font-normal font-mono truncate">
+								{node.name}
+							</div>
+						{:else}
+							<div class="text-xs text-primary font-mono truncate">{node.name}</div>
+						{/if}
+					</div>
+					<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
+					<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
+				</summary>
+			{:else}
+				<summary
+					role="option"
+					aria-selected={isHl}
+					data-nav-key={fkey}
+					onmouseenter={() => setHoverHighlight(fkey)}
+					class="flex items-center gap-1.5 px-3 py-1 cursor-pointer text-xs font-medium font-mono text-emphasis hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
+						? 'bg-surface-hover'
+						: ''}"
+					style="padding-left: {depth * 12 + 8}px"
+				>
+					{#if isUserScope}
+						<User size={12} class="shrink-0 text-tertiary" />
+					{:else}
+						<Folder size={12} class="shrink-0 text-tertiary" />
+					{/if}
+					<span class="flex-1 min-w-0 truncate" title={node.name}>{node.name}</span>
+					<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
+					<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
+				</summary>
+			{/if}
+			<div class="relative">
+				<!-- Indent guide: a vertical rule down the left of the folder's
+				     children, at the parent chevron's midpoint (depth*12+8 + 6).
+				     Absolute so it doesn't shift the rows; clicks pass through. -->
+				<div
+					class="pointer-events-none absolute top-0 bottom-0 border-l border-light"
+					style="left: {depth * 12 + 14}px"
+					aria-hidden="true"
+				></div>
 				{#each node.children as child}
 					{@render renderTreeNode(child, depth + 1)}
 				{/each}
 			</div>
 		</details>
 	{:else}
-		{@const status = node.diff.status}
 		{@const key = itemKey(node.diff)}
+		<!-- Folders place their icon at the base padding (depth*12+8) — the chevron
+		     now sits at the row's end, not the front. WorkspaceItemRow adds its own
+		     12px base, so indent = depth*12-4 lines a file's icon up with sibling
+		     folder icons. Keep in sync with the folder summary. -->
 		<WorkspaceItemRow
 			kind={node.diff.kind as any}
 			iconPath={node.diff.path}
@@ -492,26 +566,14 @@
 			secondary={node.name}
 			highlighted={key === highlightedKey}
 			navKey={key}
-			indent={depth * 12 + 20}
+			indent={depth * 12 - 4}
 			title={displayPathOf(node.diff)}
 			onclick={() => {
 				highlightedKey = key
 				scrollToDiff(node.diff)
 			}}
 			onmouseenter={() => setHoverHighlight(key)}
-		>
-			{#snippet extras()}
-				<span
-					class="w-1.5 h-1.5 rounded-full shrink-0 {status === 'added'
-						? 'bg-green-500'
-						: status === 'removed'
-							? 'bg-red-500'
-							: status === 'conflict'
-								? 'bg-orange-500'
-								: 'bg-blue-500'}"
-				></span>
-			{/snippet}
-		</WorkspaceItemRow>
+		/>
 	{/if}
 {/snippet}
 
