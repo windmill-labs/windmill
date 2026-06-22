@@ -1,7 +1,7 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "version": "1.728.0",
+    "version": "1.734.0",
     "title": "Windmill API",
     "contact": {
       "name": "Windmill Team",
@@ -12196,6 +12196,14 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "all_users",
+            "in": "query",
+            "description": "List every draft in the workspace (all users), not just the current user's own + legacy rows. Other users' rows come back with `mine=false` (view-only).",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -12233,6 +12241,27 @@
                       "created_at": {
                         "type": "string",
                         "format": "date-time"
+                      },
+                      "can_write": {
+                        "type": "boolean",
+                        "description": "Whether the current user may deploy/discard this draft (same check the deploy/discard endpoints enforce)."
+                      },
+                      "mine": {
+                        "type": "boolean",
+                        "description": "The row belongs to the current user (own draft or the legacy no-owner row) and is therefore actionable. Always true in the default listing; with `all_users=true`, other users' rows are false (view-only)."
+                      },
+                      "draft_users": {
+                        "description": "Draft authors at this (path, kind) — the legacy NULL-email row surfaced as a null username.\nPopulated only for the shared full-page-editor kinds (script/flow/app/raw_app); omitted for\ndrawer kinds, which keep their drafts private. Feeds the Draft badge's owner-avatar circles.\n",
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "username": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        }
                       }
                     },
                     "required": [
@@ -12240,7 +12269,9 @@
                       "path",
                       "draft_only",
                       "legacy_draft",
-                      "created_at"
+                      "created_at",
+                      "can_write",
+                      "mine"
                     ]
                   }
                 }
@@ -12310,6 +12341,55 @@
         }
       }
     },
+    "/w/{workspace}/drafts/get_own/{kind}/{path}": {
+      "get": {
+        "summary": "fetch the current user's own draft content at a path (any kind)",
+        "operationId": "getOwnDraft",
+        "tags": [
+          "draft"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UserDraftItemKind"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ScriptPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "the user's draft content, or null when none exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "nullable": true,
+                  "type": "object",
+                  "properties": {
+                    "value": {},
+                    "created_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "created_at"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/w/{workspace}/drafts/update/{kind}/{path}": {
       "post": {
         "summary": "upsert (or clear) the current user's draft at a path",
@@ -12356,6 +12436,11 @@
                   "legacy": {
                     "type": "boolean",
                     "description": "Delete-only. Target the legacy workspace-level row (email NULL) instead of the current user's row. Used to discard a legacy draft from the review page."
+                  },
+                  "created_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Upsert-only override for the stored creation timestamp. Normal saves omit it (stamped server-side); the localStorage→DB migration passes the draft's original write time so migrated drafts keep their age."
                   }
                 }
               }
@@ -12386,6 +12471,67 @@
                     "status",
                     "current_timestamp"
                   ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/drafts/migrate_legacy/{kind}/{path}": {
+      "post": {
+        "summary": "resolve a legacy (workspace-level) draft (admin only)",
+        "description": "Delete a legacy draft (email NULL) or assign it to the authed admin as a per-user draft. Workspace admins / superadmins only.",
+        "operationId": "migrateLegacyDraft",
+        "tags": [
+          "draft"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UserDraftItemKind"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ScriptPath"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "delete",
+                      "assign_to_self"
+                    ],
+                    "description": "delete the legacy draft, or take ownership of it."
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "migration result",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -16096,6 +16242,194 @@
         "responses": {
           "200": {
             "description": "updated",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/ai_skills/list": {
+      "get": {
+        "summary": "list the workspace AI chat skills (name + description only)",
+        "operationId": "listAiSkills",
+        "tags": [
+          "workspace"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "skill listing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "name",
+                      "description"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/ai_skills/get/{name}": {
+      "get": {
+        "summary": "get a workspace AI chat skill including its instructions",
+        "operationId": "getAiSkill",
+        "tags": [
+          "workspace"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "skill",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "description",
+                    "instructions"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "instructions": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/ai_skills/upload": {
+      "post": {
+        "summary": "upsert workspace AI chat skills (admin only)",
+        "operationId": "uploadAiSkills",
+        "tags": [
+          "workspace"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "skills"
+                ],
+                "properties": {
+                  "skills": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "description",
+                        "instructions"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string"
+                        },
+                        "instructions": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "uploaded",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/ai_skills/delete/{name}": {
+      "delete": {
+        "summary": "delete a workspace AI chat skill (admin only)",
+        "operationId": "deleteAiSkill",
+        "tags": [
+          "workspace"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "deleted",
             "content": {
               "text/plain": {
                 "schema": {
@@ -20409,6 +20743,192 @@
         }
       }
     },
+    "/w/{workspace}/jobs_u/dispatch_events/{id}": {
+      "get": {
+        "summary": "list asset-trigger dispatch events for a producer job",
+        "description": "Returns the chronological log of decisions the asset-trigger dispatcher made after this producer job completed. Each row is one (subscriber, asset write) decision: `dispatched` (with `child_job_id`), `join_pending` (with `received_inputs` / `required_inputs` / `partition`), or `skipped` (with `reason`). Rows are reaped automatically when the producer's `v2_job` row is deleted by the retention sweep.\n",
+        "operationId": "listDispatchEvents",
+        "tags": [
+          "job"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/JobId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "dispatch events for this producer job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "subscriber_path": {
+                        "type": "string"
+                      },
+                      "asset_kind": {
+                        "type": "string",
+                        "enum": [
+                          "s3object",
+                          "resource",
+                          "variable",
+                          "ducklake",
+                          "datatable",
+                          "volume"
+                        ]
+                      },
+                      "asset_path": {
+                        "type": "string"
+                      },
+                      "outcome": {
+                        "type": "string",
+                        "enum": [
+                          "dispatched",
+                          "join_pending",
+                          "skipped"
+                        ]
+                      },
+                      "child_job_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "partition": {
+                        "type": "string"
+                      },
+                      "received_inputs": {
+                        "type": "integer"
+                      },
+                      "required_inputs": {
+                        "type": "integer"
+                      },
+                      "debounce_s": {
+                        "type": "integer"
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "required": [
+                      "subscriber_path",
+                      "asset_kind",
+                      "asset_path",
+                      "outcome",
+                      "created_at"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/jobs/asset_dispatch_edges": {
+      "get": {
+        "summary": "list asset-cascade producer→child job edges for a folder",
+        "description": "Returns the `dispatched` asset-trigger edges (producer job → child job) whose subscriber lives under `path_start`. Lets a pipeline view reconstruct the cascade tree of a folder by job id and group connected runs. Visibility follows the producer job's RLS.\n",
+        "operationId": "listAssetDispatchEdges",
+        "tags": [
+          "job"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "path_start",
+            "in": "query",
+            "required": true,
+            "description": "Folder path prefix the children live under, e.g. `f/orders/`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "created_after",
+            "in": "query",
+            "required": false,
+            "description": "Only edges dispatched at/after this instant.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "asset-cascade edges for the folder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "producer_job_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "child_job_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Set for `dispatched`; absent for `join_pending` inputs."
+                      },
+                      "subscriber_path": {
+                        "type": "string"
+                      },
+                      "outcome": {
+                        "type": "string",
+                        "enum": [
+                          "dispatched",
+                          "join_pending"
+                        ]
+                      },
+                      "asset_kind": {
+                        "type": "string",
+                        "enum": [
+                          "s3object",
+                          "resource",
+                          "variable",
+                          "ducklake",
+                          "datatable",
+                          "volume"
+                        ]
+                      },
+                      "asset_path": {
+                        "type": "string"
+                      },
+                      "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "required": [
+                      "producer_job_id",
+                      "subscriber_path",
+                      "outcome",
+                      "asset_kind",
+                      "asset_path",
+                      "created_at"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/w/{workspace}/jobs/completed/delete/{id}": {
       "post": {
         "summary": "delete completed job (erase content but keep run id)",
@@ -21105,6 +21625,10 @@
                           }
                         }
                       }
+                    },
+                    "view_token": {
+                      "type": "string",
+                      "description": "Share-read-link token for the flow. An authenticated workspace member can append it as a `view_token` query param on the run page to read a flow they don't otherwise have access to."
                     }
                   }
                 }
@@ -21525,6 +22049,10 @@
                           "approver"
                         ]
                       }
+                    },
+                    "view_token": {
+                      "type": "string",
+                      "description": "Share-read-link token for the parent flow. An authenticated workspace member can append it as a `view_token` query param on the run page to read a flow they don't otherwise have access to."
                     }
                   },
                   "required": [
@@ -32745,6 +33273,241 @@
         }
       }
     },
+    "/w/{workspace}/assets/graph": {
+      "get": {
+        "summary": "Get the workspace-wide asset <-> runnable graph",
+        "operationId": "getAssetsGraph",
+        "tags": [
+          "asset"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "asset_kinds",
+            "in": "query",
+            "description": "Filter by asset kinds (comma-separated list)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "folder",
+            "in": "query",
+            "description": "Scope the graph to runnables in a single folder",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "asset graph nodes, lineage edges and trigger edges",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "assets",
+                    "runnables",
+                    "edges",
+                    "triggers"
+                  ],
+                  "properties": {
+                    "assets": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "kind",
+                          "path"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "$ref": "#/components/schemas/AssetKind"
+                          },
+                          "path": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "runnables": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "path",
+                          "usage_kind"
+                        ],
+                        "properties": {
+                          "path": {
+                            "type": "string"
+                          },
+                          "usage_kind": {
+                            "$ref": "#/components/schemas/AssetUsageKind"
+                          },
+                          "in_pipeline": {
+                            "type": "boolean",
+                            "description": "True iff the script is a pipeline member (deployed with `// pipeline`). Omitted when false."
+                          }
+                        }
+                      }
+                    },
+                    "edges": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "runnable_path",
+                          "runnable_kind",
+                          "asset_kind",
+                          "asset_path"
+                        ],
+                        "properties": {
+                          "runnable_path": {
+                            "type": "string"
+                          },
+                          "runnable_kind": {
+                            "$ref": "#/components/schemas/AssetUsageKind"
+                          },
+                          "asset_kind": {
+                            "$ref": "#/components/schemas/AssetKind"
+                          },
+                          "asset_path": {
+                            "type": "string"
+                          },
+                          "access_type": {
+                            "$ref": "#/components/schemas/AssetUsageAccessType"
+                          }
+                        }
+                      }
+                    },
+                    "triggers": {
+                      "type": "array",
+                      "items": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "description": "Asset trigger edge (`// on <asset>`)",
+                            "required": [
+                              "trigger_kind",
+                              "asset_kind",
+                              "asset_path",
+                              "runnable_kind",
+                              "runnable_path"
+                            ],
+                            "properties": {
+                              "trigger_kind": {
+                                "type": "string",
+                                "enum": [
+                                  "asset"
+                                ]
+                              },
+                              "asset_kind": {
+                                "$ref": "#/components/schemas/AssetKind"
+                              },
+                              "asset_path": {
+                                "type": "string"
+                              },
+                              "runnable_kind": {
+                                "$ref": "#/components/schemas/AssetUsageKind"
+                              },
+                              "runnable_path": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          {
+                            "type": "object",
+                            "description": "Native trigger edge (schedule, email, kafka, ...). `path` is the trigger row's path.",
+                            "required": [
+                              "trigger_kind",
+                              "path",
+                              "runnable_kind",
+                              "runnable_path"
+                            ],
+                            "properties": {
+                              "trigger_kind": {
+                                "type": "string",
+                                "enum": [
+                                  "schedule",
+                                  "email",
+                                  "kafka",
+                                  "mqtt",
+                                  "nats",
+                                  "postgres",
+                                  "sqs",
+                                  "gcp"
+                                ]
+                              },
+                              "path": {
+                                "type": "string"
+                              },
+                              "runnable_kind": {
+                                "$ref": "#/components/schemas/AssetUsageKind"
+                              },
+                              "runnable_path": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/assets/pipelines": {
+      "get": {
+        "summary": "List folders that contain at least one pipeline-member script",
+        "operationId": "listPipelineFolders",
+        "tags": [
+          "asset"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "folders containing pipeline scripts, with their script counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "folder",
+                      "script_count"
+                    ],
+                    "properties": {
+                      "folder": {
+                        "type": "string",
+                        "description": "The folder name (without the `f/` prefix)"
+                      },
+                      "script_count": {
+                        "type": "integer",
+                        "format": "int64",
+                        "description": "Number of pipeline-member scripts in the folder"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/w/{workspace}/volumes/list": {
       "get": {
         "summary": "List all volumes in the workspace",
@@ -33694,7 +34457,8 @@
           "trigger_cli",
           "trigger_nextcloud",
           "trigger_google",
-          "trigger_github"
+          "trigger_github",
+          "data_pipeline"
         ]
       },
       "OpenFlow": {
@@ -36316,6 +37080,10 @@
           "parent_hash": {
             "type": "string"
           },
+          "auto_parent": {
+            "type": "boolean",
+            "description": "When true, the backend resolves the parent to the current deployed head for this path within the transaction (ignoring parent_hash), instead of failing with a \"lineage must be linear\" error when the supplied parent_hash is stale."
+          },
           "summary": {
             "type": "string"
           },
@@ -37381,6 +38149,12 @@
               "type": "string"
             }
           },
+          "folders_read": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "folders_owners": {
             "type": "array",
             "items": {
@@ -37408,6 +38182,7 @@
           "operator",
           "disabled",
           "folders",
+          "folders_read",
           "folders_owners"
         ]
       },
@@ -39311,7 +40086,8 @@
           "gcp",
           "azure",
           "google",
-          "github"
+          "github",
+          "asset"
         ]
       },
       "TriggerMode": {

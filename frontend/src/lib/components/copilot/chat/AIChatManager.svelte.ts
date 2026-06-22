@@ -328,6 +328,7 @@ export class AIChatManager {
 	// prompt. Loaded asynchronously when entering GLOBAL mode; the system message
 	// is rebuilt once they resolve.
 	private globalSkills: AiSkillListItem[] = []
+	private globalSkillsRefreshId = 0
 
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script:
@@ -841,10 +842,14 @@ export class AIChatManager {
 	}
 
 	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
-	// the system message so the next chat-loop iteration advertises them. The chat
-	// loop re-reads `systemMessage` via a getter, so a late resolve still applies.
-	private refreshGlobalSkills = async () => {
-		const skills = await loadWorkspaceSkills(get(workspaceStore) ?? '')
+	// the system message so the next chat-loop iteration advertises them. Ignore
+	// stale resolves so workspace changes cannot overwrite newer skills.
+	private refreshGlobalSkills = async (workspace = get(workspaceStore) ?? '') => {
+		const refreshId = ++this.globalSkillsRefreshId
+		const skills = await loadWorkspaceSkills(workspace)
+		if (refreshId !== this.globalSkillsRefreshId) {
+			return
+		}
 		this.globalSkills = skills
 		if (this.mode === AIMode.GLOBAL) {
 			this.systemMessage = prepareGlobalSystemMessage(getCombinedCustomPrompt(AIMode.GLOBAL), {
@@ -1271,6 +1276,11 @@ export class AIChatManager {
 				)
 				return false
 			}
+		}
+		// Session chats commit their workspace in beforeSend; skills must match the
+		// committed workspace before the system prompt is sent.
+		if (this.mode === AIMode.GLOBAL) {
+			await this.refreshGlobalSkills(get(workspaceStore) ?? '')
 		}
 		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
 		// Declared outside `try` so the catch can recover what the loop produced

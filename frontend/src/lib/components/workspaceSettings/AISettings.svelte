@@ -589,7 +589,9 @@
 		</SettingCard>
 	{/if}
 
-	<AiSkillsSettings />
+	{#if promptScope === 'workspace'}
+		<AiSkillsSettings />
+	{/if}
 </div>
 
 <AIPromptsModal
