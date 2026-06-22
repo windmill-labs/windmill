@@ -1,9 +1,7 @@
 import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { get } from "svelte/store";
 import type { AIProvider } from "$lib/gen/types.gen";
-import { userStore, type UserExt } from "$lib/stores";
 import {
   globalTools,
   prepareGlobalSystemMessage,
@@ -55,36 +53,15 @@ export interface GlobalLiveEditorDraftFixture {
 // Identity the global system prompt builds paths from. Production reads
 // `userStore` (whoami) to fill `u/{username}/...`; the eval harness never logs
 // in, so without this the prompt sees an empty username (`u//...`) and no
-// path-selection case is meaningful. Seeded per-case via the initial fixture.
+// path-selection case is meaningful. Seeded per-case via the initial fixture and
+// passed straight to `prepareGlobalSystemMessage` (no global-store mutation).
 export interface GlobalUserFixture {
   username: string;
   is_admin?: boolean;
-  is_super_admin?: boolean;
-  operator?: boolean;
   /** Folders the user can write to (the writable set whoami returns). */
   folders?: string[];
   /** Folders the user can read; read-only folders = folders_read \ folders. */
   folders_read?: string[];
-  /** Folders the user owns (subset of folders). */
-  folders_owners?: string[];
-}
-
-function buildEvalUserExt(user: GlobalUserFixture): UserExt {
-  return {
-    email: `${user.username}@windmill.dev`,
-    username: user.username,
-    is_admin: user.is_admin ?? true,
-    is_super_admin: user.is_super_admin ?? false,
-    operator: user.operator ?? false,
-    created_at: "2024-01-01T00:00:00.000Z",
-    groups: ["all"],
-    pgroups: ["g/all"],
-    folders: user.folders ?? [],
-    folders_owners: user.folders_owners ?? user.folders ?? [],
-    // folders_read is consumed at runtime / by the Phase 2 prompt injection but
-    // is not part of the typed UserExt surface, so attach it via the cast below.
-    ...(user.folders_read ? { folders_read: user.folders_read } : {}),
-  } as UserExt;
 }
 
 export interface GlobalEvalResult {
@@ -124,22 +101,15 @@ export async function runGlobalEval(
   registerBenchmarkWorkspaceRunnables(workspaceRoot, options.workspaceFixtures ?? {});
   seedLiveEditorDrafts(workspaceRoot, options.liveEditorDrafts ?? []);
 
-  // `userStore` is a process-global singleton; the system message is built
-  // synchronously below (no await between set and read), so the seeded identity
-  // is captured atomically. Cross-case races are still possible under parallel
-  // execution, so path-selection cases must run with concurrency=1 (--verbose).
-  const previousUser = get(userStore);
-  if (options.user) {
-    userStore.set(buildEvalUserExt(options.user));
-  }
-
   try {
     const model = options.model ?? "claude-haiku-4-5-20251001";
     const injectActiveEditorContext =
       process.env[DISABLE_ACTIVE_EDITOR_CONTEXT_ENV] !== "1";
+    // Pass the seeded identity straight to the prompt builder rather than mutating
+    // the process-global `userStore`, so concurrent cases never race on it.
     const rawResult = await runEval({
       userPrompt,
-      systemMessage: prepareGlobalSystemMessage(),
+      systemMessage: prepareGlobalSystemMessage(undefined, { user: options.user }),
       userMessage: prepareGlobalUserMessage(
         userPrompt,
         [],
@@ -176,7 +146,6 @@ export async function runGlobalEval(
       finalContextTokens: rawResult.finalContextTokens,
     };
   } finally {
-    userStore.set(previousUser);
     clearGlobalDrafts(workspaceRoot);
     clearLiveEditorDrafts(workspaceRoot, options.liveEditorDrafts ?? []);
     unregisterBenchmarkWorkspaceRunnables(workspaceRoot);

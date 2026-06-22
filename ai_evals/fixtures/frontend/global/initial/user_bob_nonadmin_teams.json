@@ -2,7 +2,6 @@
   "user": {
     "username": "bob",
     "is_admin": false,
-    "is_super_admin": false,
     "folders": ["team_a"],
     "folders_read": ["team_a", "team_b"]
   }

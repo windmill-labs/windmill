@@ -3913,15 +3913,20 @@ async function deleteWorkspaceItem(
 
 export function prepareGlobalSystemMessage(
 	customPrompt?: string,
-	opts?: { previewTools?: boolean }
+	opts?: {
+		previewTools?: boolean
+		// Identity the path-convention guidance is built from. Production omits it
+		// (read from userStore); callers that must not touch the process-global
+		// store (the eval harness) pass it explicitly instead.
+		user?: { username: string; is_admin?: boolean; folders?: string[]; folders_read?: string[] }
+	}
 ): ChatCompletionSystemMessageParam {
-	const user = get(userStore)
+	const user = opts?.user ?? get(userStore)
 	const username = user?.username ?? ''
 	const folderCtx: FolderPromptContext | undefined = user
 		? {
 				folders: user.folders ?? [],
-				foldersRead:
-					((user as { folders_read?: string[] }).folders_read ?? user.folders ?? []),
+				foldersRead: user.folders_read ?? user.folders ?? [],
 				isAdmin: user.is_admin ?? false
 			}
 		: undefined

@@ -1115,13 +1115,12 @@
     - leaves the result as an AI draft only
 
 # --- Path selection (u/<user> vs f/<folder>) ---
-# These cases probe how the assistant picks a workspace path when the user gives
-# none. They depend on the seeded `user` fixture (username / is_admin / folders)
-# so the system prompt's `u/{username}` is well-formed. Assertions encode the
-# DESIRED behavior, so they are expected to fail/behave inconsistently against the
-# current prompt (which has no working folder-discovery mechanism) and to pass once
-# the folder hint/tool + prompt fix land. Run with --verbose (concurrency=1): the
-# seeded userStore is a process-global singleton.
+# These cases assert how the assistant picks a workspace path when the user gives
+# none: a bare name defaults to the personal scope `u/<user>/`, an existing folder
+# whose purpose matches is used, a non-admin targets a writable folder and never a
+# read-only one, and shared intent with no matching folder asks rather than invents.
+# Each depends on the seeded `user` fixture (username / is_admin / folders /
+# folders_read) so the prompt's folder guidance and `u/{username}` are well-formed.
 
 - id: global-path1-bare-name-defaults-to-personal
   prompt: |-
