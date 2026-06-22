@@ -99,6 +99,31 @@ export interface VariableFile {
   is_oauth?: boolean;
 }
 
+/**
+ * Whether `value` has the structural shape of a workspace-encrypted secret
+ * (the form produced by `sync pull` without --plain-secrets), as opposed to a
+ * plaintext value a user authored by hand.
+ *
+ * Mirrors the server guard (windmill-store/src/variables.rs): workspace
+ * ciphertext (AES-256-CBC, base64) is standard base64 decoding to a non-zero
+ * multiple of the 16-byte block size. External secret-backend markers
+ * ($vault:/$aws_sm:/$azure_kv:) are stored verbatim too, so they count as
+ * already-encrypted. This is a shape check only — it never decrypts.
+ */
+export function looksLikeWorkspaceCiphertext(value: string): boolean {
+  if (
+    value.startsWith("$vault:") ||
+    value.startsWith("$aws_sm:") ||
+    value.startsWith("$azure_kv:")
+  ) {
+    return true;
+  }
+  if (value.length === 0 || value.length % 4 !== 0) return false;
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return false;
+  const decodedLen = Buffer.from(value, "base64").length;
+  return decodedLen > 0 && decodedLen % 16 === 0;
+}
+
 export async function pushVariable(
   workspace: string,
   remotePath: string,
@@ -136,8 +161,13 @@ export async function pushVariable(
       alreadyEncrypted: !plainSecrets,
       requestBody: {
         ...localVariable,
+        // Apply is_secret in both directions when it differs from the remote
+        // (the value is always sent, so the server allows the flag change).
+        // Sending `undefined` when unchanged avoids spurious updates.
         is_secret:
-          localVariable.is_secret && !variable.is_secret ? true : undefined,
+          localVariable.is_secret !== variable.is_secret
+            ? localVariable.is_secret
+            : undefined,
         ...(wsSpecific !== undefined ? { ws_specific: wsSpecific } : {}),
       },
     });
@@ -174,12 +204,33 @@ async function push(
 
   log.info(colors.bold.yellow("Pushing variable..."));
 
+  const local = parseFromFile(filePath) as VariableFile;
+
+  // A secret value in a single-file push is authored by the user and is
+  // therefore plaintext that must be encrypted server-side — unless it has the
+  // shape of workspace ciphertext (a value round-tripped from `sync pull`).
+  // Pushing plaintext as already-encrypted would brick the variable. An explicit
+  // --plain-secrets always forces the plaintext (encrypt) path.
+  let plainSecrets = opts.plainSecrets ?? false;
+  if (
+    opts.plainSecrets === undefined &&
+    local.is_secret &&
+    !looksLikeWorkspaceCiphertext(local.value)
+  ) {
+    log.info(
+      colors.yellow(
+        "Secret value is not in encrypted form; pushing as plaintext to be encrypted server-side (pass --plain-secrets to silence)."
+      )
+    );
+    plainSecrets = true;
+  }
+
   await pushVariable(
     workspace.workspaceId,
     remotePath,
     undefined,
-    parseFromFile(filePath),
-    opts.plainSecrets ?? false
+    local,
+    plainSecrets
   );
   log.info(colors.bold.underline.green(`Variable ${remotePath} pushed`));
 }

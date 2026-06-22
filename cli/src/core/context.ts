@@ -244,7 +244,7 @@ async function tryResolveWorkspace(
               `workspace '${opts.workspace}'`,
               opts.configDir
             );
-        log.info(
+        log.infoStderr(
           colors.green(
             `Using workspace profile '${selected.name}' for workspace '${opts.workspace}' (${workspaceId} on ${normalizedBaseUrl})`
           )
@@ -309,7 +309,7 @@ export async function tryResolveBranchWorkspace(
     wsEntry = config.workspaces?.[workspaceNameOverride] as WorkspaceEntryConfig | undefined;
     if (wsEntry) {
       wsName = workspaceNameOverride;
-      log.info(`Using workspace override: ${workspaceNameOverride}`);
+      log.infoStderr(`Using workspace override: ${workspaceNameOverride}`);
     }
   } else {
     // Only try branch-based resolution if in a Git repository
@@ -328,7 +328,7 @@ export async function tryResolveBranchWorkspace(
 
     const branchToLookup = originalBranchIfForked ?? rawBranch;
     if (originalBranchIfForked) {
-      log.info(
+      log.infoStderr(
         `Using original branch \`${originalBranchIfForked}\` for finding workspace from workspaces section in wmill.yaml`
       );
     }
@@ -370,7 +370,7 @@ export async function tryResolveBranchWorkspace(
     reason = `matched current git branch '${rawBranch}'`;
   }
 
-  log.info(
+  log.infoStderr(
     `Using workspace '${wsName}' (${reason}) → ${workspaceId} on ${baseUrl}`
   );
 
@@ -406,7 +406,7 @@ export async function tryResolveBranchWorkspace(
 
   if (matchingProfiles.length === 1) {
     selectedProfile = matchingProfiles[0];
-    log.info(
+    log.infoStderr(
       colors.green(
         `Using workspace profile '${selectedProfile.name}' for workspace '${wsName}' with workspace id \`${workspaceId}\``
       )
@@ -424,7 +424,7 @@ export async function tryResolveBranchWorkspace(
         (p) => p.name === lastUsedName
       );
       if (lastUsedProfile) {
-        log.info(
+        log.infoStderr(
           colors.green(
             `Using workspace profile '${lastUsedProfile.name}' for workspace '${wsName}' (last used)`
           )
@@ -449,7 +449,7 @@ export async function tryResolveBranchWorkspace(
       opts.configDir
     );
 
-    log.info(
+    log.infoStderr(
       colors.green(
         `Using workspace profile '${selectedProfile.name}' for workspace '${wsName}'`
       )
@@ -459,7 +459,7 @@ export async function tryResolveBranchWorkspace(
   if (workspaceIdIfForked) {
     selectedProfile.name = `${selectedProfile.name}/${workspaceIdIfForked}`;
     selectedProfile.workspaceId = workspaceIdIfForked;
-    log.info(
+    log.infoStderr(
       `Using fork workspace \`${workspaceIdIfForked}\` (parent: \`${workspaceId}\`) from branch \`${rawBranch}\``
     );
   }
