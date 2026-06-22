@@ -553,6 +553,241 @@ fn terminate(stmt: &str) -> String {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Data tests (`// data_test`)
+// ---------------------------------------------------------------------------
+//
+// A data test is the FIRST extensible annotation: the parser yields a
+// `DataTest` from a known vocabulary, and this module turns each into a SQL
+// *verifier probe* that runs against the freshly-materialized target after the
+// write commits. A probe is one statement that RAISES (DuckDB `error(...)`)
+// iff the test is violated, so failure rides the executor's existing
+// error path (record `Failed` + propagate) with no new failure plumbing.
+//
+// The pattern is deliberately open: a verifier is `(violation-count query,
+// label) -> raising statement`. Built-ins differ only in their count query;
+// the `Custom` escape hatch supplies its own (a user SELECT returning the
+// violating rows). A sibling annotation family (column-lineage) can emit its
+// own verifiers through the same `probe_stmt` shape rather than bolting on a
+// parallel mechanism. See `docs/ducklake-materialization.md`.
+
+use crate::asset_parser::{AssetKind, DataTest};
+
+/// Target context a data-test probe runs against — the materialized table and
+/// the partition slice (when partitioned, tests are scoped to the slice just
+/// written, so a rerun/backfill is independent of other partitions' data).
+#[derive(Debug, Clone)]
+pub struct DataTestCtx<'a> {
+    /// Fully-qualified materialized target, e.g. `_wm_target.orders`.
+    pub target_qualified: &'a str,
+    /// `<name>/<table>` of the target, for human-readable probe messages.
+    pub asset_path: &'a str,
+    /// Physical partition column on the managed table.
+    pub partition_col: &'a str,
+    /// SQL literal/expression for the current partition value (already escaped).
+    pub partition_value_sql: &'a str,
+    /// Whether the target is partitioned (scopes probes to the slice).
+    pub partitioned: bool,
+}
+
+/// A data test resolved enough to generate SQL. Built-ins carry only their
+/// parsed `DataTest`; `Custom` additionally carries the fetched script body
+/// (the parser crate can't fetch it — the worker does and passes it in).
+#[derive(Debug, Clone)]
+pub enum DataTestResolved {
+    BuiltIn(DataTest),
+    Custom { path: String, body: String },
+}
+
+/// The SQL a set of data tests compiles to: the referenced-asset `ATTACH`
+/// statements (resolved by the executor's ATTACH-transform pass, like the
+/// user's own) and the raising probes, both in declaration order.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DataTestSql {
+    pub attaches: Vec<String>,
+    pub probes: Vec<String>,
+}
+
+/// Alias prefix for a relationships test's referenced asset, attached
+/// read-only alongside the target. `_wm_ref_<n>` so it never collides with the
+/// user's aliases or the reserved `_wm_target`.
+const REF_ALIAS_PREFIX: &str = "_wm_ref_";
+
+// Double-quote a SQL identifier, escaping embedded quotes — so an arbitrary
+// column name from an annotation can't break out of the identifier.
+fn quote_ident(id: &str) -> String {
+    format!("\"{}\"", id.replace('"', "\"\""))
+}
+
+// Single-quote a SQL string literal, escaping embedded quotes.
+fn quote_lit(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
+// The `WHERE`/`AND` fragment scoping a probe to the current partition, or
+// empty when unpartitioned. `prefix` is `WHERE ` or `AND ` per call site.
+fn partition_scope(ctx: &DataTestCtx, prefix: &str, table_alias: Option<&str>) -> String {
+    if !ctx.partitioned {
+        return String::new();
+    }
+    let col = match table_alias {
+        Some(a) => format!("{a}.{}", quote_ident(ctx.partition_col)),
+        None => quote_ident(ctx.partition_col),
+    };
+    format!("{prefix}{col} = {}", ctx.partition_value_sql)
+}
+
+// One raising probe: evaluates `count_query` (which must yield a single column
+// `v`) and, when `v > 0`, raises `error('<label>: N violating row(s)')`. Uses
+// `SELECT error(...) FROM (...) WHERE v > 0` rather than a CASE so there is no
+// THEN/ELSE type to reconcile and `error()` is only evaluated on violation.
+fn probe_stmt(count_query: &str, label: &str) -> String {
+    let label = label.replace('\'', "''");
+    format!(
+        "SELECT error('{label}: ' || v || ' violating row(s)') \
+         FROM ({count_query}) _wm_probe WHERE v > 0;"
+    )
+}
+
+/// Compile resolved data tests into ATTACH + probe SQL for `ctx`'s target.
+/// Pure: returns SQL text, executes nothing. Errors carry an actionable
+/// message (e.g. a relationships target that isn't an attachable table).
+pub fn build_data_test_blocks(
+    tests: &[DataTestResolved],
+    ctx: &DataTestCtx,
+) -> Result<DataTestSql, String> {
+    let t = ctx.target_qualified;
+    let mut out = DataTestSql::default();
+    // Dedup ref attaches by (kind, name): a database can't be attached twice,
+    // so multiple relationships into the same db share one alias.
+    let mut ref_aliases: Vec<(AssetKind, String, String)> = Vec::new();
+
+    for resolved in tests {
+        match resolved {
+            DataTestResolved::BuiltIn(DataTest::Unique { column }) => {
+                let c = quote_ident(column);
+                let scope = partition_scope(ctx, " AND ", None);
+                let q = format!(
+                    "SELECT count(*) AS v FROM (SELECT {c} FROM {t} WHERE {c} IS NOT NULL{scope} \
+                     GROUP BY {c} HAVING count(*) > 1)"
+                );
+                out.probes.push(probe_stmt(
+                    &q,
+                    &format!("data_test unique({column}) on {}", ctx.asset_path),
+                ));
+            }
+            DataTestResolved::BuiltIn(DataTest::NotNull { column }) => {
+                let c = quote_ident(column);
+                let scope = partition_scope(ctx, " AND ", None);
+                let q = format!("SELECT count(*) AS v FROM {t} WHERE {c} IS NULL{scope}");
+                out.probes.push(probe_stmt(
+                    &q,
+                    &format!("data_test not_null({column}) on {}", ctx.asset_path),
+                ));
+            }
+            DataTestResolved::BuiltIn(DataTest::AcceptedValues { column, values }) => {
+                let c = quote_ident(column);
+                let scope = partition_scope(ctx, " AND ", None);
+                let list = values
+                    .iter()
+                    .map(|v| quote_lit(v))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let q = format!(
+                    "SELECT count(*) AS v FROM {t} WHERE {c} IS NOT NULL AND {c} NOT IN ({list}){scope}"
+                );
+                out.probes.push(probe_stmt(
+                    &q,
+                    &format!("data_test accepted_values({column}) on {}", ctx.asset_path),
+                ));
+            }
+            DataTestResolved::BuiltIn(DataTest::Relationships {
+                column,
+                to_kind,
+                to_path,
+                to_column,
+            }) => {
+                let (ref_name, ref_table) = to_path.split_once('/').ok_or_else(|| {
+                    format!("data_test relationships: target `{to_path}` must be `<name>/<table>`")
+                })?;
+                if ref_table.is_empty() {
+                    return Err(format!(
+                        "data_test relationships: target `{to_path}` has no table"
+                    ));
+                }
+                let scheme = match to_kind {
+                    AssetKind::Ducklake => "ducklake",
+                    AssetKind::DataTable => "datatable",
+                    other => {
+                        return Err(format!(
+                            "data_test relationships: target kind {other:?} is not an attachable \
+                             table (use ducklake:// or datatable://)"
+                        ))
+                    }
+                };
+                // Reuse an existing alias for the same (kind, name), else mint one.
+                let alias = match ref_aliases
+                    .iter()
+                    .find(|(k, n, _)| k == to_kind && n == ref_name)
+                {
+                    Some((_, _, a)) => a.clone(),
+                    None => {
+                        let a = format!("{REF_ALIAS_PREFIX}{}", ref_aliases.len());
+                        // Escape the name — it is interpolated into a
+                        // single-quoted DuckDB literal (defense-in-depth: the
+                        // name is deploy-time annotation content, but the parser
+                        // places no character restriction on asset paths).
+                        let esc_name = ref_name.replace('\'', "''");
+                        out.attaches
+                            .push(format!("ATTACH '{scheme}://{esc_name}' AS {a};"));
+                        ref_aliases.push((*to_kind, ref_name.to_string(), a.clone()));
+                        a
+                    }
+                };
+                let c = quote_ident(column);
+                let rc = quote_ident(to_column);
+                let rt = quote_ident(ref_table);
+                let scope = partition_scope(ctx, " AND ", Some("_wm_src"));
+                let q = format!(
+                    "SELECT count(*) AS v FROM {t} _wm_src \
+                     WHERE _wm_src.{c} IS NOT NULL{scope} \
+                     AND NOT EXISTS (SELECT 1 FROM {alias}.{rt} _wm_ref \
+                     WHERE _wm_ref.{rc} = _wm_src.{c})"
+                );
+                out.probes.push(probe_stmt(
+                    &q,
+                    &format!(
+                        "data_test relationships({column} -> {to_path}.{to_column}) on {}",
+                        ctx.asset_path
+                    ),
+                ));
+            }
+            // A parsed Custom must be resolved (body fetched) before codegen.
+            DataTestResolved::BuiltIn(DataTest::Custom { path }) => {
+                return Err(format!(
+                    "data_test custom `{path}`: body not resolved before codegen (internal)"
+                ));
+            }
+            DataTestResolved::Custom { path, body } => {
+                // dbt singular-test convention: the body is a SELECT returning
+                // the violating rows. It runs in the target's connection, so it
+                // can read `_wm_target` and the user's attaches; partition
+                // substitution has already been applied by the worker.
+                let trimmed = body.trim().trim_end_matches(';');
+                if trimmed.is_empty() {
+                    return Err(format!("data_test custom `{path}`: empty test body"));
+                }
+                let q = format!("SELECT count(*) AS v FROM ({trimmed})");
+                out.probes.push(probe_stmt(
+                    &q,
+                    &format!("data_test custom({path}) on {}", ctx.asset_path),
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -813,5 +1048,135 @@ mod tests {
         assert!(last.contains("'2026-06-19' AS partition"));
         assert!(last.contains("WHERE _wm_partition = '2026-06-19') AS rows"));
         assert!(last.contains("ducklake_snapshots('_wm_target')"));
+    }
+
+    // -- data tests ---------------------------------------------------------
+
+    fn ctx_partitioned() -> DataTestCtx<'static> {
+        DataTestCtx {
+            target_qualified: "_wm_target.orders",
+            asset_path: "analytics/orders",
+            partition_col: "_wm_partition",
+            partition_value_sql: "'2026-06-19'",
+            partitioned: true,
+        }
+    }
+    fn ctx_unpartitioned() -> DataTestCtx<'static> {
+        DataTestCtx { partitioned: false, ..ctx_partitioned() }
+    }
+
+    #[test]
+    fn data_test_unique_and_not_null_partition_scoped() {
+        let tests = vec![
+            DataTestResolved::BuiltIn(DataTest::Unique { column: "order_id".into() }),
+            DataTestResolved::BuiltIn(DataTest::NotNull { column: "user_id".into() }),
+        ];
+        let sql = build_data_test_blocks(&tests, &ctx_partitioned()).unwrap();
+        assert!(sql.attaches.is_empty());
+        assert_eq!(sql.probes.len(), 2);
+        // unique: groups non-null keys within the slice, having count>1
+        assert!(sql.probes[0].contains("GROUP BY \"order_id\" HAVING count(*) > 1"));
+        assert!(
+            sql.probes[0].contains("\"order_id\" IS NOT NULL AND \"_wm_partition\" = '2026-06-19'")
+        );
+        assert!(sql.probes[0]
+            .starts_with("SELECT error('data_test unique(order_id) on analytics/orders: '"));
+        // not_null: null rows in the slice
+        assert!(sql.probes[1]
+            .contains("WHERE \"user_id\" IS NULL AND \"_wm_partition\" = '2026-06-19'"));
+        // raising shape
+        assert!(sql.probes[1].ends_with("WHERE v > 0;"));
+    }
+
+    #[test]
+    fn data_test_unpartitioned_has_no_partition_scope() {
+        let tests = vec![DataTestResolved::BuiltIn(DataTest::NotNull {
+            column: "id".into(),
+        })];
+        let sql = build_data_test_blocks(&tests, &ctx_unpartitioned()).unwrap();
+        assert!(sql.probes[0].contains("WHERE \"id\" IS NULL"));
+        assert!(!sql.probes[0].contains("_wm_partition"));
+    }
+
+    #[test]
+    fn data_test_accepted_values_escapes_literals() {
+        let tests = vec![DataTestResolved::BuiltIn(DataTest::AcceptedValues {
+            column: "status".into(),
+            values: vec!["paid".into(), "o'brien".into()],
+        })];
+        let sql = build_data_test_blocks(&tests, &ctx_unpartitioned()).unwrap();
+        assert!(sql.probes[0].contains("NOT IN ('paid', 'o''brien')"));
+        assert!(sql.probes[0].contains("\"status\" IS NOT NULL"));
+    }
+
+    #[test]
+    fn data_test_relationships_attaches_ref_and_dedups() {
+        let tests = vec![
+            DataTestResolved::BuiltIn(DataTest::Relationships {
+                column: "user_id".into(),
+                to_kind: AssetKind::DataTable,
+                to_path: "prod/users".into(),
+                to_column: "id".into(),
+            }),
+            // second relationship into the SAME db reuses the alias (no 2nd attach)
+            DataTestResolved::BuiltIn(DataTest::Relationships {
+                column: "buyer_id".into(),
+                to_kind: AssetKind::DataTable,
+                to_path: "prod/buyers".into(),
+                to_column: "id".into(),
+            }),
+        ];
+        let sql = build_data_test_blocks(&tests, &ctx_partitioned()).unwrap();
+        assert_eq!(sql.attaches.len(), 1, "same db attached once");
+        assert_eq!(sql.attaches[0], "ATTACH 'datatable://prod' AS _wm_ref_0;");
+        assert!(sql.probes[0].contains("NOT EXISTS (SELECT 1 FROM _wm_ref_0.\"users\""));
+        assert!(sql.probes[1].contains("NOT EXISTS (SELECT 1 FROM _wm_ref_0.\"buyers\""));
+        assert!(sql.probes[0].contains("_wm_src.\"_wm_partition\" = '2026-06-19'"));
+    }
+
+    #[test]
+    fn data_test_relationships_escapes_ref_name_in_attach() {
+        let tests = vec![DataTestResolved::BuiltIn(DataTest::Relationships {
+            column: "k".into(),
+            to_kind: AssetKind::DataTable,
+            to_path: "ev'il/users".into(),
+            to_column: "id".into(),
+        })];
+        let sql = build_data_test_blocks(&tests, &ctx_unpartitioned()).unwrap();
+        // single quote in the name is doubled so it can't break out of the literal
+        assert_eq!(sql.attaches[0], "ATTACH 'datatable://ev''il' AS _wm_ref_0;");
+    }
+
+    #[test]
+    fn data_test_relationships_rejects_non_attachable_kind() {
+        let tests = vec![DataTestResolved::BuiltIn(DataTest::Relationships {
+            column: "k".into(),
+            to_kind: AssetKind::S3Object,
+            to_path: "bucket/file".into(),
+            to_column: "c".into(),
+        })];
+        assert!(build_data_test_blocks(&tests, &ctx_unpartitioned()).is_err());
+    }
+
+    #[test]
+    fn data_test_custom_wraps_body() {
+        let tests = vec![DataTestResolved::Custom {
+            path: "f/tests/amount".into(),
+            body: "SELECT * FROM _wm_target.orders WHERE amount < 0;".into(),
+        }];
+        let sql = build_data_test_blocks(&tests, &ctx_unpartitioned()).unwrap();
+        // trailing ; stripped, wrapped as a count subquery
+        assert!(sql.probes[0].contains(
+            "FROM (SELECT count(*) AS v FROM (SELECT * FROM _wm_target.orders WHERE amount < 0))"
+        ));
+        assert!(sql.probes[0].contains("data_test custom(f/tests/amount)"));
+    }
+
+    #[test]
+    fn data_test_unresolved_custom_is_internal_error() {
+        let tests = vec![DataTestResolved::BuiltIn(DataTest::Custom {
+            path: "f/x".into(),
+        })];
+        assert!(build_data_test_blocks(&tests, &ctx_unpartitioned()).is_err());
     }
 }

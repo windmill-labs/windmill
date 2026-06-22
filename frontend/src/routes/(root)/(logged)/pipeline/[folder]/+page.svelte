@@ -456,7 +456,8 @@
 		annotations: {
 			inPipeline: false,
 			triggerAssets: [],
-			nativeTriggers: []
+			nativeTriggers: [],
+			dataTests: []
 		}
 	})
 
@@ -486,7 +487,7 @@
 	const EMPTY_LIVE_ASSETS = { scriptPath: undefined, assets: [] }
 	const EMPTY_LIVE_ANNOTATIONS = {
 		scriptPath: undefined,
-		annotations: { inPipeline: false, triggerAssets: [], nativeTriggers: [] }
+		annotations: { inPipeline: false, triggerAssets: [], nativeTriggers: [], dataTests: [] }
 	}
 
 	// Reset every live editor overlay (annotations / body assets / content)

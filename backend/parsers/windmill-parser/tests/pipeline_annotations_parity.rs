@@ -38,6 +38,10 @@ struct Expected {
     // deserializing; only fixtures exercising materialization set it.
     #[serde(default)]
     materialize: Option<ExpectedMaterialize>,
+    // Snake_case `DataTest` serde shape (e.g. {"type":"unique","column":"x"}),
+    // compared against `serde_json::to_value(got.data_tests)`. Absent === [].
+    #[serde(default)]
+    data_tests: Vec<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -189,5 +193,12 @@ fn pipeline_annotation_fixtures_match() {
                 want.is_some()
             ),
         }
+
+        let got_tests = serde_json::to_value(&got.data_tests).expect("data_tests serialize");
+        assert_eq!(
+            got_tests,
+            serde_json::Value::Array(f.expected.data_tests.clone()),
+            "{ctx}: data tests"
+        );
     }
 }

@@ -41,27 +41,86 @@ struct MaterializeExec {
     partition: String,
 }
 
+// Fetch and validate a custom data-test script's body. v1 custom tests are
+// DuckDB scripts whose trailing SELECT returns the violating rows (dbt's
+// singular-test convention); the worker inlines that SELECT as a probe in the
+// materialize connection. Server workers only — agent (Http) workers have no
+// script cache to read deployed content from.
+async fn fetch_custom_test_body(conn: &Connection, w_id: &str, path: &str) -> Result<String> {
+    let Connection::Sql(db) = conn else {
+        return Err(Error::ExecutionErr(format!(
+            "data_test custom `{path}`: custom tests require a server worker (not supported on \
+             agent workers in v1)"
+        )));
+    };
+    let hash = windmill_common::get_latest_script_hash(db, path, w_id)
+        .await?
+        .ok_or_else(|| {
+            Error::ExecutionErr(format!(
+                "data_test custom `{path}`: no deployed script found at this path"
+            ))
+        })?;
+    let content =
+        crate::get_script_content_by_hash(&windmill_common::scripts::ScriptHash(hash), w_id, conn)
+            .await?;
+    if !matches!(
+        content.language,
+        Some(windmill_common::scripts::ScriptLang::DuckDb)
+    ) {
+        return Err(Error::ExecutionErr(format!(
+            "data_test custom `{path}`: must be a DuckDB script returning the violating rows \
+             (got language {:?})",
+            content.language
+        )));
+    }
+    Ok(content.content)
+}
+
 // If `query` declares `// materialize <ducklake>`, return what to record plus,
 // for the default managed mode, the rewritten managed-write SQL (in `manual`
 // mode the script writes its own DDL, so the rewrite is `None`). The rewritten
 // SQL contains a synthetic `ATTACH 'ducklake://<name>' AS _wm_target` that the
 // normal ATTACH-transform pass resolves to real credentials — the same path as
-// the user's own ATTACH. Returns `None` when there is no materialize annotation
-// or the target isn't a ducklake (only ducklake is materialized in v1).
-fn build_materialized_query(
+// the user's own ATTACH. `// data_test` lines append verifier probes that run
+// against the freshly-materialized target and raise (failing the run) on
+// violation. Returns `None` when there is no materialize annotation or the
+// target isn't a ducklake (only ducklake is materialized in v1).
+async fn build_materialized_query(
     query: &str,
     partition_value: Option<&str>,
+    conn: &Connection,
+    w_id: &str,
 ) -> Result<Option<(Option<String>, MaterializeExec)>> {
-    use windmill_parser::asset_parser::{parse_pipeline_annotations, AssetKind as PAssetKind};
+    use windmill_parser::asset_parser::{
+        parse_pipeline_annotations, AssetKind as PAssetKind, DataTest,
+    };
     use windmill_parser::sql_materialize::{
-        build_wrap_blocks, classify_wrap, MaterializeStrategy, TARGET_ALIAS,
+        build_data_test_blocks, build_wrap_blocks, DataTestCtx, DataTestResolved,
+        MaterializeStrategy, TARGET_ALIAS,
     };
 
     let ann = parse_pipeline_annotations(query);
+    let has_tests = !ann.data_tests.is_empty();
     let Some(m) = ann.materialize else {
+        // Data tests run *against the materialized asset*; without a
+        // `// materialize` target there is nothing to test. Fail loudly rather
+        // than silently skip the declared checks.
+        if has_tests {
+            return Err(Error::ExecutionErr(
+                "data_test: requires a `// materialize` target — data tests run against the \
+                 materialized asset"
+                    .to_string(),
+            ));
+        }
         return Ok(None);
     };
     if m.target_kind != PAssetKind::Ducklake {
+        if has_tests {
+            return Err(Error::ExecutionErr(
+                "data_test: only `ducklake://` materialization targets support data tests in v1"
+                    .to_string(),
+            ));
+        }
         return Ok(None);
     }
     let partitioned = ann.partition.is_some();
@@ -88,8 +147,33 @@ fn build_materialized_query(
         partition: partition.clone(),
     };
 
+    // `{partition}` → escaped SQL literal substitution, applied to the managed
+    // SELECT, its setup, and any custom-test body so a partitioned test can
+    // filter by the active slice. Always a complete `'…'` literal (with `'`
+    // doubled) whether or not the author quoted it, so a run caller can't break
+    // out and alter statement boundaries. The pre-quoted `'{partition}'` form is
+    // matched first so it doesn't become `''…''`. No-op when unpartitioned.
+    let lit = format!("'{}'", partition.replace('\'', "''"));
+    let substitute = |s: &str| -> String {
+        if !partitioned {
+            return s.to_string();
+        }
+        let tok = windmill_common::assets::PARTITION_TOKEN;
+        let quoted_tok = format!("'{tok}'");
+        s.replace(&quoted_tok, &lit).replace(tok, &lit)
+    };
+
     if m.manual {
-        // Escape hatch: the script owns its DDL; we only record state.
+        // Escape hatch: the script owns its DDL. We can't reliably attach the
+        // managed target or know the partition column it wrote, so data tests
+        // are not generated for manual mode in v1.
+        if has_tests {
+            return Err(Error::ExecutionErr(
+                "data_test: not supported with `// materialize manual` in v1 — use managed \
+                 `// materialize`"
+                    .to_string(),
+            ));
+        }
         return Ok(Some((None, meta)));
     }
     if table.is_empty() {
@@ -98,24 +182,10 @@ fn build_materialized_query(
             m.target_path
         )));
     }
-    let mut plan = classify_wrap(query).map_err(|e| Error::ExecutionErr(e.message()))?;
-    // Resolve the `{partition}` token (same token `// on` asset URIs use) to the
-    // current partition value everywhere in the managed script, so a partitioned
-    // materialize can filter its source by the active slice, e.g.
-    // `WHERE day = {partition}`. The token is always replaced by a *complete*
-    // escaped SQL literal (`'…'` with `'` doubled) whether or not the author
-    // quoted it — so a run caller can't pass metacharacters that break out of
-    // the literal and alter statement boundaries. The pre-quoted form
-    // `'{partition}'` is matched first so it doesn't become `''…''`. Only
-    // meaningful when partitioned.
-    if partitioned {
-        let lit = format!("'{}'", partition.replace('\'', "''"));
-        let tok = windmill_common::assets::PARTITION_TOKEN;
-        let quoted_tok = format!("'{tok}'");
-        plan.output = plan.output.replace(&quoted_tok, &lit).replace(tok, &lit);
-        for s in plan.setup.iter_mut() {
-            *s = s.replace(&quoted_tok, &lit).replace(tok, &lit);
-        }
+    let mut plan = classify_wrap_or_err(query)?;
+    plan.output = substitute(&plan.output);
+    for s in plan.setup.iter_mut() {
+        *s = substitute(s);
     }
     let strategy = if m.append {
         MaterializeStrategy::Append
@@ -126,9 +196,9 @@ fn build_materialized_query(
     };
     // Inline the partition as an escaped SQL literal (DuckLake has no bind for
     // the partition column in our generated DDL).
-    let pval = format!("'{}'", partition.replace('\'', "''"));
+    let pval = lit.clone();
     let synthetic_attach = format!("ATTACH 'ducklake://{ducklake_name}' AS {TARGET_ALIAS};");
-    let blocks = build_wrap_blocks(
+    let mut blocks = build_wrap_blocks(
         &plan,
         &synthetic_attach,
         table,
@@ -138,7 +208,45 @@ fn build_materialized_query(
         partitioned,
         strategy,
     );
+
+    // Data tests: resolve custom bodies (fetched + partition-substituted), then
+    // compile every check to ATTACH + raising probe SQL. Splice them in *before*
+    // the trailing summary read so the run's result/preview stays the summary
+    // and a probe failure aborts before it (recording `Failed`).
+    if has_tests {
+        let mut resolved = Vec::with_capacity(ann.data_tests.len());
+        for test in &ann.data_tests {
+            match test {
+                DataTest::Custom { path } => {
+                    let body = substitute(&fetch_custom_test_body(conn, w_id, path).await?);
+                    resolved.push(DataTestResolved::Custom { path: path.clone(), body });
+                }
+                other => resolved.push(DataTestResolved::BuiltIn(other.clone())),
+            }
+        }
+        let target_qualified = format!("{TARGET_ALIAS}.{table}");
+        let ctx = DataTestCtx {
+            target_qualified: &target_qualified,
+            asset_path: &m.target_path,
+            partition_col: "_wm_partition",
+            partition_value_sql: &pval,
+            partitioned,
+        };
+        let test_sql = build_data_test_blocks(&resolved, &ctx).map_err(Error::ExecutionErr)?;
+        // build_wrap_blocks always ends with the summary read.
+        let summary = blocks.pop().expect("wrap blocks include a summary read");
+        blocks.extend(test_sql.attaches);
+        blocks.extend(test_sql.probes);
+        blocks.push(summary);
+    }
+
     Ok(Some((Some(blocks.join("\n")), meta)))
+}
+
+// classify_wrap with the spec's actionable message turned into an executor error.
+fn classify_wrap_or_err(query: &str) -> Result<windmill_parser::sql_materialize::WrapPlan> {
+    windmill_parser::sql_materialize::classify_wrap(query)
+        .map_err(|e| Error::ExecutionErr(e.message()))
 }
 
 // Pull a named i64 field (`snapshot_id` / `rows`) out of the trailing summary
@@ -250,8 +358,9 @@ pub async fn do_duckdb(
             .and_then(|a| a.0.get(windmill_common::partition::PARTITION_ARG))
             .and_then(|rv| serde_json::from_str::<String>(rv.get()).ok())
             .filter(|s| !s.is_empty());
-        let materialize = if query.contains("materialize") {
-            build_materialized_query(query, partition_value.as_deref())?
+        let materialize = if query.contains("materialize") || query.contains("data_test") {
+            build_materialized_query(query, partition_value.as_deref(), conn, &job.workspace_id)
+                .await?
         } else {
             None
         };

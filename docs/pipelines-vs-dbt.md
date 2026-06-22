@@ -46,7 +46,7 @@ Asset-centric, polyglot, annotation-driven, event-aware:
 
 | Gap | Architectural blocker? | Verdict |
 |---|---|---|
-| Data tests | No | Pure TODO |
+| Data tests | No | **Shipped** (`// data_test`) |
 | Incremental materializations | No, but pick a philosophy | TODO with design decision |
 | Column lineage + docs site | No | Pure TODO |
 | Snapshots / SCD2 | No | New output kind |
@@ -64,10 +64,16 @@ and annotation extensibility**. The rest is execution.
 dbt: `unique`, `not_null`, `accepted_values`, custom generic tests, plus
 singular tests. Run as `SELECT` statements that pass when they return 0 rows.
 
-Today: nothing. Annotation parser is the natural hook —
-`// test unique col_name`, `// test not_null col_name`,
-`// test <script_path>` for custom. Pipeline runtime already handles
-failure propagation. Lowest-risk, highest-payoff item.
+**Shipped** via the `// data_test` annotation (built on materialization):
+`// data_test unique <col>`, `not_null`, `accepted_values <col> = a,b,c`,
+`relationships <col> -> <asset>.<col>`, and `// data_test <script_path>` for
+the custom escape hatch (dbt's singular test). Each compiles to a SQL
+*verifier probe* that runs against the freshly-materialized asset and raises on
+violation, riding the existing failure-propagation path. This is also the first
+*extensible* annotation — see `ducklake-materialization.md` §"Data tests" for
+the annotation→verifier pattern that column-lineage will reuse. The keyword is
+`data_test`, not `test`, to stay clear of the unrelated `// test:` CI-test
+annotation.
 
 ### 2. Incremental materializations
 

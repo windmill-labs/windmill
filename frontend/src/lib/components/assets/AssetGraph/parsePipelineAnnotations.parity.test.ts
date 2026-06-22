@@ -18,7 +18,8 @@ const ASSERTED_TS_FIELDS: Record<keyof PipelineAnnotations, true> = {
 	freshness: true,
 	tag: true,
 	retry: true,
-	materialize: true
+	materialize: true,
+	dataTests: true
 }
 
 // Parser-parity guard: this TS parser (drives the live graph preview) and
@@ -66,6 +67,26 @@ type Fixture = {
 			append?: boolean
 			unique_key?: string | null
 		} | null
+		// Snake_case form matching the Rust `DataTest` serde output, so the one
+		// corpus drives both sides. Absent === [].
+		data_tests?: Array<Record<string, unknown>>
+	}
+}
+
+// Normalize a TS DataTest to the snake_case shape the Rust parser serializes
+// to, so the shared fixture corpus (owned by Rust) compares 1:1.
+function dataTestToSnake(t: ReturnType<typeof parsePipelineAnnotations>['dataTests'][number]) {
+	switch (t.type) {
+		case 'relationships':
+			return {
+				type: t.type,
+				column: t.column,
+				to_kind: t.toKind,
+				to_path: t.toPath,
+				to_column: t.toColumn
+			}
+		default:
+			return { ...t }
 	}
 }
 
@@ -154,6 +175,8 @@ describe('parsePipelineAnnotations matches the shared Rust fixture corpus', () =
 					f.expected.materialize.unique_key ?? undefined
 				)
 			}
+
+			expect(got.dataTests.map(dataTestToSnake), 'data tests').toEqual(f.expected.data_tests ?? [])
 		})
 	}
 })
