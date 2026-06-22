@@ -1311,7 +1311,8 @@
 							<br />
 							This is only available for individual script. For flows, retries can be set on each flow
 							step in the flow editor.
-						{/snippet}
+						</Tooltip>
+					{/snippet}
 					{#if itemKind !== 'script'}
 						<Alert type="info" title="Only available for scripts" class="mb-2">
 							Error Handler and Retries are only available for scripts. For flows, use the built-in <a
