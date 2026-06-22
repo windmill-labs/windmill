@@ -619,14 +619,8 @@
 						diffDrawer?.openDrawer()
 						diffDrawer?.setDiff({
 							mode: 'normal',
-							deployed: deployedValue ?? savedApp,
-							current: {
-								summary: summary,
-								value: app,
-								path: newEditedPath || savedApp.path,
-								policy,
-								custom_path: customPath
-							},
+							deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
+							current: currentDiffValue,
 							button: {
 								text: 'Looks good, deploy',
 								onClick: () => {
