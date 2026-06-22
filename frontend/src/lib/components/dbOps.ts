@@ -46,7 +46,8 @@ export function dbTableOpsWithPreviewScripts({
 	tableKey,
 	colDefs,
 	workspace,
-	whereClause
+	whereClause,
+	version
 }: {
 	input: DbInput
 	tableKey: string
@@ -55,6 +56,9 @@ export function dbTableOpsWithPreviewScripts({
 	// Optional raw SQL predicate AND-ed into the read queries (count + rows).
 	// Caller-trusted — build it with escaped values.
 	whereClause?: string
+	// DuckLake time-travel: when set, reads are pinned to this catalog snapshot
+	// via `AT (VERSION => n)` (DuckDB/ducklake only). Read-only by nature.
+	version?: number
 }): IDbTableOps {
 	const dbType = getDbType(input)
 	const language = getLanguageByResourceType(dbType)
@@ -74,7 +78,8 @@ export function dbTableOpsWithPreviewScripts({
 			const content = makeMarker('COUNT', {
 				table: tableKey,
 				columnDefs: colDefs,
-				...(whereClause ? { whereClause } : {})
+				...(whereClause ? { whereClause } : {}),
+				...(version != undefined ? { version } : {})
 			})
 			const result = await runScriptAndPollResult({
 				workspace,
@@ -88,7 +93,8 @@ export function dbTableOpsWithPreviewScripts({
 				table: tableKey,
 				columnDefs: colDefs,
 				fixPgIntTypes: true,
-				...(whereClause ? { whereClause } : {})
+				...(whereClause ? { whereClause } : {}),
+				...(version != undefined ? { version } : {})
 			})
 			let items = (await runScriptAndPollResult({
 				workspace,
@@ -129,6 +135,33 @@ export function dbTableOpsWithPreviewScripts({
 			})
 		}
 	}
+}
+
+export type DucklakeSnapshot = {
+	snapshot_id: number
+	snapshot_time: string
+}
+
+/**
+ * List a ducklake's time-travel history (its catalog commit log), newest
+ * first. Snapshots are catalog-wide in DuckLake, so every entry is a version
+ * an `AT (VERSION => n)` read can target. Runs the `DUCKLAKE_SNAPSHOTS` marker
+ * as a duckdb preview job (server-side SQL build + ATTACH), so no raw SQL is
+ * constructed in the client.
+ */
+export async function fetchDucklakeSnapshots({
+	workspace,
+	ducklake
+}: {
+	workspace: string
+	ducklake: string
+}): Promise<DucklakeSnapshot[]> {
+	const content = `-- WM_INTERNAL_DB_DUCKLAKE_SNAPSHOTS ${JSON.stringify({ ducklake })}`
+	const rows = await runScriptAndPollResult({
+		workspace,
+		requestBody: { args: {}, language: 'duckdb', content }
+	})
+	return Array.isArray(rows) ? (rows as DucklakeSnapshot[]) : []
 }
 
 export type IDbSchemaOps = {
