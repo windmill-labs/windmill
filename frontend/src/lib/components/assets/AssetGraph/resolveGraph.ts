@@ -232,6 +232,7 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 				freshness: parsed.freshness?.duration,
 				tag: parsed.tag,
 				retry: parsed.retry,
+				data_tests: parsed.dataTests.length > 0 ? parsed.dataTests : undefined,
 				unsaved: true
 			})
 		} else {
