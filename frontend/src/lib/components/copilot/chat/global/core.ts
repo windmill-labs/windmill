@@ -100,6 +100,7 @@ import {
 import { userStore } from '$lib/stores'
 import { get } from 'svelte/store'
 import { deployDraft as deployDraftToWorkspace } from '$lib/utils_draft_deploy'
+import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	clearEphemeralSecretVariableDraftValue,
@@ -3265,7 +3266,9 @@ async function searchApp(
 	const header = `${totalMatchCount} match${
 		totalMatchCount === 1 ? '' : 'es'
 	} in ${fileCount} file${fileCount === 1 ? '' : 's'}${
-		truncated ? ` (showing the first ${maxMatches}; narrow with file_glob or a more specific query)` : ''
+		truncated
+			? ` (showing the first ${maxMatches}; narrow with file_glob or a more specific query)`
+			: ''
 	}`
 
 	const out: string[] = [header]
@@ -3633,6 +3636,12 @@ async function deployDraft(
 		// draft's own `path`), so passing the display/chosen path would 404. For a
 		// draft on a deployed item the storage path is just the item path.
 		const storagePath = getGlobalDraftStoragePath(workspace, type, path, triggerKind)
+		// The shared deployer re-reads the persisted DB draft, but an open editor's
+		// edit may still be parked in a debounced/disabled autosave. Flush it first so
+		// we deploy the latest value (not a stale persisted one) — and so the
+		// post-deploy draft delete doesn't drop an unsaved edit. `flush` always saves
+		// the parked value (like Ctrl/Cmd+S), since the user explicitly asked to deploy.
+		await UserDraftDbSyncer.flush({ workspace, itemKind: type, path: storagePath })
 		const draftOnly =
 			type === 'flow'
 				? !(await FlowService.existsFlowByPath({ workspace, path: storagePath }))
@@ -3758,8 +3767,15 @@ async function deployDraft(
 						rawApp: true
 					})) as { draft?: { draft_path?: string; path?: string }; draft_path?: string }
 					targetPath = row?.draft?.draft_path ?? row?.draft?.path ?? row?.draft_path ?? storagePath
-				} catch {
-					targetPath = storagePath
+				} catch (e) {
+					// Only a missing item (404) justifies falling back to the storage path;
+					// a real lookup failure (network/5xx) must abort rather than silently
+					// deploy to the wrong path.
+					if ((e as { status?: number } | null | undefined)?.status === 404) {
+						targetPath = storagePath
+					} else {
+						throw e
+					}
 				}
 				if (await AppService.existsApp({ workspace, path: targetPath })) {
 					// Omit custom_path on update for now. The backend preserves it when absent, while

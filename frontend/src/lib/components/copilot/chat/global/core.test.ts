@@ -728,8 +728,15 @@ describe('global AI tools', () => {
 			kind: 'script'
 		} as any)
 
+		const flushSpy = vi.spyOn(UserDraftDbSyncer, 'flush')
+
 		await callGlobalTool('deploy_workspace_item', { type: 'script', path: chosenPath })
 
+		// Any pending editor autosave is flushed at the storage key before delegating,
+		// so the shared deployer reads the latest value, not a stale persisted draft.
+		expect(flushSpy).toHaveBeenCalledWith(
+			expect.objectContaining({ workspace: WORKSPACE, itemKind: 'script', path: storageKey })
+		)
 		// The draft is read at the STORAGE key (the chosen path would 404)…
 		expect(ScriptService.getScriptByPath).toHaveBeenCalledWith(
 			expect.objectContaining({ workspace: WORKSPACE, path: storageKey, getDraft: true })
@@ -1519,9 +1526,7 @@ describe('global AI tools', () => {
 			file_path: '/min.tsx'
 		})
 
-		expect(result).toContain(
-			'lines 1-3 of 3, truncated to the first 50000 of 90002 chars.'
-		)
+		expect(result).toContain('lines 1-3 of 3, truncated to the first 50000 of 90002 chars.')
 		expect(result).toContain('the file is likely minified')
 		expect(result.split('\n\n')[1]).toHaveLength(50_000)
 	})
@@ -1537,9 +1542,7 @@ describe('global AI tools', () => {
 			file_path: '/generated.js'
 		})
 
-		expect(result).toContain(
-			'lines 1-1 of 1, truncated to the first 50000 of 60000 chars.'
-		)
+		expect(result).toContain('lines 1-1 of 1, truncated to the first 50000 of 60000 chars.')
 		expect(result).toContain('re-read with a smaller limit')
 		expect(result.split('\n\n')[1]).toBe('x'.repeat(50_000))
 	})
@@ -1624,8 +1627,7 @@ describe('global AI tools', () => {
 			versions: [5],
 			value: {
 				files: {
-					'/lib/aggregations.ts':
-						'export function computeRevenue(o) {\n  return o.unitPrice\n}\n',
+					'/lib/aggregations.ts': 'export function computeRevenue(o) {\n  return o.unitPrice\n}\n',
 					'/components/SummaryPanel.tsx':
 						'import { computeRevenue } from "../lib/aggregations"\nconst total = computeRevenue(order)\n',
 					'/components/OrdersTable.tsx': 'const r = computeRevenue(row)\n// renders revenue\n',
@@ -1923,6 +1925,9 @@ describe('global AI tools', () => {
 			{ workspace: WORKSPACE }
 		)
 
+		// getAppByPath resolves with no draft_path → deploy at the item's own path.
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
+
 		const raw = await callGlobalTool('deploy_workspace_item', {
 			type: 'app',
 			path: 'f/apps/report',
@@ -2017,6 +2022,38 @@ describe('global AI tools', () => {
 		)
 	})
 
+	it('aborts a raw app deploy when the draft_path lookup fails (non-404)', async () => {
+		// A real lookup failure (network/5xx) must abort, not silently fall back to the
+		// storage path and deploy there. Only a 404 justifies the storage-path fallback.
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/draft_appfail',
+			{
+				summary: 'Editor app',
+				files: { '/App.tsx': 'export default () => null' },
+				runnables: {},
+				data: { tables: [] },
+				draft_path: 'f/team/chosen_app'
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'raw_app',
+			storagePath: 'u/admin/draft_appfail',
+			effectivePath: 'f/team/chosen_app'
+		})
+		vi.mocked(AppService.getAppByPath).mockRejectedValueOnce(
+			Object.assign(new Error('server error'), { status: 500 })
+		)
+
+		await expect(
+			callGlobalTool('deploy_workspace_item', { type: 'app', path: 'f/team/chosen_app' })
+		).rejects.toThrow()
+		expect(AppService.createAppRaw).not.toHaveBeenCalled()
+		expect(AppService.updateAppRaw).not.toHaveBeenCalled()
+	})
+
 	it('deploys an existing raw app draft by bundling files and updating the raw app', async () => {
 		vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
 		seedBackendDraft(
@@ -2032,6 +2069,8 @@ describe('global AI tools', () => {
 			},
 			{ workspace: WORKSPACE }
 		)
+
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
 
 		await callGlobalTool('deploy_workspace_item', {
 			type: 'app',
@@ -2076,6 +2115,8 @@ describe('global AI tools', () => {
 				},
 				{ workspace: WORKSPACE }
 			)
+
+			vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
 
 			await callGlobalTool(
 				'deploy_workspace_item',
