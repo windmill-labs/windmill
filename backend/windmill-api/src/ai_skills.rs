@@ -7,6 +7,7 @@
  */
 
 use crate::db::{ApiAuthed, DB};
+use std::collections::HashSet;
 use axum::{
     extract::{Extension, Json, Path},
     routing::{delete, get, post},
@@ -108,6 +109,24 @@ fn validate_skill(skill: &SkillUpload) -> Result<()> {
     Ok(())
 }
 
+/// Collect the trimmed skill names, rejecting duplicates within a single upload.
+/// The insert upserts by name, so a duplicate would silently keep only the last
+/// and make the reported/audited count wrong.
+fn collect_upload_names(skills: &[SkillUpload]) -> Result<Vec<String>> {
+    let mut names = Vec::with_capacity(skills.len());
+    let mut seen = HashSet::with_capacity(skills.len());
+    for skill in skills {
+        let name = skill.name.trim().to_string();
+        if !seen.insert(name.clone()) {
+            return Err(Error::BadRequest(format!(
+                "duplicate skill name {name:?} in upload"
+            )));
+        }
+        names.push(name);
+    }
+    Ok(names)
+}
+
 /// Reject an upload that would push the workspace past `MAX_SKILLS_PER_WORKSPACE`.
 /// Uploads upsert, so names already present (`replacing`) don't count as new.
 fn check_workspace_skill_capacity(
@@ -187,7 +206,7 @@ async fn upload_skills(
     for skill in &payload.skills {
         validate_skill(skill)?;
     }
-    let names: Vec<String> = payload.skills.iter().map(|s| s.name.trim().to_string()).collect();
+    let names = collect_upload_names(&payload.skills)?;
 
     let mut tx = db.begin().await?;
     let counts = sqlx::query!(
@@ -222,14 +241,15 @@ async fn upload_skills(
         .await?;
     }
 
+    let audit_resource = names.join(",");
     audit_log(
         &mut *tx,
         &authed,
         "ai_skills.upload",
         ActionKind::Update,
         &w_id,
-        Some(&authed.email),
-        Some([("skill_count", &payload.skills.len().to_string()[..])].into()),
+        Some(&audit_resource),
+        Some([("skill_count", &names.len().to_string()[..])].into()),
     )
     .await?;
     tx.commit().await?;
@@ -352,6 +372,22 @@ mod tests {
         let at_cap = MAX_SKILLS_PER_WORKSPACE as i64;
         assert!(matches!(
             check_workspace_skill_capacity(at_cap, 0, 1),
+            Err(Error::BadRequest(_))
+        ));
+    }
+
+    #[test]
+    fn collect_upload_names_trims_and_collects() {
+        let names = collect_upload_names(&[skill()]).unwrap();
+        assert_eq!(names, vec!["test-skill".to_string()]);
+    }
+
+    #[test]
+    fn collect_upload_names_rejects_duplicates() {
+        // Names are compared after trimming, so whitespace can't smuggle a dup in.
+        let dup = SkillUpload { name: " test-skill ".to_string(), ..skill() };
+        assert!(matches!(
+            collect_upload_names(&[skill(), dup]),
             Err(Error::BadRequest(_))
         ));
     }
