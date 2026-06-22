@@ -1,20 +1,11 @@
-// Pure logic for the "project = folder" Hub bundle.
-//
-// A project is a single folder `f/<slug>/...`. Bundling it means:
-//  1. collect the transitive closure of what the folder references,
-//  2. relocate anything referenced from OUTSIDE the folder into it
-//     (`u/<user>/<name>` and `f/<other>/<name>` -> `f/<slug>/<name>`, with
-//     `_2`, `_3`… on name collisions),
-//  3. rewrite every reference to its new in-folder path.
-//
-// Hub references (`hub/...`) are external dependencies and are left untouched.
-// Paths built dynamically at runtime (string concat) can't be detected and are
-// out of scope by design.
-//
-// This module is intentionally free of API/Svelte deps so it can be unit-tested.
-// The async closure orchestrator that fetches items lives in the component.
+// Pure logic for the "project = folder" Hub bundle. A project is one folder
+// `f/<slug>/...`. Bundling: collect the transitive closure, relocate external
+// refs (`u/<user>/<name>`, `f/<other>/<name>` -> `f/<slug>/<name>`, `_2`/`_3`…
+// on collision) and rewrite them. Hub refs stay external; runtime string-concat
+// paths are out of scope. No API/Svelte deps so it's unit-testable.
 
 import { getAllModules } from '$lib/components/flows/flowExplorer'
+import { isRunnableByPath } from '$lib/components/apps/inputType'
 
 export type RefKind = 'resource' | 'script' | 'flow'
 
@@ -90,18 +81,49 @@ export function extractFlowRefs(value: any): Ref[] {
 	return out
 }
 
+// Visit every object node in an app value tree (JSON-safe, no cycles).
+function walkAppNodes(value: any, visit: (node: Record<string, any>) => void): void {
+	if (value == null || typeof value !== 'object') return
+	if (Array.isArray(value)) {
+		for (const v of value) walkAppNodes(v, visit)
+		return
+	}
+	visit(value)
+	for (const k of Object.keys(value)) walkAppNodes(value[k], visit)
+}
+
+// `runnableByPath`/`path` nodes reference a workspace runnable by path.
+function runnableRef(node: Record<string, any>): Ref | undefined {
+	if (!isRunnableByPath(node as any) || typeof node.path !== 'string') return undefined
+	if (node.runType === 'flow') return { kind: 'flow', path: node.path }
+	if (node.runType === 'script') return { kind: 'script', path: node.path }
+	return undefined // hubscript -> external hub, ignored
+}
+
+// App refs: `$res:` resources anywhere in the value, plus script/flow runnables
+// referenced by path in components.
 export function extractAppRefs(value: any): Ref[] {
-	return extractScriptRefs(JSON.stringify(value ?? {}))
+	const out: Ref[] = []
+	const seen = new Set<string>()
+	const add = (kind: RefKind, path: string) => {
+		const key = `${kind}:${path}`
+		if (!seen.has(key)) {
+			seen.add(key)
+			out.push({ kind, path })
+		}
+	}
+	walkAppNodes(value, (node) => {
+		const r = runnableRef(node)
+		if (r) add(r.kind, r.path)
+	})
+	for (const r of extractScriptRefs(JSON.stringify(value ?? {}))) add('resource', r.path)
+	return out
 }
 
 /**
- * Build the relocation map. Paths already inside the project folder
- * (`f/<slug>/...`) map to themselves — their structure and subfolder depth are
- * preserved. Only external paths (`u/<user>/<name>` or `f/<other>/<name>`) are
- * relocated to `f/<slug>/<name>`; on collision the later entry gets a `_2`,
- * `_3`… suffix. Internal paths are reserved first so an external one can never
- * land on an occupied internal path. Input is sorted so suffix assignment is
- * deterministic regardless of discovery order.
+ * Build the relocation map. Internal paths (`f/<slug>/...`) map to themselves
+ * and are reserved first; external paths relocate to `f/<slug>/<name>` (`_2`/`_3`…
+ * on collision). Input is sorted so suffix assignment is deterministic.
  */
 export function buildPathMap(paths: Iterable<string>, slug: string): Map<string, string> {
 	const map = new Map<string, string>()
@@ -160,11 +182,38 @@ export function rewriteFlowValue(value: any, map: Map<string, string>): any {
 	return cloned
 }
 
-// Round-trips through JSON since app values are opaque.
-function rewriteAppValue(value: any, map: Map<string, string>): any {
+// Relocate `$res:` tokens (one round-trip, also produces a fresh clone) then
+// runnable-by-path refs structurally. Incidental `f/<slug>/` strings stay intact.
+export function rewriteAppValue(value: any, map: Map<string, string>): any {
 	if (value == null) return value
-	const json = JSON.stringify(value)
-	return JSON.parse(rewriteContent(json, map))
+	const cloned = JSON.parse(rewriteContent(JSON.stringify(value), map))
+	walkAppNodes(cloned, (node) => {
+		if (runnableRef(node) && map.has(node.path)) node.path = map.get(node.path)
+	})
+	return cloned
+}
+
+// Raw/compiled apps store their structure as a JSON string (`{ runnables, files }`).
+// Parse it so runnable-by-path refs in the runnables map are seen, reusing the
+// same walk; fall back to plain `$res:` scanning if it isn't valid JSON.
+export function extractRawAppRefs(content: string): Ref[] {
+	let parsed: any
+	try {
+		parsed = JSON.parse(content)
+	} catch {
+		return extractScriptRefs(content)
+	}
+	return extractAppRefs(parsed)
+}
+
+export function rewriteRawAppContent(content: string, map: Map<string, string>): string {
+	let parsed: any
+	try {
+		parsed = JSON.parse(content)
+	} catch {
+		return rewriteContent(content, map)
+	}
+	return JSON.stringify(rewriteAppValue(parsed, map))
 }
 
 export type ItemKind = 'script' | 'flow' | 'app' | 'raw_app'
@@ -221,7 +270,7 @@ function refsForFetched(item: FetchedItem): Ref[] {
 	if (item.kind === 'script') return extractScriptRefs(item.content ?? '')
 	if (item.kind === 'flow') return extractFlowRefs(item.value)
 	if (item.kind === 'app') return extractAppRefs(item.value)
-	if (item.kind === 'raw_app') return extractScriptRefs(item.content ?? '')
+	if (item.kind === 'raw_app') return extractRawAppRefs(item.content ?? '')
 	return []
 }
 
@@ -283,8 +332,10 @@ export async function buildProjectBundle(
 	const items: BundledItem[] = itemPaths.map((path) => {
 		const it = fetched.get(path)!
 		const rewritten: BundledItem = { ...it, newPath: map.get(path) ?? path }
-		if (it.kind === 'script' || it.kind === 'raw_app') {
+		if (it.kind === 'script') {
 			rewritten.content = rewriteContent(it.content ?? '', map)
+		} else if (it.kind === 'raw_app') {
+			rewritten.content = rewriteRawAppContent(it.content ?? '', map)
 		} else if (it.kind === 'flow') {
 			rewritten.value = rewriteFlowValue(it.value, map)
 		} else if (it.kind === 'app') {

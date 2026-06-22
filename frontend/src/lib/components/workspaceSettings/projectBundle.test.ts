@@ -3,9 +3,13 @@ import {
 	classifyPath,
 	extractScriptRefs,
 	extractFlowRefs,
+	extractAppRefs,
 	buildPathMap,
 	rewriteContent,
 	rewriteFlowValue,
+	rewriteAppValue,
+	extractRawAppRefs,
+	rewriteRawAppContent,
 	buildProjectBundle,
 	type FetchedItem,
 	type ItemRef
@@ -166,6 +170,111 @@ describe('rewriteFlowValue', () => {
 		expect(out.modules[2].value.path).toBe('hub/1/keep/me')
 		// original untouched (deep clone)
 		expect(value.modules[0].value.content).toBe('const db = "$res:u/admin/pg"')
+	})
+})
+
+// A trimmed app value: a runnable-by-path component, a hub runnable, a $res in an
+// inline script, and incidental `f/...` text that must NOT be rewritten.
+const appValue = () => ({
+	grid: [
+		{
+			data: {
+				componentInput: {
+					runnable: { type: 'runnableByPath', runType: 'script', path: 'u/admin/charts' }
+				}
+			}
+		},
+		{
+			data: {
+				componentInput: {
+					runnable: { type: 'runnableByPath', runType: 'flow', path: 'f/shared/sync' }
+				}
+			}
+		},
+		{
+			data: {
+				componentInput: {
+					runnable: { type: 'runnableByPath', runType: 'hubscript', path: 'hub/1/keep' }
+				}
+			}
+		}
+	],
+	hiddenInlineScripts: [
+		{ name: 'h', inlineScript: { content: 'x = "$res:u/admin/pg"', language: 'deno' } }
+	],
+	someLabel: 'see docs at f/shared/sync for details'
+})
+
+describe('extractAppRefs', () => {
+	it('extracts runnable-by-path scripts/flows and $res resources, skips hub', () => {
+		const refs = extractAppRefs(appValue())
+		expect(refs).toContainEqual({ kind: 'script', path: 'u/admin/charts' })
+		expect(refs).toContainEqual({ kind: 'flow', path: 'f/shared/sync' })
+		expect(refs).toContainEqual({ kind: 'resource', path: 'u/admin/pg' })
+		expect(refs.some((r) => r.path === 'hub/1/keep')).toBe(false)
+	})
+})
+
+describe('rewriteAppValue', () => {
+	it('relocates runnable paths and $res, leaves hub refs and incidental text intact', () => {
+		const map = new Map([
+			['u/admin/charts', 'f/proj/charts'],
+			['f/shared/sync', 'f/proj/sync'],
+			['u/admin/pg', 'f/proj/pg']
+		])
+		const value = appValue()
+		const out = rewriteAppValue(value, map)
+		expect(out.grid[0].data.componentInput.runnable.path).toBe('f/proj/charts')
+		expect(out.grid[1].data.componentInput.runnable.path).toBe('f/proj/sync')
+		expect(out.grid[2].data.componentInput.runnable.path).toBe('hub/1/keep')
+		expect(out.hiddenInlineScripts[0].inlineScript.content).toBe('x = "$res:f/proj/pg"')
+		// incidental text untouched
+		expect(out.someLabel).toBe('see docs at f/shared/sync for details')
+		// original untouched (deep clone)
+		expect(value.grid[0].data.componentInput.runnable.path).toBe('u/admin/charts')
+	})
+})
+
+describe('raw app (value.raw JSON string)', () => {
+	const rawContent = () =>
+		JSON.stringify({
+			runnables: {
+				a: { type: 'path', runType: 'flow', path: 'u/admin/sync' },
+				b: { type: 'path', runType: 'script', path: 'f/shared/calc' },
+				c: { type: 'path', runType: 'hubscript', path: 'hub/1/keep' }
+			},
+			files: { '/bundle.js': 'const conn = "$res:u/admin/pg"' }
+		})
+
+	it('extractRawAppRefs sees nested runnables and $res, skips hub', () => {
+		const refs = extractRawAppRefs(rawContent())
+		expect(refs).toContainEqual({ kind: 'flow', path: 'u/admin/sync' })
+		expect(refs).toContainEqual({ kind: 'script', path: 'f/shared/calc' })
+		expect(refs).toContainEqual({ kind: 'resource', path: 'u/admin/pg' })
+		expect(refs.some((r) => r.path === 'hub/1/keep')).toBe(false)
+	})
+
+	it('rewriteRawAppContent relocates nested runnable paths and $res', () => {
+		const map = new Map([
+			['u/admin/sync', 'f/proj/sync'],
+			['f/shared/calc', 'f/proj/calc'],
+			['u/admin/pg', 'f/proj/pg']
+		])
+		const out = JSON.parse(rewriteRawAppContent(rawContent(), map))
+		expect(out.runnables.a.path).toBe('f/proj/sync')
+		expect(out.runnables.b.path).toBe('f/proj/calc')
+		expect(out.runnables.c.path).toBe('hub/1/keep')
+		expect(out.files['/bundle.js']).toBe('const conn = "$res:f/proj/pg"')
+	})
+
+	it('falls back to $res scan on non-JSON content', () => {
+		expect(extractRawAppRefs('x = "$res:u/admin/pg"')).toContainEqual({
+			kind: 'resource',
+			path: 'u/admin/pg'
+		})
+		expect(
+			rewriteRawAppContent('x = "$res:u/admin/pg"', new Map([['u/admin/pg', 'f/proj/pg']]))
+		).toBe('x = "$res:f/proj/pg"')
 	})
 })
 

@@ -39,7 +39,7 @@ pub fn workspaced_service() -> Router {
 // A workspace can publish one Hub project per folder. The stable, never-mutated
 // link key is `workspace_id:folder_name` (folder name is the path segment and is
 // never renamed — only display_name changes). `:` is safe: neither workspace ids
-// nor folder names (alphanumeric + underscore) contain it.
+// nor folder names (alphanumeric, underscore, hyphen) contain it.
 #[derive(Deserialize)]
 struct HubScope {
     folder: String,

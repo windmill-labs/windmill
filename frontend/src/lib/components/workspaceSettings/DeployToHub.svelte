@@ -163,6 +163,9 @@
 	let workspaceTriggers = $state<WorkspaceTrigger[]>([])
 	let triggersLoading = $state(false)
 	let workspaceLoadSeq = 0
+	// Guards the reset+reload effect so a spurious same-value workspace-store emit
+	// (e.g. a layout re-render) doesn't wipe state or close an open drawer.
+	let lastLoadedKey = ''
 	let schedulePreviews = $state<Record<string, string[]>>({})
 	const schedulePreviewsInFlight = new Set<string>()
 
@@ -432,7 +435,12 @@
 	}
 
 	$effect(() => {
-		if ($workspaceStore) {
+		const ws = $workspaceStore
+		const key = `${ws ?? ''}|${folderProp}`
+		// Only reset+reload when the workspace or folder actually changes — not on
+		// every store emit, which would close the record/publish drawer mid-use.
+		if (ws && key !== lastLoadedKey) {
+			lastLoadedKey = key
 			const seq = ++workspaceLoadSeq
 			// Wipe stale state before the parallel fetches resolve.
 			workspaceItems = []
@@ -1076,9 +1084,8 @@
 		const workspace = $workspaceStore
 		if (!workspace) return
 		const slug = hubSlug
-		// Snapshot the selection and workspace sequence up-front so a workspace
-		// switch mid-deploy can't write stale state into the new workspace.
-		const deploySeq = workspaceLoadSeq
+		// Snapshot the selection up-front so a workspace switch mid-deploy can't
+		// write stale state into the new workspace.
 		const itemsSnapshot = selectedItems.slice()
 		const triggersSnapshot = relevantTriggers.slice()
 		hubItemIds = {}
@@ -1183,11 +1190,13 @@
 			}
 
 			await sleep(150)
-			if (deploySeq !== workspaceLoadSeq) return
+			if ($workspaceStore !== workspace) return
 			deploymentStatus = {}
-			draftItems = itemsSnapshot.map((i) => ({ ...i, rec: 'none' }))
 			recordings = {}
-			phase = 'draft'
+			// Load authoritative state now that every item is committed on the Hub.
+			// Bumping the sequence cancels any rehydrate that started mid-deploy and
+			// would otherwise clobber draftItems with a pre-commit (empty) read.
+			await rehydrateFromHub(workspace, folderProp, ++workspaceLoadSeq)
 			if (failures > 0) {
 				sendUserToast(`Draft pushed with ${failures} failed item(s).`, true)
 			} else {
