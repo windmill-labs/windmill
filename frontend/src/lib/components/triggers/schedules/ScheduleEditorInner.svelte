@@ -986,6 +986,9 @@
 										showReset
 										onlyMaskPassword
 										disabled={!can_write}
+										helperScript={runnable?.path
+											? { source: 'deployed', path: runnable.path, runnable_kind: is_flow ? 'flow' : 'script' }
+											: undefined}
 										schema={$state.snapshot(schema)}
 										bind:isValid
 										bind:args
@@ -1308,8 +1311,7 @@
 							<br />
 							This is only available for individual script. For flows, retries can be set on each flow
 							step in the flow editor.
-						</Tooltip>
-					{/snippet}
+						{/snippet}
 					{#if itemKind !== 'script'}
 						<Alert type="info" title="Only available for scripts" class="mb-2">
 							Error Handler and Retries are only available for scripts. For flows, use the built-in <a
