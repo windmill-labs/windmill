@@ -27,8 +27,12 @@ export {
 export {
   datatable,
   ducklake,
+  upsertPartition,
+  appendPartition,
   type SqlTemplateFunction,
   type DatatableSqlTemplateFunction,
+  type DucklakeMaterializeOptions,
+  type SqlStatement,
 } from "./sqlUtils";
 
 // Services are NOT re-exported here to enable tree-shaking
@@ -71,7 +75,7 @@ function getPublicBaseUrl(): string {
   return getEnv("WM_BASE_URL") ?? "http://localhost:3000";
 }
 
-const getEnv = (key: string) => {
+export const getEnv = (key: string) => {
   if (typeof window === "undefined") {
     // node
     return process?.env?.[key];

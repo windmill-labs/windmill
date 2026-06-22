@@ -6,6 +6,14 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+pub mod asset_dispatch;
+#[cfg(feature = "private")]
+pub mod cascade_ee;
+pub mod cascade_oss;
+#[cfg(feature = "private")]
+pub use cascade_ee as cascade;
+#[cfg(not(feature = "private"))]
+pub use cascade_oss as cascade;
 pub mod jobs;
 #[cfg(feature = "private")]
 pub mod jobs_ee;

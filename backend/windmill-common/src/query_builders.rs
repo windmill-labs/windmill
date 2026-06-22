@@ -1739,7 +1739,7 @@ struct PrimaryKeyConstraintPayload {
 fn db_supports_schemas(db_type: DbType) -> bool {
     matches!(
         db_type,
-        DbType::Postgresql | DbType::Snowflake | DbType::Bigquery
+        DbType::Postgresql | DbType::Snowflake | DbType::Bigquery | DbType::Duckdb
     )
 }
 
@@ -2410,8 +2410,15 @@ fn make_load_table_metadata_query(
 ) -> Result<String, String> {
     match db_type {
         DbType::Duckdb => {
-            // For ducklake, the ducklake ATTACH is handled by the ducklake wrapper.
-            let mut q = String::from(
+            // For ducklake, the ducklake ATTACH is handled by the ducklake wrapper, so the
+            // ducklake catalog is the current database. information_schema spans every attached
+            // catalog, so we always scope to current_database() to stay within the ducklake.
+            let extra_col = if table.is_none() {
+                ",\n    TABLE_SCHEMA as schema_name"
+            } else {
+                ""
+            };
+            let mut q = format!(
                 "SELECT
     COLUMN_NAME as field,
     DATA_TYPE as DataType,
@@ -2420,12 +2427,20 @@ fn make_load_table_metadata_query(
     false as IsIdentity,
     CASE WHEN IS_NULLABLE = true THEN 'YES' ELSE 'NO' END as IsNullable,
     false as IsEnum,
-    TABLE_NAME as table_name
+    TABLE_NAME as table_name{}
 FROM information_schema.columns c
-WHERE table_schema = current_schema()",
+WHERE table_catalog = current_database()",
+                extra_col
             );
             if let Some(t) = table {
-                q.push_str(&format!(" AND TABLE_NAME = '{}'", escape_sql_literal(t)));
+                let parts: Vec<&str> = t.split('.').collect();
+                let tname = parts[parts.len() - 1];
+                let schema = if parts.len() > 1 { parts[0] } else { "main" };
+                q.push_str(&format!(
+                    " AND TABLE_NAME = '{}' AND TABLE_SCHEMA = '{}'",
+                    escape_sql_literal(tname),
+                    escape_sql_literal(schema)
+                ));
             }
             Ok(q)
         }
@@ -3722,9 +3737,10 @@ mod tests {
             table_ref("users", Some("myschema"), DbType::Mysql),
             "`users`"
         );
+        // DuckDB (ducklake) supports schemas
         assert_eq!(
             table_ref("users", Some("myschema"), DbType::Duckdb),
-            r#""users""#
+            r#""myschema"."users""#
         );
     }
 
@@ -3854,6 +3870,13 @@ mod tests {
         let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.contains("ATTACH 'ducklake://my_lake' AS dl;USE dl;"));
         assert!(sql.contains("DROP TABLE \"users\";"));
+    }
+
+    #[test]
+    fn test_expand_drop_table_ducklake_with_schema() {
+        let marker = r#"-- WM_INTERNAL_DB_DROP_TABLE {"table":"events","schema":"analytics","ducklake":"my_lake"}"#;
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
+        assert!(sql.contains("DROP TABLE \"analytics\".\"events\";"));
     }
 
     // -----------------------------------------------------------------------
@@ -4355,7 +4378,27 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"table":"users","ducklake":"lake"}"#;
         let sql = expand_code(marker, &ScriptLang::DuckDb);
         assert!(sql.starts_with("ATTACH 'ducklake://lake' AS dl;USE dl;\n"));
-        assert!(sql.contains("TABLE_NAME = 'users'"));
+        assert!(sql.contains("table_catalog = current_database()"));
+        // Unqualified table defaults to the "main" schema.
+        assert!(sql.contains("TABLE_NAME = 'users' AND TABLE_SCHEMA = 'main'"));
+    }
+
+    #[test]
+    fn test_expand_load_table_metadata_ducklake_qualified_schema() {
+        let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"table":"analytics.events","ducklake":"lake"}"#;
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
+        assert!(sql.contains("TABLE_NAME = 'events' AND TABLE_SCHEMA = 'analytics'"));
+    }
+
+    #[test]
+    fn test_expand_load_table_metadata_ducklake_all_tables() {
+        let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"ducklake":"lake"}"#;
+        let sql = expand_code(marker, &ScriptLang::DuckDb);
+        assert!(sql.starts_with("ATTACH 'ducklake://lake' AS dl;USE dl;\n"));
+        // All-tables listing scopes to the ducklake catalog and exposes the schema per table.
+        assert!(sql.contains("table_catalog = current_database()"));
+        assert!(sql.contains("TABLE_SCHEMA as schema_name"));
+        assert!(!sql.contains("TABLE_NAME = '"));
     }
 
     // -----------------------------------------------------------------------

@@ -25,6 +25,48 @@ function draftKey(workspace: string, itemKind: UserDraftItemKind, path: string):
 	return `${workspace}/${itemKind}/${path}`
 }
 
+/**
+ * Top-level script fields stripped before a draft is persisted. `hash` is the
+ * deployed version's identity (server-managed, re-supplied from the deployed row
+ * on load) and `assets` is re-derived from the script content by the editor —
+ * neither is draft content, so saving them bloats the row and resurfaces as
+ * fork/workspace diff noise. The editing object carries them because
+ * `getScriptByPath` returns the full DB row (since #9351).
+ *
+ * `CLEANED_VALUE_KEYS` (frontend/src/lib/utils.ts) strips a SUPERSET of these
+ * from the diff view (it also drops `inherited_labels` and other bookkeeping
+ * keys). The two lists are deliberately NOT the same: the diff hides every
+ * non-content key, while this sanitizer only trims the two that meaningfully
+ * bloat the persisted draft. Just keep the hash/assets entries here in step
+ * with that set; the rest may diverge.
+ */
+const SCRIPT_DRAFT_OMITTED_FIELDS = ['hash', 'assets'] as const
+
+/**
+ * Drop server-managed / re-derived fields a draft must not persist. Runs at the
+ * single persistence chokepoint (`save`) so every path — reactive autosave,
+ * Ctrl/Cmd+S flush, the `pagehide` keepalive — sends the same trimmed payload.
+ * Only scripts carry these fields; other kinds pass through untouched.
+ */
+export function sanitizeDraftValueForSave(
+	itemKind: UserDraftItemKind,
+	value: unknown | null
+): unknown | null {
+	if (
+		itemKind !== 'script' ||
+		value === null ||
+		typeof value !== 'object' ||
+		Array.isArray(value)
+	) {
+		return value
+	}
+	const obj = value as Record<string, unknown>
+	if (!SCRIPT_DRAFT_OMITTED_FIELDS.some((f) => f in obj)) return value
+	const clone = { ...obj }
+	for (const f of SCRIPT_DRAFT_OMITTED_FIELDS) delete clone[f]
+	return clone
+}
+
 function getLastSyncEntry(key: string): DraftLastSyncEntry | undefined {
 	return lastSyncMap.get(key)
 }
@@ -151,6 +193,15 @@ let autosaveEnabledState = $state(readAutosaveEnabled())
 const pendingSaveOpts = new Map<string, UserDraftDbSyncerSaveOpts>()
 
 /**
+ * Keys whose saves are HARD-blocked: while editing another user's loaded draft
+ * the foreign value must never reach the server through ANY path (reactive
+ * mirror, explicit flush, the pagehide keepalive flush). The value is the
+ * "blocked save attempted" callback — the first such attempt is the user's
+ * first edit, which the overlay UI turns into an "overwrite?" prompt.
+ */
+const syncLocked = new Map<string, (() => void) | undefined>()
+
+/**
  * Conflict snapshots, populated when the server rejects a save (row
  * `created_at` newer than our `last_sync`). Read via `getConflict(query)`
  * to drive the resolution modal.
@@ -170,6 +221,15 @@ const failures = new SvelteMap<string, string>()
  * when there was nothing to flush. See `UserDraftStateHandle.flushCount`.
  */
 const flushes = new SvelteMap<string, number>()
+
+/**
+ * Per-key listeners fired when a save for that key LANDS on the server
+ * (`status === 'saved'` with a non-null value — the draft now exists
+ * server-side). Distinct from `save()` resolving, which only means the work
+ * was queued. Used to defer the `?new_draft` URL strip until the first
+ * autosave is confirmed (see `stripNewDraftFlagOnSave`).
+ */
+const saveListeners = new Map<string, Set<() => void>>()
 
 /**
  * Best-effort error → readable string. The generated client wraps HTTP
@@ -237,6 +297,13 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		// newer `save()` that arrived during the POST replaces the entry
 		// and must survive for the next flush / debouncer round.
 		if (pendingSaveOpts.get(key) === opts) pendingSaveOpts.delete(key)
+		// Notify `onSaved` subscribers only for a real persisted draft, never a
+		// delete: stripping `?new_draft` after a `value: null` save would point a
+		// refresh at a row that no longer exists.
+		if (opts.value !== null) {
+			const listeners = saveListeners.get(key)
+			if (listeners) for (const l of [...listeners]) l()
+		}
 	} catch (e) {
 		console.error('UserDraftDbSyncer.save failed', e)
 		// Leave pending opts in place so the next attempt retries the same
@@ -264,6 +331,8 @@ const staleSyncAfterHideFlush = new Set<string>()
 function flushOnPageHide(): void {
 	if (pendingSaveOpts.size === 0) return
 	for (const [key, opts] of pendingSaveOpts) {
+		// Editing another user's loaded draft: never flush the foreign value.
+		if (syncLocked.has(key)) continue
 		// Auto-save off: page-editor opts are dropped with the page;
 		// drawer-kind pendings (no `canBeDisabled`) still flush.
 		if (!autosaveEnabledState && opts.auto && opts.canBeDisabled) continue
@@ -356,7 +425,17 @@ export const UserDraftDbSyncer = {
 	},
 
 	async save(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
+		// Trim non-draft fields once, here, so the parked opts the unload
+		// keepalive flush replays carry the same payload as the live POST.
+		opts = { ...opts, value: sanitizeDraftValueForSave(opts.itemKind, opts.value) }
 		const key = draftKey(opts.workspace, opts.itemKind, opts.path)
+		// Hard lock (editing another user's loaded draft): block EVERY save path
+		// for this key — no parking, no POST. Notify the overlay so the first
+		// blocked attempt (the user's first edit) can prompt before overwriting.
+		if (syncLocked.has(key)) {
+			syncLocked.get(key)?.()
+			return
+		}
 		// Park the latest opts BEFORE the pipeline so the unload flush has
 		// something to send even if the page hides before the debouncer fires.
 		pendingSaveOpts.set(key, opts)
@@ -418,6 +497,47 @@ export const UserDraftDbSyncer = {
 		// Back in sync with the server: clear any conflict / failure.
 		conflicts.delete(key)
 		failures.delete(key)
+	},
+
+	/**
+	 * Hard-block every save for this key (editing another user's loaded draft).
+	 * Cancels any in-flight/queued autosave and drops parked opts so a pending
+	 * flush can't fire the user's own value either. `onBlockedAttempt` fires on
+	 * each subsequent blocked save — the overlay uses it to detect the first
+	 * edit. MUST pair with `unlockSync`.
+	 */
+	lockSync(query: UserDraftLastSyncQuery, onBlockedAttempt?: () => void): void {
+		const key = draftKey(query.workspace, query.itemKind, query.path)
+		syncLocked.set(key, onBlockedAttempt)
+		debouncer.cancel(key)
+		runner.cancel(key)
+		pendingSaveOpts.delete(key)
+	},
+
+	/** Release a `lockSync`; subsequent saves go through normally. */
+	unlockSync(query: UserDraftLastSyncQuery): void {
+		syncLocked.delete(draftKey(query.workspace, query.itemKind, query.path))
+	},
+
+	/**
+	 * Subscribe to CONFIRMED, non-delete saves for a draft key — fired after
+	 * the POST lands on the server, not when `save()` queues it. Returns an
+	 * unsubscribe. Backs `stripNewDraftFlagOnSave`.
+	 */
+	onSaved(query: UserDraftLastSyncQuery, listener: () => void): () => void {
+		const key = draftKey(query.workspace, query.itemKind, query.path)
+		let set = saveListeners.get(key)
+		if (!set) {
+			set = new Set()
+			saveListeners.set(key, set)
+		}
+		set.add(listener)
+		return () => {
+			const s = saveListeners.get(key)
+			if (!s) return
+			s.delete(listener)
+			if (s.size === 0) saveListeners.delete(key)
+		}
 	},
 
 	/** Reactive conflict snapshot (if any) for a draft. */

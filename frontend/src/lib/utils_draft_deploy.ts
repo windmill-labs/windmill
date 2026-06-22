@@ -276,9 +276,9 @@ export async function deployDraft(
 	kind: DraftKind,
 	path: string,
 	workspace: string,
-	draftOnly = false,
-	rawApp = false
+	opts: { draftOnly?: boolean; rawApp?: boolean; deploymentMessage?: string } = {}
 ): Promise<DeployResult> {
+	const { draftOnly = false, rawApp = false, deploymentMessage } = opts
 	try {
 		if (kind === 'raw_app' || (kind === 'app' && rawApp)) {
 			// Raw apps bundle their source files and deploy via the raw-app
@@ -286,7 +286,7 @@ export async function deployDraft(
 			// `kind === 'app'` + `rawApp` (editor). Must route here: the
 			// visual-app branch would `updateApp` with no `value` (RawAppDraft
 			// has none) and silently drop the draft's files.
-			await deployRawAppDraft(workspace, path)
+			await deployRawAppDraft(workspace, path, deploymentMessage)
 		} else if (kind === 'script') {
 			const r = (await ScriptService.getScriptByPath({ workspace, path, getDraft: true })) as any
 			const d = r.draft ?? r
@@ -297,7 +297,12 @@ export async function deployDraft(
 			// the editor: createScript at the new path with parent_hash links lineage).
 			await ScriptService.createScript({
 				workspace,
-				requestBody: { ...rest, path: scriptPath, parent_hash: r.hash }
+				requestBody: {
+					...rest,
+					path: scriptPath,
+					parent_hash: r.hash,
+					deployment_message: deploymentMessage
+				}
 			})
 			// Then deploy any draft trigger edits, so they aren't dropped with the draft.
 			await deployDraftTriggers(draftTriggers, workspace, scriptPath, true)
@@ -305,8 +310,11 @@ export async function deployDraft(
 			const r = (await FlowService.getFlowByPath({ workspace, path, getDraft: true })) as any
 			const d = r.draft ?? r
 			const requestBody = {
-				// Honor a renamed draft path; the URL `path` stays the existing item key.
-				path: d.path ?? path,
+				// Deploy at the draft's intended path: flow/app/raw-app drafts keep the
+				// user-typed path in `draft_path` (a never-deployed item is parked at a
+				// synthetic `u/{user}/draft_{uuid}` storage key). The URL `path` stays
+				// that storage key.
+				path: d.draft_path ?? d.path ?? path,
 				summary: d.summary ?? '',
 				description: d.description ?? '',
 				value: d.value,
@@ -316,7 +324,8 @@ export async function deployDraft(
 				ws_error_handler_muted: d.ws_error_handler_muted,
 				visible_to_runner_only: d.visible_to_runner_only,
 				on_behalf_of_email: d.on_behalf_of_email,
-				labels: d.labels
+				labels: d.labels,
+				deployment_message: deploymentMessage
 			}
 			// Draft-only flows have NO flow row (they live solely in the
 			// draft table), so they deploy via createFlow; a draft on a
@@ -327,30 +336,38 @@ export async function deployDraft(
 				await FlowService.updateFlow({ workspace, path, requestBody })
 			}
 			// Then deploy any draft trigger edits, so they aren't dropped with the draft.
-			await deployDraftTriggers(d.draft_triggers, workspace, d.path ?? path, draftOnly)
+			await deployDraftTriggers(
+				d.draft_triggers,
+				workspace,
+				d.draft_path ?? d.path ?? path,
+				draftOnly
+			)
 		} else if (kind === 'app') {
 			// `raw_app` is handled above; only visual apps reach here.
 			const r = (await AppService.getAppByPath({ workspace, path, getDraft: true })) as any
-			const d = r.draft ?? {
-				value: r.value,
-				summary: r.summary,
-				policy: r.policy,
-				path: r.path,
-				custom_path: r.custom_path
-			}
-			// custom_path requires admin on app update. Non-admins send undefined so
-			// the backend preserves the existing route (no RequireAdmin 403). For
-			// admins, fall back to the *deployed* route (`r.custom_path`) when the
-			// draft doesn't carry one — the visual-app draft value usually omits
-			// custom_path, and sending `''` would clear the existing route. An
-			// explicit '' in the draft still clears (`'' ?? x === ''`).
+			// A visual-app draft is stored as the *bare* app value (grid/theme/...,
+			// plus a `draft_path` when the path was renamed) — NOT wrapped in
+			// { value, summary, policy } like script/flow drafts. So the deploy value
+			// is the draft object itself; fall back to the deployed value when there's
+			// no draft. `draft_path` and `summary` are draft-only fields mirrored onto
+			// the App value (the editor drops them on deploy), so strip them from the
+			// value and apply them as the deploy path / summary column.
+			const draft = r.draft as Record<string, any> | undefined
+			const { draft_path: draftPath, summary: draftSummary, ...appValue } = draft ?? r.value ?? {}
+			// Policy isn't carried in the app draft, so it comes from the deployed app
+			// (or a default). custom_path requires admin on update; non-admins send
+			// undefined so the backend preserves the existing route. The draft has no
+			// custom_path, so admins fall back to the deployed route (`''` when none).
 			const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
 			const requestBody = {
-				value: d.value,
-				summary: d.summary ?? '',
-				policy: d.policy ?? { execution_mode: 'publisher' },
-				path: d.path ?? path,
-				custom_path: isAdmin ? (d.custom_path ?? r.custom_path) : undefined
+				value: appValue,
+				summary: draftSummary ?? r.summary ?? '',
+				policy: r.policy ?? { execution_mode: 'publisher' },
+				// Honor the draft's intended path; `draft_path` holds the user-typed path
+				// for a never-deployed app parked at a `u/{user}/draft_{uuid}` storage key.
+				path: draftPath ?? r.path ?? path,
+				custom_path: isAdmin ? (r.custom_path ?? '') : undefined,
+				deployment_message: deploymentMessage
 			}
 			// Same as flows: draft-only apps have no app row → create;
 			// drafts on a deployed app update it.

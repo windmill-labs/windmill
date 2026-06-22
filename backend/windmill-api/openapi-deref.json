@@ -1,7 +1,7 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "version": "1.723.0",
+    "version": "1.728.0",
     "title": "Windmill API",
     "contact": {
       "name": "Windmill Team",
@@ -9700,9 +9700,13 @@
                     "type": "string",
                     "description": "OAuth client secret for resource-level credentials (client_credentials flow only)"
                   },
+                  "cc_instance": {
+                    "type": "string",
+                    "description": "Instance name for built-in providers whose client-credentials token URL is instance-templated; substituted into the fixed-host registry template server-side (client_credentials flow only). The token URL is never caller-supplied."
+                  },
                   "cc_token_url": {
                     "type": "string",
-                    "description": "OAuth token URL override for resource-level authentication (client_credentials flow only)"
+                    "description": "Bring-your-own token endpoint override (client_credentials flow only). Only honored together with cc_client_id/cc_client_secret and mutually exclusive with cc_instance; ignored/rejected on the shared-instance path."
                   },
                   "mcp_server_url": {
                     "type": "string",
@@ -9739,7 +9743,7 @@
         }
       }
     },
-    "/oauth/connect_client_credentials/{client}": {
+    "/w/{workspace}/oauth/connect_client_credentials/{client}": {
       "post": {
         "summary": "connect OAuth using client credentials",
         "operationId": "connectClientCredentials",
@@ -9747,6 +9751,9 @@
           "oauth"
         ],
         "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
           {
             "name": "client",
             "in": "path",
@@ -9773,21 +9780,21 @@
                   },
                   "cc_client_id": {
                     "type": "string",
-                    "description": "OAuth client ID for resource-level authentication"
+                    "description": "OAuth client ID. Omit to use the credentials configured on the provider's instance OAuth entry."
                   },
                   "cc_client_secret": {
                     "type": "string",
-                    "description": "OAuth client secret for resource-level authentication"
+                    "description": "OAuth client secret. Omit to use the credentials configured on the provider's instance OAuth entry."
+                  },
+                  "cc_instance": {
+                    "type": "string",
+                    "description": "Instance name for built-in providers whose client-credentials token URL is instance-templated; substituted into the fixed-host registry template server-side. The token URL is never caller-supplied."
                   },
                   "cc_token_url": {
                     "type": "string",
-                    "description": "OAuth token URL override for resource-level authentication"
+                    "description": "Bring-your-own token endpoint override. Only honored together with cc_client_id/cc_client_secret and mutually exclusive with cc_instance; rejected on the shared-instance path."
                   }
-                },
-                "required": [
-                  "cc_client_id",
-                  "cc_client_secret"
-                ]
+                }
               }
             }
           }
@@ -10000,7 +10007,23 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "type": "string"
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "supports_client_credentials": {
+                        "type": "boolean"
+                      },
+                      "has_shared_credentials": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "supports_client_credentials",
+                      "has_shared_credentials"
+                    ]
                   }
                 }
               }
@@ -10049,6 +10072,10 @@
                       "items": {
                         "type": "string"
                       }
+                    },
+                    "client_credentials_configured": {
+                      "type": "boolean",
+                      "description": "The instance OAuth entry carries shared client-credentials, so the connect dialog can skip the bring-your-own form and run the exchange server-side"
                     }
                   }
                 }
@@ -12191,9 +12218,17 @@
                         "type": "string",
                         "description": "Best-effort, read from the draft JSON's `summary` field when the editor shape carries one."
                       },
+                      "draft_path": {
+                        "type": "string",
+                        "description": "User-typed friendly path from the draft JSON's `draft_path`, when set and different from the storage path (e.g. a never-deployed item parked at `u/{user}/draft_{uuid}`)."
+                      },
                       "draft_only": {
                         "type": "boolean",
                         "description": "No deployed counterpart exists at this path — the draft is the whole item."
+                      },
+                      "legacy_draft": {
+                        "type": "boolean",
+                        "description": "The listed draft is a legacy workspace-level row (email NULL) predating the per-user drafts migration. Only true when no per-user draft exists at this path."
                       },
                       "created_at": {
                         "type": "string",
@@ -12204,6 +12239,7 @@
                       "kind",
                       "path",
                       "draft_only",
+                      "legacy_draft",
                       "created_at"
                     ]
                   }
@@ -12316,6 +12352,10 @@
                   "force": {
                     "type": "boolean",
                     "description": "Skip the conflict check and overwrite the server copy."
+                  },
+                  "legacy": {
+                    "type": "boolean",
+                    "description": "Delete-only. Target the legacy workspace-level row (email NULL) instead of the current user's row. Used to discard a legacy draft from the review page."
                   }
                 }
               }
@@ -12359,9 +12399,10 @@
         "description": "Creates a new script when the path does not already exist.\nCreates a new version of an existing script when called with the same path and the current `parent_hash`.\n",
         "operationId": "createScript",
         "x-mcp-tool": true,
-        "x-mcp-instructions": "To create a script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed.",
+        "x-mcp-instructions": "To create a NEW script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language, and leave parent_hash unset. For TypeScript, use 'bun' unless deno-specific APIs are needed. To UPDATE an existing script, do NOT delete and recreate it: call this tool with the same path and set parent_hash to the script's current hash, which you can read from the `hash` field returned by getScriptByPath. This creates a new version while preserving the script's history.",
         "x-mcp-tool-include-fields": [
           "path",
+          "parent_hash",
           "content",
           "language",
           "summary",
@@ -33609,8 +33650,16 @@
                   "type": "string",
                   "nullable": true,
                   "description": "Workspace username of the draft owner. `null` represents\nthe legacy workspace-level (NULL-email) row. Emails never\nleave the server.\n"
+                },
+                "draft_saved_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "When this user's draft was last saved (`draft.created_at`),\nsurfaced in the fork modal as \"Last updated\".\n"
                 }
-              }
+              },
+              "required": [
+                "draft_saved_at"
+              ]
             }
           }
         },

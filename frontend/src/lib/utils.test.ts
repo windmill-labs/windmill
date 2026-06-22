@@ -287,6 +287,9 @@ DELETE FROM logs WHERE timestamp < NOW() - INTERVAL '30 days'
 describe('cleanValueProperties', () => {
 	const serverManagedKeys = [
 		'parent_hash',
+		'hash',
+		'assets',
+		'inherited_labels',
 		'draft',
 		'draft_only',
 		'draft_saved_at',
