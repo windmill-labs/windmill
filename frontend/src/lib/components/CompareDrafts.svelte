@@ -155,16 +155,32 @@
 	// A row is actionable when it isn't already deployed this session, the user has
 	// write permission, AND it's their own draft (you can't deploy someone else's
 	// draft — those show view-only in the "all drafts" view). The server enforces
-	// the same; this keeps the UI honest.
+	// the same; this keeps the UI honest. A data-pipeline bundle is never deployable
+	// from this page — its scripts deploy individually inside the pipeline view — so
+	// it's excluded from every selection path.
 	function isSelectable(item: Row): boolean {
-		return deploymentStatus[item.key]?.status !== 'deployed' && item.can_write && item.mine
+		return (
+			deploymentStatus[item.key]?.status !== 'deployed' &&
+			item.can_write &&
+			item.mine &&
+			item.draftKind !== 'data_pipeline'
+		)
 	}
 
-	// Why a row can't be deployed/discarded (drives the disabled-checkbox tooltip
-	// and the Discard button's title). `undefined` ⇒ actionable.
+	// Why a row can't be deployed (drives the disabled-checkbox tooltip).
+	// `undefined` ⇒ actionable.
 	function blockedReason(item: Row): string | undefined {
 		if (!item.mine) return 'This draft belongs to another user'
 		if (!item.can_write) return "You don't have write permission on this path"
+		return undefined
+	}
+
+	// Why a row can't be discarded (drives the Discard button's title).
+	// Discarding only removes the caller's own draft row, which they always own,
+	// so — unlike deploy — it never requires write permission on the path. The
+	// only block is someone else's draft (view-only in the "all drafts" view).
+	function discardBlockedReason(item: Row): string | undefined {
+		if (!item.mine) return 'This draft belongs to another user'
 		return undefined
 	}
 
@@ -415,7 +431,19 @@
 		trigger_azure: '/azure_triggers',
 		trigger_email: '/email_triggers'
 	}
+	// A data-pipeline bundle is keyed at `f/<folder>/data_pipeline`; its editor
+	// is the pipeline view of that folder.
+	function pipelineFolderFromPath(path: string): string | undefined {
+		const segs = path.split('/')
+		return segs[0] === 'f' && segs.length >= 2 ? segs[1] : undefined
+	}
 	function draftEditUrl(d: Row): string | undefined {
+		if (d.draftKind === 'data_pipeline') {
+			const folder = pipelineFolderFromPath(d.path)
+			return folder
+				? `/pipeline/${encodeURIComponent(folder)}?workspace=${encodeURIComponent(currentWorkspaceId)}`
+				: undefined
+		}
 		const listPage = LIST_PAGE_FOR_KIND[d.draftKind]
 		if (listPage) {
 			return `${listPage}?workspace=${encodeURIComponent(currentWorkspaceId)}#${d.path}`
@@ -438,6 +466,12 @@
 	// auto-generated `draft_{uuid}` path so it isn't shown in bold (the row still
 	// shows the storage path in its secondary line).
 	function displayPath(d: Row): string {
+		// The pipeline bundle's storage path (`f/<folder>/data_pipeline`) is an
+		// implementation detail — show the folder it belongs to.
+		if (d.draftKind === 'data_pipeline') {
+			const folder = pipelineFolderFromPath(d.path)
+			return folder ? `f/${folder}` : d.path
+		}
 		const path = d.draft_path ?? d.path
 		if (AUTO_GEN_DRAFT_RE.test(path)) return ''
 		const segs = path.split('/')
@@ -452,6 +486,7 @@
 	// draft and a script draft at the same path are indistinguishable.
 	function kindLabel(kind: Row['draftKind']): string {
 		if (kind === 'raw_app') return 'app'
+		if (kind === 'data_pipeline') return 'pipeline'
 		if (kind === 'trigger_schedule') return 'schedule'
 		if (kind.startsWith('trigger_')) return `${kind.slice('trigger_'.length)} trigger`
 		return kind
@@ -584,31 +619,47 @@
 					</Popover>
 				{/if}
 				{#if deploymentStatus[draftItem.key]?.status !== 'deployed'}
-					{@const discardBlock = blockedReason(draftItem)}
-					<!-- Show diff fetches the *current user's* draft overlay, so it's only
-					     meaningful for your own/legacy rows. Another user's draft (view-only,
-					     `mine=false`) would diff against the wrong draft or 404 — hide it. -->
-					{#if draftItem.mine}
+					{#if draftItem.draftKind === 'data_pipeline'}
+						<!-- A bundle isn't diffable/deployable here — its scripts deploy
+						     individually inside the pipeline view. -->
+						{@const openUrl = draftEditUrl(draftItem)}
+						{#if openUrl}
+							<Button
+								unifiedSize="xs"
+								variant="subtle"
+								startIcon={{ icon: ArrowRight }}
+								href={openUrl}
+							>
+								Open pipeline
+							</Button>
+						{/if}
+					{:else}
+						{@const discardBlock = discardBlockedReason(draftItem)}
+						<!-- Show diff fetches the *current user's* draft overlay, so it's only
+						     meaningful for your own/legacy rows. Another user's draft (view-only,
+						     `mine=false`) would diff against the wrong draft or 404 — hide it. -->
+						{#if draftItem.mine}
+							<Button
+								unifiedSize="xs"
+								variant="subtle"
+								startIcon={{ icon: DiffIcon }}
+								onClick={() => showDiff(draftItem)}
+							>
+								Show diff
+							</Button>
+						{/if}
 						<Button
 							unifiedSize="xs"
 							variant="subtle"
-							startIcon={{ icon: DiffIcon }}
-							onClick={() => showDiff(draftItem)}
+							destructive
+							disabled={!!discardBlock}
+							title={discardBlock}
+							startIcon={{ icon: Undo2 }}
+							onClick={() => onDiscardClick(draftItem)}
 						>
-							Show diff
+							Discard draft
 						</Button>
 					{/if}
-					<Button
-						unifiedSize="xs"
-						variant="subtle"
-						destructive
-						disabled={!!discardBlock}
-						title={discardBlock}
-						startIcon={{ icon: Undo2 }}
-						onClick={() => onDiscardClick(draftItem)}
-					>
-						Discard draft
-					</Button>
 				{/if}
 			{/snippet}
 

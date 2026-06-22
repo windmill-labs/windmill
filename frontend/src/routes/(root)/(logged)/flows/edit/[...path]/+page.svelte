@@ -13,10 +13,12 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
 	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
+	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
-	import { tick, untrack } from 'svelte'
+	import { onDestroy, tick, untrack } from 'svelte'
+	import { stripNewDraftFlagOnSave } from '$lib/newDraftFlag'
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 	import { page } from '$app/state'
 	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
@@ -123,10 +125,15 @@
 	 * (e.g. picker navigation while a draft-discard reload is in flight),
 	 * the older promise no-ops at the next checkpoint. */
 	let loadFlowToken = 0
+	/** Drops the previous load's `new_draft` strip-on-save listener. */
+	let cleanupNewDraftFlag: (() => void) | undefined
+	onDestroy(() => cleanupNewDraftFlag?.())
 	async function loadFlow(opts: { getDraft?: boolean } = {}): Promise<void> {
 		const getDraft = opts.getDraft ?? true
 		const tok = ++loadFlowToken
 		loading = true
+		cleanupNewDraftFlag?.()
+		cleanupNewDraftFlag = undefined
 		let flow: Flow
 		// Builder-dependent setup is captured here and applied AFTER the builder
 		// remounts (see end of loadFlow): during a reload renderEditor is false,
@@ -159,7 +166,6 @@
 			// Empty `initialPath` so `initPath` takes the `reset()` branch and seeds
 			// the auto-name, else the topbar shows the raw `draft_{uuid}`.
 			flowInitialPath = ''
-			// Capture every seeding param BEFORE stripping the URL flag.
 			const hubId = page.url.searchParams.get('hub')
 			const templatePath = page.url.searchParams.get('template')
 			const templateId = page.url.searchParams.get('template_id')
@@ -186,9 +192,16 @@
 			if (page.url.hash != '') {
 				forkState = decodeState(page.url.hash.slice(1))
 			}
-			const url = new URL(window.location.href)
-			url.searchParams.delete('new_draft')
-			window.history.replaceState(window.history.state, '', url.toString())
+			// Keep `?new_draft=true` until the backend confirms the first autosave,
+			// so a refresh before any edit re-seeds here instead of 404-ing on the
+			// never-persisted `draft_{uuid}` path.
+			if ($workspaceStore) {
+				cleanupNewDraftFlag = stripNewDraftFlagOnSave({
+					workspace: $workspaceStore,
+					itemKind: 'flow',
+					path: flowDraftPath
+				})
+			}
 			const empty: Flow = {
 				path: '',
 				summary: '',
@@ -333,9 +346,10 @@
 		draftSync.recordRemoteSync(backendFlow.draft_saved_at as string | undefined)
 		// Re-evaluate per load: true for draft-only paths, false once deployed.
 		isNewFlow = !!backendFlow.no_deployed
-		if (backendFlow.is_draft) {
-			loadedFromDraft = true
-		}
+		// Per-response, NOT sticky: a later no-own-draft load in the same editor
+		// must reset this so it can't wrongly force overlay mode.
+		const hasOwnDraft = !!backendFlow.is_draft
+		loadedFromDraft = hasOwnDraft
 		// Pass both timestamps for DraftEditorModals' staleness compare: `edited_at`
 		// is the deploy time (from `flow_version.created_at`), `draft_saved_at` the draft's.
 		draftSavedAt = backendFlow.draft_saved_at as string | undefined
@@ -358,10 +372,43 @@
 		const renderedDraftPath = (effectiveFlow as any).draft_path as string | undefined
 		if (renderedDraftPath) flowInitialPath = renderedDraftPath
 
-		// Overwrite the cell with the effective flow. The first cell write after
-		// `acquireEntry` is swallowed by the syncer's seed guard, so no POST.
-		flow = effectiveFlow
-		draftSync.draft = effectiveFlow
+		// "Load another user's draft" handoff: render their value over the deployed
+		// metadata. Overlay mode (we have our own draft) never saves until the user
+		// confirms overwriting it. See /scripts/edit's loader.
+		const pendingLoad = getDraft
+			? OtherUserDraftLoad.takePending($workspaceStore!, 'flow', flowDraftPath)
+			: undefined
+		// Revisiting a path whose overlay was never confirmed/reset: drop the stale
+		// lock so editing our own draft works again. See /scripts/edit's loader.
+		if (!pendingLoad && OtherUserDraftLoad.isActive($workspaceStore!, 'flow', flowDraftPath)) {
+			OtherUserDraftLoad.clear($workspaceStore!, 'flow', flowDraftPath)
+		}
+		const flowToRender: Flow = pendingLoad
+			? ({ ...deployedFlow, ...(pendingLoad.value as object) } as Flow)
+			: effectiveFlow
+		flow = flowToRender
+		if (pendingLoad && hasOwnDraft) {
+			OtherUserDraftLoad.beginOverlay({
+				workspace: $workspaceStore!,
+				itemKind: 'flow',
+				path: flowDraftPath,
+				ownerLabel: pendingLoad.ownerLabel,
+				loadedValue: flowToRender,
+				// Force a builder remount (like nav does) — FlowBuilder captures the
+				// flow at mount, so reloading alone leaves the foreign graph on screen.
+				onResetToOwnDraft: async () => {
+					renderEditor = false
+					await loadFlow({ getDraft: true })
+				}
+			})
+			// Seed so the bound value updates WITHOUT a POST (the lock blocks it
+			// anyway, but seeding avoids tripping the edit prompt).
+			UserDraft.seed('flow', flowDraftPath, flowToRender, { workspace: $workspaceStore! })
+		} else {
+			// Overwrite the cell with the effective flow. The first cell write after
+			// `acquireEntry` is swallowed by the syncer's seed guard, so no POST.
+			draftSync.draft = flowToRender
+		}
 
 		flowBuilder?.setDraftTriggers(undefined)
 
@@ -447,6 +494,8 @@
 	itemKind="flow"
 	path={flowDraftPath}
 	{otherDraftsUsers}
+	draftOnly={isNewFlow}
+	hasOwnDraft={loadedFromDraft}
 	onLoadFromServer={() => loadFlow()}
 	getLocalDraft={() => draftSync.draft}
 	bind:othersModalOpen

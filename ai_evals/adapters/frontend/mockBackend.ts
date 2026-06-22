@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import type { CompletedJob, Flow, Job, Script } from '../../../frontend/src/lib/gen'
+import type {
+	AppWithLastVersion,
+	CompletedJob,
+	Flow,
+	Job,
+	ListableApp,
+	Script
+} from '../../../frontend/src/lib/gen'
 import type {
 	DataTableTables,
 	DataTableTableSchema,
@@ -33,6 +40,18 @@ export interface BenchmarkWorkspaceFlow {
 	value: Flow['value']
 }
 
+export interface BenchmarkWorkspaceApp {
+	path: string
+	summary: string
+	value: {
+		files: Record<string, string>
+		runnables: Record<string, unknown>
+		data?: unknown
+		policy?: unknown
+		custom_path?: unknown
+	}
+}
+
 export interface BenchmarkWorkspaceJob {
 	/** Stable id so a case prompt can reference a specific run (e.g. for get_job_logs). */
 	id?: string
@@ -47,6 +66,7 @@ export interface BenchmarkWorkspaceJob {
 export interface BenchmarkWorkspaceRunnables {
 	scripts?: BenchmarkWorkspaceScript[]
 	flows?: BenchmarkWorkspaceFlow[]
+	apps?: BenchmarkWorkspaceApp[]
 	datatables?: BenchmarkDatatableSeed[]
 	jobs?: BenchmarkWorkspaceJob[]
 }
@@ -159,6 +179,22 @@ export function getBenchmarkFlowByPath(workspace: string, path: string): Flow | 
 		?.flows?.find((entry) => entry.path === path)
 
 	return flow ? buildBenchmarkFlow(flow) : null
+}
+
+export function listBenchmarkApps(workspace: string): ListableApp[] | null {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	if (!runnables) {
+		return null
+	}
+	return (runnables.apps ?? []).map(buildBenchmarkListableApp)
+}
+
+export function getBenchmarkAppByPath(workspace: string, path: string): AppWithLastVersion | null {
+	const app = benchmarkWorkspaceRunnables
+		.get(workspace)
+		?.apps?.find((entry) => entry.path === path)
+
+	return app ? buildBenchmarkApp(app) : null
 }
 
 export function createBenchmarkCompletedJob(input: {
@@ -603,4 +639,36 @@ function buildBenchmarkFlow(flow: BenchmarkWorkspaceFlow): Flow {
 		archived: false,
 		extra_perms: {}
 	} as Flow
+}
+
+function buildBenchmarkListableApp(app: BenchmarkWorkspaceApp): ListableApp {
+	return {
+		id: 0,
+		workspace_id: 'benchmark',
+		path: app.path,
+		summary: app.summary,
+		version: 1,
+		extra_perms: {},
+		edited_at: BENCHMARK_TIMESTAMP,
+		execution_mode: 'viewer',
+		raw_app: true
+	}
+}
+
+function buildBenchmarkApp(app: BenchmarkWorkspaceApp): AppWithLastVersion {
+	return {
+		id: 0,
+		workspace_id: 'benchmark',
+		path: app.path,
+		summary: app.summary,
+		versions: [1],
+		created_by: 'benchmark',
+		created_at: BENCHMARK_TIMESTAMP,
+		value: app.value,
+		policy: (app.value.policy ?? {}) as AppWithLastVersion['policy'],
+		execution_mode: 'viewer',
+		extra_perms: {},
+		custom_path: app.value.custom_path as string | undefined,
+		raw_app: true
+	}
 }

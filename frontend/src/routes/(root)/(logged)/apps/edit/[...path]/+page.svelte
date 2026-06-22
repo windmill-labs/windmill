@@ -7,6 +7,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
+	import { migrateApp } from '$lib/components/apps/migrateApp'
 	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -14,9 +15,11 @@
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { emptyApp } from '$lib/components/apps/editor/appUtils'
 	import { importStore } from '$lib/components/apps/store'
-	import { tick, untrack } from 'svelte'
+	import { onDestroy, tick, untrack } from 'svelte'
 	import { page } from '$app/state'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { stripNewDraftFlagOnSave } from '$lib/newDraftFlag'
+	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { runResetToDeployed } from '$lib/userDraftToast'
 
 	let app = $state(undefined as (AppWithLastVersion & { value: any }) | undefined)
@@ -51,9 +54,14 @@
 	 * navigation races a draft-discard reload) bail at the next checkpoint
 	 * after their captured token no longer matches. */
 	let loadAppToken = 0
+	/** Drops the previous load's `new_draft` strip-on-save listener. */
+	let cleanupNewDraftFlag: (() => void) | undefined
+	onDestroy(() => cleanupNewDraftFlag?.())
 	async function loadApp(opts: { getDraft?: boolean } = {}): Promise<void> {
 		const getDraft = opts.getDraft ?? true
 		const tok = ++loadAppToken
+		cleanupNewDraftFlag?.()
+		cleanupNewDraftFlag = undefined
 		// `?new_draft=true` (from `/apps/add`'s redirect): a fresh, never-saved
 		// `draft_{uuid}` path. Skip the backend fetch (would 404) and seed empty
 		// with `path = ''` for the friendly auto-name. See /scripts/edit's loader.
@@ -72,16 +80,20 @@
 			deployedAt = undefined
 			// Brand-new app: no deployed baseline, so never discard-on-equal.
 			deployedBaseline = undefined
-			// Capture every seeding param BEFORE stripping the URL flag.
 			const templatePath = page.url.searchParams.get('template')
 			const templateId = page.url.searchParams.get('template_id')
 			const hubId = page.url.searchParams.get('hub')
 			// Explicit path seed: the fork-a-draft handoff re-homes the source
 			// path into the forker's namespace and passes it here.
 			const pathParam = page.url.searchParams.get('seed_path')
-			const url = new URL(window.location.href)
-			url.searchParams.delete('new_draft')
-			window.history.replaceState(window.history.state, '', url.toString())
+			// Keep `?new_draft=true` until the backend confirms the first autosave,
+			// so a refresh before any edit re-seeds here instead of 404-ing on the
+			// never-persisted `draft_{uuid}` path.
+			cleanupNewDraftFlag = stripNewDraftFlagOnSave({
+				workspace: $workspaceStore!,
+				itemKind: 'app',
+				path
+			})
 			// Backend's `Policy` requires `execution_mode` (empty object fails to
 			// deserialize on deploy); `publisher` is the default authoring mode.
 			const emptyPolicy = { execution_mode: 'publisher' } as any
@@ -254,9 +266,10 @@
 				summary: savedDraftApp.summary ?? backendApp.summary
 			} as typeof backendApp
 		}
-		if (backendApp.is_draft) {
-			loadedFromDraft = true
-		}
+		// Per-response, NOT sticky: a later no-own-draft load in the same editor
+		// must reset this so it can't wrongly force overlay mode.
+		const hasOwnDraft = !!backendApp.is_draft
+		loadedFromDraft = hasOwnDraft
 		// Pass both timestamps for DraftEditorModals' staleness compare: `created_at`
 		// is the deploy time, `draft_saved_at` the draft's. Skip `deployedAt` when
 		// `no_deployed` — no baseline to be older than.
@@ -269,6 +282,41 @@
 			path: backendApp_.path,
 			policy: backendApp_.policy,
 			custom_path: backendApp_.custom_path
+		}
+		// "Load another user's draft" handoff: render their value. Overlay mode (we
+		// have our own draft) hard-locks saves until the user confirms overwriting
+		// it (AppEditor's own autosave is blocked by the lock). See /scripts/edit.
+		const pendingLoad = getDraft
+			? OtherUserDraftLoad.takePending($workspaceStore!, 'app', path)
+			: undefined
+		// Revisiting a path whose overlay was never confirmed/reset: drop the stale
+		// lock so editing our own draft works again. See /scripts/edit's loader.
+		if (!pendingLoad && OtherUserDraftLoad.isActive($workspaceStore!, 'app', path)) {
+			OtherUserDraftLoad.clear($workspaceStore!, 'app', path)
+		}
+		if (pendingLoad) {
+			backendApp = { ...backendApp, value: pendingLoad.value as App } as typeof backendApp
+			if (hasOwnDraft) {
+				// AppEditor `migrateApp`s the value in place on mount (see its
+				// `migratedDeployedBaseline`), so the draft cell settles to the
+				// MIGRATED app. Match it here, else the first post-mount mirror write
+				// would diverge from the raw value and trip the overwrite prompt
+				// before any edit. Mirrors raw_app's bundle-matching baseline.
+				const overlayBaseline = structuredClone($state.snapshot(pendingLoad.value)) as App
+				migrateApp(overlayBaseline)
+				OtherUserDraftLoad.beginOverlay({
+					workspace: $workspaceStore!,
+					itemKind: 'app',
+					path,
+					ownerLabel: pendingLoad.ownerLabel,
+					// AppEditor stores the bare (migrated) App in the draft cell.
+					loadedValue: overlayBaseline,
+					onResetToOwnDraft: async () => {
+						await loadApp({ getDraft: true })
+						redraw++
+					}
+				})
+			}
 		}
 		// Assign the fresh response onto `app`. The path-change $effect sets
 		// `app = undefined` first, unmounting AppEditor and releasing the UserDraft
@@ -352,6 +400,8 @@
 	itemKind="app"
 	{path}
 	{otherDraftsUsers}
+	draftOnly={isNewApp}
+	hasOwnDraft={loadedFromDraft}
 	onLoadFromServer={async () => {
 		// AppEditor's `stateApp` is captured at mount and ignores prop changes,
 		// so `redraw++` remounts it against the fresh `app`.

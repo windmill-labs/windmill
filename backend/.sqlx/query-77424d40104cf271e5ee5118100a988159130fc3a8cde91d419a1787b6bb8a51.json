@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            runnable_kind AS \"runnable_kind!: AssetUsageKind\",\n            runnable_path AS \"runnable_path!\",\n            trigger_kind::text AS \"trigger_kind!\",\n            trigger_ref   AS \"trigger_ref!\"\n        FROM script_trigger\n        WHERE workspace_id = $1\n          AND trigger_kind = 'asset'\n          AND ($2::text IS NULL OR runnable_path LIKE $2)\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "runnable_kind!: AssetUsageKind",
+        "type_info": {
+          "Custom": {
+            "name": "asset_usage_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "flow",
+                "job"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "runnable_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "trigger_kind!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "trigger_ref!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "77424d40104cf271e5ee5118100a988159130fc3a8cde91d419a1787b6bb8a51"
+}

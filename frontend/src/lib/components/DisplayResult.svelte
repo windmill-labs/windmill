@@ -7,7 +7,7 @@
 	import { base } from '$lib/base'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { appendViewToken } from '$lib/viewToken'
-	import { Button, Drawer, DrawerContent } from './common'
+	import { Badge, Button, Drawer, DrawerContent } from './common'
 	import {
 		ClipboardCopy,
 		Download,
@@ -16,8 +16,10 @@
 		Braces,
 		Highlighter,
 		ArrowDownFromLine,
+		Database,
 		Loader2
 	} from 'lucide-svelte'
+	import DucklakeResultPreview from './assets/AssetGraph/DucklakeResultPreview.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import DisplayResultControlBar from './DisplayResultControlBar.svelte'
 
@@ -68,6 +70,7 @@
 		| 'filename'
 		| 's3object'
 		| 's3object-list'
+		| 'materialized'
 		| 'plain'
 		| 'markdown'
 		| 'map'
@@ -195,6 +198,28 @@
 		return keys.includes('s3') && typeof result.s3 === 'string'
 	}
 
+	// The materialize-run summary — `[{ materialized: 'ducklake://…', rows,
+	// snapshot_id }]` or the bare object. The shape is narrow (a `ducklake://`
+	// value plus a `snapshot_id` key) so an ordinary user result isn't hijacked.
+	function parseMaterializedResult(
+		res: any
+	):
+		| { materialized: string; partition?: string; rows?: number; snapshot_id?: number | null }
+		| undefined {
+		const obj = Array.isArray(res) && res.length === 1 ? res[0] : res
+		if (
+			obj &&
+			typeof obj === 'object' &&
+			typeof obj.materialized === 'string' &&
+			obj.materialized.startsWith('ducklake://') &&
+			'snapshot_id' in obj
+		) {
+			return obj
+		}
+		return undefined
+	}
+
+	let showMaterializedPreview = $state(true)
 	let is_render_all = $state(false)
 	let download_as_csv = $state(false)
 	function inferResultKind(result: any) {
@@ -221,6 +246,13 @@
 			}
 			try {
 				let keys = result && typeof result === 'object' ? Object.keys(result) : []
+
+				if (parseMaterializedResult(result)) {
+					largeObject = false
+					is_render_all = false
+					return 'materialized'
+				}
+
 				is_render_all =
 					keys.length == 1 && keys.includes('render_all') && Array.isArray(result['render_all'])
 
@@ -832,6 +864,43 @@
 							></div
 						>
 					</div>
+				{:else if !forceJson && resultKind === 'materialized'}
+					{@const m = parseMaterializedResult(result)}
+					{#if m}
+						<div class="flex flex-col gap-2 w-full">
+							<div class="flex items-center gap-2 flex-wrap text-xs">
+								<Database size={14} class="text-tertiary shrink-0" />
+								<span class="font-mono text-emphasis break-all">{m.materialized}</span>
+								{#if m.partition}
+									<Badge color="blue">partition {m.partition}</Badge>
+								{/if}
+								{#if typeof m.rows === 'number'}
+									<Badge color="green">
+										{m.rows}
+										{m.rows === 1 ? 'row' : 'rows'}{m.partition ? ' in partition' : ''}
+									</Badge>
+								{/if}
+								{#if m.snapshot_id != null}
+									<Badge color="gray">snapshot {m.snapshot_id}</Badge>
+								{/if}
+							</div>
+							<Toggle
+								class="flex"
+								bind:checked={showMaterializedPreview}
+								size="xs"
+								options={{ right: 'Preview rows' }}
+							/>
+							{#if showMaterializedPreview}
+								<div class="border rounded-md h-80 min-h-0 overflow-hidden">
+									<DucklakeResultPreview
+										assetUri={m.materialized}
+										partition={m.partition}
+										class="h-full"
+									/>
+								</div>
+							{/if}
+						</div>
+					{/if}
 				{:else if !forceJson && resultKind === 's3object'}
 					{@const s3object = parseS3Object(result) as typeof result}
 					<div

@@ -150,6 +150,7 @@
 			workspace={$workspaceStore ?? undefined}
 			itemKind="flow"
 			path={flow.path}
+			onMigrated={() => dispatch('change')}
 		/>
 		{#if flow.labels?.length}
 			<div class="flex items-center gap-0.5">
@@ -229,7 +230,10 @@
 								}
 							},
 							type: 'delete',
-							disabled: !owner,
+							// A draft-only row is always the authed user's own draft (the
+							// list endpoint only surfaces own/legacy draft-only rows), so
+							// discarding it never requires write permission on the path.
+							disabled: !showEditButton,
 							hide: $userStore?.operator
 						}
 					]
