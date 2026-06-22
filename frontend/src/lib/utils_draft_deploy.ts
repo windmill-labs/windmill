@@ -37,6 +37,7 @@ import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import type { DeployResult } from '$lib/utils_workspace_deploy'
 import { TRIGGER_RUNTIME_IGNORE } from '$lib/utils_deployable'
 import { deployRawAppDraft } from '$lib/rawAppDeploy'
+import { canonicalRawAppDiffValue } from '$lib/components/raw_apps/utils'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 import { userStore } from '$lib/stores'
@@ -219,6 +220,16 @@ export async function getDraftDiffValues(
 			getDraft: true,
 			rawApp: kind === 'raw_app'
 		})) as any
+		if (kind === 'raw_app' || r.raw_app === true) {
+			// Raw-app drafts are stored flat (files/runnables/data top-level) while the
+			// deployed row nests them under `value`, and deployed inline scripts carry
+			// server-recomputed locks. Canonicalize both onto the same shape with the
+			// post-deploy noise stripped — the same module the editor's Diff button uses.
+			return {
+				deployed: draftOnly ? canonicalRawAppDiffValue({}) : canonicalRawAppDiffValue(r),
+				draft: canonicalRawAppDiffValue(r.draft ?? r)
+			}
+		}
 		const deployed = {
 			summary: r.summary,
 			value: r.value,
