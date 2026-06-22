@@ -31,7 +31,9 @@ use windmill_common::tracing_init::{LOGS_SERVICE, TMP_WINDMILL_LOGS_SERVICE};
 use windmill_common::worker::WINDMILL_DIR;
 use windmill_common::{DB, INSTANCE_NAME, JOB_RETENTION_SECS, SERVICE_LOG_RETENTION_SECS};
 
-use windmill_object_store::object_store_reexports::{ObjectStore, Path as ObjectPath};
+use windmill_object_store::object_store_reexports::{
+    ObjectStore, ObjectStoreError, Path as ObjectPath,
+};
 
 pub const TASK_NAME: &str = "log_cleanup";
 
@@ -61,6 +63,10 @@ pub struct LogCleanupProgress {
     pub total_jobs: u64,
     pub processed_jobs: u64,
     pub s3_deleted: u64,
+    /// Number of delete calls that returned 404 (object already absent — a no-op
+    /// success). GCS returns 404 per missing key where S3's DeleteObjects stays silent.
+    #[serde(default)]
+    pub s3_not_found: u64,
     /// Number of S3 objects inspected during the orphan scan phase.
     pub orphans_scanned: u64,
     /// Number of orphan S3 objects deleted (no corresponding DB row).
@@ -81,6 +87,7 @@ impl LogCleanupProgress {
             total_jobs: 0,
             processed_jobs: 0,
             s3_deleted: 0,
+            s3_not_found: 0,
             orphans_scanned: 0,
             orphans_deleted: 0,
             errors: 0,
@@ -132,6 +139,13 @@ impl Session {
             p.phase = "done".to_string();
             p.clone()
         };
+        tracing::info!(
+            "log cleanup finished: {} object(s) deleted from object store, {} already absent (404), {} orphans deleted, {} error(s)",
+            snapshot.s3_deleted,
+            snapshot.s3_not_found,
+            snapshot.orphans_deleted,
+            snapshot.errors
+        );
         if let Err(e) = background_task::release(&self.db, TASK_NAME, &self.owner, &snapshot).await
         {
             tracing::warn!("log cleanup: failed to release lease: {e:#}");
@@ -179,21 +193,32 @@ pub async fn get_status(db: &DB) -> error::Result<Option<LogCleanupProgress>> {
 async fn s3_bulk_delete(
     store: &Arc<dyn ObjectStore>,
     paths: Vec<ObjectPath>,
-) -> (u64 /* deleted */, u64 /* errors */) {
+) -> (
+    u64, /* deleted */
+    u64, /* not_found */
+    u64, /* errors */
+) {
     let stream = futures::stream::iter(paths.into_iter().map(Ok)).boxed();
     let mut deleted = 0u64;
+    let mut not_found = 0u64;
     let mut errors = 0u64;
     let mut res = store.delete_stream(stream);
     while let Some(r) = res.next().await {
         match r {
             Ok(_) => deleted += 1,
+            // Deleting a non-existent object is a successful no-op. S3's DeleteObjects
+            // ignores missing keys, but GCS returns 404 per delete, surfacing as
+            // NotFound — track it separately so it isn't reported as an error.
+            Err(ObjectStoreError::NotFound { .. }) => {
+                not_found += 1;
+            }
             Err(e) => {
                 errors += 1;
                 tracing::warn!("log cleanup: failed to delete object: {e:#}");
             }
         }
     }
-    (deleted, errors)
+    (deleted, not_found, errors)
 }
 
 /// Delete the given relative paths from the local filesystem under `base_dir`.
@@ -265,7 +290,7 @@ async fn cleanup_service_logs(
             .iter()
             .map(|p| ObjectPath::from(format!("{}{}", LOGS_SERVICE, p)))
             .collect();
-        let (deleted, errors) = s3_bulk_delete(store, s3_paths).await;
+        let (deleted, not_found, errors) = s3_bulk_delete(store, s3_paths).await;
         disk_bulk_delete(&*TMP_WINDMILL_LOGS_SERVICE, &rel_paths).await;
 
         session
@@ -275,6 +300,7 @@ async fn cleanup_service_logs(
                     p.total_service = p.processed_service;
                 }
                 p.s3_deleted = p.s3_deleted.saturating_add(deleted);
+                p.s3_not_found = p.s3_not_found.saturating_add(not_found);
                 p.errors = p.errors.saturating_add(errors);
             })
             .await;
@@ -325,7 +351,7 @@ async fn cleanup_job_logs(
             .iter()
             .map(|p| ObjectPath::from(p.clone()))
             .collect();
-        let (deleted, errors) = s3_bulk_delete(store, s3_paths).await;
+        let (deleted, not_found, errors) = s3_bulk_delete(store, s3_paths).await;
         disk_bulk_delete(&*WINDMILL_DIR, &rel_paths).await;
 
         session
@@ -335,6 +361,7 @@ async fn cleanup_job_logs(
                     p.total_jobs = p.processed_jobs;
                 }
                 p.s3_deleted = p.s3_deleted.saturating_add(deleted);
+                p.s3_not_found = p.s3_not_found.saturating_add(not_found);
                 p.errors = p.errors.saturating_add(errors);
             })
             .await;
@@ -561,11 +588,12 @@ async fn flush_service_orphans(
     batch: &mut Vec<ObjectPath>,
 ) {
     let paths = std::mem::take(batch);
-    let (deleted, errors) = s3_bulk_delete(store, paths).await;
+    let (deleted, not_found, errors) = s3_bulk_delete(store, paths).await;
     session
         .update(|p| {
             p.orphans_deleted = p.orphans_deleted.saturating_add(deleted);
             p.s3_deleted = p.s3_deleted.saturating_add(deleted);
+            p.s3_not_found = p.s3_not_found.saturating_add(not_found);
             p.errors = p.errors.saturating_add(errors);
         })
         .await;
@@ -616,11 +644,12 @@ async fn flush_job_orphans(
         return;
     }
 
-    let (deleted, errors) = s3_bulk_delete(store, to_delete).await;
+    let (deleted, not_found, errors) = s3_bulk_delete(store, to_delete).await;
     session
         .update(|p| {
             p.orphans_deleted = p.orphans_deleted.saturating_add(deleted);
             p.s3_deleted = p.s3_deleted.saturating_add(deleted);
+            p.s3_not_found = p.s3_not_found.saturating_add(not_found);
             p.errors = p.errors.saturating_add(errors);
         })
         .await;
