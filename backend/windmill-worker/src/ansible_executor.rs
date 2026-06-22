@@ -13,7 +13,7 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error,
-    git_sync_oss::prepend_token_to_github_url,
+    git_sync_oss::{prepend_token_to_github_url, sanitize_git_url},
     worker::{
         is_allowed_file_location, split_python_requirements, to_raw_value, write_file,
         write_file_at_user_defined_location, Connection, PyVAlias, WORKER_CONFIG,
@@ -847,7 +847,7 @@ pub async fn get_git_repo_full_head_commit_hash(
         .first()
         .ok_or(anyhow!(
             "The HEAD commit hash was not found for repo `{}`",
-            &repo.url
+            sanitize_git_url(&repo.url)
         ))?
         .split_whitespace()
         .next()
@@ -1254,7 +1254,12 @@ pub async fn handle_ansible_job(
                     git_ssh_cmd,
                 )
                 .await
-                .map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
+                .map_err(|e| {
+                    anyhow!(
+                        "Failed to clone git repo `{}`: {e}",
+                        sanitize_git_url(&repo.url)
+                    )
+                })?;
             } else {
                 clone_repo(
                     &repo,
@@ -1269,7 +1274,12 @@ pub async fn handle_ansible_job(
                     git_ssh_cmd,
                 )
                 .await
-                .map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
+                .map_err(|e| {
+                    anyhow!(
+                        "Failed to clone git repo `{}`: {e}",
+                        sanitize_git_url(&repo.url)
+                    )
+                })?;
             }
 
             append_logs(
@@ -1316,7 +1326,7 @@ pub async fn handle_ansible_job(
             append_logs(
                 &job.id,
                 &job.workspace_id,
-                format!("\nCloning {}...\n", &repo.url),
+                format!("\nCloning {}...\n", sanitize_git_url(&repo.url)),
                 conn,
             )
             .await;
@@ -1338,13 +1348,18 @@ pub async fn handle_ansible_job(
                     git_ssh_cmd,
                 )
                 .await
-                .map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
+                .map_err(|e| {
+                    anyhow!(
+                        "Failed to clone git repo `{}`: {e}",
+                        sanitize_git_url(&repo.url)
+                    )
+                })?;
             } else {
                 if req_lockfiles.is_some() {
                     append_logs(
                         &job.id,
                         &job.workspace_id,
-                        format!("Warning: `{}` is using latest commit because the lockfile didn't store a commit hash for this repo. Updates to the repo could break the deployed playbook.\n", &repo.url),
+                        format!("Warning: `{}` is using latest commit because the lockfile didn't store a commit hash for this repo. Updates to the repo could break the deployed playbook.\n", sanitize_git_url(&repo.url)),
                         conn,
                     )
                     .await;
@@ -1362,13 +1377,22 @@ pub async fn handle_ansible_job(
                     git_ssh_cmd,
                 )
                 .await
-                .map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
+                .map_err(|e| {
+                    anyhow!(
+                        "Failed to clone git repo `{}`: {e}",
+                        sanitize_git_url(&repo.url)
+                    )
+                })?;
             }
 
             append_logs(
                 &job.id,
                 &job.workspace_id,
-                format!("Cloned {} into {}\n", &repo.url, &repo.target_path),
+                format!(
+                    "Cloned {} into {}\n",
+                    sanitize_git_url(&repo.url),
+                    &repo.target_path
+                ),
                 conn,
             )
             .await;
