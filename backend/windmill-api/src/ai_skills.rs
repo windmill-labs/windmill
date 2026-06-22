@@ -56,6 +56,10 @@ pub struct SkillUpload {
     pub instructions: String,
 }
 
+const MAX_SKILLS_PER_UPLOAD: usize = 50;
+const MAX_SKILL_DESCRIPTION_LEN: usize = 1_000;
+const MAX_SKILL_INSTRUCTIONS_LEN: usize = 64 * 1024;
+
 /// Skill names become the model-facing id and are interpolated into the system
 /// prompt, so keep them to a conservative slug charset.
 fn validate_skill(skill: &SkillUpload) -> Result<()> {
@@ -79,9 +83,19 @@ fn validate_skill(skill: &SkillUpload) -> Result<()> {
             "skill {name:?} is missing a description (the SKILL.md frontmatter `description`)"
         )));
     }
+    if skill.description.len() > MAX_SKILL_DESCRIPTION_LEN {
+        return Err(Error::BadRequest(format!(
+            "skill {name:?} description must be at most {MAX_SKILL_DESCRIPTION_LEN} bytes"
+        )));
+    }
     if skill.instructions.trim().is_empty() {
         return Err(Error::BadRequest(format!(
             "skill {name:?} has an empty SKILL.md body"
+        )));
+    }
+    if skill.instructions.len() > MAX_SKILL_INSTRUCTIONS_LEN {
+        return Err(Error::BadRequest(format!(
+            "skill {name:?} instructions must be at most {MAX_SKILL_INSTRUCTIONS_LEN} bytes"
         )));
     }
     Ok(())
@@ -141,6 +155,11 @@ async fn upload_skills(
 
     if payload.skills.is_empty() {
         return Err(Error::BadRequest("no skills to upload".to_string()));
+    }
+    if payload.skills.len() > MAX_SKILLS_PER_UPLOAD {
+        return Err(Error::BadRequest(format!(
+            "cannot upload more than {MAX_SKILLS_PER_UPLOAD} skills at a time"
+        )));
     }
     for skill in &payload.skills {
         validate_skill(skill)?;
@@ -221,4 +240,33 @@ async fn delete_skill(
     tx.commit().await?;
 
     Ok(format!("Deleted skill {name} from workspace {w_id}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn skill() -> SkillUpload {
+        SkillUpload {
+            name: "test-skill".to_string(),
+            description: "Useful for tests".to_string(),
+            instructions: "# Test\n\nDo the thing.".to_string(),
+        }
+    }
+
+    #[test]
+    fn validate_skill_rejects_oversized_description() {
+        let mut skill = skill();
+        skill.description = "x".repeat(MAX_SKILL_DESCRIPTION_LEN + 1);
+
+        assert!(matches!(validate_skill(&skill), Err(Error::BadRequest(_))));
+    }
+
+    #[test]
+    fn validate_skill_rejects_oversized_instructions() {
+        let mut skill = skill();
+        skill.instructions = "x".repeat(MAX_SKILL_INSTRUCTIONS_LEN + 1);
+
+        assert!(matches!(validate_skill(&skill), Err(Error::BadRequest(_))));
+    }
 }

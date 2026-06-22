@@ -19,6 +19,11 @@
 	// doesn't sweep in unrelated skills.
 	const MAX_SKILL_DEPTH = 3
 	const MAX_SKILLS_PER_IMPORT = 50
+	const MAX_SKILL_DESCRIPTION_LENGTH = 1_000
+	const MAX_SKILL_INSTRUCTIONS_LENGTH = 64 * 1024
+	const textEncoder = new TextEncoder()
+	const SAMPLE_SKILL_PLACEHOLDER =
+		'---\nname: my-skill\ndescription: what this skill helps with\n---\n\n# My skill\n\nInstructions for the assistant…'
 
 	let skills: SkillListItem[] = $state([])
 	let uploading: boolean = $state(false)
@@ -27,6 +32,7 @@
 	let toDelete: string | undefined = $state(undefined)
 	let pendingImport: SkillUpload[] | undefined = $state(undefined)
 	let pendingSkipped: string[] = $state([])
+	let listRequestId = 0
 
 	let pendingNamesPreview = $derived.by(() => {
 		const p = pendingImport ?? []
@@ -37,12 +43,21 @@
 		return p.length > 12 ? `${shown}, … (+${p.length - 12} more)` : shown
 	})
 
-	async function loadList() {
-		if (!$workspaceStore) return
+	async function loadList(workspace: string | undefined) {
+		const requestId = ++listRequestId
+		if (!workspace) {
+			skills = []
+			return
+		}
 		try {
-			skills = await WorkspaceService.listAiSkills({ workspace: $workspaceStore })
+			const loaded = await WorkspaceService.listAiSkills({ workspace })
+			if (requestId === listRequestId && workspace === $workspaceStore) {
+				skills = loaded
+			}
 		} catch (e) {
-			sendUserToast(`Failed to load skills: ${e}`, true)
+			if (requestId === listRequestId && workspace === $workspaceStore) {
+				sendUserToast(`Failed to load skills: ${e}`, true)
+			}
 		}
 	}
 
@@ -70,6 +85,15 @@
 		return { name, description, instructions: text.slice(fm[0].length).trim() }
 	}
 
+	function validateParsedSkill(skill: SkillUpload): string | undefined {
+		if (textEncoder.encode(skill.description).byteLength > MAX_SKILL_DESCRIPTION_LENGTH) {
+			return `description is longer than ${MAX_SKILL_DESCRIPTION_LENGTH} bytes`
+		}
+		if (textEncoder.encode(skill.instructions).byteLength > MAX_SKILL_INSTRUCTIONS_LENGTH) {
+			return `body is longer than ${MAX_SKILL_INSTRUCTIONS_LENGTH} bytes`
+		}
+	}
+
 	/**
 	 * Turn a map of `relativePath -> content` (from an imported folder) into skills.
 	 * A skill is any `SKILL.md`; its id is the name of the folder holding it.
@@ -92,30 +116,41 @@
 			} else if (!instructions) {
 				skipped.push(`${name} (empty body)`)
 			} else {
-				collected.push({ name, description, instructions })
+				const parsed = { name, description, instructions }
+				const validationError = validateParsedSkill(parsed)
+				if (validationError) {
+					skipped.push(`${name} (${validationError})`)
+				} else {
+					collected.push(parsed)
+				}
 			}
 		}
 		return { skills: collected, skipped }
 	}
 
 	async function uploadSkills(parsed: SkillUpload[], skipped: string[] = []) {
-		if (!$workspaceStore || parsed.length === 0) {
+		const workspace = $workspaceStore
+		if (!workspace || parsed.length === 0) {
 			sendUserToast(
 				`No valid skill found.${skipped.length ? ` Skipped: ${skipped.join(', ')}` : ''}`,
 				true
 			)
 			return false
 		}
+		if (parsed.length > MAX_SKILLS_PER_IMPORT) {
+			sendUserToast(`Cannot add more than ${MAX_SKILLS_PER_IMPORT} skills at a time.`, true)
+			return false
+		}
 		uploading = true
 		try {
 			await WorkspaceService.uploadAiSkills({
-				workspace: $workspaceStore,
+				workspace,
 				requestBody: { skills: parsed }
 			})
 			let message = `Added ${parsed.length} skill(s)`
 			if (skipped.length) message += `; skipped ${skipped.length}: ${skipped.join(', ')}`
 			sendUserToast(message)
-			await loadList()
+			await loadList(workspace)
 			return true
 		} catch (e) {
 			sendUserToast(`Failed to add skills: ${e}`, true)
@@ -139,7 +174,13 @@
 			sendUserToast('The pasted SKILL.md has an empty body.', true)
 			return
 		}
-		if (await uploadSkills([{ name, description, instructions }])) {
+		const parsed = { name, description, instructions }
+		const validationError = validateParsedSkill(parsed)
+		if (validationError) {
+			sendUserToast(`The pasted SKILL.md ${validationError}.`, true)
+			return
+		}
+		if (await uploadSkills([parsed])) {
 			pasteContent = ''
 		}
 	}
@@ -201,18 +242,24 @@
 	}
 
 	async function deleteSkill(name: string) {
-		if (!$workspaceStore) return
+		const workspace = $workspaceStore
+		if (!workspace) return
 		try {
-			await WorkspaceService.deleteAiSkill({ workspace: $workspaceStore, name })
+			await WorkspaceService.deleteAiSkill({ workspace, name })
 			sendUserToast(`Deleted skill ${name}`)
-			await loadList()
+			await loadList(workspace)
 		} catch (e) {
 			sendUserToast(`Failed to delete skill: ${e}`, true)
 		}
 	}
 
 	onMount(() => {
-		loadList()
+		return workspaceStore.subscribe((workspace) => {
+			toDelete = undefined
+			pendingImport = undefined
+			pendingSkipped = []
+			void loadList(workspace)
+		})
 	})
 </script>
 
@@ -224,7 +271,7 @@
 		<Label label="Paste a SKILL.md file">
 			<textarea
 				bind:value={pasteContent}
-				placeholder={'---\nname: my-skill\ndescription: what this skill helps with\n---\n\n# My skill\n\nInstructions for the assistant…'}
+				placeholder={SAMPLE_SKILL_PLACEHOLDER}
 				class="w-full min-h-24 p-2 border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary font-mono text-xs resize-y"
 				rows="5"
 				use:autosize

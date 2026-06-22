@@ -16368,6 +16368,7 @@
                 "properties": {
                   "skills": {
                     "type": "array",
+                    "maxItems": 50,
                     "items": {
                       "type": "object",
                       "required": [
@@ -16377,13 +16378,20 @@
                       ],
                       "properties": {
                         "name": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 255,
+                          "pattern": "^[A-Za-z0-9_-]+$"
                         },
                         "description": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 1000
                         },
                         "instructions": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 65536
                         }
                       }
                     }

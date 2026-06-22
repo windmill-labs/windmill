@@ -10505,6 +10505,7 @@ paths:
               properties:
                 skills:
                   type: array
+                  maxItems: 50
                   items:
                     type: object
                     required:
@@ -10514,10 +10515,17 @@ paths:
                     properties:
                       name:
                         type: string
+                        minLength: 1
+                        maxLength: 255
+                        pattern: "^[A-Za-z0-9_-]+$"
                       description:
                         type: string
+                        minLength: 1
+                        maxLength: 1000
                       instructions:
                         type: string
+                        minLength: 1
+                        maxLength: 65536
       responses:
         "200":
           description: uploaded
