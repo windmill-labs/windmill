@@ -211,6 +211,19 @@
 		})
 	})
 
+	// The autosaved App carries draft-only `path`/`summary` mirrors (added by the
+	// two effects above so the home list / Review & Deploy can read a staged
+	// rename and the summary). They are NOT part of the deployed app value — both
+	// have their own `app`-table columns — so strip them before deploying, diffing,
+	// or comparing against the deployed value, keeping the deployed `value` JSON
+	// clean and the no-op deploy check honest. Mirrors `utils_draft_deploy`'s
+	// draft deploy, which destructures the same keys out.
+	function appValueForDeploy(value: any): any {
+		if (!value || typeof value !== 'object') return value
+		const { path: _p, summary: _s, ...rest } = value
+		return rest
+	}
+
 	const { history, jobsDrawerOpen, refreshComponents } =
 		getContext<AppEditorContext>('AppEditorContext')
 
@@ -254,7 +267,7 @@
 			await AppService.createApp({
 				workspace: $workspaceStore!,
 				requestBody: {
-					value: $app,
+					value: appValueForDeploy($app),
 					path,
 					summary: $summary,
 					policy,
@@ -268,7 +281,7 @@
 			invalidateWorkspacePaths($workspaceStore!)
 			savedApp = {
 				summary: $summary,
-				value: structuredClone($state.snapshot($app)),
+				value: appValueForDeploy(structuredClone($state.snapshot($app))),
 				path: path,
 				policy: policy,
 				custom_path: customPath
@@ -311,7 +324,7 @@
 					orderedJsonStringify(
 						replaceFalseWithUndefined({
 							summary: $summary,
-							value: $app,
+							value: appValueForDeploy($app),
 							path: newEditedPath || savedApp.path,
 							policy,
 							custom_path: customPath
@@ -339,9 +352,13 @@
 
 		deployedBy = deployedApp.created_by
 
-		// Strip off extra information
+		// Strip off extra information. Also drop any draft-only `path`/`summary`
+		// keys baked into a previously-deployed value (legacy apps deployed before
+		// these were stripped) so the no-op deploy check and diff stay symmetric
+		// with the now-stripped editor value.
 		deployedValue = replaceFalseWithUndefined({
 			...deployedApp,
+			value: appValueForDeploy(deployedApp.value),
 			id: undefined,
 			created_at: undefined,
 			created_by: undefined,
@@ -356,7 +373,7 @@
 			workspace: $workspaceStore!,
 			path: $appPath!,
 			requestBody: {
-				value: $app!,
+				value: appValueForDeploy($app),
 				summary: $summary,
 				policy,
 				path: npath,
@@ -371,7 +388,7 @@
 		invalidateWorkspacePaths($workspaceStore!)
 		savedApp = {
 			summary: $summary,
-			value: structuredClone($state.snapshot($app)),
+			value: appValueForDeploy(structuredClone($state.snapshot($app))),
 			path: npath,
 			policy,
 			custom_path: customPath
@@ -613,7 +630,7 @@
 					deployed: deployedValue ?? savedApp,
 					current: {
 						summary: $summary,
-						value: $app,
+						value: appValueForDeploy($app),
 						path: newEditedPath || savedApp.path,
 						policy,
 						custom_path: customPath
@@ -741,7 +758,7 @@
 	bind:deployedValue
 	currentValue={{
 		summary: $summary,
-		value: $app,
+		value: appValueForDeploy($app),
 		path: newEditedPath || savedApp?.path,
 		policy,
 		custom_path: customPath
@@ -785,7 +802,7 @@
 							deployed: deployedValue ?? savedApp,
 							current: {
 								summary: $summary,
-								value: $app,
+								value: appValueForDeploy($app),
 								path: newEditedPath || savedApp.path,
 								policy,
 								custom_path: customPath
