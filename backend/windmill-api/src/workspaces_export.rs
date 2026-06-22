@@ -589,7 +589,10 @@ pub(crate) async fn tarball_workspace(
     // only on the plaintext-secret path: ordinary tarball pulls (structure and
     // encrypted-only values) keep working with workspaces:read, and the workspace
     // key itself stays admin-only (include_key). No-op for unscoped tokens.
-    if plain_secret.or(plain_secrets).unwrap_or(false) && !skip_secrets.unwrap_or(false) {
+    if plain_secret.or(plain_secrets).unwrap_or(false)
+        && !skip_secrets.unwrap_or(false)
+        && !skip_variables.unwrap_or(false)
+    {
         check_scopes(&authed, || "variables:read".to_string())?;
     }
 

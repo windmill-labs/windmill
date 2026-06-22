@@ -834,6 +834,13 @@ async fn oauth_approve_inner(
         .as_deref()
         .is_some_and(|s| s.iter().any(|x| !x.starts_with("if_jobs:filter_tags:")));
     if caller_restricted {
+        // An empty grant would mint a token the auth layer treats as unscoped
+        // (full privileges), so a restricted approver must not produce one.
+        if scopes.is_empty() {
+            return Err(Error::NotAuthorized(
+                "A scope-restricted token cannot approve an empty scope grant".to_string(),
+            ));
+        }
         if scopes.iter().any(|s| !s.starts_with("mcp:")) {
             return Err(Error::NotAuthorized(
                 "A scope-restricted token can only approve MCP (mcp:*) scopes".to_string(),

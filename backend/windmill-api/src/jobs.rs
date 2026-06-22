@@ -4194,19 +4194,42 @@ pub async fn get_resume_urls_internal(
 
 /// Resolve the runnable path of the flow a (possibly step) job belongs to, used
 /// to scope-check resume-signature minting against `jobs:run:flows:<path>`.
-/// Returns an empty string for path-less flows (e.g. previews); an empty path
-/// only matters for scoped tokens, which would not be running such a flow.
+/// Returns an empty string when the path can't be resolved (e.g. previews or an
+/// unknown job); an empty path only matters for path-restricted tokens, which
+/// would not be running such a flow. Never hard-fails, so it can't break resume
+/// for unscoped tokens (the in-flow `get_resume_urls()` path).
 async fn resume_target_flow_path(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {
-    let flow_job_id = get_flow_id_for_job(db, job_id).await?;
-    Ok(sqlx::query_scalar!(
-        "SELECT runnable_path FROM v2_job WHERE id = $1 AND workspace_id = $2",
-        flow_job_id,
+    let job = sqlx::query!(
+        r#"SELECT kind::text as "kind!", parent_job, runnable_path
+           FROM v2_job WHERE id = $1 AND workspace_id = $2"#,
+        job_id,
         w_id
     )
     .fetch_optional(db)
-    .await?
-    .flatten()
-    .unwrap_or_default())
+    .await?;
+    let Some(job) = job else {
+        return Ok(String::new());
+    };
+    // All flow kinds: the job itself is the flow whose path scopes the resume.
+    if matches!(
+        job.kind.as_str(),
+        "flow" | "flowpreview" | "flownode" | "singlestepflow"
+    ) {
+        return Ok(job.runnable_path.unwrap_or_default());
+    }
+    // Otherwise it's a step; its parent is the flow.
+    if let Some(parent) = job.parent_job {
+        return Ok(sqlx::query_scalar!(
+            "SELECT runnable_path FROM v2_job WHERE id = $1 AND workspace_id = $2",
+            parent,
+            w_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .unwrap_or_default());
+    }
+    Ok(job.runnable_path.unwrap_or_default())
 }
 
 /// Get the flow ID for a job. If the job is a flow, returns the job_id.
