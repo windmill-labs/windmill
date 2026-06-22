@@ -697,6 +697,13 @@ fn app_embed_route_denied(domain: ScopeDomain, suffix: &str) -> bool {
 /// domain — workspace app inventory (`exists`, `custom_path_exists`, `list`,
 /// `list_paths*`, `secret_of`, history, management) — is denied.
 fn app_embed_apps_route_allowed(suffix: &str) -> bool {
+    // The embed-token mint endpoints live under `apps_u/` but they create
+    // credentials. A running app never calls them — the trusted embedder session/JWT
+    // mints the token and hands it to the iframe — so deny them here, otherwise an
+    // app embed token could renew itself indefinitely past the 12h expiry.
+    if suffix.starts_with("apps_u/embed_token") {
+        return false;
+    }
     suffix.starts_with("apps/get/p/") || suffix.starts_with("apps_u/")
 }
 

@@ -1232,6 +1232,17 @@ pub async fn mint_app_embed_token(
     opt_authed: Option<&ApiAuthed>,
 ) -> Result<EmbedTokenResponse> {
     let token_and_exp = if let Some(authed) = opt_authed {
+        // An app embed token represents untrusted app JS in the sandboxed iframe; it
+        // must never reach this mint path to renew itself. The 12h expiry is the
+        // blast-radius cap on a leaked embed token, and `ensure_scopes_within_caller`
+        // below would pass a same-scoped renewal (the requested scopes equal the
+        // caller's own), making the credential indefinitely self-renewable. Refresh
+        // minting is the trusted embedder session/JWT's job.
+        if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
+            return Err(Error::NotAuthorized(
+                "App embed tokens cannot mint or renew embed tokens".to_string(),
+            ));
+        }
         let expiration =
             chrono::Utc::now() + chrono::Duration::hours(APP_EMBED_TOKEN_VALIDITY_HOURS);
         let mut scopes: Vec<String> = APP_EMBED_SCOPES.iter().map(|s| s.to_string()).collect();
@@ -4120,6 +4131,11 @@ mod embed_token_tests {
                 "GET",
             ),
             ("/api/w/test/apps/list", "GET"),
+            // The embed-token MINT endpoints are public app routes (`apps_u/`) but
+            // create credentials — denied so a captured embed token can't renew
+            // itself indefinitely past the 12h expiry (refresh is the embedder's job).
+            ("/api/w/test/apps_u/embed_token/secret", "GET"),
+            ("/api/w/test/apps_u/embed_token_by_custom_path/foo", "GET"),
             ("/api/w/test/scripts/list", "GET"),
             ("/api/w/test/variables/list", "GET"),
             ("/api/w/test/resources/update/u/admin/r", "POST"),
