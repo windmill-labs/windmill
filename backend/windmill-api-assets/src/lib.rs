@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Row;
 use windmill_common::{
-    assets::{AssetKind, AssetUsageKind},
+    assets::{parse_asset_trigger_ref, AssetKind, AssetUsageKind},
     db::UserDB,
     error::JsonResult,
     utils::escape_ilike_pattern,
@@ -20,6 +20,65 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_assets))
         .route("/list_by_usages", post(list_assets_by_usages))
         .route("/list_favorites", get(list_favorites))
+        .route("/graph", get(asset_graph))
+        .route("/pipelines", get(list_pipeline_folders))
+        .route("/partitions", get(list_partitions))
+        .route("/record_materialization", post(record_materialization))
+}
+
+#[derive(Deserialize)]
+struct PartitionsQuery {
+    // The materialized asset path (`<ducklake>/<table>`).
+    path: String,
+}
+
+// Per-partition materialization status for a ducklake asset — drives the
+// partition-status grid and the backfill worklist. Materialization targets are
+// ducklake-only in v1, so the kind is fixed.
+async fn list_partitions(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+    Query(q): Query<PartitionsQuery>,
+) -> JsonResult<Vec<windmill_common::materialization::MaterializedPartition>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = windmill_common::materialization::list_materialized_partitions(
+        &mut *tx,
+        &w_id,
+        AssetKind::Ducklake,
+        &q.path,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(rows))
+}
+
+// Record a materialization outcome from a polyglot (Python/TS) `wmill.ducklake`
+// helper running as a pipeline step. The DuckDB `// materialize` engine records
+// this itself; the SDK helpers post here instead so SDK-materialized slices show
+// up in the grid identically. RLS-scoped to the caller's workspace.
+async fn record_materialization(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+    Json(req): Json<windmill_common::materialization::RecordMaterializationRequest>,
+) -> JsonResult<()> {
+    let mut tx = user_db.begin(&authed).await?;
+    windmill_common::materialization::record_materialization(
+        &mut *tx,
+        &w_id,
+        req.asset_kind,
+        &req.asset_path,
+        &req.partition,
+        req.status,
+        req.snapshot_id,
+        req.row_count,
+        req.job_id,
+        req.error.as_deref(),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(()))
 }
 
 #[derive(Deserialize)]
@@ -362,4 +421,446 @@ async fn list_favorites(
     .await?;
 
     Ok(Json(favorites))
+}
+
+// ------------------------------------------------------------------
+// GET /w/:workspace/assets/graph
+// ------------------------------------------------------------------
+// Workspace-wide asset ↔ runnable graph. One row per unique
+// (asset_kind, asset_path, usage_kind, usage_path, access_type) — the
+// frontend aggregates into nodes and edges.
+
+#[derive(Deserialize)]
+struct GraphQuery {
+    pub asset_kinds: Option<String>,
+    pub folder: Option<String>,
+}
+
+#[derive(Serialize, Debug)]
+struct GraphAssetNode {
+    kind: AssetKind,
+    path: String,
+}
+
+#[derive(Serialize, Debug)]
+struct GraphRunnableNode {
+    path: String,
+    usage_kind: AssetUsageKind,
+    // True iff the script was deployed with `// pipeline` — drives the
+    // pipeline-member visual state on the frontend.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    in_pipeline: bool,
+}
+
+// Lineage edge from parsed r/w usages. One per (runnable, asset, access_type)
+// tuple. Informational — not the DAG execution edges.
+#[derive(Serialize, Debug)]
+struct GraphEdge {
+    runnable_path: String,
+    runnable_kind: AssetUsageKind,
+    asset_kind: AssetKind,
+    asset_path: String,
+    access_type: Option<String>,
+}
+
+// Declared `// on <trigger>` trigger edge — the actual execution DAG.
+// Asset edges come from `script_trigger`; the eight native variants
+// (Schedule/Email/Kafka/…/Gcp) come from the per-kind trigger tables joined
+// on `script_path`. Each native variant carries just the trigger row's path;
+// the config (cron, broker, topic, auth, …) lives in its own UI.
+//
+// `webhook` is parsed as an annotation marker but has no dedicated trigger
+// table — every script gets an implicit webhook endpoint — so no variant
+// here. The frontend renders the marker from the source annotations alone.
+#[derive(Serialize, Debug)]
+#[serde(tag = "trigger_kind", rename_all = "lowercase")]
+enum TriggerEdge {
+    Asset {
+        asset_kind: AssetKind,
+        asset_path: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
+    Schedule {
+        path: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
+    Email {
+        path: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
+    Kafka {
+        path: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
+    Mqtt {
+        path: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
+    Nats {
+        path: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
+    Postgres {
+        path: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
+    Sqs {
+        path: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
+    Gcp {
+        path: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
+}
+
+#[derive(Serialize, Debug)]
+struct AssetGraphResponse {
+    assets: Vec<GraphAssetNode>,
+    runnables: Vec<GraphRunnableNode>,
+    edges: Vec<GraphEdge>,
+    triggers: Vec<TriggerEdge>,
+}
+
+async fn asset_graph(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+    Query(q): Query<GraphQuery>,
+) -> JsonResult<AssetGraphResponse> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let kind_filter: Option<Vec<AssetKind>> = q.asset_kinds.as_ref().map(|s| {
+        s.split(',')
+            .filter_map(|k| {
+                serde_json::from_value::<AssetKind>(Value::String(k.trim().into())).ok()
+            })
+            .collect()
+    });
+    let kind_filter_ref = kind_filter.as_deref();
+
+    let folder_filter = q.folder.as_deref().map(|f| format!("f/{}/%", f));
+
+    // One row per (asset_kind, asset_path, usage_kind, usage_path, access_type).
+    // The `usage_kind IN ('script','flow')` clause excludes `job`-kind usage rows
+    // (runtime-detected, ephemeral) so the graph stays stable.
+    let rows = sqlx::query!(
+        r#"
+        SELECT
+            asset.kind        AS "asset_kind!: AssetKind",
+            asset.path        AS "asset_path!",
+            asset.usage_kind  AS "usage_kind!: AssetUsageKind",
+            asset.usage_path  AS "usage_path!",
+            asset.usage_access_type::text AS "access_type"
+        FROM asset
+        WHERE asset.workspace_id = $1
+          AND asset.usage_kind IN ('script', 'flow')
+          AND ($2::asset_kind[] IS NULL OR asset.kind = ANY($2))
+          AND ($3::text IS NULL OR asset.usage_path LIKE $3)
+        GROUP BY asset.kind, asset.path, asset.usage_kind, asset.usage_path, asset.usage_access_type
+        "#,
+        &w_id,
+        kind_filter_ref as Option<&[AssetKind]>,
+        folder_filter.as_deref(),
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Pipeline asset trigger edges, fetched separately so we can widen the
+    // runnable_set for trigger-only endpoints (e.g. an asset trigger whose
+    // asset has no usage in the pipeline yet). Native trigger kinds
+    // (schedule, kafka, mqtt, …) are *not* in `script_trigger` — they're
+    // discovered below by querying each native trigger table directly.
+    let trigger_rows = sqlx::query!(
+        r#"
+        SELECT
+            runnable_kind AS "runnable_kind!: AssetUsageKind",
+            runnable_path AS "runnable_path!",
+            trigger_kind::text AS "trigger_kind!",
+            trigger_ref   AS "trigger_ref!"
+        FROM script_trigger
+        WHERE workspace_id = $1
+          AND trigger_kind = 'asset'
+          AND ($2::text IS NULL OR runnable_path LIKE $2)
+        "#,
+        &w_id,
+        folder_filter.as_deref(),
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Native triggers in scope. Each native trigger table stores its
+    // single-destination `script_path` directly, so we resolve attachment by
+    // joining on that field rather than via `script_trigger`. UNION ALL keeps
+    // it a single round trip; the `kind` column drives the TriggerEdge ctor
+    // below. `schedule` lives in the `schedule` table, which has its own
+    // shape (no workspace_id-only filter — it shares `is_flow` like the
+    // others), but the columns we need line up.
+    let native_trigger_rows = sqlx::query!(
+        r#"
+        SELECT kind, path, script_path, is_flow FROM (
+            SELECT 'schedule' AS kind, path, script_path, is_flow FROM schedule
+                WHERE workspace_id = $1
+                  AND script_path IS NOT NULL
+            UNION ALL
+            SELECT 'email', path, script_path, is_flow FROM email_trigger
+                WHERE workspace_id = $1
+            UNION ALL
+            SELECT 'kafka', path, script_path, is_flow FROM kafka_trigger
+                WHERE workspace_id = $1
+            UNION ALL
+            SELECT 'mqtt', path, script_path, is_flow FROM mqtt_trigger
+                WHERE workspace_id = $1
+            UNION ALL
+            SELECT 'nats', path, script_path, is_flow FROM nats_trigger
+                WHERE workspace_id = $1
+            UNION ALL
+            SELECT 'postgres', path, script_path, is_flow FROM postgres_trigger
+                WHERE workspace_id = $1
+            UNION ALL
+            SELECT 'sqs', path, script_path, is_flow FROM sqs_trigger
+                WHERE workspace_id = $1
+            UNION ALL
+            SELECT 'gcp', path, script_path, is_flow FROM gcp_trigger
+                WHERE workspace_id = $1
+        ) t
+        WHERE ($2::text IS NULL OR script_path LIKE $2)
+        "#,
+        &w_id,
+        folder_filter.as_deref(),
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Which scripts in scope are pipeline members (have `// pipeline`).
+    let pipeline_member_paths = sqlx::query!(
+        r#"
+        SELECT path AS "path!"
+        FROM script
+        WHERE workspace_id = $1
+          AND auto_kind = 'pipeline'
+          AND archived = false
+          AND deleted = false
+          AND ($2::text IS NULL OR path LIKE $2)
+        "#,
+        &w_id,
+        folder_filter.as_deref(),
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Existing scripts / flows in the workspace. Used to filter out
+    // orphan trigger rows whose `script_path` no longer resolves — those
+    // would otherwise be added to `runnable_set` below and surface as
+    // phantom "deployed" runnables on the canvas (matching what the user
+    // can deploy a new trigger against: nothing).
+    let existing_script_paths = sqlx::query_scalar!(
+        r#"SELECT path AS "path!" FROM script
+           WHERE workspace_id = $1
+             AND archived = false
+             AND deleted = false"#,
+        &w_id,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    let existing_flow_paths = sqlx::query_scalar!(
+        r#"SELECT path AS "path!" FROM flow WHERE workspace_id = $1 AND archived = false"#,
+        &w_id,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    let pipeline_member_script_paths: std::collections::HashSet<String> =
+        pipeline_member_paths.into_iter().map(|r| r.path).collect();
+    let existing_script_paths: std::collections::HashSet<String> =
+        existing_script_paths.into_iter().collect();
+    let existing_flow_paths: std::collections::HashSet<String> =
+        existing_flow_paths.into_iter().collect();
+    let runnable_exists = |kind: AssetUsageKind, path: &str| match kind {
+        AssetUsageKind::Script => existing_script_paths.contains(path),
+        AssetUsageKind::Flow => existing_flow_paths.contains(path),
+        // `Job` is a runtime-detected ephemeral runnable (asset usage rows
+        // only), never a target of a stored trigger row. Treat as existing
+        // so we don't accidentally drop ephemeral lineage edges.
+        AssetUsageKind::Job => true,
+    };
+
+    let mut edges = Vec::with_capacity(rows.len());
+    let mut asset_set: std::collections::HashSet<(AssetKind, String)> = Default::default();
+    let mut runnable_set: std::collections::HashSet<(AssetUsageKind, String)> = Default::default();
+
+    // Every pipeline member in scope goes into the graph, even when the parser
+    // didn't detect any asset r/w and the script has no triggers yet. Without
+    // this, a freshly-saved pipeline script whose template body hasn't been
+    // filled in would vanish from the pipeline view on graph refetch.
+    for path in &pipeline_member_script_paths {
+        runnable_set.insert((AssetUsageKind::Script, path.clone()));
+    }
+
+    for r in rows {
+        // Drop asset usage rows whose runnable target was archived/deleted
+        // but whose row in `asset` is still around — those would otherwise
+        // surface as a phantom "deployed" runnable on the canvas with no
+        // way to interact with it, since the underlying script/flow no
+        // longer exists.
+        if !runnable_exists(r.usage_kind, &r.usage_path) {
+            continue;
+        }
+        asset_set.insert((r.asset_kind, r.asset_path.clone()));
+        runnable_set.insert((r.usage_kind, r.usage_path.clone()));
+        edges.push(GraphEdge {
+            runnable_path: r.usage_path,
+            runnable_kind: r.usage_kind,
+            asset_kind: r.asset_kind,
+            asset_path: r.asset_path,
+            access_type: r.access_type,
+        });
+    }
+
+    let mut triggers: Vec<TriggerEdge> =
+        Vec::with_capacity(trigger_rows.len() + native_trigger_rows.len());
+    for t in trigger_rows {
+        // Drop orphan asset-trigger rows — their target runnable no longer
+        // exists (script/flow archived or deleted, or was never deployed).
+        // Without this, an orphan row would surface as a phantom "deployed"
+        // runnable on the canvas (no `unsaved` flag, can't actually be
+        // run / re-targeted by a new trigger).
+        if !runnable_exists(t.runnable_kind, &t.runnable_path) {
+            continue;
+        }
+        runnable_set.insert((t.runnable_kind, t.runnable_path.clone()));
+        if t.trigger_kind.as_str() == "asset" {
+            // trigger_ref is `<prefix><path>` — parse back out so both
+            // endpoints match what the frontend uses for node ids.
+            if let Some((asset_kind, asset_path)) = parse_asset_trigger_ref(&t.trigger_ref) {
+                // Make sure the source asset has a node even if nothing
+                // reads/writes it in this folder.
+                asset_set.insert((asset_kind, asset_path.clone()));
+                triggers.push(TriggerEdge::Asset {
+                    asset_kind,
+                    asset_path,
+                    runnable_kind: t.runnable_kind,
+                    runnable_path: t.runnable_path,
+                });
+            }
+        }
+        // Native kinds (schedule, kafka, mqtt, …) come from per-kind trigger
+        // tables below.
+    }
+
+    // Native trigger attachments — one TriggerEdge per row, the kind chosen
+    // from the discriminator. Add the runnable to the set so a script with
+    // no asset edges but a kafka/schedule attachment still renders on the
+    // canvas.
+    for t in native_trigger_rows {
+        let kind = t.kind.unwrap_or_default();
+        let path = t.path.unwrap_or_default();
+        let script_path = t.script_path.unwrap_or_default();
+        let runnable_kind = if t.is_flow.unwrap_or(false) {
+            AssetUsageKind::Flow
+        } else {
+            AssetUsageKind::Script
+        };
+        // Same orphan filter as the asset-trigger loop above — drop trigger
+        // rows whose target script/flow no longer exists so the graph
+        // doesn't synthesize a phantom deployed runnable.
+        if !runnable_exists(runnable_kind, &script_path) {
+            continue;
+        }
+        runnable_set.insert((runnable_kind, script_path.clone()));
+        let edge = match kind.as_str() {
+            "schedule" => TriggerEdge::Schedule { path, runnable_kind, runnable_path: script_path },
+            "email" => TriggerEdge::Email { path, runnable_kind, runnable_path: script_path },
+            "kafka" => TriggerEdge::Kafka { path, runnable_kind, runnable_path: script_path },
+            "mqtt" => TriggerEdge::Mqtt { path, runnable_kind, runnable_path: script_path },
+            "nats" => TriggerEdge::Nats { path, runnable_kind, runnable_path: script_path },
+            "postgres" => TriggerEdge::Postgres { path, runnable_kind, runnable_path: script_path },
+            "sqs" => TriggerEdge::Sqs { path, runnable_kind, runnable_path: script_path },
+            "gcp" => TriggerEdge::Gcp { path, runnable_kind, runnable_path: script_path },
+            _ => continue,
+        };
+        triggers.push(edge);
+    }
+
+    let mut assets: Vec<GraphAssetNode> = asset_set
+        .into_iter()
+        .map(|(kind, path)| GraphAssetNode { kind, path })
+        .collect();
+    assets.sort_by(|a, b| a.path.cmp(&b.path));
+
+    let mut runnables: Vec<GraphRunnableNode> = runnable_set
+        .into_iter()
+        .map(|(usage_kind, path)| {
+            let in_pipeline = usage_kind == AssetUsageKind::Script
+                && pipeline_member_script_paths.contains(&path);
+            GraphRunnableNode { path, usage_kind, in_pipeline }
+        })
+        .collect();
+    runnables.sort_by(|a, b| a.path.cmp(&b.path));
+
+    Ok(Json(AssetGraphResponse {
+        assets,
+        runnables,
+        edges,
+        triggers,
+    }))
+}
+
+// ------------------------------------------------------------------
+// GET /w/:workspace/assets/pipelines
+// ------------------------------------------------------------------
+// Distinct folder names that contain at least one pipeline-member script
+// (auto_kind='pipeline'). Used by the pipeline-editor folder picker and
+// the "Pipeline" entry in folder views. Keyed by the partial index on
+// `script (workspace_id, path) WHERE auto_kind='pipeline' ...` so this
+// is effectively O(matches).
+
+#[derive(Serialize, Debug)]
+struct PipelineFolder {
+    folder: String,
+    script_count: i64,
+}
+
+async fn list_pipeline_folders(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<PipelineFolder>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = sqlx::query!(
+        r#"
+        SELECT
+            substring(path from '^f/([^/]+)/') AS "folder!",
+            COUNT(*) AS "script_count!"
+        FROM script
+        WHERE workspace_id = $1
+          AND auto_kind = 'pipeline'
+          AND archived = false
+          AND deleted = false
+          AND path LIKE 'f/%'
+        GROUP BY substring(path from '^f/([^/]+)/')
+        ORDER BY substring(path from '^f/([^/]+)/')
+        "#,
+        &w_id,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| PipelineFolder { folder: r.folder, script_count: r.script_count })
+            .collect(),
+    ))
 }

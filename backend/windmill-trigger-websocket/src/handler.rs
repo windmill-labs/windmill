@@ -15,8 +15,8 @@ use windmill_git_sync::DeployedObject;
 use windmill_trigger::{Trigger, TriggerCrud, TriggerData};
 
 use super::{
-    get_url_from_runnable_value, proxy::connect_async_with_proxy, TestWebsocketConfig,
-    WebsocketConfig, WebsocketConfigRequest, WebsocketTrigger,
+    get_url_from_runnable_value, proxy::connect_async_with_proxy, validate_websocket_url_for_ssrf,
+    TestWebsocketConfig, WebsocketConfig, WebsocketConfigRequest, WebsocketTrigger,
 };
 
 #[async_trait]
@@ -28,7 +28,8 @@ impl TriggerCrud for WebsocketTrigger {
 
     const TABLE_NAME: &'static str = "websocket_trigger";
     const TRIGGER_TYPE: &'static str = "websocket";
-    const DRAFT_KIND: windmill_common::user_drafts::UserDraftItemKind = windmill_common::user_drafts::UserDraftItemKind::TriggerWebsocket;
+    const DRAFT_KIND: windmill_common::user_drafts::UserDraftItemKind =
+        windmill_common::user_drafts::UserDraftItemKind::TriggerWebsocket;
     const SUPPORTS_SERVER_STATE: bool = true;
     const SUPPORTS_TEST_CONNECTION: bool = true;
     const ROUTE_PREFIX: &'static str = "/websocket_triggers";
@@ -59,6 +60,13 @@ impl TriggerCrud for WebsocketTrigger {
             return Err(Error::BadRequest(
                 "WebSocket URL cannot be empty".to_string(),
             ));
+        }
+
+        // Reject SSRF targets at save time for static URLs. A `$flow:`/`$script:`
+        // URL is only known at runtime, so it is validated at connect time
+        // instead (in the listener and test handler).
+        if !config.url.starts_with('$') {
+            validate_websocket_url_for_ssrf(&config.url).await?;
         }
 
         if let Some(args) = &config.url_runnable_args {
@@ -276,6 +284,8 @@ impl TriggerCrud for WebsocketTrigger {
         } else {
             Cow::Borrowed(&url)
         };
+
+        validate_websocket_url_for_ssrf(&connect_url).await?;
 
         connect_async_with_proxy(&*connect_url)
             .await

@@ -34,7 +34,8 @@ export const USER_DRAFT_ITEM_KINDS = [
 	'trigger_cli',
 	'trigger_nextcloud',
 	'trigger_google',
-	'trigger_github'
+	'trigger_github',
+	'data_pipeline'
 ] as const satisfies readonly UserDraftItemKind[]
 
 // Reverse direction: every union member must appear in the array above.
@@ -500,6 +501,11 @@ export const UserDraft = {
 			path: string
 			workspace?: string
 			canBeDisabled?: boolean
+			/** See the `useMany` spec field. Seeds the cell on first acquire
+			 *  without POSTing. Pass a STABLE reference (read it under `untrack`)
+			 *  — it's consumed once, so re-reading reactive state here only churns
+			 *  the reconcile. */
+			defaultValue?: V
 			/** See the `useMany` spec field. Captured per re-keyed acquire. */
 			discardIf?: (val: V) => boolean
 		}
@@ -565,15 +571,19 @@ export const UserDraft = {
 			const next: UserDraftHandle<V>[] = []
 
 			for (const spec of specs) {
-				const ws = spec.workspace ?? resolveWorkspace()
-				const mk = mapKey(ws, spec.itemKind, spec.path)
+				// Resolve the workspace WITHOUT throwing: a reactive caller (e.g. an
+				// SDK editor mounted before login) may not have one yet. An absent
+				// workspace is handled like an empty path below, so the handle
+				// re-keys into a real entry once the workspace resolves.
+				const ws = spec.workspace ?? get(workspaceStore) ?? undefined
+				const mk = mapKey(ws ?? '', spec.itemKind, spec.path)
 
-				// Empty path = no draftable item (e.g. read-only
-				// historical-hash view that still binds an editor value).
+				// No workspace yet, or empty path = no draftable item (e.g. a
+				// read-only historical-hash view that still binds an editor value).
 				// Acquiring would mirror edits into an unroutable
 				// `POST /drafts/update/kind/` (permanent "Save failed").
 				// Hand out a detached, local-only handle instead.
-				if (!spec.path) {
+				if (!ws || !spec.path) {
 					seen.add(mk)
 					let handle = handleCache.get(mk)
 					// Drop the cached handle when the caller hands in a fresh

@@ -9,6 +9,7 @@
 		nbDisplayed: number
 		items: ItemType[] | undefined
 		isSearching?: boolean
+		pipelineFolders?: Set<string>
 	}
 
 	let {
@@ -16,7 +17,8 @@
 		showCode,
 		nbDisplayed = $bindable(),
 		items,
-		isSearching = false
+		isSearching = false,
+		pipelineFolders
 	}: Props = $props()
 
 	let groupedItems: ReturnType<typeof groupItems> | 'loading' = $state('loading')
@@ -43,6 +45,7 @@
 					{isSearching}
 					{collapseAll}
 					{item}
+					{pipelineFolders}
 					on:scriptChanged
 					on:flowChanged
 					on:appChanged

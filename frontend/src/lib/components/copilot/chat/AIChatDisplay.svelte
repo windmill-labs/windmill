@@ -623,11 +623,13 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							{:else}
 								<ChatTypingIndicator
 									loading={aiChatManager.loading}
-									label={aiChatManager.currentReasoningActive &&
-									!aiChatManager.currentReply &&
-									!aiChatManager.currentReasoning
-										? 'Thinking'
-										: undefined}
+									label={aiChatManager.compacting
+										? 'Compacting conversation'
+										: aiChatManager.currentReasoningActive &&
+											  !aiChatManager.currentReply &&
+											  !aiChatManager.currentReasoning
+											? 'Thinking'
+											: undefined}
 								/>
 							{/if}
 						</div>
@@ -703,7 +705,6 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			{#if inputPreface}
 				{@render inputPreface()}
 			{/if}
-			<ContextUsageIndicator />
 			<AIChatInput
 				bind:this={aiChatInput}
 				bind:selectedContext
@@ -956,6 +957,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{/if}
 					</div>
 				{/if}
+			</div>
+			<div class="flex px-1 mt-1">
+				<ContextUsageIndicator />
 			</div>
 		</div>
 		{#if (aiChatManager.mode === AIMode.NAVIGATOR || aiChatManager.mode === AIMode.ASK) && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}

@@ -48,7 +48,9 @@ use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
 use windmill_common::{
     error::{Error, JsonResult, Result},
-    global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
+    global_settings::{
+        AUTOMATE_USERNAME_CREATION_SETTING, DISABLE_WORKSPACE_INVITE_EMAILS_SETTING,
+    },
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
@@ -5354,6 +5356,20 @@ async fn unarchive_workspace(
     Ok(format!("Unarchived workspace {}", &w_id))
 }
 
+/// Whether the instance is configured to suppress the email notifications sent
+/// when a user is invited or added to a workspace. Defaults to false (emails on).
+async fn workspace_invite_emails_disabled(db: &DB) -> Result<bool> {
+    Ok(
+        windmill_common::global_settings::load_value_from_global_settings(
+            db,
+            DISABLE_WORKSPACE_INVITE_EMAILS_SETTING,
+        )
+        .await?
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false),
+    )
+}
+
 async fn invite_user(
     ApiAuthed { username, is_admin, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -5412,16 +5428,18 @@ async fn invite_user(
 
     tx.commit().await?;
 
-    send_email_if_possible(
-        &format!("Invited to Windmill's workspace: {w_id}"),
-        &format!(
-            "You have been granted access to Windmill's workspace {w_id}
+    if !workspace_invite_emails_disabled(&db).await? {
+        send_email_if_possible(
+            &format!("Invited to Windmill's workspace: {w_id}"),
+            &format!(
+                "You have been granted access to Windmill's workspace {w_id}
 
 If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
-            (**BASE_URL.load()).clone()
-        ),
-        &nu.email,
-    );
+                (**BASE_URL.load()).clone()
+            ),
+            &nu.email,
+        );
+    }
 
     webhook.send_instance_event(InstanceEvent::UserInvitedWorkspace {
         email: nu.email.clone(),
@@ -5564,17 +5582,19 @@ async fn add_user(
     )
     .await?;
 
-    send_email_if_possible(
-        &format!("Added to Windmill's workspace: {w_id}"),
-        &format!(
-            "You have been granted access to Windmill's workspace {w_id} by {}
+    if !workspace_invite_emails_disabled(&db).await? {
+        send_email_if_possible(
+            &format!("Added to Windmill's workspace: {w_id}"),
+            &format!(
+                "You have been granted access to Windmill's workspace {w_id} by {}
 
 If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
-            authed.email,
-            (**BASE_URL.load()).clone()
-        ),
-        &nu.email,
-    );
+                authed.email,
+                (**BASE_URL.load()).clone()
+            ),
+            &nu.email,
+        );
+    }
 
     webhook.send_instance_event(InstanceEvent::UserAddedWorkspace {
         workspace: w_id.clone(),
