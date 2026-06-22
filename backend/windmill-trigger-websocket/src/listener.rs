@@ -509,7 +509,7 @@ impl Clone for ReturnMessageChannels {
 }
 
 #[derive(Debug, Deserialize)]
-enum InitialMessage {
+pub(crate) enum InitialMessage {
     #[serde(rename = "raw_message")]
     RawMessage(String),
     #[serde(rename = "runnable_result")]
