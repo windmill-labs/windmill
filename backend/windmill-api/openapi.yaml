@@ -1655,6 +1655,9 @@ paths:
                   s3_deleted:
                     type: integer
                     format: int64
+                  s3_not_found:
+                    type: integer
+                    format: int64
                   orphans_scanned:
                     type: integer
                     format: int64
