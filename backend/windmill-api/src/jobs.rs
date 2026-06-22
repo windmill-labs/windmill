@@ -4022,11 +4022,17 @@ fn conditionally_require_authed_user(
 }
 
 pub async fn create_job_signature(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
     Query(approver): Query<QueryApprover>,
 ) -> error::Result<String> {
+    // The HMAC is treated as full authority by the resume endpoints, so minting
+    // it requires run scope on the suspended job's flow — not merely any
+    // jobs:run scope. No-op for unscoped tokens (incl. the in-flow substep token
+    // used by wmill.get_resume_urls()).
+    let flow_path = resume_target_flow_path(&db, &w_id, job_id).await?;
+    check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
     let key = get_workspace_key(&w_id, &db).await?;
     create_signature(key, job_id, resume_id, approver.approver)
 }
@@ -4109,11 +4115,17 @@ fn build_resume_url(
 }
 
 pub async fn get_resume_urls(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
     Query(approver): Query<QueryApprover>,
 ) -> error::JsonResult<ResumeUrls> {
+    // These URLs embed a resume signature (full resume capability), so a scoped
+    // token must hold run scope on the suspended job's flow. No-op for unscoped
+    // tokens (incl. the in-flow substep token). Trusted internal callers use
+    // get_resume_urls_internal directly and are unaffected.
+    let flow_path = resume_target_flow_path(&db, &w_id, job_id).await?;
+    check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
     get_resume_urls_internal(
         Extension(db),
         Path((w_id, job_id, resume_id)),
@@ -4178,6 +4190,23 @@ pub async fn get_resume_urls_internal(
     };
 
     Ok(Json(res))
+}
+
+/// Resolve the runnable path of the flow a (possibly step) job belongs to, used
+/// to scope-check resume-signature minting against `jobs:run:flows:<path>`.
+/// Returns an empty string for path-less flows (e.g. previews); an empty path
+/// only matters for scoped tokens, which would not be running such a flow.
+async fn resume_target_flow_path(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {
+    let flow_job_id = get_flow_id_for_job(db, job_id).await?;
+    Ok(sqlx::query_scalar!(
+        "SELECT runnable_path FROM v2_job WHERE id = $1 AND workspace_id = $2",
+        flow_job_id,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .unwrap_or_default())
 }
 
 /// Get the flow ID for a job. If the job is a flow, returns the job_id.
@@ -9488,16 +9517,31 @@ mod approval_view_gate_tests {
     fn anonymous_cannot_view_when_auth_required() {
         // The regression: an unauthenticated holder of the approval token must see nothing.
         let c = Some(conds(true, vec![]));
-        assert!(!can_view(&None, &c, Some("f/team/flow"), "trigger@example.com"));
+        assert!(!can_view(
+            &None,
+            &c,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
     }
 
     #[test]
     fn anonymous_can_view_when_no_auth_required() {
         // Unchanged behaviour: token alone is sufficient when auth isn't required.
         let c = Some(conds(false, vec![]));
-        assert!(can_view(&None, &c, Some("f/team/flow"), "trigger@example.com"));
+        assert!(can_view(
+            &None,
+            &c,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
         // No approval conditions at all also allows token-only view.
-        assert!(can_view(&None, &None, Some("f/team/flow"), "trigger@example.com"));
+        assert!(can_view(
+            &None,
+            &None,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
     }
 
     #[test]
@@ -9522,7 +9566,17 @@ mod approval_view_gate_tests {
         let member = Some(authed("carol", false, vec!["approvers".to_string()]));
         let outsider = Some(authed("dave", false, vec!["other".to_string()]));
         // Use a non-owned folder path so ownership doesn't short-circuit the check.
-        assert!(can_view(&member, &c, Some("f/team/flow"), "trigger@example.com"));
-        assert!(!can_view(&outsider, &c, Some("f/team/flow"), "trigger@example.com"));
+        assert!(can_view(
+            &member,
+            &c,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
+        assert!(!can_view(
+            &outsider,
+            &c,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
     }
 }

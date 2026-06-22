@@ -12,6 +12,8 @@ use crate::db::ApiAuthed;
 
 use crate::{apps::AppWithLastVersion, db::DB, folders::Folder};
 
+use windmill_api_auth::check_scopes;
+
 #[cfg(any(
     feature = "http_trigger",
     feature = "websocket",
@@ -582,6 +584,18 @@ pub(crate) async fn tarball_workspace(
         skip_resources
     );
 
+    // The route maps to the `workspaces` domain, but the tarball aggregates
+    // resource and variable data (including decrypted secrets) that the
+    // route-level workspaces:read check does not cover. Gate each included data
+    // class on its own domain scope so a workspaces:read-only token cannot
+    // exfiltrate them.
+    if !skip_resources.unwrap_or(false) {
+        check_scopes(&authed, || "resources:read".to_string())?;
+    }
+    if !skip_variables.unwrap_or(false) {
+        check_scopes(&authed, || "variables:read".to_string())?;
+    }
+
     // Opt-in behavior for surfacing per-resource ACLs on flow/app rows.
     // Folder and group rows have always carried `extra_perms` in source and
     // continue to do so unconditionally (`KeepEvenEmpty`) so existing
@@ -593,6 +607,24 @@ pub(crate) async fn tarball_workspace(
     };
 
     let mut tx = user_db.begin(&authed).await?;
+
+    // Exporting decrypted secrets in bulk is the same capability as a per-item
+    // secret read, so record it for parity with variables.decrypt_secret.
+    if plain_secret.or(plain_secrets).unwrap_or(false)
+        && !skip_variables.unwrap_or(false)
+        && !skip_secrets.unwrap_or(false)
+    {
+        windmill_audit::audit_oss::audit_log(
+            &mut *tx,
+            &authed,
+            "variables.decrypt_secret",
+            windmill_audit::ActionKind::Execute,
+            &w_id,
+            Some("workspace_tarball_export"),
+            None,
+        )
+        .await?;
+    }
 
     // Source-of-truth for fork-ness: the workspace's parent_workspace_id column.
     // The wm-fork-* prefix is a creation-time naming convention that could in
