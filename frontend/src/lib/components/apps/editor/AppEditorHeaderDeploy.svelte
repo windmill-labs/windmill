@@ -214,12 +214,18 @@
 </div>
 <div class="py-6"></div>
 <label for="path" class="text-emphasis text-xs font-semibold">Path</label>
+<!-- initialPath is the Path widget's rename baseline (so reverting a draft to the
+     deployed path isn't flagged "path already used"). For a deployed app use the
+     URL `appPath` (the deployed/original path, available synchronously) — NOT
+     `savedApp.path`, which loads async and would briefly be undefined at mount,
+     leaving the baseline stuck on the renamed `newPath`. A never-deployed draft
+     (newApp) has no original, so its own friendly `newPath` is the baseline. -->
 <Path
 	bind:this={path}
 	bind:dirty={dirtyPath}
 	bind:error={pathError}
 	bind:path={newEditedPath}
-	initialPath={newApp ? newPath : (savedApp?.path ?? newPath)}
+	initialPath={newApp ? newPath : appPath || newPath}
 	namePlaceholder="app"
 	kind="app"
 	autofocus={false}
