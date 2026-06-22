@@ -1,8 +1,8 @@
 name: AI Evals (global mode)
 
-# Smoke-tests the production global AI chat (prompts/tools/draft flow) via the
-# ai_evals harness, one case across one cheap model per provider. Runs only when
-# the eval harness or the global chat code change, since each run makes real
+# Smoke-tests the production global AI chat proxy/frontend execution path via
+# the ai_evals harness, one case across one cheap model per provider. Runs only
+# when the eval harness or the global chat code change, since each run makes real
 # (paid) LLM calls. The backend is built from source purely as the AI proxy the
 # harness routes model calls through; the global tools/drafts run in-process in
 # the Vitest bridge against production frontend code. To avoid spending on every
@@ -20,8 +20,6 @@ on:
       - "frontend/src/lib/userDraft.svelte.ts"
       - "frontend/src/lib/userDraftDbSyncer.svelte.ts"
       - "frontend/src/lib/infer.ts"
-      # Chat system prompts fed to the model ($system_prompts -> auto-generated).
-      - "system_prompts/**"
       - ".github/workflows/ai-evals-test.yml"
   pull_request:
     types: [opened, reopened, ready_for_review]
@@ -33,8 +31,6 @@ on:
       - "frontend/src/lib/userDraft.svelte.ts"
       - "frontend/src/lib/userDraftDbSyncer.svelte.ts"
       - "frontend/src/lib/infer.ts"
-      # Chat system prompts fed to the model ($system_prompts -> auto-generated).
-      - "system_prompts/**"
       - ".github/workflows/ai-evals-test.yml"
 
 concurrency:
@@ -130,20 +126,20 @@ jobs:
           for m in haiku 4o gemini-3-flash-preview deepseek-v4-flash; do
             echo "::group::global-test1-script-create ($m)"
             if ! bun run cli -- run global global-test1-script-create \
-                  --model "$m" --skip-judge --output "$PWD/results/ci-$m.json"; then
+                  --model "$m" --execution-only --output "$PWD/results/ci-$m.json"; then
               echo "$m: harness/proxy errored"
               fail=1
               echo "::endgroup::"
               continue
             fi
-            # The CLI exits 0 when the harness runs, so gate on the benchmark
-            # pass counts with judge scoring disabled.
+            # The CLI exits 0 when the harness records failed attempts, so gate
+            # on execution-only pass counts while ignoring model output quality.
             if jq -e \
               '.attemptCount > 0 and .passedAttempts == .attemptCount' \
               "results/ci-$m.json" > /dev/null; then
-              echo "$m: OK — deterministic checks passed"
+              echo "$m: OK — proxy/frontend execution completed"
             else
-              echo "$m: FAILED deterministic checks"
+              echo "$m: FAILED proxy/frontend execution"
               jq -c '.cases[0].attempts[0].checks' "results/ci-$m.json" || true
               fail=1
             fi

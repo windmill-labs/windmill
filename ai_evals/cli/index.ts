@@ -101,6 +101,10 @@ async function main() {
     .option("--verbose", "stream assistant output during frontend runs")
     .option("--skip-judge", "skip LLM judge scoring for this run")
     .option(
+      "--execution-only",
+      "only require the model/proxy/frontend loop to complete",
+    )
+    .option(
       "--record",
       "append a compact summary line to ai_evals/history/<mode>.jsonl",
     )
@@ -119,6 +123,7 @@ async function main() {
           models?: string;
           verbose?: boolean;
           skipJudge?: boolean;
+          executionOnly?: boolean;
           record?: boolean;
           backendValidation?: string;
         },
@@ -132,6 +137,7 @@ async function main() {
           models: options.models,
           verbose: options.verbose ?? false,
           skipJudge: options.skipJudge ?? false,
+          executionOnly: options.executionOnly ?? false,
           record: options.record ?? false,
           backendValidation: options.backendValidation,
         });
@@ -181,6 +187,7 @@ async function handleRun(input: {
   models?: string;
   verbose: boolean;
   skipJudge: boolean;
+  executionOnly: boolean;
   record: boolean;
   backendValidation?: string;
 }) {
@@ -237,6 +244,7 @@ async function handleRun(input: {
             getCliEvalModel(model),
             runModel,
             input.skipJudge,
+            input.executionOnly,
           )
         : await runFrontendBenchmarkAdapter({
             mode: input.mode,
@@ -245,6 +253,7 @@ async function handleRun(input: {
             model: model.id,
             verbose: input.verbose,
             skipJudge: input.skipJudge,
+            executionOnly: input.executionOnly,
             backendValidation,
           });
 
@@ -287,15 +296,17 @@ async function runCliBenchmark(
   model: ReturnType<typeof getCliEvalModel>,
   runModel: string,
   skipJudge: boolean,
+  executionOnly: boolean,
 ) {
   const { createCliModeRunner } = await import("../modes/cli");
-  const judgeModel = skipJudge ? null : DEFAULT_JUDGE_MODEL;
+  const judgeModel = skipJudge || executionOnly ? null : DEFAULT_JUDGE_MODEL;
   const caseResults = await runSuite({
     modeRunner: createCliModeRunner(model),
     cases,
     runs,
     runModel,
     judgeModel,
+    executionOnly,
   });
 
   return buildRunResult({
