@@ -34,6 +34,9 @@
 	let loading = $state(false)
 	let valid = $state(true)
 	let actionTaken: 'approved' | 'denied' | undefined = $state(undefined)
+	// Whether the current visitor is a logged-in member of this workspace — if so we can
+	// surface a clear, ready-to-use run-details link (the view token grants them access).
+	let isWorkspaceMember = $state(false)
 
 	let pollInterval: number | undefined = undefined
 	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
@@ -57,6 +60,7 @@
 		}
 		loadData()
 		pollInterval = setInterval(loadData, 2000)
+		getUserExt(page.params.workspace ?? '').then((u) => (isWorkspaceMember = !!u))
 	})
 
 	onDestroy(() => {
@@ -146,6 +150,18 @@
 	// strips the approval details (form, description, args, approvers) and getJob is denied.
 	// Hide the empty detail scaffolding and show only the sign-in / not-authorized state.
 	let isLocked = $derived(!!approvalInfo?.user_auth_required && !approvalInfo?.can_approve)
+	// Carry the share-read-link token so a workspace-member approver can open the run
+	// details of a flow they don't otherwise have read access to. Build from the route
+	// params (not `job`): `getJob` is fire-and-forget and gets denied for exactly the
+	// approver this link serves, leaving `job` undefined — and `page.params.job` is the
+	// flow id the token is minted for anyway.
+	let runDetailsHref = $derived.by(() => {
+		let url = `${base}/run/${page.params.job}?workspace=${page.params.workspace}`
+		if (approvalInfo?.view_token) {
+			url += `&view_token=${encodeURIComponent(approvalInfo.view_token)}`
+		}
+		return url
+	})
 	let isWac = $derived(!!(job as any)?.workflow_as_code_status)
 	let filteredArgs = $derived.by(() => {
 		if (!job?.args) return job?.args
@@ -346,14 +362,21 @@
 
 		{#if !isLocked}
 			<div class="mt-4 flex flex-row flex-wrap justify-between">
-				<a
-					class="text-accent text-xs"
-					target="_blank"
-					rel="noreferrer"
-					href="{base}/run/{job?.id}?workspace={job?.workspace_id}"
-				>
-					Open run details (require auth) <ExternalLink size={12} class="inline" />
-				</a>
+				{#if isWorkspaceMember}
+					<Button
+						size="xs"
+						variant="accent-secondary"
+						href={runDetailsHref}
+						target="_blank"
+						endIcon={{ icon: ExternalLink }}
+					>
+						Open run details
+					</Button>
+				{:else}
+					<a class="text-accent text-xs" target="_blank" rel="noreferrer" href={runDetailsHref}>
+						Open run details (require auth) <ExternalLink size={12} class="inline" />
+					</a>
+				{/if}
 			</div>
 		{/if}
 

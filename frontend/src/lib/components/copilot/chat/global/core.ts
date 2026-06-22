@@ -76,6 +76,8 @@ import {
 import { searchDocsTool, readDocsPageTool } from '../docs/core'
 import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
+import { fileTools } from '../files/fileTools'
+import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
 import { inferArgs } from '$lib/infer'
@@ -97,9 +99,10 @@ import {
 	type WorkspaceItem,
 	type WorkspaceItemType
 } from './workspaceItems'
-import { buildFlowDeployRequestBody, buildScriptDeployRequestBody } from './deployRequests'
 import { userStore } from '$lib/stores'
 import { get } from 'svelte/store'
+import { deployDraft as deployDraftToWorkspace } from '$lib/utils_draft_deploy'
+import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	clearEphemeralSecretVariableDraftValue,
@@ -528,6 +531,43 @@ const readAppFileSchema = z.object({
 		.string()
 		.describe(
 			'Frontend file path like /index.tsx, or backend inline runnable path like backend/<key>/main.ts (or main.py).'
+		),
+	offset: z
+		.number()
+		.int()
+		.min(1)
+		.optional()
+		.describe('1-based line number to start reading from. Use to page through a large file.'),
+	limit: z
+		.number()
+		.int()
+		.min(1)
+		.optional()
+		.describe(
+			'Maximum number of lines to return. Large files are truncated by default; pass offset/limit to read a specific line range.'
+		)
+})
+
+const searchAppSchema = z.object({
+	path: z.string().describe('Workspace path of the app, e.g. f/folder/name.'),
+	query: z
+		.string()
+		.describe(
+			'Literal substring to find across all app files (case-insensitive) — not a regex, so spaces and operators match verbatim. Returns matching file:line rows, not file bodies. To find call sites and skip similarly-named helpers, include the call paren (e.g. "formatCurrency(" matches calls but not "formatCurrencyPrecise"). Then read_app_file to inspect the ranges.'
+		),
+	file_glob: z
+		.string()
+		.optional()
+		.describe(
+			'Optional path filter. A pattern without "/" matches the file name anywhere (e.g. "*.tsx"); a pattern with "/" matches the full path (e.g. "/components/*", "backend/**"). Supports * (any chars except /), ** (any chars), and ?.'
+		),
+	max_matches: z
+		.number()
+		.int()
+		.min(1)
+		.optional()
+		.describe(
+			'Maximum number of matching lines to return (default 100, hard cap 200); each is shown with a few lines of surrounding context, so the output has more rows than this.'
 		)
 })
 
@@ -1400,7 +1440,8 @@ function getAppInstructions(): string {
 - \`/wmill.d.ts\` (or \`wmill.ts\`) is generated automatically from the backend runnables — never write it directly.
 - Inline runnables only support \`bun\` or \`python3\` in chat. Path runnables (\`script\`/\`flow\`/\`hubscript\`) reference an existing item.
 - Use \`deploy_workspace_item\` after explicit user deploy intent. The deploy tool bundles JS/CSS before saving the raw app.
-- Use \`read_workspace_item\` with \`type: 'app'\` for a metadata summary (file paths and runnable list, no contents). Use \`read_app_file\` to read an individual file.
+- Use \`read_workspace_item\` with \`type: 'app'\` for a metadata summary (file paths and runnable list, no contents). Use \`read_app_file\` to read an individual file; large files are truncated to a head slice, so pass \`offset\`/\`limit\` to page through the rest rather than re-reading the whole file.
+- To find where a symbol or string lives across the app, call \`search_app\` (greps every frontend file and inline runnable, returns matching \`file:line\` rows) instead of reading files one by one — then \`read_app_file\` only the ranges you need. The loop is list (\`read_workspace_item\`) → locate (\`search_app\`) → inspect (\`read_app_file\` with \`offset\`/\`limit\`).
 - Note: the authoring reference below mentions the CLI on-disk layout (\`backend/<id>.<ext>\`, \`raw_app.yaml\`, \`sql_to_apply/\`). That layout is only relevant for the terminal workflow — in chat, apps are addressed via the tool surface above.
 
 # Windmill raw app authoring reference
@@ -1934,11 +1975,22 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			readAppFileSchema,
 			'read_app_file',
-			'Read one raw app frontend file or inline backend runnable.'
+			'Read one raw app frontend file or inline backend runnable. Large files are truncated to a head slice; pass offset/limit to page through the rest.'
 		),
 		fn: async (ctx) => {
 			const parsed = readAppFileSchema.parse(ctx.args)
 			return readAppFile(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
+			searchAppSchema,
+			'search_app',
+			"Grep across all of a raw app's frontend files and inline backend runnables in one call. Returns matching file:line rows (capped), not file bodies — use it to locate a symbol or string before read_app_file instead of reading whole files one by one."
+		),
+		fn: async (ctx) => {
+			const parsed = searchAppSchema.parse(ctx.args)
+			return searchApp(parsed, ctx)
 		}
 	},
 	{
@@ -2063,7 +2115,9 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
-	...getDatatableTools()
+	...getDatatableTools(),
+	// Read-only tools over files the user attached to the conversation
+	...fileTools
 ]
 
 // Tools that only make sense inside an AI session (they drive the session's
@@ -2108,8 +2162,10 @@ type WriteDraftCtx = {
 // handlers below would route a backgrounded session's tool call to whatever
 // session the user happens to be viewing.
 export type SessionToolHelpers = { sessionId?: string }
+
 export type GlobalToolHelpers = SessionToolHelpers & {
 	testActiveFlow?: (args?: Record<string, any>) => Promise<string | undefined>
+	attachedFiles?: AttachedFilesStore
 }
 
 function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {
@@ -2450,7 +2506,7 @@ function finishDraftWrite(
 type WriteSpec<T, A> = {
 	probe: (workspace: string, path: string) => Promise<boolean>
 	fetchDeployed: (workspace: string, path: string) => Promise<T>
-	buildDraft: (base: T | undefined, args: A, path: string) => T
+	buildDraft: (base: T | undefined, args: A, path: string) => T | Promise<T>
 	beforePersist?: (workspace: string, args: A) => void
 }
 
@@ -2473,7 +2529,7 @@ async function writeDraft<T, A>(
 		existed = true
 	}
 
-	const draft = spec.buildDraft(base, args, path)
+	const draft = await spec.buildDraft(base, args, path)
 	spec.beforePersist?.(workspace, args)
 
 	const result = await persistGlobalDraft(workspace, type, path, draft, {
@@ -2497,8 +2553,8 @@ const SCRIPT_SPEC: WriteSpec<NewScript, ScriptDraftArgs> = {
 		const existing = await ScriptService.getScriptByPath({ workspace, path })
 		return { ...(existing as unknown as NewScript), parent_hash: existing.hash }
 	},
-	buildDraft: (base, args, path) =>
-		base
+	buildDraft: async (base, args, path) => {
+		const draft: NewScript = base
 			? {
 					...structuredClone(base),
 					path,
@@ -2516,6 +2572,18 @@ const SCRIPT_SPEC: WriteSpec<NewScript, ScriptDraftArgs> = {
 					language: args.language,
 					kind: 'script'
 				}
+		// Infer the arg schema from the content at save time, like the editor does,
+		// so the persisted draft is the single source of truth at deploy. Keep the
+		// previous schema (or empty) on failure rather than blanking it.
+		try {
+			const schema = emptySchema()
+			await inferArgs(draft.language, draft.content, schema)
+			draft.schema = schema
+		} catch (e) {
+			console.error('Failed to infer script schema before saving draft', e)
+		}
+		return draft
+	}
 }
 
 function writeScriptDraft(args: ScriptDraftArgs, ctx: WriteDraftCtx): Promise<string> {
@@ -2967,8 +3035,89 @@ async function initApp(
 	}))
 }
 
+// read_app_file caps: a large frontend file or inline runnable would otherwise
+// enter context in full and persist for the rest of the session. Default to a
+// head slice with a pointer to page further; the model widens with offset/limit.
+// The char budget is a hard ceiling on a single read: a selected line window over
+// it is truncated and the model is told to narrow the line range. There is no
+// char-level paging, so a single line longer than the budget can't be read past —
+// add paging here if minified/long-line files must be fully readable.
+const READ_APP_FILE_DEFAULT_LINE_LIMIT = 1500
+const READ_APP_FILE_CHAR_BUDGET = 50_000
+
+type AppFileSlice = {
+	body: string
+	startLine: number
+	endLine: number
+	requestedStartLine: number
+	totalLines: number
+	lineWindowChars: number
+	charTruncated: boolean
+	truncated: boolean
+}
+
+function sliceAppFileForRead(content: string, offset?: number, limit?: number): AppFileSlice {
+	const lines = content.split('\n')
+	const totalLines = lines.length
+	const requestedStartLine = offset ?? 1
+	const start = Math.min(Math.max(requestedStartLine - 1, 0), totalLines)
+	const lineLimit = limit ?? READ_APP_FILE_DEFAULT_LINE_LIMIT
+	const end = Math.min(start + lineLimit, totalLines)
+	const selectedBody = lines.slice(start, end).join('\n')
+	const lineWindowChars = selectedBody.length
+	const body = selectedBody.slice(0, READ_APP_FILE_CHAR_BUDGET)
+	const charTruncated = lineWindowChars > READ_APP_FILE_CHAR_BUDGET
+
+	return {
+		body,
+		startLine: start + 1,
+		endLine: end,
+		requestedStartLine,
+		totalLines,
+		lineWindowChars,
+		charTruncated,
+		truncated: start > 0 || end < totalLines || charTruncated
+	}
+}
+
+function formatAppFileReadRangeLabel(slice: AppFileSlice): string {
+	const lineRange = `lines ${slice.startLine}-${slice.endLine} of ${slice.totalLines}`
+	if (!slice.charTruncated) {
+		return lineRange
+	}
+	return `${lineRange}, truncated to the first ${READ_APP_FILE_CHAR_BUDGET} of ${slice.lineWindowChars} chars`
+}
+
+// Small files (returned whole, starting at line 1) keep the raw body so
+// patch_app_file's exact-match stays trivial; truncated/windowed reads get a
+// one-line annotation describing the range (not part of the file).
+function formatAppFileReadResult(slice: AppFileSlice): string {
+	// offset past the last line: report it plainly instead of a backwards range.
+	if (slice.requestedStartLine > slice.totalLines) {
+		return `offset ${slice.requestedStartLine} is past the end of the file (${slice.totalLines} lines).`
+	}
+	if (!slice.truncated && slice.startLine === 1) {
+		return slice.body
+	}
+
+	let more = ''
+	if (slice.charTruncated) {
+		more = ` Reached the ${READ_APP_FILE_CHAR_BUDGET}-char limit; re-read with a smaller limit (fewer lines). If a single line exceeds the limit the file is likely minified and not readable this way.`
+	} else if (slice.endLine < slice.totalLines) {
+		more = ` Call read_app_file again with offset=${slice.endLine + 1} to continue.`
+	}
+	// No tool-name/path prefix: the model already has them from the call args. The
+	// range line orients it; the body follows after a blank line.
+	return `${formatAppFileReadRangeLabel(slice)}.${more}\n\n${slice.body}`
+}
+
 async function readAppFile(
-	args: { path: string; file_path: string },
+	args: {
+		path: string
+		file_path: string
+		offset?: number
+		limit?: number
+	},
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
@@ -2979,18 +3128,190 @@ async function readAppFile(
 
 	const value = await loadAppValueForRead(args.path, workspace)
 
+	let content: string
 	if (target.kind === 'frontend') {
-		const content = value.files[target.filePath]
-		if (content === undefined) {
+		const frontend = value.files[target.filePath]
+		if (frontend === undefined) {
 			throw new Error(`Frontend file "${target.filePath}" not found in app "${args.path}".`)
 		}
-		toolCallbacks.setToolStatus(toolId, { content: `Read ${target.filePath}` })
-		return content
+		content = frontend
+	} else {
+		content = getInlineRunnableContent(value, target, args.path).content
 	}
 
-	const { content } = getInlineRunnableContent(value, target, args.path)
+	const slice = sliceAppFileForRead(content, args.offset, args.limit)
+
 	toolCallbacks.setToolStatus(toolId, { content: `Read ${target.filePath}` })
-	return content
+	return formatAppFileReadResult(slice)
+}
+
+// search_app caps: a single query must stay sparse and cheap even when it hits a
+// minified bundle or a 5k-line data module. Per-line and total-output caps bound
+// the result the same way read_app_file's char budget bounds one file read; the
+// match cap keeps a broad query from flooding context instead of locating it.
+const SEARCH_APP_DEFAULT_MAX_MATCHES = 100
+const SEARCH_APP_MAX_MATCHES_CEILING = 200
+const SEARCH_APP_MAX_LINE_CHARS = 200
+const SEARCH_APP_TOTAL_CHAR_BUDGET = 12_000
+// Fixed surrounding-context window per match, kept off the tool schema to keep it
+// lean. Bump if matches need more context than the line ± this.
+const SEARCH_APP_CONTEXT_LINES = 2
+
+type AppSearchableFile = { filePath: string; content: string }
+
+// The files search_app scans: frontend files (minus generated ones) plus inline
+// backend runnables, each addressed exactly as read_app_file expects so a match
+// row's path can be passed straight back to read_app_file.
+function collectSearchableAppFiles(value: AppDraftValue): AppSearchableFile[] {
+	const files: AppSearchableFile[] = []
+	for (const [filePath, content] of Object.entries(value.files)) {
+		if (GENERATED_APP_FILE_PATHS.has(filePath)) continue
+		if (typeof content === 'string') files.push({ filePath, content })
+	}
+	for (const [key, runnable] of Object.entries(value.runnables)) {
+		const persisted = runnable as PersistedRunnable | undefined
+		const content = persisted?.inlineScript?.content
+		if (typeof content !== 'string') continue
+		files.push({ filePath: `backend/${key}/main.${getInlineScriptExtension(persisted)}`, content })
+	}
+	return files
+}
+
+// Minimal glob: * = any chars except '/', ** = any chars, ? = single non-slash.
+// A pattern without '/' matches the file name only (ripgrep-style), so "*.tsx"
+// finds nested files; a pattern with '/' matches the full path.
+function appFileMatchesGlob(filePath: string, glob: string): boolean {
+	const hasSlash = glob.includes('/')
+	const subject = hasSlash ? filePath : filePath.slice(filePath.lastIndexOf('/') + 1)
+	const body = glob
+		.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+		.replace(/\*\*/g, '\u0000')
+		.replace(/\*/g, '[^/]*')
+		.replace(/\u0000/g, '.*')
+		.replace(/\?/g, '[^/]')
+	try {
+		return new RegExp(`^${body}$`).test(subject)
+	} catch {
+		return false
+	}
+}
+
+type AppSearchMatch = { filePath: string; line: number; text: string }
+
+async function searchApp(
+	args: {
+		path: string
+		query: string
+		file_glob?: string
+		max_matches?: number
+	},
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const query = args.query
+	if (query.length === 0) {
+		throw new Error('search_app requires a non-empty query.')
+	}
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Searching app "${args.path}" for "${query}"...`
+	})
+
+	const value = await loadAppValueForRead(args.path, workspace)
+	const maxMatches = Math.min(
+		args.max_matches ?? SEARCH_APP_DEFAULT_MAX_MATCHES,
+		SEARCH_APP_MAX_MATCHES_CEILING
+	)
+	const contextLines = SEARCH_APP_CONTEXT_LINES
+	const needle = query.toLowerCase()
+
+	let files = collectSearchableAppFiles(value).sort((a, b) => a.filePath.localeCompare(b.filePath))
+	if (args.file_glob) {
+		files = files.filter((f) => appFileMatchesGlob(f.filePath, args.file_glob as string))
+	}
+
+	const matches: AppSearchMatch[] = []
+	let totalMatchCount = 0
+	// Cap on matching LINES, not pushed rows — each match expands to its context
+	// window, so counting rows would make `max_matches`/"showing the first N" wrong.
+	let renderedMatchCount = 0
+	let fileCount = 0
+	let truncated = false
+	for (const file of files) {
+		const lines = file.content.split('\n')
+		let fileHadMatch = false
+		for (let i = 0; i < lines.length; i++) {
+			if (!lines[i].toLowerCase().includes(needle)) continue
+			totalMatchCount++
+			// Count the file on its first match, before the render cap, so the
+			// "N matches in M files" header counts every file with the symbol — not
+			// only the ones whose matches landed in the rendered slice (find-all-usages).
+			fileHadMatch = true
+			if (renderedMatchCount >= maxMatches) {
+				truncated = true
+				continue
+			}
+			renderedMatchCount++
+			const lo = Math.max(0, i - contextLines)
+			const hi = Math.min(lines.length - 1, i + contextLines)
+			for (let j = lo; j <= hi; j++) {
+				matches.push({ filePath: file.filePath, line: j + 1, text: lines[j] })
+			}
+		}
+		if (fileHadMatch) fileCount++
+	}
+
+	if (totalMatchCount === 0) {
+		toolCallbacks.setToolStatus(toolId, { content: `No matches for "${query}"` })
+		return `No matches. Try a broader or differently-spelled term${
+			args.file_glob ? ', or drop the file_glob' : ''
+		}.`
+	}
+
+	// No tool-name/query prefix: the model already has them from the call args.
+	const header = `${totalMatchCount} match${
+		totalMatchCount === 1 ? '' : 'es'
+	} in ${fileCount} file${fileCount === 1 ? '' : 's'}${
+		truncated
+			? ` (showing the first ${maxMatches}; narrow with file_glob or a more specific query)`
+			: ''
+	}`
+
+	const out: string[] = [header]
+	let currentFile = ''
+	let budgetSpent = header.length
+	let budgetHit = false
+	const seen = new Set<string>()
+	for (const m of matches) {
+		// context windows of adjacent matches overlap — show each source line once.
+		const dedupeKey = `${m.filePath}:${m.line}`
+		if (seen.has(dedupeKey)) continue
+		seen.add(dedupeKey)
+		const text =
+			m.text.length > SEARCH_APP_MAX_LINE_CHARS
+				? `${m.text.slice(0, SEARCH_APP_MAX_LINE_CHARS)}… [line truncated]`
+				: m.text
+		const fileHeader = m.filePath === currentFile ? '' : `${m.filePath}\n`
+		const row = `${fileHeader}  ${m.line}: ${text}`
+		if (budgetSpent + row.length + 1 > SEARCH_APP_TOTAL_CHAR_BUDGET) {
+			budgetHit = true
+			break
+		}
+		if (fileHeader) currentFile = m.filePath
+		out.push(row)
+		budgetSpent += row.length + 1
+	}
+	if (budgetHit) {
+		out.push(
+			`… output truncated at the context budget — narrow with file_glob or a more specific query.`
+		)
+	}
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Found ${totalMatchCount} match${totalMatchCount === 1 ? '' : 'es'} in ${fileCount} file${
+			fileCount === 1 ? '' : 's'
+		}`
+	})
+	return out.join('\n')
 }
 
 async function writeAppFile(
@@ -3274,6 +3595,29 @@ async function discardLocalDraft(
 	)
 }
 
+// Flush a draft's pending editor autosave, then verify it actually landed before
+// the caller re-reads the persisted draft. `flush()` resolves even when the save
+// recorded a conflict (server has a newer version) or failed (network/5xx) — it
+// does not throw — so without this check a deploy could publish a stale/conflicting
+// draft. Abort with a clear message instead.
+async function flushDraftOrThrow(
+	query: Parameters<typeof UserDraftDbSyncer.flush>[0],
+	label: string
+): Promise<void> {
+	await UserDraftDbSyncer.flush(query)
+	if (UserDraftDbSyncer.getConflict(query).conflict) {
+		throw new Error(
+			`Cannot deploy ${label}: the draft has a conflicting newer version on the server. Open it in the editor and resolve the conflict first.`
+		)
+	}
+	const { state, failureMessage } = UserDraftDbSyncer.getState(query)
+	if (state === 'failed') {
+		throw new Error(
+			`Cannot deploy ${label}: saving the latest draft failed (${failureMessage ?? 'unknown error'}). Retry once the draft saves.`
+		)
+	}
+}
+
 async function deployDraft(
 	args: {
 		type: WorkspaceItemType
@@ -3304,169 +3648,208 @@ async function deployDraft(
 
 	let actions: ToolDisplayAction[] | undefined
 
-	switch (type) {
-		case 'script': {
-			const existing = (await ScriptService.existsScriptByPath({ workspace, path }))
-				? await ScriptService.getScriptByPath({ workspace, path })
-				: undefined
-			const requestBody = buildScriptDeployRequestBody(path, draft, existing, deploymentMessage)
-			// Infer the arg schema from the content so it matches the code, like the editor does.
-			try {
-				const schema = emptySchema()
-				await inferArgs(requestBody.language, requestBody.content, schema)
-				requestBody.schema = schema
-			} catch (e) {
-				console.error('Failed to infer script schema before deploy', e)
-			}
-			await ScriptService.createScript({ workspace, requestBody })
-			break
+	if (type === 'script' || type === 'flow') {
+		// Promote the full persisted draft via the shared deploy module — the same
+		// "promote a draft to deployed" code the compare page's Review & Deploy uses.
+		// It deploys every field of the draft; the previous local builders dropped
+		// most config fields (tag, priority, schema, description, concurrency…),
+		// reading them from the already-deployed version instead. The other kinds
+		// below already deploy their draft value directly, so only script/flow need
+		// this. Scripts always create (with parent_hash); a flow on a deployed item
+		// updates, a draft-only flow (no flow row) is created.
+		// Address the draft by its STORAGE path: a draft_only item created in the
+		// editor lives at a synthetic `u/{user}/draft_{uuid}` key while its chosen
+		// path is held in the draft value. The shared deployer reads the draft via
+		// getScriptByPath/getFlowByPath at the path we pass (then deploys at the
+		// draft's own `path`), so passing the display/chosen path would 404. For a
+		// draft on a deployed item the storage path is just the item path.
+		const storagePath = getGlobalDraftStoragePath(workspace, type, path, triggerKind)
+		// The shared deployer re-reads the persisted DB draft, but an open editor's
+		// edit may still be parked in a debounced/disabled autosave. Flush it first so
+		// we deploy the latest value (not a stale persisted one) — and so the
+		// post-deploy draft delete doesn't drop an unsaved edit. `flush` always saves
+		// the parked value (like Ctrl/Cmd+S), since the user explicitly asked to deploy.
+		await flushDraftOrThrow({ workspace, itemKind: type, path: storagePath }, `${type} "${path}"`)
+		const draftOnly =
+			type === 'flow'
+				? !(await FlowService.existsFlowByPath({ workspace, path: storagePath }))
+				: false
+		const result = await deployDraftToWorkspace(type, storagePath, workspace, {
+			draftOnly,
+			deploymentMessage
+		})
+		if (!result.success) {
+			throw new Error(result.error ?? `Failed to deploy ${type} "${path}".`)
 		}
-		case 'flow': {
-			const flowDraft = draft.value as FlowDraftValue
-			const existing = (await FlowService.existsFlowByPath({ workspace, path }))
-				? await FlowService.getFlowByPath({ workspace, path })
-				: undefined
-			const requestBody = buildFlowDeployRequestBody(
-				path,
-				draft.summary,
-				flowDraft,
-				existing,
-				deploymentMessage
-			)
-			if (existing) {
-				await FlowService.updateFlow({ workspace, path, requestBody })
-			} else {
-				await FlowService.createFlow({ workspace, requestBody })
-			}
-			break
-		}
-		case 'schedule': {
-			const requestBody = draft.value as any
-			if (await ScheduleService.existsSchedule({ workspace, path })) {
-				await ScheduleService.updateSchedule({ workspace, path, requestBody })
-			} else {
-				await ScheduleService.createSchedule({ workspace, requestBody })
-			}
-			actions = [createOpenScheduleAction(path, requestBody.is_flow ? 'flow' : 'script')]
-			break
-		}
-		case 'trigger': {
-			const service = triggerServices[triggerKind!]
-			const requestBody = draft.value as { is_flow?: boolean }
-			if (await service.exists({ workspace, path })) {
-				await service.update({ workspace, path, requestBody })
-			} else {
-				await service.create({ workspace, requestBody })
-			}
-			actions = [
-				createOpenTriggerAction(triggerKind!, path, requestBody.is_flow ? 'flow' : 'script')
-			]
-			break
-		}
-		case 'resource': {
-			const requestBody = draft.value as any
-			if (await ResourceService.existsResource({ workspace, path })) {
-				await ResourceService.updateResource({ workspace, path, requestBody })
-			} else {
-				await ResourceService.createResource({ workspace, requestBody })
-			}
-			actions = [createOpenResourceAction(path)]
-			break
-		}
-		case 'variable': {
-			const requestBody = buildVariableDeployRequestBody(
-				workspace,
-				path,
-				draft.value as CreateVariable
-			)
-			if (await VariableService.existsVariable({ workspace, path })) {
-				await VariableService.updateVariable({ workspace, path, requestBody })
-			} else {
-				await VariableService.createVariable({ workspace, requestBody })
-			}
-			actions = [createOpenVariableAction(path)]
-			break
-		}
-		case 'app': {
-			const appDraft = draft.value as AppDraftValue
-			const appValue: AppDraftValue = {
-				...appDraft,
-				files: { ...(appDraft.files ?? {}) },
-				runnables: { ...(appDraft.runnables ?? {}) },
-				data: appDraft.data ?? { ...DEFAULT_RAW_APP_DATA }
-			}
-			await recomputeAppPolicy(appValue)
-			const policy = appValue.policy
-			if (!policy) {
-				throw new Error(`Draft app "${path}" has no policy to deploy.`)
-			}
-
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Bundling app "${path}"...`
-			})
-			const bundle = await bundleRawAppDraft({
-				workspace,
-				files: appValue.files,
-				onLog: (delta) => {
-					const lines = delta
-						.split('\n')
-						.map((line) => line.trim())
-						.filter(Boolean)
-					const latest = lines[lines.length - 1]
-					if (latest) {
-						toolCallbacks.setToolStatus(toolId, {
-							content: `Bundling app "${path}"... ${latest}`
-						})
-					}
+	} else {
+		switch (type) {
+			case 'schedule': {
+				const requestBody = draft.value as any
+				if (await ScheduleService.existsSchedule({ workspace, path })) {
+					await ScheduleService.updateSchedule({ workspace, path, requestBody })
+				} else {
+					await ScheduleService.createSchedule({ workspace, requestBody })
 				}
-			})
-
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Deploying app "${path}"...`
-			})
-			const rawAppValue = {
-				files: appValue.files,
-				runnables: appValue.runnables,
-				data: appValue.data ?? { ...DEFAULT_RAW_APP_DATA }
+				actions = [createOpenScheduleAction(path, requestBody.is_flow ? 'flow' : 'script')]
+				break
 			}
-			const summary = appValue.summary ?? draft.summary ?? ''
-			if (await AppService.existsApp({ workspace, path })) {
-				// Omit custom_path on update for now. The backend preserves it when absent, while
-				// sending it requires admin privileges; this chat deploy path does not yet mirror
-				// the raw app editor's user/admin-specific custom_path handling.
-				await AppService.updateAppRaw({
+			case 'trigger': {
+				const service = triggerServices[triggerKind!]
+				const requestBody = draft.value as { is_flow?: boolean }
+				if (await service.exists({ workspace, path })) {
+					await service.update({ workspace, path, requestBody })
+				} else {
+					await service.create({ workspace, requestBody })
+				}
+				actions = [
+					createOpenTriggerAction(triggerKind!, path, requestBody.is_flow ? 'flow' : 'script')
+				]
+				break
+			}
+			case 'resource': {
+				const requestBody = draft.value as any
+				if (await ResourceService.existsResource({ workspace, path })) {
+					await ResourceService.updateResource({ workspace, path, requestBody })
+				} else {
+					await ResourceService.createResource({ workspace, requestBody })
+				}
+				actions = [createOpenResourceAction(path)]
+				break
+			}
+			case 'variable': {
+				// The chat keeps secret draft values only in memory (the DB draft
+				// stores `''`); buildVariableDeployRequestBody re-injects the ephemeral
+				// secret, so this can't go through the DB-reading shared deployer.
+				const requestBody = buildVariableDeployRequestBody(
 					workspace,
 					path,
-					formData: {
-						app: {
-							path,
-							value: rawAppValue,
-							summary,
-							policy,
-							deployment_message: deploymentMessage
-						},
-						js: bundle.js,
-						css: bundle.css
-					}
-				})
-			} else {
-				await AppService.createAppRaw({
-					workspace,
-					formData: {
-						app: {
-							path,
-							value: rawAppValue,
-							summary,
-							policy,
-							deployment_message: deploymentMessage,
-							custom_path: appValue.custom_path
-						},
-						js: bundle.js,
-						css: bundle.css
-					}
-				})
+					draft.value as CreateVariable
+				)
+				if (await VariableService.existsVariable({ workspace, path })) {
+					await VariableService.updateVariable({ workspace, path, requestBody })
+				} else {
+					await VariableService.createVariable({ workspace, requestBody })
+				}
+				actions = [createOpenVariableAction(path)]
+				break
 			}
-			break
+			case 'app': {
+				// Raw apps store a flat AppDraftValue (files/runnables at top level),
+				// not the deployed app's nested `value` shape the shared raw-app
+				// deployer reads, so they deploy through the chat's own bundle path.
+				const appDraft = draft.value as AppDraftValue
+				const appValue: AppDraftValue = {
+					...appDraft,
+					files: { ...(appDraft.files ?? {}) },
+					runnables: { ...(appDraft.runnables ?? {}) },
+					data: appDraft.data ?? { ...DEFAULT_RAW_APP_DATA }
+				}
+				await recomputeAppPolicy(appValue)
+				const policy = appValue.policy
+				if (!policy) {
+					throw new Error(`Draft app "${path}" has no policy to deploy.`)
+				}
+
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Bundling app "${path}"...`
+				})
+				const bundle = await bundleRawAppDraft({
+					workspace,
+					files: appValue.files,
+					onLog: (delta) => {
+						const lines = delta
+							.split('\n')
+							.map((line) => line.trim())
+							.filter(Boolean)
+						const latest = lines[lines.length - 1]
+						if (latest) {
+							toolCallbacks.setToolStatus(toolId, {
+								content: `Bundling app "${path}"... ${latest}`
+							})
+						}
+					}
+				})
+
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Deploying app "${path}"...`
+				})
+				const rawAppValue = {
+					files: appValue.files,
+					runnables: appValue.runnables,
+					data: appValue.data ?? { ...DEFAULT_RAW_APP_DATA }
+				}
+				const summary = appValue.summary ?? draft.summary ?? ''
+				// Deploy at the draft's chosen path. A draft_only raw app created in the
+				// editor lives at a synthetic `u/{user}/draft_{uuid}` storage key with its
+				// chosen path in the raw_app draft's `draft_path`; the chat's AppDraftValue
+				// doesn't carry it, so read it from the backend draft. For a chat-created app
+				// (real path, no draft_path) or a draft on a deployed app, the storage path
+				// is the deploy path. Same storage-path resolution as script/flow.
+				const storagePath = getGlobalDraftStoragePath(workspace, 'app', path)
+				// `draft_path` is read from the persisted backend draft below, but an
+				// editor rename may still be parked in a debounced/disabled autosave.
+				// Flush first (like script/flow) so we read the latest chosen path.
+				await flushDraftOrThrow(
+					{ workspace, itemKind: 'raw_app', path: storagePath },
+					`app "${path}"`
+				)
+				let targetPath = storagePath
+				try {
+					const row = (await AppService.getAppByPath({
+						workspace,
+						path: storagePath,
+						getDraft: true,
+						rawApp: true
+					})) as { draft?: { draft_path?: string; path?: string }; draft_path?: string }
+					targetPath = row?.draft?.draft_path ?? row?.draft?.path ?? row?.draft_path ?? storagePath
+				} catch (e) {
+					// Only a missing item (404) justifies falling back to the storage path;
+					// a real lookup failure (network/5xx) must abort rather than silently
+					// deploy to the wrong path.
+					if ((e as { status?: number } | null | undefined)?.status === 404) {
+						targetPath = storagePath
+					} else {
+						throw e
+					}
+				}
+				if (await AppService.existsApp({ workspace, path: targetPath })) {
+					// Omit custom_path on update for now. The backend preserves it when absent, while
+					// sending it requires admin privileges; this chat deploy path does not yet mirror
+					// the raw app editor's user/admin-specific custom_path handling.
+					await AppService.updateAppRaw({
+						workspace,
+						path: targetPath,
+						formData: {
+							app: {
+								path: targetPath,
+								value: rawAppValue,
+								summary,
+								policy,
+								deployment_message: deploymentMessage
+							},
+							js: bundle.js,
+							css: bundle.css
+						}
+					})
+				} else {
+					await AppService.createAppRaw({
+						workspace,
+						formData: {
+							app: {
+								path: targetPath,
+								value: rawAppValue,
+								summary,
+								policy,
+								deployment_message: deploymentMessage,
+								custom_path: appValue.custom_path
+							},
+							js: bundle.js,
+							css: bundle.css
+						}
+					})
+				}
+				break
+			}
 		}
 	}
 

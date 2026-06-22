@@ -107,6 +107,11 @@ pub struct ParseAssetsOutput {
     // The delay is a raw duration string parsed at deploy (parser-light).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub retry: Option<RetrySpec>,
+    // `// materialize [manual] <asset> [append] [key=<col>]` —
+    // managed-materialization target + its strategy. At most one per script.
+    // Drives the worker's write-strategy + snapshot capture.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub materialize: Option<MaterializeSpec>,
 }
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
@@ -209,6 +214,27 @@ pub struct RetrySpec {
     pub delay: Option<String>,
 }
 
+// `// materialize [manual] <asset> [append] [key=<col>]` — declares that this
+// script produces a *managed* materialization of `<asset>` (a `ducklake://`
+// table). By default the runtime generates the write DDL around the script's
+// single trailing `SELECT` and owns idempotency, partition-state and snapshot
+// capture. `manual` is the escape hatch: the script writes its own DDL and the
+// runtime only records state (track-only). The reconciliation strategy options
+// (`append`, `key=<col>`) apply to managed mode: none → DELETE-by-partition +
+// INSERT (replace); `key=<col>` → MERGE (dedup within slice); `append` →
+// INSERT-only. `append` wins if both are given (deploy-time warning).
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct MaterializeSpec {
+    pub target_kind: AssetKind,
+    pub target_path: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub manual: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub append: bool,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub unique_key: Option<String>,
+}
+
 // `// trigger any` (default) vs `// trigger all`. `Any` = OR: any trigger
 // firing runs the script (current behaviour). `All` = AND: the script
 // runs only once every partition-bearing input has materialized at the
@@ -239,6 +265,7 @@ pub struct PipelineAnnotations {
     pub debounce_default: Option<String>,
     pub tag: Option<String>,
     pub retry: Option<RetrySpec>,
+    pub materialize: Option<MaterializeSpec>,
 }
 
 impl ParseAssetsOutput {
@@ -262,6 +289,7 @@ impl ParseAssetsOutput {
             debounce_default: pipeline.debounce_default,
             tag: pipeline.tag,
             retry: pipeline.retry,
+            materialize: pipeline.materialize,
         }
     }
 }
@@ -571,6 +599,15 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
             continue;
         }
 
+        if let Some(after_kw) = consume_keyword(rest, "materialize") {
+            if out.materialize.is_none() {
+                if let Some(spec) = parse_materialize_spec(after_kw.trim()) {
+                    out.materialize = Some(spec);
+                }
+            }
+            continue;
+        }
+
         if let Some(after_kw) = consume_keyword(rest, "on") {
             let spec_text = after_kw.trim();
             if spec_text.is_empty() {
@@ -616,6 +653,35 @@ fn parse_retry_spec(s: &str) -> Option<RetrySpec> {
         .map(|d| d.trim().to_string())
         .filter(|d| !d.is_empty());
     Some(RetrySpec { count, delay })
+}
+
+// Parse a `// materialize [manual] <asset> [append] [key=<col>]` right-hand
+// side. An optional leading `manual` token (whitespace-delimited) opts out of
+// managed mode (track-only). The next whitespace token is the target asset URI
+// (default-syntax shorthands enabled, so `ducklake` → `ducklake://main`); the
+// remainder are strategy options — bare `append` and `key=<col>` (merge key),
+// which apply to managed mode only. A missing/empty target yields `None` (the
+// annotation is dropped, fail-safe).
+fn parse_materialize_spec(s: &str) -> Option<MaterializeSpec> {
+    let (manual, rest) = match s.strip_prefix("manual") {
+        Some(after) if after.is_empty() || after.starts_with(char::is_whitespace) => {
+            (true, after.trim_start())
+        }
+        _ => (false, s),
+    };
+    let mut it = rest.trim().splitn(2, char::is_whitespace);
+    let asset_tok = it.next()?;
+    let opts_str = it.next().unwrap_or("");
+    let (target_kind, path) = parse_asset_syntax(asset_tok.trim(), true)?;
+    if path.is_empty() {
+        return None;
+    }
+    let append = opts_str.split_whitespace().any(|t| t == "append");
+    let unique_key = parse_kv_opts(opts_str)
+        .get("key")
+        .filter(|k| !k.is_empty())
+        .cloned();
+    Some(MaterializeSpec { target_kind, target_path: path.to_string(), manual, append, unique_key })
 }
 
 // Parse a `// partitioned <kind> [opts]` right-hand side. Recognized kinds:
@@ -1045,6 +1111,67 @@ mod pipeline_annotation_tests {
     }
 
     #[test]
+    fn materialize_managed_default() {
+        let out = parse_pipeline_annotations("// materialize ducklake://analytics/orders_daily");
+        let m = out.materialize.expect("materialize");
+        assert_eq!(m.target_kind, AssetKind::Ducklake);
+        assert_eq!(m.target_path, "analytics/orders_daily");
+        // managed by default; replace strategy (no append / key)
+        assert!(!m.manual);
+        assert!(!m.append);
+        assert_eq!(m.unique_key, None);
+    }
+
+    #[test]
+    fn materialize_manual_escape_hatch() {
+        let out =
+            parse_pipeline_annotations("// materialize manual ducklake://analytics/orders_daily");
+        let m = out.materialize.expect("materialize");
+        assert!(m.manual);
+        assert_eq!(m.target_path, "analytics/orders_daily");
+    }
+
+    #[test]
+    fn materialize_merge_and_append_options() {
+        let out =
+            parse_pipeline_annotations("// materialize ducklake://a/orders_daily key=order_id");
+        let m = out.materialize.expect("materialize");
+        assert_eq!(m.unique_key.as_deref(), Some("order_id"));
+        assert!(!m.append);
+
+        let out = parse_pipeline_annotations("// materialize ducklake://a/events append");
+        let m = out.materialize.expect("materialize");
+        assert!(m.append);
+        assert_eq!(m.unique_key, None);
+    }
+
+    #[test]
+    fn materialize_default_syntax_shorthand() {
+        let out = parse_pipeline_annotations("// materialize ducklake");
+        let m = out.materialize.expect("materialize");
+        assert_eq!(m.target_kind, AssetKind::Ducklake);
+        assert_eq!(m.target_path, "main");
+        assert!(!m.manual);
+    }
+
+    #[test]
+    fn materialize_manual_only_is_dropped() {
+        // `manual` with no target is not a valid materialization.
+        let out = parse_pipeline_annotations("// materialize manual");
+        assert!(out.materialize.is_none());
+    }
+
+    #[test]
+    fn materialize_first_wins() {
+        let out = parse_pipeline_annotations(
+            "// materialize ducklake://a/x\n# materialize manual ducklake://b/y",
+        );
+        let m = out.materialize.expect("materialize");
+        assert_eq!(m.target_path, "a/x");
+        assert!(!m.manual);
+    }
+
+    #[test]
     fn combined() {
         let code = concat!(
             "// pipeline\n",
@@ -1053,7 +1180,8 @@ mod pipeline_annotation_tests {
             "// partitioned daily tz=\"UTC\"\n",
             "// freshness 2h\n",
             "// tag heavy\n",
-            "// retry 3 5s\n"
+            "// retry 3 5s\n",
+            "// materialize ducklake://analytics/orders_daily key=order_id\n"
         );
         let out = parse_pipeline_annotations(code);
         assert!(out.in_pipeline);
@@ -1064,6 +1192,10 @@ mod pipeline_annotation_tests {
         let r = out.retry.expect("retry");
         assert_eq!(r.count, 3);
         assert_eq!(r.delay.as_deref(), Some("5s"));
+        let m = out.materialize.expect("materialize");
+        assert!(!m.manual);
+        assert_eq!(m.target_path, "analytics/orders_daily");
+        assert_eq!(m.unique_key.as_deref(), Some("order_id"));
     }
 
     #[test]
