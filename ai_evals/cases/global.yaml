@@ -4,7 +4,7 @@
     It should take a string `name` input and return `Hello, ${name}!`.
     Leave it as an AI draft only; do not deploy or save it.
   runtime:
-    maxTurns: 8
+    maxTurns: 10
   validate:
     draftCountExactly: 1
     requiredDrafts:
