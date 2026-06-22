@@ -1,61 +1,61 @@
 <script lang="ts">
 	import { onMount } from 'svelte'
-	import JSZip from 'jszip'
 	import YAML from 'yaml'
 	import Button from '../common/button/Button.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
-	import { workspaceStore, userStore } from '$lib/stores'
+	import SettingCard from '../instanceSettings/SettingCard.svelte'
+	import Label from '../Label.svelte'
+	import autosize from '$lib/autosize'
+	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { WorkspaceService } from '$lib/gen'
-	import { FolderUp, FileUp, RefreshCw, Trash2 } from 'lucide-svelte'
+	import { FolderUp, Plus, Trash2 } from 'lucide-svelte'
 
 	type SkillListItem = { name: string; description: string }
 	type SkillUpload = { name: string; description: string; instructions: string }
 
 	let skills: SkillListItem[] = $state([])
-	let loading: boolean = $state(false)
 	let uploading: boolean = $state(false)
+	let pasteContent: string = $state('')
 	let dirInput: HTMLInputElement | undefined = $state(undefined)
-	let zipInput: HTMLInputElement | undefined = $state(undefined)
 	let toDelete: string | undefined = $state(undefined)
-
-	const isAdmin = $derived(!!$userStore?.is_admin)
 
 	async function loadList() {
 		if (!$workspaceStore) return
-		loading = true
 		try {
 			skills = await WorkspaceService.listAiSkills({ workspace: $workspaceStore })
 		} catch (e) {
 			sendUserToast(`Failed to load skills: ${e}`, true)
-		} finally {
-			loading = false
 		}
 	}
 
-	/** Split a SKILL.md into its frontmatter `description` and the markdown body. */
-	function parseSkillMd(raw: string): { description: string | undefined; instructions: string } {
+	/** Split a SKILL.md into its frontmatter `name`/`description` and the markdown body. */
+	function parseSkillMd(raw: string): {
+		name: string | undefined
+		description: string | undefined
+		instructions: string
+	} {
 		const text = raw.replace(/^﻿/, '')
 		const fm = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n?/.exec(text)
 		if (!fm) {
-			return { description: undefined, instructions: text.trim() }
+			return { name: undefined, description: undefined, instructions: text.trim() }
 		}
+		let name: string | undefined
 		let description: string | undefined
 		try {
 			const data = YAML.parse(fm[1]) ?? {}
-			if (data && typeof data.description === 'string') {
-				description = data.description.trim()
-			}
+			if (typeof data?.name === 'string') name = data.name.trim()
+			if (typeof data?.description === 'string') description = data.description.trim()
 		} catch {
-			// Malformed frontmatter — fall through with no description so the skill
-			// is reported as skipped rather than silently dropped.
+			// Malformed frontmatter — fall through so the skill is reported as
+			// invalid rather than silently dropped.
 		}
-		return { description, instructions: text.slice(fm[0].length).trim() }
+		return { name, description, instructions: text.slice(fm[0].length).trim() }
 	}
 
 	/**
-	 * Turn a map of `relativePath -> content` (from a directory pick or a zip) into
-	 * skills. A skill is any `SKILL.md`; its id is the name of the folder holding it.
+	 * Turn a map of `relativePath -> content` (from an imported folder) into skills.
+	 * A skill is any `SKILL.md`; its id is the name of the folder holding it.
 	 */
 	function collectSkills(files: Record<string, string>): {
 		skills: SkillUpload[]
@@ -81,15 +81,13 @@
 		return { skills: collected, skipped }
 	}
 
-	async function uploadFileMap(files: Record<string, string>) {
-		if (!$workspaceStore) return
-		const { skills: parsed, skipped } = collectSkills(files)
-		if (parsed.length === 0) {
+	async function uploadSkills(parsed: SkillUpload[], skipped: string[] = []) {
+		if (!$workspaceStore || parsed.length === 0) {
 			sendUserToast(
-				`No valid SKILL.md found.${skipped.length ? ` Skipped: ${skipped.join(', ')}` : ''}`,
+				`No valid skill found.${skipped.length ? ` Skipped: ${skipped.join(', ')}` : ''}`,
 				true
 			)
-			return
+			return false
 		}
 		uploading = true
 		try {
@@ -97,14 +95,35 @@
 				workspace: $workspaceStore,
 				requestBody: { skills: parsed }
 			})
-			let message = `Uploaded ${parsed.length} skill(s)`
+			let message = `Added ${parsed.length} skill(s)`
 			if (skipped.length) message += `; skipped ${skipped.length}: ${skipped.join(', ')}`
 			sendUserToast(message)
 			await loadList()
+			return true
 		} catch (e) {
-			sendUserToast(`Failed to upload skills: ${e}`, true)
+			sendUserToast(`Failed to add skills: ${e}`, true)
+			return false
 		} finally {
 			uploading = false
+		}
+	}
+
+	async function addPastedSkill() {
+		const { name, description, instructions } = parseSkillMd(pasteContent)
+		if (!name) {
+			sendUserToast('The pasted SKILL.md needs a `name` in its frontmatter.', true)
+			return
+		}
+		if (!description) {
+			sendUserToast('The pasted SKILL.md needs a `description` in its frontmatter.', true)
+			return
+		}
+		if (!instructions) {
+			sendUserToast('The pasted SKILL.md has an empty body.', true)
+			return
+		}
+		if (await uploadSkills([{ name, description, instructions }])) {
+			pasteContent = ''
 		}
 	}
 
@@ -118,36 +137,9 @@
 		for (const f of skillFiles) {
 			map[f.webkitRelativePath || f.name] = await f.text()
 		}
-		await uploadFileMap(map)
+		const { skills: parsed, skipped } = collectSkills(map)
+		await uploadSkills(parsed, skipped)
 		if (dirInput) dirInput.value = ''
-	}
-
-	async function onZipSelected(event: Event) {
-		const target = event.target as HTMLInputElement
-		const file = target.files?.[0]
-		if (!file) return
-		uploading = true
-		try {
-			const zip = await JSZip.loadAsync(await file.arrayBuffer())
-			const map: Record<string, string> = {}
-			const tasks: Promise<void>[] = []
-			zip.forEach((relativePath, entry) => {
-				if (entry.dir) return
-				if (relativePath.split('/').pop()?.toLowerCase() !== 'skill.md') return
-				tasks.push(
-					entry.async('string').then((content) => {
-						map[relativePath] = content
-					})
-				)
-			})
-			await Promise.all(tasks)
-			await uploadFileMap(map)
-		} catch (e) {
-			sendUserToast(`Failed to read zip: ${e}`, true)
-		} finally {
-			uploading = false
-			if (zipInput) zipInput.value = ''
-		}
 	}
 
 	async function deleteSkill(name: string) {
@@ -166,93 +158,74 @@
 	})
 </script>
 
-<div class="mb-6">
-	<h2 class="text-lg font-semibold mb-1">AI chat skills</h2>
-	<p class="text-sm text-secondary">
-		Reusable instruction sets for the Windmill AI chat in global mode. Each skill is a folder
-		containing a <code>SKILL.md</code> file with YAML frontmatter (a <code>description</code>) and a
-		markdown body — the same format Claude and Codex use. The chat advertises each skill's name and
-		description in its system prompt and loads the full instructions on demand via the
-		<code>read_skill</code> tool.
-	</p>
-	<p class="text-sm text-secondary mt-2">
-		Upload a directory of skill folders (or a zip of them). Re-uploading a skill with the same
-		folder name overwrites it.
-	</p>
-</div>
-
-<div class="flex items-center gap-2 mb-4">
-	<Button
-		size="xs"
-		variant="default"
-		startIcon={{ icon: RefreshCw }}
-		on:click={loadList}
-		disabled={loading}
-	>
-		Refresh
-	</Button>
-	{#if isAdmin}
-		<Button
-			size="xs"
-			variant="default"
-			startIcon={{ icon: FolderUp }}
-			on:click={() => dirInput?.click()}
-			disabled={uploading}
-		>
-			{uploading ? 'Uploading…' : 'Upload folder'}
-		</Button>
-		<Button
-			size="xs"
-			variant="default"
-			startIcon={{ icon: FileUp }}
-			on:click={() => zipInput?.click()}
-			disabled={uploading}
-		>
-			Upload zip
-		</Button>
-		<input
-			bind:this={dirInput}
-			type="file"
-			style="display: none;"
-			onchange={onDirSelected}
-			{...{ webkitdirectory: true, directory: true }}
-		/>
-		<input
-			bind:this={zipInput}
-			type="file"
-			accept=".zip"
-			style="display: none;"
-			onchange={onZipSelected}
-		/>
-	{/if}
-</div>
-
-{#if skills.length === 0}
-	<div class="rounded border border-dashed p-6 text-center text-sm text-secondary">
-		{loading ? 'Loading…' : 'No skills yet. Upload a folder of SKILL.md skill directories to get started.'}
-	</div>
-{:else}
-	<div class="rounded border divide-y">
-		{#each skills as skill (skill.name)}
-			<div class="flex items-center justify-between gap-4 px-3 py-2">
-				<div class="min-w-0">
-					<div class="text-sm font-semibold font-mono truncate">{skill.name}</div>
-					<div class="text-xs text-secondary truncate">{skill.description}</div>
-				</div>
-				{#if isAdmin}
-					<Button
-						size="xs"
-						variant="default"
-						color="red"
-						startIcon={{ icon: Trash2 }}
-						iconOnly
-						on:click={() => (toDelete = skill.name)}
-					/>
-				{/if}
+<SettingCard
+	label="Custom skills"
+	description="Add your own skills to the AI Chat. The expected format is the same as Claude or Codex."
+>
+	<div class="flex flex-col gap-3 pt-1">
+		<Label label="Paste a SKILL.md file">
+			<textarea
+				bind:value={pasteContent}
+				placeholder={'---\nname: my-skill\ndescription: what this skill helps with\n---\n\n# My skill\n\nInstructions for the assistant…'}
+				class="w-full min-h-24 p-2 border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary font-mono text-xs resize-y"
+				rows="5"
+				use:autosize
+			></textarea>
+			<div class="flex justify-end mt-2">
+				<Button
+					onclick={addPastedSkill}
+					variant="default"
+					unifiedSize="sm"
+					startIcon={{ icon: Plus }}
+					disabled={!pasteContent.trim() || uploading}
+				>
+					Add skill
+				</Button>
 			</div>
-		{/each}
+		</Label>
+
+		<div class="flex items-center gap-2">
+			<span class="text-xs text-secondary">or</span>
+			<Button
+				onclick={() => dirInput?.click()}
+				variant="default"
+				unifiedSize="sm"
+				startIcon={{ icon: FolderUp }}
+				disabled={uploading}
+			>
+				{uploading ? 'Importing…' : 'Import folder'}
+			</Button>
+			<input
+				bind:this={dirInput}
+				type="file"
+				style="display: none;"
+				onchange={onDirSelected}
+				{...{ webkitdirectory: true, directory: true }}
+			/>
+		</div>
+
+		{#if skills.length > 0}
+			<div class="rounded-md border divide-y">
+				{#each skills as skill (skill.name)}
+					<div class="flex items-center justify-between gap-4 px-3 py-2">
+						<div class="min-w-0">
+							<div class="text-xs font-semibold font-mono truncate">{skill.name}</div>
+							<div class="text-2xs text-secondary truncate">{skill.description}</div>
+						</div>
+						<Button
+							onclick={() => (toDelete = skill.name)}
+							variant="default"
+							color="red"
+							unifiedSize="sm"
+							startIcon={{ icon: Trash2 }}
+							iconOnly
+						/>
+					</div>
+				{/each}
+			</div>
+		{/if}
 	</div>
-{/if}
+</SettingCard>
 
 <ConfirmationModal
 	open={toDelete !== undefined}

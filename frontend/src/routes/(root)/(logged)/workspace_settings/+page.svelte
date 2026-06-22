@@ -56,7 +56,6 @@
 	import { base } from '$lib/base'
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
 	import AISettings from '$lib/components/workspaceSettings/AISettings.svelte'
-	import AiSkillsSettings from '$lib/components/workspaceSettings/AiSkillsSettings.svelte'
 	import SharedUiSettings from '$lib/components/workspaceSettings/SharedUiSettings.svelte'
 	import StorageSettings from '$lib/components/workspaceSettings/StorageSettings.svelte'
 	import VolumeStorageSettings from '$lib/components/workspaceSettings/VolumeStorageSettings.svelte'
@@ -287,7 +286,6 @@
 			| 'success_handler'
 			| 'critical_alerts'
 			| 'ai'
-			| 'ai_skills'
 			| 'windmill_data_tables'
 			| 'windmill_lfs'
 			| 'volume_storage'
@@ -1071,12 +1069,6 @@
 					aiDescription: 'Windmill AI workspace settings'
 				},
 				{
-					id: 'ai_skills',
-					label: 'AI Skills',
-					aiId: 'workspace-settings-ai-skills',
-					aiDescription: 'AI chat skills workspace settings'
-				},
-				{
 					id: 'premium',
 					label: 'Premium plans',
 					aiId: 'workspace-settings-premium',
@@ -1850,8 +1842,6 @@ export async function main(
 									instanceAiSummary = copilotSettingsState.instance_ai_summary
 								}}
 							/>
-						{:else if tab == 'ai_skills'}
-							<AiSkillsSettings />
 						{:else if tab == 'windmill_data_tables'}
 							<DataTableSettings bind:dataTableSettings bind:this={dataTableSettingsComponent} />
 						{:else if tab == 'windmill_lfs'}
