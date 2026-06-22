@@ -2757,6 +2757,83 @@ describe('prepareGlobalSystemMessage', () => {
 		expect(content).not.toContain('frontend AI draft store')
 	})
 
+	describe('folder guidance', () => {
+		const guidanceOf = (user: {
+			username: string
+			is_admin?: boolean
+			folders?: string[]
+			folders_read?: string[]
+		}) => prepareGlobalSystemMessage(undefined, { user }).content as string
+
+		it('lists the writable folders for a non-admin', () => {
+			const content = guidanceOf({
+				username: 'bob',
+				is_admin: false,
+				folders: ['marketing', 'data_engineering'],
+				folders_read: ['marketing', 'data_engineering']
+			})
+			expect(content).toContain(
+				'Folders you can write to in this workspace: `f/marketing`, `f/data_engineering`.'
+			)
+			expect(content).not.toContain('You can see but NOT write to')
+		})
+
+		it('flags read-only folders a non-admin cannot write to', () => {
+			const content = guidanceOf({
+				username: 'bob',
+				is_admin: false,
+				folders: ['team_a'],
+				folders_read: ['team_a', 'team_b']
+			})
+			expect(content).toContain('Folders you can write to in this workspace: `f/team_a`.')
+			expect(content).toContain(
+				'You can see but NOT write to: `f/team_b` — never create or deploy items there.'
+			)
+		})
+
+		it('points a non-admin with no writable folders at the personal scope', () => {
+			const content = guidanceOf({ username: 'bob', is_admin: false, folders: [] })
+			expect(content).toContain(
+				'You have no shared folders you can write to in this workspace, so use `u/bob/<name>`.'
+			)
+		})
+
+		it('gives an admin permission-agnostic guidance with a non-exhaustive hint', () => {
+			const content = guidanceOf({
+				username: 'admin',
+				is_admin: true,
+				folders: ['marketing', 'data_engineering']
+			})
+			expect(content).toContain('As a workspace admin you can write to any existing folder.')
+			expect(content).toContain(
+				'Folders here include `f/marketing`, `f/data_engineering` (you can also write to others not listed).'
+			)
+			expect(content).toContain('If the user names a folder, use it; otherwise ask them.')
+			expect(content).not.toContain('Folders you can write to in this workspace')
+		})
+
+		it('omits the folder hint for an admin with no associated folders', () => {
+			const content = guidanceOf({ username: 'admin', is_admin: true, folders: [] })
+			expect(content).toContain(
+				'- As a workspace admin you can write to any existing folder. If the user names a folder, use it; otherwise ask them.'
+			)
+			expect(content).not.toContain('Folders here include')
+		})
+
+		it('caps the folder list and notes the remainder', () => {
+			const folders = Array.from({ length: 45 }, (_, i) => `f${i}`)
+			const content = guidanceOf({ username: 'bob', is_admin: false, folders })
+			expect(content).toContain('(+5 more)')
+		})
+
+		it('emits no folder guidance when no user is available', () => {
+			const content = prepareGlobalSystemMessage().content as string
+			expect(content).not.toContain('Folders you can write to in this workspace')
+			expect(content).not.toContain('As a workspace admin you can write to any existing folder')
+			expect(content).not.toContain('You have no shared folders you can write to')
+		})
+	})
+
 	it('exposes separate tools for discarding drafts and deleting workspace items', () => {
 		const discard = getGlobalTool('discard_local_draft')
 		const deleteItem = getGlobalTool('delete_workspace_item')
