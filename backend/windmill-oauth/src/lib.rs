@@ -652,6 +652,28 @@ pub fn resolve_cc_token_url_input(
     Ok(template.replace("{instance}", value))
 }
 
+/// Whether a built-in provider's client-credentials token URL is host-pinned via
+/// an `{instance}` template (e.g. servicenow, snowflake, coupa). Such providers
+/// only accept an instance name substituted into a fixed-host template, so a
+/// free-form caller token URL override must be rejected for them — otherwise the
+/// exchange host could be redirected, which is exactly what the template pins.
+/// Fixed-host registry providers and custom (non-registry) providers return
+/// `false`: an override is allowed there.
+pub fn is_instance_templated_cc(connect_configs_json: &str, client_name: &str) -> bool {
+    serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json)
+        .ok()
+        .and_then(|m| resolve_registry_config(&m, client_name))
+        .map(|cfg| {
+            cfg.connect_config_template
+                .as_ref()
+                .map(|t| t.token_url.clone())
+                .filter(|u| !u.is_empty())
+                .unwrap_or(cfg.token_url)
+                .contains("{instance}")
+        })
+        .unwrap_or(false)
+}
+
 /// Resolve the concrete bring-your-own client-credentials token URL for any
 /// provider, never from a caller-supplied URL:
 /// - **Built-in registry providers** resolve from the registry via
@@ -1349,5 +1371,21 @@ mod tests {
         // a malformed template can't let the instance value control the host.
         assert!(resolve_cc_token_url_input(CC_REGISTRY, "bad_host_tpl", Some("evil.com")).is_err());
         assert!(resolve_cc_token_url_input(CC_REGISTRY, "bad_mid_tpl", Some("evil")).is_err());
+    }
+
+    #[test]
+    fn instance_templated_cc_true_for_templated_providers() {
+        // Host-pinned via `{instance}`: a bring-your-own token URL override must be
+        // refused for these (only the instance-name path may set their URL).
+        assert!(is_instance_templated_cc(CC_REGISTRY, "coupa"));
+        assert!(is_instance_templated_cc(CC_REGISTRY, "servicenow"));
+    }
+
+    #[test]
+    fn instance_templated_cc_false_for_fixed_host_and_unknown() {
+        // Fixed-host registry provider and custom (non-registry) provider both allow
+        // an override, so neither is reported as instance-templated.
+        assert!(!is_instance_templated_cc(CC_REGISTRY, "visma"));
+        assert!(!is_instance_templated_cc(CC_REGISTRY, "my_custom_thing"));
     }
 }
