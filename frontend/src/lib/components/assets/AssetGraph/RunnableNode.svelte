@@ -90,7 +90,7 @@
 			case 'accepted_values':
 				return `accepted_values(${t.column} = ${t.values.join(',')})`
 			case 'relationships':
-				return `relationships(${t.column} → ${t.toPath}.${t.toColumn})`
+				return `relationships(${t.column} → ${t.to_path}.${t.to_column})`
 			case 'custom':
 				return `custom(${t.path})`
 		}

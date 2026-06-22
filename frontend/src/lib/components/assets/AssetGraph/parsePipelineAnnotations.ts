@@ -97,6 +97,9 @@ export type MaterializeSpec = {
 // tests; `custom` is dbt's singular-test escape hatch (a DuckDB script path).
 // Keyword is `data_test`, NOT `test`, to stay clear of the unrelated `// test:`
 // CI-test annotation.
+// Field names are snake_case to match the Rust `DataTest` serde output verbatim
+// — the same type is populated both by this parser (live drafts) and by the
+// backend graph endpoint (deployed nodes), so the two must be wire-identical.
 export type DataTest =
 	| { type: 'unique'; column: string }
 	| { type: 'not_null'; column: string }
@@ -104,9 +107,9 @@ export type DataTest =
 	| {
 			type: 'relationships'
 			column: string
-			toKind: AssetKind
-			toPath: string
-			toColumn: string
+			to_kind: AssetKind
+			to_path: string
+			to_column: string
 	  }
 	| { type: 'custom'; path: string }
 
@@ -249,7 +252,13 @@ function parseRelationships(s: string): DataTest | undefined {
 	if (!toColumn) return undefined
 	const asset = parseAssetSyntaxDefault(target.slice(0, dot).trim())
 	if (!asset || asset.path === '') return undefined
-	return { type: 'relationships', column, toKind: asset.kind, toPath: asset.path, toColumn }
+	return {
+		type: 'relationships',
+		column,
+		to_kind: asset.kind,
+		to_path: asset.path,
+		to_column: toColumn
+	}
 }
 
 // Parse a `// data_test <kind> …` right-hand side into one `DataTest`. The
