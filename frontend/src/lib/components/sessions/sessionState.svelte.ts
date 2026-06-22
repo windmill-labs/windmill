@@ -13,6 +13,7 @@ import { switchWorkspace } from '$lib/storeUtils'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { userScopedDb } from '$lib/userScopedDb'
 import type { DBSchema, IDBPDatabase } from 'idb'
+import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 
 // Switch the global workspace iff the target differs from the active one
 // and is non-empty. Centralises the "session needs its workspace in focus"
@@ -589,6 +590,8 @@ export function deleteSession(id: string) {
 		sessionState.currentSessionId = sessionState.sessions[0]?.id
 	}
 	void deleteSessionRecord(id)
+	// GC any linked files persisted for this session.
+	void deleteItemsForSession(id)
 }
 
 export function setSessionChatId(sessionId: string, chatId: string) {

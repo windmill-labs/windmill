@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 	sendUserToast: vi.fn(),
 	getOpenaiClient: vi.fn(),
 	getAnthropicClient: vi.fn(),
+	getNonStreamingCompletion: vi.fn(),
 	runChatLoop: vi.fn()
 }))
 
@@ -60,7 +61,8 @@ vi.mock('../lib', () => ({
 		subscribe: () => () => undefined,
 		getOpenaiClient: mocks.getOpenaiClient,
 		getAnthropicClient: mocks.getAnthropicClient
-	}
+	},
+	getNonStreamingCompletion: mocks.getNonStreamingCompletion
 }))
 
 vi.mock('./api/apiTools', () => ({
@@ -312,6 +314,236 @@ describe('AIChatManager persisted autonomy default', () => {
 	it('restores an explicitly persisted autonomy mode', () => {
 		localStorage.setItem(AUTONOMY_KEY, AIAutonomyMode.DEFAULT)
 		expect(new AIChatManager().autonomyMode).toBe(AIAutonomyMode.DEFAULT)
+	})
+})
+
+describe('AIChatManager queued messages', () => {
+	const model = { provider: 'openai', model: 'gpt-4o' }
+
+	// The turn-outcome handling rolls back turns with no usable output, so a
+	// "successful" send must produce a reply to take the clean-commit path
+	// (which is what gates the queued-message auto-send).
+	const replyWith = (reply: string) =>
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const message = { role: 'assistant' as const, content: reply }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+	beforeEach(() => {
+		localStorage.clear()
+		mocks.getCurrentModel.mockReturnValue(model)
+		mocks.tryGetCurrentModel.mockReturnValue(model)
+	})
+
+	function createInputMock() {
+		return {
+			prependText: vi.fn(),
+			restoreInstructions: vi.fn(),
+			focusInput: vi.fn()
+		}
+	}
+
+	function createManager(input?: ReturnType<typeof createInputMock>) {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.NAVIGATOR
+		if (input) {
+			manager.setAiChatInput(input as unknown as Parameters<typeof manager.setAiChatInput>[0])
+		}
+		return manager
+	}
+
+	it('queues a single trimmed message and ignores blank input', () => {
+		const manager = createManager()
+		manager.queueMessage('  first  ')
+		manager.queueMessage('   ')
+		expect(manager.queuedMessage).toBe('first')
+	})
+
+	it('appends additional lines to the single queued message', () => {
+		const manager = createManager()
+		manager.queueMessage('first line')
+		manager.queueMessage('second line')
+		expect(manager.queuedMessage).toBe('first line\nsecond line')
+	})
+
+	it('dequeues the message and restores it into the input', () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.queuedMessage = 'line one\nline two'
+
+		manager.dequeueMessage()
+
+		expect(manager.queuedMessage).toBe('')
+		expect(input.prependText).toHaveBeenCalledWith('line one\nline two')
+	})
+
+	it('re-queues instead of dropping when the input is unmounted', () => {
+		const manager = createManager()
+		manager.queuedMessage = 'keep me'
+
+		manager.dequeueMessage()
+
+		// no input to restore into → the message stays queued
+		expect(manager.queuedMessage).toBe('keep me')
+	})
+
+	it('auto-sends the queued message on a clean completion', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+
+		manager.queuedMessage = 'followup'
+		await manager.sendRequest({ instructions: 'first' })
+
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(2)
+		expect(manager.queuedMessage).toBe('')
+		const userMessages = manager.displayMessages
+			.filter((m) => m.role === 'user')
+			.map((m) => m.content)
+		expect(userMessages).toEqual(['first', 'followup'])
+	})
+
+	it('keeps the queued message as a card (not flushed to input) when the turn errors', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		mocks.runChatLoop.mockRejectedValue(new Error('provider down'))
+
+		manager.queuedMessage = 'followup'
+		await manager.sendRequest({ instructions: 'first' })
+
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
+		// stays a card, nothing flushed into the input
+		expect(manager.queuedMessage).toBe('followup')
+		expect(input.prependText).not.toHaveBeenCalled()
+	})
+
+	it('auto-sends the queued message when the user cancels the turn (Esc/Stop)', async () => {
+		const manager = createManager(createInputMock())
+		// the followup turn completes cleanly...
+		replyWith('done')
+		// ...but the first turn is cancelled by the user
+		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
+			abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		manager.queuedMessage = 'followup'
+		await manager.sendRequest({ instructions: 'first' })
+
+		// cancel sends the queued message automatically
+		expect(manager.queuedMessage).toBe('')
+		const userMessages = manager.displayMessages
+			.filter((m) => m.role === 'user')
+			.map((m) => m.content)
+		expect(userMessages).toContain('followup')
+	})
+
+	it('does NOT auto-send on a programmatic cancel (e.g. save-and-clear / teardown)', async () => {
+		const manager = createManager(createInputMock())
+		replyWith('done')
+		// the turn is aborted programmatically, not by the user pressing Esc/Stop
+		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
+			abortController.abort('saveAndClear')
+			throw new Error('aborted')
+		})
+
+		manager.queuedMessage = 'followup'
+		await manager.sendRequest({ instructions: 'first' })
+
+		// a non-user abort must not fire the queued message; it stays a card
+		expect(manager.queuedMessage).toBe('followup')
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
+	})
+
+	it('does not restore the cancelled prompt to the input when a queued message takes over', async () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		replyWith('done')
+		// cancel before any usable output → the rollback (restoreUnsentTurn) path
+		mocks.runChatLoop.mockImplementationOnce(async ({ abortController }: any) => {
+			abortController.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+
+		manager.queuedMessage = 'followup'
+		await manager.sendRequest({ instructions: 'the long cancelled prompt' })
+
+		// clean handoff: queued message sent, cancelled prompt NOT shoved back in
+		expect(manager.queuedMessage).toBe('')
+		expect(input.restoreInstructions).not.toHaveBeenCalled()
+	})
+
+	it('re-queues the message when its auto-send is rejected by beforeSend', async () => {
+		replyWith('done')
+		const input = createInputMock()
+		const manager = createManager(input)
+		// first turn goes through, the queued auto-send is rejected
+		manager.beforeSend = vi
+			.fn()
+			.mockResolvedValueOnce(undefined)
+			.mockRejectedValueOnce(new Error('workspace commit failed'))
+
+		manager.queuedMessage = 'followup'
+		await manager.sendRequest({ instructions: 'first' })
+
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
+		// the rejected message stays a card rather than being lost or moved to input
+		expect(manager.queuedMessage).toBe('followup')
+		expect(input.prependText).not.toHaveBeenCalled()
+	})
+
+	it('drops the queued message when switching conversations (no cross-chat leak)', async () => {
+		const manager = createManager(createInputMock())
+
+		manager.queuedMessage = 'meant for chat A'
+		await manager.saveAndClear()
+		expect(manager.queuedMessage).toBe('')
+
+		manager.queuedMessage = 'still meant for chat A'
+		vi.spyOn(manager.historyManager, 'loadPastChat').mockReturnValue({
+			id: 'chat-b',
+			title: 'Chat B',
+			displayMessages: [],
+			actualMessages: [],
+			lastModified: 0
+		} as unknown as ReturnType<typeof manager.historyManager.loadPastChat>)
+		await manager.loadPastChat('chat-b')
+		expect(manager.queuedMessage).toBe('')
+	})
+
+	it('clears attachments on New chat / load past chat (non-session), keeps them in a session', async () => {
+		const txt = (n: string) => new File(['hello\n'], n, { type: 'text/plain' })
+
+		// Non-session global chat: New chat must clear the previous conversation's attachments.
+		const manager = createManager(createInputMock())
+		await manager.attachedFiles.addFiles([txt('a.txt')])
+		expect(manager.attachedFiles.count).toBe(1)
+		await manager.saveAndClear()
+		expect(manager.attachedFiles.count).toBe(0)
+
+		// ...and loading a past chat clears them too.
+		vi.spyOn(manager.historyManager, 'loadPastChat').mockReturnValue({
+			id: 'chat-c',
+			title: 'Chat C',
+			displayMessages: [],
+			actualMessages: [],
+			lastModified: 0
+		} as unknown as ReturnType<typeof manager.historyManager.loadPastChat>)
+		await manager.attachedFiles.addFiles([txt('c.txt')])
+		expect(manager.attachedFiles.count).toBe(1)
+		await manager.loadPastChat('chat-c')
+		expect(manager.attachedFiles.count).toBe(0)
+
+		// Session chat: attachments are session-scoped — they survive New chat.
+		const session = createManager(createInputMock())
+		session.isSessionChat = true
+		await session.attachedFiles.addFiles([txt('b.txt')])
+		await session.saveAndClear()
+		expect(session.attachedFiles.count).toBe(1)
 	})
 })
 
@@ -571,6 +803,146 @@ describe('AIChatManager context compaction', () => {
 		await manager.saveAndClear()
 		expect(manager.contextUsage).toBeUndefined()
 	})
+
+	// gpt-4o resolves to a known 128k window (modelConfig unmocked): trigger at
+	// ~102k, target ~90k. With a summary reserve of 8k the tail budget is ~76k.
+	const gpt4oModel = { provider: 'openai', model: 'gpt-4o' }
+
+	// Older prefix (4 messages, ~25k tokens each = 100k chars) plus a recent
+	// user+assistant pair that fits the tail budget. After the new user turn is
+	// pushed the budget keeps [recentQ, recentA, new] verbatim and summarizes the
+	// four old messages.
+	function seedForSummary(manager: AIChatManager) {
+		manager.messages = [
+			{ role: 'user', content: 'OLD1' + 'a'.repeat(100_000) },
+			{ role: 'assistant', content: 'OLD2' + 'b'.repeat(100_000) },
+			{ role: 'user', content: 'OLD3' + 'c'.repeat(100_000) },
+			{ role: 'assistant', content: 'OLD4' + 'd'.repeat(100_000) },
+			{ role: 'user', content: 'recentQ' + 'e'.repeat(80_000) },
+			{ role: 'assistant', content: 'recentA' + 'f'.repeat(80_000) }
+		]
+		manager.displayMessages = [
+			{ role: 'user', content: 'old1', index: 0 },
+			{ role: 'assistant', content: 'old2' },
+			{ role: 'user', content: 'old3', index: 2 },
+			{ role: 'assistant', content: 'old4' },
+			{ role: 'user', content: 'recentQ', index: 4 },
+			{ role: 'assistant', content: 'recentA' }
+		]
+		manager.instructions = 'next question'
+	}
+
+	it('summarizes the older prefix and keeps the recent tail verbatim', async () => {
+		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.getNonStreamingCompletion.mockResolvedValue(
+			'<analysis>scratchpad</analysis><summary>SUMMARY TEXT</summary>'
+		)
+		const manager = new AIChatManager()
+		seedForSummary(manager)
+
+		await manager.sendRequest()
+
+		// The prefix (the four OLD messages) was sent to the summarizer, followed
+		// by the summary-instruction user message.
+		expect(mocks.getNonStreamingCompletion).toHaveBeenCalledTimes(1)
+		const summaryReq = mocks.getNonStreamingCompletion.mock.calls[0][0]
+		expect(summaryReq).toHaveLength(5)
+		expect(summaryReq[0].content).toContain('OLD1')
+		expect(summaryReq[3].content).toContain('OLD4')
+		expect(summaryReq[4].content).toContain('detailed summary')
+
+		// The request that went out begins with the summary user message, then the
+		// recent tail verbatim, then the new question.
+		const sent = mocks.runChatLoop.mock.calls[0][0].messages
+		expect(sent).toHaveLength(4)
+		expect(sent[0].role).toBe('user')
+		expect(sent[0].content).toContain('SUMMARY TEXT')
+		expect(sent[0].content).toContain('continued from a previous conversation')
+		expect(sent[0].content).not.toContain('scratchpad')
+		expect(sent[1].content).toContain('recentQ')
+
+		// The display transcript replaces the summarized bubbles with one boundary
+		// and re-bases the surviving tail's restart indices onto the new history.
+		expect(manager.displayMessages[0]).toMatchObject({ role: 'summary', content: 'SUMMARY TEXT' })
+		const recentQDisplay = manager.displayMessages.find(
+			(m) => m.role === 'user' && m.content === 'recentQ'
+		)
+		expect(recentQDisplay && 'index' in recentQDisplay ? recentQDisplay.index : undefined).toBe(1)
+		// No report describes the new history, so the readable number re-estimates
+		// the now-small compacted context.
+		expect(manager.contextUsage).toBeUndefined()
+	})
+
+	it('falls back to drop-oldest when summarization fails', async () => {
+		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.getNonStreamingCompletion.mockRejectedValue(new Error('summary boom'))
+		const manager = new AIChatManager()
+		seedForSummary(manager)
+
+		await manager.sendRequest()
+
+		// Summarization was attempted, then the request still went out — via
+		// drop-oldest, so no summary boundary anywhere.
+		expect(mocks.getNonStreamingCompletion).toHaveBeenCalledTimes(1)
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
+		const sent = mocks.runChatLoop.mock.calls[0][0].messages
+		expect(sent[0].content).not.toContain('continued from a previous conversation')
+		expect(manager.displayMessages.some((m) => m.role === 'summary')).toBe(false)
+	})
+
+	it('skips summarization (drop-oldest) when the prefix is too small', async () => {
+		mocks.getCurrentModel.mockReturnValue(anthropicModel)
+		mocks.tryGetCurrentModel.mockReturnValue(anthropicModel)
+		const manager = new AIChatManager()
+		manager.messages = [
+			{ role: 'user', content: 'a'.repeat(400_000) },
+			{ role: 'assistant', content: 'b'.repeat(400_000) },
+			{ role: 'user', content: 'c'.repeat(400) }
+		]
+		manager.contextUsage = 850_000
+		manager.instructions = 'next question'
+
+		await manager.sendRequest()
+
+		// A two-message prefix isn't worth a summary round-trip.
+		expect(mocks.getNonStreamingCompletion).not.toHaveBeenCalled()
+		expect(manager.displayMessages.some((m) => m.role === 'summary')).toBe(false)
+	})
+
+	it('does not drop-oldest compact when the user stops during summarization', async () => {
+		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
+		// The user hits Stop while the summary request is in flight: it aborts the
+		// turn's controller and rejects.
+		mocks.getNonStreamingCompletion.mockImplementation(
+			async (_msgs: any, ac: AbortController) => {
+				ac.abort('user_cancelled')
+				throw new Error('aborted')
+			}
+		)
+		// With the controller already aborted, the real request returns nothing;
+		// mirror that so the turn takes the cancel/rollback path.
+		mocks.runChatLoop.mockImplementation(async () => ({
+			addedMessages: [],
+			tokenUsage: { prompt: 0, completion: 0, total: 0 },
+			lastIterationUsage: null,
+			hitMaxIterations: false
+		}))
+		const manager = new AIChatManager()
+		seedForSummary(manager)
+
+		await manager.sendRequest()
+
+		// Summarization was attempted and aborted, but the abort must NOT trigger a
+		// destructive drop-oldest fallback: the full prefix survives and the unsent
+		// turn is rolled back to the pre-send history (the head pair is still there).
+		expect(mocks.getNonStreamingCompletion).toHaveBeenCalledTimes(1)
+		expect(manager.messages).toHaveLength(6)
+		expect(manager.messages[0].content).toContain('OLD1')
+		expect(manager.displayMessages.some((m) => m.role === 'summary')).toBe(false)
+	})
 })
 
 const assistantToolCall = (id: string): ChatCompletionMessageParam => ({
@@ -708,7 +1080,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 		vi.mocked(runChatLoop).mockImplementation(async (config) => {
 			config.callbacks.onNewToken('Here is the partial ')
 			config.callbacks.onNewToken('answer')
-			config.abortController.abort('user_cancelled')
+			config.abortController.abort()
 			throw new Error('aborted')
 		})
 
@@ -733,7 +1105,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 		vi.mocked(runChatLoop).mockImplementation(async (config) => {
 			config.callbacks.onReasoningStart?.()
 			config.callbacks.onReasoningDelta?.('still thinking...')
-			config.abortController.abort('user_cancelled')
+			config.abortController.abort()
 			throw new Error('aborted')
 		})
 
@@ -764,7 +1136,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 		vi.mocked(runChatLoop).mockImplementation(async (config) => {
 			config.callbacks.onNewToken('Partial from Claude')
 			config.callbacks.onMessageEnd()
-			config.abortController.abort('user_cancelled')
+			config.abortController.abort()
 			throw new Error('aborted')
 		})
 
@@ -790,7 +1162,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 			config.callbacks.onNewToken('The full answer')
 			config.addedMessages!.push({ role: 'assistant', content: 'The full answer' })
 			config.callbacks.onMessageEnd()
-			config.abortController.abort('user_cancelled')
+			config.abortController.abort()
 			throw new Error('aborted')
 		})
 

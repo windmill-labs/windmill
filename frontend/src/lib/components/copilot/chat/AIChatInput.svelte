@@ -6,6 +6,7 @@
 	import type { ContextElement } from './context'
 	import { AIMode } from './AIChatManager.svelte'
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
+	import { formatMention } from './mention'
 	import { twMerge } from 'tailwind-merge'
 	import { tick, untrack, type Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
@@ -188,6 +189,21 @@
 		focusInput()
 	}
 
+	/** Put text back into the textarea (queued-message delete, or restore
+	 * after a cancelled/errored turn), prepended to any draft so nothing
+	 * the user typed is lost. */
+	export function prependText(text: string) {
+		instructions = instructions.trim() ? `${text}\n\n${instructions}` : text
+		focusInput()
+	}
+
+	/** Insert a plain @filename mention for an attached file (used by the @ menu Files category). */
+	export function insertFileMention(name: string) {
+		const sep = instructions.length === 0 || instructions.endsWith(' ') ? '' : ' '
+		instructions = `${instructions}${sep}${formatMention(name)} `
+		focusInput()
+	}
+
 	function clickOutside(node: HTMLElement) {
 		function handleClick(event: MouseEvent) {
 			if (node && !node.contains(event.target as Node)) {
@@ -270,6 +286,17 @@
 
 	function sendRequest() {
 		if (aiChatManager.loading) {
+			// Queue the message instead of silently discarding it — it is
+			// auto-sent when the streaming turn completes successfully.
+			// Editing-while-loading keeps the old discard behavior. Paste
+			// tokens are expanded into the queued text (the queue is plain
+			// strings), so the full content survives the auto-send.
+			if (editingMessageIndex === null && instructions.trim()) {
+				aiChatManager.queueMessage(expanded(chatDraft(instructions, pastes)))
+				contextTextareaComponent?.clearForSend()
+				instructions = ''
+				pastes = []
+			}
 			return
 		}
 		if (editingMessageIndex !== null) {

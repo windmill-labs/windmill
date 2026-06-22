@@ -16,7 +16,8 @@
 		LayoutDashboard,
 		Mail,
 		Route,
-		Unplug
+		Unplug,
+		Workflow
 	} from 'lucide-svelte'
 	import FileIcon from '$lib/components/raw_apps/FileIcon.svelte'
 
@@ -53,6 +54,7 @@
 			| 'gcp_trigger'
 			| 'azure_trigger'
 			| 'email_trigger'
+			| 'data_pipeline'
 		/** For 'trigger' kind, specifies the specific trigger type (routes, schedules, etc.) */
 		triggerKind?: string | undefined
 		/** For 'raw_app_file' kind: the file name/path, used to pick an
@@ -124,6 +126,8 @@
 		<Mail {size} class="text-gray-400" />
 	{:else if effectiveKind === 'trigger'}
 		<Calendar {size} class="text-gray-400" />
+	{:else if effectiveKind === 'data_pipeline'}
+		<Workflow {size} class="text-indigo-500" />
 	{:else}
 		<div style="width: {size}px;"></div>
 	{/if}

@@ -179,9 +179,19 @@ export default class HistoryManager {
 		contextUsage?: number
 	) {
 		if (displayMessages.length > 0) {
-			// Expand any collapsed-paste tokens so the title is readable text, not
-			// the chip label + its zero-width id chars.
-			const title = expanded(messageDraft(displayMessages[0])).slice(0, 50)
+			// Compaction replaces the original first message with a summary boundary.
+			// Re-deriving the title would then shift it to the first surviving tail
+			// message, so once that boundary leads the transcript, keep the title
+			// computed before compaction. Otherwise derive it from the first message,
+			// expanding collapsed-paste tokens so it reads as text rather than the
+			// chip label + its zero-width id chars.
+			const existingTitle = this.savedChats[this.currentChatId]?.title
+			const title =
+				displayMessages[0].role === 'summary' && existingTitle !== undefined
+					? existingTitle
+					: expanded(
+							messageDraft(displayMessages.find((m) => m.role !== 'summary') ?? displayMessages[0])
+						).slice(0, 50)
 			// we don't want to save the snapshot in the history
 			const updatedChat = {
 				actualMessages: $state.snapshot(messages),

@@ -34,7 +34,7 @@
 		sendUserToast,
 		urlParamsToObject
 	} from '$lib/utils'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
 	import AppPreview from './AppPreview.svelte'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
@@ -69,6 +69,7 @@
 		path,
 		policy,
 		summary,
+		deployedBaseline = undefined,
 		fromHub = false,
 		diffDrawer = undefined,
 		savedApp = $bindable(undefined),
@@ -87,6 +88,17 @@
 
 	migrateApp(untrack(() => app))
 
+	// Migrated clone of the deployed baseline for the autosave `discardIf`. The
+	// live `stateApp` is `migrateApp`'d on mount, so the baseline must be too or
+	// an unedited draft would never compare equal. Captured once per mount (the
+	// route remounts AppEditor on path change), `undefined` for draft-only paths.
+	const migratedDeployedBaseline = untrack(() => {
+		if (!deployedBaseline) return undefined
+		const clone = structuredClone($state.snapshot(deployedBaseline)) as App
+		migrateApp(clone)
+		return clone
+	})
+
 	// Inside a session pane the AIChatManager is injected via context. Sessions
 	// have their own state machinery (sessionRuntime + per-fork backend), and
 	// the user-facing $workspaceStore stays on the main workspace even when
@@ -101,7 +113,13 @@
 	const appDraftHandle = inSessionPane
 		? undefined
 		: // `canBeDisabled`: page editor's AutosaveIndicator carries the toggle.
-			UserDraft.use<App>('app', appDraftPath, { canBeDisabled: true })
+			// `discardIf`: an autosave reverting to the deployed app deletes the
+			// draft instead of persisting a no-op copy.
+			UserDraft.use<App>('app', appDraftPath, {
+				canBeDisabled: true,
+				discardIf: (val) =>
+					migratedDeployedBaseline !== undefined && draftValuesEqual(val, migratedDeployedBaseline)
+			})
 	// Suspend autosave around mount so the `firstMirror` seed write isn't POSTed
 	// as the user's first edit; `onMount`-then-`tick` resumes once effects settle.
 	if (appDraftHandle) UserDraft.stopSync('app', appDraftPath)

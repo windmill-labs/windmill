@@ -356,7 +356,7 @@ export async function getTablesByResource(
 			const paths: string[] = []
 			for (const key in s?.schema) {
 				for (const subKey in s.schema[key]) {
-					paths.push(`${subKey}`)
+					paths.push(key === 'main' ? `${subKey}` : `${key}.${subKey}`)
 				}
 			}
 

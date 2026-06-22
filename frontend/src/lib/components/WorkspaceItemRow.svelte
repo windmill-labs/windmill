@@ -53,7 +53,9 @@ doesn't steal focus from a sibling search input (matches the picker).
 		/** Extra left padding (px) for tree-view indentation. Adds to the
 		 * default `px-3` horizontal padding. */
 		indent?: number
-		/** Title tooltip shown on hover; defaults to the secondary text. */
+		/** Full path tooltip for the secondary line; defaults to the secondary
+		 * text. The summary line gets its own tooltip (the full summary) so each
+		 * truncated line reveals its own content on hover. */
 		title?: string
 		/** When set, the row renders as an `<a href target="_blank">` link
 		 * instead of a `<button>`. Used by callers that want native
@@ -108,7 +110,6 @@ doesn't steal focus from a sibling search input (matches the picker).
 		aria-selected={highlighted}
 		aria-current={current ? 'true' : undefined}
 		data-nav-key={navKey}
-		title={title ?? secondary}
 		style={indent ? `padding-left: calc(0.75rem + ${indent}px)` : undefined}
 		class={rootClass}
 		{onclick}
@@ -117,10 +118,17 @@ doesn't steal focus from a sibling search input (matches the picker).
 		<RowIcon {kind} {triggerKind} path={iconPath} size={12} />
 		<div class={contentClass}>
 			{#if summary}
-				<div class="text-xs text-primary truncate">{summary}</div>
-				<div class="text-2xs text-secondary font-normal font-mono truncate">{secondary}</div>
+				<div class="text-xs text-primary truncate" title={summary}>{summary}</div>
+				<div
+					class="text-2xs text-secondary font-normal font-mono truncate"
+					title={title ?? secondary}
+				>
+					{secondary}
+				</div>
 			{:else}
-				<div class="text-xs text-primary font-mono truncate">{secondary}</div>
+				<div class="text-xs text-primary font-mono truncate" title={title ?? secondary}>
+					{secondary}
+				</div>
 			{/if}
 		</div>
 		{#if extras}
@@ -137,7 +145,6 @@ doesn't steal focus from a sibling search input (matches the picker).
 		aria-selected={highlighted}
 		aria-current={current ? 'true' : undefined}
 		data-nav-key={navKey}
-		title={title ?? secondary}
 		style={indent ? `padding-left: calc(0.75rem + ${indent}px)` : undefined}
 		class={rootClass}
 		onmousedown={(e) => e.preventDefault()}
@@ -147,10 +154,17 @@ doesn't steal focus from a sibling search input (matches the picker).
 		<RowIcon {kind} {triggerKind} path={iconPath} size={12} />
 		<div class={contentClass}>
 			{#if summary}
-				<div class="text-xs text-primary truncate">{summary}</div>
-				<div class="text-2xs text-secondary font-normal font-mono truncate">{secondary}</div>
+				<div class="text-xs text-primary truncate" title={summary}>{summary}</div>
+				<div
+					class="text-2xs text-secondary font-normal font-mono truncate"
+					title={title ?? secondary}
+				>
+					{secondary}
+				</div>
 			{:else}
-				<div class="text-xs text-primary font-mono truncate">{secondary}</div>
+				<div class="text-xs text-primary font-mono truncate" title={title ?? secondary}>
+					{secondary}
+				</div>
 			{/if}
 		</div>
 		{#if extras}

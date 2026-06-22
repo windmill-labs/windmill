@@ -8,6 +8,13 @@
 		status: DiffStatus
 		ahead?: number
 		behind?: number
+		/** Human-facing path; defaults to `path`. Lets a draft parked at a
+		 * synthetic storage path (`…/draft_<uuid>`) show its friendly typed path
+		 * while keys, value-loading and edit links stay keyed on `path`. */
+		displayPath?: string
+		/** Summary supplied by the data source. Preferred over the one derived
+		 * from the loaded diff value, and shown before that value loads. */
+		summary?: string
 	}
 </script>
 
@@ -98,6 +105,12 @@
 
 	function itemKey(d: DisplayDiff): string {
 		return `${d.kind}/${d.path}`
+	}
+
+	// Friendly path for display only; `path` stays the storage key everywhere
+	// keys/loads happen, so a never-deployed draft still loads from `…/draft_<uuid>`.
+	function displayPathOf(d: DisplayDiff): string {
+		return ('displayPath' in d ? d.displayPath : undefined) ?? d.path
 	}
 
 	const KIND_LABELS: Record<string, string> = {
@@ -224,9 +237,9 @@
 		}
 		const folderCache = new Map<string, FolderNode>()
 		for (const d of rows) {
-			const parts = d.path.split('/')
+			const parts = displayPathOf(d).split('/')
 			if (parts.length < 2) {
-				root.children.push({ type: 'file', name: d.path, diff: d })
+				root.children.push({ type: 'file', name: displayPathOf(d), diff: d })
 				continue
 			}
 			const scopeKey = parts.slice(0, 2).join('/')
@@ -267,8 +280,8 @@
 	}
 
 	function searchableText(d: DisplayDiff): string {
-		const parts = [d.path, KIND_LABELS[d.kind] ?? d.kind]
-		const s = summaries[itemKey(d)]
+		const parts = [displayPathOf(d), KIND_LABELS[d.kind] ?? d.kind]
+		const s = summaries[itemKey(d)] ?? ('summary' in d ? d.summary : undefined)
 		if (s) parts.push(s)
 		return parts.join(' ')
 	}
@@ -475,12 +488,12 @@
 			kind={node.diff.kind as any}
 			iconPath={node.diff.path}
 			uniformHeight
-			summary={summaries[key]}
+			summary={summaries[key] ?? ('summary' in node.diff ? node.diff.summary : undefined)}
 			secondary={node.name}
 			highlighted={key === highlightedKey}
 			navKey={key}
 			indent={depth * 12 + 20}
-			title={node.diff.path}
+			title={displayPathOf(node.diff)}
 			onclick={() => {
 				highlightedKey = key
 				scrollToDiff(node.diff)
@@ -603,6 +616,7 @@
 									'appPath' in d
 										? editUrlFor?.({ ...d, kind: 'raw_app', path: d.appPath })
 										: editUrlFor?.(d)}
+								{@const dpath = displayPathOf(d)}
 								<details
 									open
 									id={rowId(d)}
@@ -620,14 +634,14 @@
 											{#if editUrl}
 												<ExternalEditLink
 													href={editUrl}
-													title={d.path}
+													title={dpath}
 													class="text-xs text-primary font-mono truncate"
 												>
-													<span class="truncate">{d.path}</span>
+													<span class="truncate">{dpath}</span>
 												</ExternalEditLink>
 											{:else}
-												<div class="text-xs text-primary font-mono truncate" title={d.path}>
-													{d.path}
+												<div class="text-xs text-primary font-mono truncate" title={dpath}>
+													{dpath}
 												</div>
 											{/if}
 										</div>

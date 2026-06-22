@@ -4,7 +4,6 @@ import type {
 } from 'openai/resources/index.mjs'
 import type { Tool } from '../shared'
 import { loadApiTools } from './apiTools'
-import { getDocumentationTool } from '../navigator/core'
 import { userStore } from '$lib/stores'
 import { get } from 'svelte/store'
 
@@ -14,13 +13,13 @@ You are Windmill's intelligent assistant, designed to interact with the platform
 Windmill is an open-source developer platform for building internal tools, API integrations, background jobs, workflows, and user interfaces. It offers a unified system where scripts are automatically turned into sharable UIs and can be composed into flows or embedded in custom applications.
 
 You have access to these tools:
-1. Get documentation for user requests (get_documentation)
+1. Search the documentation (search_docs) and read a documentation page (read_docs_page)
 2. A comprehensive list of API endpoints to interact with the Windmill backend
 
 INSTRUCTIONS:
 - You can directly query, list, create, update, and delete various Windmill resources like scripts, flows, jobs, resources, variables, schedules, and workers through the provided API tools.
 - When users ask about specific data or want to perform operations, use the appropriate API endpoints to fulfill their requests.
-- Use get_documentation to retrieve accurate information about features, concepts, and best practices when needed.
+- Use search_docs (then read_docs_page on a returned Source URL) to retrieve accurate information about features, concepts, and best practices when needed.
 - Always present API results in a clear, readable format for the user.
 - If you need to make multiple related API calls to fulfill a request, do so systematically and explain what you're doing.
 - When showing lists of items, provide meaningful summaries rather than overwhelming the user with raw data.
@@ -54,8 +53,6 @@ export async function getApiTools(): Promise<Tool<{}>[]> {
 	}
 	return apiToolsCache
 }
-
-export const apiTools: Tool<{}>[] = [getDocumentationTool]
 
 export function prepareApiSystemMessage(customPrompt?: string): ChatCompletionSystemMessageParam {
 	let content = CHAT_SYSTEM_PROMPT(get(userStore)?.username ?? '')

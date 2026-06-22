@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { CloudCheck, CloudOff, RefreshCcw, RotateCcw, Users } from 'lucide-svelte'
+	import { CloudCheck, CloudOff, RefreshCcw, RotateCcw, Users, Eye } from 'lucide-svelte'
 	import type { UserDraftItemKind } from '$lib/gen'
 	import { UserDraftDbSyncer, type UserDraftSyncState } from '$lib/userDraftDbSyncer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { runResetToDeployed } from '$lib/userDraftToast'
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
@@ -188,6 +189,13 @@
 	)
 	const labelIsError = $derived(syncState === 'failed')
 
+	// Overlay mode: editing another user's loaded draft. Autosave is hard-locked,
+	// so the toggle is meaningless; offer "Reset to draft" (restore our own) instead.
+	const editingOtherUserDraft = $derived(OtherUserDraftLoad.isActive(workspace, itemKind, path))
+	const otherDraftOwnerLabel = $derived(
+		OtherUserDraftLoad.getSession(workspace, itemKind, path)?.ownerLabel
+	)
+
 	const showResetAction = $derived(!draftOnly && hasDraft && !!onResetToDeployed)
 
 	// "Enable auto-save" preference — browser-wide, persisted by the syncer.
@@ -212,6 +220,18 @@
 	function openOthersDrafts() {
 		popoverOpen = false
 		onOpenOthersDrafts?.()
+	}
+
+	let resettingToOwnDraft = $state(false)
+	async function resetToOwnDraft() {
+		if (resettingToOwnDraft) return
+		resettingToOwnDraft = true
+		try {
+			await OtherUserDraftLoad.resetToOwnDraft(workspace, itemKind, path)
+		} finally {
+			resettingToOwnDraft = false
+			popoverOpen = false
+		}
 	}
 </script>
 
@@ -239,7 +259,10 @@
 	>
 		{#snippet trigger()}
 			<div class="relative rounded-md p-1.5 hover:bg-surface-hover cursor-pointer">
-				{#if syncState === 'saving' || syncState === 'pending'}
+				{#if editingOtherUserDraft}
+					<!-- Viewing another user's draft: not saved, distinct from the saved check-mark. -->
+					<Eye size={16} class="text-blue-500" />
+				{:else if syncState === 'saving' || syncState === 'pending'}
 					<RefreshCcw size={14} class="animate-spin" />
 				{:else if syncState === 'failed'}
 					<CloudOff size={16} class="text-red-500" />
@@ -254,61 +277,77 @@
 
 		{#snippet content()}
 			<div class="flex flex-col gap-3 text-sm w-72 p-3">
-				{#if syncState === 'failed'}
-					<div class="flex flex-col gap-1">
-						<p class="text-red-500 font-semibold text-xs">Save failed</p>
-						{#if failureMessage}
-							<pre
-								class="text-red-500 text-xs whitespace-pre-wrap break-words font-mono max-h-40 overflow-y-auto"
-								>{failureMessage}</pre
-							>
-						{/if}
-					</div>
-				{/if}
-				{#if autosaveEnabled}
+				{#if editingOtherUserDraft}
 					<p class="text-primary text-xs">
-						All changes are saved as a draft on the server. The draft is per-user — your teammates'
-						editors keep their own.
+						You're editing {otherDraftOwnerLabel ?? 'another user'}'s draft. Auto-save is paused —
+						your own draft is untouched. Editing prompts before overwriting it.
 					</p>
-				{:else}
-					<p class="text-primary text-xs">
-						Auto-save is off — changes only persist when you press Ctrl/Cmd+S. The draft is per-user
-						— your teammates' editors keep their own.
-					</p>
-				{/if}
-				<Toggle
-					size="xs"
-					checked={autosaveEnabled}
-					options={{ right: 'Enable auto-save' }}
-					on:change={(e) => {
-						UserDraftDbSyncer.autosaveEnabled = e.detail
-					}}
-				/>
-				{#if othersDraftsCount > 0}
-					<div class="flex flex-col gap-2 border-t pt-3">
-						<p class="text-primary text-xs">
-							Other users are working on this {kindLabel}.
-						</p>
-						<Button
-							variant="default"
-							size="xs"
-							startIcon={{ icon: Users }}
-							on:click={openOthersDrafts}
-						>
-							See others' drafts
-						</Button>
-					</div>
-				{/if}
-				{#if showResetAction}
 					<Button
 						variant="default"
 						size="xs"
-						loading={resetting}
+						loading={resettingToOwnDraft}
 						startIcon={{ icon: RotateCcw }}
-						on:click={() => void resetToDeployed()}
+						on:click={() => void resetToOwnDraft()}
 					>
-						Reset to deployed
+						Reset to draft
 					</Button>
+				{:else}
+					{#if syncState === 'failed'}
+						<div class="flex flex-col gap-1">
+							<p class="text-red-500 font-semibold text-xs">Save failed</p>
+							{#if failureMessage}
+								<pre
+									class="text-red-500 text-xs whitespace-pre-wrap break-words font-mono max-h-40 overflow-y-auto"
+									>{failureMessage}</pre
+								>
+							{/if}
+						</div>
+					{/if}
+					{#if autosaveEnabled}
+						<p class="text-primary text-xs">
+							All changes are saved as a draft on the server. The draft is per-user — your
+							teammates' editors keep their own.
+						</p>
+					{:else}
+						<p class="text-primary text-xs">
+							Auto-save is off — changes only persist when you press Ctrl/Cmd+S. The draft is
+							per-user — your teammates' editors keep their own.
+						</p>
+					{/if}
+					<Toggle
+						size="xs"
+						checked={autosaveEnabled}
+						options={{ right: 'Enable auto-save' }}
+						on:change={(e) => {
+							UserDraftDbSyncer.autosaveEnabled = e.detail
+						}}
+					/>
+					{#if othersDraftsCount > 0}
+						<div class="flex flex-col gap-2 border-t pt-3">
+							<p class="text-primary text-xs">
+								Other users are working on this {kindLabel}.
+							</p>
+							<Button
+								variant="default"
+								size="xs"
+								startIcon={{ icon: Users }}
+								on:click={openOthersDrafts}
+							>
+								See others' drafts
+							</Button>
+						</div>
+					{/if}
+					{#if showResetAction}
+						<Button
+							variant="default"
+							size="xs"
+							loading={resetting}
+							startIcon={{ icon: RotateCcw }}
+							on:click={() => void resetToDeployed()}
+						>
+							Reset to deployed
+						</Button>
+					{/if}
 				{/if}
 			</div>
 		{/snippet}

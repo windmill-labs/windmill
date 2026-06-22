@@ -15,12 +15,16 @@
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { get } from 'svelte/store'
-	import { untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
+	import { stripNewDraftFlagOnSave } from '$lib/newDraftFlag'
 	import { page } from '$app/state'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { discardDraftAfterDeploy, runResetToDeployed } from '$lib/userDraftToast'
 	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
+	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
+	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 
 	type EditableScript = NewScript & { draft_triggers?: Trigger[] }
 
@@ -65,11 +69,19 @@
 	// Page-level draft orchestration: autosave handle (re-keyed on nav via
 	// `draftPath`), live-editor-draft registry, `recordRemoteSync`, removal.
 	// `draftSync.draft` stays a stable lvalue for `bind:script`.
+	/** Deployed script this load (with `parent_hash` grafted to match the
+	 * unedited draft seed), the baseline the autosave `discardIf` compares
+	 * against. `undefined` for draft-only paths so they never self-destruct. */
+	let deployedBaseline = $state<EditableScript | undefined>(undefined)
+
 	const draftSync = usePageDraftSync<EditableScript>({
 		itemKind: 'script',
 		path: () => draftPath,
 		workspace: () => $workspaceStore,
-		effectivePath: () => draftSync.draft?.path ?? draftPath
+		effectivePath: () => draftSync.draft?.path ?? draftPath,
+		// Autosaves landing back on the deployed script become deletes, so
+		// reverting edits clears the draft instead of leaving a no-op behind.
+		discardIf: (val) => deployedBaseline !== undefined && draftValuesEqual(val, deployedBaseline)
 	})
 
 	// Seed from the URL so ScriptBuilder mounts with a populated `initialPath`
@@ -106,16 +118,21 @@
 	 * navigation races a draft-discard reload) bail at the next checkpoint
 	 * after their captured token no longer matches. */
 	let loadScriptToken = 0
+	/** Drops the previous load's `new_draft` strip-on-save listener. */
+	let cleanupNewDraftFlag: (() => void) | undefined
+	onDestroy(() => cleanupNewDraftFlag?.())
 	async function loadScript(opts: { getDraft?: boolean } = {}): Promise<void> {
 		const getDraft = opts.getDraft ?? true
 		const tok = ++loadScriptToken
 		fullyLoaded = false
+		cleanupNewDraftFlag?.()
+		cleanupNewDraftFlag = undefined
 		// `?new_draft=true` (from `/scripts/add`'s redirect): a fresh, never-saved
 		// `u/{user}/draft_{uuid}` path. Skip the backend fetch (would 404) and seed
 		// empty. `path` AND `initialPath` must both be '' so the Path widget's
 		// `initPath` calls `reset()`, generating the friendly `<adj>_<kind>` name;
 		// any non-empty value is parsed verbatim. Empty `initialPath` also opens the
-		// metadata drawer. Strip the single-use flag last.
+		// metadata drawer. The flag is stripped only once the first save lands.
 		if (page.url.searchParams.get('new_draft') === 'true') {
 			// Suspend autosave across the bootstrap: both the seed and
 			// ScriptBuilder's `initContent` are programmatic writes that must not
@@ -129,7 +146,8 @@
 			loadedFromDraft = false
 			draftSavedAt = undefined
 			deployedAt = undefined
-			// Capture every seeding param BEFORE stripping the URL flag.
+			// Brand-new script: no deployed baseline, so never discard-on-equal.
+			deployedBaseline = undefined
 			const templatePath = page.url.searchParams.get('template')
 			const hubPath = page.url.searchParams.get('hub')
 			const collabLang = page.url.searchParams.get('lang') as ScriptLang | null
@@ -138,9 +156,14 @@
 			// path into the forker's namespace and passes it here.
 			const pathParam = page.url.searchParams.get('seed_path')
 			const urlScript = decodeUrlScript()
-			const url = new URL(window.location.href)
-			url.searchParams.delete('new_draft')
-			window.history.replaceState(window.history.state, '', url.toString())
+			// Keep `?new_draft=true` until the backend confirms the first autosave,
+			// so a refresh before any edit re-seeds here instead of 404-ing on the
+			// never-persisted `draft_{uuid}` path.
+			cleanupNewDraftFlag = stripNewDraftFlagOnSave({
+				workspace: $workspaceStore!,
+				itemKind: 'script',
+				path: draftPath
+			})
 			// One-shot YAML/JSON import handoff via $importScriptStore. Consume +
 			// clear; imported content is non-empty so ScriptBuilder's template
 			// bootstrap (guarded on `content == ''`) leaves it untouched.
@@ -259,6 +282,9 @@
 			})
 			if (tok !== loadScriptToken) return
 			savedScript = structuredClone($state.snapshot(scriptByHash))
+			// Historical-hash view is read-only relative to drafts (`draftPath` is
+			// '' → detached handle), so no baseline is needed.
+			deployedBaseline = undefined
 			draftSync.draft = { ...scriptByHash, parent_hash: hash, lock: undefined }
 		} else {
 			const backendScript = await ScriptService.getScriptByPath({
@@ -277,9 +303,10 @@
 			// timestamp the backend can stale-check. `undefined` (no draft) clears
 			// it, making the next save take the "first push" branch.
 			draftSync.recordRemoteSync(backendScript.draft_saved_at as string | undefined)
-			if (backendScript.is_draft) {
-				loadedFromDraft = true
-			}
+			// Per-response, NOT sticky: navigating to another path in the same editor
+			// must reset this, else a later no-own-draft load wrongly enters overlay.
+			const hasOwnDraft = !!backendScript.is_draft
+			loadedFromDraft = hasOwnDraft
 			// Pass both timestamps through for DraftEditorModals' staleness compare:
 			// `created_at` is the latest deploy, `draft_saved_at` the draft's save.
 			draftSavedAt = backendScript.draft_saved_at as string | undefined
@@ -292,12 +319,55 @@
 				? { ...deployedScript, ...draftFromBackend }
 				: (deployedScript as EditableScript)
 			savedScript = structuredClone($state.snapshot(effectiveScript))
-			// `parent_hash` is grafted on so the editor's compile reuses the
-			// deployed lock. The first cell write after `acquireEntry` is swallowed
-			// by the syncer's seed guard, so this load doesn't POST.
-			draftSync.draft = {
-				...effectiveScript,
-				parent_hash: topHash ?? backendScript.hash
+			const parentHash = topHash ?? backendScript.hash
+			// Baseline for the autosave `discardIf`: the deployed script with the
+			// same `parent_hash` graft the seed below applies, so the unedited draft
+			// compares equal. `undefined` when there's no deployed row.
+			deployedBaseline = backendScript.no_deployed
+				? undefined
+				: structuredClone($state.snapshot({ ...deployedScript, parent_hash: parentHash }))
+			// "Load another user's draft" handoff: show their value over the
+			// deployed metadata. If WE already have a draft → overlay mode (never
+			// saved until the user confirms overwriting their own draft).
+			const pendingLoad = getDraft
+				? OtherUserDraftLoad.takePending($workspaceStore!, 'script', draftPath)
+				: undefined
+			// Revisiting a path whose overlay was never confirmed/reset (e.g. the user
+			// navigated away mid-load): drop the stale lock so editing our own draft
+			// works again.
+			if (!pendingLoad && OtherUserDraftLoad.isActive($workspaceStore!, 'script', draftPath)) {
+				OtherUserDraftLoad.clear($workspaceStore!, 'script', draftPath)
+			}
+			if (pendingLoad) {
+				const loadedValue = {
+					...deployedScript,
+					...(pendingLoad.value as object),
+					parent_hash: parentHash
+				} as EditableScript
+				if (hasOwnDraft) {
+					OtherUserDraftLoad.beginOverlay({
+						workspace: $workspaceStore!,
+						itemKind: 'script',
+						path: draftPath,
+						ownerLabel: pendingLoad.ownerLabel,
+						loadedValue,
+						onResetToOwnDraft: () => loadScript({ getDraft: true })
+					})
+					// Seed so the bound value updates WITHOUT a POST (the lock would
+					// block it anyway, but seeding avoids tripping the edit prompt).
+					UserDraft.seed('script', draftPath, loadedValue, { workspace: $workspaceStore! })
+				} else {
+					// No own draft: adopt their value as ours (autosaves normally).
+					draftSync.draft = loadedValue
+				}
+			} else {
+				// `parent_hash` is grafted on so the editor's compile reuses the
+				// deployed lock. The first cell write after `acquireEntry` is swallowed
+				// by the syncer's seed guard, so this load doesn't POST.
+				draftSync.draft = {
+					...effectiveScript,
+					parent_hash: parentHash
+				}
 			}
 		}
 
@@ -355,12 +425,32 @@
 </script>
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
+<!-- Auto-save off: edits aren't persisted on leave, so warn before navigating
+	away (and on tab close). When auto-save is on the predicate returns false and
+	this modal stays inert — the draft is saved automatically. -->
+<UnsavedConfirmationModal
+	showAutosaveTips
+	hasUnsavedChanges={() =>
+		UserDraftDbSyncer.hasUnsavedDisabledChanges({
+			workspace: $workspaceStore ?? '',
+			itemKind: 'script',
+			path: draftPath
+		})}
+	onDiscardChanges={() =>
+		UserDraftDbSyncer.dropPending({
+			workspace: $workspaceStore ?? '',
+			itemKind: 'script',
+			path: draftPath
+		})}
+/>
 <DraftEditorModals
 	enabled={!hash}
 	workspace={$workspaceStore ?? ''}
 	itemKind="script"
 	path={page.params.path ?? ''}
 	{otherDraftsUsers}
+	draftOnly={(savedScript as any)?.no_deployed === true}
+	hasOwnDraft={loadedFromDraft}
 	onLoadFromServer={() => loadScript()}
 	getLocalDraft={() => draftSync.draft}
 	bind:othersModalOpen

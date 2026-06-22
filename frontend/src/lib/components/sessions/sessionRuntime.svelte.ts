@@ -105,6 +105,7 @@ export interface SessionRuntime {
 					summary: string
 					path: string
 					custom_path?: string
+					draft_path?: string
 			  }
 			| undefined
 	}
@@ -273,6 +274,8 @@ function createRuntime(session: Session): SessionRuntime {
 	// session targeting the right workspace. Both calls are idempotent.
 	manager.beforeSend = async () => {
 		materializeTransient(session.id)
+		// Session is now persisted → flush any linked files buffered while it was transient.
+		await manager.attachedFiles.flushPending()
 		const committed = await commitSessionWorkspace(session.id, get(workspaceStore) ?? undefined)
 		// commitSessionWorkspace returns undefined only when the session did NOT
 		// commit to a workspace — most importantly when a staged fork failed to
@@ -450,7 +453,15 @@ function createRuntime(session: Session): SessionRuntime {
 								)
 							) as NewScript)
 						: {
-								path,
+								// Seed from the draft's own path (a rename lives in `draft_path`,
+								// else `path`), not the storage key. Otherwise re-seeding a renamed
+								// never-deployed draft (e.g. a script→script switch re-runs loadScript
+								// with the draft still in memory) resets the path to `draft_<uuid>`,
+								// and the next autosave drops `draft_path` — clobbering the rename.
+								path:
+									(aiDraft as NewScript & { draft_path?: string }).draft_path ??
+									aiDraft.path ??
+									path,
 								summary: aiDraft.summary ?? '',
 								content: '',
 								description: '',
@@ -600,7 +611,8 @@ function createRuntime(session: Session): SessionRuntime {
 					policy: draftValue?.policy ?? result.policy,
 					summary: draftValue?.summary ?? result.summary ?? '',
 					path: result.path,
-					custom_path: draftValue?.custom_path ?? result.custom_path
+					custom_path: draftValue?.custom_path ?? result.custom_path,
+					draft_path: draftValue?.draft_path
 				}
 				// Seed the per-tab last_sync from the server draft's timestamp so
 				// later saves attach a matching last_sync and the server can reject
@@ -713,6 +725,9 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	const { manager } = runtime
 	await manager.historyManager.init()
 	manager.historyManager.setSessionId(session.id)
+	// Restore linked files persisted for this session (live handles re-grant on send;
+	// snapshots restore directly). Non-transient sessions persist immediately.
+	await manager.attachedFiles.restore(session.id, !session.transient)
 	await ensureChatIdsSeeded(manager.historyManager)
 
 	if (session.chatId) {
