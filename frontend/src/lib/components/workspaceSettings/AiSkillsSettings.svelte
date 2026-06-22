@@ -14,11 +14,28 @@
 	type SkillListItem = { name: string; description: string }
 	type SkillUpload = { name: string; description: string; instructions: string }
 
+	// `<root>/<skill>/SKILL.md` is 3 path segments; SKILL.md files nested deeper
+	// are likely vendored/incidental and are skipped so importing a parent dir
+	// doesn't sweep in unrelated skills.
+	const MAX_SKILL_DEPTH = 3
+	const MAX_SKILLS_PER_IMPORT = 50
+
 	let skills: SkillListItem[] = $state([])
 	let uploading: boolean = $state(false)
 	let pasteContent: string = $state('')
 	let dirInput: HTMLInputElement | undefined = $state(undefined)
 	let toDelete: string | undefined = $state(undefined)
+	let pendingImport: SkillUpload[] | undefined = $state(undefined)
+	let pendingSkipped: string[] = $state([])
+
+	let pendingNamesPreview = $derived(
+		pendingImport
+			? pendingImport
+					.slice(0, 12)
+					.map((s) => s.name)
+					.join(', ') + (pendingImport.length > 12 ? `, … (+${pendingImport.length - 12} more)` : '')
+			: ''
+	)
 
 	async function loadList() {
 		if (!$workspaceStore) return
@@ -130,16 +147,57 @@
 	async function onDirSelected(event: Event) {
 		const target = event.target as HTMLInputElement
 		const files = Array.from(target.files ?? [])
-		const skillFiles = files.filter(
-			(f) => (f.webkitRelativePath || f.name).split('/').pop()?.toLowerCase() === 'skill.md'
-		)
+		// Reset early so re-selecting the same folder re-fires `change`.
+		if (dirInput) dirInput.value = ''
+
+		// Pick SKILL.md files within the depth limit BEFORE reading any content,
+		// so a huge tree never gets read in full.
+		const skipped: string[] = []
+		const eligible: File[] = []
+		for (const f of files) {
+			const path = f.webkitRelativePath || f.name
+			const segments = path.split('/')
+			if (segments[segments.length - 1]?.toLowerCase() !== 'skill.md') continue
+			if (segments.length > MAX_SKILL_DEPTH) {
+				skipped.push(`${path} (nested deeper than ${MAX_SKILL_DEPTH} folder levels)`)
+				continue
+			}
+			eligible.push(f)
+		}
+
+		if (eligible.length === 0) {
+			sendUserToast(
+				`No SKILL.md found within ${MAX_SKILL_DEPTH} folder levels.${
+					skipped.length ? ` Skipped ${skipped.length} deeper file(s).` : ''
+				}`,
+				true
+			)
+			return
+		}
+		if (eligible.length > MAX_SKILLS_PER_IMPORT) {
+			sendUserToast(
+				`Found ${eligible.length} skills in this folder; imports are limited to ${MAX_SKILLS_PER_IMPORT} at a time.`,
+				true
+			)
+			return
+		}
+
 		const map: Record<string, string> = {}
-		for (const f of skillFiles) {
+		for (const f of eligible) {
 			map[f.webkitRelativePath || f.name] = await f.text()
 		}
-		const { skills: parsed, skipped } = collectSkills(map)
-		await uploadSkills(parsed, skipped)
-		if (dirInput) dirInput.value = ''
+		const { skills: parsed, skipped: parseSkipped } = collectSkills(map)
+		const allSkipped = [...skipped, ...parseSkipped]
+		if (parsed.length === 0) {
+			sendUserToast(
+				`No valid skill found.${allSkipped.length ? ` Skipped: ${allSkipped.join(', ')}` : ''}`,
+				true
+			)
+			return
+		}
+		// Confirm before writing — the import can pull in several skills at once.
+		pendingSkipped = allSkipped
+		pendingImport = parsed
 	}
 
 	async function deleteSkill(name: string) {
@@ -226,6 +284,33 @@
 		{/if}
 	</div>
 </SettingCard>
+
+<ConfirmationModal
+	open={pendingImport !== undefined}
+	title="Import skills"
+	confirmationText="Import"
+	onConfirmed={async () => {
+		const toImport = pendingImport
+		const skipped = pendingSkipped
+		pendingImport = undefined
+		pendingSkipped = []
+		if (toImport) await uploadSkills(toImport, skipped)
+	}}
+	onCanceled={() => {
+		pendingImport = undefined
+		pendingSkipped = []
+	}}
+>
+	<span>
+		Add {pendingImport?.length} skill(s) to the AI chat?
+		<span class="font-mono text-xs">{pendingNamesPreview}</span>
+		{#if pendingSkipped.length}
+			<br /><span class="text-xs text-secondary"
+				>{pendingSkipped.length} file(s) will be skipped.</span
+			>
+		{/if}
+	</span>
+</ConfirmationModal>
 
 <ConfirmationModal
 	open={toDelete !== undefined}
