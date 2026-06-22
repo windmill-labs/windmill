@@ -2903,6 +2903,12 @@ mod tests {
         assert!(is_allowed_file_location(job_dir_str, "repo/payload").is_err());
         assert!(is_allowed_file_location(job_dir_str, "repo/sub/payload").is_err());
 
+        // A dangling symlink (target does not exist yet) is still caught:
+        // `symlink_metadata` does not follow the link.
+        let dangling = job_dir.join("dangling");
+        std::os::unix::fs::symlink(base.join("nonexistent"), &dangling).unwrap();
+        assert!(is_allowed_file_location(job_dir_str, "dangling/payload").is_err());
+
         let _ = std::fs::remove_dir_all(&base);
     }
 }
