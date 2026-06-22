@@ -9704,6 +9704,10 @@
                     "type": "string",
                     "description": "Instance name for built-in providers whose client-credentials token URL is instance-templated; substituted into the fixed-host registry template server-side (client_credentials flow only). The token URL is never caller-supplied."
                   },
+                  "cc_token_url": {
+                    "type": "string",
+                    "description": "Bring-your-own token endpoint override (client_credentials flow only). Only honored together with cc_client_id/cc_client_secret and mutually exclusive with cc_instance; ignored/rejected on the shared-instance path."
+                  },
                   "mcp_server_url": {
                     "type": "string",
                     "description": "MCP server URL for MCP OAuth token refresh"
@@ -9785,6 +9789,10 @@
                   "cc_instance": {
                     "type": "string",
                     "description": "Instance name for built-in providers whose client-credentials token URL is instance-templated; substituted into the fixed-host registry template server-side. The token URL is never caller-supplied."
+                  },
+                  "cc_token_url": {
+                    "type": "string",
+                    "description": "Bring-your-own token endpoint override. Only honored together with cc_client_id/cc_client_secret and mutually exclusive with cc_instance; rejected on the shared-instance path."
                   }
                 }
               }

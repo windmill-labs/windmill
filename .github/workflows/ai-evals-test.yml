@@ -1,0 +1,166 @@
+name: AI Evals (global mode)
+
+# Smoke-tests the production global AI chat proxy/frontend execution path via
+# the ai_evals harness, one case across one cheap model per provider. Runs only
+# when the eval harness or the global chat code change, since each run makes real
+# (paid) LLM calls. The backend is built from source purely as the AI proxy the
+# harness routes model calls through; the global tools/drafts run in-process in
+# the Vitest bridge against production frontend code. To avoid spending on every
+# commit, the PR side triggers only when a PR is marked ready for review (out of
+# draft) — not on `synchronize` — plus push to main and manual dispatch.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "ai_evals/**"
+      - "backend/windmill-api/src/ai.rs"
+      - "backend/windmill-ai/**"
+      - "frontend/src/lib/components/copilot/**"
+      # The eval harness runs production frontend code in-process; these are the
+      # AI/draft-specific deps outside copilot/ that the global smoke exercises.
+      - "frontend/src/lib/userDraft.svelte.ts"
+      - "frontend/src/lib/userDraftDbSyncer.svelte.ts"
+      - "frontend/src/lib/infer.ts"
+      - ".github/workflows/ai-evals-test.yml"
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+    paths:
+      - "ai_evals/**"
+      - "backend/windmill-api/src/ai.rs"
+      - "backend/windmill-ai/**"
+      - "frontend/src/lib/components/copilot/**"
+      # The eval harness runs production frontend code in-process; these are the
+      # AI/draft-specific deps outside copilot/ that the global smoke exercises.
+      - "frontend/src/lib/userDraft.svelte.ts"
+      - "frontend/src/lib/userDraftDbSyncer.svelte.ts"
+      - "frontend/src/lib/infer.ts"
+      - ".github/workflows/ai-evals-test.yml"
+
+concurrency:
+  group: ai-evals-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ai_evals_global:
+    # Provider secrets are unavailable to forked and Dependabot PRs.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.event.pull_request.draft == false &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.user.login != 'dependabot[bot]'
+      )
+    runs-on: ubicloud-standard-16
+    services:
+      postgres:
+        image: postgres:16
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_DB: windmill
+          POSTGRES_PASSWORD: changeme
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-workspaces: backend
+          toolchain: 1.93.0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+
+      - uses: actions/setup-node@v4
+        with:
+          # Node 22.19+ is required by the frontend's undici 8.x, which the
+          # Vitest bridge loads; Node 20 fails with markAsUncloneable.
+          node-version: "22"
+
+      # CE build used only as the AI proxy (login, workspace, provider resource,
+      # /ai/proxy). No worker execution or MCP needed — global tools/drafts run
+      # in the Vitest bridge. quickjs matches the standard CE feature set.
+      - name: Build Windmill (AI proxy)
+        working-directory: ./backend
+        env:
+          SQLX_OFFLINE: true
+          CARGO_BUILD_JOBS: 12
+          RUSTFLAGS: ""
+        run: cargo build --features quickjs
+
+      - name: Start Windmill
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgres://postgres:changeme@localhost:5432/windmill
+          RUST_LOG: info
+        run: |
+          mkdir -p ../ai_evals/logs
+          ./target/debug/windmill > ../ai_evals/logs/windmill.log 2>&1 &
+          echo "Waiting for Windmill to be ready..."
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8000/api/version > /dev/null 2>&1; then
+              echo "Windmill is ready"
+              break
+            fi
+            sleep 2
+          done
+          curl -sf http://localhost:8000/api/version > /dev/null || { echo "Windmill failed to start"; tail -50 ../ai_evals/logs/windmill.log; exit 1; }
+
+      - name: Install frontend deps + generate client
+        working-directory: ./frontend
+        run: |
+          npm ci
+          npm run generate-backend-client
+
+      - name: Run global AI evals
+        timeout-minutes: 20
+        working-directory: ./ai_evals
+        env:
+          WMILL_AI_EVAL_BACKEND_URL: http://localhost:8000
+          WMILL_AI_EVAL_BACKEND_WORKSPACE: integration-tests
+          # Anthropic backs the haiku model. Google AI uses GEMINI_API_KEY.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          bun install
+          mkdir -p results
+          # One cheap model per provider (anthropic/openai/googleai/deepseek).
+          fail=0
+          for m in haiku 4o gemini-3-flash-preview deepseek-v4-flash; do
+            echo "::group::global-test1-script-create ($m)"
+            if ! bun run cli -- run global global-test1-script-create \
+                  --model "$m" --execution-only --output "$PWD/results/ci-$m.json"; then
+              echo "$m: harness/proxy errored"
+              fail=1
+              echo "::endgroup::"
+              continue
+            fi
+            # The CLI exits 0 when the harness records failed attempts, so gate
+            # on execution-only pass counts while ignoring model output quality.
+            if jq -e \
+              '.attemptCount > 0 and .passedAttempts == .attemptCount' \
+              "results/ci-$m.json" > /dev/null; then
+              echo "$m: OK — proxy/frontend execution completed"
+            else
+              echo "$m: FAILED proxy/frontend execution"
+              jq -c '.cases[0].attempts[0].checks' "results/ci-$m.json" || true
+              fail=1
+            fi
+            echo "::endgroup::"
+          done
+          [ "$fail" = 0 ] || { echo "ai_evals global smoke failed"; exit 1; }
+
+      - name: Archive logs and results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ai-evals-global-logs
+          path: |
+            ai_evals/logs
+            ai_evals/results
