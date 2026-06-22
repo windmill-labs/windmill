@@ -4324,20 +4324,25 @@ async fn resolve_partition_for_job(
     job: &MiniPulledJob,
     code: &str,
     conn: &Connection,
-) -> error::Result<Option<MiniPulledJob>> {
+) -> error::Result<(Option<MiniPulledJob>, bool)> {
     use windmill_common::partition::{resolve_partition, PARTITION_ARG};
     use windmill_parser::asset_parser::PartitionKind;
 
-    // Only deployed scripts participate in asset pipelines. Cheap
-    // substring guard so the overwhelming majority of script jobs (no
-    // `// partitioned` line) skip the full annotation scan on the hot
-    // path; a false positive only costs one extra parse, never wrong.
-    if !matches!(job.kind, JobKind::Script) || !code.contains("partitioned") {
-        return Ok(None);
+    // Only deployed scripts participate in asset pipelines. Cheap substring
+    // guard so the overwhelming majority of script jobs skip the annotation
+    // scan; when one might be present we parse *once* here and reuse the result
+    // for both `in_pipeline` (→ WM_PIPELINE env, read by the wmll.ducklake SDK to
+    // record state) and `partition` resolution — no second parse downstream. The
+    // bool is whether the script is a `// pipeline` member.
+    if !matches!(job.kind, JobKind::Script)
+        || !(code.contains("pipeline") || code.contains("partitioned"))
+    {
+        return Ok((None, false));
     }
-    let Some(spec) = windmill_parser::asset_parser::parse_pipeline_annotations(code).partition
-    else {
-        return Ok(None);
+    let ann = windmill_parser::asset_parser::parse_pipeline_annotations(code);
+    let in_pipeline = ann.in_pipeline;
+    let Some(spec) = ann.partition else {
+        return Ok((None, in_pipeline));
     };
 
     // Already resolved upstream — explicit run arg, backfill, or
@@ -4349,7 +4354,7 @@ async fn resolve_partition_for_job(
             .is_some_and(|s| !s.is_empty())
     });
     if already_set {
-        return Ok(None);
+        return Ok((None, in_pipeline));
     }
 
     // `dynamic` extracts from the triggering payload (the `trigger` object
@@ -4382,7 +4387,7 @@ async fn resolve_partition_for_job(
             job_id = %job.id,
             "partitioned script resolved to no partition (before start anchor); running without one"
         );
-        return Ok(None);
+        return Ok((None, in_pipeline));
     };
 
     // Persist back so dispatch_asset_triggers (which reads the producer's
@@ -4404,7 +4409,7 @@ async fn resolve_partition_for_job(
         windmill_common::worker::to_raw_value(&value),
     );
     updated.args = Some(Json(map));
-    Ok(Some(updated))
+    Ok((Some(updated), in_pipeline))
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -4566,7 +4571,8 @@ async fn handle_code_execution_job(
     // `// partitioned` (if any) and shadow `job` with a clone whose args
     // carry the resolved `partition` for the rest of execution.
     let _job_with_partition;
-    let job = match resolve_partition_for_job(job, code, conn).await? {
+    let (resolved_job, in_pipeline) = resolve_partition_for_job(job, code, conn).await?;
+    let job = match resolved_job {
         Some(j) => {
             _job_with_partition = j;
             &_job_with_partition
@@ -4619,6 +4625,7 @@ async fn handle_code_execution_job(
         lock,
         &modules,
         false,
+        in_pipeline,
     )
     .await
 }
@@ -4685,6 +4692,9 @@ pub async fn run_language_executor(
     lock: &Option<String>,
     modules: &Option<std::collections::HashMap<String, ScriptModule>>,
     run_inline: bool,
+    // Whether the script is a `// pipeline` member (parsed once upstream) — sets
+    // WM_PIPELINE so the wmll.ducklake SDK helpers record materialization state.
+    in_pipeline: bool,
 ) -> error::Result<Box<RawValue>> {
     // Defense-in-depth (GHSA-wxjq-w5pj-jqhx): the entrypoint override is
     // interpolated verbatim into a code position of the generated language
@@ -5047,6 +5057,11 @@ mount {{
 
     #[allow(unused_mut)]
     let mut envs = build_envs(envs.as_ref())?;
+    // Signal pipeline context to the script so the wmll.ducklake SDK helpers
+    // record materialization state (the grid/backfill) and skip it otherwise.
+    if in_pipeline {
+        envs.insert("WM_PIPELINE".to_string(), "true".to_string());
+    }
 
     let Some(language) = language else {
         return Err(Error::ExecutionErr(
@@ -5832,6 +5847,7 @@ pub fn init_worker_internal_server_inline_utils(
                     &None,
                     &None,
                     true,
+                    false,
                 )
                 .await
             })
@@ -5913,6 +5929,7 @@ pub fn init_worker_internal_server_inline_utils(
                     &content_info.lockfile,
                     &content_info.modules,
                     true,
+                    false,
                 )
                 .await
             })
