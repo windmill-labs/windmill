@@ -704,15 +704,21 @@ pub fn is_allowed_file_location(job_dir: &str, user_defined_path: &str) -> error
         .into());
     }
 
-    // The lexical check above (which also rejects `..` and absolute paths) cannot
-    // see symlinks. A symlink planted inside the job dir - e.g. by an earlier
-    // Ansible `git_repos` clone whose tracked content includes one - would let a
-    // later `git clone` or file write follow it out of the job dir while still
-    // passing the textual `starts_with` check. Reject any already-existing
-    // component of the user path that is a symlink. Components that don't exist
-    // yet are safe: `..` is excluded above, so the path can only descend.
+    // The lexical check above cannot see symlinks: a symlink planted inside the
+    // job dir - e.g. by an earlier Ansible `git_repos` clone whose tracked
+    // content includes one - would let a later `git clone` or file write follow
+    // it out of the job dir while still passing the textual `starts_with` check.
+    // Walk the *normalized* relative path (`..`/`.` already collapsed) so each
+    // step matches the real on-disk resolution, and reject any existing component
+    // that is a symlink. Walking the raw user path would drift on an in-bounds
+    // `..` (e.g. `foo/../link`, which normalizes back inside the job dir) and miss
+    // the real symlinked component. Not-yet-existing components are safe: a path
+    // that does not exist cannot itself be a symlink.
+    let relative = normalized_full_path
+        .strip_prefix(&normalized_job_dir)
+        .unwrap_or(&normalized_full_path);
     let mut current = normalized_job_dir.clone();
-    for component in user_path.components() {
+    for component in relative.components() {
         if let Component::Normal(c) = component {
             current.push(c);
             if std::fs::symlink_metadata(&current)
@@ -2902,6 +2908,12 @@ mod tests {
         assert!(is_allowed_file_location(job_dir_str, "repo").is_err());
         assert!(is_allowed_file_location(job_dir_str, "repo/payload").is_err());
         assert!(is_allowed_file_location(job_dir_str, "repo/sub/payload").is_err());
+
+        // An in-bounds `..` must not bypass the check: `foo/../repo/payload`
+        // normalizes back to `repo/payload` and still traverses the symlink.
+        assert!(is_allowed_file_location(job_dir_str, "foo/../repo/payload").is_err());
+        std::fs::create_dir(job_dir.join("real")).unwrap();
+        assert!(is_allowed_file_location(job_dir_str, "real/../repo/payload").is_err());
 
         // A dangling symlink (target does not exist yet) is still caught:
         // `symlink_metadata` does not follow the link.
