@@ -15,6 +15,7 @@
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
 	import { inferArgs, inferAssets, inferAnsibleExecutionMode } from '$lib/infer'
+	import { parsePipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
 	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
 	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -878,16 +879,67 @@
 				// we reapply initial args as the schema form might have cleared them between mount and the schema inference
 				args = initialArgs
 			}
+			injectPartitionArg(nschema, args, nlang ?? lang, code)
 			schema = nschema
 		} catch (e) {
 			validCode = false
 		}
 	}
 
+	// A `// partitioned` pipeline script is materialized one slice at a time and
+	// receives the slice as a runtime `partition` arg (the cascade injects it in
+	// production). It isn't a code parameter, so schema inference doesn't see it —
+	// surface it in the test form so a partitioned script can be run manually.
+	function injectPartitionArg(
+		s: any,
+		a: Record<string, any> | undefined,
+		l: string | undefined,
+		c: string
+	) {
+		try {
+			if (l !== 'duckdb' || !s?.properties) return
+			const part = parsePipelineAnnotations(c).partition
+			if (!part) return
+			// Date-based partition kinds render a date / datetime picker; a dynamic
+			// key is a free-form string.
+			const format =
+				part.kind === 'hourly'
+					? 'date-time'
+					: part.kind === 'daily' || part.kind === 'weekly' || part.kind === 'monthly'
+						? 'date'
+						: undefined
+			if (!s.properties['partition']) {
+				s.properties['partition'] = {
+					type: 'string',
+					...(format ? { format } : {}),
+					// ISO output so partition keys sort lexicographically (the date
+					// picker defaults to dd-MM-yyyy otherwise).
+					...(format === 'date' ? { dateFormat: 'yyyy-MM-dd' } : {}),
+					description:
+						part.kind === 'dynamic'
+							? 'Partition key value to materialize.'
+							: `Partition (${part.kind}) to materialize.`
+				}
+				if (Array.isArray(s.order) && !s.order.includes('partition')) {
+					s.order = ['partition', ...s.order]
+				}
+			}
+			// Pre-fill the *test* arg with the current slice for date kinds — a
+			// convenience default, kept on the args (not baked into the schema,
+			// where it would persist to the deployed script and go stale).
+			if (format && a && (a['partition'] == null || a['partition'] === '')) {
+				const now = new Date()
+				a['partition'] =
+					format === 'date' ? now.toISOString().slice(0, 10) : now.toISOString().slice(0, 16)
+			}
+		} catch (e) {}
+	}
+
 	async function inferModuleSchema() {
 		if (activeModuleTab === null) return
 		try {
 			await inferArgs(effectiveLang, editorCode, testPanelSchema)
+			injectPartitionArg(testPanelSchema, testPanelArgs, effectiveLang, editorCode)
 			moduleTestState[activeModuleTab] = { args: testPanelArgs, schema: testPanelSchema }
 		} catch (e) {
 			// Module code may be in-progress; silently ignore

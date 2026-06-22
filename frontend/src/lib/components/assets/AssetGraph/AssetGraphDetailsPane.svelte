@@ -29,6 +29,7 @@
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import S3FilePreview from '$lib/components/S3FilePreview.svelte'
 	import DataTablePreview from './DataTablePreview.svelte'
+	import PartitionStatusGrid from './PartitionStatusGrid.svelte'
 	import AssetRunsPanel from './AssetRunsPanel.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { fade } from 'svelte/transition'
@@ -571,6 +572,12 @@
 					// deployed script, or a draft promoted from unsaved edits
 					// to a deployed script) chains off it.
 					parent_hash: script.hash ? String(script.hash) : undefined,
+					// Let the backend resolve the parent to the current head for
+					// this path (atomically, under an advisory lock) instead of
+					// rejecting a stale parent_hash with a "lineage must be
+					// linear" error — the pane is opened from a graph snapshot
+					// that can fall behind the deployed head between renders.
+					auto_parent: true,
 					is_template: false,
 					tag: script.tag,
 					kind: script.kind as Script['kind'] | undefined,
@@ -976,6 +983,8 @@
 									class="h-full"
 									refreshKey={previewRefreshKey}
 								/>
+							{:else if selection.asset_kind === 'ducklake'}
+								<PartitionStatusGrid path={selection.path} {workspace} />
 							{:else}
 								<div class="p-3 text-xs text-secondary">
 									No inline preview yet for {selection.asset_kind}. Use the producer/consumer arrows

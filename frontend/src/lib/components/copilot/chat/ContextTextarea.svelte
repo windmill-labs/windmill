@@ -6,7 +6,8 @@
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import { twMerge } from 'tailwind-merge'
-	import { CHAT_INPUT_PADDING } from './aiChatManagerContext'
+	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
+	import { MENTION_RE, mentionTitle, formatMention } from './mention'
 	import { createFloatingActions, createVirtualElement } from 'svelte-floating-ui'
 	import { flip, offset, shift } from 'svelte-floating-ui/dom'
 	import {
@@ -50,10 +51,11 @@
 		onKeyDown = undefined
 	}: Props = $props()
 
-	const MENTION_RE = /@[\w/.\-\[\]]+/g
+	const aiChatManager = getAiChatManager()
+
 	function extractMentions(text: string): Set<string> {
 		const out = new Set<string>()
-		for (const m of text.matchAll(MENTION_RE)) out.add(m[0].slice(1))
+		for (const m of text.matchAll(MENTION_RE)) out.add(mentionTitle(m[0]))
 		return out
 	}
 
@@ -221,6 +223,18 @@
 			.replace(/'/g, '&#39;')
 	}
 
+	// Inverse of escapeHtml (&amp; last so an escaped entity isn't double-decoded). Mentions
+	// are parsed out of the escaped HTML, so a title is un-escaped before the store lookup —
+	// else a filename like `R&D notes.md` (escaped to `R&amp;D notes.md`) would never match.
+	function unescapeHtml(text: string) {
+		return text
+			.replace(/&lt;/g, '<')
+			.replace(/&gt;/g, '>')
+			.replace(/&quot;/g, '"')
+			.replace(/&#39;/g, "'")
+			.replace(/&amp;/g, '&')
+	}
+
 	function getHighlightedText(text: string) {
 		let html = escapeHtml(text)
 		// Wrap collapsed-paste tokens as clickable chips. The span keeps the exact
@@ -231,11 +245,13 @@
 			if (!att) return match
 			return `<span data-paste-id="${att.id}" class="rounded bg-surface-secondary text-secondary cursor-pointer pointer-events-auto">${match}</span>`
 		})
-		html = html.replace(/@[\w/.\-\[\]]+/g, (match) => {
-			const title = match.slice(1)
+		html = html.replace(MENTION_RE, (match) => {
+			const title = unescapeHtml(mentionTitle(match))
 			const inContext =
 				availableContext.find((c) => c.title === title) ||
-				selectedContext.find((c) => c.title === title)
+				selectedContext.find((c) => c.title === title) ||
+				// Attached-file mentions (`@filename`) highlight just like context.
+				aiChatManager.attachedFiles.get(title)
 			if (inContext) {
 				return `<span class="bg-surface-accent-selected text-primary rounded box-decoration-clone z-10">${match}</span>`
 			}
@@ -733,6 +749,14 @@
 				autoFocus={false}
 				setShowing={(showing) => {
 					showContextTooltip = showing
+				}}
+				onSelectFile={(name) => {
+					// Replace the in-progress `@word` with the chosen mention (bracketed if the
+					// filename has spaces, so the highlighter captures it whole).
+					const index = value.lastIndexOf('@')
+					value = (index !== -1 ? value.substring(0, index) : value) + `${formatMention(name)} `
+					showContextTooltip = false
+					setTimeout(() => textarea?.focus(), 0)
 				}}
 			/>
 		</div>
