@@ -201,7 +201,7 @@
 							<Path
 								autofocus
 								bind:path
-								initialPath={snapshotPath ?? path ?? ''}
+								initialPath={savedPath ?? path ?? ''}
 								namePlaceholder={kind}
 								{kind}
 								size="sm"
