@@ -34,6 +34,13 @@ export function warn(msg: unknown) {
   console.log(`\x1b[33m${String(msg)}\x1b[39m`);
 }
 
+// Like `warn` but written to stderr; see `infoStderr` for why diagnostics must
+// not land on stdout.
+export function warnStderr(msg: unknown) {
+  if (silentMode) return;
+  console.error(`\x1b[33m${String(msg)}\x1b[39m`);
+}
+
 export function error(msg: unknown) {
   console.error(`\x1b[31m${String(msg)}\x1b[39m`);
 }
