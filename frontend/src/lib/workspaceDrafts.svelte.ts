@@ -16,6 +16,7 @@
  */
 import { resource } from 'runed'
 import { DraftService, type UserDraftItemKind } from '$lib/gen'
+import { migrateOwnDraftPaths } from '$lib/draftPathMigration'
 
 export type DraftKind = UserDraftItemKind
 
@@ -53,6 +54,12 @@ export async function getDraftItems(
 	workspace: string,
 	allUsers: boolean = false
 ): Promise<DraftItem[]> {
+	// Run-once: rewrite pre-`draft_path`-removal drafts to the new `path` shape.
+	// Fire-and-forget (guarded internally); refresh the list if it changed any so
+	// the migrated renames show up without a manual reload.
+	void migrateOwnDraftPaths(workspace).then((changed) => {
+		if (changed) invalidateWorkspaceDrafts(workspace)
+	})
 	const rows = await DraftService.listDrafts({ workspace, allUsers: allUsers || undefined })
 	return rows.map((r) => ({
 		kind: r.kind,
