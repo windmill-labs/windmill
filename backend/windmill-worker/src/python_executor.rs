@@ -37,8 +37,8 @@ use windmill_common::{
     scripts::ScriptLang,
     utils::calculate_hash,
     worker::{
-        copy_dir_recursively, pad_string, split_python_requirements, write_file, Connection,
-        PyVAlias, PythonAnnotations, WORKER_CONFIG,
+        copy_dir_recursively, is_allowed_file_location, pad_string, split_python_requirements,
+        write_file, Connection, PyVAlias, PythonAnnotations, WORKER_CONFIG,
     },
 };
 
@@ -664,10 +664,16 @@ pub fn compute_python_module_dir(script_path: &str) -> String {
         .replace("-", "_")
         .replace("@", ".");
     if dirs_full.len() > 0 {
-        dirs_full
-            .strip_prefix("/")
-            .unwrap_or(&dirs_full)
-            .to_string()
+        let dirs = dirs_full.strip_prefix("/").unwrap_or(&dirs_full);
+        // This directory is appended to job_dir and written to. Neutralize any
+        // `.`/`..` segment so the result stays a relative path inside job_dir: a
+        // Preview path is request-supplied and skips the DB `proper_id` CHECK that
+        // deployed runnables get, and the `@`->`.` rewrite above can also turn a
+        // segment like `@.` into `..`.
+        dirs.split('/')
+            .map(|seg| if seg == "." || seg == ".." { "_" } else { seg })
+            .collect::<Vec<_>>()
+            .join("/")
     } else {
         "tmp".to_string()
     }
@@ -1668,6 +1674,10 @@ async fn prepare_wrapper(
         last
     };
     let module_dir = format!("{}/{}", job_dir, dirs);
+    // Defense-in-depth: `dirs`/`last` derive from the (request-supplied for
+    // previews) script path. compute_python_module_dir already neutralizes `..`,
+    // but assert containment here too so the write can never escape job_dir.
+    is_allowed_file_location(job_dir, &format!("{dirs}/{last}.py"))?;
     tokio::fs::create_dir_all(format!("{module_dir}/")).await?;
 
     let _ = write_file(&module_dir, &format!("{last}.py"), inner_content)?;
@@ -3355,6 +3365,17 @@ mod tests {
         // A folder whose name is a Python keyword would otherwise produce an
         // invalid `from f.in.x import ...`; it is underscore-prefixed.
         assert_eq!(compute_python_module_dir("f/in/script"), "f/_in");
+    }
+
+    #[test]
+    fn test_compute_python_module_dir_neutralizes_traversal() {
+        // A Preview path skips the DB `proper_id` CHECK, so it can carry `..`.
+        // `..`/`.` segments must be neutralized so the dir stays inside job_dir.
+        let dirs = compute_python_module_dir("u/x/../../../../tmp/evil/payload");
+        assert!(!dirs.split('/').any(|s| s == ".." || s == "."));
+        assert_eq!(dirs, "u/x/_/_/_/_/tmp/evil");
+        // The `@`->`.` rewrite must not be able to synthesize a `..` segment.
+        assert_eq!(compute_python_module_dir("u/@./script"), "u/_");
     }
 
     #[test]
