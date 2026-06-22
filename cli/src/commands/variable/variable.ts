@@ -131,6 +131,12 @@ export async function pushVariable(
   localVariable: VariableFile,
   plainSecrets: boolean,
   wsSpecific?: boolean,
+  // Whether a secret->non-secret downgrade may be applied. Only an authoritative
+  // single-file `variable push` sets this. For bulk `sync push` a pulled secret's
+  // spec value is ciphertext, and demoting it would store that ciphertext verbatim
+  // as a visible non-secret value — so downgrades stay disabled there (unchanged
+  // upgrade-only behavior).
+  allowSecretDowngrade: boolean = false,
 ): Promise<void> {
   remotePath = removeType(remotePath, "variable");
   log.debug(`Processing local variable ${remotePath}`);
@@ -155,19 +161,26 @@ export async function pushVariable(
 
     log.debug(`Variable ${remotePath} is not up-to-date, updating`);
 
+    // Apply is_secret only when it differs from the remote (the value is always
+    // sent, so the server allows the flag change). Upgrades (non-secret->secret)
+    // always apply; downgrades only when explicitly allowed (single-file push) —
+    // see allowSecretDowngrade. `undefined` leaves the flag untouched.
+    let nextIsSecret: boolean | undefined = undefined;
+    if (localVariable.is_secret !== variable.is_secret) {
+      if (localVariable.is_secret) {
+        nextIsSecret = true;
+      } else if (allowSecretDowngrade) {
+        nextIsSecret = false;
+      }
+    }
+
     await wmill.updateVariable({
       workspace,
       path: remotePath.replaceAll(SEP, "/"),
       alreadyEncrypted: !plainSecrets,
       requestBody: {
         ...localVariable,
-        // Apply is_secret in both directions when it differs from the remote
-        // (the value is always sent, so the server allows the flag change).
-        // Sending `undefined` when unchanged avoids spurious updates.
-        is_secret:
-          localVariable.is_secret !== variable.is_secret
-            ? localVariable.is_secret
-            : undefined,
+        is_secret: nextIsSecret,
         ...(wsSpecific !== undefined ? { ws_specific: wsSpecific } : {}),
       },
     });
@@ -230,7 +243,9 @@ async function push(
     remotePath,
     undefined,
     local,
-    plainSecrets
+    plainSecrets,
+    undefined,
+    true // single-file push is authoritative: allow secret->non-secret downgrade
   );
   log.info(colors.bold.underline.green(`Variable ${remotePath} pushed`));
 }
