@@ -117,7 +117,7 @@ jobs:
         env:
           WMILL_AI_EVAL_BACKEND_URL: http://localhost:8000
           WMILL_AI_EVAL_BACKEND_WORKSPACE: integration-tests
-          # Anthropic also backs the LLM judge. Google AI uses GEMINI_API_KEY.
+          # Anthropic backs the haiku model. Google AI uses GEMINI_API_KEY.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
@@ -136,19 +136,14 @@ jobs:
               echo "::endgroup::"
               continue
             fi
-            # Gate on the deterministic draft pipeline, NOT the LLM judge score
-            # (judge quality varies with cheap models). This catches harness,
-            # proxy/provider, and draft-capture breakage while staying stable.
-            if jq -e '[.cases[].attempts[]]
-                      | (length > 0)
-                      and all(
-                        (.checks | any(.name == "run succeeded" and .passed))
-                        and (.checks | any(.name == "global produced at least one draft" and .passed))
-                        and (.checks | any(.name == "uses write_script" and .passed))
-                      )' "results/ci-$m.json" > /dev/null; then
-              echo "$m: OK — produced a draft via write_script"
+            # The CLI exits 0 when the harness runs, so gate on the benchmark
+            # pass counts with judge scoring disabled.
+            if jq -e \
+              '.attemptCount > 0 and .passedAttempts == .attemptCount' \
+              "results/ci-$m.json" > /dev/null; then
+              echo "$m: OK — deterministic checks passed"
             else
-              echo "$m: FAILED deterministic draft checks"
+              echo "$m: FAILED deterministic checks"
               jq -c '.cases[0].attempts[0].checks' "results/ci-$m.json" || true
               fail=1
             fi
