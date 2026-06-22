@@ -1193,9 +1193,10 @@
 			if ($workspaceStore !== workspace) return
 			deploymentStatus = {}
 			recordings = {}
-			// Load authoritative state now that every item is committed on the Hub.
-			// Bumping the sequence cancels any rehydrate that started mid-deploy and
-			// would otherwise clobber draftItems with a pre-commit (empty) read.
+			// Deterministic baseline so a transient Hub read failure can't leave the
+			// UI stuck in `predeploy`; rehydrate then upgrades to authoritative state.
+			draftItems = itemsSnapshot.map((i) => ({ ...i, rec: 'none' }))
+			phase = 'draft'
 			await rehydrateFromHub(workspace, folderProp, ++workspaceLoadSeq)
 			if (failures > 0) {
 				sendUserToast(`Draft pushed with ${failures} failed item(s).`, true)
