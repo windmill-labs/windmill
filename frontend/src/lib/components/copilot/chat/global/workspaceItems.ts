@@ -28,6 +28,7 @@ export type FlowDraftValue = {
 	value: FlowValue
 	schema?: Record<string, any> | null
 	groups?: NonNullable<FlowValue['groups']> | null
+	description?: string | null
 }
 
 export const TRIGGER_KINDS = [

@@ -53,6 +53,10 @@ pub enum UserDraftItemKind {
     TriggerNextcloud,
     TriggerGoogle,
     TriggerGithub,
+    /// All unsaved scripts of one data pipeline, bundled into a single draft
+    /// keyed at the pipeline's folder path. Not a runnable: it has no deployed
+    /// backing table and is private to its owner.
+    DataPipeline,
 }
 
 impl UserDraftItemKind {
@@ -84,12 +88,13 @@ impl UserDraftItemKind {
             UserDraftItemKind::TriggerNextcloud => "trigger_nextcloud",
             UserDraftItemKind::TriggerGoogle => "trigger_google",
             UserDraftItemKind::TriggerGithub => "trigger_github",
+            UserDraftItemKind::DataPipeline => "data_pipeline",
         }
     }
 
     /// Every variant, for code that must enumerate kinds (e.g. generating
     /// the `draft_only` existence SQL).
-    pub const ALL: [UserDraftItemKind; 24] = [
+    pub const ALL: [UserDraftItemKind; 25] = [
         UserDraftItemKind::Script,
         UserDraftItemKind::Flow,
         UserDraftItemKind::App,
@@ -114,6 +119,7 @@ impl UserDraftItemKind {
         UserDraftItemKind::TriggerNextcloud,
         UserDraftItemKind::TriggerGoogle,
         UserDraftItemKind::TriggerGithub,
+        UserDraftItemKind::DataPipeline,
     ];
 
     /// The deployed table backing this kind, keyed by `(workspace_id, path)`.
@@ -144,6 +150,9 @@ impl UserDraftItemKind {
             TriggerEmail | TriggerDefaultEmail => Some("email_trigger"),
             TriggerWebhook | TriggerPoll | TriggerCli | TriggerNextcloud | TriggerGoogle
             | TriggerGithub => None,
+            // Keyed at a folder path, not a runnable; access falls back to the
+            // path-only (folder write) check.
+            DataPipeline => None,
         }
     }
 
@@ -179,6 +188,9 @@ pub struct WithDraftQuery {
 pub struct OtherDraftUser {
     /// `None` represents a legacy workspace-level draft (no owner).
     pub username: Option<String>,
+    /// When this user's draft was last saved (the `draft.created_at` upsert
+    /// timestamp), surfaced in the fork modal as "Last updated".
+    pub draft_saved_at: DateTime<Utc>,
 }
 
 /// Response wrapper: the deployed entity untouched plus the authed user's
@@ -231,7 +243,8 @@ async fn fetch_other_drafts_users(
     // row keeps `username = None` (its `d.email` is NULL, so the CASE yields NULL).
     let rows = sqlx::query_as!(
         OtherDraftUser,
-        r#"SELECT COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) as "username?"
+        r#"SELECT COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) as "username?",
+                  d.created_at as "draft_saved_at!"
            FROM draft d
            LEFT JOIN usr u
                   ON u.workspace_id = d.workspace_id

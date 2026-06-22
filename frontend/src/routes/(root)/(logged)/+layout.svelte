@@ -60,6 +60,7 @@
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
 	import { migrateLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
 	import { migrateUserDraftsToDb } from '$lib/userDraftDbMigration'
+	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
 	import { setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
@@ -442,7 +443,7 @@
 	// on success. The order matters — the second step only sees what
 	// the first one normalized.
 	$effect(() => {
-		if ($workspaceStore) {
+		if ($workspaceStore && $userStore) {
 			untrack(() => {
 				migrateLegacyUserDrafts($workspaceStore!)
 				void migrateUserDraftsToDb()
@@ -502,6 +503,7 @@
 <svelte:window bind:innerWidth />
 
 <UserSettings bind:this={userSettings} showMcpMode={true} />
+<DraftMigrationErrorModal />
 {#if page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login" loading={true}></CenteredModal>
 {:else if $userStore}

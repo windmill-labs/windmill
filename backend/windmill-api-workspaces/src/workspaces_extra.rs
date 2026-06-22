@@ -868,17 +868,39 @@ pub(crate) async fn delete_workspace(
         .execute(&mut *tx)
         .await?;
 
+    // workspace_diff and skip_workspace_diff_tally are keyed by workspace id with no
+    // FK cascade. A fork id is reused when a fork is deleted and recreated under the
+    // same name, so leaving these rows behind leaks the previous fork's cached diff
+    // verdicts onto the new fork — causing a spurious "changes not visible" warning
+    // that hides the deploy button.
+    sqlx::query!(
+        "DELETE FROM workspace_diff WHERE source_workspace_id = $1 OR fork_workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM skip_workspace_diff_tally WHERE workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
     sqlx::query!("DELETE FROM workspace WHERE id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
 
+    // Record under the instance-level "admins" workspace. The per-workspace audit
+    // rows are deleted along with the workspace, so this instance-level entry is the
+    // only durable, superadmin-discoverable record of who deleted the workspace.
     audit_log(
         &mut *tx,
         &authed,
         "workspaces.delete",
         ActionKind::Delete,
-        &w_id,
-        Some(&authed.email),
+        "admins",
+        Some(&w_id),
         None,
     )
     .await?;

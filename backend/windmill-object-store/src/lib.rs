@@ -535,7 +535,134 @@ pub fn build_filesystem_client(root_path: &str) -> error::Result<Arc<dyn ObjectS
     let store = object_store::local::LocalFileSystem::new_with_prefix(root_path).map_err(|e| {
         error::Error::internal_err(format!("Error building filesystem object store: {:?}", e))
     })?;
-    Ok(Arc::new(store))
+    Ok(Arc::new(FilesystemStoreIgnoringAttributes(store)))
+}
+
+/// `LocalFileSystem` rejects put/multipart uploads whose options carry
+/// attributes (content-type, content-disposition, ...) with `NotImplemented`.
+/// Attributes are advisory metadata a plain filesystem cannot persist, so
+/// drop them instead of failing the upload.
+#[cfg(feature = "parquet")]
+#[derive(Debug)]
+struct FilesystemStoreIgnoringAttributes(object_store::local::LocalFileSystem);
+
+#[cfg(feature = "parquet")]
+impl std::fmt::Display for FilesystemStoreIgnoringAttributes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+#[cfg(feature = "parquet")]
+#[async_trait]
+impl ObjectStore for FilesystemStoreIgnoringAttributes {
+    async fn put_opts(
+        &self,
+        location: &object_store::path::Path,
+        payload: object_store::PutPayload,
+        mut opts: object_store::PutOptions,
+    ) -> object_store::Result<object_store::PutResult> {
+        opts.attributes = Default::default();
+        self.0.put_opts(location, payload, opts).await
+    }
+
+    async fn put_multipart_opts(
+        &self,
+        location: &object_store::path::Path,
+        mut opts: object_store::PutMultipartOpts,
+    ) -> object_store::Result<Box<dyn object_store::MultipartUpload>> {
+        opts.attributes = Default::default();
+        self.0.put_multipart_opts(location, opts).await
+    }
+
+    async fn get_opts(
+        &self,
+        location: &object_store::path::Path,
+        options: object_store::GetOptions,
+    ) -> object_store::Result<object_store::GetResult> {
+        self.0.get_opts(location, options).await
+    }
+
+    async fn get_range(
+        &self,
+        location: &object_store::path::Path,
+        range: std::ops::Range<u64>,
+    ) -> object_store::Result<Bytes> {
+        self.0.get_range(location, range).await
+    }
+
+    async fn get_ranges(
+        &self,
+        location: &object_store::path::Path,
+        ranges: &[std::ops::Range<u64>],
+    ) -> object_store::Result<Vec<Bytes>> {
+        self.0.get_ranges(location, ranges).await
+    }
+
+    async fn head(
+        &self,
+        location: &object_store::path::Path,
+    ) -> object_store::Result<object_store::ObjectMeta> {
+        self.0.head(location).await
+    }
+
+    async fn delete(&self, location: &object_store::path::Path) -> object_store::Result<()> {
+        self.0.delete(location).await
+    }
+
+    fn list(
+        &self,
+        prefix: Option<&object_store::path::Path>,
+    ) -> futures::stream::BoxStream<'static, object_store::Result<object_store::ObjectMeta>> {
+        self.0.list(prefix)
+    }
+
+    fn list_with_offset(
+        &self,
+        prefix: Option<&object_store::path::Path>,
+        offset: &object_store::path::Path,
+    ) -> futures::stream::BoxStream<'static, object_store::Result<object_store::ObjectMeta>> {
+        self.0.list_with_offset(prefix, offset)
+    }
+
+    async fn list_with_delimiter(
+        &self,
+        prefix: Option<&object_store::path::Path>,
+    ) -> object_store::Result<object_store::ListResult> {
+        self.0.list_with_delimiter(prefix).await
+    }
+
+    async fn copy(
+        &self,
+        from: &object_store::path::Path,
+        to: &object_store::path::Path,
+    ) -> object_store::Result<()> {
+        self.0.copy(from, to).await
+    }
+
+    async fn rename(
+        &self,
+        from: &object_store::path::Path,
+        to: &object_store::path::Path,
+    ) -> object_store::Result<()> {
+        self.0.rename(from, to).await
+    }
+
+    async fn copy_if_not_exists(
+        &self,
+        from: &object_store::path::Path,
+        to: &object_store::path::Path,
+    ) -> object_store::Result<()> {
+        self.0.copy_if_not_exists(from, to).await
+    }
+
+    async fn rename_if_not_exists(
+        &self,
+        from: &object_store::path::Path,
+        to: &object_store::path::Path,
+    ) -> object_store::Result<()> {
+        self.0.rename_if_not_exists(from, to).await
+    }
 }
 
 #[cfg(feature = "parquet")]

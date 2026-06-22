@@ -23,20 +23,48 @@ export interface DraftItem {
 	kind: DraftKind
 	path: string
 	summary?: string
+	/** User-typed friendly path (from the draft JSON's `draft_path`) when it
+	 * differs from the storage `path` — e.g. a never-deployed item parked at
+	 * `u/{user}/draft_{uuid}`. Display this instead of `path` when present. */
+	draft_path?: string
 	/** Never deployed — exists only as a draft. */
 	draft_only: boolean
+	/** Legacy workspace-level draft (email NULL) predating the per-user drafts
+	 * migration. Not tied to any user, so anyone with access to the path sees it. */
+	legacy_draft: boolean
 	/** App is a raw app (deploys via the raw-app endpoints). Always false for non-apps. */
 	raw_app: boolean
+	/** Current user may deploy/discard this draft — matches the server-side check.
+	 * Defaults to true when the field is absent (older backend) so a frontend
+	 * running ahead of the API doesn't disable every action; the deploy/discard
+	 * endpoints enforce permission regardless. */
+	can_write: boolean
+	/** Draft authors at this (path, kind); populated only for the shared
+	 * full-page-editor kinds (script/flow/app/raw_app). Feeds the badge circles. */
+	draft_users?: { username?: string | null }[]
+	/** The row is the current user's own draft (or the legacy no-owner row), so
+	 * they can deploy/discard it. Always true in the default listing; only the
+	 * `allUsers` listing surfaces other users' rows as `false` (view-only).
+	 * Defaults to true when the field is absent (older backend). */
+	mine: boolean
 }
 
-export async function getDraftItems(workspace: string): Promise<DraftItem[]> {
-	const rows = await DraftService.listDrafts({ workspace })
+export async function getDraftItems(
+	workspace: string,
+	allUsers: boolean = false
+): Promise<DraftItem[]> {
+	const rows = await DraftService.listDrafts({ workspace, allUsers: allUsers || undefined })
 	return rows.map((r) => ({
 		kind: r.kind,
 		path: r.path,
 		summary: r.summary,
+		draft_path: r.draft_path,
 		draft_only: r.draft_only,
-		raw_app: r.kind === 'raw_app'
+		legacy_draft: r.legacy_draft,
+		raw_app: r.kind === 'raw_app',
+		can_write: r.can_write ?? true,
+		draft_users: r.draft_users,
+		mine: r.mine ?? true
 	}))
 }
 
@@ -62,13 +90,16 @@ export interface WorkspaceDraftsHandle {
  * Re-fetches on mount, when `workspace` changes, and when
  * `invalidateWorkspaceDrafts(workspace)` is called while mounted.
  */
-export function useWorkspaceDrafts(workspace: () => string | undefined): WorkspaceDraftsHandle {
+export function useWorkspaceDrafts(
+	workspace: () => string | undefined,
+	allUsers: () => boolean = () => false
+): WorkspaceDraftsHandle {
 	const res = resource(
 		() => {
 			const ws = workspace()
-			return { ws, v: ws ? (versions[ws] ?? 0) : 0 }
+			return { ws, all: allUsers(), v: ws ? (versions[ws] ?? 0) : 0 }
 		},
-		async ({ ws }) => (ws ? getDraftItems(ws) : [])
+		async ({ ws, all }) => (ws ? getDraftItems(ws, all) : [])
 	)
 	return {
 		get items() {

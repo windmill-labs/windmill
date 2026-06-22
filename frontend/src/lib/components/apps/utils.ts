@@ -18,7 +18,6 @@ import type {
 	HorizontalAlignment,
 	VerticalAlignment
 } from './types'
-import { gridColumns } from './gridUtils'
 import { allItems, BG_PREFIX } from './editor/appUtilsCore'
 
 /**
@@ -46,27 +45,10 @@ export function appNavigateSameWindow(url: string) {
 	window.location.href = url
 }
 
-export function migrateApp(app: App) {
-	;(app?.hiddenInlineScripts ?? []).forEach((x) => {
-		if (x.type == undefined) {
-			//@ts-ignore
-			x.type = 'inline'
-		}
-		//TODO: remove after migration is done
-		if (x.doNotRecomputeOnInputChanged != undefined) {
-			x.recomputeOnInputChanged = !x.doNotRecomputeOnInputChanged
-			x.doNotRecomputeOnInputChanged = undefined
-		}
-	})
-
-	allItems(app.grid, app.subgrids).forEach((x) => {
-		gridColumns.forEach((column: number) => {
-			if (x?.[column]?.fullHeight === undefined) {
-				x[column].fullHeight = false
-			}
-		})
-	})
-}
+// `migrateApp` moved to its own light module so non-editor callers can reuse it
+// without pulling the whole `apps/utils` graph; re-exported here for existing
+// `from '../utils'` importers.
+export { migrateApp } from './migrateApp'
 
 export function processSubcomponents(data: AppComponent, fn: (data: AppComponent) => void) {
 	if (data.type == 'tablecomponent' && Array.isArray(data.actionButtons)) {

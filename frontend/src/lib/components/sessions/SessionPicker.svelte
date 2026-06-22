@@ -31,7 +31,7 @@
 		syncWorkspaceTo,
 		type Session
 	} from './sessionState.svelte'
-	import { forgetSessionSeen, unreadCountFor } from './sessionUnread.svelte'
+	import { unreadCountFor } from './sessionUnread.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
@@ -264,7 +264,6 @@
 		if (!session) return
 		const wasActive = sessionState.currentSessionId === session.id
 		removeSession(session.id)
-		forgetSessionSeen(session.id)
 		if (forkToDelete) {
 			try {
 				await WorkspaceService.deleteWorkspace({ workspace: forkToDelete })
@@ -319,7 +318,10 @@
 </script>
 
 {#if !globalEnabled}
-	<!-- Sessions hidden until the global-ai dev gate is enabled. -->
+	<!-- Sessions hidden until the global-ai dev gate is enabled. When AI is
+	     unavailable (no provider configured or disabled in the user's settings)
+	     the section still shows — the per-session chat input is disabled with an
+	     explanatory message, mirroring the sidebar AI chat. -->
 {:else if isCollapsed}
 	<div class="px-2 pt-3 pb-2 border-b border-light dark:border-gray-700">
 		<Menubar>

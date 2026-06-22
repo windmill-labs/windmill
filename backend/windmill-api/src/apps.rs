@@ -12,7 +12,7 @@ use crate::{
     db::{ApiAuthed, DB},
     jobs::RunJobQuery,
     users::{require_owner_of_path, require_path_read_access_for_preview, OptAuthed},
-    utils::check_scopes,
+    utils::{build_scope_path_predicate, check_scopes},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -371,6 +371,8 @@ async fn list_search_apps(
     let n = 3;
     let mut tx = user_db.begin(&authed).await?;
 
+    let allowed = build_scope_path_predicate(&authed, "apps", "read");
+
     let rows = sqlx::query_as::<_, SearchApp>(
         "SELECT path, app_version.value from app LEFT JOIN app_version ON app_version.id = versions[array_upper(versions, 1)]  WHERE workspace_id = $1 LIMIT $2",
     )
@@ -379,6 +381,7 @@ async fn list_search_apps(
     .fetch_all(&mut *tx)
     .await?
     .into_iter()
+    .filter(|r| allowed(&r.path))
     .collect::<Vec<_>>();
     tx.commit().await?;
     Ok(Json(rows))
@@ -413,10 +416,13 @@ async fn list_apps(
             "draft.path IS NOT NULL as is_draft",
             // Per-path draft owners as a JSON array; see scripts.rs for the rationale
             // (admins-workspace identity fallback, legacy NULL-email row).
+            // `app`/`raw_app` are separate draft kinds over one `app` table — match
+            // either (like the `is_draft` join below), else a deployed raw app's draft
+            // owners are dropped and the row shows "Draft" with no user badge.
             "(SELECT json_agg(json_build_object('username', COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END)) ORDER BY COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) NULLS LAST) \
               FROM draft d \
               LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
-              WHERE d.workspace_id = app.workspace_id AND d.path = app.path AND d.typ = 'app') as draft_users",
+              WHERE d.workspace_id = app.workspace_id AND d.path = app.path AND d.typ IN ('app', 'raw_app')) as draft_users",
             "folder_labels(app.workspace_id, app.path) as inherited_labels",
         ])
         .left()
@@ -557,6 +563,9 @@ async fn list_apps(
             });
         }
     }
+
+    let allowed = build_scope_path_predicate(&authed, "apps", "read");
+    rows.retain(|r| allowed(&r.path));
 
     Ok(Json(rows))
 }

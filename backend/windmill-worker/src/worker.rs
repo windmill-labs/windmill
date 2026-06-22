@@ -3808,6 +3808,9 @@ pub async fn handle_queued_job(
                 worker_name,
                 flow_runners,
                 &killpill_rx,
+                // A freshly pulled flow job is being executed by a live worker; the prior
+                // step (if any) completed normally, so this is never unrecoverable here.
+                false,
             ))
             .warn_after_seconds(10)
             .await
@@ -4301,6 +4304,114 @@ async fn try_validate_schema(
     Ok(())
 }
 
+/// Pipeline partition resolution at execution time. The script content is
+/// already loaded for this job, so parsing the `// partitioned` annotation
+/// here is free (no extra fetch / no DB column). The concrete partition
+/// value is resolved exactly once — schedule fire-time for time kinds
+/// (anchored on `scheduled_for`, NOT wall-clock, so a chain crossing
+/// midnight stays coherent) or the triggering payload for `dynamic`. It is
+/// then (a) injected into the in-memory args the body sees and (b)
+/// persisted back to `v2_job.args` so the asset-dispatch cascade reads the
+/// same value at completion and propagates it downstream (run identity is
+/// immutable — never re-resolve once set).
+///
+/// `Ok(Some(job))` = a value was injected (caller must use the returned
+/// clone). `Ok(None)` = nothing to do (no `// partitioned`, or the
+/// partition is already set: explicit / backfill / cascade-propagated, or
+/// before the `start` anchor). `Err` fails the job with a clear message
+/// (partitioned but unresolvable — e.g. `dynamic` with no payload).
+async fn resolve_partition_for_job(
+    job: &MiniPulledJob,
+    code: &str,
+    conn: &Connection,
+) -> error::Result<(Option<MiniPulledJob>, bool)> {
+    use windmill_common::partition::{resolve_partition, PARTITION_ARG};
+    use windmill_parser::asset_parser::PartitionKind;
+
+    // Only deployed scripts participate in asset pipelines. Cheap substring
+    // guard so the overwhelming majority of script jobs skip the annotation
+    // scan; when one might be present we parse *once* here and reuse the result
+    // for both `in_pipeline` (→ WM_PIPELINE env, read by the wmll.ducklake SDK to
+    // record state) and `partition` resolution — no second parse downstream. The
+    // bool is whether the script is a `// pipeline` member.
+    if !matches!(job.kind, JobKind::Script)
+        || !(code.contains("pipeline") || code.contains("partitioned"))
+    {
+        return Ok((None, false));
+    }
+    let ann = windmill_parser::asset_parser::parse_pipeline_annotations(code);
+    let in_pipeline = ann.in_pipeline;
+    let Some(spec) = ann.partition else {
+        return Ok((None, in_pipeline));
+    };
+
+    // Already resolved upstream — explicit run arg, backfill, or
+    // cascade-propagated (push_subscriber injects a top-level `partition`).
+    // Run identity is immutable: use it as-is, do not re-resolve.
+    let already_set = job.args.as_ref().is_some_and(|a| {
+        a.0.get(PARTITION_ARG)
+            .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
+            .is_some_and(|s| !s.is_empty())
+    });
+    if already_set {
+        return Ok((None, in_pipeline));
+    }
+
+    // `dynamic` extracts from the triggering payload (the `trigger` object
+    // for a cascade/event hop, else the run args themselves). Time kinds
+    // ignore the payload.
+    let payload: Option<serde_json::Value> = match &spec.kind {
+        PartitionKind::Dynamic { .. } => job.args.as_ref().map(|a| {
+            a.0.get("trigger")
+                .and_then(|t| serde_json::from_str::<serde_json::Value>(t.get()).ok())
+                .unwrap_or_else(|| {
+                    serde_json::Value::Object(
+                        a.0.iter()
+                            .filter_map(|(k, v)| {
+                                serde_json::from_str(v.get()).ok().map(|jv| (k.clone(), jv))
+                            })
+                            .collect(),
+                    )
+                })
+        }),
+        _ => None,
+    };
+
+    let resolved = resolve_partition(&spec, job.scheduled_for, payload.as_ref())
+        .map_err(|e| Error::ExecutionErr(format!("partition resolution failed: {e:#}")))?;
+    let Some(value) = resolved else {
+        // Before the `start` anchor: this run has no partition to
+        // materialize. v1 runs it without one (logged) rather than
+        // introducing a skip-the-queued-job mechanism.
+        tracing::warn!(
+            job_id = %job.id,
+            "partitioned script resolved to no partition (before start anchor); running without one"
+        );
+        return Ok((None, in_pipeline));
+    };
+
+    // Persist back so dispatch_asset_triggers (which reads the producer's
+    // completed v2_job.args) propagates the same value down the cascade.
+    if let Some(db) = conn.as_sql() {
+        windmill_common::partition::set_resolved_partition(db, job.id, &value).await?;
+    } else {
+        tracing::warn!(
+            job_id = %job.id,
+            "agent worker: resolved partition not persisted; downstream cascade will not propagate it"
+        );
+    }
+
+    // Inject into the in-memory args so the running body sees it.
+    let mut updated = job.clone();
+    let mut map = updated.args.take().map(|j| j.0).unwrap_or_default();
+    map.insert(
+        PARTITION_ARG.to_string(),
+        windmill_common::worker::to_raw_value(&value),
+    );
+    updated.args = Some(Json(map));
+    Ok((Some(updated), in_pipeline))
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_code_execution_job(
     job: &MiniPulledJob,
@@ -4456,6 +4567,19 @@ async fn handle_code_execution_job(
         ),
     };
 
+    // Pipeline partition resolution: the content is now loaded, so resolve
+    // `// partitioned` (if any) and shadow `job` with a clone whose args
+    // carry the resolved `partition` for the rest of execution.
+    let _job_with_partition;
+    let (resolved_job, in_pipeline) = resolve_partition_for_job(job, code, conn).await?;
+    let job = match resolved_job {
+        Some(j) => {
+            _job_with_partition = j;
+            &_job_with_partition
+        }
+        None => job,
+    };
+
     // For preview jobs, extract modules from args._MODULES if not already set
     let modules = modules_from_data.clone().or_else(|| {
         job.args.as_ref().and_then(|args| {
@@ -4501,6 +4625,7 @@ async fn handle_code_execution_job(
         lock,
         &modules,
         false,
+        in_pipeline,
     )
     .await
 }
@@ -4567,6 +4692,9 @@ pub async fn run_language_executor(
     lock: &Option<String>,
     modules: &Option<std::collections::HashMap<String, ScriptModule>>,
     run_inline: bool,
+    // Whether the script is a `// pipeline` member (parsed once upstream) — sets
+    // WM_PIPELINE so the wmll.ducklake SDK helpers record materialization state.
+    in_pipeline: bool,
 ) -> error::Result<Box<RawValue>> {
     // Defense-in-depth (GHSA-wxjq-w5pj-jqhx): the entrypoint override is
     // interpolated verbatim into a code position of the generated language
@@ -4929,6 +5057,11 @@ mount {{
 
     #[allow(unused_mut)]
     let mut envs = build_envs(envs.as_ref())?;
+    // Signal pipeline context to the script so the wmll.ducklake SDK helpers
+    // record materialization state (the grid/backfill) and skip it otherwise.
+    if in_pipeline {
+        envs.insert("WM_PIPELINE".to_string(), "true".to_string());
+    }
 
     let Some(language) = language else {
         return Err(Error::ExecutionErr(
@@ -5714,6 +5847,7 @@ pub fn init_worker_internal_server_inline_utils(
                     &None,
                     &None,
                     true,
+                    false,
                 )
                 .await
             })
@@ -5795,6 +5929,7 @@ pub fn init_worker_internal_server_inline_utils(
                     &content_info.lockfile,
                     &content_info.modules,
                     true,
+                    false,
                 )
                 .await
             })

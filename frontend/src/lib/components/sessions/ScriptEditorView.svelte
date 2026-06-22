@@ -69,22 +69,10 @@
 		delete deployed.draft
 		UserDraft.discard<NewScript>('script', path, deployed, { workspace: workspaceId })
 	}
-
-	async function restoreDraft() {
-		const backendDraft = runtime.savedScript.val?.draft as NewScript | undefined
-		if (!backendDraft) {
-			sendUserToast('Could not restore to draft', true)
-			return
-		}
-		diffDrawer?.closeDrawer()
-		UserDraft.discard<NewScript>('script', path, structuredClone($state.snapshot(backendDraft)), {
-			workspace: workspaceId
-		})
-	}
 </script>
 
 {#if runtime.savedScript.val}
-	<DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
+	<DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
 {/if}
 <SessionEditorTarget
 	{runtime}
@@ -109,6 +97,8 @@
 				bind:script={runtime.scriptStore.val}
 				bind:savedScript={runtime.savedScript.val}
 				initialPath={runtime.savedScript.val ? path : ''}
+				autosaveWorkspace={workspaceId}
+				autosavePath={path}
 				initialPathChosen={true}
 				neverShowMeta={true}
 				fullyLoaded={!runtime.slot('script').loading}

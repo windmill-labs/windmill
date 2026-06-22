@@ -6,13 +6,22 @@
  * success — so it's idempotent without a sentinel; failed entries retry next
  * mount. Not workspace-gated: keys embed their own workspace and the token
  * covers all of them, so gating would orphan other-workspace entries.
- * Deliberately self-contained (no `userDraft.svelte.ts` import) so the
- * runtime module stays free of legacy decoders.
+ *
+ * Before uploading, each draft is compared against its deployed version
+ * (script / flow / app); a draft that's deep-equal to what's deployed carries
+ * no changes, so it's dropped instead of migrated (no error).
  */
 
-import { DraftService } from './gen'
+import { AppService, DraftService, FlowService, ScriptService } from './gen'
 import type { UserDraftItemKind } from './gen'
+import type { App } from './components/apps/types'
+import { migrateApp } from './components/apps/migrateApp'
 import { sendUserToast } from './toast'
+import { draftValuesEqual } from './userDraft.svelte'
+import {
+	openDraftMigrationErrorModal,
+	reportDraftMigrationError
+} from './userDraftMigrationErrors.svelte'
 import { getUsernameForNamespace } from './userNamespace'
 import { randomUUID } from './utils/uuid'
 
@@ -43,7 +52,8 @@ const ITEM_KINDS = [
 	'trigger_cli',
 	'trigger_nextcloud',
 	'trigger_google',
-	'trigger_github'
+	'trigger_github',
+	'data_pipeline'
 ] as const satisfies readonly UserDraftItemKind[]
 
 type _Exhaustive =
@@ -117,6 +127,48 @@ function readPayload(key: string): { value: unknown; lastWrittenAt?: number } | 
 	}
 }
 
+/**
+ * Fetch the deployed value for a draft so the migration can drop a draft that
+ * carries no changes (deep-equal to what's already deployed) instead of
+ * uploading a no-op that would light up the "unsaved" badge. Returns the
+ * comparable deployed payload, or `undefined` when there's nothing to compare
+ * against: an unsupported kind, a pathless (minted `/add`) draft, or a fetch
+ * miss (404 — the path is draft-only, so the draft is genuinely new). `getDraft`
+ * is forced off so we compare against the deployed baseline, not our own draft.
+ */
+async function fetchDeployedValue(
+	workspace: string,
+	kind: UserDraftItemKind,
+	path: string
+): Promise<unknown | undefined> {
+	if (!path) return undefined
+	try {
+		switch (kind) {
+			case 'script':
+				return await ScriptService.getScriptByPath({ workspace, path, getDraft: false })
+			case 'flow':
+				return await FlowService.getFlowByPath({ workspace, path, getDraft: false })
+			case 'app': {
+				// The app autosave stores the inner `App`, not the `AppWithLastVersion`
+				// wrapper getAppByPath returns — compare against `.value`. Run
+				// `migrateApp` so the deployed value matches the editor-migrated draft
+				// (AppEditor `migrateApp`s `stateApp` on mount); without this an app
+				// whose deployed row predates those field migrations never dedups.
+				const app = await AppService.getAppByPath({ workspace, path, getDraft: false })
+				const value = (app as { value?: App }).value
+				if (value) migrateApp(value)
+				return value
+			}
+			default:
+				return undefined
+		}
+	} catch {
+		// No deployed item at this path (or the fetch failed) — nothing to dedup
+		// against, so the caller proceeds to upload the draft.
+		return undefined
+	}
+}
+
 function collectKeys(): string[] {
 	const keys: string[] = []
 	for (let i = 0; i < localStorage.length; i++) {
@@ -176,16 +228,37 @@ export async function migrateUserDraftsToDb(): Promise<void> {
 	}
 	if (toMigrate.length === 0) return
 
-	// Legacy drafts detected — tell the user the one-off upload is running.
-	sendUserToast('Migrating local storage drafts ...', 'info')
+	// Legacy drafts detected — tell the user the one-off upload is running, with
+	// an escape hatch to the modal where any failures show up as they happen.
+	sendUserToast('Migrating local storage drafts ...', 'info', [
+		{ label: 'See more', callback: openDraftMigrationErrorModal }
+	])
 
 	for (const { key, parsed, path, value, lastWrittenAt } of toMigrate) {
 		try {
+			// Dedup: if the draft is deep-equal to the deployed version it carries
+			// no changes — drop it (no error) instead of uploading a no-op draft.
+			// Fetches against `parsed.path` (the real item path); minted `/add`
+			// drafts have `parsed.path === ''` and so are never deduped.
+			const deployed = await fetchDeployedValue(parsed.workspace, parsed.itemKind, parsed.path)
+			if (deployed !== undefined && draftValuesEqual(value, deployed)) {
+				try {
+					localStorage.removeItem(key)
+				} catch {
+					// Best-effort; a stale LS entry is harmless — it re-dedups next mount.
+				}
+				continue
+			}
+			// Preserve the draft's original age: stamp `created_at` with the LS
+			// write time (epoch 0 when unknown) so migrated drafts don't all
+			// resurface to the top as freshly created. Same value as `last_sync`,
+			// which still drives the conflict check.
+			const writtenAt = new Date(lastWrittenAt ?? 0).toISOString()
 			const res = await DraftService.updateDraft({
 				workspace: parsed.workspace,
 				kind: parsed.itemKind,
 				path,
-				requestBody: { value, last_sync: new Date(lastWrittenAt ?? 0).toISOString() }
+				requestBody: { value, last_sync: writtenAt, created_at: writtenAt }
 			})
 			if (res.status === 'conflict') {
 				console.info(
@@ -203,18 +276,13 @@ export async function migrateUserDraftsToDb(): Promise<void> {
 			// surface it so the user isn't silently stuck, with an escape
 			// hatch to drop the un-migratable draft.
 			console.error('UserDraft LS→DB migration: failed for', key, e)
-			sendUserToast(`Could not migrate draft ${path} in workspace ${parsed.workspace}`, 'error', [
-				{
-					label: 'Delete draft',
-					callback: () => {
-						try {
-							localStorage.removeItem(key)
-						} catch {
-							// ignore
-						}
-					}
-				}
-			])
+			reportDraftMigrationError({
+				key,
+				workspace: parsed.workspace,
+				itemKind: parsed.itemKind,
+				path,
+				value
+			})
 		}
 	}
 }

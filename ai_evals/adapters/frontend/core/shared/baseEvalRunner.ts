@@ -38,8 +38,9 @@ export interface RunEvalParams<THelpers, TOutput> {
   helpers: THelpers;
   /** API key for the provider */
   apiKey: string;
-  /** Function to get the current output state */
-  getOutput: () => TOutput;
+  /** Function to get the current output state. May be async — global mode reads
+   * DB-backed drafts back through the (mocked) backend to build its output. */
+  getOutput: () => TOutput | Promise<TOutput>;
   /** Model and Windmill backend configuration */
   options: EvalRunnerOptions;
   onAssistantMessageStart?: () => void;
@@ -154,9 +155,10 @@ export async function runEval<THelpers, TOutput>(
       if (result.hitMaxIterations) {
         return {
           success: false,
-          output: getOutput(),
+          output: (await getOutput()) as TOutput,
           error: `Reached max turns (${maxIterations})`,
           tokenUsage: result.tokenUsage,
+          finalContextTokens: result.lastIterationUsage?.prompt ?? null,
           toolCallsCount,
           toolsCalled,
           toolCallDetails,
@@ -170,8 +172,9 @@ export async function runEval<THelpers, TOutput>(
 
       return {
         success: true,
-        output: getOutput(),
+        output: (await getOutput()) as TOutput,
         tokenUsage: result.tokenUsage,
+        finalContextTokens: result.lastIterationUsage?.prompt ?? null,
         toolCallsCount,
         toolsCalled,
         toolCallDetails,
@@ -191,9 +194,10 @@ export async function runEval<THelpers, TOutput>(
 
       return {
         success: false,
-        output: getOutput(),
+        output: (await getOutput()) as TOutput,
         error: errorMessage,
         tokenUsage: { prompt: 0, completion: 0, total: 0 },
+        finalContextTokens: null,
         toolCallsCount,
         toolsCalled,
         toolCallDetails,

@@ -61,6 +61,7 @@ pub mod indexer;
 pub mod instance_config;
 pub mod job_metrics;
 pub mod log_context;
+pub mod materialization;
 pub mod min_version;
 pub mod notify_events;
 pub mod runtime_assets;
@@ -81,6 +82,20 @@ pub mod oidc_oss;
 #[cfg(feature = "private")]
 pub mod otel_ee;
 pub mod otel_oss;
+#[cfg(feature = "private")]
+pub mod partition_ee;
+pub mod partition_oss;
+#[cfg(feature = "private")]
+pub use partition_ee as partition;
+#[cfg(not(feature = "private"))]
+pub use partition_oss as partition;
+#[cfg(feature = "private")]
+pub mod pipeline_advanced_ee;
+pub mod pipeline_advanced_oss;
+#[cfg(feature = "private")]
+pub use pipeline_advanced_ee as pipeline_advanced;
+#[cfg(not(feature = "private"))]
+pub use pipeline_advanced_oss as pipeline_advanced;
 pub mod query_builders;
 pub mod queue;
 pub mod result_stream;
@@ -579,13 +594,22 @@ impl PgDatabase {
             Some(s) => s.to_string(),
             None => "prefer".to_string(),
         };
+        // Encode host/dbname too: an unencoded '@', '/', '?' or '&' would otherwise
+        // reshape the parsed URI (inject libpq params / alter host). Bracketed IPv6
+        // literals ([::1]) are passed through unencoded — percent-encoding their
+        // '['/']'/':' would stop them parsing as a host.
+        let host = if self.host.starts_with('[') && self.host.ends_with(']') {
+            self.host.clone()
+        } else {
+            urlencoding::encode(&self.host).into_owned()
+        };
         format!(
             "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
             user = urlencoding::encode(&self.user.as_deref().unwrap_or("postgres")),
             password = urlencoding::encode(&self.password.as_deref().unwrap_or("")),
-            host = &self.host,
+            host = host,
             port = self.port.unwrap_or(5432),
-            dbname = self.dbname,
+            dbname = urlencoding::encode(&self.dbname),
             sslmode = sslmode
         )
     }

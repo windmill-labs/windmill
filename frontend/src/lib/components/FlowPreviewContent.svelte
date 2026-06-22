@@ -132,7 +132,8 @@
 		initialPathStore,
 		fakeInitialPath,
 		customUi,
-		executionCount
+		executionCount,
+		devTempScriptRefs
 	} = $state(getContext<FlowEditorContext>('FlowEditorContext'))
 	const dispatch = createEventDispatcher()
 
@@ -193,7 +194,14 @@
 			flowProgressBar?.reset()
 			const newFlow = extractFlow(previewMode)
 			args = await processSecretArgs(args, flowStore.val.schema as any)
-			newJobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom, conversationId)
+			newJobId = await runFlowPreview(
+				args,
+				newFlow,
+				$pathStore,
+				restartedFrom,
+				conversationId,
+				devTempScriptRefs?.()
+			)
 			jobId = newJobId
 			isRunning = true
 			if (inputSelected) {

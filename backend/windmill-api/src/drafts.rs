@@ -9,7 +9,7 @@
 use crate::db::{ApiAuthed, DB};
 
 use axum::{
-    extract::{Extension, Path},
+    extract::{Extension, Path, Query},
     routing::{get, post},
     Json, Router,
 };
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
-    user_drafts::{UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX},
+    user_drafts::{DraftUserRef, UserDraftItemKind, ENCRYPTED_DRAFT_PREFIX},
     variables::{build_crypt, encrypt},
 };
 
@@ -25,7 +25,9 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_drafts))
         .route("/get/{kind}/{*path}", get(get_draft_for_user))
+        .route("/get_own/{kind}/{*path}", get(get_own_draft))
         .route("/update/{kind}/{*path}", post(update_draft))
+        .route("/migrate_legacy/{kind}/{*path}", post(migrate_legacy_draft))
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -35,10 +37,45 @@ pub struct DraftListItem {
     /// Best-effort, read from the draft JSON's `summary` field when present.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    /// User-typed friendly path read from the draft JSON's `draft_path` (set by
+    /// the editors when it differs from the storage path, e.g. a never-deployed
+    /// item parked at `u/{user}/draft_{uuid}`). `None` when absent. Lets the
+    /// review page show the friendly name instead of the storage path, like the
+    /// home-page list endpoints.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_path: Option<String>,
     /// No deployed counterpart exists at this path — the draft is the whole
     /// item. Kinds without a per-path backing table report `true`.
     pub draft_only: bool,
+    /// The listed row is a legacy workspace-level draft (`email IS NULL`),
+    /// predating the per-user drafts migration. Only `true` when no per-user
+    /// row exists at this (path, kind) — the DISTINCT ON prefers an owned row.
+    pub legacy_draft: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
+    /// All draft authors at this `(path, kind)`, for the shared full-page-editor
+    /// kinds (script/flow/app/raw_app) only — feeds the home-page-style owner
+    /// circles on the review page. `None` for drawer kinds, which keep their
+    /// drafts private.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_users: Option<sqlx::types::Json<Vec<DraftUserRef>>>,
+    /// Whether the authed user may deploy/discard this draft — the same check
+    /// the deploy/discard endpoints enforce. Computed per row after the query,
+    /// so it defaults to `false` when read from the row.
+    #[sqlx(default)]
+    pub can_write: bool,
+    /// The listed row belongs to the authed user (own draft or the legacy
+    /// no-owner row) and is therefore actionable by them. Always `true` in the
+    /// default (own-drafts) listing; only meaningful with `all_users=true`,
+    /// where other users' rows surface as `false` (view-only — you can't deploy
+    /// someone else's draft).
+    pub mine: bool,
+}
+
+#[derive(Deserialize)]
+pub struct ListDraftsQuery {
+    /// List every draft in the workspace (all users), not just the authed
+    /// user's own + legacy rows. Other users' rows come back with `mine=false`.
+    pub all_users: Option<bool>,
 }
 
 /// Every draft the authed user has in this workspace, across all kinds — the
@@ -48,7 +85,9 @@ pub struct DraftListItem {
 async fn list_drafts(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
+    Query(query): Query<ListDraftsQuery>,
 ) -> Result<Json<Vec<DraftListItem>>> {
     // Operators have no drafts of their own (they can't write any, see
     // `require_can_write_path`), so this list is always empty for them. They
@@ -56,20 +95,58 @@ async fn list_drafts(
     if authed.is_operator {
         return Ok(Json(vec![]));
     }
-    let rows = sqlx::query_as::<_, DraftListItem>(&list_drafts_query())
+    let all_users = query.all_users.unwrap_or(false);
+    let rows = sqlx::query_as::<_, DraftListItem>(&list_drafts_query(all_users))
         .bind(&w_id)
         .bind(&authed.email)
         .fetch_all(&db)
         .await?;
-    Ok(Json(rows))
+    // Per-row permission gating:
+    //  - own drafts (incl. legacy no-owner rows, `mine = true`): the actionable
+    //    gate is write permission — run the exact check deploy/discard enforce so
+    //    the UI never offers an action that would 403.
+    //  - other users' drafts (only present with `all_users`, `mine = false`): the
+    //    UI never lets you act on them (`isSelectable` requires `mine`), so skip
+    //    the write probe (`can_write = false`) and instead require READ access —
+    //    otherwise the broadened listing would disclose the path/summary/authors
+    //    of items the caller can't see. Unreadable rows are dropped, mirroring the
+    //    `require_can_read_path` gate on `/drafts/get`.
+    let mut out = Vec::with_capacity(rows.len());
+    for mut row in rows {
+        if row.mine {
+            row.can_write =
+                match require_can_write_path(&authed, &db, &user_db, &w_id, row.kind, &row.path)
+                    .await
+                {
+                    Ok(()) => true,
+                    Err(Error::NotAuthorized(_)) => false,
+                    Err(e) => return Err(e),
+                };
+            out.push(row);
+        } else {
+            // `require_can_read_path` denies with `NotFound` (it hides existence)
+            // and, for some paths, `NotAuthorized` — both mean "not visible to the
+            // caller", so drop the row. Any other error is a real failure.
+            match require_can_read_path(&authed, &user_db, &w_id, row.kind, &row.path).await {
+                Ok(()) => {
+                    row.can_write = false;
+                    out.push(row);
+                }
+                Err(Error::NotFound(_)) | Err(Error::NotAuthorized(_)) => {}
+                Err(e) => return Err(e),
+            }
+        }
+    }
+    Ok(Json(out))
 }
 
 /// Build the `list_drafts` SQL, generating the `draft_only` CASE from
 /// `deployed_table()` (shared single source — can't drift from the access
 /// check). Table names come from the closed enum, never user input. Kinds
 /// with no path-keyed table get no arm and fall to `ELSE true`.
-/// `$1` = workspace_id, `$2` = email.
-fn list_drafts_query() -> String {
+/// `$1` = workspace_id, `$2` = email. With `all_users` the owner filter is
+/// dropped so every workspace draft is listed (others' rows get `mine=false`).
+fn list_drafts_query(all_users: bool) -> String {
     let mut case = String::from("CASE d.typ::text\n");
     for kind in UserDraftItemKind::ALL {
         let Some(table) = kind.deployed_table() else {
@@ -90,19 +167,55 @@ fn list_drafts_query() -> String {
         ));
     }
     case.push_str("  ELSE true\nEND");
-    // `(d.email = $2 OR d.email IS NULL)` lists the user's own drafts AND the
-    // legacy NULL-email rows; `DISTINCT ON (d.path, d.typ)` with `email IS NULL`
-    // last collapses a (path, kind) that has both to the owned row.
+    // Owner circles, mirroring the home-page list subquery (see apps.rs): every
+    // draft author at this (path, kind), legacy NULL-email row surfaced as a
+    // null username. Restricted to the shared full-page-editor kinds — drawer
+    // kinds keep their drafts private, so we never reveal their authors.
+    let draft_users = r#"CASE WHEN d.typ::text IN ('script', 'flow', 'app', 'raw_app') THEN (
+                      SELECT json_agg(json_build_object('username', COALESCE(u.username, CASE WHEN du.workspace_id = 'admins' THEN du.email END))
+                                      ORDER BY COALESCE(u.username, CASE WHEN du.workspace_id = 'admins' THEN du.email END) NULLS LAST)
+                      FROM draft du
+                      LEFT JOIN usr u ON u.workspace_id = du.workspace_id AND u.email = du.email
+                      WHERE du.workspace_id = d.workspace_id AND du.path = d.path AND du.typ = d.typ
+                    ) ELSE NULL END"#;
+    // Default lists the user's own drafts AND the legacy NULL-email rows; with
+    // `all_users` the filter is dropped to list every workspace draft.
+    let owner_filter = if all_users {
+        ""
+    } else {
+        " AND (d.email = $2 OR d.email IS NULL)"
+    };
+    // `DISTINCT ON (d.path, d.typ)` keeps one row per item; the ORDER BY
+    // priority below picks the user's own row first, then the legacy NULL row,
+    // then (only with `all_users`) another user's row. `mine`/`legacy_draft`
+    // describe that kept row.
     format!(
         r#"SELECT DISTINCT ON (d.path, d.typ)
                   d.path,
                   d.typ AS kind,
                   d.created_at,
                   d.value ->> 'summary' AS summary,
+                  {draft_users} AS draft_users,
+                  -- Friendly typed path, by kind (mirrors the home-page list
+                  -- endpoints): scripts bind the Path widget to `script.path`,
+                  -- so it round-trips through the draft JSON's own `path`;
+                  -- flows/apps/raw-apps carry a separate `draft_path`. NULLIF
+                  -- drops it when empty or equal to the storage path.
+                  NULLIF(
+                    NULLIF(
+                      CASE WHEN d.typ::text = 'script'
+                           THEN d.value ->> 'path'
+                           ELSE d.value ->> 'draft_path' END,
+                      ''),
+                    d.path
+                  ) AS draft_path,
+                  (d.email IS NULL) AS legacy_draft,
+                  (d.email = $2 OR d.email IS NULL) AS mine,
                   {case} AS draft_only
            FROM draft d
-           WHERE d.workspace_id = $1 AND (d.email = $2 OR d.email IS NULL)
-           ORDER BY d.path, d.typ, (d.email IS NULL)"#
+           WHERE d.workspace_id = $1{owner_filter}
+           ORDER BY d.path, d.typ,
+                    CASE WHEN d.email = $2 THEN 0 WHEN d.email IS NULL THEN 1 ELSE 2 END"#
     )
 }
 
@@ -121,6 +234,18 @@ pub struct SaveDraftRequest {
     /// copy. Use after the client has resolved the conflict locally.
     #[serde(default)]
     pub force: bool,
+    /// Delete-only: target the legacy workspace-level row (`email IS NULL`)
+    /// rather than the authed user's row. An upsert ignores it (always writes
+    /// the user's own row). Lets the review page discard a legacy draft, which
+    /// the email-scoped delete otherwise can't reach.
+    #[serde(default)]
+    pub legacy: bool,
+    /// Upsert-only override for the stored `created_at`. Normal saves omit it
+    /// and the row is stamped `now()`; the localStorage→DB migration passes the
+    /// draft's original write time (or epoch 0 when unknown) so migrated drafts
+    /// keep their age instead of all resurfacing to the top as freshly created.
+    #[serde(default)]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Serialize, Debug)]
@@ -151,7 +276,17 @@ async fn update_draft(
 ) -> Result<Json<SaveDraftResponse>> {
     let email = &authed.email;
     let path = path.to_path();
-    require_can_write_path(&authed, &db, &user_db, &w_id, kind, path).await?;
+    // Saving a draft requires write permission on the underlying path. Deleting
+    // (discarding) one's OWN draft does not: the email-scoped row belongs to the
+    // authed user, so they can always discard it even after losing write access
+    // to the underlying item (e.g. a draft-only item whose folder perms changed).
+    // The DELETE below is scoped to `email = authed.email`, so it can only ever
+    // touch the caller's own row. Legacy (NULL-email) rows aren't owned by anyone
+    // — they keep the write gate.
+    let is_own_discard = req.value.is_none() && !req.legacy;
+    if !is_own_discard {
+        require_can_write_path(&authed, &db, &user_db, &w_id, kind, path).await?;
+    }
 
     let applied_at = if let Some(value) = &req.value {
         // Secret variable values must never sit in `draft.value` in plaintext
@@ -161,13 +296,19 @@ async fn update_draft(
         } else {
             serde_json::to_string(value).unwrap()
         };
+        // `draft.value` is a `json` column, so a U+0000 (NUL) would persist as an
+        // escape and later make any `->>`/`to_jsonb` extraction raise `22P05`.
+        // Strip it here so a NUL never reaches the column.
+        let serialized = strip_json_nul(serialized);
         // Upsert. The conflict check rides on the DO UPDATE WHERE clause —
         // when the row is newer than `last_sync`, RETURNING yields nothing.
+        // `created_at` defaults to `now()` but the migration overrides it ($8)
+        // so a migrated draft keeps its original age instead of jumping to top.
         sqlx::query_scalar!(
             r#"INSERT INTO draft (workspace_id, email, path, typ, value, created_at)
-               VALUES ($1, $2, $3, $4, $5::text::json, now())
+               VALUES ($1, $2, $3, $4, $5::text::json, COALESCE($8::timestamptz, now()))
                ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL
-               DO UPDATE SET value = EXCLUDED.value, created_at = now()
+               DO UPDATE SET value = EXCLUDED.value, created_at = EXCLUDED.created_at
                WHERE $7::bool = true
                   OR $6::timestamptz IS NULL
                   OR draft.created_at <= $6::timestamptz
@@ -179,17 +320,18 @@ async fn update_draft(
             serialized,
             req.last_sync,
             req.force,
+            req.created_at,
         )
         .fetch_optional(&db)
         .await?
     } else {
         // Delete, same conflict rule in the WHERE clause. Returns NULL when
         // the row was too new (conflict) OR already absent (idempotent) —
-        // disambiguated below.
+        // disambiguated below. `legacy` ($7) retargets to the NULL-email row.
         sqlx::query_scalar!(
             r#"DELETE FROM draft
                WHERE workspace_id = $1
-                 AND email = $2
+                 AND email IS NOT DISTINCT FROM (CASE WHEN $7::bool THEN NULL::text ELSE $2 END)
                  AND path = $3
                  AND typ = $4
                  AND ($6::bool = true
@@ -202,6 +344,7 @@ async fn update_draft(
             kind as UserDraftItemKind,
             req.last_sync,
             req.force,
+            req.legacy,
         )
         .fetch_optional(&db)
         .await?
@@ -219,11 +362,14 @@ async fn update_draft(
     // by re-reading.
     let existing = sqlx::query_scalar!(
         r#"SELECT created_at FROM draft
-           WHERE workspace_id = $1 AND email = $2 AND path = $3 AND typ = $4"#,
+           WHERE workspace_id = $1
+             AND email IS NOT DISTINCT FROM (CASE WHEN $5::bool THEN NULL::text ELSE $2 END)
+             AND path = $3 AND typ = $4"#,
         &w_id,
         email,
         path,
         kind as UserDraftItemKind,
+        req.legacy,
     )
     .fetch_optional(&db)
     .await?;
@@ -244,6 +390,128 @@ async fn update_draft(
             }))
         }
     }
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum MigrateLegacyDraftAction {
+    /// Discard the legacy row entirely.
+    Delete,
+    /// Move the legacy row's content onto the authed admin's own row, then
+    /// drop the legacy row — so it becomes a normal per-user draft.
+    AssignToSelf,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct MigrateLegacyDraftRequest {
+    pub action: MigrateLegacyDraftAction,
+}
+
+/// Resolve a LEGACY (workspace-level, `email IS NULL`) draft. These predate the
+/// per-user drafts migration and have no owner, so only workspace admins (and
+/// superadmins, which carry `is_admin` in a workspace) may delete one or claim
+/// it as their own.
+async fn migrate_legacy_draft(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, kind, path)): Path<(String, UserDraftItemKind, windmill_common::utils::StripPath)>,
+    Json(req): Json<MigrateLegacyDraftRequest>,
+) -> Result<String> {
+    if !authed.is_admin {
+        return Err(Error::NotAuthorized(
+            "only workspace admins can migrate legacy drafts".to_string(),
+        ));
+    }
+    let path = path.to_path();
+    match req.action {
+        MigrateLegacyDraftAction::Delete => {
+            sqlx::query!(
+                r#"DELETE FROM draft
+                   WHERE workspace_id = $1 AND path = $2 AND typ = $3 AND email IS NULL"#,
+                &w_id,
+                path,
+                kind as UserDraftItemKind,
+            )
+            .execute(&db)
+            .await?;
+            Ok(format!("Deleted legacy draft at {path}"))
+        }
+        MigrateLegacyDraftAction::AssignToSelf => {
+            // Take ownership: move the legacy value onto the admin's own row
+            // (replacing any existing own draft) and drop the legacy row, in one
+            // statement. `ON CONFLICT` matches the partial unique index that
+            // covers `email IS NOT NULL`.
+            let moved = sqlx::query_scalar!(
+                r#"WITH legacy AS (
+                       DELETE FROM draft
+                       WHERE workspace_id = $1 AND path = $2 AND typ = $3 AND email IS NULL
+                       RETURNING value
+                   )
+                   INSERT INTO draft (workspace_id, email, path, typ, value, created_at)
+                   SELECT $1, $4, $2, $3, value, now() FROM legacy
+                   ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL
+                   DO UPDATE SET value = EXCLUDED.value, created_at = now()
+                   RETURNING 1 as "one!""#,
+                &w_id,
+                path,
+                kind as UserDraftItemKind,
+                &authed.email,
+            )
+            .fetch_optional(&db)
+            .await?;
+            if moved.is_none() {
+                return Err(Error::NotFound(format!("no legacy draft at {path}")));
+            }
+            Ok(format!("Assigned legacy draft at {path} to you"))
+        }
+    }
+}
+
+/// Remove every U+0000 (NUL) from a serialized JSON document so it is safe to
+/// store in the `json`-typed `draft.value` (a NUL there would later make any
+/// `->>`/`to_jsonb` extraction raise `22P05`).
+///
+/// A NUL can only appear in JSON text as a backslash-u0000 escape, and a
+/// backslash only ever occurs inside a string, so one backslash-parity-aware
+/// pass removes every real NUL escape — covering values and keys alike — while
+/// leaving a legitimate `\\u0000` (an escaped backslash followed by the literal
+/// text `u0000`) intact. O(n) over the bytes with no `serde_json::Value` tree to
+/// allocate, and the fast path (no such substring at all) returns the input
+/// untouched. The slow path is reached not only by genuinely poisoned values but
+/// by any value that legitimately contains `u0000` after a backslash (e.g. script
+/// source), so it must stay allocation-light for potentially large drafts.
+fn strip_json_nul(serialized: String) -> String {
+    if !serialized.contains("\\u0000") {
+        return serialized;
+    }
+    let bytes = serialized.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'\\' {
+            out.push(bytes[i]);
+            i += 1;
+            continue;
+        }
+        // Consume the whole run of backslashes. An even run is N/2 escaped
+        // backslashes and leaves the next char unescaped; an odd run ends in an
+        // escaping backslash, so a following `u0000` is a real NUL escape.
+        let run_start = i;
+        while i < bytes.len() && bytes[i] == b'\\' {
+            i += 1;
+        }
+        let run = i - run_start;
+        if run % 2 == 1 && bytes[i..].starts_with(b"u0000") {
+            // Drop the escaping backslash + `u0000`; keep the leading literal pairs.
+            out.extend(std::iter::repeat(b'\\').take(run - 1));
+            i += 5;
+        } else {
+            out.extend(std::iter::repeat(b'\\').take(run));
+        }
+    }
+    // Only whole ASCII backslash-u0000 escapes were removed, so the bytes remain
+    // valid UTF-8 (and valid JSON).
+    String::from_utf8(out).expect("removing a NUL escape preserves valid UTF-8")
 }
 
 /// For variable-kind drafts with `variable.is_secret == true`, encrypt
@@ -356,6 +624,37 @@ async fn get_draft_for_user(
             query.username.as_deref().unwrap_or("<legacy>")
         ))
     })
+}
+
+/// Fetch the AUTHED user's OWN draft at a path, for any kind — including
+/// private kinds (`shares_drafts_across_users() == false`). Backs editors with
+/// no deployed-item GET to overlay a draft onto: the `data_pipeline` bundle is
+/// keyed at a folder path with no runnable to hang `get_draft` on, so it loads
+/// its in-flight state from here. Returns `null` (200) when the user has no
+/// draft there, so a fresh pipeline isn't a 404. Secret-variable values come
+/// back `$encrypted:`-prefixed, same as `get_draft_for_user` — variable editors
+/// use their own overlay GET, not this route.
+async fn get_own_draft(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, kind, path)): Path<(String, UserDraftItemKind, windmill_common::utils::StripPath)>,
+) -> Result<Json<Option<DraftForUser>>> {
+    let path = path.to_path();
+    require_can_read_path(&authed, &user_db, &w_id, kind, path).await?;
+    let row = sqlx::query_as!(
+        DraftForUser,
+        r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>", created_at
+           FROM draft
+           WHERE workspace_id = $1 AND path = $2 AND typ = $3 AND email = $4"#,
+        &w_id,
+        path,
+        kind as UserDraftItemKind,
+        &authed.email,
+    )
+    .fetch_optional(&db)
+    .await?;
+    Ok(Json(row))
 }
 
 /// The deployed table RLS resolves item-level `extra_perms` against.
@@ -504,4 +803,65 @@ async fn require_can_read_path(
         }
     }
     Err(Error::NotFound(format!("no draft visible at {path}")))
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::strip_json_nul;
+
+    // Parse the (NUL-free) result so assertions read clearly.
+    fn parsed(s: String) -> serde_json::Value {
+        serde_json::from_str(&s).expect("strip_json_nul must return valid JSON")
+    }
+
+    #[test]
+    fn clean_value_is_returned_byte_for_byte() {
+        let s = r#"{"summary":"all good","n":1}"#.to_string();
+        assert_eq!(strip_json_nul(s.clone()), s);
+    }
+
+    #[test]
+    fn real_nul_in_value_is_stripped() {
+        let out = strip_json_nul(r#"{"summary":"hi\u0000there"}"#.to_string());
+        assert!(!out.contains(r"\u0000"));
+        assert_eq!(parsed(out)["summary"], "hithere");
+    }
+
+    #[test]
+    fn legit_escaped_backslash_is_a_noop() {
+        // JSON "a\\u0000b" decodes to the 8-char string a,backslash,u,0,0,0,0,b
+        // — not a NUL — so the value is already clean and round-trips byte-for-byte.
+        let s = r#"{"summary":"a\\u0000b"}"#.to_string();
+        assert_eq!(strip_json_nul(s.clone()), s);
+    }
+
+    #[test]
+    fn collision_real_and_literal_both_handled() {
+        // "a" carries a real NUL; "b" carries the literal text backslash-u0000.
+        // The value walk strips the former and leaves the latter intact — the
+        // pathological case that needed a fallback in SQL is trivial in Rust.
+        let v = parsed(strip_json_nul(r#"{"a":"x\u0000y","b":"p\\u0000q"}"#.to_string()));
+        assert_eq!(v["a"], "xy");
+        assert_eq!(v["b"], "p\\u0000q");
+    }
+
+    #[test]
+    fn nested_values_and_keys_are_cleaned() {
+        let out = strip_json_nul(
+            r#"{"o":{"k\u0000":["a\u0000b",{"deep\u0000":"v\u0000"}]}}"#.to_string(),
+        );
+        assert!(!out.contains(r"\u0000"));
+        let v = parsed(out);
+        assert_eq!(v["o"]["k"][0], "ab");
+        assert_eq!(v["o"]["k"][1]["deep"], "v");
+    }
+
+    #[test]
+    fn odd_backslash_run_keeps_literal_drops_nul() {
+        // JSON "a\\\u0000b" is an escaped backslash (kept) immediately followed by
+        // a real NUL escape (dropped) -> decodes to a,backslash,b.
+        let v = parsed(strip_json_nul(r#"{"x":"a\\\u0000b"}"#.to_string()));
+        assert_eq!(v["x"], "a\\b");
+    }
 }

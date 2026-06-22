@@ -130,6 +130,13 @@ export const codeCompletionSessionEnabled = writable<boolean>(
 	getLocalSetting(CODE_COMPLETION_SETTING_NAME) != 'false'
 )
 
+export const AI_USER_DISABLED_SETTING_NAME = 'aiUserDisabled'
+// Master per-user (per-device) opt-out for all Windmill AI features. Initialized at
+// module load so it applies on startup, not only once the settings panel mounts.
+export const aiUserDisabled = writable<boolean>(
+	getLocalSetting(AI_USER_DISABLED_SETTING_NAME) === 'true'
+)
+
 export const usedTriggerKinds = writable<string[]>([])
 
 export let globalDbManagerDrawer: StateStore<DbManagerUriState | undefined> = { val: undefined }

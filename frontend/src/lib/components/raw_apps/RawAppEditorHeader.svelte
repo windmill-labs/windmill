@@ -101,6 +101,8 @@
 					summary: string
 					policy: any
 					custom_path?: string
+					/** No deployed counterpart exists (draft-only); disables Diff. */
+					no_deployed?: boolean
 			  }
 			| undefined
 		version?: number | undefined
@@ -126,6 +128,12 @@
 		onToggleSidebar?: () => void
 		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 		liveEditorDraftStoragePath?: string
+		/** Indicator-only overrides for the sessions preview: the AutosaveIndicator
+		 *  watches the session's (workspace, path) so it renders + animates on the
+		 *  key SessionEditorTarget saves under. Undefined on the full-page editor →
+		 *  falls back to `$workspaceStore`/`liveEditorDraftStoragePath`. */
+		autosaveWorkspace?: string
+		autosavePath?: string
 		// Fired after a successful deploy; lets the session preview reload.
 		onDeploy?: (e: { path: string }) => void
 		/** Surfaces the user-typed path (`newEditedPath`) up to the route
@@ -168,6 +176,8 @@
 		onToggleSidebar = undefined,
 		onNavigate = undefined,
 		liveEditorDraftStoragePath = undefined,
+		autosaveWorkspace = undefined,
+		autosavePath = undefined,
 		onDeploy = undefined,
 		pendingDraftPath = $bindable(undefined),
 		onResetToDeployed,
@@ -175,6 +185,11 @@
 		othersDraftsCount = 0,
 		onOpenOthersDrafts
 	}: Props = $props()
+
+	// The AutosaveIndicator watches these; in the sessions preview they're the
+	// session's (workspace, path), else the full-page editor's own values.
+	const indicatorWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
 
 	$effect(() => {
 		const typed = newEditedPath
@@ -184,12 +199,19 @@
 		})
 	})
 
+	// `newApp` is true both for a brand-new app AND (in the session preview) for a
+	// draft-only one that already has a real path — so prefer the real `appPath`,
+	// but NOT a `draft_{uuid}` storage placeholder (a brand-new app is parked at
+	// `u/{user}/draft_{uuid}`). A real named path is kept (else its breadcrumb shows
+	// a random name and deploy createApps under it); a placeholder still falls
+	// through to the friendly generated suggestion.
 	let newEditedPath = $state(
-		untrack(() =>
-			newApp
-				? newPath || userPathPrefix($userStore?.username) + random_adj() + '_app'
+		untrack(() => {
+			const realAppPath = appPath && !appPath.split('/').pop()?.startsWith('draft_') ? appPath : ''
+			return newApp
+				? newPath || realAppPath || userPathPrefix($userStore?.username) + random_adj() + '_app'
 				: newPath || appPath || ''
-		)
+		})
 	)
 
 	$effect(() => {
@@ -754,11 +776,11 @@
 			raw_app
 			onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
 		/>
-		{#if $workspaceStore && liveEditorDraftStoragePath !== undefined}
+		{#if indicatorWorkspace && indicatorPath !== undefined}
 			<AutosaveIndicator
-				workspace={$workspaceStore}
+				workspace={indicatorWorkspace}
 				itemKind="raw_app"
-				path={liveEditorDraftStoragePath}
+				path={indicatorPath}
 				draftOnly={newApp}
 				{onResetToDeployed}
 				{loadedFromDraft}
@@ -784,17 +806,34 @@
 			{/snippet}
 		</DropdownV2>
 
-		<Button
-			variant="default"
-			unifiedSize="md"
-			on:click={() => openDiffDrawer()}
-			disabled={!savedApp || newApp}
-			iconOnly={compactTopbar}
-			title={newApp ? 'Deploy this app once to compare against the deployed version' : 'Diff'}
-			startIcon={{ icon: DiffIcon }}
+		<!-- A disabled <button> fires no pointer events, so a title/tooltip on it
+		     never shows on hover. pointer-events-none on the button lets the hover
+		     reach this titled wrapper instead. -->
+		<div
+			title={newApp || savedApp?.no_deployed === true
+				? 'Deploy this app once to compare against the deployed version'
+				: 'Diff'}
+			class={!savedApp || newApp || savedApp?.no_deployed === true
+				? 'flex cursor-not-allowed'
+				: 'flex'}
 		>
-			Diff
-		</Button>
+			<Button
+				variant="default"
+				unifiedSize="md"
+				on:click={() => openDiffDrawer()}
+				disabled={!savedApp || newApp || savedApp?.no_deployed === true}
+				btnClasses={!savedApp || newApp || savedApp?.no_deployed === true
+					? 'pointer-events-none'
+					: undefined}
+				iconOnly={compactTopbar}
+				title={newApp || savedApp?.no_deployed === true
+					? 'Deploy this app once to compare against the deployed version'
+					: 'Diff'}
+				startIcon={{ icon: DiffIcon }}
+			>
+				Diff
+			</Button>
+		</div>
 
 		<div class="{compactTopbar ? 'hidden' : 'hidden md:inline'} relative overflow-visible">
 			<Button

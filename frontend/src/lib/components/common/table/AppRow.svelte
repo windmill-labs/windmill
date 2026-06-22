@@ -102,7 +102,9 @@
 {/if}
 
 <Row
-	href="{base}/apps{app.raw_app ? '_raw' : ''}/get/{app.path}"
+	href={app.draft_only
+		? `${base}/apps${app.raw_app ? '_raw' : ''}/edit/${app.path}`
+		: `${base}/apps${app.raw_app ? '_raw' : ''}/get/${app.path}`}
 	kind="app"
 	{marked}
 	path={(app as any).draft_path ?? app.path}
@@ -128,6 +130,7 @@
 			workspace={$workspaceStore ?? undefined}
 			itemKind={app.raw_app ? 'raw_app' : 'app'}
 			path={app.path}
+			onMigrated={() => dispatch('change')}
 		/>
 		{#if app.labels?.length}
 			<div class="flex items-center gap-0.5">
@@ -208,7 +211,10 @@
 								}
 							},
 							type: 'delete',
-							disabled: !canEdit,
+							// A draft-only row is always the authed user's own draft (the
+							// list endpoint only surfaces own/legacy draft-only rows), so
+							// discarding it never requires write permission on the path.
+							disabled: !showEditButton,
 							hide: $userStore?.operator
 						},
 						{

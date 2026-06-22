@@ -109,6 +109,8 @@
 		fullyLoaded = true,
 		initialPath = $bindable(''),
 		userDraftPath = '',
+		autosaveWorkspace = undefined,
+		autosavePath = undefined,
 		template = $bindable('script'),
 		initialArgs = {},
 		lockedLanguage = false,
@@ -159,9 +161,19 @@
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
 
-	// Top-bar responsive collapse — container width, not viewport.
+	// Top-bar responsive collapse — container width, not viewport. Collapse the
+	// right group (hide the ~200px tag select, icon-only Diff/Settings) before the
+	// full group crowds the path into heavy truncation; ~900 is where the path
+	// keeps a usable width given the right group's natural ~440px.
 	let topbarWidth = $state(0)
-	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
+	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 900)
+
+	// AutosaveIndicator watch key. Falls back to the full-page editor's
+	// global store + URL draft path; the sessions preview overrides both so the
+	// icon tracks the session's (forked) workspace + target path where autosave
+	// actually happens.
+	const indicatorWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const indicatorPath = $derived(autosavePath ?? userDraftPath)
 
 	function getCompactMenuItems(): Item[] {
 		const hasTags = ($workerTags?.length ?? 0) > 0
@@ -707,7 +719,16 @@
 		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
 
 		const deployed = deployedValue ?? savedScript
-		const current = { ...script, draft_triggers: currentDraftTriggers }
+		// `script` comes from the full DB row (since #9351), so it carries `lock`/`extra_perms`
+		// while the deployed side is trimmed in `syncWithDeployed` — null them here to match
+		// that strip. They stay in the shared `cleanValueProperties` so version-to-version and
+		// folder workspace/fork diffs still surface lockfile / sharing-permission changes.
+		const current = {
+			...script,
+			lock: undefined,
+			extra_perms: undefined,
+			draft_triggers: currentDraftTriggers
+		}
 		if (current.assets && !current.assets.length) delete current.assets
 
 		diffDrawer?.openDrawer()
@@ -719,7 +740,10 @@
 		})
 	}
 
-	function computeDropdownItems(initialPath: string, savedScript: Script | NewScript | undefined) {
+	function computeDropdownItems(
+		initialPath: string,
+		savedScript: ((Script | NewScript) & { no_deployed?: boolean }) | undefined
+	) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
 			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
 				? [
@@ -750,7 +774,7 @@
 								]
 							: []),
 						...(!inSessionPane &&
-						(savedScript as any)?.no_deployed !== true &&
+						savedScript?.no_deployed !== true &&
 						script.kind === 'script' &&
 						!script.auto_kind
 							? [
@@ -1822,7 +1846,7 @@
 									{hasPreprocessor}
 									canHavePreprocessor={canHavePreprocessor(script.language)}
 									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
-									isDeployed={savedScript && (savedScript as any)?.no_deployed !== true}
+									isDeployed={savedScript && savedScript?.no_deployed !== true}
 									schema={script.schema}
 									runnableVersion={script.parent_hash}
 									onDeployTrigger={handleDeployTrigger}
@@ -1840,7 +1864,7 @@
 	<div class="flex flex-col h-screen">
 		<div bind:clientWidth={topbarWidth} class="flex h-12 items-center px-4">
 			<div class="flex gap-2 lg:gap-2 w-full items-center">
-				<div class="flex flex-row items-center gap-2 min-w-[200px] max-w-full">
+				<div class="flex flex-row items-center gap-2 min-w-0 shrink">
 					<button
 						disabled={customUi?.topBar?.settings == false}
 						class="shrink-0"
@@ -1851,22 +1875,24 @@
 						<LanguageIcon lang={script.language} size={24} />
 					</button>
 					{#if customUi?.topBar?.path != false}
-						<EditorHeader
-							bind:summary={script.summary}
-							bind:path={script.path}
-							savedPath={initialPath}
-							kind="script"
-							summaryEditable={customUi?.topBar?.editableSummary != false}
-							pathEditable={customUi?.topBar?.editablePath != false}
-							onNavigate={(item) => onNavigate?.(item)}
-						/>
+						<div class="min-w-0 overflow-hidden">
+							<EditorHeader
+								bind:summary={script.summary}
+								bind:path={script.path}
+								savedPath={initialPath}
+								kind="script"
+								summaryEditable={customUi?.topBar?.editableSummary != false}
+								pathEditable={customUi?.topBar?.editablePath != false}
+								onNavigate={(item) => onNavigate?.(item)}
+							/>
+						</div>
 					{/if}
-					{#if $workspaceStore}
+					{#if indicatorWorkspace}
 						<AutosaveIndicator
-							workspace={$workspaceStore}
+							workspace={indicatorWorkspace}
 							itemKind="script"
-							path={userDraftPath}
-							draftOnly={(savedScript as any)?.no_deployed === true}
+							path={indicatorPath}
+							draftOnly={savedScript?.no_deployed === true}
 							{onResetToDeployed}
 							{loadedFromDraft}
 							{othersDraftsCount}
@@ -1903,20 +1929,28 @@
 				{/snippet}
 				{#snippet diffButton()}
 					{#if customUi?.topBar?.diff != false}
-						{@const isDraftOnly = (savedScript as any)?.no_deployed === true}
-						<Button
-							variant="default"
-							unifiedSize="md"
-							on:click={() => openDiffDrawer()}
-							disabled={!savedScript || !diffDrawer || isDraftOnly}
-							iconOnly={compactTopbar}
-							title={isDraftOnly
-								? 'Deploy this script once to compare against the deployed version'
-								: 'Diff'}
-							startIcon={{ icon: DiffIcon }}
-						>
-							Diff
-						</Button>
+						{@const isDraftOnly = savedScript?.no_deployed === true}
+						{@const diffDisabled = !savedScript || !diffDrawer || isDraftOnly}
+						{@const diffTitle = isDraftOnly
+							? 'Deploy this script once to compare against the deployed version'
+							: 'Diff'}
+						<!-- A disabled <button> fires no pointer events, so a title/tooltip on it
+						     never shows on hover. pointer-events-none on the button lets the hover
+						     reach this titled wrapper instead. -->
+						<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
+							<Button
+								variant="default"
+								unifiedSize="md"
+								on:click={() => openDiffDrawer()}
+								disabled={diffDisabled}
+								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
+								iconOnly={compactTopbar}
+								title={diffTitle}
+								startIcon={{ icon: DiffIcon }}
+							>
+								Diff
+							</Button>
+						</div>
 					{/if}
 				{/snippet}
 				{#if compactTopbar}

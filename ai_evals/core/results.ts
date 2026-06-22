@@ -16,6 +16,9 @@ type AttemptAggregate = {
   durationTotal: number;
   tokenUsageAttemptCount: number;
   tokenUsageTotal: BenchmarkTokenUsage | null;
+  finalContextAttemptCount: number;
+  finalContextTotal: number;
+  finalContextMax: number | null;
 };
 
 export async function writeRunResult(
@@ -117,6 +120,8 @@ export function buildRunResult(input: {
       passedAttemptAggregate,
       passedAttempts,
     ),
+    averageFinalContextTokensPassed: averageFinalContext(passedAttemptAggregate),
+    maxFinalContextTokensPassed: passedAttemptAggregate.finalContextMax,
     cases: input.caseResults,
   };
 }
@@ -131,6 +136,11 @@ export function formatRunSummary(result: BenchmarkRunResult): string {
   if (result.averageTokenUsagePerPassedAttempt) {
     lines.push(
       `Average tokens (passed): ${formatTokenUsage(result.averageTokenUsagePerPassedAttempt)}`,
+    );
+  }
+  if (result.averageFinalContextTokensPassed != null) {
+    lines.push(
+      `Final context size (passed): ${Math.round(result.averageFinalContextTokensPassed)} tokens (max ${Math.round(result.maxFinalContextTokensPassed ?? 0)})`,
     );
   }
   if (result.passedAttempts < result.attemptCount) {
@@ -181,10 +191,21 @@ function aggregateAttempts(attempts: BenchmarkAttemptResult[]): AttemptAggregate
     durationTotal: 0,
     tokenUsageAttemptCount: 0,
     tokenUsageTotal: null,
+    finalContextAttemptCount: 0,
+    finalContextTotal: 0,
+    finalContextMax: null,
   };
 
   for (const attempt of attempts) {
     aggregate.durationTotal += attempt.durationMs;
+    if (typeof attempt.finalContextTokens === "number") {
+      aggregate.finalContextAttemptCount += 1;
+      aggregate.finalContextTotal += attempt.finalContextTokens;
+      aggregate.finalContextMax = Math.max(
+        aggregate.finalContextMax ?? 0,
+        attempt.finalContextTokens,
+      );
+    }
     if (!attempt.tokenUsage) {
       continue;
     }
@@ -202,6 +223,12 @@ function averageDuration(aggregate: AttemptAggregate): number | null {
   return aggregate.attemptCount === 0
     ? null
     : aggregate.durationTotal / aggregate.attemptCount;
+}
+
+function averageFinalContext(aggregate: AttemptAggregate): number | null {
+  return aggregate.finalContextAttemptCount === 0
+    ? null
+    : aggregate.finalContextTotal / aggregate.finalContextAttemptCount;
 }
 
 function averageTokenUsage(
@@ -318,6 +345,9 @@ function toHistoryRecord(result: BenchmarkRunResult) {
     averageTokenUsagePerAttempt: result.averageTokenUsagePerAttempt ?? null,
     averageTokenUsagePerPassedAttempt:
       result.averageTokenUsagePerPassedAttempt ?? null,
+    averageFinalContextTokensPassed:
+      result.averageFinalContextTokensPassed ?? null,
+    maxFinalContextTokensPassed: result.maxFinalContextTokensPassed ?? null,
     failedCaseIds: Array.from(
       new Set(
         result.cases
@@ -361,6 +391,10 @@ function toHistoryRecord(result: BenchmarkRunResult) {
           passedAttemptAggregate,
           passedAttempts,
         ),
+        averageFinalContextTokensPassed: averageFinalContext(
+          passedAttemptAggregate,
+        ),
+        maxFinalContextTokensPassed: passedAttemptAggregate.finalContextMax,
       };
     }),
   };

@@ -10,6 +10,10 @@ import {
 	type UserWorkspace
 } from '$lib/stores'
 import { switchWorkspace } from '$lib/storeUtils'
+import { getLocalSetting, storeLocalSetting } from '$lib/utils'
+import { userScopedDb } from '$lib/userScopedDb'
+import type { DBSchema, IDBPDatabase } from 'idb'
+import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 
 // Switch the global workspace iff the target differs from the active one
 // and is non-empty. Centralises the "session needs its workspace in focus"
@@ -23,6 +27,7 @@ export function syncWorkspaceTo(workspaceId: string | undefined): void {
 import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import type HistoryManager from '$lib/components/copilot/chat/HistoryManager.svelte'
+import { onUserChange } from '$lib/userScopedStorage'
 
 // Kinds the in-session editor pane can host. Legacy drag-and-drop apps are
 // intentionally not previewable — only code-based 'raw_app' apps are.
@@ -123,88 +128,174 @@ export type Session = {
 	// from delete, which removes the session entirely.
 	archived?: boolean
 	// In-memory-only flag: the session exists but isn't written to
-	// localStorage until the user sends their first message. Avoids
+	// IndexedDB until the user sends their first message. Avoids
 	// piling abandoned drafts across `+` clicks — createSession reuses
 	// the existing transient if one is already open.
 	transient?: boolean
+	// Per-session unread watermark: the displayMessages count the last time
+	// the user was on this session's page. Compared against the runtime's
+	// current message count to derive the unread badge (see sessionUnread).
+	// Travels on the record so it is scoped, migrated, and deleted with it.
+	lastSeenCount?: number
 }
 
-const STORAGE_KEY = 'windmill_sessions'
+// Sessions live in a per-user IndexedDB (windmill-sessions::email), one record
+// per session in the `sessions` store keyed by `id`. IndexedDB is the sole
+// store — no localStorage fallback. The bare localStorage keys below are the
+// pre-namespacing source migrated once into the first connecting user's DB.
+const SESSIONS_DB = 'windmill-sessions'
+const LEGACY_SESSIONS_KEY = 'windmill_sessions'
+const LEGACY_LAST_SEEN_KEY = 'windmill_sessions_last_seen_counts'
 
-// New users (empty/cleared/private-browsing localStorage) start with no
-// sessions — the sidebar + /sessions page render their empty states and the
-// user creates the first session with `+`. Do NOT seed placeholder sessions
-// here: hardcoded example paths won't resolve for other users and render as
-// "session not found".
-const defaultSessions: Session[] = []
+interface SessionSchema extends DBSchema {
+	sessions: { key: string; value: Session }
+}
 
-function loadSessions(): Session[] {
-	if (!BROWSER) return defaultSessions
-	try {
-		const raw = localStorage.getItem(STORAGE_KEY)
-		if (raw) {
+// Normalise legacy localStorage records in place: drop empty-string
+// workspace_id (older drafts used '' as a missing marker), migrate the
+// deprecated 'rawapp' target.kind, and coerce unknown summarySource values.
+// Operates on raw parsed JSON, so the record is loosely typed.
+function normalizeLegacySession(s: Record<string, any>): void {
+	if (s.workspace_id === '') delete s.workspace_id
+	if (s.target?.kind === 'rawapp') s.target.kind = 'raw_app'
+	if (
+		s.summarySource !== undefined &&
+		s.summarySource !== 'placeholder' &&
+		s.summarySource !== 'generated' &&
+		s.summarySource !== 'manual'
+	) {
+		s.summarySource = 'manual'
+	}
+}
+
+// One-shot claim of the pre-namespacing localStorage data into the per-user DB.
+// Runs once per scoped DB (via userScopedDb's migrate gate) and only when the
+// DB is still empty — the first user to connect on a previously single-user
+// browser inherits the sessions; later users start clean. The bare watermark
+// map is folded onto each record as lastSeenCount. Both bare keys are deleted
+// so nothing is left to re-claim. Intermediate `::email` keys (this branch's
+// throwaway dev data) are intentionally not migrated.
+async function migrateSessionsFromLocalStorage(db: IDBPDatabase<SessionSchema>): Promise<void> {
+	// Only claim into a still-empty DB, but ALWAYS fall through to delete the bare
+	// keys below — even when the DB is already populated. Otherwise a partially
+	// failed prior migration (puts committed, deletes didn't) would leave the bare
+	// keys for a different empty-DB user to later claim: the exact leak this closes.
+	const alreadyPopulated = (await db.count('sessions')) > 0
+	const raw = getLocalSetting(LEGACY_SESSIONS_KEY)
+	if (!alreadyPopulated && raw) {
+		try {
 			const parsed = JSON.parse(raw)
 			if (Array.isArray(parsed) && parsed.length > 0) {
-				// Drop empty-string workspace_id (older sessions used '' as a
-				// missing-value marker) so the undefined-until-first-send invariant
-				// holds for legacy drafts. Also migrate the deprecated
-				// 'rawapp' target.kind to the canonical 'raw_app'.
-				let mutated = false
-				for (const s of parsed) {
-					if (s.workspace_id === '') {
-						delete s.workspace_id
-						mutated = true
-					}
-					if (s.target?.kind === 'rawapp') {
-						s.target.kind = 'raw_app'
-						mutated = true
-					}
-					if (
-						s.summarySource !== undefined &&
-						s.summarySource !== 'placeholder' &&
-						s.summarySource !== 'generated' &&
-						s.summarySource !== 'manual'
-					) {
-						s.summarySource = 'manual'
-						mutated = true
-					}
-				}
-				if (mutated) {
+				let watermarks: Record<string, number> = {}
+				const wmRaw = getLocalSetting(LEGACY_LAST_SEEN_KEY)
+				if (wmRaw) {
 					try {
-						localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed))
-					} catch (e) {
-						console.error('Failed to persist normalised sessions', e)
+						watermarks = JSON.parse(wmRaw)
+					} catch {
+						/* ignore malformed watermark map */
 					}
 				}
-				return parsed as Session[]
+				const tx = db.transaction('sessions', 'readwrite')
+				for (const s of parsed) {
+					if (!s || typeof s.id !== 'string' || s.transient) continue
+					normalizeLegacySession(s)
+					const count = watermarks[s.id]
+					if (typeof count === 'number') s.lastSeenCount = count
+					tx.store.put(s as Session)
+				}
+				await tx.done
 			}
+		} catch (e) {
+			console.error('Failed to migrate legacy sessions into IndexedDB', e)
 		}
-	} catch (e) {
-		console.error('Failed to load sessions from localStorage', e)
 	}
-	return defaultSessions
+	// Drop the bare keys unconditionally (claimed, empty, malformed, or stale
+	// leftovers from a partially-failed prior migration) so a later different user
+	// on this browser never re-inherits them.
+	storeLocalSetting(LEGACY_SESSIONS_KEY, undefined)
+	storeLocalSetting(LEGACY_LAST_SEEN_KEY, undefined)
 }
 
+const sessionsDb = userScopedDb<SessionSchema>(SESSIONS_DB, {
+	version: 1,
+	upgrade(db) {
+		if (!db.objectStoreNames.contains('sessions')) {
+			db.createObjectStore('sessions', { keyPath: 'id' })
+		}
+	},
+	migrate: migrateSessionsFromLocalStorage
+})
+
+// Starts empty: the list is hydrated from the user's IndexedDB by the
+// onUserChange handler below once the logged-in email resolves (async, after
+// layout load). Opening eagerly here would touch a DB before we know who is
+// logged in.
 export const sessionState = $state<{
 	sessions: Session[]
 	currentSessionId: string | undefined
 }>({
-	sessions: loadSessions(),
+	sessions: [],
 	currentSessionId: undefined
 })
 
-export function persistSessions() {
-	if (!BROWSER) return
+// Write-behind a single session record. Transient (unsent) sessions stay in
+// memory only — they materialise via materializeTransient() at first send.
+// Awaits DB-open so a write racing hydration still lands; no-ops (degrades to
+// in-memory) when the DB can't be opened. In-memory $state is the read surface,
+// so callers fire-and-forget.
+export async function putSession(s: Session): Promise<void> {
+	if (!BROWSER || s.transient) return
+	const db = await sessionsDb.whenReady()
+	if (!db) return
 	try {
-		// Transient (unsent) sessions stay in memory only. They get
-		// materialised — and from then on written to storage — when the
-		// user sends their first message.
-		const toPersist = $state.snapshot(sessionState.sessions).filter((s) => !s.transient)
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(toPersist))
+		await db.put('sessions', $state.snapshot(s))
 	} catch (e) {
-		console.error('Failed to persist sessions', e)
+		console.error('Failed to persist session', e)
 	}
 }
+
+export async function deleteSessionRecord(id: string): Promise<void> {
+	if (!BROWSER) return
+	const db = await sessionsDb.whenReady()
+	if (!db) return
+	try {
+		await db.delete('sessions', id)
+	} catch (e) {
+		console.error('Failed to delete session record', e)
+	}
+}
+
+// Load the in-memory list from the user's DB. getAll() returns records in key
+// (id) order; sort by createdAt descending to reproduce the newest-first order
+// createSession() maintains (it prepends). whenReady() reopens for the current
+// user automatically, so this also handles user switch; an absent DB (logged
+// out / open failed) yields an empty list.
+async function hydrateSessions(): Promise<void> {
+	const db = await sessionsDb.whenReady()
+	if (!db) {
+		sessionState.sessions = []
+		return
+	}
+	try {
+		const all = await db.getAll('sessions')
+		all.sort((a, b) => b.createdAt - a.createdAt)
+		sessionState.sessions = all
+	} catch (e) {
+		console.error('Failed to load sessions from IndexedDB', e)
+		sessionState.sessions = []
+	}
+}
+
+// Re-hydrate whenever the logged-in email resolves or changes. On logout
+// (email → undefined) or a genuine user switch (X → Y) the in-memory list and
+// active-session pointer reset so one user's sessions never bleed into another.
+onUserChange(async (email, prevEmail) => {
+	if (!BROWSER) return
+	await hydrateSessions()
+	if (prevEmail !== undefined && prevEmail !== email) {
+		sessionState.currentSessionId = undefined
+	}
+})
 
 export function findSessionByName(name: string): Session | undefined {
 	return sessionState.sessions.find((s) => s.name === name)
@@ -258,9 +349,8 @@ export function createSession(): Session {
 	}
 	sessionState.sessions = [session, ...sessionState.sessions]
 	sessionState.currentSessionId = session.id
-	// persistSessions() filters out transients — this call is a no-op for
-	// the new draft, but kept so any other session mutations get flushed.
-	persistSessions()
+	// The new session is transient (in-memory only) until first send, so there
+	// is nothing to write to the DB yet.
 	return session
 }
 
@@ -272,7 +362,7 @@ export function materializeTransient(id: string): void {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || !s.transient) return
 	delete s.transient
-	persistSessions()
+	void putSession(s)
 }
 
 export function setSessionPendingWorkspace(id: string, workspace_id: string) {
@@ -282,7 +372,7 @@ export function setSessionPendingWorkspace(id: string, workspace_id: string) {
 	s.pending_workspace_id = workspace_id
 	// Picking an existing workspace cancels any pending fork intent.
 	s.pending_fork = undefined
-	if (changed) persistSessions()
+	if (changed) void putSession(s)
 }
 
 // Records the user's intent to create a new fork without firing the API
@@ -292,7 +382,7 @@ export function setSessionPendingFork(id: string, fork: PendingFork) {
 	if (!s) return
 	s.pending_fork = { ...fork }
 	s.pending_workspace_id = fork.parent_workspace_id
-	persistSessions()
+	void putSession(s)
 }
 
 // One-shot commit: locks in workspace_id at first user-message send.
@@ -332,14 +422,14 @@ export async function commitSessionWorkspace(
 			// fallback on the next call and the unavailable-banner UX
 			// can take over instead of looping on the same broken intent.
 			s.pending_fork = undefined
-			persistSessions()
+			void putSession(s)
 			return undefined
 		}
 		if (get(workspaceStore) !== newId) switchWorkspace(newId)
 		s.workspace_id = newId
 		s.pending_fork = undefined
 		s.pending_workspace_id = undefined
-		persistSessions()
+		void putSession(s)
 		return newId
 	}
 
@@ -354,7 +444,7 @@ export async function commitSessionWorkspace(
 	// while the session metadata says root. Mirrors the `switchWorkspace`
 	// in the pending_fork branch above.
 	if (get(workspaceStore) !== ws) syncWorkspaceTo(ws)
-	persistSessions()
+	void putSession(s)
 	return ws
 }
 
@@ -376,7 +466,7 @@ export function setSessionTarget(id: string, target: SessionTarget, summary?: st
 		s.summary = summary
 		s.summarySource = 'generated'
 	}
-	persistSessions()
+	void putSession(s)
 }
 
 export function selectSession(id: string) {
@@ -389,7 +479,7 @@ export function renameSession(id: string, newSummary: string) {
 	if (!s) return
 	s.summary = trimmed.length > 0 ? trimmed : undefined
 	s.summarySource = 'manual'
-	persistSessions()
+	void putSession(s)
 }
 
 export function setGeneratedSessionSummary(
@@ -405,7 +495,7 @@ export function setGeneratedSessionSummary(
 	if (s.summarySource !== 'placeholder') return false
 	s.summary = trimmed
 	s.summarySource = 'generated'
-	persistSessions()
+	void putSession(s)
 	return true
 }
 
@@ -462,7 +552,7 @@ export function moveSessionToWorkspace(id: string, newWorkspaceId: string) {
 	s.workspace_id = newWorkspaceId
 	delete s.pending_workspace_id
 	delete s.pending_fork
-	persistSessions()
+	void putSession(s)
 }
 
 // Create a brand-new fork and re-assign a committed session to it. Used
@@ -489,7 +579,7 @@ export function setSessionArchived(id: string, archived: boolean) {
 	if (s.archived === next) return
 	if (archived) s.archived = true
 	else delete s.archived
-	persistSessions()
+	void putSession(s)
 }
 
 export function deleteSession(id: string) {
@@ -499,14 +589,16 @@ export function deleteSession(id: string) {
 	if (sessionState.currentSessionId === id) {
 		sessionState.currentSessionId = sessionState.sessions[0]?.id
 	}
-	persistSessions()
+	void deleteSessionRecord(id)
+	// GC any linked files persisted for this session.
+	void deleteItemsForSession(id)
 }
 
 export function setSessionChatId(sessionId: string, chatId: string) {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (s && s.chatId !== chatId) {
 		s.chatId = chatId
-		persistSessions()
+		void putSession(s)
 	}
 }
 
@@ -531,17 +623,15 @@ export function ensureChatIdsSeeded(historyManager: HistoryManager): Promise<voi
 				// user clicks "New session" before this one-shot runs), it
 				// would graft a previous discussion onto the new session.
 				const seedable = sessionState.sessions.filter((s) => !s.transient)
-				let mutated = false
 				for (let i = 0; i < Math.min(seedable.length, untagged.length); i++) {
 					if (!seedable[i].chatId) {
 						const chatId = untagged[i].id
 						const sessionId = seedable[i].id
 						seedable[i].chatId = chatId
 						await historyManager.tagChatWithSession(chatId, sessionId)
-						mutated = true
+						void putSession(seedable[i])
 					}
 				}
-				if (mutated) persistSessions()
 			} catch (e) {
 				console.error('Failed to seed chat ids from history', e)
 			}

@@ -32,6 +32,178 @@ use crate::sql_utils::remove_comments;
 use windmill_common::client::AuthedClient;
 use windmill_object_store::DEFAULT_STORAGE;
 
+// What a `// materialize` run records into `materialized_partition` once it
+// finishes. `asset_path` is the full `<name>/<table>` (the asset identity);
+// `partition` is "" for an unpartitioned (whole-table) materialization.
+struct MaterializeExec {
+    asset_kind: windmill_common::assets::AssetKind,
+    asset_path: String,
+    partition: String,
+}
+
+// If `query` declares `// materialize <ducklake>`, return what to record plus,
+// for the default managed mode, the rewritten managed-write SQL (in `manual`
+// mode the script writes its own DDL, so the rewrite is `None`). The rewritten
+// SQL contains a synthetic `ATTACH 'ducklake://<name>' AS _wm_target` that the
+// normal ATTACH-transform pass resolves to real credentials — the same path as
+// the user's own ATTACH. Returns `None` when there is no materialize annotation
+// or the target isn't a ducklake (only ducklake is materialized in v1).
+fn build_materialized_query(
+    query: &str,
+    partition_value: Option<&str>,
+) -> Result<Option<(Option<String>, MaterializeExec)>> {
+    use windmill_parser::asset_parser::{parse_pipeline_annotations, AssetKind as PAssetKind};
+    use windmill_parser::sql_materialize::{
+        build_wrap_blocks, classify_wrap, MaterializeStrategy, TARGET_ALIAS,
+    };
+
+    let ann = parse_pipeline_annotations(query);
+    let Some(m) = ann.materialize else {
+        return Ok(None);
+    };
+    if m.target_kind != PAssetKind::Ducklake {
+        return Ok(None);
+    }
+    let partitioned = ann.partition.is_some();
+    let partition = partition_value.unwrap_or("").to_string();
+    // Partition *resolution* is enterprise; in its absence a partitioned
+    // materialize only runs with an explicit `partition` arg. Fail loudly rather
+    // than silently materialize the wrong (empty) slice.
+    if partitioned && partition.is_empty() {
+        return Err(Error::ExecutionErr(
+            "materialize: a `// partitioned` script ran with no resolved partition — pass an \
+             explicit `partition` arg, or enable enterprise partition resolution"
+                .to_string(),
+        ));
+    }
+    // Convention: `ducklake://<name>/<table>` — <name> is the configured
+    // ducklake (resolved like a user ATTACH), <table> is the rest.
+    let (ducklake_name, table) = m
+        .target_path
+        .split_once('/')
+        .unwrap_or((m.target_path.as_str(), ""));
+    let meta = MaterializeExec {
+        asset_kind: windmill_common::assets::AssetKind::Ducklake,
+        asset_path: m.target_path.clone(),
+        partition: partition.clone(),
+    };
+
+    if m.manual {
+        // Escape hatch: the script owns its DDL; we only record state.
+        return Ok(Some((None, meta)));
+    }
+    if table.is_empty() {
+        return Err(Error::ExecutionErr(format!(
+            "materialize: target `ducklake://{}` has no table (use ducklake://<name>/<table>)",
+            m.target_path
+        )));
+    }
+    let mut plan = classify_wrap(query).map_err(|e| Error::ExecutionErr(e.message()))?;
+    // Resolve the `{partition}` token (same token `// on` asset URIs use) to the
+    // current partition value everywhere in the managed script, so a partitioned
+    // materialize can filter its source by the active slice, e.g.
+    // `WHERE day = {partition}`. The token is always replaced by a *complete*
+    // escaped SQL literal (`'…'` with `'` doubled) whether or not the author
+    // quoted it — so a run caller can't pass metacharacters that break out of
+    // the literal and alter statement boundaries. The pre-quoted form
+    // `'{partition}'` is matched first so it doesn't become `''…''`. Only
+    // meaningful when partitioned.
+    if partitioned {
+        let lit = format!("'{}'", partition.replace('\'', "''"));
+        let tok = windmill_common::assets::PARTITION_TOKEN;
+        let quoted_tok = format!("'{tok}'");
+        plan.output = plan.output.replace(&quoted_tok, &lit).replace(tok, &lit);
+        for s in plan.setup.iter_mut() {
+            *s = s.replace(&quoted_tok, &lit).replace(tok, &lit);
+        }
+    }
+    let strategy = if m.append {
+        MaterializeStrategy::Append
+    } else if let Some(uk) = m.unique_key {
+        MaterializeStrategy::Merge { unique_key: uk }
+    } else {
+        MaterializeStrategy::Replace
+    };
+    // Inline the partition as an escaped SQL literal (DuckLake has no bind for
+    // the partition column in our generated DDL).
+    let pval = format!("'{}'", partition.replace('\'', "''"));
+    let synthetic_attach = format!("ATTACH 'ducklake://{ducklake_name}' AS {TARGET_ALIAS};");
+    let blocks = build_wrap_blocks(
+        &plan,
+        &synthetic_attach,
+        table,
+        &m.target_path,
+        "_wm_partition",
+        &pval,
+        partitioned,
+        strategy,
+    );
+    Ok(Some((Some(blocks.join("\n")), meta)))
+}
+
+// Pull a named i64 field (`snapshot_id` / `rows`) out of the trailing summary
+// read — which in wrap mode is the job result. Shape-tolerant (object / array /
+// nested), returns None if absent (literal mode, or capture failed).
+fn extract_i64(result: &RawValue, field: &str) -> Option<i64> {
+    fn find(v: &Value, field: &str) -> Option<i64> {
+        match v {
+            Value::Number(n) => n.as_i64(),
+            Value::Object(m) => m.get(field).and_then(|x| find(x, field)),
+            Value::Array(a) => a.iter().find_map(|x| find(x, field)),
+            _ => None,
+        }
+    }
+    find(&serde_json::from_str::<Value>(result.get()).ok()?, field)
+}
+
+// Best-effort record of a materialization outcome. On a Sql connection it writes
+// the row directly; on an agent worker (Http, no direct DB) it posts to the API
+// so state lands the same way. Never fails the job — a lost row degrades the
+// grid, not the run.
+async fn record_mat(
+    conn: &Connection,
+    w_id: &str,
+    job_id: Uuid,
+    meta: &MaterializeExec,
+    status: windmill_common::materialization::MaterializationStatus,
+    snapshot_id: Option<i64>,
+    row_count: Option<i64>,
+    error: Option<&str>,
+) {
+    let req = windmill_common::materialization::RecordMaterializationRequest {
+        asset_kind: meta.asset_kind,
+        asset_path: meta.asset_path.clone(),
+        partition: meta.partition.clone(),
+        status,
+        snapshot_id,
+        row_count,
+        job_id: Some(job_id),
+        error: error.map(|e| e.to_string()),
+    };
+    let res: anyhow::Result<()> = match conn {
+        Connection::Sql(db) => windmill_common::materialization::record_materialization(
+            db,
+            w_id,
+            req.asset_kind,
+            &req.asset_path,
+            &req.partition,
+            req.status,
+            req.snapshot_id,
+            req.row_count,
+            req.job_id,
+            req.error.as_deref(),
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("{e:#}")),
+        Connection::Http(client) => {
+            crate::agent_workers::record_materialization_from_agent_http(client, w_id, &req).await
+        }
+    };
+    if let Err(e) = res {
+        tracing::warn!("failed to record materialization state: {e:#}");
+    }
+}
+
 pub async fn do_duckdb(
     job: &MiniPulledJob,
     client: &AuthedClient,
@@ -67,6 +239,30 @@ pub async fn do_duckdb(
     let result_f = async {
         let mut hidden_passwords = hidden_passwords.clone();
         let mut bigquery_credentials = None;
+
+        // Materialization (`// materialize`): rewrite a wrap script into managed
+        // DDL (its synthetic target ATTACH is resolved by the transform pass
+        // below, like the user's own ATTACH); a literal script is left as-is.
+        // `materialize` also carries what to record once the run finishes.
+        let partition_value: Option<String> = job
+            .args
+            .as_ref()
+            .and_then(|a| a.0.get(windmill_common::partition::PARTITION_ARG))
+            .and_then(|rv| serde_json::from_str::<String>(rv.get()).ok())
+            .filter(|s| !s.is_empty());
+        let materialize = if query.contains("materialize") {
+            build_materialized_query(query, partition_value.as_deref())?
+        } else {
+            None
+        };
+        let materialized_query;
+        let query: &str = match &materialize {
+            Some((Some(rewritten), _)) => {
+                materialized_query = rewritten.clone();
+                &materialized_query
+            }
+            _ => query,
+        };
 
         let sig = parse_duckdb_sig(query)?.args;
         let mut job_args = build_args_values(job, client, conn).await?;
@@ -199,6 +395,19 @@ pub async fn do_duckdb(
         let (result, column_order) = match result {
             Ok(r) => r,
             Err(e) => {
+                if let Some((_, meta)) = &materialize {
+                    record_mat(
+                        conn,
+                        &job.workspace_id,
+                        job.id,
+                        meta,
+                        windmill_common::materialization::MaterializationStatus::Failed,
+                        None,
+                        None,
+                        Some(&e.to_string()),
+                    )
+                    .await;
+                }
                 if let Some(s3_proxy_err) = S3_PROXY_LAST_ERRORS_CACHE.get(&client.token) {
                     return Err(Error::ExecutionErr(format!(
                         "{}\n\nS3 Related Error: {}",
@@ -209,6 +418,24 @@ pub async fn do_duckdb(
                 return Err(e);
             }
         };
+
+        if let Some((_, meta)) = &materialize {
+            // In wrap mode the job result is the summary read (snapshot_id +
+            // rows); in literal mode there is none, so both stay None.
+            let snapshot_id = extract_i64(&result, "snapshot_id");
+            let row_count = extract_i64(&result, "rows");
+            record_mat(
+                conn,
+                &job.workspace_id,
+                job.id,
+                meta,
+                windmill_common::materialization::MaterializationStatus::Materialized,
+                snapshot_id,
+                row_count,
+                None,
+            )
+            .await;
+        }
 
         drop(bigquery_credentials);
 
@@ -638,9 +865,13 @@ async fn db_resource_to_attach_statements(
     db_type: &str,
     extra_args: Option<&str>,
 ) -> Result<Vec<String>> {
+    // Escape single quotes: the connection string is built from resource fields
+    // (host/db/user/password) and embedded in a single-quoted DuckDB literal, so an
+    // unescaped quote in any field would otherwise break out of the ATTACH statement.
+    let conn_str = format_attach_db_conn_str(db_resource, db_type)?.replace('\'', "''");
     let attach_str = format!(
         "ATTACH '{}' as {} (TYPE {}{});",
-        format_attach_db_conn_str(db_resource, db_type)?,
+        conn_str,
         ident_name,
         db_type,
         extra_args.unwrap_or("")
@@ -690,13 +921,18 @@ async fn transform_attach_ducklake(
         hidden_passwords.lock().unwrap().push(pwd.to_string());
     }
 
-    let db_conn_str = format_attach_db_conn_str(ducklake.catalog_resource, db_type)?;
+    // Escape single quotes: db_conn_str, storage and data_path are embedded in
+    // single-quoted DuckDB literals below, so an unescaped quote in a resource
+    // field would break out of the ATTACH statement.
+    let db_conn_str =
+        format_attach_db_conn_str(ducklake.catalog_resource, db_type)?.replace('\'', "''");
     let storage = ducklake
         .storage
         .storage
         .as_deref()
-        .unwrap_or(DEFAULT_STORAGE);
-    let data_path = ducklake.storage.path;
+        .unwrap_or(DEFAULT_STORAGE)
+        .replace('\'', "''");
+    let data_path = ducklake.storage.path.replace('\'', "''");
 
     let extra_args = if let Some(default_extra_args) = ducklake.extra_args {
         format!("{},{}", extra_args, default_extra_args)
