@@ -10516,12 +10516,12 @@ paths:
                       name:
                         type: string
                         minLength: 1
-                        maxLength: 255
-                        pattern: "^[A-Za-z0-9_-]+$"
+                        maxLength: 64
+                        pattern: "^[a-z0-9-]+$"
                       description:
                         type: string
                         minLength: 1
-                        maxLength: 1000
+                        maxLength: 1024
                       instructions:
                         type: string
                         minLength: 1

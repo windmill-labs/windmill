@@ -19,8 +19,14 @@
 	// doesn't sweep in unrelated skills.
 	const MAX_SKILL_DEPTH = 3
 	const MAX_SKILLS_PER_IMPORT = 50
-	const MAX_SKILL_DESCRIPTION_LENGTH = 1_000
+	const MAX_SKILLS_PER_WORKSPACE = 100
+	// `name` + `description` mirror the Claude SKILL.md spec (counted in
+	// characters); the body is a byte-bounded payload. Keep these in sync with
+	// backend `validate_skill`.
+	const MAX_SKILL_NAME_LENGTH = 64
+	const MAX_SKILL_DESCRIPTION_LENGTH = 1_024
 	const MAX_SKILL_INSTRUCTIONS_LENGTH = 64 * 1024
+	const SKILL_NAME_PATTERN = /^[a-z0-9-]+$/
 	const textEncoder = new TextEncoder()
 	const SAMPLE_SKILL_PLACEHOLDER =
 		'---\nname: my-skill\ndescription: what this skill helps with\n---\n\n# My skill\n\nInstructions for the assistant…'
@@ -86,8 +92,14 @@
 	}
 
 	function validateParsedSkill(skill: SkillUpload): string | undefined {
-		if (textEncoder.encode(skill.description).byteLength > MAX_SKILL_DESCRIPTION_LENGTH) {
-			return `description is longer than ${MAX_SKILL_DESCRIPTION_LENGTH} bytes`
+		if ([...skill.name].length > MAX_SKILL_NAME_LENGTH) {
+			return `name is longer than ${MAX_SKILL_NAME_LENGTH} characters`
+		}
+		if (!SKILL_NAME_PATTERN.test(skill.name)) {
+			return `name ${JSON.stringify(skill.name)} must only contain lowercase letters, digits or '-'`
+		}
+		if ([...skill.description].length > MAX_SKILL_DESCRIPTION_LENGTH) {
+			return `description is longer than ${MAX_SKILL_DESCRIPTION_LENGTH} characters`
 		}
 		if (textEncoder.encode(skill.instructions).byteLength > MAX_SKILL_INSTRUCTIONS_LENGTH) {
 			return `body is longer than ${MAX_SKILL_INSTRUCTIONS_LENGTH} bytes`
@@ -139,6 +151,13 @@
 		}
 		if (parsed.length > MAX_SKILLS_PER_IMPORT) {
 			sendUserToast(`Cannot add more than ${MAX_SKILLS_PER_IMPORT} skills at a time.`, true)
+			return false
+		}
+		// Uploads upsert, so only names not already stored count toward the cap.
+		const existingNames = new Set(skills.map((s) => s.name))
+		const newCount = parsed.filter((s) => !existingNames.has(s.name)).length
+		if (skills.length + newCount > MAX_SKILLS_PER_WORKSPACE) {
+			sendUserToast(`This workspace can store at most ${MAX_SKILLS_PER_WORKSPACE} skills.`, true)
 			return false
 		}
 		uploading = true
