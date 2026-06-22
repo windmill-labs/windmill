@@ -32,7 +32,7 @@ use windmill_common::worker::WINDMILL_DIR;
 use windmill_common::{DB, INSTANCE_NAME, JOB_RETENTION_SECS, SERVICE_LOG_RETENTION_SECS};
 
 use windmill_object_store::object_store_reexports::{
-    Error as ObjectStoreError, ObjectStore, Path as ObjectPath,
+    ObjectStore, ObjectStoreError, Path as ObjectPath,
 };
 
 pub const TASK_NAME: &str = "log_cleanup";
