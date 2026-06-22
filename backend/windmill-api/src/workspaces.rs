@@ -18,7 +18,6 @@ use crate::teams_oss::{
     connect_teams, edit_teams_command, run_teams_message_test_job,
     workspaces_list_available_teams_channels, workspaces_list_available_teams_ids,
 };
-
 use axum::{
     extract::{Extension, Path},
     routing::{get, post},
@@ -177,6 +176,7 @@ struct EditCopilotConfigResponse {
 }
 
 async fn get_copilot_info(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<AIConfig> {
@@ -202,6 +202,12 @@ async fn get_copilot_info(
         Ok(Json(
             serde_json::from_value::<AIConfig>(instance_config).unwrap_or_default(),
         ))
+    } else if let Some(free_config) =
+        crate::ai_free_tier_oss::free_tier_copilot_config(&db, &authed.email).await?
+    {
+        // Nothing configured: surface the free Claude Opus tier (EE-only) when it is
+        // available to this user.
+        Ok(Json(free_config))
     } else {
         Ok(Json(AIConfig::default()))
     }
