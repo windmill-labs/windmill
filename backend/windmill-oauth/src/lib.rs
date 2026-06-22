@@ -452,12 +452,12 @@ pub async fn build_client_credentials_oauth_client(
 
     let caller_supplied_creds = !client_id.is_empty() && !client_secret.is_empty();
 
-    // Apply the server-resolved concrete token URL. Instance-templated providers
-    // (e.g. Coupa) carry an empty or `{instance}`-templated token URL in their
-    // registry config; the resolved value (host-pinned for bring-your-own,
-    // persisted on the row for refresh) is what completes it. The caller never
-    // supplies a free-form token URL: this value always comes from
-    // `resolve_cc_token_url_input` or a previously-resolved persisted URL.
+    // Apply the resolved concrete token URL. Instance-templated providers (e.g.
+    // Coupa) carry an empty or `{instance}`-templated token URL in their registry
+    // config; the resolved value (host-pinned for instance-name connections,
+    // persisted on the row for refresh) is what completes it. For bring-your-own
+    // connections this value may instead be a caller-supplied override — safe
+    // because only the caller's own credentials are ever sent to it.
     if let Some(url) = resolved_token_url {
         connect_config.token_url = url.to_string();
     }
