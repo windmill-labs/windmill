@@ -14,6 +14,8 @@ on:
     branches: [main]
     paths:
       - "ai_evals/**"
+      - "backend/windmill-api/src/ai.rs"
+      - "backend/windmill-ai/**"
       - "frontend/src/lib/components/copilot/**"
       # The eval harness runs production frontend code in-process; these are the
       # AI/draft-specific deps outside copilot/ that the global smoke exercises.
@@ -25,6 +27,8 @@ on:
     types: [opened, reopened, ready_for_review]
     paths:
       - "ai_evals/**"
+      - "backend/windmill-api/src/ai.rs"
+      - "backend/windmill-ai/**"
       - "frontend/src/lib/components/copilot/**"
       # The eval harness runs production frontend code in-process; these are the
       # AI/draft-specific deps outside copilot/ that the global smoke exercises.
@@ -39,9 +43,14 @@ concurrency:
 
 jobs:
   ai_evals_global:
-    # Skip draft PRs; the `opened`/`reopened` types would otherwise fire while
-    # still a draft. `ready_for_review` always arrives non-draft.
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    # Provider secrets are unavailable to forked and Dependabot PRs.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.event.pull_request.draft == false &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.user.login != 'dependabot[bot]'
+      )
     runs-on: ubicloud-standard-16
     services:
       postgres:
