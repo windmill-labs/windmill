@@ -3758,6 +3758,10 @@ async function deployDraft(
 				// (real path, no draft_path) or a draft on a deployed app, the storage path
 				// is the deploy path. Same storage-path resolution as script/flow.
 				const storagePath = getGlobalDraftStoragePath(workspace, 'app', path)
+				// `draft_path` is read from the persisted backend draft below, but an
+				// editor rename may still be parked in a debounced/disabled autosave.
+				// Flush first (like script/flow) so we read the latest chosen path.
+				await UserDraftDbSyncer.flush({ workspace, itemKind: 'raw_app', path: storagePath })
 				let targetPath = storagePath
 				try {
 					const row = (await AppService.getAppByPath({

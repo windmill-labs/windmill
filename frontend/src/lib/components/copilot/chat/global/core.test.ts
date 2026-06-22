@@ -2000,9 +2000,15 @@ describe('global AI tools', () => {
 		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
 			draft: { draft_path: chosenPath }
 		} as any)
+		const flushSpy = vi.spyOn(UserDraftDbSyncer, 'flush')
 
 		await callGlobalTool('deploy_workspace_item', { type: 'app', path: chosenPath })
 
+		// The draft is flushed at the storage key before the draft_path read, so a
+		// not-yet-saved editor rename isn't read stale.
+		expect(flushSpy).toHaveBeenCalledWith(
+			expect.objectContaining({ workspace: WORKSPACE, itemKind: 'raw_app', path: storageKey })
+		)
 		// draft_path is read from the backend draft at the storage key…
 		expect(AppService.getAppByPath).toHaveBeenCalledWith(
 			expect.objectContaining({
