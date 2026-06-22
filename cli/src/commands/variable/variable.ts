@@ -132,10 +132,9 @@ export async function pushVariable(
   plainSecrets: boolean,
   wsSpecific?: boolean,
   // Whether a secret->non-secret downgrade may be applied. Only an authoritative
-  // single-file `variable push` sets this. For bulk `sync push` a pulled secret's
-  // spec value is ciphertext, and demoting it would store that ciphertext verbatim
-  // as a visible non-secret value — so downgrades stay disabled there (unchanged
-  // upgrade-only behavior).
+  // single-file `variable push` sets this. Bulk `sync push` leaves it false: a
+  // pulled secret's spec value is ciphertext, and demoting it would store that
+  // ciphertext verbatim as a visible non-secret value.
   allowSecretDowngrade: boolean = false,
 ): Promise<void> {
   remotePath = removeType(remotePath, "variable");

@@ -1573,8 +1573,8 @@ mod tests {
 
     #[test]
     fn rejects_plaintext_mislabeled_as_encrypted() {
-        // These are the values that previously got stored verbatim and bricked
-        // the variable (every read failed to decrypt).
+        // Plaintext mislabeled as encrypted: storing it verbatim would make the
+        // variable undecryptable on every read, so it must be rejected.
         for plaintext in [
             "some: plaintext\n",
             "original-secret",

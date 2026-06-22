@@ -243,9 +243,9 @@ describe("variable", () => {
       expect(createResp.status).toBeLessThan(300);
       await createResp.text();
 
-      // A hand-authored spec file: plaintext value, is_secret: true. Pushing this
-      // without --plain-secrets used to store the plaintext verbatim as ciphertext
-      // and brick the variable (every read failed to decrypt).
+      // A hand-authored spec file: plaintext value, is_secret: true. Pushing it
+      // without --plain-secrets must encrypt the value server-side, not store the
+      // plaintext verbatim as ciphertext (which would make every read fail).
       const specPath = join(tempDir, "v.yaml");
       await writeFile(
         specPath,
