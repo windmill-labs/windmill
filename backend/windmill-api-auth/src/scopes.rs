@@ -558,7 +558,7 @@ const FLOW_JOBS: [&'static str; 6] = [
 
 lazy_static::lazy_static! {
     static ref RUN_PATH_ACTIONS: Vec<&'static str> = {
-        let mut v = vec!["jobs/resume/", "jobs/run/batch_rerun_jobs", "jobs/run/workflow_as_code", "jobs/run/dependencies","jobs/run/flow_dependencies", "apps_u/execute_component"];
+        let mut v = vec!["jobs/resume/", "jobs/run/batch_rerun_jobs", "jobs/run/workflow_as_code", "jobs/run/dependencies","jobs/run/flow_dependencies", "apps_u/execute_component", "apps_u/upload_s3_file"];
 
         v.extend(SCRIPT_JOBS);
         v.extend(FLOW_JOBS);

@@ -3244,6 +3244,15 @@ async fn upload_s3_file_from_app(
     Query(query): Query<UploadFileToS3Query>,
     request: axum::extract::Request,
 ) -> JsonResult<AppUploadFileResponse> {
+    // Confine an app embed token (untrusted app JS) to uploading for its OWN app.
+    // The route is reachable with `apps:run` (RUN_PATH_ACTIONS), so without this a
+    // token minted for app A could drive app B's upload policy. Mirrors
+    // execute_component / download_s3_file; other callers are unaffected.
+    if let Some(authed) = opt_authed.as_ref() {
+        if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
+            check_scopes(authed, || format!("apps:run:{}", path.to_path()))?;
+        }
+    }
     let policy = if let Some(file_key_regex) = query.force_viewer_file_key_regex {
         // `force_viewer_*` lets the caller supply a synthetic upload policy that
         // bypasses the deployed app's file_key_regex / resource restrictions.
@@ -4093,6 +4102,10 @@ mod embed_token_tests {
             ("/api/w/test/apps_u/get_data/v/secret.js", "GET"),
             ("/api/w/test/apps_u/public_resource/f/app_themes/t", "GET"),
             ("/api/w/test/apps_u/execute_component/u/admin/app", "POST"),
+            // S3 file upload from the app's S3 File Input component: a `run` action
+            // (RUN_PATH_ACTIONS) so the embed token reaches it; the handler re-checks
+            // `apps:run:<path>` to confine it to this app, like execute_component.
+            ("/api/w/test/apps_u/upload_s3_file/u/admin/app", "POST"),
             // By-id job poll routes (the JobLoader surface) stay allowed.
             ("/api/w/test/jobs_u/get/some-uuid", "GET"),
             ("/api/w/test/jobs_u/getupdate/some-uuid", "GET"),
