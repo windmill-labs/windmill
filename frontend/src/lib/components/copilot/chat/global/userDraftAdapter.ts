@@ -6,7 +6,10 @@ import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { UserDraft, type UserDraftEntry, type UserDraftItemKind } from '$lib/userDraft.svelte'
 import {
+	appItemMetadata,
+	flowItemMetadata,
 	getWorkspaceItemKey,
+	scriptItemMetadata,
 	type AppDraftValue,
 	type ResourceDraftState,
 	type TriggerKind,
@@ -135,6 +138,7 @@ function scriptDraftToWorkspaceItem(path: string, draft: NewScript): WorkspaceIt
 		summary: draft.summary,
 		language: draft.language,
 		value: draft.content,
+		metadata: scriptItemMetadata(draft),
 		isDraft: true
 	}
 }
@@ -150,6 +154,7 @@ function flowDraftToWorkspaceItem(path: string, draft: Flow): WorkspaceItem {
 			groups: draft.value.groups ?? null,
 			description: draft.description ?? null
 		},
+		metadata: flowItemMetadata(draft),
 		isDraft: true
 	}
 }
@@ -161,6 +166,7 @@ function appDraftToWorkspaceItem(path: string, draft: AppDraftValue): WorkspaceI
 		path,
 		summary: value.summary,
 		value,
+		metadata: appItemMetadata(value),
 		isDraft: true
 	}
 }

@@ -86,10 +86,14 @@ import {
 	variableRequestSchema
 } from '../workspaceToolsZod.gen'
 import {
+	appItemMetadata,
+	flowItemMetadata,
 	getWorkspaceItemKey,
+	scriptItemMetadata,
 	TRIGGER_KINDS,
 	type AppDraftValue,
 	type FlowDraftValue,
+	type ItemMetadata,
 	type ResourceDraftState,
 	type TriggerKind,
 	type TriggerRequestBody,
@@ -678,6 +682,134 @@ const initAppSchema = z.object({
 		)
 })
 
+// Metadata edit tools. Every editable field is optional and nullable: omit to
+// leave it unchanged, pass null to clear it, pass a value to set it. Schemas are
+// flat (no unions/$ref) so Gemini's tool API accepts them — see the note above
+// writeFlowSchema.
+const CLEAR_HINT = 'Pass null to clear, omit to leave unchanged.'
+
+const setScriptMetadataSchema = z.object({
+	path: z.string().describe('Workspace path of the script to edit.'),
+	summary: z.string().nullable().optional().describe(`Short human-readable summary. ${CLEAR_HINT}`),
+	description: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(`Longer documentation for the script. ${CLEAR_HINT}`),
+	labels: z
+		.array(z.string())
+		.nullable()
+		.optional()
+		.describe(`Workspace labels. Replaces the whole list. ${CLEAR_HINT}`),
+	kind: z
+		.enum(['script', 'failure', 'trigger', 'command', 'approval', 'preprocessor'])
+		.nullable()
+		.optional()
+		.describe(`Script role in the workspace. ${CLEAR_HINT}`),
+	tag: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(
+			`Worker tag — routes runs to a specific worker group (which may hold privileged secrets). Confirm with the user if unsure. ${CLEAR_HINT}`
+		),
+	priority: z
+		.number()
+		.nullable()
+		.optional()
+		.describe(`Execution priority; higher runs first. ${CLEAR_HINT}`),
+	timeout: z
+		.number()
+		.nullable()
+		.optional()
+		.describe(`Max execution time in seconds. ${CLEAR_HINT}`),
+	concurrent_limit: z
+		.number()
+		.nullable()
+		.optional()
+		.describe(`Max concurrent executions. ${CLEAR_HINT}`),
+	concurrency_time_window_s: z
+		.number()
+		.nullable()
+		.optional()
+		.describe(`Concurrency time window in seconds. ${CLEAR_HINT}`),
+	cache_ttl: z
+		.number()
+		.nullable()
+		.optional()
+		.describe(`Cache the result for this many seconds. ${CLEAR_HINT}`)
+})
+
+const setFlowMetadataSchema = z.object({
+	path: z.string().describe('Workspace path of the flow to edit.'),
+	summary: z.string().nullable().optional().describe(`Short human-readable summary. ${CLEAR_HINT}`),
+	description: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(`Longer documentation for the flow. ${CLEAR_HINT}`),
+	labels: z
+		.array(z.string())
+		.nullable()
+		.optional()
+		.describe(`Workspace labels. Replaces the whole list. ${CLEAR_HINT}`),
+	tag: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(
+			`Worker tag — routes runs to a specific worker group (which may hold privileged secrets). Confirm with the user if unsure. ${CLEAR_HINT}`
+		),
+	priority: z
+		.number()
+		.nullable()
+		.optional()
+		.describe(`Execution priority; higher runs first. ${CLEAR_HINT}`),
+	timeout: z
+		.number()
+		.nullable()
+		.optional()
+		.describe(`Max execution time in seconds. ${CLEAR_HINT}`),
+	concurrent_limit: z
+		.number()
+		.nullable()
+		.optional()
+		.describe(`Max concurrent executions. ${CLEAR_HINT}`),
+	concurrency_time_window_s: z
+		.number()
+		.nullable()
+		.optional()
+		.describe(`Concurrency time window in seconds. ${CLEAR_HINT}`),
+	cache_ttl: z
+		.number()
+		.nullable()
+		.optional()
+		.describe(`Cache the result for this many seconds. ${CLEAR_HINT}`)
+})
+
+const setAppMetadataSchema = z.object({
+	path: z.string().describe('Workspace path of the app to edit.'),
+	summary: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(`Short human-readable summary of the app. ${CLEAR_HINT}`),
+	execution_mode: z
+		.enum(['viewer', 'publisher', 'anonymous'])
+		.nullable()
+		.optional()
+		.describe(
+			`Who the app runs as: "viewer"/"publisher" run with the viewer's/publisher's permissions; "anonymous" makes the app PUBLICLY runnable by anyone. Setting "anonymous" requires user confirmation. ${CLEAR_HINT}`
+		),
+	custom_path: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(
+			`Custom URL path for the app (admin-only; changes require user confirmation). ${CLEAR_HINT}`
+		)
+})
+
 const buildGlobalSystemPrompt = (
 	username: string,
 	previewTools: boolean
@@ -767,6 +899,7 @@ function scriptToItem(script: Script | NewScript, includeValue: boolean): Worksp
 		summary: script.summary,
 		language: script.language,
 		value: includeValue ? script.content : undefined,
+		metadata: includeValue ? scriptItemMetadata(script) : undefined,
 		isDraft: false
 	}
 }
@@ -779,6 +912,7 @@ function flowToItem(flow: Flow, includeValue: boolean): WorkspaceItem {
 		value: includeValue
 			? { value: flow.value, schema: flow.schema, groups: flow.value.groups ?? null }
 			: undefined,
+		metadata: includeValue ? flowItemMetadata(flow) : undefined,
 		isDraft: false
 	}
 }
@@ -810,6 +944,7 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 			type: 'app',
 			path: item.path,
 			summary: item.summary,
+			metadata: item.metadata,
 			value: summarizeAppValue(item.value as AppDraftValue),
 			isDraft: item.isDraft
 		}
@@ -823,6 +958,7 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 		type: 'flow',
 		path: item.path,
 		summary: item.summary,
+		metadata: item.metadata,
 		value: editable,
 		isDraft: item.isDraft
 	}
@@ -1287,12 +1423,13 @@ async function readWorkspaceItem(
 			// Returns lightweight metadata only — file/runnable contents come via read_app_file.
 			const app = await AppService.getAppByPath({ workspace, path })
 			const value = appSourceToDraftValue(app)
-			const metadata = summarizeAppValue(value)
+			const summarized = summarizeAppValue(value)
 			return {
 				type: 'app',
 				path: app.path,
 				summary: value.summary,
-				value: metadata as unknown as AppDraftValue,
+				metadata: appItemMetadata(value),
+				value: summarized as unknown as AppDraftValue,
 				isDraft: false
 			}
 		}
@@ -1388,9 +1525,10 @@ function getScriptInstructions(language: ScriptLang | undefined): string {
 	return `# Global draft script instructions
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, or generate metadata.
-- A script draft is a workspace item: \`{ type: 'script', path, summary?, language, value, isDraft }\` where \`value\` is the source code string.
+- A script draft is a workspace item: \`{ type: 'script', path, summary?, language, value, metadata?, isDraft }\` where \`value\` is the source code string and \`metadata\` holds the editable non-content fields (description, labels, kind, tag, priority, timeout, concurrency, cache).
 - Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` when the user gave a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist. Preserve the current path/language when modifying unless the user asked to change them.
-- Use \`edit_script\` for small localized changes (provide \`old_string\`/\`new_string\`); use \`write_script\` for full rewrites.${note}
+- Use \`edit_script\` for small localized changes (provide \`old_string\`/\`new_string\`); use \`write_script\` for full rewrites.
+- To change metadata WITHOUT rewriting the code (summary, description, labels, kind, tag, priority, timeout, concurrency, cache_ttl), use \`set_script_metadata\`. It edits an existing draft/deployed script. Every field is optional: omit to leave unchanged, pass null to clear. A \`tag\` routes runs to a specific worker group — confirm with the user if unsure which tag to use.${note}
 
 # Windmill script authoring reference (${selected})
 
@@ -1403,7 +1541,8 @@ function getFlowInstructions(): string {
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
 - Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` when the user gave a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist. Never invent a folder.
 - \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, optional \`description\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`. \`summary\` and \`description\` are top-level flow metadata (not part of the compact value \`patch_flow_json\` edits); the flow-structure arguments are JSON strings, matching the tool schema descriptions.
-- \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`.
+- \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`, plus a \`metadata\` object with the flow's editable non-structure fields (description, labels, tag, priority, timeout, concurrency, cache).
+- To change flow metadata (summary, description, labels, tag, priority, timeout, concurrency, cache_ttl) WITHOUT rewriting structure, use \`set_flow_metadata\`. Every field is optional: omit to leave unchanged, pass null to clear. A \`tag\` routes runs to a specific worker group — confirm with the user if unsure which tag to use. (\`patch_flow_json\` edits flow structure, not these top-level fields.)
 - \`modules\` contains normal sequential modules. Use top-level \`preprocessor_module\` and \`failure_module\` for special modules; do not put \`preprocessor\` or \`failure\` in \`modules\`.
 - Every module needs a stable unique \`id\` and a useful \`summary\` when the schema supports it.
 - Prefer path/script/flow modules when composing existing workspace logic. Use rawscript modules only when new inline code is needed.
@@ -1415,7 +1554,7 @@ function getFlowInstructions(): string {
 - Inline rawscript content is **not** part of the JSON \`patch_flow_json\` sees. Edits to inline bodies happen via dedicated tools:
   - \`read_flow_module_code(path, module_id)\` — returns the raw inline script content for one module.
   - \`set_flow_module_code(path, module_id, code)\` — overwrites that module's inline script content; saves to the draft.
-- Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, summaries, preprocessor/failure swaps, schema/groups. Use \`set_flow_module_code\` for changes inside a specific rawscript body.
+- Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, per-module summaries, preprocessor/failure swaps, schema/groups. (The flow's own summary/description/tag/etc. are NOT in this view — edit them with \`set_flow_metadata\`.) Use \`set_flow_module_code\` for changes inside a specific rawscript body.
 - \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments use **non-compact** flow modules (rawscript content is the actual code, not a placeholder).
 
 # Windmill flow authoring reference
@@ -1432,6 +1571,7 @@ function getAppInstructions(): string {
 - App drafts are addressed by workspace path. Follow the path conventions in the system prompt: default to \`u/<current-user>/<name>\` for bare names; only use \`f/<folder>/<name>\` when the folder is known to exist. The first write tool snapshots the workspace app onto the draft, and subsequent writes accumulate.
 - To create a new app, use \`init_app\` with a path, optional summary, and a framework (\`react19\` / \`react18\` / \`svelte5\` / \`vue\`). Confirm framework + path + summary with the user before calling — do not silently default to \`react19\` even though it is the recommended choice. \`init_app\` errors if an app already exists at the path or a draft is already in flight; in that case, edit the existing one rather than re-initializing.
 - \`init_app\` seeds a starter inline runnable named \`a\` (bun, \`main(x: string) => string\`) so the React/Svelte demo button works on first render. Replace or remove it once you start building real backend runnables.
+- To change an existing app's metadata (the file tools don't touch metadata), use \`set_app_metadata\`: \`summary\`, \`execution_mode\` (\`viewer\`/\`publisher\`/\`anonymous\`), and \`custom_path\`. Every field is optional: omit to leave unchanged, pass null to clear. Setting \`execution_mode\` to \`anonymous\` (makes the app publicly runnable) or changing \`custom_path\` (admin-only) prompts the user to confirm before saving.
 - Frontend file paths start with \`/\` (e.g. \`/index.tsx\`, \`/App.tsx\`, \`/styles.css\`). Use \`write_app_file\` / \`patch_app_file\` / \`delete_app_file\`.
 - Backend inline runnables are addressed as \`backend/<key>/main.{ts|py}\` from the file tools, but you create or update them via \`write_app_runnable\` / \`delete_app_runnable\` (which take the runnable shape directly: \`{ name, type, inlineScript?, path?, staticInputs? }\`).
 - \`/wmill.d.ts\` (or \`wmill.ts\`) is generated automatically from the backend runnables — never write it directly.
@@ -1966,6 +2106,48 @@ export const globalTools: Tool<{}>[] = [
 		fn: async (ctx) => {
 			const parsed = initAppSchema.parse(ctx.args)
 			return initApp(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
+			setScriptMetadataSchema,
+			'set_script_metadata',
+			'Edit metadata (summary, description, labels, kind, tag, priority, timeout, concurrency, cache) of an existing draft/deployed script.',
+			{ strict: false }
+		),
+		showDetails: true,
+		showFade: true,
+		fn: async (ctx) => {
+			const parsed = setScriptMetadataSchema.parse(ctx.args)
+			return setScriptMetadata(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
+			setFlowMetadataSchema,
+			'set_flow_metadata',
+			'Edit metadata (summary, description, labels, tag, priority, timeout, concurrency, cache) of an existing draft/deployed flow.',
+			{ strict: false }
+		),
+		showDetails: true,
+		showFade: true,
+		fn: async (ctx) => {
+			const parsed = setFlowMetadataSchema.parse(ctx.args)
+			return setFlowMetadata(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
+			setAppMetadataSchema,
+			'set_app_metadata',
+			'Edit metadata (summary, execution_mode, custom_path) of an existing draft/deployed app.',
+			{ strict: false }
+		),
+		showDetails: true,
+		showFade: true,
+		fn: async (ctx) => {
+			const parsed = setAppMetadataSchema.parse(ctx.args)
+			return setAppMetadata(parsed, ctx)
 		}
 	},
 	{
@@ -2533,11 +2715,72 @@ async function writeDraft<T, A>(
 	return finishDraftWrite(result, existed, ctx)
 }
 
+/** A partial metadata update where each field may be a value, `null` (clear), or absent (leave). */
+export type MetadataPatch = { [K in keyof ItemMetadata]?: ItemMetadata[K] | null }
+
+/**
+ * Tri-state merge for partial metadata edits: `undefined` keeps the existing
+ * value, `null` clears it, any other value sets it.
+ */
+function applyMetaField<T>(provided: T | null | undefined, existing: T | undefined): T | undefined {
+	if (provided === undefined) return existing
+	if (provided === null) return undefined
+	return provided
+}
+
+/** Apply a metadata patch onto a script draft (top-level NewScript fields). */
+function applyScriptMetadataPatch(draft: NewScript, patch: MetadataPatch | undefined): NewScript {
+	if (!patch) return draft
+	return {
+		...draft,
+		description: applyMetaField(patch.description, draft.description),
+		labels: applyMetaField(patch.labels, draft.labels),
+		kind: applyMetaField(patch.kind, draft.kind),
+		tag: applyMetaField(patch.tag, draft.tag),
+		priority: applyMetaField(patch.priority, draft.priority),
+		timeout: applyMetaField(patch.timeout, draft.timeout),
+		concurrent_limit: applyMetaField(patch.concurrent_limit, draft.concurrent_limit),
+		concurrency_time_window_s: applyMetaField(
+			patch.concurrency_time_window_s,
+			draft.concurrency_time_window_s
+		),
+		cache_ttl: applyMetaField(patch.cache_ttl, draft.cache_ttl)
+	}
+}
+
+/**
+ * Apply a metadata patch onto a flow draft. Wrapper fields
+ * (description/tag/timeout/labels) apply on the `Flow` object; value-level
+ * fields (priority/concurrency/cache_ttl) apply inside `value`.
+ */
+function applyFlowMetadataPatch(draft: Flow, patch: MetadataPatch | undefined): Flow {
+	if (!patch) return draft
+	const value = draft.value as FlowValue
+	return {
+		...draft,
+		description: applyMetaField(patch.description, draft.description),
+		tag: applyMetaField(patch.tag, draft.tag),
+		timeout: applyMetaField(patch.timeout, draft.timeout),
+		labels: applyMetaField(patch.labels, draft.labels),
+		value: {
+			...value,
+			priority: applyMetaField(patch.priority, value.priority),
+			concurrent_limit: applyMetaField(patch.concurrent_limit, value.concurrent_limit),
+			concurrency_time_window_s: applyMetaField(
+				patch.concurrency_time_window_s,
+				value.concurrency_time_window_s
+			),
+			cache_ttl: applyMetaField(patch.cache_ttl, value.cache_ttl)
+		}
+	}
+}
+
 type ScriptDraftArgs = {
 	path: string
 	summary?: string
 	language: ScriptLang
 	content: string
+	metadata?: MetadataPatch
 	override?: boolean
 }
 
@@ -2548,24 +2791,27 @@ const SCRIPT_SPEC: WriteSpec<NewScript, ScriptDraftArgs> = {
 		return { ...(existing as unknown as NewScript), parent_hash: existing.hash }
 	},
 	buildDraft: (base, args, path) =>
-		base
-			? {
-					...structuredClone(base),
-					path,
-					summary: args.summary ?? base.summary,
-					content: args.content,
-					language: args.language
-				}
-			: {
-					path,
-					summary: args.summary ?? '',
-					description: '',
-					content: args.content,
-					schema: emptySchema(),
-					is_template: false,
-					language: args.language,
-					kind: 'script'
-				}
+		applyScriptMetadataPatch(
+			base
+				? {
+						...structuredClone(base),
+						path,
+						summary: args.summary ?? base.summary,
+						content: args.content,
+						language: args.language
+					}
+				: {
+						path,
+						summary: args.summary ?? '',
+						description: '',
+						content: args.content,
+						schema: emptySchema(),
+						is_template: false,
+						language: args.language,
+						kind: 'script'
+					},
+			args.metadata
+		)
 }
 
 function writeScriptDraft(args: ScriptDraftArgs, ctx: WriteDraftCtx): Promise<string> {
@@ -2577,6 +2823,7 @@ type FlowDraftArgs = {
 	summary?: string
 	description?: string
 	flow: FlowDraftValue
+	metadata?: MetadataPatch
 	override?: boolean
 }
 
@@ -2588,26 +2835,29 @@ const FLOW_SPEC: WriteSpec<Flow, FlowDraftArgs> = {
 		if (args.flow.groups !== undefined && args.flow.groups !== null) {
 			value.groups = structuredClone(args.flow.groups)
 		}
-		return base
-			? {
-					...structuredClone(base),
-					path,
-					summary: args.summary ?? base.summary,
-					description: args.description ?? base.description,
-					value,
-					schema: args.flow.schema ?? base.schema
-				}
-			: {
-					path,
-					summary: args.summary ?? '',
-					description: args.description ?? '',
-					value,
-					schema: args.flow.schema ?? emptySchema(),
-					edited_by: '',
-					edited_at: '',
-					archived: false,
-					extra_perms: {}
-				}
+		return applyFlowMetadataPatch(
+			base
+				? {
+						...structuredClone(base),
+						path,
+						summary: args.summary ?? base.summary,
+						description: args.description ?? base.description,
+						value,
+						schema: args.flow.schema ?? base.schema
+					}
+				: {
+						path,
+						summary: args.summary ?? '',
+						description: args.description ?? '',
+						value,
+						schema: args.flow.schema ?? emptySchema(),
+						edited_by: '',
+						edited_at: '',
+						archived: false,
+						extra_perms: {}
+					},
+			args.metadata
+		)
 	}
 }
 
@@ -2737,6 +2987,109 @@ async function loadFlowDraftValue(
 		flow: { value: flow.value, schema: flow.schema, groups: flow.value.groups ?? null },
 		summary: flow.summary
 	}
+}
+
+async function setScriptMetadata(
+	args: z.infer<typeof setScriptMetadataSchema>,
+	ctx: WriteDraftCtx
+): Promise<string> {
+	// loadScriptForEdit throws if the script has neither a draft nor a deployed
+	// version, so metadata edits never create an item from nothing.
+	const base = await loadScriptForEdit(args.path, ctx.workspace)
+	const { path, summary, ...metadata } = args
+	return writeScriptDraft(
+		{
+			path,
+			summary: summary === null ? '' : summary,
+			language: base.language,
+			content: base.content,
+			metadata
+		},
+		ctx
+	)
+}
+
+async function setFlowMetadata(
+	args: z.infer<typeof setFlowMetadataSchema>,
+	ctx: WriteDraftCtx
+): Promise<string> {
+	// loadFlowDraftValue throws if the flow doesn't exist (draft or deployed).
+	const base = await loadFlowDraftValue(args.path, ctx.workspace)
+	const { path, summary, ...metadata } = args
+	return writeFlowDraft(
+		{
+			path,
+			summary: summary === null ? '' : summary,
+			flow: base.flow,
+			metadata
+		},
+		ctx
+	)
+}
+
+async function setAppMetadata(
+	args: z.infer<typeof setAppMetadataSchema>,
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Setting metadata on app "${args.path}"...`
+	})
+
+	const { value } = await loadAppDraftValue(args.path, workspace)
+
+	// Sensitive changes need explicit user confirmation before saving: making the
+	// app publicly runnable (execution_mode = anonymous) or changing its custom
+	// URL path (admin-only). Other edits apply directly.
+	const makesPublic =
+		args.execution_mode === 'anonymous' && value.policy?.execution_mode !== 'anonymous'
+	const changesCustomPath =
+		args.custom_path !== undefined &&
+		(args.custom_path ?? undefined) !== (value.custom_path ?? undefined)
+
+	if (makesPublic || changesCustomPath) {
+		const question = makesPublic
+			? `Make app "${args.path}" PUBLICLY runnable by anyone (execution_mode = anonymous)?`
+			: `Change the custom URL path of app "${args.path}" to "${args.custom_path}"? (admin-only)`
+		const userQuestion = { question, choices: ['Yes, proceed', 'No, cancel'] }
+		if (!toolCallbacks.requestUserQuestion) {
+			const message =
+				'This change is sensitive and requires confirmation, but this chat cannot ask interactive questions.'
+			toolCallbacks.setToolStatus(toolId, { content: message, isLoading: false, error: message })
+			return JSON.stringify({ success: false, error: message })
+		}
+		toolCallbacks.setToolStatus(toolId, { content: question, userQuestion, isLoading: true })
+		const answer = await toolCallbacks.requestUserQuestion(toolId, userQuestion)
+		if (answer !== 'Yes, proceed') {
+			const message = `Cancelled: metadata of app "${args.path}" was not changed.`
+			toolCallbacks.setToolStatus(toolId, {
+				content: message,
+				userQuestion: { ...userQuestion, canceled: true },
+				isLoading: false,
+				error: message
+			})
+			return JSON.stringify({ success: false, error: message })
+		}
+	}
+
+	if (args.summary !== undefined) {
+		value.summary = args.summary === null ? '' : args.summary
+	}
+	if (args.execution_mode !== undefined) {
+		const policy = (value.policy ?? {}) as NonNullable<AppDraftValue['policy']>
+		policy.execution_mode = args.execution_mode === null ? undefined : args.execution_mode
+		value.policy = policy
+	}
+	if (args.custom_path !== undefined) {
+		value.custom_path = args.custom_path === null ? undefined : args.custom_path
+	}
+
+	const result = await saveAppDraft(workspace, args.path, value)
+	return finishAppDraftWrite(result, ctx, () => ({
+		content: `Updated metadata on app "${args.path}"`,
+		message: `Updated metadata of draft app "${args.path}".`
+	}))
 }
 
 async function patchFlowJson(
@@ -3253,7 +3606,9 @@ async function searchApp(
 	const header = `${totalMatchCount} match${
 		totalMatchCount === 1 ? '' : 'es'
 	} in ${fileCount} file${fileCount === 1 ? '' : 's'}${
-		truncated ? ` (showing the first ${maxMatches}; narrow with file_glob or a more specific query)` : ''
+		truncated
+			? ` (showing the first ${maxMatches}; narrow with file_glob or a more specific query)`
+			: ''
 	}`
 
 	const out: string[] = [header]

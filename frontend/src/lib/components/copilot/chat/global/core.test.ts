@@ -1383,9 +1383,7 @@ describe('global AI tools', () => {
 			file_path: '/min.tsx'
 		})
 
-		expect(result).toContain(
-			'lines 1-3 of 3, truncated to the first 50000 of 90002 chars.'
-		)
+		expect(result).toContain('lines 1-3 of 3, truncated to the first 50000 of 90002 chars.')
 		expect(result).toContain('the file is likely minified')
 		expect(result.split('\n\n')[1]).toHaveLength(50_000)
 	})
@@ -1401,9 +1399,7 @@ describe('global AI tools', () => {
 			file_path: '/generated.js'
 		})
 
-		expect(result).toContain(
-			'lines 1-1 of 1, truncated to the first 50000 of 60000 chars.'
-		)
+		expect(result).toContain('lines 1-1 of 1, truncated to the first 50000 of 60000 chars.')
 		expect(result).toContain('re-read with a smaller limit')
 		expect(result.split('\n\n')[1]).toBe('x'.repeat(50_000))
 	})
@@ -1488,8 +1484,7 @@ describe('global AI tools', () => {
 			versions: [5],
 			value: {
 				files: {
-					'/lib/aggregations.ts':
-						'export function computeRevenue(o) {\n  return o.unitPrice\n}\n',
+					'/lib/aggregations.ts': 'export function computeRevenue(o) {\n  return o.unitPrice\n}\n',
 					'/components/SummaryPanel.tsx':
 						'import { computeRevenue } from "../lib/aggregations"\nconst total = computeRevenue(order)\n',
 					'/components/OrdersTable.tsx': 'const r = computeRevenue(row)\n// renders revenue\n',
@@ -2474,6 +2469,197 @@ describe('global AI tools', () => {
 				userQuestion: expect.objectContaining({ selectedChoice: 'use deno instead' })
 			})
 		)
+	})
+
+	describe('set_*_metadata tools', () => {
+		it('set_script_metadata merges provided fields, clears with null, preserves content', async () => {
+			seedBackendDraft('script', 'f/s/meta', {
+				path: 'f/s/meta',
+				summary: 'orig summary',
+				description: 'orig desc',
+				content: 'export async function main() {}',
+				schema: {},
+				is_template: false,
+				language: 'bun',
+				kind: 'script',
+				tag: 'old-tag'
+			})
+
+			await callGlobalTool('set_script_metadata', {
+				path: 'f/s/meta',
+				description: 'new desc',
+				priority: 5,
+				tag: null
+			})
+
+			const draft = getBackendDraft<any>('script', 'f/s/meta')
+			expect(draft).toMatchObject({
+				summary: 'orig summary', // omitted -> unchanged
+				description: 'new desc', // set
+				priority: 5, // set
+				kind: 'script', // untouched
+				content: 'export async function main() {}' // content preserved
+			})
+			expect(draft.tag).toBeUndefined() // null -> cleared
+		})
+
+		it('set_flow_metadata routes wrapper vs value-level fields correctly', async () => {
+			seedBackendDraft('flow', 'f/f/meta', {
+				path: 'f/f/meta',
+				summary: 'flow summary',
+				value: { modules: [], priority: 1 },
+				schema: {},
+				edited_by: '',
+				edited_at: '',
+				archived: false,
+				extra_perms: {},
+				tag: 'old'
+			})
+
+			await callGlobalTool('set_flow_metadata', {
+				path: 'f/f/meta',
+				description: 'doc',
+				tag: 'highmem',
+				priority: 9,
+				concurrent_limit: 3
+			})
+
+			const draft = getBackendDraft<any>('flow', 'f/f/meta')
+			expect(draft).toMatchObject({ description: 'doc', tag: 'highmem', summary: 'flow summary' })
+			// priority/concurrency live inside value, not on the Flow wrapper.
+			expect(draft.value).toMatchObject({ priority: 9, concurrent_limit: 3 })
+		})
+
+		it('set_app_metadata applies a non-sensitive summary edit without confirmation', async () => {
+			seedBackendDraft('raw_app', 'f/a/meta', {
+				summary: 'app summary',
+				files: {},
+				runnables: {},
+				policy: { execution_mode: 'publisher' }
+			})
+
+			const callbacks: ToolCallbacks = {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				requestUserQuestion: vi.fn()
+			}
+			await callGlobalTool('set_app_metadata', { path: 'f/a/meta', summary: 'updated' }, callbacks)
+
+			expect(callbacks.requestUserQuestion).not.toHaveBeenCalled()
+			expect(getBackendDraft<any>('raw_app', 'f/a/meta').summary).toBe('updated')
+		})
+
+		it('set_app_metadata confirms before making an app anonymous and applies on accept', async () => {
+			seedBackendDraft('raw_app', 'f/a/pub', {
+				summary: 'app',
+				files: {},
+				runnables: {},
+				policy: { execution_mode: 'publisher' }
+			})
+
+			const callbacks: ToolCallbacks = {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				requestUserQuestion: vi.fn(async () => 'Yes, proceed')
+			}
+			await callGlobalTool(
+				'set_app_metadata',
+				{ path: 'f/a/pub', execution_mode: 'anonymous' },
+				callbacks
+			)
+
+			expect(callbacks.requestUserQuestion).toHaveBeenCalled()
+			expect(getBackendDraft<any>('raw_app', 'f/a/pub').policy.execution_mode).toBe('anonymous')
+		})
+
+		it('set_app_metadata aborts the anonymous change when the user declines', async () => {
+			seedBackendDraft('raw_app', 'f/a/decl', {
+				summary: 'app',
+				files: {},
+				runnables: {},
+				policy: { execution_mode: 'publisher' }
+			})
+
+			const callbacks: ToolCallbacks = {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				requestUserQuestion: vi.fn(async () => 'No, cancel')
+			}
+			const result = await callGlobalTool(
+				'set_app_metadata',
+				{ path: 'f/a/decl', execution_mode: 'anonymous' },
+				callbacks
+			)
+
+			expect(JSON.parse(result)).toMatchObject({ success: false })
+			expect(getBackendDraft<any>('raw_app', 'f/a/decl').policy.execution_mode).toBe('publisher') // unchanged
+		})
+
+		it('set_app_metadata confirms before changing custom_path', async () => {
+			seedBackendDraft('raw_app', 'f/a/cp', {
+				summary: 'app',
+				files: {},
+				runnables: {},
+				policy: { execution_mode: 'publisher' }
+			})
+
+			const callbacks: ToolCallbacks = {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				requestUserQuestion: vi.fn(async () => 'Yes, proceed')
+			}
+			await callGlobalTool(
+				'set_app_metadata',
+				{ path: 'f/a/cp', custom_path: 'reports' },
+				callbacks
+			)
+
+			expect(callbacks.requestUserQuestion).toHaveBeenCalled()
+			expect(getBackendDraft<any>('raw_app', 'f/a/cp').custom_path).toBe('reports')
+		})
+
+		it('set_app_metadata fails safe on a sensitive change when no question callback is wired', async () => {
+			seedBackendDraft('raw_app', 'f/a/noq', {
+				summary: 'app',
+				files: {},
+				runnables: {},
+				policy: { execution_mode: 'publisher' }
+			})
+
+			// No requestUserQuestion on the callbacks: a sensitive change must abort, not save silently.
+			const callbacks: ToolCallbacks = { setToolStatus: vi.fn(), removeToolStatus: vi.fn() }
+			const result = await callGlobalTool(
+				'set_app_metadata',
+				{ path: 'f/a/noq', execution_mode: 'anonymous' },
+				callbacks
+			)
+
+			expect(JSON.parse(result)).toMatchObject({ success: false })
+			expect(getBackendDraft<any>('raw_app', 'f/a/noq').policy.execution_mode).toBe('publisher') // unchanged
+		})
+
+		it('surfaces editable metadata in read_workspace_item for a script', async () => {
+			vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+				path: 'f/s/read',
+				summary: 's',
+				description: 'the description',
+				language: 'bun',
+				content: 'x',
+				kind: 'trigger',
+				tag: 'nginx',
+				priority: 7,
+				labels: ['a']
+			} as any)
+
+			const raw = await callGlobalTool('read_workspace_item', { type: 'script', path: 'f/s/read' })
+			expect(JSON.parse(raw).metadata).toMatchObject({
+				description: 'the description',
+				kind: 'trigger',
+				tag: 'nginx',
+				priority: 7,
+				labels: ['a']
+			})
+		})
 	})
 })
 
