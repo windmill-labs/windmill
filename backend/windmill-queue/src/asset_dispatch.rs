@@ -406,7 +406,11 @@ fn is_eligible_kind(job: &MiniCompletedJob) -> bool {
     if !matches!(job.kind, JobKind::Script | JobKind::Preview) {
         return false;
     }
-    if job.parent_job.is_some() || job.flow_step_id.is_some() {
+    // Flow steps (and sub-flow jobs) carry `flow_step_id` and are ineligible.
+    // A native script-retry attempt carries `parent_job` (the chain root) but no
+    // `flow_step_id`, so a subscriber that recovers on retry still dispatches to
+    // its own downstream — unlike the old one-step-flow wrapping.
+    if job.flow_step_id.is_some() {
         return false;
     }
     true

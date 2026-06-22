@@ -1266,20 +1266,10 @@ async fn create_script_internal<'c>(
     if let Some(t) = pipeline_annotations.tag.clone() {
         ns.tag = Some(t);
     }
-    // `// retry <count> [<delay>]` is PARSED but PARKED: a retried subscriber
-    // is wrapped in a SingleStepFlow, whose run is a flow step and therefore
-    // ineligible for asset dispatch (asset_dispatch::is_eligible_kind) — so a
-    // retried subscriber would silently become a cascade dead-end (P1). We do
-    // not persist it to script_trigger; the cascade ignores retry until this
-    // is fixed. TODO(pipeline-retry): re-enable once cascade dispatch handles
-    // flow-wrapped producers.
-    if pipeline_annotations.retry.is_some() {
-        tracing::warn!(
-            "`// retry` on {} is not yet supported in the asset cascade and is ignored \
-             (a retried subscriber cannot trigger its downstream). TODO(pipeline-retry).",
-            ns.path
-        );
-    }
+    // `// retry <count> [<delay>]` is persisted to `script_trigger` below (asset
+    // edges only) and drives native subscriber retry in the cascade: a failed
+    // subscriber re-runs as a `Script` job (not a flow step), so it stays
+    // eligible for asset dispatch and can trigger its own downstream on success.
     // Asset presence is server-authoritative: re-parse the deployed content
     // (same parsers the frontend wasm wraps) and union with the client list.
     // The `asset` rows written below drive the asset-trigger cascade, so a
@@ -1652,6 +1642,20 @@ async fn create_script_internal<'c>(
                 .and_then(parse_duration_secs),
             _ => None,
         };
+        // `// retry` applies only to the asset cascade: a failed subscriber is
+        // re-run natively (a `Script` job, not a flow step), so it can still
+        // trigger its own downstream on success — see asset_dispatch.
+        let (retry_count, retry_delay_s) = match spec {
+            TriggerSpec::Asset { .. } => (
+                pipeline_annotations.retry.as_ref().map(|r| r.count as i16),
+                pipeline_annotations
+                    .retry
+                    .as_ref()
+                    .and_then(|r| r.delay.as_deref())
+                    .and_then(parse_duration_secs),
+            ),
+            _ => (None, None),
+        };
         insert_script_trigger(
             &mut *tx,
             &w_id,
@@ -1661,9 +1665,8 @@ async fn create_script_internal<'c>(
             &trigger_ref,
             pipeline_join_all,
             debounce_s,
-            // retry parked — see TODO(pipeline-retry) above.
-            None,
-            None,
+            retry_count,
+            retry_delay_s,
         )
         .await?;
     }
