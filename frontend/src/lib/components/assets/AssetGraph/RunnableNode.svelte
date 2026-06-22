@@ -118,21 +118,11 @@
 		}
 	}
 
-	// Kebab menu: the bounded-run entry (a run action available on valid
-	// starts even in view mode, where the on-node Run pill is hidden) plus the
-	// edit-only lifecycle action. The single-step / cascade run options stay on
-	// the Run button's caret popover.
-	let menuItems: Item[] = $derived([
-		...(data.onStartBoundedRun
-			? [
-					{
-						displayName: 'Run downstream up to…',
-						icon: Target,
-						action: () => data.onStartBoundedRun?.()
-					}
-				]
-			: []),
-		...(data.onRequestRemove
+	// Cascade + bounded-run options live on the Run button's caret popover
+	// (when `downstreamCount > 0`), so the kebab menu stays focused on
+	// lifecycle actions only.
+	let menuItems: Item[] = $derived(
+		data.onRequestRemove
 			? [
 					{
 						displayName: data.unsaved ? 'Discard' : 'Delete…',
@@ -141,8 +131,8 @@
 						action: () => data.onRequestRemove?.()
 					}
 				]
-			: [])
-	])
+			: []
+	)
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -332,6 +322,26 @@
 									{/if}
 								</div>
 							</button>
+							{#if data.onStartBoundedRun}
+								<button
+									type="button"
+									class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2 border-t"
+									onclick={(e) => {
+										e.stopPropagation()
+										cascadeMenuOpen = false
+										data.onStartBoundedRun?.()
+									}}
+								>
+									<Target size={14} class="mt-0.5 shrink-0 text-secondary" />
+									<div class="flex flex-col min-w-0">
+										<span class="font-medium">Run downstream up to…</span>
+										<span class="text-2xs text-secondary">
+											Pick end node(s) on the graph, then run only the cascade between this
+											script and them.
+										</span>
+									</div>
+								</button>
+							{/if}
 						</div>
 					{/snippet}
 				</Popover>

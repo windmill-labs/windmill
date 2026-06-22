@@ -497,7 +497,16 @@
 					onEditTrigger,
 					onDeleteTrigger,
 					onOpenWebhook,
-					onOpenDataUpload
+					onOpenDataUpload,
+					// View-mode bounded-run entry: offer it on the trigger node
+					// when its target script is a valid start with downstream.
+					onStartBoundedRun:
+						info.runnable_path &&
+						onStartBoundedRun &&
+						validStartPaths?.has(info.runnable_path) &&
+						(downstreamByScript.get(info.runnable_path) ?? 0) > 0
+							? () => onStartBoundedRun(info.runnable_path!)
+							: undefined
 				}
 			})
 		}

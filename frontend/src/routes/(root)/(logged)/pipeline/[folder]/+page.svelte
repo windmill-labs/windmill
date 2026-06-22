@@ -2525,6 +2525,9 @@
 								{runsPendingJobId}
 								{activeRunnable}
 								downstreamSubscribers={editedScriptDownstreamCount}
+								onStartBoundedRun={openScriptPath && validStartPaths.has(openScriptPath)
+									? () => startBoundedRun(openScriptPath!)
+									: undefined}
 								onRunCompleted={() => {
 									activeRunnable = undefined
 									activeRunnableJobId = undefined

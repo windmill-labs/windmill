@@ -165,6 +165,11 @@
 		// cascade option when > 0. The page computes this from the graph
 		// edges + triggers + currently-open path.
 		downstreamSubscribers?: number
+		// Pipeline-only: set when the currently-open script is a valid
+		// bounded-run start (schedule / manual root). Surfaces a "Run downstream
+		// up to…" entry on the Test split's caret that enters the canvas
+		// end-node pick mode rooted at this script. Undefined → no entry.
+		onStartBoundedRun?: () => void
 		// Sister to `requestRunSignal`. When bumped, the bridge calls
 		// `ScriptEditor.runTest({ cascade: true })` — used by the canvas
 		// runnable menu's "Run + trigger N downstream" item when the chosen
@@ -219,6 +224,7 @@
 		onDraftPathChange,
 		requestRemoveSignal,
 		downstreamSubscribers = 0,
+		onStartBoundedRun,
 		requestRunCascadeSignal,
 		focusUploadSignal,
 		mode = 'edit',
@@ -1082,6 +1088,7 @@
 							argsAboveLogs: true,
 							logsResultSideBySide: true,
 							downstreamSubscribers,
+							onBoundedRun: onStartBoundedRun,
 							// Selecting a script node should immediately show
 							// "what happened last time it ran" — pulling the
 							// latest top-level completed job into the preview

@@ -52,6 +52,7 @@
 		Play,
 		PlayIcon,
 		Plus,
+		Target,
 		Terminal,
 		Pencil,
 		WandSparkles,
@@ -2008,6 +2009,28 @@
 																</span>
 															</div>
 														</button>
+														{#if customUi?.previewPanel?.onBoundedRun}
+															<button
+																type="button"
+																class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2 border-t"
+																onclick={() => {
+																	close()
+																	customUi!.previewPanel!.onBoundedRun!()
+																}}
+															>
+																<Target
+																	size={14}
+																	class="mt-0.5 shrink-0 text-blue-600 dark:text-blue-400"
+																/>
+																<div class="flex flex-col min-w-0">
+																	<span class="font-medium">Run downstream up to…</span>
+																	<span class="text-2xs text-secondary">
+																		Pick end node(s) on the graph, then run only the cascade between
+																		this script and them.
+																	</span>
+																</div>
+															</button>
+														{/if}
 													</div>
 												{/snippet}
 											</Popover>
