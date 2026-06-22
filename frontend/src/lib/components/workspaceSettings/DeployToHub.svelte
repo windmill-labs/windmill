@@ -26,7 +26,7 @@
 		EmailTriggerService,
 		ScheduleService
 	} from '$lib/gen'
-	import { workspaceStore, hubBaseUrlStore } from '$lib/stores'
+	import { workspaceStore, hubBaseUrlStore, enterpriseLicense } from '$lib/stores'
 	import { sleep, emptySchema, displayDate } from '$lib/utils'
 	import { computeSecretUrl } from '$lib/components/apps/editor/appDeploy.svelte'
 	import {
@@ -340,7 +340,8 @@
 	async function loadTriggers(workspace: string, seq: number) {
 		triggersLoading = true
 		try {
-			// Feature-gated services (Kafka, NATS, ...) 404 when disabled — swallow.
+			// Native triggers are EE-only — calling them on CE just floods the console
+			// with 404s. Skip them entirely without a license; schedules exist on CE.
 			const safeList = async <T,>(p: Promise<T[]>): Promise<T[]> => {
 				try {
 					return await p
@@ -348,19 +349,22 @@
 					return []
 				}
 			}
+			const ee = !!$enterpriseLicense
+			const eeList = <T,>(p: () => Promise<T[]>): Promise<T[]> =>
+				ee ? safeList(p()) : Promise.resolve([])
 			const [http, websocket, schedule, kafka, nats, sqs, mqtt, gcp, azure, postgres, email] =
 				await Promise.all([
-					safeList(HttpTriggerService.listHttpTriggers({ workspace })),
-					safeList(WebsocketTriggerService.listWebsocketTriggers({ workspace })),
+					eeList(() => HttpTriggerService.listHttpTriggers({ workspace })),
+					eeList(() => WebsocketTriggerService.listWebsocketTriggers({ workspace })),
 					safeList(ScheduleService.listSchedules({ workspace })),
-					safeList(KafkaTriggerService.listKafkaTriggers({ workspace })),
-					safeList(NatsTriggerService.listNatsTriggers({ workspace })),
-					safeList(SqsTriggerService.listSqsTriggers({ workspace })),
-					safeList(MqttTriggerService.listMqttTriggers({ workspace })),
-					safeList(GcpTriggerService.listGcpTriggers({ workspace })),
-					safeList(AzureTriggerService.listAzureTriggers({ workspace })),
-					safeList(PostgresTriggerService.listPostgresTriggers({ workspace })),
-					safeList(EmailTriggerService.listEmailTriggers({ workspace }))
+					eeList(() => KafkaTriggerService.listKafkaTriggers({ workspace })),
+					eeList(() => NatsTriggerService.listNatsTriggers({ workspace })),
+					eeList(() => SqsTriggerService.listSqsTriggers({ workspace })),
+					eeList(() => MqttTriggerService.listMqttTriggers({ workspace })),
+					eeList(() => GcpTriggerService.listGcpTriggers({ workspace })),
+					eeList(() => AzureTriggerService.listAzureTriggers({ workspace })),
+					eeList(() => PostgresTriggerService.listPostgresTriggers({ workspace })),
+					eeList(() => EmailTriggerService.listEmailTriggers({ workspace }))
 				])
 			if (seq !== workspaceLoadSeq) return
 			const normalize = (
