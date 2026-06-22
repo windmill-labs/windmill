@@ -23364,6 +23364,10 @@ components:
           type: array
           items:
             type: string
+        folders_read:
+          type: array
+          items:
+            type: string
         folders_owners:
           type: array
           items:
@@ -23383,6 +23387,7 @@ components:
         - operator
         - disabled
         - folders
+        - folders_read
         - folders_owners
 
     UserSource:

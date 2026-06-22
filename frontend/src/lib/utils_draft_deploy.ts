@@ -276,9 +276,9 @@ export async function deployDraft(
 	kind: DraftKind,
 	path: string,
 	workspace: string,
-	draftOnly = false,
-	rawApp = false
+	opts: { draftOnly?: boolean; rawApp?: boolean; deploymentMessage?: string } = {}
 ): Promise<DeployResult> {
+	const { draftOnly = false, rawApp = false, deploymentMessage } = opts
 	try {
 		if (kind === 'raw_app' || (kind === 'app' && rawApp)) {
 			// Raw apps bundle their source files and deploy via the raw-app
@@ -286,7 +286,7 @@ export async function deployDraft(
 			// `kind === 'app'` + `rawApp` (editor). Must route here: the
 			// visual-app branch would `updateApp` with no `value` (RawAppDraft
 			// has none) and silently drop the draft's files.
-			await deployRawAppDraft(workspace, path)
+			await deployRawAppDraft(workspace, path, deploymentMessage)
 		} else if (kind === 'script') {
 			const r = (await ScriptService.getScriptByPath({ workspace, path, getDraft: true })) as any
 			const d = r.draft ?? r
@@ -297,7 +297,12 @@ export async function deployDraft(
 			// the editor: createScript at the new path with parent_hash links lineage).
 			await ScriptService.createScript({
 				workspace,
-				requestBody: { ...rest, path: scriptPath, parent_hash: r.hash }
+				requestBody: {
+					...rest,
+					path: scriptPath,
+					parent_hash: r.hash,
+					deployment_message: deploymentMessage
+				}
 			})
 			// Then deploy any draft trigger edits, so they aren't dropped with the draft.
 			await deployDraftTriggers(draftTriggers, workspace, scriptPath, true)
@@ -319,7 +324,8 @@ export async function deployDraft(
 				ws_error_handler_muted: d.ws_error_handler_muted,
 				visible_to_runner_only: d.visible_to_runner_only,
 				on_behalf_of_email: d.on_behalf_of_email,
-				labels: d.labels
+				labels: d.labels,
+				deployment_message: deploymentMessage
 			}
 			// Draft-only flows have NO flow row (they live solely in the
 			// draft table), so they deploy via createFlow; a draft on a
@@ -360,7 +366,8 @@ export async function deployDraft(
 				// Honor the draft's intended path; `draft_path` holds the user-typed path
 				// for a never-deployed app parked at a `u/{user}/draft_{uuid}` storage key.
 				path: draftPath ?? r.path ?? path,
-				custom_path: isAdmin ? (r.custom_path ?? '') : undefined
+				custom_path: isAdmin ? (r.custom_path ?? '') : undefined,
+				deployment_message: deploymentMessage
 			}
 			// Same as flows: draft-only apps have no app row → create;
 			// drafts on a deployed app update it.
