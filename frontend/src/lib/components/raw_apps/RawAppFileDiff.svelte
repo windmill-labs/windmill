@@ -1,8 +1,8 @@
 <!--
 @component
 Diff body for a single raw-app file item (one `RawAppFileItem`). Renders one
-content-sized Monaco diff, with a per-file size guard: a file whose changed
-lines exceed `lineBudget` shows a "Load diff" card instead of auto-mounting.
+content-sized Monaco diff, with a per-file size guard: a file whose line count
+exceeds `lineBudget` shows a "Load diff" card instead of auto-mounting.
 
 The synthesized `app.yaml` metadata item (isMetadata) additionally offers an
 "Expand to full app YAML" toggle that swaps in the whole serialized app diff —
@@ -51,13 +51,13 @@ the escape hatch, shown only on demand.
 	function linesIn(s: string): number {
 		return Math.max(s.split('\n').length, 1)
 	}
-	const changedLines = $derived(linesIn(activeOriginal) + linesIn(activeModified))
-	const height = $derived(
-		`${Math.max(linesIn(activeOriginal), linesIn(activeModified)) * LINE_HEIGHT + EDITOR_CHROME}px`
-	)
+	// The larger side's line count: it's what drives Monaco's mount cost (and the
+	// editor height), so it's the right metric for the size guard.
+	const lineCount = $derived(Math.max(linesIn(activeOriginal), linesIn(activeModified)))
+	const height = $derived(`${lineCount * LINE_HEIGHT + EDITOR_CHROME}px`)
 	// The full-YAML view is opt-in, so never guard it; only guard the default
 	// per-file view.
-	const guarded = $derived(!showFullYaml && !forceLoad && changedLines > lineBudget)
+	const guarded = $derived(!showFullYaml && !forceLoad && lineCount > lineBudget)
 </script>
 
 <div class="flex flex-col">
@@ -71,7 +71,7 @@ the escape hatch, shown only on demand.
 	{#if guarded}
 		<div class="flex items-center gap-2 px-3 py-3">
 			<span class="text-2xs text-secondary">
-				Large file — {changedLines.toLocaleString()} lines.
+				Large file — {lineCount.toLocaleString()} lines.
 			</span>
 			<Button variant="subtle" unifiedSize="sm" onclick={() => (forceLoad = true)}>Load diff</Button
 			>

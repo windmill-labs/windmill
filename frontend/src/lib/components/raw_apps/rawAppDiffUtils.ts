@@ -68,6 +68,12 @@ function asFileMap(f: unknown): Record<string, string> {
 
 // Coalesce the two raw-app shapes (app row with a `value` wrapper vs flat draft)
 // into a canonical view. Returns undefined when the whole app is absent.
+//
+// Per-field precedence is deliberately asymmetric and mirrors the app-row shape:
+// the editor payload (`files`/`runnables`/`data`) lives under `value`, so those
+// prefer `value` first; the row-level metadata (`summary`/`policy`/`custom_path`)
+// lives at the top level, so those prefer `raw` first. Each falls back to the
+// other side so a flat draft (everything top-level) still normalizes correctly.
 function normalizeRawApp(raw: RawAppish | undefined): NormalizedRawApp | undefined {
 	if (!isObject(raw)) return undefined
 	const value = isObject(raw.value) ? raw.value : undefined

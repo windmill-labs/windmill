@@ -724,7 +724,10 @@
 										class="border-t border-light bg-surface-tertiary rounded-b-md overflow-hidden"
 									>
 										{#if d.kind === 'raw_app_file'}
-											<WorkspaceItemDiffViewer kind="raw_app_file" rawFile={d} {inlineDiff} />
+											<!-- DiffRow.kind is a plain string, so the kind check doesn't narrow
+											     the union — assert the synthetic file item. -->
+											{@const rawFile = d as RawAppFileItem}
+											<WorkspaceItemDiffViewer kind="raw_app_file" {rawFile} {inlineDiff} />
 										{:else if 'appPath' in d}
 											<!-- Synthesized runnable: render script-style (Content + Metadata),
 											     forcing `script` so flow runnables don't hit FlowDiffViewer. -->
