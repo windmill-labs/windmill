@@ -605,6 +605,178 @@ describe('global AI tools', () => {
 		expect(VariableService.updateVariable).not.toHaveBeenCalled()
 	})
 
+	it('deploys every field of a script draft (not just content/summary)', async () => {
+		// The deploy delegates to the shared deployer, which reads the full persisted
+		// draft via getScriptByPath(getDraft) and deploys all of it. Config fields
+		// (tag/priority/schema/description/concurrency) were previously dropped,
+		// sourced from the deployed version instead.
+		seedBackendDraft(
+			'script',
+			'f/scripts/full',
+			{ path: 'f/scripts/full', content: 'export async function main() {}', language: 'bun' },
+			{ workspace: WORKSPACE }
+		)
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			hash: 1234,
+			path: 'f/scripts/full',
+			summary: 'Full script',
+			description: 'desc',
+			content: 'export async function main() {}',
+			schema: { foo: 'bar' },
+			language: 'bun',
+			kind: 'script',
+			tag: 'custom-tag',
+			priority: 7,
+			concurrent_limit: 3,
+			draft_only: true
+		} as any)
+
+		await callGlobalTool('deploy_workspace_item', { type: 'script', path: 'f/scripts/full' })
+
+		expect(ScriptService.createScript).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({
+				path: 'f/scripts/full',
+				content: 'export async function main() {}',
+				summary: 'Full script',
+				description: 'desc',
+				schema: { foo: 'bar' },
+				language: 'bun',
+				tag: 'custom-tag',
+				priority: 7,
+				concurrent_limit: 3,
+				parent_hash: 1234
+			})
+		})
+		// Editor-only / server-managed draft keys must not leak into the deploy body.
+		const calls = vi.mocked(ScriptService.createScript).mock.calls
+		const body = calls[calls.length - 1][0].requestBody as any
+		expect(body.draft_only).toBeUndefined()
+	})
+
+	it('deploys every config field of a flow draft via createFlow', async () => {
+		seedBackendDraft(
+			'flow',
+			'f/flows/full',
+			{ summary: 'Full flow', description: 'flow desc', value: { modules: [] }, schema: {} },
+			{ workspace: WORKSPACE }
+		)
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
+			path: 'f/flows/full',
+			summary: 'Full flow',
+			description: 'flow desc',
+			value: { modules: [] },
+			schema: { x: 1 },
+			tag: 'flow-tag',
+			dedicated_worker: true
+		} as any)
+
+		await callGlobalTool('deploy_workspace_item', { type: 'flow', path: 'f/flows/full' })
+
+		// No deployed flow row (existsFlowByPath defaults to false) → create.
+		expect(FlowService.createFlow).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({
+				path: 'f/flows/full',
+				summary: 'Full flow',
+				description: 'flow desc',
+				value: { modules: [] },
+				schema: { x: 1 },
+				tag: 'flow-tag',
+				dedicated_worker: true
+			})
+		})
+		expect(FlowService.updateFlow).not.toHaveBeenCalled()
+	})
+
+	it('deploys an editor draft_only script at its chosen path, not its synthetic storage key', async () => {
+		// A new script created in the editor lives at a synthetic `u/{user}/draft_{uuid}`
+		// storage key while its chosen path is in the draft value. The chat addresses
+		// it by the chosen (display) path; deploy must resolve to the storage key so the
+		// shared deployer can read the draft via getScriptByPath, then deploy at the
+		// chosen path. Reading at the chosen path would 404.
+		const storageKey = 'u/admin/draft_abc123'
+		const chosenPath = 'f/team/chosen_path'
+		seedBackendDraft(
+			'script',
+			storageKey,
+			{
+				path: chosenPath,
+				summary: 'New script',
+				description: '',
+				content: 'export async function main() {}',
+				schema: {},
+				is_template: false,
+				language: 'bun',
+				kind: 'script'
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'script',
+			storagePath: storageKey,
+			effectivePath: chosenPath
+		})
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: chosenPath,
+			summary: 'New script',
+			description: '',
+			content: 'export async function main() {}',
+			schema: {},
+			language: 'bun',
+			kind: 'script'
+		} as any)
+
+		const flushSpy = vi.spyOn(UserDraftDbSyncer, 'flush')
+
+		await callGlobalTool('deploy_workspace_item', { type: 'script', path: chosenPath })
+
+		// Any pending editor autosave is flushed at the storage key before delegating,
+		// so the shared deployer reads the latest value, not a stale persisted draft.
+		expect(flushSpy).toHaveBeenCalledWith(
+			expect.objectContaining({ workspace: WORKSPACE, itemKind: 'script', path: storageKey })
+		)
+		// The draft is read at the STORAGE key (the chosen path would 404)…
+		expect(ScriptService.getScriptByPath).toHaveBeenCalledWith(
+			expect.objectContaining({ workspace: WORKSPACE, path: storageKey, getDraft: true })
+		)
+		// …and deployed at the chosen path.
+		expect(ScriptService.createScript).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({ path: chosenPath })
+		})
+	})
+
+	it('aborts deploy when the pre-deploy draft flush hit a conflict', async () => {
+		// flush() resolves even when the save recorded a conflict; deploy must abort
+		// rather than publish the stale persisted draft.
+		seedBackendDraft(
+			'script',
+			'f/scripts/conflicted',
+			{
+				path: 'f/scripts/conflicted',
+				summary: '',
+				description: '',
+				content: 'export async function main() {}',
+				schema: {},
+				is_template: false,
+				language: 'bun',
+				kind: 'script'
+			},
+			{ workspace: WORKSPACE }
+		)
+		const conflictSpy = vi
+			.spyOn(UserDraftDbSyncer, 'getConflict')
+			.mockReturnValue({ conflict: { serverTimestamp: '2026', localLastSync: null } } as any)
+
+		await expect(
+			callGlobalTool('deploy_workspace_item', { type: 'script', path: 'f/scripts/conflicted' })
+		).rejects.toThrow(/conflicting/)
+		expect(ScriptService.createScript).not.toHaveBeenCalled()
+		conflictSpy.mockRestore()
+	})
+
 	it('writes script drafts into UserDraft', async () => {
 		const content = 'export async function main() {\n\treturn "hello"\n}'
 
@@ -1383,9 +1555,7 @@ describe('global AI tools', () => {
 			file_path: '/min.tsx'
 		})
 
-		expect(result).toContain(
-			'lines 1-3 of 3, truncated to the first 50000 of 90002 chars.'
-		)
+		expect(result).toContain('lines 1-3 of 3, truncated to the first 50000 of 90002 chars.')
 		expect(result).toContain('the file is likely minified')
 		expect(result.split('\n\n')[1]).toHaveLength(50_000)
 	})
@@ -1401,9 +1571,7 @@ describe('global AI tools', () => {
 			file_path: '/generated.js'
 		})
 
-		expect(result).toContain(
-			'lines 1-1 of 1, truncated to the first 50000 of 60000 chars.'
-		)
+		expect(result).toContain('lines 1-1 of 1, truncated to the first 50000 of 60000 chars.')
 		expect(result).toContain('re-read with a smaller limit')
 		expect(result.split('\n\n')[1]).toBe('x'.repeat(50_000))
 	})
@@ -1488,8 +1656,7 @@ describe('global AI tools', () => {
 			versions: [5],
 			value: {
 				files: {
-					'/lib/aggregations.ts':
-						'export function computeRevenue(o) {\n  return o.unitPrice\n}\n',
+					'/lib/aggregations.ts': 'export function computeRevenue(o) {\n  return o.unitPrice\n}\n',
 					'/components/SummaryPanel.tsx':
 						'import { computeRevenue } from "../lib/aggregations"\nconst total = computeRevenue(order)\n',
 					'/components/OrdersTable.tsx': 'const r = computeRevenue(row)\n// renders revenue\n',
@@ -1787,6 +1954,9 @@ describe('global AI tools', () => {
 			{ workspace: WORKSPACE }
 		)
 
+		// getAppByPath resolves with no draft_path → deploy at the item's own path.
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
+
 		const raw = await callGlobalTool('deploy_workspace_item', {
 			type: 'app',
 			path: 'f/apps/report',
@@ -1832,6 +2002,93 @@ describe('global AI tools', () => {
 		})
 	})
 
+	it('deploys an editor raw app draft at its draft_path, not its synthetic storage key', async () => {
+		// An editor-created draft_only raw app lives at a synthetic storage key with
+		// its chosen path in `draft_path`; deploy must resolve to the storage key,
+		// read draft_path, and create the app there — not at the synthetic key.
+		const storageKey = 'u/admin/draft_app999'
+		const chosenPath = 'f/team/chosen_app'
+		seedBackendDraft(
+			'raw_app',
+			storageKey,
+			{
+				summary: 'Editor app',
+				files: { '/App.tsx': 'export default () => null' },
+				runnables: {},
+				data: { tables: [] },
+				draft_path: chosenPath
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'raw_app',
+			storagePath: storageKey,
+			effectivePath: chosenPath
+		})
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
+			draft: { draft_path: chosenPath }
+		} as any)
+		const flushSpy = vi.spyOn(UserDraftDbSyncer, 'flush')
+
+		await callGlobalTool('deploy_workspace_item', { type: 'app', path: chosenPath })
+
+		// The draft is flushed at the storage key before the draft_path read, so a
+		// not-yet-saved editor rename isn't read stale.
+		expect(flushSpy).toHaveBeenCalledWith(
+			expect.objectContaining({ workspace: WORKSPACE, itemKind: 'raw_app', path: storageKey })
+		)
+		// draft_path is read from the backend draft at the storage key…
+		expect(AppService.getAppByPath).toHaveBeenCalledWith(
+			expect.objectContaining({
+				workspace: WORKSPACE,
+				path: storageKey,
+				getDraft: true,
+				rawApp: true
+			})
+		)
+		// …and the app is created at the chosen path, not the synthetic key.
+		expect(AppService.createAppRaw).toHaveBeenCalledWith(
+			expect.objectContaining({
+				formData: expect.objectContaining({
+					app: expect.objectContaining({ path: chosenPath })
+				})
+			})
+		)
+	})
+
+	it('aborts a raw app deploy when the draft_path lookup fails (non-404)', async () => {
+		// A real lookup failure (network/5xx) must abort, not silently fall back to the
+		// storage path and deploy there. Only a 404 justifies the storage-path fallback.
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/draft_appfail',
+			{
+				summary: 'Editor app',
+				files: { '/App.tsx': 'export default () => null' },
+				runnables: {},
+				data: { tables: [] },
+				draft_path: 'f/team/chosen_app'
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'raw_app',
+			storagePath: 'u/admin/draft_appfail',
+			effectivePath: 'f/team/chosen_app'
+		})
+		vi.mocked(AppService.getAppByPath).mockRejectedValueOnce(
+			Object.assign(new Error('server error'), { status: 500 })
+		)
+
+		await expect(
+			callGlobalTool('deploy_workspace_item', { type: 'app', path: 'f/team/chosen_app' })
+		).rejects.toThrow()
+		expect(AppService.createAppRaw).not.toHaveBeenCalled()
+		expect(AppService.updateAppRaw).not.toHaveBeenCalled()
+	})
+
 	it('deploys an existing raw app draft by bundling files and updating the raw app', async () => {
 		vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
 		seedBackendDraft(
@@ -1847,6 +2104,8 @@ describe('global AI tools', () => {
 			},
 			{ workspace: WORKSPACE }
 		)
+
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
 
 		await callGlobalTool('deploy_workspace_item', {
 			type: 'app',
@@ -1891,6 +2150,8 @@ describe('global AI tools', () => {
 				},
 				{ workspace: WORKSPACE }
 			)
+
+			vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
 
 			await callGlobalTool(
 				'deploy_workspace_item',

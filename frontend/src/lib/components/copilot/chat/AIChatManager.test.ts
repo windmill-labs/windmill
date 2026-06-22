@@ -514,6 +514,37 @@ describe('AIChatManager queued messages', () => {
 		await manager.loadPastChat('chat-b')
 		expect(manager.queuedMessage).toBe('')
 	})
+
+	it('clears attachments on New chat / load past chat (non-session), keeps them in a session', async () => {
+		const txt = (n: string) => new File(['hello\n'], n, { type: 'text/plain' })
+
+		// Non-session global chat: New chat must clear the previous conversation's attachments.
+		const manager = createManager(createInputMock())
+		await manager.attachedFiles.addFiles([txt('a.txt')])
+		expect(manager.attachedFiles.count).toBe(1)
+		await manager.saveAndClear()
+		expect(manager.attachedFiles.count).toBe(0)
+
+		// ...and loading a past chat clears them too.
+		vi.spyOn(manager.historyManager, 'loadPastChat').mockReturnValue({
+			id: 'chat-c',
+			title: 'Chat C',
+			displayMessages: [],
+			actualMessages: [],
+			lastModified: 0
+		} as unknown as ReturnType<typeof manager.historyManager.loadPastChat>)
+		await manager.attachedFiles.addFiles([txt('c.txt')])
+		expect(manager.attachedFiles.count).toBe(1)
+		await manager.loadPastChat('chat-c')
+		expect(manager.attachedFiles.count).toBe(0)
+
+		// Session chat: attachments are session-scoped — they survive New chat.
+		const session = createManager(createInputMock())
+		session.isSessionChat = true
+		await session.attachedFiles.addFiles([txt('b.txt')])
+		await session.saveAndClear()
+		expect(session.attachedFiles.count).toBe(1)
+	})
 })
 
 describe('AIChatManager context compaction', () => {
