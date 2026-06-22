@@ -43,6 +43,7 @@
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { createHash as randomHash } from '$lib/editorLangUtils'
 	import { workspaceStore } from '$lib/stores'
+	import DdlMigrationGuard from './DdlMigrationGuard.svelte'
 	import {
 		type Preview,
 		ResourceService,
@@ -212,6 +213,26 @@
 	})
 
 	let lang = $state(scriptLangToEditorLang(untrack(() => scriptLang)))
+
+	// On a postgres script targeting a datatable, DDL statements are intercepted
+	// on run (cmd+enter) and offered as migrations instead.
+	let datatableForMigrations = $derived(
+		scriptLang === 'postgresql' &&
+			typeof args?.database === 'string' &&
+			args.database.startsWith('datatable://')
+			? args.database.slice('datatable://'.length).split('/')[0]
+			: undefined
+	)
+	let ddlGuard = $state<DdlMigrationGuard | undefined>(undefined)
+
+	async function runCmdEnterWithDdlGuard() {
+		if (datatableForMigrations && ddlGuard) {
+			const res = await ddlGuard.guard(getCode())
+			if (!res.proceed) return
+			if (res.code !== getCode()) setCode(res.code)
+		}
+		cmdEnterAction?.()
+	}
 
 	let filePath = $state(computePath(untrack(() => path)))
 
@@ -1539,7 +1560,8 @@
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {
 				updateCode()
-				shouldBindKey && cmdEnterAction && cmdEnterAction()
+				if (!shouldBindKey || !cmdEnterAction) return
+				void runCmdEnterWithDdlGuard()
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {
@@ -2067,6 +2089,13 @@
 
 <svelte:window onkeydown={onKeyDown} />
 <EditorTheme />
+{#if datatableForMigrations && $workspaceStore}
+	<DdlMigrationGuard
+		bind:this={ddlGuard}
+		workspace={$workspaceStore}
+		datatable={datatableForMigrations}
+	/>
+{/if}
 {#if !editor}
 	<div class="inset-0 absolute overflow-clip">
 		<FakeMonacoPlaceHolder {code} lineNumbersWidth={51} />

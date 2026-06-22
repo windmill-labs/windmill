@@ -72,6 +72,7 @@
 	import CustomInstanceDbSelect from './CustomInstanceDbSelect.svelte'
 	import { Popover } from '../meltComponents'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
+	import DataTableMigrationsButton from './DataTableMigrationsButton.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { clone } from '$lib/utils'
 	import SettingsFooter from './SettingsFooter.svelte'
@@ -256,8 +257,13 @@
 					</div>
 				</Cell>
 
-				<Cell class="w-12">
+				<Cell class="whitespace-nowrap">
 					<div class="flex gap-2">
+						<DataTableMigrationsButton
+							workspace={$workspaceStore ?? ''}
+							datatable={dataTable.name}
+							disabled={!!dirtyMap[dataTable.name]}
+						/>
 						{#if dirtyMap[dataTable.name]}
 							<Popover
 								openOnHover

@@ -1094,9 +1094,7 @@
 			/>
 		</div>
 
-		<div class="bg-surface-tertiary p-4 rounded-md border">
-			<DatatableSchemaDiff {currentWorkspaceId} {parentWorkspaceId} />
-		</div>
+		<DatatableSchemaDiff {currentWorkspaceId} {parentWorkspaceId} />
 	</div>
 
 	<DiffDrawer bind:this={diffDrawer} {isFlow} />

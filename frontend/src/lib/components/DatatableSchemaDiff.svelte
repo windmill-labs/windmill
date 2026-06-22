@@ -213,6 +213,11 @@
 	let loading = $state(true)
 	let error: string | undefined = $state(undefined)
 	let diffs: DatatableDiff[] = $state([])
+	// Number of forked datatables this schema-diff section applies to: those that
+	// have NOT opted in to the migrations feature. When a datatable enables
+	// migrations, its changes flow through the normal item diff instead, so it is
+	// excluded here and the whole section hides once none remain.
+	let applicableCount = $state(0)
 	let expandedDatatables: Set<string> = $state(new Set())
 
 	// Drawer state
@@ -233,7 +238,10 @@
 				workspace: currentWorkspaceId
 			})
 			const datatables = forkSettings.datatable?.datatables ?? {}
-			const forkedEntries = Object.entries(datatables).filter(([_, dt]) => dt.forked_from != null)
+			const forkedEntries = Object.entries(datatables).filter(
+				([_, dt]) => dt.forked_from != null && dt.migrations_enabled !== true
+			)
+			applicableCount = forkedEntries.length
 			if (forkedEntries.length === 0) {
 				loading = false
 				return
@@ -394,102 +402,107 @@
 	}
 </script>
 
-<h3 class="text-sm font-semibold">Datatable schema changes</h3>
-{#if loading}
-	<div class="flex items-center gap-2 text-xs text-tertiary py-2">
-		<Loader2 class="w-4 h-4 animate-spin" /> Loading datatable diffs...
-	</div>
-{:else if error}
-	<div class="text-xs text-red-500 py-2">Failed to load datatable diffs: {error}</div>
-{:else if diffs.length > 0}
-	<div class="flex flex-col gap-2 mt-3 mb-1">
-		{#each diffs as diff}
-			<ResizeTransitionWrapper class="border rounded-md" innerClass="w-full" vertical>
-				<button
-					class="w-full flex items-center justify-between px-3 py-2 hover:bg-surface-hover"
-					onclick={() => toggleExpanded(diff.datatableName)}
-				>
-					<span class="text-xs font-medium">{diff.datatableName}</span>
-					<div class="flex items-center gap-2 text-2xs text-tertiary">
-						{#if diff.aheadChanges.length > 0}
-							<span class="text-blue-500">{diff.aheadChanges.length} ahead</span>
-						{/if}
-						{#if diff.behindChanges.length > 0}
-							<span class="text-orange-500">{diff.behindChanges.length} behind</span>
-						{/if}
-						{#if expandedDatatables.has(diff.datatableName)}
-							<ChevronDown class="w-3 h-3" />
-						{:else}
-							<ChevronRight class="w-3 h-3" />
-						{/if}
-					</div>
-				</button>
+{#if applicableCount > 0}
+	<div class="bg-surface-tertiary p-4 rounded-md border">
+		<h3 class="text-sm font-semibold">Datatable schema changes</h3>
+		{#if loading}
+			<div class="flex items-center gap-2 text-xs text-tertiary py-2">
+				<Loader2 class="w-4 h-4 animate-spin" /> Loading datatable diffs...
+			</div>
+		{:else if error}
+			<div class="text-xs text-red-500 py-2">Failed to load datatable diffs: {error}</div>
+		{:else if diffs.length > 0}
+			<div class="flex flex-col gap-2 mt-3 mb-1">
+				{#each diffs as diff}
+					<ResizeTransitionWrapper class="border rounded-md" innerClass="w-full" vertical>
+						<button
+							class="w-full flex items-center justify-between px-3 py-2 hover:bg-surface-hover"
+							onclick={() => toggleExpanded(diff.datatableName)}
+						>
+							<span class="text-xs font-medium">{diff.datatableName}</span>
+							<div class="flex items-center gap-2 text-2xs text-tertiary">
+								{#if diff.aheadChanges.length > 0}
+									<span class="text-blue-500">{diff.aheadChanges.length} ahead</span>
+								{/if}
+								{#if diff.behindChanges.length > 0}
+									<span class="text-orange-500">{diff.behindChanges.length} behind</span>
+								{/if}
+								{#if expandedDatatables.has(diff.datatableName)}
+									<ChevronDown class="w-3 h-3" />
+								{:else}
+									<ChevronRight class="w-3 h-3" />
+								{/if}
+							</div>
+						</button>
 
-				{#if expandedDatatables.has(diff.datatableName)}
-					<div class="border-t divide-y">
-						{#if diff.aheadChanges.length > 0}
-							<div class="px-3 py-1.5">
-								<div class="text-2xs font-semibold text-blue-500 mb-1">Fork changes (ahead)</div>
-								{#each diff.aheadChanges as change}
-									<div class="flex items-center gap-2 text-xs py-0.5">
-										{#if change.kind === 'added'}
-											<Plus class="w-3 h-3 text-green-500 shrink-0" />
-										{:else if change.kind === 'removed'}
-											<Minus class="w-3 h-3 text-red-500 shrink-0" />
-										{:else}
-											<Pencil class="w-3 h-3 text-yellow-500 shrink-0" />
-										{/if}
-										<span class="text-tertiary">{change.schemaName}.</span>
-										<span class="font-medium">{change.tableName}</span>
-										<span class="text-tertiary text-2xs grow">{operationSummary(change)}</span>
-										<Button
-											size="xs"
-											variant="subtle"
-											startIcon={{ icon: Eye }}
-											onclick={() => openReview(change, diff, 'ahead')}
+						{#if expandedDatatables.has(diff.datatableName)}
+							<div class="border-t divide-y">
+								{#if diff.aheadChanges.length > 0}
+									<div class="px-3 py-1.5">
+										<div class="text-2xs font-semibold text-blue-500 mb-1">Fork changes (ahead)</div
 										>
-											Review
-										</Button>
+										{#each diff.aheadChanges as change}
+											<div class="flex items-center gap-2 text-xs py-0.5">
+												{#if change.kind === 'added'}
+													<Plus class="w-3 h-3 text-green-500 shrink-0" />
+												{:else if change.kind === 'removed'}
+													<Minus class="w-3 h-3 text-red-500 shrink-0" />
+												{:else}
+													<Pencil class="w-3 h-3 text-yellow-500 shrink-0" />
+												{/if}
+												<span class="text-tertiary">{change.schemaName}.</span>
+												<span class="font-medium">{change.tableName}</span>
+												<span class="text-tertiary text-2xs grow">{operationSummary(change)}</span>
+												<Button
+													size="xs"
+													variant="subtle"
+													startIcon={{ icon: Eye }}
+													onclick={() => openReview(change, diff, 'ahead')}
+												>
+													Review
+												</Button>
+											</div>
+										{/each}
 									</div>
-								{/each}
+								{/if}
+								{#if diff.behindChanges.length > 0}
+									<div class="px-3 py-1.5">
+										<div class="text-2xs font-semibold text-orange-500 mb-1">
+											Parent changes (behind)
+										</div>
+										{#each diff.behindChanges as change}
+											<div class="flex items-center gap-2 text-xs py-0.5">
+												{#if change.kind === 'added'}
+													<Plus class="w-3 h-3 text-green-500 shrink-0" />
+												{:else if change.kind === 'removed'}
+													<Minus class="w-3 h-3 text-red-500 shrink-0" />
+												{:else}
+													<Pencil class="w-3 h-3 text-yellow-500 shrink-0" />
+												{/if}
+												<span class="text-tertiary">{change.schemaName}.</span>
+												<span class="font-medium">{change.tableName}</span>
+												<span class="text-tertiary text-2xs grow">{operationSummary(change)}</span>
+												<Button
+													size="xs"
+													variant="subtle"
+													startIcon={{ icon: Eye }}
+													onclick={() => openReview(change, diff, 'behind')}
+												>
+													Review
+												</Button>
+											</div>
+										{/each}
+									</div>
+								{/if}
 							</div>
 						{/if}
-						{#if diff.behindChanges.length > 0}
-							<div class="px-3 py-1.5">
-								<div class="text-2xs font-semibold text-orange-500 mb-1">
-									Parent changes (behind)
-								</div>
-								{#each diff.behindChanges as change}
-									<div class="flex items-center gap-2 text-xs py-0.5">
-										{#if change.kind === 'added'}
-											<Plus class="w-3 h-3 text-green-500 shrink-0" />
-										{:else if change.kind === 'removed'}
-											<Minus class="w-3 h-3 text-red-500 shrink-0" />
-										{:else}
-											<Pencil class="w-3 h-3 text-yellow-500 shrink-0" />
-										{/if}
-										<span class="text-tertiary">{change.schemaName}.</span>
-										<span class="font-medium">{change.tableName}</span>
-										<span class="text-tertiary text-2xs grow">{operationSummary(change)}</span>
-										<Button
-											size="xs"
-											variant="subtle"
-											startIcon={{ icon: Eye }}
-											onclick={() => openReview(change, diff, 'behind')}
-										>
-											Review
-										</Button>
-									</div>
-								{/each}
-							</div>
-						{/if}
-					</div>
-				{/if}
-			</ResizeTransitionWrapper>
-		{/each}
+					</ResizeTransitionWrapper>
+				{/each}
+			</div>
+		{:else}
+			<span class="text-xs text-secondary"> No changes detected </span>
+		{/if}
 	</div>
-{:else}
-	<span class="text-xs text-secondary"> No changes detected </span>
 {/if}
 
 <Drawer bind:open={drawerOpen} size="900px">

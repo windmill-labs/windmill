@@ -9,6 +9,11 @@ import { GlobalOptions } from "../../types.ts";
 import { runCatalogQuery } from "../../utils/catalog.ts";
 import { psql as psqlDatatable } from "./psql.ts";
 import { serve as serveDatatable } from "./serve.ts";
+import {
+  createMigration,
+  rollbackMigrations,
+  runMigrations,
+} from "../datatable_migrations.ts";
 
 const DEFAULT_DATATABLE_NAME = "main";
 
@@ -40,6 +45,78 @@ async function run(
   const name = opts.name ?? DEFAULT_DATATABLE_NAME;
   await runCatalogQuery(opts, "datatable", name, sql);
 }
+
+function migrateNew(
+  opts: GlobalOptions & { datatable?: string },
+  name: string,
+) {
+  createMigration(opts.datatable ?? DEFAULT_DATATABLE_NAME, name);
+}
+
+// Resolve the datatables to operate on: the one passed via --datatable, or every
+// datatable in the workspace when none is given.
+async function resolveDatatables(
+  workspaceId: string,
+  datatable?: string,
+): Promise<string[]> {
+  if (datatable) return [datatable];
+  const items = await wmill.listDataTables({ workspace: workspaceId });
+  return items.map((x) => x.name);
+}
+
+async function migrateUp(opts: GlobalOptions & { datatable?: string }) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const targets = await resolveDatatables(workspace.workspaceId, opts.datatable);
+  if (targets.length === 0) {
+    log.info("No datatables in the workspace");
+    return;
+  }
+  for (const dt of targets) {
+    await runMigrations(workspace.workspaceId, dt);
+  }
+}
+
+async function migrateDown(opts: GlobalOptions & { datatable?: string }) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const targets = await resolveDatatables(workspace.workspaceId, opts.datatable);
+  if (targets.length === 0) {
+    log.info("No datatables in the workspace");
+    return;
+  }
+  for (const dt of targets) {
+    await rollbackMigrations(workspace.workspaceId, dt);
+  }
+}
+
+const migrateCommand = new Command()
+  .description("manage datatable migrations")
+  .command("new", "scaffold a new migration (.up.sql / .down.sql files)")
+  .arguments("<name:string>")
+  .option(
+    "-d --datatable <datatable:string>",
+    "Target datatable (default: main)",
+  )
+  .action(migrateNew as any)
+  .command(
+    "up",
+    "apply all pending migrations to every datatable (or one via --datatable)",
+  )
+  .option(
+    "-d --datatable <datatable:string>",
+    "Target a specific datatable (default: all datatables in the workspace)",
+  )
+  .action(migrateUp as any)
+  .command(
+    "down",
+    "roll back the most recent migration on every datatable (or one via --datatable)",
+  )
+  .option(
+    "-d --datatable <datatable:string>",
+    "Target a specific datatable (default: all datatables in the workspace)",
+  )
+  .action(migrateDown as any);
 
 async function create(
   opts: GlobalOptions & { resource?: string; force?: boolean },
@@ -124,6 +201,7 @@ const command = new Command()
     "Output only the final result as JSON. Useful for scripting.",
   )
   .action(run as any)
+  .command("migrate", migrateCommand)
   .command(
     "create",
     "register a datatable database in the workspace (default: instance-backed 'main') so scripts can use datatable://<name>",

@@ -192,6 +192,7 @@
 					onData={(data) => {
 						replResultData = data
 					}}
+					onSchemaChange={() => refresh()}
 					placeholderTableName={sortArray(
 						Object.keys(
 							dbSchema?.schema[
