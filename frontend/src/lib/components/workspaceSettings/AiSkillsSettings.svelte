@@ -28,14 +28,14 @@
 	let pendingImport: SkillUpload[] | undefined = $state(undefined)
 	let pendingSkipped: string[] = $state([])
 
-	let pendingNamesPreview = $derived(
-		pendingImport
-			? pendingImport
-					.slice(0, 12)
-					.map((s) => s.name)
-					.join(', ') + (pendingImport.length > 12 ? `, … (+${pendingImport.length - 12} more)` : '')
-			: ''
-	)
+	let pendingNamesPreview = $derived.by(() => {
+		const p = pendingImport ?? []
+		const shown = p
+			.slice(0, 12)
+			.map((s) => s.name)
+			.join(', ')
+		return p.length > 12 ? `${shown}, … (+${p.length - 12} more)` : shown
+	})
 
 	async function loadList() {
 		if (!$workspaceStore) return
