@@ -1885,6 +1885,82 @@ mod tests {
             format!("text={}...", "é".repeat(27))
         );
     }
+
+    #[test]
+    fn validate_migration_name_accepts_safe_names() {
+        for name in ["initial", "add_index_to_customers", "fix-bug_2", "ABC123"] {
+            assert!(
+                validate_migration_name(name).is_ok(),
+                "{name} should be valid"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_migration_name_rejects_unsafe_names() {
+        for name in [
+            "",
+            "add index",
+            "a/b",
+            "a\\b",
+            "a..b",
+            "a.b",
+            "naïve",
+            "a/../b",
+        ] {
+            assert!(
+                validate_migration_name(name).is_err(),
+                "{name} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_datatable_path_segment_accepts_and_rejects() {
+        for ok in ["mydt", "my-dt", "main", "a b"] {
+            assert!(
+                validate_datatable_path_segment(ok).is_ok(),
+                "{ok} should be ok"
+            );
+        }
+        for bad in ["", "a/b", "a\\b", "..", "a..b", "../etc", "x/.."] {
+            assert!(
+                validate_datatable_path_segment(bad).is_err(),
+                "{bad} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_datatable_migration_diff_path_roundtrips() {
+        assert_eq!(
+            parse_datatable_migration_diff_path("mydt/20260101000001_create_users.up.sql"),
+            Some(("mydt".to_string(), 20260101000001))
+        );
+        // up and down map to the same (datatable, timestamp) record.
+        assert_eq!(
+            parse_datatable_migration_diff_path("mydt/20260101000001_create_users.down.sql"),
+            Some(("mydt".to_string(), 20260101000001))
+        );
+        // datatable names may themselves be hyphenated.
+        assert_eq!(
+            parse_datatable_migration_diff_path("my-dt/42_x.up.sql"),
+            Some(("my-dt".to_string(), 42))
+        );
+    }
+
+    #[test]
+    fn parse_datatable_migration_diff_path_rejects_malformed() {
+        // no slash → not a migration path
+        assert_eq!(parse_datatable_migration_diff_path("nofile"), None);
+        // filename not starting with digits → no timestamp
+        assert_eq!(
+            parse_datatable_migration_diff_path("mydt/create_users.up.sql"),
+            None
+        );
+        // empty filename
+        assert_eq!(parse_datatable_migration_diff_path("mydt/"), None);
+    }
 }
 
 /// Resolve a source string to PgDatabase credentials with user-scoped permission checks.
@@ -3229,6 +3305,119 @@ fn validate_datatable_path_segment(datatable: &str) -> Result<()> {
     Ok(())
 }
 
+/// Record a data table migration change as a deployed object so it is tallied
+/// into `workspace_diff` and shows up as a `datatable_migration` item in the
+/// workspace-merge diff. The diff path is `<datatable>/<timestamp>_<name>`,
+/// matching `parse_datatable_migration_diff_path`.
+async fn record_datatable_migration_deployment(
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    datatable: &str,
+    timestamp: i64,
+    name: &str,
+) -> Result<()> {
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        db,
+        w_id,
+        DeployedObject::DatatableMigration { path: format!("{datatable}/{timestamp}_{name}") },
+        Some(format!(
+            "Data table migration {name} ({timestamp}) on {datatable}"
+        )),
+        false,
+        None,
+    )
+    .await
+}
+
+/// Allocate the next version for a data table and insert the migration
+/// definition, in one transaction. A per-(workspace, data table) advisory lock
+/// serializes concurrent version allocation so two creates can't read the same
+/// `MAX(timestamp)` and collide on the `(workspace_id, datatable, timestamp)`
+/// primary key. The version is the current UTC `YYYYMMDDHHMMSS`, bumped past any
+/// existing version to stay unique and monotonically increasing.
+async fn insert_datatable_migration_def(
+    tx: &mut Transaction<'_, Postgres>,
+    w_id: &str,
+    datatable: &str,
+    name: &str,
+    code_up: &str,
+    code_down: Option<&str>,
+) -> Result<i64> {
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
+        w_id,
+        datatable,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    let now_ts: i64 = Utc::now()
+        .format("%Y%m%d%H%M%S")
+        .to_string()
+        .parse()
+        .map_err(|e| Error::internal_err(format!("Failed to build migration version: {}", e)))?;
+    let max_existing: Option<i64> = sqlx::query_scalar!(
+        "SELECT MAX(timestamp) FROM datatable_migrations WHERE workspace_id = $1 AND datatable = $2",
+        w_id,
+        datatable,
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+    let timestamp = match max_existing {
+        Some(m) if m >= now_ts => m + 1,
+        _ => now_ts,
+    };
+
+    sqlx::query!(
+        "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) \
+         VALUES ($1, $2, $3, $4, $5, $6)",
+        w_id,
+        datatable,
+        timestamp,
+        name,
+        code_up,
+        code_down,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(timestamp)
+}
+
+/// Mark a version as already installed in a data table's `_wm_migrations` table
+/// (ensuring the table exists first).
+async fn mark_datatable_version_installed(db: &DB, pg_db: &PgDatabase, version: i64) -> Result<()> {
+    let (client, connection) = pg_db.connect(Some(db)).await?;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+    client
+        .batch_execute(
+            "CREATE TABLE IF NOT EXISTS _wm_migrations (\
+                version BIGINT PRIMARY KEY, \
+                installed_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!("Failed to ensure _wm_migrations table: {}", e))
+        })?;
+    client
+        .execute(
+            "INSERT INTO _wm_migrations (version) VALUES ($1) ON CONFLICT DO NOTHING",
+            &[&version],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!("Failed to mark initial migration installed: {}", e))
+        })?;
+    Ok(())
+}
+
 /// Create a single migration for a data table. The version is generated
 /// server-side (current UTC `YYYYMMDDHHMMSS`), bumped past any existing version
 /// so it stays unique and monotonically increasing.
@@ -3243,35 +3432,17 @@ async fn create_datatable_migration(
     validate_migration_name(&payload.name)?;
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
 
-    let now_ts: i64 = Utc::now()
-        .format("%Y%m%d%H%M%S")
-        .to_string()
-        .parse()
-        .map_err(|e| Error::internal_err(format!("Failed to build migration version: {}", e)))?;
-    let max_existing: Option<i64> = sqlx::query_scalar!(
-        "SELECT MAX(timestamp) FROM datatable_migrations WHERE workspace_id = $1 AND datatable = $2",
+    let mut tx = db.begin().await?;
+    let timestamp = insert_datatable_migration_def(
+        &mut tx,
         &w_id,
         &datatable_name,
-    )
-    .fetch_one(&db)
-    .await?;
-    let timestamp = match max_existing {
-        Some(m) if m >= now_ts => m + 1,
-        _ => now_ts,
-    };
-
-    sqlx::query!(
-        "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) \
-         VALUES ($1, $2, $3, $4, $5, $6)",
-        &w_id,
-        &datatable_name,
-        timestamp,
         &payload.name,
         &payload.code_up,
         payload.code_down.as_deref(),
     )
-    .execute(&db)
     .await?;
+    tx.commit().await?;
 
     audit_log(
         &db,
@@ -3281,6 +3452,16 @@ async fn create_datatable_migration(
         &w_id,
         Some(datatable_name.as_str()),
         None,
+    )
+    .await?;
+
+    record_datatable_migration_deployment(
+        &authed,
+        &db,
+        &w_id,
+        &datatable_name,
+        timestamp,
+        &payload.name,
     )
     .await?;
 
@@ -3301,14 +3482,15 @@ async fn delete_datatable_migration(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    sqlx::query!(
+    let deleted_name = sqlx::query_scalar!(
         "DELETE FROM datatable_migrations \
-         WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3",
+         WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3 \
+         RETURNING name",
         &w_id,
         &datatable_name,
         timestamp,
     )
-    .execute(&db)
+    .fetch_optional(&db)
     .await?;
 
     audit_log(
@@ -3321,6 +3503,19 @@ async fn delete_datatable_migration(
         None,
     )
     .await?;
+
+    // Only tally a change if a migration was actually deleted.
+    if let Some(name) = deleted_name {
+        record_datatable_migration_deployment(
+            &authed,
+            &db,
+            &w_id,
+            &datatable_name,
+            timestamp,
+            &name,
+        )
+        .await?;
+    }
 
     Ok(format!(
         "Deleted migration {} from {}",
@@ -3377,6 +3572,16 @@ async fn upsert_datatable_migration(
     )
     .await?;
 
+    record_datatable_migration_deployment(
+        &authed,
+        &db,
+        &w_id,
+        &datatable_name,
+        payload.timestamp,
+        &payload.name,
+    )
+    .await?;
+
     Ok(format!(
         "Upserted migration {} in {}",
         payload.timestamp, datatable_name
@@ -3412,61 +3617,29 @@ async fn generate_initial_datatable_migration(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let now_ts: i64 = Utc::now()
-        .format("%Y%m%d%H%M%S")
-        .to_string()
-        .parse()
-        .map_err(|e| Error::internal_err(format!("Failed to build migration version: {}", e)))?;
-    let max_existing: Option<i64> = sqlx::query_scalar!(
-        "SELECT MAX(timestamp) FROM datatable_migrations WHERE workspace_id = $1 AND datatable = $2",
-        &w_id,
-        &datatable_name,
-    )
-    .fetch_one(&db)
-    .await?;
-    let timestamp = match max_existing {
-        Some(m) if m >= now_ts => m + 1,
-        _ => now_ts,
-    };
+    // Record the definition first, then mark it installed. If marking fails we
+    // delete the definition, so a failure leaves no phantom "initial" (rather
+    // than a `_wm_migrations` version with no definition that the UI can't
+    // clear). The narrow window where it briefly shows "not run" is benign:
+    // running it would just no-op/fail harmlessly against the existing schema.
+    let mut tx = db.begin().await?;
+    let timestamp =
+        insert_datatable_migration_def(&mut tx, &w_id, &datatable_name, "initial", &code_up, None)
+            .await?;
+    tx.commit().await?;
 
-    // Mark the version installed in the data table BEFORE recording the
-    // definition, so the migration is never observable as "not run".
-    let (client, connection) = pg_db.connect(Some(&db)).await?;
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            tracing::error!("Datatable connection error: {}", e);
-        }
-    });
-    client
-        .batch_execute(
-            "CREATE TABLE IF NOT EXISTS _wm_migrations (\
-                version BIGINT PRIMARY KEY, \
-                installed_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    if let Err(e) = mark_datatable_version_installed(&db, &pg_db, timestamp).await {
+        let _ = sqlx::query!(
+            "DELETE FROM datatable_migrations \
+             WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3",
+            &w_id,
+            &datatable_name,
+            timestamp,
         )
-        .await
-        .map_err(|e| {
-            Error::internal_err(format!("Failed to ensure _wm_migrations table: {}", e))
-        })?;
-    client
-        .execute(
-            "INSERT INTO _wm_migrations (version) VALUES ($1) ON CONFLICT DO NOTHING",
-            &[&timestamp],
-        )
-        .await
-        .map_err(|e| {
-            Error::internal_err(format!("Failed to mark initial migration installed: {}", e))
-        })?;
-
-    sqlx::query!(
-        "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) \
-         VALUES ($1, $2, $3, 'initial', $4, NULL)",
-        &w_id,
-        &datatable_name,
-        timestamp,
-        &code_up,
-    )
-    .execute(&db)
-    .await?;
+        .execute(&db)
+        .await;
+        return Err(e);
+    }
 
     audit_log(
         &db,
@@ -3476,6 +3649,16 @@ async fn generate_initial_datatable_migration(
         &w_id,
         Some(datatable_name.as_str()),
         None,
+    )
+    .await?;
+
+    record_datatable_migration_deployment(
+        &authed,
+        &db,
+        &w_id,
+        &datatable_name,
+        timestamp,
+        "initial",
     )
     .await?;
 
@@ -7466,6 +7649,7 @@ pub struct CompareSummary {
     pub folders_changed: usize,
     pub schedules_changed: usize,
     pub triggers_changed: usize,
+    pub datatable_migrations_changed: usize,
     pub conflicts: usize, // Items that are both ahead and behind
 }
 
@@ -7774,6 +7958,10 @@ async fn compare_workspaces(
             .iter()
             .filter(|s| s.kind.ends_with("_trigger"))
             .count(),
+        datatable_migrations_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind == "datatable_migration")
+            .count(),
         conflicts: visible_diffs
             .iter()
             .filter(|s| s.ahead > 0 && s.behind > 0)
@@ -8013,6 +8201,18 @@ async fn query_visible_items<'c>(
                 sqlx::query_scalar!(
                     "SELECT name FROM resource_type
                      WHERE workspace_id = $1 AND name = ANY($2)",
+                    workspace_id,
+                    &paths_vec
+                )
+                .fetch_all(&mut **tx)
+                .await?
+            }
+            "datatable_migration" => {
+                sqlx::query_scalar!(
+                    r#"SELECT datatable || '/' || timestamp || '_' || name AS "path!"
+                   FROM datatable_migrations
+                   WHERE workspace_id = $1
+                     AND datatable || '/' || timestamp || '_' || name = ANY($2)"#,
                     workspace_id,
                     &paths_vec
                 )
