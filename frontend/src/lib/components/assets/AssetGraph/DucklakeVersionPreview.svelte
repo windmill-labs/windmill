@@ -34,10 +34,13 @@
 	)
 	let tableKey = $derived(schema && table ? `${schema}.${table}` : table)
 
-	// The hand-written equivalent of what this preview runs — surfaced so the
-	// user learns the syntax they can paste into their own consumer SQL.
+	// A paste-able consumer-script form of this read — `lake` matches the alias
+	// the duckdb scaffold ATTACHes the ducklake under, so the reference is
+	// catalog-qualified — surfaced so the user learns the time-travel syntax.
 	let exampleSql = $derived(
-		version != undefined && tableKey ? `FROM ${tableKey} AT (VERSION => ${version})` : undefined
+		version != undefined && tableKey
+			? `FROM lake.${tableKey} AT (VERSION => ${version})`
+			: undefined
 	)
 
 	let colDefs = resource(

@@ -35,7 +35,10 @@
 		return `AT (VERSION => ${version})`
 	}
 	function fromClause(version: number): string {
-		return `FROM ${tableKey ?? 'table'} ${atClause(version)}`
+		// `lake` matches the alias the duckdb scaffold ATTACHes the ducklake under
+		// (`ATTACH 'ducklake://…' AS lake`), so the copied clause is catalog-qualified
+		// and pastes straight into a consumer script.
+		return `FROM lake.${tableKey ?? 'table'} ${atClause(version)}`
 	}
 </script>
 
@@ -92,7 +95,7 @@
 								startIcon={{ icon: ClipboardCopy }}
 								iconOnly
 								onclick={() => copyToClipboard(fromClause(s.snapshot_id))}
-								title="Copy FROM {tableKey ?? 'table'} AT (VERSION => {s.snapshot_id})"
+								title="Copy {fromClause(s.snapshot_id)}"
 							/>
 							<Button
 								variant="default"
