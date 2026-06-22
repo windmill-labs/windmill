@@ -422,7 +422,11 @@ async fn list_apps(
         // for `is_draft`. DISTINCT in the subquery: a path with both kinds for the same
         // user would otherwise fan the deployed row into two identical entries.
         .join(
-            "(SELECT DISTINCT ON (path, workspace_id) path, workspace_id, value FROM draft WHERE typ IN ('app', 'raw_app') AND email = ? ORDER BY path, workspace_id) draft"
+            // `typ` in the ORDER BY makes the DISTINCT ON tie-break deterministic
+            // when a path has both an `app` and a `raw_app` draft for the same user
+            // (picks 'app' < 'raw_app'); both mirror the same typed `value.path`, so
+            // the computed `draft_path` is identical either way — this just pins it.
+            "(SELECT DISTINCT ON (path, workspace_id) path, workspace_id, value FROM draft WHERE typ IN ('app', 'raw_app') AND email = ? ORDER BY path, workspace_id, typ) draft"
                 .bind(&authed.email),
         )
         .on("draft.path = app.path AND draft.workspace_id = app.workspace_id")

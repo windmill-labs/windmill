@@ -40,12 +40,16 @@ function alreadyDone(workspace: string): boolean {
 /**
  * Migrate the current user's `draft_path` drafts in `workspace`. Resolves to
  * `true` when at least one draft was rewritten (caller can refresh the list).
- * Never throws — a partial/failed run leaves the flag unset so it retries later.
+ * Never throws. The run-once flag is set only on a fully clean pass: if the
+ * list fetch OR any individual draft rewrite fails, the flag stays unset so a
+ * later load retries (these are the user's own drafts, so a write failure is
+ * transient rather than a permission denial).
  */
 export async function migrateOwnDraftPaths(workspace: string): Promise<boolean> {
 	if (!workspace || inFlight.has(workspace) || alreadyDone(workspace)) return false
 	inFlight.add(workspace)
 	let changed = false
+	let hadFailure = false
 	try {
 		const rows = await DraftService.listDrafts({ workspace })
 		const candidates = rows.filter((r) => r.mine !== false && MIGRATED_KINDS.includes(r.kind))
@@ -67,14 +71,18 @@ export async function migrateOwnDraftPaths(workspace: string): Promise<boolean> 
 				})
 				changed = true
 			} catch (e) {
-				// Skip this draft; don't abort the whole pass.
+				// Skip this draft but don't abort the pass; leave the flag unset so it
+				// retries on a later load.
+				hadFailure = true
 				console.warn('draft_path migration: skipped', r.kind, r.path, e)
 			}
 		}
-		try {
-			localStorage.setItem(flagKey(workspace), new Date().toISOString())
-		} catch {
-			// best-effort
+		if (!hadFailure) {
+			try {
+				localStorage.setItem(flagKey(workspace), new Date().toISOString())
+			} catch {
+				// best-effort
+			}
 		}
 	} catch (e) {
 		// Listing failed — leave the flag unset so a later load retries.

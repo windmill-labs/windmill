@@ -88,4 +88,25 @@ describe('migrateOwnDraftPaths', () => {
 		expect(changed).toBe(false)
 		expect(localStorage.getItem('wm:draftPathMigration:v1:ws')).toBeNull()
 	})
+
+	it('does not set the flag when an individual draft rewrite fails (so it retries)', async () => {
+		listDrafts.mockResolvedValue([
+			{ kind: 'flow', path: 'u/a/ok', mine: true },
+			{ kind: 'flow', path: 'u/a/bad', mine: true }
+		])
+		getOwnDraft.mockImplementation((d: any) =>
+			Promise.resolve({ value: { path: d.path, draft_path: d.path + '_r' }, created_at: 't' })
+		)
+		updateDraft.mockImplementation((d: any) =>
+			d.path === 'u/a/bad'
+				? Promise.reject(new Error('boom'))
+				: Promise.resolve({ status: 'saved', current_timestamp: 'now' })
+		)
+		const changed = await migrateOwnDraftPaths('ws')
+		// the good one still migrated...
+		expect(changed).toBe(true)
+		expect(updateDraft).toHaveBeenCalledTimes(2)
+		// ...but the flag stays unset because one failed
+		expect(localStorage.getItem('wm:draftPathMigration:v1:ws')).toBeNull()
+	})
 })
