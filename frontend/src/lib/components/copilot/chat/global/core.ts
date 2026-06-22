@@ -3590,6 +3590,29 @@ async function discardLocalDraft(
 	)
 }
 
+// Flush a draft's pending editor autosave, then verify it actually landed before
+// the caller re-reads the persisted draft. `flush()` resolves even when the save
+// recorded a conflict (server has a newer version) or failed (network/5xx) — it
+// does not throw — so without this check a deploy could publish a stale/conflicting
+// draft. Abort with a clear message instead.
+async function flushDraftOrThrow(
+	query: Parameters<typeof UserDraftDbSyncer.flush>[0],
+	label: string
+): Promise<void> {
+	await UserDraftDbSyncer.flush(query)
+	if (UserDraftDbSyncer.getConflict(query).conflict) {
+		throw new Error(
+			`Cannot deploy ${label}: the draft has a conflicting newer version on the server. Open it in the editor and resolve the conflict first.`
+		)
+	}
+	const { state, failureMessage } = UserDraftDbSyncer.getState(query)
+	if (state === 'failed') {
+		throw new Error(
+			`Cannot deploy ${label}: saving the latest draft failed (${failureMessage ?? 'unknown error'}). Retry once the draft saves.`
+		)
+	}
+}
+
 async function deployDraft(
 	args: {
 		type: WorkspaceItemType
@@ -3641,7 +3664,7 @@ async function deployDraft(
 		// we deploy the latest value (not a stale persisted one) — and so the
 		// post-deploy draft delete doesn't drop an unsaved edit. `flush` always saves
 		// the parked value (like Ctrl/Cmd+S), since the user explicitly asked to deploy.
-		await UserDraftDbSyncer.flush({ workspace, itemKind: type, path: storagePath })
+		await flushDraftOrThrow({ workspace, itemKind: type, path: storagePath }, `${type} "${path}"`)
 		const draftOnly =
 			type === 'flow'
 				? !(await FlowService.existsFlowByPath({ workspace, path: storagePath }))
@@ -3761,7 +3784,10 @@ async function deployDraft(
 				// `draft_path` is read from the persisted backend draft below, but an
 				// editor rename may still be parked in a debounced/disabled autosave.
 				// Flush first (like script/flow) so we read the latest chosen path.
-				await UserDraftDbSyncer.flush({ workspace, itemKind: 'raw_app', path: storagePath })
+				await flushDraftOrThrow(
+					{ workspace, itemKind: 'raw_app', path: storagePath },
+					`app "${path}"`
+				)
 				let targetPath = storagePath
 				try {
 					const row = (await AppService.getAppByPath({

@@ -748,6 +748,35 @@ describe('global AI tools', () => {
 		})
 	})
 
+	it('aborts deploy when the pre-deploy draft flush hit a conflict', async () => {
+		// flush() resolves even when the save recorded a conflict; deploy must abort
+		// rather than publish the stale persisted draft.
+		seedBackendDraft(
+			'script',
+			'f/scripts/conflicted',
+			{
+				path: 'f/scripts/conflicted',
+				summary: '',
+				description: '',
+				content: 'export async function main() {}',
+				schema: {},
+				is_template: false,
+				language: 'bun',
+				kind: 'script'
+			},
+			{ workspace: WORKSPACE }
+		)
+		const conflictSpy = vi
+			.spyOn(UserDraftDbSyncer, 'getConflict')
+			.mockReturnValue({ conflict: { serverTimestamp: '2026', localLastSync: null } } as any)
+
+		await expect(
+			callGlobalTool('deploy_workspace_item', { type: 'script', path: 'f/scripts/conflicted' })
+		).rejects.toThrow(/conflicting/)
+		expect(ScriptService.createScript).not.toHaveBeenCalled()
+		conflictSpy.mockRestore()
+	})
+
 	it('writes script drafts into UserDraft', async () => {
 		const content = 'export async function main() {\n\treturn "hello"\n}'
 
