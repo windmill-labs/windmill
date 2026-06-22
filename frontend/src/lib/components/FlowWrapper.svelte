@@ -26,9 +26,9 @@
 	}
 
 	// Stable per-user draft storage key. Captured once so editing the flow's path
-	// (which lives in `draft_path`, not the storage key) can't re-key the autosave
-	// handle and orphan the draft. Mirrors the full-page editor keying on the URL
-	// path; falls back through the SDK's path inputs.
+	// (the typed name lives in the flow value's own `path`, not the storage key)
+	// can't re-key the autosave handle and orphan the draft. Mirrors the full-page
+	// editor keying on the URL path; falls back through the SDK's path inputs.
 	const draftStoragePath = untrack(
 		() =>
 			props.initialPath ||

@@ -208,6 +208,11 @@ async fn list_scripts(
             "kind",
             "o.labels",
             "draft.email IS NOT NULL as is_draft",
+            // Authed user's staged rename, if any: the Path widget binds `script.path`,
+            // so the draft JSON's own `path` (when it differs from the deployed path) is
+            // the pending name. Shows it on the home row for a deployed script with a
+            // rename draft, not just never-deployed (draft-only) items.
+            "NULLIF(NULLIF(draft.value ->> 'path', ''), o.path) as draft_path",
             // Canonical reference for the draft-feature comments; flows/apps point here.
             // Per-path draft owners as a JSON array (`Json<Vec<DraftUserRef>>`); NULL -> None,
             // never an empty array. LEFT JOIN `usr` keeps orphaned drafts (user left workspace)

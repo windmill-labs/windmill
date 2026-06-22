@@ -171,7 +171,7 @@ pub struct ListableApp {
     /// over the deployed row). See ListableScript in windmill-types/src/scripts.rs.
     #[serde(default, skip_serializing_if = "is_false")]
     pub is_draft: bool,
-    /// User-typed staged path from the draft JSON's `draft_path`; `None` = unchanged.
+    /// User-typed staged path from the draft JSON's own `path`; `None` = unchanged.
     /// See ListableScript in windmill-types/src/scripts.rs.
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -395,6 +395,11 @@ async fn list_apps(
             "app_version.raw_app",
             "app.labels",
             "draft.path IS NOT NULL as is_draft",
+            // Authed user's staged rename, if any: the draft JSON's own `path` when it
+            // differs from the deployed path (the `draft` subquery below exposes `value`).
+            // Shows the pending name on the home row for a deployed app with a rename
+            // draft, not just never-deployed (draft-only) items.
+            "NULLIF(NULLIF(draft.value ->> 'path', ''), app.path) as draft_path",
             // Per-path draft owners as a JSON array; see scripts.rs for the rationale
             // (admins-workspace identity fallback, legacy NULL-email row).
             // `app`/`raw_app` are separate draft kinds over one `app` table — match
@@ -417,7 +422,7 @@ async fn list_apps(
         // for `is_draft`. DISTINCT in the subquery: a path with both kinds for the same
         // user would otherwise fan the deployed row into two identical entries.
         .join(
-            "(SELECT DISTINCT path, workspace_id FROM draft WHERE typ IN ('app', 'raw_app') AND email = ?) draft"
+            "(SELECT DISTINCT ON (path, workspace_id) path, workspace_id, value FROM draft WHERE typ IN ('app', 'raw_app') AND email = ? ORDER BY path, workspace_id) draft"
                 .bind(&authed.email),
         )
         .on("draft.path = app.path AND draft.workspace_id = app.workspace_id")
@@ -508,10 +513,10 @@ async fn list_apps(
         for row in draft_only_rows {
             let v: serde_json::Value =
                 serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
-            // App/raw-app drafts are the bare editor value with no `path`, so the editor
-            // writes a separate `draft_path` only when it differs from deployed; see flows.rs.
+            // App/raw-app drafts carry the user-typed path in the value's own
+            // `path`; surface it when it differs from the storage path. See flows.rs.
             let draft_path = v
-                .get("draft_path")
+                .get("path")
                 .and_then(|s| s.as_str())
                 .filter(|s| !s.is_empty() && *s != row.path.as_str())
                 .map(|s| s.to_string());

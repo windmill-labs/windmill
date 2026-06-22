@@ -16,6 +16,7 @@
  */
 import { resource } from 'runed'
 import { DraftService, type UserDraftItemKind } from '$lib/gen'
+import { migrateOwnDraftPaths } from '$lib/draftPathMigration'
 
 export type DraftKind = UserDraftItemKind
 
@@ -23,9 +24,9 @@ export interface DraftItem {
 	kind: DraftKind
 	path: string
 	summary?: string
-	/** User-typed friendly path (from the draft JSON's `draft_path`) when it
-	 * differs from the storage `path` — e.g. a never-deployed item parked at
-	 * `u/{user}/draft_{uuid}`. Display this instead of `path` when present. */
+	/** User-typed friendly path (computed by the backend from the draft JSON's
+	 * own `path`) when it differs from the storage `path` — e.g. a never-deployed
+	 * item parked at `u/{user}/draft_{uuid}`. Display this instead of `path`. */
 	draft_path?: string
 	/** Never deployed — exists only as a draft. */
 	draft_only: boolean
@@ -53,6 +54,12 @@ export async function getDraftItems(
 	workspace: string,
 	allUsers: boolean = false
 ): Promise<DraftItem[]> {
+	// Run-once: rewrite pre-`draft_path`-removal drafts to the new `path` shape.
+	// Fire-and-forget (guarded internally); refresh the list if it changed any so
+	// the migrated renames show up without a manual reload.
+	void migrateOwnDraftPaths(workspace).then((changed) => {
+		if (changed) invalidateWorkspaceDrafts(workspace)
+	})
 	const rows = await DraftService.listDrafts({ workspace, allUsers: allUsers || undefined })
 	return rows.map((r) => ({
 		kind: r.kind,

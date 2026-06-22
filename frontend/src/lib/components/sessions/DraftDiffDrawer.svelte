@@ -62,8 +62,9 @@
 				const kind = DEPLOY_KIND_BY_DRAFT_KIND[baseKind] ?? baseKind
 				donly[`${kind}/${it.path}`] = it.draft_only
 				// A never-deployed app/raw_app is parked at a synthetic `…/draft_<uuid>`
-				// storage path with the user's typed name in `draft_path`; show that
-				// (matches the home list) while `path` stays the storage key for loading.
+				// storage path; the backend surfaces the user's typed name as the
+				// computed `draft_path` field — show that (matches the home list) while
+				// `path` stays the storage key for loading.
 				// `summary` comes straight from the draft row, so it shows for every kind
 				// up front instead of only after the diff value loads.
 				return {

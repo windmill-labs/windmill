@@ -154,6 +154,11 @@ async fn list_flows(
             "ws_error_handler_muted",
             "o.labels",
             "draft.email IS NOT NULL as is_draft",
+            // Authed user's staged rename, if any: the draft JSON's own `path`
+            // when it differs from the deployed path. Lets the home row show the
+            // pending name for a deployed flow with a rename draft, not just
+            // never-deployed (draft-only) items.
+            "NULLIF(NULLIF(draft.value ->> 'path', ''), o.path) as draft_path",
             // Per-path draft owners as a JSON array; see scripts.rs for the rationale
             // (admins-workspace identity fallback, legacy NULL-email row).
             "(SELECT json_agg(json_build_object('username', COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END)) ORDER BY COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) NULLS LAST) \
@@ -269,11 +274,11 @@ async fn list_flows(
         for row in draft_only_rows {
             let v: serde_json::Value =
                 serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
-            // The Path widget binds `$pathStore` one-way (`flow.path → $pathStore`),
-            // so the editor writes a separate `draft_path` field only when the typed
-            // path differs from the deployed one. `None` = unchanged.
+            // The Path widget binds the flow's own `path`, so the draft JSON's
+            // `path` IS the user-typed target. Surface it when it differs from
+            // the storage path. `None` = unchanged.
             let draft_path = v
-                .get("draft_path")
+                .get("path")
                 .and_then(|s| s.as_str())
                 .filter(|s| !s.is_empty() && *s != row.path.as_str())
                 .map(|s| s.to_string());

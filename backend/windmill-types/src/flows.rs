@@ -97,7 +97,7 @@ pub struct ListableFlow {
     /// over the deployed row). See ListableScript in scripts.rs.
     #[serde(default)]
     pub is_draft: bool,
-    /// User-typed staged path from the draft JSON's `draft_path`; `None` = unchanged.
+    /// User-typed staged path from the draft JSON's own `path`; `None` = unchanged.
     /// See ListableScript in scripts.rs.
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]

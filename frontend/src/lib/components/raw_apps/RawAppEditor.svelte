@@ -103,8 +103,8 @@
 		 * still toggle the mode after mount; this prop only seeds the
 		 * initial state. */
 		defaultSplitWithPreview?: boolean
-		/** User-typed path when it differs from `savedApp.path`. The route injects
-		 *  it as `draft_path` so the home row shows the friendly name, not `draft_{uuid}`. */
+		/** User-typed path when it differs from `savedApp.path`. The route persists
+		 *  it as the draft's own `path` so the home row shows the friendly name. */
 		pendingDraftPath?: string | undefined
 		// Threaded to the AutosaveIndicator's "Reset to deployed" button.
 		onResetToDeployed?: () => void | Promise<void>

@@ -176,19 +176,23 @@
 		darkMode
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	// Mirror the user-typed path into the draft as `draft_path` when it differs
-	// from the baseline, so the home row shows the friendly name instead of
-	// `draft_{uuid}`. Drop the field once it matches the baseline again.
+	// Mirror the user-typed path into the autosaved App's own `path` when it
+	// differs from the deployed baseline, so the home row shows the friendly name
+	// instead of the `draft_{uuid}` storage key (and the backend reads it from
+	// `value->>'path'`). Only-when-different keeps an unedited draft byte-equal to
+	// the deployed value (which carries no `path`) so it still dedups/discards;
+	// drop the field once it matches the baseline again. The deployed/original
+	// path is the URL, not this field.
 	$effect(() => {
 		const typed = newEditedPath
 		const baseline = savedApp?.path ?? ''
-		const a = $app
+		const a = $app as (App & { path?: string }) | undefined
 		if (!a) return
 		untrack(() => {
 			if (typed && typed !== baseline) {
-				a.draft_path = typed
-			} else if (a.draft_path !== undefined) {
-				delete a.draft_path
+				a.path = typed
+			} else if (a.path !== undefined) {
+				delete a.path
 			}
 		})
 	})
@@ -197,7 +201,7 @@
 	// autosave stores the bare App value, which has no summary of its own — it
 	// lives in the `app` table column, set only on deploy). Without this the
 	// summary is lost when reopening a draft or deploying it from the Review &
-	// Deploy page. Parallels `draft_path`.
+	// Deploy page. Parallels the path mirror above.
 	$effect(() => {
 		const s = $summary
 		const a = $app
@@ -206,6 +210,19 @@
 			if (a.summary !== s) a.summary = s
 		})
 	})
+
+	// The autosaved App carries draft-only `path`/`summary` mirrors (added by the
+	// two effects above so the home list / Review & Deploy can read a staged
+	// rename and the summary). They are NOT part of the deployed app value — both
+	// have their own `app`-table columns — so strip them before deploying, diffing,
+	// or comparing against the deployed value, keeping the deployed `value` JSON
+	// clean and the no-op deploy check honest. Mirrors `utils_draft_deploy`'s
+	// draft deploy, which destructures the same keys out.
+	function appValueForDeploy(value: any): any {
+		if (!value || typeof value !== 'object') return value
+		const { path: _p, summary: _s, ...rest } = value
+		return rest
+	}
 
 	const { history, jobsDrawerOpen, refreshComponents } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -250,7 +267,7 @@
 			await AppService.createApp({
 				workspace: $workspaceStore!,
 				requestBody: {
-					value: $app,
+					value: appValueForDeploy($app),
 					path,
 					summary: $summary,
 					policy,
@@ -264,7 +281,7 @@
 			invalidateWorkspacePaths($workspaceStore!)
 			savedApp = {
 				summary: $summary,
-				value: structuredClone($state.snapshot($app)),
+				value: appValueForDeploy(structuredClone($state.snapshot($app))),
 				path: path,
 				policy: policy,
 				custom_path: customPath
@@ -307,7 +324,7 @@
 					orderedJsonStringify(
 						replaceFalseWithUndefined({
 							summary: $summary,
-							value: $app,
+							value: appValueForDeploy($app),
 							path: newEditedPath || savedApp.path,
 							policy,
 							custom_path: customPath
@@ -335,9 +352,13 @@
 
 		deployedBy = deployedApp.created_by
 
-		// Strip off extra information
+		// Strip off extra information. Also drop any draft-only `path`/`summary`
+		// keys baked into a previously-deployed value (legacy apps deployed before
+		// these were stripped) so the no-op deploy check and diff stay symmetric
+		// with the now-stripped editor value.
 		deployedValue = replaceFalseWithUndefined({
 			...deployedApp,
+			value: appValueForDeploy(deployedApp.value),
 			id: undefined,
 			created_at: undefined,
 			created_by: undefined,
@@ -352,7 +373,7 @@
 			workspace: $workspaceStore!,
 			path: $appPath!,
 			requestBody: {
-				value: $app!,
+				value: appValueForDeploy($app),
 				summary: $summary,
 				policy,
 				path: npath,
@@ -367,7 +388,7 @@
 		invalidateWorkspacePaths($workspaceStore!)
 		savedApp = {
 			summary: $summary,
-			value: structuredClone($state.snapshot($app)),
+			value: appValueForDeploy(structuredClone($state.snapshot($app))),
 			path: npath,
 			policy,
 			custom_path: customPath
@@ -609,7 +630,7 @@
 					deployed: deployedValue ?? savedApp,
 					current: {
 						summary: $summary,
-						value: $app,
+						value: appValueForDeploy($app),
 						path: newEditedPath || savedApp.path,
 						policy,
 						custom_path: customPath
@@ -737,7 +758,7 @@
 	bind:deployedValue
 	currentValue={{
 		summary: $summary,
-		value: $app,
+		value: appValueForDeploy($app),
 		path: newEditedPath || savedApp?.path,
 		policy,
 		custom_path: customPath
@@ -781,7 +802,7 @@
 							deployed: deployedValue ?? savedApp,
 							current: {
 								summary: $summary,
-								value: $app,
+								value: appValueForDeploy($app),
 								path: newEditedPath || savedApp.path,
 								policy,
 								custom_path: customPath

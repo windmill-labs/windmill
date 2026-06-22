@@ -107,13 +107,21 @@
 		: `${base}/apps${app.raw_app ? '_raw' : ''}/get/${app.path}`}
 	kind="app"
 	{marked}
-	path={(app as any).draft_path ?? app.path}
-	summary={app.is_draft ? `${app.summary || (app as any).draft_path || app.path}*` : app.summary}
+	path={app.draft_path ?? app.path}
+	summary={app.is_draft ? `${app.summary || app.draft_path || app.path}*` : app.summary}
 	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
 	canFavorite={!app.draft_only}
 	{depth}
 	{keyboardSelected}
 >
+	{#snippet pathDisplay()}
+		{#if !app.draft_only && app.draft_path && app.draft_path !== app.path}
+			<span class="line-through">{app.path}</span>
+			{app.draft_path}
+		{:else}
+			{app.draft_path ?? app.path}
+		{/if}
+	{/snippet}
 	{#snippet badges()}
 		{#if app.execution_mode == 'anonymous'}
 			<Badge small icon={{ icon: Eye }}>Public</Badge>

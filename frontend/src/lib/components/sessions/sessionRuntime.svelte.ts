@@ -105,7 +105,7 @@ export interface SessionRuntime {
 					summary: string
 					path: string
 					custom_path?: string
-					draft_path?: string
+					typedPath?: string
 			  }
 			| undefined
 	}
@@ -453,15 +453,11 @@ function createRuntime(session: Session): SessionRuntime {
 								)
 							) as NewScript)
 						: {
-								// Seed from the draft's own path (a rename lives in `draft_path`,
-								// else `path`), not the storage key. Otherwise re-seeding a renamed
+								// Seed from the draft's own `path` (the Path widget binds it
+								// directly), not the storage key. Otherwise re-seeding a renamed
 								// never-deployed draft (e.g. a script→script switch re-runs loadScript
-								// with the draft still in memory) resets the path to `draft_<uuid>`,
-								// and the next autosave drops `draft_path` — clobbering the rename.
-								path:
-									(aiDraft as NewScript & { draft_path?: string }).draft_path ??
-									aiDraft.path ??
-									path,
+								// with the draft still in memory) resets the path to the storage key.
+								path: aiDraft.path ?? path,
 								summary: aiDraft.summary ?? '',
 								content: '',
 								description: '',
@@ -612,7 +608,7 @@ function createRuntime(session: Session): SessionRuntime {
 					summary: draftValue?.summary ?? result.summary ?? '',
 					path: result.path,
 					custom_path: draftValue?.custom_path ?? result.custom_path,
-					draft_path: draftValue?.draft_path
+					typedPath: draftValue?.path
 				}
 				// Seed the per-tab last_sync from the server draft's timestamp so
 				// later saves attach a matching last_sync and the server can reject
