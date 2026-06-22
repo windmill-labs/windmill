@@ -31,7 +31,9 @@ use windmill_common::tracing_init::{LOGS_SERVICE, TMP_WINDMILL_LOGS_SERVICE};
 use windmill_common::worker::WINDMILL_DIR;
 use windmill_common::{DB, INSTANCE_NAME, JOB_RETENTION_SECS, SERVICE_LOG_RETENTION_SECS};
 
-use windmill_object_store::object_store_reexports::{ObjectStore, Path as ObjectPath};
+use windmill_object_store::object_store_reexports::{
+    Error as ObjectStoreError, ObjectStore, Path as ObjectPath,
+};
 
 pub const TASK_NAME: &str = "log_cleanup";
 
@@ -187,6 +189,12 @@ async fn s3_bulk_delete(
     while let Some(r) = res.next().await {
         match r {
             Ok(_) => deleted += 1,
+            // Deleting a non-existent object is a successful no-op. S3's DeleteObjects
+            // ignores missing keys, but GCS returns 404 per delete, surfacing as
+            // NotFound — count it as deleted to avoid noisy errors.
+            Err(ObjectStoreError::NotFound { .. }) => {
+                deleted += 1;
+            }
             Err(e) => {
                 errors += 1;
                 tracing::warn!("log cleanup: failed to delete object: {e:#}");

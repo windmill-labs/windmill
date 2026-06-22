@@ -1640,7 +1640,15 @@ async fn delete_log_files_from_disk_and_store(
                 let mut result = os.delete_stream(stream);
                 while let Some(r) = result.next().await {
                     if let Err(e) = r {
-                        tracing::error!("Failed to delete from object store: {e}");
+                        // Deleting a non-existent object is a successful no-op. S3's
+                        // DeleteObjects ignores missing keys, but GCS returns 404 per
+                        // delete, surfacing as NotFound — skip it to avoid noisy errors.
+                        if !matches!(
+                            e,
+                            windmill_object_store::object_store_reexports::ObjectStoreError::NotFound { .. }
+                        ) {
+                            tracing::error!("Failed to delete from object store: {e}");
+                        }
                     }
                 }
             }
