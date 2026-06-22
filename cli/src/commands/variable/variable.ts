@@ -225,17 +225,22 @@ async function push(
   // Pushing plaintext as already-encrypted would brick the variable. An explicit
   // --plain-secrets always forces the plaintext (encrypt) path.
   let plainSecrets = opts.plainSecrets ?? false;
-  if (
-    opts.plainSecrets === undefined &&
-    local.is_secret &&
-    !looksLikeWorkspaceCiphertext(local.value)
-  ) {
-    log.info(
-      colors.yellow(
-        "Secret value is not in encrypted form; pushing as plaintext to be encrypted server-side (pass --plain-secrets to silence)."
-      )
-    );
-    plainSecrets = true;
+  if (opts.plainSecrets === undefined && local.is_secret) {
+    if (!looksLikeWorkspaceCiphertext(local.value)) {
+      log.info(
+        colors.yellow(
+          "Secret value is not in encrypted form; pushing as plaintext to be encrypted server-side (pass --plain-secrets to silence)."
+        )
+      );
+      plainSecrets = true;
+    } else {
+      // The value has the shape of workspace ciphertext, so it's stored as-is.
+      // A plaintext secret that coincidentally looks like ciphertext (e.g. a
+      // base64 token) would be stored unreadable, so surface the assumption.
+      log.warn(
+        "Secret value looks already-encrypted; pushing it as-is. If it is a plaintext secret, re-run with --plain-secrets so it gets encrypted."
+      );
+    }
   }
 
   await pushVariable(
