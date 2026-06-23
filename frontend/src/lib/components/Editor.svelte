@@ -369,6 +369,11 @@
 			code = ncode
 		}
 
+		// setCode is an authoritative overwrite (reset, AI apply, module switch).
+		// Cancel any in-flight keystroke debounce first: otherwise alignCodeWithEditor
+		// skips on the `timeoutModel` guard (leaving Monaco stale), and the pending
+		// updateCode later reads the old buffer and writes it back over `ncode`.
+		cancelPendingChanges()
 		alignCodeWithEditor(!noHistory)
 		// Dispatch change immediately when code actually changed. This ensures
 		// callers like the Reset button and copilot trigger on:change handlers.
@@ -415,12 +420,19 @@
 	 * see it. Clears the chain state so the next keystroke after this
 	 * flush is a fresh leading fire. */
 	export function flushPendingChanges(): void {
+		cancelPendingChanges()
+		updateCode()
+	}
+
+	/** Discard any in-flight keystroke debounce without materializing it, so a
+	 * deferred updateCode can't fire later. Resets chain state to a fresh leading
+	 * fire on the next keystroke. */
+	function cancelPendingChanges(): void {
 		if (timeoutModel !== undefined) {
 			clearTimeout(timeoutModel)
 			timeoutModel = undefined
 		}
 		changeChainStart = undefined
-		updateCode()
 	}
 
 	export function append(code: string): void {
