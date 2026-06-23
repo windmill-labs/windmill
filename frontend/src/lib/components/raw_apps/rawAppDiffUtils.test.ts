@@ -239,4 +239,34 @@ describe('rawAppDiffToItems', () => {
 		expect(meta.fullYamlOriginal).toContain('old')
 		expect(meta.fullYamlCurrent).toContain('new')
 	})
+
+	it('keeps the metadata flag on the right item when a real file is named app.yaml', () => {
+		const items = rawAppDiffToItems(
+			appPath,
+			{ summary: 'old', value: { files: { 'app.yaml': 'real-old' } } },
+			{ summary: 'new', value: { files: { 'app.yaml': 'real-new' } } }
+		)
+		// Real file keeps the natural path and is NOT the metadata item.
+		const realFile = items.find((i) => i.path === `${appPath}/app.yaml`) as any
+		expect(realFile.isMetadata).toBe(false)
+		expect(realFile.fullYamlCurrent).toBeUndefined()
+		// Synthesized metadata moved to app.yaml~2 but still carries the flag + YAML.
+		const meta = items.find((i) => i.path === `${appPath}/app.yaml~2`) as any
+		expect(meta.isMetadata).toBe(true)
+		expect(meta.fullYamlCurrent).toContain('new')
+	})
+
+	it('dedups a runnable leaf against a real file named runnables/<name>', () => {
+		const items = rawAppDiffToItems(
+			appPath,
+			{ value: { files: { '/runnables/foo': 'old' }, runnables: { foo: { p: 1 } } } },
+			{ value: { files: { '/runnables/foo': 'new' }, runnables: { foo: { p: 2 } } } }
+		)
+		const realFile = items.find((i) => i.kind === 'raw_app_file')!
+		const runnable = items.find((i) => i.kind === 'script')!
+		expect(realFile.path).toBe(`${appPath}/runnables/foo`)
+		// Reserved away from the real file's composite path (slash-normalized).
+		expect(runnable.path).toBe(`${appPath}/runnables/foo~2`)
+		expect(runnable.path).not.toBe(realFile.path)
+	})
 })

@@ -17,6 +17,10 @@ export interface RawAppDiffEntry {
 	current?: string
 	/** Monaco language id for the per-file diff editor. */
 	lang: string
+	/** True for the synthesized metadata leaf. Tracked as a flag (not by matching
+	 * `path === 'app.yaml'`) so it survives `reserveUnique` moving the leaf to
+	 * `app.yaml~2` when a real file is literally named `app.yaml`. */
+	isMetadata?: boolean
 }
 
 // Loose shape — diff inputs come from `getItemValue` / drafts and aren't
@@ -193,7 +197,8 @@ export function parseRawAppDiff(
 			status: metaStatus,
 			original: oMeta,
 			current: cMeta,
-			lang: 'yaml'
+			lang: 'yaml',
+			isMetadata: true
 		})
 	}
 
@@ -318,7 +323,7 @@ export function rawAppDiffToItems(
 			original: e.original,
 			current: e.current,
 			lang: e.lang,
-			isMetadata: e.path === RAW_APP_METADATA_PATH
+			isMetadata: e.isMetadata ?? false
 		})
 	)
 	const metaItem = fileItems.find((i) => i.isMetadata)
@@ -328,8 +333,18 @@ export function rawAppDiffToItems(
 	}
 
 	// Runnables → script/flow rows, diffed on their object value.
-	const oRun = normalizeRawApp(original)?.runnables ?? {}
-	const cRun = normalizeRawApp(current)?.runnables ?? {}
+	const oApp = normalizeRawApp(original)
+	const cApp = normalizeRawApp(current)
+	const oRun = oApp?.runnables ?? {}
+	const cRun = cApp?.runnables ?? {}
+	// Reserve each runnable's composite leaf against the real file paths, mirroring
+	// parseRawAppDiff, so a real file literally named `runnables/<name>` can't yield
+	// a second leaf at the same composite path. Normalize the leading slash (which
+	// joinAppPath strips) so `/runnables/x` and `runnables/x` are seen as equal.
+	const stripSlash = (p: string) => p.replace(/^\/+/, '')
+	const taken = new Set<string>(
+		[...Object.keys(oApp?.files ?? {}), ...Object.keys(cApp?.files ?? {})].map(stripSlash)
+	)
 	const runnableItems: RawAppRunnableItem[] = []
 	for (const name of [...new Set([...Object.keys(oRun), ...Object.keys(cRun)])].sort()) {
 		const inO = Object.prototype.hasOwnProperty.call(oRun, name)
@@ -338,10 +353,11 @@ export function rawAppDiffToItems(
 		const cStr = inC ? orderedYamlStringify(cRun[name]) : undefined
 		const status = diffStatus(oStr, cStr)
 		if (!status) continue
+		const rel = reserveUnique(`${RUNNABLES_PREFIX}${name}`, taken)
 		runnableItems.push({
 			kind: runnableKind(oRun[name], cRun[name]),
-			path: joinAppPath(appPath, `${RUNNABLES_PREFIX}${name}`),
-			displayPath: joinAppPath(displayAppPath, `${RUNNABLES_PREFIX}${name}`),
+			path: joinAppPath(appPath, rel),
+			displayPath: joinAppPath(displayAppPath, rel),
 			ahead: 0,
 			behind: 0,
 			has_changes: true,
