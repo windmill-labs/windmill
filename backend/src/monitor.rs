@@ -4376,45 +4376,65 @@ RETURNING key,job_id
     Ok(())
 }
 
-async fn cleanup_job_perms_orphaned(db: &DB) -> error::Result<()> {
-    let result = sqlx::query!(
-        "DELETE FROM job_perms
-         WHERE ctid IN (
-             SELECT jp.ctid FROM job_perms jp
-             WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = jp.job_id)
-             LIMIT 100000
-         )"
-    )
-    .execute(db)
-    .await?;
+// Per-statement cap keeps each delete short and lock-light; the per-cycle batch
+// cap bounds total work per monitor iteration so monitor_db stays responsive.
+// A large backlog drains across several iterations rather than one long delete.
+const ORPHAN_CLEANUP_BATCH_SIZE: u64 = 100_000;
+const ORPHAN_CLEANUP_MAX_BATCHES: usize = 10;
 
-    let count = result.rows_affected();
-    if count > 0 {
-        tracing::info!("Cleaned up {count} orphaned job_perms rows");
+async fn cleanup_job_perms_orphaned(db: &DB) -> error::Result<()> {
+    let mut total: u64 = 0;
+    for _ in 0..ORPHAN_CLEANUP_MAX_BATCHES {
+        let count = sqlx::query!(
+            "DELETE FROM job_perms
+             WHERE ctid IN (
+                 SELECT jp.ctid FROM job_perms jp
+                 WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = jp.job_id)
+                 LIMIT 100000
+             )"
+        )
+        .execute(db)
+        .await?
+        .rows_affected();
+        total += count;
+        if count < ORPHAN_CLEANUP_BATCH_SIZE {
+            break;
+        }
+    }
+
+    if total > 0 {
+        tracing::info!("Cleaned up {total} orphaned job_perms rows");
     }
     Ok(())
 }
 
 async fn cleanup_job_result_stream_orphaned_jobs(db: &DB) -> error::Result<()> {
-    let result = sqlx::query!(
-        "DELETE FROM job_result_stream_v2
-         WHERE ctid IN (
-             SELECT jrs.ctid FROM job_result_stream_v2 jrs
-             WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = jrs.job_id)
-               AND NOT EXISTS (
-                   SELECT 1 FROM v2_job_completed c
-                   WHERE c.id = jrs.job_id
-                     AND c.completed_at > NOW() - INTERVAL '60 seconds'
-               )
-             LIMIT 100000
-         )",
-    )
-    .execute(db)
-    .await?;
+    let mut total: u64 = 0;
+    for _ in 0..ORPHAN_CLEANUP_MAX_BATCHES {
+        let count = sqlx::query!(
+            "DELETE FROM job_result_stream_v2
+             WHERE ctid IN (
+                 SELECT jrs.ctid FROM job_result_stream_v2 jrs
+                 WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = jrs.job_id)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM v2_job_completed c
+                       WHERE c.id = jrs.job_id
+                         AND c.completed_at > NOW() - INTERVAL '60 seconds'
+                   )
+                 LIMIT 100000
+             )",
+        )
+        .execute(db)
+        .await?
+        .rows_affected();
+        total += count;
+        if count < ORPHAN_CLEANUP_BATCH_SIZE {
+            break;
+        }
+    }
 
-    let count = result.rows_affected();
-    if count > 0 {
-        tracing::info!("Cleaned up {count} orphaned job_result_stream_v2 rows");
+    if total > 0 {
+        tracing::info!("Cleaned up {total} orphaned job_result_stream_v2 rows");
     }
     Ok(())
 }
