@@ -414,7 +414,11 @@ async fn validate_object_storage_test(settings: &ObjectSettings) -> error::Resul
             {
                 for value in map.values() {
                     if let Some(url) = value.as_str() {
-                        if url.starts_with("http://") || url.starts_with("https://") {
+                        // Match how the URL parser reads the value: leading whitespace/control is
+                        // ignored and the scheme is case-insensitive.
+                        let url =
+                            url.trim_start_matches(|c: char| c.is_whitespace() || c.is_control());
+                        if strip_http_scheme(url).is_some() {
                             validate_public_endpoint(url).await?;
                         }
                     }
@@ -465,12 +469,23 @@ async fn validate_public_endpoint(endpoint: &str) -> error::Result<()> {
     Ok(())
 }
 
+// Strip a leading `http://`/`https://` scheme case-insensitively (URL schemes are
+// case-insensitive), returning the remainder when one was present.
+#[cfg(feature = "parquet")]
+fn strip_http_scheme(s: &str) -> Option<&str> {
+    for scheme in ["https://", "http://"] {
+        let b = scheme.as_bytes();
+        if s.len() >= b.len() && s.as_bytes()[..b.len()].eq_ignore_ascii_case(b) {
+            return Some(&s[b.len()..]);
+        }
+    }
+    None
+}
+
 #[cfg(feature = "parquet")]
 fn extract_host(endpoint: &str) -> Option<String> {
     let mut s = endpoint.trim();
-    if let Some(rest) = s.strip_prefix("https://") {
-        s = rest;
-    } else if let Some(rest) = s.strip_prefix("http://") {
+    if let Some(rest) = strip_http_scheme(s) {
         s = rest;
     }
     s = s.split(['/', '?', '#', '\\']).next().unwrap_or(s);
@@ -2114,12 +2129,20 @@ mod object_storage_test_hardening {
 
     #[tokio::test]
     async fn rejects_gcs_internal_base_url() {
-        // gcs_base_url in the service-account key must not smuggle an internal host past the check.
-        assert!(
-            validate_object_storage_test(&gcs_settings("http://169.254.169.254"))
-                .await
-                .is_err()
-        );
+        // gcs_base_url in the service-account key must not smuggle an internal host past the check,
+        // including via a mixed-case scheme (URL schemes are case-insensitive).
+        for url in [
+            "http://169.254.169.254",
+            "HTTP://169.254.169.254",
+            "Https://10.0.0.5",
+        ] {
+            assert!(
+                validate_object_storage_test(&gcs_settings(url))
+                    .await
+                    .is_err(),
+                "{url} should be rejected"
+            );
+        }
     }
 
     #[tokio::test]
@@ -2186,6 +2209,8 @@ mod object_storage_test_hardening {
                 Some("169.254.169.254"),
             ),
             ("s3.#@169.254.169.254/x.amazonaws.com", Some("s3.")),
+            // Scheme is case-insensitive.
+            ("HTTP://169.254.169.254", Some("169.254.169.254")),
         ];
         for (input, expected) in cases {
             assert_eq!(extract_host(input).as_deref(), expected, "input: {input}");
