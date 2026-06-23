@@ -1974,6 +1974,9 @@
 		const next = code ?? ''
 		const value = ed.getValue()
 		const model = ed.getModel()
+		// Some keystrokes are still being debounced, don't overwrite them.
+		// When the debounce is done, updateCode will be called and the code will be aligned with the editor.
+		if (timeoutModel !== undefined) return
 		if (!model) return
 		if (value === next) return
 		if (history) {
