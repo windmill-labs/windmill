@@ -19,7 +19,7 @@
 </script>
 
 <script lang="ts">
-	import { parentFolderKey } from './forkDiffNav'
+	import { buildDiffTree, type AppRootMeta, type TreeNode } from './diffTree'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import {
@@ -218,22 +218,6 @@
 	const statusIcons = { added: Plus, removed: Minus, modified: Pencil, conflict: AlertTriangle }
 
 	// ── File tree ───────────────────────────────────────────────────────────
-	type FolderNode = {
-		type: 'folder'
-		name: string
-		fullPath: string
-		isScope: boolean
-		children: TreeNode[]
-		/** Present when this folder is a raw app's root: its files are nested
-		 * children but the header renders as the raw-app row (icon + summary +
-		 * status) instead of a plain folder. */
-		app?: AppRootMeta
-	}
-	type FileNode = { type: 'file'; name: string; diff: DisplayDiff }
-	type TreeNode = FolderNode | FileNode
-
-	type AppRootMeta = { summaryKey: string; summary?: string }
-
 	// Friendly app path → app metadata, for tagging the matching tree folder as a
 	// raw-app root. Keyed on `displayPathOf` so it lines up with the friendly
 	// virtual paths the synthetic file items carry.
@@ -249,63 +233,6 @@
 		return m
 	})
 
-	function buildTree(rows: DisplayDiff[], appMeta: Map<string, AppRootMeta>): FolderNode {
-		const root: FolderNode = {
-			type: 'folder',
-			name: '',
-			fullPath: '',
-			isScope: false,
-			children: []
-		}
-		const folderCache = new Map<string, FolderNode>()
-		for (const d of rows) {
-			const parts = displayPathOf(d).split('/')
-			if (parts.length < 2) {
-				root.children.push({ type: 'file', name: displayPathOf(d), diff: d })
-				continue
-			}
-			const scopeKey = parts.slice(0, 2).join('/')
-			let scope = folderCache.get(scopeKey)
-			if (!scope) {
-				scope = { type: 'folder', name: scopeKey, fullPath: scopeKey, isScope: true, children: [] }
-				folderCache.set(scopeKey, scope)
-				root.children.push(scope)
-			}
-			if (parts.length === 2) {
-				scope.children.push({ type: 'file', name: parts[1], diff: d })
-				continue
-			}
-			const rest = parts.slice(2)
-			let parent = scope
-			let fkey = scopeKey
-			for (let i = 0; i < rest.length - 1; i++) {
-				fkey = `${fkey}/${rest[i]}`
-				let folder = folderCache.get(fkey)
-				if (!folder) {
-					folder = { type: 'folder', name: rest[i], fullPath: fkey, isScope: false, children: [] }
-					folderCache.set(fkey, folder)
-					parent.children.push(folder)
-				}
-				parent = folder
-			}
-			parent.children.push({ type: 'file', name: rest[rest.length - 1], diff: d })
-		}
-		const sortRec = (n: FolderNode) => {
-			n.children.sort((a, b) => {
-				if (a.type !== b.type) return a.type === 'folder' ? -1 : 1
-				return a.name.localeCompare(b.name)
-			})
-			for (const c of n.children) if (c.type === 'folder') sortRec(c)
-		}
-		sortRec(root)
-		// Tag the folder matching each raw app's friendly path as its app root.
-		for (const [fp, meta] of appMeta) {
-			const f = folderCache.get(fp)
-			if (f) f.app = meta
-		}
-		return root
-	}
-
 	function searchableText(d: DisplayDiff): string {
 		const parts = [displayPathOf(d), KIND_LABELS[d.kind] ?? d.kind]
 		const s = summaries[itemKey(d)] ?? ('summary' in d ? d.summary : undefined)
@@ -320,7 +247,12 @@
 		return (searchedDiffs ?? []) as DisplayDiff[]
 	})
 
-	const tree = $derived(buildTree(filteredDiffs, appRootMeta))
+	const treeModel = $derived(
+		buildDiffTree(
+			filteredDiffs.map((d) => ({ key: itemKey(d), structurePath: displayPathOf(d), data: d })),
+			appRootMeta
+		)
+	)
 
 	function rowId(d: DisplayDiff): string {
 		return `ws-diff-${itemKey(d)}`
@@ -338,29 +270,8 @@
 	function isFolderOpen(key: string): boolean {
 		return folderOpen[key] ?? true
 	}
-	function folderKey(node: FolderNode): string {
-		return `folder:${node.fullPath}`
-	}
 
-	type NavEntry =
-		| { type: 'folder'; key: string; node: FolderNode }
-		| { type: 'file'; key: string; diff: DisplayDiff }
-
-	function flattenVisible(node: FolderNode): NavEntry[] {
-		const out: NavEntry[] = []
-		const walk = (n: TreeNode) => {
-			if (n.type === 'file') {
-				out.push({ type: 'file', key: itemKey(n.diff), diff: n.diff })
-				return
-			}
-			const fkey = folderKey(n)
-			out.push({ type: 'folder', key: fkey, node: n })
-			if (isFolderOpen(fkey)) for (const c of n.children) walk(c)
-		}
-		for (const c of node.children) walk(c)
-		return out
-	}
-	const navEntries = $derived(flattenVisible(tree))
+	const navEntries = $derived(treeModel.order((k) => isFolderOpen(k)))
 	const navKeys = $derived(navEntries.map((e) => e.key))
 	const entryByKey = $derived(new Map(navEntries.map((e) => [e.key, e])))
 
@@ -402,24 +313,10 @@
 		const entry = entryByKey.get(highlightedKey)
 		if (!entry) return
 		if (entry.type === 'file') {
-			scrollToDiff(entry.diff)
+			scrollToDiff(entry.data)
 		} else {
 			folderOpen[entry.key] = !isFolderOpen(entry.key)
 		}
-	}
-
-	function parentFolderKeyFor(entry: NavEntry): string | undefined {
-		// Use the display path so the derived parent key matches the folder keys,
-		// which are built from `displayPathOf` (a raw app's files key on their
-		// storage `…/draft_<uuid>` path but nest under the friendly folder).
-		const path = entry.type === 'folder' ? entry.node.fullPath : displayPathOf(entry.diff)
-		return parentFolderKey(entry.type, path)
-	}
-
-	function firstChildKey(node: FolderNode): string | undefined {
-		const c = node.children[0]
-		if (!c) return undefined
-		return c.type === 'folder' ? folderKey(c) : itemKey(c.diff)
 	}
 
 	function selectKey(key: string) {
@@ -446,7 +343,7 @@
 				folderOpen[entry.key] = true
 				return
 			}
-			const child = firstChildKey(entry.node)
+			const child = treeModel.firstChildKeyOf(entry.key)
 			if (child) {
 				e.preventDefault()
 				selectKey(child)
@@ -459,7 +356,7 @@
 				folderOpen[entry.key] = false
 				return
 			}
-			const parent = parentFolderKeyFor(entry)
+			const parent = treeModel.parentKeyOf(entry.key)
 			if (parent && entryByKey.has(parent)) {
 				e.preventDefault()
 				selectKey(parent)
@@ -475,10 +372,10 @@
 	f={(d: DisplayDiff) => searchableText(d)}
 />
 
-{#snippet renderTreeNode(node: TreeNode, depth: number)}
+{#snippet renderTreeNode(node: TreeNode<DisplayDiff>, depth: number)}
 	{#if node.type === 'folder'}
 		{@const isUserScope = node.isScope && node.name.startsWith('u/')}
-		{@const fkey = folderKey(node)}
+		{@const fkey = node.key}
 		{@const open = isFolderOpen(fkey)}
 		{@const isHl = fkey === highlightedKey}
 		<details
@@ -550,25 +447,26 @@
 			</div>
 		</details>
 	{:else}
-		{@const key = itemKey(node.diff)}
+		{@const d = node.data}
+		{@const key = node.key}
 		<!-- Folders place their icon at the base padding (depth*12+8) — the chevron
 		     now sits at the row's end, not the front. WorkspaceItemRow adds its own
 		     12px base, so indent = depth*12-4 lines a file's icon up with sibling
 		     folder icons. Keep in sync with the folder summary. -->
 		<WorkspaceItemRow
-			kind={node.diff.kind as any}
-			iconPath={node.diff.path}
+			kind={d.kind as any}
+			iconPath={d.path}
 			baseClass="py-1.5"
 			singleLine
-			summary={summaries[key] ?? ('summary' in node.diff ? node.diff.summary : undefined)}
+			summary={summaries[key] ?? ('summary' in d ? d.summary : undefined)}
 			secondary={node.name}
 			highlighted={key === highlightedKey}
 			navKey={key}
 			indent={depth * 12 - 4}
-			title={displayPathOf(node.diff)}
+			title={displayPathOf(d)}
 			onclick={() => {
 				highlightedKey = key
-				scrollToDiff(node.diff)
+				scrollToDiff(d)
 			}}
 			onmouseenter={() => setHoverHighlight(key)}
 		/>
@@ -638,8 +536,8 @@
 						/>
 					</div>
 					<div class="flex-1 min-h-0 overflow-y-auto pb-3 flex flex-col gap-1">
-						{#if tree.children.length > 0}
-							{#each tree.children as child}
+						{#if treeModel.root.children.length > 0}
+							{#each treeModel.root.children as child}
 								{@render renderTreeNode(child, 0)}
 							{/each}
 						{:else}
