@@ -55,6 +55,11 @@ export const RAW_APP_METADATA_PATH = 'app.yaml'
 const RUNNABLES_PREFIX = 'runnables/'
 const METADATA_FIELDS = ['summary', 'data', 'policy', 'custom_path'] as const
 
+// Real file keys may carry a leading slash (`/App.tsx`) which `joinAppPath`
+// strips. Collision reservation must compare in the stripped space, else a real
+// `/app.yaml` and the synthetic `app.yaml` leaf both become `<appPath>/app.yaml`.
+const stripLeadingSlash = (p: string) => p.replace(/^\/+/, '')
+
 function isObject(v: unknown): v is Record<string, unknown> {
 	return !!v && typeof v === 'object'
 }
@@ -151,8 +156,11 @@ export function parseRawAppDiff(
 	const cRunnables = cApp?.runnables ?? {}
 
 	// Reserve every real file path (changed or not) up front so synthesized
-	// runnable/metadata paths can dodge collisions.
-	const taken = new Set<string>([...Object.keys(oFiles), ...Object.keys(cFiles)])
+	// runnable/metadata paths can dodge collisions — slash-normalized so a real
+	// `/app.yaml` or `/runnables/x` is seen as colliding with the synthetic leaf.
+	const taken = new Set<string>(
+		[...Object.keys(oFiles), ...Object.keys(cFiles)].map(stripLeadingSlash)
+	)
 
 	const entries: RawAppDiffEntry[] = []
 
@@ -341,9 +349,8 @@ export function rawAppDiffToItems(
 	// parseRawAppDiff, so a real file literally named `runnables/<name>` can't yield
 	// a second leaf at the same composite path. Normalize the leading slash (which
 	// joinAppPath strips) so `/runnables/x` and `runnables/x` are seen as equal.
-	const stripSlash = (p: string) => p.replace(/^\/+/, '')
 	const taken = new Set<string>(
-		[...Object.keys(oApp?.files ?? {}), ...Object.keys(cApp?.files ?? {})].map(stripSlash)
+		[...Object.keys(oApp?.files ?? {}), ...Object.keys(cApp?.files ?? {})].map(stripLeadingSlash)
 	)
 	const runnableItems: RawAppRunnableItem[] = []
 	for (const name of [...new Set([...Object.keys(oRun), ...Object.keys(cRun)])].sort()) {

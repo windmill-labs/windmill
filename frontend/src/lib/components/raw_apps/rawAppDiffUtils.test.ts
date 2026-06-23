@@ -256,6 +256,20 @@ describe('rawAppDiffToItems', () => {
 		expect(meta.fullYamlCurrent).toContain('new')
 	})
 
+	it('keeps the metadata flag on the right item when a real file is named /app.yaml (leading slash)', () => {
+		const items = rawAppDiffToItems(
+			appPath,
+			{ summary: 'old', value: { files: { '/app.yaml': 'real-old' } } },
+			{ summary: 'new', value: { files: { '/app.yaml': 'real-new' } } }
+		)
+		const realFile = items.find((i) => i.path === `${appPath}/app.yaml`) as any
+		const meta = items.find((i) => i.path === `${appPath}/app.yaml~2`) as any
+		expect(realFile.isMetadata).toBe(false)
+		expect(meta.isMetadata).toBe(true)
+		// distinct composite paths → distinct row keys
+		expect(realFile.path).not.toBe(meta.path)
+	})
+
 	it('dedups a runnable leaf against a real file named runnables/<name>', () => {
 		const items = rawAppDiffToItems(
 			appPath,

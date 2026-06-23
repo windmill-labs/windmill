@@ -104,7 +104,12 @@
 	type DisplayDiff = DiffRow | RawAppFileItem | RawAppRunnableItem
 
 	function itemKey(d: DisplayDiff): string {
-		return `${d.kind}/${d.path}`
+		// Synthetic raw-app items (files/runnables) carry their composite
+		// `<appPath>/…` path and can share kind+path with a real workspace item —
+		// e.g. a runnable rendered as `script` at `<appPath>/runnables/foo` vs a real
+		// script literally at that path. Prefix synthetic items so the {#each} key,
+		// load cache, row id and nav identity never collide with a real DiffRow.
+		return ('appPath' in d ? 'rawapp:' : '') + `${d.kind}/${d.path}`
 	}
 
 	// Friendly path for display only; `path` stays the storage key everywhere
