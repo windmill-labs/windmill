@@ -256,52 +256,226 @@ pub async fn test_s3_bucket(
     use bytes::Bytes;
     use futures::StreamExt;
 
-    require_super_admin(&db, &authed.email).await?;
+    // The probe executes on the API server itself. On multi-tenant Cloud that is a shared control
+    // plane, so we constrain untrusted callers to remove the SSRF / credential-exfiltration /
+    // local-filesystem surface (see validate_object_storage_test). On self-hosted instances the
+    // object store usually lives on the local/private network and all authenticated users are
+    // trusted, so testing there stays unrestricted. Super admins keep the unrestricted path too.
+    let is_super_admin = is_super_admin_email(&db, &authed.email).await?;
+    let restrict = !is_super_admin && *CLOUD_HOSTED;
+    if restrict {
+        validate_object_storage_test(&test_s3_bucket).await?;
+    }
 
     let client = build_object_store_from_settings(test_s3_bucket, Some(&db))
         .await?
         .store;
 
-    let mut list = client.list(Some(
-        &windmill_object_store::object_store_reexports::Path::from("".to_string()),
-    ));
-    let first_file = list.next().await;
-    if first_file.is_some() {
-        if let Err(e) = first_file.as_ref().unwrap() {
-            tracing::error!("error listing bucket: {e:#}");
-            error::Error::internal_err(format!("Failed to list files in blob storage: {e:#}"));
+    let run = async {
+        let mut list = client.list(Some(
+            &windmill_object_store::object_store_reexports::Path::from("".to_string()),
+        ));
+        let first_file = list.next().await;
+        if first_file.is_some() {
+            if let Err(e) = first_file.as_ref().unwrap() {
+                tracing::error!("error listing bucket: {e:#}");
+                error::Error::internal_err(format!("Failed to list files in blob storage: {e:#}"));
+            }
+            tracing::info!("Listed files: {:?}", first_file.unwrap());
+        } else {
+            tracing::info!("No files in blob storage");
         }
-        tracing::info!("Listed files: {:?}", first_file.unwrap());
+
+        let path = windmill_object_store::object_store_reexports::Path::from(format!(
+            "/test-s3-bucket-{uuid}",
+            uuid = uuid::Uuid::new_v4()
+        ));
+        tracing::info!("Testing blob storage at path: {path}");
+        client
+            .put(
+                &path,
+                windmill_object_store::object_store_reexports::PutPayload::from_static(b"hello"),
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("error writing file to {path}: {e:#}"))?;
+        let content = client
+            .get(&path)
+            .await
+            .map_err(to_anyhow)?
+            .bytes()
+            .await
+            .map_err(to_anyhow)?;
+        if content != Bytes::from_static(b"hello") {
+            return Err(error::Error::internal_err(
+                "Failed to read back from blob storage".to_string(),
+            ));
+        }
+        client.delete(&path).await.map_err(to_anyhow)?;
+        Ok::<String, error::Error>("Tested blob storage successfully".to_string())
+    };
+
+    if restrict {
+        // The object-store client is built with timeouts disabled, so a malicious endpoint could
+        // otherwise hold the API server connection open indefinitely.
+        tokio::time::timeout(Duration::from_secs(15), run)
+            .await
+            .map_err(|_| {
+                error::Error::internal_err("Object storage connectivity test timed out".to_string())
+            })?
     } else {
-        tracing::info!("No files in blob storage");
+        run.await
+    }
+}
+
+// Hardening for the object-storage connectivity test by an untrusted (non-super-admin) caller on
+// Cloud. The probe runs on the shared API server, so without these constraints an authenticated
+// user could coerce the server into connecting to arbitrary internal endpoints (SSRF), signing
+// requests with the instance role (credential exfiltration), or reading/writing the server's local
+// disk (filesystem object store).
+#[cfg(feature = "parquet")]
+async fn validate_object_storage_test(settings: &ObjectSettings) -> error::Result<()> {
+    fn non_empty(opt: &Option<String>) -> bool {
+        opt.as_ref().is_some_and(|s| !s.is_empty())
     }
 
-    let path = windmill_object_store::object_store_reexports::Path::from(format!(
-        "/test-s3-bucket-{uuid}",
-        uuid = uuid::Uuid::new_v4()
-    ));
-    tracing::info!("Testing blob storage at path: {path}");
-    client
-        .put(
-            &path,
-            windmill_object_store::object_store_reexports::PutPayload::from_static(b"hello"),
-        )
-        .await
-        .map_err(|e| anyhow::anyhow!("error writing file to {path}: {e:#}"))?;
-    let content = client
-        .get(&path)
-        .await
-        .map_err(to_anyhow)?
-        .bytes()
-        .await
-        .map_err(to_anyhow)?;
-    if content != Bytes::from_static(b"hello") {
-        return Err(error::Error::internal_err(
-            "Failed to read back from blob storage".to_string(),
-        ));
+    // Reject backends that rely on the server's identity or local filesystem, and require explicit
+    // credentials for the rest so the server never falls back to its own ambient credentials.
+    let custom_endpoint: Option<&String> = match settings {
+        ObjectSettings::Filesystem(_) => {
+            return Err(error::Error::NotAuthorized(
+                "Testing a local filesystem object store requires a super admin".to_string(),
+            ));
+        }
+        ObjectSettings::AwsOidc(_) => {
+            return Err(error::Error::NotAuthorized(
+                "Testing OIDC-based object storage requires a super admin".to_string(),
+            ));
+        }
+        ObjectSettings::S3(s3) => {
+            if !(non_empty(&s3.access_key) && non_empty(&s3.secret_key)) {
+                return Err(error::Error::NotAuthorized(
+                    "Testing S3 storage without explicit credentials requires a super admin"
+                        .to_string(),
+                ));
+            }
+            s3.endpoint.as_ref().filter(|e| !e.is_empty())
+        }
+        ObjectSettings::Azure(azure) => {
+            if !non_empty(&azure.access_key) {
+                return Err(error::Error::NotAuthorized(
+                    "Testing Azure storage without an explicit access key requires a super admin"
+                        .to_string(),
+                ));
+            }
+            azure.endpoint.as_ref().filter(|e| !e.is_empty())
+        }
+        ObjectSettings::Gcs(gcs) => {
+            if gcs.service_account_key.is_empty() {
+                return Err(error::Error::NotAuthorized(
+                    "Testing GCS storage without a service account key requires a super admin"
+                        .to_string(),
+                ));
+            }
+            // GCS always targets storage.googleapis.com — no caller-controlled endpoint.
+            None
+        }
+    };
+
+    // Block non-public network targets (internal services, cloud metadata, loopback, ...). Only a
+    // caller-supplied endpoint can be aimed internally; the default cloud endpoints are public.
+    if let Some(endpoint) = custom_endpoint {
+        validate_public_endpoint(endpoint).await?;
     }
-    client.delete(&path).await.map_err(to_anyhow)?;
-    Ok("Tested blob storage successfully".to_string())
+    Ok(())
+}
+
+#[cfg(feature = "parquet")]
+async fn validate_public_endpoint(endpoint: &str) -> error::Result<()> {
+    let host = extract_host(endpoint).ok_or_else(|| {
+        error::Error::BadRequest(format!("Invalid object storage endpoint: {endpoint}"))
+    })?;
+
+    let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.as_str(), 443u16))
+        .await
+        .map_err(|e| {
+            error::Error::BadRequest(format!(
+                "Could not resolve object storage endpoint '{host}': {e}"
+            ))
+        })?
+        .collect();
+
+    if addrs.is_empty() {
+        return Err(error::Error::BadRequest(format!(
+            "Could not resolve object storage endpoint '{host}'"
+        )));
+    }
+
+    // Reject if any resolved address is non-public, which also defeats the simplest DNS-rebinding
+    // attempts (a name resolving to both a public and a private address).
+    for addr in addrs {
+        if is_forbidden_ip(addr.ip()) {
+            return Err(error::Error::NotAuthorized(
+                "Testing object storage at a private, loopback, or link-local endpoint requires a super admin"
+                    .to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "parquet")]
+fn extract_host(endpoint: &str) -> Option<String> {
+    let mut s = endpoint.trim();
+    if let Some(rest) = s.strip_prefix("https://") {
+        s = rest;
+    } else if let Some(rest) = s.strip_prefix("http://") {
+        s = rest;
+    }
+    s = s.split(['/', '?']).next().unwrap_or(s);
+    if let Some((_, rest)) = s.rsplit_once('@') {
+        s = rest;
+    }
+    let host = if let Some(rest) = s.strip_prefix('[') {
+        // IPv6 literal, e.g. [::1]:9000
+        rest.split(']').next().unwrap_or(rest)
+    } else {
+        // host or host:port
+        s.split(':').next().unwrap_or(s)
+    }
+    .trim();
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_string())
+    }
+}
+
+#[cfg(feature = "parquet")]
+fn is_forbidden_ip(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local() // 169.254.0.0/16, incl. the cloud metadata endpoint
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.is_documentation()
+                || v4.is_multicast()
+                || v4.octets()[0] == 0 // 0.0.0.0/8
+                || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xc0) == 64) // 100.64.0.0/10 CGNAT
+        }
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_forbidden_ip(IpAddr::V4(v4));
+            }
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                || (v6.segments()[0] & 0xfe00) == 0xfc00 // fc00::/7 unique local
+                || (v6.segments()[0] & 0xffc0) == 0xfe80 // fe80::/10 link-local
+        }
+    }
 }
 
 #[cfg(feature = "parquet")]
@@ -1859,5 +2033,58 @@ mod tests {
             deserialized.worker_configs["native"].init_bash.as_deref(),
             Some("echo hi")
         );
+    }
+}
+
+#[cfg(all(test, feature = "parquet"))]
+mod object_storage_test_hardening {
+    use super::{extract_host, is_forbidden_ip};
+    use std::net::IpAddr;
+
+    fn ip(s: &str) -> IpAddr {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn forbids_internal_ips() {
+        for s in [
+            "127.0.0.1",              // loopback
+            "169.254.169.254",        // cloud metadata (link-local)
+            "10.0.0.5",               // private
+            "172.16.3.4",             // private
+            "192.168.1.10",           // private
+            "0.0.0.0",                // unspecified
+            "100.64.0.1",             // CGNAT
+            "::1",                    // IPv6 loopback
+            "fe80::1",                // IPv6 link-local
+            "fc00::1",                // IPv6 unique local
+            "::ffff:127.0.0.1",       // IPv4-mapped loopback
+            "::ffff:169.254.169.254", // IPv4-mapped metadata
+        ] {
+            assert!(is_forbidden_ip(ip(s)), "{s} should be forbidden");
+        }
+    }
+
+    #[test]
+    fn allows_public_ips() {
+        for s in ["8.8.8.8", "1.1.1.1", "52.95.110.1", "2606:4700:4700::1111"] {
+            assert!(!is_forbidden_ip(ip(s)), "{s} should be allowed");
+        }
+    }
+
+    #[test]
+    fn extracts_host_from_endpoint() {
+        let cases = [
+            ("s3.amazonaws.com", Some("s3.amazonaws.com")),
+            ("https://minio.internal:9000", Some("minio.internal")),
+            ("http://10.0.0.5:9000/bucket", Some("10.0.0.5")),
+            ("user:pass@host.example:443", Some("host.example")),
+            ("[::1]:9000", Some("::1")),
+            ("https://[fe80::1]/x", Some("fe80::1")),
+            ("", None),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(extract_host(input).as_deref(), expected, "input: {input}");
+        }
     }
 }
