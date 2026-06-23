@@ -68,9 +68,11 @@ function asFileMap(f: unknown): Record<string, string> {
 	if (!isObject(f)) return {}
 	const out: Record<string, string> = {}
 	for (const [k, v] of Object.entries(f)) {
-		// Coerce non-string content defensively so the diff editor always
-		// receives a string.
-		out[k] = typeof v === 'string' ? v : String(v ?? '')
+		// Canonicalize the key (strip the leading slash `joinAppPath` would strip
+		// anyway) so the same file keyed `/App.tsx` on one side and `App.tsx` on the
+		// other is treated as one file — not two leaves colliding at the same
+		// composite path. Coerce non-string content so the diff editor gets a string.
+		out[stripLeadingSlash(k)] = typeof v === 'string' ? v : String(v ?? '')
 	}
 	return out
 }

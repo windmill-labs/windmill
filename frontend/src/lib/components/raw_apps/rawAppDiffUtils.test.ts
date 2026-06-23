@@ -270,6 +270,19 @@ describe('rawAppDiffToItems', () => {
 		expect(realFile.path).not.toBe(meta.path)
 	})
 
+	it('treats a file keyed /App.tsx on one side and App.tsx on the other as one item', () => {
+		const items = rawAppDiffToItems(
+			appPath,
+			{ value: { files: { '/App.tsx': 'old' } } },
+			{ value: { files: { 'App.tsx': 'new' } } }
+		)
+		const files = items.filter((i) => i.path === `${appPath}/App.tsx`)
+		expect(files).toHaveLength(1)
+		expect(files[0].status).toBe('modified')
+		expect((files[0] as any).original).toBe('old')
+		expect((files[0] as any).current).toBe('new')
+	})
+
 	it('dedups a runnable leaf against a real file named runnables/<name>', () => {
 		const items = rawAppDiffToItems(
 			appPath,
