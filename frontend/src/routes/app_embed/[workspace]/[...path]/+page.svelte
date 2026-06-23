@@ -1,58 +1,42 @@
 <script lang="ts">
+	/*
+	 * WIN-2006: in-workspace app viewer, sandboxed. This is the private analog of
+	 * the public `/public/[workspace]/[...secret]` route — same `PublicAppFrame`
+	 * embedder/viewer + scoped-token machinery, but the app is addressed by path and
+	 * the token is minted from the logged-in member's session (cookie) via the
+	 * authenticated `apps/embed_token/p/{path}` endpoint. It lives outside `(logged)`
+	 * so the opaque (cookieless) viewer iframe can load it without the auth redirect
+	 * or the workspace chrome. `/apps/get` embeds this route in an opaque iframe.
+	 */
 	import { BROWSER } from 'esm-env'
-
-	import { AppService, OpenAPI, type AppWithLastVersion } from '$lib/gen'
-	import { userStore } from '$lib/stores'
-
+	import { AppService, OpenAPI } from '$lib/gen'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { setLicense } from '$lib/enterpriseUtils'
-
 	import { getUserExt } from '$lib/user'
 	import { page } from '$app/state'
-	import { base } from '$lib/base'
 	import PublicApp from '$lib/components/apps/editor/PublicApp.svelte'
 	import PublicAppFrame from '$lib/components/apps/editor/PublicAppFrame.svelte'
 
-	let app: (AppWithLastVersion & { value: any }) | undefined = $state(undefined)
+	let app: any = $state(undefined)
 	let notExists = $state(false)
 	let noPermission = $state(false)
-	let jwtError = $state(false)
 
-	function parseSecret(secret: string): { secret: string; jwt: string | undefined } {
-		const parts = secret.split('/')
-		return {
-			secret: parts[0],
-			jwt: parts[1]
-		}
-	}
-
-	const parsedSecret = parseSecret(page.params.secret ?? '')
 	const workspace = page.params.workspace ?? ''
-
-	// URL for the opaque viewer iframe: the share URL WITHOUT the trailing JWT
-	// segment. The JWT is a viewer credential (broader and longer-lived than the
-	// scoped embed token) consumed here on the embedder side only — it must never
-	// appear in the iframe's own location, where app-authored code could read it.
-	// Captured once (not reactively): the embedder mirrors the app's hash/query
-	// back onto this page's URL, and re-deriving the src from it would reload the
-	// app on its every navigation.
-	const viewerUrl = `${base}/public/${workspace}/${parsedSecret.secret}${page.url.search}${page.url.hash}`
-
+	const path = page.params.path ?? ''
+	// Forwarded by InWorkspaceAppViewer from the member-facing page's query.
+	const hideRefreshBar = page.url.searchParams.get('hideRefreshBar') === 'true'
 	let refresh: (() => void) | undefined
 
-	// Embedder side: validate access (using the main session cookie or the shared
-	// JWT) and mint a scoped embed token for the opaque iframe (WIN-2006).
+	// Embedder side: the logged-in member's session mints a scoped embed token for
+	// the opaque iframe, isolating the in-workspace app from their full session.
 	async function fetchEmbedToken(): Promise<{ token?: string }> {
-		if (parsedSecret.jwt) {
-			OpenAPI.TOKEN = 'jwt_ext_' + parsedSecret.jwt
-		}
 		const headers: Record<string, string> = {}
 		if (typeof OpenAPI.TOKEN === 'string' && OpenAPI.TOKEN) {
 			headers['Authorization'] = `Bearer ${OpenAPI.TOKEN}`
 		}
-		const res = await fetch(
-			`${OpenAPI.BASE}/w/${workspace}/apps_u/embed_token/${parsedSecret.secret}`,
-			{ headers }
-		)
+		const res = await fetch(`${OpenAPI.BASE}/w/${workspace}/apps/embed_token/p/${path}`, {
+			headers
+		})
 		if (!res.ok) {
 			const err: any = new Error('Failed to fetch embed token')
 			err.status = res.status
@@ -63,22 +47,25 @@
 
 	// Viewer side: load the app + user using the embed token handed to the iframe.
 	async function loadApp() {
+		// Set the workspace store so app job operations (notably JobLoader.cancelJob,
+		// which reads $workspaceStore) target this workspace instead of an empty/stale
+		// one in the cookieless iframe.
+		workspaceStore.set(workspace)
 		try {
 			userStore.set(await getUserExt(workspace))
 		} catch (e) {
 			console.warn('Anonymous user')
 		}
 		try {
-			app = await AppService.getPublicAppBySecret({
-				workspace,
-				path: parsedSecret.secret
-			})
+			app = await AppService.getAppByPath({ workspace, path })
 			noPermission = false
 			notExists = false
-		} catch (e) {
+		} catch (e: any) {
 			if (e.status == 401) {
 				// Embed token missing/expired — ask the embedder for a fresh one.
 				refresh?.()
+			} else if (e.status == 403) {
+				noPermission = true
 			} else {
 				notExists = true
 			}
@@ -92,7 +79,6 @@
 
 <PublicAppFrame
 	{fetchEmbedToken}
-	{viewerUrl}
 	onViewerReady={(_token, requestTokenRefresh) => {
 		refresh = requestTokenRefresh
 		loadApp()
@@ -104,7 +90,9 @@
 			{workspace}
 			{notExists}
 			{noPermission}
-			{jwtError}
+			jwtError={false}
+			inWorkspace
+			{hideRefreshBar}
 			onLoginSuccess={() => loadApp()}
 		></PublicApp>
 	{/snippet}

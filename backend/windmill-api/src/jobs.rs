@@ -513,6 +513,26 @@ async fn cancel_job_api(
     Path((w_id, id)): Path<(String, Uuid)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<String> {
+    // App embed tokens (the sandboxed app iframe) may cancel ONLY jobs they launched
+    // — their app's component runs, stamped created_by == viewer. cancel_job_api has
+    // no other per-job ownership check, so without this an embed token (which carries
+    // the viewer's identity) could cancel any job by id. NotFound (not 403) so the
+    // untrusted app can't probe job existence.
+    if let Some(authed) = opt_authed.as_ref() {
+        if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
+            let created_by = sqlx::query_scalar!(
+                "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+                id,
+                &w_id
+            )
+            .fetch_optional(&db)
+            .await?;
+            if created_by.as_deref() != Some(authed.username.as_str()) {
+                return Err(Error::NotFound(format!("Job {id} not found")));
+            }
+        }
+    }
+
     let tx = db.begin().await?;
 
     let audit_author: AuditAuthor = match opt_authed.as_ref() {
@@ -1005,6 +1025,17 @@ async fn require_job_read_access(
     // `created_by` is the launching viewer, so the RLS probe below would hide it.
     if created_by == authed.username {
         return Ok(());
+    }
+
+    // App embed tokens (the sandboxed app iframe) carry the viewer's identity so the
+    // app can read its own component runs — which are stamped `created_by == viewer`
+    // and so already returned above. They must NOT inherit the viewer's *broader*
+    // job access (share links, folder ACLs, admin RLS): user-authored app JS holds
+    // this token, and letting it reach any job merely visible to the viewer would
+    // expose unrelated runs' results/logs. Stop at the launched-by-viewer grant.
+    // NotFound (not PermissionDenied) so the untrusted app can't probe job existence.
+    if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
+        return Err(Error::NotFound(format!("Job {job_id} not found")));
     }
 
     // `username_override` is derived from the token *label* (`username_override_from_label`),

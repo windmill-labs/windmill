@@ -451,6 +451,30 @@ pub fn check_route_access(
     // Find the domain and kind for this route
     let (required_domain, required_kind, route_suffix) = extract_domain_from_route(route_path)?;
 
+    // App embed tokens (sentinel) carry broad read scopes (`jobs:read`,
+    // `users:read`, `folders:read`) that exist only for a handful of routes. The
+    // whole `/users`, `/folders` and `/jobs` routers are CORS-enabled for the
+    // opaque app iframe, so default-deny everything in those domains except the
+    // intended routes — otherwise the token could enumerate/export workspace data.
+    if has_app_embed_sentinel(Some(token_scopes)) {
+        if let Some(suffix) = route_suffix.as_deref() {
+            if app_embed_route_denied(required_domain, suffix) {
+                return Err(Error::PermissionDenied(
+                    "Access denied. App embed token cannot access this route.".to_string(),
+                ));
+            }
+            // The by-id job cancel is a POST (write) that the token's `jobs:read`
+            // wouldn't satisfy, but cancelling the app's own component runs is
+            // intended (most components supersede an in-flight run on re-run). Permit
+            // it here; `cancel_job_api` confines it to jobs the app launched
+            // (created_by == viewer). A read_only token is still rejected by the
+            // separate read-only check.
+            if suffix.starts_with("jobs_u/queue/cancel/") {
+                return Ok(());
+            }
+        }
+    }
+
     // MCP scopes (mcp:all, mcp:favorites, mcp:hub:*, etc.) use a custom format
     // that doesn't fit the standard domain:action model. Verify the token has at
     // least one mcp: scope; MCP handlers do their own fine-grained checking.
@@ -537,7 +561,7 @@ const FLOW_JOBS: [&'static str; 6] = [
 
 lazy_static::lazy_static! {
     static ref RUN_PATH_ACTIONS: Vec<&'static str> = {
-        let mut v = vec!["jobs/resume/", "jobs/run/batch_rerun_jobs", "jobs/run/workflow_as_code", "jobs/run/dependencies","jobs/run/flow_dependencies", "apps_u/execute_component"];
+        let mut v = vec!["jobs/resume/", "jobs/run/batch_rerun_jobs", "jobs/run/workflow_as_code", "jobs/run/dependencies","jobs/run/flow_dependencies", "apps_u/execute_component", "apps_u/upload_s3_file"];
 
         v.extend(SCRIPT_JOBS);
         v.extend(FLOW_JOBS);
@@ -640,6 +664,92 @@ const RUN_WHITELISTED_GET_PATHS: [&'static str; 20] = [
     "jobs/completed/get_result_maybe/",
 ];
 
+/// Sentinel scope in app embed tokens. Grants nothing itself; `check_route_access`
+/// uses it to deny the workspace-wide job enumeration routes `jobs:read` would
+/// otherwise reach, so an embedded app reads only jobs it launched (by id).
+pub const APP_EMBED_SENTINEL: &str = "app_embed";
+
+/// True if a token's scopes include the app-embed sentinel (a sandboxed app iframe
+/// token). Such tokens carry the viewer's identity but represent untrusted app JS,
+/// so several handlers confine them to the app's own resources/runs.
+pub fn has_app_embed_sentinel(scopes: Option<&[String]>) -> bool {
+    scopes.is_some_and(|s| s.iter().any(|x| x == APP_EMBED_SENTINEL))
+}
+
+/// Routes an app embed token (sentinel) is denied. Its broad scopes (`apps:run`,
+/// `jobs:read`, `users:read`, `folders:read`) exist only for a fixed set of routes a
+/// running app uses, but the whole `/apps`, `/jobs`, `/users`, `/folders` routers are
+/// CORS-enabled for the opaque app iframe. Default-deny those domains via an explicit
+/// allowlist so the token can't reach workspace inventory, counts, exports, or
+/// capability-minting routes (job signatures / resume URLs).
+fn app_embed_route_denied(domain: ScopeDomain, suffix: &str) -> bool {
+    match domain {
+        ScopeDomain::Apps => !app_embed_apps_route_allowed(suffix),
+        ScopeDomain::Jobs => !app_embed_job_route_allowed(suffix),
+        ScopeDomain::Users => suffix != "users/whoami",
+        ScopeDomain::Folders => suffix != "folders/listnames",
+        _ => false,
+    }
+}
+
+/// App routes a running app uses: its own definition (`apps/get/p/<path>`, further
+/// path-scoped by `apps:read:<path>`) and the public app-serving endpoints
+/// (`apps_u/*`: public_app, public_resource, get_data, and the path-taking
+/// `execute_component` / `download_s3_file`, which re-check `apps:run|read:<path>`
+/// in their handlers so they stay confined to this app). Everything else in the
+/// domain — workspace app inventory (`exists`, `custom_path_exists`, `list`,
+/// `list_paths*`, `secret_of`, history, management) — is denied.
+fn app_embed_apps_route_allowed(suffix: &str) -> bool {
+    // The embed-token mint endpoints live under `apps_u/` but they create
+    // credentials. A running app never calls them — the trusted embedder session/JWT
+    // mints the token and hands it to the iframe — so deny them here, otherwise an
+    // app embed token could renew itself indefinitely past the 12h expiry.
+    if suffix.starts_with("apps_u/embed_token") {
+        return false;
+    }
+    suffix.starts_with("apps/get/p/") || suffix.starts_with("apps_u/")
+}
+
+/// Job routes a running app uses (the by-id poll/cancel surface driven by the
+/// frontend JobLoader). Everything else in the jobs domain — enumeration, counts,
+/// exports, and the `job_signature`/`resume_urls` capability-minting routes — is
+/// denied. By-id reads are further confined to the app's own runs by
+/// `require_job_read_access` (the `app_embed` cutoff).
+fn app_embed_job_route_allowed(suffix: &str) -> bool {
+    // `get_root_job_id` is intentionally absent: its handler has no access check at
+    // all (returns any job's root id by id) and the app never calls it, so denying
+    // it costs nothing and avoids leaking a foreign job's flow lineage.
+    const ALLOWED: [&str; 15] = [
+        "jobs_u/get/",
+        "jobs_u/getupdate/",
+        "jobs_u/getupdate_sse/",
+        "jobs_u/get_logs/",
+        "jobs_u/get_completed_logs_tail/",
+        "jobs_u/get_args/",
+        "jobs_u/get_flow/",
+        "jobs_u/get_flow_all_logs/",
+        "jobs_u/get_flow_debug_info/",
+        "jobs_u/get_log_file/",
+        "jobs_u/completed/get/",
+        "jobs_u/completed/get_result/",
+        "jobs_u/completed/get_result_maybe/",
+        "jobs_u/completed/get_timing/",
+        "jobs_u/queue/cancel/",
+    ];
+    ALLOWED.iter().any(|p| suffix.starts_with(p))
+}
+
+/// Resource routes a metadata-only `resources:run` scope (app embed tokens) may
+/// GET: pickers (`/list`) and type schemas. Excludes every value-returning route
+/// (`get`, `get_value`, `get_value_interpolated`, `list_search`) so resource
+/// values — which can hold credentials — are never exposed.
+fn resource_metadata_route_allowed(suffix: &str) -> bool {
+    suffix == "resources/list"
+        || suffix.starts_with("resources/list_names/")
+        || suffix.starts_with("resources/exists/")
+        || suffix.starts_with("resources/type/")
+}
+
 fn scope_grants_access(
     scope: &ScopeDefinition,
     required_domain: ScopeDomain,
@@ -658,6 +768,14 @@ fn scope_grants_access(
     // Check action match (with hierarchical permissions)
     let scope_action = ScopeAction::from_str(&scope.action)
         .ok_or_else(|| Error::BadRequest(format!("Invalid scope action: {}", scope.action)))?;
+
+    // App embed tokens carry `resources:run`: metadata-only resource access via
+    // default-deny + allowlist (so a new value route is never exposed by accident).
+    // See `resource_metadata_route_allowed`.
+    if scope_domain == ScopeDomain::Resources && scope_action == ScopeAction::Run {
+        return Ok(required_action == ScopeAction::Read
+            && route_path.is_some_and(resource_metadata_route_allowed));
+    }
 
     if !scope_action.includes(&required_action)
         && !(scope_domain == ScopeDomain::Jobs
