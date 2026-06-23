@@ -15,6 +15,16 @@
 		jobsById?: Record<string, JobById>
 		editor: boolean
 		workspace: string
+		/**
+		 * Restrict waitJob/getJob/streamJob to job ids launched by this app
+		 * instance (WIN-2006): a SANDBOXED bundle must not read arbitrary
+		 * workspace jobs through the credentialed bridge. Off for unsandboxed
+		 * renders (the default, and editor preview) — there the bundle holds
+		 * the same credential as the bridge, so gating adds nothing and would
+		 * only break unsandboxed apps that poll persisted or runnable-returned
+		 * job ids.
+		 */
+		gateJobIds?: boolean
 	}
 
 	let {
@@ -24,10 +34,18 @@
 		jobs = $bindable([]),
 		jobsById = $bindable({}),
 		editor,
-		workspace
+		workspace,
+		gateJobIds = true
 	}: Props = $props()
 
+	// Job ids launched by this app instance — see `gateJobIds`.
+	const launchedJobs = new Set<string>()
+
 	let listener = async (event) => {
+		// Only accept messages from the bundle iframe (opaque origin) so other
+		// frames/extensions can't drive the runnable bridge (WIN-2006). Reject
+		// unconditionally until the iframe is bound — never process a message from
+		// an unknown source.
 		if (!iframe || event.source !== iframe.contentWindow) return
 
 		const data = event.data
@@ -115,6 +133,7 @@
 					},
 					undefined
 				)
+				launchedJobs.add(uuid)
 				let job: JobById = { component: runnable_id, created_at: Date.now(), job: uuid }
 				if (event.data.type == 'backendAsync') {
 					let result = uuid
@@ -134,14 +153,29 @@
 				console.error('No runnable found for', runnable_id)
 			}
 		} else if (event.data.type == 'waitJob') {
+			if (gateJobIds && !launchedJobs.has(data.jobId)) {
+				respond({ result: { message: 'Unknown job' }, error: true })
+				return
+			}
 			await respondWithResult(data.jobId)
 		} else if (event.data.type == 'getJob') {
+			if (gateJobIds && !launchedJobs.has(data.jobId)) {
+				respond({ result: { message: 'Unknown job' }, error: true })
+				return
+			}
 			const job = await JobService.getJob({ workspace, id: data.jobId })
 			respond({ result: job })
 		} else if (event.data.type == 'streamJob') {
 			// Stream job results using SSE
 			const jobId = data.jobId
 			const reqId = data.reqId
+			if (gateJobIds && !launchedJobs.has(jobId)) {
+				iframe?.contentWindow?.postMessage(
+					{ type: 'streamJobRes', reqId, error: true, result: { message: 'Unknown job' } },
+					'*'
+				)
+				return
+			}
 			const params = new URLSearchParams()
 			params.set('fast', 'true')
 			params.set('only_result', 'true')

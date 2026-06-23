@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.734.0
+  version: 1.737.0
   title: Windmill API
 
   contact:
@@ -1653,6 +1653,9 @@ paths:
                     type: integer
                     format: int64
                   s3_deleted:
+                    type: integer
+                    format: int64
+                  s3_not_found:
                     type: integer
                     format: int64
                   orphans_scanned:
@@ -6291,6 +6294,9 @@ paths:
                 cc_instance:
                   type: string
                   description: "Instance name for built-in providers whose client-credentials token URL is instance-templated; substituted into the fixed-host registry template server-side (client_credentials flow only). The token URL is never caller-supplied."
+                cc_token_url:
+                  type: string
+                  description: "Bring-your-own token endpoint override (client_credentials flow only). Only honored together with cc_client_id/cc_client_secret and mutually exclusive with cc_instance; ignored/rejected on the shared-instance path."
                 mcp_server_url:
                   type: string
                   description: "MCP server URL for MCP OAuth token refresh"
@@ -6346,6 +6352,9 @@ paths:
                 cc_instance:
                   type: string
                   description: "Instance name for built-in providers whose client-credentials token URL is instance-templated; substituted into the fixed-host registry template server-side. The token URL is never caller-supplied."
+                cc_token_url:
+                  type: string
+                  description: "Bring-your-own token endpoint override. Only honored together with cc_client_id/cc_client_secret and mutually exclusive with cc_instance; rejected on the shared-instance path."
       responses:
         "200":
           description: OAuth token response
@@ -7491,6 +7500,22 @@ paths:
                     properties:
                       workspace_id:
                         type: string
+
+  /apps_u/embed_token_by_custom_path/{custom_path}:
+    get:
+      summary: get app embed token by custom path
+      operationId: getAppEmbedTokenByCustomPath
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/CustomPath"
+      responses:
+        "200":
+          description: embed token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedTokenResponse"
 
   /scripts/hub/get/{path}:
     get:
@@ -10422,6 +10447,133 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/ai_skills/list:
+    get:
+      summary: list the workspace AI chat skills (name + description only)
+      operationId: listAiSkills
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: skill listing
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - name
+                    - description
+                  properties:
+                    name:
+                      type: string
+                    description:
+                      type: string
+
+  /w/{workspace}/ai_skills/get/{name}:
+    get:
+      summary: get a workspace AI chat skill including its instructions
+      operationId: getAiSkill
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: skill
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - name
+                  - description
+                  - instructions
+                properties:
+                  name:
+                    type: string
+                  description:
+                    type: string
+                  instructions:
+                    type: string
+
+  /w/{workspace}/ai_skills/upload:
+    post:
+      summary: upsert workspace AI chat skills (admin only)
+      operationId: uploadAiSkills
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - skills
+              properties:
+                skills:
+                  type: array
+                  maxItems: 50
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - description
+                      - instructions
+                    properties:
+                      name:
+                        type: string
+                        minLength: 1
+                        maxLength: 64
+                        pattern: "^[a-z0-9-]+$"
+                      description:
+                        type: string
+                        minLength: 1
+                        maxLength: 1024
+                      instructions:
+                        type: string
+                        minLength: 1
+                        maxLength: 65536
+      responses:
+        "200":
+          description: uploaded
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai_skills/delete/{name}:
+    delete:
+      summary: delete a workspace AI chat skill (admin only)
+      operationId: deleteAiSkill
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps/get_data/v/{secretWithExtension}:
     get:
       summary: get raw app data by
@@ -10433,6 +10585,10 @@ paths:
         - name: secretWithExtension
           in: path
           required: true
+          description: >-
+            App version secret suffixed with the requested file type extension.
+            Supported extensions are `.js` (JavaScript bundle), `.css`
+            (stylesheet), and `.html` (sandboxed wrapper document).
           schema:
             type: string
       responses:
@@ -10440,6 +10596,12 @@ paths:
           description: app details
           content:
             text/javascript:
+              schema:
+                type: string
+            text/css:
+              schema:
+                type: string
+            text/html:
               schema:
                 type: string
 
@@ -10693,6 +10855,23 @@ paths:
                   - $ref: "#/components/schemas/AppWithLastVersion"
                   - $ref: "#/components/schemas/UserDraftOverlay"
 
+  /w/{workspace}/apps/embed_token/p/{path}:
+    get:
+      summary: get app embed token by path
+      operationId: getAppEmbedTokenByPath
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: embed token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedTokenResponse"
+
   /w/{workspace}/apps/get/lite/{path}:
     get:
       summary: get app lite by path
@@ -10809,6 +10988,27 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AppWithLastVersion"
+
+  /w/{workspace}/apps_u/embed_token/{secret}:
+    get:
+      summary: get app embed token by secret
+      operationId: getAppEmbedTokenBySecret
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: secret
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: embed token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedTokenResponse"
 
   /w/{workspace}/apps_u/public_resource/{path}:
     get:
@@ -23358,6 +23558,10 @@ components:
           type: array
           items:
             type: string
+        folders_read:
+          type: array
+          items:
+            type: string
         folders_owners:
           type: array
           items:
@@ -23377,6 +23581,7 @@ components:
         - operator
         - disabled
         - folders
+        - folders_read
         - folders_owners
 
     UserSource:
@@ -27692,6 +27897,13 @@ components:
           type: string
         on_behalf_of_email:
           type: string
+        sandbox:
+          type: boolean
+          description: >
+            Publisher opt-in to app sandbox isolation (alpha). When true the app
+            is isolated from each viewer's Windmill session. When false/absent
+            the app runs same-origin with the viewer's full session (the
+            default, pre-isolation behavior).
 
     ListableApp:
       type: object
@@ -27910,6 +28122,36 @@ components:
           type: string
       required:
         - version
+
+    EmbedTokenResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          nullable: true
+          description: Narrowly-scoped embed token for the iframe. Absent for fully anonymous or raw apps, which load without a scoped token.
+        expiration:
+          type: string
+          format: date-time
+          nullable: true
+          description: Expiration of the embed token.
+        raw_app:
+          type: boolean
+          description: Raw apps render single-iframe and skip the opaque-viewer indirection and the embed token entirely.
+        sandbox:
+          type: boolean
+          description: Publisher opted this app into sandbox isolation. When false the viewer runs the app same-origin with its full session.
+        app_path:
+          type: string
+          nullable: true
+          description: The resolved app path; the embedder uses it to scope the app's backing localStorage per app.
+        workspace_id:
+          type: string
+          nullable: true
+          description: The resolved workspace; pairs with app_path so apps at the same path in different workspaces don't share a localStorage store.
+      required:
+        - raw_app
+        - sandbox
 
     FlowVersion:
       type: object

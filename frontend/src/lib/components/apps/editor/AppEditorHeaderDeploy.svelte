@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Alert } from '$lib/components/common'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { Loader2 } from 'lucide-svelte'
@@ -41,7 +42,7 @@
 		newApp = false
 	}: {
 		policy: any
-		setPublishState: () => void
+		setPublishState: (message?: string) => void
 		appPath: string
 		customPath: string | undefined
 		onLatest: boolean
@@ -273,6 +274,40 @@
 </Alert>
 
 <div class="mt-10"></div>
+
+<div class="flex items-center gap-2">
+	<h2>Sandbox isolation</h2>
+	<Badge color="yellow">Alpha</Badge>
+</div>
+<div class="my-6">
+	<Toggle
+		options={{ right: "Isolate the app from the viewer's browser session" }}
+		checked={policy.sandbox == true}
+		on:change={(e) => {
+			policy.sandbox = e.detail || undefined
+			setPublishState(e.detail ? 'Sandbox isolation enabled' : 'Sandbox isolation disabled')
+		}}
+		disabled={!savedApp}
+	/>
+	<div class="text-xs text-secondary mt-1">
+		Controls what the app's browser-side code can reach in each viewer's browser — distinct from the
+		on-behalf-of model above (which sets who its runnables run as). Off by default, the app's code
+		uses the viewer's own session; enable it to confine the app to a narrowly-scoped token instead,
+		on every surface (public URL and in-workspace). Leave it off if the app needs full browser
+		features (IndexedDB, third-party auth/SDKs, OAuth redirects).
+	</div>
+	{#if !savedApp}
+		<div class="text-xs text-tertiary mt-1">Save the app once to change this setting.</div>
+	{/if}
+	{#if policy.sandbox == true}
+		<div class="mt-2">
+			<Alert type="warning" title="Alpha feature" size="xs">
+				Sandbox isolation is in alpha. After enabling, open the app from its public URL to confirm
+				it still works, and report any broken behavior.
+			</Alert>
+		</div>
+	{/if}
+</div>
 
 {#if !hideSecretUrl}
 	<h2>Public URL</h2>
