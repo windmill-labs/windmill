@@ -158,11 +158,6 @@
 		preparedAssetsSqlQueries?: InferAssetsSqlQueryDetails[] | undefined
 		// To execute preview scripts with the right worker group
 		customTag?: string
-		// Opt-in: reflect external `code` prop mutations back into Monaco (see
-		// the effect below). One-way `code={...}` callers that need live
-		// external updates — e.g. the inline flow rawscript — set this. Off by
-		// default so every other caller's behavior is unchanged.
-		syncExternalCode?: boolean
 	}
 
 	let {
@@ -195,8 +190,7 @@
 		enablePreprocessorSnippet = false,
 		rawAppRunnableKey = undefined,
 		preparedAssetsSqlQueries,
-		customTag,
-		syncExternalCode = false
+		customTag
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -420,6 +414,7 @@
 	}
 
 	function updateCode() {
+		console.log('[test] [updateCode] called with code:', code)
 		const ncode = getCode()
 		if (code == ncode) {
 			return
@@ -442,6 +437,24 @@
 		}
 		changeChainStart = undefined
 		updateCode()
+	}
+
+	// TEMPORARY: debug button to test two successive executeEdits with a 1s gap.
+	function debugTestExecuteEdits(): void {
+		if (!editor) return
+		const replaceAll = (text: string) => {
+			const model = editor!.getModel()
+			if (!model) return
+			editor!.executeEdits('debug-test', [{ range: model.getFullModelRange(), text }])
+			console.log(
+				'[debug-test] executeEdits ->',
+				JSON.stringify(text),
+				'value now:',
+				JSON.stringify(editor!.getValue())
+			)
+		}
+		replaceAll('A')
+		setTimeout(() => replaceAll('B'), 1000)
 	}
 
 	export function append(code: string): void {
@@ -1901,29 +1914,6 @@
 		lang = scriptLangToEditorLang(scriptLang)
 	})
 
-	// Opt-in (syncExternalCode): reflect external `code` prop mutations into
-	// Monaco's model. Parents that pass `code={...}` one-way (no bind) — e.g.
-	// the inline rawscript in the flow editor — otherwise mutate the prop
-	// without Monaco ever showing the change (the AI chat editing a flow
-	// module's content in a session is the motivating case). Gated off by
-	// default: Editor is sensitive and most callers either bind:code (and
-	// carry their own external-sync) or treat code as init-only, so a blanket
-	// setValue would risk clobbering them. The `getValue() !== code` guard
-	// keeps the caret intact when the change originated from typing inside
-	// Monaco (which round-trips code back via `$bindable`, re-firing this
-	// effect with `code === getValue()`).
-	let lastExternalCodeSync = code
-	$effect(() => {
-		if (!syncExternalCode) return
-		if (code === lastExternalCodeSync) return
-		lastExternalCodeSync = code
-		if (!editor) return
-		untrack(() => {
-			if (editor!.getValue() !== code) {
-				editor!.setValue(code ?? '')
-			}
-		})
-	})
 	$effect(() => {
 		filePath = computePath(path)
 	})
@@ -2016,18 +2006,25 @@
 	// prop read above is tracked — so the editor's own change handler
 	// (`updateCode`) re-running with the same value short-circuits and we
 	// don't loop.
-	$effect(() => {
-		const next = code ?? ''
+	let applyExternalCode = useDebounce(function applyExternalCode() {
 		const ed = editor
 		if (!ed) return
-		untrack(() => {
-			if (ed.getValue() === next) return
-			const model = ed.getModel()
-			if (!model) return
-			ed.pushUndoStop()
-			ed.executeEdits('external', [{ range: model.getFullModelRange(), text: next }])
-			ed.pushUndoStop()
-		})
+
+		const next = code ?? ''
+		const value = ed.getValue()
+		if (value === next) return
+
+		const model = ed.getModel()
+		if (!model) return
+		ed.pushUndoStop()
+		ed.executeEdits('external', [{ range: model.getFullModelRange(), text: next }])
+		ed.pushUndoStop()
+	}, 500)
+
+	$effect(() => {
+		;[code, editor]
+		if (!editor) return
+		untrack(() => applyExternalCode())
 	})
 
 	let isTsWorkerInitialized = resource([() => lang, () => initialized], async () => {
@@ -2073,6 +2070,15 @@
 	</div>
 {/if}
 <div bind:this={divEl} class="{clazz} editor {disabled ? 'disabled' : ''}"></div>
+<!-- TEMPORARY debug button: tests two successive executeEdits with a 500ms gap -->
+{#if editor}
+	<button
+		class="absolute top-1 right-1 z-50 bg-red-500 text-white text-xs px-2 py-1 rounded shadow"
+		onclick={debugTestExecuteEdits}
+	>
+		debug A→B
+	</button>
+{/if}
 {#if $vimMode}
 	<div class="fixed bottom-0 z-30" bind:this={statusDiv}></div>
 {/if}
