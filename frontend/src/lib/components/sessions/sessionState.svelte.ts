@@ -14,6 +14,7 @@ import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { workspaceRootId } from './sessionScope.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
+import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 
 // Switch the global workspace iff the target differs from the active one
 // and is non-empty. Centralises the "session needs its workspace in focus"
@@ -465,7 +466,9 @@ export async function deleteSessionsForWorkspace(workspaceId: string): Promise<v
 	const db = await sessionsDb.whenReady()
 	if (!db) return
 	const all = await db.getAll('sessions')
-	const ids = new Set(all.filter((s) => s.workspace_id === workspaceId && !s.transient).map((s) => s.id))
+	const ids = new Set(
+		all.filter((s) => s.workspace_id === workspaceId && !s.transient).map((s) => s.id)
+	)
 	for (const id of ids) await db.delete('sessions', id)
 	sessionState.sessions = sessionState.sessions.filter((s) => !ids.has(s.id))
 	if (sessionState.currentSessionId && ids.has(sessionState.currentSessionId)) {
@@ -507,7 +510,10 @@ export function findSessionByName(name: string): Session | undefined {
 	return sessionState.sessions.find((s) => s.name === name)
 }
 
-function defaultSessionWorkspaceId(id: string | undefined, all: UserWorkspace[]): string | undefined {
+function defaultSessionWorkspaceId(
+	id: string | undefined,
+	all: UserWorkspace[]
+): string | undefined {
 	const root = workspaceRootId(id, all)
 	if (root && all.some((w) => w.id === root)) return root
 	return id
@@ -797,6 +803,8 @@ export function deleteSession(id: string) {
 		sessionState.currentSessionId = sessionState.sessions[0]?.id
 	}
 	void deleteSessionRecord(id)
+	// GC any linked files persisted for this session.
+	void deleteItemsForSession(id)
 }
 
 export function setSessionChatId(sessionId: string, chatId: string) {

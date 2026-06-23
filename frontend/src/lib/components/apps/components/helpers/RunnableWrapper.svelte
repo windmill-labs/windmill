@@ -3,7 +3,7 @@
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext, ListContext } from '../../types'
-	import { isScriptByNameDefined, isScriptByPathDefined } from '../../utils'
+	import { appNavigateSameWindow, isScriptByNameDefined, isScriptByPathDefined } from '../../utils'
 	import NonRunnableComponent from './NonRunnableComponent.svelte'
 	import RunnableComponent from './RunnableComponent.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -261,7 +261,9 @@
 				if (newTab) {
 					window.open(gotoUrl, '_blank')
 				} else {
-					window.location.href = gotoUrl
+					// Top-level load; inside the opaque viewer iframe this targets the
+					// top page (pre-sandbox behavior) instead of the cookieless frame.
+					appNavigateSameWindow(gotoUrl)
 				}
 
 				break

@@ -12,10 +12,14 @@
 	let comparison: WorkspaceComparison | undefined = $state(undefined)
 	let error: string | undefined = $state(undefined)
 
-	let isFork = $derived($workspaceStore?.startsWith('wm-fork-') ?? false)
 	let currentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
 	let parentWorkspaceId = $derived(currentWorkspaceData?.parent_workspace_id)
 	let parentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === parentWorkspaceId))
+	// A fork must have a parent to compare/merge against. Treating the wm-fork-
+	// prefix alone as "is a fork" renders a parentless "Fork of ()" banner when
+	// the parent linkage was dropped (e.g. by a workspace id change), so require
+	// both, matching the forks/compare page.
+	let isFork = $derived(($workspaceStore?.startsWith('wm-fork-') ?? false) && !!parentWorkspaceId)
 
 	// Drafts in this fork. When the fork is otherwise in sync with its parent, a
 	// user with only pending drafts should still get the draft CTA (mirrors the

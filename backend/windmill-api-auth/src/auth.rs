@@ -191,7 +191,11 @@ impl AuthCache {
                             is_operator: claims.is_operator,
                             groups: claims.groups,
                             folders: claims.folders,
-                            scopes: None,
+                            // Honor the scopes embedded in the JWT (mirrors the EE
+                            // jwt_ext_ branch). The route middleware only enforces
+                            // scopes when Some, so a None-scoped JWT (e.g. the job
+                            // WM_TOKEN) keeps full user privileges as before.
+                            scopes: claims.scopes,
                             username_override,
                             token_prefix: claims.audit_span,
                             read_only: false,
