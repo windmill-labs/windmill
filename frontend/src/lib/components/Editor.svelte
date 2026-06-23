@@ -370,11 +370,11 @@
 		}
 
 		if (noHistory) {
-			editor?.setValue(ncode)
+			alignCodeWithEditor(false)
 		} else {
 			if (editor?.getModel()) {
 				// editor.setValue(ncode)
-				alignCodeWithEditor()
+				alignCodeWithEditor(true)
 			}
 		}
 		// Dispatch change immediately when code actually changed. This ensures
@@ -1999,7 +1999,7 @@
 	// don't loop.
 	let applyExternalCode = useDebounce(alignCodeWithEditor, 800)
 
-	function alignCodeWithEditor() {
+	function alignCodeWithEditor(useEdits: boolean = true) {
 		const ed = editor
 		if (!ed) return
 		const next = code ?? ''
@@ -2007,9 +2007,13 @@
 		const model = ed.getModel()
 		if (!model) return
 		if (value === next) return
-		ed.pushUndoStop()
-		ed.executeEdits('external', [{ range: model.getFullModelRange(), text: next }])
-		ed.pushUndoStop()
+		if (useEdits) {
+			ed.pushUndoStop()
+			ed.executeEdits('external', [{ range: model.getFullModelRange(), text: next }])
+			ed.pushUndoStop()
+		} else {
+			ed.setValue(next)
+		}
 	}
 
 	$effect(() => {
