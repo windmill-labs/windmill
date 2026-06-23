@@ -368,6 +368,15 @@
 		divEl?.classList.add('hidden')
 	}
 
+	// Mirrors the value Monaco's model currently holds, as last synced through
+	// `code`. The external-`code`→model effect below reflects only when `code`
+	// diverges from this sentinel, i.e. when `code` was set by an outside writer
+	// (draft load, template reset) rather than echoed back from the model. Writes
+	// that go straight to the model (AI chat apply, collab) update `code` via the
+	// debounced change handler, which keeps this sentinel in lockstep — so the
+	// effect never reflects a stale `code` over a model that moved ahead.
+	let lastReflectedCode = code
+
 	export function setCode(ncode: string, noHistory: boolean = false): void {
 		// Track whether the code actually changed before updating.
 		const changed = code != ncode
@@ -392,6 +401,9 @@
 				editor.pushUndoStop()
 			}
 		}
+		// The model now holds `ncode`; record it so the reflect effect treats this
+		// as already-synced and doesn't write it back.
+		lastReflectedCode = ncode
 		// Dispatch change immediately when code actually changed. This ensures
 		// callers like the Reset button and copilot trigger on:change handlers.
 		// The debounced onDidChangeModelContent handler will no-op since code
@@ -425,6 +437,10 @@
 			return
 		}
 		code = ncode
+		// `code` was just echoed from the model, so keep the sentinel aligned —
+		// this is what prevents the reflect effect from racing the model during a
+		// burst of in-editor edits (e.g. an AI chat apply).
+		lastReflectedCode = ncode
 		dispatch('change', ncode)
 	}
 
@@ -2020,6 +2036,12 @@
 		const next = code ?? ''
 		const ed = editor
 		if (!ed) return
+		// Only reflect genuine external `code` changes. When `code` merely echoed a
+		// model edit (typing, AI chat apply, collab), `lastReflectedCode` already
+		// matches and we skip — otherwise a debounced echo could overwrite a model
+		// that has since moved further ahead, reverting the newer edit.
+		if (code === lastReflectedCode) return
+		lastReflectedCode = code
 		untrack(() => {
 			if (ed.getValue() === next) return
 			const model = ed.getModel()
