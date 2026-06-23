@@ -90,7 +90,7 @@
 		if (
 			aiChatManager.mode !== AIMode.SCRIPT ||
 			!aiChatManager.scriptEditorApplyCode ||
-			code === aiChatManager.scriptEditorOptions?.code
+			code === aiChatManager.scriptEditorOptions?.getCode()
 		) {
 			return false
 		}
