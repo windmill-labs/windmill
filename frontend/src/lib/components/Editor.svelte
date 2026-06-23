@@ -403,6 +403,7 @@
 			return
 		}
 		code = ncode
+		lastEditorCode = ncode
 		dispatch('change', ncode)
 	}
 
@@ -1968,6 +1969,13 @@
 
 	let applyExternalCode = useDebounce(() => alignCodeWithEditor(true), 800)
 
+	// Last `code` value the editor itself produced or aligned to. Used to tell an
+	// echo (the bindable changed because the user typed — Monaco is already
+	// ahead) from a genuine external write. Without this, a typing burst longer
+	// than the debounce window would sync the lagging `code` back over newer
+	// keystrokes. Must be kept in step with every editor↔`code` sync point.
+	let lastEditorCode = code
+
 	function alignCodeWithEditor(history: boolean) {
 		const ed = editor
 		if (!ed) return
@@ -1978,6 +1986,7 @@
 		// When the debounce is done, updateCode will be called and the code will be aligned with the editor.
 		if (timeoutModel !== undefined) return
 		if (!model) return
+		lastEditorCode = next
 		if (value === next) return
 		if (history) {
 			ed.pushUndoStop()
@@ -1988,15 +1997,19 @@
 		}
 	}
 
-	// External `code` prop changes should flow into the Monaco editor. The
-	// `untrack` block reads/writes Monaco without subscribing — only the
-	// prop read above is tracked — so the editor's own change handler
-	// (`updateCode`) re-running with the same value short-circuits and we
-	// don't loop.
+	// External `code` prop changes should flow into the Monaco editor. Skip
+	// echoes: when `code` matches what the editor last produced (`updateCode`)
+	// or aligned to, the change came from the editor itself, so syncing back
+	// would clobber input typed since. Only genuine external writes — where
+	// `code` diverges from `lastEditorCode` — schedule a sync. The `untrack`
+	// block reads/writes Monaco without subscribing, so we don't loop.
 	$effect(() => {
 		;[code, editor]
 		if (!editor) return
-		untrack(() => applyExternalCode())
+		untrack(() => {
+			if (code === lastEditorCode) return
+			applyExternalCode()
+		})
 	})
 	let isTsWorkerInitialized = resource([() => lang, () => initialized], async () => {
 		if (lang !== 'typescript' || !initialized) return false
