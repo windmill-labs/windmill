@@ -229,7 +229,7 @@ describe('commitSessionWorkspace — CE workspace-cap fork guard', () => {
 describe('commitSessionWorkspace — workspaceStore sync (non-fork branch)', () => {
 	it('syncs workspaceStore to the committed workspace when they differ', async () => {
 		// Repro: user is sitting in a fork workspace (wm-fork-x) and creates a
-		// new session whose pending_workspace_id defaults to the family root.
+		// new session whose pending_workspace_id defaults to the root workspace.
 		// Without the syncWorkspaceTo call in commitSessionWorkspace's non-fork
 		// branch, the session metadata says root while the active workspace
 		// stays on the fork — so AIChatManager.chatRequest's logAiChat and tool
@@ -248,6 +248,7 @@ describe('commitSessionWorkspace — workspaceStore sync (non-fork branch)', () 
 			expect(committed).toBe('root_ws')
 			const s = sessionState.sessions.find((x) => x.id === id)
 			expect(s?.workspace_id).toBe('root_ws')
+			expect(s?.workspace_root_id).toBe('root_ws')
 			expect(s?.pending_workspace_id).toBeUndefined()
 			expect(get(workspaceStore)).toBe('root_ws')
 		} finally {
@@ -270,6 +271,8 @@ describe('commitSessionWorkspace — workspaceStore sync (non-fork branch)', () 
 		try {
 			const committed = await commitSessionWorkspace(id, undefined)
 			expect(committed).toBe('root_ws')
+			const s = sessionState.sessions.find((x) => x.id === id)
+			expect(s?.workspace_root_id).toBe('root_ws')
 			expect(get(workspaceStore)).toBe('root_ws')
 		} finally {
 			const i = sessionState.sessions.findIndex((x) => x.id === id)

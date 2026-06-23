@@ -82,6 +82,7 @@
 	import MenuButton from './MenuButton.svelte'
 	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 	import AzureIcon from '../icons/AzureIcon.svelte'
+	import { deleteSessionsForWorkspace } from '$lib/components/sessions/sessionState.svelte'
 
 	async function leaveWorkspace() {
 		await WorkspaceService.leaveWorkspace({ workspace: $workspaceStore ?? '' })
@@ -139,6 +140,7 @@
 			for (const child of forkedDescendants) {
 				try {
 					await WorkspaceService.deleteWorkspace({ workspace: child.id })
+					await deleteSessionsForWorkspace(child.id)
 				} catch (err) {
 					sendUserToast(`Failed to delete forked child ${child.id}: ${err}`, true)
 					return
@@ -147,6 +149,7 @@
 		}
 
 		await WorkspaceService.deleteWorkspace({ workspace })
+		await deleteSessionsForWorkspace(workspace)
 		sendUserToast('You deleted the workspace')
 		if (parentStillAccessible && parentId) {
 			// Refresh the workspace list before landing on the parent.

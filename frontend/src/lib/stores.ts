@@ -39,11 +39,6 @@ export interface UserWorkspace {
 	color?: string
 	operator_settings?: OperatorSettings
 	parent_workspace_id?: string | null
-	// Immutable, never-reused identity for the workspace fork family. Backend-minted
-	// (root) and inherited by forks; the key sessions are scoped by per family. Present
-	// on listUserWorkspaces entries (the session-scoping source); absent on the
-	// superadmin workspace list, where session scoping does not apply.
-	family_id?: string
 	disabled: boolean
 }
 
@@ -97,10 +92,6 @@ export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
 	([store, superadmin]) => {
 		const originalWorkspaces = store?.workspaces ?? []
 		if (superadmin) {
-			// Preserve the real admins family_id when the superadmin is a member of it;
-			// fall back to the id itself for a superadmin who isn't (no sessions live there).
-			const adminsFamilyId =
-				originalWorkspaces.find((x) => x.id === 'admins')?.family_id ?? 'admins'
 			return [
 				...originalWorkspaces.filter((x) => x.id != 'admins'),
 				{
@@ -109,7 +100,6 @@ export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
 					username: 'superadmin',
 					color: undefined,
 					operator_settings: undefined,
-					family_id: adminsFamilyId,
 					disabled: false
 				}
 			]

@@ -27349,9 +27349,6 @@ components:
               parent_workspace_id:
                 type: string
                 nullable: true
-              family_id:
-                type: string
-                format: uuid
               created_by:
                 type: string
                 nullable: true
@@ -27362,7 +27359,6 @@ components:
               - name
               - username
               - color
-              - family_id
               - disabled
       required:
         - email

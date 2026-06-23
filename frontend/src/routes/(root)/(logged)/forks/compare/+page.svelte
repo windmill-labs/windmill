@@ -2,7 +2,11 @@
 	import CompareWorkspaces from '$lib/components/CompareWorkspaces.svelte'
 	import CompareDrafts from '$lib/components/CompareDrafts.svelte'
 	import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
-	import { reconcileAfterWorkspaceChange } from '$lib/components/sessions/sessionState.svelte'
+	import {
+		archiveSessionsForWorkspace,
+		deleteSessionsForWorkspace,
+		reconcileAfterWorkspaceChange
+	} from '$lib/components/sessions/sessionState.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import { page } from '$app/state'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
@@ -161,6 +165,7 @@
 		acting = true
 		try {
 			await WorkspaceService.archiveWorkspace({ workspace: currentWorkspaceId })
+			await archiveSessionsForWorkspace(currentWorkspaceId)
 			sendUserToast(`Archived fork ${currentWorkspaceId}`)
 			await reconcileAfterWorkspaceChange()
 			await afterForkGone()
@@ -177,6 +182,7 @@
 		acting = true
 		try {
 			await WorkspaceService.deleteWorkspace({ workspace: currentWorkspaceId })
+			await deleteSessionsForWorkspace(currentWorkspaceId)
 			sendUserToast(`Deleted fork ${currentWorkspaceId}`)
 			await reconcileAfterWorkspaceChange()
 			await afterForkGone()

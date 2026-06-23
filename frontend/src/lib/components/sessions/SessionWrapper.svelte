@@ -32,6 +32,7 @@
 	import SessionDraftBar from './SessionDraftBar.svelte'
 	import {
 		createSession,
+		deleteSessionsForWorkspace,
 		getEffectiveWorkspaceId,
 		moveSessionToNewFork,
 		moveSessionToWorkspace,
@@ -116,6 +117,7 @@
 		if (forkToDelete) {
 			try {
 				await WorkspaceService.deleteWorkspace({ workspace: forkToDelete })
+				await deleteSessionsForWorkspace(forkToDelete)
 				sendUserToast(`Deleted forked workspace ${forkToDelete}`)
 				await reconcileAfterWorkspaceChange()
 			} catch (e: any) {

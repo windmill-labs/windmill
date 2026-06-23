@@ -11,8 +11,9 @@ import {
 } from '$lib/stores'
 import { switchWorkspace } from '$lib/storeUtils'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
-import { currentFamilyId, familyOfWorkspace } from './sessionScope.svelte'
-import { openDB, deleteDB, type DBSchema, type IDBPDatabase } from 'idb'
+import { workspaceRootId } from './sessionScope.svelte'
+import { type DBSchema, type IDBPDatabase } from 'idb'
+import { userScopedDb } from '$lib/userScopedDb'
 
 // Switch the global workspace iff the target differs from the active one
 // and is non-empty. Centralises the "session needs its workspace in focus"
@@ -26,7 +27,7 @@ export function syncWorkspaceTo(workspaceId: string | undefined): void {
 import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import type HistoryManager from '$lib/components/copilot/chat/HistoryManager.svelte'
-import { onUserChange, scopedKey } from '$lib/userScopedStorage'
+import { onUserChange } from '$lib/userScopedStorage'
 
 // Kinds the in-session editor pane can host. Legacy drag-and-drop apps are
 // intentionally not previewable — only code-based 'raw_app' apps are.
@@ -117,11 +118,9 @@ export type Session = {
 	// deferred to first send (via commitSessionWorkspace) so cancelling
 	// the draft doesn't leave an orphan fork behind.
 	pending_fork?: PendingFork
-	// Immutable family the session lives in — the IndexedDB it is stored in is
-	// keyed by this (windmill-sessions::<email>::<family_id>). Committed alongside
-	// workspace_id at first send / on move, so the home DB is stable even if the
-	// workspace later disappears. Absent only for unsent (transient) drafts.
-	family_id?: string
+	// Stable root workspace id used only for sidebar grouping. Lifecycle follows
+	// workspace_id, not this field. Root sessions store the same id in both fields.
+	workspace_root_id?: string
 	chatId?: string
 	target?: SessionTarget
 	summary?: string
@@ -147,10 +146,10 @@ export type Session = {
 	lastSeenCount?: number
 }
 
-// Sessions live in a per-family IndexedDB (windmill-sessions::email::family_id),
-// one record per session in the `sessions` store keyed by `id`. IndexedDB is the
-// sole store — no localStorage fallback. The bare localStorage keys below are the
-// oldest (pre-namespacing) source, claimed once during the legacy migration.
+// Sessions live in one per-user IndexedDB, one record per session in the
+// `sessions` store keyed by `id`. IndexedDB is the sole store — no localStorage
+// fallback. The bare localStorage keys below are the oldest (pre-namespacing)
+// source, claimed once during the legacy migration.
 const SESSIONS_DB = 'windmill-sessions'
 const LEGACY_SESSIONS_KEY = 'windmill_sessions'
 const LEGACY_LAST_SEEN_KEY = 'windmill_sessions_last_seen_counts'
@@ -224,101 +223,36 @@ async function migrateSessionsFromLocalStorage(db: IDBPDatabase<SessionSchema>):
 	storeLocalSetting(LEGACY_LAST_SEEN_KEY, undefined)
 }
 
-// Per-FAMILY IndexedDB: one DB per (user, fork family), named
-// `windmill-sessions::<email>::<family_id>`. A session lives only in its
-// family's DB, so getAll() for the active family physically cannot return
-// another family's sessions — isolation by construction, no display-time
-// filter. family_id is the immutable, never-reused backend identity (workspace
-// ids are reusable, so they can't key storage).
-function familyDbName(familyId: string): string | undefined {
-	const base = scopedKey(SESSIONS_DB) // windmill-sessions::<email>, or undefined pre-login
-	return base ? `${base}::${familyId}` : undefined
-}
-
-// Open handles cached per DB name. Cleared on user (email) change so a new user
-// never reuses the previous user's handles.
-const familyDbHandles = new Map<string, Promise<IDBPDatabase<SessionSchema> | undefined>>()
-
-function openFamilyDb(familyId: string): Promise<IDBPDatabase<SessionSchema> | undefined> {
-	const name = familyDbName(familyId)
-	if (!name) return Promise.resolve(undefined)
-	let handle = familyDbHandles.get(name)
-	if (!handle) {
-		handle = openDB<SessionSchema>(name, 1, {
-			upgrade(db) {
-				if (!db.objectStoreNames.contains('sessions')) {
-					db.createObjectStore('sessions', { keyPath: 'id' })
-				}
-			}
-		}).catch((e) => {
-			// Degrade to in-memory on a failed open (blocked / corrupt / private
-			// browsing): drop the cached rejection so a later call can retry.
-			console.error(`Could not open sessions DB ${name}`, e)
-			familyDbHandles.delete(name)
-			return undefined
-		})
-		familyDbHandles.set(name, handle)
-	}
-	return handle
-}
-
-// The family a session record belongs to: its committed home family if set,
-// else derived from its (pending) workspace, else the active family. As a last
-// resort (orphaned session whose workspace no longer resolves) the workspace id
-// itself keys a stranded DB — never opened by currentFamilyId, so it stays
-// hidden (not leaked) until reconciliation removes it.
-function sessionFamilyId(s: Session): string | undefined {
+function sessionRootId(s: Session): string | undefined {
 	return (
-		s.family_id ??
-		familyOfWorkspace(s.workspace_id ?? s.pending_workspace_id, get(userWorkspaces)) ??
+		s.workspace_root_id ??
+		workspaceRootId(s.workspace_id ?? s.pending_workspace_id, get(userWorkspaces)) ??
 		s.workspace_id ??
-		s.pending_workspace_id ??
-		get(currentFamilyId)
+		s.pending_workspace_id
 	)
 }
 
-// One-shot split of the legacy single per-user DB (windmill-sessions::<email>)
-// into per-family DBs. Reads every record, also folds in the even-older
-// localStorage data, routes each session to its family DB, then deletes the old
-// DB. Guarded by a per-user flag so it runs at most once. Requires userWorkspaces
-// to be loaded (it is, since this runs only once currentFamilyId resolves).
-async function migrateLegacySingleDb(): Promise<void> {
-	const flagKey = scopedKey('windmill_sessions_family_migrated')
-	const oldName = scopedKey(SESSIONS_DB)
-	if (!flagKey || !oldName) return
-	if (getLocalSetting(flagKey)) return
-	try {
-		const oldDb = await openDB<SessionSchema>(oldName, 1, {
-			upgrade(db) {
-				if (!db.objectStoreNames.contains('sessions')) {
-					db.createObjectStore('sessions', { keyPath: 'id' })
-				}
-			}
-		})
-		await migrateSessionsFromLocalStorage(oldDb)
-		const all = await oldDb.getAll('sessions')
-		const workspaces = get(userWorkspaces)
-		for (const s of all) {
-			if (s.transient) continue
-			const fam =
-				s.family_id ??
-				familyOfWorkspace(s.workspace_id ?? s.pending_workspace_id, workspaces) ??
-				s.workspace_id ??
-				s.pending_workspace_id
-			if (!fam) continue
-			const target = await openFamilyDb(fam)
-			if (target) {
-				s.family_id = fam
-				await target.put('sessions', s)
-			}
-		}
-		oldDb.close()
-		await deleteDB(oldName)
-		storeLocalSetting(flagKey, 'true')
-	} catch (e) {
-		console.error('Failed to split legacy sessions DB into per-family DBs', e)
-	}
+function ensureSessionRootId(s: Session): boolean {
+	if (s.workspace_root_id || s.transient) return false
+	const workspaceId = s.workspace_id ?? s.pending_workspace_id
+	if (workspaceId && get(userWorkspaces).length === 0) return false
+	const root = sessionRootId(s)
+	if (!root) return false
+	s.workspace_root_id = root
+	return true
 }
+
+const sessionsDb = userScopedDb<SessionSchema>(SESSIONS_DB, {
+	version: 1,
+	upgrade(db) {
+		if (!db.objectStoreNames.contains('sessions')) {
+			db.createObjectStore('sessions', { keyPath: 'id' })
+		}
+	},
+	async migrate(db) {
+		await migrateSessionsFromLocalStorage(db)
+	}
+})
 
 // Starts empty: the list is hydrated from the user's IndexedDB by the
 // onUserChange handler below once the logged-in email resolves (async, after
@@ -339,20 +273,15 @@ export const sessionState = $state<{
 // so callers fire-and-forget.
 export async function putSession(s: Session): Promise<void> {
 	if (!BROWSER || s.transient) return
-	// Never resurrect a session whose committed workspace is gone. When a
-	// workspace (typically a fork) is deleted, reconcileSessionsLifecycle removes
-	// its sessions — but a live runtime keeps writing through here (chatId seed,
-	// unread watermark), and those writes would re-create the orphan in its
-	// family DB after reconcile already scanned, so it lingers until the next
-	// load. Guard only once the workspace list is loaded (non-empty), so writes
-	// during initial hydration aren't dropped.
+	// Never resurrect a session whose committed workspace is gone. A live runtime
+	// can still write through here after reconciliation deletes its record (chatId
+	// seed, unread watermark), so guard once the workspace list is loaded.
 	if (s.workspace_id) {
 		const all = get(userWorkspaces)
 		if (all.length > 0 && !all.some((w) => w.id === s.workspace_id)) return
 	}
-	const fam = sessionFamilyId(s)
-	if (!fam) return
-	const db = await openFamilyDb(fam)
+	ensureSessionRootId(s)
+	const db = await sessionsDb.whenReady()
 	if (!db) return
 	try {
 		await db.put('sessions', $state.snapshot(s))
@@ -361,14 +290,9 @@ export async function putSession(s: Session): Promise<void> {
 	}
 }
 
-// Delete a session record from its family DB. `familyId` targets a specific
-// family (e.g. the source family when moving a session across families);
-// defaults to the active family for in-view deletes.
-export async function deleteSessionRecord(id: string, familyId?: string): Promise<void> {
+export async function deleteSessionRecord(id: string): Promise<void> {
 	if (!BROWSER) return
-	const fam = familyId ?? get(currentFamilyId)
-	if (!fam) return
-	const db = await openFamilyDb(fam)
+	const db = await sessionsDb.whenReady()
 	if (!db) return
 	try {
 		await db.delete('sessions', id)
@@ -383,23 +307,16 @@ export async function deleteSessionRecord(id: string, familyId?: string): Promis
 // user automatically, so this also handles user switch; an absent DB (logged
 // out / open failed) yields an empty list.
 async function hydrateSessions(): Promise<void> {
-	// Transient (unsent) drafts live in memory only and aren't tied to a family
-	// DB — preserve them across re-hydration (which now fires on every workspace
-	// switch) so an in-progress new session isn't lost.
 	const transients = sessionState.sessions.filter((s) => s.transient)
-	const fam = get(currentFamilyId)
-	if (!fam) {
-		sessionState.sessions = transients
-		return
-	}
-	await migrateLegacySingleDb()
-	const db = await openFamilyDb(fam)
+	const db = await sessionsDb.whenReady()
 	if (!db) {
 		sessionState.sessions = transients
 		return
 	}
 	try {
 		const all = await db.getAll('sessions')
+		const changed = all.filter((s) => ensureSessionRootId(s))
+		for (const s of changed) await db.put('sessions', s)
 		all.sort((a, b) => b.createdAt - a.createdAt)
 		sessionState.sessions = [...transients, ...all]
 	} catch (e) {
@@ -441,9 +358,9 @@ function applyLifecyclePatch(session: Session, patch: Partial<Session>): void {
 	}
 }
 
-// Cross-family workspace switches reconcile too (to catch a workspace
-// deleted/archived on another device), but throttled so rapid switching doesn't
-// spam the status endpoint. Mutation-driven reconciles are unthrottled.
+// Workspace switches reconcile too (to catch a workspace deleted/archived on
+// another device), but throttled so rapid switching doesn't spam the status
+// endpoint. Mutation-driven reconciles are unthrottled.
 let lastReconcileAt = 0
 const RECONCILE_THROTTLE_MS = 30_000
 
@@ -451,38 +368,16 @@ const RECONCILE_THROTTLE_MS = 30_000
 // client-only, so the backend can't delete/archive them directly — instead the
 // client asks the backend for the status of every workspace its sessions
 // reference and applies the rule (see decideSessionLifecycle) the user can't see
-// happen otherwise. Walks every family DB the user has — not just the active one
-// — so a workspace archived on another device or by another member is reflected
-// here too. Reached via reconcileAfterWorkspaceChange (mutations) / load / a
-// throttled cross-family switch.
+// happen otherwise. Reached via reconcileAfterWorkspaceChange (mutations),
+// load, and a throttled workspace switch.
 export async function reconcileSessionsLifecycle(): Promise<void> {
 	if (!BROWSER) return
 	lastReconcileAt = Date.now()
-	const base = scopedKey(SESSIONS_DB)
-	if (!base) return
-	const prefix = `${base}::`
-	let infos: IDBDatabaseInfo[]
-	try {
-		infos = await indexedDB.databases()
-	} catch {
-		return
-	}
-	const families = infos
-		.map((d) => d.name)
-		.filter((n): n is string => !!n && n.startsWith(prefix))
-		.map((n) => n.slice(prefix.length))
-
-	// Gather every referenced workspace id across all families, then ask the
-	// backend their status in a single call.
-	const perFamily: { familyId: string; sessions: Session[] }[] = []
+	const db = await sessionsDb.whenReady()
+	if (!db) return
 	const wsIds = new Set<string>()
-	for (const familyId of families) {
-		const db = await openFamilyDb(familyId)
-		if (!db) continue
-		const sessions = await db.getAll('sessions')
-		perFamily.push({ familyId, sessions })
-		for (const s of sessions) if (s.workspace_id) wsIds.add(s.workspace_id)
-	}
+	const sessions = await db.getAll('sessions')
+	for (const s of sessions) if (s.workspace_id) wsIds.add(s.workspace_id)
 	if (wsIds.size === 0) return
 
 	let status: Record<string, 'active' | 'archived' | 'deleted'>
@@ -496,22 +391,18 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 	}
 
 	const deletedIds = new Set<string>()
-	for (const { familyId, sessions } of perFamily) {
-		const db = await openFamilyDb(familyId)
-		if (!db) continue
-		for (const s of sessions) {
-			if (!s.workspace_id) continue
-			const { action, patch } = decideSessionLifecycle(s, status[s.workspace_id])
-			if (action === 'delete') {
-				await db.delete('sessions', s.id)
-				deletedIds.add(s.id)
-			} else if (action === 'archive' || action === 'unarchive') {
-				if (patch) applyLifecyclePatch(s, patch)
-				await db.put('sessions', s)
-			}
+	for (const s of sessions) {
+		if (!s.workspace_id) continue
+		const { action, patch } = decideSessionLifecycle(s, status[s.workspace_id])
+		if (action === 'delete') {
+			await db.delete('sessions', s.id)
+			deletedIds.add(s.id)
+		} else if (action === 'archive' || action === 'unarchive') {
+			if (patch) applyLifecyclePatch(s, patch)
+			ensureSessionRootId(s)
+			await db.put('sessions', s)
 		}
 	}
-	// Reflect changes to the active family in the in-memory list.
 	await hydrateSessions()
 	// If the session the user was on lived in a now-deleted workspace, it was just
 	// removed — drop the dangling pointer so the page falls back to "no session
@@ -540,9 +431,7 @@ export async function reconcileAfterWorkspaceChange(): Promise<void> {
 // user, before archiving/deleting a workspace, how many AI sessions go with it.
 export async function countSessionsForWorkspace(workspaceId: string): Promise<number> {
 	if (!BROWSER) return 0
-	const fam = familyOfWorkspace(workspaceId, get(userWorkspaces))
-	if (!fam) return 0
-	const db = await openFamilyDb(fam)
+	const db = await sessionsDb.whenReady()
 	if (!db) return 0
 	try {
 		const all = await db.getAll('sessions')
@@ -552,13 +441,44 @@ export async function countSessionsForWorkspace(workspaceId: string): Promise<nu
 	}
 }
 
+export async function archiveSessionsForWorkspace(workspaceId: string): Promise<void> {
+	if (!BROWSER || !workspaceId) return
+	const db = await sessionsDb.whenReady()
+	if (!db) return
+	const all = await db.getAll('sessions')
+	for (const s of all) {
+		if (s.transient || s.workspace_id !== workspaceId) continue
+		s.archived = true
+		s.archivedByWorkspace = true
+		ensureSessionRootId(s)
+		await db.put('sessions', s)
+	}
+	for (const s of sessionState.sessions) {
+		if (s.transient || s.workspace_id !== workspaceId) continue
+		s.archived = true
+		s.archivedByWorkspace = true
+	}
+}
+
+export async function deleteSessionsForWorkspace(workspaceId: string): Promise<void> {
+	if (!BROWSER || !workspaceId) return
+	const db = await sessionsDb.whenReady()
+	if (!db) return
+	const all = await db.getAll('sessions')
+	const ids = new Set(all.filter((s) => s.workspace_id === workspaceId && !s.transient).map((s) => s.id))
+	for (const id of ids) await db.delete('sessions', id)
+	sessionState.sessions = sessionState.sessions.filter((s) => !ids.has(s.id))
+	if (sessionState.currentSessionId && ids.has(sessionState.currentSessionId)) {
+		sessionState.currentSessionId = undefined
+	}
+}
+
 // Re-hydrate on user (email) change. On logout (email → undefined) or a genuine
 // user switch (X → Y) the in-memory list and active-session pointer reset so one
 // user's sessions never bleed into another. Family-DB handles are dropped since
 // a different email means different DB names.
 onUserChange(async (email, prevEmail) => {
 	if (!BROWSER) return
-	familyDbHandles.clear()
 	await hydrateSessions()
 	if (prevEmail !== undefined && prevEmail !== email) {
 		sessionState.currentSessionId = undefined
@@ -567,33 +487,16 @@ onUserChange(async (email, prevEmail) => {
 	void reconcileSessionsLifecycle()
 })
 
-// Re-hydrate on active-family change. Switching to another workspace in the same
-// fork family is a no-op (same DB); switching to an unrelated workspace loads
-// that family's DB — which cannot contain this family's sessions. On a genuine
-// switch, drop a stale active-session pointer that belongs to the previous
-// family (its page would not exist in the new one).
+// Workspace switches do not reload or clear the active session. The sidebar
+// filters the single loaded session list by workspace_root_id, while the current
+// chat survives workspace switches.
 if (BROWSER) {
-	let lastFamily: string | undefined
+	let lastWorkspace: string | undefined
 	let initialized = false
-	currentFamilyId.subscribe((fam) => {
-		const changed = !initialized || fam !== lastFamily
-		const isSwitch = initialized && fam !== lastFamily
+	workspaceStore.subscribe((ws) => {
+		const isSwitch = initialized && ws !== lastWorkspace
 		initialized = true
-		lastFamily = fam
-		if (!changed) return
-		void hydrateSessions().then(() => {
-			if (
-				isSwitch &&
-				sessionState.currentSessionId &&
-				!sessionState.sessions.some((s) => s.id === sessionState.currentSessionId)
-			) {
-				sessionState.currentSessionId = undefined
-			}
-		})
-		// A cross-family switch is the moment to catch a workspace deleted/archived
-		// elsewhere since we last looked — but throttle so flipping between
-		// workspaces doesn't fire a status call each time (load and mutation-driven
-		// reconciles cover the rest).
+		lastWorkspace = ws
 		if (isSwitch && Date.now() - lastReconcileAt > RECONCILE_THROTTLE_MS) {
 			void reconcileSessionsLifecycle()
 		}
@@ -604,17 +507,10 @@ export function findSessionByName(name: string): Session | undefined {
 	return sessionState.sessions.find((s) => s.name === name)
 }
 
-// Walk up parent_workspace_id to the family root, given a starting
-// workspace id. Returns the input id if no parent chain is visible.
-function familyRootId(id: string | undefined, all: UserWorkspace[]): string | undefined {
-	if (!id) return undefined
-	let cur = all.find((w) => w.id === id)
-	while (cur?.parent_workspace_id) {
-		const parent = all.find((w) => w.id === cur!.parent_workspace_id)
-		if (!parent) break
-		cur = parent
-	}
-	return cur?.id ?? id
+function defaultSessionWorkspaceId(id: string | undefined, all: UserWorkspace[]): string | undefined {
+	const root = workspaceRootId(id, all)
+	if (root && all.some((w) => w.id === root)) return root
+	return id
 }
 
 export function createSession(): Session {
@@ -630,11 +526,11 @@ export function createSession(): Session {
 		.map((s) => /^session-(\d+)$/.exec(s.name)?.[1])
 		.map((n) => (n ? parseInt(n, 10) : 0))
 	const next = (existingNumbers.length ? Math.max(...existingNumbers) : 0) + 1
-	// Default to the family root rather than wherever the user happens
+	// Default to the root workspace rather than wherever the user happens
 	// to be — sessions usually start from "the canonical workspace" and
 	// the picker lets them switch to a fork later.
 	const currentWs = get(workspaceStore)
-	const root = familyRootId(currentWs ?? undefined, get(userWorkspaces))
+	const root = defaultSessionWorkspaceId(currentWs ?? undefined, get(userWorkspaces))
 	const pending = root ?? currentWs
 	// Friendly default summary so the header reads like "Zippy session"
 	// rather than "Untitled session" — assigned at create time, the user
@@ -731,10 +627,7 @@ export async function commitSessionWorkspace(
 		s.workspace_id = newId
 		s.pending_fork = undefined
 		s.pending_workspace_id = undefined
-		s.family_id = familyOfWorkspace(newId, get(userWorkspaces))
-		// Persist into the (new) family DB BEFORE switching workspace: the switch
-		// re-hydrates from that family's DB, which must already hold this session
-		// or it would briefly drop out of the list.
+		s.workspace_root_id = workspaceRootId(newId, get(userWorkspaces)) ?? newId
 		await putSession(s)
 		if (get(workspaceStore) !== newId) switchWorkspace(newId)
 		return newId
@@ -744,9 +637,9 @@ export async function commitSessionWorkspace(
 	if (!ws) return undefined
 	s.workspace_id = ws
 	s.pending_workspace_id = undefined
-	s.family_id = familyOfWorkspace(ws, get(userWorkspaces))
+	s.workspace_root_id = workspaceRootId(ws, get(userWorkspaces)) ?? ws
 	await putSession(s)
-	// `pending_workspace_id` defaults to the family root when created from
+	// `pending_workspace_id` defaults to the root workspace when created from
 	// inside a fork, so the committed workspace can differ from the active
 	// workspaceStore. Without this sync, the very first AI request's
 	// `logAiChat` and tool calls read the stale fork from workspaceStore
@@ -857,25 +750,11 @@ export async function moveSessionToWorkspace(id: string, newWorkspaceId: string)
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
 	if (s.workspace_id === newWorkspaceId) return
-	const oldFam = sessionFamilyId(s)
-	const newFam = familyOfWorkspace(newWorkspaceId, get(userWorkspaces)) ?? newWorkspaceId
 	s.workspace_id = newWorkspaceId
 	delete s.pending_workspace_id
 	delete s.pending_fork
-	s.family_id = newFam
+	s.workspace_root_id = workspaceRootId(newWorkspaceId, get(userWorkspaces)) ?? newWorkspaceId
 	await putSession(s)
-	// Moving across families means moving DBs: write to the new family above,
-	// then remove from the old one so it isn't left behind in two families.
-	if (oldFam && oldFam !== newFam) {
-		await deleteSessionRecord(id, oldFam)
-		// It also leaves the active list unless we're now in the new family.
-		if (get(currentFamilyId) !== newFam) {
-			sessionState.sessions = sessionState.sessions.filter((x) => x.id !== id)
-			if (sessionState.currentSessionId === id) {
-				sessionState.currentSessionId = sessionState.sessions[0]?.id
-			}
-		}
-	}
 }
 
 // Create a brand-new fork and re-assign a committed session to it. Used
@@ -890,8 +769,8 @@ export async function moveSessionToNewFork(
 	if (!s) return undefined
 	const newId = await materializeFork(fork)
 	if (!newId) return undefined
-	// Persist the session into the new fork's family DB before switching, so the
-	// switch's re-hydrate from that DB already includes it.
+	// Persist the session before switching so the target workspace can show it
+	// immediately in the root-filtered sidebar.
 	await moveSessionToWorkspace(id, newId)
 	if (get(workspaceStore) !== newId) switchWorkspace(newId)
 	return newId
@@ -901,21 +780,23 @@ export function setSessionArchived(id: string, archived: boolean) {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
 	const next = archived ? true : undefined
-	if (s.archived === next) return
+	if (s.archived === next && (archived || !s.archivedByWorkspace)) return
 	if (archived) s.archived = true
-	else delete s.archived
+	else {
+		delete s.archived
+		delete s.archivedByWorkspace
+	}
 	void putSession(s)
 }
 
 export function deleteSession(id: string) {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
-	const fam = sessionFamilyId(s)
 	sessionState.sessions = sessionState.sessions.filter((x) => x.id !== id)
 	if (sessionState.currentSessionId === id) {
 		sessionState.currentSessionId = sessionState.sessions[0]?.id
 	}
-	void deleteSessionRecord(id, fam)
+	void deleteSessionRecord(id)
 }
 
 export function setSessionChatId(sessionId: string, chatId: string) {

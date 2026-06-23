@@ -22,6 +22,7 @@
 	import {
 		createSession,
 		deriveForkStatus,
+		deleteSessionsForWorkspace,
 		isForkSession,
 		reconcileAfterWorkspaceChange,
 		renameSession,
@@ -48,6 +49,7 @@
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import { currentWorkspaceRootId, workspaceRootId } from './sessionScope.svelte'
 
 	// Look up the cached fork comparison for a session through its runtime
 	// (if any). The deriveForkStatus helper handles the "no runtime yet"
@@ -103,24 +105,26 @@
 
 	let listRoot: HTMLDivElement | undefined = $state()
 
-	// Sessions visible in the current workspace (active workspace + its
-	// forks). Drafts (no committed workspace) are scoped by their
-	// pending workspace pick — set at create time to the workspace the
-	// user was in. Archived sessions are filtered out unless the user
-	// has opted in via the filter popover.
-	// sessionState.sessions already holds only the active family's sessions (the
-	// per-family IndexedDB is keyed by family_id), so no workspace/family filter
-	// is needed — just hide transient (unsent) drafts and, unless toggled,
-	// archived sessions.
 	const visibleSessions = $derived(
 		sessionState.sessions.filter((s) => {
 			if (s.transient) return false
-			if (s.archived && !showArchived.val) return false
+			const isActive = s.id === sessionState.currentSessionId
+			if (s.archived && !showArchived.val && !isActive) return false
+			const currentRoot = $currentWorkspaceRootId
+			const sessionRoot =
+				s.workspace_root_id ?? workspaceRootId(s.workspace_id ?? s.pending_workspace_id, $userWorkspaces)
+			if (currentRoot && sessionRoot !== currentRoot && !isActive) return false
 			return true
 		})
 	)
 	const archivedCount = $derived(
-		sessionState.sessions.filter((s) => s.archived && !s.transient).length
+		sessionState.sessions.filter((s) => {
+			if (!s.archived || s.transient) return false
+			const currentRoot = $currentWorkspaceRootId
+			const sessionRoot =
+				s.workspace_root_id ?? workspaceRootId(s.workspace_id ?? s.pending_workspace_id, $userWorkspaces)
+			return !currentRoot || sessionRoot === currentRoot || s.id === sessionState.currentSessionId
+		}).length
 	)
 
 	// Sum of unread across every visible session — surfaced on the
@@ -252,6 +256,7 @@
 		if (forkToDelete) {
 			try {
 				await WorkspaceService.deleteWorkspace({ workspace: forkToDelete })
+				await deleteSessionsForWorkspace(forkToDelete)
 				sendUserToast(`Deleted forked workspace ${forkToDelete}`)
 				await reconcileAfterWorkspaceChange()
 			} catch (e: any) {

@@ -44,11 +44,9 @@
 		untrack(() => syncWorkspaceTo(ws))
 	})
 
-	// sessionState.sessions holds only the active family's sessions (per-family
-	// IndexedDB), so resolving by name is already family-scoped. Unavailable
-	// sessions (committed to a now-deleted workspace) still live in this family's
-	// DB, so they resolve too — landing on the move/discard banner rather than
-	// "Session not found".
+	// sessionState.sessions holds every local session for the user. Resolve by
+	// name without applying the sidebar root filter so an open chat survives
+	// workspace switches.
 	const activeSession = $derived(sessionState.sessions.find((s) => s.name === sessionName))
 
 	// Touch the runtime for the active session so it gets created on first visit

@@ -15,12 +15,13 @@ vi.mock('$lib/gen', async (orig) => {
 		...actual,
 		WorkspaceService: {
 			...actual.WorkspaceService,
-			listUserWorkspaces: vi.fn().mockResolvedValue([])
+			listUserWorkspaces: vi.fn().mockResolvedValue([]),
+			getSessionWorkspaceStatus: vi.fn().mockResolvedValue({})
 		}
 	}
 })
 
-import { userStore, type UserExt } from '$lib/stores'
+import { userStore, usersWorkspaceStore, type UserExt } from '$lib/stores'
 import { sessionState, putSession, deleteSessionRecord, type Session } from './sessionState.svelte'
 
 function asUser(email: string): UserExt {
@@ -52,6 +53,7 @@ beforeEach(async () => {
 	;(globalThis as any).indexedDB = new IDBFactory()
 	localStorage.clear()
 	userStore.set(undefined)
+	usersWorkspaceStore.set(undefined)
 	await flush()
 	sessionState.sessions = []
 	sessionState.currentSessionId = undefined
@@ -123,6 +125,13 @@ describe('sessionState IndexedDB persistence', () => {
 	})
 
 	it('claims legacy localStorage sessions for the first connector, folding watermarks, then deletes the bare keys', async () => {
+		usersWorkspaceStore.set({
+			email: 'u@x.com',
+			workspaces: [
+				{ id: 'root', name: 'root', disabled: false },
+				{ id: 'fork', name: 'fork', parent_workspace_id: 'root', disabled: false }
+			] as never
+		})
 		localStorage.setItem(
 			'windmill_sessions',
 			JSON.stringify([
@@ -130,18 +139,22 @@ describe('sessionState IndexedDB persistence', () => {
 				// transient legacy entries are not persisted
 				{ id: 'leg2', name: 'L2', createdAt: 200, transient: true },
 				// legacy '' workspace marker is normalised away
-				{ id: 'leg3', name: 'L3', createdAt: 50, workspace_id: '' }
+				{ id: 'leg3', name: 'L3', createdAt: 50, workspace_id: '' },
+				{ id: 'leg4', name: 'L4', createdAt: 25, workspace_id: 'fork' }
 			])
 		)
 		localStorage.setItem('windmill_sessions_last_seen_counts', JSON.stringify({ leg1: 5 }))
 
 		const user = freshUser()
 		userStore.set(user)
-		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['leg1', 'leg3']))
+		await vi.waitFor(() =>
+			expect(sessionState.sessions.map((s) => s.id)).toEqual(['leg1', 'leg3', 'leg4'])
+		)
 
 		const leg1 = sessionState.sessions.find((s) => s.id === 'leg1')!
 		expect(leg1.lastSeenCount).toBe(5)
 		expect(sessionState.sessions.find((s) => s.id === 'leg3')!.workspace_id).toBeUndefined()
+		expect(sessionState.sessions.find((s) => s.id === 'leg4')!.workspace_root_id).toBe('root')
 
 		// Bare keys are gone so a later different user does not re-inherit them.
 		expect(localStorage.getItem('windmill_sessions')).toBeNull()

@@ -469,7 +469,6 @@ struct UserWorkspace {
     pub color: Option<String>,
     pub operator_settings: Option<Option<serde_json::Value>>,
     pub parent_workspace_id: Option<String>,
-    pub family_id: Uuid,
     pub disabled: bool,
 }
 
@@ -3611,7 +3610,6 @@ async fn user_workspaces(
     let workspaces = sqlx::query_as!(
         UserWorkspace,
         "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color, workspace.parent_workspace_id,
-                workspace.family_id AS \"family_id!\",
                 CASE WHEN usr.operator THEN workspace_settings.operator_settings ELSE NULL END as operator_settings,
                 usr.disabled
          FROM workspace
@@ -5104,17 +5102,13 @@ async fn create_workspace_fork(
 
     let forked_id = nw.id;
 
-    // Inherit the parent's family_id so the whole fork family shares one immutable
-    // identity (the key the frontend scopes per-family session storage by). Falls back to
-    // a fresh uuid via the column DEFAULT if the parent somehow has none.
     sqlx::query!(
         "INSERT INTO workspace
-            (id, name, owner, parent_workspace_id, family_id)
-            VALUES ($1, $2, $3, $4, COALESCE((SELECT family_id FROM workspace WHERE id = $5), gen_random_uuid()))",
+            (id, name, owner, parent_workspace_id)
+            VALUES ($1, $2, $3, $4)",
         forked_id,
         nw.name,
         authed.email,
-        parent_workspace_id,
         parent_workspace_id,
     )
     .execute(&mut *tx)
