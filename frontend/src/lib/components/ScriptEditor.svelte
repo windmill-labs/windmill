@@ -268,7 +268,7 @@
 		if (activeModuleTab === null && code !== lastSyncedCode) {
 			editorCode = code
 			lastSyncedCode = code
-			editor?.setCode(editorCode)
+			editor?.setCode(editorCode) // immediate sync, don't wait for the 800ms debounce
 			untrack(() => inferSchema(code))
 		}
 	})

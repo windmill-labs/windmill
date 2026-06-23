@@ -1985,17 +1985,16 @@
 		}
 	}
 
-	$effect(() => {
-		;[code, editor]
-		if (!editor) return
-		untrack(() => applyExternalCode())
-	})
-
 	// External `code` prop changes should flow into the Monaco editor. The
 	// `untrack` block reads/writes Monaco without subscribing — only the
 	// prop read above is tracked — so the editor's own change handler
 	// (`updateCode`) re-running with the same value short-circuits and we
 	// don't loop.
+	$effect(() => {
+		;[code, editor]
+		if (!editor) return
+		untrack(() => applyExternalCode())
+	})
 	let isTsWorkerInitialized = resource([() => lang, () => initialized], async () => {
 		if (lang !== 'typescript' || !initialized) return false
 		// Use the stable model URI (computed once at mount), not filePath which changes on rename
