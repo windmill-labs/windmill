@@ -193,7 +193,9 @@ describe('runSelection', () => {
 		const r = fakeRunner()
 		const res = await runSelection({ schedule: sched, ...r })
 		expect(res.ok).toBe(true)
-		expect(r.launched.sort()).toEqual(['a', 'b', 'c'])
+		// Sort a copy for the membership check — mutating `r.launched` here
+		// would invalidate the launch-order assertions below.
+		expect([...r.launched].sort()).toEqual(['a', 'b', 'c'])
 		// c only after both upstreams.
 		expect(r.launched.indexOf('c')).toBeGreaterThan(r.launched.indexOf('a'))
 		expect(r.launched.indexOf('c')).toBeGreaterThan(r.launched.indexOf('b'))

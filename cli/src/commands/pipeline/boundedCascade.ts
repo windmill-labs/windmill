@@ -112,6 +112,9 @@ function closure(adj: Map<string, Set<string>>, start: string): Set<string> {
       queue.push(n);
     }
   }
+  // A cycle back to `start` would have re-added it; the contract excludes
+  // the node itself.
+  seen.delete(start);
   return seen;
 }
 

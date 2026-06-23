@@ -1,18 +1,21 @@
+import { expect, test } from "bun:test";
+
 // Mirror of
 // frontend/src/lib/components/assets/AssetGraph/boundedCascade.test.ts — keep
-// the two engines in sync.
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+// the two engines in sync. (Bun project → bun:test, not Deno.)
 import {
   type BCGraph,
+  ancestors,
   assetUriToNodeId,
   boundedSet,
   buildLineageDag,
+  descendants,
   resolveToken,
   scriptNodeId,
   scriptsOf,
   topoOrder,
   validStarts,
-} from "./boundedCascade.ts";
+} from "../src/commands/pipeline/boundedCascade.ts";
 
 type W = [script: string, asset: string];
 type S = [script: string, asset: string];
@@ -81,24 +84,24 @@ const chain = () =>
     ],
   });
 
-Deno.test("boundedSet stops at a single end node", () => {
+test("boundedSet stops at a single end node", () => {
   const res = boundedSet(buildLineageDag(chain()), sn("a"), [sn("c")]);
-  assertEquals(sorted(scriptsOf(res.nodes)), ["a", "b", "c"]);
-  assertEquals(res.nodes.has("datatable:z"), false);
+  expect(sorted(scriptsOf(res.nodes))).toEqual(["a", "b", "c"]);
+  expect(res.nodes.has("datatable:z")).toBe(false);
 });
 
-Deno.test("boundedSet supports an asset as the end bound", () => {
+test("boundedSet supports an asset as the end bound", () => {
   const res = boundedSet(buildLineageDag(chain()), sn("a"), ["datatable:y"]);
-  assertEquals(sorted(scriptsOf(res.nodes)), ["a", "b"]);
+  expect(sorted(scriptsOf(res.nodes))).toEqual(["a", "b"]);
 });
 
-Deno.test("boundedSet drops ends not downstream of start", () => {
+test("boundedSet drops ends not downstream of start", () => {
   const res = boundedSet(buildLineageDag(chain()), sn("c"), [sn("a")]);
-  assertEquals(res.droppedEnds, [sn("a")]);
-  assertEquals([...res.nodes], [sn("c")]);
+  expect(res.droppedEnds).toEqual([sn("a")]);
+  expect([...res.nodes]).toEqual([sn("c")]);
 });
 
-Deno.test("validStarts: schedule and manual roots, not events or subscribers", () => {
+test("validStarts: schedule and manual roots, not events or subscribers", () => {
   const g = graph({
     scripts: ["a", "sub", "sched", "kfk"],
     writes: [["a", "x"]],
@@ -106,35 +109,46 @@ Deno.test("validStarts: schedule and manual roots, not events or subscribers", (
     native: [["schedule", "sched"], ["kafka", "kfk"]],
   });
   const starts = validStarts(g);
-  assertEquals(starts.has(sn("a")), true); // manual root
-  assertEquals(starts.has(sn("sched")), true); // schedule overrides subscriber
-  assertEquals(starts.has(sn("sub")), false); // pure subscriber
-  assertEquals(starts.has(sn("kfk")), false); // event-only
+  expect(starts.has(sn("a"))).toBe(true); // manual root
+  expect(starts.has(sn("sched"))).toBe(true); // schedule overrides subscriber
+  expect(starts.has(sn("sub"))).toBe(false); // pure subscriber
+  expect(starts.has(sn("kfk"))).toBe(false); // event-only
 });
 
-Deno.test("assetUriToNodeId maps s3 → s3object, others verbatim", () => {
-  assertEquals(assetUriToNodeId("s3://b/k"), "s3object:b/k");
-  assertEquals(assetUriToNodeId("datatable://main/users"), "datatable:main/users");
-  assertEquals(assetUriToNodeId("nope"), undefined);
+test("assetUriToNodeId maps s3 → s3object, others verbatim", () => {
+  expect(assetUriToNodeId("s3://b/k")).toBe("s3object:b/k");
+  expect(assetUriToNodeId("datatable://main/users")).toBe("datatable:main/users");
+  expect(assetUriToNodeId("nope")).toBe(undefined);
 });
 
-Deno.test("resolveToken: short name, full path, and asset URI", () => {
+test("resolveToken: short name, full path, and asset URI", () => {
   const g = graph({ scripts: ["f/p/stage"], writes: [["f/p/stage", "main/staged"]] });
-  // asset must exist in graph.assets for URI resolution
   g.assets = [{ kind: "datatable", path: "main/staged" }];
-  assertEquals(resolveToken(g, "stage"), sn("f/p/stage"));
-  assertEquals(resolveToken(g, "f/p/stage"), sn("f/p/stage"));
-  assertEquals(resolveToken(g, "datatable://main/staged"), "datatable:main/staged");
-  assertEquals(resolveToken(g, "missing"), undefined);
+  expect(resolveToken(g, "stage")).toBe(sn("f/p/stage"));
+  expect(resolveToken(g, "f/p/stage")).toBe(sn("f/p/stage"));
+  expect(resolveToken(g, "datatable://main/staged")).toBe("datatable:main/staged");
+  expect(resolveToken(g, "missing")).toBe(undefined);
 });
 
-Deno.test("topoOrder sorts the bounded scripts and flags cycles", () => {
+test("topoOrder sorts the bounded scripts and flags cycles", () => {
   const { order, cyclic } = topoOrder(chain(), new Set(["a", "b", "c"]));
-  assertEquals(order, ["a", "b", "c"]);
-  assertEquals(cyclic, []);
+  expect(order).toEqual(["a", "b", "c"]);
+  expect(cyclic).toEqual([]);
 });
 
-Deno.test("topoOrder orders a pure reader after its producer", () => {
+test("descendants/ancestors exclude the start even on a cycle", () => {
+  // a → x → b → y → a (cycle): closures must not contain a.
+  const g = graph({
+    scripts: ["a", "b"],
+    writes: [["a", "x"], ["b", "y"]],
+    subs: [["b", "x"], ["a", "y"]],
+  });
+  const dag = buildLineageDag(g);
+  expect(descendants(dag, sn("a")).has(sn("a"))).toBe(false);
+  expect(ancestors(dag, sn("a")).has(sn("a"))).toBe(false);
+});
+
+test("topoOrder orders a pure reader after its producer", () => {
   // a writes x; c only *reads* x (no `// on x`). c must run after a.
   const g = graph({
     scripts: ["a", "c"],
@@ -142,5 +156,5 @@ Deno.test("topoOrder orders a pure reader after its producer", () => {
     reads: [["c", "x"]],
   });
   const { order } = topoOrder(g, new Set(["a", "c"]));
-  assertEquals(order, ["a", "c"]);
+  expect(order).toEqual(["a", "c"]);
 });

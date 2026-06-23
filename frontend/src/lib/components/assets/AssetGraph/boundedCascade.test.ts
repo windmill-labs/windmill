@@ -114,6 +114,23 @@ describe('ancestors / descendants', () => {
 		expect(descendants(dag, sn('a'))).toEqual(new Set([asset('x'), sn('b'), asset('y'), sn('c')]))
 		expect(ancestors(dag, sn('c'))).toEqual(new Set([asset('y'), sn('b'), asset('x'), sn('a')]))
 	})
+
+	it('excludes the start node even on a cycle back to it', () => {
+		// a → x → b → y → a (cycle): descendants(a) must not contain a.
+		const g = graph({
+			writes: [
+				['a', 'x'],
+				['b', 'y']
+			],
+			subs: [
+				['b', 'x'],
+				['a', 'y']
+			]
+		})
+		const dag = buildLineageDag(g)
+		expect(descendants(dag, sn('a')).has(sn('a'))).toBe(false)
+		expect(ancestors(dag, sn('a')).has(sn('a'))).toBe(false)
+	})
 })
 
 describe('boundedSet', () => {

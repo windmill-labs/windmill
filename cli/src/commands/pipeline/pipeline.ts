@@ -361,23 +361,29 @@ async function run(
     );
   }
 
-  // Resolve --to end node(s): split on comma, resolve each, warn on misses.
+  // Resolve --to end node(s): split on comma, resolve each. An unresolved or
+  // ambiguous token is a hard error — silently ignoring it would run a
+  // different subset than the user asked for.
   const toTokens = (opts.to ?? []).flatMap((t) => t.split(",")).map((t) => t.trim()).filter(
     Boolean,
   );
   const ends: string[] = [];
+  const unresolved: string[] = [];
   for (const tok of toTokens) {
     const id = resolveToken(graph, tok);
-    if (!id) {
-      log.warn(`--to '${tok}' matched no node in f/${f} — ignored.`);
-      continue;
-    }
-    ends.push(id);
+    if (!id) unresolved.push(tok);
+    else ends.push(id);
   }
-  // A bound was requested but nothing resolved — refuse rather than silently
-  // running the whole pipeline.
-  if (toTokens.length > 0 && ends.length === 0) {
-    throw new Error(`None of the --to end node(s) matched a node in f/${f}.`);
+  if (unresolved.length > 0) {
+    const details = unresolved.map((tok) => {
+      const matches = graph.runnables.filter(
+        (r) => r.usage_kind === "script" && (r.path.split("/").pop() ?? r.path) === tok,
+      );
+      return matches.length > 1
+        ? `'${tok}' (ambiguous: ${matches.map((r) => r.path).sort().join(", ")} — use the full path)`
+        : `'${tok}' (no match in f/${f})`;
+    });
+    throw new Error(`--to could not be resolved: ${details.join("; ")}.`);
   }
 
   const dag = buildLineageDag(graph);
