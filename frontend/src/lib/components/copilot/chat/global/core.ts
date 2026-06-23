@@ -748,6 +748,7 @@ Path conventions:
 - A workspace path starts with one of two namespaces; its trailing <name> may itself contain "/", so a path has three or more segments:
   - \`u/${username}/<name>\` — your personal scope. Default for ad-hoc, exploratory, or scratch work.
   - \`f/<folder>/<name>\` — a shared folder scope; the <folder> must already exist (a bare \`f/<name>\` with no folder segment is INVALID and will fail).
+- If the user supplies a fully qualified \`f/<folder>/...\` path, use that exact path; they have already chosen the folder. Do not ask for folder confirmation or substitute a \`u/${username}/...\` path unless a tool rejects it.
 - Default a bare name with no namespace prefix (e.g. "create a flow called myflow") to \`u/${username}/<name>\`. Never invent an \`f/<folder>/...\` path for a folder that does not exist.${folderGuidanceBlock}
 
 Rules:

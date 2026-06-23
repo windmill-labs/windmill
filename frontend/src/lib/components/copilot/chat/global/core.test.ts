@@ -2757,6 +2757,18 @@ describe('prepareGlobalSystemMessage', () => {
 		expect(content).not.toContain('frontend AI draft store')
 	})
 
+	it('honors user-supplied shared folder paths without asking first', () => {
+		const content = prepareGlobalSystemMessage(undefined, {
+			user: { username: 'admin', is_admin: true, folders: ['evals'] }
+		}).content as string
+
+		expect(content).toContain(
+			'If the user supplies a fully qualified `f/<folder>/...` path, use that exact path'
+		)
+		expect(content).toContain('Do not ask for folder confirmation')
+		expect(content).toContain('substitute a `u/admin/...` path unless a tool rejects it')
+	})
+
 	describe('folder guidance', () => {
 		const guidanceOf = (user: {
 			username: string
