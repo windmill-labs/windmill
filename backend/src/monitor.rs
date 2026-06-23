@@ -1532,14 +1532,22 @@ async fn delete_expired_jobs_batch(
     .await?;
 
     // Use FOR UPDATE SKIP LOCKED to avoid contention between replicas
-    // ORDER BY completed_at ensures we delete oldest jobs first
+    // ORDER BY completed_at ensures we delete oldest jobs first.
+    // Active-root exclusion uses `NOT IN (SELECT ... unnest($3))` rather than
+    // `!= ALL($3)`: the subquery form lets the planner build a one-time hashed
+    // SubPlan and apply it as a filter on the ordered index scan, giving O(1)
+    // membership per candidate instead of a per-row linear array scan (which
+    // degrades sharply when many root jobs are active). The `u IS NOT NULL` guard
+    // sidesteps NOT IN's null-trap semantics ($3 holds non-null PK ids).
     let deleted_jobs: Vec<Uuid> = sqlx::query_scalar!(
         "DELETE FROM v2_job_completed
          WHERE id IN (
              SELECT jc.id FROM v2_job_completed jc
              LEFT JOIN v2_job j ON j.id = jc.id
              WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
-               AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) != ALL($3)
+               AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) NOT IN (
+                   SELECT u FROM unnest($3::uuid[]) AS u WHERE u IS NOT NULL
+               )
              ORDER BY jc.completed_at ASC
              LIMIT $2
              FOR UPDATE OF jc SKIP LOCKED

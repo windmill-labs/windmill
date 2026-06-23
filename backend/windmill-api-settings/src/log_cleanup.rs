@@ -395,13 +395,17 @@ async fn delete_expired_jobs_batch(
     .fetch_all(&mut *tx)
     .await?;
 
+    // Active-root exclusion via NOT IN (hashed SubPlan) instead of `!= ALL($3)`;
+    // see backend/src/monitor.rs::delete_expired_jobs_batch for the rationale.
     let deleted_jobs: Vec<Uuid> = sqlx::query_scalar!(
         "DELETE FROM v2_job_completed
          WHERE id IN (
              SELECT jc.id FROM v2_job_completed jc
              LEFT JOIN v2_job j ON j.id = jc.id
              WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
-               AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) != ALL($3)
+               AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) NOT IN (
+                   SELECT u FROM unnest($3::uuid[]) AS u WHERE u IS NOT NULL
+               )
              ORDER BY jc.completed_at ASC
              LIMIT $2
              FOR UPDATE OF jc SKIP LOCKED
