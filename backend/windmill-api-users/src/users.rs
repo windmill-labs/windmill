@@ -2717,8 +2717,10 @@ struct ExportedGlobalUser {
 async fn export_global_users(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
 ) -> JsonResult<Vec<ExportedGlobalUser>> {
     require_super_admin(&db, &authed.email).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
     let users = sqlx::query_as!(
         ExportedGlobalUser,

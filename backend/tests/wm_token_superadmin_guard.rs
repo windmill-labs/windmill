@@ -1,6 +1,7 @@
 //! A WM_TOKEN (job JWT) running as a superadmin must not be able to perform
 //! global user/token management — promotion, password reset, user creation,
-//! token creation/impersonation. A non-admin `wm_deployers` member can mint
+//! token creation/impersonation, offboarding, or exporting the user table.
+//! A non-admin `wm_deployers` member can mint
 //! such a token implicitly via an app/flow `on_behalf_of`, so trusting it would
 //! let them establish *persistent* superadmin. A real superadmin who needs this
 //! from a script must use a dedicated superadmin API token (which only a real
@@ -141,6 +142,33 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
         resp.status(),
         401,
         "superadmin WM_TOKEN must not change login type: {}",
+        resp.text().await?
+    );
+
+    // 4d. Cannot offboard a global user (deletes user, tokens, password, invites,
+    //     instance-group membership and reassigns their assets).
+    let resp = authed(
+        client().post(format!("{base}/offboard/test2@windmill.dev")),
+        &sa_wm,
+    )
+    .json(&json!({}))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not offboard users: {}",
+        resp.text().await?
+    );
+
+    // 4e. Cannot export the global user table (leaks every user's password_hash).
+    let resp = authed(client().get(format!("{base}/export")), &sa_wm)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not export global users: {}",
         resp.text().await?
     );
 
