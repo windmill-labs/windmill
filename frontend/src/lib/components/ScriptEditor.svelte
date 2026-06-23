@@ -268,6 +268,7 @@
 		if (activeModuleTab === null && code !== lastSyncedCode) {
 			editorCode = code
 			lastSyncedCode = code
+			editor?.setCode(editorCode) // immediate sync, don't wait for the 800ms debounce
 			untrack(() => inferSchema(code))
 		}
 	})
@@ -1604,7 +1605,7 @@
 		]
 		untrack(() => {
 			const options: ScriptOptions = {
-				code,
+				getCode: () => code,
 				lang: lang as ScriptLang,
 				error,
 				args: args ?? {},
