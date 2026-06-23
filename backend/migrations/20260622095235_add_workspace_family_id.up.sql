@@ -39,5 +39,3 @@ UPDATE workspace SET family_id = gen_random_uuid() WHERE family_id IS NULL;
 -- with the parent's family_id explicitly.
 ALTER TABLE workspace ALTER COLUMN family_id SET DEFAULT gen_random_uuid();
 ALTER TABLE workspace ALTER COLUMN family_id SET NOT NULL;
-
-CREATE INDEX workspace_family_id_idx ON workspace(family_id);
