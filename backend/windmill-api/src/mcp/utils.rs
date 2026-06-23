@@ -455,9 +455,35 @@ pub async fn create_http_request(
         }
     };
 
+    // Bound the minted JWT to exactly this proxied route so a scope-restricted
+    // MCP token can't be widened into a full-privilege blank check. The
+    // endpoint-name gate (in the MCP runner) already authorized *which* endpoint
+    // may be called; this constrains what the resulting request can do. Unscoped
+    // callers (cookie / full-privilege tokens) keep an unscoped JWT to preserve
+    // existing behavior. A scope-restricted caller whose route can't be resolved
+    // fails closed.
+    let caller_restricted = api_authed
+        .scopes
+        .as_deref()
+        .is_some_and(|s| s.iter().any(|x| !x.starts_with("if_jobs:filter_tags:")));
+    let scopes = if caller_restricted {
+        let parsed = reqwest::Url::parse(url)
+            .map_err(|e| ErrorData::internal_error(format!("Invalid proxied URL: {}", e), None))?;
+        let scope =
+            windmill_api_auth::scopes::scope_for_route(method, parsed.path()).ok_or_else(|| {
+                ErrorData::internal_error(
+                    "Could not derive route scope for proxied MCP endpoint".to_string(),
+                    None,
+                )
+            })?;
+        Some(vec![scope])
+    } else {
+        None
+    };
+
     // Add authorization header
     let authed = Authed::from(api_authed.clone());
-    let token = create_jwt_token(authed, workspace_id, 3600, None, None, None, None)
+    let token = create_jwt_token(authed, workspace_id, 3600, None, None, None, scopes)
         .await
         .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
     request_builder = request_builder.header("Authorization", format!("Bearer {}", token));

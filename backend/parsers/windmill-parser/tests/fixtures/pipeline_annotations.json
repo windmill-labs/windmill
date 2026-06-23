@@ -234,5 +234,72 @@
 			"tag": null,
 			"retry": null
 		}
+	},
+	{
+		"name": "materialize managed (default) with merge key",
+		"code": "// pipeline\n// materialize ducklake://analytics/orders_daily key=order_id\nSELECT 1;",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "analytics/orders_daily",
+				"unique_key": "order_id"
+			}
+		}
+	},
+	{
+		"name": "materialize manual escape hatch, first value wins",
+		"code": "// materialize manual ducklake://analytics/orders_daily\n// materialize ducklake://other/x\nexport function main() {}",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "analytics/orders_daily",
+				"manual": true
+			}
+		}
+	},
+	{
+		"name": "materialize default-syntax shorthand with append",
+		"code": "// materialize ducklake append\nexport function main() {}",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "main",
+				"append": true
+			}
+		}
+	},
+	{
+		"name": "materialize manual with no target is dropped",
+		"code": "// materialize manual\nexport function main() {}",
+		"expected": {
+			"in_pipeline": false,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null
+		}
 	}
 ]
