@@ -4369,16 +4369,20 @@ RETURNING key,job_id
 }
 
 async fn cleanup_job_perms_orphaned(db: &DB) -> error::Result<()> {
-    let result = sqlx::query_scalar!(
+    let result = sqlx::query!(
         "DELETE FROM job_perms
-WHERE job_id NOT IN (SELECT id FROM v2_job_queue)
-RETURNING job_id"
+         WHERE ctid IN (
+             SELECT jp.ctid FROM job_perms jp
+             WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = jp.job_id)
+             LIMIT 100000
+         )"
     )
-    .fetch_all(db)
+    .execute(db)
     .await?;
 
-    if !result.is_empty() {
-        tracing::info!("Cleaned up {} orphaned job_perms rows", result.len());
+    let count = result.rows_affected();
+    if count > 0 {
+        tracing::info!("Cleaned up {count} orphaned job_perms rows");
     }
     Ok(())
 }
@@ -4386,21 +4390,23 @@ RETURNING job_id"
 async fn cleanup_job_result_stream_orphaned_jobs(db: &DB) -> error::Result<()> {
     let result = sqlx::query!(
         "DELETE FROM job_result_stream_v2
-         WHERE job_id NOT IN (SELECT id FROM v2_job_queue)
-           AND job_id NOT IN (
-               SELECT id FROM v2_job_completed
-               WHERE completed_at > NOW() - INTERVAL '60 seconds'
-           )
-         RETURNING job_id",
+         WHERE ctid IN (
+             SELECT jrs.ctid FROM job_result_stream_v2 jrs
+             WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = jrs.job_id)
+               AND NOT EXISTS (
+                   SELECT 1 FROM v2_job_completed c
+                   WHERE c.id = jrs.job_id
+                     AND c.completed_at > NOW() - INTERVAL '60 seconds'
+               )
+             LIMIT 100000
+         )",
     )
-    .fetch_all(db)
+    .execute(db)
     .await?;
 
-    if result.len() > 0 {
-        tracing::info!(
-            "Cleaned up {} orphaned job_result_stream_v2 rows",
-            result.len()
-        );
+    let count = result.rows_affected();
+    if count > 0 {
+        tracing::info!("Cleaned up {count} orphaned job_result_stream_v2 rows");
     }
     Ok(())
 }
