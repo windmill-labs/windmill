@@ -1605,7 +1605,7 @@
 		]
 		untrack(() => {
 			const options: ScriptOptions = {
-				code,
+				getCode: () => code,
 				lang: lang as ScriptLang,
 				error,
 				args: args ?? {},
