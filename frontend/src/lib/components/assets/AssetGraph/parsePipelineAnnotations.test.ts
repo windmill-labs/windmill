@@ -37,6 +37,28 @@ describe('parsePipelineAnnotations: tag', () => {
 	})
 })
 
+describe('parsePipelineAnnotations: header scan', () => {
+	it('ignores annotations in the body once code has started', () => {
+		const code = [
+			'import pandas as pd',
+			'',
+			'def main():',
+			'    # tag each row with its source so downstream steps can filter',
+			'    # on s3://should/not/parse',
+			'    return pd.DataFrame()'
+		].join('\n')
+		const out = parsePipelineAnnotations(code)
+		expect(out.tag).toBeUndefined()
+		expect(out.triggerAssets).toHaveLength(0)
+	})
+
+	it('tolerates blank lines before code but stops at the first code line', () => {
+		const code = ['#!/usr/bin/env python', '', '# tag heavy', 'import os', '# tag light'].join('\n')
+		const out = parsePipelineAnnotations(code)
+		expect(out.tag).toBe('heavy')
+	})
+})
+
 describe('parsePipelineAnnotations: retry', () => {
 	it('parses count only', () => {
 		const out = parsePipelineAnnotations('// retry 3')

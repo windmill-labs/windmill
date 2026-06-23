@@ -291,8 +291,13 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 	}
 
 	for (const rawLine of code.split('\n')) {
+		// Annotations live in the leading comment header: skip blank lines but
+		// stop at the first line of actual code, so comments inside the body
+		// (e.g. a regular `# tag ...` prose comment) can't false-positive.
+		// Mirrors the Rust parse_pipeline_annotations header scan.
+		if (rawLine.trim() === '') continue
 		const rest = stripCommentPrefix(rawLine)
-		if (rest === undefined) continue
+		if (rest === undefined) break
 		const inner = rest.trimStart()
 
 		const afterPipeline = consumeKeyword(inner, 'pipeline')
