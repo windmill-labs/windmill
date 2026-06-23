@@ -405,7 +405,21 @@ async fn validate_object_storage_test(settings: &ObjectSettings) -> error::Resul
                         .to_string(),
                 ));
             }
-            // GCS always targets storage.googleapis.com — no caller-controlled host.
+            // The service-account-key JSON can override the data-plane URL (`gcs_base_url`) and the
+            // OAuth token endpoint (`token_uri`); the GCS client connects to whatever they point at.
+            // Validate every http(s) URL embedded in the key. When none override it, the host stays
+            // the public storage.googleapis.com, so no further check is needed.
+            if let Ok(serde_json::Value::Object(map)) =
+                serde_json::from_str::<serde_json::Value>(&gcs.service_account_key)
+            {
+                for value in map.values() {
+                    if let Some(url) = value.as_str() {
+                        if url.starts_with("http://") || url.starts_with("https://") {
+                            validate_public_endpoint(url).await?;
+                        }
+                    }
+                }
+            }
             None
         }
     };
@@ -2083,8 +2097,39 @@ mod tests {
 
 #[cfg(all(test, feature = "parquet"))]
 mod object_storage_test_hardening {
-    use super::{extract_host, is_forbidden_ip};
+    use super::{extract_host, is_forbidden_ip, validate_object_storage_test};
     use std::net::IpAddr;
+    use windmill_object_store::ObjectSettings;
+
+    // IP literals (not hostnames) keep validate_public_endpoint deterministic — `lookup_host`
+    // parses them without any network round-trip.
+    fn gcs_settings(gcs_base_url: &str) -> ObjectSettings {
+        serde_json::from_value(serde_json::json!({
+            "type": "Gcs",
+            "bucket": "b",
+            "serviceAccountKey": { "gcs_base_url": gcs_base_url, "client_email": "x@y.z" }
+        }))
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn rejects_gcs_internal_base_url() {
+        // gcs_base_url in the service-account key must not smuggle an internal host past the check.
+        assert!(
+            validate_object_storage_test(&gcs_settings("http://169.254.169.254"))
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn allows_gcs_public_base_url() {
+        assert!(
+            validate_object_storage_test(&gcs_settings("https://8.8.8.8"))
+                .await
+                .is_ok()
+        );
+    }
 
     fn ip(s: &str) -> IpAddr {
         s.parse().unwrap()
