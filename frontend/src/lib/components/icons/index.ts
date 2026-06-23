@@ -185,6 +185,7 @@ import TwitchIcon from './TwitchIcon.svelte'
 import TwitterIcon from './TwitterIcon.svelte'
 import VercelIcon from './VercelIcon.svelte'
 import WebflowIcon from './WebflowIcon.svelte'
+import WhatsappBusinessIcon from './WhatsappBusinessIcon.svelte'
 import WooCommerceIcon from './WooCommerceIcon.svelte'
 import WordpressIcon from './WordpressIcon.svelte'
 import XataIcon from './XataIcon.svelte'
@@ -413,6 +414,7 @@ export const APP_TO_ICON_COMPONENT = {
 	twitter: TwitterIcon,
 	vercel: VercelIcon,
 	webflow: WebflowIcon,
+	whatsapp_business: WhatsappBusinessIcon,
 	woocommerce: WooCommerceIcon,
 	wordpress: WordpressIcon,
 	xata: XataIcon,

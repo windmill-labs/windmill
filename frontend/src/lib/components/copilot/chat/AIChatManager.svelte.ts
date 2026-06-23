@@ -78,13 +78,17 @@ import {
 import type { WorkspaceMutationTarget } from './workspaceTools'
 import {
 	globalToolsFor,
+	loadWorkspaceSkills,
 	prepareGlobalSystemMessage,
 	prepareGlobalUserMessage,
+	type AiSkillListItem,
 	type GlobalToolHelpers
 } from './global/core'
 import { isGlobalAiEnabled } from './global/gate'
 import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
+import { AttachedFilesStore } from './files/attachedFiles.svelte'
+import { appendAttachedFilesRoster } from './files/fileTools'
 
 // Compaction of the stored history: once the projected request size
 // (contextTokens — the provider's report when current, a fresh chars/4
@@ -230,6 +234,8 @@ function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean)
 export class AIChatManager {
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
+	/** Files the user attached to the current GLOBAL-mode conversation. */
+	attachedFiles = new AttachedFilesStore()
 	abortController: AbortController | undefined = undefined
 	inlineAbortController: AbortController | undefined = undefined
 	// Flag to skip Responses API if it's not available (e.g., Azure region doesn't support it)
@@ -317,6 +323,12 @@ export class AIChatManager {
 	// tool `helpers` in GLOBAL mode so the preview/deploy tools dispatch to THIS
 	// session rather than the UI-active one — keeps backgrounded sessions isolated.
 	sessionId: string | undefined = undefined
+
+	// Workspace AI skills (name + description) advertised in the GLOBAL system
+	// prompt. Loaded asynchronously when entering GLOBAL mode; the system message
+	// is rebuilt once they resolve.
+	private globalSkills: AiSkillListItem[] = []
+	private globalSkillsRefreshId = 0
 
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script:
@@ -810,18 +822,40 @@ export class AIChatManager {
 		} else if (mode === AIMode.GLOBAL) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareGlobalSystemMessage(customPrompt, {
-				previewTools: this.isSessionChat
+				previewTools: this.isSessionChat,
+				skills: this.globalSkills
 			})
 			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
 			this.helpers = {
 				...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
-				testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args)
+				testActiveFlow: async (args?: Record<string, any>) =>
+					this.flowAiChatHelpers?.testFlow(args),
+				attachedFiles: this.attachedFiles
 			} satisfies GlobalToolHelpers
+			void this.refreshGlobalSkills()
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAppSystemMessage(customPrompt)
 			this.tools = [...getAppTools()]
 			this.helpers = this.appAiChatHelpers
+		}
+	}
+
+	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
+	// the system message so the next chat-loop iteration advertises them. Ignore
+	// stale resolves so workspace changes cannot overwrite newer skills.
+	private refreshGlobalSkills = async (workspace = get(workspaceStore) ?? '') => {
+		const refreshId = ++this.globalSkillsRefreshId
+		const skills = await loadWorkspaceSkills(workspace)
+		if (refreshId !== this.globalSkillsRefreshId) {
+			return
+		}
+		this.globalSkills = skills
+		if (this.mode === AIMode.GLOBAL) {
+			this.systemMessage = prepareGlobalSystemMessage(getCombinedCustomPrompt(AIMode.GLOBAL), {
+				previewTools: this.isSessionChat,
+				skills
+			})
 		}
 	}
 
@@ -1015,7 +1049,13 @@ export class AIChatManager {
 				messages,
 				addedMessages,
 				get systemMessage() {
-					return systemMessageOverride ?? self.systemMessage
+					const base = systemMessageOverride ?? self.systemMessage
+					// Inject the attached-files roster at request time (re-read each iteration)
+					// so it always reflects the live file list without reactive bookkeeping.
+					if (self.mode === AIMode.GLOBAL && self.attachedFiles.count > 0) {
+						return appendAttachedFilesRoster(base, self.attachedFiles)
+					}
+					return base
 				},
 				get tools() {
 					return self.tools
@@ -1206,6 +1246,19 @@ export class AIChatManager {
 		if (!this.instructions.trim()) {
 			return false
 		}
+		// Re-grant any locked File System Access handles within this send gesture, so the
+		// file tools can read the live files. requestPermission() needs a user gesture, and
+		// this runs before the first await/network call while the Send click is still active.
+		// Attachment upkeep must never block the send — affected files just stay locked/stale
+		// and the tools report their status to the model.
+		try {
+			await this.attachedFiles.regrantLocked()
+			// Re-enumerate linked folders so on-disk changes (renamed/added/removed/edited
+			// files) are reflected in the roster + indexes before this turn runs.
+			await this.attachedFiles.refreshFolders()
+		} catch (e) {
+			console.error('Attached-files upkeep failed before send', e)
+		}
 		if (this.beforeSend) {
 			try {
 				await this.beforeSend()
@@ -1223,6 +1276,11 @@ export class AIChatManager {
 				)
 				return false
 			}
+		}
+		// Session chats commit their workspace in beforeSend; skills must match the
+		// committed workspace before the system prompt is sent.
+		if (this.mode === AIMode.GLOBAL) {
+			await this.refreshGlobalSkills(get(workspaceStore) ?? '')
 		}
 		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
 		// Declared outside `try` so the catch can recover what the loop produced
@@ -1714,6 +1772,11 @@ export class AIChatManager {
 		this.displayMessages = []
 		this.messages = []
 		this.contextUsage = undefined
+		// In an AI session, linked files are session-scoped: they persist across conversations
+		// (cleared only when the session is deleted). The ephemeral global side-panel chat has no
+		// session, so "New chat" must clear them — otherwise the next, unrelated conversation
+		// would still get the previous file roster and could read/search it.
+		if (!this.isSessionChat) this.attachedFiles.clear()
 	}
 
 	loadPastChat = async (id: string) => {
@@ -1722,6 +1785,9 @@ export class AIChatManager {
 			// Drop any message queued in the current conversation so it doesn't
 			// auto-send into the loaded one or linger as a card across the switch.
 			this.queuedMessage = ''
+			// Same isolation as saveAndClear: the ephemeral global chat's attachments belong to
+			// the conversation being left, not the one being loaded; sessions keep them.
+			if (!this.isSessionChat) this.attachedFiles.clear()
 			this.displayMessages = chat.displayMessages
 			this.messages = chat.actualMessages
 			this.contextUsage = normalizeContextUsage(chat.contextUsage)

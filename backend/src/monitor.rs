@@ -1532,14 +1532,22 @@ async fn delete_expired_jobs_batch(
     .await?;
 
     // Use FOR UPDATE SKIP LOCKED to avoid contention between replicas
-    // ORDER BY completed_at ensures we delete oldest jobs first
+    // ORDER BY completed_at ensures we delete oldest jobs first.
+    // Active-root exclusion uses `NOT IN (SELECT ... unnest($3))` rather than
+    // `!= ALL($3)`: the subquery form lets the planner build a one-time hashed
+    // SubPlan and apply it as a filter on the ordered index scan, giving O(1)
+    // membership per candidate instead of a per-row linear array scan (which
+    // degrades sharply when many root jobs are active). The `u IS NOT NULL` guard
+    // sidesteps NOT IN's null-trap semantics ($3 holds non-null PK ids).
     let deleted_jobs: Vec<Uuid> = sqlx::query_scalar!(
         "DELETE FROM v2_job_completed
          WHERE id IN (
              SELECT jc.id FROM v2_job_completed jc
              LEFT JOIN v2_job j ON j.id = jc.id
              WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
-               AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) != ALL($3)
+               AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) NOT IN (
+                   SELECT u FROM unnest($3::uuid[]) AS u WHERE u IS NOT NULL
+               )
              ORDER BY jc.completed_at ASC
              LIMIT $2
              FOR UPDATE OF jc SKIP LOCKED
@@ -1638,10 +1646,29 @@ async fn delete_log_files_from_disk_and_store(
                     .collect();
                 let stream = futures::stream::iter(s3_paths).boxed();
                 let mut result = os.delete_stream(stream);
+                let mut deleted = 0u64;
+                let mut not_found = 0u64;
+                let mut failed = 0u64;
                 while let Some(r) = result.next().await {
-                    if let Err(e) = r {
-                        tracing::error!("Failed to delete from object store: {e}");
+                    match r {
+                        Ok(_) => deleted += 1,
+                        // Deleting a non-existent object is a successful no-op. S3's
+                        // DeleteObjects ignores missing keys, but GCS returns 404 per
+                        // delete, surfacing as NotFound — count it separately rather
+                        // than logging it as an error.
+                        Err(windmill_object_store::object_store_reexports::ObjectStoreError::NotFound { .. }) => {
+                            not_found += 1;
+                        }
+                        Err(e) => {
+                            failed += 1;
+                            tracing::error!("Failed to delete from object store: {e}");
+                        }
                     }
+                }
+                if deleted + not_found + failed > 0 {
+                    tracing::info!(
+                        "object store log cleanup: {deleted} deleted, {not_found} already absent (404), {failed} failed"
+                    );
                 }
             }
         }
@@ -4349,39 +4376,65 @@ RETURNING key,job_id
     Ok(())
 }
 
-async fn cleanup_job_perms_orphaned(db: &DB) -> error::Result<()> {
-    let result = sqlx::query_scalar!(
-        "DELETE FROM job_perms
-WHERE job_id NOT IN (SELECT id FROM v2_job_queue)
-RETURNING job_id"
-    )
-    .fetch_all(db)
-    .await?;
+// Per-statement cap keeps each delete short and lock-light; the per-cycle batch
+// cap bounds total work per monitor iteration so monitor_db stays responsive.
+// A large backlog drains across several iterations rather than one long delete.
+const ORPHAN_CLEANUP_BATCH_SIZE: u64 = 100_000;
+const ORPHAN_CLEANUP_MAX_BATCHES: usize = 10;
 
-    if !result.is_empty() {
-        tracing::info!("Cleaned up {} orphaned job_perms rows", result.len());
+async fn cleanup_job_perms_orphaned(db: &DB) -> error::Result<()> {
+    let mut total: u64 = 0;
+    for _ in 0..ORPHAN_CLEANUP_MAX_BATCHES {
+        let count = sqlx::query!(
+            "DELETE FROM job_perms
+             WHERE ctid IN (
+                 SELECT jp.ctid FROM job_perms jp
+                 WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = jp.job_id)
+                 LIMIT 100000
+             )"
+        )
+        .execute(db)
+        .await?
+        .rows_affected();
+        total += count;
+        if count < ORPHAN_CLEANUP_BATCH_SIZE {
+            break;
+        }
+    }
+
+    if total > 0 {
+        tracing::info!("Cleaned up {total} orphaned job_perms rows");
     }
     Ok(())
 }
 
 async fn cleanup_job_result_stream_orphaned_jobs(db: &DB) -> error::Result<()> {
-    let result = sqlx::query!(
-        "DELETE FROM job_result_stream_v2
-         WHERE job_id NOT IN (SELECT id FROM v2_job_queue)
-           AND job_id NOT IN (
-               SELECT id FROM v2_job_completed
-               WHERE completed_at > NOW() - INTERVAL '60 seconds'
-           )
-         RETURNING job_id",
-    )
-    .fetch_all(db)
-    .await?;
+    let mut total: u64 = 0;
+    for _ in 0..ORPHAN_CLEANUP_MAX_BATCHES {
+        let count = sqlx::query!(
+            "DELETE FROM job_result_stream_v2
+             WHERE ctid IN (
+                 SELECT jrs.ctid FROM job_result_stream_v2 jrs
+                 WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = jrs.job_id)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM v2_job_completed c
+                       WHERE c.id = jrs.job_id
+                         AND c.completed_at > NOW() - INTERVAL '60 seconds'
+                   )
+                 LIMIT 100000
+             )",
+        )
+        .execute(db)
+        .await?
+        .rows_affected();
+        total += count;
+        if count < ORPHAN_CLEANUP_BATCH_SIZE {
+            break;
+        }
+    }
 
-    if result.len() > 0 {
-        tracing::info!(
-            "Cleaned up {} orphaned job_result_stream_v2 rows",
-            result.len()
-        );
+    if total > 0 {
+        tracing::info!("Cleaned up {total} orphaned job_result_stream_v2 rows");
     }
     Ok(())
 }
@@ -4417,11 +4470,19 @@ async fn audit_log_retention_days() -> i64 {
     }
 }
 
+/// Number of days ahead (including today) for which an audit partition must
+/// always exist. A missing partition in this window means audit inserts fail
+/// once that date is reached — and because some callers (notably login) write
+/// the audit row in the same transaction as their own work, that failure
+/// poisons the whole transaction, so a missing partition is a hard outage, not
+/// just a dropped audit row.
+const AUDIT_PARTITION_LOOKAHEAD_DAYS: i64 = 3;
+
 async fn manage_audit_partitions(db: &DB, retention_days: i64) {
     let today = chrono::Utc::now().date_naive();
 
-    // Create partitions for today and the next 3 days
-    for days_ahead in 0..=3i64 {
+    // Create partitions for today and the next few days
+    for days_ahead in 0..=AUDIT_PARTITION_LOOKAHEAD_DAYS {
         let date = today + chrono::Duration::days(days_ahead);
         let next_date = date + chrono::Duration::days(1);
         let partition_name = format!("audit_{}", date.format("%Y%m%d"));
@@ -4437,9 +4498,6 @@ async fn manage_audit_partitions(db: &DB, retention_days: i64) {
         }
     }
 
-    // Drop expired partitions
-    let cutoff_date = today - chrono::Duration::days(retention_days);
-
     let partitions = sqlx::query_scalar::<_, String>(
         "SELECT c.relname::text \
          FROM pg_inherits i \
@@ -4449,28 +4507,62 @@ async fn manage_audit_partitions(db: &DB, retention_days: i64) {
     .fetch_all(db)
     .await;
 
-    match partitions {
-        Ok(partitions) => {
-            for partition_name in partitions {
-                if let Some(date_str) = partition_name.strip_prefix("audit_") {
-                    if let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y%m%d") {
-                        if date < cutoff_date {
-                            let quoted_name =
-                                format!("\"{}\"", partition_name.replace('"', "\"\""));
-                            let sql = format!("DROP TABLE IF EXISTS {quoted_name}");
-                            match sqlx::query(&sql).execute(db).await {
-                                Ok(_) => tracing::info!(
-                                    "Dropped expired audit partition {partition_name}"
-                                ),
-                                Err(e) => tracing::error!(
-                                    "Error dropping audit partition {partition_name}: {e:?}"
-                                ),
-                            }
+    let partitions = match partitions {
+        Ok(partitions) => partitions,
+        Err(e) => {
+            tracing::error!("Error listing audit partitions: {e:?}");
+            return;
+        }
+    };
+
+    // Verify the lookahead window is actually covered. If a create above failed
+    // (or this loop has not run for several days), alert loudly instead of
+    // letting it surface days later as failed audit inserts and broken logins.
+    let existing: std::collections::HashSet<&str> = partitions.iter().map(|s| s.as_str()).collect();
+    let missing: Vec<String> = (0..=AUDIT_PARTITION_LOOKAHEAD_DAYS)
+        .map(|days_ahead| {
+            format!(
+                "audit_{}",
+                (today + chrono::Duration::days(days_ahead)).format("%Y%m%d")
+            )
+        })
+        .filter(|name| !existing.contains(name.as_str()))
+        .collect();
+    if !missing.is_empty() {
+        report_critical_error(
+            format!(
+                "Audit log partitions missing after maintenance run: {}. \
+                 Audit inserts will fail once these dates are reached, which also \
+                 breaks logins (the login audit row shares the login transaction). \
+                 Check for earlier 'Error creating audit partition' logs and verify \
+                 the audit-partition maintenance loop is still running.",
+                missing.join(", ")
+            ),
+            db.clone(),
+            None,
+            None,
+        )
+        .await;
+    }
+
+    // Drop expired partitions
+    let cutoff_date = today - chrono::Duration::days(retention_days);
+    for partition_name in &partitions {
+        if let Some(date_str) = partition_name.strip_prefix("audit_") {
+            if let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y%m%d") {
+                if date < cutoff_date {
+                    let quoted_name = format!("\"{}\"", partition_name.replace('"', "\"\""));
+                    let sql = format!("DROP TABLE IF EXISTS {quoted_name}");
+                    match sqlx::query(&sql).execute(db).await {
+                        Ok(_) => {
+                            tracing::info!("Dropped expired audit partition {partition_name}")
                         }
+                        Err(e) => tracing::error!(
+                            "Error dropping audit partition {partition_name}: {e:?}"
+                        ),
                     }
                 }
             }
         }
-        Err(e) => tracing::error!("Error listing audit partitions: {e:?}"),
     }
 }

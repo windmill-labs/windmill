@@ -2,6 +2,8 @@ import type { World } from '../../rx'
 import { sendUserToast } from '$lib/toast'
 import { waitJob } from '$lib/components/waitJob'
 import { base } from '$lib/base'
+import { appNavigateSameWindow } from '../../utils'
+import { OpenAPI } from '$lib/gen/core/OpenAPI'
 
 export function computeGlobalContext(
 	world: World | undefined,
@@ -200,7 +202,9 @@ export async function eval_like(
 				}
 				window.open(x, '_blank')
 			} else {
-				window.location.href = x
+				// Top-level load; inside the opaque viewer iframe this targets the
+				// top page (pre-sandbox behavior) instead of the cookieless frame.
+				appNavigateSameWindow(x)
 			}
 		},
 		(id, index) => {
@@ -292,10 +296,30 @@ export async function eval_like(
 
 			if (typeof input === 'object' && input.s3) {
 				const workspaceId = ((context ?? {}) as any).ctx?.workspace
-				const s3href = `${base}/api/w/${workspaceId}/job_helpers/download_s3_file?file_key=${encodeURIComponent(
-					input?.s3 ?? ''
-				)}${input?.storage ? `&storage=${input.storage}` : ''}`
-				downloadFile(s3href, filename || input.s3)
+				const appPath = ((context ?? {}) as any).ctx?.app_path
+				let inSandbox = false
+				try {
+					inSandbox =
+						window.parent !== window &&
+						new URLSearchParams(window.location.search).get('wm_embed') === '1'
+				} catch (_) {}
+				if (inSandbox && appPath && typeof OpenAPI.TOKEN === 'string' && OpenAPI.TOKEN) {
+					// Sandboxed viewer: the opaque iframe carries no cookie, so the
+					// cookie-authed job_helpers download fails. Route through the
+					// app-policy-confined apps_u endpoint with the embed token in the
+					// query (like the image/file components), scoped to this app's path.
+					const params = new URLSearchParams()
+					params.append('s3', input.s3 ?? '')
+					if (input.storage) params.append('storage', input.storage)
+					params.append('token', OpenAPI.TOKEN)
+					const s3href = `${base}/api/w/${workspaceId}/apps_u/download_s3_file/${appPath}?${params.toString()}`
+					downloadFile(s3href, filename || input.s3)
+				} else {
+					const s3href = `${base}/api/w/${workspaceId}/job_helpers/download_s3_file?file_key=${encodeURIComponent(
+						input?.s3 ?? ''
+					)}${input?.storage ? `&storage=${input.storage}` : ''}`
+					downloadFile(s3href, filename || input.s3)
+				}
 			} else if (typeof input === 'string') {
 				if (input.startsWith('data:')) {
 					downloadFile(input, filename)

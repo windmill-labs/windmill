@@ -135,7 +135,8 @@
 			await acceptPendingFlowEditsIfEnabled()
 		},
 		getFlowInputsSchema: async () => {
-			return flowStore.val.schema ?? {}
+			const s = flowStore.val.schema ?? {}
+			return { type: 'object', properties: {}, required: [], ...s }
 		},
 
 		updateExprsToSet: (id: string, inputTransforms: Record<string, InputTransform>) => {

@@ -80,12 +80,10 @@
 	import Popover from '../meltComponents/Popover.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import { slide } from 'svelte/transition'
-	import { isCustomInstanceDbEnabled } from './utils.svelte'
+	import { isCustomInstanceDbEnabled, getUnusedInstanceDbName } from './utils.svelte'
 	import { resource } from 'runed'
 	import CustomInstanceDbSelect from './CustomInstanceDbSelect.svelte'
 	import Label from '../Label.svelte'
-
-	const DEFAULT_DUCKLAKE_CATALOG_NAME = 'ducklake_catalog'
 
 	type Props = {
 		ducklakeSettings: DucklakeSettingsType
@@ -100,6 +98,16 @@
 		onDiscard = undefined
 	}: Props = $props()
 
+	function defaultInstanceDbName(): string {
+		const usedNames = [
+			...Object.keys(customInstanceDbs.current ?? {}),
+			...ducklakeSettings.ducklakes
+				.filter((d) => d.catalog.resource_type === 'instance' && d.catalog.resource_path)
+				.map((d) => d.catalog.resource_path!)
+		]
+		return getUnusedInstanceDbName('dl', $workspaceStore ?? '', usedNames)
+	}
+
 	function onNewDucklake() {
 		const name = ducklakeSettings.ducklakes.some((d) => d.name === 'main')
 			? `${random_adj()}_ducklake`
@@ -108,7 +116,7 @@
 			name,
 			catalog: {
 				resource_type: $isCustomInstanceDbEnabled ? 'instance' : 'postgresql',
-				resource_path: $isCustomInstanceDbEnabled ? DEFAULT_DUCKLAKE_CATALOG_NAME : undefined
+				resource_path: $isCustomInstanceDbEnabled ? defaultInstanceDbName() : undefined
 			},
 			storage: {
 				storage: undefined,
@@ -272,7 +280,7 @@
 										ducklake.catalog = {
 											resource_type,
 											resource_path:
-												resource_type === 'instance' ? DEFAULT_DUCKLAKE_CATALOG_NAME : undefined
+												resource_type === 'instance' ? defaultInstanceDbName() : undefined
 										}
 									}
 								}
