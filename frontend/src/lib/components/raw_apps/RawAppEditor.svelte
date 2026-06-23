@@ -1496,6 +1496,7 @@
 	bind:jobsById
 	{runnables}
 	{path}
+	gateJobIds={false}
 />
 <div class="max-h-screen overflow-hidden h-screen min-h-0 flex flex-col">
 	<RawAppEditorHeader

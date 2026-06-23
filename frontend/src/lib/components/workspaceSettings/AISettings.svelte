@@ -13,6 +13,7 @@
 	import { supportsAutocomplete } from '../copilot/utils'
 	import TestAiKey from '../copilot/TestAIKey.svelte'
 	import Label from '../Label.svelte'
+	import AiSkillsSettings from './AiSkillsSettings.svelte'
 	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import Toggle from '../Toggle.svelte'
@@ -586,6 +587,10 @@
 				{/if}
 			</div>
 		</SettingCard>
+	{/if}
+
+	{#if promptScope === 'workspace'}
+		<AiSkillsSettings />
 	{/if}
 </div>
 

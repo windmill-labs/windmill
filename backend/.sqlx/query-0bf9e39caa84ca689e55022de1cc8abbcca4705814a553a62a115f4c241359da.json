@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM job_perms\n         WHERE ctid IN (\n             SELECT jp.ctid FROM job_perms jp\n             WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = jp.job_id)\n             LIMIT 100000\n         )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "0bf9e39caa84ca689e55022de1cc8abbcca4705814a553a62a115f4c241359da"
+}

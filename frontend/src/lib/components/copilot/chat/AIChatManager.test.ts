@@ -15,7 +15,9 @@ const mocks = vi.hoisted(() => ({
 	getOpenaiClient: vi.fn(),
 	getAnthropicClient: vi.fn(),
 	getNonStreamingCompletion: vi.fn(),
-	runChatLoop: vi.fn()
+	runChatLoop: vi.fn(),
+	listAiSkills: vi.fn(),
+	workspace: 'test_workspace' as string | undefined
 }))
 
 vi.mock('monaco-editor', () => ({
@@ -24,7 +26,8 @@ vi.mock('monaco-editor', () => ({
 
 vi.mock('$lib/gen', () => ({
 	WorkspaceService: {
-		logAiChat: mocks.logAiChat
+		logAiChat: mocks.logAiChat,
+		listAiSkills: mocks.listAiSkills
 	},
 	ScriptService: {},
 	FlowService: {},
@@ -36,7 +39,12 @@ vi.mock('$lib/gen', () => ({
 const TEST_EMAIL = 'admin@test'
 
 vi.mock('$lib/stores', () => ({
-	workspaceStore: { subscribe: () => () => undefined },
+	workspaceStore: {
+		subscribe: (run: (value: string | undefined) => void) => {
+			run(mocks.workspace)
+			return () => undefined
+		}
+	},
 	userStore: {
 		subscribe: (run: (value: { username: string; email: string }) => void) => {
 			run({ username: 'admin', email: 'admin@test' })
@@ -95,6 +103,8 @@ beforeEach(() => {
 	mocks.logAiChat.mockResolvedValue(undefined)
 	mocks.getOpenaiClient.mockReturnValue({})
 	mocks.getAnthropicClient.mockReturnValue({})
+	mocks.listAiSkills.mockResolvedValue([])
+	mocks.workspace = 'test_workspace'
 	mocks.runChatLoop.mockResolvedValue({
 		addedMessages: [],
 		tokenUsage: { prompt: 0, completion: 0, total: 0 },
@@ -182,6 +192,57 @@ describe('AIChatManager request errors', () => {
 			'Failed to send request: provider quota exceeded',
 			true
 		)
+	})
+})
+
+describe('AIChatManager global skills', () => {
+	const model = { provider: 'openai', model: 'gpt-4o' }
+
+	beforeEach(() => {
+		localStorage.clear()
+		mocks.getCurrentModel.mockReturnValue(model)
+		mocks.tryGetCurrentModel.mockReturnValue(model)
+	})
+
+	it('loads skills after beforeSend commits the session workspace', async () => {
+		let resolveParentSkills: ((skills: { name: string; description: string }[]) => void) | undefined
+		const parentSkills = new Promise<{ name: string; description: string }[]>((resolve) => {
+			resolveParentSkills = resolve
+		})
+		mocks.workspace = 'parent'
+		mocks.listAiSkills.mockImplementation(({ workspace }: { workspace: string }) => {
+			if (workspace === 'parent') {
+				return parentSkills
+			}
+			return Promise.resolve([{ name: 'child-skill', description: 'child workspace skill' }])
+		})
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			expect(config.workspace).toBe('child')
+			expect(config.systemMessage.content).toContain('child-skill')
+			expect(config.systemMessage.content).not.toContain('parent-skill')
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.beforeSend = () => {
+			mocks.workspace = 'child'
+		}
+
+		await manager.sendRequest({ instructions: 'first', mode: AIMode.GLOBAL })
+		resolveParentSkills?.([{ name: 'parent-skill', description: 'parent workspace skill' }])
+		await Promise.resolve()
+
+		expect(mocks.listAiSkills).toHaveBeenCalledWith({ workspace: 'parent' })
+		expect(mocks.listAiSkills).toHaveBeenCalledWith({ workspace: 'child' })
+		expect(manager.systemMessage.content).toContain('child-skill')
+		expect(manager.systemMessage.content).not.toContain('parent-skill')
 	})
 })
 
@@ -916,12 +977,10 @@ describe('AIChatManager context compaction', () => {
 		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
 		// The user hits Stop while the summary request is in flight: it aborts the
 		// turn's controller and rejects.
-		mocks.getNonStreamingCompletion.mockImplementation(
-			async (_msgs: any, ac: AbortController) => {
-				ac.abort('user_cancelled')
-				throw new Error('aborted')
-			}
-		)
+		mocks.getNonStreamingCompletion.mockImplementation(async (_msgs: any, ac: AbortController) => {
+			ac.abort('user_cancelled')
+			throw new Error('aborted')
+		})
 		// With the controller already aborted, the real request returns nothing;
 		// mirror that so the turn takes the cancel/rollback path.
 		mocks.runChatLoop.mockImplementation(async () => ({
