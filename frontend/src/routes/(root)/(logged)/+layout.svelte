@@ -58,7 +58,7 @@
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
-	import { migrateLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
+	import { purgeLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
 	import { migrateUserDraftsToDb } from '$lib/userDraftDbMigration'
 	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
 	import { setContext, untrack } from 'svelte'
@@ -435,16 +435,17 @@
 	$effect(() => {
 		$workspaceStore && untrack(() => onLoad())
 	})
-	// One-shot UserDraft migration chain. `migrateLegacyUserDrafts` folds
-	// the legacy `flow` / `app-…` / `rawapp-…` LS keys into the
-	// `userdraft/w/{ws}/{kind}/{path}` format; `migrateUserDraftsToDb`
-	// then pushes those onto the server-side draft table and clears LS
-	// on success. The order matters — the second step only sees what
-	// the first one normalized.
+	// One-shot UserDraft migration. `purgeLegacyUserDrafts` drops the oldest
+	// workspace-blind `flow` / `app-…` / `rawapp-…` LS autosave keys (they
+	// can't be attributed to a workspace, so promoting them would mis-file
+	// drafts). `migrateUserDraftsToDb` then pushes the workspace-scoped
+	// `userdraft/w/{ws}/{kind}/{path}` keys — written by the editor with the
+	// correct workspace — onto the server-side draft table, clearing LS on
+	// success.
 	$effect(() => {
 		if ($workspaceStore && $userStore) {
 			untrack(() => {
-				migrateLegacyUserDrafts($workspaceStore!)
+				purgeLegacyUserDrafts()
 				void migrateUserDraftsToDb()
 			})
 		}
