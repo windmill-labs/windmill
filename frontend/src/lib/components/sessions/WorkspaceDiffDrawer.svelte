@@ -93,6 +93,7 @@
 		// the eager-load effect below.
 		loadedDiffs = {}
 		summaries = {}
+		mountedRows = {}
 		drawer?.openDrawer()
 		setTimeout(() => searchInputEl?.focus(), 50)
 	}
@@ -149,6 +150,31 @@
 	}
 	let loadedDiffs: Record<string, LoadedDiff> = $state({})
 	let summaries: Record<string, string | undefined> = $state({})
+
+	// Lazy Monaco mount: exploding a raw app into N per-file rows would otherwise
+	// mount N DiffEditors at once. Each row's editor mounts only once its block
+	// scrolls within `MOUNT_MARGIN` of the viewport (rooted on the scroll
+	// container); `mountedRows` latches true so it never unmounts on scroll-away.
+	let mainScrollEl: HTMLElement | undefined = $state()
+	let mountedRows: Record<string, boolean> = $state({})
+	// Small look-ahead only: a large margin would catch the whole (collapsed-
+	// height) list at once, and each mount growing its block would cascade the
+	// rest into view. A modest margin mounts what's near the fold; as editors
+	// grow they push the pending blocks away, so the rest stay deferred.
+	const MOUNT_MARGIN = '200px 0px'
+	function lazyMount(node: HTMLElement, key: string) {
+		const io = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((e) => e.isIntersecting)) {
+					mountedRows[key] = true
+					io.disconnect()
+				}
+			},
+			{ root: mainScrollEl ?? null, rootMargin: MOUNT_MARGIN }
+		)
+		io.observe(node)
+		return { destroy: () => io.disconnect() }
+	}
 
 	// The rendered list: each raw_app whose value has loaded is expanded into
 	// its per-file items (so files are independent rows that flow through the
@@ -551,7 +577,7 @@
 					</div>
 				</aside>
 			{/if}
-			<main class="flex-1 min-w-0 overflow-y-auto">
+			<main bind:this={mainScrollEl} class="flex-1 min-w-0 overflow-y-auto">
 				<div class="px-3 pt-3 pb-4 flex flex-col gap-3">
 					{#if loading && diffs.length === 0}
 						<div class="flex items-center gap-2 text-sm text-secondary py-8 self-center">
@@ -624,7 +650,18 @@
 									<div
 										class="border-t border-light bg-surface-tertiary rounded-b-md overflow-hidden"
 									>
-										{#if d.kind === 'raw_app_file'}
+										{#if !mountedRows[key]}
+											<!-- Defer the Monaco mount until this block scrolls near the
+											     viewport, so an exploded many-file app doesn't mount every
+											     editor at once. -->
+											<div
+												use:lazyMount={key}
+												class="flex items-center gap-2 text-2xs text-tertiary p-3 min-h-[10rem]"
+											>
+												<Loader2 class="w-3.5 h-3.5 animate-spin" />
+												Diff loads on scroll…
+											</div>
+										{:else if d.kind === 'raw_app_file'}
 											<!-- DiffRow.kind is a plain string, so the kind check doesn't narrow
 											     the union — assert the synthetic file item. -->
 											{@const rawFile = d as RawAppFileItem}
