@@ -1324,6 +1324,9 @@ pub async fn delete_expired_items(db: &DB) -> () {
         let cleanup_start = Instant::now();
         let mut total_deleted = 0u64;
         let mut batch_num = 0i32;
+        // Watermark carried across batches so each one resumes after the rows the previous batch
+        // already processed instead of re-scanning the (potentially undeletable) oldest prefix.
+        let mut completed_at_floor: Option<DateTime<Utc>> = None;
 
         // Process batches until no more expired jobs or max batches reached
         loop {
@@ -1336,14 +1339,17 @@ pub async fn delete_expired_items(db: &DB) -> () {
             }
 
             // Each batch runs in its own transaction to avoid long-running locks
-            let batch_result = delete_expired_jobs_batch(db, job_retention_secs, batch_size).await;
+            let batch_result =
+                delete_expired_jobs_batch(db, job_retention_secs, batch_size, completed_at_floor)
+                    .await;
 
             match batch_result {
-                Ok(deleted_count) => {
+                Ok((deleted_count, max_completed_at)) => {
                     if deleted_count == 0 {
                         // No more expired jobs to delete
                         break;
                     }
+                    completed_at_floor = max_completed_at.or(completed_at_floor);
                     total_deleted += deleted_count as u64;
                     batch_num += 1;
                 }
@@ -1510,12 +1516,20 @@ pub async fn check_expiring_tokens(db: &DB) {
 
 /// Delete a batch of expired jobs with LIMIT and SKIP LOCKED for high-scale environments.
 /// Uses a single transaction per batch to minimize lock duration.
-/// Returns the number of jobs deleted in this batch.
+///
+/// `completed_at_floor` is the watermark from the previous batch in the same cleanup run (the
+/// max `completed_at` it deleted); pass `None` for the first batch. It is re-applied as
+/// `completed_at >= floor` so the scan resumes past the rows already processed instead of
+/// re-walking them (see the inline comment on the DELETE for why this matters).
+///
+/// Returns `(jobs deleted in this batch, max completed_at deleted)`. The caller feeds the
+/// returned watermark back in as `completed_at_floor` for the next batch.
 async fn delete_expired_jobs_batch(
     db: &DB,
     job_retention_secs: i64,
     batch_size: i64,
-) -> error::Result<usize> {
+    completed_at_floor: Option<DateTime<Utc>>,
+) -> error::Result<(usize, Option<DateTime<Utc>>)> {
     let mut tx = db.begin().await?;
 
     // Fetch active ROOT job IDs that started before the retention period. We only care about
@@ -1531,34 +1545,70 @@ async fn delete_expired_jobs_batch(
     .fetch_all(&mut *tx)
     .await?;
 
-    // Use FOR UPDATE SKIP LOCKED to avoid contention between replicas
-    // ORDER BY completed_at ensures we delete oldest jobs first.
-    // Active-root exclusion uses `NOT IN (SELECT ... unnest($3))` rather than
-    // `!= ALL($3)`: the subquery form lets the planner build a one-time hashed
-    // SubPlan and apply it as a filter on the ordered index scan, giving O(1)
-    // membership per candidate instead of a per-row linear array scan (which
-    // degrades sharply when many root jobs are active). The `u IS NOT NULL` guard
-    // sidesteps NOT IN's null-trap semantics ($3 holds non-null PK ids).
-    let deleted_jobs: Vec<Uuid> = sqlx::query_scalar!(
-        "DELETE FROM v2_job_completed
-         WHERE id IN (
-             SELECT jc.id FROM v2_job_completed jc
-             LEFT JOIN v2_job j ON j.id = jc.id
-             WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
-               AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) NOT IN (
-                   SELECT u FROM unnest($3::uuid[]) AS u WHERE u IS NOT NULL
-               )
-             ORDER BY jc.completed_at ASC
-             LIMIT $2
-             FOR UPDATE OF jc SKIP LOCKED
-         )
-         RETURNING id",
-        job_retention_secs,
-        batch_size,
-        &active_root_job_ids
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+    // `completed_at_floor` is a watermark carried across batches within a cleanup run: it is the
+    // max(completed_at) deleted by the previous batch. Re-applying it as `completed_at >= floor`
+    // lets each batch resume after the rows the previous batch already processed instead of
+    // re-scanning them. This matters when the oldest rows are undeletable (children of a
+    // still-active root flow): without the floor the `ORDER BY completed_at ASC` scan walks that
+    // same protected prefix on every batch, turning a cleanup run quadratic in prefix size.
+    // Floor only ever skips rows the current run already deleted, was protecting, or skip-locked —
+    // all correctly deferred to the next run, identical to the unbounded scan's semantics.
+    //
+    // Use FOR UPDATE SKIP LOCKED to avoid contention between replicas; ORDER BY completed_at
+    // deletes oldest jobs first.
+    let (deleted_jobs, max_completed_at) = if active_root_job_ids.is_empty() {
+        // Common case: no old root flow is still running, so nothing is protected and the
+        // v2_job join (a PK lookup per candidate) is pure overhead — skip it entirely.
+        let rows = sqlx::query!(
+            "DELETE FROM v2_job_completed
+             WHERE id IN (
+                 SELECT id FROM v2_job_completed
+                 WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval
+                   AND ($3::timestamptz IS NULL OR completed_at >= $3)
+                 ORDER BY completed_at ASC
+                 LIMIT $2
+                 FOR UPDATE SKIP LOCKED
+             )
+             RETURNING id, completed_at",
+            job_retention_secs,
+            batch_size,
+            completed_at_floor,
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        let max = rows.iter().map(|r| r.completed_at).max();
+        (rows.into_iter().map(|r| r.id).collect::<Vec<Uuid>>(), max)
+    } else {
+        // Active-root exclusion uses `NOT IN (SELECT ... unnest($3))` rather than `!= ALL($3)`:
+        // the subquery form lets the planner build a one-time hashed SubPlan and apply it as a
+        // filter on the ordered index scan, giving O(1) membership per candidate instead of a
+        // per-row linear array scan (which degrades sharply when many root jobs are active). The
+        // `u IS NOT NULL` guard sidesteps NOT IN's null-trap semantics ($3 holds non-null PK ids).
+        let rows = sqlx::query!(
+            "DELETE FROM v2_job_completed
+             WHERE id IN (
+                 SELECT jc.id FROM v2_job_completed jc
+                 LEFT JOIN v2_job j ON j.id = jc.id
+                 WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
+                   AND ($4::timestamptz IS NULL OR jc.completed_at >= $4)
+                   AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) NOT IN (
+                       SELECT u FROM unnest($3::uuid[]) AS u WHERE u IS NOT NULL
+                   )
+                 ORDER BY jc.completed_at ASC
+                 LIMIT $2
+                 FOR UPDATE OF jc SKIP LOCKED
+             )
+             RETURNING id, completed_at",
+            job_retention_secs,
+            batch_size,
+            &active_root_job_ids,
+            completed_at_floor,
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        let max = rows.iter().map(|r| r.completed_at).max();
+        (rows.into_iter().map(|r| r.id).collect::<Vec<Uuid>>(), max)
+    };
 
     let deleted_count = deleted_jobs.len();
 
@@ -1618,7 +1668,7 @@ async fn delete_expired_jobs_batch(
 
     tx.commit().await?;
 
-    Ok(deleted_count)
+    Ok((deleted_count, max_completed_at))
 }
 
 async fn delete_log_files_from_disk_and_store(
