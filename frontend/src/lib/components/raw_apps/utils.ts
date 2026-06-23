@@ -3,6 +3,8 @@ import type { Schema } from '../../common'
 import { schemaToTsType } from '../../schema'
 import { isRunnableByName, isRunnableByPath, type RunnableWithFields } from '../apps/inputType'
 import type { InlineScript } from '../apps/sharedTypes'
+import { stateSnapshot } from '$lib/svelte5Utils.svelte'
+import { appSourceToDraftValue, normalizeRawAppData } from './rawAppDraftValue'
 
 // export type RunnableWithFields = any
 
@@ -13,6 +15,66 @@ export type Runnable = RunnableWithInlineScript | undefined
 
 export type RawApp = {
 	files: string[]
+}
+
+// Server-managed columns the deployed app row (getAppByPath) carries but the
+// editor's current value never does — leaving them in renders as spurious diff.
+const RAW_APP_DEPLOYED_METADATA_KEYS = [
+	'raw_app',
+	'id',
+	'created_at',
+	'created_by',
+	'versions',
+	'extra_perms',
+	'is_draft'
+] as const
+
+/**
+ * Normalize a raw-app value before a deployed-vs-current diff (or unsaved-change
+ * comparison). Three sources of spurious post-deploy diff:
+ *  - the deployed row carries server-managed columns (`raw_app`, timestamps, …)
+ *    that the editor's current value lacks;
+ *  - inline-script `lock`s are recomputed server-side at every deploy and the
+ *    editor clears them on edit, so the editor value and the freshly deployed
+ *    one always diverge on `lock` even though the user changed nothing there;
+ *  - the deployed value omits an empty `data` while the editor always carries
+ *    the default `{ tables: [] }`, so even an untouched app reads as changed.
+ * All three must be neutralized symmetrically on both sides. Returns a deep
+ * clone; never mutates the input (the current side is live editor state).
+ */
+export function stripRawAppDiffNoise<T extends Record<string, any>>(value: T): T {
+	const cloned = structuredClone(stateSnapshot(value)) as Record<string, any>
+	for (const key of RAW_APP_DEPLOYED_METADATA_KEYS) {
+		delete cloned[key]
+	}
+	// Runnables/data live under `.value` on a deployed row and on the editor's
+	// diff value alike, but a flat draft shape carries them top-level.
+	const source = cloned.value ?? cloned
+	const runnables = source.runnables
+	if (runnables && typeof runnables === 'object') {
+		for (const k of Object.keys(runnables)) {
+			const inlineScript = runnables[k]?.inlineScript
+			if (inlineScript && inlineScript.lock != undefined) {
+				inlineScript.lock = undefined
+			}
+		}
+	}
+	// Canonicalize `data` so an absent and a default-empty `data` compare equal.
+	source.data = normalizeRawAppData(source)
+	return cloned as T
+}
+
+/**
+ * Canonical raw-app value for diffing a *draft* against a *deployed* row. On top
+ * of the noise stripped by stripRawAppDiffNoise, the two also differ in shape: a
+ * deployed row nests its source under `value`, whereas a draft carries
+ * `files`/`runnables`/`data` at the top level. `appSourceToDraftValue` collapses
+ * both onto the same flat field set first. Use this for the session/compare
+ * draft diff so it matches the editor's Diff button (which shares
+ * stripRawAppDiffNoise).
+ */
+export function canonicalRawAppDiffValue(source: Record<string, any>) {
+	return stripRawAppDiffNoise(appSourceToDraftValue(source))
 }
 
 export type RawAppRuntimeLogLevel = 'log' | 'info' | 'warn' | 'error' | 'debug'

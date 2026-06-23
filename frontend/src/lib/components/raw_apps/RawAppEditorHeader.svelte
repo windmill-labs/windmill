@@ -68,6 +68,7 @@
 	// `runtime.syncPreviewWithDeployed`, which discards the fork draft + reloads
 	// the preview to the deployed version.
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
+	import { stripRawAppDiffNoise } from './utils'
 	import type { RawAppData } from './dataTableRefUtils'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
@@ -369,15 +370,7 @@
 				savedApp &&
 				app &&
 				orderedJsonStringify(deployedValue) ===
-					orderedJsonStringify(
-						replaceFalseWithUndefined({
-							summary: summary,
-							value: app,
-							path: newEditedPath || savedApp.path,
-							policy,
-							custom_path: customPath
-						})
-					)
+					orderedJsonStringify(replaceFalseWithUndefined(currentDiffValue))
 			) {
 				await updateApp(npath)
 			} else {
@@ -400,15 +393,9 @@
 
 		deployedBy = deployedApp.created_by
 
-		// Strip off extra information
-		deployedValue = replaceFalseWithUndefined({
-			...deployedApp,
-			id: undefined,
-			created_at: undefined,
-			created_by: undefined,
-			versions: undefined,
-			extra_perms: undefined
-		})
+		// Normalize away post-deploy noise (see stripRawAppDiffNoise) so the
+		// diff/comparison only reflects what the editor actually changed.
+		deployedValue = replaceFalseWithUndefined(stripRawAppDiffNoise(deployedApp))
 	}
 
 	async function openDiffDrawer() {
@@ -422,14 +409,8 @@
 		diffDrawer?.openDrawer()
 		diffDrawer?.setDiff({
 			mode: 'normal',
-			deployed: deployedValue ?? savedApp,
-			current: {
-				summary: summary,
-				value: app,
-				path: newEditedPath || savedApp.path,
-				policy,
-				custom_path: customPath
-			}
+			deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
+			current: currentDiffValue
 		})
 	}
 
@@ -596,6 +577,18 @@
 
 	let app = $derived(files ? { runnables: runnables, files, data } : undefined)
 
+	// Editor-side value for diffing/comparison against the deployed app, with the
+	// same noise stripped as the deployed side (see stripRawAppDiffNoise).
+	let currentDiffValue = $derived(
+		stripRawAppDiffNoise({
+			summary: summary,
+			value: app,
+			path: newEditedPath || savedApp?.path,
+			policy,
+			custom_path: customPath
+		})
+	)
+
 	$effect(() => {
 		saveDrawerOpen && compareVersions()
 	})
@@ -607,13 +600,7 @@
 	bind:open
 	{diffDrawer}
 	bind:deployedValue
-	currentValue={{
-		summary: summary,
-		value: app,
-		path: newEditedPath || savedApp?.path,
-		policy,
-		custom_path: customPath
-	}}
+	currentValue={currentDiffValue}
 />
 
 <Drawer bind:open={saveDrawerOpen} size="800px">
@@ -634,14 +621,8 @@
 						diffDrawer?.openDrawer()
 						diffDrawer?.setDiff({
 							mode: 'normal',
-							deployed: deployedValue ?? savedApp,
-							current: {
-								summary: summary,
-								value: app,
-								path: newEditedPath || savedApp.path,
-								policy,
-								custom_path: customPath
-							},
+							deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
+							current: currentDiffValue,
 							button: {
 								text: 'Looks good, deploy',
 								onClick: () => {

@@ -66,6 +66,7 @@ use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
 
 mod ai;
+mod ai_skills;
 mod apps;
 pub mod args;
 mod audit;
@@ -622,6 +623,7 @@ pub async fn run_server(
                             Router::new()
                         })
                         .nest("/ai", ai::workspaced_service())
+                        .nest("/ai_skills", ai_skills::workspaced_service())
                         .nest("/npm_proxy", windmill_api_npm_proxy::workspaced_service())
                         .nest(
                             "/path_autocomplete",

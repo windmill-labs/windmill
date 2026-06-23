@@ -274,6 +274,7 @@ pub enum ScopeDomain {
     Configs,
     OAuth,
     AI,
+    AiSkills,
 
     Indexer,
     Teams,   // Microsoft Teams integration
@@ -329,6 +330,7 @@ impl ScopeDomain {
             Self::Configs => "configs",
             Self::OAuth => "oauth",
             Self::AI => "ai",
+            Self::AiSkills => "ai_skills",
             Self::Capture => "capture",
             Self::Drafts => "drafts",
             Self::Favorites => "favorites",
@@ -378,6 +380,7 @@ impl ScopeDomain {
             "configs" => Some(Self::Configs),
             "oauth" => Some(Self::OAuth),
             "ai" => Some(Self::AI),
+            "ai_skills" => Some(Self::AiSkills),
             "indexer" | "srch" => Some(Self::Indexer),
             "teams" => Some(Self::Teams),
             "native_triggers" => Some(Self::NativeTriggers),
@@ -817,6 +820,23 @@ pub fn check_read_only_for_route(route_path: &str, http_method: &str) -> Result<
     }
 }
 
+/// The minimal scope string that grants access to exactly `{method} {path}`, as
+/// `check_route_access` would require it. Used to mint a least-privilege JWT for
+/// a single proxied request (the MCP endpoint proxy), so the minted token can do
+/// only that one operation rather than acting as a blank check.
+///
+/// `path` is the request path (e.g. `/api/w/{workspace}/variables/get/...`).
+/// Returns `None` if the route's domain can't be determined — the caller should
+/// then fail closed.
+pub fn scope_for_route(method: &str, path: &str) -> Option<String> {
+    let action = map_http_method_to_action(method, path);
+    let (domain, kind, _suffix) = extract_domain_from_route(path).ok()?;
+    Some(match (domain, action, kind) {
+        (ScopeDomain::Jobs, ScopeAction::Run, Some(kind)) => format!("jobs:run:{}", kind),
+        (domain, action, _) => format!("{}:{}", domain.as_str(), action.as_str()),
+    })
+}
+
 /// Helper function to check if scopes allow access to a route
 pub fn check_scopes_for_route(
     token_scopes: Option<&[String]>,
@@ -907,6 +927,12 @@ mod tests {
         assert_eq!(domain, ScopeDomain::FlowConversations);
         assert_eq!(kind, None);
         assert_eq!(route_suffix, Some("flow_conversations/list".to_string()));
+
+        let (domain, kind, route_suffix) =
+            extract_domain_from_route("/api/w/test_workspace/ai_skills/list").unwrap();
+        assert_eq!(domain, ScopeDomain::AiSkills);
+        assert_eq!(kind, None);
+        assert_eq!(route_suffix, Some("ai_skills/list".to_string()));
     }
 
     #[test]
@@ -963,6 +989,10 @@ mod tests {
             ScopeDomain::from_str("flow_conversations"),
             Some(ScopeDomain::FlowConversations)
         );
+        assert_eq!(
+            ScopeDomain::from_str("ai_skills"),
+            Some(ScopeDomain::AiSkills)
+        );
 
         // Test canonical string conversion
         assert_eq!(ScopeDomain::Acls.as_str(), "acls");
@@ -972,6 +1002,41 @@ mod tests {
             ScopeDomain::FlowConversations.as_str(),
             "flow_conversations"
         );
+        assert_eq!(ScopeDomain::AiSkills.as_str(), "ai_skills");
+    }
+
+    #[test]
+    fn test_ai_skills_scope_access() {
+        let read_scopes = vec!["ai_skills:read".to_string()];
+        assert!(
+            check_route_access(&read_scopes, "/api/w/test_workspace/ai_skills/list", "GET").is_ok()
+        );
+        assert!(check_route_access(
+            &read_scopes,
+            "/api/w/test_workspace/ai_skills/get/foo",
+            "GET"
+        )
+        .is_ok());
+        assert!(check_route_access(
+            &read_scopes,
+            "/api/w/test_workspace/ai_skills/upload",
+            "POST"
+        )
+        .is_err());
+
+        let write_scopes = vec!["ai_skills:write".to_string()];
+        assert!(check_route_access(
+            &write_scopes,
+            "/api/w/test_workspace/ai_skills/upload",
+            "POST"
+        )
+        .is_ok());
+        assert!(check_route_access(
+            &write_scopes,
+            "/api/w/test_workspace/ai_skills/delete/foo",
+            "DELETE"
+        )
+        .is_ok());
     }
 
     #[test]
@@ -1200,5 +1265,39 @@ mod tests {
         // Token with MCP scope + other scopes should be allowed for MCP
         let scopes = vec!["jobs:read".to_string(), "mcp:all".to_string()];
         assert!(check_route_access(&scopes, "/api/w/test_workspace/mcp/something", "GET").is_ok());
+    }
+
+    #[test]
+    fn test_scope_for_route() {
+        // The minted scope must be exactly what check_route_access requires for
+        // the same route, so a JWT carrying it passes for that one route only.
+        assert_eq!(
+            scope_for_route("GET", "/api/w/ws/variables/get/u/x/y").as_deref(),
+            Some("variables:read")
+        );
+        assert_eq!(
+            scope_for_route("POST", "/api/w/ws/variables/create").as_deref(),
+            Some("variables:write")
+        );
+        assert_eq!(
+            scope_for_route("DELETE", "/api/w/ws/resources/delete/u/x/y").as_deref(),
+            Some("resources:write")
+        );
+        // jobs run paths carry the runnable kind.
+        assert_eq!(
+            scope_for_route("POST", "/api/w/ws/jobs/run/p/u/x/y").as_deref(),
+            Some("jobs:run:scripts")
+        );
+        assert_eq!(
+            scope_for_route("POST", "/api/w/ws/jobs/run/f/u/x/y").as_deref(),
+            Some("jobs:run:flows")
+        );
+
+        // The minted scope actually satisfies the route check it targets.
+        let s = scope_for_route("POST", "/api/w/ws/variables/create").unwrap();
+        assert!(check_route_access(&[s], "/api/w/ws/variables/create", "POST").is_ok());
+
+        // Unknown route -> None so the caller fails closed.
+        assert!(scope_for_route("GET", "/healthz").is_none());
     }
 }

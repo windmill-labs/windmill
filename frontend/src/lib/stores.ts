@@ -27,6 +27,7 @@ export interface UserExt {
 	groups: string[]
 	pgroups: string[]
 	folders: string[]
+	folders_read: string[]
 	folders_owners: string[]
 	is_service_account?: boolean
 	impersonating_email?: string

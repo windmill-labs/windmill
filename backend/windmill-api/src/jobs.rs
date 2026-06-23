@@ -4053,11 +4053,17 @@ fn conditionally_require_authed_user(
 }
 
 pub async fn create_job_signature(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
     Query(approver): Query<QueryApprover>,
 ) -> error::Result<String> {
+    // The HMAC is treated as full authority by the resume endpoints, so minting
+    // it requires run scope on the suspended job's flow — not merely any
+    // jobs:run scope. No-op for unscoped tokens (incl. the in-flow substep token
+    // used by wmill.get_resume_urls()).
+    let flow_path = resume_target_flow_path(&db, &w_id, job_id).await?;
+    check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
     let key = get_workspace_key(&w_id, &db).await?;
     create_signature(key, job_id, resume_id, approver.approver)
 }
@@ -4140,11 +4146,17 @@ fn build_resume_url(
 }
 
 pub async fn get_resume_urls(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
     Query(approver): Query<QueryApprover>,
 ) -> error::JsonResult<ResumeUrls> {
+    // These URLs embed a resume signature (full resume capability), so a scoped
+    // token must hold run scope on the suspended job's flow. No-op for unscoped
+    // tokens (incl. the in-flow substep token). Trusted internal callers use
+    // get_resume_urls_internal directly and are unaffected.
+    let flow_path = resume_target_flow_path(&db, &w_id, job_id).await?;
+    check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
     get_resume_urls_internal(
         Extension(db),
         Path((w_id, job_id, resume_id)),
@@ -4209,6 +4221,46 @@ pub async fn get_resume_urls_internal(
     };
 
     Ok(Json(res))
+}
+
+/// Resolve the runnable path of the flow a (possibly step) job belongs to, used
+/// to scope-check resume-signature minting against `jobs:run:flows:<path>`.
+/// Returns an empty string when the path can't be resolved (e.g. previews or an
+/// unknown job); an empty path only matters for path-restricted tokens, which
+/// would not be running such a flow. Never hard-fails, so it can't break resume
+/// for unscoped tokens (the in-flow `get_resume_urls()` path).
+async fn resume_target_flow_path(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {
+    let job = sqlx::query!(
+        r#"SELECT kind::text as "kind!", parent_job, runnable_path
+           FROM v2_job WHERE id = $1 AND workspace_id = $2"#,
+        job_id,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    let Some(job) = job else {
+        return Ok(String::new());
+    };
+    // All flow kinds: the job itself is the flow whose path scopes the resume.
+    if matches!(
+        job.kind.as_str(),
+        "flow" | "flowpreview" | "flownode" | "singlestepflow"
+    ) {
+        return Ok(job.runnable_path.unwrap_or_default());
+    }
+    // Otherwise it's a step; its parent is the flow.
+    if let Some(parent) = job.parent_job {
+        return Ok(sqlx::query_scalar!(
+            "SELECT runnable_path FROM v2_job WHERE id = $1 AND workspace_id = $2",
+            parent,
+            w_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .unwrap_or_default());
+    }
+    Ok(job.runnable_path.unwrap_or_default())
 }
 
 /// Get the flow ID for a job. If the job is a flow, returns the job_id.

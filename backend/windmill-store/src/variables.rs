@@ -1037,6 +1037,12 @@ async fn update_variable(
 
     let path = path.to_path();
     check_scopes(&authed, || format!("variables:write:{}", path))?;
+    // A rename moves the (possibly secret) variable to ns.path, so the
+    // destination must also be within the token's write scope, not just the
+    // source path.
+    if let Some(npath) = ns.path.as_deref() {
+        check_scopes(&authed, || format!("variables:write:{}", npath))?;
+    }
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
 
     let mut sqlb = SqlBuilder::update_table("variable");
