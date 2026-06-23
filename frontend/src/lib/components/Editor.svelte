@@ -407,6 +407,13 @@
 		if (code == ncode) {
 			return
 		}
+		// `code` diverges from what the editor last produced → it holds a pending
+		// external write (e.g. AI apply) that hasn't reached Monaco yet. Don't
+		// overwrite it with Monaco's stale buffer; the scheduled applyExternalCode
+		// will push the external value in. Otherwise the external change is lost.
+		if (code !== lastEditorCode) {
+			return
+		}
 		code = ncode
 		lastEditorCode = ncode
 		dispatch('change', ncode)
