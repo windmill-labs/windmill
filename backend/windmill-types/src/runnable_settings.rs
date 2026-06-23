@@ -175,3 +175,56 @@ impl From<ConcurrencySettingsWithCustom> for ConcurrencySettings {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::flows::{ConstantDelay, ExponentialDelay, RetryIf};
+
+    #[test]
+    fn retry_settings_roundtrips_retry() {
+        let cases = [
+            // constant only
+            Retry {
+                constant: ConstantDelay { attempts: 3, seconds: 5 },
+                exponential: ExponentialDelay::default(),
+                retry_if: None,
+            },
+            // exponential with jitter
+            Retry {
+                constant: ConstantDelay::default(),
+                exponential: ExponentialDelay {
+                    attempts: 4,
+                    multiplier: 2,
+                    seconds: 3,
+                    random_factor: Some(20),
+                },
+                retry_if: None,
+            },
+            // mixed + retry_if + max-ish narrowings
+            Retry {
+                constant: ConstantDelay { attempts: 1, seconds: u16::MAX },
+                exponential: ExponentialDelay {
+                    attempts: 2,
+                    multiplier: u16::MAX,
+                    seconds: 7,
+                    random_factor: Some(i8::MIN),
+                },
+                retry_if: Some(RetryIf { expr: "result.error.code != 'fatal'".to_string() }),
+            },
+        ];
+        for r in cases {
+            let back: Retry = RetrySettings::from(&r).into();
+            assert_eq!(back, r, "RetrySettings round-trip must preserve {r:?}");
+        }
+    }
+
+    #[test]
+    fn retry_settings_default_maps_to_default_exponential() {
+        // All-None settings must mirror ExponentialDelay::default() (multiplier 1),
+        // so a row with no exponential values doesn't decode to a 0 multiplier.
+        let r: Retry = RetrySettings::default().into();
+        assert_eq!(r, Retry::default());
+        assert_eq!(r.exponential.multiplier, 1);
+    }
+}

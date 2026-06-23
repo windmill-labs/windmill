@@ -622,9 +622,10 @@ async fn push_subscriber(
         script.runnable_settings.debouncing_settings,
     );
 
-    // Retry is only available via the flow runtime — wrap the script in a
-    // one-step flow when the cascade declares one. No retry =
-    // unwrapped `ScriptHash` push.
+    // When the cascade declares a retry, hand `push` a one-step-flow request
+    // carrying the policy + `language`; `push` materializes it into a native
+    // retryable `Script` (not a flow), so a failed/recovered subscriber stays
+    // eligible to trigger its own downstream. No retry = plain `ScriptHash`.
     let payload = if let Some(retry) = crate::cascade::cascade_retry(retry_count, retry_delay_s) {
         JobPayload::SingleStepFlow {
             path: subscriber_path.to_string(),

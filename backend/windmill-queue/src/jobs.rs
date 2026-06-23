@@ -1770,8 +1770,8 @@ pub async fn maybe_enqueue_native_script_retry(
     //
     // Idempotent retry id: deterministic per (root, next attempt). If a worker
     // dies between this push and the current attempt's finalization, the reaper
-    // re-handles the un-finalized attempt and we land here again — `push` rejects
-    // the duplicate id, so the retry is enqueued exactly once (no double-retry).
+    // re-handles the un-finalized attempt and we land here again with the same
+    // id, so the retry is enqueued exactly once (no double-retry).
     let retry_job_id = {
         use std::hash::{Hash, Hasher};
         let next_attempt = prev_attempts + 1;
@@ -1784,6 +1784,17 @@ pub async fn maybe_enqueue_native_script_retry(
         root.hash(&mut low);
         Uuid::from_u64_pair(high.finish(), low.finish())
     };
+    // If that retry already exists (the crash-and-reaper-replay case above),
+    // report it as pending WITHOUT re-pushing. Deriving `retry_pending` from the
+    // push *result* would otherwise flip to false on the duplicate-id error and
+    // let the schedule completion handlers fire for this non-terminal attempt.
+    if sqlx::query_scalar!("SELECT 1 FROM v2_job WHERE id = $1", retry_job_id)
+        .fetch_optional(db)
+        .await?
+        .is_some()
+    {
+        return Ok(true);
+    }
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
     let (new_id, mut tx) = push(
         db,
