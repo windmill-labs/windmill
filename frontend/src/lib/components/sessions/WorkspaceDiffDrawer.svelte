@@ -489,31 +489,28 @@
 			{#if node.app}
 				{@const appSummary = summaries[node.app.summaryKey] ?? node.app.summary}
 				<!-- Raw-app root: expandable folder, but its header reads as a normal
-				     item row (icon + summary + name) rather than a plain folder. Shows
-				     the short name, not the full path — the tree already places it under
-				     its scope. The expand chevron sits at the end of the row. -->
+				     item row (icon + label). Single line showing the summary, falling
+				     back to the short name (the tree already places it under its scope;
+				     full path on hover). The expand chevron sits at the end of the row. -->
 				<summary
 					role="option"
 					aria-selected={isHl}
 					data-nav-key={fkey}
 					onmouseenter={() => setHoverHighlight(fkey)}
 					title={node.fullPath}
-					class="flex items-center gap-1.5 px-3 py-1 cursor-pointer hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
+					class="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
 						? 'bg-surface-hover'
 						: ''}"
 					style="padding-left: {depth * 12 + 8}px"
 				>
 					<RowIcon kind="raw_app" size={12} />
-					<div class="min-w-0 flex-1">
-						{#if appSummary}
-							<div class="text-xs text-primary truncate">{appSummary}</div>
-							<div class="text-2xs text-secondary font-normal font-mono truncate">
-								{node.name}
-							</div>
-						{:else}
-							<div class="text-xs text-primary font-mono truncate">{node.name}</div>
-						{/if}
-					</div>
+					<span
+						class="flex-1 min-w-0 truncate text-xs font-normal text-primary {appSummary
+							? ''
+							: 'font-mono'}"
+					>
+						{appSummary ?? node.name}
+					</span>
 					<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
 					<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
 				</summary>
@@ -523,7 +520,7 @@
 					aria-selected={isHl}
 					data-nav-key={fkey}
 					onmouseenter={() => setHoverHighlight(fkey)}
-					class="flex items-center gap-1.5 px-3 py-1 cursor-pointer text-xs font-medium font-mono text-emphasis hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
+					class="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer text-xs font-normal font-mono text-secondary hover:bg-surface-hover list-none [&::-webkit-details-marker]:hidden tree-summary {isHl
 						? 'bg-surface-hover'
 						: ''}"
 					style="padding-left: {depth * 12 + 8}px"
@@ -561,7 +558,8 @@
 		<WorkspaceItemRow
 			kind={node.diff.kind as any}
 			iconPath={node.diff.path}
-			uniformHeight
+			baseClass="py-1.5"
+			singleLine
 			summary={summaries[key] ?? ('summary' in node.diff ? node.diff.summary : undefined)}
 			secondary={node.name}
 			highlighted={key === highlightedKey}
