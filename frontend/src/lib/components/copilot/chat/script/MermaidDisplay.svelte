@@ -8,8 +8,12 @@
 	const isDarkMode = useIsDarkMode()
 
 	let svg = $state<string | undefined>(undefined)
+	// Monotonic token so an earlier-started render that resolves late can't
+	// overwrite the result of a newer one (out-of-order async on rapid code/theme changes).
+	let renderSeq = 0
 
 	async function render(source: string, dark: boolean) {
+		const seq = ++renderSeq
 		if (!source?.trim()) {
 			svg = undefined
 			return
@@ -25,10 +29,16 @@
 			})
 			// mermaid.render needs a fresh element id per attempt to avoid id collisions.
 			const result = await mermaid.render(`${id}-${randomUUID()}`, source)
+			if (seq !== renderSeq) return
 			svg = result.svg
 		} catch (e) {
-			console.error('Failed to render mermaid diagram', e)
-			svg = undefined
+			if (seq !== renderSeq) return
+			// Keep the last good diagram so transient parse failures while the block
+			// is still streaming don't collapse it; only fall back to raw source if
+			// nothing has rendered yet.
+			if (svg === undefined) {
+				console.error('Failed to render mermaid diagram', e)
+			}
 		}
 	}
 
