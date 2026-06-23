@@ -268,6 +268,7 @@
 		if (activeModuleTab === null && code !== lastSyncedCode) {
 			editorCode = code
 			lastSyncedCode = code
+			editor?.setCode(editorCode)
 			untrack(() => inferSchema(code))
 		}
 	})

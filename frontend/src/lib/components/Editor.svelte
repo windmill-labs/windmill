@@ -374,16 +374,7 @@
 		} else {
 			if (editor?.getModel()) {
 				// editor.setValue(ncode)
-				editor.pushUndoStop()
-
-				editor.executeEdits('set', [
-					{
-						range: editor.getModel()!.getFullModelRange(), // full range
-						text: ncode
-					}
-				])
-
-				editor.pushUndoStop()
+				alignCodeWithEditor()
 			}
 		}
 		// Dispatch change immediately when code actually changed. This ensures
@@ -2006,20 +1997,20 @@
 	// prop read above is tracked — so the editor's own change handler
 	// (`updateCode`) re-running with the same value short-circuits and we
 	// don't loop.
-	let applyExternalCode = useDebounce(function applyExternalCode() {
+	let applyExternalCode = useDebounce(alignCodeWithEditor, 800)
+
+	function alignCodeWithEditor() {
 		const ed = editor
 		if (!ed) return
-
 		const next = code ?? ''
 		const value = ed.getValue()
-		if (value === next) return
-
 		const model = ed.getModel()
 		if (!model) return
+		if (value === next) return
 		ed.pushUndoStop()
 		ed.executeEdits('external', [{ range: model.getFullModelRange(), text: next }])
 		ed.pushUndoStop()
-	}, 500)
+	}
 
 	$effect(() => {
 		;[code, editor]
