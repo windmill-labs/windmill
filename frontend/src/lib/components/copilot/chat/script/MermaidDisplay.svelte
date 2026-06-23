@@ -4,10 +4,13 @@
 
 	let { code }: { code: string } = $props()
 
-	const id = `mermaid-${randomUUID()}`
 	const isDarkMode = useIsDarkMode()
 
 	let svg = $state<string | undefined>(undefined)
+	// The exact source that produced `svg`. The diagram is only shown while this
+	// still matches the current `code`, so a later edit that fails to parse falls
+	// back to the raw source instead of leaving a stale, mismatched diagram.
+	let renderedCode = $state<string | undefined>(undefined)
 	// Monotonic token so an earlier-started render that resolves late can't
 	// overwrite the result of a newer one (out-of-order async on rapid code/theme changes).
 	let renderSeq = 0
@@ -16,6 +19,7 @@
 		const seq = ++renderSeq
 		if (!source?.trim()) {
 			svg = undefined
+			renderedCode = undefined
 			return
 		}
 		try {
@@ -28,26 +32,26 @@
 				suppressErrorRendering: true
 			})
 			// mermaid.render needs a fresh element id per attempt to avoid id collisions.
-			const result = await mermaid.render(`${id}-${randomUUID()}`, source)
+			const result = await mermaid.render(`mermaid-${randomUUID()}`, source)
 			if (seq !== renderSeq) return
 			svg = result.svg
-		} catch (e) {
-			if (seq !== renderSeq) return
-			// Keep the last good diagram so transient parse failures while the block
-			// is still streaming don't collapse it; only fall back to raw source if
-			// nothing has rendered yet.
-			if (svg === undefined) {
-				console.error('Failed to render mermaid diagram', e)
-			}
+			renderedCode = source
+		} catch {
+			// Parse failure (often a partial block still streaming in): fall back to the
+			// raw source. `showSvg` already hides any previous diagram since `renderedCode`
+			// no longer matches the current `code`.
 		}
 	}
 
 	$effect(() => {
 		void render(code, isDarkMode.val)
 	})
+
+	// Only show the diagram while it corresponds to the current source.
+	let showSvg = $derived(svg !== undefined && renderedCode === code)
 </script>
 
-{#if svg}
+{#if showSvg}
 	<div class="p-2 flex justify-center overflow-x-auto">
 		<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 		{@html svg}
