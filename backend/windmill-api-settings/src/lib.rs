@@ -338,9 +338,14 @@ async fn validate_object_storage_test(settings: &ObjectSettings) -> error::Resul
         opt.as_ref().is_some_and(|s| !s.is_empty())
     }
 
-    // Reject backends that rely on the server's identity or local filesystem, and require explicit
-    // credentials for the rest so the server never falls back to its own ambient credentials.
-    let custom_endpoint: Option<&String> = match settings {
+    // Reject backends that rely on the server's identity or local filesystem, require explicit
+    // credentials for the rest (so the server never falls back to its own ambient credentials), and
+    // resolve the host the client will actually connect to. We derive the *effective* endpoint here
+    // — mirroring build_*_from_settings: the region/account-derived default and the virtual-hosted
+    // bucket prefix — rather than only validating a caller-supplied `endpoint`, so caller-controlled
+    // `region`/`account_name`/`bucket` cannot smuggle an internal host past the check (e.g. an empty
+    // endpoint with region = "@169.254.169.254/" otherwise resolves to the cloud metadata service).
+    let effective_endpoint: Option<String> = match settings {
         ObjectSettings::Filesystem(_) => {
             return Err(error::Error::NotAuthorized(
                 "Testing a local filesystem object store requires a super admin".to_string(),
@@ -358,7 +363,25 @@ async fn validate_object_storage_test(settings: &ObjectSettings) -> error::Resul
                         .to_string(),
                 ));
             }
-            s3.endpoint.as_ref().filter(|e| !e.is_empty())
+            let region = s3
+                .region
+                .clone()
+                .filter(|r| !r.is_empty())
+                .or_else(|| std::env::var("AWS_REGION").ok().filter(|r| !r.is_empty()))
+                .unwrap_or_else(|| "us-east-1".to_string());
+            let raw_endpoint = s3
+                .endpoint
+                .clone()
+                .filter(|e| !e.is_empty())
+                .or_else(|| std::env::var("S3_ENDPOINT").ok().filter(|e| !e.is_empty()))
+                .unwrap_or_else(|| format!("s3.{region}.amazonaws.com"));
+            Some(windmill_object_store::render_endpoint(
+                raw_endpoint,
+                !s3.allow_http.unwrap_or(true),
+                s3.port,
+                s3.path_style,
+                s3.bucket.clone().unwrap_or_default(),
+            ))
         }
         ObjectSettings::Azure(azure) => {
             if !non_empty(&azure.access_key) {
@@ -367,7 +390,13 @@ async fn validate_object_storage_test(settings: &ObjectSettings) -> error::Resul
                         .to_string(),
                 ));
             }
-            azure.endpoint.as_ref().filter(|e| !e.is_empty())
+            Some(
+                azure
+                    .endpoint
+                    .clone()
+                    .filter(|e| !e.is_empty())
+                    .unwrap_or_else(|| format!("{}.blob.core.windows.net", azure.account_name)),
+            )
         }
         ObjectSettings::Gcs(gcs) => {
             if gcs.service_account_key.is_empty() {
@@ -376,15 +405,14 @@ async fn validate_object_storage_test(settings: &ObjectSettings) -> error::Resul
                         .to_string(),
                 ));
             }
-            // GCS always targets storage.googleapis.com — no caller-controlled endpoint.
+            // GCS always targets storage.googleapis.com — no caller-controlled host.
             None
         }
     };
 
-    // Block non-public network targets (internal services, cloud metadata, loopback, ...). Only a
-    // caller-supplied endpoint can be aimed internally; the default cloud endpoints are public.
-    if let Some(endpoint) = custom_endpoint {
-        validate_public_endpoint(endpoint).await?;
+    // Block non-public network targets (internal services, cloud metadata, loopback, ...).
+    if let Some(endpoint) = effective_endpoint {
+        validate_public_endpoint(&endpoint).await?;
     }
     Ok(())
 }
@@ -431,7 +459,7 @@ fn extract_host(endpoint: &str) -> Option<String> {
     } else if let Some(rest) = s.strip_prefix("http://") {
         s = rest;
     }
-    s = s.split(['/', '?']).next().unwrap_or(s);
+    s = s.split(['/', '?', '#', '\\']).next().unwrap_or(s);
     if let Some((_, rest)) = s.rsplit_once('@') {
         s = rest;
     }
@@ -452,7 +480,7 @@ fn extract_host(endpoint: &str) -> Option<String> {
 
 #[cfg(feature = "parquet")]
 fn is_forbidden_ip(ip: std::net::IpAddr) -> bool {
-    use std::net::IpAddr;
+    use std::net::{IpAddr, Ipv4Addr};
     match ip {
         IpAddr::V4(v4) => {
             v4.is_loopback()
@@ -466,14 +494,31 @@ fn is_forbidden_ip(ip: std::net::IpAddr) -> bool {
                 || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xc0) == 64) // 100.64.0.0/10 CGNAT
         }
         IpAddr::V6(v6) => {
+            // Any IPv4 embedded in an IPv6 address (IPv4-mapped ::ffff:0:0/96, IPv4-compatible
+            // ::/96, or NAT64 64:ff9b::/96) is re-checked against the IPv4 rules, so e.g.
+            // 64:ff9b::169.254.169.254 cannot route to the metadata endpoint in a NAT64 network.
+            let seg = v6.segments();
+            let is_v4_compatible = seg[0..6] == [0, 0, 0, 0, 0, 0];
+            let is_nat64 = seg[0] == 0x0064 && seg[1] == 0xff9b && seg[2..6] == [0, 0, 0, 0];
             if let Some(v4) = v6.to_ipv4_mapped() {
                 return is_forbidden_ip(IpAddr::V4(v4));
+            }
+            if is_v4_compatible || is_nat64 {
+                let embedded = Ipv4Addr::new(
+                    (seg[6] >> 8) as u8,
+                    (seg[6] & 0xff) as u8,
+                    (seg[7] >> 8) as u8,
+                    (seg[7] & 0xff) as u8,
+                );
+                if is_forbidden_ip(IpAddr::V4(embedded)) {
+                    return true;
+                }
             }
             v6.is_loopback()
                 || v6.is_unspecified()
                 || v6.is_multicast()
-                || (v6.segments()[0] & 0xfe00) == 0xfc00 // fc00::/7 unique local
-                || (v6.segments()[0] & 0xffc0) == 0xfe80 // fe80::/10 link-local
+                || (seg[0] & 0xfe00) == 0xfc00 // fc00::/7 unique local
+                || (seg[0] & 0xffc0) == 0xfe80 // fe80::/10 link-local
         }
     }
 }
@@ -2048,18 +2093,21 @@ mod object_storage_test_hardening {
     #[test]
     fn forbids_internal_ips() {
         for s in [
-            "127.0.0.1",              // loopback
-            "169.254.169.254",        // cloud metadata (link-local)
-            "10.0.0.5",               // private
-            "172.16.3.4",             // private
-            "192.168.1.10",           // private
-            "0.0.0.0",                // unspecified
-            "100.64.0.1",             // CGNAT
-            "::1",                    // IPv6 loopback
-            "fe80::1",                // IPv6 link-local
-            "fc00::1",                // IPv6 unique local
-            "::ffff:127.0.0.1",       // IPv4-mapped loopback
-            "::ffff:169.254.169.254", // IPv4-mapped metadata
+            "127.0.0.1",                // loopback
+            "169.254.169.254",          // cloud metadata (link-local)
+            "10.0.0.5",                 // private
+            "172.16.3.4",               // private
+            "192.168.1.10",             // private
+            "0.0.0.0",                  // unspecified
+            "100.64.0.1",               // CGNAT
+            "::1",                      // IPv6 loopback
+            "fe80::1",                  // IPv6 link-local
+            "fc00::1",                  // IPv6 unique local
+            "::ffff:127.0.0.1",         // IPv4-mapped loopback
+            "::ffff:169.254.169.254",   // IPv4-mapped metadata
+            "::169.254.169.254",        // IPv4-compatible metadata
+            "64:ff9b::169.254.169.254", // NAT64-embedded metadata
+            "64:ff9b::a9fe:a9fe",       // NAT64-embedded metadata (hex form)
         ] {
             assert!(is_forbidden_ip(ip(s)), "{s} should be forbidden");
         }
@@ -2082,6 +2130,17 @@ mod object_storage_test_hardening {
             ("[::1]:9000", Some("::1")),
             ("https://[fe80::1]/x", Some("fe80::1")),
             ("", None),
+            // Injection via region/bucket interpolation into the default endpoint string: the
+            // userinfo `@` and the path `/` must not hide the real authority from the host check.
+            (
+                "https://s3.@169.254.169.254/.amazonaws.com",
+                Some("169.254.169.254"),
+            ),
+            (
+                "https://@169.254.169.254/mybucket.s3.amazonaws.com",
+                Some("169.254.169.254"),
+            ),
+            ("s3.#@169.254.169.254/x.amazonaws.com", Some("s3.")),
         ];
         for (input, expected) in cases {
             assert_eq!(extract_host(input).as_deref(), expected, "input: {input}");
