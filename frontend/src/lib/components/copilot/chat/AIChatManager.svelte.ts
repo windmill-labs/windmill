@@ -1922,14 +1922,13 @@ export class AIChatManager {
 								lastDeployedCode: undefined,
 								lastSavedCode: undefined
 							}
-				const moduleContent = module.value.content
 				return {
 					args: moduleState?.previewArgs ?? {},
 					error:
 						moduleState && !moduleState.previewSuccess
 							? getStringError(moduleState.previewResult)
 							: undefined,
-					getCode: () => moduleContent,
+					getCode: () => module.value.type === 'rawscript' ? module.value.content : '',
 					lang: module.value.language,
 					path: module.id,
 					...editorRelated

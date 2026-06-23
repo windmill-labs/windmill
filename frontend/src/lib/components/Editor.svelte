@@ -398,7 +398,6 @@
 	}
 
 	function updateCode() {
-		console.log('[test] [updateCode] called with code:', code)
 		const ncode = getCode()
 		if (code == ncode) {
 			return
@@ -1967,11 +1966,6 @@
 		})
 	})
 
-	// External `code` prop changes should flow into the Monaco editor. The
-	// `untrack` block reads/writes Monaco without subscribing — only the
-	// prop read above is tracked — so the editor's own change handler
-	// (`updateCode`) re-running with the same value short-circuits and we
-	// don't loop.
 	let applyExternalCode = useDebounce(() => alignCodeWithEditor(true), 800)
 
 	function alignCodeWithEditor(history: boolean) {
@@ -1997,6 +1991,11 @@
 		untrack(() => applyExternalCode())
 	})
 
+	// External `code` prop changes should flow into the Monaco editor. The
+	// `untrack` block reads/writes Monaco without subscribing — only the
+	// prop read above is tracked — so the editor's own change handler
+	// (`updateCode`) re-running with the same value short-circuits and we
+	// don't loop.
 	let isTsWorkerInitialized = resource([() => lang, () => initialized], async () => {
 		if (lang !== 'typescript' || !initialized) return false
 		// Use the stable model URI (computed once at mount), not filePath which changes on rename
