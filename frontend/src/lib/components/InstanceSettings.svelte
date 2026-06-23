@@ -1068,10 +1068,9 @@
 							apps, raw apps)</li
 						>
 						<li
-							>infrastructure info (deployment mode, worker count, OS, architecture, CPU and memory,
-							filesystem total and available space, container runtime, database version, size and
-							cluster size, max and active connections, RDS detection, object storage backend,
-							sandboxing and job retention settings)</li
+							>infrastructure info (container runtime, deployment mode, worker count, managed
+							database provider, database version, size and cluster size, max and active
+							connections, object storage backend)</li
 						>
 					</ul>
 					<br />For air-gapped instances, you can download the telemetry data and send it manually.

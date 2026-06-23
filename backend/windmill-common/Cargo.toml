@@ -30,7 +30,6 @@ name = "windmill_common"
 path = "src/lib.rs"
 
 [dependencies]
-sysinfo.workspace = true
 tar.workspace = true
 hmac.workspace = true
 sha2.workspace = true
@@ -131,3 +130,6 @@ equivalent = "1.0.2"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemalloc-ctl = { optional = true, workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+sysinfo.workspace = true
