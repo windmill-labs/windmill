@@ -423,24 +423,6 @@
 		updateCode()
 	}
 
-	// TEMPORARY: debug button to test two successive executeEdits with a 1s gap.
-	function debugTestExecuteEdits(): void {
-		if (!editor) return
-		const replaceAll = (text: string) => {
-			const model = editor!.getModel()
-			if (!model) return
-			editor!.executeEdits('debug-test', [{ range: model.getFullModelRange(), text }])
-			console.log(
-				'[debug-test] executeEdits ->',
-				JSON.stringify(text),
-				'value now:',
-				JSON.stringify(editor!.getValue())
-			)
-		}
-		replaceAll('A')
-		setTimeout(() => replaceAll('B'), 1000)
-	}
-
 	export function append(code: string): void {
 		if (editor) {
 			const lineCount = editor.getModel()?.getLineCount() || 0
@@ -2058,15 +2040,6 @@
 	</div>
 {/if}
 <div bind:this={divEl} class="{clazz} editor {disabled ? 'disabled' : ''}"></div>
-<!-- TEMPORARY debug button: tests two successive executeEdits with a 500ms gap -->
-{#if editor}
-	<button
-		class="absolute top-1 right-1 z-50 bg-red-500 text-white text-xs px-2 py-1 rounded shadow"
-		onclick={debugTestExecuteEdits}
-	>
-		debug A→B
-	</button>
-{/if}
 {#if $vimMode}
 	<div class="fixed bottom-0 z-30" bind:this={statusDiv}></div>
 {/if}
