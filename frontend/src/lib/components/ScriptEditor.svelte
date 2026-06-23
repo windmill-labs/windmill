@@ -1591,18 +1591,29 @@
 	let error = $derived(getError(testJob))
 
 	$effect(() => {
-		const options: ScriptOptions = {
-			code,
-			lang: lang as ScriptLang,
-			error,
-			args: args ?? {},
-			path,
+		;[
+			editor,
 			lastSavedCode,
 			lastDeployedCode,
 			diffMode,
-			workflowAsCode: workflowAsCodeAiContext
-		}
+			workflowAsCodeAiContext,
+			args,
+			error,
+			lang,
+			path
+		]
 		untrack(() => {
+			const options: ScriptOptions = {
+				code,
+				lang: lang as ScriptLang,
+				error,
+				args: args ?? {},
+				path,
+				lastSavedCode,
+				lastDeployedCode,
+				diffMode,
+				workflowAsCode: workflowAsCodeAiContext
+			}
 			aiChatManager.scriptEditorOptions = options
 			aiChatManager.scriptEditorApplyCode = async (code: string, opts?: ReviewChangesOpts) => {
 				hideDiffMode()
