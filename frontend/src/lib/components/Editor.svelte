@@ -369,14 +369,7 @@
 			code = ncode
 		}
 
-		if (noHistory) {
-			alignCodeWithEditor(false)
-		} else {
-			if (editor?.getModel()) {
-				// editor.setValue(ncode)
-				alignCodeWithEditor(true)
-			}
-		}
+		alignCodeWithEditor(!noHistory)
 		// Dispatch change immediately when code actually changed. This ensures
 		// callers like the Reset button and copilot trigger on:change handlers.
 		// The debounced onDidChangeModelContent handler will no-op since code
@@ -1997,9 +1990,9 @@
 	// prop read above is tracked — so the editor's own change handler
 	// (`updateCode`) re-running with the same value short-circuits and we
 	// don't loop.
-	let applyExternalCode = useDebounce(alignCodeWithEditor, 800)
+	let applyExternalCode = useDebounce(() => alignCodeWithEditor(true), 800)
 
-	function alignCodeWithEditor(useEdits: boolean = true) {
+	function alignCodeWithEditor(history: boolean) {
 		const ed = editor
 		if (!ed) return
 		const next = code ?? ''
@@ -2007,7 +2000,7 @@
 		const model = ed.getModel()
 		if (!model) return
 		if (value === next) return
-		if (useEdits) {
+		if (history) {
 			ed.pushUndoStop()
 			ed.executeEdits('external', [{ range: model.getFullModelRange(), text: next }])
 			ed.pushUndoStop()
