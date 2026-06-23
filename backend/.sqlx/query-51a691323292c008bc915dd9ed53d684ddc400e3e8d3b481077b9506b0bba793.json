@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace\n            (id, name, owner, parent_workspace_id, family_id)\n            VALUES ($1, $2, $3, $4, COALESCE((SELECT family_id FROM workspace WHERE id = $5), gen_random_uuid()))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "51a691323292c008bc915dd9ed53d684ddc400e3e8d3b481077b9506b0bba793"
+}

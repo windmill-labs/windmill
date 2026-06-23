@@ -22,8 +22,8 @@
 	import {
 		createSession,
 		deriveForkStatus,
-		getEffectiveWorkspaceId,
 		isForkSession,
+		reconcileSessionsLifecycle,
 		renameSession,
 		selectSession,
 		sessionState,
@@ -44,7 +44,6 @@
 	import { Menu, Menubar, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { visibleWorkspaceIds } from './sessionScope.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
@@ -109,33 +108,19 @@
 	// pending workspace pick — set at create time to the workspace the
 	// user was in. Archived sessions are filtered out unless the user
 	// has opted in via the filter popover.
+	// sessionState.sessions already holds only the active family's sessions (the
+	// per-family IndexedDB is keyed by family_id), so no workspace/family filter
+	// is needed — just hide transient (unsent) drafts and, unless toggled,
+	// archived sessions.
 	const visibleSessions = $derived(
 		sessionState.sessions.filter((s) => {
-			// Transient (not-yet-sent) sessions live as their own page but
-			// don't clutter the sidebar list.
 			if (s.transient) return false
 			if (s.archived && !showArchived.val) return false
-			const ws = getEffectiveWorkspaceId(s)
-			if (!ws) return false
-			if ($visibleWorkspaceIds.has(ws)) return true
-			// Unavailable sessions (committed workspace was deleted /
-			// archived / access revoked) stay visible everywhere so the
-			// user can resolve them — move, archive, or delete. They'd
-			// otherwise be permanently hidden the moment their workspace
-			// disappeared.
-			if (s.workspace_id && !$userWorkspaces.find((w) => w.id === s.workspace_id)) return true
-			return false
+			return true
 		})
 	)
 	const archivedCount = $derived(
-		sessionState.sessions.filter((s) => {
-			if (!s.archived || s.transient) return false
-			const ws = getEffectiveWorkspaceId(s)
-			if (!ws) return false
-			if ($visibleWorkspaceIds.has(ws)) return true
-			if (s.workspace_id && !$userWorkspaces.find((w) => w.id === s.workspace_id)) return true
-			return false
-		}).length
+		sessionState.sessions.filter((s) => s.archived && !s.transient).length
 	)
 
 	// Sum of unread across every visible session — surfaced on the
@@ -269,6 +254,7 @@
 				await WorkspaceService.deleteWorkspace({ workspace: forkToDelete })
 				sendUserToast(`Deleted forked workspace ${forkToDelete}`)
 				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+				await reconcileSessionsLifecycle()
 			} catch (e: any) {
 				sendUserToast(`Failed to delete fork ${forkToDelete}: ${e?.body ?? e}`, true)
 			}

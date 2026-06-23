@@ -1,32 +1,26 @@
 import { derived, type Readable } from 'svelte/store'
 import { workspaceStore, userWorkspaces, type UserWorkspace } from '$lib/stores'
-import { findWorkspaceDescendants } from '$lib/utils/workspaceHierarchy'
 
-// Walk up parent_workspace_id chain to find the root of the fork family
-// containing `id`. Falls back to the workspace itself if it has no parent
-// (or its parent isn't in the user's list).
-function findFamilyRoot(id: string, all: UserWorkspace[]): UserWorkspace | undefined {
-	let current = all.find((w) => w.id === id)
-	while (current?.parent_workspace_id) {
-		const parent = all.find((w) => w.id === current!.parent_workspace_id)
-		if (!parent) break
-		current = parent
-	}
-	return current
+// Immutable family id of a workspace, or undefined when unknown — the workspace
+// isn't in the user's list, or its family_id is absent (e.g. the superadmin
+// workspace list, which doesn't carry it). Sessions are stored in a per-family
+// IndexedDB keyed by this id, so "unknown family" means "don't open a DB":
+// fail-safe, since a wrong/missing family yields no sessions rather than another
+// family's sessions.
+export function familyOfWorkspace(
+	id: string | undefined,
+	all: UserWorkspace[]
+): string | undefined {
+	if (!id) return undefined
+	return all.find((w) => w.id === id)?.family_id ?? undefined
 }
 
-// Set of workspace ids a session must belong to for the user to see it in
-// the sidebar list. The whole fork family is visible from any node: when
-// the user is inside fork A whose root is R, sessions belonging to R or
-// any sibling fork of A are listed too. Recomputes when the user switches
-// workspace or when the workspace list refreshes.
-export const visibleWorkspaceIds: Readable<Set<string>> = derived(
+// Family id of the active workspace — the key of the session DB currently in
+// view. Switching to another workspace in the same fork family yields the same
+// id (same DB, no reload); switching to an unrelated workspace yields a
+// different id (a different DB, which cannot contain this family's sessions).
+// Recomputes on workspace switch or workspace-list refresh.
+export const currentFamilyId: Readable<string | undefined> = derived(
 	[workspaceStore, userWorkspaces],
-	([ws, all]) => {
-		if (!ws) return new Set<string>()
-		const root = findFamilyRoot(ws, all) ?? ({ id: ws } as UserWorkspace)
-		const ids = new Set<string>([root.id])
-		for (const d of findWorkspaceDescendants(root.id, all)) ids.add(d.id)
-		return ids
-	}
+	([ws, all]) => familyOfWorkspace(ws ?? undefined, all)
 )

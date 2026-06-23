@@ -35,6 +35,7 @@
 		getEffectiveWorkspaceId,
 		moveSessionToNewFork,
 		moveSessionToWorkspace,
+		reconcileSessionsLifecycle,
 		renameSession,
 		selectSession,
 		sessionState,
@@ -127,6 +128,7 @@
 				await WorkspaceService.deleteWorkspace({ workspace: forkToDelete })
 				sendUserToast(`Deleted forked workspace ${forkToDelete}`)
 				await refreshWorkspaceList()
+				await reconcileSessionsLifecycle()
 			} catch (e: any) {
 				sendUserToast(`Failed to delete fork ${forkToDelete}: ${e?.body ?? e}`, true)
 			}
@@ -151,6 +153,7 @@
 				await WorkspaceService.archiveWorkspace({ workspace: forkToArchive })
 				sendUserToast(`Archived forked workspace ${forkToArchive}`)
 				await refreshWorkspaceList()
+				await reconcileSessionsLifecycle()
 			} catch (e: any) {
 				sendUserToast(`Failed to archive fork ${forkToArchive}: ${e?.body ?? e}`, true)
 			}

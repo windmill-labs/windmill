@@ -197,6 +197,7 @@ pub fn global_service() -> Router {
         .route("/list_as_superadmin", get(list_workspaces_as_super_admin))
         .route("/list", get(list_workspaces))
         .route("/users", get(user_workspaces))
+        .route("/session_workspace_status", post(session_workspace_status))
         .route("/create", post(create_workspace))
         .route("/create_fork", post(deprecated_create_workspace_fork))
         .route("/exists", post(exists_workspace))
@@ -468,6 +469,7 @@ struct UserWorkspace {
     pub color: Option<String>,
     pub operator_settings: Option<Option<serde_json::Value>>,
     pub parent_workspace_id: Option<String>,
+    pub family_id: Uuid,
     pub disabled: bool,
 }
 
@@ -3609,6 +3611,7 @@ async fn user_workspaces(
     let workspaces = sqlx::query_as!(
         UserWorkspace,
         "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color, workspace.parent_workspace_id,
+                workspace.family_id AS \"family_id!\",
                 CASE WHEN usr.operator THEN workspace_settings.operator_settings ELSE NULL END as operator_settings,
                 usr.disabled
          FROM workspace
@@ -3621,6 +3624,47 @@ async fn user_workspaces(
     .await?;
     tx.commit().await?;
     Ok(Json(WorkspaceList { email, workspaces }))
+}
+
+#[derive(Deserialize)]
+struct SessionWorkspaceStatusRequest {
+    workspace_ids: Vec<String>,
+}
+
+/// Reconciliation support for client-side AI sessions, which the backend cannot touch
+/// directly. The client posts the workspace ids its sessions reference and uses the
+/// per-id status to keep sessions in sync with workspace lifecycle: `deleted` (no row /
+/// no access → unresolvable) drops the sessions, `archived` (soft-deleted, still a
+/// member) archives them, `active` restores ones previously archived-by-workspace.
+/// Archived and hard-deleted workspaces are absent from `user_workspaces`, so this is the
+/// only way the client learns about a change made while it was away or on another device.
+async fn session_workspace_status(
+    Extension(db): Extension<DB>,
+    ApiAuthed { email, .. }: ApiAuthed,
+    Json(req): Json<SessionWorkspaceStatusRequest>,
+) -> JsonResult<HashMap<String, String>> {
+    if req.workspace_ids.len() > 1000 {
+        return Err(Error::BadRequest(
+            "Too many workspace ids (max 1000)".to_string(),
+        ));
+    }
+    let rows = sqlx::query!(
+        "SELECT req.id AS \"id!\",
+                (CASE
+                    WHEN usr.email IS NULL THEN 'deleted'
+                    WHEN workspace.deleted THEN 'archived'
+                    ELSE 'active'
+                END) AS \"status!\"
+         FROM unnest($1::text[]) AS req(id)
+         LEFT JOIN workspace ON workspace.id = req.id
+         LEFT JOIN usr ON usr.workspace_id = workspace.id AND usr.email = $2",
+        &req.workspace_ids[..],
+        email,
+    )
+    .fetch_all(&db)
+    .await?;
+    let statuses = rows.into_iter().map(|r| (r.id, r.status)).collect();
+    Ok(Json(statuses))
 }
 
 pub async fn check_w_id_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str) -> Result<()> {
@@ -5060,13 +5104,17 @@ async fn create_workspace_fork(
 
     let forked_id = nw.id;
 
+    // Inherit the parent's family_id so the whole fork family shares one immutable
+    // identity (the key the frontend scopes per-family session storage by). Falls back to
+    // a fresh uuid via the column DEFAULT if the parent somehow has none.
     sqlx::query!(
         "INSERT INTO workspace
-            (id, name, owner, parent_workspace_id)
-            VALUES ($1, $2, $3, $4)",
+            (id, name, owner, parent_workspace_id, family_id)
+            VALUES ($1, $2, $3, $4, COALESCE((SELECT family_id FROM workspace WHERE id = $5), gen_random_uuid()))",
         forked_id,
         nw.name,
         authed.email,
+        parent_workspace_id,
         parent_workspace_id,
     )
     .execute(&mut *tx)

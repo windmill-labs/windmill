@@ -7,7 +7,6 @@
 	import SessionWrapper from '$lib/components/sessions/SessionWrapper.svelte'
 	import {
 		createSession,
-		getEffectiveWorkspaceId,
 		selectSession,
 		sessionState,
 		syncWorkspaceTo
@@ -19,7 +18,6 @@
 		promoteEditorWarm
 	} from '$lib/components/sessions/sessionRuntime.svelte'
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
-	import { visibleWorkspaceIds } from '$lib/components/sessions/sessionScope.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { userWorkspaces } from '$lib/stores'
 
@@ -46,21 +44,12 @@
 		untrack(() => syncWorkspaceTo(ws))
 	})
 
-	// Resolve the active session if its effective workspace is in scope
-	// (active workspace + its forks). Unavailable sessions — committed to
-	// a workspace that no longer exists — also resolve so the user can
-	// land on the move/discard banner instead of hitting "Session not
-	// found".
-	const activeSession = $derived(
-		sessionState.sessions.find((s) => {
-			if (s.name !== sessionName) return false
-			const ws = getEffectiveWorkspaceId(s)
-			if (!ws) return false
-			if ($visibleWorkspaceIds.has(ws)) return true
-			if (s.workspace_id && !$userWorkspaces.find((w) => w.id === s.workspace_id)) return true
-			return false
-		})
-	)
+	// sessionState.sessions holds only the active family's sessions (per-family
+	// IndexedDB), so resolving by name is already family-scoped. Unavailable
+	// sessions (committed to a now-deleted workspace) still live in this family's
+	// DB, so they resolve too — landing on the move/discard banner rather than
+	// "Session not found".
+	const activeSession = $derived(sessionState.sessions.find((s) => s.name === sessionName))
 
 	// Touch the runtime for the active session so it gets created on first visit
 	// and the pane shows up. Subsequent renders find it via listRuntimes().
@@ -94,20 +83,13 @@
 		})
 	})
 
-	// Warm = has a live runtime (module-scoped) AND its workspace is in
-	// scope (or its workspace is unavailable — those sessions still need
-	// to render the move/discard banner instead of vanishing on us).
+	// Warm = has a live runtime (module-scoped) whose session is in the active
+	// family. Runtimes for other families resolve to undefined here (their
+	// session isn't loaded) and drop out, so this is naturally family-scoped.
 	const warmSessions = $derived(
 		listRuntimes()
 			.map((r) => sessionState.sessions.find((s) => s.id === r.sessionId))
 			.filter((s): s is NonNullable<typeof s> => s != null)
-			.filter((s) => {
-				const ws = getEffectiveWorkspaceId(s)
-				if (!ws) return false
-				if ($visibleWorkspaceIds.has(ws)) return true
-				if (s.workspace_id && !$userWorkspaces.find((w) => w.id === s.workspace_id)) return true
-				return false
-			})
 	)
 
 	// Promote the active session in the LRU. Mutations untracked so the effect

@@ -6,6 +6,7 @@
 	import type { UserWorkspace } from '$lib/stores'
 	import { superadmin } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
+	import { reconcileSessionsLifecycle } from '$lib/components/sessions/sessionState.svelte'
 	import { pluralize } from '$lib/utils'
 	import WorkspaceIcon from './WorkspaceIcon.svelte'
 	import WorkspaceCard from './WorkspaceCard.svelte'
@@ -64,6 +65,8 @@
 		if (onUnarchive) {
 			await WorkspaceService.unarchiveWorkspace({ workspace: workspace.id })
 			await onUnarchive(workspace.id)
+			// Restore sessions auto-archived when this workspace was archived.
+			await reconcileSessionsLifecycle()
 		}
 	}
 </script>

@@ -997,6 +997,39 @@ paths:
               schema:
                 $ref: "#/components/schemas/UserWorkspaceList"
 
+  /workspaces/session_workspace_status:
+    post:
+      summary: get the lifecycle status of workspaces referenced by client-side sessions
+      operationId: getSessionWorkspaceStatus
+      tags:
+        - workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                workspace_ids:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - workspace_ids
+      responses:
+        "200":
+          description: map of workspace id to status (active, archived, or deleted)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+                  enum:
+                    - active
+                    - archived
+                    - deleted
+
   /w/{workspace}/workspaces/get_as_superadmin:
     get:
       summary: get workspace as super admin (require to be super admin)
@@ -27316,6 +27349,9 @@ components:
               parent_workspace_id:
                 type: string
                 nullable: true
+              family_id:
+                type: string
+                format: uuid
               created_by:
                 type: string
                 nullable: true
@@ -27326,6 +27362,7 @@ components:
               - name
               - username
               - color
+              - family_id
               - disabled
       required:
         - email
