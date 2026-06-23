@@ -25,6 +25,16 @@ describe('parsePipelineAnnotations: tag', () => {
 		const out = parsePipelineAnnotations('// tagged heavy')
 		expect(out.tag).toBeUndefined()
 	})
+
+	it('skips a tag value containing whitespace (regular comment false-positive)', () => {
+		const out = parsePipelineAnnotations('# tag this function so we remember to refactor it later')
+		expect(out.tag).toBeUndefined()
+	})
+
+	it('skips a tag value longer than 50 chars', () => {
+		const out = parsePipelineAnnotations('// tag ' + 'x'.repeat(51))
+		expect(out.tag).toBeUndefined()
+	})
 })
 
 describe('parsePipelineAnnotations: retry', () => {

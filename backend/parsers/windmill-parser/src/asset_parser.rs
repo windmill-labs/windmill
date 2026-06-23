@@ -584,7 +584,14 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
 
         if let Some(after_kw) = consume_keyword(rest, "tag") {
             let name = after_kw.trim();
-            if !name.is_empty() && out.tag.is_none() {
+            // Worker tags are single-word identifiers (e.g. `heavy`, `gpu`).
+            // A value with whitespace or beyond the `script.tag` column width
+            // is almost certainly a regular comment starting with "# tag ...".
+            if !name.is_empty()
+                && !name.contains(char::is_whitespace)
+                && name.len() <= 50
+                && out.tag.is_none()
+            {
                 out.tag = Some(name.to_string());
             }
             continue;
@@ -1071,6 +1078,22 @@ mod pipeline_annotation_tests {
     #[test]
     fn tag_empty_is_skipped() {
         let out = parse_pipeline_annotations("// tag   ");
+        assert!(out.tag.is_none());
+    }
+
+    #[test]
+    fn tag_with_whitespace_is_skipped() {
+        // A regular English comment starting with "# tag " must not be
+        // mistaken for a worker-tag annotation (worker tags are single words).
+        let out =
+            parse_pipeline_annotations("# tag this function so we remember to refactor it later");
+        assert!(out.tag.is_none());
+    }
+
+    #[test]
+    fn tag_too_long_is_skipped() {
+        let long = "x".repeat(51);
+        let out = parse_pipeline_annotations(&format!("// tag {long}"));
         assert!(out.tag.is_none());
     }
 
