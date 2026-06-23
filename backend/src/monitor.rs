@@ -4436,11 +4436,19 @@ async fn audit_log_retention_days() -> i64 {
     }
 }
 
+/// Number of days ahead (including today) for which an audit partition must
+/// always exist. A missing partition in this window means audit inserts fail
+/// once that date is reached — and because some callers (notably login) write
+/// the audit row in the same transaction as their own work, that failure
+/// poisons the whole transaction, so a missing partition is a hard outage, not
+/// just a dropped audit row.
+const AUDIT_PARTITION_LOOKAHEAD_DAYS: i64 = 3;
+
 async fn manage_audit_partitions(db: &DB, retention_days: i64) {
     let today = chrono::Utc::now().date_naive();
 
-    // Create partitions for today and the next 3 days
-    for days_ahead in 0..=3i64 {
+    // Create partitions for today and the next few days
+    for days_ahead in 0..=AUDIT_PARTITION_LOOKAHEAD_DAYS {
         let date = today + chrono::Duration::days(days_ahead);
         let next_date = date + chrono::Duration::days(1);
         let partition_name = format!("audit_{}", date.format("%Y%m%d"));
@@ -4456,9 +4464,6 @@ async fn manage_audit_partitions(db: &DB, retention_days: i64) {
         }
     }
 
-    // Drop expired partitions
-    let cutoff_date = today - chrono::Duration::days(retention_days);
-
     let partitions = sqlx::query_scalar::<_, String>(
         "SELECT c.relname::text \
          FROM pg_inherits i \
@@ -4468,28 +4473,62 @@ async fn manage_audit_partitions(db: &DB, retention_days: i64) {
     .fetch_all(db)
     .await;
 
-    match partitions {
-        Ok(partitions) => {
-            for partition_name in partitions {
-                if let Some(date_str) = partition_name.strip_prefix("audit_") {
-                    if let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y%m%d") {
-                        if date < cutoff_date {
-                            let quoted_name =
-                                format!("\"{}\"", partition_name.replace('"', "\"\""));
-                            let sql = format!("DROP TABLE IF EXISTS {quoted_name}");
-                            match sqlx::query(&sql).execute(db).await {
-                                Ok(_) => tracing::info!(
-                                    "Dropped expired audit partition {partition_name}"
-                                ),
-                                Err(e) => tracing::error!(
-                                    "Error dropping audit partition {partition_name}: {e:?}"
-                                ),
-                            }
+    let partitions = match partitions {
+        Ok(partitions) => partitions,
+        Err(e) => {
+            tracing::error!("Error listing audit partitions: {e:?}");
+            return;
+        }
+    };
+
+    // Verify the lookahead window is actually covered. If a create above failed
+    // (or this loop has not run for several days), alert loudly instead of
+    // letting it surface days later as failed audit inserts and broken logins.
+    let existing: std::collections::HashSet<&str> = partitions.iter().map(|s| s.as_str()).collect();
+    let missing: Vec<String> = (0..=AUDIT_PARTITION_LOOKAHEAD_DAYS)
+        .map(|days_ahead| {
+            format!(
+                "audit_{}",
+                (today + chrono::Duration::days(days_ahead)).format("%Y%m%d")
+            )
+        })
+        .filter(|name| !existing.contains(name.as_str()))
+        .collect();
+    if !missing.is_empty() {
+        report_critical_error(
+            format!(
+                "Audit log partitions missing after maintenance run: {}. \
+                 Audit inserts will fail once these dates are reached, which also \
+                 breaks logins (the login audit row shares the login transaction). \
+                 Check for earlier 'Error creating audit partition' logs and verify \
+                 the audit-partition maintenance loop is still running.",
+                missing.join(", ")
+            ),
+            db.clone(),
+            None,
+            None,
+        )
+        .await;
+    }
+
+    // Drop expired partitions
+    let cutoff_date = today - chrono::Duration::days(retention_days);
+    for partition_name in &partitions {
+        if let Some(date_str) = partition_name.strip_prefix("audit_") {
+            if let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y%m%d") {
+                if date < cutoff_date {
+                    let quoted_name = format!("\"{}\"", partition_name.replace('"', "\"\""));
+                    let sql = format!("DROP TABLE IF EXISTS {quoted_name}");
+                    match sqlx::query(&sql).execute(db).await {
+                        Ok(_) => {
+                            tracing::info!("Dropped expired audit partition {partition_name}")
                         }
+                        Err(e) => tracing::error!(
+                            "Error dropping audit partition {partition_name}: {e:?}"
+                        ),
                     }
                 }
             }
         }
-        Err(e) => tracing::error!("Error listing audit partitions: {e:?}"),
     }
 }
