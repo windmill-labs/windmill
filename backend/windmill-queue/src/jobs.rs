@@ -964,16 +964,9 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // attempt is still recorded as a completed job below. `maybe_enqueue_…`
     // self-guards on kind/cancellation/policy, so the success path is unaffected.
     let retry_pending = if !success && !skipped && !from_cache {
-        // Serialized once for an optional `retry_if` evaluation (failure path only).
-        let result_raw = serde_json::value::to_raw_value(&result).ok();
-        match maybe_enqueue_native_script_retry(
-            db,
-            completed_job,
-            &canceled_by,
-            result_raw.as_deref(),
-        )
-        .await
-        {
+        // Serialized lazily, and only when a `retry_if` policy actually needs it.
+        let result_fn = || serde_json::value::to_raw_value(&result).ok();
+        match maybe_enqueue_native_script_retry(db, completed_job, &canceled_by, &result_fn).await {
             Ok(enqueued) => enqueued,
             Err(e) => {
                 tracing::error!(
@@ -1696,7 +1689,9 @@ pub async fn maybe_enqueue_native_script_retry(
     db: &Pool<Postgres>,
     job: &MiniCompletedJob,
     canceled_by: &Option<CanceledBy>,
-    result: Option<&serde_json::value::RawValue>,
+    // Lazily serialize the failure result: only `retry_if` policies need it, so
+    // the common (no-retry_if) failure never pays the serialization cost.
+    result_fn: &(dyn Fn() -> Option<Box<serde_json::value::RawValue>> + Sync),
 ) -> Result<bool, Error> {
     // Only plain top-level scripts retry natively; cancellation always wins.
     if canceled_by.is_some() || !matches!(job.kind, JobKind::Script) || job.is_flow_step() {
@@ -1742,6 +1737,8 @@ pub async fn maybe_enqueue_native_script_retry(
         // Attempts exhausted — let the failure finalize normally.
         return Ok(false);
     };
+    // Cap the backoff to match the flow-runtime retry path (evaluate_retry).
+    let delay = std::cmp::min(delay, MAX_RETRY_INTERVAL);
     let scheduled_for = chrono::Utc::now()
         + chrono::Duration::from_std(delay).unwrap_or_else(|_| chrono::Duration::zero());
 
@@ -1760,7 +1757,8 @@ pub async fn maybe_enqueue_native_script_retry(
     // `quickjs` feature is compiled in; `push` keeps `retry_if` policies on the
     // flow path otherwise, so this is unreachable without quickjs.
     if let Some(retry_if) = policy.retry_if.as_ref() {
-        if !eval_retry_if(&retry_if.expr, result, &args.0).await {
+        let result = result_fn();
+        if !eval_retry_if(&retry_if.expr, result.as_deref(), &args.0).await {
             return Ok(false);
         }
     }
@@ -1769,6 +1767,23 @@ pub async fn maybe_enqueue_native_script_retry(
     // native retryable `Script` carrying the policy again. `parent_job = root`
     // links the chain (and excludes retries from schedule-handler counting); the
     // schedule trigger, when present, lets the terminal attempt fire handlers.
+    //
+    // Idempotent retry id: deterministic per (root, next attempt). If a worker
+    // dies between this push and the current attempt's finalization, the reaper
+    // re-handles the un-finalized attempt and we land here again — `push` rejects
+    // the duplicate id, so the retry is enqueued exactly once (no double-retry).
+    let retry_job_id = {
+        use std::hash::{Hash, Hasher};
+        let next_attempt = prev_attempts + 1;
+        let mut high = std::hash::DefaultHasher::new();
+        root.hash(&mut high);
+        next_attempt.hash(&mut high);
+        let mut low = std::hash::DefaultHasher::new();
+        "native-retry".hash(&mut low);
+        next_attempt.hash(&mut low);
+        root.hash(&mut low);
+        Uuid::from_u64_pair(high.finish(), low.finish())
+    };
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
     let (new_id, mut tx) = push(
         db,
@@ -1803,7 +1818,7 @@ pub async fn maybe_enqueue_native_script_retry(
         Some(root),
         None,
         None,
-        None,
+        Some(retry_job_id),
         false,
         false,
         None,
