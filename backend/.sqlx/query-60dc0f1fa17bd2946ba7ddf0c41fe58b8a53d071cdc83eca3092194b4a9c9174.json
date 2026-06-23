@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            COUNT(*) FILTER (WHERE av.raw_app = false)::BIGINT AS \"low_code!\",\n            COUNT(*) FILTER (WHERE av.raw_app = true)::BIGINT AS \"raw!\"\n        FROM app a\n        JOIN app_version av ON av.id = a.versions[array_upper(a.versions, 1)]\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "low_code!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "raw!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "60dc0f1fa17bd2946ba7ddf0c41fe58b8a53d071cdc83eca3092194b4a9c9174"
+}
