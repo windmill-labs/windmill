@@ -2,10 +2,10 @@
 	import CompareWorkspaces from '$lib/components/CompareWorkspaces.svelte'
 	import CompareDrafts from '$lib/components/CompareDrafts.svelte'
 	import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
-	import { reconcileSessionsLifecycle } from '$lib/components/sessions/sessionState.svelte'
+	import { reconcileAfterWorkspaceChange } from '$lib/components/sessions/sessionState.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import { page } from '$app/state'
-	import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { onDestroy, untrack } from 'svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -144,14 +144,9 @@
 	let acting = $state(false)
 
 	async function afterForkGone() {
-		// Mirror SidebarContent.deleteFork (B1): refresh the workspace list
-		// rather than letting `clearStores()` null it, then land the user on
-		// the parent if still accessible.
-		try {
-			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-		} catch (e) {
-			console.error('Failed to refresh workspaces', e)
-		}
+		// The workspace list was already refreshed by reconcileAfterWorkspaceChange
+		// (so the just-removed fork is gone from it); land the user on the parent if
+		// it's still accessible.
 		if (parentWorkspaceId && $userWorkspaces.find((w) => w.id === parentWorkspaceId)) {
 			switchWorkspace(parentWorkspaceId)
 			await goto('/')
@@ -167,7 +162,7 @@
 		try {
 			await WorkspaceService.archiveWorkspace({ workspace: currentWorkspaceId })
 			sendUserToast(`Archived fork ${currentWorkspaceId}`)
-			await reconcileSessionsLifecycle()
+			await reconcileAfterWorkspaceChange()
 			await afterForkGone()
 		} catch (e: any) {
 			sendUserToast(`Failed to archive fork: ${e?.body ?? e}`, true)
@@ -183,7 +178,7 @@
 		try {
 			await WorkspaceService.deleteWorkspace({ workspace: currentWorkspaceId })
 			sendUserToast(`Deleted fork ${currentWorkspaceId}`)
-			await reconcileSessionsLifecycle()
+			await reconcileAfterWorkspaceChange()
 			await afterForkGone()
 		} catch (e: any) {
 			sendUserToast(`Failed to delete fork: ${e?.body ?? e}`, true)

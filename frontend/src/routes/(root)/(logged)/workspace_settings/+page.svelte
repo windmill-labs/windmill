@@ -71,7 +71,7 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import {
 		countSessionsForWorkspace,
-		reconcileSessionsLifecycle
+		reconcileAfterWorkspaceChange
 	} from '$lib/components/sessions/sessionState.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import CollapseLink from '$lib/components/CollapseLink.svelte'
@@ -116,15 +116,10 @@
 		const parentStillAccessible = !!(parentId && $userWorkspaces.find((w) => w.id === parentId))
 		await WorkspaceService.archiveWorkspace({ workspace: ws })
 		sendUserToast(`Archived workspace ${ws}`)
-		await reconcileSessionsLifecycle()
+		// Refreshes the workspace list (dropping the just-archived one) before
+		// reconciling, so the parent-accessible check below sees the fresh list.
+		await reconcileAfterWorkspaceChange()
 		if (parentStillAccessible && parentId) {
-			// Refresh so the just-archived workspace drops out before landing on the
-			// parent. Guarded: a refresh failure must not block the switch.
-			try {
-				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-			} catch (e) {
-				console.error('Failed to refresh workspaces after archive', e)
-			}
 			switchWorkspace(parentId)
 			await goto('/')
 		} else {
@@ -137,7 +132,7 @@
 		const ws = $workspaceStore ?? ''
 		await WorkspaceService.deleteWorkspace({ workspace: ws })
 		sendUserToast(`Deleted workspace ${ws}`)
-		await reconcileSessionsLifecycle()
+		await reconcileAfterWorkspaceChange()
 		workspaceStore.set(undefined)
 		usersWorkspaceStore.set(undefined)
 		await goto('/user/workspaces')

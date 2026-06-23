@@ -408,18 +408,56 @@ async function hydrateSessions(): Promise<void> {
 	}
 }
 
+export type WorkspaceLifecycleStatus = 'active' | 'archived' | 'deleted'
+
+// The never-orphaned rule as a pure function of (session, its workspace's
+// status) — no IO, so the whole truth table is unit-testable. An `undefined`
+// status (workspace absent from the queried set) is a no-op, never a delete.
+//   deleted  → delete the session
+//   archived → archive it, tagged archivedByWorkspace (idempotent)
+//   active   → auto-unarchive iff WE archived it (has archivedByWorkspace)
+export function decideSessionLifecycle(
+	session: Session,
+	status: WorkspaceLifecycleStatus | undefined
+): { action: 'delete' | 'archive' | 'unarchive' | 'noop'; patch?: Partial<Session> } {
+	if (status === 'deleted') return { action: 'delete' }
+	if (status === 'archived') {
+		return session.archived
+			? { action: 'noop' }
+			: { action: 'archive', patch: { archived: true, archivedByWorkspace: true } }
+	}
+	if (status === 'active' && session.archivedByWorkspace) {
+		return { action: 'unarchive', patch: { archived: undefined, archivedByWorkspace: undefined } }
+	}
+	return { action: 'noop' }
+}
+
+// Apply a decision patch in place: `undefined` removes the key (the unarchive
+// path needs the flags gone, not set to undefined), any other value assigns.
+function applyLifecyclePatch(session: Session, patch: Partial<Session>): void {
+	for (const [k, v] of Object.entries(patch)) {
+		if (v === undefined) delete (session as Record<string, unknown>)[k]
+		else (session as Record<string, unknown>)[k] = v
+	}
+}
+
+// Cross-family workspace switches reconcile too (to catch a workspace
+// deleted/archived on another device), but throttled so rapid switching doesn't
+// spam the status endpoint. Mutation-driven reconciles are unthrottled.
+let lastReconcileAt = 0
+const RECONCILE_THROTTLE_MS = 30_000
+
 // Reconcile every stored session against its workspace's lifecycle. Sessions are
 // client-only, so the backend can't delete/archive them directly — instead the
 // client asks the backend for the status of every workspace its sessions
-// reference and applies the rule the user can't see happen otherwise:
-//   deleted  (workspace gone / no access) → delete the session
-//   archived (workspace soft-deleted)     → archive it, tagged archivedByWorkspace
-//   active                                → auto-unarchive if it was workspace-archived
-// Runs on load (and after a workspace delete/archive action). Walks every family
-// DB the user has — not just the active one — so a workspace archived on another
-// device or by another member is reflected here too.
+// reference and applies the rule (see decideSessionLifecycle) the user can't see
+// happen otherwise. Walks every family DB the user has — not just the active one
+// — so a workspace archived on another device or by another member is reflected
+// here too. Reached via reconcileAfterWorkspaceChange (mutations) / load / a
+// throttled cross-family switch.
 export async function reconcileSessionsLifecycle(): Promise<void> {
 	if (!BROWSER) return
+	lastReconcileAt = Date.now()
 	const base = scopedKey(SESSIONS_DB)
 	if (!base) return
 	const prefix = `${base}::`
@@ -457,37 +495,45 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 		return
 	}
 
-	let activeSessionDeleted = false
+	const deletedIds = new Set<string>()
 	for (const { familyId, sessions } of perFamily) {
 		const db = await openFamilyDb(familyId)
 		if (!db) continue
 		for (const s of sessions) {
 			if (!s.workspace_id) continue
-			const st = status[s.workspace_id]
-			if (st === 'deleted') {
+			const { action, patch } = decideSessionLifecycle(s, status[s.workspace_id])
+			if (action === 'delete') {
 				await db.delete('sessions', s.id)
-				if (sessionState.currentSessionId === s.id) activeSessionDeleted = true
-			} else if (st === 'archived') {
-				if (!s.archived) {
-					s.archived = true
-					s.archivedByWorkspace = true
-					await db.put('sessions', s)
-				}
-			} else if (st === 'active' && s.archivedByWorkspace) {
-				// Workspace was unarchived → restore the sessions we auto-archived
-				// (leave user-archived ones, which have no archivedByWorkspace flag).
-				delete s.archived
-				delete s.archivedByWorkspace
+				deletedIds.add(s.id)
+			} else if (action === 'archive' || action === 'unarchive') {
+				if (patch) applyLifecyclePatch(s, patch)
 				await db.put('sessions', s)
 			}
 		}
 	}
 	// Reflect changes to the active family in the in-memory list.
 	await hydrateSessions()
-	// If the session the user was on lived in a now-deleted workspace, it was
-	// just removed — drop the dangling pointer so the page falls back to
-	// "no session selected" instead of a ghost.
-	if (activeSessionDeleted) sessionState.currentSessionId = undefined
+	// If the session the user was on lived in a now-deleted workspace, it was just
+	// removed — drop the dangling pointer so the page falls back to "no session
+	// selected" instead of a ghost.
+	if (sessionState.currentSessionId && deletedIds.has(sessionState.currentSessionId)) {
+		sessionState.currentSessionId = undefined
+	}
+}
+
+// The single seam for "a workspace just changed — bring sessions back in sync."
+// Refresh the workspace list FIRST (reconcile + the putSession guard read it),
+// then reconcile. Every workspace create/delete/archive/unarchive site calls
+// this instead of hand-rolling the refresh+reconcile pair (which they did
+// inconsistently — some skipped the refresh, some reordered it).
+export async function reconcileAfterWorkspaceChange(): Promise<void> {
+	if (!BROWSER) return
+	try {
+		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+	} catch (e) {
+		console.error('Failed to refresh workspace list before reconcile', e)
+	}
+	await reconcileSessionsLifecycle()
 }
 
 // Count non-transient sessions committed to a given workspace — used to warn the
@@ -544,6 +590,13 @@ if (BROWSER) {
 				sessionState.currentSessionId = undefined
 			}
 		})
+		// A cross-family switch is the moment to catch a workspace deleted/archived
+		// elsewhere since we last looked — but throttle so flipping between
+		// workspaces doesn't fire a status call each time (load and mutation-driven
+		// reconciles cover the rest).
+		if (isSwitch && Date.now() - lastReconcileAt > RECONCILE_THROTTLE_MS) {
+			void reconcileSessionsLifecycle()
+		}
 	})
 }
 

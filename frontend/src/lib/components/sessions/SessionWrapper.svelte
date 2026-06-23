@@ -7,7 +7,7 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
-	import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -35,7 +35,7 @@
 		getEffectiveWorkspaceId,
 		moveSessionToNewFork,
 		moveSessionToWorkspace,
-		reconcileSessionsLifecycle,
+		reconcileAfterWorkspaceChange,
 		renameSession,
 		selectSession,
 		sessionState,
@@ -102,16 +102,6 @@
 	let archiveConfirmOpen = $state(false)
 	let archiveAlsoFork = $state(false)
 
-	async function refreshWorkspaceList() {
-		// Match the SidebarContent.deleteFork pattern: replace the in-memory
-		// list rather than nulling it. See B1 fix.
-		try {
-			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-		} catch (e) {
-			console.error('Failed to refresh workspaces', e)
-		}
-	}
-
 	async function handleConfirmedDelete() {
 		deleteConfirmOpen = false
 		if (!session) return
@@ -127,8 +117,7 @@
 			try {
 				await WorkspaceService.deleteWorkspace({ workspace: forkToDelete })
 				sendUserToast(`Deleted forked workspace ${forkToDelete}`)
-				await refreshWorkspaceList()
-				await reconcileSessionsLifecycle()
+				await reconcileAfterWorkspaceChange()
 			} catch (e: any) {
 				sendUserToast(`Failed to delete fork ${forkToDelete}: ${e?.body ?? e}`, true)
 			}
@@ -152,8 +141,7 @@
 			try {
 				await WorkspaceService.archiveWorkspace({ workspace: forkToArchive })
 				sendUserToast(`Archived forked workspace ${forkToArchive}`)
-				await refreshWorkspaceList()
-				await reconcileSessionsLifecycle()
+				await reconcileAfterWorkspaceChange()
 			} catch (e: any) {
 				sendUserToast(`Failed to archive fork ${forkToArchive}: ${e?.body ?? e}`, true)
 			}

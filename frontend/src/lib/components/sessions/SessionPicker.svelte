@@ -23,7 +23,7 @@
 		createSession,
 		deriveForkStatus,
 		isForkSession,
-		reconcileSessionsLifecycle,
+		reconcileAfterWorkspaceChange,
 		renameSession,
 		selectSession,
 		sessionState,
@@ -45,7 +45,7 @@
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
-	import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 
@@ -253,8 +253,7 @@
 			try {
 				await WorkspaceService.deleteWorkspace({ workspace: forkToDelete })
 				sendUserToast(`Deleted forked workspace ${forkToDelete}`)
-				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-				await reconcileSessionsLifecycle()
+				await reconcileAfterWorkspaceChange()
 			} catch (e: any) {
 				sendUserToast(`Failed to delete fork ${forkToDelete}: ${e?.body ?? e}`, true)
 			}

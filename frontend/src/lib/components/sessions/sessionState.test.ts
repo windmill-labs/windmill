@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { get } from 'svelte/store'
 import {
 	commitSessionWorkspace,
+	decideSessionLifecycle,
 	deriveForkStatus,
 	isForkSession,
 	renameSession,
@@ -321,5 +322,41 @@ describe('session summary generation guards', () => {
 			const i = sessionState.sessions.findIndex((x) => x.id === id)
 			if (i >= 0) sessionState.sessions.splice(i, 1)
 		}
+	})
+})
+
+describe('decideSessionLifecycle — the never-orphaned rule (pure)', () => {
+	const mk = (over: Partial<Session> = {}): Session => ({
+		id: 'x',
+		name: 'session-1',
+		workspace_id: 'ws',
+		createdAt: 0,
+		...over
+	})
+
+	it('deleted workspace → delete, regardless of archive state', () => {
+		expect(decideSessionLifecycle(mk(), 'deleted')).toEqual({ action: 'delete' })
+		expect(decideSessionLifecycle(mk({ archived: true }), 'deleted')).toEqual({ action: 'delete' })
+	})
+
+	it('archived workspace → archive (tagged) when not already archived; no-op otherwise', () => {
+		expect(decideSessionLifecycle(mk(), 'archived')).toEqual({
+			action: 'archive',
+			patch: { archived: true, archivedByWorkspace: true }
+		})
+		expect(decideSessionLifecycle(mk({ archived: true }), 'archived')).toEqual({ action: 'noop' })
+	})
+
+	it('active workspace → unarchive only the ones WE archived (archivedByWorkspace)', () => {
+		expect(decideSessionLifecycle(mk({ archived: true, archivedByWorkspace: true }), 'active')).toEqual(
+			{ action: 'unarchive', patch: { archived: undefined, archivedByWorkspace: undefined } }
+		)
+		// user-archived (no archivedByWorkspace flag) is left alone
+		expect(decideSessionLifecycle(mk({ archived: true }), 'active')).toEqual({ action: 'noop' })
+		expect(decideSessionLifecycle(mk(), 'active')).toEqual({ action: 'noop' })
+	})
+
+	it('unknown status (workspace absent from the queried set) → no-op, never a delete', () => {
+		expect(decideSessionLifecycle(mk(), undefined)).toEqual({ action: 'noop' })
 	})
 })
