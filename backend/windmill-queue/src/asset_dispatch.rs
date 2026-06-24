@@ -232,10 +232,8 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
     // excluding them stops a handler that happens to declare assets from
     // triggering a cascade (the pre-native-retry `parent_job IS NULL` guard
     // excluded every parented child).
-    if let Some(parent_job) = job.parent_job {
-        if !is_native_retry_attempt(db, job, parent_job).await? {
-            return Ok(DispatchResult::default());
-        }
+    if job.parent_job.is_some() && !is_native_retry_attempt(db, job).await? {
+        return Ok(DispatchResult::default());
     }
     let runnable_path = match job.runnable_path.as_deref() {
         Some(p) if !p.is_empty() => p,
@@ -431,20 +429,23 @@ fn is_eligible_kind(job: &MiniCompletedJob) -> bool {
 // re-pushes with `hash: job.runnable_id`). Any other parented `Script` child —
 // notably schedule/error/recovery handlers — runs a different script, so a
 // mismatch (or an absent parent runnable) means "not a retry attempt".
-async fn is_native_retry_attempt(
-    db: &DB,
-    job: &MiniCompletedJob,
-    parent_job: Uuid,
-) -> Result<bool> {
-    let parent_runnable = sqlx::query_scalar::<_, Option<i64>>(
-        "SELECT runnable_id FROM v2_job WHERE id = $1 AND workspace_id = $2",
+// A native retry attempt always carries its retry policy via
+// `runnable_settings_handle` (re-inserted by `maybe_enqueue` for chaining) and
+// has no `flow_innermost_root_job`. Other parented `Script` children — schedule
+// handlers and WAC inline children (which re-run the SAME runnable) — carry
+// neither, so runnable equality alone is not a sufficient signal.
+async fn is_native_retry_attempt(db: &DB, job: &MiniCompletedJob) -> Result<bool> {
+    if job.flow_innermost_root_job.is_some() {
+        return Ok(false);
+    }
+    Ok(
+        windmill_common::runnable_settings::prefetch_retry_from_handle(
+            job.runnable_settings_handle,
+            db,
+        )
+        .await?
+        .is_some(),
     )
-    .bind(parent_job)
-    .bind(&job.workspace_id)
-    .fetch_optional(db)
-    .await?
-    .flatten();
-    Ok(parent_runnable.is_some() && parent_runnable == job.runnable_id.map(|h| h.0))
 }
 
 async fn fetch_args(

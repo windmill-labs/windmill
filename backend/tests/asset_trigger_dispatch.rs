@@ -11,7 +11,11 @@
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use uuid::Uuid;
+use windmill_common::flows::{ConstantDelay, Retry};
 use windmill_common::jobs::{JobKind, JobPayload};
+use windmill_common::runnable_settings::{
+    insert_rs, RetrySettings, RunnableSettings, RunnableSettingsTrait,
+};
 use windmill_common::scripts::{ScriptHash, ScriptLang};
 use windmill_queue::asset_dispatch::dispatch_asset_triggers;
 use windmill_queue::cascade::reap_stale_join_slots;
@@ -239,28 +243,6 @@ fn make_mini(id: Uuid, runnable_path: &str) -> MiniCompletedJob {
     }
 }
 
-/// Seed a bare `v2_job` carrying a specific `runnable_id`, to stand in as a
-/// retry-chain parent in eligibility tests. Runtime query: no `.sqlx` cache.
-async fn seed_job_with_runnable(
-    db: &Pool<Postgres>,
-    id: Uuid,
-    runnable_id: i64,
-) -> anyhow::Result<()> {
-    sqlx::query(
-        r#"INSERT INTO v2_job (id, workspace_id, kind, runnable_path, runnable_id, created_by,
-                                permissioned_as, permissioned_as_email, tag)
-           VALUES ($1, $2, 'script'::job_kind, $3, $4, 'test-user',
-                   'u/test-user', 'test@windmill.dev', 'deno')"#,
-    )
-    .bind(id)
-    .bind(WS)
-    .bind(PRODUCER)
-    .bind(runnable_id)
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
 /// Read `v2_job` rows that were created by asset dispatch (filtered by
 /// `trigger_kind = 'asset'` so dep-jobs / other infra rows don't leak in).
 async fn fetch_dispatched(
@@ -422,37 +404,63 @@ async fn end_to_end_asset_dispatch(db: Pool<Postgres>) -> anyhow::Result<()> {
     let r = dispatch_asset_triggers(&db, &mini).await;
     assert_eq!(r.dispatched.len(), 0, "flow step producer ineligible");
 
-    // a native script-retry attempt re-runs the SAME runnable as its chain
-    // parent (and has no flow_step_id) — it stays eligible, so a subscriber that
-    // recovers on retry still dispatches to its own downstream. `make_mini` uses
-    // runnable_id 1, so the parent must too.
+    // A native retry attempt carries its retry policy via runnable_settings_handle
+    // (re-inserted by maybe_enqueue for chaining) and no flow_innermost_root_job —
+    // it stays eligible, so a subscriber that recovers on retry still cascades.
     clear_dispatched(&db).await?;
-    let retry_parent = Uuid::new_v4();
-    seed_job_with_runnable(&db, retry_parent, 1).await?;
+    let retry_handle = insert_rs(
+        RunnableSettings {
+            debouncing_settings: None,
+            concurrency_settings: None,
+            retry_settings: RetrySettings::from(&Retry {
+                constant: ConstantDelay { attempts: 1, seconds: 0 },
+                exponential: Default::default(),
+                retry_if: None,
+            })
+            .insert_cached(&db)
+            .await?,
+        },
+        &db,
+    )
+    .await?;
     let id = seed_producer_job(&db, json!({})).await?;
     let mut mini = make_mini(id, PRODUCER);
-    mini.parent_job = Some(retry_parent);
+    mini.parent_job = Some(Uuid::new_v4());
+    mini.runnable_settings_handle = retry_handle;
     let r = dispatch_asset_triggers(&db, &mini).await;
     assert_eq!(
         r.dispatched.len(),
         2,
-        "native retry attempt (same runnable as parent) still dispatches"
+        "native retry attempt (carries retry policy) still dispatches"
     );
 
-    // a schedule/error/recovery handler is also a parented Script child, but it
-    // runs a DIFFERENT runnable than its parent — it must NOT cascade (otherwise
-    // a handler that declares assets would trigger downstream).
+    // A parented Script child with NO retry policy — a schedule handler or a WAC
+    // inline child (which re-runs the same runnable) — must NOT cascade. Runnable
+    // equality alone used to wrongly admit these.
     clear_dispatched(&db).await?;
-    let handler_parent = Uuid::new_v4();
-    seed_job_with_runnable(&db, handler_parent, 999).await?; // parent runnable != mini's 1
     let id = seed_producer_job(&db, json!({})).await?;
     let mut mini = make_mini(id, PRODUCER);
-    mini.parent_job = Some(handler_parent);
+    mini.parent_job = Some(Uuid::new_v4()); // no runnable_settings_handle => not a retry
     let r = dispatch_asset_triggers(&db, &mini).await;
     assert_eq!(
         r.dispatched.len(),
         0,
-        "handler child (different runnable than parent) does not cascade"
+        "parented child without a retry policy (handler/WAC inline) does not cascade"
+    );
+
+    // A `flow_innermost_root_job` (flow step / handler / WAC-with-root shape)
+    // excludes it even when a retry policy is present.
+    clear_dispatched(&db).await?;
+    let id = seed_producer_job(&db, json!({})).await?;
+    let mut mini = make_mini(id, PRODUCER);
+    mini.parent_job = Some(Uuid::new_v4());
+    mini.runnable_settings_handle = retry_handle;
+    mini.flow_innermost_root_job = Some(Uuid::new_v4());
+    let r = dispatch_asset_triggers(&db, &mini).await;
+    assert_eq!(
+        r.dispatched.len(),
+        0,
+        "flow_innermost set => excluded even with a retry policy"
     );
 
     // producer with kind=Flow is ineligible

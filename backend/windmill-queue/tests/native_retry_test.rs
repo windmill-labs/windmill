@@ -202,11 +202,12 @@ mod native_retry {
         id: Uuid,
         parent: Option<Uuid>,
         runnable_id: i64,
+        flow_innermost: Option<Uuid>,
         status: &str,
     ) {
         sqlx::query(
-            "INSERT INTO v2_job (id, workspace_id, kind, runnable_path, runnable_id, trigger_kind, trigger, parent_job)
-             VALUES ($1, $2, 'script', $3, $4, 'schedule', $5, $6)",
+            "INSERT INTO v2_job (id, workspace_id, kind, runnable_path, runnable_id, trigger_kind, trigger, parent_job, flow_innermost_root_job)
+             VALUES ($1, $2, 'script', $3, $4, 'schedule', $5, $6, $7)",
         )
         .bind(id)
         .bind(WS)
@@ -214,6 +215,7 @@ mod native_retry {
         .bind(runnable_id)
         .bind(SCHED)
         .bind(parent)
+        .bind(flow_innermost)
         .execute(db)
         .await
         .unwrap();
@@ -231,35 +233,45 @@ mod native_retry {
 
     #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
     async fn per_occurrence_status_counts_recovered_as_success(db: Pool<Postgres>) {
-        // runnable 1 = the scheduled script; a handler child runs a DIFFERENT runnable.
-        // a: root fails, a same-runnable retry succeeds  -> RECOVERED -> success
-        // b: root fails, retry also fails                -> failure
-        // c: root succeeds directly                      -> success
-        // e: root fails, only its on_failure HANDLER (different runnable) succeeds
-        //    -> still failure: the handler child must NOT count as a recovery
+        // runnable 1 = the scheduled script. A native retry re-runs runnable 1 with
+        // no flow_innermost_root_job; handlers run a different runnable; WAC inline
+        // children re-run runnable 1 but carry a flow_innermost_root_job.
+        // a: root fails, a same-runnable retry succeeds        -> RECOVERED -> success
+        // b: root fails, retry also fails                      -> failure
+        // c: root succeeds directly                            -> success
+        // e: root fails, only its on_failure HANDLER (other runnable) succeeds
+        //    -> failure: handler child must NOT count as a recovery
+        // f: root fails, only a WAC inline child (same runnable, flow_innermost set)
+        //    succeeds -> failure: WAC inline child must NOT count as a recovery
         // d: the current occurrence (excluded by `j.id != $4`)
-        let (a, b, c, e, d) = (
+        let (a, b, c, e, f, d) = (
+            Uuid::new_v4(),
             Uuid::new_v4(),
             Uuid::new_v4(),
             Uuid::new_v4(),
             Uuid::new_v4(),
             Uuid::new_v4(),
         );
-        seed_job(&db, a, None, 1, "failure").await;
-        seed_job(&db, Uuid::new_v4(), Some(a), 1, "success").await; // a's same-runnable retry
-        seed_job(&db, b, None, 1, "failure").await;
-        seed_job(&db, Uuid::new_v4(), Some(b), 1, "failure").await; // b's failed retry
-        seed_job(&db, c, None, 1, "success").await;
-        seed_job(&db, e, None, 1, "failure").await;
-        seed_job(&db, Uuid::new_v4(), Some(e), 999, "success").await; // e's on_failure handler (other runnable)
-        seed_job(&db, d, None, 1, "failure").await; // current occurrence
+        seed_job(&db, a, None, 1, None, "failure").await;
+        seed_job(&db, Uuid::new_v4(), Some(a), 1, None, "success").await; // a's same-runnable retry
+        seed_job(&db, b, None, 1, None, "failure").await;
+        seed_job(&db, Uuid::new_v4(), Some(b), 1, None, "failure").await; // b's failed retry
+        seed_job(&db, c, None, 1, None, "success").await;
+        seed_job(&db, e, None, 1, None, "failure").await;
+        seed_job(&db, Uuid::new_v4(), Some(e), 999, None, "success").await; // e's handler (other runnable)
+        seed_job(&db, f, None, 1, None, "failure").await;
+        seed_job(&db, Uuid::new_v4(), Some(f), 1, Some(f), "success").await; // f's WAC inline child
+        seed_job(&db, d, None, 1, None, "failure").await; // current occurrence
 
         // Exact expression from jobs_ee::apply_schedule_handlers: the EXISTS is
-        // scoped to same-runnable children, so handler children don't count.
+        // scoped to same-runnable children with no flow_innermost_root_job, so
+        // neither handler (other runnable) nor WAC inline (flow_innermost) children
+        // count as a recovery — only native retry attempts do.
         let rows = sqlx::query_as::<_, (Uuid, bool)>(
             "SELECT j.id, (status = 'success' OR EXISTS (
                     SELECT 1 FROM v2_job_completed cc JOIN v2_job jc ON jc.id = cc.id
-                    WHERE jc.parent_job = j.id AND jc.runnable_id = j.runnable_id AND cc.status = 'success'
+                    WHERE jc.parent_job = j.id AND jc.runnable_id = j.runnable_id
+                        AND jc.flow_innermost_root_job IS NULL AND cc.status = 'success'
                 ))
              FROM v2_job j JOIN v2_job_completed USING (id)
              WHERE j.workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2
@@ -275,12 +287,12 @@ mod native_retry {
         .unwrap();
 
         let status: std::collections::HashMap<Uuid, bool> = rows.into_iter().collect();
-        // Retries and handlers (parent_job set) are NOT occurrences, and the current
-        // one is excluded: exactly the four roots a, b, c, e remain.
+        // Retries/handlers/WAC children (parent_job set) are NOT occurrences, and the
+        // current one is excluded: exactly the five roots a, b, c, e, f remain.
         assert_eq!(
             status.len(),
-            4,
-            "retries/handlers excluded from occurrence counting; current excluded"
+            5,
+            "child jobs excluded from occurrence counting; current excluded"
         );
         assert_eq!(
             status[&a], true,
@@ -294,6 +306,10 @@ mod native_retry {
         assert_eq!(
             status[&e], false,
             "on_failure handler success must NOT count as a recovery"
+        );
+        assert_eq!(
+            status[&f], false,
+            "WAC inline child success must NOT count as a recovery"
         );
     }
 }

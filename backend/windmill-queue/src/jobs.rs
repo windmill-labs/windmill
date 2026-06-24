@@ -1796,7 +1796,7 @@ pub async fn maybe_enqueue_native_script_retry(
         return Ok(true);
     }
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
-    let (new_id, mut tx) = push(
+    let (new_id, mut tx) = match push(
         db,
         tx,
         &job.workspace_id,
@@ -1844,7 +1844,26 @@ pub async fn maybe_enqueue_native_script_retry(
         trigger,
         None,
     )
-    .await?;
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            // Race with a concurrent completion of the same attempt: it may have
+            // inserted the deterministic retry id between our pre-check and this
+            // push, so the push fails on the duplicate id. The retry IS pending —
+            // re-check and report it as such instead of propagating the error
+            // (which would flip `retry_pending` to false and fire the schedule
+            // completion handlers for this non-terminal attempt).
+            if sqlx::query_scalar!("SELECT 1 FROM v2_job WHERE id = $1", retry_job_id)
+                .fetch_optional(db)
+                .await?
+                .is_some()
+            {
+                return Ok(true);
+            }
+            return Err(e);
+        }
+    };
 
     sqlx::query!(
         "UPDATE v2_job_queue SET extras = jsonb_build_object('retry_attempt', $1::bigint) WHERE id = $2",
