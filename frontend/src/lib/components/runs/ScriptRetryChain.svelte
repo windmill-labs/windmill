@@ -37,9 +37,12 @@
 				parentJob: root,
 				jobKinds: 'script'
 			})
-			const retries = (children ?? []).sort((a, b) =>
-				(a.created_at ?? '').localeCompare(b.created_at ?? '')
-			)
+			// Keep only genuine retry attempts: re-runs of the SAME script. Schedule
+			// completion handlers (on_failure/on_recovery/on_success) are also `script`
+			// children of the root but run a different script, so exclude them.
+			const retries = (children ?? [])
+				.filter((c) => c.script_hash === rootJob.script_hash)
+				.sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''))
 			if (retries.length === 0) {
 				return []
 			}
