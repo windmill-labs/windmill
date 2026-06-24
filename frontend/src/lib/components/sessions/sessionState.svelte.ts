@@ -440,10 +440,9 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 }
 
 // The single seam for "a workspace just changed — bring sessions back in sync."
-// Refresh the workspace list FIRST (reconcile + the putSession guard read it),
-// then reconcile. Every workspace create/delete/archive/unarchive site calls
-// this instead of hand-rolling the refresh+reconcile pair (which they did
-// inconsistently — some skipped the refresh, some reordered it).
+// Refresh the workspace list FIRST — both reconcile and the putSession guard
+// read it, so it must reflect the change before reconcile runs — then reconcile.
+// Call this from every workspace create/delete/archive/unarchive site.
 export async function reconcileAfterWorkspaceChange(): Promise<void> {
 	if (!BROWSER) return
 	try {
