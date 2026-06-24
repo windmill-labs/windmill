@@ -41,6 +41,7 @@
 		removeSession
 	} from './sessionRuntime.svelte'
 	import SessionStatusDot from './SessionStatusDot.svelte'
+	import SessionFilterMenu from './SessionFilterMenu.svelte'
 	import { Menu, Menubar, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -326,7 +327,7 @@
 	<div class="px-2 pt-3 pb-2 border-b border-light dark:border-gray-700">
 		<Menubar>
 			{#snippet children({ createMenu })}
-				<Menu {createMenu} usePointerDownOutside>
+				<Menu {createMenu} usePointerDownOutside submenuSafe>
 					{#snippet triggr({ trigger })}
 						<div class="relative">
 							<MenuButton
@@ -346,7 +347,7 @@
 							{/if}
 						</div>
 					{/snippet}
-					{#snippet children({ item })}
+					{#snippet children({ item, builders })}
 						<div class="divide-y min-w-48" role="none">
 							<div class="py-1" role="none">
 								<MenuItem class={menuItemBase} onClick={createAndOpen} {item}>
@@ -354,6 +355,15 @@
 									New session
 								</MenuItem>
 							</div>
+							{#if archivedCount > 0 || showArchived.val}
+								<div class="py-1" role="none">
+									<SessionFilterMenu
+										{builders}
+										bind:showArchived={showArchived.val}
+										{archivedCount}
+									/>
+								</div>
+							{/if}
 							<div class="py-1" role="none">
 								{#each visibleSessions as session (session.id)}
 									{@const runtime = getRuntime(session.id)}
@@ -363,7 +373,11 @@
 									{@const unread = unreadFor(session)}
 									{@const draft = hasDraft(session)}
 									<MenuItem
-										class={twMerge(menuItemBase, isSelected ? 'bg-surface-hover' : '')}
+										class={twMerge(
+											menuItemBase,
+											isSelected ? 'bg-surface-hover' : '',
+											session.archived ? 'opacity-60' : ''
+										)}
 										onClick={() => activate(session)}
 										{item}
 									>
@@ -490,7 +504,7 @@
 						class={twMerge(
 							'flex flex-row items-center group rounded',
 							isSelected ? 'bg-surface-hover text-primary' : 'hover:bg-surface-hover',
-							session.archived ? 'italic opacity-60' : ''
+							session.archived ? 'opacity-60' : ''
 						)}
 					>
 						{#if isEditing}
