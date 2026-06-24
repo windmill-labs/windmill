@@ -1,5 +1,6 @@
 use super::{
-    get_url_from_runnable_value, proxy::connect_async_with_proxy, WebsocketConfig, WebsocketTrigger,
+    get_url_from_runnable_value, proxy::connect_async_with_proxy, validate_websocket_url_for_ssrf,
+    WebsocketConfig, WebsocketTrigger,
 };
 use anyhow::Context;
 use async_trait::async_trait;
@@ -172,6 +173,8 @@ impl Listener for WebsocketTrigger {
         } else {
             Cow::Borrowed(&url)
         };
+
+        validate_websocket_url_for_ssrf(&connect_url).await?;
 
         let connection = connect_async_with_proxy(&*connect_url)
             .await
@@ -506,7 +509,7 @@ impl Clone for ReturnMessageChannels {
 }
 
 #[derive(Debug, Deserialize)]
-enum InitialMessage {
+pub(crate) enum InitialMessage {
     #[serde(rename = "raw_message")]
     RawMessage(String),
     #[serde(rename = "runnable_result")]

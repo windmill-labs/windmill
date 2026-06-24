@@ -12,7 +12,6 @@ use serde_json::json;
 use sqlx::{Pool, Postgres};
 use uuid::Uuid;
 use windmill_common::jobs::{JobKind, JobPayload};
-use windmill_common::runnable_settings::prefetch_cached_from_handle;
 use windmill_common::scripts::{ScriptHash, ScriptLang};
 use windmill_queue::asset_dispatch::dispatch_asset_triggers;
 use windmill_queue::cascade::reap_stale_join_slots;
@@ -600,22 +599,41 @@ async fn debounce_setting_applied_to_dispatched_subscriber(
     let r = dispatch_asset_triggers(&db, &make_mini(id, PRODUCER)).await;
     assert_eq!(r.dispatched.len(), 2, "both subscribers dispatched");
 
+    // Resolve the persisted debounce window straight from this test's own
+    // (isolated) DB by walking the handle chain
+    // v2_job_queue.runnable_settings_handle → runnable_settings.debouncing_settings
+    // → debouncing_settings. Reading the rows directly rather than through
+    // `prefetch_cached_from_handle` keeps the assertion off the process-global
+    // runnable-settings cache (and its tempdir-backed file I/O), which is
+    // shared by every test running concurrently in this binary — a needless
+    // cross-test coupling for what is purely a "was the handle wired through to
+    // the queued job" check. An undebounced subscriber has a NULL handle, so
+    // the inner joins yield no row → (None, None).
     async fn debounce_of(
         db: &Pool<Postgres>,
         path: &str,
     ) -> anyhow::Result<(Option<i32>, Option<String>)> {
-        let handle = sqlx::query_scalar!(
-            r#"SELECT q.runnable_settings_handle
-                 FROM v2_job j JOIN v2_job_queue q ON q.id = j.id
-                 WHERE j.workspace_id = $1 AND j.runnable_path = $2
-                   AND j.trigger_kind = 'asset'"#,
-            WS,
-            path,
+        use sqlx::Row;
+        let row = sqlx::query(
+            r#"SELECT ds.debounce_delay_s, ds.debounce_key
+                 FROM v2_job j
+                 JOIN v2_job_queue q ON q.id = j.id
+                 JOIN runnable_settings rs ON rs.hash = q.runnable_settings_handle
+                 JOIN debouncing_settings ds ON ds.hash = rs.debouncing_settings
+                WHERE j.workspace_id = $1 AND j.runnable_path = $2
+                  AND j.trigger_kind = 'asset'"#,
         )
-        .fetch_one(db)
+        .bind(WS)
+        .bind(path)
+        .fetch_optional(db)
         .await?;
-        let (deb, _conc) = prefetch_cached_from_handle(handle, db).await?;
-        Ok((deb.debounce_delay_s, deb.debounce_key))
+        Ok(match row {
+            Some(r) => (
+                r.try_get::<Option<i32>, _>("debounce_delay_s")?,
+                r.try_get::<Option<String>, _>("debounce_key")?,
+            ),
+            None => (None, None),
+        })
     }
 
     let (deb_delay, deb_key) = debounce_of(&db, SUB_S3).await?;

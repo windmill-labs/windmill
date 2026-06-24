@@ -280,6 +280,11 @@ introspection per substrate is its own project.
 Ships A's 80% case first without committing to B's dialect-rewriting tax.
 Wrapping becomes opt-in convenience for users who want dbt-style ergonomics.
 
+> See [`ducklake-materialization.md`](./ducklake-materialization.md) for the
+> DuckLake-native realization of this path: how snapshots make the assets
+> versioned/reproducible for free, the executor codegen seam, and the
+> materialization-metadata schema.
+
 ### Decisions either path forces
 
 1. **Partition window provenance.** Scheduler tick? Trigger event time

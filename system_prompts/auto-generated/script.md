@@ -1991,6 +1991,29 @@ datatable(name: string = "main"): DatatableSqlTemplateFunction
  */
 ducklake(name: string = "main"): SqlTemplateFunction
 
+/**
+ * Idempotently materialize `selectSql` into a ducklake table for one
+ * partition (or the whole table when `partition` is omitted) — the client-side
+ * equivalent of the `// materialize` engine.
+ * With `uniqueKey` it upserts the slice (delete-by-key + insert); otherwise it
+ * replaces it (whole table → `CREATE OR REPLACE`; partition → delete + insert).
+ * Safe to re-run for the same partition (backfill / failure-recovery).
+ * 
+ * Returns a lazy statement — call `.execute()` to run it:
+ * `await wmill.upsertPartition({ table, selectSql, partition }).execute()`.
+ */
+upsertPartition(opts: DucklakeMaterializeOptions): SqlStatement<any>
+
+/**
+ * INSERT-only materialization (no dedup/replace) for append-only tables.
+ * Re-running the same partition duplicates rows — use only for immutable
+ * event-log sources.
+ * 
+ * Returns a lazy statement — call `.execute()` to run it:
+ * `await wmill.appendPartition({ table, selectSql, partition }).execute()`.
+ */
+appendPartition(opts: Omit<DucklakeMaterializeOptions, "uniqueKey">,): SqlStatement<any>
+
 
 # Python SDK (wmill)
 
@@ -2545,6 +2568,27 @@ def stream_result(stream) -> None
 # Returns:
 #     SqlQuery instance for fetching results
 def query(sql: str, *args) -> SqlQuery
+
+# Idempotently materialize the rows of `select_sql` into ducklake
+# `table` for one `partition` (or the whole table when `partition` is
+# None). Client-side equivalent of the `// materialize` engine: with
+# `unique_key` it upserts within the slice (delete-by-key + insert);
+# without it, it replaces (whole table → CREATE OR REPLACE; partition →
+# delete the partition + insert). Re-running the same slice is safe — the
+# backfill / failure-recovery contract.
+# 
+# The partition value is bound as a DuckDB arg (never string-interpolated)
+# so it cannot inject SQL. `select_sql` is trusted (your own query).
+def upsert_partition(table: str, select_sql: str, partition: str = None, unique_key: str = None, partition_col: str = '_wm_partition', schema: str = None)
+
+# INSERT-only materialization (no dedup / no replace) for an immutable
+# event-log table — for one `partition`, or the whole table when
+# `partition` is None. NOTE: unlike `upsert_partition`, re-running the same
+# slice duplicates rows — use only for append-only sources.
+def append_partition(table: str, select_sql: str, partition: str = None, partition_col: str = '_wm_partition', schema: str = None)
+
+# Read a materialized ducklake table, optionally a single partition.
+def read(table: str, partition: str = None, partition_col: str = '_wm_partition', schema: str = None)
 
 # Execute query and fetch results.
 # 

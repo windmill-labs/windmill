@@ -45,12 +45,16 @@ export function dbTableOpsWithPreviewScripts({
 	input,
 	tableKey,
 	colDefs,
-	workspace
+	workspace,
+	whereClause
 }: {
 	input: DbInput
 	tableKey: string
 	colDefs: ColumnDef[]
 	workspace: string
+	// Optional raw SQL predicate AND-ed into the read queries (count + rows).
+	// Caller-trusted — build it with escaped values.
+	whereClause?: string
 }): IDbTableOps {
 	const dbType = getDbType(input)
 	const language = getLanguageByResourceType(dbType)
@@ -67,7 +71,11 @@ export function dbTableOpsWithPreviewScripts({
 		tableKey,
 		colDefs,
 		getCount: async ({ quicksearch }) => {
-			const content = makeMarker('COUNT', { table: tableKey, columnDefs: colDefs })
+			const content = makeMarker('COUNT', {
+				table: tableKey,
+				columnDefs: colDefs,
+				...(whereClause ? { whereClause } : {})
+			})
 			const result = await runScriptAndPollResult({
 				workspace,
 				requestBody: { args: { ...dbArg, quicksearch }, language, content }
@@ -79,7 +87,8 @@ export function dbTableOpsWithPreviewScripts({
 			const content = makeMarker('SELECT', {
 				table: tableKey,
 				columnDefs: colDefs,
-				fixPgIntTypes: true
+				fixPgIntTypes: true,
+				...(whereClause ? { whereClause } : {})
 			})
 			let items = (await runScriptAndPollResult({
 				workspace,

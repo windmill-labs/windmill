@@ -513,6 +513,26 @@ async fn cancel_job_api(
     Path((w_id, id)): Path<(String, Uuid)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<String> {
+    // App embed tokens (the sandboxed app iframe) may cancel ONLY jobs they launched
+    // — their app's component runs, stamped created_by == viewer. cancel_job_api has
+    // no other per-job ownership check, so without this an embed token (which carries
+    // the viewer's identity) could cancel any job by id. NotFound (not 403) so the
+    // untrusted app can't probe job existence.
+    if let Some(authed) = opt_authed.as_ref() {
+        if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
+            let created_by = sqlx::query_scalar!(
+                "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+                id,
+                &w_id
+            )
+            .fetch_optional(&db)
+            .await?;
+            if created_by.as_deref() != Some(authed.username.as_str()) {
+                return Err(Error::NotFound(format!("Job {id} not found")));
+            }
+        }
+    }
+
     let tx = db.begin().await?;
 
     let audit_author: AuditAuthor = match opt_authed.as_ref() {
@@ -1005,6 +1025,17 @@ async fn require_job_read_access(
     // `created_by` is the launching viewer, so the RLS probe below would hide it.
     if created_by == authed.username {
         return Ok(());
+    }
+
+    // App embed tokens (the sandboxed app iframe) carry the viewer's identity so the
+    // app can read its own component runs — which are stamped `created_by == viewer`
+    // and so already returned above. They must NOT inherit the viewer's *broader*
+    // job access (share links, folder ACLs, admin RLS): user-authored app JS holds
+    // this token, and letting it reach any job merely visible to the viewer would
+    // expose unrelated runs' results/logs. Stop at the launched-by-viewer grant.
+    // NotFound (not PermissionDenied) so the untrusted app can't probe job existence.
+    if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
+        return Err(Error::NotFound(format!("Job {job_id} not found")));
     }
 
     // `username_override` is derived from the token *label* (`username_override_from_label`),
@@ -3204,6 +3235,12 @@ struct ApprovalInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     hide_cancel: Option<bool>,
     approvers: Vec<Approval>,
+    /// Share-read-link token for the flow, minted only for callers allowed to view this
+    /// approval. Lets an authenticated workspace-member approver open the run details of
+    /// a flow they don't otherwise have read access to (the run page reads it as a
+    /// `view_token` query param).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    view_token: Option<String>,
 }
 
 /// Whether `opt_authed` is allowed to approve — and therefore view — this approval step.
@@ -3426,6 +3463,7 @@ async fn get_approval_info(
             user_auth_required,
             hide_cancel: None,
             approvers: vec![],
+            view_token: None,
         }));
     }
 
@@ -3443,6 +3481,12 @@ async fn get_approval_info(
     })
     .collect();
 
+    // Possession of view rights over this approval is sufficient to mint a
+    // share-read-link token for the flow: it only grants read (no resume), and only to
+    // an authenticated workspace member, so it never widens what the approver can do.
+    let hmac = generate_view_token(&w_id, row.id, &db).await?;
+    let view_token = Some(format!("{}.{hmac}", row.id));
+
     Ok(Json(ApprovalInfo {
         flow_id: row.id,
         form_schema,
@@ -3454,6 +3498,7 @@ async fn get_approval_info(
         user_auth_required,
         hide_cancel,
         approvers,
+        view_token,
     }))
 }
 
@@ -3848,6 +3893,12 @@ pub async fn cancel_suspended_job(
 pub struct SuspendedJobFlow {
     pub job: Job,
     pub approvers: Vec<Approval>,
+    /// Share-read-link token for the parent flow, minted because the caller proved
+    /// possession of the approval secret. Lets an authenticated workspace-member
+    /// approver open the run details of a flow they don't otherwise have read access
+    /// to (the run page reads it as a `view_token` query param).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub view_token: Option<String>,
 }
 
 pub async fn get_suspended_job_flow(
@@ -3932,7 +3983,13 @@ pub async fn get_suspended_job_flow(
     )
     .await?;
 
-    Ok(Json(SuspendedJobFlow { job: flow, approvers }).into_response())
+    // Possession of a valid approval secret is sufficient to mint a share-read-link
+    // token for the parent flow: it only grants read (no resume), and only to an
+    // authenticated workspace member, so it never widens what the approver can do.
+    let hmac = generate_view_token(&w_id, flow_id, &db).await?;
+    let view_token = Some(format!("{flow_id}.{hmac}"));
+
+    Ok(Json(SuspendedJobFlow { job: flow, approvers, view_token }).into_response())
 }
 
 fn conditionally_require_authed_user(
@@ -3996,11 +4053,17 @@ fn conditionally_require_authed_user(
 }
 
 pub async fn create_job_signature(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
     Query(approver): Query<QueryApprover>,
 ) -> error::Result<String> {
+    // The HMAC is treated as full authority by the resume endpoints, so minting
+    // it requires run scope on the suspended job's flow — not merely any
+    // jobs:run scope. No-op for unscoped tokens (incl. the in-flow substep token
+    // used by wmill.get_resume_urls()).
+    let flow_path = resume_target_flow_path(&db, &w_id, job_id).await?;
+    check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
     let key = get_workspace_key(&w_id, &db).await?;
     create_signature(key, job_id, resume_id, approver.approver)
 }
@@ -4083,11 +4146,17 @@ fn build_resume_url(
 }
 
 pub async fn get_resume_urls(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
     Query(approver): Query<QueryApprover>,
 ) -> error::JsonResult<ResumeUrls> {
+    // These URLs embed a resume signature (full resume capability), so a scoped
+    // token must hold run scope on the suspended job's flow. No-op for unscoped
+    // tokens (incl. the in-flow substep token). Trusted internal callers use
+    // get_resume_urls_internal directly and are unaffected.
+    let flow_path = resume_target_flow_path(&db, &w_id, job_id).await?;
+    check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
     get_resume_urls_internal(
         Extension(db),
         Path((w_id, job_id, resume_id)),
@@ -4152,6 +4221,46 @@ pub async fn get_resume_urls_internal(
     };
 
     Ok(Json(res))
+}
+
+/// Resolve the runnable path of the flow a (possibly step) job belongs to, used
+/// to scope-check resume-signature minting against `jobs:run:flows:<path>`.
+/// Returns an empty string when the path can't be resolved (e.g. previews or an
+/// unknown job); an empty path only matters for path-restricted tokens, which
+/// would not be running such a flow. Never hard-fails, so it can't break resume
+/// for unscoped tokens (the in-flow `get_resume_urls()` path).
+async fn resume_target_flow_path(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {
+    let job = sqlx::query!(
+        r#"SELECT kind::text as "kind!", parent_job, runnable_path
+           FROM v2_job WHERE id = $1 AND workspace_id = $2"#,
+        job_id,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    let Some(job) = job else {
+        return Ok(String::new());
+    };
+    // All flow kinds: the job itself is the flow whose path scopes the resume.
+    if matches!(
+        job.kind.as_str(),
+        "flow" | "flowpreview" | "flownode" | "singlestepflow"
+    ) {
+        return Ok(job.runnable_path.unwrap_or_default());
+    }
+    // Otherwise it's a step; its parent is the flow.
+    if let Some(parent) = job.parent_job {
+        return Ok(sqlx::query_scalar!(
+            "SELECT runnable_path FROM v2_job WHERE id = $1 AND workspace_id = $2",
+            parent,
+            w_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .unwrap_or_default());
+    }
+    Ok(job.runnable_path.unwrap_or_default())
 }
 
 /// Get the flow ID for a job. If the job is a flow, returns the job_id.
@@ -9462,16 +9571,31 @@ mod approval_view_gate_tests {
     fn anonymous_cannot_view_when_auth_required() {
         // The regression: an unauthenticated holder of the approval token must see nothing.
         let c = Some(conds(true, vec![]));
-        assert!(!can_view(&None, &c, Some("f/team/flow"), "trigger@example.com"));
+        assert!(!can_view(
+            &None,
+            &c,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
     }
 
     #[test]
     fn anonymous_can_view_when_no_auth_required() {
         // Unchanged behaviour: token alone is sufficient when auth isn't required.
         let c = Some(conds(false, vec![]));
-        assert!(can_view(&None, &c, Some("f/team/flow"), "trigger@example.com"));
+        assert!(can_view(
+            &None,
+            &c,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
         // No approval conditions at all also allows token-only view.
-        assert!(can_view(&None, &None, Some("f/team/flow"), "trigger@example.com"));
+        assert!(can_view(
+            &None,
+            &None,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
     }
 
     #[test]
@@ -9496,7 +9620,17 @@ mod approval_view_gate_tests {
         let member = Some(authed("carol", false, vec!["approvers".to_string()]));
         let outsider = Some(authed("dave", false, vec!["other".to_string()]));
         // Use a non-owned folder path so ownership doesn't short-circuit the check.
-        assert!(can_view(&member, &c, Some("f/team/flow"), "trigger@example.com"));
-        assert!(!can_view(&outsider, &c, Some("f/team/flow"), "trigger@example.com"));
+        assert!(can_view(
+            &member,
+            &c,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
+        assert!(!can_view(
+            &outsider,
+            &c,
+            Some("f/team/flow"),
+            "trigger@example.com"
+        ));
     }
 }

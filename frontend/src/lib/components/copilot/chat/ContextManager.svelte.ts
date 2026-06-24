@@ -11,7 +11,7 @@ import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 
 export interface ScriptOptions {
 	lang: ScriptLang | 'bunnative'
-	code: string
+	getCode: () => string
 	error: string | undefined
 	args: Record<string, any>
 	path: string | undefined
@@ -192,7 +192,7 @@ export default class ContextManager {
 				{
 					type: 'code',
 					title: this.getContextCodePath(scriptOptions) ?? '',
-					content: scriptOptions.code,
+					content: scriptOptions.getCode(),
 					lang: scriptOptions.lang
 				}
 			]
@@ -209,22 +209,22 @@ export default class ContextManager {
 				}
 			}
 
-			if (scriptOptions.lastSavedCode && scriptOptions.lastSavedCode !== scriptOptions.code) {
+			if (scriptOptions.lastSavedCode && scriptOptions.lastSavedCode !== scriptOptions.getCode()) {
 				newAvailableContext.push({
 					type: 'diff',
 					title: 'diff_with_last_saved_draft', // can't use spaces in the title, because it will break the word match in the context text area hightlighting logic
 					content: scriptOptions.lastSavedCode ?? '',
-					diff: diffLines(scriptOptions.lastSavedCode ?? '', scriptOptions.code),
+					diff: diffLines(scriptOptions.lastSavedCode ?? '', scriptOptions.getCode()),
 					lang: scriptOptions.lang
 				})
 			}
 
-			if (scriptOptions.lastDeployedCode && scriptOptions.lastDeployedCode !== scriptOptions.code) {
+			if (scriptOptions.lastDeployedCode && scriptOptions.lastDeployedCode !== scriptOptions.getCode()) {
 				newAvailableContext.push({
 					type: 'diff',
 					title: 'diff_with_last_deployed_version',
 					content: scriptOptions.lastDeployedCode ?? '',
-					diff: diffLines(scriptOptions.lastDeployedCode ?? '', scriptOptions.code),
+					diff: diffLines(scriptOptions.lastDeployedCode ?? '', scriptOptions.getCode()),
 					lang: scriptOptions.lang
 				})
 			}
@@ -251,7 +251,7 @@ export default class ContextManager {
 				{
 					type: 'code',
 					title: this.getContextCodePath(scriptOptions) ?? '',
-					content: scriptOptions.code,
+					content: scriptOptions.getCode(),
 					lang: scriptOptions.lang,
 					deletable: false
 				},
@@ -277,7 +277,7 @@ export default class ContextManager {
 			newSelectedContext = newSelectedContext
 				.filter(
 					(c) =>
-						(c.type === 'code_piece' && scriptOptions.code.includes(c.content)) ||
+						(c.type === 'code_piece' && scriptOptions.getCode().includes(c.content)) ||
 						c.type === 'code' ||
 						// Workspace references are user-picked via @-mention and not in
 						// availableContext; preserve so badges survive editor refreshes.
@@ -289,7 +289,7 @@ export default class ContextManager {
 					if (c.type === 'code') {
 						return {
 							...c,
-							content: scriptOptions.code,
+							content: scriptOptions.getCode(),
 							title: this.getContextCodePath(scriptOptions)
 						}
 					}
@@ -403,7 +403,7 @@ export default class ContextManager {
 							type: 'diff' as const,
 							title: 'diff_with_last_deployed_version',
 							content: this.scriptOptions.lastDeployedCode ?? '',
-							diff: diffLines(this.scriptOptions.lastDeployedCode ?? '', this.scriptOptions.code),
+							diff: diffLines(this.scriptOptions.lastDeployedCode ?? '', this.scriptOptions.getCode()),
 							lang: this.scriptOptions.lang
 						}
 					]

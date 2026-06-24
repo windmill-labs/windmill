@@ -74,6 +74,21 @@ export type RetrySpec = {
 	delay?: string
 }
 
+// `// materialize [manual] <asset> [append] [key=<col>]` — see backend
+// MaterializeSpec. Managed by default (the runtime generates the write DDL
+// around a single SELECT); `manual` opts out (the script writes its own DDL,
+// track-only). `append` / `key` are managed-mode strategy options.
+export type MaterializeSpec = {
+	targetKind: AssetKind
+	targetPath: string
+	// track-only escape hatch; absent === false (managed)
+	manual?: boolean
+	// INSERT-only strategy; absent === false
+	append?: boolean
+	// merge key; absent === replace (or append)
+	uniqueKey?: string
+}
+
 export type PipelineAnnotations = {
 	inPipeline: boolean
 	triggerAssets: PipelineTriggerAsset[]
@@ -82,6 +97,8 @@ export type PipelineAnnotations = {
 	freshness?: FreshnessSpec
 	tag?: string
 	retry?: RetrySpec
+	// `// materialize [manual] <asset> [append] [key=<col>]` — target + strategy.
+	materialize?: MaterializeSpec
 }
 
 // Tokenize a `key=value [key="quoted value"] ...` option string. Bare
@@ -128,6 +145,41 @@ function parseAssetSyntax(s: string): PipelineTriggerAsset | undefined {
 		}
 	}
 	return undefined
+}
+
+// Mirror of Rust `parse_asset_syntax(s, enable_default_syntax=true)`: the bare
+// words `ducklake` / `datatable` are shorthand for their `…://main` form. Used
+// by `// materialize` (but NOT by `// on`, which is default-syntax off, so the
+// trigger parser keeps using `parseAssetSyntax`).
+function parseAssetSyntaxDefault(s: string): PipelineTriggerAsset | undefined {
+	if (s === 'datatable') return { kind: 'datatable', path: 'main' }
+	if (s === 'ducklake') return { kind: 'ducklake', path: 'main' }
+	return parseAssetSyntax(s)
+}
+
+// Parse a `// materialize [manual] <asset> [append] [key=<col>]` right-hand
+// side. Optional leading `manual` word opts out of managed mode; the next token
+// is the target asset URI (default-syntax shorthands enabled); the remainder
+// are strategy options (`append` flag, `key=<col>`). Missing/empty target →
+// undefined (dropped).
+function parseMaterializeSpec(s: string): MaterializeSpec | undefined {
+	let manual = false
+	let rest = s
+	const afterManual = consumeKeyword(s, 'manual')
+	if (afterManual !== undefined) {
+		manual = true
+		rest = afterManual.trimStart()
+	}
+	rest = rest.trim()
+	const m = rest.match(/^(\S+)(?:\s+(.*))?$/)
+	if (!m) return undefined
+	const asset = parseAssetSyntaxDefault(m[1])
+	if (!asset || asset.path === '') return undefined
+	const optsStr = m[2] ?? ''
+	const append = optsStr.split(/\s+/).some((t) => t === 'append')
+	const key = parseKvOpts(optsStr).get('key')
+	const uniqueKey = key && key !== '' ? key : undefined
+	return { targetKind: asset.kind, targetPath: asset.path, manual, append, uniqueKey }
 }
 
 type ParsedTriggerSpec =
@@ -239,8 +291,13 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 	}
 
 	for (const rawLine of code.split('\n')) {
+		// Annotations live in the leading comment header: skip blank lines but
+		// stop at the first line of actual code, so comments inside the body
+		// (e.g. a regular `# tag ...` prose comment) can't false-positive.
+		// Mirrors the Rust parse_pipeline_annotations header scan.
+		if (rawLine.trim() === '') continue
 		const rest = stripCommentPrefix(rawLine)
-		if (rest === undefined) continue
+		if (rest === undefined) break
 		const inner = rest.trimStart()
 
 		const afterPipeline = consumeKeyword(inner, 'pipeline')
@@ -271,7 +328,10 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 		const afterTag = consumeKeyword(inner, 'tag')
 		if (afterTag !== undefined) {
 			const name = afterTag.trim()
-			if (name && !out.tag) {
+			// Worker tags are single-word identifiers; a value with whitespace
+			// or beyond the script.tag column width is almost certainly a
+			// regular comment starting with "# tag ...".
+			if (name && !out.tag && !/\s/.test(name) && name.length <= 50) {
 				out.tag = name
 			}
 			continue
@@ -282,6 +342,15 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 			if (!out.retry) {
 				const spec = parseRetrySpec(afterRetry.trim())
 				if (spec) out.retry = spec
+			}
+			continue
+		}
+
+		const afterMaterialize = consumeKeyword(inner, 'materialize')
+		if (afterMaterialize !== undefined) {
+			if (!out.materialize) {
+				const spec = parseMaterializeSpec(afterMaterialize.trim())
+				if (spec) out.materialize = spec
 			}
 			continue
 		}
