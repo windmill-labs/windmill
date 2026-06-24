@@ -38,7 +38,14 @@
 	import { createAppSelectedContext, type AppCodeSelectionElement } from '../copilot/chat/context'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas } from '$lib/stores'
-	import { MousePointerSquareDashed, RefreshCw, Columns2, ChevronDown, Eye } from 'lucide-svelte'
+	import {
+		MousePointerSquareDashed,
+		RefreshCw,
+		Columns2,
+		ChevronDown,
+		Eye,
+		SquareArrowOutUpRight
+	} from 'lucide-svelte'
 	import DraggableTabs, { type TabItem } from '$lib/components/common/tabs/DraggableTabs.svelte'
 	import { runScriptAndPollResult } from '../jobs/utils'
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
@@ -240,6 +247,10 @@
 	let previewIframe: HTMLIFrameElement | undefined = $state(undefined)
 	let previewIframeLoaded = $state(false)
 	let lastBuild: { css: string; js: string } | undefined = undefined
+	// Detached preview tab/window rendering the same app-preview bundle as the
+	// inline pane. Kept live-synced: every build is replayed into it until the
+	// user closes it. Not reactive — it's a window handle, not UI state.
+	let externalPreviewWindow: Window | null = null
 	let inspectorEnabled = $state(false)
 	let bundlerType: 'esbuild' | 'rolldown' = $state('esbuild')
 
@@ -997,6 +1008,7 @@
 				{ type: 'preview', css: e.data.css, js: e.data.js },
 				'*'
 			)
+			syncExternalPreview()
 			return
 		}
 
@@ -1095,6 +1107,41 @@
 				}
 			}
 		}
+	}
+
+	function postToExternalPreview(msg: Record<string, unknown>) {
+		if (!externalPreviewWindow || externalPreviewWindow.closed) {
+			externalPreviewWindow = null
+			return
+		}
+		externalPreviewWindow.postMessage(msg, '*')
+	}
+
+	function syncExternalPreview() {
+		if (lastBuild) {
+			postToExternalPreview({ type: 'preview', css: lastBuild.css, js: lastBuild.js })
+		}
+	}
+
+	function openExternalPreview() {
+		// Reuse an already-open window instead of spawning duplicates.
+		if (externalPreviewWindow && !externalPreviewWindow.closed) {
+			externalPreviewWindow.focus()
+			syncExternalPreview()
+			return
+		}
+		const win = window.open('/ui_builder/app-preview.html', 'windmillRawAppPreview')
+		if (!win) {
+			sendUserToast('Could not open the preview window (popup blocked?)', true)
+			return
+		}
+		externalPreviewWindow = win
+		// app-preview.html registers its message listener synchronously, so by
+		// `load` it's ready to receive the build (same gate the inline iframe uses).
+		win.addEventListener('load', () => {
+			postToExternalPreview({ type: 'setDarkMode', dark: darkMode })
+			syncExternalPreview()
+		})
 	}
 
 	let getBundleResolve: (({ css, js }: { css: string; js: string }) => void) | undefined = undefined
@@ -1226,6 +1273,7 @@
 		if (previewIframe && previewIframeLoaded) {
 			previewIframe.contentWindow?.postMessage({ type: 'setDarkMode', dark: darkMode }, '*')
 		}
+		postToExternalPreview({ type: 'setDarkMode', dark: darkMode })
 	})
 	$effect(() => {
 		// Match VS Code's editor font size to Windmill's text-xs.
@@ -1497,6 +1545,7 @@
 	{runnables}
 	{path}
 	gateJobIds={false}
+	extraSourceWindow={() => externalPreviewWindow}
 />
 <div class="max-h-screen overflow-hidden h-screen min-h-0 flex flex-col">
 	<RawAppEditorHeader
@@ -1760,6 +1809,14 @@
 												}}
 											>
 												<RefreshCw size={14} />
+											</button>
+											<button
+												class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center"
+												title="Open preview in a separate window"
+												aria-label="Open preview in a separate window"
+												onclick={openExternalPreview}
+											>
+												<SquareArrowOutUpRight size={14} />
 											</button>
 											<button
 												title={splitWithPreview
