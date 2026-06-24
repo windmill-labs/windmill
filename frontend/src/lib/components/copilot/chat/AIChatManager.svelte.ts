@@ -118,6 +118,10 @@ const USER_CANCEL_REASON = 'user_cancelled'
 // regular message that merely mentions "/compact" mid-sentence is unaffected.
 const COMPACT_COMMAND_NAME = 'compact'
 const COMPACT_COMMAND_RE = /^\/compact\s*$/
+// Built-in `/clear` session command — saves the conversation to history and
+// resets to a fresh chat (the "New chat" action), instead of sending a turn.
+const CLEAR_COMMAND_NAME = 'clear'
+const CLEAR_COMMAND_RE = /^\/clear\s*$/
 const AI_AUTONOMY_MODE_STORAGE_KEY = 'ai-chat-autonomy-mode'
 const LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
 const WEB_SEARCH_ERROR_HINT =
@@ -337,11 +341,12 @@ export class AIChatManager {
 	private globalSkillsRefreshId = 0
 
 	// Built-in session-chat slash commands, listed in the command picker
-	// alongside workspace skills. Unlike a skill, `/compact` runs locally
-	// (compactManually) and never reaches the model; the submit path intercepts
-	// it first, so it shadows any workspace skill of the same name.
+	// alongside workspace skills. Unlike a skill, these run locally and never
+	// reach the model; the submit path intercepts them first, so they shadow any
+	// workspace skill of the same name.
 	readonly sessionBuiltinCommands: AiSkillListItem[] = [
-		{ name: COMPACT_COMMAND_NAME, description: 'Summarize the conversation to free up context' }
+		{ name: COMPACT_COMMAND_NAME, description: 'Summarize the conversation to free up context' },
+		{ name: CLEAR_COMMAND_NAME, description: 'Clear the conversation and start a new chat' }
 	]
 
 	// Built-ins followed by workspace skills, with any skill whose name collides
@@ -1392,19 +1397,24 @@ export class AIChatManager {
 		if (!this.instructions.trim()) {
 			return false
 		}
-		// Built-in `/compact` session command: summarize the conversation locally
-		// instead of sending a turn to the model. Intercepted here — before the
-		// beforeSend workspace commit, file regrants, and skill expansion — and not
-		// turned into a chat turn. Scoped to session chat GLOBAL mode, where the
+		// Built-in session commands run locally instead of becoming a chat turn.
+		// Intercepted here — before the beforeSend workspace commit, file regrants,
+		// and skill expansion. Scoped to session chat GLOBAL mode, where the
 		// slash-command UI lives.
-		if (
-			this.isSessionChat &&
-			this.mode === AIMode.GLOBAL &&
-			COMPACT_COMMAND_RE.test(this.instructions.trim())
-		) {
-			this.instructions = ''
-			await this.compactManually()
-			return false
+		if (this.isSessionChat && this.mode === AIMode.GLOBAL) {
+			const trimmed = this.instructions.trim()
+			// `/compact`: summarize the conversation locally to free up context.
+			if (COMPACT_COMMAND_RE.test(trimmed)) {
+				this.instructions = ''
+				await this.compactManually()
+				return false
+			}
+			// `/clear`: save the conversation to history and start a fresh chat.
+			if (CLEAR_COMMAND_RE.test(trimmed)) {
+				this.instructions = ''
+				await this.saveAndClear()
+				return false
+			}
 		}
 		// Re-grant any locked File System Access handles within this send gesture, so the
 		// file tools can read the live files. requestPermission() needs a user gesture, and

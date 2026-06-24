@@ -1164,6 +1164,42 @@ describe('AIChatManager manual compaction', () => {
 		expect(manager.queuedMessage).toBe('')
 	})
 
+	it('routes the /clear session command to a fresh chat instead of the model', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		seedExchange(manager)
+
+		const sent = await manager.sendRequest({ instructions: '/clear', mode: AIMode.GLOBAL })
+
+		// The command never became a chat turn...
+		expect(sent).toBe(false)
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(mocks.getNonStreamingCompletion).not.toHaveBeenCalled()
+		// ...it reset the conversation and cleared the composer.
+		expect(manager.displayMessages).toEqual([])
+		expect(manager.messages).toEqual([])
+		expect(manager.instructions).toBe('')
+	})
+
+	it('does not intercept /clear outside session chat', async () => {
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+		const manager = new AIChatManager()
+		manager.isSessionChat = false
+
+		await manager.sendRequest({ instructions: '/clear', mode: AIMode.GLOBAL })
+
+		// Without the session-chat command surface, /clear is a normal message.
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
+	})
+
 	it('does not intercept /compact outside session chat', async () => {
 		mocks.runChatLoop.mockImplementation(async (config: any) => {
 			const message = { role: 'assistant' as const, content: 'done' }
