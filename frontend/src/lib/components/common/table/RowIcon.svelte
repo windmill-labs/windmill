@@ -19,6 +19,7 @@
 		Unplug,
 		Workflow
 	} from 'lucide-svelte'
+	import FileIcon from '$lib/components/raw_apps/FileIcon.svelte'
 
 	interface Props {
 		kind:
@@ -26,6 +27,7 @@
 			| 'flow'
 			| 'app'
 			| 'raw_app'
+			| 'raw_app_file'
 			| 'resource'
 			| 'variable'
 			| 'resource_type'
@@ -55,10 +57,13 @@
 			| 'data_pipeline'
 		/** For 'trigger' kind, specifies the specific trigger type (routes, schedules, etc.) */
 		triggerKind?: string | undefined
+		/** For 'raw_app_file' kind: the file name/path, used to pick an
+		 * extension-specific icon. */
+		path?: string | undefined
 		size?: number
 	}
 
-	let { kind, triggerKind = undefined, size = 16 }: Props = $props()
+	let { kind, triggerKind = undefined, path = undefined, size = 16 }: Props = $props()
 
 	// Map per-kind backend names (e.g. `kafka_trigger`) to the legacy short
 	// names the icon switch already handles, so we don't have to duplicate cases.
@@ -85,6 +90,8 @@
 		<BarsStaggered {size} class="text-teal-500" />
 	{:else if effectiveKind === 'app' || effectiveKind === 'raw_app'}
 		<LayoutDashboard {size} class="text-orange-500" />
+	{:else if effectiveKind === 'raw_app_file'}
+		<FileIcon name={path ?? ''} {size} />
 	{:else if effectiveKind === 'script'}
 		<Code2 {size} class="text-blue-500" />
 	{:else if effectiveKind === 'variable'}

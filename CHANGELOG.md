@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.738.0](https://github.com/windmill-labs/windmill/compare/v1.737.0...v1.738.0) (2026-06-23)
+
+
+### Features
+
+* add resource and infrastructure telemetry ([#9737](https://github.com/windmill-labs/windmill/issues/9737)) ([9793d01](https://github.com/windmill-labs/windmill/commit/9793d01575415963a89609a1baf2cd64f0d050cc))
+* render mermaid diagrams in chat code blocks ([#9738](https://github.com/windmill-labs/windmill/issues/9738)) ([cfb9f1d](https://github.com/windmill-labs/windmill/commit/cfb9f1dbc23110ecf8f91bb3c8c81fc6e35dc09b))
+
+
+### Bug Fixes
+
+* **ai-chat:** Fix incorrect editor edits from ai chat [#1](https://github.com/windmill-labs/windmill/issues/1) ([#9741](https://github.com/windmill-labs/windmill/issues/9741)) ([fc797a3](https://github.com/windmill-labs/windmill/commit/fc797a35fe7885630c81453df0fc94769e73873a))
+* allow object storage test for non-super-admins, harden on cloud ([#9739](https://github.com/windmill-labs/windmill/issues/9739)) ([24446e8](https://github.com/windmill-labs/windmill/commit/24446e80093ade349f7fbf65063d2d1cb5551c1e))
+* **frontend:** debounce external code→Monaco sync in Editor ([#9743](https://github.com/windmill-labs/windmill/issues/9743)) ([29c67ce](https://github.com/windmill-labs/windmill/commit/29c67ced97bf2919584986f9d9eceb4337c34ad9))
+* **frontend:** preserve editor content when closing instance settings drawer ([#9740](https://github.com/windmill-labs/windmill/issues/9740)) ([11d0e65](https://github.com/windmill-labs/windmill/commit/11d0e65f3af9a048bc1921bbdd3d676a07483a57))
+* pipeline annotation false-positives from body comments ([#9736](https://github.com/windmill-labs/windmill/issues/9736)) ([984ea72](https://github.com/windmill-labs/windmill/commit/984ea728d98649b66b1cae899bdab9af3176caa7))
+* preserve fork parent linkage on workspace id change ([#9716](https://github.com/windmill-labs/windmill/issues/9716)) ([cbf54d4](https://github.com/windmill-labs/windmill/commit/cbf54d4eb432638e27f67c4c8b879cbcc0291da3))
+* prevent variable push from corrupting is_secret variables ([#9705](https://github.com/windmill-labs/windmill/issues/9705)) ([ba4b368](https://github.com/windmill-labs/windmill/commit/ba4b368706e95e22f346a10e5fe145b0795ac3f6))
+
+
+### Performance Improvements
+
+* **monitor:** skip protected prefix in retention delete via cross-batch watermark (WIN-2088) ([#9744](https://github.com/windmill-labs/windmill/issues/9744)) ([e90b2be](https://github.com/windmill-labs/windmill/commit/e90b2be8fade1eb78cd685890291f5a4553a6a10))
+
 ## [1.737.0](https://github.com/windmill-labs/windmill/compare/v1.736.0...v1.737.0) (2026-06-23)
 
 

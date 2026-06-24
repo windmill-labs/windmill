@@ -101,6 +101,7 @@
 	</Splitpanes>
 {:else}
 	<div
+		id="content"
 		class={classNames(
 			'flex-1 min-h-0 flex flex-col',
 			noBorder || $userStore?.operator || isMobile ? '' : isCollapsed ? 'pl-12' : 'pl-40',
