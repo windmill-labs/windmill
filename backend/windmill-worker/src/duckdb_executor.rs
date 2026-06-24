@@ -39,6 +39,11 @@ struct MaterializeExec {
     asset_kind: windmill_common::assets::AssetKind,
     asset_path: String,
     partition: String,
+    // Number of `// data_test` checks the codegen embedded. Enforcement recovers
+    // the per-test outcomes from the summary row; if it recovers fewer than this
+    // (e.g. an FFI serialization change drops the column), we fail loud rather
+    // than silently pass declared-but-unverified tests.
+    n_data_tests: usize,
 }
 
 // Fetch and validate a custom data-test script's body. v1 custom tests are
@@ -145,6 +150,7 @@ async fn build_materialized_query(
         asset_kind: windmill_common::assets::AssetKind::Ducklake,
         asset_path: m.target_path.clone(),
         partition: partition.clone(),
+        n_data_tests: ann.data_tests.len(),
     };
 
     // `{partition}` → escaped SQL literal substitution, applied to the managed
@@ -609,6 +615,31 @@ pub async fn do_duckdb(
             // cascade stops. The error lists *every* test so the user sees the
             // whole picture, not just the first failure.
             let tests = extract_data_tests(&result);
+            // Defense-in-depth: codegen embedded `n_data_tests` checks, so the
+            // summary row must carry that many outcomes. Recovering fewer means
+            // the `data_tests` column was dropped/reshaped before we read it —
+            // fail loud rather than silently pass unverified tests.
+            if tests.len() < meta.n_data_tests {
+                let msg = format!(
+                    "data tests on {}: expected {} test outcome(s) but recovered {} from the \
+                     result — aborting to avoid a silent pass",
+                    meta.asset_path,
+                    meta.n_data_tests,
+                    tests.len()
+                );
+                record_mat(
+                    conn,
+                    &job.workspace_id,
+                    job.id,
+                    meta,
+                    windmill_common::materialization::MaterializationStatus::Failed,
+                    snapshot_id,
+                    row_count,
+                    Some(&msg),
+                )
+                .await;
+                return Err(Error::ExecutionErr(msg));
+            }
             if tests.iter().any(|t| t.violating > 0) {
                 let breakdown = format_data_test_breakdown(&meta.asset_path, &tests);
                 record_mat(
