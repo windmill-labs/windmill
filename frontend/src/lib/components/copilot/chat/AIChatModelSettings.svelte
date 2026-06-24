@@ -255,6 +255,21 @@
 		}
 	}
 
+	// Keep the slider's pointer events from bubbling to the enclosing melt item: melt's
+	// roving focus blurs the focused element on pointermove, which would abort the native
+	// thumb drag. Direct (non-delegated) listeners so they run before melt's item listener.
+	function isolatePointer(node: HTMLElement) {
+		const stop = (e: Event) => e.stopPropagation()
+		node.addEventListener('pointerdown', stop)
+		node.addEventListener('pointermove', stop)
+		return {
+			destroy() {
+				node.removeEventListener('pointerdown', stop)
+				node.removeEventListener('pointermove', stop)
+			}
+		}
+	}
+
 	// Adjust the reasoning effort with the arrow keys while the Thinking item is focused.
 	function adjustEffort(e: KeyboardEvent) {
 		if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
@@ -343,6 +358,7 @@
 								value={stopIndex}
 								style="--fill: {fillPct}%"
 								oninput={(e) => selectReasoning(stops[+e.currentTarget.value])}
+								use:isolatePointer
 								class="lean-range no-default-style w-full"
 								aria-label="Reasoning effort"
 							/>
