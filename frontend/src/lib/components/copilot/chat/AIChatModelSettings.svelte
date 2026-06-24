@@ -65,6 +65,23 @@
 	// for models with no reasoning support.
 	let effortLabel = $derived(capability.supported ? (currentEffort ?? REASONING_OFF) : undefined)
 
+	// The trigger label resizes when the effort changes (e.g. dragging the slider while the menu
+	// is open). With a `bottom-end` popover anchored to the trigger's right edge, that resize would
+	// shift the popover. So we freeze the trigger to its width at open time and release it on close —
+	// no movement while open, and natural sizing (no reserved padding) the rest of the time.
+	let menuOpen = $state(false)
+	let triggerEl: HTMLElement | undefined = $state(undefined)
+	let lockedWidth = $state<number | undefined>(undefined)
+	$effect(() => {
+		if (menuOpen) {
+			if (lockedWidth === undefined && triggerEl) {
+				lockedWidth = triggerEl.getBoundingClientRect().width
+			}
+		} else {
+			lockedWidth = undefined
+		}
+	})
+
 	function selectModel(m: AIProviderModel) {
 		// Carry the effort onto the new model only if it supports that level ('off'
 		// only where the model can truly disable); otherwise drop it so the model's
@@ -254,23 +271,34 @@
 	<ExternalLink size={14} class="shrink-0 text-secondary" />
 {/snippet}
 
-<DropdownV2 customMenu placement="bottom-end" fixedHeight={false} closeOnItemClick={false}>
+<DropdownV2
+	customMenu
+	placement="bottom-end"
+	fixedHeight={false}
+	closeOnItemClick={false}
+	bind:open={menuOpen}
+>
 	{#snippet buttonReplacement()}
-		<Button
-			nonCaptureEvent
-			unifiedSize="2xs"
-			variant="subtle"
-			endIcon={{ icon: ChevronDown }}
-			btnClasses="max-w-[200px] text-secondary font-normal"
-			title="Model & reasoning settings"
+		<div
+			bind:this={triggerEl}
+			style={lockedWidth !== undefined ? `width: ${lockedWidth}px` : undefined}
 		>
-			<span class="flex items-center gap-1 min-w-0">
-				<span class="truncate">{providerModel.model}</span>
-				{#if effortLabel}
-					<span class="shrink-0 text-tertiary">· {effortLabel}</span>
-				{/if}
-			</span>
-		</Button>
+			<Button
+				nonCaptureEvent
+				unifiedSize="2xs"
+				variant="subtle"
+				endIcon={{ icon: ChevronDown }}
+				btnClasses="w-full max-w-[200px] text-secondary font-normal"
+				title="Model & reasoning settings"
+			>
+				<span class="flex items-center gap-1 min-w-0">
+					<span class="truncate">{providerModel.model}</span>
+					{#if effortLabel}
+						<span class="shrink-0 text-tertiary">· {effortLabel}</span>
+					{/if}
+				</span>
+			</Button>
+		</div>
 	{/snippet}
 	{#snippet menu({ item, builders, close })}
 		<div
@@ -292,8 +320,8 @@
 				{/each}
 			</div>
 
+			<div class="my-1 border-t border-border-light"></div>
 			{#if capability.supported}
-				<div class="my-1 border-t border-border-light"></div>
 				<!-- Registered as a melt item so it joins the roving focus/highlight (and arrow
 				     up/down navigation), and so hovering it takes the highlight off the Parameters
 				     trigger. Left/right adjust the effort; the slider's input handler also drives it. -->
@@ -321,6 +349,13 @@
 						</div>
 					{/if}
 				</MenuItemWrapper>
+			{:else}
+				<!-- Reasoning unsupported: keep the section but show it disabled with a reason,
+				     rather than hiding it. Not a melt item, so it's skipped by keyboard navigation. -->
+				<div class="px-3 pt-1 pb-1.5 opacity-60 cursor-default" aria-disabled="true">
+					<div class="text-2xs uppercase tracking-wide text-secondary">Thinking</div>
+					<div class="text-2xs text-tertiary mt-0.5">Not supported by this model</div>
+				</div>
 			{/if}
 
 			<div class="my-1 border-t border-border-light"></div>
