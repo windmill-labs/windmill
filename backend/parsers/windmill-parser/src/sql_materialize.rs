@@ -811,15 +811,25 @@ pub fn build_data_test_checks(
                 ));
             }
             DataTestResolved::Custom { path, body } => {
-                // dbt singular-test convention: the body is a SELECT returning
-                // the violating rows. It runs in the target's connection, so it
-                // can read `_wm_target` and the user's attaches; partition
-                // substitution has already been applied by the worker.
-                let trimmed = body.trim().trim_end_matches(';');
-                if trimmed.is_empty() {
+                // dbt singular-test convention: the body is a *single* SELECT
+                // (or CTE) returning the violating rows. It is embedded as a
+                // subquery (`FROM (<body>)`), so a multi-statement body would
+                // produce invalid SQL — validate up front with an actionable
+                // error. It runs in the target's connection (can read
+                // `_wm_target` + the user's attaches); partition substitution is
+                // already applied by the worker.
+                let stmts = split_statements(body);
+                if stmts.is_empty() {
                     return Err(format!("data_test custom `{path}`: empty test body"));
                 }
-                let q = format!("SELECT count(*) AS v FROM ({trimmed})");
+                if stmts.len() > 1 {
+                    return Err(format!(
+                        "data_test custom `{path}`: must be a single SELECT returning the \
+                         violating rows (found {} statements)",
+                        stmts.len()
+                    ));
+                }
+                let q = format!("SELECT count(*) AS v FROM ({})", stmts[0]);
                 push_check(&mut out, format!("custom({path})"), q);
             }
         }
@@ -1229,6 +1239,18 @@ mod tests {
             "SELECT count(*) AS v FROM (SELECT * FROM _wm_target.orders WHERE amount < 0)"
         ));
         assert_eq!(sql.checks[0].name, "custom(f/tests/amount)");
+    }
+
+    #[test]
+    fn data_test_custom_rejects_multi_statement_body() {
+        // The body is embedded as a subquery, so a setup-then-SELECT body would
+        // produce invalid SQL — reject it up front with an actionable error.
+        let tests = vec![DataTestResolved::Custom {
+            path: "f/tests/amount".into(),
+            body: "SET threads = 1; SELECT * FROM _wm_target.orders WHERE amount < 0".into(),
+        }];
+        let err = build_data_test_checks(&tests, &ctx_unpartitioned()).unwrap_err();
+        assert!(err.contains("single SELECT"), "unexpected error: {err}");
     }
 
     #[test]

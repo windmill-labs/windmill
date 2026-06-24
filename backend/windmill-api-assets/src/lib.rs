@@ -852,9 +852,11 @@ async fn asset_graph(
             let in_pipeline = usage_kind == AssetUsageKind::Script
                 && pipeline_member_script_paths.contains(&path);
             // Annotation badges, only for pipeline-member scripts (the only
-            // bodies we parsed). Other runnables (flows, trigger-only scripts)
-            // carry none.
-            let ann = annotations_by_path.get(&path);
+            // bodies we parsed). Gate on the runnable kind too: a flow sharing a
+            // path with a pipeline script must not inherit its badges.
+            let ann = (usage_kind == AssetUsageKind::Script)
+                .then(|| annotations_by_path.get(&path))
+                .flatten();
             GraphRunnableNode {
                 in_pipeline,
                 partition_kind: ann

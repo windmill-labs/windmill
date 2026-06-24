@@ -263,8 +263,9 @@ load-bearing.
   does not roll back the committed snapshot. Time-travel still lets you inspect
   exactly what failed.
 - **Custom = DuckDB SQL, server worker.** The escape hatch fetches the deployed
-  script's content (must be a DuckDB script whose trailing SELECT returns the
-  violating rows) and inlines it as a check; `{partition}` is substituted and
+  script's content (a single DuckDB `SELECT`/CTE returning the violating rows —
+  it's embedded as a subquery, so a multi-statement body is rejected with a
+  clear error) and inlines it as a check; `{partition}` is substituted and
   `_wm_target` is in scope. Agent (Http) workers — which have no script cache —
   get a clear error. Non-DuckDB custom tests (dispatched as sub-jobs, any
   language) are the natural follow-up and fit the same verifier seam.

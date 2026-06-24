@@ -42,10 +42,11 @@ struct MaterializeExec {
 }
 
 // Fetch and validate a custom data-test script's body. v1 custom tests are
-// DuckDB scripts whose trailing SELECT returns the violating rows (dbt's
-// singular-test convention); the worker inlines that SELECT as a probe in the
-// materialize connection. Server workers only — agent (Http) workers have no
-// script cache to read deployed content from.
+// DuckDB scripts holding a single SELECT/CTE that returns the violating rows
+// (dbt's singular-test convention); the worker embeds that query as a subquery
+// check in the materialize connection (the single-statement constraint is
+// enforced in sql_materialize.rs). Server workers only — agent (Http) workers
+// have no script cache to read deployed content from.
 async fn fetch_custom_test_body(conn: &Connection, w_id: &str, path: &str) -> Result<String> {
     let Connection::Sql(db) = conn else {
         return Err(Error::ExecutionErr(format!(
@@ -427,6 +428,19 @@ pub async fn do_duckdb(
                 &materialized_query
             }
             _ => query,
+        };
+
+        // Managed materialize generates its own trailing summary row (asset /
+        // rows / snapshot_id / data_tests), and data-test enforcement below reads
+        // the `data_tests` column off that row. The row shape is ours, not the
+        // user's — so force the full-last-row strategy regardless of any
+        // `// result_collection` annotation, which would otherwise reshape it
+        // (e.g. a scalar mode drops every column but the first) and silently
+        // bypass test enforcement.
+        let collection_strategy = if matches!(&materialize, Some((Some(_), _))) {
+            SqlResultCollectionStrategy::LastStatementAllRows
+        } else {
+            collection_strategy
         };
 
         let sig = parse_duckdb_sig(query)?.args;
