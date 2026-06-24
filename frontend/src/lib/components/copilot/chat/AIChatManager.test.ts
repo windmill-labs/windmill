@@ -244,6 +244,31 @@ describe('AIChatManager global skills', () => {
 		expect(manager.systemMessage.content).toContain('child-skill')
 		expect(manager.systemMessage.content).not.toContain('parent-skill')
 	})
+
+	it('expands a leading slash skill command for the model while preserving the displayed text', async () => {
+		mocks.listAiSkills.mockResolvedValue([
+			{ name: 'review-code', description: 'review code for bugs' }
+		])
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const userMessage = config.messages[config.messages.length - 1]
+			expect(userMessage.content).toContain('Use the "review-code" skill. find bugs')
+			expect(userMessage.content).not.toContain('/review-code find bugs')
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+
+		await manager.sendRequest({ instructions: '/review-code find bugs', mode: AIMode.GLOBAL })
+
+		expect(manager.displayMessages[0]?.content).toBe('/review-code find bugs')
+	})
 })
 
 describe('AIChatManager autonomy mode', () => {
@@ -915,7 +940,7 @@ describe('AIChatManager context compaction', () => {
 
 		// The request that went out begins with the summary user message, then the
 		// recent tail verbatim, then the new question.
-		const sent = mocks.runChatLoop.mock.calls[0][0].messages
+		const sent = mocks.runChatLoop.mock.calls[mocks.runChatLoop.mock.calls.length - 1][0].messages
 		expect(sent).toHaveLength(4)
 		expect(sent[0].role).toBe('user')
 		expect(sent[0].content).toContain('SUMMARY TEXT')
