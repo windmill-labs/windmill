@@ -1,19 +1,33 @@
 import type { OpenFlow } from '$lib/gen'
 import { dfs } from './dfs'
 import type { FlowState } from './flowState'
-import { charsToNumber, numberToChars } from './idUtils'
+import { charsToNumber, forbiddenIds, numberToChars } from './idUtils'
+
+const reservedIds = new Set(forbiddenIds)
+
+// Only auto-generated ids (canonical base-26 lowercase sequences like a, b, ..., z, aa, ...)
+// may contribute to the next-id computation. flowState/module-id keys also include copy ids
+// ("a2"), subflow result keys ("subflow:..."), reserved keys ("failure", "preprocessor") and
+// user-renamed ids; feeding those through charsToNumber yields meaningless (often huge) numbers
+// that would poison id generation, making new steps jump to ids like "bzw".
+function autoIdNumber(key: string): number | undefined {
+	if (reservedIds.has(key)) {
+		return undefined
+	}
+	const num = charsToNumber(key)
+	if (num < 0 || numberToChars(num) !== key) {
+		return undefined
+	}
+	return num
+}
 
 // Computes the next available id
 export function nextId(flowState: FlowState, fullFlow: OpenFlow): string {
 	const allIds = dfs(fullFlow.value.modules, (fm) => fm.id)
 
 	const max = allIds.concat(Object.keys(flowState)).reduce((acc, key) => {
-		if (key.length >= 4) {
-			return acc
-		} else {
-			const num = charsToNumber(key)
-			return Math.max(acc, num + 1)
-		}
+		const num = autoIdNumber(key)
+		return num === undefined ? acc : Math.max(acc, num + 1)
 	}, 0)
 	return numberToChars(max)
 }
