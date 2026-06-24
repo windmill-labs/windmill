@@ -32,6 +32,7 @@
 		closeOnOtherDropdownOpen?: boolean
 		// When false the menu stays open after an item is selected (melt's closeOnItemClick).
 		// Consumers that keep the menu open must close it themselves where appropriate.
+		// Read once at menu creation (like `placement`); changing it after mount has no effect.
 		closeOnItemClick?: boolean
 		fixedHeight?: boolean
 		hidePopup?: boolean
