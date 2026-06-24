@@ -103,8 +103,10 @@
 			await WorkspaceService.deleteWorkspace({ workspace: prefixedId })
 			// Drop local sessions bound to this id so they don't resurface (or
 			// auto-unarchive) against a new fork recreated under the same id.
-			// Best-effort: an IndexedDB failure must not block the reuse flow.
-			await deleteSessionsForWorkspace(prefixedId).catch((e) =>
+			// Fire-and-forget: neither a slow nor a failing IndexedDB op should
+			// block the delete/reuse flow (cleanup completes long before the UI
+			// could create a session in a recreated fork).
+			void deleteSessionsForWorkspace(prefixedId).catch((e) =>
 				console.error(`Session cleanup for reused fork id ${prefixedId} failed`, e)
 			)
 			sendUserToast(`Permanently deleted workspace ${prefixedId}`)
