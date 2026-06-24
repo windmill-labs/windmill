@@ -190,16 +190,16 @@
 			if (d.kind === 'raw_app') {
 				const loaded = loadedDiffs[itemKey(d)]
 				if (loaded?.state === 'ready') {
-					const items = rawAppDiffToItems(
-						d.path,
-						loaded.before as RawAppish | undefined,
-						loaded.after as RawAppish | undefined,
-						displayPathOf(d)
+					// A drafted raw app shows ONE Draft marker at its tree root (via
+					// appRootMeta.hasDraft), not on each expanded file row.
+					out.push(
+						...rawAppDiffToItems(
+							d.path,
+							loaded.before as RawAppish | undefined,
+							loaded.after as RawAppish | undefined,
+							displayPathOf(d)
+						)
 					)
-					// A drafted raw app expands into per-file rows; carry the Draft
-					// marker down so each file is flagged as an unsaved draft too.
-					if (d.hasDraft) for (const it of items) (it as { hasDraft?: boolean }).hasDraft = true
-					out.push(...items)
 					continue
 				}
 			}
@@ -264,7 +264,8 @@
 			if (d.kind !== 'raw_app') continue
 			m.set(displayPathOf(d), {
 				summaryKey: itemKey(d),
-				summary: 'summary' in d ? d.summary : undefined
+				summary: 'summary' in d ? d.summary : undefined,
+				hasDraft: 'hasDraft' in d ? d.hasDraft : undefined
 			})
 		}
 		return m
@@ -445,6 +446,11 @@
 					>
 						{appSummary ?? node.name}
 					</span>
+					{#if node.app.hasDraft}
+						<span class="inline-flex shrink-0" title="Has an unsaved draft">
+							<Pencil class="w-3 h-3 text-amber-500" />
+						</span>
+					{/if}
 					<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
 					<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
 				</summary>
