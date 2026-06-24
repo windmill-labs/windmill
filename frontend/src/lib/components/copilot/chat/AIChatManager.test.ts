@@ -1127,8 +1127,9 @@ describe('AIChatManager manual compaction', () => {
 
 		const sent = await manager.sendRequest({ instructions: '/compact', mode: AIMode.GLOBAL })
 
-		// The command never became a chat turn...
-		expect(sent).toBe(false)
+		// Consumed as a local command (true so the queue flush won't re-fire it),
+		// without ever reaching the model loop...
+		expect(sent).toBe(true)
 		expect(mocks.runChatLoop).not.toHaveBeenCalled()
 		// ...it ran the summarizer and compacted in place, clearing the composer.
 		expect(mocks.getNonStreamingCompletion).toHaveBeenCalledTimes(1)
@@ -1171,14 +1172,43 @@ describe('AIChatManager manual compaction', () => {
 
 		const sent = await manager.sendRequest({ instructions: '/clear', mode: AIMode.GLOBAL })
 
-		// The command never became a chat turn...
-		expect(sent).toBe(false)
+		// Consumed as a local command (true so the queue flush won't re-fire it),
+		// without ever reaching the model...
+		expect(sent).toBe(true)
 		expect(mocks.runChatLoop).not.toHaveBeenCalled()
 		expect(mocks.getNonStreamingCompletion).not.toHaveBeenCalled()
 		// ...it reset the conversation and cleared the composer.
 		expect(manager.displayMessages).toEqual([])
 		expect(manager.messages).toEqual([])
 		expect(manager.instructions).toBe('')
+	})
+
+	it('consumes a /clear flushed from the queue without re-queuing it', async () => {
+		// A normal turn that commits cleanly, so its epilogue flushes the queue.
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.changeMode(AIMode.GLOBAL)
+		seedExchange(manager)
+		// `/clear` typed while the turn was streaming gets queued, not sent.
+		manager.queuedMessage = '/clear'
+
+		await manager.sendRequest({ instructions: 'a normal message', mode: AIMode.GLOBAL })
+
+		// The committed turn's flush ran `/clear` (resetting the conversation) and,
+		// because the command reports itself as consumed, did NOT restore it — so a
+		// stale `/clear` can't re-fire and wipe the next conversation.
+		expect(manager.queuedMessage).toBe('')
+		expect(manager.displayMessages).toEqual([])
+		expect(manager.messages).toEqual([])
 	})
 
 	it('does not intercept /clear outside session chat', async () => {
@@ -1227,10 +1257,10 @@ describe('AIChatManager manual compaction', () => {
 			{ name: 'review-code', description: 'review code for bugs' }
 		]
 
-		// Built-in `compact` comes first and the colliding skill is dropped, so the
-		// picker never renders two leaves with the same `skill:compact` key.
+		// Built-ins come first and the colliding skill is dropped, so the picker
+		// never renders two leaves with the same `skill:compact` key.
 		const names = manager.sessionCommands.map((c) => c.name)
-		expect(names).toEqual(['compact', 'review-code'])
+		expect(names).toEqual(['compact', 'clear', 'review-code'])
 		expect(manager.sessionCommands[0].description).toBe(
 			'Summarize the conversation to free up context'
 		)

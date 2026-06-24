@@ -1380,9 +1380,11 @@ export class AIChatManager {
 			isPreprocessor?: boolean
 		} = {}
 	) => {
-		// Returns whether the message was actually turned into a chat turn —
-		// the queue flush uses this to restore messages dropped by an early
-		// return instead of silently losing them.
+		// Returns whether the input was consumed: true when it was sent as a chat
+		// turn OR handled as a local built-in command, false when it was dropped
+		// without being acted on (mode hidden, empty, beforeSend failed). The
+		// queue flush restores the queued message only on false, so a consumed
+		// command isn't re-queued and re-fired into the next conversation.
 		const requestedMode = options.mode ?? this.mode
 		if (!isAIModeVisible(requestedMode)) {
 			return false
@@ -1400,20 +1402,22 @@ export class AIChatManager {
 		// Built-in session commands run locally instead of becoming a chat turn.
 		// Intercepted here — before the beforeSend workspace commit, file regrants,
 		// and skill expansion. Scoped to session chat GLOBAL mode, where the
-		// slash-command UI lives.
+		// slash-command UI lives. Return true (consumed, not dropped) so that a
+		// command flushed from the queue isn't restored and re-fired into the next
+		// conversation.
 		if (this.isSessionChat && this.mode === AIMode.GLOBAL) {
 			const trimmed = this.instructions.trim()
 			// `/compact`: summarize the conversation locally to free up context.
 			if (COMPACT_COMMAND_RE.test(trimmed)) {
 				this.instructions = ''
 				await this.compactManually()
-				return false
+				return true
 			}
 			// `/clear`: save the conversation to history and start a fresh chat.
 			if (CLEAR_COMMAND_RE.test(trimmed)) {
 				this.instructions = ''
 				await this.saveAndClear()
-				return false
+				return true
 			}
 		}
 		// Re-grant any locked File System Access handles within this send gesture, so the
