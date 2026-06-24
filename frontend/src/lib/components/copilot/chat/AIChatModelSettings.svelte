@@ -319,6 +319,10 @@
 		<div
 			class="bg-surface-tertiary dark:border w-64 origin-top-right rounded-lg shadow-lg focus:outline-none py-1 text-xs"
 		>
+			<!-- Melt submenu: hover-opens and is floating-positioned (flips on screen edges). -->
+			<DropdownSubmenuItem item={paramItems(close)} {builders} meltItem={item} />
+
+			<div class="my-1 border-t border-border-light"></div>
 			<div class="px-3 pt-1.5 pb-1 text-2xs uppercase tracking-wide text-secondary">Model</div>
 			<div class="max-h-48 overflow-y-auto">
 				{#each models as m (m.provider + m.model)}
@@ -373,10 +377,6 @@
 					<div class="text-2xs text-tertiary mt-0.5">Not supported by this model</div>
 				</div>
 			{/if}
-
-			<div class="my-1 border-t border-border-light"></div>
-			<!-- Melt submenu: hover-opens and is floating-positioned (flips on screen edges). -->
-			<DropdownSubmenuItem item={paramItems(close)} {builders} meltItem={item} />
 		</div>
 	{/snippet}
 </DropdownV2>
