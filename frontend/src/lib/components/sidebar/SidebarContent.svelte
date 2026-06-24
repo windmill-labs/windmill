@@ -142,16 +142,22 @@
 			for (const child of forkedDescendants) {
 				try {
 					await WorkspaceService.deleteWorkspace({ workspace: child.id })
-					await deleteSessionsForWorkspace(child.id)
 				} catch (err) {
 					sendUserToast(`Failed to delete forked child ${child.id}: ${err}`, true)
 					return
 				}
+				// Backend delete is authoritative; session cleanup is best-effort so a
+				// local failure can't abort the remaining (parent) deletes.
+				await deleteSessionsForWorkspace(child.id).catch((e) =>
+					console.error(`Session cleanup for ${child.id} failed`, e)
+				)
 			}
 		}
 
 		await WorkspaceService.deleteWorkspace({ workspace })
-		await deleteSessionsForWorkspace(workspace)
+		await deleteSessionsForWorkspace(workspace).catch((e) =>
+			console.error('Session cleanup after workspace delete failed', e)
+		)
 		sendUserToast('You deleted the workspace')
 		if (parentStillAccessible && parentId) {
 			// Refresh the workspace list AND reconcile session lifecycle before

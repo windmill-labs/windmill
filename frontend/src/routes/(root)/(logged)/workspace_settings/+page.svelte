@@ -117,11 +117,17 @@
 		const parentId = $userWorkspaces.find((w) => w.id === ws)?.parent_workspace_id
 		const parentStillAccessible = !!(parentId && $userWorkspaces.find((w) => w.id === parentId))
 		await WorkspaceService.archiveWorkspace({ workspace: ws })
-		await archiveSessionsForWorkspace(ws)
 		sendUserToast(`Archived workspace ${ws}`)
-		// Refreshes the workspace list (dropping the just-archived one) before
-		// reconciling, so the parent-accessible check below sees the fresh list.
-		await reconcileAfterWorkspaceChange()
+		// Best-effort client cleanup: a local IndexedDB failure must not strand the
+		// user on the just-archived workspace. The reconcile also refreshes the
+		// workspace list (dropping the archived one) so the parent-accessible check
+		// below — captured before the archive — still routes correctly.
+		try {
+			await archiveSessionsForWorkspace(ws)
+			await reconcileAfterWorkspaceChange()
+		} catch (e) {
+			console.error('Session cleanup after workspace archive failed', e)
+		}
 		if (parentStillAccessible && parentId) {
 			switchWorkspace(parentId)
 			await goto('/')
@@ -134,9 +140,15 @@
 	async function doDeleteWorkspace() {
 		const ws = $workspaceStore ?? ''
 		await WorkspaceService.deleteWorkspace({ workspace: ws })
-		await deleteSessionsForWorkspace(ws)
 		sendUserToast(`Deleted workspace ${ws}`)
-		await reconcileAfterWorkspaceChange()
+		// Best-effort client cleanup — must not block navigation off the deleted
+		// workspace if a local IndexedDB op throws.
+		try {
+			await deleteSessionsForWorkspace(ws)
+			await reconcileAfterWorkspaceChange()
+		} catch (e) {
+			console.error('Session cleanup after workspace delete failed', e)
+		}
 		workspaceStore.set(undefined)
 		usersWorkspaceStore.set(undefined)
 		await goto('/user/workspaces')
