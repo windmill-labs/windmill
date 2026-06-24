@@ -63,8 +63,7 @@
 		reviewHref,
 		reviewLabel = 'Review',
 		editUrlFor = undefined,
-		titleExtra,
-		resetKey = undefined
+		titleExtra
 	}: {
 		diffs: DiffRow[]
 		loadValues: (d: DiffRow) => Promise<{ before: unknown; after: unknown }>
@@ -79,10 +78,6 @@
 		reviewLabel?: string
 		editUrlFor?: (d: DiffRow) => string | undefined
 		titleExtra?: Snippet
-		/** Changing this clears the per-item diff/summary caches without closing the
-		 * drawer — for when a parent keeps the same rows but changes what `loadValues`
-		 * returns (e.g. a diff-baseline toggle), so rows don't show stale before/after. */
-		resetKey?: string | number
 	} = $props()
 
 	let drawer: Drawer | undefined = $state(undefined)
@@ -161,20 +156,11 @@
 		}
 	}
 
-	// Eagerly load each row (diffs render expanded). Tracks `diffs` + `resetKey`;
-	// cache reads/writes are untracked so this doesn't loop on itself. When resetKey
-	// flips (loadValues now returns a different baseline), clear the caches first so
-	// each row reloads instead of reusing its previous before/after.
-	let prevResetKey: string | number | undefined = undefined
+	// Eagerly load each row (diffs render expanded). Tracks `diffs` only; the
+	// cache reads/writes are untracked so this doesn't loop on itself.
 	$effect(() => {
 		const ds = diffs
-		const rk = resetKey
 		untrack(() => {
-			if (rk !== prevResetKey) {
-				prevResetKey = rk
-				loadedDiffs = {}
-				summaries = {}
-			}
 			for (const d of ds) void loadDiffFor(d)
 		})
 	})
