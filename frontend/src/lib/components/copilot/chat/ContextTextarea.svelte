@@ -80,7 +80,7 @@
 
 	const commandSkills = $derived(
 		aiChatManager.mode === AIMode.GLOBAL && aiChatManager.isSessionChat
-			? [...aiChatManager.sessionBuiltinCommands, ...aiChatManager.globalSkills]
+			? aiChatManager.sessionCommands
 			: []
 	)
 	const activeTooltipWord = $derived(showContextTooltip ? contextTooltipWord : commandTooltipWord)

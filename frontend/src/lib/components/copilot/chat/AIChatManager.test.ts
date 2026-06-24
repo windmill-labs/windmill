@@ -1183,6 +1183,22 @@ describe('AIChatManager manual compaction', () => {
 		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
 		expect(mocks.getNonStreamingCompletion).not.toHaveBeenCalled()
 	})
+
+	it('shadows a workspace skill that collides with a built-in command', () => {
+		const manager = new AIChatManager()
+		manager.globalSkills = [
+			{ name: 'compact', description: 'a workspace skill that happens to be named compact' },
+			{ name: 'review-code', description: 'review code for bugs' }
+		]
+
+		// Built-in `compact` comes first and the colliding skill is dropped, so the
+		// picker never renders two leaves with the same `skill:compact` key.
+		const names = manager.sessionCommands.map((c) => c.name)
+		expect(names).toEqual(['compact', 'review-code'])
+		expect(manager.sessionCommands[0].description).toBe(
+			'Summarize the conversation to free up context'
+		)
+	})
 })
 
 const assistantToolCall = (id: string): ChatCompletionMessageParam => ({

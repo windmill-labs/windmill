@@ -344,6 +344,15 @@ export class AIChatManager {
 		{ name: COMPACT_COMMAND_NAME, description: 'Summarize the conversation to free up context' }
 	]
 
+	// Built-ins followed by workspace skills, with any skill whose name collides
+	// with a built-in dropped: the picker keys leaves by name, so a duplicate
+	// would break its keyed list and ambiguous-resolve nav. Built-ins win — they
+	// already shadow same-named skills at execution (the submit interception).
+	sessionCommands: AiSkillListItem[] = $derived([
+		...this.sessionBuiltinCommands,
+		...this.globalSkills.filter((s) => !this.sessionBuiltinCommands.some((b) => b.name === s.name))
+	])
+
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script:
 			this.flowAiChatHelpers === undefined &&
