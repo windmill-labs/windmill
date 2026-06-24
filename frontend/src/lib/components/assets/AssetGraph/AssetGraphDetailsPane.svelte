@@ -984,7 +984,11 @@
 									refreshKey={previewRefreshKey}
 								/>
 							{:else if selection.asset_kind === 'ducklake'}
-								<DucklakeAssetPanel path={selection.path} {workspace} />
+								<!-- Key on path so switching ducklake assets resets the panel's
+								     selected snapshot / tab instead of carrying state across. -->
+								{#key selection.path}
+									<DucklakeAssetPanel path={selection.path} {workspace} />
+								{/key}
 							{:else}
 								<div class="p-3 text-xs text-secondary">
 									No inline preview yet for {selection.asset_kind}. Use the producer/consumer arrows

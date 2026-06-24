@@ -8,8 +8,10 @@
 	import DBTable from '$lib/components/DBTable.svelte'
 	import { resource } from 'runed'
 	import { workspaceStore } from '$lib/stores'
-	import { loadAllTablesMetaData } from '$lib/components/apps/components/display/dbtable/metadata'
-	import { dbTableOpsWithPreviewScripts } from '$lib/components/dbOps'
+	import {
+		fetchDucklakeColumnsAtVersion,
+		dbTableOpsWithPreviewScripts
+	} from '$lib/components/dbOps'
 	import type { DbInput } from '$lib/components/dbTypes'
 	import { parseDbInputFromAssetSyntax, copyToClipboard } from '$lib/utils'
 	import { AlertTriangle, Loader2, ClipboardCopy } from 'lucide-svelte'
@@ -27,6 +29,7 @@
 	let { assetUri, version, class: className = '' }: Props = $props()
 
 	let input = $derived<DbInput | undefined>(parseDbInputFromAssetSyntax(assetUri) ?? undefined)
+	let ducklake = $derived(input?.type === 'ducklake' ? input.ducklake : undefined)
 	let table = $derived(
 		input && 'specificTable' in input ? (input.specificTable as string | undefined) : undefined
 	)
@@ -44,33 +47,30 @@
 			: undefined
 	)
 
-	let colDefs = resource(
-		// Column metadata is the same across snapshots — keyed on `input` only so
-		// switching versions doesn't re-dispatch a metadata preview job (the grid
-		// itself re-reads via `dbTableOps` + the `{#key version}` block).
-		() => [input] as const,
-		async ([_input]) => {
-			if (!_input || !$workspaceStore) return undefined
-			try {
-				return await loadAllTablesMetaData($workspaceStore, _input)
-			} catch {
-				return undefined
-			}
+	// Load the column set *at the pinned version* — a table's schema can differ
+	// across snapshots, so enumerating the current columns against an older
+	// version would reference columns that didn't exist then and break the read.
+	// The result carries the version it was loaded for so the read never uses a
+	// stale column set from the previously-viewed snapshot (the resource keeps
+	// the prior value while re-fetching).
+	let columns = resource(
+		() => [ducklake, tableKey, version] as const,
+		async ([_ducklake, _tableKey, _version]) => {
+			if (!_ducklake || !_tableKey || _version == undefined || !$workspaceStore) return undefined
+			const colDefs = await fetchDucklakeColumnsAtVersion({
+				workspace: $workspaceStore,
+				ducklake: _ducklake,
+				tableKey: _tableKey,
+				version: _version
+			})
+			return { version: _version, colDefs }
 		}
 	)
-
-	let tableColDefs = $derived.by(() => {
-		const defs = colDefs.current
-		if (!table || !defs) return undefined
-		const direct = defs[`${schema ?? 'main'}.${table}`] ?? defs[table]
-		const found =
-			direct ??
-			(() => {
-				const key = Object.keys(defs).find((k) => k === table || k.endsWith(`.${table}`))
-				return key ? defs[key] : undefined
-			})()
-		return found
-	})
+	// Only ready once the loaded columns are for the version currently shown.
+	let ready = $derived(
+		columns.current?.version === version && (columns.current?.colDefs.length ?? 0) > 0
+	)
+	let tableColDefs = $derived(ready ? columns.current!.colDefs : undefined)
 
 	let dbTableOps = $derived.by(() => {
 		if (!(input && tableColDefs && tableKey && $workspaceStore && version != undefined))
@@ -113,21 +113,21 @@
 				/>
 			</div>
 		{/if}
-		{#if colDefs.loading && !colDefs.current}
-			<div class="flex items-center justify-center p-4 text-tertiary">
-				<Loader2 class="animate-spin" size={18} />
-			</div>
-		{:else if !tableColDefs}
-			<div class="flex items-center gap-2 p-3 text-2xs text-tertiary">
-				<AlertTriangle size={14} class="text-amber-500" />
-				Couldn't load this table at version {version}.
-			</div>
-		{:else if dbTableOps}
+		{#if ready && dbTableOps}
 			{#key version}
 				<div class="grow min-h-0">
 					<DBTable {dbTableOps} />
 				</div>
 			{/key}
+		{:else if columns.error}
+			<div class="flex items-center gap-2 p-3 text-2xs text-tertiary">
+				<AlertTriangle size={14} class="text-amber-500" />
+				Couldn't load this table at version {version}.
+			</div>
+		{:else}
+			<div class="flex items-center justify-center p-4 text-tertiary">
+				<Loader2 class="animate-spin" size={18} />
+			</div>
 		{/if}
 	{/if}
 </div>

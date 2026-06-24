@@ -48,8 +48,15 @@
 			return await fetchDucklakeSnapshots({ workspace: ws, ducklake: dl, table })
 		}
 	)
-	// Newest snapshot is the default preview until the user selects one.
-	let effectiveVersion = $derived(selectedVersion ?? snapshots.current?.[0]?.snapshot_id)
+	// Newest snapshot is the default preview until the user picks one. If the
+	// pick is no longer in the list (snapshots refetched, or it was stale from a
+	// previously-viewed asset), fall back to newest rather than reading a version
+	// that isn't in this table.
+	let effectiveVersion = $derived.by(() => {
+		const list = snapshots.current
+		const picked = list?.some((s) => s.snapshot_id === selectedVersion)
+		return picked ? selectedVersion : list?.[0]?.snapshot_id
+	})
 
 	// Keep the list pane to a roughly fixed width rather than a fixed fraction,
 	// so it stays compact on wide panels instead of sprawling. Falls back to a

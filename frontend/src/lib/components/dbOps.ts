@@ -1,5 +1,6 @@
 import {
 	getLanguageByResourceType,
+	ColumnIdentity,
 	type ColumnDef,
 	type TableMetadata
 } from './apps/components/display/dbtable/utils'
@@ -142,6 +143,51 @@ export type DucklakeSnapshot = {
 	// DuckLake returns this as microseconds-since-epoch serialized as a string
 	// (TIMESTAMP); callers must convert before formatting.
 	snapshot_time: string | number
+}
+
+/**
+ * Column metadata of a ducklake table *at a specific snapshot*. The catalog's
+ * `information_schema` only reflects the current schema, so a time-travel read
+ * pinned to an older version must enumerate the columns that existed *then* —
+ * otherwise a column added in a later snapshot would break the `SELECT … AT
+ * (VERSION => n)`. `DESCRIBE SELECT * FROM … AT (VERSION => n)` gives exactly
+ * that. Returns minimal `ColumnDef`s (field + datatype) — enough for the
+ * read-only preview's SELECT/COUNT and grid headers.
+ */
+export async function fetchDucklakeColumnsAtVersion({
+	workspace,
+	ducklake,
+	tableKey,
+	version
+}: {
+	workspace: string
+	ducklake: string
+	tableKey: string
+	version: number
+}): Promise<ColumnDef[]> {
+	// Quote each identifier part (schema.table) so a dotted/odd table name can't
+	// break the statement. `version` is a number — injection-safe.
+	const quoted = tableKey
+		.split('.')
+		.map((p) => `"${p.replace(/"/g, '""')}"`)
+		.join('.')
+	const content =
+		`ATTACH 'ducklake://${ducklake}' AS __dlv__; USE __dlv__; ` +
+		`DESCRIBE SELECT * FROM ${quoted} AT (VERSION => ${version});`
+	const rows = (await runScriptAndPollResult({
+		workspace,
+		requestBody: { args: {}, language: 'duckdb', content }
+	})) as { column_name: string; column_type: string }[]
+	if (!Array.isArray(rows)) return []
+	return rows.map((r) => ({
+		field: r.column_name,
+		datatype: r.column_type,
+		defaultvalue: '',
+		isprimarykey: false,
+		isidentity: ColumnIdentity.No,
+		isnullable: 'YES' as const,
+		isenum: false
+	}))
 }
 
 /**
