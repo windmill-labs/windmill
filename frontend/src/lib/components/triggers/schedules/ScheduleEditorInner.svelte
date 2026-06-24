@@ -976,26 +976,31 @@
 				{/if}
 				<div class={!hideTarget ? 'mt-6' : ''}>
 					{#if !loading}
-						{#if runnable || draftSchema}
-							{@const schema = draftSchema ?? runnable?.schema}
-							{#if schema && schema.properties && Object.keys(schema.properties).length > 0}
-								{#await import('$lib/components/SchemaForm.svelte')}
-									<Loader2 class="animate-spin" />
-								{:then Module}
-									<Module.default
-										showReset
-										onlyMaskPassword
-										disabled={!can_write}
-										schema={$state.snapshot(schema)}
-										bind:isValid
-										bind:args
-									/>
-								{/await}
-							{:else}
-								<div class="text-xs text-secondary">
-									This {is_flow ? 'flow' : 'script'} takes no argument
-								</div>
-							{/if}
+						{@const schema = draftSchema ?? runnable?.schema}
+						{@const hasSchemaProps = !!(
+							schema?.properties && Object.keys(schema.properties).length > 0
+						)}
+						{@const hasArgs = !!(args && Object.keys(args).length > 0)}
+						{#if hasSchemaProps || hasArgs}
+							{#await import('$lib/components/SchemaForm.svelte')}
+								<Loader2 class="animate-spin" />
+							{:then Module}
+								<Module.default
+									showReset={hasSchemaProps}
+									onlyMaskPassword
+									displayExtraArgs
+									disabled={!can_write}
+									schema={$state.snapshot(
+										schema ?? { properties: {}, required: [], type: 'object' }
+									)}
+									bind:isValid
+									bind:args
+								/>
+							{/await}
+						{:else if runnable || draftSchema}
+							<div class="text-xs text-secondary">
+								This {is_flow ? 'flow' : 'script'} takes no argument
+							</div>
 						{:else if script_path != ''}
 							<div class="text-xs text-secondary my-2">
 								You cannot see the the {is_flow ? 'flow' : 'script'} input form as you do not have access
