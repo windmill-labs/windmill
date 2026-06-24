@@ -190,14 +190,16 @@
 			if (d.kind === 'raw_app') {
 				const loaded = loadedDiffs[itemKey(d)]
 				if (loaded?.state === 'ready') {
-					out.push(
-						...rawAppDiffToItems(
-							d.path,
-							loaded.before as RawAppish | undefined,
-							loaded.after as RawAppish | undefined,
-							displayPathOf(d)
-						)
+					const items = rawAppDiffToItems(
+						d.path,
+						loaded.before as RawAppish | undefined,
+						loaded.after as RawAppish | undefined,
+						displayPathOf(d)
 					)
+					// A drafted raw app expands into per-file rows; carry the Draft
+					// marker down so each file is flagged as an unsaved draft too.
+					if (d.hasDraft) for (const it of items) (it as { hasDraft?: boolean }).hasDraft = true
+					out.push(...items)
 					continue
 				}
 			}
