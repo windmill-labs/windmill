@@ -235,15 +235,15 @@
 	>
 		{#snippet trigger()}
 			{#if iconOnly}
-				<!-- Avatars only (no pill text); falls back to a small indigo pencil when
-				     there are no named draft owners. -->
-				<span class="inline-flex items-center" title={draft_only ? 'Draft only' : 'Draft'}>
+				<!-- Still a badge, just the avatar(s) and no "Draft" text — for tight
+				     spots. Falls back to a pencil when there are no named draft owners. -->
+				<Badge small color="indigo">
 					{#if orderedUsers.length > 0}
 						{@render circleStack(true)}
 					{:else}
-						<Pencil class="w-3 h-3 text-indigo-500" />
+						<Pencil class="w-3 h-3" />
 					{/if}
-				</span>
+				</Badge>
 			{:else}
 				<Badge small color="indigo">
 					{#if orderedUsers.length > 0}
