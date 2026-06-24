@@ -195,7 +195,7 @@
 		missing?: boolean
 		// Producer's `// data_test` checks, on the write-edge to the
 		// materialized asset — rendered as a flask badge on the link.
-		data_tests?: NonNullable<(typeof g.runnables)[number]['data_tests']>
+		data_tests?: NonNullable<AssetGraphResponse['runnables'][number]['data_tests']>
 	}
 
 	// Graph-id of the script the user just launched (zero-latency hint),
@@ -301,7 +301,10 @@
 		// Producer → its `// data_test` checks, keyed by runnable id, so the
 		// write-edge to the materialized asset can carry the test badge: the
 		// edge *is* the transformation, and the tests assert on what it produces.
-		const producerTests = new Map<string, NonNullable<(typeof g.runnables)[number]['data_tests']>>()
+		const producerTests = new Map<
+			string,
+			NonNullable<AssetGraphResponse['runnables'][number]['data_tests']>
+		>()
 		for (const r of g.runnables) {
 			if (r.data_tests && r.data_tests.length > 0) {
 				producerTests.set(`${r.usage_kind}:${r.path}`, r.data_tests)
