@@ -187,6 +187,11 @@
 		onOpenOthersDrafts
 	}: Props = $props()
 
+	// Set by the on-behalf-of selector when the publisher picks a user other than
+	// themselves. Forwarded as `preserve_on_behalf_of` so the backend keeps the
+	// policy's on_behalf_of instead of resetting it to the deploying user.
+	let preserveOnBehalfOf = $state(false)
+
 	// The AutosaveIndicator watches these; in the sessions preview they're the
 	// session's (workspace, path), else the full-page editor's own values.
 	const indicatorWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
@@ -315,7 +320,8 @@
 						summary: summary,
 						policy,
 						deployment_message: deploymentMsg,
-						custom_path: customPath
+						custom_path: customPath,
+						preserve_on_behalf_of: preserveOnBehalfOf || undefined
 					},
 					js,
 					css
@@ -434,6 +440,7 @@
 					policy,
 					path: npath,
 					deployment_message: deploymentMsg,
+					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
 					// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
 					// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
 					custom_path:
@@ -674,6 +681,7 @@
 			bind:customPathError
 			bind:pathError
 			bind:newEditedPath
+			bind:preserveOnBehalfOf
 		/>
 	</DrawerContent>
 </Drawer>
