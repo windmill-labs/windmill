@@ -448,14 +448,17 @@ export async function archiveSessionsForWorkspace(workspaceId: string): Promise<
 	if (!db) return
 	const all = await db.getAll('sessions')
 	for (const s of all) {
-		if (s.transient || s.workspace_id !== workspaceId) continue
+		// Skip sessions the user already archived: tagging them archivedByWorkspace
+		// would make a later workspace-unarchive auto-restore them, discarding the
+		// user's manual archive. Mirrors decideSessionLifecycle's already-archived noop.
+		if (s.transient || s.workspace_id !== workspaceId || s.archived) continue
 		s.archived = true
 		s.archivedByWorkspace = true
 		ensureSessionRootId(s)
 		await db.put('sessions', s)
 	}
 	for (const s of sessionState.sessions) {
-		if (s.transient || s.workspace_id !== workspaceId) continue
+		if (s.transient || s.workspace_id !== workspaceId || s.archived) continue
 		s.archived = true
 		s.archivedByWorkspace = true
 	}

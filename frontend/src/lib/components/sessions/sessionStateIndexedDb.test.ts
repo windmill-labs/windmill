@@ -22,7 +22,13 @@ vi.mock('$lib/gen', async (orig) => {
 })
 
 import { userStore, usersWorkspaceStore, type UserExt } from '$lib/stores'
-import { sessionState, putSession, deleteSessionRecord, type Session } from './sessionState.svelte'
+import {
+	sessionState,
+	putSession,
+	deleteSessionRecord,
+	archiveSessionsForWorkspace,
+	type Session
+} from './sessionState.svelte'
 
 function asUser(email: string): UserExt {
 	return { email, username: email.split('@')[0] } as unknown as UserExt
@@ -185,6 +191,32 @@ describe('sessionState IndexedDB persistence', () => {
 		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['existing']))
 		expect(localStorage.getItem('windmill_sessions')).toBeNull()
 		expect(localStorage.getItem('windmill_sessions_last_seen_counts')).toBeNull()
+	})
+
+	it('archiveSessionsForWorkspace tags only the sessions it archives, preserving user-archived ones', async () => {
+		const user = freshUser()
+		userStore.set(user)
+		await flush()
+
+		// One clean session and one the user already archived by hand, same workspace.
+		await putSession(session({ id: 'clean', createdAt: 100, workspace_id: 'wsA' }))
+		await putSession(
+			session({ id: 'userarch', createdAt: 50, workspace_id: 'wsA', archived: true })
+		)
+		await rehydrate(user)
+		await vi.waitFor(() => expect(sessionState.sessions.length).toBe(2))
+
+		await archiveSessionsForWorkspace('wsA')
+		await rehydrate(user)
+
+		const clean = sessionState.sessions.find((s) => s.id === 'clean')!
+		const userarch = sessionState.sessions.find((s) => s.id === 'userarch')!
+		// Workspace-archived → tagged, so a later unarchive auto-restores it.
+		expect(clean.archived).toBe(true)
+		expect(clean.archivedByWorkspace).toBe(true)
+		// User-archived → left untouched (no tag), so unarchive won't resurrect it.
+		expect(userarch.archived).toBe(true)
+		expect(userarch.archivedByWorkspace).toBeUndefined()
 	})
 
 	it('clears the in-memory list on logout', async () => {
