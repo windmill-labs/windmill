@@ -171,24 +171,58 @@ This one table drives four things at once:
 
 ## Reproducibility — the beyond-dbt part
 
-Because every materialization records the snapshot it produced, a downstream
-consumer can read the *exact* upstream snapshot its run saw:
+Because every materialization records the snapshot it produced, you can read any
+table *as of* a past version — a capability dbt has no native answer for (dbt
+models are always "whatever's in the warehouse now"). DuckLake gives us this for
+the cost of recording one integer per run, and it covers the three things people
+actually reach for: **debugging** ("what did this table look like at the failing
+run"), **rollback** (re-materialize a consumer from snapshot N), and ad-hoc
+**experimentation** on a historical state.
+
+### How it's surfaced (shipped): explicit, discoverable time-travel
+
+The version is exposed as a *user-driven* surface, not hidden plumbing. A
+consumer pins a read by writing the DuckLake clause directly:
 
 ```sql
-FROM dl.orders_daily AT (VERSION => $WM_UPSTREAM_SNAPSHOT)
+FROM dl.orders_daily AT (VERSION => 42)
 ```
 
-The cascade already threads a `trigger` blob (producer path, partition) to each
-subscriber; add the producer's captured `snapshot_id` to it, and a consumer's
-read is pinned to the upstream state at dispatch time. That makes the *whole
-pipeline* reproducible and time-travelable — something dbt has no native answer
-for (dbt models are always "whatever's in the warehouse now"). It also gives
-rollback (re-point an asset to snapshot N) and "what did this table look like at
-the failing run" debugging, for free off the same captured ids.
+The asset node's **History** tab is a master-detail view: the snapshot list (id
++ time) on the left selects the version previewed in a read-only grid on the
+right, which surfaces — and copies — the catalog-qualified
+`FROM lake.<table> AT (VERSION => n)` clause. Snapshot ids are captured automatically; the user opts
+into pinning when they want it, and the clause degrades to "latest" if removed,
+so the same script still runs standalone. Mechanically this rides on
+time-travel **reads** (`make_select_query` / `make_count_query` emit the `AT`
+clause when a `version` is threaded through the `WM_INTERNAL_DB_*` markers) plus
+a `DUCKLAKE_SNAPSHOTS` read for the history list — capabilities DuckLake already
+has, no new write path.
 
-This is the differentiator worth leaning on. It is not catch-up to dbt; it is a
-capability dbt structurally cannot offer, and DuckLake gives it to us at the
-cost of recording one integer per run.
+### Deferred: automatic snapshot pinning across the cascade
+
+An earlier sketch had the cascade *automatically* thread each producer's
+`snapshot_id` into the `trigger` blob and inject `AT (VERSION => $WM_UPSTREAM_SNAPSHOT)`
+into consumer reads, so a whole run is pinned to upstream state at dispatch time
+without anyone asking. This is deliberately **not** built, for three reasons:
+
+- **Not critical.** The only thing it adds over the explicit surface above is
+  *automatic per-run consistency* — protection against an upstream
+  re-materializing in the window between dispatch and a consumer reading. That
+  race only bites high-frequency event-driven cascades (rare today), and the
+  read is always a whole, ACID snapshot regardless — never corruption, just
+  "newer than the triggering version". Debugging and rollback are already
+  covered by the explicit surface.
+- **Implicit magic.** Auto-injecting an `AT` clause and stripping it on
+  standalone runs is invisible behaviour to debug when it misfires; the explicit
+  clause is inspectable.
+- **Multi-upstream ambiguity + EE coupling.** A consumer reading two ducklake
+  upstreams needs a per-ref snapshot *map* accumulated across the AND-join — and
+  the join-slot logic is EE. A single `$WM_UPSTREAM_SNAPSHOT` would silently pin
+  every read to one (the firing) producer's snapshot.
+
+If a workload ever shows the consistency race in practice, pinning can be layered
+on top — the capture and the snapshot surfacing built here are its foundation.
 
 It also means **we do not build SCD2 snapshots** (gap #4 in `pipelines-vs-dbt.md`):
 DuckLake time-travel is a strictly better answer for most of what dbt's
@@ -224,8 +258,10 @@ Don't try to give both the full treatment for v1.
    `materialized_partition` rows.
 5. **Surface it** — last-materialized/snapshot/row-count on the asset node;
    missing-partition set feeds the backfill UI.
-6. *v1.x* — snapshot pinning across the cascade (`$WM_UPSTREAM_SNAPSHOT`),
-   rollback, time-travel read helper.
+6. *v1.x* — time-travel UX over the captured snapshots: a per-asset **History**
+   tab — a master-detail snapshot list + query-at-version preview that copies the
+   full `FROM lake.<table> AT (VERSION => n)` clause. Automatic cascade pinning
+   (`$WM_UPSTREAM_SNAPSHOT`) is deferred — see §"Reproducibility" for why.
 
 Steps 1–5 are a thin annotation+template layer plus one metadata table and one
 extra read per run. They deliver managed/incremental/versioned assets,
