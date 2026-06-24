@@ -273,6 +273,24 @@
 		     is position:fixed, so it doesn't count as a flex item — no stray gap
 		     when only one bar shows. -->
 		<div class="flex flex-col gap-1">
+			{#if session.archived}
+				<div
+					class="flex flex-row items-center justify-between gap-2 py-2 px-3 text-xs border rounded-md bg-surface-tertiary"
+				>
+					<div class="flex flex-row items-center gap-2 min-w-0">
+						<Archive class="w-4 h-4 shrink-0 text-tertiary" />
+						<span class="text-primary font-medium">This session is archived</span>
+					</div>
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						startIcon={{ icon: ArchiveRestore }}
+						onclick={() => setSessionArchived(session.id, false)}
+					>
+						Unarchive
+					</Button>
+				</div>
+			{/if}
 			<SessionForkBar
 				{session}
 				onMove={(workspaceId) => moveAndActivate(workspaceId)}
@@ -396,10 +414,12 @@
 					hideHeader
 					hideModeSelector
 					wideLayout
-					forceDisabled={isUnavailable}
-					forceDisabledMessage={isUnavailable
-						? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'
-						: ''}
+					forceDisabled={isUnavailable || !!session.archived}
+					forceDisabledMessage={session.archived
+						? 'This session is archived. Unarchive it from the banner above to keep working.'
+						: isUnavailable
+							? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'
+							: ''}
 					emptyHint={sessionEmptyHint}
 					{inputPreface}
 				/>
