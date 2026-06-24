@@ -110,6 +110,7 @@ import {
 	getEphemeralSecretVariableDraftValue,
 	getGlobalDraft,
 	getGlobalDraftStoragePath,
+	itemKindFor,
 	listGlobalDrafts,
 	persistGlobalDraft,
 	readGlobalDraftValue,
@@ -761,13 +762,13 @@ Rules:
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
 - Keep context targeted.${
-	previewTools
-		? `
+		previewTools
+			? `
 - After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
 - get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.`
-		: ''
-}
+			: ''
+	}
 
 Documentation:
 - Use search_docs to look up how a Windmill feature works in the official documentation (a flag, concept, function, or "does Windmill support X") instead of guessing about product behavior. It returns matching doc snippets with their Source URL; call read_docs_page with a Source URL to read the full page (or a section, if it returns headings). Cite the Source URL when you rely on it.
@@ -2510,6 +2511,7 @@ function finishAppDraftWrite(
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
+	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
 	const { content, message } = onSaved()
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content, result: 'Saved as draft' })
 	return JSON.stringify({ success: true, message }, null, 2)
@@ -2522,6 +2524,7 @@ function finishDraftWrite(
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
+	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
 	const stored = result.item
 	const verb = existed ? 'Updated' : 'Created'
 	// Don't echo the flow value back: the model just sent it in the write call,
@@ -3975,6 +3978,17 @@ async function deleteWorkspaceItem(
 	}
 
 	await deleteGlobalDraft(workspace, type, path, triggerKind)
+
+	// Record the deletion in the chat's modified-items mask. In a fork this leaves a
+	// reviewable "removed" diff vs the parent that stays scoped to this chat. Keyed
+	// by the same (itemKind, storagePath) as writes so it joins the draft/fork lists.
+	const deletedKind = itemKindFor(type, triggerKind)
+	if (deletedKind) {
+		toolCallbacks.onItemModified?.(
+			deletedKind,
+			getGlobalDraftStoragePath(workspace, type, path, triggerKind)
+		)
+	}
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deleted ${type} "${path}"`,

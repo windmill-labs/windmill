@@ -145,7 +145,7 @@ export interface SessionRuntime {
 		kind: 'script' | 'flow' | 'raw_app',
 		path: string
 	): void
-	// Fork comparison cache: shared between SessionForkBar (count + dropdown)
+	// Fork comparison cache: shared between SessionChangesBar (count + drawer)
 	// and any future consumer that needs the parent ↔ fork diff list. Keyed
 	// implicitly by the (parent, fork) pair last passed to ensureForkComparison;
 	// invalidateForkComparison() forces a refresh after a known-mutating action.
@@ -735,6 +735,10 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 		await manager.historyManager.tagChatWithSession(session.chatId, session.id)
 		await manager.loadPastChat(session.chatId)
 	} else {
+		// Brand-new session chat: start tracking modified items now (empty mask)
+		// so the session bar filters to this chat's changes from the first turn.
+		// (loadPastChat handles seeding for the existing-chat branch above.)
+		manager.initModifiedItemsTracking()
 		setSessionChatId(session.id, manager.historyManager.getCurrentChatId())
 	}
 }

@@ -28,8 +28,7 @@
 	import ScriptEditorView from './ScriptEditorView.svelte'
 	import RawAppEditorView from './RawAppEditorView.svelte'
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
-	import SessionForkBar from './SessionForkBar.svelte'
-	import SessionDraftBar from './SessionDraftBar.svelte'
+	import SessionChangesBar from './SessionChangesBar.svelte'
 	import {
 		createSession,
 		getEffectiveWorkspaceId,
@@ -237,7 +236,7 @@
 
 	// True when the session committed to a workspace that's no longer in
 	// the user's list (deleted / archived / access revoked). The chat is
-	// disabled and SessionForkBar shows a move/discard banner.
+	// disabled and SessionChangesBar shows a move/discard banner.
 	const isUnavailable = $derived(
 		!!session?.workspace_id && !$userWorkspaces.find((w) => w.id === session!.workspace_id)
 	)
@@ -275,20 +274,13 @@
 		{#if !hasFirstUserMessage}
 			<SessionWorkspaceBar {session} />
 		{/if}
-		<!-- gap-1 (4px) spaces the fork bar and draft bar when both are visible.
-		     Each bar renders a single in-flow root (or nothing); the draft drawer
-		     is position:fixed, so it doesn't count as a flex item — no stray gap
-		     when only one bar shows. -->
-		<div class="flex flex-col gap-1">
-			<SessionForkBar
-				{session}
-				onMove={(workspaceId) => moveAndActivate(workspaceId)}
-				onCreateForkAndMove={(fork) => createForkAndMove(fork)}
-				onArchive={() => archiveAndReset()}
-				onDelete={() => (deleteConfirmOpen = true)}
-			/>
-			<SessionDraftBar {session} />
-		</div>
+		<SessionChangesBar
+			{session}
+			onMove={(workspaceId) => moveAndActivate(workspaceId)}
+			onCreateForkAndMove={(fork) => createForkAndMove(fork)}
+			onArchive={() => archiveAndReset()}
+			onDelete={() => (deleteConfirmOpen = true)}
+		/>
 	{/snippet}
 
 	<!-- Override the chat's default keyboard-shortcut hint with nothing —

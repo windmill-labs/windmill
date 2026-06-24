@@ -15,6 +15,10 @@
 		/** Summary supplied by the data source. Preferred over the one derived
 		 * from the loaded diff value, and shown before that value loads. */
 		summary?: string
+		/** The item has an unsaved draft on top of its deployed state — drives a
+		 * "Draft" marker so a not-yet-deployed change is distinguishable from one
+		 * already deployed in the fork. */
+		hasDraft?: boolean
 	}
 </script>
 
@@ -59,7 +63,8 @@
 		reviewHref,
 		reviewLabel = 'Review',
 		editUrlFor = undefined,
-		titleExtra
+		titleExtra,
+		resetKey = undefined
 	}: {
 		diffs: DiffRow[]
 		loadValues: (d: DiffRow) => Promise<{ before: unknown; after: unknown }>
@@ -74,6 +79,10 @@
 		reviewLabel?: string
 		editUrlFor?: (d: DiffRow) => string | undefined
 		titleExtra?: Snippet
+		/** Changing this clears the per-item diff/summary caches without closing the
+		 * drawer — for when a parent keeps the same rows but changes what `loadValues`
+		 * returns (e.g. a diff-baseline toggle), so rows don't show stale before/after. */
+		resetKey?: string | number
 	} = $props()
 
 	let drawer: Drawer | undefined = $state(undefined)
@@ -152,11 +161,20 @@
 		}
 	}
 
-	// Eagerly load each row (diffs render expanded). Tracks `diffs` only; the
-	// cache reads/writes are untracked so this doesn't loop on itself.
+	// Eagerly load each row (diffs render expanded). Tracks `diffs` + `resetKey`;
+	// cache reads/writes are untracked so this doesn't loop on itself. When resetKey
+	// flips (loadValues now returns a different baseline), clear the caches first so
+	// each row reloads instead of reusing its previous before/after.
+	let prevResetKey: string | number | undefined = undefined
 	$effect(() => {
 		const ds = diffs
+		const rk = resetKey
 		untrack(() => {
+			if (rk !== prevResetKey) {
+				prevResetKey = rk
+				loadedDiffs = {}
+				summaries = {}
+			}
 			for (const d of ds) void loadDiffFor(d)
 		})
 	})
@@ -459,6 +477,11 @@
 			onmouseenter={() => setHoverHighlight(key)}
 		>
 			{#snippet extras()}
+				{#if node.diff.hasDraft}
+					<span class="inline-flex shrink-0" title="Has an unsaved draft">
+						<Pencil class="w-3 h-3 text-amber-500" />
+					</span>
+				{/if}
 				<span
 					class="w-1.5 h-1.5 rounded-full shrink-0 {status === 'added'
 						? 'bg-green-500'
@@ -604,6 +627,12 @@
 											{/if}
 											{#if d.behind && d.behind > 0}
 												<span class="text-2xs text-secondary">{d.behind} behind</span>
+											{/if}
+											{#if d.hasDraft}
+												<Badge color="orange">
+													<Pencil class="w-3 h-3 inline mr-0.5" />
+													Draft
+												</Badge>
 											{/if}
 											<Badge color={statusBadgeColor(status)}>
 												<StatusIcon class="w-3 h-3 inline mr-0.5" />

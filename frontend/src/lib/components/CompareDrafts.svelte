@@ -35,6 +35,15 @@
 		deployCount?: number
 		updateCount?: number
 		draftCount?: number
+		/** When set (reached via a session's Review button), preselect only the
+		 * rows this chat modified — `${UserDraftItemKind}:${path}` keys, matching
+		 * Row.key. Undefined → preselect all deployable rows (the default). All rows
+		 * are still shown either way. */
+		chatMask?: Set<string>
+		/** False while the (async) chatMask is still loading. The select-all default
+		 * waits for this so it doesn't race the mask and select everything. Defaults
+		 * to true for callers that don't pass a mask. */
+		chatMaskReady?: boolean
 		/** Selecting deploy_to/update asks the page to swap to CompareWorkspaces. */
 		onModeSelected?: (v: CompareMode) => void
 		/** Fired after a deploy/discard so the page can refresh the *fork*
@@ -52,6 +61,8 @@
 		deployCount = 0,
 		updateCount = 0,
 		draftCount = 0,
+		chatMask,
+		chatMaskReady = true,
 		onModeSelected,
 		onChanged
 	}: Props = $props()
@@ -268,8 +279,13 @@
 	})
 
 	$effect(() => {
-		if (!hasAutoSelected && visibleItems.length > 0) {
-			selectedItems = visibleItems.filter(isSelectable).map((i) => i.key)
+		if (!hasAutoSelected && chatMaskReady && visibleItems.length > 0) {
+			// Default intent is deploy-all; when reached from a session's Review
+			// (chatMask set), preselect only that chat's items instead.
+			const selectable = visibleItems.filter(isSelectable)
+			selectedItems = (chatMask ? selectable.filter((i) => chatMask.has(i.key)) : selectable).map(
+				(i) => i.key
+			)
 			hasAutoSelected = true
 		}
 	})
