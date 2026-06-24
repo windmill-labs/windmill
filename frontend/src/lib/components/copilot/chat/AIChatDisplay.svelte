@@ -909,6 +909,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{#if aiChatManager.mode === AIMode.APP}
 							<DatatableCreationPolicy />
 						{/if}
+						<ContextUsageIndicator />
 						<ProviderModelSelector />
 						<AIChatSettingsMenu />
 
@@ -957,9 +958,6 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{/if}
 					</div>
 				{/if}
-			</div>
-			<div class="flex px-1 mt-1">
-				<ContextUsageIndicator />
 			</div>
 		</div>
 		{#if (aiChatManager.mode === AIMode.NAVIGATOR || aiChatManager.mode === AIMode.ASK) && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
