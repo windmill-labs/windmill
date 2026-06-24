@@ -31,6 +31,16 @@
 		return await fetchDucklakeSnapshots({ workspace: ws, ducklake: dl })
 	})
 
+	// DuckLake serializes `snapshot_time` as microseconds-since-epoch (a numeric
+	// string), not an ISO date — `new Date(µs)` would be Invalid Date. Detect the
+	// µs magnitude and convert to ms; fall back to direct parsing otherwise.
+	function fmtSnapshotTime(t: string | number | undefined): string {
+		if (t == undefined || t === '') return '—'
+		const n = typeof t === 'number' ? t : Number(t)
+		const d = Number.isFinite(n) && n > 1e14 ? new Date(n / 1000) : new Date(t)
+		return isNaN(d.getTime()) ? String(t) : d.toLocaleString()
+	}
+
 	function atClause(version: number): string {
 		return `AT (VERSION => ${version})`
 	}
@@ -76,7 +86,7 @@
 						<div class="flex flex-col min-w-0">
 							<span class="text-xs font-mono">v{s.snapshot_id}</span>
 							<span class="text-3xs text-tertiary">
-								{s.snapshot_time ? new Date(s.snapshot_time).toLocaleString() : '—'}
+								{fmtSnapshotTime(s.snapshot_time)}
 							</span>
 						</div>
 						<div class="flex items-center gap-1 shrink-0">

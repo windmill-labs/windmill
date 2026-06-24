@@ -139,7 +139,9 @@ export function dbTableOpsWithPreviewScripts({
 
 export type DucklakeSnapshot = {
 	snapshot_id: number
-	snapshot_time: string
+	// DuckLake returns this as microseconds-since-epoch serialized as a string
+	// (TIMESTAMP); callers must convert before formatting.
+	snapshot_time: string | number
 }
 
 /**
