@@ -37,14 +37,17 @@ describe('nextId', () => {
 		expect(nextId(state, flowWith(ids))).toBe('d')
 	})
 
-	it('is not poisoned by subflow result keys or user-renamed ids', () => {
+	it('is not poisoned by subflow result keys', () => {
 		const ids = ['a', 'b']
-		const state = stateWith([...ids, 'subflow:abcd', 'my_step', 'Result', 'failure'])
+		const state = stateWith([...ids, 'subflow:abcd', 'Result', 'failure'])
 		expect(nextId(state, flowWith(ids))).toBe('c')
 	})
 
-	it('still accounts for real auto ids beyond length 3', () => {
-		const ids = ['a', 'aaa', 'zzz']
-		expect(nextId(stateWith([...ids, 'failure']), flowWith(ids))).toBe('aaaa')
+	// A step renamed to a long lowercase word ("process") is a valid base-26 string and would
+	// otherwise inflate the max; the length cutoff keeps such renames out of the sequence.
+	it('is not poisoned by renames to long lowercase words or underscored ids', () => {
+		const ids = ['a', 'b']
+		const state = stateWith([...ids, 'process', 'my_step', 'failure'])
+		expect(nextId(state, flowWith(ids))).toBe('c')
 	})
 })

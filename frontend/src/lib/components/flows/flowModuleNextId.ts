@@ -5,13 +5,15 @@ import { charsToNumber, forbiddenIds, numberToChars } from './idUtils'
 
 const reservedIds = new Set(forbiddenIds)
 
-// Only auto-generated ids (canonical base-26 lowercase sequences like a, b, ..., z, aa, ...)
-// may contribute to the next-id computation. flowState/module-id keys also include copy ids
-// ("a2"), subflow result keys ("subflow:..."), reserved keys ("failure", "preprocessor") and
-// user-renamed ids; feeding those through charsToNumber yields meaningless (often huge) numbers
-// that would poison id generation, making new steps jump to ids like "bzw".
+// Returns the base-26 value of a key only if it is a short, auto-generated step id
+// (a, b, ..., z, aa, ...). flowState/module-id keys also include copy ids ("a2"), subflow
+// result keys ("subflow:..."), reserved keys and user-renamed ids; feeding those through
+// charsToNumber yields meaningless (often huge) numbers that would poison id generation and
+// make new steps jump to ids like "bzw". Short non-canonical keys are rejected via a
+// round-trip check; longer keys are skipped entirely, which also leaves user renames to long
+// lowercase words (e.g. "process") out of the sequence.
 function autoIdNumber(key: string): number | undefined {
-	if (reservedIds.has(key)) {
+	if (key.length >= 4 || reservedIds.has(key)) {
 		return undefined
 	}
 	const num = charsToNumber(key)
