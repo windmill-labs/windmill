@@ -62,7 +62,7 @@ jobs:
           node-version: "20"
       - uses: astral-sh/setup-uv@v6.2.1
         with:
-          version: "0.9.25"
+          version: "0.11.24"
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
