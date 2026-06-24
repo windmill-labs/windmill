@@ -13,6 +13,7 @@
 	import RunnableNode from './RunnableNode.svelte'
 	import TriggerNode, { type TriggerNodeKind } from './TriggerNode.svelte'
 	import AddNode from './AddNode.svelte'
+	import DataTestNode from './DataTestNode.svelte'
 	import AssetGraphEdge from './AssetGraphEdge.svelte'
 	import PanToNode from './PanToNode.svelte'
 	import { layoutAssetGraph } from './assetGraphLayout'
@@ -180,7 +181,13 @@
 		// the DAG. They force sugiyama to put + at layer 0 (top) and center
 		// it horizontally over the roots — same mechanism the flow editor
 		// uses for its Trigger node. Filtered out of rendered edges.
-		kind: 'lineage-write' | 'lineage-read' | 'trigger-asset' | 'trigger-native' | 'add-anchor'
+		kind:
+			| 'lineage-write'
+			| 'lineage-read'
+			| 'trigger-asset'
+			| 'trigger-native'
+			| 'add-anchor'
+			| 'data-test'
 		unsaved?: boolean
 		// Edge from a missing-trigger placeholder — styled red dashed to
 		// signal "this script declared `// on kafka` but no trigger row
@@ -203,10 +210,14 @@
 	function build(g: AssetGraphResponse) {
 		const nodes: Array<{
 			id: string
-			type: 'asset' | 'runnable' | 'trigger' | 'add'
+			type: 'asset' | 'runnable' | 'trigger' | 'add' | 'data-test'
 			data: any
 		}> = []
 		const edges: BuiltEdge[] = []
+		// Custom (`// data_test <script_path>`) tests are deployed scripts, so we
+		// draw each as its own node hanging off the asset it validates (deduped
+		// by node id across producers).
+		const addedTestNodes = new Set<string>()
 
 		const hasAddNode = onAddPipelineScript != null
 		if (hasAddNode) {
@@ -362,6 +373,23 @@
 					unsaved: e.unsaved,
 					data_tests: producerTests.get(runnableId)
 				})
+				// Each custom (`// data_test <script_path>`) test → its own node
+				// below the asset it validates, with a dashed "tests" edge.
+				for (const t of producerTests.get(runnableId) ?? []) {
+					if (t.type !== 'custom') continue
+					const testNodeId = `datatest:${assetId}:${t.path}`
+					if (!addedTestNodes.has(testNodeId)) {
+						addedTestNodes.add(testNodeId)
+						nodes.push({ id: testNodeId, type: 'data-test', data: { path: t.path } })
+					}
+					edges.push({
+						id: `test:${assetId}->${testNodeId}`,
+						source: assetId,
+						target: testNodeId,
+						kind: 'data-test',
+						unsaved: e.unsaved
+					})
+				}
 			}
 			if (access === 'r' || access === 'rw') {
 				edges.push({
@@ -714,6 +742,13 @@
 						style = 'stroke: rgb(156 163 175); stroke-width: 1.25px;'
 						animated = flowAnimated
 						break
+					case 'data-test':
+						// Asset → its custom-test script: dashed, muted, no run
+						// animation (the test isn't a producing step).
+						style = 'stroke: rgb(156 163 175); stroke-width: 1.25px;'
+						strokeDasharray = '4 3'
+						markerColor = 'rgb(156 163 175)'
+						break
 					case 'trigger-asset':
 						style = 'stroke: rgb(107 114 128); stroke-width: 2px;'
 						animated = flowAnimated
@@ -804,7 +839,8 @@
 		asset: AssetNode as any,
 		runnable: RunnableNode as any,
 		trigger: TriggerNode as any,
-		add: AddNode as any
+		add: AddNode as any,
+		'data-test': DataTestNode as any
 	}
 
 	const edgeTypes = {
@@ -818,6 +854,9 @@
 			onselect({ kind: 'asset', asset_kind: data.asset_kind, path: data.path })
 		} else if (node.type === 'runnable') {
 			onselect({ kind: 'runnable', runnable_kind: data.runnable_kind, path: data.path })
+		} else if (node.type === 'data-test') {
+			// A custom test is a deployed script — open it like any runnable.
+			onselect({ kind: 'runnable', runnable_kind: 'script', path: data.path })
 		}
 		// 'schedule' doesn't produce a selection.
 	}
