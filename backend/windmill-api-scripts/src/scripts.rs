@@ -1715,7 +1715,11 @@ async fn create_script_internal<'c>(
         // trigger its own downstream on success — see asset_dispatch.
         let (retry_count, retry_delay_s) = match spec {
             TriggerSpec::Asset { .. } => (
-                pipeline_annotations.retry.as_ref().map(|r| r.count as i16),
+                pipeline_annotations
+                    .retry
+                    .as_ref()
+                    // `// retry <count>` count is u32; saturate the narrowing to i16.
+                    .map(|r| r.count.min(i16::MAX as u32) as i16),
                 pipeline_annotations
                     .retry
                     .as_ref()

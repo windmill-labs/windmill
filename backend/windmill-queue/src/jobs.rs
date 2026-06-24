@@ -5571,11 +5571,28 @@ async fn push_inner<'c, 'd>(
                 if apply_preprocessor {
                     preprocessed = Some(false);
                 }
+                // Preserve worker affinity: normal ScriptHash pushes carry the
+                // script's `dedicated_worker` (it drives the dedicated tag below),
+                // but the SingleStepFlow payload doesn't — resolve it from the
+                // script row so a dedicated-worker script keeps its dedicated pool.
+                let dedicated_worker = if let Some(h) = &hash {
+                    sqlx::query_scalar::<_, Option<bool>>(
+                        "SELECT dedicated_worker FROM script WHERE hash = $1 AND workspace_id = $2",
+                    )
+                    .bind(h.0)
+                    .bind(workspace_id)
+                    .fetch_optional(db)
+                    .await?
+                    .flatten()
+                } else {
+                    None
+                };
                 break 'ssf JobPayloadUntagged {
                     runnable_id: hash.map(|h| h.0),
                     runnable_path: Some(path),
                     job_kind: JobKind::Script,
                     language,
+                    dedicated_worker,
                     concurrency_settings,
                     debouncing_settings,
                     retry_settings: retry.as_ref().map(RetrySettings::from).unwrap_or_default(),

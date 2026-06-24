@@ -35,9 +35,11 @@ pub struct RetrySettings {
 impl From<&Retry> for RetrySettings {
     fn from(r: &Retry) -> Self {
         Self {
-            constant_attempts: Some(r.constant.attempts as i32),
+            // attempts are u32; saturate the narrowing to i32 (the seconds/
+            // multiplier/random_factor fields are u16/i8 and can't overflow i32).
+            constant_attempts: Some(r.constant.attempts.min(i32::MAX as u32) as i32),
             constant_seconds: Some(r.constant.seconds as i32),
-            exponential_attempts: Some(r.exponential.attempts as i32),
+            exponential_attempts: Some(r.exponential.attempts.min(i32::MAX as u32) as i32),
             exponential_multiplier: Some(r.exponential.multiplier as i32),
             exponential_seconds: Some(r.exponential.seconds as i32),
             exponential_random_factor: r.exponential.random_factor.map(|x| x as i32),
