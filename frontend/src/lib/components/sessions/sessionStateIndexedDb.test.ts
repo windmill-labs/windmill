@@ -29,6 +29,7 @@ import {
 	deleteSessionRecord,
 	archiveSessionsForWorkspace,
 	reconcileSessionsLifecycle,
+	setSessionArchived,
 	type Session
 } from './sessionState.svelte'
 
@@ -219,6 +220,38 @@ describe('sessionState IndexedDB persistence', () => {
 		// User-archived → left untouched (no tag), so unarchive won't resurrect it.
 		expect(userarch.archived).toBe(true)
 		expect(userarch.archivedByWorkspace).toBeUndefined()
+	})
+
+	it('does not persist a per-session unarchive when the workspace is gone (resurrection guard)', async () => {
+		const user = freshUser()
+		// Seed the archived session while its workspace is still in the list so the
+		// write lands.
+		usersWorkspaceStore.set({
+			email: user.email,
+			workspaces: [{ id: 'gone-ws', name: 'gone', disabled: false }] as never
+		})
+		userStore.set(user)
+		await flush()
+		await putSession(session({ id: 'arch', createdAt: 1, workspace_id: 'gone-ws', archived: true }))
+		await rehydrate(user)
+		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['arch']))
+
+		// The workspace disappears from the user's list (archived/deleted elsewhere).
+		// A non-empty list that omits it triggers the putSession resurrection guard.
+		usersWorkspaceStore.set({
+			email: user.email,
+			workspaces: [{ id: 'live-ws', name: 'live', disabled: false }] as never
+		})
+		await flush()
+
+		// Attempting to unarchive in place must NOT persist — this is exactly why the
+		// per-session Unarchive control is hidden when the workspace is unavailable.
+		setSessionArchived('arch', false)
+		await flush()
+		await rehydrate(user)
+
+		const s = sessionState.sessions.find((x) => x.id === 'arch')!
+		expect(s.archived).toBe(true)
 	})
 
 	it('re-roots a sub-fork session on reconcile when an ancestor was deleted', async () => {

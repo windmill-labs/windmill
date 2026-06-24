@@ -637,17 +637,25 @@
 												icon: Pencil,
 												action: () => startRename(session)
 											},
-											session.archived
-												? {
-														displayName: 'Unarchive',
-														icon: ArchiveRestore,
-														action: () => setSessionArchived(session.id, false)
-													}
-												: {
-														displayName: 'Archive',
-														icon: Archive,
-														action: () => setSessionArchived(session.id, true)
-													},
+											...(session.archived
+												? // No Unarchive when the workspace is gone — it can't persist
+													// (putSession guard) and reconcile would re-archive it.
+													isUnavailableFork(session)
+													? []
+													: [
+															{
+																displayName: 'Unarchive',
+																icon: ArchiveRestore,
+																action: () => setSessionArchived(session.id, false)
+															}
+														]
+												: [
+														{
+															displayName: 'Archive',
+															icon: Archive,
+															action: () => setSessionArchived(session.id, true)
+														}
+													]),
 											{
 												displayName: 'Delete',
 												icon: Trash2,

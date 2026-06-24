@@ -114,13 +114,13 @@
 	}
 </script>
 
-{#if committedId && isUnavailable && !session.archived}
+{#if committedId && isUnavailable}
 	<!-- Committed workspace is no longer in the user's list (deleted, archived,
 	     or access revoked). Surface an actionable banner: move the session
 	     to a still-valid workspace, or discard it (archive / delete). The
-	     chat input is disabled by SessionWrapper while this is shown. Suppressed
-	     while the session is archived — the archived banner takes precedence
-	     and this only matters once the user unarchives. -->
+	     chat input is disabled by SessionWrapper while this is shown. Shown even
+	     for an archived session — unarchiving in place can't help when the
+	     workspace is gone, so move/discard is the only real recovery path. -->
 	<div class="flex flex-col gap-2 py-2 px-3 text-xs border rounded-md bg-surface-tertiary">
 		<div class="flex flex-row items-start gap-2">
 			<GitPullRequestClosed class="w-4 h-4 shrink-0 text-tertiary mt-0.5" />
