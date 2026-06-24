@@ -34,6 +34,7 @@ export type AppRootMeta = {
 	summary?: string
 	hasDraft?: boolean
 	draftOnly?: boolean
+	draftUsers?: { username?: string | null }[]
 }
 
 export type FolderNode<T> = {

@@ -21,6 +21,8 @@
 		hasDraft?: boolean
 		/** Never-deployed draft → the marker reads "Draft only" instead of "Draft". */
 		draftOnly?: boolean
+		/** Draft authors, for the shared DraftBadge's avatar circles. */
+		draftUsers?: { username?: string | null }[]
 	}
 </script>
 
@@ -44,6 +46,7 @@
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import WorkspaceItemRow from '$lib/components/WorkspaceItemRow.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
+	import { userStore } from '$lib/stores'
 	import WorkspaceItemDiffViewer from '$lib/components/WorkspaceItemDiffViewer.svelte'
 	import {
 		rawAppDiffToItems,
@@ -269,7 +272,8 @@
 				summaryKey: itemKey(d),
 				summary: 'summary' in d ? d.summary : undefined,
 				hasDraft: 'hasDraft' in d ? d.hasDraft : undefined,
-				draftOnly: 'draftOnly' in d ? d.draftOnly : undefined
+				draftOnly: 'draftOnly' in d ? d.draftOnly : undefined,
+				draftUsers: 'draftUsers' in d ? d.draftUsers : undefined
 			})
 		}
 		return m
@@ -451,7 +455,13 @@
 						{appSummary ?? node.name}
 					</span>
 					{#if node.app.hasDraft}
-						<DraftBadge is_draft draft_only={node.app.draftOnly ?? false} />
+						<DraftBadge
+							iconOnly
+							is_draft
+							draft_only={node.app.draftOnly ?? false}
+							draft_users={node.app.draftUsers ?? []}
+							currentUsername={$userStore?.username}
+						/>
 					{/if}
 					<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
 					<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
@@ -517,7 +527,13 @@
 		>
 			{#snippet extras()}
 				{#if 'hasDraft' in d && d.hasDraft}
-					<DraftBadge is_draft draft_only={'draftOnly' in d ? (d.draftOnly ?? false) : false} />
+					<DraftBadge
+						iconOnly
+						is_draft
+						draft_only={'draftOnly' in d ? (d.draftOnly ?? false) : false}
+						draft_users={'draftUsers' in d ? (d.draftUsers ?? []) : []}
+						currentUsername={$userStore?.username}
+					/>
 				{/if}
 			{/snippet}
 		</WorkspaceItemRow>
@@ -665,6 +681,8 @@
 												<DraftBadge
 													is_draft
 													draft_only={'draftOnly' in d ? (d.draftOnly ?? false) : false}
+													draft_users={'draftUsers' in d ? (d.draftUsers ?? []) : []}
+													currentUsername={$userStore?.username}
 												/>
 											{/if}
 											<Badge color={statusBadgeColor(status)}>

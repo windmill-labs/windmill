@@ -165,6 +165,7 @@
 				status: draft ? 'modified' : statusOf(d),
 				hasDraft: !!draft,
 				draftOnly: draft?.draft_only ?? false,
+				draftUsers: draft?.draft_users,
 				displayPath: draft?.draft_path ?? d.path,
 				summary: draft?.summary
 			})
@@ -187,6 +188,7 @@
 				status: it.draft_only ? 'added' : 'modified',
 				hasDraft: true,
 				draftOnly: it.draft_only,
+				draftUsers: it.draft_users,
 				displayPath: it.draft_path ?? it.path,
 				summary: it.summary
 			})
