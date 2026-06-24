@@ -68,19 +68,25 @@
 </script>
 
 <div class="flex flex-col h-full">
-	<div class="flex items-center gap-2 px-3 py-2 border-b shrink-0">
-		<ToggleButtonGroup selected={tab} on:selected={(e) => (tab = e.detail)}>
-			{#snippet children({ item })}
-				<ToggleButton size="sm" value="partitions" label="Partitions" icon={Table2} {item} />
-				<ToggleButton size="sm" value="history" label="History" icon={History} {item} />
-			{/snippet}
-		</ToggleButtonGroup>
-	</div>
+	{#if !qualifiedTable}
+		<!-- Catalog-level ducklake node (no table segment, e.g. `ducklake://main`):
+		     snapshot history / time-travel are per-table, so only the partition
+		     grid applies here. -->
+		<PartitionStatusGrid {path} {workspace} />
+	{:else}
+		<div class="flex items-center gap-2 px-3 py-2 border-b shrink-0">
+			<ToggleButtonGroup selected={tab} on:selected={(e) => (tab = e.detail)}>
+				{#snippet children({ item })}
+					<ToggleButton size="sm" value="partitions" label="Partitions" icon={Table2} {item} />
+					<ToggleButton size="sm" value="history" label="History" icon={History} {item} />
+				{/snippet}
+			</ToggleButtonGroup>
+		</div>
 
-	<div class="flex-1 min-h-0">
-		{#if tab === 'partitions'}
-			<PartitionStatusGrid {path} {workspace} />
-		{:else}
+		<div class="flex-1 min-h-0">
+			{#if tab === 'partitions'}
+				<PartitionStatusGrid {path} {workspace} />
+			{:else}
 			<div class="h-full" bind:clientWidth={paneWidth}>
 				<Splitpanes class="!h-full">
 					<Pane size={listSize} minSize={20}>
@@ -106,4 +112,5 @@
 			</div>
 		{/if}
 	</div>
+	{/if}
 </div>

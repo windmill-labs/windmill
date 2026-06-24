@@ -2118,22 +2118,27 @@ export function pick<T extends object, K extends keyof T>(obj: T, keys: readonly
 
 export function parseDbInputFromAssetSyntax(path: string): DbInput | null {
 	const [p1, _p2] = path.split('://')
-	const [p2, _p3] = _p2.split('/')
-	const [p3, p4] = _p3.split('.')
+	const [p2, _p3] = (_p2 ?? '').split('/')
+	// `_p3` is undefined for a catalog-only path (e.g. `ducklake://main`, no
+	// table segment) — guard the split so the helper returns a table-less input
+	// instead of throwing.
+	const [p3, p4] = (_p3 ?? '').split('.')
+	const specificTable = p4 || p3 || undefined
+	const specificSchema = p4 ? p3 : undefined
 	return p1 === 'ducklake'
 		? {
 				type: 'ducklake',
 				ducklake: p2 || 'main',
-				specificTable: p4 ?? p3,
-				specificSchema: p4 ? p3 : undefined
+				specificTable,
+				specificSchema
 			}
 		: p1 === 'datatable'
 			? {
 					type: 'database',
 					resourcePath: `datatable://${p2 || 'main'}`,
 					resourceType: 'postgresql',
-					specificTable: p4 ?? p3,
-					specificSchema: p4 ? p3 : undefined
+					specificTable,
+					specificSchema
 				}
 			: null
 }
