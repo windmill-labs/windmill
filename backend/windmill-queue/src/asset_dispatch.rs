@@ -425,27 +425,16 @@ fn is_eligible_kind(job: &MiniCompletedJob) -> bool {
     true
 }
 
-// A native retry attempt re-runs the same runnable as its chain parent (`push`
-// re-pushes with `hash: job.runnable_id`). Any other parented `Script` child —
-// notably schedule/error/recovery handlers — runs a different script, so a
-// mismatch (or an absent parent runnable) means "not a retry attempt".
-// A native retry attempt always carries its retry policy via
-// `runnable_settings_handle` (re-inserted by `maybe_enqueue` for chaining) and
-// has no `flow_innermost_root_job`. Other parented `Script` children — schedule
-// handlers and WAC inline children (which re-run the SAME runnable) — carry
-// neither, so runnable equality alone is not a sufficient signal.
+// Native retry attempts carry an explicit `native_retry_attempt` marker; no
+// other parented `Script` child (schedule handlers, WAC inline children, flow
+// steps) does. One indexed point lookup, only for parented jobs.
 async fn is_native_retry_attempt(db: &DB, job: &MiniCompletedJob) -> Result<bool> {
-    if job.flow_innermost_root_job.is_some() {
-        return Ok(false);
-    }
-    Ok(
-        windmill_common::runnable_settings::prefetch_retry_from_handle(
-            job.runnable_settings_handle,
-            db,
-        )
-        .await?
-        .is_some(),
+    Ok(sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = $1) AS \"exists!\"",
+        job.id,
     )
+    .fetch_one(db)
+    .await?)
 }
 
 async fn fetch_args(

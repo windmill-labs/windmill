@@ -1711,19 +1711,16 @@ pub async fn maybe_enqueue_native_script_retry(
         return Ok(false);
     }
 
-    // Read the attempt counter from the still-present queue row. The chain root
-    // is the first attempt: `parent_job` for a retry, else this job itself.
+    // Attempt counter for this job: its `native_retry_attempt` marker, or 0 for
+    // the first (un-marked) attempt. The marker is persistent (unlike the queue
+    // row), so it doubles as the explicit "this job is a retry attempt" signal
+    // consumers key off of.
     let prev_attempts = sqlx::query_scalar!(
-        "SELECT extras FROM v2_job_queue WHERE id = $1 AND workspace_id = $2",
+        "SELECT attempt FROM native_retry_attempt WHERE job_id = $1",
         job.id,
-        job.workspace_id,
     )
     .fetch_optional(db)
     .await?
-    .flatten()
-    .as_ref()
-    .and_then(|e| e.get("retry_attempt"))
-    .and_then(|v| v.as_u64())
     .unwrap_or(0) as u32;
     let root = job.parent_job.unwrap_or(job.id);
     // Scheduled chains keep the schedule trigger so the terminal attempt drives
@@ -1866,9 +1863,9 @@ pub async fn maybe_enqueue_native_script_retry(
     };
 
     sqlx::query!(
-        "UPDATE v2_job_queue SET extras = jsonb_build_object('retry_attempt', $1::bigint) WHERE id = $2",
-        (prev_attempts + 1) as i64,
+        "INSERT INTO native_retry_attempt (job_id, attempt) VALUES ($1, $2)",
         new_id,
+        (prev_attempts + 1) as i16,
     )
     .execute(&mut *tx)
     .await?;
