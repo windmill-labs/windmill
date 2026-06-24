@@ -145,20 +145,27 @@ export type DucklakeSnapshot = {
 }
 
 /**
- * List a ducklake's time-travel history (its catalog commit log), newest
- * first. Snapshots are catalog-wide in DuckLake, so every entry is a version
- * an `AT (VERSION => n)` read can target. Runs the `DUCKLAKE_SNAPSHOTS` marker
- * as a duckdb preview job (server-side SQL build + ATTACH), so no raw SQL is
- * constructed in the client.
+ * List a ducklake table's time-travel history, newest first. DuckLake snapshots
+ * are catalog-wide commits; passing `table` (schema-qualified, e.g.
+ * `main.events_daily`) scopes the list to snapshots where the table exists —
+ * otherwise an `AT (VERSION => n)` read could target a version predating the
+ * table's creation and error. Runs the `DUCKLAKE_SNAPSHOTS` marker as a duckdb
+ * preview job (server-side SQL build + ATTACH), so no raw SQL is constructed in
+ * the client.
  */
 export async function fetchDucklakeSnapshots({
 	workspace,
-	ducklake
+	ducklake,
+	table
 }: {
 	workspace: string
 	ducklake: string
+	table?: string
 }): Promise<DucklakeSnapshot[]> {
-	const content = `-- WM_INTERNAL_DB_DUCKLAKE_SNAPSHOTS ${JSON.stringify({ ducklake })}`
+	const content = `-- WM_INTERNAL_DB_DUCKLAKE_SNAPSHOTS ${JSON.stringify({
+		ducklake,
+		...(table ? { table } : {})
+	})}`
 	const rows = await runScriptAndPollResult({
 		workspace,
 		requestBody: { args: {}, language: 'duckdb', content }

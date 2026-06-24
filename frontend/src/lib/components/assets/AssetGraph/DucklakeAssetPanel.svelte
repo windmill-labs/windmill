@@ -6,7 +6,9 @@
 	//
 	// The snapshot list is fetched here (not in the list child) so both the list
 	// and the preview share one source of truth: `effectiveVersion` derives to
-	// the user's pick, or the newest snapshot until they pick one.
+	// the user's pick, or the newest snapshot until they pick one. The list is
+	// scoped to the table (catalog-wide snapshots predating the table's creation
+	// can't be read), so a selectable version always exists in the table.
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { Table2, History } from 'lucide-svelte'
@@ -29,19 +31,33 @@
 	// The user's explicit snapshot pick (undefined until they click a row).
 	let selectedVersion = $state<number | undefined>(undefined)
 
-	let ducklake = $derived.by(() => {
-		const i = parseDbInputFromAssetSyntax(`ducklake://${path}`)
-		return i && 'ducklake' in i ? i.ducklake : undefined
+	let parsed = $derived(parseDbInputFromAssetSyntax(`ducklake://${path}`))
+	let ducklake = $derived(parsed && 'ducklake' in parsed ? parsed.ducklake : undefined)
+	// Schema-qualified table name (schema defaults to `main`) used to scope the
+	// snapshot list to versions where the table exists.
+	let qualifiedTable = $derived.by(() => {
+		if (!parsed || !('specificTable' in parsed) || !parsed.specificTable) return undefined
+		const schema = 'specificSchema' in parsed ? parsed.specificSchema : undefined
+		return `${schema ?? 'main'}.${parsed.specificTable}`
 	})
+
 	let snapshots = resource(
-		[() => workspace, () => ducklake],
-		async ([ws, dl]) => {
+		[() => workspace, () => ducklake, () => qualifiedTable],
+		async ([ws, dl, table]) => {
 			if (!ws || !dl) return []
-			return await fetchDucklakeSnapshots({ workspace: ws, ducklake: dl })
+			return await fetchDucklakeSnapshots({ workspace: ws, ducklake: dl, table })
 		}
 	)
 	// Newest snapshot is the default preview until the user selects one.
 	let effectiveVersion = $derived(selectedVersion ?? snapshots.current?.[0]?.snapshot_id)
+
+	// Keep the list pane to a roughly fixed width rather than a fixed fraction,
+	// so it stays compact on wide panels instead of sprawling. Falls back to a
+	// usable fraction on narrow ones and before the width is measured.
+	let paneWidth = $state(0)
+	let listSize = $derived(
+		paneWidth > 0 ? Math.max(24, Math.min(46, Math.round((260 / paneWidth) * 100))) : 36
+	)
 </script>
 
 <div class="flex flex-col h-full">
@@ -58,27 +74,29 @@
 		{#if tab === 'partitions'}
 			<PartitionStatusGrid {path} {workspace} />
 		{:else}
-			<Splitpanes class="!h-full">
-				<Pane size={42} minSize={25}>
-					<DucklakeSnapshotHistory
-						items={snapshots.current ?? []}
-						loading={snapshots.loading}
-						error={snapshots.error?.message}
-						onRefresh={() => snapshots.refetch()}
-						selectedVersion={effectiveVersion}
-						onSelect={(v) => (selectedVersion = v)}
-					/>
-				</Pane>
-				<Pane size={58} minSize={30}>
-					<div class="h-full p-3 overflow-auto">
-						<DucklakeVersionPreview
-							assetUri={`ducklake://${path}`}
-							version={effectiveVersion}
-							class="h-full"
+			<div class="h-full" bind:clientWidth={paneWidth}>
+				<Splitpanes class="!h-full">
+					<Pane size={listSize} minSize={20}>
+						<DucklakeSnapshotHistory
+							items={snapshots.current ?? []}
+							loading={snapshots.loading}
+							error={snapshots.error?.message}
+							onRefresh={() => snapshots.refetch()}
+							selectedVersion={effectiveVersion}
+							onSelect={(v) => (selectedVersion = v)}
 						/>
-					</div>
-				</Pane>
-			</Splitpanes>
+					</Pane>
+					<Pane size={100 - listSize} minSize={30}>
+						<div class="h-full p-3 overflow-auto">
+							<DucklakeVersionPreview
+								assetUri={`ducklake://${path}`}
+								version={effectiveVersion}
+								class="h-full"
+							/>
+						</div>
+					</Pane>
+				</Splitpanes>
+			</div>
 		{/if}
 	</div>
 </div>

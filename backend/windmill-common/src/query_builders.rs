@@ -220,11 +220,16 @@ struct CountPayload {
 }
 
 /// `WM_INTERNAL_DB_DUCKLAKE_SNAPSHOTS` payload — lists the time-travel history
-/// (catalog commit log) of a ducklake. Snapshots are catalog-wide in DuckLake,
-/// so this lists every commit; any `AT (VERSION => n)` read targets one of them.
+/// of a ducklake table. DuckLake snapshots are catalog-wide commits, so without
+/// a `table` this lists every commit; with one it is scoped to snapshots where
+/// that table exists (see `expand_ducklake_snapshots`).
 #[derive(Deserialize)]
 struct DucklakeSnapshotsPayload {
     ducklake: String,
+    /// Schema-qualified table name (e.g. `main.events_daily`) to scope the
+    /// history to. Snapshots predating the table's creation are excluded — a
+    /// time-travel read can't target a version where the table didn't exist.
+    table: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -397,9 +402,27 @@ fn expand_ducklake_snapshots(json_str: &str, db_type: DbType) -> Result<String, 
     let payload: DucklakeSnapshotsPayload = serde_json::from_str(json_str)
         .map_err(|e| format!("Invalid DUCKLAKE_SNAPSHOTS payload: {}", e))?;
     // `dl` is the alias `wrap_ducklake_query` attaches and `USE`s below.
-    let query =
-        "SELECT snapshot_id, snapshot_time FROM ducklake_snapshots('dl') ORDER BY snapshot_id DESC"
-            .to_string();
+    let query = match &payload.table {
+        // Scope to snapshots from the table's first creation onward. A DuckLake
+        // table created at snapshot N can't be read before N (the catalog-wide
+        // list would otherwise offer impossible versions). The creation snapshot
+        // is the earliest whose `changes.tables_created` names the table;
+        // COALESCE to 0 (show all) if it is never found.
+        Some(table) => {
+            let table = escape_sql_literal(table);
+            format!(
+                "SELECT snapshot_id, snapshot_time FROM ducklake_snapshots('dl') \
+                 WHERE snapshot_id >= COALESCE((\
+                   SELECT min(snapshot_id) FROM ducklake_snapshots('dl') \
+                   WHERE list_contains(changes.tables_created, '{table}')), 0) \
+                 ORDER BY snapshot_id DESC"
+            )
+        }
+        None => {
+            "SELECT snapshot_id, snapshot_time FROM ducklake_snapshots('dl') ORDER BY snapshot_id DESC"
+                .to_string()
+        }
+    };
     Ok(maybe_wrap_ducklake(query, Some(&payload.ducklake)))
 }
 
@@ -3304,6 +3327,17 @@ mod tests {
         assert!(result.contains("ATTACH 'ducklake://analytics' AS dl;USE dl;"));
         assert!(result.contains("ducklake_snapshots('dl')"));
         assert!(result.contains("ORDER BY snapshot_id DESC"));
+        // Unscoped: no per-table existence filter.
+        assert!(!result.contains("tables_created"));
+    }
+
+    #[test]
+    fn test_expand_ducklake_snapshots_scoped_to_table() {
+        let json = r#"{"ducklake": "analytics", "table": "main.events_daily"}"#;
+        let result = expand_ducklake_snapshots(json, DbType::Duckdb).unwrap();
+        // Scoped to snapshots from the table's first creation onward.
+        assert!(result.contains("list_contains(changes.tables_created, 'main.events_daily')"));
+        assert!(result.contains("snapshot_id >= COALESCE"));
     }
 
     #[test]
