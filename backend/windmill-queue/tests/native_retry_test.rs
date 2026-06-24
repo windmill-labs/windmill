@@ -197,14 +197,21 @@ mod native_retry {
     // Per-occurrence terminal status (drives on_failure_times / on_recovery).
     // Mirrors the exact query in windmill-ee-private jobs_ee::apply_schedule_handlers.
     // ------------------------------------------------------------------
-    async fn seed_job(db: &Pool<Postgres>, id: Uuid, parent: Option<Uuid>, status: &str) {
+    async fn seed_job(
+        db: &Pool<Postgres>,
+        id: Uuid,
+        parent: Option<Uuid>,
+        runnable_id: i64,
+        status: &str,
+    ) {
         sqlx::query(
-            "INSERT INTO v2_job (id, workspace_id, kind, runnable_path, trigger_kind, trigger, parent_job)
-             VALUES ($1, $2, 'script', $3, 'schedule', $4, $5)",
+            "INSERT INTO v2_job (id, workspace_id, kind, runnable_path, runnable_id, trigger_kind, trigger, parent_job)
+             VALUES ($1, $2, 'script', $3, $4, 'schedule', $5, $6)",
         )
         .bind(id)
         .bind(WS)
         .bind(SCRIPT)
+        .bind(runnable_id)
         .bind(SCHED)
         .bind(parent)
         .execute(db)
@@ -224,28 +231,35 @@ mod native_retry {
 
     #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
     async fn per_occurrence_status_counts_recovered_as_success(db: Pool<Postgres>) {
-        // a: root fails, a retry child succeeds -> occurrence RECOVERED -> success
-        // b: root fails, retry child also fails -> all attempts failed -> failure
-        // c: root succeeds directly            -> success
+        // runnable 1 = the scheduled script; a handler child runs a DIFFERENT runnable.
+        // a: root fails, a same-runnable retry succeeds  -> RECOVERED -> success
+        // b: root fails, retry also fails                -> failure
+        // c: root succeeds directly                      -> success
+        // e: root fails, only its on_failure HANDLER (different runnable) succeeds
+        //    -> still failure: the handler child must NOT count as a recovery
         // d: the current occurrence (excluded by `j.id != $4`)
-        let (a, b, c, d) = (
+        let (a, b, c, e, d) = (
+            Uuid::new_v4(),
             Uuid::new_v4(),
             Uuid::new_v4(),
             Uuid::new_v4(),
             Uuid::new_v4(),
         );
-        seed_job(&db, a, None, "failure").await;
-        seed_job(&db, Uuid::new_v4(), Some(a), "success").await; // a's recovering retry
-        seed_job(&db, b, None, "failure").await;
-        seed_job(&db, Uuid::new_v4(), Some(b), "failure").await; // b's failed retry
-        seed_job(&db, c, None, "success").await;
-        seed_job(&db, d, None, "failure").await; // current occurrence
+        seed_job(&db, a, None, 1, "failure").await;
+        seed_job(&db, Uuid::new_v4(), Some(a), 1, "success").await; // a's same-runnable retry
+        seed_job(&db, b, None, 1, "failure").await;
+        seed_job(&db, Uuid::new_v4(), Some(b), 1, "failure").await; // b's failed retry
+        seed_job(&db, c, None, 1, "success").await;
+        seed_job(&db, e, None, 1, "failure").await;
+        seed_job(&db, Uuid::new_v4(), Some(e), 999, "success").await; // e's on_failure handler (other runnable)
+        seed_job(&db, d, None, 1, "failure").await; // current occurrence
 
-        // Exact expression from jobs_ee::apply_schedule_handlers.
+        // Exact expression from jobs_ee::apply_schedule_handlers: the EXISTS is
+        // scoped to same-runnable children, so handler children don't count.
         let rows = sqlx::query_as::<_, (Uuid, bool)>(
             "SELECT j.id, (status = 'success' OR EXISTS (
                     SELECT 1 FROM v2_job_completed cc JOIN v2_job jc ON jc.id = cc.id
-                    WHERE jc.parent_job = j.id AND cc.status = 'success'
+                    WHERE jc.parent_job = j.id AND jc.runnable_id = j.runnable_id AND cc.status = 'success'
                 ))
              FROM v2_job j JOIN v2_job_completed USING (id)
              WHERE j.workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2
@@ -261,23 +275,25 @@ mod native_retry {
         .unwrap();
 
         let status: std::collections::HashMap<Uuid, bool> = rows.into_iter().collect();
-        // Retries (parent_job set) are NOT occurrences, and the current one is excluded:
-        // exactly the three roots a, b, c remain.
+        // Retries and handlers (parent_job set) are NOT occurrences, and the current
+        // one is excluded: exactly the four roots a, b, c, e remain.
         assert_eq!(
             status.len(),
-            3,
-            "retries excluded from occurrence counting; current excluded"
+            4,
+            "retries/handlers excluded from occurrence counting; current excluded"
         );
         assert_eq!(
             status[&a], true,
-            "recovered occurrence (root fail, retry success) = success"
+            "recovered occurrence (same-runnable retry succeeded) = success"
         );
         assert_eq!(
             status[&b], false,
             "all-attempts-failed occurrence = failure"
         );
         assert_eq!(status[&c], true, "direct success");
-        // Consequence for on_failure_times>1: the recovered occurrence `a` breaks a
-        // consecutive-failure streak, so a retried-but-recovered run never counts toward it.
+        assert_eq!(
+            status[&e], false,
+            "on_failure handler success must NOT count as a recovery"
+        );
     }
 }
