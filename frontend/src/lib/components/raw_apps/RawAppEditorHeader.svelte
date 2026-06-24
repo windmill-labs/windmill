@@ -250,6 +250,7 @@
 	let publishToHubDrawerOpen = $state(false)
 	let publishingToHub = $state(false)
 	let deploymentMsg: string | undefined = $state(undefined)
+	let preserveOnBehalfOf = $state(false)
 
 	// Top-bar responsive collapse — container width, not viewport.
 	let topbarWidth = $state(0)
@@ -314,7 +315,8 @@
 						summary: summary,
 						policy,
 						deployment_message: deploymentMsg,
-						custom_path: customPath
+						custom_path: customPath,
+						preserve_on_behalf_of: preserveOnBehalfOf || undefined
 					},
 					js,
 					css
@@ -456,7 +458,8 @@
 					// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
 					// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
 					custom_path:
-						$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined
+						$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined,
+					preserve_on_behalf_of: preserveOnBehalfOf || undefined
 				},
 				js,
 				css
@@ -691,6 +694,7 @@
 			bind:customPathError
 			bind:pathError
 			bind:newEditedPath
+			bind:preserveOnBehalfOf
 		/>
 	</DrawerContent>
 </Drawer>
