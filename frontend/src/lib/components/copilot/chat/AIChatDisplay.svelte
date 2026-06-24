@@ -252,10 +252,10 @@
 
 	const showTypingIndicator = $derived(aiChatManager.loading)
 
-	// `@` context picker is offered in modes that accept workspace/script/flow
-	// references (SCRIPT, FLOW → workspace items + code blocks) or in APP mode
-	// (datatables, frontend files, etc.). Other modes (NAVIGATOR, ASK, API,
-	// GLOBAL) don't surface it.
+	// The manual `@` context-picker button. Shown in SCRIPT/FLOW (workspace items +
+	// code blocks) and APP (datatables, frontend files). Hidden in GLOBAL — there
+	// `@`-context is still invoked inline by typing `@` in the input, so the button
+	// is redundant. NAVIGATOR/ASK/API don't take @-context at all.
 	const showContextPicker = $derived(
 		aiChatManager.mode === AIMode.SCRIPT ||
 			aiChatManager.mode === AIMode.FLOW ||
