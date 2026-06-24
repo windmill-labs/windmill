@@ -166,13 +166,16 @@ export async function fetchDucklakeColumnsAtVersion({
 	version: number
 }): Promise<ColumnDef[]> {
 	// Quote each identifier part (schema.table) so a dotted/odd table name can't
-	// break the statement. `version` is a number — injection-safe.
+	// break the statement, and double single-quotes in the catalog name so it
+	// can't break out of the ATTACH string literal (mirrors the backend's
+	// `escape_sql_literal`). `version` is a number — injection-safe.
 	const quoted = tableKey
 		.split('.')
 		.map((p) => `"${p.replace(/"/g, '""')}"`)
 		.join('.')
+	const ducklakeLit = ducklake.replace(/'/g, "''")
 	const content =
-		`ATTACH 'ducklake://${ducklake}' AS __dlv__; USE __dlv__; ` +
+		`ATTACH 'ducklake://${ducklakeLit}' AS __dlv__; USE __dlv__; ` +
 		`DESCRIBE SELECT * FROM ${quoted} AT (VERSION => ${version});`
 	const rows = (await runScriptAndPollResult({
 		workspace,

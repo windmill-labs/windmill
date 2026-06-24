@@ -259,9 +259,9 @@ Don't try to give both the full treatment for v1.
 5. **Surface it** — last-materialized/snapshot/row-count on the asset node;
    missing-partition set feeds the backfill UI.
 6. *v1.x* — time-travel UX over the captured snapshots: a per-asset **History**
-   tab (snapshot list + copy `AT (VERSION => n)` + query-at-version preview).
-   Automatic cascade pinning (`$WM_UPSTREAM_SNAPSHOT`) is deferred — see
-   §"Reproducibility" for why.
+   tab — a master-detail snapshot list + query-at-version preview that copies the
+   full `FROM lake.<table> AT (VERSION => n)` clause. Automatic cascade pinning
+   (`$WM_UPSTREAM_SNAPSHOT`) is deferred — see §"Reproducibility" for why.
 
 Steps 1–5 are a thin annotation+template layer plus one metadata table and one
 extra read per run. They deliver managed/incremental/versioned assets,
