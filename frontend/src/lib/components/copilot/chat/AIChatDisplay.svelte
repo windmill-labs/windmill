@@ -259,7 +259,6 @@
 	const showContextPicker = $derived(
 		aiChatManager.mode === AIMode.SCRIPT ||
 			aiChatManager.mode === AIMode.FLOW ||
-			aiChatManager.mode === AIMode.GLOBAL ||
 			aiChatManager.mode === AIMode.APP
 	)
 
