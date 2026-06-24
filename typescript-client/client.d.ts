@@ -22,6 +22,10 @@ export {
 export {
   datatable,
   ducklake,
+  upsertPartition,
+  appendPartition,
+  type DucklakeMaterializeOptions,
+  type SqlStatement,
   type SqlTemplateFunction,
   type DatatableSqlTemplateFunction,
 } from "./sqlUtils";

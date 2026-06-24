@@ -7,7 +7,7 @@ use axum::{extract::Path, routing::post, Extension, Json, Router};
 use http::StatusCode;
 use sqlx::PgConnection;
 use std::collections::HashSet;
-use windmill_api_auth::ApiAuthed;
+use windmill_api_auth::{check_scopes, ApiAuthed};
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
 use windmill_common::{
@@ -262,6 +262,12 @@ pub async fn create_many_http_triggers(
     let mut route_path_keys = Vec::with_capacity(new_http_triggers.len());
 
     for new_http_trigger in new_http_triggers.iter() {
+        // Per-item write scope, matching the single-create handler. The bulk
+        // endpoint must not let a path-scoped token create triggers outside it.
+        check_scopes(&authed, || {
+            format!("http_triggers:write:{}", &new_http_trigger.base.path)
+        })?;
+
         handler
             .validate_new(&db, &w_id, &new_http_trigger.config)
             .await
@@ -373,7 +379,8 @@ impl TriggerCrud for HttpTrigger {
 
     const TABLE_NAME: &'static str = "http_trigger";
     const TRIGGER_TYPE: &'static str = "http";
-    const DRAFT_KIND: windmill_common::user_drafts::UserDraftItemKind = windmill_common::user_drafts::UserDraftItemKind::TriggerHttp;
+    const DRAFT_KIND: windmill_common::user_drafts::UserDraftItemKind =
+        windmill_common::user_drafts::UserDraftItemKind::TriggerHttp;
     const SUPPORTS_SERVER_STATE: bool = false;
     const SUPPORTS_TEST_CONNECTION: bool = false;
     const ROUTE_PREFIX: &'static str = "/http_triggers";

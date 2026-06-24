@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT SUM(pg_database_size(datname))::BIGINT AS \"v!\" FROM pg_database",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "v!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "074dd26f6427f4ff97e92c35163ad042144e656adcca56a4936a2eb196d3f48c"
+}

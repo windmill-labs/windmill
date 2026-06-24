@@ -68,6 +68,7 @@
 	// `runtime.syncPreviewWithDeployed`, which discards the fork draft + reloads
 	// the preview to the deployed version.
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
+	import { stripRawAppDiffNoise } from './utils'
 	import type { RawAppData } from './dataTableRefUtils'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
@@ -185,6 +186,11 @@
 		othersDraftsCount = 0,
 		onOpenOthersDrafts
 	}: Props = $props()
+
+	// Set by the on-behalf-of selector when the publisher picks a user other than
+	// themselves. Forwarded as `preserve_on_behalf_of` so the backend keeps the
+	// policy's on_behalf_of instead of resetting it to the deploying user.
+	let preserveOnBehalfOf = $state(false)
 
 	// The AutosaveIndicator watches these; in the sessions preview they're the
 	// session's (workspace, path), else the full-page editor's own values.
@@ -371,15 +377,7 @@
 				savedApp &&
 				app &&
 				orderedJsonStringify(deployedValue) ===
-					orderedJsonStringify(
-						replaceFalseWithUndefined({
-							summary: summary,
-							value: app,
-							path: newEditedPath || savedApp.path,
-							policy,
-							custom_path: customPath
-						})
-					)
+					orderedJsonStringify(replaceFalseWithUndefined(currentDiffValue))
 			) {
 				await updateApp(npath)
 			} else {
@@ -402,15 +400,9 @@
 
 		deployedBy = deployedApp.created_by
 
-		// Strip off extra information
-		deployedValue = replaceFalseWithUndefined({
-			...deployedApp,
-			id: undefined,
-			created_at: undefined,
-			created_by: undefined,
-			versions: undefined,
-			extra_perms: undefined
-		})
+		// Normalize away post-deploy noise (see stripRawAppDiffNoise) so the
+		// diff/comparison only reflects what the editor actually changed.
+		deployedValue = replaceFalseWithUndefined(stripRawAppDiffNoise(deployedApp))
 	}
 
 	async function openDiffDrawer() {
@@ -424,14 +416,8 @@
 		diffDrawer?.openDrawer()
 		diffDrawer?.setDiff({
 			mode: 'normal',
-			deployed: deployedValue ?? savedApp,
-			current: {
-				summary: summary,
-				value: app,
-				path: newEditedPath || savedApp.path,
-				policy,
-				custom_path: customPath
-			}
+			deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
+			current: currentDiffValue
 		})
 	}
 
@@ -455,6 +441,7 @@
 					policy,
 					path: npath,
 					deployment_message: deploymentMsg,
+					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
 					// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
 					// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
 					custom_path:
@@ -495,14 +482,16 @@
 		onDeploy?.({ path: npath })
 	}
 
-	async function setPublishState() {
+	async function setPublishState(message?: string) {
 		await computeTriggerables()
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: appPath,
 			requestBody: { policy }
 		})
-		if (policy.execution_mode == 'anonymous') {
+		if (message) {
+			sendUserToast(message)
+		} else if (policy.execution_mode == 'anonymous') {
 			sendUserToast('App require no login to be accessed')
 		} else {
 			sendUserToast('App require login and read-access')
@@ -597,6 +586,18 @@
 
 	let app = $derived(files ? { runnables: runnables, files, data } : undefined)
 
+	// Editor-side value for diffing/comparison against the deployed app, with the
+	// same noise stripped as the deployed side (see stripRawAppDiffNoise).
+	let currentDiffValue = $derived(
+		stripRawAppDiffNoise({
+			summary: summary,
+			value: app,
+			path: newEditedPath || savedApp?.path,
+			policy,
+			custom_path: customPath
+		})
+	)
+
 	$effect(() => {
 		saveDrawerOpen && compareVersions()
 	})
@@ -608,13 +609,7 @@
 	bind:open
 	{diffDrawer}
 	bind:deployedValue
-	currentValue={{
-		summary: summary,
-		value: app,
-		path: newEditedPath || savedApp?.path,
-		policy,
-		custom_path: customPath
-	}}
+	currentValue={currentDiffValue}
 />
 
 <Drawer bind:open={saveDrawerOpen} size="800px">
@@ -635,14 +630,8 @@
 						diffDrawer?.openDrawer()
 						diffDrawer?.setDiff({
 							mode: 'normal',
-							deployed: deployedValue ?? savedApp,
-							current: {
-								summary: summary,
-								value: app,
-								path: newEditedPath || savedApp.path,
-								policy,
-								custom_path: customPath
-							},
+							deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
+							current: currentDiffValue,
 							button: {
 								text: 'Looks good, deploy',
 								onClick: () => {

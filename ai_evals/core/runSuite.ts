@@ -15,11 +15,13 @@ export async function runSuite<TInitial, TExpected, TActual>(input: {
   runs: number;
   runModel: string | null;
   judgeModel?: string | null;
+  executionOnly?: boolean;
   concurrency?: number;
   verbose?: boolean;
   onProgress?: (event: FrontendBenchmarkProgressEvent) => void;
 }): Promise<BenchmarkCaseResult[]> {
-  const judgeModel = input.judgeModel ?? DEFAULT_JUDGE_MODEL;
+  const judgeModel =
+    input.judgeModel === undefined ? DEFAULT_JUDGE_MODEL : input.judgeModel;
   const concurrency = Math.max(1, input.concurrency ?? input.modeRunner.concurrency);
   const results = new Array<BenchmarkCaseResult>(input.cases.length);
   let cursor = 0;
@@ -52,6 +54,7 @@ export async function runSuite<TInitial, TExpected, TActual>(input: {
           runs: input.runs,
           judgeModel,
           judgeThreshold: input.modeRunner.judgeThreshold ?? 80,
+          executionOnly: input.executionOnly ?? false,
           modeRunner: input.modeRunner,
           totalCases: input.cases.length,
           verbose: input.verbose ?? false,
@@ -72,8 +75,9 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
   caseIndex: number;
   evalCase: EvalCase;
   runs: number;
-  judgeModel: string;
+  judgeModel: string | null;
   judgeThreshold: number;
+  executionOnly: boolean;
   modeRunner: ModeRunner<TInitial, TExpected, TActual>;
   totalCases: number;
   verbose: boolean;
@@ -99,7 +103,9 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
 
     try {
       const initial = await input.modeRunner.loadInitial(input.evalCase.initialPath);
-      const expected = await input.modeRunner.loadExpected(input.evalCase.expectedPath);
+      const expected = input.executionOnly
+        ? undefined
+        : await input.modeRunner.loadExpected(input.evalCase.expectedPath);
       const run = await input.modeRunner.run(input.evalCase.prompt, initial, {
         evalCase: input.evalCase,
         caseId: input.evalCase.id,
@@ -162,22 +168,30 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
       });
       const checks: BenchmarkCheck[] = [
         buildCheck("run succeeded", run.success, run.error),
-        ...input.modeRunner.validate({
-          evalCase: input.evalCase,
-          prompt: input.evalCase.prompt,
-          initial,
-          expected,
-          actual: run.actual,
-          run,
-        }),
-        ...validateToolExpectations({
-          run,
-          toolExpect: input.evalCase.toolExpect,
-        }),
       ];
+      if (!input.executionOnly) {
+        checks.push(
+          ...input.modeRunner.validate({
+            evalCase: input.evalCase,
+            prompt: input.evalCase.prompt,
+            initial,
+            expected,
+            actual: run.actual,
+            run,
+          }),
+          ...validateToolExpectations({
+            run,
+            toolExpect: input.evalCase.toolExpect,
+          })
+        );
+      }
       const artifactFiles = input.modeRunner.buildArtifacts?.(run.actual) ?? [];
 
-      if (run.success && input.modeRunner.backendValidate) {
+      if (
+        run.success &&
+        !input.executionOnly &&
+        input.modeRunner.backendValidate
+      ) {
         try {
           const backendValidation = await input.modeRunner.backendValidate({
             evalCase: input.evalCase,
@@ -218,7 +232,12 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
       let judgeScore: number | null = null;
       let judgeSummary: string | null = null;
 
-      if (run.success && !input.evalCase.skipJudge) {
+      if (
+        run.success &&
+        !input.executionOnly &&
+        input.judgeModel !== null &&
+        !input.evalCase.skipJudge
+      ) {
         const judge = await judgeOutput({
           mode: input.modeRunner.mode,
           prompt: input.evalCase.prompt,

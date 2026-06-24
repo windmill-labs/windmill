@@ -197,6 +197,7 @@ pub fn global_service() -> Router {
         .route("/list_as_superadmin", get(list_workspaces_as_super_admin))
         .route("/list", get(list_workspaces))
         .route("/users", get(user_workspaces))
+        .route("/session_workspace_status", post(session_workspace_status))
         .route("/create", post(create_workspace))
         .route("/create_fork", post(deprecated_create_workspace_fork))
         .route("/exists", post(exists_workspace))
@@ -3621,6 +3622,47 @@ async fn user_workspaces(
     .await?;
     tx.commit().await?;
     Ok(Json(WorkspaceList { email, workspaces }))
+}
+
+#[derive(Deserialize)]
+struct SessionWorkspaceStatusRequest {
+    workspace_ids: Vec<String>,
+}
+
+/// Reconciliation support for client-side AI sessions, which the backend cannot touch
+/// directly. The client posts the workspace ids its sessions reference and uses the
+/// per-id status to keep sessions in sync with workspace lifecycle: `deleted` (no row /
+/// no access → unresolvable) drops the sessions, `archived` (soft-deleted, still a
+/// member) archives them, `active` restores ones previously archived-by-workspace.
+/// Archived and hard-deleted workspaces are absent from `user_workspaces`, so this is the
+/// only way the client learns about a change made while it was away or on another device.
+async fn session_workspace_status(
+    Extension(db): Extension<DB>,
+    ApiAuthed { email, .. }: ApiAuthed,
+    Json(req): Json<SessionWorkspaceStatusRequest>,
+) -> JsonResult<HashMap<String, String>> {
+    if req.workspace_ids.len() > 1000 {
+        return Err(Error::BadRequest(
+            "Too many workspace ids (max 1000)".to_string(),
+        ));
+    }
+    let rows = sqlx::query!(
+        "SELECT req.id AS \"id!\",
+                (CASE
+                    WHEN usr.email IS NULL THEN 'deleted'
+                    WHEN workspace.deleted THEN 'archived'
+                    ELSE 'active'
+                END) AS \"status!\"
+         FROM unnest($1::text[]) AS req(id)
+         LEFT JOIN workspace ON workspace.id = req.id
+         LEFT JOIN usr ON usr.workspace_id = workspace.id AND usr.email = $2",
+        &req.workspace_ids[..],
+        email,
+    )
+    .fetch_all(&db)
+    .await?;
+    let statuses = rows.into_iter().map(|r| (r.id, r.status)).collect();
+    Ok(Json(statuses))
 }
 
 pub async fn check_w_id_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str) -> Result<()> {
