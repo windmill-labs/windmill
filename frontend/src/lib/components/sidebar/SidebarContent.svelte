@@ -162,7 +162,13 @@
 			// forks: deleting this fork without "delete children" re-parents them
 			// via the backend's ON DELETE SET NULL, so their sessions' stored
 			// `workspace_root_id` must be recomputed off the now-deleted ancestor.
-			await reconcileAfterWorkspaceChange()
+			// A reconcile failure must NOT strand the user on the just-deleted
+			// workspace — always fall through to the parent switch + navigation.
+			try {
+				await reconcileAfterWorkspaceChange()
+			} catch (e) {
+				console.error('Failed to reconcile sessions after workspace delete', e)
+			}
 			switchWorkspace(parentId)
 			await goto('/')
 		} else {

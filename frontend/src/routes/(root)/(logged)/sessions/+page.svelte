@@ -81,9 +81,11 @@
 		})
 	})
 
-	// Warm = has a live runtime (module-scoped) whose session is in the active
-	// family. Runtimes for other families resolve to undefined here (their
-	// session isn't loaded) and drop out, so this is naturally family-scoped.
+	// Warm = sessions that currently have a live (module-scoped) runtime. The
+	// picker eagerly creates runtimes for its visible sessions, so this tracks
+	// whatever the picker shows — the current family, or every family when
+	// "Show all workspaces" is on. Runtimes whose session record isn't loaded
+	// resolve to undefined here and drop out.
 	const warmSessions = $derived(
 		listRuntimes()
 			.map((r) => sessionState.sessions.find((s) => s.id === r.sessionId))
