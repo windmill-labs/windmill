@@ -22,11 +22,13 @@ vi.mock('$lib/gen', async (orig) => {
 })
 
 import { userStore, usersWorkspaceStore, type UserExt } from '$lib/stores'
+import { WorkspaceService } from '$lib/gen'
 import {
 	sessionState,
 	putSession,
 	deleteSessionRecord,
 	archiveSessionsForWorkspace,
+	reconcileSessionsLifecycle,
 	type Session
 } from './sessionState.svelte'
 
@@ -217,6 +219,49 @@ describe('sessionState IndexedDB persistence', () => {
 		// User-archived → left untouched (no tag), so unarchive won't resurrect it.
 		expect(userarch.archived).toBe(true)
 		expect(userarch.archivedByWorkspace).toBeUndefined()
+	})
+
+	it('re-roots a sub-fork session on reconcile when an ancestor was deleted', async () => {
+		const user = freshUser()
+		// Family after a grandparent deletion: the FK's ON DELETE SET NULL nulled
+		// fork-1's parent, so fork-1 is now the topmost member; fork_of_fork still
+		// points at fork-1.
+		usersWorkspaceStore.set({
+			email: user.email,
+			workspaces: [
+				{ id: 'wm-fork-fork-1', name: 'fork-1', disabled: false },
+				{
+					id: 'wm-fork-fork_of_fork',
+					name: 'fork_of_fork',
+					parent_workspace_id: 'wm-fork-fork-1',
+					disabled: false
+				}
+			] as never
+		})
+		vi.mocked(WorkspaceService.getSessionWorkspaceStatus).mockResolvedValueOnce({
+			'wm-fork-fork_of_fork': 'active'
+		} as never)
+
+		userStore.set(user)
+		await flush()
+		// Seed with a STALE root pointing at the now-deleted grandparent.
+		await putSession(
+			session({
+				id: 'sub',
+				createdAt: 1,
+				workspace_id: 'wm-fork-fork_of_fork',
+				workspace_root_id: 'wm-grandparent-deleted'
+			})
+		)
+		await rehydrate(user)
+		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['sub']))
+
+		await reconcileSessionsLifecycle()
+		await rehydrate(user)
+
+		// Re-rooted to the new family topmost member, not left on the dead ancestor.
+		const sub = sessionState.sessions.find((s) => s.id === 'sub')!
+		expect(sub.workspace_root_id).toBe('wm-fork-fork-1')
 	})
 
 	it('clears the in-memory list on logout', async () => {

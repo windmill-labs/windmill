@@ -243,6 +243,26 @@ function ensureSessionRootId(s: Session): boolean {
 	return true
 }
 
+// Recompute workspace_root_id from the live parent chain, replacing a stale
+// stored value. A fork family is re-rooted when an ancestor is deleted: the
+// FK's ON DELETE SET NULL nulls the child's parent_workspace_id, so the topmost
+// member shifts down. Without this, a sub-fork session keeps a root pointing at
+// the deleted ancestor and drops out of the sidebar (grouped under a dead root)
+// even though its own workspace is still alive. Only re-roots when the
+// workspace resolves in the live list — otherwise workspaceRootId falls back to
+// the id itself and would clobber a valid root for a merely-unavailable workspace.
+function refreshSessionRootId(s: Session): boolean {
+	if (s.transient) return false
+	const workspaceId = s.workspace_id ?? s.pending_workspace_id
+	if (!workspaceId) return false
+	const all = get(userWorkspaces)
+	if (!all.some((w) => w.id === workspaceId)) return false
+	const root = workspaceRootId(workspaceId, all)
+	if (!root || root === s.workspace_root_id) return false
+	s.workspace_root_id = root
+	return true
+}
+
 const sessionsDb = userScopedDb<SessionSchema>(SESSIONS_DB, {
 	version: 1,
 	upgrade(db) {
@@ -398,11 +418,14 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 		if (action === 'delete') {
 			await db.delete('sessions', s.id)
 			deletedIds.add(s.id)
-		} else if (action === 'archive' || action === 'unarchive') {
-			if (patch) applyLifecyclePatch(s, patch)
-			ensureSessionRootId(s)
-			await db.put('sessions', s)
+			continue
 		}
+		let changed = action === 'archive' || action === 'unarchive'
+		if (changed && patch) applyLifecyclePatch(s, patch)
+		// Re-root surviving sessions whose family topmost member shifted (an
+		// ancestor was deleted); fall back to backfilling a missing root.
+		if (refreshSessionRootId(s) || ensureSessionRootId(s)) changed = true
+		if (changed) await db.put('sessions', s)
 	}
 	await hydrateSessions()
 	// If the session the user was on lived in a now-deleted workspace, it was just
