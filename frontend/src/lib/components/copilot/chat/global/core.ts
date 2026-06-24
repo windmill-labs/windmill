@@ -16,6 +16,7 @@ import {
 	VariableService,
 	WebsocketTriggerService
 } from '$lib/gen'
+import { createTwoFilesPatch } from 'diff'
 import { $ScriptLang } from '$lib/gen/schemas.gen'
 import type {
 	AppWithLastVersion,
@@ -415,7 +416,20 @@ const deployWorkspaceItemSchema = z.object({
 	deployment_message: z
 		.string()
 		.optional()
-		.describe('Optional deployment message recorded with the change.')
+		.describe('Optional deployment message recorded with the change.'),
+	force: z
+		.boolean()
+		.optional()
+		.describe(
+			'Deploy even if the draft was started from an older deployed version, overwriting the version deployed since. Defaults to false; prefer calling rebase_draft first to keep the newer changes.'
+		)
+})
+
+const rebaseDraftSchema = z.object({
+	type: itemTypeSchema,
+	path: z
+		.string()
+		.describe('Workspace path of the draft to rebase onto the latest deployed version.')
 })
 
 const editScriptSchema = z.object({
@@ -1844,6 +1858,20 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
+			rebaseDraftSchema,
+			'rebase_draft',
+			'Reset a stale script, flow, or app draft to the latest deployed version and return your previous changes as a diff to re-apply on top. Use when deploy_workspace_item reports the draft was started from an older deployed version.',
+			{ strict: false }
+		),
+		showDetails: true,
+		showFade: true,
+		fn: async (ctx) => {
+			const parsed = rebaseDraftSchema.parse(ctx.args)
+			return rebaseDraft(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
 			deleteWorkspaceItemSchema,
 			'delete_workspace_item',
 			'Delete a deployed workspace item. Mutates the workspace.'
@@ -3258,7 +3286,9 @@ async function searchApp(
 	const header = `${totalMatchCount} match${
 		totalMatchCount === 1 ? '' : 'es'
 	} in ${fileCount} file${fileCount === 1 ? '' : 's'}${
-		truncated ? ` (showing the first ${maxMatches}; narrow with file_glob or a more specific query)` : ''
+		truncated
+			? ` (showing the first ${maxMatches}; narrow with file_glob or a more specific query)`
+			: ''
 	}`
 
 	const out: string[] = [header]
@@ -3580,17 +3610,297 @@ async function discardLocalDraft(
 	)
 }
 
+// A draft started from an older deploy would silently overwrite whatever was
+// deployed since. Block the deploy and point the model at rebase_draft, unless it
+// explicitly forces the overwrite. `base`/`head` undefined ⇒ can't tell ⇒ allow.
+function assertDraftBasedOnLatest(
+	type: WorkspaceItemType,
+	path: string,
+	base: string | number | undefined,
+	head: string | number | undefined,
+	force: boolean | undefined
+): void {
+	if (force || base == null || head == null || base === head) return
+	throw new Error(
+		`This ${type} draft "${path}" was started from an older deployed version (forked from ${base}, ` +
+			`latest is ${head}). Deploying now would overwrite the version deployed since. Call rebase_draft ` +
+			`to reset the draft onto the latest version and re-apply your changes, then deploy again. To deploy ` +
+			`as-is and replace the newer version, call deploy_workspace_item again with force: true.`
+	)
+}
+
+// Reset a stale script draft to the latest deployed content and return the draft's
+// own changes (vs its fork base) so the model can replay them on top. Resetting the
+// content re-pins the fork base to the current head, so the base pointer stays
+// honest: after replay the draft genuinely incorporates the latest deploy.
+async function rebaseDraft(
+	args: { type: WorkspaceItemType; path: string },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	switch (args.type) {
+		case 'script':
+			return rebaseScriptDraft(args.path, ctx)
+		case 'flow':
+			return rebaseFlowDraft(args.path, ctx)
+		case 'app':
+			return rebaseAppDraft(args.path, ctx)
+		default:
+			throw new Error('rebase_draft currently supports scripts, flows, and apps.')
+	}
+}
+
+async function rebaseScriptDraft(path: string, ctx: WriteDraftCtx): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+
+	const draft = await getGlobalDraft(workspace, 'script', path)
+	if (!draft || typeof draft.value !== 'string' || !draft.language) {
+		throw new Error(`No script draft found for "${path}".`)
+	}
+	if (!(await ScriptService.existsScriptByPath({ workspace, path }))) {
+		throw new Error(`Script "${path}" is not deployed; there is no newer version to rebase onto.`)
+	}
+
+	const latest = await ScriptService.getScriptByPath({ workspace, path })
+	const baseHash = draft.parentHash
+	if (baseHash && baseHash === latest.hash) {
+		const message = `Draft "${path}" is already based on the latest deployed version (${latest.hash}).`
+		toolCallbacks.setToolStatus(toolId, { content: message })
+		return JSON.stringify({ success: true, alreadyLatest: true, latest_hash: latest.hash, message })
+	}
+
+	toolCallbacks.setToolStatus(toolId, { content: `Rebasing draft "${path}" onto latest...` })
+
+	// The draft's own changes, expressed against its fork base, for the model to
+	// replay. Best-effort: if the base version is gone, diff against empty so the
+	// full draft is surfaced rather than failing the rebase.
+	let baseContent = ''
+	if (baseHash) {
+		try {
+			baseContent = (await ScriptService.getScriptByHash({ workspace, hash: baseHash })).content
+		} catch (e) {
+			console.error(`rebase_draft: could not fetch base version ${baseHash} for "${path}"`, e)
+		}
+	}
+	const yourChanges = createTwoFilesPatch(
+		'fork-base',
+		'your-draft',
+		baseContent,
+		draft.value,
+		'',
+		''
+	)
+
+	// Mirror SCRIPT_SPEC.fetchDeployed: seed the draft from the deployed head with
+	// parent_hash pinned to it, so the draft is no longer stale.
+	const resetValue: NewScript = {
+		...(latest as unknown as NewScript),
+		path,
+		parent_hash: latest.hash
+	}
+	const result = await persistGlobalDraft(workspace, 'script', path, resetValue, { force: true })
+	if (result.status === 'error') {
+		throw new Error(`Failed to reset draft "${path}" onto latest: ${result.message}`)
+	}
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Reset draft "${path}" onto latest (${latest.hash})`,
+		result: 'Rebased'
+	})
+	return JSON.stringify(
+		{
+			success: true,
+			message:
+				`Reset draft "${path}" to the latest deployed version (hash ${latest.hash}); the draft now ` +
+				`matches the latest deploy. Re-apply the changes in "your_changes" on top of the current draft ` +
+				`(with edit_script / write_script), then deploy.`,
+			latest_hash: latest.hash,
+			your_changes: yourChanges
+		},
+		null,
+		2
+	)
+}
+
+async function rebaseFlowDraft(path: string, ctx: WriteDraftCtx): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+
+	const draft = await getGlobalDraft(workspace, 'flow', path)
+	if (!draft || draft.value === undefined || typeof draft.value === 'string') {
+		throw new Error(`No flow draft found for "${path}".`)
+	}
+	if (!(await FlowService.existsFlowByPath({ workspace, path }))) {
+		throw new Error(`Flow "${path}" is not deployed; there is no newer version to rebase onto.`)
+	}
+
+	const latest = await FlowService.getFlowByPath({ workspace, path })
+	const baseVersion = draft.parentVersionId
+	if (baseVersion != null && baseVersion === latest.version_id) {
+		const message = `Draft "${path}" is already based on the latest deployed version (${latest.version_id}).`
+		toolCallbacks.setToolStatus(toolId, { content: message })
+		return JSON.stringify({
+			success: true,
+			alreadyLatest: true,
+			latest_version: latest.version_id,
+			message
+		})
+	}
+
+	toolCallbacks.setToolStatus(toolId, { content: `Rebasing draft "${path}" onto latest...` })
+
+	// The draft's own changes vs its fork-base flow value, as a JSON diff for the
+	// model to replay. Best-effort: skip if the base version can't be fetched.
+	let baseValue: unknown = {}
+	if (baseVersion != null) {
+		try {
+			baseValue = (await FlowService.getFlowVersion({ workspace, version: baseVersion })).value
+		} catch (e) {
+			console.error(
+				`rebase_draft: could not fetch base flow version ${baseVersion} for "${path}"`,
+				e
+			)
+		}
+	}
+	const oursValue = (draft.value as FlowDraftValue).value
+	const yourChanges = createTwoFilesPatch(
+		'fork-base',
+		'your-draft',
+		JSON.stringify(baseValue, null, 2),
+		JSON.stringify(oursValue, null, 2),
+		'',
+		''
+	)
+
+	// Reset the draft to the latest deployed flow; its `version_id` is the head, so
+	// the draft is no longer stale.
+	const result = await persistGlobalDraft(workspace, 'flow', path, latest, { force: true })
+	if (result.status === 'error') {
+		throw new Error(`Failed to reset draft "${path}" onto latest: ${result.message}`)
+	}
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Reset draft "${path}" onto latest (version ${latest.version_id})`,
+		result: 'Rebased'
+	})
+	return JSON.stringify(
+		{
+			success: true,
+			message:
+				`Reset draft "${path}" to the latest deployed version (version ${latest.version_id}); the draft ` +
+				`now matches the latest deploy. Re-apply the changes in "your_changes" on top of the current ` +
+				`draft (with the flow edit tools), then deploy.`,
+			latest_version: latest.version_id,
+			your_changes: yourChanges
+		},
+		null,
+		2
+	)
+}
+
+async function rebaseAppDraft(path: string, ctx: WriteDraftCtx): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+
+	const draft = await getGlobalDraft(workspace, 'app', path)
+	if (!draft || !draft.value || typeof draft.value === 'string' || !('files' in draft.value)) {
+		throw new Error(`No app draft found for "${path}".`)
+	}
+	if (!(await AppService.existsApp({ workspace, path }))) {
+		throw new Error(`App "${path}" is not deployed; there is no newer version to rebase onto.`)
+	}
+
+	const deployed = await AppService.getAppByPath({ workspace, path })
+	const headVersion = deployed.versions?.[deployed.versions.length - 1]
+	const baseVersion = draft.parentVersionId
+	if (baseVersion != null && baseVersion === headVersion) {
+		const message = `Draft "${path}" is already based on the latest deployed version (${headVersion}).`
+		toolCallbacks.setToolStatus(toolId, { content: message })
+		return JSON.stringify({
+			success: true,
+			alreadyLatest: true,
+			latest_version: headVersion,
+			message
+		})
+	}
+
+	toolCallbacks.setToolStatus(toolId, { content: `Rebasing draft "${path}" onto latest...` })
+
+	// The draft's own changes vs its fork-base app source, as a JSON diff for the
+	// model to replay. Best-effort: skip if the base version can't be fetched.
+	const oursValue = draft.value as AppDraftValue
+	let baseSource: Pick<AppDraftValue, 'files' | 'runnables' | 'data'> = {
+		files: {},
+		runnables: {},
+		data: undefined
+	}
+	if (baseVersion != null) {
+		try {
+			const baseApp = await AppService.getAppByVersion({ workspace, id: baseVersion })
+			const base = appSourceToDraftValue(baseApp, baseApp)
+			baseSource = { files: base.files, runnables: base.runnables, data: base.data }
+		} catch (e) {
+			console.error(
+				`rebase_draft: could not fetch base app version ${baseVersion} for "${path}"`,
+				e
+			)
+		}
+	}
+	const yourChanges = createTwoFilesPatch(
+		'fork-base',
+		'your-draft',
+		JSON.stringify(baseSource, null, 2),
+		JSON.stringify(
+			{ files: oursValue.files, runnables: oursValue.runnables, data: oursValue.data },
+			null,
+			2
+		),
+		'',
+		''
+	)
+
+	// Reset the draft to the latest deployed app; appSourceToDraftValue pins
+	// parent_version to the head, so the draft is no longer stale.
+	const resetValue = appSourceToDraftValue(deployed, deployed)
+	const result = await persistGlobalDraft(workspace, 'app', path, resetValue, { force: true })
+	if (result.status === 'error') {
+		throw new Error(`Failed to reset draft "${path}" onto latest: ${result.message}`)
+	}
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Reset draft "${path}" onto latest (version ${headVersion})`,
+		result: 'Rebased'
+	})
+	return JSON.stringify(
+		{
+			success: true,
+			message:
+				`Reset draft "${path}" to the latest deployed version (version ${headVersion}); the draft now ` +
+				`matches the latest deploy. Re-apply the changes in "your_changes" on top of the current draft ` +
+				`(with the app edit tools), then deploy.`,
+			latest_version: headVersion,
+			your_changes: yourChanges
+		},
+		null,
+		2
+	)
+}
+
 async function deployDraft(
 	args: {
 		type: WorkspaceItemType
 		path: string
 		trigger_kind?: TriggerKind
 		deployment_message?: string
+		force?: boolean
 	},
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks, sessionId } = ctx
-	const { type, path, trigger_kind: triggerKind, deployment_message: deploymentMessage } = args
+	const {
+		type,
+		path,
+		trigger_kind: triggerKind,
+		deployment_message: deploymentMessage,
+		force
+	} = args
 
 	if (type === 'trigger' && !triggerKind) {
 		throw new Error('trigger_kind is required when deploying a trigger.')
@@ -3615,6 +3925,7 @@ async function deployDraft(
 			const existing = (await ScriptService.existsScriptByPath({ workspace, path }))
 				? await ScriptService.getScriptByPath({ workspace, path })
 				: undefined
+			assertDraftBasedOnLatest('script', path, draft.parentHash, existing?.hash, force)
 			const requestBody = buildScriptDeployRequestBody(path, draft, existing, deploymentMessage)
 			// Infer the arg schema from the content so it matches the code, like the editor does.
 			try {
@@ -3632,6 +3943,7 @@ async function deployDraft(
 			const existing = (await FlowService.existsFlowByPath({ workspace, path }))
 				? await FlowService.getFlowByPath({ workspace, path })
 				: undefined
+			assertDraftBasedOnLatest('flow', path, draft.parentVersionId, existing?.version_id, force)
 			const requestBody = buildFlowDeployRequestBody(
 				path,
 				draft.summary,
@@ -3695,6 +4007,20 @@ async function deployDraft(
 		}
 		case 'app': {
 			const appDraft = draft.value as AppDraftValue
+			// Staleness guard: only fetch the deployed head when the draft records a
+			// fork base to compare against (pre-feature drafts have none).
+			if (draft.parentVersionId != null) {
+				const deployedApp = (await AppService.existsApp({ workspace, path }))
+					? await AppService.getAppByPath({ workspace, path })
+					: undefined
+				assertDraftBasedOnLatest(
+					'app',
+					path,
+					draft.parentVersionId,
+					deployedApp?.versions?.[deployedApp.versions.length - 1],
+					force
+				)
+			}
 			const appValue: AppDraftValue = {
 				...appDraft,
 				files: { ...(appDraft.files ?? {}) },

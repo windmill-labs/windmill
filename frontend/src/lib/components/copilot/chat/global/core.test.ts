@@ -64,6 +64,9 @@ vi.mock('$lib/gen', async () => {
 			getScriptByPath: vi.fn(async () => {
 				throw new Error('getScriptByPath mock not configured')
 			}),
+			getScriptByHash: vi.fn(async () => {
+				throw new Error('getScriptByHash mock not configured')
+			}),
 			queryHubScripts: vi.fn(async () => []),
 			getHubScriptContentByPath: vi.fn(async () => ''),
 			listScripts: vi.fn(async () => [])
@@ -119,6 +122,9 @@ vi.mock('$lib/gen', async () => {
 			getFlowByPath: vi.fn(async () => {
 				throw new Error('getFlowByPath mock not configured')
 			}),
+			getFlowVersion: vi.fn(async () => {
+				throw new Error('getFlowVersion mock not configured')
+			}),
 			getFlowLatestVersion: vi.fn(async () => ({ id: 1 })),
 			listFlows: vi.fn(async () => [])
 		}),
@@ -140,6 +146,9 @@ vi.mock('$lib/gen', async () => {
 			updateAppRaw: vi.fn(async () => 'updated'),
 			getAppByPath: vi.fn(async () => {
 				throw new Error('getAppByPath mock not configured')
+			}),
+			getAppByVersion: vi.fn(async () => {
+				throw new Error('getAppByVersion mock not configured')
 			}),
 			listApps: vi.fn(async () => [])
 		}),
@@ -207,6 +216,13 @@ vi.mock('./rawAppBundlerBridge', () => ({
 		js: 'bundled js',
 		css: 'bundled css'
 	}))
+}))
+
+vi.mock('$lib/infer', async () => ({
+	...(await vi.importActual<any>('$lib/infer')),
+	// Avoid the wasm parser in unit tests: the script deploy path infers the arg
+	// schema but tolerates failure, and these tests don't assert on the schema.
+	inferArgs: vi.fn(async () => {})
 }))
 
 import {
@@ -1009,6 +1025,258 @@ describe('global AI tools', () => {
 		})
 	})
 
+	describe('stale-draft deploy guard and rebase', () => {
+		// The suite's beforeEach only clears mock calls (not implementations), so
+		// restore the script-service mocks these tests override back to their factory
+		// defaults; otherwise a persistent resolved value leaks into later tests.
+		afterEach(() => {
+			vi.mocked(ScriptService.existsScriptByPath).mockResolvedValue(false)
+			vi.mocked(ScriptService.getScriptByPath).mockImplementation(async () => {
+				throw new Error('getScriptByPath mock not configured')
+			})
+			vi.mocked(ScriptService.getScriptByHash).mockImplementation(async () => {
+				throw new Error('getScriptByHash mock not configured')
+			})
+			vi.mocked(FlowService.existsFlowByPath).mockResolvedValue(false)
+			vi.mocked(FlowService.getFlowByPath).mockImplementation(async () => {
+				throw new Error('getFlowByPath mock not configured')
+			})
+			vi.mocked(FlowService.getFlowVersion).mockImplementation(async () => {
+				throw new Error('getFlowVersion mock not configured')
+			})
+			vi.mocked(FlowService.getFlowLatestVersion).mockResolvedValue({ id: 1 } as any)
+			vi.mocked(AppService.existsApp).mockResolvedValue(false)
+			vi.mocked(AppService.getAppByPath).mockImplementation(async () => {
+				throw new Error('getAppByPath mock not configured')
+			})
+			vi.mocked(AppService.getAppByVersion).mockImplementation(async () => {
+				throw new Error('getAppByVersion mock not configured')
+			})
+		})
+
+		function seedStaleScriptDraft(path: string, parentHash: string, content = 'draft content') {
+			seedBackendDraft('script', path, {
+				path,
+				summary: 's',
+				description: '',
+				content,
+				language: 'bun',
+				kind: 'script',
+				parent_hash: parentHash,
+				schema: {}
+			})
+		}
+
+		function mockDeployedScript(path: string, hash: string, content = 'latest deployed') {
+			vi.mocked(ScriptService.existsScriptByPath).mockResolvedValue(true)
+			vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+				path,
+				hash,
+				content,
+				language: 'bun',
+				summary: 's'
+			} as any)
+		}
+
+		it('blocks deploying a script draft started from an older deployed version', async () => {
+			seedStaleScriptDraft('f/scripts/stale', 'base-hash')
+			mockDeployedScript('f/scripts/stale', 'new-hash')
+
+			await expect(
+				callGlobalTool('deploy_workspace_item', { type: 'script', path: 'f/scripts/stale' })
+			).rejects.toThrow(/older deployed version/)
+			expect(ScriptService.createScript).not.toHaveBeenCalled()
+		})
+
+		it('deploys a stale script draft when force is set', async () => {
+			seedStaleScriptDraft('f/scripts/stale', 'base-hash')
+			mockDeployedScript('f/scripts/stale', 'new-hash')
+
+			const result = JSON.parse(
+				await callGlobalTool('deploy_workspace_item', {
+					type: 'script',
+					path: 'f/scripts/stale',
+					force: true
+				})
+			)
+			expect(result.success).toBe(true)
+			expect(ScriptService.createScript).toHaveBeenCalled()
+		})
+
+		it('deploys a script draft that is based on the current deployed head', async () => {
+			seedStaleScriptDraft('f/scripts/fresh', 'head-hash')
+			mockDeployedScript('f/scripts/fresh', 'head-hash')
+
+			const result = JSON.parse(
+				await callGlobalTool('deploy_workspace_item', { type: 'script', path: 'f/scripts/fresh' })
+			)
+			expect(result.success).toBe(true)
+			expect(ScriptService.createScript).toHaveBeenCalled()
+		})
+
+		it('rebase_draft resets a stale draft onto latest and returns the changes to replay', async () => {
+			seedStaleScriptDraft('f/scripts/stale', 'base-hash', 'base content\nmy added line\n')
+			mockDeployedScript('f/scripts/stale', 'new-hash', 'latest deployed content\n')
+			vi.mocked(ScriptService.getScriptByHash).mockResolvedValue({
+				hash: 'base-hash',
+				content: 'base content\n',
+				language: 'bun'
+			} as any)
+
+			const result = JSON.parse(
+				await callGlobalTool('rebase_draft', { type: 'script', path: 'f/scripts/stale' })
+			)
+			expect(result.success).toBe(true)
+			expect(result.latest_hash).toBe('new-hash')
+			// The diff surfaces the draft's own change over its fork base.
+			expect(result.your_changes).toContain('my added line')
+
+			// The draft is reset to the latest content with the base re-pinned to the
+			// head, so it is no longer stale.
+			const draft = getBackendDraft<any>('script', 'f/scripts/stale', { workspace: WORKSPACE })
+			expect(draft.content).toBe('latest deployed content\n')
+			expect(draft.parent_hash).toBe('new-hash')
+
+			// Deploying the rebased draft no longer trips the staleness guard.
+			const deploy = JSON.parse(
+				await callGlobalTool('deploy_workspace_item', { type: 'script', path: 'f/scripts/stale' })
+			)
+			expect(deploy.success).toBe(true)
+			expect(ScriptService.createScript).toHaveBeenCalled()
+		})
+
+		function seedStaleFlowDraft(path: string, versionId: number, modules: any[] = []) {
+			seedBackendDraft('flow', path, {
+				path,
+				summary: 'f',
+				description: '',
+				version_id: versionId,
+				value: { modules },
+				schema: {}
+			})
+		}
+
+		function mockDeployedFlow(path: string, versionId: number) {
+			vi.mocked(FlowService.existsFlowByPath).mockResolvedValue(true)
+			vi.mocked(FlowService.getFlowByPath).mockResolvedValue({
+				path,
+				summary: 'f',
+				version_id: versionId,
+				value: { modules: [] },
+				schema: {}
+			} as any)
+		}
+
+		it('blocks deploying a flow draft started from an older deployed version', async () => {
+			seedStaleFlowDraft('f/flows/stale', 1)
+			mockDeployedFlow('f/flows/stale', 2)
+
+			await expect(
+				callGlobalTool('deploy_workspace_item', { type: 'flow', path: 'f/flows/stale' })
+			).rejects.toThrow(/older deployed version/)
+			expect(FlowService.updateFlow).not.toHaveBeenCalled()
+			expect(FlowService.createFlow).not.toHaveBeenCalled()
+		})
+
+		it('rebase_draft resets a stale flow draft onto latest and lets it deploy', async () => {
+			seedStaleFlowDraft('f/flows/stale', 1, [{ id: 'a', value: { type: 'identity' } }])
+			mockDeployedFlow('f/flows/stale', 2)
+			vi.mocked(FlowService.getFlowVersion).mockResolvedValue({
+				value: { modules: [] }
+			} as any)
+
+			const result = JSON.parse(
+				await callGlobalTool('rebase_draft', { type: 'flow', path: 'f/flows/stale' })
+			)
+			expect(result.success).toBe(true)
+			expect(result.latest_version).toBe(2)
+			expect(result.your_changes).toContain('identity')
+
+			const draft = getBackendDraft<any>('flow', 'f/flows/stale', { workspace: WORKSPACE })
+			expect(draft.version_id).toBe(2)
+
+			// Deploying the rebased flow draft no longer trips the staleness guard.
+			const deploy = JSON.parse(
+				await callGlobalTool('deploy_workspace_item', { type: 'flow', path: 'f/flows/stale' })
+			)
+			expect(deploy.success).toBe(true)
+			expect(FlowService.updateFlow).toHaveBeenCalled()
+		})
+
+		function seedStaleAppDraft(path: string, parentVersion: number, file = 'old') {
+			seedBackendDraft('raw_app', path, {
+				summary: 'a',
+				files: { '/index.tsx': file },
+				runnables: {},
+				data: { tables: [] },
+				parent_version: parentVersion
+			})
+		}
+
+		function mockDeployedApp(path: string, versionId: number, file = 'latest') {
+			vi.mocked(AppService.existsApp).mockResolvedValue(true)
+			vi.mocked(AppService.getAppByPath).mockResolvedValue({
+				path,
+				summary: 'a',
+				versions: [versionId],
+				value: { files: { '/index.tsx': file }, runnables: {}, data: { tables: [] } },
+				policy: { execution_mode: 'publisher' }
+			} as any)
+		}
+
+		it('grafts the fork-base version onto a new app draft and keeps it through the save whitelist', async () => {
+			// No draft yet: the first app edit projects the deployed app into a draft.
+			// This exercises the runtime path types can't catch — the graft in
+			// appSourceToDraftValue AND survival through normalizeAppDraftValue's whitelist.
+			mockDeployedApp('f/apps/fresh', 5)
+
+			await callGlobalTool('write_app_file', {
+				path: 'f/apps/fresh',
+				file_path: '/src/New.tsx',
+				content: 'export default function New() { return null }'
+			})
+
+			const draft = getBackendDraft<any>('raw_app', 'f/apps/fresh', { workspace: WORKSPACE })
+			expect(draft.parent_version).toBe(5)
+		})
+
+		it('blocks deploying an app draft started from an older deployed version', async () => {
+			seedStaleAppDraft('f/apps/stale', 1)
+			mockDeployedApp('f/apps/stale', 2)
+
+			await expect(
+				callGlobalTool('deploy_workspace_item', { type: 'app', path: 'f/apps/stale' })
+			).rejects.toThrow(/older deployed version/)
+			expect(AppService.createAppRaw).not.toHaveBeenCalled()
+			expect(AppService.updateAppRaw).not.toHaveBeenCalled()
+		})
+
+		it('rebase_draft resets a stale app draft onto latest and lets it deploy', async () => {
+			seedStaleAppDraft('f/apps/stale', 1, 'my-change')
+			mockDeployedApp('f/apps/stale', 2, 'latest-deployed')
+			vi.mocked(AppService.getAppByVersion).mockResolvedValue({
+				value: { files: { '/index.tsx': 'base' }, runnables: {}, data: { tables: [] } }
+			} as any)
+
+			const result = JSON.parse(
+				await callGlobalTool('rebase_draft', { type: 'app', path: 'f/apps/stale' })
+			)
+			expect(result.success).toBe(true)
+			expect(result.latest_version).toBe(2)
+			expect(result.your_changes).toContain('my-change')
+
+			const draft = getBackendDraft<any>('raw_app', 'f/apps/stale', { workspace: WORKSPACE })
+			expect(draft.parent_version).toBe(2)
+			expect(draft.files['/index.tsx']).toBe('latest-deployed')
+
+			const deploy = JSON.parse(
+				await callGlobalTool('deploy_workspace_item', { type: 'app', path: 'f/apps/stale' })
+			)
+			expect(deploy.success).toBe(true)
+			expect(AppService.updateAppRaw).toHaveBeenCalled()
+		})
+	})
+
 	it('preserves existing flow metadata and seeds freshness on first flow write', async () => {
 		vi.mocked(FlowService.existsFlowByPath).mockResolvedValueOnce(true)
 		vi.mocked(FlowService.getFlowLatestVersion).mockResolvedValueOnce({ id: 42 } as any)
@@ -1383,9 +1651,7 @@ describe('global AI tools', () => {
 			file_path: '/min.tsx'
 		})
 
-		expect(result).toContain(
-			'lines 1-3 of 3, truncated to the first 50000 of 90002 chars.'
-		)
+		expect(result).toContain('lines 1-3 of 3, truncated to the first 50000 of 90002 chars.')
 		expect(result).toContain('the file is likely minified')
 		expect(result.split('\n\n')[1]).toHaveLength(50_000)
 	})
@@ -1401,9 +1667,7 @@ describe('global AI tools', () => {
 			file_path: '/generated.js'
 		})
 
-		expect(result).toContain(
-			'lines 1-1 of 1, truncated to the first 50000 of 60000 chars.'
-		)
+		expect(result).toContain('lines 1-1 of 1, truncated to the first 50000 of 60000 chars.')
 		expect(result).toContain('re-read with a smaller limit')
 		expect(result.split('\n\n')[1]).toBe('x'.repeat(50_000))
 	})
@@ -1488,8 +1752,7 @@ describe('global AI tools', () => {
 			versions: [5],
 			value: {
 				files: {
-					'/lib/aggregations.ts':
-						'export function computeRevenue(o) {\n  return o.unitPrice\n}\n',
+					'/lib/aggregations.ts': 'export function computeRevenue(o) {\n  return o.unitPrice\n}\n',
 					'/components/SummaryPanel.tsx':
 						'import { computeRevenue } from "../lib/aggregations"\nconst total = computeRevenue(order)\n',
 					'/components/OrdersTable.tsx': 'const r = computeRevenue(row)\n// renders revenue\n',
