@@ -29,7 +29,7 @@
 	import type { Modules } from './RawAppModules.svelte'
 	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
-	import { onMount, untrack } from 'svelte'
+	import { onMount, onDestroy, untrack } from 'svelte'
 	import type {
 		AppDatatableMetadata,
 		LintResult,
@@ -993,6 +993,16 @@
 	}
 
 	function listener(e: MessageEvent) {
+		// The detached preview window asks for the build every time it (re)loads,
+		// including a manual browser refresh — its app-preview.html shell starts
+		// blank and the one-shot `load` feed can't survive the tab reloading
+		// itself. Re-feed it here so it repaints. Gated to our own window handle.
+		if (e.data?.type === 'appPreviewReady' && e.source === externalPreviewWindow) {
+			postToExternalPreview({ type: 'setDarkMode', dark: darkMode })
+			syncExternalPreview()
+			return
+		}
+
 		// Two children speak to us now: the UI Builder iframe (source editor)
 		// and the preview iframe (rendered user app). Gate by source so they
 		// can't be confused or spoofed.
@@ -1123,6 +1133,14 @@
 		}
 	}
 
+	onDestroy(() => {
+		// Don't leave a detached preview behind when the editor unmounts: it
+		// would stop receiving builds and, once refreshed, has no opener to
+		// re-feed it — a permanently blank orphan.
+		if (externalPreviewWindow && !externalPreviewWindow.closed) externalPreviewWindow.close()
+		externalPreviewWindow = null
+	})
+
 	function openExternalPreview() {
 		// Reuse an already-open window instead of spawning duplicates.
 		if (externalPreviewWindow && !externalPreviewWindow.closed) {
@@ -1136,12 +1154,9 @@
 			return
 		}
 		externalPreviewWindow = win
-		// app-preview.html registers its message listener synchronously, so by
-		// `load` it's ready to receive the build (same gate the inline iframe uses).
-		win.addEventListener('load', () => {
-			postToExternalPreview({ type: 'setDarkMode', dark: darkMode })
-			syncExternalPreview()
-		})
+		// No load handler: the window feeds itself by posting `appPreviewReady`
+		// to us on every (re)load (handled in `listener`), which — unlike an
+		// opener-side `load` listener — also survives a manual refresh of the tab.
 	}
 
 	let getBundleResolve: (({ css, js }: { css: string; js: string }) => void) | undefined = undefined
