@@ -998,8 +998,7 @@
 		// blank and the one-shot `load` feed can't survive the tab reloading
 		// itself. Re-feed it here so it repaints. Gated to our own window handle.
 		if (e.data?.type === 'appPreviewReady' && e.source === externalPreviewWindow) {
-			postToExternalPreview({ type: 'setDarkMode', dark: darkMode })
-			syncExternalPreview()
+			feedExternalPreview()
 			return
 		}
 
@@ -1133,6 +1132,15 @@
 		}
 	}
 
+	// Full (re)feed of the detached window: theme first, then the build. Used
+	// when (re)attaching to a window — open, focus-reuse, load, handshake — so
+	// it always matches the editor's current state. Plain rebuilds use
+	// `syncExternalPreview` alone (the theme hasn't changed).
+	function feedExternalPreview() {
+		postToExternalPreview({ type: 'setDarkMode', dark: darkMode })
+		syncExternalPreview()
+	}
+
 	onDestroy(() => {
 		// Don't leave a detached preview behind when the editor unmounts: it
 		// would stop receiving builds and, once refreshed, has no opener to
@@ -1145,7 +1153,7 @@
 		// Reuse an already-open window instead of spawning duplicates.
 		if (externalPreviewWindow && !externalPreviewWindow.closed) {
 			externalPreviewWindow.focus()
-			syncExternalPreview()
+			feedExternalPreview()
 			return
 		}
 		const win = window.open('/ui_builder/app-preview.html', 'windmillRawAppPreview')
@@ -1160,10 +1168,7 @@
 		// regardless of the pinned UI Builder artifact. A manual refresh is
 		// covered separately by the handshake in `listener` (this listener is
 		// bound to the now-stale document and won't fire again).
-		win.addEventListener('load', () => {
-			postToExternalPreview({ type: 'setDarkMode', dark: darkMode })
-			syncExternalPreview()
-		})
+		win.addEventListener('load', () => feedExternalPreview())
 	}
 
 	let getBundleResolve: (({ css, js }: { css: string; js: string }) => void) | undefined = undefined
