@@ -529,7 +529,8 @@
 			: {
 					inPipeline: false,
 					triggerAssets: [],
-					nativeTriggers: []
+					nativeTriggers: [],
+					dataTests: []
 				}
 	)
 	$effect(() => {

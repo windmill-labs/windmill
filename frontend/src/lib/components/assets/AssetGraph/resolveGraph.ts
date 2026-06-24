@@ -173,6 +173,13 @@ function makeContext(input: ResolveGraphInput): ResolveContext {
 		if (liveAnnotations.scriptPath === openPath) {
 			for (const a of liveAnnotations.annotations.triggerAssets)
 				liveRefKeys.add(`${a.kind}:${a.path}`)
+			// The `// materialize <asset>` target is a declared *output*, but it
+			// lives in an annotation (not the SQL body), so neither triggerAssets
+			// (inputs) nor the body-inferred assets cover it. Without this its
+			// persisted write-edge is judged stale and dropped the moment the
+			// script is selected/edited — leaving the output asset unlinked.
+			const m = liveAnnotations.annotations.materialize
+			if (m) liveRefKeys.add(`${m.targetKind}:${m.targetPath}`)
 		}
 		for (const a of liveBodyAssets.assets) liveRefKeys.add(`${a.kind}:${a.path}`)
 	}
@@ -232,10 +239,18 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 				freshness: parsed.freshness?.duration,
 				tag: parsed.tag,
 				retry: parsed.retry,
+				data_tests: parsed.dataTests.length > 0 ? parsed.dataTests : undefined,
 				unsaved: true
 			})
 		} else {
-			runnables[baseIdx] = { ...runnables[baseIdx], unsaved: true }
+			// Refresh annotation-derived badges from the live parse too, so
+			// adding/removing `// data_test` lines on an already-deployed script
+			// updates the badge immediately (not only after redeploy/refetch).
+			runnables[baseIdx] = {
+				...runnables[baseIdx],
+				data_tests: parsed.dataTests.length > 0 ? parsed.dataTests : undefined,
+				unsaved: true
+			}
 		}
 		// Output asset(s): three-tier resolution.
 		//   1. Active draft (the body the user is editing right now):
@@ -260,6 +275,16 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 		}
 		if (writeOuts.length === 0 && d.outputAsset) {
 			writeOuts.push(d.outputAsset)
+		}
+		// `// materialize <asset>` declares a write output via annotation, not
+		// the SQL body, so the body-inference tiers above miss it. Add it from
+		// the live-parsed annotations so an edited materialize script keeps its
+		// output edge (the loop below dedups against existing assets/edges).
+		if (parsed.materialize) {
+			writeOuts.push({
+				kind: parsed.materialize.targetKind,
+				path: parsed.materialize.targetPath
+			})
 		}
 		for (const out of writeOuts) {
 			const hasAsset = assets.some((a) => a.kind === out.kind && a.path === out.path)
