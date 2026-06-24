@@ -1154,9 +1154,16 @@
 			return
 		}
 		externalPreviewWindow = win
-		// No load handler: the window feeds itself by posting `appPreviewReady`
-		// to us on every (re)load (handled in `listener`), which — unlike an
-		// opener-side `load` listener — also survives a manual refresh of the tab.
+		// Initial feed: fires once when the freshly opened tab loads. This is the
+		// only feed path against an app-preview.html that predates the
+		// `appPreviewReady` handshake, so the window isn't blank on first open
+		// regardless of the pinned UI Builder artifact. A manual refresh is
+		// covered separately by the handshake in `listener` (this listener is
+		// bound to the now-stale document and won't fire again).
+		win.addEventListener('load', () => {
+			postToExternalPreview({ type: 'setDarkMode', dark: darkMode })
+			syncExternalPreview()
+		})
 	}
 
 	let getBundleResolve: (({ css, js }: { css: string; js: string }) => void) | undefined = undefined
