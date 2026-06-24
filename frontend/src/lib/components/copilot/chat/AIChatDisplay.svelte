@@ -28,9 +28,8 @@
 	import { isActiveUserQuestion, type DisplayMessage } from './shared'
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
-	import ProviderModelSelector from './ProviderModelSelector.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
-	import AIChatSettingsMenu from './AIChatSettingsMenu.svelte'
+	import AIChatModelSettings from './AIChatModelSettings.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
@@ -253,14 +252,13 @@
 
 	const showTypingIndicator = $derived(aiChatManager.loading)
 
-	// `@` context picker is offered in modes that accept workspace/script/flow
-	// references (SCRIPT, FLOW, GLOBAL → workspace items + code blocks) or in
-	// APP mode (datatables, frontend files, etc.). Other modes (NAVIGATOR,
-	// ASK, API) don't accept @-context.
+	// The manual `@` context-picker button. Shown in SCRIPT/FLOW (workspace items +
+	// code blocks) and APP (datatables, frontend files). Hidden in GLOBAL — there
+	// `@`-context is still invoked inline by typing `@` in the input, so the button
+	// is redundant. NAVIGATOR/ASK/API don't take @-context at all.
 	const showContextPicker = $derived(
 		aiChatManager.mode === AIMode.SCRIPT ||
 			aiChatManager.mode === AIMode.FLOW ||
-			aiChatManager.mode === AIMode.GLOBAL ||
 			aiChatManager.mode === AIMode.APP
 	)
 
@@ -909,8 +907,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{#if aiChatManager.mode === AIMode.APP}
 							<DatatableCreationPolicy />
 						{/if}
-						<ProviderModelSelector />
-						<AIChatSettingsMenu />
+						<ContextUsageIndicator />
+						<AIChatModelSettings />
 
 						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
 							{#if appContext.inspectorElement}
@@ -957,9 +955,6 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{/if}
 					</div>
 				{/if}
-			</div>
-			<div class="flex px-1 mt-1">
-				<ContextUsageIndicator />
 			</div>
 		</div>
 		{#if (aiChatManager.mode === AIMode.NAVIGATOR || aiChatManager.mode === AIMode.ASK) && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
