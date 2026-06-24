@@ -2135,6 +2135,40 @@ describe('global AI tools', () => {
 		expect(getBackendDraft('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
+	it('forwards preserve_on_behalf_of when the deployed policy carries an on_behalf_of', async () => {
+		// Without the flag the backend resets the policy's on_behalf_of to the
+		// deploying user; this chat path has no on-behalf-of selector, so it must
+		// preserve whatever the carried policy already holds.
+		vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
+		seedBackendDraft(
+			'raw_app',
+			'f/apps/obo',
+			{
+				summary: 'On-behalf app',
+				files: { '/index.tsx': 'console.log("obo")' },
+				runnables: {},
+				data: { tables: [] },
+				policy: {
+					execution_mode: 'publisher',
+					on_behalf_of: 'u/alice',
+					on_behalf_of_email: 'alice@windmill.dev'
+				}
+			},
+			{ workspace: WORKSPACE }
+		)
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
+
+		await callGlobalTool('deploy_workspace_item', { type: 'app', path: 'f/apps/obo' })
+
+		expect(AppService.updateAppRaw).toHaveBeenCalledWith(
+			expect.objectContaining({
+				formData: expect.objectContaining({
+					app: expect.objectContaining({ preserve_on_behalf_of: true })
+				})
+			})
+		)
+	})
+
 	it('notifies the session preview (as raw_app) after deploying a raw app', async () => {
 		const onDeployed = vi.fn()
 		setDeployedInSessionHandler(onDeployed)

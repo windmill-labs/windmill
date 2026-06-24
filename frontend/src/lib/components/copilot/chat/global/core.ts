@@ -3932,7 +3932,11 @@ async function deployDraft(
 								value: rawAppValue,
 								summary,
 								policy,
-								deployment_message: deploymentMessage
+								deployment_message: deploymentMessage,
+								// Preserve the policy's on_behalf_of: this chat deploy path has no
+								// on-behalf-of selector, so without the flag the backend resets it to
+								// the deploying user (gated server-side by can_preserve_on_behalf_of).
+								preserve_on_behalf_of: policy.on_behalf_of ? true : undefined
 							},
 							js: bundle.js,
 							css: bundle.css
@@ -3948,7 +3952,9 @@ async function deployDraft(
 								summary,
 								policy,
 								deployment_message: deploymentMessage,
-								custom_path: appValue.custom_path
+								custom_path: appValue.custom_path,
+								// Preserve the policy's on_behalf_of (see update branch above).
+								preserve_on_behalf_of: policy.on_behalf_of ? true : undefined
 							},
 							js: bundle.js,
 							css: bundle.css
