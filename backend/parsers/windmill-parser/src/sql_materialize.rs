@@ -676,6 +676,17 @@ fn quote_ident(id: &str) -> String {
     format!("\"{}\"", id.replace('"', "\"\""))
 }
 
+// Quote a possibly schema-qualified table reference (`schema.table`) by quoting
+// each dotted segment independently: `main.dim_products` → `"main"."dim_products"`.
+// Quoting the whole thing would make DuckDB read it as one table name containing
+// a literal dot, querying the wrong table.
+fn quote_qualified(name: &str) -> String {
+    name.split('.')
+        .map(quote_ident)
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
 // Single-quote a SQL string literal, escaping embedded quotes.
 fn quote_lit(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
@@ -769,28 +780,41 @@ pub fn build_data_test_checks(
                         ))
                     }
                 };
-                // Reuse an existing alias for the same (kind, name), else mint one.
-                let alias = match ref_aliases
-                    .iter()
-                    .find(|(k, n, _)| k == to_kind && n == ref_name)
-                {
-                    Some((_, _, a)) => a.clone(),
-                    None => {
-                        let a = format!("{REF_ALIAS_PREFIX}{}", ref_aliases.len());
-                        // Escape the name — it is interpolated into a
-                        // single-quoted DuckDB literal (defense-in-depth: the
-                        // name is deploy-time annotation content, but the parser
-                        // places no character restriction on asset paths).
-                        let esc_name = ref_name.replace('\'', "''");
-                        out.attaches
-                            .push(format!("ATTACH '{scheme}://{esc_name}' AS {a};"));
-                        ref_aliases.push((*to_kind, ref_name.to_string(), a.clone()));
-                        a
+                // The materialize target's ducklake is already attached as
+                // `_wm_target`; a reference into that same lake must reuse it
+                // rather than ATTACH the same database again under a fresh alias
+                // (DuckDB forbids attaching one database twice). `asset_path` is
+                // the target's `<lake>/<table>`, so its lake is the part before
+                // the first `/`.
+                let target_lake = ctx.asset_path.split('/').next().unwrap_or("");
+                let alias = if *to_kind == AssetKind::Ducklake && ref_name == target_lake {
+                    TARGET_ALIAS.to_string()
+                } else {
+                    // Reuse an existing alias for the same (kind, name), else mint one.
+                    match ref_aliases
+                        .iter()
+                        .find(|(k, n, _)| k == to_kind && n == ref_name)
+                    {
+                        Some((_, _, a)) => a.clone(),
+                        None => {
+                            let a = format!("{REF_ALIAS_PREFIX}{}", ref_aliases.len());
+                            // Escape the name — it is interpolated into a
+                            // single-quoted DuckDB literal (defense-in-depth: the
+                            // name is deploy-time annotation content, but the parser
+                            // places no character restriction on asset paths).
+                            let esc_name = ref_name.replace('\'', "''");
+                            out.attaches
+                                .push(format!("ATTACH '{scheme}://{esc_name}' AS {a};"));
+                            ref_aliases.push((*to_kind, ref_name.to_string(), a.clone()));
+                            a
+                        }
                     }
                 };
                 let c = quote_ident(column);
                 let rc = quote_ident(to_column);
-                let rt = quote_ident(ref_table);
+                // `ref_table` may be schema-qualified (`schema.table`); quote each
+                // segment so the dot stays a schema separator, not a literal.
+                let rt = quote_qualified(ref_table);
                 let scope = partition_scope(ctx, " AND ", Some("_wm_src"));
                 let q = format!(
                     "SELECT count(*) AS v FROM {t} _wm_src \
@@ -1214,6 +1238,51 @@ mod tests {
         let sql = build_data_test_checks(&tests, &ctx_unpartitioned()).unwrap();
         // single quote in the name is doubled so it can't break out of the literal
         assert_eq!(sql.attaches[0], "ATTACH 'datatable://ev''il' AS _wm_ref_0;");
+    }
+
+    #[test]
+    fn data_test_relationships_same_lake_reuses_target() {
+        // A relationship into the SAME ducklake as the materialize target
+        // (asset_path = "analytics/orders") must NOT re-ATTACH it — _wm_target
+        // already holds that catalog; reuse it.
+        let tests = vec![DataTestResolved::BuiltIn(DataTest::Relationships {
+            column: "user_id".into(),
+            to_kind: AssetKind::Ducklake,
+            to_path: "analytics/users".into(),
+            to_column: "id".into(),
+        })];
+        let sql = build_data_test_checks(&tests, &ctx_unpartitioned()).unwrap();
+        assert!(
+            sql.attaches.is_empty(),
+            "same-lake ref must not ATTACH again"
+        );
+        assert!(sql.checks[0]
+            .violating
+            .contains("NOT EXISTS (SELECT 1 FROM _wm_target.\"users\""));
+    }
+
+    #[test]
+    fn data_test_relationships_schema_qualified_target() {
+        // `<lake>/<schema>.<table>` — the schema-qualified table must quote each
+        // segment so the dot stays a separator, not part of one identifier.
+        let tests = vec![DataTestResolved::BuiltIn(DataTest::Relationships {
+            column: "sku".into(),
+            to_kind: AssetKind::Ducklake,
+            to_path: "warehouse/main.dim_products".into(),
+            to_column: "sku".into(),
+        })];
+        let sql = build_data_test_checks(&tests, &ctx_unpartitioned()).unwrap();
+        assert_eq!(
+            sql.attaches[0],
+            "ATTACH 'ducklake://warehouse' AS _wm_ref_0;"
+        );
+        assert!(
+            sql.checks[0]
+                .violating
+                .contains("FROM _wm_ref_0.\"main\".\"dim_products\""),
+            "schema-qualified target should be quoted per segment: {}",
+            sql.checks[0].violating
+        );
     }
 
     #[test]
