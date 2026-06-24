@@ -243,7 +243,14 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 				unsaved: true
 			})
 		} else {
-			runnables[baseIdx] = { ...runnables[baseIdx], unsaved: true }
+			// Refresh annotation-derived badges from the live parse too, so
+			// adding/removing `// data_test` lines on an already-deployed script
+			// updates the badge immediately (not only after redeploy/refetch).
+			runnables[baseIdx] = {
+				...runnables[baseIdx],
+				data_tests: parsed.dataTests.length > 0 ? parsed.dataTests : undefined,
+				unsaved: true
+			}
 		}
 		// Output asset(s): three-tier resolution.
 		//   1. Active draft (the body the user is editing right now):

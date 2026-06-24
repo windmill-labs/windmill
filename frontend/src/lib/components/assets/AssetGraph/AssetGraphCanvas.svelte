@@ -368,17 +368,22 @@
 			const assetId = `asset:${e.asset_kind}:${e.asset_path}`
 			const access = e.access_type ?? 'r'
 			if (access === 'w' || access === 'rw') {
+				// Data tests assert on the `// materialize` target, which is always
+				// a ducklake asset (v1 enforces this), so only the ducklake
+				// write-edge carries the badge / custom-test nodes — a producer's
+				// other (e.g. S3/datatable) outputs must not show them.
+				const edgeTests = e.asset_kind === 'ducklake' ? producerTests.get(runnableId) : undefined
 				edges.push({
 					id: `prod:${runnableId}->${assetId}`,
 					source: runnableId,
 					target: assetId,
 					kind: 'lineage-write',
 					unsaved: e.unsaved,
-					data_tests: producerTests.get(runnableId)
+					data_tests: edgeTests
 				})
 				// Each custom (`// data_test <script_path>`) test → its own node
 				// below the asset it validates, with a dashed "tests" edge.
-				for (const t of producerTests.get(runnableId) ?? []) {
+				for (const t of edgeTests ?? []) {
 					if (t.type !== 'custom') continue
 					const testNodeId = `datatest:${assetId}:${t.path}`
 					if (!addedTestNodes.has(testNodeId)) {
