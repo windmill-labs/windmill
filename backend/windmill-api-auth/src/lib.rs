@@ -205,6 +205,33 @@ pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
     }
 }
 
+/// Forbid sensitive global user/token management when authenticated as a
+/// superadmin *via a job token* (`WM_TOKEN`).
+///
+/// A `WM_TOKEN`'s identity is derived from an app/flow `on_behalf_of`, which a
+/// non-admin `wm_deployers` member can point at a superadmin. Trusting it for
+/// these operations would let them establish *persistent* superadmin (promote a
+/// user, reset a superadmin's password, mint a superadmin token, ...). `job_id`
+/// is set only for `WM_TOKEN`s; regular session/API tokens have it `None`, so a
+/// real superadmin who needs this from a script uses a dedicated superadmin API
+/// token (which only a real superadmin can create) instead of `$WM_TOKEN`.
+pub async fn forbid_superadmin_job_token(
+    db: &DB,
+    email: &str,
+    job_id: Option<uuid::Uuid>,
+) -> error::Result<()> {
+    if job_id.is_some() && is_super_admin_email(db, email).await? {
+        return Err(Error::NotAuthorized(
+            "This operation cannot be performed with a job token ($WM_TOKEN) that runs as a \
+             superadmin. If a script genuinely needs to do this, create a dedicated superadmin \
+             token from the User settings drawer (the 'Tokens' section), store it as a secret, \
+             and use that token explicitly instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 pub fn check_scopes<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
 where
     F: FnOnce() -> String,

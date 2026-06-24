@@ -255,6 +255,14 @@ pub async fn do_duckdb(
         } else {
             None
         };
+        // Parse the signature from the ORIGINAL script: managed materialize wraps
+        // the trailing SELECT and strips line comments, which drops the
+        // `-- $name (type)` arg declarations while their `$name` references
+        // survive in the embedded SELECT. Parsing args here (pre-wrap) keeps them
+        // declared so they are still bound — and s3object args translated to
+        // `s3://` URIs — at run time.
+        let sig = parse_duckdb_sig(query)?.args;
+
         let materialized_query;
         let query: &str = match &materialize {
             Some((Some(rewritten), _)) => {
@@ -263,8 +271,6 @@ pub async fn do_duckdb(
             }
             _ => query,
         };
-
-        let sig = parse_duckdb_sig(query)?.args;
         let mut job_args = build_args_values(job, client, conn).await?;
 
         let reserved_variables =
@@ -1104,6 +1110,40 @@ mod tests {
             cgroup_bytes_to_duckdb_memory_limit(1),
             Some("64MiB".to_string())
         );
+    }
+
+    // Managed `// materialize` may take SQL args (e.g. an s3object uploaded on
+    // the run form). The wrap strips line comments — including the
+    // `-- $name (type)` declarations — so the executor parses the signature from
+    // the original script (done above, before the rewrite) while the `$name`
+    // references survive inside the wrapped SELECT. This pins both halves of that
+    // contract so a regression that drops either is caught.
+    #[test]
+    fn materialize_preserves_sql_args() {
+        let script = "-- materialize ducklake://main/rows\n\
+                      -- $file (s3object)\n\
+                      SELECT * FROM read_json_auto($file)";
+
+        // The signature is recoverable from the original (un-wrapped) script.
+        let sig = parse_duckdb_sig(script).expect("sig parses").args;
+        let file_arg = sig
+            .iter()
+            .find(|a| a.name == "file")
+            .expect("`$file` declared");
+        assert_eq!(file_arg.otyp.as_deref(), Some("s3object"));
+
+        // The wrapped query still references `$file`, so the parsed sig binds it.
+        let (rewritten, _) = build_materialized_query(script, None)
+            .expect("materialize builds")
+            .expect("materialize present");
+        let rewritten = rewritten.expect("managed mode rewrites the query");
+        assert!(
+            rewritten.contains("$file"),
+            "wrapped query must keep the `$file` reference, got:\n{rewritten}"
+        );
+        // The declaration comment is gone (wrap strips line comments) — which is
+        // exactly why the sig must come from the original, not the rewrite.
+        assert!(!rewritten.contains("-- $file"));
     }
 
     // Tests for parse_attach_db_resource function

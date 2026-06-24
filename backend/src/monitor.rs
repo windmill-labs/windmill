@@ -1324,6 +1324,9 @@ pub async fn delete_expired_items(db: &DB) -> () {
         let cleanup_start = Instant::now();
         let mut total_deleted = 0u64;
         let mut batch_num = 0i32;
+        // Watermark carried across batches so each one resumes after the rows the previous batch
+        // already processed instead of re-scanning the (potentially undeletable) oldest prefix.
+        let mut completed_at_floor: Option<DateTime<Utc>> = None;
 
         // Process batches until no more expired jobs or max batches reached
         loop {
@@ -1336,14 +1339,17 @@ pub async fn delete_expired_items(db: &DB) -> () {
             }
 
             // Each batch runs in its own transaction to avoid long-running locks
-            let batch_result = delete_expired_jobs_batch(db, job_retention_secs, batch_size).await;
+            let batch_result =
+                delete_expired_jobs_batch(db, job_retention_secs, batch_size, completed_at_floor)
+                    .await;
 
             match batch_result {
-                Ok(deleted_count) => {
+                Ok((deleted_count, max_completed_at)) => {
                     if deleted_count == 0 {
                         // No more expired jobs to delete
                         break;
                     }
+                    completed_at_floor = max_completed_at.or(completed_at_floor);
                     total_deleted += deleted_count as u64;
                     batch_num += 1;
                 }
@@ -1510,12 +1516,20 @@ pub async fn check_expiring_tokens(db: &DB) {
 
 /// Delete a batch of expired jobs with LIMIT and SKIP LOCKED for high-scale environments.
 /// Uses a single transaction per batch to minimize lock duration.
-/// Returns the number of jobs deleted in this batch.
+///
+/// `completed_at_floor` is the watermark from the previous batch in the same cleanup run (the
+/// max `completed_at` it deleted); pass `None` for the first batch. It is re-applied as
+/// `completed_at >= floor` so the scan resumes past the rows already processed instead of
+/// re-walking them (see the inline comment on the DELETE for why this matters).
+///
+/// Returns `(jobs deleted in this batch, max completed_at deleted)`. The caller feeds the
+/// returned watermark back in as `completed_at_floor` for the next batch.
 async fn delete_expired_jobs_batch(
     db: &DB,
     job_retention_secs: i64,
     batch_size: i64,
-) -> error::Result<usize> {
+    completed_at_floor: Option<DateTime<Utc>>,
+) -> error::Result<(usize, Option<DateTime<Utc>>)> {
     let mut tx = db.begin().await?;
 
     // Fetch active ROOT job IDs that started before the retention period. We only care about
@@ -1531,26 +1545,70 @@ async fn delete_expired_jobs_batch(
     .fetch_all(&mut *tx)
     .await?;
 
-    // Use FOR UPDATE SKIP LOCKED to avoid contention between replicas
-    // ORDER BY completed_at ensures we delete oldest jobs first
-    let deleted_jobs: Vec<Uuid> = sqlx::query_scalar!(
-        "DELETE FROM v2_job_completed
-         WHERE id IN (
-             SELECT jc.id FROM v2_job_completed jc
-             LEFT JOIN v2_job j ON j.id = jc.id
-             WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
-               AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) != ALL($3)
-             ORDER BY jc.completed_at ASC
-             LIMIT $2
-             FOR UPDATE OF jc SKIP LOCKED
-         )
-         RETURNING id",
-        job_retention_secs,
-        batch_size,
-        &active_root_job_ids
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+    // `completed_at_floor` is a watermark carried across batches within a cleanup run: it is the
+    // max(completed_at) deleted by the previous batch. Re-applying it as `completed_at >= floor`
+    // lets each batch resume after the rows the previous batch already processed instead of
+    // re-scanning them. This matters when the oldest rows are undeletable (children of a
+    // still-active root flow): without the floor the `ORDER BY completed_at ASC` scan walks that
+    // same protected prefix on every batch, turning a cleanup run quadratic in prefix size.
+    // Floor only ever skips rows the current run already deleted, was protecting, or skip-locked —
+    // all correctly deferred to the next run, identical to the unbounded scan's semantics.
+    //
+    // Use FOR UPDATE SKIP LOCKED to avoid contention between replicas; ORDER BY completed_at
+    // deletes oldest jobs first.
+    let (deleted_jobs, max_completed_at) = if active_root_job_ids.is_empty() {
+        // Common case: no old root flow is still running, so nothing is protected and the
+        // v2_job join (a PK lookup per candidate) is pure overhead — skip it entirely.
+        let rows = sqlx::query!(
+            "DELETE FROM v2_job_completed
+             WHERE id IN (
+                 SELECT id FROM v2_job_completed
+                 WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval
+                   AND ($3::timestamptz IS NULL OR completed_at >= $3)
+                 ORDER BY completed_at ASC
+                 LIMIT $2
+                 FOR UPDATE SKIP LOCKED
+             )
+             RETURNING id, completed_at",
+            job_retention_secs,
+            batch_size,
+            completed_at_floor,
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        let max = rows.iter().map(|r| r.completed_at).max();
+        (rows.into_iter().map(|r| r.id).collect::<Vec<Uuid>>(), max)
+    } else {
+        // Active-root exclusion uses `NOT IN (SELECT ... unnest($3))` rather than `!= ALL($3)`:
+        // the subquery form lets the planner build a one-time hashed SubPlan and apply it as a
+        // filter on the ordered index scan, giving O(1) membership per candidate instead of a
+        // per-row linear array scan (which degrades sharply when many root jobs are active). The
+        // `u IS NOT NULL` guard sidesteps NOT IN's null-trap semantics ($3 holds non-null PK ids).
+        let rows = sqlx::query!(
+            "DELETE FROM v2_job_completed
+             WHERE id IN (
+                 SELECT jc.id FROM v2_job_completed jc
+                 LEFT JOIN v2_job j ON j.id = jc.id
+                 WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
+                   AND ($4::timestamptz IS NULL OR jc.completed_at >= $4)
+                   AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) NOT IN (
+                       SELECT u FROM unnest($3::uuid[]) AS u WHERE u IS NOT NULL
+                   )
+                 ORDER BY jc.completed_at ASC
+                 LIMIT $2
+                 FOR UPDATE OF jc SKIP LOCKED
+             )
+             RETURNING id, completed_at",
+            job_retention_secs,
+            batch_size,
+            &active_root_job_ids,
+            completed_at_floor,
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        let max = rows.iter().map(|r| r.completed_at).max();
+        (rows.into_iter().map(|r| r.id).collect::<Vec<Uuid>>(), max)
+    };
 
     let deleted_count = deleted_jobs.len();
 
@@ -1610,7 +1668,7 @@ async fn delete_expired_jobs_batch(
 
     tx.commit().await?;
 
-    Ok(deleted_count)
+    Ok((deleted_count, max_completed_at))
 }
 
 async fn delete_log_files_from_disk_and_store(
@@ -4368,39 +4426,65 @@ RETURNING key,job_id
     Ok(())
 }
 
-async fn cleanup_job_perms_orphaned(db: &DB) -> error::Result<()> {
-    let result = sqlx::query_scalar!(
-        "DELETE FROM job_perms
-WHERE job_id NOT IN (SELECT id FROM v2_job_queue)
-RETURNING job_id"
-    )
-    .fetch_all(db)
-    .await?;
+// Per-statement cap keeps each delete short and lock-light; the per-cycle batch
+// cap bounds total work per monitor iteration so monitor_db stays responsive.
+// A large backlog drains across several iterations rather than one long delete.
+const ORPHAN_CLEANUP_BATCH_SIZE: u64 = 100_000;
+const ORPHAN_CLEANUP_MAX_BATCHES: usize = 10;
 
-    if !result.is_empty() {
-        tracing::info!("Cleaned up {} orphaned job_perms rows", result.len());
+async fn cleanup_job_perms_orphaned(db: &DB) -> error::Result<()> {
+    let mut total: u64 = 0;
+    for _ in 0..ORPHAN_CLEANUP_MAX_BATCHES {
+        let count = sqlx::query!(
+            "DELETE FROM job_perms
+             WHERE ctid IN (
+                 SELECT jp.ctid FROM job_perms jp
+                 WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = jp.job_id)
+                 LIMIT 100000
+             )"
+        )
+        .execute(db)
+        .await?
+        .rows_affected();
+        total += count;
+        if count < ORPHAN_CLEANUP_BATCH_SIZE {
+            break;
+        }
+    }
+
+    if total > 0 {
+        tracing::info!("Cleaned up {total} orphaned job_perms rows");
     }
     Ok(())
 }
 
 async fn cleanup_job_result_stream_orphaned_jobs(db: &DB) -> error::Result<()> {
-    let result = sqlx::query!(
-        "DELETE FROM job_result_stream_v2
-         WHERE job_id NOT IN (SELECT id FROM v2_job_queue)
-           AND job_id NOT IN (
-               SELECT id FROM v2_job_completed
-               WHERE completed_at > NOW() - INTERVAL '60 seconds'
-           )
-         RETURNING job_id",
-    )
-    .fetch_all(db)
-    .await?;
+    let mut total: u64 = 0;
+    for _ in 0..ORPHAN_CLEANUP_MAX_BATCHES {
+        let count = sqlx::query!(
+            "DELETE FROM job_result_stream_v2
+             WHERE ctid IN (
+                 SELECT jrs.ctid FROM job_result_stream_v2 jrs
+                 WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = jrs.job_id)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM v2_job_completed c
+                       WHERE c.id = jrs.job_id
+                         AND c.completed_at > NOW() - INTERVAL '60 seconds'
+                   )
+                 LIMIT 100000
+             )",
+        )
+        .execute(db)
+        .await?
+        .rows_affected();
+        total += count;
+        if count < ORPHAN_CLEANUP_BATCH_SIZE {
+            break;
+        }
+    }
 
-    if result.len() > 0 {
-        tracing::info!(
-            "Cleaned up {} orphaned job_result_stream_v2 rows",
-            result.len()
-        );
+    if total > 0 {
+        tracing::info!("Cleaned up {total} orphaned job_result_stream_v2 rows");
     }
     Ok(())
 }
@@ -4436,11 +4520,19 @@ async fn audit_log_retention_days() -> i64 {
     }
 }
 
+/// Number of days ahead (including today) for which an audit partition must
+/// always exist. A missing partition in this window means audit inserts fail
+/// once that date is reached — and because some callers (notably login) write
+/// the audit row in the same transaction as their own work, that failure
+/// poisons the whole transaction, so a missing partition is a hard outage, not
+/// just a dropped audit row.
+const AUDIT_PARTITION_LOOKAHEAD_DAYS: i64 = 3;
+
 async fn manage_audit_partitions(db: &DB, retention_days: i64) {
     let today = chrono::Utc::now().date_naive();
 
-    // Create partitions for today and the next 3 days
-    for days_ahead in 0..=3i64 {
+    // Create partitions for today and the next few days
+    for days_ahead in 0..=AUDIT_PARTITION_LOOKAHEAD_DAYS {
         let date = today + chrono::Duration::days(days_ahead);
         let next_date = date + chrono::Duration::days(1);
         let partition_name = format!("audit_{}", date.format("%Y%m%d"));
@@ -4456,9 +4548,6 @@ async fn manage_audit_partitions(db: &DB, retention_days: i64) {
         }
     }
 
-    // Drop expired partitions
-    let cutoff_date = today - chrono::Duration::days(retention_days);
-
     let partitions = sqlx::query_scalar::<_, String>(
         "SELECT c.relname::text \
          FROM pg_inherits i \
@@ -4468,28 +4557,62 @@ async fn manage_audit_partitions(db: &DB, retention_days: i64) {
     .fetch_all(db)
     .await;
 
-    match partitions {
-        Ok(partitions) => {
-            for partition_name in partitions {
-                if let Some(date_str) = partition_name.strip_prefix("audit_") {
-                    if let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y%m%d") {
-                        if date < cutoff_date {
-                            let quoted_name =
-                                format!("\"{}\"", partition_name.replace('"', "\"\""));
-                            let sql = format!("DROP TABLE IF EXISTS {quoted_name}");
-                            match sqlx::query(&sql).execute(db).await {
-                                Ok(_) => tracing::info!(
-                                    "Dropped expired audit partition {partition_name}"
-                                ),
-                                Err(e) => tracing::error!(
-                                    "Error dropping audit partition {partition_name}: {e:?}"
-                                ),
-                            }
+    let partitions = match partitions {
+        Ok(partitions) => partitions,
+        Err(e) => {
+            tracing::error!("Error listing audit partitions: {e:?}");
+            return;
+        }
+    };
+
+    // Verify the lookahead window is actually covered. If a create above failed
+    // (or this loop has not run for several days), alert loudly instead of
+    // letting it surface days later as failed audit inserts and broken logins.
+    let existing: std::collections::HashSet<&str> = partitions.iter().map(|s| s.as_str()).collect();
+    let missing: Vec<String> = (0..=AUDIT_PARTITION_LOOKAHEAD_DAYS)
+        .map(|days_ahead| {
+            format!(
+                "audit_{}",
+                (today + chrono::Duration::days(days_ahead)).format("%Y%m%d")
+            )
+        })
+        .filter(|name| !existing.contains(name.as_str()))
+        .collect();
+    if !missing.is_empty() {
+        report_critical_error(
+            format!(
+                "Audit log partitions missing after maintenance run: {}. \
+                 Audit inserts will fail once these dates are reached, which also \
+                 breaks logins (the login audit row shares the login transaction). \
+                 Check for earlier 'Error creating audit partition' logs and verify \
+                 the audit-partition maintenance loop is still running.",
+                missing.join(", ")
+            ),
+            db.clone(),
+            None,
+            None,
+        )
+        .await;
+    }
+
+    // Drop expired partitions
+    let cutoff_date = today - chrono::Duration::days(retention_days);
+    for partition_name in &partitions {
+        if let Some(date_str) = partition_name.strip_prefix("audit_") {
+            if let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y%m%d") {
+                if date < cutoff_date {
+                    let quoted_name = format!("\"{}\"", partition_name.replace('"', "\"\""));
+                    let sql = format!("DROP TABLE IF EXISTS {quoted_name}");
+                    match sqlx::query(&sql).execute(db).await {
+                        Ok(_) => {
+                            tracing::info!("Dropped expired audit partition {partition_name}")
                         }
+                        Err(e) => tracing::error!(
+                            "Error dropping audit partition {partition_name}: {e:?}"
+                        ),
                     }
                 }
             }
         }
-        Err(e) => tracing::error!("Error listing audit partitions: {e:?}"),
     }
 }

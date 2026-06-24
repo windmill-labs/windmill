@@ -3,6 +3,7 @@
     Create a draft Bun script at `f/evals/global/greet_user`.
     It should take a string `name` input and return `Hello, ${name}!`.
     Leave it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
   runtime:
     maxTurns: 10
   validate:
