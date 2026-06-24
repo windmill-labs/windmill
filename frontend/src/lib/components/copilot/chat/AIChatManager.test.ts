@@ -1029,6 +1029,162 @@ describe('AIChatManager context compaction', () => {
 	})
 })
 
+describe('AIChatManager manual compaction', () => {
+	const model = { provider: 'openai', model: 'gpt-4o' }
+
+	beforeEach(() => {
+		localStorage.clear()
+		vi.clearAllMocks()
+		mocks.getCurrentModel.mockReturnValue(model)
+		mocks.tryGetCurrentModel.mockReturnValue(model)
+		// changeMode(GLOBAL) refreshes workspace skills; keep it a no-op here.
+		mocks.listAiSkills.mockResolvedValue([])
+	})
+
+	function seedExchange(manager: AIChatManager) {
+		manager.messages = [
+			{ role: 'user', content: 'q1' },
+			{ role: 'assistant', content: 'a1' },
+			{ role: 'user', content: 'q2' },
+			{ role: 'assistant', content: 'a2' }
+		]
+		manager.displayMessages = [
+			{ role: 'user', content: 'q1', index: 0 },
+			{ role: 'assistant', content: 'a1' },
+			{ role: 'user', content: 'q2', index: 2 },
+			{ role: 'assistant', content: 'a2' }
+		]
+	}
+
+	it('folds the whole history into a single summary boundary, keeping nothing verbatim', async () => {
+		mocks.getNonStreamingCompletion.mockResolvedValue('<summary>MANUAL SUMMARY</summary>')
+		const manager = new AIChatManager()
+		seedExchange(manager)
+		manager.contextUsage = 123
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat')
+
+		await manager.compactManually()
+
+		// The summarizer saw the entire history, then the summary instruction.
+		expect(mocks.getNonStreamingCompletion).toHaveBeenCalledTimes(1)
+		const summaryReq = mocks.getNonStreamingCompletion.mock.calls[0][0]
+		expect(summaryReq).toHaveLength(5)
+		expect(summaryReq[0].content).toBe('q1')
+		expect(summaryReq[3].content).toBe('a2')
+		expect(summaryReq[4].content).toContain('detailed summary')
+
+		// Nothing kept verbatim: messages collapse to just the summary user message.
+		expect(manager.messages).toHaveLength(1)
+		expect(manager.messages[0].role).toBe('user')
+		expect(manager.messages[0].content).toContain('MANUAL SUMMARY')
+		expect(manager.messages[0].content).toContain('continued from a previous conversation')
+		expect(manager.messages[0].content).not.toContain('<summary>')
+
+		// The transcript shows one summary boundary in place of the old bubbles.
+		expect(manager.displayMessages).toHaveLength(1)
+		expect(manager.displayMessages[0]).toMatchObject({ role: 'summary', content: 'MANUAL SUMMARY' })
+
+		expect(manager.contextUsage).toBeUndefined()
+		expect(saveChat).toHaveBeenCalled()
+		expect(mocks.sendUserToast).toHaveBeenCalledWith('Conversation compacted.')
+		expect(manager.loading).toBe(false)
+		expect(manager.compacting).toBe(false)
+	})
+
+	it('no-ops with a toast when there is nothing worth compacting', async () => {
+		const manager = new AIChatManager()
+		manager.messages = [{ role: 'user', content: 'only one' }]
+
+		await manager.compactManually()
+
+		expect(mocks.getNonStreamingCompletion).not.toHaveBeenCalled()
+		expect(mocks.sendUserToast).toHaveBeenCalledWith('Nothing to compact yet.')
+		expect(manager.messages).toHaveLength(1)
+	})
+
+	it('leaves history untouched when the user stops mid-summary', async () => {
+		mocks.getNonStreamingCompletion.mockImplementation(async (_msgs: any, ac: AbortController) => {
+			ac.abort('user_cancelled')
+			throw new Error('aborted')
+		})
+		const manager = new AIChatManager()
+		seedExchange(manager)
+
+		await manager.compactManually()
+
+		expect(manager.messages).toHaveLength(4)
+		expect(manager.displayMessages.some((m) => m.role === 'summary')).toBe(false)
+		// An abort is a user cancel, not a failure — no toast, no destructive change.
+		expect(mocks.sendUserToast).not.toHaveBeenCalled()
+		expect(manager.loading).toBe(false)
+	})
+
+	it('routes the /compact session command to manual compaction instead of the model', async () => {
+		mocks.getNonStreamingCompletion.mockResolvedValue('<summary>VIA COMMAND</summary>')
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		seedExchange(manager)
+
+		const sent = await manager.sendRequest({ instructions: '/compact', mode: AIMode.GLOBAL })
+
+		// The command never became a chat turn...
+		expect(sent).toBe(false)
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		// ...it ran the summarizer and compacted in place, clearing the composer.
+		expect(mocks.getNonStreamingCompletion).toHaveBeenCalledTimes(1)
+		expect(manager.displayMessages[0]).toMatchObject({ role: 'summary', content: 'VIA COMMAND' })
+		expect(manager.instructions).toBe('')
+	})
+
+	it('auto-sends a message queued while compaction was running', async () => {
+		mocks.getNonStreamingCompletion.mockResolvedValue('<summary>S</summary>')
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.changeMode(AIMode.GLOBAL)
+		seedExchange(manager)
+		// A message typed while loading was true gets queued, not sent.
+		manager.queuedMessage = 'follow-up question'
+
+		await manager.compactManually()
+
+		// Compaction ran once, then the queued message went out as a real turn.
+		expect(mocks.getNonStreamingCompletion).toHaveBeenCalledTimes(1)
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
+		const sent = mocks.runChatLoop.mock.calls[0][0].messages
+		expect(sent[sent.length - 1].content).toContain('follow-up question')
+		expect(manager.queuedMessage).toBe('')
+	})
+
+	it('does not intercept /compact outside session chat', async () => {
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+		const manager = new AIChatManager()
+		manager.isSessionChat = false
+
+		await manager.sendRequest({ instructions: '/compact', mode: AIMode.GLOBAL })
+
+		// Without the session-chat command surface, /compact is a normal message.
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
+		expect(mocks.getNonStreamingCompletion).not.toHaveBeenCalled()
+	})
+})
+
 const assistantToolCall = (id: string): ChatCompletionMessageParam => ({
 	role: 'assistant',
 	content: '',
