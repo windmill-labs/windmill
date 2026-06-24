@@ -166,6 +166,7 @@
 				hasDraft: !!draft,
 				draftOnly: draft?.draft_only ?? false,
 				draftUsers: draft?.draft_users,
+				draftItemKind: draft?.kind,
 				displayPath: draft?.draft_path ?? d.path,
 				summary: draft?.summary
 			})
@@ -189,6 +190,7 @@
 				hasDraft: true,
 				draftOnly: it.draft_only,
 				draftUsers: it.draft_users,
+				draftItemKind: it.kind,
 				displayPath: it.draft_path ?? it.path,
 				summary: it.summary
 			})

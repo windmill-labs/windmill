@@ -35,6 +35,7 @@ export type AppRootMeta = {
 	hasDraft?: boolean
 	draftOnly?: boolean
 	draftUsers?: { username?: string | null }[]
+	draftItemKind?: import('$lib/gen').UserDraftItemKind
 }
 
 export type FolderNode<T> = {

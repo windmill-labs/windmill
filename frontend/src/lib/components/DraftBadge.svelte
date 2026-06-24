@@ -198,13 +198,12 @@
 	}
 </script>
 
-{#snippet circleStack(compact: boolean)}
-	{@const sz = compact ? 'h-3 w-3 text-[7px]' : 'h-3.5 w-3.5 text-[8px]'}
+{#snippet circleStack()}
 	<!-- `-space-x-1` overlaps the circles; the indigo ring tint makes the overlap read intentional. -->
 	<span class="flex -space-x-1">
 		{#each visibleUsers as u, i (i)}
 			<span
-				class="inline-flex {sz} items-center justify-center rounded-full font-semibold text-white ring-1 ring-indigo-100 dark:ring-indigo-700/40 {colorFor(
+				class="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] font-semibold text-white ring-1 ring-indigo-100 dark:ring-indigo-700/40 {colorFor(
 					u
 				)}"
 				title={u.username === currentUsername ? `${fullLabel(u)} (you)` : fullLabel(u)}
@@ -214,7 +213,7 @@
 		{/each}
 		{#if overflowCount > 0}
 			<span
-				class="inline-flex {sz} items-center justify-center rounded-full bg-gray-500 font-semibold text-white ring-1 ring-indigo-100 dark:ring-indigo-700/40"
+				class="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-gray-500 text-[8px] font-semibold text-white ring-1 ring-indigo-100 dark:ring-indigo-700/40"
 				title="{overflowCount} more"
 			>
 				+{overflowCount}
@@ -235,19 +234,18 @@
 	>
 		{#snippet trigger()}
 			{#if iconOnly}
-				<!-- Still a badge, just the avatar(s) and no "Draft" text — for tight
-				     spots. Falls back to a pencil when there are no named draft owners. -->
-				<Badge small color="indigo">
+				<!-- Compact "has a draft" marker for tight spots like the diff-tree
+				     sidebar: a small indigo pencil + the author avatar(s). -->
+				<span class="inline-flex items-center gap-0.5" title={draft_only ? 'Draft only' : 'Draft'}>
+					<Pencil class="h-3 w-3 shrink-0 text-indigo-500 dark:text-indigo-400" />
 					{#if orderedUsers.length > 0}
-						{@render circleStack(true)}
-					{:else}
-						<Pencil class="w-3 h-3" />
+						{@render circleStack()}
 					{/if}
-				</Badge>
+				</span>
 			{:else}
 				<Badge small color="indigo">
 					{#if orderedUsers.length > 0}
-						{@render circleStack(false)}
+						{@render circleStack()}
 					{/if}
 					{draft_only ? 'Draft only' : 'Draft'}
 				</Badge>

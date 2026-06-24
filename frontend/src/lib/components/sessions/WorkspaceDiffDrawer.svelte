@@ -1,4 +1,5 @@
 <script lang="ts" module>
+	import type { UserDraftItemKind } from '$lib/gen'
 	export type DiffStatus = 'added' | 'removed' | 'modified' | 'conflict'
 	// One changed item. `status` drives the dot/badge; `ahead`/`behind` are
 	// optional (fork-only) and only render when present.
@@ -23,6 +24,9 @@
 		draftOnly?: boolean
 		/** Draft authors, for the shared DraftBadge's avatar circles. */
 		draftUsers?: { username?: string | null }[]
+		/** The draft's user-draft itemKind, so DraftBadge labels the kind correctly
+		 * (e.g. "app" not "script"). */
+		draftItemKind?: UserDraftItemKind
 	}
 </script>
 
@@ -273,7 +277,8 @@
 				summary: 'summary' in d ? d.summary : undefined,
 				hasDraft: 'hasDraft' in d ? d.hasDraft : undefined,
 				draftOnly: 'draftOnly' in d ? d.draftOnly : undefined,
-				draftUsers: 'draftUsers' in d ? d.draftUsers : undefined
+				draftUsers: 'draftUsers' in d ? d.draftUsers : undefined,
+				draftItemKind: 'draftItemKind' in d ? d.draftItemKind : undefined
 			})
 		}
 		return m
@@ -460,6 +465,7 @@
 							is_draft
 							draft_only={node.app.draftOnly ?? false}
 							draft_users={node.app.draftUsers ?? []}
+							itemKind={node.app.draftItemKind}
 							currentUsername={$userStore?.username}
 						/>
 					{/if}
@@ -532,6 +538,7 @@
 						is_draft
 						draft_only={'draftOnly' in d ? (d.draftOnly ?? false) : false}
 						draft_users={'draftUsers' in d ? (d.draftUsers ?? []) : []}
+						itemKind={'draftItemKind' in d ? d.draftItemKind : undefined}
 						currentUsername={$userStore?.username}
 					/>
 				{/if}
@@ -682,6 +689,7 @@
 													is_draft
 													draft_only={'draftOnly' in d ? (d.draftOnly ?? false) : false}
 													draft_users={'draftUsers' in d ? (d.draftUsers ?? []) : []}
+													itemKind={'draftItemKind' in d ? d.draftItemKind : undefined}
 													currentUsername={$userStore?.username}
 												/>
 											{/if}
