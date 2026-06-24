@@ -952,9 +952,7 @@
 			}
 		})
 	})
-	$effect(() => {
-		readFieldsRecursively(script)
-	})
+
 	// Mirror the draft triggers (held in a separate `triggersState` $state)
 	// back into `script.draft_triggers` so the UserDraft autosave — which
 	// deep-tracks `script` — picks them up. Pre-PR ScriptBuilder ran its own

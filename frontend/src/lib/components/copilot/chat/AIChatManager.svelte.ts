@@ -893,7 +893,7 @@ export class AIChatManager {
 			this.helpers = {
 				getScriptOptions: () => {
 					return {
-						code: this.scriptEditorOptions?.code ?? '',
+						code: this.scriptEditorOptions?.getCode() ?? '',
 						lang: lang,
 						path: this.scriptEditorOptions?.path ?? '',
 						args: this.scriptEditorOptions?.args ?? {}
@@ -2077,14 +2077,13 @@ export class AIChatManager {
 								lastDeployedCode: undefined,
 								lastSavedCode: undefined
 							}
-
 				return {
 					args: moduleState?.previewArgs ?? {},
 					error:
 						moduleState && !moduleState.previewSuccess
 							? getStringError(moduleState.previewResult)
 							: undefined,
-					code: module.value.content,
+					getCode: () => module.value.type === 'rawscript' ? module.value.content : '',
 					lang: module.value.language,
 					path: module.id,
 					...editorRelated

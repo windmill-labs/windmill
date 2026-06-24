@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.737.0
+  version: 1.738.0
   title: Windmill API
 
   contact:
@@ -996,6 +996,39 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UserWorkspaceList"
+
+  /workspaces/session_workspace_status:
+    post:
+      summary: get the lifecycle status of workspaces referenced by client-side sessions
+      operationId: getSessionWorkspaceStatus
+      tags:
+        - workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                workspace_ids:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - workspace_ids
+      responses:
+        "200":
+          description: map of workspace id to status (active, archived, or deleted)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+                  enum:
+                    - active
+                    - archived
+                    - deleted
 
   /w/{workspace}/workspaces/get_as_superadmin:
     get:

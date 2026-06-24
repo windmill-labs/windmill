@@ -212,6 +212,9 @@ describe("loadCases", () => {
         },
       ],
     });
+    expect(caseEntry?.initialPath).toContain(
+      "ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json"
+    );
     expect(caseEntry?.toolExpect).toMatchObject({
       requiredToolsUsed: ["write_script"],
       forbiddenToolsUsed: ["deploy_workspace_item", "delete_workspace_item"],

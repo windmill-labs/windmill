@@ -339,13 +339,15 @@ async fn cleanup_job_logs(
         return Ok(());
     }
 
+    let mut completed_at_floor: Option<DateTime<Utc>> = None;
     loop {
-        let (deleted_count, rel_paths) =
-            delete_expired_jobs_batch(db, retention_secs, JOB_BATCH).await?;
+        let (deleted_count, rel_paths, max_completed_at) =
+            delete_expired_jobs_batch(db, retention_secs, JOB_BATCH, completed_at_floor).await?;
 
         if deleted_count == 0 {
             break;
         }
+        completed_at_floor = max_completed_at.or(completed_at_floor);
 
         let s3_paths: Vec<ObjectPath> = rel_paths
             .iter()
@@ -382,7 +384,8 @@ async fn delete_expired_jobs_batch(
     db: &DB,
     job_retention_secs: i64,
     batch_size: i64,
-) -> error::Result<(usize, Vec<String>)> {
+    completed_at_floor: Option<DateTime<Utc>>,
+) -> error::Result<(usize, Vec<String>, Option<DateTime<Utc>>)> {
     let mut tx = db.begin().await?;
 
     let active_root_job_ids: Vec<Uuid> = sqlx::query_scalar!(
@@ -395,33 +398,61 @@ async fn delete_expired_jobs_batch(
     .fetch_all(&mut *tx)
     .await?;
 
-    // Active-root exclusion via NOT IN (hashed SubPlan) instead of `!= ALL($3)`;
-    // see backend/src/monitor.rs::delete_expired_jobs_batch for the rationale.
-    let deleted_jobs: Vec<Uuid> = sqlx::query_scalar!(
-        "DELETE FROM v2_job_completed
-         WHERE id IN (
-             SELECT jc.id FROM v2_job_completed jc
-             LEFT JOIN v2_job j ON j.id = jc.id
-             WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
-               AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) NOT IN (
-                   SELECT u FROM unnest($3::uuid[]) AS u WHERE u IS NOT NULL
-               )
-             ORDER BY jc.completed_at ASC
-             LIMIT $2
-             FOR UPDATE OF jc SKIP LOCKED
-         )
-         RETURNING id",
-        job_retention_secs,
-        batch_size,
-        &active_root_job_ids
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+    // `completed_at_floor` carries a watermark across batches so each one resumes after the rows
+    // the previous batch processed instead of re-scanning the (potentially undeletable) oldest
+    // prefix; the empty-active-roots branch skips the v2_job join entirely. See
+    // backend/src/monitor.rs::delete_expired_jobs_batch for the full rationale.
+    let (deleted_jobs, max_completed_at) = if active_root_job_ids.is_empty() {
+        let rows = sqlx::query!(
+            "DELETE FROM v2_job_completed
+             WHERE id IN (
+                 SELECT id FROM v2_job_completed
+                 WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval
+                   AND ($3::timestamptz IS NULL OR completed_at >= $3)
+                 ORDER BY completed_at ASC
+                 LIMIT $2
+                 FOR UPDATE SKIP LOCKED
+             )
+             RETURNING id, completed_at",
+            job_retention_secs,
+            batch_size,
+            completed_at_floor,
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        let max = rows.iter().map(|r| r.completed_at).max();
+        (rows.into_iter().map(|r| r.id).collect::<Vec<Uuid>>(), max)
+    } else {
+        let rows = sqlx::query!(
+            "DELETE FROM v2_job_completed
+             WHERE id IN (
+                 SELECT jc.id FROM v2_job_completed jc
+                 LEFT JOIN v2_job j ON j.id = jc.id
+                 WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
+                   AND ($4::timestamptz IS NULL OR jc.completed_at >= $4)
+                   AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) NOT IN (
+                       SELECT u FROM unnest($3::uuid[]) AS u WHERE u IS NOT NULL
+                   )
+                 ORDER BY jc.completed_at ASC
+                 LIMIT $2
+                 FOR UPDATE OF jc SKIP LOCKED
+             )
+             RETURNING id, completed_at",
+            job_retention_secs,
+            batch_size,
+            &active_root_job_ids,
+            completed_at_floor,
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        let max = rows.iter().map(|r| r.completed_at).max();
+        (rows.into_iter().map(|r| r.id).collect::<Vec<Uuid>>(), max)
+    };
 
     let deleted_count = deleted_jobs.len();
     if deleted_count == 0 {
         tx.commit().await?;
-        return Ok((0, Vec::new()));
+        return Ok((0, Vec::new(), max_completed_at));
     }
 
     if let Err(e) = sqlx::query!(
@@ -471,7 +502,7 @@ async fn delete_expired_jobs_batch(
 
     tx.commit().await?;
 
-    Ok((deleted_count, log_paths))
+    Ok((deleted_count, log_paths, max_completed_at))
 }
 
 /// Scan S3 under the `logs/` prefix for orphan log files and delete them.
