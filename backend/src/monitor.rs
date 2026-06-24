@@ -1647,6 +1647,18 @@ async fn delete_expired_jobs_batch(
             Err(e) => tracing::error!("Error deleting job logs: {:?}", e),
         }
 
+        // Native retry markers have no FK (to keep this bulk delete cheap) — sweep
+        // them with their jobs here too (this is the periodic retention path).
+        if let Err(e) = sqlx::query!(
+            "DELETE FROM native_retry_attempt WHERE job_id = ANY($1)",
+            &deleted_jobs
+        )
+        .execute(&mut *tx)
+        .await
+        {
+            tracing::error!("Error deleting native retry markers: {:?}", e);
+        }
+
         if let Err(e) = sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", &deleted_jobs)
             .execute(&mut *tx)
             .await
