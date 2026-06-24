@@ -1,11 +1,12 @@
 /**
  * One-off migration from the localStorage UserDraft autosave to the
- * DB-backed `draft` table. Runs after `migrateLegacyUserDrafts` (which
- * produces the `userdraft/w/{workspace}/{kind}/{path}` keys this reads),
- * POSTing each to `/drafts/update` and clearing the source key only on
- * success — so it's idempotent without a sentinel; failed entries retry next
- * mount. Not workspace-gated: keys embed their own workspace and the token
- * covers all of them, so gating would orphan other-workspace entries.
+ * DB-backed `draft` table. Reads the workspace-scoped
+ * `userdraft/w/{workspace}/{kind}/{path}` keys (written by the editor during
+ * the interim LS-backed phase, so the embedded workspace is correct), POSTing
+ * each to `/drafts/update` and clearing the source key only on success — so
+ * it's idempotent without a sentinel; failed entries retry next mount. Not
+ * workspace-gated: keys embed their own workspace and the token covers all of
+ * them, so gating would orphan other-workspace entries.
  *
  * Before uploading, each draft is compared against its deployed version
  * (script / flow / app); a draft that's deep-equal to what's deployed carries

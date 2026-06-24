@@ -91,11 +91,13 @@ async fn fetch_custom_test_body(conn: &Connection, w_id: &str, path: &str) -> Re
 // against the freshly-materialized target and raise (failing the run) on
 // violation. Returns `None` when there is no materialize annotation or the
 // target isn't a ducklake (only ducklake is materialized in v1).
-async fn build_materialized_query(
+fn build_materialized_query(
     query: &str,
     partition_value: Option<&str>,
-    conn: &Connection,
-    w_id: &str,
+    // Custom (`// data_test <path>`) test bodies, pre-fetched by the caller
+    // (`fetch_custom_test_bodies`) so this stays pure/sync and unit-testable —
+    // the DB read is the only thing that needs a connection. Keyed by script path.
+    custom_test_bodies: &std::collections::HashMap<String, String>,
 ) -> Result<Option<(Option<String>, MaterializeExec)>> {
     use windmill_parser::asset_parser::{
         parse_pipeline_annotations, AssetKind as PAssetKind, DataTest,
@@ -214,8 +216,13 @@ async fn build_materialized_query(
     for test in &ann.data_tests {
         match test {
             DataTest::Custom { path } => {
-                let body = substitute(&fetch_custom_test_body(conn, w_id, path).await?);
-                resolved.push(DataTestResolved::Custom { path: path.clone(), body });
+                let raw = custom_test_bodies.get(path).ok_or_else(|| {
+                    Error::ExecutionErr(format!(
+                        "data_test custom `{path}`: body not fetched before codegen (internal)"
+                    ))
+                })?;
+                resolved
+                    .push(DataTestResolved::Custom { path: path.clone(), body: substitute(raw) });
             }
             other => resolved.push(DataTestResolved::BuiltIn(other.clone())),
         }
@@ -235,6 +242,31 @@ async fn build_materialized_query(
     .map_err(Error::ExecutionErr)?;
 
     Ok(Some((Some(blocks.join("\n")), meta)))
+}
+
+// Fetch the deployed body of every `// data_test <path>` custom test declared in
+// `query`, keyed by path, so the sync `build_materialized_query` can splice them
+// in. The DB read is the only part of materialize codegen that needs a
+// connection; isolating it here keeps the codegen pure and unit-testable.
+// Server workers only (`fetch_custom_test_body` errors on agent workers). Empty
+// when there are no custom tests.
+async fn fetch_custom_test_bodies(
+    query: &str,
+    conn: &Connection,
+    w_id: &str,
+) -> Result<std::collections::HashMap<String, String>> {
+    use windmill_parser::asset_parser::{parse_pipeline_annotations, DataTest};
+    let ann = parse_pipeline_annotations(query);
+    let mut bodies = std::collections::HashMap::new();
+    for test in &ann.data_tests {
+        if let DataTest::Custom { path } = test {
+            if !bodies.contains_key(path) {
+                let body = fetch_custom_test_body(conn, w_id, path).await?;
+                bodies.insert(path.clone(), body);
+            }
+        }
+    }
+    Ok(bodies)
 }
 
 // classify_wrap with the spec's actionable message turned into an executor error.
@@ -422,11 +454,22 @@ pub async fn do_duckdb(
             .and_then(|rv| serde_json::from_str::<String>(rv.get()).ok())
             .filter(|s| !s.is_empty());
         let materialize = if query.contains("materialize") || query.contains("data_test") {
-            build_materialized_query(query, partition_value.as_deref(), conn, &job.workspace_id)
-                .await?
+            // Custom-test bodies need a DB read; fetch them first so the codegen
+            // itself stays pure/sync.
+            let custom_test_bodies =
+                fetch_custom_test_bodies(query, conn, &job.workspace_id).await?;
+            build_materialized_query(query, partition_value.as_deref(), &custom_test_bodies)?
         } else {
             None
         };
+        // Parse the signature from the ORIGINAL script: managed materialize wraps
+        // the trailing SELECT and strips line comments, which drops the
+        // `-- $name (type)` arg declarations while their `$name` references
+        // survive in the embedded SELECT. Parsing args here (pre-wrap) keeps them
+        // declared so they are still bound — and s3object args translated to
+        // `s3://` URIs — at run time.
+        let sig = parse_duckdb_sig(query)?.args;
+
         let materialized_query;
         let query: &str = match &materialize {
             Some((Some(rewritten), _)) => {
@@ -448,8 +491,6 @@ pub async fn do_duckdb(
         } else {
             collection_strategy
         };
-
-        let sig = parse_duckdb_sig(query)?.args;
         let mut job_args = build_args_values(job, client, conn).await?;
 
         let reserved_variables =
@@ -1335,6 +1376,42 @@ mod tests {
             cgroup_bytes_to_duckdb_memory_limit(1),
             Some("64MiB".to_string())
         );
+    }
+
+    // Managed `// materialize` may take SQL args (e.g. an s3object uploaded on
+    // the run form). The wrap strips line comments — including the
+    // `-- $name (type)` declarations — so the executor parses the signature from
+    // the original script (done above, before the rewrite) while the `$name`
+    // references survive inside the wrapped SELECT. This pins both halves of that
+    // contract so a regression that drops either is caught.
+    #[test]
+    fn materialize_preserves_sql_args() {
+        let script = "-- materialize ducklake://main/rows\n\
+                      -- $file (s3object)\n\
+                      SELECT * FROM read_json_auto($file)";
+
+        // The signature is recoverable from the original (un-wrapped) script.
+        let sig = parse_duckdb_sig(script).expect("sig parses").args;
+        let file_arg = sig
+            .iter()
+            .find(|a| a.name == "file")
+            .expect("`$file` declared");
+        assert_eq!(file_arg.otyp.as_deref(), Some("s3object"));
+
+        // The wrapped query still references `$file`, so the parsed sig binds it.
+        // No custom data tests here, so no fetched bodies are needed.
+        let (rewritten, _) =
+            build_materialized_query(script, None, &std::collections::HashMap::new())
+                .expect("materialize builds")
+                .expect("materialize present");
+        let rewritten = rewritten.expect("managed mode rewrites the query");
+        assert!(
+            rewritten.contains("$file"),
+            "wrapped query must keep the `$file` reference, got:\n{rewritten}"
+        );
+        // The declaration comment is gone (wrap strips line comments) — which is
+        // exactly why the sig must come from the original, not the rewrite.
+        assert!(!rewritten.contains("-- $file"));
     }
 
     // Tests for parse_attach_db_resource function

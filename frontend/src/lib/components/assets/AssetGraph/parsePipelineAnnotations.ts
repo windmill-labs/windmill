@@ -402,8 +402,13 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 	}
 
 	for (const rawLine of code.split('\n')) {
+		// Annotations live in the leading comment header: skip blank lines but
+		// stop at the first line of actual code, so comments inside the body
+		// (e.g. a regular `# tag ...` prose comment) can't false-positive.
+		// Mirrors the Rust parse_pipeline_annotations header scan.
+		if (rawLine.trim() === '') continue
 		const rest = stripCommentPrefix(rawLine)
-		if (rest === undefined) continue
+		if (rest === undefined) break
 		const inner = rest.trimStart()
 
 		const afterPipeline = consumeKeyword(inner, 'pipeline')
@@ -434,7 +439,10 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 		const afterTag = consumeKeyword(inner, 'tag')
 		if (afterTag !== undefined) {
 			const name = afterTag.trim()
-			if (name && !out.tag) {
+			// Worker tags are single-word identifiers; a value with whitespace
+			// or beyond the script.tag column width is almost certainly a
+			// regular comment starting with "# tag ...".
+			if (name && !out.tag && !/\s/.test(name) && name.length <= 50) {
 				out.tag = name
 			}
 			continue

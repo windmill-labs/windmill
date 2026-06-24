@@ -162,6 +162,9 @@
 	let clientId = $state('')
 	let clientSecret = $state('')
 	let ccInstance = $state('')
+	/** Bring-your-own resource-level token endpoint override (optional). Only sent
+	 * for non-instance-templated providers, where it isn't host-pinned. */
+	let tokenUrl = $state('')
 
 	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
 	let resourceTypeNotFound = $state(false)
@@ -222,6 +225,7 @@
 		clientId = ''
 		clientSecret = ''
 		ccInstance = ''
+		tokenUrl = ''
 		scopes = []
 	}
 
@@ -602,7 +606,13 @@
 									scopes: scopes,
 									cc_client_id: trimmedClientId,
 									cc_client_secret: trimmedClientSecret,
-									...(needsInstance ? { cc_instance: trimmedInstance } : {})
+									// Instance-templated providers are host-pinned via the instance
+									// name; only other providers accept a free-form token URL override.
+									...(needsInstance
+										? { cc_instance: trimmedInstance }
+										: tokenUrl.trim()
+											? { cc_token_url: tokenUrl.trim() }
+											: {})
 								}
 					})
 
@@ -734,10 +744,13 @@
 					accountData.cc_client_id = clientId.trim()
 					accountData.cc_client_secret = clientSecret.trim()
 					// Instance-templated providers send an instance name; the backend
-					// resolves and stores the host-pinned token URL. Other registry
-					// providers need nothing more (token URL comes from the registry).
+					// resolves and stores the host-pinned token URL. Other providers may
+					// send an optional token URL override (stored for refresh); without
+					// it the token URL comes from the registry/instance config.
 					if (ccInstanceMeta) {
 						accountData.cc_instance = ccInstance.trim()
+					} else if (tokenUrl.trim()) {
+						accountData.cc_token_url = tokenUrl.trim()
 					}
 				}
 
@@ -1181,6 +1194,23 @@
 										<TextInput
 											inputProps={{ placeholder: ccInstanceMeta.placeholder, required: true }}
 											bind:value={ccInstance}
+										/>
+									</label>
+								{:else}
+									<label class="flex flex-col gap-1">
+										<span class="text-xs font-semibold text-emphasis"
+											>Token URL override (optional)</span
+										>
+										<div class="text-xs text-secondary font-normal">
+											Override the provider's token endpoint for this resource, stored with the
+											connection and reused on token refresh
+										</div>
+										<TextInput
+											inputProps={{
+												type: 'url',
+												placeholder: 'https://provider.example.com/oauth/token'
+											}}
+											bind:value={tokenUrl}
 										/>
 									</label>
 								{/if}

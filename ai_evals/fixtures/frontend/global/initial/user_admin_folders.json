@@ -1,0 +1,8 @@
+{
+  "user": {
+    "username": "admin",
+    "is_admin": true,
+    "folders": ["marketing", "data_engineering", "shared_utils"],
+    "folders_read": ["marketing", "data_engineering", "shared_utils"]
+  }
+}

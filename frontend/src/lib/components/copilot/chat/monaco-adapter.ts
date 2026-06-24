@@ -129,9 +129,17 @@ export class AIChatEditorHandler {
 			const deletedChange = group.changes[0]
 			const addedChange = group.changes[1]
 			if (deletedChange.type === 'deleted' && addedChange.type === 'added_block') {
-				applyChange(this.editor, deletedChange)
-				addedChange.position.afterLineNumber = deletedChange.range.startLine - 1
-				applyChange(this.editor, addedChange)
+				this.editor.executeEdits('chat', [
+					{
+						range: {
+							startLineNumber: deletedChange.range.startLine,
+							startColumn: 1,
+							endLineNumber: deletedChange.range.endLine + 1,
+							endColumn: 0
+						},
+						text: addedChange.value + '\n'
+					}
+				])
 			} else {
 				throw new Error('Invalid group')
 			}
@@ -284,7 +292,7 @@ export class AIChatEditorHandler {
 			})
 
 			if (!opts?.applyAll) {
-				;({ collection, ids } = await displayVisualChanges(
+				; ({ collection, ids } = await displayVisualChanges(
 					'editor-windmill-chat-style',
 					this.editor,
 					changes,

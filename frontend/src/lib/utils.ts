@@ -1190,8 +1190,10 @@ export function isCodeInjection(expr: string | undefined): boolean {
 // app logic via the `query` context. Only params we actually own are listed
 // here — the `wm_` prefix is a naming convention, not a reserved namespace, so
 // we don't strip it wholesale (that would break apps reading their own `wm_*`
-// params). `wm_coep` is a transport flag for cross-origin isolation headers.
-export const WINDMILL_RESERVED_QUERY_PARAMS = new Set(['wm_coep'])
+// params). `wm_coep` is a transport flag for cross-origin isolation headers;
+// `wm_embed`/`wm_embedder_origin` are the opaque app viewer transport params
+// (see PublicAppFrame).
+export const WINDMILL_RESERVED_QUERY_PARAMS = new Set(['wm_coep', 'wm_embed', 'wm_embedder_origin'])
 
 export function urlParamsToObject(
 	params: URLSearchParams,
@@ -2118,22 +2120,27 @@ export function pick<T extends object, K extends keyof T>(obj: T, keys: readonly
 
 export function parseDbInputFromAssetSyntax(path: string): DbInput | null {
 	const [p1, _p2] = path.split('://')
-	const [p2, _p3] = _p2.split('/')
-	const [p3, p4] = _p3.split('.')
+	const [p2, _p3] = (_p2 ?? '').split('/')
+	// `_p3` is undefined for a catalog-only path (e.g. `ducklake://main`, no
+	// table segment) — guard the split so the helper returns a table-less input
+	// instead of throwing.
+	const [p3, p4] = (_p3 ?? '').split('.')
+	const specificTable = p4 || p3 || undefined
+	const specificSchema = p4 ? p3 : undefined
 	return p1 === 'ducklake'
 		? {
 				type: 'ducklake',
 				ducklake: p2 || 'main',
-				specificTable: p4 ?? p3,
-				specificSchema: p4 ? p3 : undefined
+				specificTable,
+				specificSchema
 			}
 		: p1 === 'datatable'
 			? {
 					type: 'database',
 					resourcePath: `datatable://${p2 || 'main'}`,
 					resourceType: 'postgresql',
-					specificTable: p4 ?? p3,
-					specificSchema: p4 ? p3 : undefined
+					specificTable,
+					specificSchema
 				}
 			: null
 }

@@ -529,9 +529,13 @@ fn parse_kv_opts(s: &str) -> BTreeMap<String, String> {
     out
 }
 
-// Scan raw source for pipeline annotations. Language-agnostic: any line
-// whose first non-whitespace tokens are a comment prefix (`//`, `#`, or
-// `--`) followed by one of the recognized keywords:
+// Scan the leading comment header for pipeline annotations. Only the
+// contiguous block of comment lines at the top of the file is considered
+// (blank lines tolerated, scan stops at the first line of actual code) so
+// that ordinary comments in the body can't false-positive as annotations.
+// Language-agnostic: any header line whose first non-whitespace tokens are
+// a comment prefix (`//`, `#`, or `--`) followed by one of the recognized
+// keywords:
 //   - `pipeline`                 → opt-in marker (must be alone on the line)
 //   - `on <trigger-spec>`        → asset / native trigger edge (including
 //                                  the marker-only `on schedule` form)
@@ -569,6 +573,9 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
 
     for raw_line in code.lines() {
         let line = raw_line.trim_start();
+        if line.is_empty() {
+            continue;
+        }
         let rest = if let Some(r) = line.strip_prefix("//") {
             r
         } else if let Some(r) = line.strip_prefix("--") {
@@ -576,7 +583,11 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
         } else if let Some(r) = line.strip_prefix('#') {
             r
         } else {
-            continue;
+            // Annotations live in the leading comment header. Stop at the first
+            // line of actual code so comments inside the body (e.g. a regular
+            // `# tag ...` prose comment) can't false-positive as annotations.
+            // Mirrors BashAnnotations::sandbox_image / ssh_target.
+            break;
         };
         let rest = rest.trim_start();
 
@@ -626,7 +637,14 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
 
         if let Some(after_kw) = consume_keyword(rest, "tag") {
             let name = after_kw.trim();
-            if !name.is_empty() && out.tag.is_none() {
+            // Worker tags are single-word identifiers (e.g. `heavy`, `gpu`).
+            // A value with whitespace or beyond the `script.tag` column width
+            // is almost certainly a regular comment starting with "# tag ...".
+            if !name.is_empty()
+                && !name.contains(char::is_whitespace)
+                && name.len() <= 50
+                && out.tag.is_none()
+            {
                 out.tag = Some(name.to_string());
             }
             continue;
@@ -1211,6 +1229,56 @@ mod pipeline_annotation_tests {
     fn tag_empty_is_skipped() {
         let out = parse_pipeline_annotations("// tag   ");
         assert!(out.tag.is_none());
+    }
+
+    #[test]
+    fn tag_with_whitespace_is_skipped() {
+        // A regular English comment starting with "# tag " must not be
+        // mistaken for a worker-tag annotation (worker tags are single words).
+        let out =
+            parse_pipeline_annotations("# tag this function so we remember to refactor it later");
+        assert!(out.tag.is_none());
+    }
+
+    #[test]
+    fn tag_too_long_is_skipped() {
+        let long = "x".repeat(51);
+        let out = parse_pipeline_annotations(&format!("// tag {long}"));
+        assert!(out.tag.is_none());
+    }
+
+    #[test]
+    fn annotations_in_body_are_ignored() {
+        // Only the leading comment header is scanned. A regular `# tag ...`
+        // prose comment buried in the body — the WIN-2090 false-positive that
+        // crashed the `script.tag` INSERT — must not be treated as an
+        // annotation once real code has started.
+        let code = concat!(
+            "import pandas as pd\n",
+            "\n",
+            "def main():\n",
+            "    # tag each row with its source so downstream steps can filter\n",
+            "    # on s3://should/not/parse\n",
+            "    return pd.DataFrame()\n",
+        );
+        let out = parse_pipeline_annotations(code);
+        assert!(out.tag.is_none());
+        assert!(out.triggers.is_empty());
+    }
+
+    #[test]
+    fn header_allows_blank_lines_before_code() {
+        // Blank lines (e.g. after a shebang) don't end the header; the first
+        // line of real code does.
+        let code = concat!(
+            "#!/usr/bin/env python\n",
+            "\n",
+            "# tag heavy\n",
+            "import os\n",
+            "# tag light\n",
+        );
+        let out = parse_pipeline_annotations(code);
+        assert_eq!(out.tag.as_deref(), Some("heavy"));
     }
 
     #[test]
