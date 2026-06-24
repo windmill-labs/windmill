@@ -188,9 +188,10 @@ consumer pins a read by writing the DuckLake clause directly:
 FROM dl.orders_daily AT (VERSION => 42)
 ```
 
-The asset node's **History** tab lists every snapshot (id + time), copies the
-`AT (VERSION => n)` clause or a full `FROM … AT (VERSION => n)`, and previews the
-table at any version. Snapshot ids are captured automatically; the user opts
+The asset node's **History** tab is a master-detail view: the snapshot list (id
++ time) on the left selects the version previewed in a read-only grid on the
+right, which surfaces — and copies — the catalog-qualified
+`FROM lake.<table> AT (VERSION => n)` clause. Snapshot ids are captured automatically; the user opts
 into pinning when they want it, and the clause degrades to "latest" if removed,
 so the same script still runs standalone. Mechanically this rides on
 time-travel **reads** (`make_select_query` / `make_count_query` emit the `AT`

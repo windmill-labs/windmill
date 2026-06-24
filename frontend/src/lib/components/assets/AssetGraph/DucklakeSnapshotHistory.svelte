@@ -3,7 +3,7 @@
 	// catalog's DuckLake snapshots, newest first. Selecting a row drives the
 	// adjacent preview pane via `onSelect`; the selected row is highlighted. The
 	// list data + selection default are owned by the parent; the preview pane
-	// carries the copy-able `AT (VERSION => n)` clause.
+	// carries the copy-able `FROM lake.<table> AT (VERSION => n)` clause.
 	import { Button } from '$lib/components/common'
 	import { Loader2, RefreshCw } from 'lucide-svelte'
 	import type { DucklakeSnapshot } from '$lib/components/dbOps'
