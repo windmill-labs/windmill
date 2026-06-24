@@ -56,6 +56,15 @@ chronological thinking the model should not keep
 		expect(formatCompactSummary('plain summary</summary>')).toBe('plain summary')
 	})
 
+	it('does not leak analysis scratchpad that mentions a literal <summary> tag', () => {
+		const raw = `<analysis>scratchpad mentions <summary> before output</analysis>
+<summary>real summary</summary>`
+		const formatted = formatCompactSummary(raw)
+		expect(formatted).toBe('real summary')
+		expect(formatted).not.toContain('scratchpad')
+		expect(formatted).not.toContain('before output')
+	})
+
 	it('strips every analysis block, not just the first, when the summary is untagged', () => {
 		const raw = '<analysis>first</analysis>\nkept one\n<analysis>second</analysis>\nkept two'
 		const formatted = formatCompactSummary(raw)
