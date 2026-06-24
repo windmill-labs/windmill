@@ -4429,8 +4429,31 @@ RETURNING key,job_id
 // Per-statement cap keeps each delete short and lock-light; the per-cycle batch
 // cap bounds total work per monitor iteration so monitor_db stays responsive.
 // A large backlog drains across several iterations rather than one long delete.
+//
+// These sweeps anti-join the whole table to find orphans, so their cost tracks the heap's
+// physical size. job_perms / job_result_stream_v2 are high-churn (one row per job, deleted
+// here), so their bloat — not the query shape — is what makes the sweep slow. These sweeps run
+// every monitor cycle, but the bulk vacuuming_tables() runs only ~hourly, so dead tuples pile
+// up between bulk vacuums; each sweep VACUUMs its own table right after deleting (see below) to
+// keep the heap near the live working set. The outer `ctid IN (SELECT ... LIMIT)` is
+// deliberate: a `job_id IN (...)` rewrite adds a second scan/probe for the delete and
+// benchmarks slower, so don't "simplify" it.
 const ORPHAN_CLEANUP_BATCH_SIZE: u64 = 100_000;
 const ORPHAN_CLEANUP_MAX_BATCHES: usize = 10;
+
+// Reclaim the dead tuples a sweep just created so the next sweep's anti-join scans a lean heap
+// instead of a bloated one. Plain VACUUM (not FULL) only takes SHARE UPDATE EXCLUSIVE, so
+// concurrent reads/writes (every job create touches job_perms) keep running, and the visibility
+// map lets it skip unchanged pages so repeated runs are cheap. SKIP_LOCKED means HA replicas
+// don't pile up: one vacuums, the rest skip rather than queue behind it.
+async fn vacuum_after_sweep(db: &DB, table: &str) {
+    if let Err(e) = sqlx::query(&format!("VACUUM (SKIP_LOCKED) {table}"))
+        .execute(db)
+        .await
+    {
+        tracing::warn!("Error vacuuming {table} after orphan cleanup: {e:?}");
+    }
+}
 
 async fn cleanup_job_perms_orphaned(db: &DB) -> error::Result<()> {
     let mut total: u64 = 0;
@@ -4454,6 +4477,7 @@ async fn cleanup_job_perms_orphaned(db: &DB) -> error::Result<()> {
 
     if total > 0 {
         tracing::info!("Cleaned up {total} orphaned job_perms rows");
+        vacuum_after_sweep(db, "job_perms").await;
     }
     Ok(())
 }
@@ -4485,6 +4509,7 @@ async fn cleanup_job_result_stream_orphaned_jobs(db: &DB) -> error::Result<()> {
 
     if total > 0 {
         tracing::info!("Cleaned up {total} orphaned job_result_stream_v2 rows");
+        vacuum_after_sweep(db, "job_result_stream_v2").await;
     }
     Ok(())
 }
