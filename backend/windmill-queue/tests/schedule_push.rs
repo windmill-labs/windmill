@@ -233,13 +233,18 @@ mod schedule_push {
 
         assert_eq!(count_queued_jobs(&db).await, 1);
 
-        // When retry is set, the job kind is singlescriptflow (SingleStepFlow wraps it)
-        let kind = sqlx::query_scalar::<_, String>(
-            "SELECT kind::text FROM v2_job j JOIN v2_job_queue q ON j.id = q.id LIMIT 1",
+        // Native retry: a scheduled script with a retry policy is pushed as a plain
+        // Script carrying the policy via runnable_settings_handle — no SingleStepFlow.
+        let (kind, handle) = sqlx::query_as::<_, (String, Option<i64>)>(
+            "SELECT kind::text, q.runnable_settings_handle FROM v2_job j JOIN v2_job_queue q ON j.id = q.id LIMIT 1",
         )
         .fetch_one(&db)
         .await?;
-        assert_eq!(kind, "singlestepflow");
+        assert_eq!(kind, "script");
+        assert!(
+            handle.is_some(),
+            "retry policy carried via runnable_settings_handle"
+        );
         Ok(())
     }
 
@@ -779,7 +784,7 @@ mod schedule_push {
     }
 
     // -----------------------------------------------------------------------
-    // try_schedule_next_job: script with retry wraps in SingleStepFlow
+    // try_schedule_next_job: script with retry is a native Script (no wrapping)
     // -----------------------------------------------------------------------
 
     #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
@@ -798,12 +803,16 @@ mod schedule_push {
         assert!(err.is_none());
         assert_eq!(count_queued_jobs(&db).await, 1);
 
-        let kind = sqlx::query_scalar::<_, String>(
-            "SELECT kind::text FROM v2_job j JOIN v2_job_queue q ON j.id = q.id LIMIT 1",
+        let (kind, handle) = sqlx::query_as::<_, (String, Option<i64>)>(
+            "SELECT kind::text, q.runnable_settings_handle FROM v2_job j JOIN v2_job_queue q ON j.id = q.id LIMIT 1",
         )
         .fetch_one(&db)
         .await?;
-        assert_eq!(kind, "singlestepflow");
+        assert_eq!(kind, "script");
+        assert!(
+            handle.is_some(),
+            "retry policy carried via runnable_settings_handle"
+        );
         Ok(())
     }
 
