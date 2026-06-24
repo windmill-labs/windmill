@@ -100,12 +100,26 @@ export function getCompactionSummaryPrompt(): string {
  * well-formed-but-untagged summary is still usable.
  */
 export function formatCompactSummary(raw: string): string {
-	let formatted = raw.replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
+	let formatted = raw
 
 	const summaryMatch = formatted.match(/<summary>([\s\S]*?)<\/summary>/i)
 	if (summaryMatch) {
 		formatted = (summaryMatch[1] ?? '').trim()
+	} else {
+		// A truncated response or a weaker model sometimes opens <summary> without
+		// closing it. The text after the opener is still the summary, so keep it
+		// rather than leak the bare tag. With no opener at all, drop paired
+		// <analysis> blocks and treat the remainder as the summary.
+		const openIdx = formatted.search(/<summary>/i)
+		if (openIdx !== -1) {
+			formatted = formatted.slice(openIdx)
+		} else {
+			formatted = formatted.replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
+		}
 	}
+
+	// An orphaned opener or closer left by either branch must never reach the user.
+	formatted = formatted.replace(/<\/?(?:analysis|summary)>/gi, '')
 
 	// Collapse the blank-line runs left behind by stripping the analysis block.
 	return formatted.replace(/\n{3,}/g, '\n\n').trim()
