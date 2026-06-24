@@ -35,12 +35,14 @@
 			<li class="flex items-center gap-1.5 px-2 py-1 font-mono">
 				{#if t.violating > 0}
 					<XCircle size={13} class="shrink-0 text-red-600 dark:text-red-400" />
+					<span class="sr-only">failed:</span>
 					<span class="text-primary">{t.test}</span>
 					<span class="text-red-600 dark:text-red-400"
 						>— {t.violating} violating row{t.violating === 1 ? '' : 's'}</span
 					>
 				{:else}
 					<CheckCircle2 size={13} class="shrink-0 text-emerald-600 dark:text-emerald-400" />
+					<span class="sr-only">passed:</span>
 					<span class="text-secondary">{t.test}</span>
 				{/if}
 			</li>

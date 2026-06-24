@@ -23,8 +23,11 @@
 	let testsStatus = $derived(
 		(data as { testsRunStatus?: 'running' | 'success' | 'failure' } | undefined)?.testsRunStatus
 	)
-	// Midpoint of the link for the badge.
-	let labelX = $derived((sourceX + targetX) / 2)
+	// Badge position on the link. A detoured edge runs its vertical segment in
+	// the gutter lane at `detourX`, so anchor the badge there (not on the
+	// straight-line midpoint, which would float off the routed path).
+	let detourX = $derived((data as { detourX?: number } | undefined)?.detourX)
+	let labelX = $derived(detourX ?? (sourceX + targetX) / 2)
 	let labelY = $derived((sourceY + targetY) / 2)
 
 	function fmtTest(t: DataTest): string {
