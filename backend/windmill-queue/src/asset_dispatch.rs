@@ -226,6 +226,17 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
     if !is_eligible_kind(job) {
         return Ok(DispatchResult::default());
     }
+    // A parented script is dispatch-eligible only as a native retry attempt — a
+    // re-run of the SAME runnable as its chain parent. Schedule/error/recovery
+    // handlers are also parented `Script` children but run a DIFFERENT script;
+    // excluding them stops a handler that happens to declare assets from
+    // triggering a cascade (the pre-native-retry `parent_job IS NULL` guard
+    // excluded every parented child).
+    if let Some(parent_job) = job.parent_job {
+        if !is_native_retry_attempt(db, job, parent_job).await? {
+            return Ok(DispatchResult::default());
+        }
+    }
     let runnable_path = match job.runnable_path.as_deref() {
         Some(p) if !p.is_empty() => p,
         _ => return Ok(DispatchResult::default()),
@@ -407,13 +418,33 @@ fn is_eligible_kind(job: &MiniCompletedJob) -> bool {
         return false;
     }
     // Flow steps (and sub-flow jobs) carry `flow_step_id` and are ineligible.
-    // A native script-retry attempt carries `parent_job` (the chain root) but no
-    // `flow_step_id`, so a subscriber that recovers on retry still dispatches to
-    // its own downstream — unlike the old one-step-flow wrapping.
+    // Native script-retry attempts carry `parent_job` (the chain root) but no
+    // `flow_step_id`; whether a parented job is actually a retry attempt (vs a
+    // schedule/error handler child) is decided in `try_dispatch`.
     if job.flow_step_id.is_some() {
         return false;
     }
     true
+}
+
+// A native retry attempt re-runs the same runnable as its chain parent (`push`
+// re-pushes with `hash: job.runnable_id`). Any other parented `Script` child —
+// notably schedule/error/recovery handlers — runs a different script, so a
+// mismatch (or an absent parent runnable) means "not a retry attempt".
+async fn is_native_retry_attempt(
+    db: &DB,
+    job: &MiniCompletedJob,
+    parent_job: Uuid,
+) -> Result<bool> {
+    let parent_runnable = sqlx::query_scalar::<_, Option<i64>>(
+        "SELECT runnable_id FROM v2_job WHERE id = $1 AND workspace_id = $2",
+    )
+    .bind(parent_job)
+    .bind(&job.workspace_id)
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    Ok(parent_runnable.is_some() && parent_runnable == job.runnable_id.map(|h| h.0))
 }
 
 async fn fetch_args(
