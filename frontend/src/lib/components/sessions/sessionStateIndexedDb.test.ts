@@ -8,6 +8,13 @@ vi.mock('esm-env', async (importOriginal) => ({
 	BROWSER: true
 }))
 
+// Spy on the attached-file GC so we can assert lifecycle deletes clean it up.
+const { deleteItemsForSessionMock } = vi.hoisted(() => ({ deleteItemsForSessionMock: vi.fn() }))
+vi.mock('../copilot/chat/files/attachedFilesDB', async (orig) => ({
+	...(await orig<typeof import('../copilot/chat/files/attachedFilesDB')>()),
+	deleteItemsForSession: deleteItemsForSessionMock
+}))
+
 // sessionState imports WorkspaceService; these tests don't touch the network.
 vi.mock('$lib/gen', async (orig) => {
 	const actual = await orig<typeof import('$lib/gen')>()
@@ -28,6 +35,7 @@ import {
 	putSession,
 	deleteSessionRecord,
 	archiveSessionsForWorkspace,
+	deleteSessionsForWorkspace,
 	reconcileSessionsLifecycle,
 	setSessionArchived,
 	type Session
@@ -212,14 +220,35 @@ describe('sessionState IndexedDB persistence', () => {
 		await archiveSessionsForWorkspace('wsA')
 		await rehydrate(user)
 
-		const clean = sessionState.sessions.find((s) => s.id === 'clean')!
-		const userarch = sessionState.sessions.find((s) => s.id === 'userarch')!
-		// Workspace-archived → tagged, so a later unarchive auto-restores it.
-		expect(clean.archived).toBe(true)
-		expect(clean.archivedByWorkspace).toBe(true)
-		// User-archived → left untouched (no tag), so unarchive won't resurrect it.
-		expect(userarch.archived).toBe(true)
-		expect(userarch.archivedByWorkspace).toBeUndefined()
+		// waitFor: rehydrate's re-population settles asynchronously, so re-find
+		// inside the retry rather than reading the list once immediately after.
+		await vi.waitFor(() => {
+			const clean = sessionState.sessions.find((s) => s.id === 'clean')!
+			const userarch = sessionState.sessions.find((s) => s.id === 'userarch')!
+			// Workspace-archived → tagged, so a later unarchive auto-restores it.
+			expect(clean.archived).toBe(true)
+			expect(clean.archivedByWorkspace).toBe(true)
+			// User-archived → left untouched (no tag), so unarchive won't resurrect it.
+			expect(userarch.archived).toBe(true)
+			expect(userarch.archivedByWorkspace).toBeUndefined()
+		})
+	})
+
+	it("GCs each session's attached files when its workspace is torn down", async () => {
+		const user = freshUser()
+		userStore.set(user)
+		await flush()
+		await putSession(session({ id: 'f1', createdAt: 1, workspace_id: 'wsX' }))
+		await putSession(session({ id: 'f2', createdAt: 2, workspace_id: 'wsX' }))
+		await rehydrate(user)
+		await vi.waitFor(() => expect(sessionState.sessions.length).toBe(2))
+
+		deleteItemsForSessionMock.mockClear()
+		await deleteSessionsForWorkspace('wsX')
+
+		// Both deleted sessions' linked files must be GC'd, not just their records.
+		const cleaned = deleteItemsForSessionMock.mock.calls.map((c) => c[0]).sort()
+		expect(cleaned).toEqual(['f1', 'f2'])
 	})
 
 	it('does not persist a per-session unarchive when the workspace is gone (resurrection guard)', async () => {
@@ -248,10 +277,14 @@ describe('sessionState IndexedDB persistence', () => {
 		// per-session Unarchive control is hidden when the workspace is unavailable.
 		setSessionArchived('arch', false)
 		await flush()
-		await rehydrate(user)
 
-		const s = sessionState.sessions.find((x) => x.id === 'arch')!
-		expect(s.archived).toBe(true)
+		// Read straight from IndexedDB: the in-memory list is reassigned by the
+		// async reconcile that rehydrate kicks off, so asserting against it races;
+		// the DB is the source of truth for whether the unarchive persisted.
+		const db = await openDB(`windmill-sessions::${user.email}`, 1)
+		const rec = (await db.get('sessions' as never, 'arch')) as Session
+		db.close()
+		expect(rec.archived).toBe(true)
 	})
 
 	it('re-roots a sub-fork session on reconcile when an ancestor was deleted', async () => {
@@ -293,8 +326,11 @@ describe('sessionState IndexedDB persistence', () => {
 		await rehydrate(user)
 
 		// Re-rooted to the new family topmost member, not left on the dead ancestor.
-		const sub = sessionState.sessions.find((s) => s.id === 'sub')!
-		expect(sub.workspace_root_id).toBe('wm-fork-fork-1')
+		// waitFor: rehydrate's re-population settles asynchronously.
+		await vi.waitFor(() => {
+			const sub = sessionState.sessions.find((s) => s.id === 'sub')!
+			expect(sub.workspace_root_id).toBe('wm-fork-fork-1')
+		})
 	})
 
 	it('clears the in-memory list on logout', async () => {

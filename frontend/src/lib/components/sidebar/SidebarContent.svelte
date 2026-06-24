@@ -4,7 +4,6 @@
 		superadmin,
 		usedTriggerKinds,
 		userStore,
-		usersWorkspaceStore,
 		userWorkspaces,
 		workspaceStore,
 		isCriticalAlertsUIOpen,
@@ -82,7 +81,10 @@
 	import MenuButton from './MenuButton.svelte'
 	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 	import AzureIcon from '../icons/AzureIcon.svelte'
-	import { deleteSessionsForWorkspace } from '$lib/components/sessions/sessionState.svelte'
+	import {
+		deleteSessionsForWorkspace,
+		reconcileAfterWorkspaceChange
+	} from '$lib/components/sessions/sessionState.svelte'
 
 	async function leaveWorkspace() {
 		await WorkspaceService.leaveWorkspace({ workspace: $workspaceStore ?? '' })
@@ -152,20 +154,15 @@
 		await deleteSessionsForWorkspace(workspace)
 		sendUserToast('You deleted the workspace')
 		if (parentStillAccessible && parentId) {
-			// Refresh the workspace list before landing on the parent.
-			// `clearStores()` would null `usersWorkspaceStore`, which the
-			// sidebar's `visibleSessions` filter reads via `$userWorkspaces`
-			// — with an empty list, every committed session falls into the
-			// "workspace_id set but not in user's list" branch and renders
-			// as "Fork — no longer available" until a hard reload.
-			try {
-				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-			} catch (e) {
-				// A transient list-refresh failure must not strand the user on the
-				// just-deleted workspace — still switch + navigate (the list reloads
-				// on the next page load).
-				console.error('Failed to refresh workspaces after delete', e)
-			}
+			// Refresh the workspace list AND reconcile session lifecycle before
+			// landing on the parent. The refresh keeps the sidebar's
+			// `visibleSessions` filter from rendering every committed session as
+			// "Fork — no longer available" (it reads `$userWorkspaces`, which
+			// `clearStores()` would null). The reconcile re-roots surviving child
+			// forks: deleting this fork without "delete children" re-parents them
+			// via the backend's ON DELETE SET NULL, so their sessions' stored
+			// `workspace_root_id` must be recomputed off the now-deleted ancestor.
+			await reconcileAfterWorkspaceChange()
 			switchWorkspace(parentId)
 			await goto('/')
 		} else {

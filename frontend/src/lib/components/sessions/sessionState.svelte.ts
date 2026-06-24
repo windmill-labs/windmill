@@ -417,6 +417,9 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 		const { action, patch } = decideSessionLifecycle(s, status[s.workspace_id])
 		if (action === 'delete') {
 			await db.delete('sessions', s.id)
+			// GC linked files too, matching deleteSession — a record-only delete
+			// here would orphan the session's attached-file blobs/handles.
+			void deleteItemsForSession(s.id)
 			deletedIds.add(s.id)
 			continue
 		}
@@ -495,7 +498,12 @@ export async function deleteSessionsForWorkspace(workspaceId: string): Promise<v
 	const ids = new Set(
 		all.filter((s) => s.workspace_id === workspaceId && !s.transient).map((s) => s.id)
 	)
-	for (const id of ids) await db.delete('sessions', id)
+	for (const id of ids) {
+		await db.delete('sessions', id)
+		// GC linked files too (matches deleteSession) so a workspace teardown
+		// doesn't leave the sessions' attached-file blobs/handles orphaned.
+		void deleteItemsForSession(id)
+	}
 	sessionState.sessions = sessionState.sessions.filter((s) => !ids.has(s.id))
 	if (sessionState.currentSessionId && ids.has(sessionState.currentSessionId)) {
 		sessionState.currentSessionId = undefined
