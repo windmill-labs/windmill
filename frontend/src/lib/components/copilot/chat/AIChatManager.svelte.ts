@@ -73,6 +73,9 @@ import {
 	getCurrentModel,
 	tryGetCurrentModel,
 	getCombinedCustomPrompt,
+	getCustomPromptParts,
+	getUserCustomPrompts,
+	setUserCustomPrompts,
 	isWebSearchEnabledForProvider
 } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
@@ -821,8 +824,7 @@ export class AIChatManager {
 			this.tools = [searchDocsTool, readDocsPageTool, ...this.apiTools]
 			this.helpers = {}
 		} else if (mode === AIMode.GLOBAL) {
-			const customPrompt = getCombinedCustomPrompt(mode)
-			this.systemMessage = prepareGlobalSystemMessage(customPrompt, {
+			this.systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(mode), {
 				previewTools: this.isSessionChat,
 				skills: this.globalSkills
 			})
@@ -831,7 +833,18 @@ export class AIChatManager {
 				...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
 				testActiveFlow: async (args?: Record<string, any>) =>
 					this.flowAiChatHelpers?.testFlow(args),
-				attachedFiles: this.attachedFiles
+				attachedFiles: this.attachedFiles,
+				getUserInstructions: () => getUserCustomPrompts()[AIMode.GLOBAL] ?? '',
+				setUserInstructions: (instructions: string) => {
+					const prompts = getUserCustomPrompts()
+					if (instructions.trim()) {
+						prompts[AIMode.GLOBAL] = instructions
+					} else {
+						delete prompts[AIMode.GLOBAL]
+					}
+					setUserCustomPrompts(prompts)
+					this.rebuildGlobalSystemMessage()
+				}
 			} satisfies GlobalToolHelpers
 			void this.refreshGlobalSkills()
 		} else if (mode === AIMode.APP) {
@@ -853,11 +866,24 @@ export class AIChatManager {
 		}
 		this.globalSkills = skills
 		if (this.mode === AIMode.GLOBAL) {
-			this.systemMessage = prepareGlobalSystemMessage(getCombinedCustomPrompt(AIMode.GLOBAL), {
+			this.systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 				previewTools: this.isSessionChat,
 				skills
 			})
 		}
+	}
+
+	// Rebuild the GLOBAL system message in place so an updated user instruction (persisted by
+	// the update_user_instructions tool) is picked up on the next chat-loop iteration, which
+	// re-reads this.systemMessage via a getter.
+	rebuildGlobalSystemMessage = () => {
+		if (this.mode !== AIMode.GLOBAL) {
+			return
+		}
+		this.systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
+			previewTools: this.isSessionChat,
+			skills: this.globalSkills
+		})
 	}
 
 	private expandGlobalSkillCommand = (instructions: string): string => {

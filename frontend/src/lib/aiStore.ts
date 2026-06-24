@@ -204,3 +204,12 @@ export function getCombinedCustomPrompt(mode: string): string | undefined {
 
 	return prompts.join('\n\n')
 }
+
+// Like getCombinedCustomPrompt but keeps the workspace and user slices separate so the
+// Global system prompt can label them distinctly — only the user slice is editable by the
+// update_user_instructions tool.
+export function getCustomPromptParts(mode: string): { workspace?: string; user?: string } {
+	const workspace = get(copilotInfo).customPrompts?.[mode]?.trim() || undefined
+	const user = getUserCustomPrompts()[mode]?.trim() || undefined
+	return { workspace, user }
+}

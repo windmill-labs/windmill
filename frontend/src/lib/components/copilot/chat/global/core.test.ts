@@ -3018,6 +3018,156 @@ describe('session-only preview tools gating', () => {
 		expect(on).toContain('get_app_runtime_logs')
 		expect(on).toContain('list_app_runs')
 	})
+
+	// The instruction headers are matched by their distinctive parenthetical so the
+	// guidance bullet (which references both block names) doesn't false-positive.
+	const WS_HEADER = 'WORKSPACE INSTRUCTIONS (configured by a workspace admin'
+	const USER_HEADER = "USER INSTRUCTIONS (this user's personal instructions"
+
+	it('renders only the workspace block when given workspace instructions', () => {
+		const content = prepareGlobalSystemMessage({ workspace: 'Always be terse.' }).content as string
+		expect(content).toContain(WS_HEADER)
+		expect(content).toContain('Always be terse.')
+		expect(content).not.toContain(USER_HEADER)
+	})
+
+	it('renders the user block with the edit-tool mention when given user instructions', () => {
+		const content = prepareGlobalSystemMessage({ user: 'Prefer Bun for new scripts.' })
+			.content as string
+		expect(content).toContain(USER_HEADER)
+		expect(content).toContain('update_user_instructions')
+		expect(content).toContain('Prefer Bun for new scripts.')
+		expect(content).not.toContain(WS_HEADER)
+	})
+
+	it('renders the workspace block before the user block when both are present', () => {
+		const content = prepareGlobalSystemMessage({ workspace: 'WS rule.', user: 'User rule.' })
+			.content as string
+		expect(content).toContain(WS_HEADER)
+		expect(content.indexOf(USER_HEADER)).toBeGreaterThan(content.indexOf(WS_HEADER))
+	})
+
+	it('omits both instruction headers when none are provided', () => {
+		const content = prepareGlobalSystemMessage().content as string
+		expect(content).not.toContain(WS_HEADER)
+		expect(content).not.toContain(USER_HEADER)
+	})
+})
+
+describe('update_user_instructions', () => {
+	function makeHelpers(initial = '') {
+		let value = initial
+		return {
+			getUserInstructions: () => value,
+			setUserInstructions: vi.fn((v: string) => {
+				value = v
+			})
+		}
+	}
+
+	it('appends to empty instructions', async () => {
+		const helpers = makeHelpers('')
+		const res = await callGlobalTool(
+			'update_user_instructions',
+			{ operation: 'append', text: 'Prefer Bun for new scripts.' },
+			toolCallbacks,
+			helpers
+		)
+		expect(helpers.setUserInstructions).toHaveBeenCalledWith('Prefer Bun for new scripts.')
+		expect(res).toContain('Added a personal instruction')
+	})
+
+	it('appends to existing instructions joined by a blank line', async () => {
+		const helpers = makeHelpers('Existing rule.')
+		await callGlobalTool(
+			'update_user_instructions',
+			{ operation: 'append', text: 'Another rule.' },
+			toolCallbacks,
+			helpers
+		)
+		expect(helpers.setUserInstructions).toHaveBeenCalledWith('Existing rule.\n\nAnother rule.')
+	})
+
+	it('returns only a short confirmation, not the resulting instructions', async () => {
+		const helpers = makeHelpers('Existing rule.')
+		const res = await callGlobalTool(
+			'update_user_instructions',
+			{ operation: 'append', text: 'Another rule.' },
+			toolCallbacks,
+			helpers
+		)
+		expect(res).not.toContain('Existing rule.')
+		expect(res).not.toContain('Another rule.')
+	})
+
+	it('replaces an exact match', async () => {
+		const helpers = makeHelpers('Prefer Bun.\n\nUse tabs.')
+		await callGlobalTool(
+			'update_user_instructions',
+			{ operation: 'replace', old_string: 'Prefer Bun.', new_string: 'Prefer Deno.' },
+			toolCallbacks,
+			helpers
+		)
+		expect(helpers.setUserInstructions).toHaveBeenCalledWith('Prefer Deno.\n\nUse tabs.')
+	})
+
+	it('removes the matched text when new_string is empty', async () => {
+		const helpers = makeHelpers('Keep this.\n\nDrop this.')
+		await callGlobalTool(
+			'update_user_instructions',
+			{ operation: 'replace', old_string: '\n\nDrop this.', new_string: '' },
+			toolCallbacks,
+			helpers
+		)
+		expect(helpers.setUserInstructions).toHaveBeenCalledWith('Keep this.')
+	})
+
+	it('clears all instructions when the whole text is replaced with empty', async () => {
+		const helpers = makeHelpers('Only rule.')
+		const res = await callGlobalTool(
+			'update_user_instructions',
+			{ operation: 'replace', old_string: 'Only rule.', new_string: '' },
+			toolCallbacks,
+			helpers
+		)
+		expect(helpers.setUserInstructions).toHaveBeenCalledWith('')
+		expect(res).toContain('Cleared your personal instructions')
+	})
+
+	it('errors without writing when old_string is not found, and echoes the current text for recovery', async () => {
+		const helpers = makeHelpers('Existing rule.')
+		const res = await callGlobalTool(
+			'update_user_instructions',
+			{ operation: 'replace', old_string: 'missing', new_string: 'x' },
+			toolCallbacks,
+			helpers
+		)
+		expect(helpers.setUserInstructions).not.toHaveBeenCalled()
+		expect(res).toContain('not found')
+		expect(res).toContain('Existing rule.')
+	})
+
+	it('rejects a result over the length cap without writing', async () => {
+		const helpers = makeHelpers('')
+		const res = await callGlobalTool(
+			'update_user_instructions',
+			{ operation: 'append', text: 'a'.repeat(5001) },
+			toolCallbacks,
+			helpers
+		)
+		expect(helpers.setUserInstructions).not.toHaveBeenCalled()
+		expect(res).toContain('over the 5000')
+	})
+
+	it('fails gracefully when the context does not provide instruction helpers', async () => {
+		const res = await callGlobalTool(
+			'update_user_instructions',
+			{ operation: 'append', text: 'x' },
+			toolCallbacks,
+			{}
+		)
+		expect(res).toContain('cannot modify user instructions')
+	})
 })
 
 describe('prepareGlobalUserMessage', () => {
