@@ -21,7 +21,7 @@
 	import SessionDiffDrawer from './SessionDiffDrawer.svelte'
 	import SessionDiffButton from './SessionDiffButton.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
-	import { maskKey, diffInMask, forkDiffKindToUserDraftKind } from './modifiedItemsMask'
+	import { maskKey, forkDiffKindToUserDraftKind } from './modifiedItemsMask'
 
 	// Unified session bar: replaces the separate draft + fork bars. It surfaces
 	// what the CURRENT chat changed — drafts it wrote and (in a fork) items it
@@ -76,16 +76,10 @@
 	)
 
 	// Fork comparison lives on the shared SessionRuntime cache. The status icon
-	// reflects the fork's REAL relationship to its parent (ahead/diverged/in-sync),
-	// while the count is chat-scoped: only diffs this chat caused.
+	// reflects the fork's REAL relationship to its parent (ahead/diverged/in-sync).
 	const comparison = $derived(runtime?.forkComparison.val)
 	const forkStatus = $derived(deriveForkStatus(session, $userWorkspaces, comparison))
 	const isUnavailable = $derived(forkStatus === 'unavailable')
-	const forkCount = $derived(
-		mask
-			? (comparison?.diffs ?? []).filter((d) => d.has_changes && diffInMask(d, mask)).length
-			: (comparison?.summary?.total_diffs ?? 0)
-	)
 
 	$effect(() => {
 		if (!runtime || !committedId || !parentWorkspaceId) return
@@ -126,22 +120,22 @@
 	})
 
 	let diffDrawer: SessionDiffDrawer | undefined = $state(undefined)
-	// Count for the single diff button: the deduped union of chat-scoped drafts and
-	// deployed-ahead items (an item can be both — the unified drawer shows it once).
-	// Deduped in canonical mask-key space so the count matches the drawer's rows.
+	// Count for the single diff button: the deduped union of drafts and deployed-
+	// ahead items (an item can be both — the unified drawer shows it once). Deduped
+	// in canonical mask-key space so the count matches the drawer's rows, in both
+	// the tracked (mask) and legacy (show-all) cases.
 	const unifiedCount = $derived.by(() => {
-		if (!mask) return draftCount + forkCount
 		const set = new Set<string>()
 		for (const d of drafts.items) {
 			const k = maskKey(d.kind, d.path)
-			if (mask.has(k)) set.add(k)
+			if (!mask || mask.has(k)) set.add(k)
 		}
 		for (const d of comparison?.diffs ?? []) {
 			if (!d.has_changes) continue
 			const udk = forkDiffKindToUserDraftKind(d.kind)
 			if (!udk) continue
 			const k = maskKey(udk, d.path)
-			if (mask.has(k)) set.add(k)
+			if (!mask || mask.has(k)) set.add(k)
 		}
 		return set.size
 	})
