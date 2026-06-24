@@ -172,7 +172,7 @@
 		tabListClass="w-full"
 	>
 		{#snippet children({ item })}
-			{#each providerOptions.slice(0, 3) as option (option.value)}
+			{#each providerOptions.slice(0, 3) as option}
 				<ToggleButton value={option.value} label={option.label} {item} />
 			{/each}
 			<ToggleButtonMore
@@ -220,7 +220,7 @@
 				createText="Press enter to use custom model"
 				{loading}
 				clearable={false}
-				noItemsMsg="No models available"
+				noItemsMsg={'No models available'}
 				bind:filterText
 			/>
 		</div>
