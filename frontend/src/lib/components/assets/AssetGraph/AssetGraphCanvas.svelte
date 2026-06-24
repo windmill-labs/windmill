@@ -186,6 +186,9 @@
 		// signal "this script declared `// on kafka` but no trigger row
 		// targets it; create one or remove the annotation".
 		missing?: boolean
+		// Producer's `// data_test` checks, on the write-edge to the
+		// materialized asset — rendered as a flask badge on the link.
+		data_tests?: NonNullable<(typeof g.runnables)[number]['data_tests']>
 	}
 
 	// Graph-id of the script the user just launched (zero-latency hint),
@@ -284,6 +287,15 @@
 		for (const r of g.runnables) {
 			if (r.unsaved) unsavedRunnablePaths.add(r.path)
 		}
+		// Producer → its `// data_test` checks, keyed by runnable id, so the
+		// write-edge to the materialized asset can carry the test badge: the
+		// edge *is* the transformation, and the tests assert on what it produces.
+		const producerTests = new Map<string, NonNullable<(typeof g.runnables)[number]['data_tests']>>()
+		for (const r of g.runnables) {
+			if (r.data_tests && r.data_tests.length > 0) {
+				producerTests.set(`${r.usage_kind}:${r.path}`, r.data_tests)
+			}
+		}
 		for (const r of g.runnables) {
 			const rid = `${r.usage_kind}:${r.path}`
 			// Optimistic badge: the moment a run is launched from this view
@@ -307,7 +319,6 @@
 					freshness: r.freshness,
 					tag: r.tag,
 					retry: r.retry,
-					data_tests: r.data_tests,
 					unsaved: r.unsaved ?? false,
 					// Same dispatch the asset node uses, only routed when the
 					// runnable is a script (the page handler short-circuits
@@ -348,7 +359,8 @@
 					source: runnableId,
 					target: assetId,
 					kind: 'lineage-write',
-					unsaved: e.unsaved
+					unsaved: e.unsaved,
+					data_tests: producerTests.get(runnableId)
 				})
 			}
 			if (access === 'r' || access === 'rw') {
@@ -756,7 +768,14 @@
 					source: e.source,
 					target: e.target,
 					type: 'asset',
-					data: { detourX: detourForEdge(e.source, e.target) },
+					data: {
+						detourX: detourForEdge(e.source, e.target),
+						// Data-test badge on the producer→asset write-edge. The
+						// producer's last-run status (the script fails if any test
+						// fails) tints it green/red; neutral until it has run.
+						data_tests: e.data_tests,
+						testsRunStatus: e.data_tests?.length ? runStates?.get(e.source)?.status : undefined
+					},
 					animated,
 					label,
 					labelStyle,

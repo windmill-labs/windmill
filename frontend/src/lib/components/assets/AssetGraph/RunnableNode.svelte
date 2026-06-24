@@ -5,7 +5,6 @@
 		ChevronDown,
 		Code2,
 		EllipsisVertical,
-		FlaskConical,
 		GitBranch,
 		Layers,
 		Loader2,
@@ -20,7 +19,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 	import type { GraphUsageKind } from './types'
-	import type { DataTest } from './parsePipelineAnnotations'
 	import type { RunnableRunState } from './activeRunnables.svelte'
 	import { NODE } from '$lib/components/graph/util'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -38,7 +36,6 @@
 			freshness?: string
 			tag?: string
 			retry?: { count: number; delay?: string }
-			data_tests?: DataTest[]
 			// Last-run status + run count observed this session (from the
 			// folder queue poll). Undefined until the first observed run.
 			runState?: RunnableRunState
@@ -77,31 +74,6 @@
 		selected?: boolean
 	}
 	let { data, selected = false }: Props = $props()
-
-	// Short human label for one data test, matching the runtime probe labels
-	// (e.g. `unique(order_id)`, `relationships(user_id → prod/users.id)`). Used
-	// to build the badge's hover title so each declared check is visible.
-	function formatDataTest(t: DataTest): string {
-		switch (t.type) {
-			case 'unique':
-				return `unique(${t.column})`
-			case 'not_null':
-				return `not_null(${t.column})`
-			case 'accepted_values':
-				return `accepted_values(${t.column} = ${t.values.join(',')})`
-			case 'relationships':
-				return `relationships(${t.column} → ${t.to_path}.${t.to_column})`
-			case 'custom':
-				return `custom(${t.path})`
-		}
-	}
-	let dataTestsTitle = $derived(
-		data.data_tests && data.data_tests.length > 0
-			? `${data.data_tests.length} data test${data.data_tests.length > 1 ? 's' : ''}:\n${data.data_tests
-					.map((t) => `• ${formatDataTest(t)}`)
-					.join('\n')}`
-			: ''
-	)
 
 	// The icon alone conveys "script" vs "flow"; the uppercase kind label was
 	// visually noisy and redundant. Tooltip on hover surfaces the path in
@@ -220,15 +192,6 @@
 			>
 				<RotateCw size={10} />
 				<span class="text-3xs leading-none">×{r.count}</span>
-			</div>
-		{/if}
-		{#if data.data_tests && data.data_tests.length > 0}
-			<div
-				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
-				title={dataTestsTitle}
-			>
-				<FlaskConical size={10} />
-				<span class="text-3xs leading-none">×{data.data_tests.length}</span>
 			</div>
 		{/if}
 		{#if data.runState}
