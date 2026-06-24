@@ -1,14 +1,9 @@
 <script lang="ts">
-	import {
-		ChevronDown,
-		ChevronRight,
-		Check,
-		User,
-		Building2,
-		Settings,
-		ExternalLink
-	} from 'lucide-svelte'
+	import { ChevronDown, Check, User, Building2, Settings, ExternalLink } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import DropdownSubmenuItem from '$lib/components/DropdownSubmenuItem.svelte'
+	import MenuItem from '$lib/components/meltComponents/MenuItem.svelte'
+	import MenuItemWrapper from '$lib/components/meltComponents/MenuItemWrapper.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import {
 		COPILOT_SESSION_MODEL_SETTING_NAME,
@@ -17,7 +12,7 @@
 		userStore,
 		workspaceStore
 	} from '$lib/stores'
-	import { storeLocalSetting } from '$lib/utils'
+	import { storeLocalSetting, type Item } from '$lib/utils'
 	import {
 		copilotInfo,
 		copilotSessionModel,
@@ -206,16 +201,60 @@
 		}
 	}
 
-	// Parameters submenu opens on hover; reset it whenever the dropdown closes so it
-	// doesn't reappear pre-opened on the next open.
-	let menuOpen = $state(false)
-	let paramsOpen = $state(false)
-	$effect(() => {
-		if (!menuOpen) paramsOpen = false
-	})
+	// Prompt parameters, surfaced as a melt submenu (hover-opens and is floating-positioned,
+	// so it flips on screen edges instead of overflowing). The menu keeps itself open on
+	// item click (closeOnItemClick=false), so these actions close it explicitly via `close`.
+	function paramItems(close: () => void): Item {
+		return {
+			displayName: 'Parameters',
+			icon: Settings,
+			submenuItems: [
+				{
+					displayName: 'User prompt',
+					icon: User,
+					action: () => {
+						close()
+						openUserPrompt()
+					}
+				},
+				{
+					displayName: 'Workspace prompt',
+					icon: Building2,
+					action: () => {
+						close()
+						openWorkspacePrompt()
+					}
+				},
+				{
+					displayName: 'AI settings',
+					icon: Settings,
+					href: AI_SETTINGS_HREF,
+					hrefTarget: '_blank',
+					separatorTop: true,
+					hide: !isAdmin,
+					extra: externalLinkIcon
+				}
+			]
+		}
+	}
+
+	// Adjust the reasoning effort with the arrow keys while the Thinking item is focused.
+	function adjustEffort(e: KeyboardEvent) {
+		if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+		e.preventDefault()
+		const next = Math.min(
+			stops.length - 1,
+			Math.max(0, stopIndex + (e.key === 'ArrowRight' ? 1 : -1))
+		)
+		selectReasoning(stops[next])
+	}
 </script>
 
-<DropdownV2 customMenu placement="bottom-end" fixedHeight={false} bind:open={menuOpen}>
+{#snippet externalLinkIcon()}
+	<ExternalLink size={14} class="shrink-0 text-secondary" />
+{/snippet}
+
+<DropdownV2 customMenu placement="bottom-end" fixedHeight={false} closeOnItemClick={false}>
 	{#snippet buttonReplacement()}
 		<Button
 			nonCaptureEvent
@@ -233,107 +272,60 @@
 			</span>
 		</Button>
 	{/snippet}
-	{#snippet menu({ close })}
+	{#snippet menu({ item, builders, close })}
 		<div
 			class="bg-surface-tertiary dark:border w-64 origin-top-right rounded-lg shadow-lg focus:outline-none py-1 text-xs"
 		>
 			<div class="px-3 pt-1.5 pb-1 text-2xs uppercase tracking-wide text-secondary">Model</div>
 			<div class="max-h-48 overflow-y-auto">
 				{#each models as m (m.provider + m.model)}
-					<button
-						class="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-hover rounded-sm transition-colors"
-						onclick={() => selectModel(m)}
+					<MenuItem
+						{item}
+						class="w-full flex items-center gap-2 px-3 py-1.5 text-left font-normal hover:bg-surface-hover data-[highlighted]:bg-surface-hover rounded-sm transition-colors cursor-pointer"
+						onClick={() => selectModel(m)}
 					>
 						<span class="truncate grow min-w-0">{m.model}</span>
 						{#if m.model === providerModel.model && m.provider === providerModel.provider}
 							<Check size={14} class="shrink-0 text-primary" />
 						{/if}
-					</button>
+					</MenuItem>
 				{/each}
 			</div>
 
 			{#if capability.supported}
 				<div class="my-1 border-t border-border-light"></div>
-				<div class="px-3 pt-1 pb-0.5 flex items-center justify-between">
-					<span class="text-2xs uppercase tracking-wide text-secondary">Thinking</span>
-					<span class="text-2xs text-secondary tabular-nums">{currentStop}</span>
-				</div>
-				{#if stops.length > 1}
-					<div class="px-3 pb-2 pt-1">
-						<input
-							type="range"
-							min="0"
-							max={stops.length - 1}
-							step="1"
-							value={stopIndex}
-							style="--fill: {fillPct}%"
-							oninput={(e) => selectReasoning(stops[+e.currentTarget.value])}
-							class="lean-range no-default-style w-full"
-							aria-label="Reasoning effort"
-						/>
+				<!-- Registered as a melt item so it joins the roving focus/highlight (and arrow
+				     up/down navigation), and so hovering it takes the highlight off the Parameters
+				     trigger. Left/right adjust the effort; the slider's input handler also drives it. -->
+				<MenuItemWrapper {item} onKeydown={adjustEffort} class="block group">
+					<div class="px-3 pt-1 pb-0.5 flex items-center justify-between">
+						<span class="text-2xs uppercase tracking-wide text-secondary">Thinking</span>
+						<span class="text-2xs text-secondary tabular-nums">{currentStop}</span>
 					</div>
-				{/if}
+					{#if stops.length > 1}
+						<!-- Only the slider area reflects the item's highlight, not the header. -->
+						<div
+							class="px-3 py-1.5 rounded-sm transition-colors group-data-[highlighted]:bg-surface-hover"
+						>
+							<input
+								type="range"
+								min="0"
+								max={stops.length - 1}
+								step="1"
+								value={stopIndex}
+								style="--fill: {fillPct}%"
+								oninput={(e) => selectReasoning(stops[+e.currentTarget.value])}
+								class="lean-range no-default-style w-full"
+								aria-label="Reasoning effort"
+							/>
+						</div>
+					{/if}
+				</MenuItemWrapper>
 			{/if}
 
 			<div class="my-1 border-t border-border-light"></div>
-			<!-- Parameters reveals its submenu on hover. It flies out to the left because the dropdown
-			     itself sits near the panel's right edge. -->
-			<div
-				class="relative"
-				role="none"
-				onmouseenter={() => (paramsOpen = true)}
-				onmouseleave={() => (paramsOpen = false)}
-			>
-				<div
-					class="w-full flex items-center gap-2 px-3 py-1.5 rounded-sm transition-colors {paramsOpen
-						? 'bg-surface-hover'
-						: 'hover:bg-surface-hover'}"
-				>
-					<Settings size={14} class="shrink-0 text-secondary" />
-					<span class="grow text-left">Parameters</span>
-					<ChevronRight size={14} class="shrink-0 text-tertiary" />
-				</div>
-				{#if paramsOpen}
-					<div
-						class="absolute right-full top-0 z-[6001] w-48 bg-surface-tertiary dark:border rounded-lg shadow-lg py-1"
-					>
-						<button
-							class="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-hover rounded-sm transition-colors"
-							onclick={() => {
-								close()
-								openUserPrompt()
-							}}
-						>
-							<User size={14} class="shrink-0 text-secondary" />
-							<span class="grow">User prompt</span>
-						</button>
-						<button
-							class="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-hover rounded-sm transition-colors"
-							onclick={() => {
-								close()
-								openWorkspacePrompt()
-							}}
-						>
-							<Building2 size={14} class="shrink-0 text-secondary" />
-							<span class="grow">Workspace prompt</span>
-						</button>
-						{#if isAdmin}
-							<div class="my-1 border-t border-border-light"></div>
-							<a
-								href={AI_SETTINGS_HREF}
-								target="_blank"
-								rel="noreferrer"
-								class="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-hover rounded-sm transition-colors"
-								onclick={() => close()}
-							>
-								<Settings size={14} class="shrink-0 text-secondary" />
-								<span class="grow">AI settings</span>
-								<ExternalLink size={14} class="shrink-0 text-secondary" />
-							</a>
-						{/if}
-					</div>
-				{/if}
-			</div>
+			<!-- Melt submenu: hover-opens and is floating-positioned (flips on screen edges). -->
+			<DropdownSubmenuItem item={paramItems(close)} {builders} meltItem={item} />
 		</div>
 	{/snippet}
 </DropdownV2>

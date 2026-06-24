@@ -32,7 +32,7 @@
 				? 'bg-red-500'
 				: ratio >= COMPACTION_TRIGGER_RATIO * 0.75
 					? 'bg-amber-500'
-					: 'bg-blue-500'
+					: 'bg-surface-accent-primary'
 	)
 
 	function formatTokenCount(tokens: number): string {
