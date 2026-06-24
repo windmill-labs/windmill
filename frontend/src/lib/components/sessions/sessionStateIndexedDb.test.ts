@@ -131,6 +131,23 @@ describe('sessionState IndexedDB persistence', () => {
 		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['a1']))
 	})
 
+	it("drops the previous user's transient draft on a user change", async () => {
+		const a = freshUser()
+		const b = freshUser()
+
+		userStore.set(a)
+		await flush()
+		// A starts an unsent draft — transient, in-memory only, never persisted.
+		sessionState.sessions = [session({ id: 'a-draft', transient: true }), ...sessionState.sessions]
+
+		// Switch to B: A's transient must not bleed into B's list (it would
+		// otherwise be reused by createSession and inherit A's pending state).
+		userStore.set(b)
+		await vi.waitFor(() => {
+			expect(sessionState.sessions.some((s) => s.id === 'a-draft')).toBe(false)
+		})
+	})
+
 	it('resets the active session pointer on user switch', async () => {
 		const a = freshUser()
 		const b = freshUser()

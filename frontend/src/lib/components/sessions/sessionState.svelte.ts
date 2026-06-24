@@ -327,8 +327,12 @@ export async function deleteSessionRecord(id: string): Promise<void> {
 // createSession() maintains (it prepends). whenReady() reopens for the current
 // user automatically, so this also handles user switch; an absent DB (logged
 // out / open failed) yields an empty list.
-async function hydrateSessions(): Promise<void> {
-	const transients = sessionState.sessions.filter((s) => s.transient)
+async function hydrateSessions({ dropTransients = false } = {}): Promise<void> {
+	// Transient (unsent) drafts live only in memory and belong to the current
+	// user; preserve them across an intra-user reconcile, but drop them on a user
+	// change so one user's draft (and its pending fork/workspace state) never
+	// bleeds into the next user's list.
+	const transients = dropTransients ? [] : sessionState.sessions.filter((s) => s.transient)
 	const db = await sessionsDb.whenReady()
 	if (!db) {
 		sessionState.sessions = transients
@@ -509,13 +513,14 @@ export async function deleteSessionsForWorkspace(workspaceId: string): Promise<v
 	}
 }
 
-// Re-hydrate on user (email) change. On logout (email → undefined) or a genuine
-// user switch (X → Y) the in-memory list and active-session pointer reset so one
-// user's sessions never bleed into another. Family-DB handles are dropped since
-// a different email means different DB names.
+// Re-hydrate on user (email) change. The new user's persisted sessions are
+// re-read from their own scoped DB (different email → different DB name); the
+// in-memory list is rebuilt from scratch — including dropping the previous
+// user's transient drafts — and the active-session pointer is cleared, so one
+// user's sessions never bleed into another.
 onUserChange(async (email, prevEmail) => {
 	if (!BROWSER) return
-	await hydrateSessions()
+	await hydrateSessions({ dropTransients: prevEmail !== email })
 	if (prevEmail !== undefined && prevEmail !== email) {
 		sessionState.currentSessionId = undefined
 	}
