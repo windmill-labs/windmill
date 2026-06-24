@@ -95,8 +95,7 @@ async fn build_materialized_query(
         parse_pipeline_annotations, AssetKind as PAssetKind, DataTest,
     };
     use windmill_parser::sql_materialize::{
-        build_data_test_blocks, build_wrap_blocks, DataTestCtx, DataTestResolved,
-        MaterializeStrategy, TARGET_ALIAS,
+        build_wrap_blocks, DataTestResolved, MaterializeStrategy, TARGET_ALIAS,
     };
 
     let ann = parse_pipeline_annotations(query);
@@ -198,7 +197,24 @@ async fn build_materialized_query(
     // the partition column in our generated DDL).
     let pval = lit.clone();
     let synthetic_attach = format!("ATTACH 'ducklake://{ducklake_name}' AS {TARGET_ALIAS};");
-    let mut blocks = build_wrap_blocks(
+
+    // Resolve data tests (fetch + partition-substitute custom bodies) so codegen
+    // can embed every check's violating-row count in the materialize summary.
+    // The summary then carries the full per-test breakdown back to the worker,
+    // which runs them all and decides pass/fail (no abort-on-first). Empty when
+    // there are no `// data_test` lines.
+    let mut resolved = Vec::with_capacity(ann.data_tests.len());
+    for test in &ann.data_tests {
+        match test {
+            DataTest::Custom { path } => {
+                let body = substitute(&fetch_custom_test_body(conn, w_id, path).await?);
+                resolved.push(DataTestResolved::Custom { path: path.clone(), body });
+            }
+            other => resolved.push(DataTestResolved::BuiltIn(other.clone())),
+        }
+    }
+
+    let blocks = build_wrap_blocks(
         &plan,
         &synthetic_attach,
         table,
@@ -207,38 +223,9 @@ async fn build_materialized_query(
         &pval,
         partitioned,
         strategy,
-    );
-
-    // Data tests: resolve custom bodies (fetched + partition-substituted), then
-    // compile every check to ATTACH + raising probe SQL. Splice them in *before*
-    // the trailing summary read so the run's result/preview stays the summary
-    // and a probe failure aborts before it (recording `Failed`).
-    if has_tests {
-        let mut resolved = Vec::with_capacity(ann.data_tests.len());
-        for test in &ann.data_tests {
-            match test {
-                DataTest::Custom { path } => {
-                    let body = substitute(&fetch_custom_test_body(conn, w_id, path).await?);
-                    resolved.push(DataTestResolved::Custom { path: path.clone(), body });
-                }
-                other => resolved.push(DataTestResolved::BuiltIn(other.clone())),
-            }
-        }
-        let target_qualified = format!("{TARGET_ALIAS}.{table}");
-        let ctx = DataTestCtx {
-            target_qualified: &target_qualified,
-            asset_path: &m.target_path,
-            partition_col: "_wm_partition",
-            partition_value_sql: &pval,
-            partitioned,
-        };
-        let test_sql = build_data_test_blocks(&resolved, &ctx).map_err(Error::ExecutionErr)?;
-        // build_wrap_blocks always ends with the summary read.
-        let summary = blocks.pop().expect("wrap blocks include a summary read");
-        blocks.extend(test_sql.attaches);
-        blocks.extend(test_sql.probes);
-        blocks.push(summary);
-    }
+        &resolved,
+    )
+    .map_err(Error::ExecutionErr)?;
 
     Ok(Some((Some(blocks.join("\n")), meta)))
 }
@@ -262,6 +249,75 @@ fn extract_i64(result: &RawValue, field: &str) -> Option<i64> {
         }
     }
     find(&serde_json::from_str::<Value>(result.get()).ok()?, field)
+}
+
+// One data test's outcome as carried by the materialize summary's `data_tests`
+// column: its display name and how many rows violated it (0 = pass).
+struct DataTestOutcome {
+    name: String,
+    violating: i64,
+}
+
+// Pull the per-test breakdown out of the materialize summary result. The
+// `data_tests` column is a DuckLake list-of-struct `[{test, violating}, …]`;
+// the FFI may surface it as a nested JSON array or as a JSON string, so accept
+// both. Returns empty when there are no tests (the column is absent).
+fn extract_data_tests(result: &RawValue) -> Vec<DataTestOutcome> {
+    fn collect(v: &Value, out: &mut Vec<DataTestOutcome>) {
+        if let Value::Array(arr) = v {
+            for item in arr {
+                if let Value::Object(o) = item {
+                    if let Some(Value::String(name)) = o.get("test") {
+                        let violating = o
+                            .get("violating")
+                            .and_then(|x| x.as_i64().or_else(|| x.as_f64().map(|f| f as i64)))
+                            .unwrap_or(0);
+                        out.push(DataTestOutcome { name: name.clone(), violating });
+                    }
+                }
+            }
+        }
+    }
+    fn find_field(v: &Value) -> Option<&Value> {
+        match v {
+            Value::Object(o) => o.get("data_tests"),
+            Value::Array(a) => a.iter().find_map(find_field),
+            _ => None,
+        }
+    }
+    let mut out = Vec::new();
+    let Ok(root) = serde_json::from_str::<Value>(result.get()) else {
+        return out;
+    };
+    match find_field(&root) {
+        Some(arr @ Value::Array(_)) => collect(arr, &mut out),
+        // FFI serialized the list-of-struct as a JSON string — parse it.
+        Some(Value::String(s)) => {
+            if let Ok(parsed) = serde_json::from_str::<Value>(s) {
+                collect(&parsed, &mut out);
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
+// Render the full pass/fail breakdown for a failed data-test run — every test,
+// not just the first failure, so the user sees the whole picture in one place.
+fn format_data_test_breakdown(asset_path: &str, tests: &[DataTestOutcome]) -> String {
+    let failed = tests.iter().filter(|t| t.violating > 0).count();
+    let mut lines = vec![format!(
+        "data tests failed on {asset_path} ({failed}/{} failed):",
+        tests.len()
+    )];
+    for t in tests {
+        if t.violating > 0 {
+            lines.push(format!("  ✗ {} — {} violating row(s)", t.name, t.violating));
+        } else {
+            lines.push(format!("  ✓ {}", t.name));
+        }
+    }
+    lines.join("\n")
 }
 
 // Best-effort record of a materialization outcome. On a Sql connection it writes
@@ -530,9 +586,30 @@ pub async fn do_duckdb(
 
         if let Some((_, meta)) = &materialize {
             // In wrap mode the job result is the summary read (snapshot_id +
-            // rows); in literal mode there is none, so both stay None.
+            // rows + the per-test breakdown); in literal mode there is none.
             let snapshot_id = extract_i64(&result, "snapshot_id");
             let row_count = extract_i64(&result, "rows");
+            // Data tests all ran (every check counted in one query); decide
+            // pass/fail here. Any violation fails the run — the write is already
+            // committed (like dbt), so the slice is recorded `Failed` and the
+            // cascade stops. The error lists *every* test so the user sees the
+            // whole picture, not just the first failure.
+            let tests = extract_data_tests(&result);
+            if tests.iter().any(|t| t.violating > 0) {
+                let breakdown = format_data_test_breakdown(&meta.asset_path, &tests);
+                record_mat(
+                    conn,
+                    &job.workspace_id,
+                    job.id,
+                    meta,
+                    windmill_common::materialization::MaterializationStatus::Failed,
+                    snapshot_id,
+                    row_count,
+                    Some(&breakdown),
+                )
+                .await;
+                return Err(Error::ExecutionErr(breakdown));
+            }
             record_mat(
                 conn,
                 &job.workspace_id,
@@ -1572,5 +1649,55 @@ mod tests {
         };
         let serialized = serde_json::to_string(&arg).unwrap();
         assert!(serialized.contains("\"json_value\":{\"key\":\"value\"}"));
+    }
+
+    fn raw(s: &str) -> Box<RawValue> {
+        serde_json::from_str(s).unwrap()
+    }
+
+    #[test]
+    fn extract_data_tests_parses_nested_array() {
+        // The real result shape: an array of one summary row carrying a nested
+        // `data_tests` array (how the FFI serialises the list-of-struct).
+        let r = raw(
+            r#"[{"rows":3,"snapshot_id":17,"materialized":"ducklake://a/b",
+                "data_tests":[{"test":"unique(order_id)","violating":0},
+                              {"test":"accepted_values(status)","violating":2}]}]"#,
+        );
+        let out = extract_data_tests(&r);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].name, "unique(order_id)");
+        assert_eq!(out[0].violating, 0);
+        assert_eq!(out[1].name, "accepted_values(status)");
+        assert_eq!(out[1].violating, 2);
+    }
+
+    #[test]
+    fn extract_data_tests_handles_string_encoded_and_absent() {
+        // Fallback: some serialisations surface the list-of-struct as a JSON string.
+        let s = raw(r#"{"data_tests":"[{\"test\":\"not_null(x)\",\"violating\":1}]"}"#);
+        let out = extract_data_tests(&s);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].name, "not_null(x)");
+        assert_eq!(out[0].violating, 1);
+        // Absent column (no tests) -> empty, no panic.
+        assert!(extract_data_tests(&raw(r#"[{"rows":3}]"#)).is_empty());
+    }
+
+    #[test]
+    fn format_data_test_breakdown_lists_all_with_marks() {
+        let tests = vec![
+            DataTestOutcome { name: "unique(order_id)".into(), violating: 1 },
+            DataTestOutcome { name: "not_null(user_id)".into(), violating: 0 },
+            DataTestOutcome { name: "accepted_values(status)".into(), violating: 2 },
+        ];
+        let msg = format_data_test_breakdown("analytics/orders", &tests);
+        assert_eq!(
+            msg,
+            "data tests failed on analytics/orders (2/3 failed):\n  \
+             ✗ unique(order_id) — 1 violating row(s)\n  \
+             ✓ not_null(user_id)\n  \
+             ✗ accepted_values(status) — 2 violating row(s)"
+        );
     }
 }

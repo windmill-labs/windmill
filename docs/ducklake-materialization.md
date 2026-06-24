@@ -232,28 +232,29 @@ The reusable shape, in three layers, each a clean extension seam:
    **keyword head** to a typed variant (`DataTest`). A new built-in is one
    match arm + its sub-parser; the `Custom` arm is the open fallback. A sibling
    family reuses this head-keyword dispatch rather than adding a parallel list.
-2. **Compile** (`sql_materialize.rs::build_data_test_blocks`). Each check
-   becomes a **verifier**: `(violation-count query, label) → raising probe`.
-   A probe is one statement that raises (DuckDB `error(...)`) iff violated:
-   `SELECT error('<label>: ' || v || ' …') FROM (<count>) WHERE v > 0`.
-   Built-ins differ only in their count query; `Custom` supplies its own (the
-   user's SELECT of violating rows). Referenced assets (relationships) emit an
-   `ATTACH` resolved by the same transform pass as the user's own.
-3. **Execute** (`duckdb_executor.rs`). The probes are spliced into the managed
-   write **after the COMMIT, before the trailing summary read**, so they run
-   against the freshly-materialized slice in the same connection, the run's
-   result/preview stays the summary, and a probe failure rides the *existing*
-   error path (record `Failed` + propagate up the cascade) with **no new
-   failure plumbing**.
+2. **Compile** (`sql_materialize.rs::build_data_test_checks`). Each test becomes
+   a **check**: `(name, violating-row-count query)`. Built-ins differ only in
+   their count query; `Custom` supplies its own (the user's SELECT of violating
+   rows). Referenced assets (relationships) emit an `ATTACH` resolved by the
+   same transform pass as the user's own.
+3. **Execute** (`duckdb_executor.rs`). The materialize summary query embeds
+   every check's count in one `data_tests` list-of-struct column (computed in a
+   CTE, since DuckDB rejects subqueries inside struct literals), so **all tests
+   run in a single pass** against the freshly-materialized slice — no
+   abort-on-first. The worker reads the breakdown from the result and decides
+   pass/fail: any violation **fails the run** (record `Failed`, propagate up the
+   cascade) with an error listing *every* test (✓/✗ + counts); a clean run
+   returns the per-test summary so the UI can render a checklist.
 
 A new annotation family that produces post-materialize checks (or, for
 column-lineage, post-materialize *metadata reads*) plugs into the same three
-seams: add a parsed variant, emit verifier/reader SQL, splice it at the same
-point. Nothing about the closed set of *today's* keywords is load-bearing.
+seams: add a parsed variant, emit its check/reader SQL into the summary, read
+it back in the worker. Nothing about the closed set of *today's* keywords is
+load-bearing.
 
 ### Scoping decisions (v1)
 
-- **Partition scope.** When `// partitioned`, built-in probes are scoped to the
+- **Partition scope.** When `// partitioned`, built-in checks are scoped to the
   slice just written (`WHERE _wm_partition = <value>`), so a rerun/backfill of
   one partition is independent of other partitions' (possibly pre-existing)
   data. Whole-table assertions are a follow-up.
@@ -263,7 +264,7 @@ point. Nothing about the closed set of *today's* keywords is load-bearing.
   exactly what failed.
 - **Custom = DuckDB SQL, server worker.** The escape hatch fetches the deployed
   script's content (must be a DuckDB script whose trailing SELECT returns the
-  violating rows) and inlines it as a probe; `{partition}` is substituted and
+  violating rows) and inlines it as a check; `{partition}` is substituted and
   `_wm_target` is in scope. Agent (Http) workers — which have no script cache —
   get a clear error. Non-DuckDB custom tests (dispatched as sub-jobs, any
   language) are the natural follow-up and fit the same verifier seam.
