@@ -165,9 +165,16 @@
 		acting = true
 		try {
 			await WorkspaceService.archiveWorkspace({ workspace: currentWorkspaceId })
-			await archiveSessionsForWorkspace(currentWorkspaceId)
 			sendUserToast(`Archived fork ${currentWorkspaceId}`)
-			await reconcileAfterWorkspaceChange()
+			// Client session cleanup is best-effort: a local IndexedDB failure must
+			// not falsely report the (already successful) archive as failed, nor
+			// block navigation away from the now-archived fork.
+			try {
+				await archiveSessionsForWorkspace(currentWorkspaceId)
+				await reconcileAfterWorkspaceChange()
+			} catch (e) {
+				console.error('Session cleanup after fork archive failed', e)
+			}
 			await afterForkGone()
 		} catch (e: any) {
 			sendUserToast(`Failed to archive fork: ${e?.body ?? e}`, true)
@@ -182,9 +189,16 @@
 		acting = true
 		try {
 			await WorkspaceService.deleteWorkspace({ workspace: currentWorkspaceId })
-			await deleteSessionsForWorkspace(currentWorkspaceId)
 			sendUserToast(`Deleted fork ${currentWorkspaceId}`)
-			await reconcileAfterWorkspaceChange()
+			// Client session cleanup is best-effort: a local IndexedDB failure must
+			// not abort the redirect after a successful delete, leaving the user on
+			// the now-deleted workspace path.
+			try {
+				await deleteSessionsForWorkspace(currentWorkspaceId)
+				await reconcileAfterWorkspaceChange()
+			} catch (e) {
+				console.error('Session cleanup after fork delete failed', e)
+			}
 			await afterForkGone()
 		} catch (e: any) {
 			sendUserToast(`Failed to delete fork: ${e?.body ?? e}`, true)
