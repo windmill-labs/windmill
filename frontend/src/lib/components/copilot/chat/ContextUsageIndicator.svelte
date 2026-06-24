@@ -48,12 +48,15 @@
 
 {#if visible}
 	<Tooltip small placement="top">
+		<!-- Only a meter when we know the window: it's a 0–100% reading. With an unknown
+		     window there's no max to measure against, so it's a plain labeled indicator
+		     (the bar is decorative/full and the token count lives in the tooltip). -->
 		<div
 			class="flex items-center h-5"
 			aria-label="Context window usage"
-			role="meter"
-			aria-valuenow={fillPct ?? usedTokens}
-			aria-valuemin={0}
+			role={fillPct !== undefined ? 'meter' : undefined}
+			aria-valuenow={fillPct}
+			aria-valuemin={fillPct !== undefined ? 0 : undefined}
 			aria-valuemax={fillPct !== undefined ? 100 : undefined}
 		>
 			<div class="w-8 h-1.5 rounded-full bg-surface-secondary overflow-hidden">
