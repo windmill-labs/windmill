@@ -325,9 +325,10 @@ export class AIChatManager {
 	sessionId: string | undefined = undefined
 
 	// Workspace AI skills (name + description) advertised in the GLOBAL system
-	// prompt. Loaded asynchronously when entering GLOBAL mode; the system message
-	// is rebuilt once they resolve.
-	private globalSkills: AiSkillListItem[] = []
+	// prompt and surfaced as slash commands in session chat. Loaded
+	// asynchronously when entering GLOBAL mode; the system message is rebuilt
+	// once they resolve.
+	globalSkills = $state<AiSkillListItem[]>([])
 	private globalSkillsRefreshId = 0
 
 	allowedModes: Record<AIMode, boolean> = $derived({
@@ -844,7 +845,7 @@ export class AIChatManager {
 	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
 	// the system message so the next chat-loop iteration advertises them. Ignore
 	// stale resolves so workspace changes cannot overwrite newer skills.
-	private refreshGlobalSkills = async (workspace = get(workspaceStore) ?? '') => {
+	refreshGlobalSkills = async (workspace = get(workspaceStore) ?? '') => {
 		const refreshId = ++this.globalSkillsRefreshId
 		const skills = await loadWorkspaceSkills(workspace)
 		if (refreshId !== this.globalSkillsRefreshId) {
@@ -857,6 +858,22 @@ export class AIChatManager {
 				skills
 			})
 		}
+	}
+
+	private expandGlobalSkillCommand = (instructions: string): string => {
+		if (!this.isSessionChat || this.mode !== AIMode.GLOBAL || !instructions.startsWith('/')) {
+			return instructions
+		}
+		const match = /^\/([a-z0-9-]+)(?:\s+([\s\S]*))?$/.exec(instructions)
+		if (!match) {
+			return instructions
+		}
+		const skill = this.globalSkills.find((s) => s.name === match[1])
+		if (!skill) {
+			return instructions
+		}
+		const rest = match[2]?.trim()
+		return rest ? `Use the "${skill.name}" skill. ${rest}` : `Use the "${skill.name}" skill.`
 	}
 
 	canApplyCode = $derived(this.allowedModes.script && this.mode === AIMode.SCRIPT)
@@ -1355,6 +1372,10 @@ export class AIChatManager {
 			// The LLM gets the full pasted content; the display message above keeps
 			// the compact tokens + registry so the bubble can render/expand chips.
 			const oldInstructions = expanded(chatDraft(this.instructions, pastes))
+			const modelInstructions =
+				this.mode === AIMode.GLOBAL
+					? this.expandGlobalSkillCommand(oldInstructions)
+					: oldInstructions
 			this.instructions = ''
 
 			if (this.mode === AIMode.SCRIPT && !this.scriptEditorOptions && !options.lang) {
@@ -1387,7 +1408,7 @@ export class AIChatManager {
 					userMessage = prepareApiUserMessage(oldInstructions)
 					break
 				case AIMode.GLOBAL:
-					userMessage = prepareGlobalUserMessage(oldInstructions, oldSelectedContext, {
+					userMessage = prepareGlobalUserMessage(modelInstructions, oldSelectedContext, {
 						workspace: get(workspaceStore)
 					})
 					break
