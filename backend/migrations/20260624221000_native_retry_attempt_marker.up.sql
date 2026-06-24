@@ -9,7 +9,9 @@
 -- to keep the bulk job delete cheap).
 CREATE TABLE IF NOT EXISTS native_retry_attempt (
     job_id UUID PRIMARY KEY,
-    attempt SMALLINT NOT NULL
+    -- `integer` matches the retry policy's i32 attempt count; avoids any narrowing
+    -- on the maybe_enqueue read/write path.
+    attempt INTEGER NOT NULL
 );
 
 GRANT ALL ON native_retry_attempt TO windmill_admin;

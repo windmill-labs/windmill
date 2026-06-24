@@ -6,7 +6,7 @@
       {
         "ordinal": 0,
         "name": "attempt",
-        "type_info": "Int2"
+        "type_info": "Int4"
       }
     ],
     "parameters": {

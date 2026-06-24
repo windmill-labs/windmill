@@ -1865,7 +1865,7 @@ pub async fn maybe_enqueue_native_script_retry(
     sqlx::query!(
         "INSERT INTO native_retry_attempt (job_id, attempt) VALUES ($1, $2)",
         new_id,
-        (prev_attempts + 1) as i16,
+        (prev_attempts + 1) as i32,
     )
     .execute(&mut *tx)
     .await?;
