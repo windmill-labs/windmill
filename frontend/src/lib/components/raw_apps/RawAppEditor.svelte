@@ -996,8 +996,15 @@
 		// The detached preview window asks for the build every time it (re)loads,
 		// including a manual browser refresh — its app-preview.html shell starts
 		// blank and the one-shot `load` feed can't survive the tab reloading
-		// itself. Re-feed it here so it repaints. Gated to our own window handle.
-		if (e.data?.type === 'appPreviewReady' && e.source === externalPreviewWindow) {
+		// itself. Re-feed it here so it repaints. Gated to our own window handle
+		// AND a same-origin sender: the preview runs user app code that can
+		// navigate the window away, and a cross-origin doc must not be able to
+		// trigger a bundle replay (the build can carry app source/secrets).
+		if (
+			e.data?.type === 'appPreviewReady' &&
+			e.source === externalPreviewWindow &&
+			e.origin === window.location.origin
+		) {
 			feedExternalPreview()
 			return
 		}
@@ -1123,7 +1130,10 @@
 			externalPreviewWindow = null
 			return
 		}
-		externalPreviewWindow.postMessage(msg, '*')
+		// Restrict to our own origin: the detached window loads same-origin
+		// app-preview.html, but user app code can navigate it elsewhere — don't
+		// post the build (potential app source/secrets) to a cross-origin doc.
+		externalPreviewWindow.postMessage(msg, window.location.origin)
 	}
 
 	function syncExternalPreview() {
@@ -1156,7 +1166,12 @@
 			feedExternalPreview()
 			return
 		}
-		const win = window.open('/ui_builder/app-preview.html', 'windmillRawAppPreview')
+		// Scope the window name per app path so two open editors don't fight over
+		// (or take over / close) one shared OS-level preview window.
+		const win = window.open(
+			'/ui_builder/app-preview.html',
+			`windmillRawAppPreview:${encodeURIComponent(path)}`
+		)
 		if (!win) {
 			sendUserToast('Could not open the preview window (popup blocked?)', true)
 			return
