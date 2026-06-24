@@ -19,6 +19,8 @@
 		 * "Draft" marker so a not-yet-deployed change is distinguishable from one
 		 * already deployed in the fork. */
 		hasDraft?: boolean
+		/** Never-deployed draft → the marker reads "Draft only" instead of "Draft". */
+		draftOnly?: boolean
 	}
 </script>
 
@@ -41,6 +43,7 @@
 	import { goto } from '$lib/navigation'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import WorkspaceItemRow from '$lib/components/WorkspaceItemRow.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import WorkspaceItemDiffViewer from '$lib/components/WorkspaceItemDiffViewer.svelte'
 	import {
 		rawAppDiffToItems,
@@ -265,7 +268,8 @@
 			m.set(displayPathOf(d), {
 				summaryKey: itemKey(d),
 				summary: 'summary' in d ? d.summary : undefined,
-				hasDraft: 'hasDraft' in d ? d.hasDraft : undefined
+				hasDraft: 'hasDraft' in d ? d.hasDraft : undefined,
+				draftOnly: 'draftOnly' in d ? d.draftOnly : undefined
 			})
 		}
 		return m
@@ -447,9 +451,7 @@
 						{appSummary ?? node.name}
 					</span>
 					{#if node.app.hasDraft}
-						<span class="inline-flex shrink-0" title="Has an unsaved draft">
-							<Pencil class="w-3 h-3 text-amber-500" />
-						</span>
+						<DraftBadge is_draft draft_only={node.app.draftOnly ?? false} />
 					{/if}
 					<ChevronDown class="w-3 h-3 shrink-0 text-tertiary tree-chevron-open" />
 					<ChevronRight class="w-3 h-3 shrink-0 text-tertiary tree-chevron-closed" />
@@ -515,9 +517,7 @@
 		>
 			{#snippet extras()}
 				{#if 'hasDraft' in d && d.hasDraft}
-					<span class="inline-flex shrink-0" title="Has an unsaved draft">
-						<Pencil class="w-3 h-3 text-amber-500" />
-					</span>
+					<DraftBadge is_draft draft_only={'draftOnly' in d ? (d.draftOnly ?? false) : false} />
 				{/if}
 			{/snippet}
 		</WorkspaceItemRow>
@@ -662,10 +662,10 @@
 												<span class="text-2xs text-secondary">{d.behind} behind</span>
 											{/if}
 											{#if 'hasDraft' in d && d.hasDraft}
-												<Badge color="orange">
-													<Pencil class="w-3 h-3 inline mr-0.5" />
-													Draft
-												</Badge>
+												<DraftBadge
+													is_draft
+													draft_only={'draftOnly' in d ? (d.draftOnly ?? false) : false}
+												/>
 											{/if}
 											<Badge color={statusBadgeColor(status)}>
 												<StatusIcon class="w-3 h-3 inline mr-0.5" />

@@ -29,7 +29,12 @@ export type DiffTreeItem<T> = {
 
 /** Marks a folder as a raw app's root so the drawer renders its header as the
  * raw-app row instead of a plain folder. Keyed by the app's friendly path. */
-export type AppRootMeta = { summaryKey: string; summary?: string; hasDraft?: boolean }
+export type AppRootMeta = {
+	summaryKey: string
+	summary?: string
+	hasDraft?: boolean
+	draftOnly?: boolean
+}
 
 export type FolderNode<T> = {
 	type: 'folder'
