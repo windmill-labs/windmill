@@ -28,9 +28,8 @@
 	import { isActiveUserQuestion, type DisplayMessage } from './shared'
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
-	import ProviderModelSelector from './ProviderModelSelector.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
-	import AIChatSettingsMenu from './AIChatSettingsMenu.svelte'
+	import AIChatModelSettings from './AIChatModelSettings.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
@@ -910,8 +909,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							<DatatableCreationPolicy />
 						{/if}
 						<ContextUsageIndicator />
-						<ProviderModelSelector />
-						<AIChatSettingsMenu />
+						<AIChatModelSettings />
 
 						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
 							{#if appContext.inspectorElement}
