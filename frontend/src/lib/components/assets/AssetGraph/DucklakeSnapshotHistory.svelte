@@ -1,35 +1,24 @@
 <script lang="ts">
-	// Time-travel history for a ducklake table: lists the catalog's DuckLake
-	// snapshots (commit log), newest first, and hands the user the exact
-	// `AT (VERSION => n)` syntax to read any of them — copy a clause, copy a full
-	// FROM, or open the version in the Query tab. This is the discoverability
-	// surface: snapshots are captured automatically on every materialize, and
-	// this teaches users they can pin reads against them.
-	import { resource } from 'runed'
+	// Time-travel snapshot list for a ducklake table (presentational): the
+	// catalog's DuckLake snapshots, newest first. Selecting a row drives the
+	// adjacent preview pane via `onSelect`; the selected row is highlighted. The
+	// list data + selection default are owned by the parent; the preview pane
+	// carries the copy-able `AT (VERSION => n)` clause.
 	import { Button } from '$lib/components/common'
-	import { Loader2, RefreshCw, ClipboardCopy, Play } from 'lucide-svelte'
-	import { fetchDucklakeSnapshots } from '$lib/components/dbOps'
-	import { parseDbInputFromAssetSyntax, copyToClipboard } from '$lib/utils'
+	import { Loader2, RefreshCw } from 'lucide-svelte'
+	import type { DucklakeSnapshot } from '$lib/components/dbOps'
 
 	interface Props {
-		// The materialized ducklake asset path (`<ducklake>/<table>`).
-		path: string
-		workspace: string
-		// Open the Query tab pinned to the chosen snapshot.
-		onQueryVersion?: (version: number) => void
+		items: DucklakeSnapshot[]
+		loading: boolean
+		error?: string
+		onRefresh?: () => void
+		// Snapshot currently shown in the preview pane (highlighted in the list).
+		selectedVersion?: number
+		// Select a snapshot to preview.
+		onSelect?: (version: number) => void
 	}
-	let { path, workspace, onQueryVersion }: Props = $props()
-
-	let input = $derived(parseDbInputFromAssetSyntax(`ducklake://${path}`))
-	let ducklake = $derived(input && 'ducklake' in input ? input.ducklake : undefined)
-	let table = $derived(input && 'specificTable' in input ? input.specificTable : undefined)
-	let schema = $derived(input && 'specificSchema' in input ? input.specificSchema : undefined)
-	let tableKey = $derived(schema && table ? `${schema}.${table}` : table)
-
-	let snapshots = resource([() => workspace, () => ducklake], async ([ws, dl]) => {
-		if (!ws || !dl) return []
-		return await fetchDucklakeSnapshots({ workspace: ws, ducklake: dl })
-	})
+	let { items, loading, error, onRefresh, selectedVersion, onSelect }: Props = $props()
 
 	// DuckLake serializes `snapshot_time` as microseconds-since-epoch (a numeric
 	// string), not an ISO date — `new Date(µs)` would be Invalid Date. Detect the
@@ -39,16 +28,6 @@
 		const n = typeof t === 'number' ? t : Number(t)
 		const d = Number.isFinite(n) && n > 1e14 ? new Date(n / 1000) : new Date(t)
 		return isNaN(d.getTime()) ? String(t) : d.toLocaleString()
-	}
-
-	function atClause(version: number): string {
-		return `AT (VERSION => ${version})`
-	}
-	function fromClause(version: number): string {
-		// `lake` matches the alias the duckdb scaffold ATTACHes the ducklake under
-		// (`ATTACH 'ducklake://…' AS lake`), so the copied clause is catalog-qualified
-		// and pastes straight into a consumer script.
-		return `FROM lake.${tableKey ?? 'table'} ${atClause(version)}`
 	}
 </script>
 
@@ -60,64 +39,39 @@
 			unifiedSize="sm"
 			startIcon={{ icon: RefreshCw }}
 			iconOnly
-			onclick={() => snapshots.refetch()}
+			onclick={() => onRefresh?.()}
 			title="Refresh"
 		/>
 	</div>
 
 	<div class="flex-1 min-h-0 overflow-auto p-3">
-		{#if snapshots.loading}
+		{#if loading && !items.length}
 			<div class="flex items-center gap-2 text-tertiary text-xs">
 				<Loader2 size={14} class="animate-spin" /> Loading snapshots…
 			</div>
-		{:else if snapshots.error}
-			<p class="text-xs text-red-600">Failed to load: {snapshots.error.message}</p>
-		{:else if !snapshots.current?.length}
+		{:else if error}
+			<p class="text-xs text-red-600">Failed to load: {error}</p>
+		{:else if !items.length}
 			<p class="text-xs text-secondary">
-				No snapshots yet. DuckLake records one on every <span class="font-mono">// materialize</span
+				No snapshots yet. DuckLake records one on every <span class="font-mono"
+					>// materialize</span
 				> write; each becomes a version you can time-travel to.
 			</p>
 		{:else}
 			<div class="flex flex-col gap-1.5">
-				{#each snapshots.current as s (s.snapshot_id)}
-					<div
-						class="flex items-center justify-between gap-2 rounded border px-2 py-1.5 hover:bg-surface-hover"
+				{#each items as s (s.snapshot_id)}
+					{@const selected = s.snapshot_id === selectedVersion}
+					<button
+						type="button"
+						class="flex items-center justify-between gap-2 rounded border px-2 py-1.5 text-left {selected
+							? 'border-blue-400 bg-blue-50 dark:border-blue-500 dark:bg-blue-950/30'
+							: 'hover:bg-surface-hover'}"
+						onclick={() => onSelect?.(s.snapshot_id)}
+						title="Preview the table at this version"
 					>
-						<div class="flex flex-col min-w-0">
-							<span class="text-xs font-mono">v{s.snapshot_id}</span>
-							<span class="text-3xs text-tertiary">
-								{fmtSnapshotTime(s.snapshot_time)}
-							</span>
-						</div>
-						<div class="flex items-center gap-1 shrink-0">
-							<Button
-								variant="subtle"
-								unifiedSize="sm"
-								startIcon={{ icon: ClipboardCopy }}
-								onclick={() => copyToClipboard(atClause(s.snapshot_id))}
-								title="Copy AT (VERSION => …) clause"
-							>
-								AT (VERSION)
-							</Button>
-							<Button
-								variant="subtle"
-								unifiedSize="sm"
-								startIcon={{ icon: ClipboardCopy }}
-								iconOnly
-								onclick={() => copyToClipboard(fromClause(s.snapshot_id))}
-								title="Copy {fromClause(s.snapshot_id)}"
-							/>
-							<Button
-								variant="default"
-								unifiedSize="sm"
-								startIcon={{ icon: Play }}
-								onclick={() => onQueryVersion?.(s.snapshot_id)}
-								title="Preview the table at this version"
-							>
-								Query
-							</Button>
-						</div>
-					</div>
+						<span class="text-xs font-mono">v{s.snapshot_id}</span>
+						<span class="text-3xs text-tertiary shrink-0">{fmtSnapshotTime(s.snapshot_time)}</span>
+					</button>
 				{/each}
 			</div>
 		{/if}

@@ -11,8 +11,9 @@
 	import { loadAllTablesMetaData } from '$lib/components/apps/components/display/dbtable/metadata'
 	import { dbTableOpsWithPreviewScripts } from '$lib/components/dbOps'
 	import type { DbInput } from '$lib/components/dbTypes'
-	import { parseDbInputFromAssetSyntax } from '$lib/utils'
-	import { AlertTriangle, Loader2 } from 'lucide-svelte'
+	import { parseDbInputFromAssetSyntax, copyToClipboard } from '$lib/utils'
+	import { AlertTriangle, Loader2, ClipboardCopy } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
 	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
@@ -94,12 +95,22 @@
 <div class={twMerge('flex flex-col min-h-0 relative', className)}>
 	{#if version == undefined}
 		<div class="flex items-center gap-2 p-3 text-2xs text-tertiary">
-			Pick a version from the History tab to query the table as of that snapshot.
+			Select a snapshot from the list to preview the table as of that version.
 		</div>
 	{:else}
 		{#if exampleSql}
-			<div class="pb-2 text-2xs font-mono text-tertiary truncate" title={exampleSql}>
-				{exampleSql}
+			<div class="flex items-center gap-1 pb-2">
+				<span class="text-2xs font-mono text-tertiary truncate" title={exampleSql}>
+					{exampleSql}
+				</span>
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					startIcon={{ icon: ClipboardCopy }}
+					iconOnly
+					onclick={() => copyToClipboard(exampleSql)}
+					title="Copy {exampleSql}"
+				/>
 			</div>
 		{/if}
 		{#if colDefs.loading && !colDefs.current}
