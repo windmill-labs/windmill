@@ -5194,6 +5194,137 @@ mod debounce {
         Ok(())
     }
 
+    /// Edge: accumulate values that are bare scalars (not arrays) — the `T | T[]` union
+    /// case. Each scalar contribution must be wrapped into a single-element list so the
+    /// survivor accumulates them all. Exercises the non-array fallback in the claim path.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_debounce_accumulate_scalar_values(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let key = "scalar_accum_key";
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some(key.to_string()),
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        // Push two jobs whose `items` is a BARE SCALAR, not an array.
+        let push_scalar = |id: Uuid, v: i64, db: Pool<Postgres>, settings: DebouncingSettings| async move {
+            let args_val = serde_json::json!({ "items": v });
+            insert_script_job_with_args(&db, id, "test-workspace", "f/test/script", &args_val)
+                .await;
+            sqlx::query!(
+                "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+                rs_handle,
+                id,
+            )
+            .execute(&db)
+            .await
+            .unwrap();
+            let hm: HashMap<String, Box<RawValue>> = serde_json::from_value(args_val).unwrap();
+            let mut sf = None;
+            let mut tx = db.begin().await.unwrap();
+            windmill_queue::jobs_ee::maybe_debounce(
+                &settings,
+                &mut sf,
+                &Some("f/test/script".to_string()),
+                "test-workspace",
+                JobKind::Script,
+                id,
+                &PushArgs::from(&hm),
+                &mut tx,
+            )
+            .await
+            .unwrap();
+            tx.commit().await.unwrap();
+        };
+        let j1 = Uuid::new_v4();
+        let j2 = Uuid::new_v4();
+        push_scalar(j1, 1, db.clone(), settings.clone()).await;
+        push_scalar(j2, 2, db.clone(), settings.clone()).await;
+
+        let mut res = make_pulled_job_result(
+            j2,
+            "test-workspace",
+            "f/test/script",
+            &serde_json::json!({ "items": 2 }),
+            JobKind::Script,
+            "deno",
+            rs_handle,
+        );
+        res.maybe_apply_debouncing(&db).await?;
+        // Both bare scalars are wrapped and accumulated into a list.
+        assert_accumulated_items(&res, &[1, 2], "items");
+        Ok(())
+    }
+
+    /// Edge: GC reclaiming a survivor's consumed row before a re-pull must NOT lose data —
+    /// the re-pull finds no row (had_row=false) and keeps its already-persisted accumulated
+    /// args, rather than running empty.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_debounce_repull_after_gc_keeps_accumulated(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let key = "repull_gc_key";
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some(key.to_string()),
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        let j1 = Uuid::new_v4();
+        let j2 = Uuid::new_v4();
+        push_debounced_script(&db, j1, vec![1], &settings, rs_handle).await;
+        let j2_args = push_debounced_script(&db, j2, vec![2], &settings, rs_handle).await;
+
+        let mut first = make_pulled_job_result(
+            j2,
+            "test-workspace",
+            "f/test/script",
+            &j2_args,
+            JobKind::Script,
+            "deno",
+            rs_handle,
+        );
+        first.maybe_apply_debouncing(&db).await?;
+        assert_accumulated_items(&first, &[1, 2], "items");
+
+        // Simulate the GC sweep reclaiming the (now consumed) batch rows for this batch.
+        sqlx::query!(
+            "DELETE FROM v2_job_debounce_batch WHERE debounce_batch = (
+                SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = $1
+            )",
+            j2,
+        )
+        .execute(&db)
+        .await
+        .ok();
+        // (and any that were already consumed elsewhere)
+        sqlx::query!("DELETE FROM v2_job_debounce_batch WHERE consumed_at IS NOT NULL")
+            .execute(&db)
+            .await?;
+
+        // Re-pull with the args persisted on the first pull: no batch row now, so it must
+        // fall back to its own (already-accumulated) args — no loss.
+        let persisted =
+            serde_json::to_value(first.job.as_ref().unwrap().job.args.as_ref().unwrap()).unwrap();
+        let mut second = make_pulled_job_result(
+            j2,
+            "test-workspace",
+            "f/test/script",
+            &persisted,
+            JobKind::Script,
+            "deno",
+            rs_handle,
+        );
+        second.maybe_apply_debouncing(&db).await?;
+        assert!(second.job.is_some(), "re-pulled survivor still runs");
+        assert_accumulated_items(&second, &[1, 2], "items");
+        Ok(())
+    }
+
     /// Throughput benchmark for the FULL debounce path (EE push +
     /// `jobs_ee::maybe_debounce`/`complete_debounced_job`/`upsert_debounce_key`, then OSS
     /// `maybe_apply_debouncing` claim/accumulate/consume). #[ignore]d — run manually:
