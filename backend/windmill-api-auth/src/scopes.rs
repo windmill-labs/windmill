@@ -295,6 +295,7 @@ pub enum ScopeDomain {
     RawApps,      // Raw application data
     AgentWorkers, // Agent workers management
     Mcp,          // MCP
+    Docs,         // Self-hosted documentation search (read-only)
 }
 
 impl ScopeDomain {
@@ -346,6 +347,7 @@ impl ScopeDomain {
             Self::Teams => "teams",
             Self::GitSync => "git_sync",
             Self::Mcp => "mcp",
+            Self::Docs => "docs",
         }
     }
 
@@ -397,6 +399,7 @@ impl ScopeDomain {
             "raw_apps" => Some(Self::RawApps),
             "agent_workers" => Some(Self::AgentWorkers),
             "mcp" => Some(Self::Mcp),
+            "docs" => Some(Self::Docs),
             _ => None,
         }
     }
