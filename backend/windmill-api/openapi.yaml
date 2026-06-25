@@ -23097,6 +23097,8 @@ components:
           type: number
         preprocessed:
           type: boolean
+        is_retry:
+          type: boolean
         worker:
           type: string
       required:
@@ -23216,6 +23218,8 @@ components:
         aggregate_wait_time_ms:
           type: number
         preprocessed:
+          type: boolean
+        is_retry:
           type: boolean
         worker:
           type: string

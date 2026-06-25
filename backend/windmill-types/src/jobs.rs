@@ -232,6 +232,11 @@ pub struct QueuedJob {
     pub runnable_settings_handle: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    // True when this job is a native retry attempt (has a native_retry_attempt
+    // marker). Lets the run-page chain distinguish real retries from other
+    // same-script children (e.g. WAC inline children).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_retry: Option<bool>,
 }
 
 impl QueuedJob {
@@ -307,6 +312,7 @@ impl Default for QueuedJob {
             preprocessed: None,
             runnable_settings_handle: None,
             labels: None,
+            is_retry: None,
         }
     }
 }
@@ -362,6 +368,11 @@ pub struct CompletedJob {
     pub labels: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preprocessed: Option<bool>,
+    // True when this job is a native retry attempt (has a native_retry_attempt
+    // marker). Lets the run-page chain distinguish real retries from other
+    // same-script children (e.g. WAC inline children).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_retry: Option<bool>,
 }
 
 impl CompletedJob {

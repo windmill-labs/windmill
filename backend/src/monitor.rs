@@ -1648,7 +1648,9 @@ async fn delete_expired_jobs_batch(
         }
 
         // Native retry markers have no FK (to keep this bulk delete cheap) — sweep
-        // them with their jobs here too (this is the periodic retention path).
+        // them with their jobs here too (the periodic retention path), same as the
+        // other side tables. The table is created by a startup migration, so it
+        // always exists by the time cleanup runs.
         if let Err(e) = sqlx::query!(
             "DELETE FROM native_retry_attempt WHERE job_id = ANY($1)",
             &deleted_jobs

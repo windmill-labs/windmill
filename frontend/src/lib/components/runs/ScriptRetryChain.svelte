@@ -74,10 +74,11 @@
 				parentJob: root,
 				jobKinds: 'script'
 			})
-			// Retry attempts re-run the same script; schedule handlers (a different
-			// script) are filtered out here and surfaced as their own row below.
+			// Retry attempts carry the explicit `is_retry` marker; other same-script
+			// children (WAC v2 inline children) and handlers (a different script) do
+			// not, so only real retries are kept here.
 			const retryJobs = (children ?? [])
-				.filter((c) => c.script_hash === rootJob.script_hash)
+				.filter((c) => c.is_retry === true)
 				.sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''))
 			const chain: (Job | undefined)[] = [rootJob, ...retryJobs]
 			const retries: Attempt[] =
