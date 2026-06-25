@@ -1674,7 +1674,11 @@
 	// edits is not picked up — same as production dispatch).
 	async function launchCascadeScript(path: string): Promise<string> {
 		if (!$workspaceStore) throw new Error('no workspace')
-		const draft = drafts.get(path)
+		// Only run draft content when the displayed graph actually includes
+		// drafts (same condition as `displayGraph`). Otherwise — View mode with
+		// drafts hidden — a bounded run must execute the *deployed* scripts the
+		// user is looking at, not preview jobs from hidden local drafts.
+		const draft = mode === 'edit' || includeDrafts ? drafts.get(path) : undefined
 		if (draft) {
 			if (!draft.script.content || !draft.script.language) {
 				throw new Error(`draft ${path} has no content/language`)
