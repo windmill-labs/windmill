@@ -158,6 +158,10 @@
 		// succeeded.
 		requireValidAssets?: boolean
 		args: Record<string, any>
+		// Custom timeout (in seconds) from the script settings. Forwarded to the
+		// preview run so "Test" honors the same timeout a deployed run would,
+		// instead of silently falling back to the instance default.
+		timeout?: number
 		selectedTab?: 'main' | 'preprocessor' | 'diagram'
 		hasPreprocessor?: boolean
 		captureTable?: CaptureTable | undefined
@@ -215,6 +219,7 @@
 		customUi = undefined,
 		requireValidAssets = false,
 		args = $bindable(),
+		timeout = undefined,
 		selectedTab = $bindable('main'),
 		hasPreprocessor = $bindable(false),
 		captureTable = $bindable(undefined),
@@ -791,7 +796,9 @@
 				}
 			},
 			undefined,
-			activeModuleTab !== null ? undefined : modules
+			activeModuleTab !== null ? undefined : modules,
+			undefined,
+			timeout
 		)
 		if (job) {
 			onTestJob?.({ jobId: job })

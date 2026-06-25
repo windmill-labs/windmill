@@ -11800,6 +11800,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: timeout
+          description: custom timeout in seconds for this preview run
+          in: query
+          schema:
+            type: integer
         - $ref: "#/components/parameters/NewJobId"
 
       requestBody:
