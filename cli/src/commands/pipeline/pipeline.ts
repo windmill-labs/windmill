@@ -292,7 +292,10 @@ async function waitJob(workspace: string, id: string): Promise<boolean> {
         id,
         getStarted: false,
       });
-      if (r.completed) return r.success !== false;
+      // A completed job without an explicit `success: true` is a failure
+      // (mirrors the frontend `waitJobTerminal`): the cascade only advances on
+      // a confirmed success.
+      if (r.completed) return r.success === true;
     } catch {
       // transient — retry
     }
@@ -305,7 +308,9 @@ async function waitJob(workspace: string, id: string): Promise<boolean> {
 // stop at the `--to` end node(s). Scripts run in topological order; each is
 // launched with `_wmill_skip_asset_dispatch` so the CLI owns the whole closure
 // (the backend dispatcher never double-fires the deployed part). With no
-// `--to`, runs the full downstream of `--from` (parity with the canvas cascade).
+// `--to`, runs the full read-aware downstream of `--from` (every descendant in
+// the lineage DAG, pure readers included — broader than the canvas cascade,
+// which dispatches subscribers only).
 async function run(
   opts: GlobalOptions & {
     from?: string;
@@ -389,7 +394,7 @@ async function run(
   const dag = buildLineageDag(graph);
   let selectedScripts: Set<string>;
   if (ends.length === 0) {
-    // No bound → full downstream of start (the unbounded cascade).
+    // No bound → full read-aware downstream of start (pure readers included).
     const all = new Set(descendants(dag, start));
     all.add(start);
     selectedScripts = new Set(scriptsOf(all));

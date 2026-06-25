@@ -17,6 +17,7 @@
 	import PanToNode from './PanToNode.svelte'
 	import { layoutAssetGraph } from './assetGraphLayout'
 	import { buildDownstreamMap } from './graphTraversal'
+	import { buildLineageDownstreamMap } from './boundedCascade'
 	import type { AssetGraphResponse, AssetGraphSelection, NativeTriggerKind } from './types'
 	import type { RunnableRunState } from './activeRunnables.svelte'
 	import type { AssetKind } from '$lib/gen'
@@ -281,6 +282,13 @@
 			downstreamByScript.set(path, set.size)
 			downstreamUnsavedByScript.set(path, [...set].filter((s) => unsavedRunnables.has(s)).length)
 		}
+		// Read-aware downstream presence for the bounded-run gate. The bounded
+		// engine treats pure-read `asset → script` edges as downstream, but the
+		// subscriber-only `downstreamByScript` above does not — so a start whose
+		// only downstream is a pure reader would otherwise be denied the menu
+		// item even though its bounded set is non-empty. Mirror of the engine's
+		// own adjacency (boundedCascade.buildLineageDownstreamMap).
+		const hasLineageDownstream = new Set<string>(buildLineageDownstreamMap(g).keys())
 
 		for (const a of g.assets) {
 			const assetId = `asset:${a.kind}:${a.path}`
@@ -354,7 +362,7 @@
 						r.usage_kind === 'script' &&
 						onStartBoundedRun &&
 						validStartPaths?.has(r.path) &&
-						(downstreamByScript.get(r.path) ?? 0) > 0
+						hasLineageDownstream.has(r.path)
 							? () => onStartBoundedRun(r.path)
 							: undefined,
 					onRequestRemove: onRunnableMenuRemove
@@ -504,7 +512,7 @@
 						info.runnable_path &&
 						onStartBoundedRun &&
 						validStartPaths?.has(info.runnable_path) &&
-						(downstreamByScript.get(info.runnable_path) ?? 0) > 0
+						hasLineageDownstream.has(info.runnable_path)
 							? () => onStartBoundedRun(info.runnable_path!)
 							: undefined
 				}
