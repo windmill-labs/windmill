@@ -4994,6 +4994,300 @@ mod debounce {
         Ok(())
     }
 
+    /// Helper: mark a queued job as running (simulates a survivor that the
+    /// concurrency limiter has just started executing).
+    async fn set_running(db: &Pool<Postgres>, job_id: &Uuid) {
+        sqlx::query!(
+            "UPDATE v2_job_queue SET running = true WHERE id = $1",
+            job_id
+        )
+        .execute(db)
+        .await
+        .expect("set running");
+    }
+
+    /// Customer regression (ported from #9781): post-preprocessing debounce with
+    /// `debounce_args_to_accumulate` under a concurrency limit. A survivor accumulates
+    /// its own element and starts running; a later same-key message must start a NEW
+    /// batch (survive) rather than be folded into the running survivor and silently
+    /// dropped. Exercises the full EE path via `jobs_ee::maybe_debounce_post_preprocessing`.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_post_preprocessing_debounce_into_running_survivor_loses_message(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some("ported_running_survivor_key".to_string()),
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        // --- Wave 1: a single message becomes the survivor and starts running. ---
+        let survivor = Uuid::new_v4();
+        let survivor_args = serde_json::json!({ "items": [1] });
+        insert_flow_job_with_preprocessor(
+            &db,
+            survivor,
+            "test-workspace",
+            "f/test/flow_run",
+            true,
+            0,
+        )
+        .await;
+        sqlx::query!(
+            "UPDATE v2_job SET args = $2 WHERE id = $1",
+            survivor,
+            survivor_args
+        )
+        .execute(&db)
+        .await?;
+
+        let survivor_args_hm: HashMap<String, Box<RawValue>> =
+            serde_json::from_value(survivor_args.clone()).unwrap();
+        windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+            &settings,
+            &Some("f/test/flow_run".to_string()),
+            "test-workspace",
+            survivor,
+            &PushArgs::from(&survivor_args_hm),
+            &db,
+        )
+        .await?;
+        assert!(is_queued(&db, &survivor).await, "survivor should be queued");
+
+        // Worker pulls the survivor: accumulate its own [1], consume the batch, run.
+        sqlx::query!(
+            "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+            rs_handle,
+            survivor,
+        )
+        .execute(&db)
+        .await?;
+        let mut pulled = make_pulled_job_result(
+            survivor,
+            "test-workspace",
+            "f/test/flow_run",
+            &survivor_args,
+            JobKind::Flow,
+            "flow",
+            rs_handle,
+        );
+        pulled.maybe_apply_debouncing(&db).await?;
+        assert_accumulated_items(&pulled, &[1], "items");
+        set_running(&db, &survivor).await; // survivor is now RUNNING
+
+        // --- Wave 2: a new message arrives while the survivor is running. ---
+        let late = Uuid::new_v4();
+        let late_args = serde_json::json!({ "items": [2] });
+        insert_flow_job_with_preprocessor(&db, late, "test-workspace", "f/test/flow_run", true, 0)
+            .await;
+        sqlx::query!("UPDATE v2_job SET args = $2 WHERE id = $1", late, late_args)
+            .execute(&db)
+            .await?;
+
+        let late_args_hm: HashMap<String, Box<RawValue>> =
+            serde_json::from_value(late_args.clone()).unwrap();
+        windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+            &settings,
+            &Some("f/test/flow_run".to_string()),
+            "test-workspace",
+            late,
+            &PushArgs::from(&late_args_hm),
+            &db,
+        )
+        .await?;
+
+        // The late message must survive (new batch): still queued, and the debounce_key
+        // moved off the already-running survivor.
+        let late_survived = is_queued(&db, &late).await && !is_completed(&db, &late).await;
+        let dk = get_debounce_key(&db, "ported_running_survivor_key").await;
+        let key_moved_off_running_survivor =
+            dk.map(|(job_id, _, _)| job_id != survivor).unwrap_or(true);
+        assert!(
+            late_survived && key_moved_off_running_survivor,
+            "message arriving while the survivor is running must start a new batch \
+             (survive), not be folded into the running survivor and dropped. \
+             late_survived={late_survived}, key_moved_off={key_moved_off_running_survivor}"
+        );
+        Ok(())
+    }
+
+    /// Flow-node debounce (third EE entry point, `jobs_ee::maybe_debounce_flow_node`):
+    /// a running survivor child must not be superseded by a later same-key child; the
+    /// late child starts a fresh window and the running child is left to finish.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_flow_node_debounce_running_survivor_not_superseded(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let key = "flow_node_running_key";
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some(key.to_string()),
+            ..Default::default()
+        };
+        let args_hm = empty_args();
+
+        let flow1 = Uuid::new_v4();
+        let child1 = Uuid::new_v4();
+        insert_flow_job(&db, flow1, "test-workspace", "f/test/my_flow").await;
+        insert_child_job_with_parent(&db, child1, flow1, "test-workspace").await;
+
+        // child1 becomes the survivor, then starts running.
+        {
+            let args = PushArgs::from(&args_hm);
+            let mut tx = db.begin().await?;
+            windmill_queue::jobs_ee::maybe_debounce_flow_node(
+                &settings,
+                child1,
+                flow1,
+                "f/test/my_flow",
+                "step_a",
+                "test-workspace",
+                &args,
+                &mut tx,
+                &db,
+            )
+            .await?;
+            tx.commit().await?;
+        }
+        set_running(&db, &child1).await;
+
+        // child2 (later same-key child) arrives while child1 is running.
+        let flow2 = Uuid::new_v4();
+        let child2 = Uuid::new_v4();
+        insert_flow_job(&db, flow2, "test-workspace", "f/test/my_flow").await;
+        insert_child_job_with_parent(&db, child2, flow2, "test-workspace").await;
+        {
+            let args = PushArgs::from(&args_hm);
+            let mut tx = db.begin().await?;
+            windmill_queue::jobs_ee::maybe_debounce_flow_node(
+                &settings,
+                child2,
+                flow2,
+                "f/test/my_flow",
+                "step_a",
+                "test-workspace",
+                &args,
+                &mut tx,
+                &db,
+            )
+            .await?;
+            tx.commit().await?;
+        }
+
+        // The running child1 (and its parent flow1) must be left alone; child2 owns a
+        // fresh window.
+        assert!(is_queued(&db, &child1).await, "running child1 stays queued");
+        assert!(
+            !is_completed(&db, &child1).await,
+            "running child1 not completed"
+        );
+        assert!(
+            !is_completed(&db, &flow1).await,
+            "flow1 of running child not completed"
+        );
+        let (dk_job, dk_prev, dk_times) = get_debounce_key(&db, key).await.expect("key exists");
+        assert_eq!(dk_job, child2, "child2 holds the key");
+        assert!(dk_prev.is_none(), "fresh window: no previous child");
+        assert_eq!(dk_times, 0, "fresh window resets debounced_times");
+        Ok(())
+    }
+
+    /// Throughput benchmark for the FULL debounce path (EE push +
+    /// `jobs_ee::maybe_debounce`/`complete_debounced_job`/`upsert_debounce_key`, then OSS
+    /// `maybe_apply_debouncing` claim/accumulate/consume). #[ignore]d — run manually:
+    ///   cargo test -p windmill-queue --test debounce_test --features private,enterprise \
+    ///     bench_debounce_full_path -- --ignored --nocapture --test-threads=1
+    /// Each cycle = a burst of BURST pushes to one key (debounced) + one survivor pull
+    /// (accumulate+consume), run across CONCURRENCY tasks. Compare before/after by running
+    /// it on each code revision.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    #[ignore]
+    async fn bench_debounce_full_path(db: Pool<Postgres>) -> anyhow::Result<()> {
+        const CONCURRENCY: usize = 4;
+        const CYCLES_PER_TASK: usize = 300;
+        const BURST: usize = 3;
+
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some("bench_key".to_string()),
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        let start = std::time::Instant::now();
+        let tasks: Vec<_> = (0..CONCURRENCY)
+            .map(|t| {
+                let db = db.clone();
+                let settings = DebouncingSettings {
+                    // distinct key space per task so bursts collapse independently
+                    debounce_key: Some(format!("bench_key_{t}")),
+                    ..settings.clone()
+                };
+                tokio::spawn(async move {
+                    for c in 0..CYCLES_PER_TASK {
+                        // Fresh key per cycle so each cycle is one full collapse+pull.
+                        let key = format!("bench_{t}_{c}");
+                        let settings = DebouncingSettings {
+                            debounce_key: Some(key.clone()),
+                            ..settings.clone()
+                        };
+                        let mut survivor = Uuid::new_v4();
+                        for b in 0..BURST {
+                            let id = Uuid::new_v4();
+                            survivor = id;
+                            let args_val = serde_json::json!({ "items": [b as i64] });
+                            insert_script_job_with_args(
+                                &db, id, "test-workspace", "f/test/script", &args_val,
+                            )
+                            .await;
+                            sqlx::query!(
+                                "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+                                rs_handle, id,
+                            )
+                            .execute(&db)
+                            .await
+                            .unwrap();
+                            let hm: HashMap<String, Box<RawValue>> =
+                                serde_json::from_value(args_val).unwrap();
+                            let mut sf = None;
+                            let mut tx = db.begin().await.unwrap();
+                            windmill_queue::jobs_ee::maybe_debounce(
+                                &settings, &mut sf, &Some("f/test/script".to_string()),
+                                "test-workspace", JobKind::Script, id, &PushArgs::from(&hm), &mut tx,
+                            )
+                            .await
+                            .unwrap();
+                            tx.commit().await.unwrap();
+                        }
+                        // Survivor pull: claim + accumulate + consume.
+                        let mut res = make_pulled_job_result(
+                            survivor, "test-workspace", "f/test/script",
+                            &serde_json::json!({ "items": [] }),
+                            JobKind::Script, "deno", rs_handle,
+                        );
+                        res.maybe_apply_debouncing(&db).await.unwrap();
+                    }
+                })
+            })
+            .collect();
+        for t in tasks {
+            t.await.unwrap();
+        }
+        let elapsed = start.elapsed();
+        let cycles = CONCURRENCY * CYCLES_PER_TASK;
+        let jobs = cycles * BURST;
+        eprintln!(
+            "BENCH full debounce path: {cycles} cycles ({jobs} pushed jobs + {cycles} pulls) in {:.2?} | {:.0} pushes/s | {:.0} pulls/s",
+            elapsed,
+            jobs as f64 / elapsed.as_secs_f64(),
+            cycles as f64 / elapsed.as_secs_f64(),
+        );
+        Ok(())
+    }
+
     /// Test: Push-time (script) debounce with max_total_debounces_amount=2.
     /// 5 calls, each sending {x: [i]}. Expected:
     ///   Call 1: debounced (scheduled_for set)
