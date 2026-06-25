@@ -69,14 +69,16 @@
 			const rootJob = job.id === root ? job : await JobService.getJob({ workspace: ws, id: root })
 			if (rootJob?.job_kind !== 'script') return { retries: [], handlers: [] }
 
+			// No kind filter: retry attempts are scripts (kept via `is_retry` below),
+			// but schedule handlers can be flows (flow/... handler paths), so both
+			// kinds must be fetched for the handler row to find flow handlers.
 			const children = await JobService.listJobs({
 				workspace: ws,
-				parentJob: root,
-				jobKinds: 'script'
+				parentJob: root
 			})
-			// Retry attempts carry the explicit `is_retry` marker; other same-script
-			// children (WAC v2 inline children) and handlers (a different script) do
-			// not, so only real retries are kept here.
+			// Retry attempts carry the explicit `is_retry` marker; other children
+			// (WAC v2 inline children, flow/script handlers) do not, so only real
+			// retries are kept here.
 			const retryJobs = (children ?? [])
 				.filter((c) => c.is_retry === true)
 				.sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''))
@@ -95,7 +97,7 @@
 			const handlerChildren =
 				terminalId === root
 					? children
-					: await JobService.listJobs({ workspace: ws, parentJob: terminalId, jobKinds: 'script' })
+					: await JobService.listJobs({ workspace: ws, parentJob: terminalId })
 			// `created_by` flags a handler; fetch the full job to read `args` (the list
 			// endpoint omits it) so recovery and success can be told apart.
 			const handlers: HandlerLink[] = (
