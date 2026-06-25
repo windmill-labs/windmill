@@ -13,7 +13,7 @@
 		tutorialsToDo,
 		skippedAll
 	} from '$lib/stores'
-	import { findWorkspaceDescendants } from '$lib/utils/workspaceHierarchy'
+	import { findWorkspaceDescendants, workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
@@ -175,6 +175,8 @@
 	const forkedDescendants = $derived(
 		$workspaceStore ? findWorkspaceDescendants($workspaceStore, $userWorkspaces ?? []) : []
 	)
+	// Fork/dev workspaces are detected by their parent link, not the `wm-fork-` id prefix.
+	const currentWsIsFork = $derived(workspaceIsFork($workspaceStore, $userWorkspaces ?? []))
 
 	let hasNewChangelogs = $state(false)
 	let recentChangelogs: Changelog[] = $state([])
@@ -538,7 +540,7 @@
 							}
 						]
 					: []),
-				...($workspaceStore?.startsWith('wm-fork-')
+				...(currentWsIsFork
 					? [
 							{
 								label: 'Delete Forked Workspace',
@@ -872,7 +874,7 @@
 	</div>
 </ConfirmationModal>
 
-{#if $workspaceStore?.startsWith('wm-fork-')}
+{#if currentWsIsFork}
 	<ConfirmationModal
 		open={deleteWorkspaceForkModal}
 		title="Delete forked workspace"

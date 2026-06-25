@@ -40,9 +40,10 @@ use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
-    check_user_against_rule, get_datatable_resource_from_db_unchecked, validate_fork_workspace_id,
-    DataTable, DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind,
-    ProtectionRules, ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
+    check_user_against_rule, get_datatable_resource_from_db_unchecked, validate_dev_workspace_id,
+    validate_fork_workspace_id, DataTable, DataTableCatalogResourceType, DataTableForkBehavior,
+    ProtectionRuleKind, ProtectionRules, ProtectionRuleset, RuleCheckResult,
+    WorkspaceGitSyncSettings,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -150,6 +151,8 @@ pub fn workspaced_service() -> Router {
         .route("/leave", post(leave_workspace))
         .route("/get_workspace_name", get(get_workspace_name))
         .route("/create_fork", post(create_workspace_fork))
+        .route("/attach_dev_workspace", post(attach_dev_workspace))
+        .route("/detach_dev_workspace", post(detach_dev_workspace))
         .route("/change_workspace_name", post(change_workspace_name))
         .route("/change_workspace_color", post(change_workspace_color))
         .route(
@@ -440,6 +443,14 @@ struct CreateWorkspaceFork {
     /// forked workspace's datatable config to point to the new database.
     #[serde(default)]
     forked_datatables: Vec<ForkedDatatableInfo>,
+    /// Create the fork as a persistent dev workspace: the id is not required to carry the
+    /// `wm-fork-` prefix, and at most one dev workspace may exist per parent.
+    #[serde(default)]
+    is_dev_workspace: bool,
+    /// When creating a dev workspace, also lock the parent ("prod") against direct deployment so
+    /// edits are funneled through the dev workspace.
+    #[serde(default)]
+    lock_prod: bool,
 }
 
 #[derive(Deserialize)]
@@ -468,6 +479,7 @@ struct UserWorkspace {
     pub color: Option<String>,
     pub operator_settings: Option<Option<serde_json::Value>>,
     pub parent_workspace_id: Option<String>,
+    pub is_dev_workspace: bool,
     pub disabled: bool,
 }
 
@@ -3609,6 +3621,7 @@ async fn user_workspaces(
     let workspaces = sqlx::query_as!(
         UserWorkspace,
         "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color, workspace.parent_workspace_id,
+                workspace.is_dev_workspace,
                 CASE WHEN usr.operator THEN workspace_settings.operator_settings ELSE NULL END as operator_settings,
                 usr.disabled
          FROM workspace
@@ -4885,7 +4898,11 @@ async fn create_workspace_fork_branch(
         return Err(Error::PermissionDenied(msg));
     }
 
-    validate_fork_workspace_id(&nw.id)?;
+    if nw.is_dev_workspace {
+        validate_dev_workspace_id(&nw.id)?;
+    } else {
+        validate_fork_workspace_id(&nw.id)?;
+    }
 
     // Fail before creating any git branch so a name conflict doesn't leave a
     // dangling branch on the synced repos.
@@ -5030,7 +5047,11 @@ async fn create_workspace_fork(
         )));
     }
 
-    validate_fork_workspace_id(&nw.id)?;
+    if nw.is_dev_workspace {
+        validate_dev_workspace_id(&nw.id)?;
+    } else {
+        validate_fork_workspace_id(&nw.id)?;
+    }
     // Check the id conflict before the CE workspace-count limit so that
     // re-using a taken (possibly archived) fork id reports the actual
     // conflict instead of a misleading "maximum number of workspaces" error.
@@ -5056,18 +5077,23 @@ async fn create_workspace_fork(
         return Err(Error::PermissionDenied(msg));
     }
 
+    if nw.is_dev_workspace {
+        ensure_no_existing_dev_workspace(&db, &parent_workspace_id).await?;
+    }
+
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
     let forked_id = nw.id;
 
     sqlx::query!(
         "INSERT INTO workspace
-            (id, name, owner, parent_workspace_id)
-            VALUES ($1, $2, $3, $4)",
+            (id, name, owner, parent_workspace_id, is_dev_workspace)
+            VALUES ($1, $2, $3, $4, $5)",
         forked_id,
         nw.name,
         authed.email,
         parent_workspace_id,
+        nw.is_dev_workspace,
     )
     .execute(&mut *tx)
     .await?;
@@ -5109,6 +5135,12 @@ async fn create_workspace_fork(
         apply_forked_datatable(&db, &mut tx, &parent_workspace_id, &forked_id, fdt).await?;
     }
 
+    // Lock the parent ("prod") so edits are funneled through this dev workspace.
+    let locked_prod = nw.is_dev_workspace && nw.lock_prod;
+    if locked_prod {
+        lock_prod_workspace(&mut tx, &parent_workspace_id).await?;
+    }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -5121,7 +5153,194 @@ async fn create_workspace_fork(
     .await?;
     tx.commit().await?;
 
+    if locked_prod {
+        windmill_common::workspaces::invalidate_protection_rules_cache(&parent_workspace_id);
+    }
+
     Ok(format!("Created forked workspace {}", &forked_id))
+}
+
+#[derive(Deserialize)]
+struct AttachDevWorkspace {
+    dev_workspace_id: String,
+    #[serde(default)]
+    lock_prod: bool,
+}
+
+#[derive(Deserialize)]
+struct DetachDevWorkspace {
+    dev_workspace_id: String,
+}
+
+/// Pair an existing standalone workspace to this workspace ("prod") as its dev workspace, without
+/// cloning any data (both already exist). Sets the dev's parent + deploy_to to prod and, optionally,
+/// locks prod against direct deployment.
+async fn attach_dev_workspace(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(prod_w_id): Path<String>,
+    Json(req): Json<AttachDevWorkspace>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    if *CLOUD_HOSTED {
+        return Err(Error::BadRequest(
+            "Dev workspaces are not available on app.windmill.dev".to_string(),
+        ));
+    }
+
+    let dev_w_id = req.dev_workspace_id;
+    if dev_w_id == prod_w_id {
+        return Err(Error::BadRequest(
+            "A workspace cannot be its own dev workspace".to_string(),
+        ));
+    }
+
+    // The id is interpolated into a `wm-fork/<branch>/<id>` branch name like any fork.
+    validate_dev_workspace_id(&dev_w_id)?;
+
+    let dev = sqlx::query!(
+        r#"SELECT (parent_workspace_id IS NOT NULL) AS "has_parent!", deleted
+           FROM workspace WHERE id = $1"#,
+        &dev_w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Workspace {} not found", dev_w_id)))?;
+
+    if dev.deleted {
+        return Err(Error::BadRequest(format!(
+            "Workspace {} is archived",
+            dev_w_id
+        )));
+    }
+    if dev.has_parent {
+        return Err(Error::BadRequest(format!(
+            "Workspace {} is already a fork or dev workspace of another workspace",
+            dev_w_id
+        )));
+    }
+
+    // The caller must be admin of the dev workspace too (or a superadmin).
+    let is_admin_of_dev = sqlx::query_scalar!(
+        "SELECT is_admin FROM usr WHERE workspace_id = $1 AND email = $2",
+        &dev_w_id,
+        &authed.email
+    )
+    .fetch_optional(&db)
+    .await?
+    .unwrap_or(false);
+    if !is_admin_of_dev {
+        require_super_admin(&db, &authed.email).await?;
+    }
+
+    ensure_no_existing_dev_workspace(&db, &prod_w_id).await?;
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE workspace SET parent_workspace_id = $1, is_dev_workspace = true WHERE id = $2",
+        &prod_w_id,
+        &dev_w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET deploy_to = $1 WHERE workspace_id = $2",
+        &prod_w_id,
+        &dev_w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    if req.lock_prod {
+        lock_prod_workspace(&mut tx, &prod_w_id).await?;
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.attach_dev_workspace",
+        ActionKind::Update,
+        &prod_w_id,
+        Some(&dev_w_id),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    if req.lock_prod {
+        windmill_common::workspaces::invalidate_protection_rules_cache(&prod_w_id);
+    }
+
+    Ok(format!(
+        "Attached {} as dev workspace of {}",
+        dev_w_id, prod_w_id
+    ))
+}
+
+/// Reverse [`attach_dev_workspace`] / clear the dev designation: unset the dev flag and remove the
+/// prod lock. The workspace keeps its `parent_workspace_id` (it remains an ordinary fork).
+async fn detach_dev_workspace(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(prod_w_id): Path<String>,
+    Json(req): Json<DetachDevWorkspace>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let dev_w_id = req.dev_workspace_id;
+    let is_dev_of_prod = sqlx::query_scalar!(
+        r#"SELECT EXISTS(
+            SELECT 1 FROM workspace
+            WHERE id = $1 AND parent_workspace_id = $2 AND is_dev_workspace
+        )"#,
+        &dev_w_id,
+        &prod_w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+    if !is_dev_of_prod {
+        return Err(Error::BadRequest(format!(
+            "{} is not the dev workspace of {}",
+            dev_w_id, prod_w_id
+        )));
+    }
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE workspace SET is_dev_workspace = false WHERE id = $1",
+        &dev_w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    // Only one dev per prod, so detaching it means prod no longer has a dev: drop the lock rule.
+    sqlx::query!(
+        "DELETE FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2",
+        &prod_w_id,
+        DEV_WORKSPACE_LOCK_RULE_NAME
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.detach_dev_workspace",
+        ActionKind::Update,
+        &prod_w_id,
+        Some(&dev_w_id),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    windmill_common::workspaces::invalidate_protection_rules_cache(&prod_w_id);
+
+    Ok(format!(
+        "Detached dev workspace {} from {}",
+        dev_w_id, prod_w_id
+    ))
 }
 
 async fn edit_workspace(
@@ -6122,6 +6341,73 @@ async fn list_protection_rules(
             .map(ProtectionRulesetResponse::from)
             .collect(),
     ))
+}
+
+/// Reserved protection-rule name applied to a prod workspace when it is paired with a dev workspace.
+/// It carries `DisableDirectDeployment` so direct edits in prod are blocked and funneled through dev.
+pub(crate) const DEV_WORKSPACE_LOCK_RULE_NAME: &str = "dev_workspace_lock";
+
+/// Insert or replace a protection ruleset within an existing transaction. Unlike the
+/// `create_protection_rule` handler (which rejects an existing name), this upserts, so it is safe to
+/// call programmatically when designating a dev/prod pair. Callers MUST invalidate the
+/// protection-rules cache (`invalidate_protection_rules_cache`) after the transaction commits.
+async fn upsert_protection_rule(
+    tx: &mut Transaction<'_, Postgres>,
+    w_id: &str,
+    name: &str,
+    rules: ProtectionRules,
+    bypass_groups: &[String],
+    bypass_users: &[String],
+) -> Result<()> {
+    sqlx::query!(
+        r#"
+            INSERT INTO workspace_protection_rule (workspace_id, name, rules, bypass_groups, bypass_users)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (workspace_id, name)
+            DO UPDATE SET rules = EXCLUDED.rules,
+                          bypass_groups = EXCLUDED.bypass_groups,
+                          bypass_users = EXCLUDED.bypass_users
+        "#,
+        w_id,
+        name,
+        rules.bits(),
+        bypass_groups,
+        bypass_users,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Lock a prod workspace against direct deployment by applying the reserved dev-workspace lock rule.
+async fn lock_prod_workspace(tx: &mut Transaction<'_, Postgres>, prod_w_id: &str) -> Result<()> {
+    upsert_protection_rule(
+        tx,
+        prod_w_id,
+        DEV_WORKSPACE_LOCK_RULE_NAME,
+        ProtectionRules::from(&vec![ProtectionRuleKind::DisableDirectDeployment]),
+        &[],
+        &[],
+    )
+    .await
+}
+
+/// Error out if `parent_w_id` already has an active (non-archived) dev workspace. Mirrors the
+/// partial unique index `workspace_canonical_dev_idx` with a friendly message.
+async fn ensure_no_existing_dev_workspace(db: &DB, parent_w_id: &str) -> Result<()> {
+    let existing = sqlx::query_scalar!(
+        "SELECT id FROM workspace WHERE parent_workspace_id = $1 AND is_dev_workspace AND deleted = false",
+        parent_w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    if let Some(existing) = existing {
+        return Err(Error::BadRequest(format!(
+            "Workspace '{}' already has a dev workspace ('{}'). Detach it before creating another.",
+            parent_w_id, existing
+        )));
+    }
+    Ok(())
 }
 
 /// Create a new protection rule

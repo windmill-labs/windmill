@@ -1102,6 +1102,62 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/attach_dev_workspace:
+    post:
+      summary: attach an existing workspace as the dev workspace of this (prod) workspace
+      operationId: attachDevWorkspace
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dev_workspace_id:
+                  type: string
+                lock_prod:
+                  type: boolean
+              required:
+                - dev_workspace_id
+      responses:
+        "200":
+          description: dev workspace attached
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/detach_dev_workspace:
+    post:
+      summary: detach the dev workspace from this (prod) workspace
+      operationId: detachDevWorkspace
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dev_workspace_id:
+                  type: string
+              required:
+                - dev_workspace_id
+      responses:
+        "200":
+          description: dev workspace detached
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /workspaces/exists:
     post:
       summary: exists workspace
@@ -27316,6 +27372,8 @@ components:
               parent_workspace_id:
                 type: string
                 nullable: true
+              is_dev_workspace:
+                type: boolean
               created_by:
                 type: string
                 nullable: true
@@ -27326,6 +27384,7 @@ components:
               - name
               - username
               - color
+              - is_dev_workspace
               - disabled
       required:
         - email
@@ -27367,6 +27426,12 @@ components:
               new_dbname:
                 type: string
                 description: "New database name for the fork"
+        is_dev_workspace:
+          type: boolean
+          description: "Create the fork as a persistent dev workspace (id not required to carry the wm-fork- prefix; at most one per parent)"
+        lock_prod:
+          type: boolean
+          description: "When creating a dev workspace, also lock the parent (prod) against direct deployment"
       required:
         - id
         - name

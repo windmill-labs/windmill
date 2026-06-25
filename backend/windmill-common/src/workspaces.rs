@@ -178,7 +178,24 @@ pub const WM_FORK_PREFIX: &str = "wm-fork-";
 /// layer because the actual branch creation runs in a deferred git-sync worker job — without
 /// this check, the API returns 200 and the failure only surfaces later in the worker.
 pub fn validate_fork_workspace_id(id: &str) -> error::Result<()> {
-    if !id.starts_with(WM_FORK_PREFIX) {
+    validate_workspace_branch_id(id, true)
+}
+
+/// Like [`validate_fork_workspace_id`] but does not require the `wm-fork-` prefix. Used for dev
+/// workspaces, whose id is an ordinary (prefix-less) workspace id but must still be git-branch-safe
+/// because it is interpolated into a `wm-fork/<original_branch>/<id>` branch name like any fork.
+pub fn validate_dev_workspace_id(id: &str) -> error::Result<()> {
+    validate_workspace_branch_id(id, false)
+}
+
+fn validate_workspace_branch_id(id: &str, require_fork_prefix: bool) -> error::Result<()> {
+    if id.is_empty() {
+        return Err(Error::BadRequest(
+            "Workspace id cannot be empty".to_string(),
+        ));
+    }
+
+    if require_fork_prefix && !id.starts_with(WM_FORK_PREFIX) {
         return Err(Error::BadRequest(format!(
             "The id `{}` is invalid for a forked workspace. It should be prefixed by {}",
             id, WM_FORK_PREFIX
@@ -187,8 +204,9 @@ pub fn validate_fork_workspace_id(id: &str) -> error::Result<()> {
 
     if id.len() > 50 {
         return Err(Error::BadRequest(format!(
-            "Fork workspace id `{}` is too long ({} chars). Maximum length is 50 characters (including the '{}' prefix).",
-            id, id.len(), WM_FORK_PREFIX
+            "Workspace id `{}` is too long ({} chars). Maximum length is 50 characters.",
+            id,
+            id.len()
         )));
     }
 

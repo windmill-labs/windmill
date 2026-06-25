@@ -8,6 +8,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
+	import DevWorkspaceSetting from '$lib/components/DevWorkspaceSetting.svelte'
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
@@ -282,6 +283,7 @@
 			| 'general'
 			| 'webhook'
 			| 'deploy_to'
+			| 'dev_workspace'
 			| 'error_handler'
 			| 'success_handler'
 			| 'critical_alerts'
@@ -1095,6 +1097,14 @@
 					isEE: true
 				},
 				{
+					id: 'dev_workspace',
+					label: 'Dev workspace',
+					aiId: 'workspace-settings-dev-workspace',
+					aiDescription:
+						'Pair this workspace with a dev workspace (same code, different environment)',
+					isEE: true
+				},
+				{
 					id: 'rulesets',
 					label: 'Rulesets',
 					aiId: 'workspace-settings-rulesets',
@@ -1276,6 +1286,20 @@
 										license</Alert
 									></div
 								>
+							{/if}
+						{:else if tab == 'dev_workspace'}
+							<SettingsPageHeader
+								title="Dev workspace"
+								description="Pair this workspace with a dev workspace: the same code with a different environment. Edits are made in the dev workspace and promoted to prod."
+							/>
+							{#if $enterpriseLicense}
+								<DevWorkspaceSetting />
+							{:else}
+								<div class="my-2">
+									<Alert type="warning" title="Enterprise license required">
+										Dev workspaces are only available with an enterprise license
+									</Alert>
+								</div>
 							{/if}
 						{:else if tab == 'rulesets'}
 							<SettingsPageHeader

@@ -89,7 +89,7 @@
 	// the fork lingers as an orphan whose only purpose was this session.
 	const sessionForkId = $derived.by(() => {
 		const wsId = session?.workspace_id
-		if (!wsId || !wsId.startsWith('wm-fork-')) return undefined
+		if (!wsId) return undefined
 		const ws = $userWorkspaces.find((w) => w.id === wsId)
 		// Don't offer the option if the fork is gone or not user-accessible.
 		if (!ws || !ws.parent_workspace_id) return undefined

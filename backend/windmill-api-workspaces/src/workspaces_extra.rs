@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use windmill_api_auth::{require_super_admin, ApiAuthed};
-use windmill_common::workspaces::WM_FORK_PREFIX;
 use windmill_common::DB;
 
 use crate::workspaces::{
@@ -713,14 +712,15 @@ pub(crate) async fn delete_workspace(
         _ => Ok(w_id),
     }?;
 
-    if dwq.only_delete_forks.unwrap_or(false) && !w_id.starts_with(WM_FORK_PREFIX) {
+    let is_fork = workspace_has_parent(&db, &w_id).await?;
+    if dwq.only_delete_forks.unwrap_or(false) && !is_fork {
         return Err(Error::BadRequest(
             "Cannot delete this workspace because it is not a workspace fork.".to_string(),
         ));
     }
 
     let mut tx = db.begin().await?;
-    if !(w_id.starts_with(WM_FORK_PREFIX) && is_workspace_owner(&authed, &w_id, &mut tx).await?) {
+    if !(is_fork && is_workspace_owner(&authed, &w_id, &mut tx).await?) {
         require_super_admin(&db, &authed.email).await?;
     }
 
@@ -924,8 +924,9 @@ pub async fn drop_forked_datatable_databases(
     Json(req): Json<DropForkedDatatableDatabasesRequest>,
 ) -> Result<Json<Vec<String>>> {
     // Same permission check as delete_workspace: fork owner or super admin
+    let is_fork = workspace_has_parent(&db, &w_id).await?;
     let mut tx = db.begin().await?;
-    if !(w_id.starts_with(WM_FORK_PREFIX) && is_workspace_owner(&authed, &w_id, &mut tx).await?) {
+    if !(is_fork && is_workspace_owner(&authed, &w_id, &mut tx).await?) {
         require_super_admin(&db, &authed.email).await?;
     }
     tx.commit().await?;
@@ -1069,4 +1070,16 @@ async fn is_workspace_owner(
         .fetch_optional(&mut **tx)
         .await?;
     Ok(owner.map(|o| o == authed.email).unwrap_or(false))
+}
+
+/// Whether a workspace is a fork or dev workspace (both set `parent_workspace_id`). Used to gate
+/// owner-self-delete, which is permitted for forks/dev workspaces but requires superadmin otherwise.
+async fn workspace_has_parent(db: &DB, w_id: &str) -> Result<bool> {
+    Ok(sqlx::query_scalar!(
+        r#"SELECT (parent_workspace_id IS NOT NULL) AS "has_parent!" FROM workspace WHERE id = $1"#,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(false))
 }

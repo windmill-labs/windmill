@@ -244,7 +244,7 @@
 	// Fork workspace tied to `pendingDelete`, if any, and still accessible.
 	const pendingDeleteForkId = $derived.by(() => {
 		const wsId = pendingDelete?.workspace_id
-		if (!wsId || !wsId.startsWith('wm-fork-')) return undefined
+		if (!wsId) return undefined
 		const ws = $userWorkspaces.find((w) => w.id === wsId)
 		if (!ws || !ws.parent_workspace_id) return undefined
 		return wsId

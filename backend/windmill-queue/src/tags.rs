@@ -2,7 +2,6 @@ use sqlx::{Pool, Postgres};
 use windmill_common::worker::{
     DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX,
 };
-use windmill_common::workspaces::WM_FORK_PREFIX;
 
 const FORK_PARENT_CACHE_TTL_SECS: u64 = 300;
 
@@ -26,16 +25,12 @@ pub async fn per_workspace_tag(workspace_id: &str, db: &Pool<Postgres>) -> Optio
         return None;
     }
 
-    let is_fork = workspace_id.starts_with(WM_FORK_PREFIX);
-
-    // For forks, always resolve to the parent workspace id; regular workspaces avoid the lookup.
-    let effective_ws_id: String = if is_fork {
-        lookup_fork_parent(workspace_id, db)
-            .await
-            .unwrap_or_else(|| workspace_id.to_string()) // no parent found -> fall back to fork's own id
-    } else {
-        workspace_id.to_string()
-    };
+    // Resolve to the parent workspace id when the workspace is a fork or dev workspace (both set
+    // parent_workspace_id). The lookup caches its `None` result, so non-forks stay cheap after warmup
+    // (and the common case is already short-circuited by the global toggle above).
+    let parent = lookup_fork_parent(workspace_id, db).await;
+    let is_fork = parent.is_some();
+    let effective_ws_id: String = parent.unwrap_or_else(|| workspace_id.to_string());
 
     // Whitelist check is against the resolved (parent) id so that including a parent in the
     // whitelist transparently covers all of its forks.

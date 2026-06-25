@@ -43,6 +43,11 @@
 
 	let { isFork = false, onFinish }: Props = $props()
 
+	// Dev-workspace mode: create the fork as a persistent, prefix-less dev workspace and (optionally)
+	// lock the parent ("prod") against direct edits.
+	let createAsDevWorkspace = $state(false)
+	let lockProd = $state(true)
+
 	let id = $state('')
 	let name = $state('')
 	let username = $state('')
@@ -72,12 +77,13 @@
 		// For forks the actual workspace id is prefixed: checking the bare id
 		// would report the name as free even when `wm-fork-<id>` is taken
 		// (e.g. by an archived fork, which keeps its id reserved).
-		const effectiveId = isFork ? `${WM_FORK_PREFIX}${id}` : id
+		const effectiveId = isFork && !createAsDevWorkspace ? `${WM_FORK_PREFIX}${id}` : id
 		let exists =
 			id != '' && (await WorkspaceService.existsWorkspace({ requestBody: { id: effectiveId } }))
-		forkIdTaken = isFork && exists
+		// The "delete existing fork to reclaim the id" affordance is only for prefixed forks.
+		forkIdTaken = isFork && !createAsDevWorkspace && exists
 		if (exists) {
-			errorId = isFork
+			errorId = forkIdTaken
 				? `A workspace with id '${effectiveId}' already exists. It may be an archived fork: archiving keeps the id reserved.`
 				: 'ID already exists'
 		} else if (id != '' && !/^\w+(-\w+)*$/.test(id)) {
@@ -89,6 +95,9 @@
 	}
 
 	const WM_FORK_PREFIX = 'wm-fork-'
+
+	// A dev workspace keeps its bare id; an ordinary fork is prefixed with `wm-fork-`.
+	const effectiveForkId = $derived(createAsDevWorkspace ? id : `${WM_FORK_PREFIX}${id}`)
 
 	let forkIdTaken = $state(false)
 	let deleteExistingForkOpen = $state(false)
@@ -148,9 +157,8 @@
 	}
 
 	async function createOrForkWorkspace() {
-		const prefixed_id = `${WM_FORK_PREFIX}${id}`
 		if (isFork) {
-			await forkWorkspace(prefixed_id)
+			await forkWorkspace(effectiveForkId)
 		} else {
 			await createWorkspace()
 		}
@@ -184,7 +192,8 @@
 			requestBody: {
 				id: prefixed_id,
 				name,
-				color: colorEnabled && workspaceColor ? workspaceColor : undefined
+				color: colorEnabled && workspaceColor ? workspaceColor : undefined,
+				is_dev_workspace: createAsDevWorkspace
 			}
 		})
 
@@ -237,7 +246,9 @@
 					id: prefixed_id,
 					name,
 					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
-					forked_datatables: forkedDatatables
+					forked_datatables: forkedDatatables,
+					is_dev_workspace: createAsDevWorkspace,
+					lock_prod: createAsDevWorkspace && lockProd
 				}
 			})
 		} catch (e) {
@@ -249,7 +260,11 @@
 		}
 
 		forkCreationLoading = false
-		sendUserToast(`Successfully forked workspace ${$workspaceStore} as: wm-fork-${id}`)
+		sendUserToast(
+			createAsDevWorkspace
+				? `Created dev workspace ${effectiveForkId} for ${$workspaceStore}`
+				: `Successfully forked workspace ${$workspaceStore} as: wm-fork-${id}`
+		)
 
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 		switchWorkspace(prefixed_id)
@@ -471,6 +486,23 @@
 				<!-- svelte-ignore a11y_autofocus -->
 				<TextInput inputProps={{ autofocus: true }} bind:value={name} />
 			</label>
+			{#if isFork}
+				<Label label="Persistent dev workspace">
+					<span class="text-xs text-secondary">
+						Create a standing dev workspace (no <code>wm-fork-</code> prefix) paired with this workspace
+						as prod, instead of a throwaway fork.
+					</span>
+					<div class="flex flex-col gap-2 pt-1">
+						<Toggle bind:checked={createAsDevWorkspace} options={{ right: 'Dev workspace' }} />
+						{#if createAsDevWorkspace}
+							<Toggle
+								bind:checked={lockProd}
+								options={{ right: 'Lock prod and redirect its edits to this dev workspace' }}
+							/>
+						{/if}
+					</div>
+				</Label>
+			{/if}
 			<label class="flex flex-col gap-1">
 				<span class="text-xs font-semibold text-emphasis">Workspace ID</span>
 				{#if isFork}
@@ -481,7 +513,7 @@
 					<span class="text-xs text-secondary">Slug to uniquely identify your workspace</span>
 				{/if}
 
-				{#if isFork}
+				{#if isFork && !createAsDevWorkspace}
 					<PrefixedInput
 						prefix={WM_FORK_PREFIX}
 						type="text"
@@ -546,7 +578,7 @@
 				<ForkDatatableSection
 					bind:this={forkDatatableSection}
 					onAllDone={() => {
-						completeFork(`${WM_FORK_PREFIX}${id}`)
+						completeFork(effectiveForkId)
 					}}
 					onCanceled={() => {
 						forkCreationLoading = false
