@@ -667,6 +667,31 @@ pub async fn delete_jobs(
     .await?
     .rows_affected();
 
+    // dispatch_event and flow_conversation_message no longer cascade from v2_job, so delete
+    // them explicitly (keep in sync with windmill_common::jobs::delete_jobs). job_ids are
+    // request-supplied, so scope every delete to the workspace exactly like the v2_job delete
+    // below — otherwise a workspace admin could erase another workspace's side rows by passing
+    // foreign job ids. flow_conversation_message has no workspace_id, so scope via its conversation.
+    let dispatch_event_deleted = sqlx::query!(
+        "DELETE FROM dispatch_event WHERE workspace_id = $1 AND producer_job_id = ANY($2)",
+        &w_id,
+        &job_ids
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    let conversation_message_deleted = sqlx::query!(
+        "DELETE FROM flow_conversation_message m
+         USING flow_conversation c
+         WHERE m.conversation_id = c.id AND c.workspace_id = $1 AND m.job_id = ANY($2)",
+        &w_id,
+        &job_ids
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
     let jobs_deleted = sqlx::query!(
         "DELETE FROM v2_job WHERE workspace_id = $1 AND id = ANY($2)",
         &w_id,
@@ -688,6 +713,8 @@ pub async fn delete_jobs(
         + queue_deleted
         + completed_deleted
         + zombie_deleted
+        + dispatch_event_deleted
+        + conversation_message_deleted
         + jobs_deleted;
 
     tracing::info!(

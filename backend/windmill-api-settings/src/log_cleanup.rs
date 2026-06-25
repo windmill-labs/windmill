@@ -27,6 +27,7 @@ use uuid::Uuid;
 
 use crate::background_task;
 use windmill_common::error::{self};
+use windmill_common::jobs::delete_jobs;
 use windmill_common::tracing_init::{LOGS_SERVICE, TMP_WINDMILL_LOGS_SERVICE};
 use windmill_common::worker::WINDMILL_DIR;
 use windmill_common::{DB, INSTANCE_NAME, JOB_RETENTION_SECS, SERVICE_LOG_RETENTION_SECS};
@@ -483,10 +484,7 @@ async fn delete_expired_jobs_batch(
         }
     };
 
-    if let Err(e) = sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", &deleted_jobs)
-        .execute(&mut *tx)
-        .await
-    {
+    if let Err(e) = delete_jobs(&mut *tx, &deleted_jobs).await {
         tracing::error!("log cleanup: error deleting job: {e:?}");
     }
 

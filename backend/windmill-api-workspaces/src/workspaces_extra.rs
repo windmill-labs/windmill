@@ -766,6 +766,18 @@ pub(crate) async fn delete_workspace(
     sqlx::query!("DELETE FROM v2_job_queue WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
+    // dispatch_event / flow_conversation_message / zombie_job_counter no longer cascade from
+    // v2_job (see migration drop_v2_job_side_table_cascades); delete them before v2_job so the
+    // workspace's jobs leave no orphan side rows. One round-trip, scanning v2_job once.
+    sqlx::query!(
+        "WITH ids AS (SELECT id FROM v2_job WHERE workspace_id = $1),
+              _de AS (DELETE FROM dispatch_event WHERE workspace_id = $1),
+              _fc AS (DELETE FROM flow_conversation_message WHERE job_id IN (SELECT id FROM ids))
+         DELETE FROM zombie_job_counter WHERE job_id IN (SELECT id FROM ids)",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!("DELETE FROM v2_job WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;

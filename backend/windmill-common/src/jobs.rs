@@ -458,6 +458,37 @@ pub struct WorkerInternalServerInlineUtils {
 pub static WORKER_INTERNAL_SERVER_INLINE_UTILS: OnceCell<WorkerInternalServerInlineUtils> =
     OnceCell::new();
 
+/// Deletes the given jobs from `v2_job` together with the side tables that reference it
+/// without an `ON DELETE CASCADE` foreign key.
+///
+/// Those FKs were removed (migration `drop_v2_job_side_table_cascades`) because they turned
+/// every bulk retention delete into a per-row RI trigger; for the unindexed
+/// `flow_conversation_message.job_id` that was a sequential scan per deleted row. The
+/// set-based deletes below cost one scan per table per call instead. Because the cascade no
+/// longer fires, every code path that deletes from `v2_job` by id must go through this helper
+/// (or delete these tables itself) or it will leave orphan rows behind.
+pub async fn delete_jobs(conn: &mut sqlx::PgConnection, ids: &[uuid::Uuid]) -> error::Result<()> {
+    sqlx::query!(
+        "DELETE FROM dispatch_event WHERE producer_job_id = ANY($1)",
+        ids
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM flow_conversation_message WHERE job_id = ANY($1)",
+        ids
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query!("DELETE FROM zombie_job_counter WHERE job_id = ANY($1)", ids)
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", ids)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::is_safe_log_file_path;
