@@ -1788,6 +1788,11 @@
 
 	// Script paths eligible to start a bounded run, for the canvas menu gate.
 	let validStartPaths = $derived(new Set(scriptsOf(validStarts(displayGraph))))
+	// Scripts with read-aware downstream — the same gate the canvas applies
+	// (AssetGraphCanvas `hasLineageDownstream`). A valid start with no downstream
+	// has no end to pick, so the bounded-run entry is suppressed everywhere,
+	// including the details-pane (ScriptEditor) Test caret.
+	let lineageDownstreamPaths = $derived(new Set(buildLineageDownstreamMap(displayGraph).keys()))
 
 	// Rebuilt only while a pick is active (cheap to skip otherwise).
 	let boundDag = $derived(boundPickStart ? buildLineageDag(displayGraph) : undefined)
@@ -2525,7 +2530,9 @@
 								{runsPendingJobId}
 								{activeRunnable}
 								downstreamSubscribers={editedScriptDownstreamCount}
-								onStartBoundedRun={openScriptPath && validStartPaths.has(openScriptPath)
+								onStartBoundedRun={openScriptPath &&
+								validStartPaths.has(openScriptPath) &&
+								lineageDownstreamPaths.has(openScriptPath)
 									? () => startBoundedRun(openScriptPath!)
 									: undefined}
 								onRunCompleted={() => {

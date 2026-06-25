@@ -401,7 +401,11 @@ async function run(
   } else {
     const res = boundedSet(dag, start, ends);
     for (const d of res.droppedEnds) {
-      log.warn(`end '${scriptPathOf(d) || d}' is not downstream of the start — ignored.`);
+      // `d` is a node id: `script:<path>` for runnables, `<kind>:<path>` for
+      // assets. Only strip the `script:` prefix from runnables — slicing it off
+      // an asset id (e.g. `datatable:main/raw`) would corrupt the name.
+      const label = d.startsWith("script:") ? scriptPathOf(d) : d;
+      log.warn(`end '${label}' is not downstream of the start — ignored.`);
     }
     selectedScripts = new Set(scriptsOf(res.nodes));
   }
