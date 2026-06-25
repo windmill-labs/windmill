@@ -4706,6 +4706,294 @@ mod debounce {
         Ok(())
     }
 
+    /// Helper: insert a script job and put it on the SAME debounce batch as `of_job`
+    /// (simulating a chained survivor). Returns its args JSON.
+    async fn add_survivor_to_batch_of(
+        db: &Pool<Postgres>,
+        id: Uuid,
+        items: Vec<i64>,
+        of_job: Uuid,
+        rs_handle: Option<i64>,
+    ) -> serde_json::Value {
+        let args = serde_json::json!({ "items": items });
+        insert_script_job_with_args(db, id, "test-workspace", "f/test/script", &args).await;
+        sqlx::query!(
+            "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+            rs_handle,
+            id,
+        )
+        .execute(db)
+        .await
+        .unwrap();
+        sqlx::query!(
+            "INSERT INTO v2_job_debounce_batch (id, debounce_batch)
+             SELECT $1, debounce_batch FROM v2_job_debounce_batch WHERE id = $2",
+            id,
+            of_job,
+        )
+        .execute(db)
+        .await
+        .unwrap();
+        args
+    }
+
+    /// Helper: read the accumulated `items` of a pulled job as a sorted Vec<i64>.
+    fn items_of(result: &windmill_queue::PulledJobResult) -> Vec<i64> {
+        let job = result.job.as_ref().expect("job present");
+        let raw = job.job.args.as_ref().unwrap().get("items").unwrap();
+        let mut v: Vec<i64> = serde_json::from_str::<Vec<serde_json::Value>>(raw.get())
+            .unwrap()
+            .iter()
+            .map(|x| x.as_i64().unwrap())
+            .collect();
+        v.sort();
+        v
+    }
+
+    /// Edge: an accumulate-debounced job that was NEVER batched (CE / workers behind v2:
+    /// no v2_job_debounce_batch row) must keep its own args, not be emptied.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_debounce_never_batched_keeps_own_args(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some("never_batched_key".to_string()),
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        // Insert a job with the debounce handle but DO NOT push through maybe_debounce,
+        // so it has no batch row at all.
+        let j = Uuid::new_v4();
+        let args = serde_json::json!({ "items": [7, 8] });
+        insert_script_job_with_args(&db, j, "test-workspace", "f/test/script", &args).await;
+        sqlx::query!(
+            "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+            rs_handle,
+            j,
+        )
+        .execute(&db)
+        .await?;
+
+        let mut res = make_pulled_job_result(
+            j,
+            "test-workspace",
+            "f/test/script",
+            &args,
+            JobKind::Script,
+            "deno",
+            rs_handle,
+        );
+        res.maybe_apply_debouncing(&db).await?;
+        assert!(res.job.is_some(), "never-batched job still runs");
+        assert_accumulated_items(&res, &[7, 8], "items");
+        Ok(())
+    }
+
+    /// Edge: two survivors of one batch pulled CONCURRENTLY. The atomic claim must
+    /// partition the batch disjointly — the union of what they each accumulate is the
+    /// full set, with NO item processed by both.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_debounce_concurrent_claim_disjoint(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let key = "concurrent_claim_key";
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some(key.to_string()),
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        let j1 = Uuid::new_v4();
+        let j2 = Uuid::new_v4();
+        push_debounced_script(&db, j1, vec![1], &settings, rs_handle).await; // superseded
+        let j2_args = push_debounced_script(&db, j2, vec![2], &settings, rs_handle).await; // survivor 1
+        let j3 = Uuid::new_v4();
+        let j3_args = add_survivor_to_batch_of(&db, j3, vec![3], j2, rs_handle).await; // survivor 2
+
+        let pull = |id: Uuid, args: serde_json::Value| {
+            let db = db.clone();
+            async move {
+                let mut res = make_pulled_job_result(
+                    id,
+                    "test-workspace",
+                    "f/test/script",
+                    &args,
+                    JobKind::Script,
+                    "deno",
+                    rs_handle,
+                );
+                res.maybe_apply_debouncing(&db).await.unwrap();
+                res
+            }
+        };
+        let (r2, r3) = tokio::join!(pull(j2, j2_args), pull(j3, j3_args));
+
+        let mut union = items_of(&r2);
+        union.extend(items_of(&r3));
+        union.sort();
+        assert_eq!(
+            union,
+            vec![1, 2, 3],
+            "every item accumulated exactly once across the two concurrent survivors"
+        );
+        // disjoint: no overlap between the two survivors' items
+        let i2 = items_of(&r2);
+        let i3 = items_of(&r3);
+        assert!(
+            !i2.iter().any(|x| i3.contains(x)),
+            "no item processed by both survivors; got j2={i2:?} j3={i3:?}"
+        );
+        Ok(())
+    }
+
+    /// Edge: three survivors on one batch pulled in sequence. The first claims the whole
+    /// batch; the rest find themselves consumed and run empty.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_debounce_three_survivors_first_takes_all(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let key = "three_survivors_key";
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some(key.to_string()),
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        let j1 = Uuid::new_v4();
+        let j2 = Uuid::new_v4();
+        push_debounced_script(&db, j1, vec![1], &settings, rs_handle).await;
+        let j2_args = push_debounced_script(&db, j2, vec![2], &settings, rs_handle).await;
+        let j3 = Uuid::new_v4();
+        let j3_args = add_survivor_to_batch_of(&db, j3, vec![3], j2, rs_handle).await;
+        let j4 = Uuid::new_v4();
+        let j4_args = add_survivor_to_batch_of(&db, j4, vec![4], j2, rs_handle).await;
+
+        let mk = |id, args: &serde_json::Value| {
+            make_pulled_job_result(
+                id,
+                "test-workspace",
+                "f/test/script",
+                args,
+                JobKind::Script,
+                "deno",
+                rs_handle,
+            )
+        };
+        let (mut r2, mut r3, mut r4) = (mk(j2, &j2_args), mk(j3, &j3_args), mk(j4, &j4_args));
+        r2.maybe_apply_debouncing(&db).await?;
+        r3.maybe_apply_debouncing(&db).await?;
+        r4.maybe_apply_debouncing(&db).await?;
+
+        assert_eq!(
+            items_of(&r2),
+            vec![1, 2, 3, 4],
+            "first survivor takes the whole batch"
+        );
+        assert!(items_of(&r3).is_empty(), "second survivor runs empty");
+        assert!(items_of(&r4).is_empty(), "third survivor runs empty");
+        Ok(())
+    }
+
+    /// Edge: plain debounce (no accumulate args) must HARD-DELETE its batch rows on pull
+    /// (not leave consumed rows lingering), so the non-accumulate path doesn't leak.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_debounce_non_accumulate_deletes_batch(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let key = "non_accum_key";
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some(key.to_string()),
+            // no debounce_args_to_accumulate
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        let j1 = Uuid::new_v4();
+        let j2 = Uuid::new_v4();
+        // push_debounced_script sends {items:[...]} but with no accumulate arg configured,
+        // the batch is created yet never accumulated.
+        push_debounced_script(&db, j1, vec![1], &settings, rs_handle).await;
+        let j2_args = push_debounced_script(&db, j2, vec![2], &settings, rs_handle).await;
+
+        let batch_rows_before: i64 =
+            sqlx::query_scalar!("SELECT count(*) as \"c!\" FROM v2_job_debounce_batch")
+                .fetch_one(&db)
+                .await?;
+        assert!(batch_rows_before >= 2, "batch rows exist before pull");
+
+        let mut res = make_pulled_job_result(
+            j2,
+            "test-workspace",
+            "f/test/script",
+            &j2_args,
+            JobKind::Script,
+            "deno",
+            rs_handle,
+        );
+        res.maybe_apply_debouncing(&db).await?;
+
+        let remaining: i64 =
+            sqlx::query_scalar!("SELECT count(*) as \"c!\" FROM v2_job_debounce_batch")
+                .fetch_one(&db)
+                .await?;
+        assert_eq!(
+            remaining, 0,
+            "non-accumulate pull hard-deletes the batch rows"
+        );
+        Ok(())
+    }
+
+    /// Edge: GC sweep deletes consumed rows past the grace period but keeps recently
+    /// consumed and not-yet-consumed rows.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_debounce_gc_consumed_batches(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let old = Uuid::new_v4();
+        let recent = Uuid::new_v4();
+        let unconsumed = Uuid::new_v4();
+        sqlx::query!(
+            "INSERT INTO v2_job_debounce_batch (id, debounce_batch, consumed_at) VALUES
+                ($1, nextval('debounce_batch_seq'), now() - interval '20 minutes'),
+                ($2, nextval('debounce_batch_seq'), now() - interval '1 minute'),
+                ($3, nextval('debounce_batch_seq'), NULL)",
+            old,
+            recent,
+            unconsumed,
+        )
+        .execute(&db)
+        .await?;
+
+        // Mirror the monitor GC sweep.
+        let deleted = sqlx::query_scalar!(
+            "WITH del AS (
+                DELETE FROM v2_job_debounce_batch
+                WHERE consumed_at IS NOT NULL AND consumed_at < now() - interval '10 minutes'
+                RETURNING 1
+            ) SELECT count(*) as \"c!\" FROM del"
+        )
+        .fetch_one(&db)
+        .await?;
+        assert_eq!(deleted, 1, "only the old consumed row is GC'd");
+
+        let exists = |id: Uuid, db: Pool<Postgres>| async move {
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM v2_job_debounce_batch WHERE id = $1) as \"e!\"",
+                id
+            )
+            .fetch_one(&db)
+            .await
+            .unwrap()
+        };
+        assert!(!exists(old, db.clone()).await, "old consumed row gone");
+        assert!(
+            exists(recent, db.clone()).await,
+            "recently consumed row kept"
+        );
+        assert!(exists(unconsumed, db.clone()).await, "unconsumed row kept");
+        Ok(())
+    }
+
     /// Test: Push-time (script) debounce with max_total_debounces_amount=2.
     /// 5 calls, each sending {x: [i]}. Expected:
     ///   Call 1: debounced (scheduled_for set)

@@ -4404,10 +4404,13 @@ RETURNING key,job_id
 /// own (already-accumulated, persisted) args, so the grace period is not correctness-
 /// critical.
 async fn cleanup_consumed_debounce_batches(db: &DB) -> error::Result<()> {
+    // 10 minutes is far longer than any debounce window, so any survivor that could
+    // still reference a consumed row has been pulled well before then; keeping it short
+    // bounds table growth under high-throughput debounce.
     let deleted = sqlx::query_scalar!(
         "WITH del AS (
             DELETE FROM v2_job_debounce_batch
-            WHERE consumed_at IS NOT NULL AND consumed_at < now() - interval '1 hour'
+            WHERE consumed_at IS NOT NULL AND consumed_at < now() - interval '10 minutes'
             RETURNING 1
         ) SELECT count(*) FROM del"
     )
