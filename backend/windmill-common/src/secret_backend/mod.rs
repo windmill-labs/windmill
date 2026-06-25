@@ -13,6 +13,9 @@
 //! vaults like HashiCorp Vault (Enterprise Edition).
 
 pub mod database;
+pub mod resolver;
+
+pub use resolver::*;
 
 #[cfg(feature = "private")]
 pub mod vault_ee;
