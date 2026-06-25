@@ -16,6 +16,7 @@
 		Archive,
 		ArchiveRestore,
 		EllipsisVertical,
+		PanelLeftClose,
 		PanelRightClose,
 		PanelRightOpen,
 		Pencil,
@@ -49,7 +50,16 @@
 	import { goto } from '$lib/navigation'
 	import { slide } from 'svelte/transition'
 
-	let { sessionId }: { sessionId: string } = $props()
+	// hideEditor: never mount the inline editor pane. Used by SessionShell, where
+	// the edited item is shown as the live full-page route in the layout panel
+	// instead, so the wrapper contributes only its chat column.
+	// onExit (when provided): a collapse-pane button on the header's top-right that
+	// dismisses the session layout. Lives here so it sits in the chat header.
+	let {
+		sessionId,
+		hideEditor = false,
+		onExit
+	}: { sessionId: string; hideEditor?: boolean; onExit?: () => void } = $props()
 
 	// LRU-warm sessions get their editor pane mounted; others render
 	// chat-only. Reading from the reactive Set keeps SessionWrapper in
@@ -83,7 +93,6 @@
 	async function resetToNewSession() {
 		const fresh = createSession()
 		selectSession(fresh.id)
-		await goto(`/sessions?session_name=${encodeURIComponent(fresh.name)}`)
 	}
 
 	// If the session targets a forked workspace that's still accessible,
@@ -262,7 +271,7 @@
 		session.target?.kind === 'flow' ||
 		session.target?.kind === 'script' ||
 		session.target?.kind === 'raw_app'}
-	{@const hasEditor = mountEditor && hasTarget && editorVisible}
+	{@const hasEditor = mountEditor && hasTarget && editorVisible && !hideEditor}
 
 	{#snippet inputPreface()}
 		{#if !hasFirstUserMessage}
@@ -372,7 +381,7 @@
 						</span>
 					{/snippet}
 				</DropdownV2>
-				{#if !session.target && hasFirstUserMessage}
+				{#if !hideEditor && !session.target && hasFirstUserMessage}
 					<!-- Drill-picker for sessions that have started but haven't
 				     picked an editor target yet. Hidden on fresh sessions
 				     (no messages yet) — the workspace bar is the only
@@ -396,7 +405,7 @@
 							{/snippet}
 						</Popover>
 					</div>
-				{:else if hasTarget && mountEditor && !editorVisible}
+				{:else if !hideEditor && hasTarget && mountEditor && !editorVisible}
 					<div class="ml-auto">
 						<Button
 							variant="subtle"
@@ -419,6 +428,17 @@
 							<PanelRightClose size={14} />
 						</button>
 					</div>
+				{/if}
+				{#if onExit}
+					<button
+						type="button"
+						onclick={onExit}
+						title="Exit session mode"
+						aria-label="Exit session mode"
+						class="ml-auto inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
+					>
+						<PanelLeftClose size={16} />
+					</button>
 				{/if}
 			</header>
 			<div class="flex-1 min-h-0 w-full flex flex-col {hasFirstUserMessage ? '' : 'pt-8'}">

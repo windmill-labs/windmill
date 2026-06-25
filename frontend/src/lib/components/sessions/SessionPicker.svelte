@@ -16,7 +16,6 @@
 	} from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { goto } from '$lib/navigation'
-	import { page } from '$app/state'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { slide } from 'svelte/transition'
 	import {
@@ -42,15 +41,17 @@
 		removeSession
 	} from './sessionRuntime.svelte'
 	import SessionStatusDot from './SessionStatusDot.svelte'
+	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
 	import SessionFilterMenu from './SessionFilterMenu.svelte'
 	import { Menu, Menubar, MenuItem } from '$lib/components/meltComponents'
-	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
+	import MenuButton, { sidebarClasses } from '$lib/components/sidebar/MenuButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { currentWorkspaceRootId, workspaceRootId } from './sessionScope.svelte'
+	import { sessionLayout, setSessionMode, sessionTargetHref } from './sessionMode.svelte'
 
 	// Look up the cached fork comparison for a session through its runtime
 	// (if any). The deriveForkStatus helper handles the "no runtime yet"
@@ -86,16 +87,18 @@
 	// the feature flag is off, the sidebar section is hidden entirely.
 	const globalEnabled = isGlobalAiEnabled()
 
-	// Only highlight the active session while we're actually on the session
-	// page — once the user navigates away, `currentSessionId` lingers but no
-	// row should appear selected.
-	const onSessionsPage = $derived(page.route.id?.includes('/sessions') ?? false)
+	// Only highlight the active session while session mode is on — outside it
+	// `currentSessionId` lingers but no row should appear selected.
+	const sessionActive = $derived(sessionLayout.on)
 
 	interface Props {
 		isCollapsed?: boolean
+		// When false, the section is always expanded (no collapse chevron) — used
+		// where the picker is the whole rail rather than one sidebar section.
+		collapsible?: boolean
 	}
 
-	let { isCollapsed = false }: Props = $props()
+	let { isCollapsed = false, collapsible = true }: Props = $props()
 
 	const sectionCollapsed = useLocalStorageValue(
 		'windmill_sessions_section_collapsed',
@@ -103,12 +106,11 @@
 		'boolean'
 	)
 	const showArchived = useLocalStorageValue('windmill_sessions_show_archived', false, 'boolean')
-	// Off by default: the list is scoped to the current workspace family. Turn on
-	// to include sessions from every workspace (grouped by family) — handy when
-	// switching sessions across workspaces without switching workspace first.
+	// On by default: list sessions from every workspace (grouped by family), so the
+	// picker is a global session switcher. Turn off to scope to the current family.
 	const showAllWorkspaces = useLocalStorageValue(
 		'windmill_sessions_show_all_workspaces',
-		false,
+		true,
 		'boolean'
 	)
 
@@ -244,7 +246,12 @@
 		// session after editing items elsewhere in the SPA, where neither
 		// the visibility-change nor the AI-loading signal would fire.
 		void getRuntime(session.id)?.refreshForkComparison()
-		await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
+		// Clicking a session enters session mode and navigates the embedded
+		// panel to its target (if any). Sessions with no editor target just
+		// activate and leave the panel on its current page.
+		setSessionMode(true)
+		const href = sessionTargetHref(session.target)
+		if (href) await goto(href)
 		if (restoreFocus) {
 			// goto() resets focus to <body> — put it back on the active session button
 			// so subsequent arrow keys keep navigating the list.
@@ -325,7 +332,9 @@
 		if (wasActive) {
 			const next = sessionState.sessions[0]
 			if (next) await activate(next)
-			else await goto('/sessions')
+			// No sessions left — clear the selection so the shell shows a fresh
+			// ready-to-type composer instead of a dangling deleted session.
+			else sessionState.currentSessionId = undefined
 		}
 	}
 
@@ -382,7 +391,7 @@
 							/>
 							{#if totalUnread > 0}
 								<span
-									class="absolute top-1 right-1 pointer-events-none inline-block w-2 h-2 rounded-full bg-blue-500"
+									class="absolute top-1 right-1 pointer-events-none inline-block w-2 h-2 rounded-full bg-surface-accent-primary"
 									aria-label="{totalUnread} unread message{totalUnread === 1
 										? ''
 										: 's'} across all sessions"
@@ -421,11 +430,16 @@
 										{@const runtime = getRuntime(session.id)}
 										{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
 										{@const isSelected =
-											onSessionsPage && session.id === sessionState.currentSessionId}
+											sessionActive && session.id === sessionState.currentSessionId}
 										{@const unread = unreadFor(session)}
 										{@const draft = hasDraft(session)}
 										<MenuItem
-											class={twMerge(menuItemBase, isSelected ? 'bg-surface-hover' : '')}
+											class={twMerge(
+												menuItemBase,
+												isSelected
+													? twMerge(sidebarClasses.selectedBg, sidebarClasses.selectedText)
+													: ''
+											)}
 											onClick={() => activate(session)}
 											{item}
 										>
@@ -449,7 +463,7 @@
 													{/if}
 													{#if unread > 0}
 														<span
-															class="inline-flex items-center justify-center rounded-full bg-blue-500 text-white font-medium leading-none min-w-4 h-4 px-1 text-[10px]"
+															class="inline-flex items-center justify-center rounded-full bg-surface-accent-primary text-white font-medium leading-none min-w-4 h-4 px-1 text-[10px]"
 															aria-label="{unread} unread message{unread === 1 ? '' : 's'}"
 														>
 															{unread > 9 ? '9+' : unread}
@@ -468,9 +482,13 @@
 		</Menubar>
 	</div>
 {:else}
-	<div class="px-2 pt-3 pb-2 flex flex-col gap-1 border-b border-light dark:border-gray-700">
+	<div
+		class="px-2 pt-3 pb-2 flex flex-col gap-1 {collapsible
+			? 'border-b border-light dark:border-gray-700'
+			: ''}"
+	>
 		<div class="flex flex-row items-center justify-between pl-1 pr-0.5">
-			{#if visibleSessions.length > 0}
+			{#if collapsible && visibleSessions.length > 0}
 				<button
 					type="button"
 					onclick={() => (sectionCollapsed.val = !sectionCollapsed.val)}
@@ -546,7 +564,7 @@
 				/>
 			</div>
 		</div>
-		{#if !sectionCollapsed.val}
+		{#if !collapsible || !sectionCollapsed.val}
 			<div
 				bind:this={listRoot}
 				transition:slide={{ duration: 180 }}
@@ -555,27 +573,36 @@
 				role="listbox"
 				tabindex="-1"
 			>
-				{#each sessionGroups as group (group.rootId)}
+				{#each sessionGroups as group, groupIdx (group.rootId)}
 					{#if showGroupHeaders}
+						{@const groupWs = $userWorkspaces.find((w) => w.id === group.rootId)}
 						<div
-							class="px-2 pt-1.5 pb-0.5 text-[0.5rem] uppercase text-tertiary truncate"
+							class={twMerge(
+								'flex items-center gap-2 px-2 pt-2 pb-1 min-w-0',
+								// Space families apart so group boundaries read clearly.
+								groupIdx > 0 ? 'mt-4' : ''
+							)}
 							title={group.name}
 						>
-							{group.name}
+							<WorkspaceIcon workspaceColor={groupWs?.color} size={12} />
+							<span class="text-xs font-medium text-secondary truncate">{group.name}</span>
 						</div>
 					{/if}
 					{#each group.sessions as session (session.id)}
 						{@const runtime = getRuntime(session.id)}
 						{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
-						{@const isSelected = onSessionsPage && session.id === sessionState.currentSessionId}
+						{@const isSelected = sessionActive && session.id === sessionState.currentSessionId}
 						{@const isEditing = editingId === session.id}
 						{@const unread = unreadFor(session)}
 						{@const draft = hasDraft(session)}
 						<div
 							class={twMerge(
 								'flex flex-row items-center group rounded',
-								isSelected ? 'bg-surface-hover text-primary' : 'hover:bg-surface-hover',
-								session.archived ? 'opacity-60' : ''
+								isSelected ? sidebarClasses.selectedBg : 'hover:bg-surface-hover',
+								session.archived ? 'opacity-60' : '',
+								// Indent rows under their family header so the session name lines up
+								// with the (wider) workspace-icon header name above.
+								showGroupHeaders ? 'pl-5' : ''
 							)}
 						>
 							{#if isEditing}
@@ -609,7 +636,7 @@
 									onclick={() => activate(session)}
 									class={twMerge(
 										'flex flex-row items-center gap-2 text-left text-xs font-normal focus:outline-none flex-1 min-w-0 px-2 py-1',
-										unread > 0 ? 'text-primary font-semibold' : 'text-secondary'
+										isSelected ? sidebarClasses.selectedText : 'text-secondary'
 									)}
 								>
 									<SessionStatusDot
@@ -625,7 +652,7 @@
 											{/if}
 											{#if unread > 0}
 												<span
-													class="inline-flex items-center justify-center rounded-full bg-blue-500 text-white font-medium leading-none min-w-4 h-4 px-1 text-[10px]"
+													class="inline-flex items-center justify-center rounded-full bg-surface-accent-primary text-white font-medium leading-none min-w-4 h-4 px-1 text-[10px]"
 													aria-label="{unread} unread message{unread === 1 ? '' : 's'}"
 												>
 													{unread > 9 ? '9+' : unread}
