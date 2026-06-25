@@ -84,6 +84,12 @@ lazy_static::lazy_static! {
                     (20260228000000, include_str!(
                         "../../migrations/20260228000000_v2_job_completed_failure_index.up.sql"
                     ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")),
+                    (20260610151334, include_str!(
+                        "../../migrations/20260610151334_folder_labels.up.sql"
+                    ).replace("SET search_path = public", "SET search_path FROM CURRENT").to_string()),
+                    (20260614075900, include_str!(
+                        "../../migrations/20260614075900_dedup_folder_labels.up.sql"
+                    ).replace("SET search_path = public", "SET search_path FROM CURRENT").to_string()),
                     ].into_iter().collect();
 }
 

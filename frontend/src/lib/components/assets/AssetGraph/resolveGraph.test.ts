@@ -8,6 +8,7 @@ const ann = (over: Partial<PipelineAnnotations> = {}): PipelineAnnotations => ({
 	inPipeline: false,
 	triggerAssets: [],
 	nativeTriggers: [],
+	dataTests: [],
 	...over
 })
 

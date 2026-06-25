@@ -359,13 +359,10 @@
 		let deployedAny = false
 		for (const item of toDeploy) {
 			deploymentStatus[item.key] = { status: 'loading' }
-			const res = await deployDraft(
-				item.draftKind,
-				item.path,
-				currentWorkspaceId,
-				item.draft_only,
-				item.raw_app
-			)
+			const res = await deployDraft(item.draftKind, item.path, currentWorkspaceId, {
+				draftOnly: item.draft_only,
+				rawApp: item.raw_app
+			})
 			if (res.success) {
 				deploymentStatus[item.key] = { status: 'deployed' }
 				deployedAny = true

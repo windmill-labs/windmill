@@ -29,7 +29,7 @@
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import S3FilePreview from '$lib/components/S3FilePreview.svelte'
 	import DataTablePreview from './DataTablePreview.svelte'
-	import PartitionStatusGrid from './PartitionStatusGrid.svelte'
+	import DucklakeAssetPanel from './DucklakeAssetPanel.svelte'
 	import AssetRunsPanel from './AssetRunsPanel.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { fade } from 'svelte/transition'
@@ -165,6 +165,11 @@
 		// cascade option when > 0. The page computes this from the graph
 		// edges + triggers + currently-open path.
 		downstreamSubscribers?: number
+		// Pipeline-only: set when the currently-open script is a valid
+		// bounded-run start (schedule / manual root). Surfaces a "Run downstream
+		// up to…" entry on the Test split's caret that enters the canvas
+		// end-node pick mode rooted at this script. Undefined → no entry.
+		onStartBoundedRun?: () => void
 		// Sister to `requestRunSignal`. When bumped, the bridge calls
 		// `ScriptEditor.runTest({ cascade: true })` — used by the canvas
 		// runnable menu's "Run + trigger N downstream" item when the chosen
@@ -219,6 +224,7 @@
 		onDraftPathChange,
 		requestRemoveSignal,
 		downstreamSubscribers = 0,
+		onStartBoundedRun,
 		requestRunCascadeSignal,
 		focusUploadSignal,
 		mode = 'edit',
@@ -529,7 +535,8 @@
 			: {
 					inPipeline: false,
 					triggerAssets: [],
-					nativeTriggers: []
+					nativeTriggers: [],
+					dataTests: []
 				}
 	)
 	$effect(() => {
@@ -984,7 +991,11 @@
 									refreshKey={previewRefreshKey}
 								/>
 							{:else if selection.asset_kind === 'ducklake'}
-								<PartitionStatusGrid path={selection.path} {workspace} />
+								<!-- Key on path so switching ducklake assets resets the panel's
+								     selected snapshot / tab instead of carrying state across. -->
+								{#key selection.path}
+									<DucklakeAssetPanel path={selection.path} {workspace} />
+								{/key}
 							{:else}
 								<div class="p-3 text-xs text-secondary">
 									No inline preview yet for {selection.asset_kind}. Use the producer/consumer arrows
@@ -1082,6 +1093,7 @@
 							argsAboveLogs: true,
 							logsResultSideBySide: true,
 							downstreamSubscribers,
+							onBoundedRun: onStartBoundedRun,
 							// Selecting a script node should immediately show
 							// "what happened last time it ran" — pulling the
 							// latest top-level completed job into the preview

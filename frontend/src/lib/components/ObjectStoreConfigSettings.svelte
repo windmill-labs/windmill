@@ -141,6 +141,7 @@
 		total_jobs: number
 		processed_jobs: number
 		s3_deleted: number
+		s3_not_found?: number
 		orphans_scanned: number
 		orphans_deleted: number
 		errors: number
@@ -418,6 +419,9 @@
 						</span>
 						<span>
 							S3 deleted: {cleanupStatus.s3_deleted.toLocaleString()}
+							{#if (cleanupStatus.s3_not_found ?? 0) > 0}
+								&middot; already absent (404): {(cleanupStatus.s3_not_found ?? 0).toLocaleString()}
+							{/if}
 							{#if cleanupStatus.errors > 0}
 								&middot; errors: {cleanupStatus.errors.toLocaleString()}
 							{/if}

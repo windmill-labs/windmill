@@ -10,7 +10,7 @@ import * as http from "node:http";
 export async function loginInteractive(remote: string) {
   let token: string | undefined;
   if (!process.stdin.isTTY) {
-    log.info("Not a TTY, can't login interactively.");
+    log.infoStderr("Not a TTY, can't login interactively.");
     return undefined;
   }
   if (
@@ -55,7 +55,7 @@ export async function browserLogin(
   const port = await getPort.default({ port: env });
 
   if (port == undefined) {
-    log.info(colors.red.underline("failed to aquire port"));
+    log.infoStderr(colors.red.underline("failed to aquire port"));
     return undefined;
   }
 
@@ -79,7 +79,7 @@ export async function browserLogin(
     });
 
     const url = `${baseUrl}user/cli?port=${port}`;
-    log.info(`Login by going to ${url}`);
+    log.infoStderr(`Login by going to ${url}`);
 
     try {
       open.default(url).catch((error) => {
@@ -88,7 +88,7 @@ export async function browserLogin(
         );
       });
 
-      log.info("Opened browser for you");
+      log.infoStderr("Opened browser for you");
     } catch (error) {
       console.error(
         `Failed to open browser, please navigate to ${url}, error: ${error}`
