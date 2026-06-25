@@ -528,6 +528,31 @@ mod classify_python_logging_line_tests {
     }
 }
 
+#[cfg(test)]
+mod validate_dbname_tests {
+    use super::validate_dbname;
+
+    #[test]
+    fn accepts_letters_digits_underscores_and_hyphens() {
+        assert!(validate_dbname("mydb").is_ok());
+        assert!(validate_dbname("my_db").is_ok());
+        assert!(validate_dbname("my-database").is_ok());
+        assert!(validate_dbname("My-Db_1").is_ok());
+    }
+
+    #[test]
+    fn rejects_invalid_names() {
+        // Must start with a letter (hyphen/digit/underscore leads are rejected).
+        assert!(validate_dbname("-db").is_err());
+        assert!(validate_dbname("1db").is_err());
+        assert!(validate_dbname("_db").is_err());
+        // No other special characters or whitespace.
+        assert!(validate_dbname("my db").is_err());
+        assert!(validate_dbname("my;db").is_err());
+        assert!(validate_dbname("").is_err());
+    }
+}
+
 #[derive(Serialize, Debug)]
 pub struct PrepareQueryColumnInfo {
     pub name: String,
