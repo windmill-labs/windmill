@@ -1755,9 +1755,9 @@ pub async fn maybe_enqueue_native_script_retry(
     .unwrap_or_default();
 
     // Optional `retry_if`: gate the retry on a JS expression over the failure
-    // `result` and `flow_input` (the job args). Evaluated natively only when the
-    // `quickjs` feature is compiled in; `push` keeps `retry_if` policies on the
-    // flow path otherwise, so this is unreachable without quickjs.
+    // `result` and `flow_input` (the job args). Evaluated by `eval_retry_if`,
+    // which on a worker built without the `quickjs` feature cannot evaluate the
+    // expression and fails closed (no retry).
     if let Some(retry_if) = policy.retry_if.as_ref() {
         let result = result_fn();
         if !eval_retry_if(&retry_if.expr, result.as_deref(), &args.0).await {
@@ -5586,11 +5586,11 @@ async fn push_inner<'c, 'd>(
             // Gated on the runnable-settings min version: on a mixed-version
             // fleet the policy can't be persisted (`insert_rs` would drop it), so
             // we fall back to the flow wrapper to preserve retry semantics.
-            // `retry_if` is always materialized natively: it is evaluated on the
-            // failure path by the worker (which always has the `quickjs` feature),
-            // regardless of whether this pusher does. On a worker built without
-            // quickjs, `retry_if` is unsupported (see `eval_retry_if`) — the flow
-            // path is not a fallback, since the flow runtime needs quickjs too.
+            // `retry_if` is always materialized natively and evaluated on the
+            // failure path (see `eval_retry_if`). On a worker built without the
+            // `quickjs` feature it cannot be evaluated and fails closed (no retry);
+            // the flow path is not a fallback, since the flow runtime needs quickjs
+            // too.
             let native_retry = !is_flow
                 && skip_handler.is_none()
                 && error_handler_path.is_none()
