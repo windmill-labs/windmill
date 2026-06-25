@@ -43,7 +43,7 @@ use windmill_common::workspaces::{
     check_user_against_rule, get_datatable_resource_from_db_unchecked, validate_dev_workspace_id,
     validate_fork_workspace_id, DataTable, DataTableCatalogResourceType, DataTableForkBehavior,
     ProtectionRuleKind, ProtectionRules, ProtectionRuleset, RuleCheckResult,
-    WorkspaceGitSyncSettings,
+    WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -6363,11 +6363,6 @@ async fn list_protection_rules(
             .collect(),
     ))
 }
-
-/// Reserved protection-rule name applied to a prod workspace when it is paired with a dev workspace.
-/// It carries `DisableDirectDeployment` + `DisableWorkspaceForking` so non-admins can neither deploy
-/// directly nor fork prod, and are funneled through the single dev workspace.
-pub(crate) const DEV_WORKSPACE_LOCK_RULE_NAME: &str = "dev_workspace_lock";
 
 /// Insert or replace a protection ruleset within an existing transaction. Unlike the
 /// `create_protection_rule` handler (which rejects an existing name), this upserts, so it is safe to

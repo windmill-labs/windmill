@@ -1,11 +1,6 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
-	import { onDestroy, onMount } from 'svelte'
-	import { maybeRedirectEditToDevWorkspace } from '$lib/utils/devWorkspaceRedirect'
-
-	onMount(() => {
-		maybeRedirectEditToDevWorkspace()
-	})
+	import { onDestroy } from 'svelte'
 	import { stripNewDraftFlagOnSave } from '$lib/newDraftFlag'
 
 	import { AppService } from '$lib/gen'

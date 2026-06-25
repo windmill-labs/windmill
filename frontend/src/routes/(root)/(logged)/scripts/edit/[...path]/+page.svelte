@@ -15,12 +15,7 @@
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { get } from 'svelte/store'
-	import { onDestroy, onMount, untrack } from 'svelte'
-	import { maybeRedirectEditToDevWorkspace } from '$lib/utils/devWorkspaceRedirect'
-
-	onMount(() => {
-		maybeRedirectEditToDevWorkspace()
-	})
+	import { onDestroy, untrack } from 'svelte'
 	import { stripNewDraftFlagOnSave } from '$lib/newDraftFlag'
 	import { page } from '$app/state'
 	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'

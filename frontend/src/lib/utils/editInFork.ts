@@ -56,13 +56,26 @@ function editPathFor(itemType: ItemType, itemPath: string): string {
 	}
 }
 
+function viewPathFor(itemType: ItemType, itemPath: string): string {
+	switch (itemType) {
+		case 'script':
+			return `${base}/scripts/get/${itemPath}`
+		case 'flow':
+			return `${base}/flows/get/${itemPath}`
+		case 'app':
+			return `${base}/apps/get/${itemPath}`
+		case 'raw_app':
+			return `${base}/apps_raw/get/${itemPath}`
+	}
+}
+
 export function buildForkEditUrl(itemType: ItemType, itemPath: string): string {
-	const editPath = editPathFor(itemType, itemPath)
 	// When the current ("prod") workspace has a canonical dev workspace, edits are funneled there:
-	// deep-link straight into the dev workspace's editor instead of the create-fork wizard.
+	// land on the item's page in the dev workspace (not straight in the editor) so the workspace
+	// switch is legible and the user opens the editor deliberately from there.
 	const dev = findCanonicalDevWorkspace(get(workspaceStore), get(userWorkspaces))
 	if (dev) {
-		return `${editPath}?workspace=${encodeURIComponent(dev.id)}`
+		return `${viewPathFor(itemType, itemPath)}?workspace=${encodeURIComponent(dev.id)}`
 	}
-	return `${base}/user/fork_workspace?rd=${encodeURIComponent(editPath)}`
+	return `${base}/user/fork_workspace?rd=${encodeURIComponent(editPathFor(itemType, itemPath))}`
 }
