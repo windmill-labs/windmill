@@ -15,7 +15,12 @@
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { emptyApp } from '$lib/components/apps/editor/appUtils'
 	import { importStore } from '$lib/components/apps/store'
-	import { onDestroy, tick, untrack } from 'svelte'
+	import { onDestroy, onMount, tick, untrack } from 'svelte'
+	import { maybeRedirectEditToDevWorkspace } from '$lib/utils/devWorkspaceRedirect'
+
+	onMount(() => {
+		maybeRedirectEditToDevWorkspace()
+	})
 	import { page } from '$app/state'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { stripNewDraftFlagOnSave } from '$lib/newDraftFlag'

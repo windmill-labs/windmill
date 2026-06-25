@@ -17,7 +17,12 @@
 	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
-	import { onDestroy, tick, untrack } from 'svelte'
+	import { onDestroy, onMount, tick, untrack } from 'svelte'
+	import { maybeRedirectEditToDevWorkspace } from '$lib/utils/devWorkspaceRedirect'
+
+	onMount(() => {
+		maybeRedirectEditToDevWorkspace()
+	})
 	import { stripNewDraftFlagOnSave } from '$lib/newDraftFlag'
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 	import { page } from '$app/state'
