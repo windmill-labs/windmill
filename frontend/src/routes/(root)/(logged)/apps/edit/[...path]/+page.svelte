@@ -391,6 +391,13 @@
 	function onRestore(ev: any) {
 		sendUserToast('App restored from previous deployment')
 		app = ev.detail
+		// Re-pin the stale-draft fork base to the current head. A restored value
+		// carries the `parent_version` baked in when that older version was deployed,
+		// which would make the deploy guard (`compareVersions`) falsely report "not on
+		// latest". Restore targets the live app, so `versions` holds the current head.
+		const versions = (app as { versions?: number[] } | undefined)?.versions
+		const head = Array.isArray(versions) ? versions[versions.length - 1] : undefined
+		if (head != null && app?.value) (app.value as App).parent_version = head
 		const app_ = structuredClone(stateSnapshot(app!))
 		savedApp = {
 			summary: app_.summary,
