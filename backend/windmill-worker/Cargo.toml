@@ -114,7 +114,8 @@ hmac.workspace = true
 pem = { workspace = true, optional = true }
 rsa = { workspace = true, optional = true }
 urlencoding.workspace = true
-nix.workspace = true
+# `fs` adds flock(2) for the cross-process Python install lock (shared cache mounts)
+nix = { workspace = true, features = ["fs"] }
 bytes.workspace = true
 reqwest.workspace = true
 reqwest-middleware.workspace = true
