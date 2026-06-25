@@ -4370,6 +4370,109 @@ mod debounce {
         Ok(())
     }
 
+    /// Concurrency regression: two late arrivals racing AFTER the survivor started
+    /// running must not both spawn independent windows. The running check reads the
+    /// post-conflict-lock holder (`debounce_key.job_id`), so the row lock serializes the
+    /// two upserts: the first observes the running survivor and opens a fresh window;
+    /// the second observes that fresh-window head (queued, not running) and debounces
+    /// into it. Exactly one late arrival survives, the other is debounced — never both.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_debounce_concurrent_arrivals_after_running_survivor(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let key = "concurrent_running_key";
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some(key.to_string()),
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        // J2 is the survivor and starts running.
+        let j1 = Uuid::new_v4();
+        let j2 = Uuid::new_v4();
+        push_debounced_script(&db, j1, vec![1], &settings, rs_handle).await;
+        push_debounced_script(&db, j2, vec![2], &settings, rs_handle).await;
+        sqlx::query!(
+            "UPDATE v2_job_queue SET running = true, started_at = now() WHERE id = $1",
+            j2
+        )
+        .execute(&db)
+        .await?;
+
+        // Insert the two late arrivals up front, then race only their maybe_debounce calls.
+        let j3 = Uuid::new_v4();
+        let j4 = Uuid::new_v4();
+        for (id, items) in [(j3, 3i64), (j4, 4i64)] {
+            let args_val = serde_json::json!({ "items": [items] });
+            insert_script_job_with_args(&db, id, "test-workspace", "f/test/script", &args_val)
+                .await;
+            sqlx::query!(
+                "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+                rs_handle,
+                id,
+            )
+            .execute(&db)
+            .await?;
+        }
+
+        let race = |id: Uuid, items: i64| {
+            let db = db.clone();
+            let settings = settings.clone();
+            async move {
+                let args_hm: HashMap<String, Box<RawValue>> =
+                    serde_json::from_value(serde_json::json!({ "items": [items] })).unwrap();
+                let push_args = PushArgs::from(&args_hm);
+                let mut scheduled_for = None;
+                let mut tx = db.begin().await.unwrap();
+                windmill_queue::jobs_ee::maybe_debounce(
+                    &settings,
+                    &mut scheduled_for,
+                    &Some("f/test/script".to_string()),
+                    "test-workspace",
+                    JobKind::Script,
+                    id,
+                    &push_args,
+                    &mut tx,
+                )
+                .await
+                .unwrap();
+                tx.commit().await.unwrap();
+            }
+        };
+        tokio::join!(race(j3, 3), race(j4, 4));
+
+        // The running survivor is untouched.
+        assert!(is_queued(&db, &j2).await, "running J2 stays queued");
+        assert!(!is_completed(&db, &j2).await, "running J2 not completed");
+
+        // Exactly one late arrival survives; the other is debounced into the same window.
+        let j3q = is_queued(&db, &j3).await;
+        let j4q = is_queued(&db, &j4).await;
+        let j3c = is_completed(&db, &j3).await;
+        let j4c = is_completed(&db, &j4).await;
+        assert!(
+            (j3q && j4c && !j4q && !j3c) || (j4q && j3c && !j3q && !j4c),
+            "exactly one late arrival must survive and the other be debounced \
+             (not two independent windows); got j3 queued={j3q} completed={j3c}, \
+             j4 queued={j4q} completed={j4c}"
+        );
+
+        // The surviving holder chained the debounced arrival into one window.
+        let (holder, prev, times) = get_debounce_key(&db, key).await.expect("key exists");
+        let (survivor, debounced) = if j3q { (j3, j4) } else { (j4, j3) };
+        assert_eq!(holder, survivor, "key points to the surviving late arrival");
+        assert_eq!(
+            prev,
+            Some(debounced),
+            "the surviving window debounced the other late arrival"
+        );
+        assert_eq!(times, 1, "single fresh window with one debounce");
+
+        Ok(())
+    }
+
     /// Test: Push-time (script) debounce with max_total_debounces_amount=2.
     /// 5 calls, each sending {x: [i]}. Expected:
     ///   Call 1: debounced (scheduled_for set)
