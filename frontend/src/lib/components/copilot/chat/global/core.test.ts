@@ -1114,7 +1114,7 @@ describe('global AI tools', () => {
 			expect(ScriptService.createScript).toHaveBeenCalled()
 		})
 
-		it('rebase_draft resets a stale draft onto latest and returns the changes to replay', async () => {
+		it('rebase_draft discards the stale draft and surfaces the changes to replay', async () => {
 			seedStaleScriptDraft('f/scripts/stale', 'base-hash', 'base content\nmy added line\n')
 			mockDeployedScript('f/scripts/stale', 'new-hash', 'latest deployed content\n')
 			vi.mocked(ScriptService.getScriptByHash).mockResolvedValue({
@@ -1131,13 +1131,21 @@ describe('global AI tools', () => {
 			// The diff surfaces the draft's own change over its fork base.
 			expect(result.your_changes).toContain('my added line')
 
-			// The draft is reset to the latest content with the base re-pinned to the
-			// head, so it is no longer stale.
-			const draft = getBackendDraft<any>('script', 'f/scripts/stale', { workspace: WORKSPACE })
-			expect(draft.content).toBe('latest deployed content\n')
-			expect(draft.parent_hash).toBe('new-hash')
+			// The stale draft is discarded (not reset), so a premature deploy fails
+			// cleanly rather than silently shipping the latest unchanged.
+			expect(getBackendDraft('script', 'f/scripts/stale', { workspace: WORKSPACE })).toBeUndefined()
+			await expect(
+				callGlobalTool('deploy_workspace_item', { type: 'script', path: 'f/scripts/stale' })
+			).rejects.toThrow(/No .*draft/)
+			expect(ScriptService.createScript).not.toHaveBeenCalled()
 
-			// Deploying the rebased draft no longer trips the staleness guard.
+			// Re-applying re-bases onto the current head; the deploy then passes.
+			await callGlobalTool('write_script', {
+				path: 'f/scripts/stale',
+				summary: 's',
+				language: 'bun',
+				content: 'latest deployed content\nmy added line\n'
+			})
 			const deploy = JSON.parse(
 				await callGlobalTool('deploy_workspace_item', { type: 'script', path: 'f/scripts/stale' })
 			)
@@ -1178,7 +1186,7 @@ describe('global AI tools', () => {
 			expect(FlowService.createFlow).not.toHaveBeenCalled()
 		})
 
-		it('rebase_draft resets a stale flow draft onto latest and lets it deploy', async () => {
+		it('rebase_draft discards the stale flow draft and surfaces the changes to replay', async () => {
 			seedStaleFlowDraft('f/flows/stale', 1, [{ id: 'a', value: { type: 'identity' } }])
 			mockDeployedFlow('f/flows/stale', 2)
 			vi.mocked(FlowService.getFlowVersion).mockResolvedValue({
@@ -1192,15 +1200,12 @@ describe('global AI tools', () => {
 			expect(result.latest_version).toBe(2)
 			expect(result.your_changes).toContain('identity')
 
-			const draft = getBackendDraft<any>('flow', 'f/flows/stale', { workspace: WORKSPACE })
-			expect(draft.version_id).toBe(2)
-
-			// Deploying the rebased flow draft no longer trips the staleness guard.
-			const deploy = JSON.parse(
-				await callGlobalTool('deploy_workspace_item', { type: 'flow', path: 'f/flows/stale' })
-			)
-			expect(deploy.success).toBe(true)
-			expect(FlowService.updateFlow).toHaveBeenCalled()
+			// The stale draft is discarded, so a premature deploy fails cleanly.
+			expect(getBackendDraft('flow', 'f/flows/stale', { workspace: WORKSPACE })).toBeUndefined()
+			await expect(
+				callGlobalTool('deploy_workspace_item', { type: 'flow', path: 'f/flows/stale' })
+			).rejects.toThrow(/No .*draft/)
+			expect(FlowService.updateFlow).not.toHaveBeenCalled()
 		})
 
 		function seedStaleAppDraft(path: string, parentVersion: number, file = 'old') {
@@ -1251,7 +1256,7 @@ describe('global AI tools', () => {
 			expect(AppService.updateAppRaw).not.toHaveBeenCalled()
 		})
 
-		it('rebase_draft resets a stale app draft onto latest and lets it deploy', async () => {
+		it('rebase_draft discards the stale app draft and surfaces the changes to replay', async () => {
 			seedStaleAppDraft('f/apps/stale', 1, 'my-change')
 			mockDeployedApp('f/apps/stale', 2, 'latest-deployed')
 			vi.mocked(AppService.getAppByVersion).mockResolvedValue({
@@ -1265,15 +1270,12 @@ describe('global AI tools', () => {
 			expect(result.latest_version).toBe(2)
 			expect(result.your_changes).toContain('my-change')
 
-			const draft = getBackendDraft<any>('raw_app', 'f/apps/stale', { workspace: WORKSPACE })
-			expect(draft.parent_version).toBe(2)
-			expect(draft.files['/index.tsx']).toBe('latest-deployed')
-
-			const deploy = JSON.parse(
-				await callGlobalTool('deploy_workspace_item', { type: 'app', path: 'f/apps/stale' })
-			)
-			expect(deploy.success).toBe(true)
-			expect(AppService.updateAppRaw).toHaveBeenCalled()
+			// The stale draft is discarded, so a premature deploy fails cleanly.
+			expect(getBackendDraft('raw_app', 'f/apps/stale', { workspace: WORKSPACE })).toBeUndefined()
+			await expect(
+				callGlobalTool('deploy_workspace_item', { type: 'app', path: 'f/apps/stale' })
+			).rejects.toThrow(/No .*draft/)
+			expect(AppService.updateAppRaw).not.toHaveBeenCalled()
 		})
 	})
 

@@ -1860,7 +1860,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			rebaseDraftSchema,
 			'rebase_draft',
-			'Reset a stale script, flow, or app draft to the latest deployed version and return your previous changes as a diff to re-apply on top. Use when deploy_workspace_item reports the draft was started from an older deployed version.',
+			'Discard a stale script, flow, or app draft and return your changes as a diff to re-apply on the latest deployed version. Use when deploy_workspace_item reports the draft was started from an older deployed version.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -3623,16 +3623,18 @@ function assertDraftBasedOnLatest(
 	if (force || base == null || head == null || base === head) return
 	throw new Error(
 		`This ${type} draft "${path}" was started from an older deployed version (forked from ${base}, ` +
-			`latest is ${head}). Deploying now would overwrite the version deployed since. Call rebase_draft ` +
-			`to reset the draft onto the latest version and re-apply your changes, then deploy again. To deploy ` +
-			`as-is and replace the newer version, call deploy_workspace_item again with force: true.`
+			`latest is ${head}). Deploying now would overwrite the version deployed since. Call rebase_draft to ` +
+			`discard the stale draft and get your changes back as a diff, then re-apply them (the new draft ` +
+			`re-bases onto the latest version) and deploy. To deploy as-is and replace the newer version, call ` +
+			`deploy_workspace_item again with force: true.`
 	)
 }
 
-// Reset a stale script draft to the latest deployed content and return the draft's
-// own changes (vs its fork base) so the model can replay them on top. Resetting the
-// content re-pins the fork base to the current head, so the base pointer stays
-// honest: after replay the draft genuinely incorporates the latest deploy.
+// Discard a stale draft and return its own changes (vs the fork base) as a diff so
+// the model can re-apply them on the latest deploy. Discarding rather than resetting
+// keeps the base pointer honest (the next write re-bases on the current head) and
+// fails safe: a premature deploy hits "no draft" instead of silently shipping the
+// latest unchanged.
 async function rebaseDraft(
 	args: { type: WorkspaceItemType; path: string },
 	ctx: WriteDraftCtx
@@ -3670,9 +3672,9 @@ async function rebaseScriptDraft(path: string, ctx: WriteDraftCtx): Promise<stri
 
 	toolCallbacks.setToolStatus(toolId, { content: `Rebasing draft "${path}" onto latest...` })
 
-	// The draft's own changes, expressed against its fork base, for the model to
-	// replay. Best-effort: if the base version is gone, diff against empty so the
-	// full draft is surfaced rather than failing the rebase.
+	// Capture the draft's own changes (vs its fork base) BEFORE discarding — this
+	// diff is the only clean record of what to replay. Best-effort: if the base
+	// version is gone, diff against empty so the full draft is surfaced.
 	let baseContent = ''
 	if (baseHash) {
 		try {
@@ -3690,29 +3692,22 @@ async function rebaseScriptDraft(path: string, ctx: WriteDraftCtx): Promise<stri
 		''
 	)
 
-	// Mirror SCRIPT_SPEC.fetchDeployed: seed the draft from the deployed head with
-	// parent_hash pinned to it, so the draft is no longer stale.
-	const resetValue: NewScript = {
-		...(latest as unknown as NewScript),
-		path,
-		parent_hash: latest.hash
-	}
-	const result = await persistGlobalDraft(workspace, 'script', path, resetValue, { force: true })
-	if (result.status === 'error') {
-		throw new Error(`Failed to reset draft "${path}" onto latest: ${result.message}`)
-	}
+	// Discard the stale draft rather than resetting it to latest: the next write
+	// re-bases on the current head, and a premature deploy fails cleanly ("no
+	// draft") instead of silently shipping the latest unchanged and losing the work.
+	await deleteGlobalDraft(workspace, 'script', path)
 
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Reset draft "${path}" onto latest (${latest.hash})`,
+		content: `Discarded stale draft "${path}"`,
 		result: 'Rebased'
 	})
 	return JSON.stringify(
 		{
 			success: true,
 			message:
-				`Reset draft "${path}" to the latest deployed version (hash ${latest.hash}); the draft now ` +
-				`matches the latest deploy. Re-apply the changes in "your_changes" on top of the current draft ` +
-				`(with edit_script / write_script), then deploy.`,
+				`Discarded the stale draft for "${path}". Your changes are in "your_changes" (a diff against the ` +
+				`version you forked from). Re-apply them with edit_script / write_script — the new draft will be ` +
+				`based on the latest deployed version (hash ${latest.hash}) — then deploy.`,
 			latest_hash: latest.hash,
 			your_changes: yourChanges
 		},
@@ -3770,24 +3765,22 @@ async function rebaseFlowDraft(path: string, ctx: WriteDraftCtx): Promise<string
 		''
 	)
 
-	// Reset the draft to the latest deployed flow; its `version_id` is the head, so
-	// the draft is no longer stale.
-	const result = await persistGlobalDraft(workspace, 'flow', path, latest, { force: true })
-	if (result.status === 'error') {
-		throw new Error(`Failed to reset draft "${path}" onto latest: ${result.message}`)
-	}
+	// Discard the stale draft (see rebaseScriptDraft): the next write re-bases on
+	// the current head, and a premature deploy fails cleanly instead of shipping
+	// the latest unchanged.
+	await deleteGlobalDraft(workspace, 'flow', path)
 
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Reset draft "${path}" onto latest (version ${latest.version_id})`,
+		content: `Discarded stale draft "${path}"`,
 		result: 'Rebased'
 	})
 	return JSON.stringify(
 		{
 			success: true,
 			message:
-				`Reset draft "${path}" to the latest deployed version (version ${latest.version_id}); the draft ` +
-				`now matches the latest deploy. Re-apply the changes in "your_changes" on top of the current ` +
-				`draft (with the flow edit tools), then deploy.`,
+				`Discarded the stale draft for "${path}". Your changes are in "your_changes" (a JSON diff against ` +
+				`the version you forked from). Re-apply them with the flow edit tools — the new draft will be ` +
+				`based on the latest deployed version (version ${latest.version_id}) — then deploy.`,
 			latest_version: latest.version_id,
 			your_changes: yourChanges
 		},
@@ -3856,25 +3849,22 @@ async function rebaseAppDraft(path: string, ctx: WriteDraftCtx): Promise<string>
 		''
 	)
 
-	// Reset the draft to the latest deployed app; appSourceToDraftValue pins
-	// parent_version to the head, so the draft is no longer stale.
-	const resetValue = appSourceToDraftValue(deployed, deployed)
-	const result = await persistGlobalDraft(workspace, 'app', path, resetValue, { force: true })
-	if (result.status === 'error') {
-		throw new Error(`Failed to reset draft "${path}" onto latest: ${result.message}`)
-	}
+	// Discard the stale draft (see rebaseScriptDraft): the next write re-projects
+	// the deployed app into a fresh draft (re-pinning parent_version to the head),
+	// and a premature deploy fails cleanly instead of shipping the latest unchanged.
+	await deleteGlobalDraft(workspace, 'app', path)
 
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Reset draft "${path}" onto latest (version ${headVersion})`,
+		content: `Discarded stale draft "${path}"`,
 		result: 'Rebased'
 	})
 	return JSON.stringify(
 		{
 			success: true,
 			message:
-				`Reset draft "${path}" to the latest deployed version (version ${headVersion}); the draft now ` +
-				`matches the latest deploy. Re-apply the changes in "your_changes" on top of the current draft ` +
-				`(with the app edit tools), then deploy.`,
+				`Discarded the stale draft for "${path}". Your changes are in "your_changes" (a JSON diff against ` +
+				`the version you forked from). Re-apply them with the app edit tools — the new draft will be based ` +
+				`on the latest deployed version (version ${headVersion}) — then deploy.`,
 			latest_version: headVersion,
 			your_changes: yourChanges
 		},
