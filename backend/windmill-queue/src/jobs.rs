@@ -45,8 +45,8 @@ use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
 };
 use windmill_common::runnable_settings::{
-    ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettings,
-    RunnableSettingsTrait,
+    ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings, RetrySettings,
+    RunnableSettings, RunnableSettingsTrait,
 };
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{calculate_hash, configure_client, now_from_db};
@@ -68,7 +68,7 @@ use windmill_common::{
     },
     flows::{
         add_virtual_items_if_necessary, FlowModule, FlowModuleValue, FlowValue, InputTransform,
-        StopAfterIf,
+        Retry, StopAfterIf,
     },
     jobs::{get_payload_tag_from_prefixed_path, JobKind, JobPayload, QueuedJob, RawCode},
     min_version::{MIN_VERSION_IS_AT_LEAST_1_432, MIN_VERSION_IS_AT_LEAST_1_440},
@@ -958,6 +958,28 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         ));
     }
 
+    // Native script retry: a failed `Script` job that carries a retry policy and
+    // has attempts left gets its next attempt enqueued here — before the queue
+    // row (which holds the attempt counter) is removed by commit. The failed
+    // attempt is still recorded as a completed job below. `maybe_enqueue_…`
+    // self-guards on kind/cancellation/policy, so the success path is unaffected.
+    let retry_pending = if !success && !skipped && !from_cache {
+        // Serialized lazily, and only when a `retry_if` policy actually needs it.
+        let result_fn = || serde_json::value::to_raw_value(&result).ok();
+        match maybe_enqueue_native_script_retry(db, completed_job, &canceled_by, &result_fn).await {
+            Ok(enqueued) => enqueued,
+            Err(e) => {
+                tracing::error!(
+                    "native retry enqueue failed for {}: {e:#}",
+                    completed_job.id
+                );
+                false
+            }
+        }
+    } else {
+        false
+    };
+
     let result_columns = result_columns.as_ref();
     let (opt_uuid, duration, _skip_downstream_error_handlers, wac_job_ids) = (|| {
         commit_completed_job(
@@ -972,6 +994,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             flow_is_done,
             duration,
             from_cache,
+            retry_pending,
         )
         .warn_after_seconds(10)
     })
@@ -1031,6 +1054,9 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     flow_is_done: bool,
     duration: Option<i64>,
     from_cache: bool,
+    // True when a native script retry was enqueued for this failed attempt, i.e.
+    // this is not the terminal attempt — schedule completion handlers must wait.
+    retry_pending: bool,
 ) -> windmill_common::error::Result<(Option<Uuid>, i64, bool, Option<serde_json::Value>)> {
     // let start = std::time::Instant::now();
 
@@ -1258,11 +1284,17 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 // for flows, only try to schedule next tick here if flow failed and because first handle_flow failed (step = 0, modules[0] = {type: 'Failure', 'job': uuid::nil()})
                 // or job was cancelled before first handle_flow was called (step = 0, modules = [] OR modules[0].type == 'WaitingForPriorSteps')
                 // otherwise flow rescheduling is done inside handle_flow
-                let schedule_next_tick = !completed_job.is_flow()
-                    || from_cache
-                    || !success
-                        && sqlx::query_scalar!(
-                            "SELECT
+                // Native retry attempts carry the schedule trigger (so the
+                // terminal attempt can drive handlers) but `parent_job` is set —
+                // they must not each push the next cron tick (the root already
+                // did), so gate next-tick on a top-level (`parent_job IS NULL`)
+                // occurrence.
+                let schedule_next_tick = completed_job.parent_job.is_none()
+                    && (!completed_job.is_flow()
+                        || from_cache
+                        || !success
+                            && sqlx::query_scalar!(
+                                "SELECT
                                 flow_status->>'step' = '0'
                                 AND (
                                     jsonb_array_length(flow_status->'modules') = 0
@@ -1273,15 +1305,15 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                                     )
                                 )
                             FROM v2_job_completed WHERE id = $2 AND workspace_id = $3",
-                            Uuid::nil().to_string(),
-                            &completed_job.id,
-                            &completed_job.workspace_id
-                        )
-                        .fetch_optional(&mut *tx)
-                        .warn_after_seconds(10)
-                        .await?
-                        .flatten()
-                        .unwrap_or(false);
+                                Uuid::nil().to_string(),
+                                &completed_job.id,
+                                &completed_job.workspace_id
+                            )
+                            .fetch_optional(&mut *tx)
+                            .warn_after_seconds(10)
+                            .await?
+                            .flatten()
+                            .unwrap_or(false));
 
                 if schedule_next_tick {
                     let (returned_tx, schedule_push_err) =
@@ -1292,42 +1324,55 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     }
                 }
 
+                // Defer schedule completion handlers (on_failure/on_success/
+                // on_recovery) while a native retry is pending: only the terminal
+                // attempt should drive them. apply_schedule_handlers resolves
+                // per-occurrence failure/recovery status across the whole retry
+                // chain, so multi-count/exact handler policies work even though
+                // each attempt is its own completed job.
                 #[cfg(all(feature = "enterprise", feature = "private"))]
-                if let Err(err) = crate::jobs_ee::apply_schedule_handlers(
-                    db,
-                    &schedule,
-                    &script_path,
-                    &completed_job.workspace_id,
-                    success,
-                    result,
-                    job_id,
-                    completed_job.started_at.unwrap_or(chrono::Utc::now()),
-                    completed_job.priority,
-                )
-                .warn_after_seconds(10)
-                .await
-                {
-                    if !success {
-                        tracing::error!("Could not apply schedule error handler: {}", err);
-                        let base_url = windmill_common::BASE_URL.load();
-                        let w_id: &String = &completed_job.workspace_id;
-                        if !matches!(err, Error::QuotaExceeded(_)) {
-                            report_error_to_workspace_handler_or_critical_side_channel(
-                                    &completed_job,
-                                    db,
-                                    format!(
-                                        "Failed to push schedule error handler job to handle failed job ({base_url}/run/{}?workspace={w_id}): {}",
-                                        completed_job.id,
-                                        err
-                                    ),
-                                )
-                                .warn_after_seconds(10)
-                                .await;
+                if !retry_pending {
+                    if let Err(err) = crate::jobs_ee::apply_schedule_handlers(
+                        db,
+                        &schedule,
+                        &script_path,
+                        &completed_job.workspace_id,
+                        success,
+                        result,
+                        job_id,
+                        // Current occurrence's root: the terminal native-retry
+                        // attempt's parent, else the job itself.
+                        completed_job.parent_job.unwrap_or(job_id),
+                        completed_job.started_at.unwrap_or(chrono::Utc::now()),
+                        completed_job.priority,
+                    )
+                    .warn_after_seconds(10)
+                    .await
+                    {
+                        if !success {
+                            tracing::error!("Could not apply schedule error handler: {}", err);
+                            let base_url = windmill_common::BASE_URL.load();
+                            let w_id: &String = &completed_job.workspace_id;
+                            if !matches!(err, Error::QuotaExceeded(_)) {
+                                report_error_to_workspace_handler_or_critical_side_channel(
+                                        &completed_job,
+                                        db,
+                                        format!(
+                                            "Failed to push schedule error handler job to handle failed job ({base_url}/run/{}?workspace={w_id}): {}",
+                                            completed_job.id,
+                                            err
+                                        ),
+                                    )
+                                    .warn_after_seconds(10)
+                                    .await;
+                            }
+                        } else {
+                            tracing::error!("Could not apply schedule recovery handler: {}", err);
                         }
-                    } else {
-                        tracing::error!("Could not apply schedule recovery handler: {}", err);
-                    }
-                };
+                    };
+                }
+                #[cfg(not(all(feature = "enterprise", feature = "private")))]
+                let _ = retry_pending;
             } else {
                 tracing::error!(
                         "Schedule {schedule_path} in {} not found. Impossible to schedule again and apply schedule handlers",
@@ -1587,6 +1632,267 @@ async fn restart_job_if_perpetual_inner(
         tx.commit().await?;
     }
     Ok(())
+}
+
+/// Evaluate a `retry_if` JS expression. `result`/`previous_result` are the
+/// failure output and `flow_input` the job args. Defaults to retrying on eval
+/// error (an unevaluable gate shouldn't silently swallow retries).
+#[cfg(feature = "quickjs")]
+async fn eval_retry_if(
+    expr: &str,
+    result: Option<&serde_json::value::RawValue>,
+    args: &HashMap<String, Box<serde_json::value::RawValue>>,
+) -> bool {
+    let result_val = result
+        .and_then(|r| serde_json::from_str::<serde_json::Value>(r.get()).ok())
+        .unwrap_or(serde_json::Value::Null);
+    let mut globals = HashMap::new();
+    globals.insert("result".to_string(), result_val.clone());
+    globals.insert("previous_result".to_string(), result_val);
+    globals.insert(
+        "flow_input".to_string(),
+        serde_json::to_value(args).unwrap_or(serde_json::Value::Null),
+    );
+    match windmill_jseval::eval_simple_js(format!("Boolean({expr})"), globals).await {
+        Ok(v) => v.get() == "true",
+        Err(e) => {
+            tracing::warn!("Failed to evaluate retry_if expression, retrying anyway: {e:#}");
+            true
+        }
+    }
+}
+
+/// `retry_if` is unsupported on a worker built without the `quickjs` feature
+/// (the expression cannot be evaluated). Such a worker can't run JS jobs either,
+/// so this is not reached in practice; we fail closed and do not retry.
+#[cfg(not(feature = "quickjs"))]
+async fn eval_retry_if(
+    _expr: &str,
+    _result: Option<&serde_json::value::RawValue>,
+    _args: &HashMap<String, Box<serde_json::value::RawValue>>,
+) -> bool {
+    tracing::warn!("retry_if is unsupported without the quickjs feature; not retrying");
+    false
+}
+
+/// Native script retry. When a failed `Script` job carries a retry policy (via
+/// `runnable_settings_handle`) and has attempts left, enqueue a fresh attempt of
+/// the same script after the policy's backoff delay — instead of having wrapped
+/// it in a one-step flow. Each attempt is a real `Script` job; the attempt
+/// counter lives in the `native_retry_attempt` marker, written here and read only
+/// on the next failure (never on the hot job-pull path).
+///
+/// Returns `true` if a retry was enqueued.
+///
+/// Authorization: this performs no auth check by design. It is `pub` only so the
+/// integration test can reach it; the sole production caller is the worker
+/// job-completion path (`add_completed_job`), which passes a `MiniCompletedJob`
+/// built from a real, already-persisted completed job — its workspace/identity
+/// fields come from the DB, not from request input. Callers MUST uphold this:
+/// never invoke it with caller-supplied or unauthorized job identity.
+pub async fn maybe_enqueue_native_script_retry(
+    db: &Pool<Postgres>,
+    job: &MiniCompletedJob,
+    canceled_by: &Option<CanceledBy>,
+    // Lazily serialize the failure result: only `retry_if` policies need it, so
+    // the common (no-retry_if) failure never pays the serialization cost.
+    result_fn: &(dyn Fn() -> Option<Box<serde_json::value::RawValue>> + Sync),
+) -> Result<bool, Error> {
+    // Only plain top-level scripts retry natively; cancellation always wins.
+    if canceled_by.is_some() || !matches!(job.kind, JobKind::Script) || job.is_flow_step() {
+        return Ok(false);
+    }
+
+    let Some(retry_settings) = windmill_common::runnable_settings::prefetch_retry_from_handle(
+        job.runnable_settings_handle,
+        db,
+    )
+    .await?
+    else {
+        return Ok(false);
+    };
+    let policy: Retry = retry_settings.into();
+    if !policy.has_attempts() {
+        return Ok(false);
+    }
+
+    // Attempt counter for this job: its `native_retry_attempt` marker, or 0 for
+    // the first (un-marked) attempt. The marker is persistent (unlike the queue
+    // row), so it doubles as the explicit "this job is a retry attempt" signal
+    // consumers key off of.
+    let prev_attempts = sqlx::query_scalar!(
+        "SELECT attempt FROM native_retry_attempt WHERE job_id = $1",
+        job.id,
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(0) as u32;
+    let root = job.parent_job.unwrap_or(job.id);
+    // Scheduled chains keep the schedule trigger so the terminal attempt drives
+    // the schedule completion handlers (on_failure/on_success); `parent_job`
+    // keeps every retry out of the per-occurrence handler counting queries.
+    let trigger = job
+        .schedule_path()
+        .map(|sp| TriggerMetadata::new(Some(sp), JobTriggerKind::Schedule));
+
+    let Some(delay) = policy.interval(prev_attempts, false) else {
+        // Attempts exhausted — let the failure finalize normally.
+        return Ok(false);
+    };
+    // Cap the backoff to match the flow-runtime retry path (evaluate_retry).
+    let delay = std::cmp::min(delay, MAX_RETRY_INTERVAL);
+    let scheduled_for = chrono::Utc::now()
+        + chrono::Duration::from_std(delay).unwrap_or_else(|_| chrono::Duration::zero());
+
+    let args = sqlx::query_scalar!(
+        "SELECT args as \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\" FROM v2_job WHERE id = $1 AND workspace_id = $2",
+        job.id,
+        job.workspace_id,
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .unwrap_or_default();
+
+    // Optional `retry_if`: gate the retry on a JS expression over the failure
+    // `result` and `flow_input` (the job args). Evaluated by `eval_retry_if`,
+    // which on a worker built without the `quickjs` feature cannot evaluate the
+    // expression and fails closed (no retry).
+    if let Some(retry_if) = policy.retry_if.as_ref() {
+        let result = result_fn();
+        if !eval_retry_if(&retry_if.expr, result.as_deref(), &args.0).await {
+            return Ok(false);
+        }
+    }
+
+    // Re-push as a one-step-flow request; `push` materializes it back into a
+    // native retryable `Script` carrying the policy again. `parent_job = root`
+    // links the chain (and excludes retries from schedule-handler counting); the
+    // schedule trigger, when present, lets the terminal attempt fire handlers.
+    //
+    // Idempotent retry id: deterministic per (root, next attempt). If a worker
+    // dies between this push and the current attempt's finalization, the reaper
+    // re-handles the un-finalized attempt and we land here again with the same
+    // id, so the retry is enqueued exactly once (no double-retry).
+    let retry_job_id = {
+        use std::hash::{Hash, Hasher};
+        let next_attempt = prev_attempts + 1;
+        let mut high = std::hash::DefaultHasher::new();
+        root.hash(&mut high);
+        next_attempt.hash(&mut high);
+        let mut low = std::hash::DefaultHasher::new();
+        "native-retry".hash(&mut low);
+        next_attempt.hash(&mut low);
+        root.hash(&mut low);
+        Uuid::from_u64_pair(high.finish(), low.finish())
+    };
+    // If that retry already exists (the crash-and-reaper-replay case above),
+    // report it as pending WITHOUT re-pushing. Deriving `retry_pending` from the
+    // push *result* would otherwise flip to false on the duplicate-id error and
+    // let the schedule completion handlers fire for this non-terminal attempt.
+    if sqlx::query_scalar!("SELECT 1 FROM v2_job WHERE id = $1", retry_job_id)
+        .fetch_optional(db)
+        .await?
+        .is_some()
+    {
+        return Ok(true);
+    }
+    // Carry forward the failed attempt's concurrency/debouncing settings (same
+    // runnable_settings_handle as the retry policy) so a retry of a concurrency-
+    // limited script still inserts its concurrency_key and respects the limit,
+    // rather than running unbounded with only the retry policy.
+    let (debouncing_settings, concurrency_settings) =
+        windmill_common::runnable_settings::prefetch_cached_from_handle(
+            job.runnable_settings_handle,
+            db,
+        )
+        .await?;
+    let tx = PushIsolationLevel::IsolatedRoot(db.clone());
+    let (new_id, mut tx) = match push(
+        db,
+        tx,
+        &job.workspace_id,
+        JobPayload::SingleStepFlow {
+            path: job.runnable_path.clone().unwrap_or_default(),
+            hash: job.runnable_id,
+            flow_version: None,
+            language: job.script_lang.clone(),
+            args: HashMap::new(),
+            retry: Some(policy),
+            error_handler_path: None,
+            error_handler_args: None,
+            skip_handler: None,
+            cache_ttl: job.cache_ttl,
+            cache_ignore_s3_path: job.cache_ignore_s3_path,
+            priority: job.priority,
+            tag_override: Some(job.tag.clone()),
+            trigger_path: None,
+            apply_preprocessor: false,
+            concurrency_settings,
+            debouncing_settings,
+        },
+        PushArgs::from(&args.0),
+        &job.created_by,
+        &job.permissioned_as_email,
+        job.permissioned_as.clone(),
+        Some(&format!("retry.{}", job.id)),
+        Some(scheduled_for),
+        None,
+        Some(root),
+        None,
+        None,
+        Some(retry_job_id),
+        false,
+        false,
+        None,
+        true,
+        Some(job.tag.clone()),
+        None,
+        None,
+        job.priority,
+        None,
+        false,
+        None,
+        trigger,
+        None,
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            // Race with a concurrent completion of the same attempt: it may have
+            // inserted the deterministic retry id between our pre-check and this
+            // push, so the push fails on the duplicate id. The retry IS pending —
+            // re-check and report it as such instead of propagating the error
+            // (which would flip `retry_pending` to false and fire the schedule
+            // completion handlers for this non-terminal attempt).
+            if sqlx::query_scalar!("SELECT 1 FROM v2_job WHERE id = $1", retry_job_id)
+                .fetch_optional(db)
+                .await?
+                .is_some()
+            {
+                return Ok(true);
+            }
+            return Err(e);
+        }
+    };
+
+    sqlx::query!(
+        "INSERT INTO native_retry_attempt (job_id, attempt) VALUES ($1, $2)",
+        new_id,
+        (prev_attempts + 1) as i32,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    tracing::info!(
+        "Native retry: enqueued attempt {} of script {:?} (root {root}) in {}s as {new_id}",
+        prev_attempts + 1,
+        job.runnable_path,
+        delay.as_secs(),
+    );
+    Ok(true)
 }
 
 #[cfg(feature = "cloud")]
@@ -5009,6 +5315,7 @@ async fn push_inner<'c, 'd>(
         _low_level_priority: Option<i16>,
         concurrency_settings: ConcurrencySettings,
         debouncing_settings: DebouncingSettings,
+        retry_settings: RetrySettings,
         labels: Option<Vec<String>>,
     }
     let mut preprocessed = None;
@@ -5027,6 +5334,7 @@ async fn push_inner<'c, 'd>(
         _low_level_priority,
         mut concurrency_settings,
         debouncing_settings,
+        retry_settings,
         labels,
     } = match job_payload {
         JobPayload::ScriptHash {
@@ -5333,6 +5641,7 @@ async fn push_inner<'c, 'd>(
             path,
             hash,
             flow_version,
+            language,
             retry,
             error_handler_path,
             error_handler_args,
@@ -5346,9 +5655,67 @@ async fn push_inner<'c, 'd>(
             apply_preprocessor,
             debouncing_settings,
             concurrency_settings,
-        } => {
+        } => 'ssf: {
             // Determine if this is a flow or a script
             let is_flow = flow_version.is_some();
+
+            // Native retry: a bare script wrapped only to gain a retry (no
+            // skip/error-handler modules) is pushed as a real `Script` job that
+            // carries the policy in `runnable_settings`. This avoids spawning a
+            // one-step flow — and its extra job rows, flow_status, and UI
+            // projection — for the common schedule/pipeline retry case. The flow
+            // path below is kept only for handler-bearing or flow-wrapping cases.
+            //
+            // Gated on the runnable-settings min version: on a mixed-version
+            // fleet the policy can't be persisted (`insert_rs` would drop it), so
+            // we fall back to the flow wrapper to preserve retry semantics.
+            // `retry_if` is always materialized natively and evaluated on the
+            // failure path (see `eval_retry_if`). On a worker built without the
+            // `quickjs` feature it cannot be evaluated and fails closed (no retry);
+            // the flow path is not a fallback, since the flow runtime needs quickjs
+            // too.
+            let native_retry = !is_flow
+                && skip_handler.is_none()
+                && error_handler_path.is_none()
+                && hash.is_some()
+                && language.is_some()
+                && windmill_common::runnable_settings::min_version_supports_runnable_settings_v0()
+                    .await;
+            if native_retry {
+                if apply_preprocessor {
+                    preprocessed = Some(false);
+                }
+                // Preserve worker affinity: normal ScriptHash pushes carry the
+                // script's `dedicated_worker` (it drives the dedicated tag below),
+                // but the SingleStepFlow payload doesn't — resolve it from the
+                // script row so a dedicated-worker script keeps its dedicated pool.
+                let dedicated_worker = if let Some(h) = &hash {
+                    sqlx::query_scalar::<_, Option<bool>>(
+                        "SELECT dedicated_worker FROM script WHERE hash = $1 AND workspace_id = $2",
+                    )
+                    .bind(h.0)
+                    .bind(workspace_id)
+                    .fetch_optional(db)
+                    .await?
+                    .flatten()
+                } else {
+                    None
+                };
+                break 'ssf JobPayloadUntagged {
+                    runnable_id: hash.map(|h| h.0),
+                    runnable_path: Some(path),
+                    job_kind: JobKind::Script,
+                    language,
+                    dedicated_worker,
+                    concurrency_settings,
+                    debouncing_settings,
+                    retry_settings: retry.as_ref().map(RetrySettings::from).unwrap_or_default(),
+                    cache_ttl,
+                    cache_ignore_s3_path,
+                    _low_level_priority: priority,
+                    ..Default::default()
+                };
+            }
 
             // Build modules list
             let mut modules = vec![];
@@ -5986,6 +6353,7 @@ async fn push_inner<'c, 'd>(
         RunnableSettings {
             debouncing_settings: debouncing_settings.insert_cached(db).await?,
             concurrency_settings: concurrency_settings.insert_cached(db).await?,
+            retry_settings: retry_settings.insert_cached(db).await?,
         },
         db,
     )

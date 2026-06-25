@@ -3364,6 +3364,7 @@ mod debounce {
         let rs = RunnableSettings {
             debouncing_settings: debouncing_hash,
             concurrency_settings: concurrency_hash,
+            retry_settings: None,
         };
         let rs_handle = insert_rs(rs, &db).await?;
 
@@ -3741,6 +3742,7 @@ mod debounce {
             RunnableSettings {
                 debouncing_settings: debouncing_hash,
                 concurrency_settings: concurrency_hash,
+                retry_settings: None,
             },
             db,
         )

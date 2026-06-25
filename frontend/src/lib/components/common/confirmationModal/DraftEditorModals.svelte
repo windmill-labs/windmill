@@ -38,6 +38,13 @@
 		draftSavedAt?: string | undefined
 		/** ISO timestamp of the latest deploy at this path. */
 		deployedAt?: string | undefined
+		/** Precise staleness inputs (flows/apps): the deployed version the draft was
+		 *  forked from, and the current deployed head. When both are set they drive
+		 *  `isStale` and the dedup key instead of the timestamps — exact, and stable
+		 *  across autosaves (the timestamp drifts past `deployedAt` as you keep
+		 *  editing). Absent (pre-feature drafts, scripts) ⇒ timestamp fallback. */
+		draftBaseVersion?: number | undefined
+		deployedHeadVersion?: number | undefined
 		/** Discard the draft and reload deployed (same as "Reset to deployed"). */
 		onLoadLatestDeploy?: () => void | Promise<void>
 		/** Defaults to true; set to false to suppress all modals. */
@@ -56,6 +63,8 @@
 		othersModalOpen = $bindable(),
 		draftSavedAt = undefined,
 		deployedAt = undefined,
+		draftBaseVersion = undefined,
+		deployedHeadVersion = undefined,
 		onLoadLatestDeploy,
 		enabled = true
 	}: Props = $props()
@@ -65,13 +74,27 @@
 	let staleAlertKey = $state<string | undefined>(undefined)
 	let staleModalOpen = $state(false)
 
+	// Prefer the exact version comparison (flows/apps) over the timestamp: the
+	// draft's pinned fork base never drifts, whereas `draftSavedAt` advances past
+	// `deployedAt` once you keep editing a stale draft, hiding the staleness.
+	const useVersion = $derived(draftBaseVersion != null && deployedHeadVersion != null)
 	const isStale = $derived(
-		!!draftSavedAt &&
-			!!deployedAt &&
-			!!onLoadLatestDeploy &&
-			new Date(draftSavedAt).getTime() < new Date(deployedAt).getTime()
+		!!onLoadLatestDeploy &&
+			(useVersion
+				? draftBaseVersion !== deployedHeadVersion
+				: !!draftSavedAt &&
+					!!deployedAt &&
+					new Date(draftSavedAt).getTime() < new Date(deployedAt).getTime())
 	)
-	const currentKey = $derived(isStale ? `${path}|${draftSavedAt}|${deployedAt}` : undefined)
+	// Key on the versions (not `draftSavedAt`) in the version path, else every
+	// autosave would mint a new key and re-pop the modal mid-edit.
+	const currentKey = $derived(
+		isStale
+			? useVersion
+				? `${path}|v|${draftBaseVersion}|${deployedHeadVersion}`
+				: `${path}|${draftSavedAt}|${deployedAt}`
+			: undefined
+	)
 
 	$effect(() => {
 		const key = currentKey

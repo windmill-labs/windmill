@@ -42,7 +42,8 @@
                 "trigger_cli",
                 "trigger_nextcloud",
                 "trigger_google",
-                "trigger_github"
+                "trigger_github",
+                "data_pipeline"
               ]
             }
           }

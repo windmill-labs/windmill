@@ -207,9 +207,12 @@ export async function getDraftDiffValues(
 			draft_saved_at: _c,
 			no_deployed: _n,
 			other_drafts_users: _o,
+			version_id: _v,
 			...deployed
 		} = r
-		const draftValue = draft ?? deployed
+		// Strip the draft's pinned base `version_id` (which differs from the deployed
+		// head for a stale draft) so it never renders as a spurious diff line.
+		const { version_id: _dv, ...draftValue } = (draft ?? deployed) as any
 		return { deployed: draftOnly ? EMPTY_DEPLOYED.flow!(draftValue) : deployed, draft: draftValue }
 	} else if (kind === 'app' || kind === 'raw_app') {
 		// A never-deployed raw app has no `app` row; the backend resolves the
@@ -237,7 +240,9 @@ export async function getDraftDiffValues(
 			path: r.path,
 			custom_path: r.custom_path
 		}
-		const draftValue = r.draft ?? deployed
+		// Strip the draft's pinned fork-base `parent_version` (the deployed allowlist
+		// above already omits it) so it never renders as a spurious diff line.
+		const { parent_version: _pv, ...draftValue } = (r.draft ?? deployed) as any
 		return { deployed: draftOnly ? EMPTY_DEPLOYED.app!(draftValue) : deployed, draft: draftValue }
 	} else {
 		// Variables / resources / schedules / triggers: one overlay GET yields
