@@ -396,8 +396,12 @@ pub async fn push_scheduled_job<'c>(
                     tag_override: schedule.tag.clone(),
                     trigger_path: None,
                     apply_preprocessor: false,
-                    concurrency_settings: ConcurrencySettings::default(),
-                    debouncing_settings: DebouncingSettings::default(),
+                    // Carry the script's concurrency/debounce settings (fetched
+                    // above) into the native retry materialization, so a retrying
+                    // concurrency-limited scheduled script still inserts its
+                    // concurrency_key instead of running unbounded.
+                    concurrency_settings,
+                    debouncing_settings,
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()

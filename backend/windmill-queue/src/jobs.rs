@@ -1638,12 +1638,17 @@ async fn restart_job_if_perpetual_inner(
 /// `runnable_settings_handle`) and has attempts left, enqueue a fresh attempt of
 /// the same script after the policy's backoff delay — instead of having wrapped
 /// it in a one-step flow. Each attempt is a real `Script` job; the attempt
-/// counter and chain root live in `v2_job_queue.extras`, written here and read
-/// only on the next failure (never on the hot job-pull path).
+/// counter lives in the `native_retry_attempt` marker, written here and read only
+/// on the next failure (never on the hot job-pull path).
 ///
-/// Returns `true` if a retry was enqueued. Must be called while the failed job's
-/// queue row still exists (before it is moved to `v2_job_completed`), since the
-/// attempt counter is read from that row.
+/// Returns `true` if a retry was enqueued.
+///
+/// Authorization: this performs no auth check by design. It is `pub` only so the
+/// integration test can reach it; the sole production caller is the worker
+/// job-completion path (`add_completed_job`), which passes a `MiniCompletedJob`
+/// built from a real, already-persisted completed job — its workspace/identity
+/// fields come from the DB, not from request input. Callers MUST uphold this:
+/// never invoke it with caller-supplied or unauthorized job identity.
 /// Evaluate a `retry_if` JS expression. `result`/`previous_result` are the
 /// failure output and `flow_input` the job args. Defaults to retrying on eval
 /// error (an unevaluable gate shouldn't silently swallow retries).

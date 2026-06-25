@@ -3,6 +3,9 @@ mod schedule_push {
     use sqlx::{Pool, Postgres};
     use windmill_common::db::Authed;
     use windmill_common::jobs::{JobKind, JobTriggerKind};
+    use windmill_common::runnable_settings::{
+        from_handle, insert_rs, ConcurrencySettings, RunnableSettings, RunnableSettingsTrait,
+    };
     use windmill_common::schedule::Schedule;
     use windmill_common::scripts::ScriptHash;
     use windmill_common::users::username_to_permissioned_as;
@@ -244,6 +247,66 @@ mod schedule_push {
         assert!(
             handle.is_some(),
             "retry policy carried via runnable_settings_handle"
+        );
+        Ok(())
+    }
+
+    // A scheduled, concurrency-limited script with a retry policy: the materialized
+    // root attempt's handle must resolve to BOTH the retry policy and the script's
+    // concurrency settings — otherwise the retry chain runs unbounded. Regression: P1.
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_push_script_with_retry_keeps_concurrency(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let concurrency = ConcurrencySettings {
+            concurrency_key: Some("f/system/test_script".to_string()),
+            concurrent_limit: Some(1),
+            concurrency_time_window_s: Some(60),
+        };
+        let script_handle = insert_rs(
+            RunnableSettings {
+                debouncing_settings: None,
+                concurrency_settings: concurrency.insert_cached(&db).await?,
+                retry_settings: None,
+            },
+            &db,
+        )
+        .await?;
+        sqlx::query(
+            "UPDATE script SET runnable_settings_handle = $1 WHERE workspace_id = 'test-workspace' AND path = 'f/system/test_script'",
+        )
+        .bind(script_handle)
+        .execute(&db)
+        .await?;
+
+        let schedule = make_schedule(|s| {
+            s.retry = Some(serde_json::json!({ "constant": { "attempts": 3, "seconds": 10 } }));
+        });
+        let authed = make_authed();
+        let tx = db.begin().await?;
+        let tx = push_scheduled_job(&db, tx, &schedule, Some(&authed), None).await?;
+        tx.commit().await?;
+
+        let handle = sqlx::query_scalar::<_, Option<i64>>(
+            "SELECT q.runnable_settings_handle FROM v2_job j JOIN v2_job_queue q ON j.id = q.id LIMIT 1",
+        )
+        .fetch_one(&db)
+        .await?;
+        let rs = from_handle(handle, &db).await?;
+        assert!(
+            rs.retry_settings.is_some(),
+            "root attempt carries the retry policy"
+        );
+        let resolved = ConcurrencySettings::get(
+            rs.concurrency_settings
+                .expect("root attempt must carry concurrency settings, not just retry"),
+            &db,
+        )
+        .await?;
+        assert_eq!(resolved.concurrent_limit, Some(1));
+        assert_eq!(
+            resolved.concurrency_key.as_deref(),
+            Some("f/system/test_script")
         );
         Ok(())
     }
