@@ -1792,6 +1792,16 @@ pub async fn maybe_enqueue_native_script_retry(
     {
         return Ok(true);
     }
+    // Carry forward the failed attempt's concurrency/debouncing settings (same
+    // runnable_settings_handle as the retry policy) so a retry of a concurrency-
+    // limited script still inserts its concurrency_key and respects the limit,
+    // rather than running unbounded with only the retry policy.
+    let (debouncing_settings, concurrency_settings) =
+        windmill_common::runnable_settings::prefetch_cached_from_handle(
+            job.runnable_settings_handle,
+            db,
+        )
+        .await?;
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
     let (new_id, mut tx) = match push(
         db,
@@ -1813,8 +1823,8 @@ pub async fn maybe_enqueue_native_script_retry(
             tag_override: Some(job.tag.clone()),
             trigger_path: None,
             apply_preprocessor: false,
-            concurrency_settings: ConcurrencySettings::default(),
-            debouncing_settings: DebouncingSettings::default(),
+            concurrency_settings,
+            debouncing_settings,
         },
         PushArgs::from(&args.0),
         &job.created_by,

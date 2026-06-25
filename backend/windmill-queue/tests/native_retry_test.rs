@@ -9,7 +9,8 @@ mod native_retry {
     use windmill_common::flows::{ConstantDelay, Retry};
     use windmill_common::jobs::{JobKind, JobTriggerKind};
     use windmill_common::runnable_settings::{
-        insert_rs, RetrySettings, RunnableSettings, RunnableSettingsTrait,
+        from_handle, insert_rs, ConcurrencySettings, RetrySettings, RunnableSettings,
+        RunnableSettingsTrait,
     };
     use windmill_common::scripts::{ScriptHash, ScriptLang};
     use windmill_common::users::username_to_permissioned_as;
@@ -191,6 +192,58 @@ mod native_retry {
             count_retries(&db, root_id).await,
             0,
             "canceled job must not retry"
+        );
+        Ok(())
+    }
+
+    // A concurrency-limited script that also retries must carry its concurrency
+    // settings into each retry, otherwise the retry runs unbounded. Regression: P1.
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn retry_preserves_concurrency_settings(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let retry = Retry {
+            constant: ConstantDelay { attempts: 1, seconds: 0 },
+            exponential: Default::default(),
+            retry_if: None,
+        };
+        let concurrency = ConcurrencySettings {
+            concurrency_key: Some("f/system/test_script".to_string()),
+            concurrent_limit: Some(1),
+            concurrency_time_window_s: Some(60),
+        };
+        let handle = insert_rs(
+            RunnableSettings {
+                debouncing_settings: None,
+                concurrency_settings: concurrency.insert_cached(&db).await?,
+                retry_settings: RetrySettings::from(&retry).insert_cached(&db).await?,
+            },
+            &db,
+        )
+        .await?;
+
+        let root_id = Uuid::new_v4();
+        let root = mini(root_id, None, handle);
+        assert!(maybe_enqueue_native_script_retry(&db, &root, &None, &no_result).await?);
+
+        let (_id, _kind, _parent, _backoff, r1_handle) = retry_by_attempt(&db, root_id, 1)
+            .await
+            .expect("retry attempt 1 exists");
+        // The retry's own handle must resolve to the same concurrency settings, not
+        // just the retry policy — otherwise it would run with no concurrency_key.
+        let rs = from_handle(r1_handle, &db).await?;
+        let resolved = ConcurrencySettings::get(
+            rs.concurrency_settings
+                .expect("retry must carry concurrency settings forward"),
+            &db,
+        )
+        .await?;
+        assert_eq!(
+            resolved.concurrency_key.as_deref(),
+            Some("f/system/test_script")
+        );
+        assert_eq!(resolved.concurrent_limit, Some(1));
+        assert!(
+            rs.retry_settings.is_some(),
+            "retry policy is still carried for further chaining"
         );
         Ok(())
     }
