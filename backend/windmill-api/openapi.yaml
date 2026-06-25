@@ -1119,7 +1119,9 @@ paths:
               properties:
                 dev_workspace_id:
                   type: string
-                lock_prod:
+                lock_prod_deploy:
+                  type: boolean
+                lock_prod_forking:
                   type: boolean
               required:
                 - dev_workspace_id
@@ -27429,9 +27431,12 @@ components:
         is_dev_workspace:
           type: boolean
           description: "Create the fork as a persistent dev workspace (id not required to carry the wm-fork- prefix; at most one per parent)"
-        lock_prod:
+        lock_prod_deploy:
           type: boolean
-          description: "When creating a dev workspace, also lock the parent (prod) against direct deployment"
+          description: "When creating a dev workspace, lock the parent (prod) against direct deployment"
+        lock_prod_forking:
+          type: boolean
+          description: "When creating a dev workspace, prevent forking the parent (prod)"
       required:
         - id
         - name

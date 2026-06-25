@@ -17,7 +17,8 @@
 	let canonicalDev = $derived(findCanonicalDevWorkspace($workspaceStore, $userWorkspaces))
 
 	let selectedDevId = $state<string | undefined>(undefined)
-	let lockProd = $state(true)
+	let lockProdDeploy = $state(true)
+	let lockProdForking = $state(true)
 	let busy = $state(false)
 
 	// Only standalone root workspaces (not already a fork/dev of something) can be attached.
@@ -37,7 +38,11 @@
 		try {
 			await WorkspaceService.attachDevWorkspace({
 				workspace: $workspaceStore,
-				requestBody: { dev_workspace_id: selectedDevId, lock_prod: lockProd }
+				requestBody: {
+					dev_workspace_id: selectedDevId,
+					lock_prod_deploy: lockProdDeploy,
+					lock_prod_forking: lockProdForking
+				}
 			})
 			sendUserToast(`Attached ${selectedDevId} as dev workspace`)
 			selectedDevId = undefined
@@ -116,8 +121,14 @@
 			/>
 		</div>
 		<Toggle
-			bind:checked={lockProd}
-			options={{ right: 'Lock this (prod) workspace and redirect its edits to the dev workspace' }}
+			bind:checked={lockProdDeploy}
+			options={{
+				right: 'Block direct edits in this (prod) workspace (deploy via the dev workspace)'
+			}}
+		/>
+		<Toggle
+			bind:checked={lockProdForking}
+			options={{ right: 'Prevent forking this (prod) workspace' }}
 		/>
 		<div class="flex gap-2">
 			<Button variant="accent" disabled={busy || !selectedDevId} onclick={attach}>

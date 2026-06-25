@@ -47,7 +47,8 @@
 	// Dev-workspace mode: create the fork as a persistent, prefix-less dev workspace and (optionally)
 	// lock the parent ("prod") against direct edits.
 	let createAsDevWorkspace = $state(false)
-	let lockProd = $state(true)
+	let lockProdDeploy = $state(true)
+	let lockProdForking = $state(true)
 
 	// The dev-workspace option is only offered when forking a root workspace that doesn't already
 	// have one: a workspace gets at most one dev, and dev workspaces don't nest (a dev of a dev).
@@ -257,7 +258,8 @@
 					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
 					forked_datatables: forkedDatatables,
 					is_dev_workspace: createAsDevWorkspace,
-					lock_prod: createAsDevWorkspace && lockProd
+					lock_prod_deploy: createAsDevWorkspace && lockProdDeploy,
+					lock_prod_forking: createAsDevWorkspace && lockProdForking
 				}
 			})
 		} catch (e) {
@@ -505,9 +507,10 @@
 						<Toggle bind:checked={createAsDevWorkspace} options={{ right: 'Dev workspace' }} />
 						{#if createAsDevWorkspace}
 							<Toggle
-								bind:checked={lockProd}
-								options={{ right: 'Lock prod and redirect its edits to this dev workspace' }}
+								bind:checked={lockProdDeploy}
+								options={{ right: 'Block direct edits in prod (deploy via this dev workspace)' }}
 							/>
+							<Toggle bind:checked={lockProdForking} options={{ right: 'Prevent forking prod' }} />
 						{/if}
 					</div>
 				</Label>

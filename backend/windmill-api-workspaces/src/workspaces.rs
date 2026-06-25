@@ -447,10 +447,12 @@ struct CreateWorkspaceFork {
     /// `wm-fork-` prefix, and at most one dev workspace may exist per parent.
     #[serde(default)]
     is_dev_workspace: bool,
-    /// When creating a dev workspace, also lock the parent ("prod") against direct deployment so
-    /// edits are funneled through the dev workspace.
+    /// When creating a dev workspace, lock the parent ("prod") against direct deployment and/or
+    /// ad-hoc forking, so edits are funneled through the dev workspace.
     #[serde(default)]
-    lock_prod: bool,
+    lock_prod_deploy: bool,
+    #[serde(default)]
+    lock_prod_forking: bool,
 }
 
 #[derive(Deserialize)]
@@ -5082,7 +5084,7 @@ async fn create_workspace_fork(
         ensure_dev_parent_is_root(&db, &parent_workspace_id).await?;
         // Locking prod mutates the parent's protection rules, which is an admin-only action
         // everywhere else; gate it the same way here so forking can't be used to escalate.
-        if nw.lock_prod {
+        if nw.lock_prod_deploy || nw.lock_prod_forking {
             require_admin(authed.is_admin, &authed.username)?;
         }
         ensure_no_existing_dev_workspace(&db, &parent_workspace_id).await?;
@@ -5143,9 +5145,15 @@ async fn create_workspace_fork(
     }
 
     // Lock the parent ("prod") so edits are funneled through this dev workspace.
-    let locked_prod = nw.is_dev_workspace && nw.lock_prod;
+    let locked_prod = nw.is_dev_workspace && (nw.lock_prod_deploy || nw.lock_prod_forking);
     if locked_prod {
-        lock_prod_workspace(&mut tx, &parent_workspace_id).await?;
+        lock_prod_workspace(
+            &mut tx,
+            &parent_workspace_id,
+            nw.lock_prod_deploy,
+            nw.lock_prod_forking,
+        )
+        .await?;
     }
 
     audit_log(
@@ -5171,7 +5179,9 @@ async fn create_workspace_fork(
 struct AttachDevWorkspace {
     dev_workspace_id: String,
     #[serde(default)]
-    lock_prod: bool,
+    lock_prod_deploy: bool,
+    #[serde(default)]
+    lock_prod_forking: bool,
 }
 
 #[derive(Deserialize)]
@@ -5275,8 +5285,14 @@ async fn attach_dev_workspace(
     .execute(&mut *tx)
     .await?;
 
-    if req.lock_prod {
-        lock_prod_workspace(&mut tx, &prod_w_id).await?;
+    if req.lock_prod_deploy || req.lock_prod_forking {
+        lock_prod_workspace(
+            &mut tx,
+            &prod_w_id,
+            req.lock_prod_deploy,
+            req.lock_prod_forking,
+        )
+        .await?;
     }
 
     audit_log(
@@ -5291,7 +5307,7 @@ async fn attach_dev_workspace(
     .await?;
     tx.commit().await?;
 
-    if req.lock_prod {
+    if req.lock_prod_deploy || req.lock_prod_forking {
         windmill_common::workspaces::invalidate_protection_rules_cache(&prod_w_id);
     }
 
@@ -6398,18 +6414,30 @@ async fn upsert_protection_rule(
     Ok(())
 }
 
-/// Lock a prod workspace by applying the reserved dev-workspace lock rule. It disables both direct
-/// deployment and ad-hoc forking, so non-admins are funneled through the one dev workspace; admins
-/// bypass both (their existing escape hatch).
-async fn lock_prod_workspace(tx: &mut Transaction<'_, Postgres>, prod_w_id: &str) -> Result<()> {
+/// Lock a prod workspace by applying the reserved dev-workspace lock rule with the selected
+/// restrictions (block direct deployment and/or ad-hoc forking). Non-admins are then funneled
+/// through the one dev workspace; admins bypass the rules (their existing escape hatch).
+async fn lock_prod_workspace(
+    tx: &mut Transaction<'_, Postgres>,
+    prod_w_id: &str,
+    block_deploy: bool,
+    block_forking: bool,
+) -> Result<()> {
+    let mut rules = Vec::new();
+    if block_deploy {
+        rules.push(ProtectionRuleKind::DisableDirectDeployment);
+    }
+    if block_forking {
+        rules.push(ProtectionRuleKind::DisableWorkspaceForking);
+    }
+    if rules.is_empty() {
+        return Ok(());
+    }
     upsert_protection_rule(
         tx,
         prod_w_id,
         DEV_WORKSPACE_LOCK_RULE_NAME,
-        ProtectionRules::from(&vec![
-            ProtectionRuleKind::DisableDirectDeployment,
-            ProtectionRuleKind::DisableWorkspaceForking,
-        ]),
+        ProtectionRules::from(&rules),
         &[],
         &[],
     )
