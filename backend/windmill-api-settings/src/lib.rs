@@ -1275,8 +1275,8 @@ async fn setup_custom_instance_pg_database_inner(
     // Validate name to ensure it only contains alphanumeric characters
     // Prevents SQL injection on the instance database
     lazy_static::lazy_static! {
-        // Must start with a letter, then alphanumeric/underscore
-        static ref VALID_NAME: regex::Regex = regex::Regex::new(r"^[a-zA-Z][a-zA-Z0-9_]*$").unwrap();
+        // Must start with a letter, then alphanumeric/underscore/hyphen
+        static ref VALID_NAME: regex::Regex = regex::Regex::new(r"^[a-zA-Z][a-zA-Z0-9_-]*$").unwrap();
     }
     let dbname = dbname.trim();
     if dbname.is_empty() {
@@ -1292,7 +1292,7 @@ async fn setup_custom_instance_pg_database_inner(
     }
     if !VALID_NAME.is_match(dbname) {
         return Err(error::Error::BadRequest(
-            "Database name must start with a letter and contain only alphanumeric characters or underscores".to_string(),
+            "Database name must start with a letter and contain only alphanumeric characters, underscores, or hyphens".to_string(),
         ));
     }
     // Additional check: block PostgreSQL reserved/special names

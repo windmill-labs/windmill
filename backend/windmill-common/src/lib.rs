@@ -811,7 +811,7 @@ impl PgDatabase {
 }
 
 /// Validate a database name to prevent SQL injection.
-/// Must start with a letter, contain only alphanumeric characters or underscores, and be <= 63 chars.
+/// Must start with a letter, contain only alphanumeric characters, underscores, or hyphens, and be <= 63 chars.
 pub fn validate_dbname(dbname: &str) -> error::Result<()> {
     let dbname = dbname.trim();
     if dbname.is_empty() {
@@ -835,10 +835,11 @@ pub fn validate_dbname(dbname: &str) -> error::Result<()> {
     }
     if !dbname
         .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     {
         return Err(error::Error::BadRequest(
-            "Database name must contain only alphanumeric characters or underscores".to_string(),
+            "Database name must contain only alphanumeric characters, underscores, or hyphens"
+                .to_string(),
         ));
     }
     Ok(())
