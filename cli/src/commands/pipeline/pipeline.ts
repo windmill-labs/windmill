@@ -391,8 +391,15 @@ async function run(
     throw new Error(`--to could not be resolved: ${details.join("; ")}.`);
   }
 
+  // Readable label for a node id: `script:<path>` → `<path>`; asset ids
+  // (`<kind>:<path>`) are kept verbatim (slicing `script:` off them corrupts
+  // the name).
+  const idLabel = (id: string): string => (id.startsWith("script:") ? scriptPathOf(id) : id);
+
   const dag = buildLineageDag(graph);
   let selectedScripts: Set<string>;
+  let reachableEnds: string[] = [];
+  let droppedEnds: string[] = [];
   if (ends.length === 0) {
     // No bound → full read-aware downstream of start (pure readers included).
     const all = new Set(descendants(dag, start));
@@ -400,12 +407,10 @@ async function run(
     selectedScripts = new Set(scriptsOf(all));
   } else {
     const res = boundedSet(dag, start, ends);
-    for (const d of res.droppedEnds) {
-      // `d` is a node id: `script:<path>` for runnables, `<kind>:<path>` for
-      // assets. Only strip the `script:` prefix from runnables — slicing it off
-      // an asset id (e.g. `datatable:main/raw`) would corrupt the name.
-      const label = d.startsWith("script:") ? scriptPathOf(d) : d;
-      log.warn(`end '${label}' is not downstream of the start — ignored.`);
+    reachableEnds = res.reachableEnds;
+    droppedEnds = res.droppedEnds;
+    for (const d of droppedEnds) {
+      log.warn(`end '${idLabel(d)}' is not downstream of the start — ignored.`);
     }
     selectedScripts = new Set(scriptsOf(res.nodes));
   }
@@ -416,10 +421,15 @@ async function run(
   }
 
   if (opts.json) {
+    // Surface reachable/dropped ends so a machine-readable plan reflects the
+    // same trimming the human-facing warning does — a resolved-but-unreachable
+    // `--to` must not look like a clean plan that silently runs only the start.
     console.log(
       JSON.stringify({
         start: scriptPathOf(start),
-        ends: ends.map((e) => (e.startsWith("script:") ? scriptPathOf(e) : e)),
+        ends: ends.map(idLabel),
+        reachableEnds: reachableEnds.map(idLabel),
+        droppedEnds: droppedEnds.map(idLabel),
         order,
         cyclic,
       }),

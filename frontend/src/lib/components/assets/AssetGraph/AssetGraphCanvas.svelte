@@ -415,7 +415,13 @@
 				kind: TriggerNodeKind
 				ref: string
 				missing: boolean
+				// First target script (drives the per-script create/edit flows).
 				runnable_path?: string
+				// Every target script: a single (kind, ref) — e.g. one schedule —
+				// can be shared across scripts and dedupes to one node with N
+				// edges. The bounded-run action must consider all of them, not
+				// just the first.
+				runnable_paths: string[]
 			}
 		>()
 		function recordSourceTrigger(
@@ -428,9 +434,19 @@
 		) {
 			const prev = triggerSourceNodes.get(id)
 			if (!prev) {
-				triggerSourceNodes.set(id, { allUnsaved: unsaved, kind, ref, missing, runnable_path })
+				triggerSourceNodes.set(id, {
+					allUnsaved: unsaved,
+					kind,
+					ref,
+					missing,
+					runnable_path,
+					runnable_paths: runnable_path ? [runnable_path] : []
+				})
 			} else {
 				prev.allUnsaved = prev.allUnsaved && unsaved
+				if (runnable_path && !prev.runnable_paths.includes(runnable_path)) {
+					prev.runnable_paths.push(runnable_path)
+				}
 			}
 		}
 
@@ -489,6 +505,14 @@
 			})
 		}
 		for (const [id, info] of triggerSourceNodes) {
+			// Bounded-run targets among this trigger's scripts: valid starts that
+			// also have read-aware downstream. A shared schedule may have several
+			// targets; only offer the action when exactly one qualifies, so the
+			// run starts from an unambiguous script (rather than the arbitrary
+			// first-seen one). Multi-eligible nodes suppress it rather than guess.
+			const eligibleStarts = onStartBoundedRun
+				? info.runnable_paths.filter((p) => validStartPaths?.has(p) && hasLineageDownstream.has(p))
+				: []
 			nodes.push({
 				id,
 				type: 'trigger',
@@ -507,13 +531,11 @@
 					onOpenWebhook,
 					onOpenDataUpload,
 					// View-mode bounded-run entry: offer it on the trigger node
-					// when its target script is a valid start with downstream.
+					// when exactly one target script is a valid start with
+					// downstream (see eligibleStarts above).
 					onStartBoundedRun:
-						info.runnable_path &&
-						onStartBoundedRun &&
-						validStartPaths?.has(info.runnable_path) &&
-						hasLineageDownstream.has(info.runnable_path)
-							? () => onStartBoundedRun(info.runnable_path!)
+						onStartBoundedRun && eligibleStarts.length === 1
+							? () => onStartBoundedRun(eligibleStarts[0])
 							: undefined
 				}
 			})
