@@ -167,6 +167,11 @@ pub enum ObjectType {
 
 pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28261/sync-script-to-git-repo-windmill";
 
+/// Hub script that applies a repository's state back into a workspace
+/// (the repo → Windmill / "pull" direction). Same script the UI runs from
+/// `PullWorkspaceModal` with `pull: true`; the slug's `:` is percent-encoded.
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28229/git-sync%3A-init-repository-windmill";
+
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
 pub const WM_FORK_PREFIX: &str = "wm-fork-";
@@ -250,6 +255,11 @@ pub struct GitRepositorySettings {
     pub group_by_folder: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<GitSyncSettings>,
+    /// Configuration for automatically pulling changes from the git repository
+    /// back into the workspace (repo → Windmill direction). Absent means the
+    /// reverse direction is not automated (the historical behaviour).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_pull: Option<AutoPullSettings>,
 }
 
 impl GitRepositorySettings {
@@ -278,6 +288,93 @@ impl GitRepositorySettings {
             });
 
         Ok(current >= min_version) // this works on assumption that all scripts in hub have sequential ids
+    }
+}
+
+/// How auto-pull triggers are delivered for a repository.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AutoPullMode {
+    /// Try to create a repo webhook; fall back to polling if the instance is not
+    /// reachable from GitHub or the app lacks the webhook permission.
+    #[default]
+    Auto,
+    /// Webhook delivery only (no polling fallback).
+    Webhook,
+    /// Polling only (`git ls-remote` on an interval).
+    Polling,
+}
+
+/// Outcome of the most recent auto-pull attempt, surfaced in the UI.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AutoPullStatus {
+    /// Commit sha the workspace was last synced to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub synced_sha: Option<String>,
+    /// Unix timestamp (seconds) of the attempt.
+    pub at: i64,
+    /// Job id of the pull run, if one was enqueued.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_id: Option<uuid::Uuid>,
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Per-repository configuration for automatic repo → Windmill pull sync.
+///
+/// Stored inside `GitRepositorySettings` (workspace_settings.git_sync JSONB).
+/// Webhook fields are populated in phase 2; phase 1 exercises the polling path
+/// only, but the full shape is defined up front to avoid a second schema change.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AutoPullSettings {
+    pub enabled: bool,
+    #[serde(default)]
+    pub mode: AutoPullMode,
+    /// Polling interval in seconds. Defaults to `DEFAULT_AUTO_PULL_POLL_INTERVAL_S`
+    /// when polling without an active webhook, relaxed once a webhook is live.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub poll_interval_s: Option<u32>,
+    /// GitHub repository webhook id (managed-app, phase 2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_id: Option<i64>,
+    /// HMAC secret for the repo webhook, encrypted at rest (managed-app, phase 2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_secret: Option<String>,
+    /// Last synced commit sha per tracked git ref (e.g. `refs/heads/main`).
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub last_synced_sha: std::collections::HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_pull_status: Option<AutoPullStatus>,
+}
+
+/// Default polling interval when a webhook is not active.
+pub const DEFAULT_AUTO_PULL_POLL_INTERVAL_S: u32 = 60;
+
+/// Relaxed polling interval used as a safety net while a webhook is active.
+pub const WEBHOOK_AUTO_PULL_POLL_INTERVAL_S: u32 = 600;
+
+impl AutoPullSettings {
+    /// Effective polling interval in seconds, honouring the explicit override and
+    /// relaxing to `WEBHOOK_AUTO_PULL_POLL_INTERVAL_S` when a webhook is live.
+    pub fn effective_poll_interval_s(&self) -> u32 {
+        self.poll_interval_s.unwrap_or_else(|| {
+            if self.webhook_id.is_some() {
+                WEBHOOK_AUTO_PULL_POLL_INTERVAL_S
+            } else {
+                DEFAULT_AUTO_PULL_POLL_INTERVAL_S
+            }
+        })
+    }
+
+    /// Whether a freshly observed `(git_ref, head_sha)` warrants enqueuing a pull.
+    ///
+    /// A trigger (poll or webhook) is only a hint: we pull when auto-pull is
+    /// enabled and the observed head differs from the last sha we synced for
+    /// that ref. Re-observing the same head (e.g. a redundant poll, or the
+    /// commit our own deploy callback just pushed back) is a no-op.
+    pub fn should_pull(&self, git_ref: &str, head_sha: &str) -> bool {
+        self.enabled && self.last_synced_sha.get(git_ref).map(String::as_str) != Some(head_sha)
     }
 }
 
@@ -794,5 +891,56 @@ mod tests {
     fn test_validate_fork_workspace_id_rejects_too_long() {
         let long_id = format!("wm-fork-{}", "a".repeat(43));
         assert!(validate_fork_workspace_id(&long_id).is_err());
+    }
+
+    fn auto_pull(enabled: bool, synced: &[(&str, &str)]) -> AutoPullSettings {
+        AutoPullSettings {
+            enabled,
+            mode: AutoPullMode::Auto,
+            poll_interval_s: None,
+            webhook_id: None,
+            webhook_secret: None,
+            last_synced_sha: synced
+                .iter()
+                .map(|(r, s)| (r.to_string(), s.to_string()))
+                .collect(),
+            last_pull_status: None,
+        }
+    }
+
+    #[test]
+    fn test_should_pull_on_new_or_changed_sha() {
+        let s = auto_pull(true, &[("refs/heads/main", "aaa")]);
+        // unchanged head → no pull
+        assert!(!s.should_pull("refs/heads/main", "aaa"));
+        // moved head → pull
+        assert!(s.should_pull("refs/heads/main", "bbb"));
+        // never-seen ref → pull
+        assert!(s.should_pull("refs/heads/dev", "ccc"));
+    }
+
+    #[test]
+    fn test_should_pull_respects_enabled_flag() {
+        let s = auto_pull(false, &[]);
+        assert!(!s.should_pull("refs/heads/main", "bbb"));
+    }
+
+    #[test]
+    fn test_effective_poll_interval() {
+        let mut s = auto_pull(true, &[]);
+        assert_eq!(
+            s.effective_poll_interval_s(),
+            DEFAULT_AUTO_PULL_POLL_INTERVAL_S
+        );
+        // explicit override wins
+        s.poll_interval_s = Some(15);
+        assert_eq!(s.effective_poll_interval_s(), 15);
+        // with a live webhook and no override, relax to the webhook interval
+        s.poll_interval_s = None;
+        s.webhook_id = Some(42);
+        assert_eq!(
+            s.effective_poll_interval_s(),
+            WEBHOOK_AUTO_PULL_POLL_INTERVAL_S
+        );
     }
 }

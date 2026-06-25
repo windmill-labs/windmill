@@ -14,7 +14,8 @@ pub mod git_sync_oss;
 
 #[cfg(feature = "private")]
 pub use git_sync_ee::{
-    handle_deployment_metadata, handle_deployment_metadata_batch, handle_fork_branch_creation,
+    enqueue_git_pull_job, handle_deployment_metadata, handle_deployment_metadata_batch,
+    handle_fork_branch_creation,
 };
 
 #[cfg(not(feature = "private"))]
