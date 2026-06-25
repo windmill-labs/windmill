@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT dk.job_id, COALESCE(q.running, false) AS \"running!\"\n         FROM debounce_key dk\n         LEFT JOIN v2_job_queue q ON q.id = dk.job_id\n         WHERE dk.key = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "running!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "c91cb3e73d160b65bc2a055d279d17d07a743969a3a0e47abed3539e10c35bf5"
+}

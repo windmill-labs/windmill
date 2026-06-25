@@ -4470,6 +4470,21 @@ mod debounce {
         );
         assert_eq!(times, 1, "single fresh window with one debounce");
 
+        // Both late arrivals must share a batch: when the survivor is pulled, its
+        // accumulation must include the debounced arrival's items, not just its own.
+        let survivor_args = serde_json::json!({ "items": [if j3q { 3 } else { 4 }] });
+        let mut survivor_res = make_pulled_job_result(
+            survivor,
+            "test-workspace",
+            "f/test/script",
+            &survivor_args,
+            JobKind::Script,
+            "deno",
+            rs_handle,
+        );
+        survivor_res.maybe_apply_debouncing(&db).await?;
+        assert_accumulated_items(&survivor_res, &[3, 4], "items");
+
         Ok(())
     }
 
