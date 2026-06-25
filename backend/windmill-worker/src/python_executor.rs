@@ -2367,6 +2367,35 @@ async fn verify_wheel_record(venv_p: &str) -> Result<(), String> {
     }
 }
 
+lazy_static::lazy_static! {
+    /// Per-target-directory install locks. The wheel cache
+    /// (`ROOT_CACHE_DIR/python_<v>/<pkg>==<ver>`) is shared by every job on a
+    /// worker, and `uv pip install --reinstall --target <dir>` transiently
+    /// empties that directory while it runs. Two jobs installing the same
+    /// package concurrently would clobber each other's files — and a job that
+    /// imports from the dir mid-reinstall hits a flaky `ModuleNotFoundError`
+    /// (e.g. wmill's `httpx` vanishing during a WAC run). We serialize installs
+    /// per target dir and re-check the `.valid.windmill` marker once the lock is
+    /// held, so a waiter reuses the freshly populated cache instead of
+    /// reinstalling over it.
+    static ref PY_INSTALL_LOCKS: std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>> =
+        std::sync::Mutex::new(HashMap::new());
+}
+
+/// Returns the install lock guarding `venv_p`, creating it on first use.
+fn py_install_lock_for(venv_p: &str) -> Arc<tokio::sync::Mutex<()>> {
+    let mut locks = PY_INSTALL_LOCKS.lock().unwrap();
+    locks
+        .entry(venv_p.to_string())
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone()
+}
+
+/// A venv dir is usable iff its install wrote the `.valid.windmill` marker.
+async fn is_venv_valid(venv_p: &str) -> bool {
+    metadata(format!("{venv_p}/.valid.windmill")).await.is_ok()
+}
+
 /// uv pip install, include cached or pull from S3
 pub async fn handle_python_reqs(
     requirements: Vec<String>,
@@ -2726,6 +2755,34 @@ pub async fn handle_python_reqs(
             );
 
             let start = std::time::Instant::now();
+
+            // Serialize population of this shared cache dir against other jobs.
+            // `--reinstall` (and the S3 tar extraction below) rewrite `venv_p` in
+            // place, so a concurrent installer must not run while another job is
+            // still populating it.
+            let install_lock = py_install_lock_for(&venv_p);
+            let _install_guard = install_lock.lock().await;
+            // Another job may have finished the install while we waited on the
+            // lock — reuse its result instead of reinstalling over a dir other
+            // jobs may now be importing from.
+            if is_venv_valid(&venv_p).await {
+                print_success(
+                    false,
+                    false,
+                    &job_id,
+                    &w_id,
+                    &req,
+                    req_tl,
+                    counter_arc,
+                    total_to_install,
+                    start,
+                    &conn,
+                )
+                .await;
+                pids.lock().await.get_mut(i).and_then(|e| e.take());
+                return Ok(());
+            }
+
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
             if is_not_pro {
                 if let Some(os) = windmill_object_store::get_object_store().await {
@@ -3311,6 +3368,36 @@ pub async fn start_worker(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn py_install_lock_serializes_same_target_only() {
+        // The shared wheel cache race fix relies on: same target dir -> same lock
+        // (serialized installs), different target dir -> independent locks. If this
+        // keying ever regresses, concurrent `--reinstall` could clobber a dir a job
+        // is importing from, reintroducing the flaky ModuleNotFoundError.
+        let a1 = py_install_lock_for("/cache/python_3_12/wmill==1.0.0");
+        let a2 = py_install_lock_for("/cache/python_3_12/wmill==1.0.0");
+        let b = py_install_lock_for("/cache/python_3_12/httpx==0.27.0");
+
+        assert!(
+            Arc::ptr_eq(&a1, &a2),
+            "same target dir must share one install lock"
+        );
+        assert!(
+            !Arc::ptr_eq(&a1, &b),
+            "different target dirs must use independent install locks"
+        );
+
+        let _held = a1.lock().await;
+        assert!(
+            a2.try_lock().is_err(),
+            "installs into the same target dir must be mutually exclusive"
+        );
+        assert!(
+            b.try_lock().is_ok(),
+            "installs into different target dirs must not block each other"
+        );
+    }
 
     #[test]
     fn test_compute_python_module_dir_nested_path() {
