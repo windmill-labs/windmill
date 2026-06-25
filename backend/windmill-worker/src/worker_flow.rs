@@ -366,6 +366,17 @@ async fn evaluate_stop_after_all_iters_if(
     flow: uuid::Uuid,
     status: &FlowStatus,
 ) -> error::Result<()> {
+    // Test hook (see test_stop_after_all_iters_if_db_error_isolated_by_savepoint):
+    // run a query that aborts this (savepoint) transaction so the test can verify the
+    // caller's savepoint keeps the outer status-update transaction committable.
+    #[cfg(feature = "failpoints")]
+    if stop_after_all_iters_if.expr == "__wm_failpoint_abort_tx__" {
+        sqlx::query("SELECT 1/0")
+            .execute(&mut **tx)
+            .await
+            .map_err(|e| Error::internal_err(format!("failpoint abort_tx: {e:#}")))?;
+    }
+
     let iters_result = match &module_status {
         FlowStatusModule::InProgress { flow_jobs: Some(flow_jobs), .. } => {
             Arc::new(retrieve_flow_jobs_results(&mut **tx, w_id, flow_jobs).await?)
