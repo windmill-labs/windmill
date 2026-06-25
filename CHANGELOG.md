@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.740.0](https://github.com/windmill-labs/windmill/compare/v1.739.0...v1.740.0) (2026-06-25)
+
+
+### Features
+
+* **api:** add structured endpoint for flow logs ([#9797](https://github.com/windmill-labs/windmill/issues/9797)) ([ba768fe](https://github.com/windmill-labs/windmill/commit/ba768fee888682cb50142d6e76c0422c40307f46))
+* bounded-cascade selective execution for pipelines (UI + CLI) ([#9695](https://github.com/windmill-labs/windmill/issues/9695)) ([248540a](https://github.com/windmill-labs/windmill/commit/248540ac4d6e4ee9ee7c3e6f2cc822c63cc6426e))
+* data tests for ducklake pipeline materialization ([#9708](https://github.com/windmill-labs/windmill/issues/9708)) ([f6998ec](https://github.com/windmill-labs/windmill/commit/f6998ec54cba2507703790bf33427e7567d42c4b))
+* detect and guard against deploying stale drafts ([#9768](https://github.com/windmill-labs/windmill/issues/9768)) ([d865518](https://github.com/windmill-labs/windmill/commit/d8655189347f58df9d17e83dc55798baf7964279))
+* ducklake time-travel UX (snapshot history + AT VERSION reads) ([#9709](https://github.com/windmill-labs/windmill/issues/9709)) ([d131d75](https://github.com/windmill-labs/windmill/commit/d131d754e1fc9674abf5de383d2bc93596df9bd1))
+* self-host docs search for chat, mcp, cli; drop inkeep ([#9772](https://github.com/windmill-labs/windmill/issues/9772)) ([9d61e4e](https://github.com/windmill-labs/windmill/commit/9d61e4e59e4101de84217f7c7846f1aa94e84d89))
+
+
+### Bug Fixes
+
+* allow hyphens in postgresql database name validation ([#9782](https://github.com/windmill-labs/windmill/issues/9782)) ([170cd79](https://github.com/windmill-labs/windmill/commit/170cd79aaf92152fc3c0f675f155853c7f0e5b25))
+* **debounce:** never supersede a running debounce survivor ([#9780](https://github.com/windmill-labs/windmill/issues/9780)) ([5549bdc](https://github.com/windmill-labs/windmill/commit/5549bdc67a5559a764616c44b1018543bc0568fe))
+* decrypt secret variables via external backend in common resolvers ([#9784](https://github.com/windmill-labs/windmill/issues/9784)) ([cd42c6c](https://github.com/windmill-labs/windmill/commit/cd42c6ca18261328055554788932c3fe876a4a5b))
+* enforce containment of python module dir for preview jobs ([#9704](https://github.com/windmill-labs/windmill/issues/9704)) ([88fca6a](https://github.com/windmill-labs/windmill/commit/88fca6a8c130b9e3b0f0cd410e422d4e074fc11f))
+* **frontend:** apply script editor timeout to preview/Test runs ([#9794](https://github.com/windmill-labs/windmill/issues/9794)) ([6664ce6](https://github.com/windmill-labs/windmill/commit/6664ce6dc0c5fbc283303148de06d6bb85e4acf7))
+* **frontend:** nested-loop "Test this step" resolves iter to innermost loop ([#9778](https://github.com/windmill-labs/windmill/issues/9778)) ([74ebfc6](https://github.com/windmill-labs/windmill/commit/74ebfc67f069047875db738926865bd4bd6fe9e9))
+* opt out of Deno minimum-dependency-age for private npm registries ([#9802](https://github.com/windmill-labs/windmill/issues/9802)) ([b28f974](https://github.com/windmill-labs/windmill/commit/b28f974e5069f635419d9ea56fad6a0e417894e8))
+* pass SSL cert env vars to `uv python install` ([#9790](https://github.com/windmill-labs/windmill/issues/9790)) ([962758c](https://github.com/windmill-labs/windmill/commit/962758c02de5f6d962c681fe9c39769b99429e8d))
+* **python:** re-verify wheel RECORD on local cache reuse (once per worker) ([#9775](https://github.com/windmill-labs/windmill/issues/9775)) ([6c71c33](https://github.com/windmill-labs/windmill/commit/6c71c33470e3ea547f3b994db829eb4d04882443))
+* **python:** serialize concurrent installs into shared wheel cache dir ([#9787](https://github.com/windmill-labs/windmill/issues/9787)) ([11d83ab](https://github.com/windmill-labs/windmill/commit/11d83ab1ec559be5d3263010228e6db65358e04b))
+* re-pin stale-draft fork base when restoring an app deployment ([#9792](https://github.com/windmill-labs/windmill/issues/9792)) ([b9711e5](https://github.com/windmill-labs/windmill/commit/b9711e5ace8585315a1c2b85bb25ac8dd7832d6f))
+* restore libargon2-1 for PHP runtime in server image ([#9795](https://github.com/windmill-labs/windmill/issues/9795)) ([e9cb806](https://github.com/windmill-labs/windmill/commit/e9cb80639b2dec63ede69fc3a4e3720bb1a3c319))
+* use transaction for parallel_monitor_lock DELETE in last-iteration path ([#9789](https://github.com/windmill-labs/windmill/issues/9789)) ([754cae9](https://github.com/windmill-labs/windmill/commit/754cae956ac8d431ddeb055453835e249cdd07b7))
+
+
+### Performance Improvements
+
+* drop v2_job side-table ON DELETE CASCADE FKs to speed retention deletes ([#9786](https://github.com/windmill-labs/windmill/issues/9786)) ([aa098c7](https://github.com/windmill-labs/windmill/commit/aa098c70c0271b2b1917749d1f607c0559cf04de))
+* eliminate dual-connection DB pool contention across worker, queue, and api ([#9798](https://github.com/windmill-labs/windmill/issues/9798)) ([0dbd9c1](https://github.com/windmill-labs/windmill/commit/0dbd9c1231b00d4693af68835fe1d9e7c8869b43))
+
 ## [1.739.0](https://github.com/windmill-labs/windmill/compare/v1.738.0...v1.739.0) (2026-06-24)
 
 
