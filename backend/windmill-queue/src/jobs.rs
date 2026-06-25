@@ -3172,87 +3172,77 @@ impl PulledJobResult {
                 if let Some(args) = &mut j.args {
                     args.remove(field_name);
                 }
+
+                // No accumulation on this path: just clean up the batch rows.
+                sqlx::query!(
+                    "DELETE FROM v2_job_debounce_batch WHERE debounce_batch = (
+                        SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = $1
+                    )",
+                    j_id,
+                )
+                .execute(db)
+                .await?;
             } else if let Some(arg_name_to_accumulate) =
                 // TODO: Maybe support multiple arguments in future
                 debounce_args_to_accumulate.as_ref().and_then(|v| v.get(0))
             {
-                tracing::debug!(
-                    job_id = %j_id,
-                    job_kind = ?kind,
-                    arg_name = arg_name_to_accumulate,
-                    "Accumulating debounced arguments from batch"
-                );
-                let mut accumulated_arg: Vec<Box<RawValue>> = vec![];
-                for str_o in sqlx::query_scalar!(
-                    "WITH ids AS (
-                        SELECT id as job_id FROM v2_job_debounce_batch WHERE debounce_batch = (
-                            SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = $1
-                        )
-                    ) SELECT args->>$2 FROM ids LEFT JOIN v2_job ON v2_job.id = ids.job_id
+                // Claim this job's contribution to its debounce batch exactly once.
+                // Instead of deleting the batch rows, mark them consumed (stamping
+                // consumed_by = this job). A batch normally has a single survivor that
+                // sweeps every row; only a narrow push/pull race can leave two survivors
+                // on one batch. The claim lets the second survivor tell apart:
+                //   - already swept in by the other survivor -> run empty (no duplicate),
+                //   - its own earlier claim on re-pull -> keep its accumulated args,
+                //   - never batched (CE / workers behind v2) -> keep its own args.
+                // Consumed rows are GC'd by the monitor.
+                let claim = sqlx::query!(
+                    "WITH mine AS (
+                        SELECT debounce_batch, consumed_by FROM v2_job_debounce_batch WHERE id = $1
+                    ), claim_self AS (
+                        UPDATE v2_job_debounce_batch SET consumed_at = now(), consumed_by = $1
+                        WHERE id = $1 AND consumed_at IS NULL
+                        RETURNING debounce_batch
+                    ), claim_rest AS (
+                        UPDATE v2_job_debounce_batch SET consumed_at = now(), consumed_by = $1
+                        WHERE debounce_batch = (SELECT debounce_batch FROM claim_self)
+                          AND id <> $1 AND consumed_at IS NULL
+                        RETURNING id
+                    )
+                    SELECT
+                        EXISTS (SELECT 1 FROM mine) AS \"had_row!\",
+                        (SELECT debounce_batch FROM claim_self) AS claimed_batch,
+                        (SELECT consumed_by FROM mine) AS prev_consumed_by,
+                        ARRAY(SELECT id FROM claim_rest) AS \"claimed_ids!\"
                     ",
                     j_id,
-                    arg_name_to_accumulate,
                 )
-                .fetch_all(db)
-                .await?
-                .into_iter()
-                {
-                    if let Some(s) = str_o.as_ref() {
-                        match serde_json::from_str::<Vec<Box<RawValue>>>(s) {
-                            Ok(ref mut vec) => accumulated_arg.append(vec),
-                            Err(_) => {
-                                // Value is not an array — wrap the scalar into a
-                                // single-element array. This supports union types
-                                // like T | T[] where the caller may pass a bare T.
-                                match RawValue::from_string(s.to_string()) {
-                                    Ok(raw) => accumulated_arg.push(raw),
-                                    Err(e) => {
-                                        return Err(error::Error::ArgumentErr(format!("cannot consolidate argument `{arg_name_to_accumulate}`: value is neither a valid list nor a valid JSON value\nUnwrapped Error: {e}")));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                .fetch_one(db)
+                .await?;
 
-                tracing::debug!(
-                    job_id = %j_id,
-                    arg_name = arg_name_to_accumulate,
-                    accumulated_count = accumulated_arg.len(),
-                    "Accumulated arguments from debounced jobs in batch"
-                );
+                let consumed_by_other =
+                    claim.claimed_batch.is_none() && claim.prev_consumed_by != Some(j_id);
 
-                // If the batch query returned no entries (e.g. CE where
-                // v2_job_debounce_batch is never populated), keep the
-                // original value unchanged instead of replacing it with [].
-                if !accumulated_arg.is_empty() {
-                    let new_value = to_raw_value(&accumulated_arg);
-
-                    let original_value = j
-                        .args
-                        .as_ref()
-                        .and_then(|a| a.get(arg_name_to_accumulate))
-                        .map(|v| v.get().to_string())
-                        .unwrap_or_else(|| "null".to_string());
-
-                    append_logs(
-                        &j_id,
-                        &j.workspace_id,
-                        format!(
-                            "Accumulating debounced argument `{arg_name_to_accumulate}`:\n  original: {original_value}\n  accumulated: {}\n\n",
-                            &new_value
-                        ),
-                        &(db.into()),
-                    )
-                    .await;
-
+                if !claim.had_row {
+                    // Never batched (CE / workers behind v2): keep the job's own args.
+                    tracing::debug!(
+                        job_id = %j_id,
+                        "Debounce: no batch row, keeping original args"
+                    );
+                } else if consumed_by_other {
+                    // Another survivor of this batch already accumulated this job's
+                    // contribution; run as a no-op so its items are not reprocessed.
+                    tracing::info!(
+                        job_id = %j_id,
+                        arg_name = arg_name_to_accumulate,
+                        "Debounce: contribution already consumed by a concurrent survivor, running empty"
+                    );
                     j.args
                         .get_or_insert(Json(Default::default()))
                         .as_mut()
-                        .insert(arg_name_to_accumulate.to_owned(), new_value);
-
-                    // Persist accumulated args to v2_job so that flow steps
-                    // re-reading from the DB (via get_mini_pulled_job) see them
+                        .insert(
+                            arg_name_to_accumulate.to_owned(),
+                            to_raw_value(&Vec::<Box<RawValue>>::new()),
+                        );
                     if let Some(ref args) = j.args {
                         sqlx::query!(
                             "UPDATE v2_job SET args = $2 WHERE id = $1",
@@ -3262,18 +3252,102 @@ impl PulledJobResult {
                         .execute(db)
                         .await?;
                     }
-                }
-            }
+                } else if claim.claimed_batch.is_some() {
+                    // We claimed our own row (+ any unclaimed siblings): accumulate the
+                    // args of exactly the rows we own.
+                    let mut ids: Vec<Uuid> = Vec::with_capacity(claim.claimed_ids.len() + 1);
+                    ids.push(j_id);
+                    ids.extend(claim.claimed_ids.iter().copied());
 
-            // Clean up the debounce batch entries now that the job has been pulled
-            sqlx::query!(
-                "DELETE FROM v2_job_debounce_batch WHERE debounce_batch = (
-                    SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = $1
-                )",
-                j_id,
-            )
-            .execute(db)
-            .await?;
+                    tracing::debug!(
+                        job_id = %j_id,
+                        job_kind = ?kind,
+                        arg_name = arg_name_to_accumulate,
+                        claimed = ids.len(),
+                        "Accumulating debounced arguments from claimed batch rows"
+                    );
+
+                    let mut accumulated_arg: Vec<Box<RawValue>> = vec![];
+                    for str_o in sqlx::query_scalar!(
+                        "SELECT args->>$2 FROM v2_job WHERE id = ANY($1)",
+                        &ids,
+                        arg_name_to_accumulate,
+                    )
+                    .fetch_all(db)
+                    .await?
+                    .into_iter()
+                    {
+                        if let Some(s) = str_o.as_ref() {
+                            match serde_json::from_str::<Vec<Box<RawValue>>>(s) {
+                                Ok(ref mut vec) => accumulated_arg.append(vec),
+                                Err(_) => {
+                                    // Value is not an array — wrap the scalar into a
+                                    // single-element array. This supports union types
+                                    // like T | T[] where the caller may pass a bare T.
+                                    match RawValue::from_string(s.to_string()) {
+                                        Ok(raw) => accumulated_arg.push(raw),
+                                        Err(e) => {
+                                            return Err(error::Error::ArgumentErr(format!("cannot consolidate argument `{arg_name_to_accumulate}`: value is neither a valid list nor a valid JSON value\nUnwrapped Error: {e}")));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if !accumulated_arg.is_empty() {
+                        let new_value = to_raw_value(&accumulated_arg);
+
+                        let original_value = j
+                            .args
+                            .as_ref()
+                            .and_then(|a| a.get(arg_name_to_accumulate))
+                            .map(|v| v.get().to_string())
+                            .unwrap_or_else(|| "null".to_string());
+
+                        append_logs(
+                            &j_id,
+                            &j.workspace_id,
+                            format!(
+                                "Accumulating debounced argument `{arg_name_to_accumulate}`:\n  original: {original_value}\n  accumulated: {}\n\n",
+                                &new_value
+                            ),
+                            &(db.into()),
+                        )
+                        .await;
+
+                        j.args
+                            .get_or_insert(Json(Default::default()))
+                            .as_mut()
+                            .insert(arg_name_to_accumulate.to_owned(), new_value);
+
+                        // Persist accumulated args to v2_job so that flow steps
+                        // re-reading from the DB (via get_mini_pulled_job) see them
+                        if let Some(ref args) = j.args {
+                            sqlx::query!(
+                                "UPDATE v2_job SET args = $2 WHERE id = $1",
+                                j_id,
+                                args as &Json<HashMap<String, Box<RawValue>>>,
+                            )
+                            .execute(db)
+                            .await?;
+                        }
+                    }
+                }
+                // else: claimed_batch is None but it was our own prior claim (re-pull) —
+                // keep the args we already persisted on the first pull.
+            } else {
+                // Debounced but no args to accumulate (plain debounce / dependency job):
+                // consume the batch by removing this job's rows.
+                sqlx::query!(
+                    "DELETE FROM v2_job_debounce_batch WHERE debounce_batch = (
+                        SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = $1
+                    )",
+                    j_id,
+                )
+                .execute(db)
+                .await?;
+            }
 
             // Handle dependency job debouncing cleanup when a job is pulled for execution
             if is_djob_to_debounce {

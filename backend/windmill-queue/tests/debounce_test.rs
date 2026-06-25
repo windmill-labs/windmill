@@ -4575,6 +4575,137 @@ mod debounce {
         Ok(())
     }
 
+    /// Claim-based exactly-once: if two survivors end up on the same batch (only
+    /// possible in a narrow push/pull race), the args of each member are accumulated
+    /// into exactly ONE run. The survivor that claims the batch first accumulates
+    /// everyone; the second survivor finds its contribution already consumed and runs
+    /// empty — no item is dropped and none is processed twice.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_debounce_batch_consumed_exactly_once(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let key = "exactly_once_key";
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some(key.to_string()),
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        // J1 superseded, J2 the (first) survivor of batch B = {J1, J2}.
+        let j1 = Uuid::new_v4();
+        let j2 = Uuid::new_v4();
+        push_debounced_script(&db, j1, vec![1], &settings, rs_handle).await;
+        let j2_args = push_debounced_script(&db, j2, vec![2], &settings, rs_handle).await;
+
+        // Simulate the race outcome: a second survivor J3 ended up on the SAME batch B.
+        let j3 = Uuid::new_v4();
+        let j3_args = serde_json::json!({ "items": [3] });
+        insert_script_job_with_args(&db, j3, "test-workspace", "f/test/script", &j3_args).await;
+        sqlx::query!(
+            "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+            rs_handle,
+            j3,
+        )
+        .execute(&db)
+        .await?;
+        sqlx::query!(
+            "INSERT INTO v2_job_debounce_batch (id, debounce_batch)
+             SELECT $1, debounce_batch FROM v2_job_debounce_batch WHERE id = $2",
+            j3,
+            j2,
+        )
+        .execute(&db)
+        .await?;
+
+        // J2 pulled first: claims the whole batch, accumulates everyone's items.
+        let mut j2_res = make_pulled_job_result(
+            j2,
+            "test-workspace",
+            "f/test/script",
+            &j2_args,
+            JobKind::Script,
+            "deno",
+            rs_handle,
+        );
+        j2_res.maybe_apply_debouncing(&db).await?;
+        assert!(j2_res.job.is_some(), "J2 runs");
+        assert_accumulated_items(&j2_res, &[1, 2, 3], "items");
+
+        // J3 pulled next: its contribution was already consumed by J2 -> runs empty,
+        // so [3] is not processed a second time.
+        let mut j3_res = make_pulled_job_result(
+            j3,
+            "test-workspace",
+            "f/test/script",
+            &j3_args,
+            JobKind::Script,
+            "deno",
+            rs_handle,
+        );
+        j3_res.maybe_apply_debouncing(&db).await?;
+        let job = j3_res.job.as_ref().expect("J3 still runs (empty)");
+        let items: Vec<serde_json::Value> =
+            serde_json::from_str(job.job.args.as_ref().unwrap().get("items").unwrap().get())?;
+        assert!(
+            items.is_empty(),
+            "J3's items must be empty (already consumed by J2), got {items:?}"
+        );
+
+        Ok(())
+    }
+
+    /// A survivor re-pulled (e.g. crash recovery) must NOT mistake its own earlier
+    /// claim for a sibling's and wipe its accumulated args. consumed_by = self is
+    /// distinguished from consumed_by = another job.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_debounce_repull_keeps_accumulated(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let key = "repull_key";
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some(key.to_string()),
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        let j1 = Uuid::new_v4();
+        let j2 = Uuid::new_v4();
+        push_debounced_script(&db, j1, vec![1], &settings, rs_handle).await;
+        let j2_args = push_debounced_script(&db, j2, vec![2], &settings, rs_handle).await;
+
+        // First pull: J2 claims its batch and accumulates [1, 2].
+        let mut first = make_pulled_job_result(
+            j2,
+            "test-workspace",
+            "f/test/script",
+            &j2_args,
+            JobKind::Script,
+            "deno",
+            rs_handle,
+        );
+        first.maybe_apply_debouncing(&db).await?;
+        assert_accumulated_items(&first, &[1, 2], "items");
+
+        // Re-pull with the args persisted by the first pull: J2 sees its OWN prior claim
+        // (consumed_by = j2), so it keeps the accumulated args rather than running empty.
+        let persisted = first.job.as_ref().unwrap().job.args.as_ref().unwrap();
+        let persisted_json = serde_json::to_value(persisted).unwrap();
+        let mut second = make_pulled_job_result(
+            j2,
+            "test-workspace",
+            "f/test/script",
+            &persisted_json,
+            JobKind::Script,
+            "deno",
+            rs_handle,
+        );
+        second.maybe_apply_debouncing(&db).await?;
+        assert!(second.job.is_some(), "re-pulled J2 still runs");
+        assert_accumulated_items(&second, &[1, 2], "items");
+
+        Ok(())
+    }
+
     /// Test: Push-time (script) debounce with max_total_debounces_amount=2.
     /// 5 calls, each sending {x: [i]}. Expected:
     ///   Call 1: debounced (scheduled_for set)
