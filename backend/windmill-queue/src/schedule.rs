@@ -255,6 +255,7 @@ pub async fn push_scheduled_job<'c>(
                 path: schedule.script_path.clone(),
                 hash,
                 flow_version,
+                language: None,
                 args: args.clone(),
                 retry,
                 error_handler_path: None,
@@ -371,12 +372,20 @@ pub async fn push_scheduled_job<'c>(
             for (arg_name, arg_value) in args.clone() {
                 static_args.insert(arg_name, arg_value);
             }
-            // if retry is set, we wrap the script into a one step flow with a retry on the module
+            // A retry on a scheduled script is materialized into a native retry
+            // (see `push`): `Some(language)` opts in. Completion handlers are
+            // driven from the terminal attempt, and the per-occurrence
+            // failure/recovery counting queries (apply_schedule_handlers) resolve
+            // terminal status across the retry chain — so on_failure/on_recovery
+            // (incl. multi-count/exact) are all handled. A `retry_if` gate is
+            // evaluated at failure time; on a worker built without quickjs it
+            // cannot be evaluated and fails closed (no retry).
             (
                 JobPayload::SingleStepFlow {
                     path: schedule.script_path.clone(),
                     hash: Some(hash),
                     flow_version: None,
+                    language: Some(language),
                     retry: Some(parsed_retry),
                     error_handler_path: None,
                     error_handler_args: None,
@@ -388,8 +397,12 @@ pub async fn push_scheduled_job<'c>(
                     tag_override: schedule.tag.clone(),
                     trigger_path: None,
                     apply_preprocessor: false,
-                    concurrency_settings: ConcurrencySettings::default(),
-                    debouncing_settings: DebouncingSettings::default(),
+                    // Carry the script's concurrency/debounce settings (fetched
+                    // above) into the native retry materialization, so a retrying
+                    // concurrency-limited scheduled script still inserts its
+                    // concurrency_key instead of running unbounded.
+                    concurrency_settings,
+                    debouncing_settings,
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()

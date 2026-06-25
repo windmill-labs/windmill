@@ -1275,6 +1275,19 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::error!("Error deleting autoscaling event on CE: {:?}", e);
     }
 
+    // native_retry_attempt has no FK to v2_job (kept off the hot bulk delete).
+    // Retention sweeps markers alongside the jobs it deletes, but direct job
+    // deletions (workspace/job/schedule clearing) leave markers orphaned — reap
+    // any whose job is gone. The table is sparse, so this anti-join is cheap.
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM native_retry_attempt nra WHERE NOT EXISTS (SELECT 1 FROM v2_job WHERE id = nra.job_id)"
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Error reaping orphaned native retry markers: {:?}", e);
+    }
+
     if let Err(e) = windmill_queue::cascade::reap_stale_join_slots(db).await {
         tracing::error!("Error reaping stale join_pending_inputs slots: {:?}", e);
     }
@@ -1645,6 +1658,20 @@ async fn delete_expired_jobs_batch(
                 delete_log_files_from_disk_and_store(paths, &*WINDMILL_DIR, "").await;
             }
             Err(e) => tracing::error!("Error deleting job logs: {:?}", e),
+        }
+
+        // Native retry markers have no FK (to keep this bulk delete cheap) — sweep
+        // them with their jobs here too (the periodic retention path), same as the
+        // other side tables. The table is created by a startup migration, so it
+        // always exists by the time cleanup runs.
+        if let Err(e) = sqlx::query!(
+            "DELETE FROM native_retry_attempt WHERE job_id = ANY($1)",
+            &deleted_jobs
+        )
+        .execute(&mut *tx)
+        .await
+        {
+            tracing::error!("Error deleting native retry markers: {:?}", e);
         }
 
         if let Err(e) = sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", &deleted_jobs)
