@@ -3878,6 +3878,498 @@ mod debounce {
         Ok(())
     }
 
+    /// Helper: push a script job through push-time `maybe_debounce` with the given key.
+    /// Returns the args JSON it was pushed with.
+    async fn push_debounced_script(
+        db: &Pool<Postgres>,
+        id: Uuid,
+        items: Vec<i64>,
+        settings: &DebouncingSettings,
+        rs_handle: Option<i64>,
+    ) -> serde_json::Value {
+        let args_val = serde_json::json!({ "items": items });
+        insert_script_job_with_args(db, id, "test-workspace", "f/test/script", &args_val).await;
+        sqlx::query!(
+            "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+            rs_handle,
+            id,
+        )
+        .execute(db)
+        .await
+        .unwrap();
+        let args_hm: HashMap<String, Box<RawValue>> =
+            serde_json::from_value(args_val.clone()).unwrap();
+        let push_args = PushArgs::from(&args_hm);
+        let mut scheduled_for = None;
+        let mut tx = db.begin().await.unwrap();
+        windmill_queue::jobs_ee::maybe_debounce(
+            settings,
+            &mut scheduled_for,
+            &Some("f/test/script".to_string()),
+            "test-workspace",
+            JobKind::Script,
+            id,
+            &push_args,
+            &mut tx,
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        args_val
+    }
+
+    /// Regression test for the "running survivor" data-loss bug.
+    ///
+    /// When a debounce survivor has already been pulled and is executing (running), it
+    /// has committed its batch and can no longer accumulate later arrivals. The old
+    /// behavior superseded the running survivor anyway: it was completed/skipped
+    /// ("Debounced Running by ...") and deleted from the queue, silently dropping its
+    /// accumulated work, while the late arrival could not merge into it.
+    ///
+    /// Fix: a late arrival that finds the current survivor already running starts a
+    /// FRESH debounce window. The running survivor is left to finish with its own
+    /// accumulated batch; the late arrival accumulates only its own batch. No job is
+    /// killed and no item is dropped or double-run.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_debounce_running_survivor_not_superseded(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let key = "running_survivor_key";
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some(key.to_string()),
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        // J1, J2 share a window; J2 is the survivor with batch {J1, J2}.
+        let j1 = Uuid::new_v4();
+        let j2 = Uuid::new_v4();
+        push_debounced_script(&db, j1, vec![1], &settings, rs_handle).await;
+        push_debounced_script(&db, j2, vec![2], &settings, rs_handle).await;
+        assert!(is_completed(&db, &j1).await, "J1 should be debounced by J2");
+        assert!(is_queued(&db, &j2).await, "J2 should be the survivor");
+
+        // Worker pulls J2 and marks it running: the window where the key still points
+        // to J2 and its batch is intact, but J2 can no longer accumulate new arrivals.
+        sqlx::query!(
+            "UPDATE v2_job_queue SET running = true, started_at = now() WHERE id = $1",
+            j2
+        )
+        .execute(&db)
+        .await?;
+
+        // Late arrival J3 while J2 is running.
+        let j3 = Uuid::new_v4();
+        let j3_args = push_debounced_script(&db, j3, vec![3], &settings, rs_handle).await;
+
+        // The running survivor J2 must NOT be superseded: still queued, not completed.
+        assert!(
+            is_queued(&db, &j2).await,
+            "running survivor J2 must stay in the queue"
+        );
+        assert!(
+            !is_completed(&db, &j2).await,
+            "running survivor J2 must not be completed/skipped"
+        );
+
+        // J3 must own the debounce key as the head of a FRESH window (no previous job).
+        let (dk_job, dk_prev, dk_times) = get_debounce_key(&db, key)
+            .await
+            .expect("debounce key exists");
+        assert_eq!(dk_job, j3, "J3 should hold the debounce key");
+        assert!(
+            dk_prev.is_none(),
+            "J3 should start a fresh window with no previous job (got {dk_prev:?})"
+        );
+        assert_eq!(
+            dk_times, 0,
+            "fresh window should reset debounced_times to 0"
+        );
+
+        // The running survivor J2 accumulates only its own committed batch: [1, 2].
+        let mut j2_res = make_pulled_job_result(
+            j2,
+            "test-workspace",
+            "f/test/script",
+            &serde_json::json!({"items": [2]}),
+            JobKind::Script,
+            "deno",
+            rs_handle,
+        );
+        j2_res.maybe_apply_debouncing(&db).await?;
+        assert!(
+            j2_res.job.is_some(),
+            "running survivor J2 must still execute (not nulled out)"
+        );
+        assert_accumulated_items(&j2_res, &[1, 2], "items");
+
+        // The late arrival J3 accumulates only its own batch: [3]. No overlap with J2.
+        let mut j3_res = make_pulled_job_result(
+            j3,
+            "test-workspace",
+            "f/test/script",
+            &j3_args,
+            JobKind::Script,
+            "deno",
+            rs_handle,
+        );
+        j3_res.maybe_apply_debouncing(&db).await?;
+        assert!(j3_res.job.is_some(), "J3 must execute");
+        assert_accumulated_items(&j3_res, &[3], "items");
+
+        Ok(())
+    }
+
+    /// A second arrival debouncing a NON-running survivor must keep accumulating into
+    /// the same batch (the normal debounce behavior must be unchanged by the
+    /// running-survivor guard).
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_debounce_queued_survivor_still_accumulates(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let key = "queued_survivor_key";
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some(key.to_string()),
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        // Three arrivals, none running: classic debounce, all accumulate into J3.
+        let j1 = Uuid::new_v4();
+        let j2 = Uuid::new_v4();
+        let j3 = Uuid::new_v4();
+        push_debounced_script(&db, j1, vec![1], &settings, rs_handle).await;
+        push_debounced_script(&db, j2, vec![2], &settings, rs_handle).await;
+        let j3_args = push_debounced_script(&db, j3, vec![3], &settings, rs_handle).await;
+
+        assert!(is_completed(&db, &j1).await, "J1 debounced");
+        assert!(is_completed(&db, &j2).await, "J2 debounced");
+        assert!(is_queued(&db, &j3).await, "J3 is the survivor");
+
+        // Window keeps growing: J3 is the third arrival in the same batch.
+        let (dk_job, dk_prev, dk_times) = get_debounce_key(&db, key)
+            .await
+            .expect("debounce key exists");
+        assert_eq!(dk_job, j3);
+        assert_eq!(dk_prev, Some(j2), "previous job should be J2");
+        assert_eq!(dk_times, 2, "debounced_times should keep incrementing");
+
+        let mut j3_res = make_pulled_job_result(
+            j3,
+            "test-workspace",
+            "f/test/script",
+            &j3_args,
+            JobKind::Script,
+            "deno",
+            rs_handle,
+        );
+        j3_res.maybe_apply_debouncing(&db).await?;
+        assert_accumulated_items(&j3_res, &[1, 2, 3], "items");
+
+        Ok(())
+    }
+
+    /// The running-survivor guard must also apply to plain debounce (delay only, no
+    /// argument accumulation): a running survivor must never be completed/skipped.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_debounce_running_survivor_no_accumulation(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let key = "running_no_accum_key";
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some(key.to_string()),
+            // No debounce_args_to_accumulate.
+            ..Default::default()
+        };
+
+        let j1 = Uuid::new_v4();
+        let j2 = Uuid::new_v4();
+        insert_noop_job(&db, j1, "test-workspace").await;
+        insert_noop_job(&db, j2, "test-workspace").await;
+
+        let push = |id: Uuid| {
+            let settings = settings.clone();
+            let db = db.clone();
+            async move {
+                let args_hm = empty_args();
+                let args = PushArgs::from(&args_hm);
+                let mut scheduled_for = None;
+                let mut tx = db.begin().await.unwrap();
+                windmill_queue::jobs_ee::maybe_debounce(
+                    &settings,
+                    &mut scheduled_for,
+                    &Some("f/test/script".to_string()),
+                    "test-workspace",
+                    JobKind::Noop,
+                    id,
+                    &args,
+                    &mut tx,
+                )
+                .await
+                .unwrap();
+                tx.commit().await.unwrap();
+            }
+        };
+
+        push(j1).await;
+        push(j2).await;
+        assert!(is_completed(&db, &j1).await, "J1 debounced by J2");
+
+        // J2 starts running.
+        sqlx::query!(
+            "UPDATE v2_job_queue SET running = true, started_at = now() WHERE id = $1",
+            j2
+        )
+        .execute(&db)
+        .await?;
+
+        // Late arrival J3.
+        let j3 = Uuid::new_v4();
+        insert_noop_job(&db, j3, "test-workspace").await;
+        push(j3).await;
+
+        // Running survivor J2 is preserved; J3 takes over a fresh window.
+        assert!(is_queued(&db, &j2).await, "running J2 stays queued");
+        assert!(!is_completed(&db, &j2).await, "running J2 not completed");
+        let (dk_job, dk_prev, dk_times) = get_debounce_key(&db, key)
+            .await
+            .expect("debounce key exists");
+        assert_eq!(dk_job, j3);
+        assert!(dk_prev.is_none(), "fresh window: no previous job");
+        assert_eq!(dk_times, 0, "fresh window resets debounced_times");
+
+        Ok(())
+    }
+
+    /// Once a survivor has fully been pulled (batch + key consumed by
+    /// maybe_apply_debouncing) and is running, a later arrival naturally starts a new
+    /// window. This locks in that the committed-running case stays correct alongside
+    /// the in-flight-running guard.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_debounce_committed_running_survivor_independent(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let key = "committed_running_key";
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some(key.to_string()),
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        let j1 = Uuid::new_v4();
+        let j2 = Uuid::new_v4();
+        push_debounced_script(&db, j1, vec![1], &settings, rs_handle).await;
+        let j2_args = push_debounced_script(&db, j2, vec![2], &settings, rs_handle).await;
+
+        // J2 is pulled: accumulate its batch and consume key + batch.
+        let mut j2_res = make_pulled_job_result(
+            j2,
+            "test-workspace",
+            "f/test/script",
+            &j2_args,
+            JobKind::Script,
+            "deno",
+            rs_handle,
+        );
+        j2_res.maybe_apply_debouncing(&db).await?;
+        assert_accumulated_items(&j2_res, &[1, 2], "items");
+        assert!(
+            get_debounce_key(&db, key).await.is_none(),
+            "key consumed when survivor pulled"
+        );
+
+        // J2 now running.
+        sqlx::query!(
+            "UPDATE v2_job_queue SET running = true, started_at = now() WHERE id = $1",
+            j2
+        )
+        .execute(&db)
+        .await?;
+
+        // Late arrival J3: fresh window, independent batch, J2 untouched.
+        let j3 = Uuid::new_v4();
+        let j3_args = push_debounced_script(&db, j3, vec![3], &settings, rs_handle).await;
+        assert!(is_queued(&db, &j2).await, "running J2 untouched");
+        assert!(!is_completed(&db, &j2).await, "running J2 not completed");
+        let (dk_job, _, dk_times) = get_debounce_key(&db, key).await.expect("key exists");
+        assert_eq!(dk_job, j3);
+        assert_eq!(dk_times, 0);
+
+        let mut j3_res = make_pulled_job_result(
+            j3,
+            "test-workspace",
+            "f/test/script",
+            &j3_args,
+            JobKind::Script,
+            "deno",
+            rs_handle,
+        );
+        j3_res.maybe_apply_debouncing(&db).await?;
+        assert_accumulated_items(&j3_res, &[3], "items");
+
+        Ok(())
+    }
+
+    /// Flow post-preprocessing debounce must apply the same running-survivor guard:
+    /// a running flow survivor must not be completed/skipped by a late flow arrival.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_post_preprocessing_running_survivor_not_superseded(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let key = "pp_running_survivor_key";
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some(key.to_string()),
+            ..Default::default()
+        };
+        let args_hm = empty_args();
+
+        let flow1 = Uuid::new_v4();
+        let flow2 = Uuid::new_v4();
+        insert_flow_job(&db, flow1, "test-workspace", "f/test/flow").await;
+        insert_flow_job(&db, flow2, "test-workspace", "f/test/flow").await;
+
+        let pp = |id: Uuid| {
+            let settings = settings.clone();
+            let db = db.clone();
+            let args_hm = args_hm.clone();
+            async move {
+                let args = PushArgs::from(&args_hm);
+                windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+                    &settings,
+                    &Some("f/test/flow".to_string()),
+                    "test-workspace",
+                    id,
+                    &args,
+                    &db,
+                )
+                .await
+                .unwrap()
+            }
+        };
+
+        pp(flow1).await;
+        pp(flow2).await;
+        assert!(is_completed(&db, &flow1).await, "flow1 debounced by flow2");
+
+        // flow2 (the survivor) starts running.
+        sqlx::query!(
+            "UPDATE v2_job_queue SET running = true, started_at = now() WHERE id = $1",
+            flow2
+        )
+        .execute(&db)
+        .await?;
+
+        // Late flow3 arrival while flow2 is running.
+        let flow3 = Uuid::new_v4();
+        insert_flow_job(&db, flow3, "test-workspace", "f/test/flow").await;
+        let sched = pp(flow3).await;
+        assert!(sched.is_some(), "flow3 should be debounced (fresh window)");
+
+        // Running flow2 must be preserved; flow3 owns a fresh window.
+        assert!(is_queued(&db, &flow2).await, "running flow2 stays queued");
+        assert!(
+            !is_completed(&db, &flow2).await,
+            "running flow2 must not be completed"
+        );
+        let (dk_job, dk_prev, dk_times) = get_debounce_key(&db, key).await.expect("key exists");
+        assert_eq!(dk_job, flow3, "flow3 holds the key");
+        assert!(dk_prev.is_none(), "fresh window: no previous job");
+        assert_eq!(dk_times, 0, "fresh window resets debounced_times");
+
+        Ok(())
+    }
+
+    /// A running survivor resets the debounce window for the late arrival, so an
+    /// inherited high `debounced_times` cannot push the new arrival over
+    /// max_total_debounces_amount and force an immediate (un-debounced) run.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_debounce_running_survivor_resets_limit_window(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let key = "running_limit_key";
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some(key.to_string()),
+            // Limit of 3: J1, J2 stay debounced; a third arrival in the SAME window
+            // would trip the limit (current_amount + 1 >= 3) and fire immediately.
+            max_total_debounces_amount: Some(3),
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        // Build up the window close to the limit: J1, J2 (debounced_times = 1 on J2).
+        let j1 = Uuid::new_v4();
+        let j2 = Uuid::new_v4();
+        push_debounced_script(&db, j1, vec![1], &settings, rs_handle).await;
+        push_debounced_script(&db, j2, vec![2], &settings, rs_handle).await;
+        let (_, _, times_before) = get_debounce_key(&db, key).await.expect("key exists");
+        assert_eq!(times_before, 1);
+
+        // J2 starts running.
+        sqlx::query!(
+            "UPDATE v2_job_queue SET running = true, started_at = now() WHERE id = $1",
+            j2
+        )
+        .execute(&db)
+        .await?;
+
+        // J3 arrives. Without the reset it would inherit debounced_times and could trip
+        // the max-count limit and fire immediately, killing running J2. With the guard
+        // it starts a fresh window (debounced_times = 0) and is debounced normally.
+        let j3 = Uuid::new_v4();
+        let mut scheduled_for = None;
+        {
+            let args_val = serde_json::json!({ "items": [3] });
+            insert_script_job_with_args(&db, j3, "test-workspace", "f/test/script", &args_val)
+                .await;
+            sqlx::query!(
+                "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+                rs_handle,
+                j3,
+            )
+            .execute(&db)
+            .await?;
+            let args_hm: HashMap<String, Box<RawValue>> = serde_json::from_value(args_val).unwrap();
+            let push_args = PushArgs::from(&args_hm);
+            let mut tx = db.begin().await?;
+            windmill_queue::jobs_ee::maybe_debounce(
+                &settings,
+                &mut scheduled_for,
+                &Some("f/test/script".to_string()),
+                "test-workspace",
+                JobKind::Script,
+                j3,
+                &push_args,
+                &mut tx,
+            )
+            .await?;
+            tx.commit().await?;
+        }
+
+        // J3 is debounced (scheduled_for set, not fired immediately) and J2 survives.
+        assert!(
+            scheduled_for.is_some(),
+            "J3 should be debounced, not fired immediately"
+        );
+        assert!(is_queued(&db, &j2).await, "running J2 stays queued");
+        assert!(!is_completed(&db, &j2).await, "running J2 not completed");
+        let (dk_job, dk_prev, dk_times) = get_debounce_key(&db, key).await.expect("key exists");
+        assert_eq!(dk_job, j3);
+        assert!(dk_prev.is_none());
+        assert_eq!(dk_times, 0, "fresh window resets the limit counter");
+
+        Ok(())
+    }
+
     /// Test: Push-time (script) debounce with max_total_debounces_amount=2.
     /// 5 calls, each sending {x: [i]}. Expected:
     ///   Call 1: debounced (scheduled_for set)
