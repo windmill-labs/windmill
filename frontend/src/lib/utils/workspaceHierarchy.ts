@@ -61,10 +61,13 @@ export function buildWorkspaceHierarchy(workspaces: UserWorkspace[]): WorkspaceH
 			hasChildren: hasChildrenSet.has(workspace.id)
 		})
 
-		// Add its children (sorted by name for consistency)
+		// Add its children: the canonical dev workspace first, then throwaway forks by name.
 		const children = childrenMap.get(workspace.id) || []
 		children
-			.sort((a, b) => a.name.localeCompare(b.name))
+			.sort((a, b) => {
+				if (!!a.is_dev_workspace !== !!b.is_dev_workspace) return a.is_dev_workspace ? -1 : 1
+				return a.name.localeCompare(b.name)
+			})
 			.forEach((child) => {
 				addWorkspaceAndChildren(child, depth + 1, true, workspace.name)
 			})

@@ -12,6 +12,7 @@
 		globalForkModal
 	} from '$lib/stores'
 	import { canCreateFork } from '$lib/utils/editInFork'
+	import { Badge } from '$lib/components/common'
 	import { Building, Plus, Settings, GitFork } from 'lucide-svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
@@ -172,14 +173,19 @@
 							<div class="flex items-center gap-2 min-w-0" style:padding-left={`${depth * 16}px`}>
 								<WorkspaceIcon workspaceColor={workspace.color} {isForked} {parentName} />
 								<div class="min-w-0 flex-1">
-									<div
-										class={twMerge(
-											'truncate text-left text-xs font-normal',
-											isSelected ? 'text-accent' : 'text-primary'
-										)}
-										title={workspace.name}
-									>
-										{workspace.name}{workspace.disabled ? ' (user disabled)' : ''}
+									<div class="flex items-center gap-1 min-w-0">
+										<div
+											class={twMerge(
+												'truncate text-left text-xs font-normal',
+												isSelected ? 'text-accent' : 'text-primary'
+											)}
+											title={workspace.name}
+										>
+											{workspace.name}{workspace.disabled ? ' (user disabled)' : ''}
+										</div>
+										{#if workspace.is_dev_workspace}
+											<Badge color="indigo">dev</Badge>
+										{/if}
 									</div>
 									<div
 										class={twMerge(
