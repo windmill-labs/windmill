@@ -1101,8 +1101,7 @@
 					label: 'Dev workspace',
 					aiId: 'workspace-settings-dev-workspace',
 					aiDescription:
-						'Pair this workspace with a dev workspace (same code, different environment)',
-					isEE: true
+						'Pair this workspace with a dev workspace (same code, different environment)'
 				},
 				{
 					id: 'rulesets',
@@ -1292,15 +1291,7 @@
 								title="Dev workspace"
 								description="Pair this workspace with a dev workspace: the same code with a different environment. Edits are made in the dev workspace and promoted to prod."
 							/>
-							{#if $enterpriseLicense}
-								<DevWorkspaceSetting />
-							{:else}
-								<div class="my-2">
-									<Alert type="warning" title="Enterprise license required">
-										Dev workspaces are only available with an enterprise license
-									</Alert>
-								</div>
-							{/if}
+							<DevWorkspaceSetting />
 						{:else if tab == 'rulesets'}
 							<SettingsPageHeader
 								title="Workspace Protection Rulesets"
