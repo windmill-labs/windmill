@@ -809,6 +809,30 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_dev_workspace_id_accepts_prefixless_valid() {
+        // Dev workspaces use ordinary, prefix-less ids but must stay git-branch-safe.
+        validate_dev_workspace_id("dev").unwrap();
+        validate_dev_workspace_id("my-dev-workspace").unwrap();
+        validate_dev_workspace_id("staging.42").unwrap();
+        // The fork prefix is allowed but not required.
+        validate_dev_workspace_id("wm-fork-dev").unwrap();
+    }
+
+    #[test]
+    fn test_validate_dev_workspace_id_rejects_empty_and_git_unsafe() {
+        assert!(validate_dev_workspace_id("").is_err());
+        assert!(validate_dev_workspace_id("dev workspace").is_err());
+        assert!(validate_dev_workspace_id("dev..staging").is_err());
+        assert!(validate_dev_workspace_id("dev/.x").is_err());
+        assert!(validate_dev_workspace_id("dev.lock").is_err());
+    }
+
+    #[test]
+    fn test_validate_fork_workspace_id_rejects_empty() {
+        assert!(validate_fork_workspace_id("").is_err());
+    }
+
+    #[test]
     fn test_validate_fork_workspace_id_rejects_too_long() {
         let long_id = format!("wm-fork-{}", "a".repeat(43));
         assert!(validate_fork_workspace_id(&long_id).is_err());

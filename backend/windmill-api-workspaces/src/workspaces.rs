@@ -5078,6 +5078,11 @@ async fn create_workspace_fork(
     }
 
     if nw.is_dev_workspace {
+        // Locking prod mutates the parent's protection rules, which is an admin-only action
+        // everywhere else; gate it the same way here so forking can't be used to escalate.
+        if nw.lock_prod {
+            require_admin(authed.is_admin, &authed.username)?;
+        }
         ensure_no_existing_dev_workspace(&db, &parent_workspace_id).await?;
     }
 
@@ -5218,6 +5223,22 @@ async fn attach_dev_workspace(
         return Err(Error::BadRequest(format!(
             "Workspace {} is already a fork or dev workspace of another workspace",
             dev_w_id
+        )));
+    }
+
+    // Prod must be a root workspace, otherwise attaching could form a parent<->child cycle (e.g.
+    // attaching A as the dev of B when B is already the dev of A), which breaks hierarchy traversal.
+    let prod_has_parent = sqlx::query_scalar!(
+        r#"SELECT (parent_workspace_id IS NOT NULL) AS "has_parent!" FROM workspace WHERE id = $1"#,
+        &prod_w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Workspace {} not found", prod_w_id)))?;
+    if prod_has_parent {
+        return Err(Error::BadRequest(format!(
+            "Workspace {} is itself a fork or dev workspace and cannot be a prod workspace",
+            prod_w_id
         )));
     }
 
