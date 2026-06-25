@@ -391,6 +391,10 @@ pub fn workspace_unauthed_service() -> Router {
         .route("/get_logs/{id}", get(get_job_logs))
         .route("/get_flow_all_logs/{id}", get(get_flow_all_logs))
         .route(
+            "/get_flow_all_logs_structured/{id}",
+            get(get_flow_all_logs_structured),
+        )
+        .route(
             "/get_completed_logs_tail/{id}",
             get(get_completed_job_logs_tail),
         )
@@ -2210,14 +2214,40 @@ async fn resolve_logs_to_string(
     logs.to_string()
 }
 
-async fn get_flow_all_logs(
-    OptViewToken(view_token): OptViewToken,
-    OptAuthed(opt_authed): OptAuthed,
+/// A single job in a flow's execution tree, with its resolved logs and a
+/// human-readable label describing its position (iteration, branch, subflow…).
+#[derive(Serialize)]
+struct FlowLogEntry {
+    job_id: String,
+    /// Human-readable label, e.g. "Step a (iteration 2/3)" or "Flow".
+    label: String,
+    /// Job kind (script, flow, forloopflow, …).
+    kind: String,
+    /// The flow step id this job corresponds to, if any.
+    flow_step_id: Option<String>,
+    /// Materialized step path (e.g. "a/b") used to locate the step in the flow.
+    step_path: Option<String>,
+    /// Depth in the flow tree (0 for the root flow job).
+    depth: i32,
+    /// The parent module type (forloopflow, branchall, …), if any.
+    parent_module_type: Option<String>,
+    /// 1-based index of this job among its siblings sharing the same step.
+    sibling_index: i32,
+    /// Total number of siblings sharing the same step.
+    sibling_count: i32,
+    /// Resolved logs for this job (pulled from disk/object store as needed).
+    logs: String,
+}
+
+async fn collect_flow_log_entries(
+    view_token: Option<String>,
+    opt_authed: Option<ApiAuthed>,
     opt_tokened: OptTokened,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, id)): Path<(String, Uuid)>,
-) -> error::Result<Response> {
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &str,
+    id: Uuid,
+) -> error::Result<Vec<FlowLogEntry>> {
     let tags = opt_authed
         .as_ref()
         .map(|authed| get_scope_tags(authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec()))
@@ -2230,17 +2260,17 @@ async fn get_flow_all_logs(
         w_id,
         tags.as_ref().map(|v| v.as_slice())
     )
-    .fetch_optional(&db)
+    .fetch_optional(db)
     .await?;
 
     let root_job = not_found_if_none(root_job, "Job", id.to_string())?;
 
     if let Some(authed) = opt_authed.as_ref() {
         require_job_read_access(
-            &db,
-            &user_db,
+            db,
+            user_db,
             authed,
-            &w_id,
+            w_id,
             &id,
             &root_job.created_by,
             view_token.as_deref(),
@@ -2253,10 +2283,10 @@ async fn get_flow_all_logs(
     }
 
     log_job_view(
-        &db,
+        db,
         opt_authed.as_ref(),
         opt_tokened.token.as_deref(),
-        &w_id,
+        w_id,
         &id,
     )
     .await?;
@@ -2323,10 +2353,10 @@ async fn get_flow_all_logs(
         w_id,
         id,
     )
-    .fetch_all(&db)
+    .fetch_all(db)
     .await?;
 
-    let mut all_logs = String::new();
+    let mut entries = Vec::with_capacity(records.len());
 
     for record in &records {
         let kind = record.kind.as_deref().unwrap_or("");
@@ -2389,16 +2419,87 @@ async fn get_flow_all_logs(
         };
 
         let job_id = record.id.map(|u| u.to_string()).unwrap_or_default();
-        all_logs.push_str(&format!("\n=== {} (Job: {}) ===\n", label, job_id));
         let logs = record.logs.as_deref().unwrap_or("");
         let resolved =
             resolve_logs_to_string(record.log_offset.unwrap_or(0), logs, &record.log_file_index)
                 .await;
-        all_logs.push_str(&resolved);
+
+        entries.push(FlowLogEntry {
+            job_id,
+            label,
+            kind: kind.to_string(),
+            flow_step_id: record.flow_step_id.clone(),
+            step_path: record.path_label.clone(),
+            depth,
+            parent_module_type: if parent_module_type.is_empty() {
+                None
+            } else {
+                Some(parent_module_type.to_string())
+            },
+            sibling_index,
+            sibling_count,
+            logs: resolved,
+        });
+    }
+
+    Ok(entries)
+}
+
+async fn get_flow_all_logs(
+    OptViewToken(view_token): OptViewToken,
+    OptAuthed(opt_authed): OptAuthed,
+    opt_tokened: OptTokened,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::Result<Response> {
+    let entries = collect_flow_log_entries(
+        view_token,
+        opt_authed,
+        opt_tokened,
+        &db,
+        &user_db,
+        &w_id,
+        id,
+    )
+    .await?;
+
+    let mut all_logs = String::new();
+    for entry in &entries {
+        all_logs.push_str(&format!(
+            "\n=== {} (Job: {}) ===\n",
+            entry.label, entry.job_id
+        ));
+        all_logs.push_str(&entry.logs);
         all_logs.push('\n');
     }
 
     Ok(content_plain(Body::from(all_logs)))
+}
+
+/// Structured alternative to `get_flow_all_logs`: returns the same flow log
+/// tree as a JSON array of entries (one per job) instead of a flat text blob,
+/// so callers can render or process logs per-step without parsing delimiters.
+async fn get_flow_all_logs_structured(
+    OptViewToken(view_token): OptViewToken,
+    OptAuthed(opt_authed): OptAuthed,
+    opt_tokened: OptTokened,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> JsonResult<Vec<FlowLogEntry>> {
+    let entries = collect_flow_log_entries(
+        view_token,
+        opt_authed,
+        opt_tokened,
+        &db,
+        &user_db,
+        &w_id,
+        id,
+    )
+    .await?;
+
+    Ok(Json(entries))
 }
 
 async fn get_args(

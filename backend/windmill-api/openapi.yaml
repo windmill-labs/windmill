@@ -12988,6 +12988,64 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/jobs_u/get_flow_all_logs_structured/{id}:
+    get:
+      summary: get all logs for a flow job in a structured format
+      operationId: getFlowAllLogsStructured
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: structured logs of all flow steps, one entry per job
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    job_id:
+                      type: string
+                    label:
+                      type: string
+                      description: human-readable label describing the job's position in the flow tree
+                    kind:
+                      type: string
+                      description: job kind (script, flow, forloopflow, ...)
+                    flow_step_id:
+                      type: string
+                      nullable: true
+                    step_path:
+                      type: string
+                      nullable: true
+                      description: materialized step path (e.g. "a/b")
+                    depth:
+                      type: integer
+                      description: depth in the flow tree (0 for the root flow job)
+                    parent_module_type:
+                      type: string
+                      nullable: true
+                      description: parent module type (forloopflow, branchall, ...)
+                    sibling_index:
+                      type: integer
+                      description: 1-based index of this job among siblings sharing the same step
+                    sibling_count:
+                      type: integer
+                      description: total number of siblings sharing the same step
+                    logs:
+                      type: string
+                  required:
+                    - job_id
+                    - label
+                    - kind
+                    - depth
+                    - sibling_index
+                    - sibling_count
+                    - logs
+
   /w/{workspace}/jobs_u/get_completed_logs_tail/{id}:
     get:
       summary: get completed job logs tail
