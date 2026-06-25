@@ -35,6 +35,9 @@ pub struct DocsFullPage {
     pub url: String,
     pub title: String,
     pub body: String,
+    /// `body` lowercased once at parse time, so the per-query full-corpus scan
+    /// doesn't re-allocate a lowercase copy of every page on each request.
+    pub body_lower: String,
 }
 
 /// A line of the llms.txt index: title, URL and one-line description.
@@ -42,6 +45,10 @@ pub struct DocsIndexEntry {
     pub title: String,
     pub url: String,
     pub description: String,
+    /// `title`/`description` lowercased once at parse time (same rationale as
+    /// `DocsFullPage::body_lower`).
+    pub title_lower: String,
+    pub description_lower: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -114,7 +121,9 @@ fn flush_page(pages: &mut Vec<DocsFullPage>, url: &Option<String>, buffer: &[&st
     let body = body.trim();
     if !body.is_empty() {
         let title = first_heading(body).unwrap_or_else(|| url.clone());
-        pages.push(DocsFullPage { url: url.clone(), title, body: body.to_string() });
+        let body = body.to_string();
+        let body_lower = body.to_lowercase();
+        pages.push(DocsFullPage { url: url.clone(), title, body, body_lower });
     }
 }
 
@@ -136,10 +145,14 @@ pub fn parse_docs_index(index_text: &str) -> Vec<DocsIndexEntry> {
             if !url.contains("/docs/") {
                 continue;
             }
+            let title = caps[1].trim().to_string();
+            let description = caps[3].trim().to_string();
             entries.push(DocsIndexEntry {
-                title: caps[1].trim().to_string(),
+                title_lower: title.to_lowercase(),
+                description_lower: description.to_lowercase(),
+                title,
                 url: url.to_string(),
-                description: caps[3].trim().to_string(),
+                description,
             });
         }
     }
@@ -371,11 +384,10 @@ pub fn search_docs_pages(pages: &[DocsFullPage], query: &str, max_pages: usize) 
 
     let mut scored = Vec::new();
     for (order, page) in pages.iter().enumerate() {
-        let lower_body = page.body.to_lowercase();
         let mut distinct = 0usize;
         let mut occurrences = 0usize;
         for term in &terms {
-            let count = count_occurrences(&lower_body, term);
+            let count = count_occurrences(&page.body_lower, term);
             if count > 0 {
                 distinct += 1;
                 occurrences += count;
@@ -416,13 +428,11 @@ pub fn search_docs_index(entries: &[DocsIndexEntry], query: &str, max_pages: usi
 
     let mut scored = Vec::new();
     for (order, entry) in entries.iter().enumerate() {
-        let title = entry.title.to_lowercase();
-        let description = entry.description.to_lowercase();
         let mut distinct = 0usize;
         let mut score = 0i64;
         for term in &terms {
-            let in_title = title.contains(term.as_str());
-            let in_desc = description.contains(term.as_str());
+            let in_title = entry.title_lower.contains(term.as_str());
+            let in_desc = entry.description_lower.contains(term.as_str());
             if in_title || in_desc {
                 distinct += 1;
                 score += if in_title { 5 } else { 0 } + if in_desc { 1 } else { 0 };
