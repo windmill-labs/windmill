@@ -318,6 +318,16 @@
 				})
 			}
 		}
+		// Pin the fork base for the stale-draft check: when seeding a draft from the
+		// deployed app (no own draft yet), stamp the deployed head version onto the
+		// draft value. An existing own draft already carries it (preserved by the
+		// value swap above). `parent_version` is in DRAFT_COMPARE_IGNORED_FIELDS, so it
+		// never trips the autosave no-op / "unsaved changes" comparison.
+		if (!hasOwnDraft && !backendApp.no_deployed && backendApp.value) {
+			const versions = (backendApp as { versions?: number[] }).versions
+			const head = Array.isArray(versions) ? versions[versions.length - 1] : undefined
+			if (head != null) (backendApp.value as App).parent_version = head
+		}
 		// Assign the fresh response onto `app`. The path-change $effect sets
 		// `app = undefined` first, unmounting AppEditor and releasing the UserDraft
 		// entry, so the remount starts fresh — no local discard is needed here
