@@ -311,7 +311,7 @@ pub fn render_docs_page_result(content: &str, section: Option<&str>) -> String {
 
     format!(
         "This documentation page is large. Below is its list of sections with approximate sizes.\n\
-         Call read_docs_page again with the same path and a `section` set to one of these headings to read that section.\n\n{}",
+         Call the docs page-reading tool again with the same `url` argument and a `section` set to one of these headings to read that section.\n\n{}",
         build_docs_outline(content)
     )
 }
@@ -579,7 +579,7 @@ pub fn format_docs_search_results(query: &str, results: &[DocsSearchResult]) -> 
 
     format!(
         "Found {} documentation page(s) matching \"{}\", most relevant first:\n\n{}\n\n\
-         Cite the exact \"Source\" URL when referencing a page. If these snippets are not enough, call read_docs_page with a Source URL to read the full page or a section.",
+         Cite the exact \"Source\" URL when referencing a page. If these snippets are not enough, call the docs page-reading tool with a Source URL as its `url` argument to read the full page or a section.",
         results.len(),
         query,
         blocks

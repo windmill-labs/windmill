@@ -3,7 +3,7 @@
 //! The backend embeds a vendored docs snapshot (see [`corpus`]) and exposes two
 //! read-only endpoints over it, so docs search works with no runtime egress:
 //!   - `GET /api/docs/search?query=...`  — full-text + index search
-//!   - `GET /api/docs/page?path=...&section=...` — read one page (or a section)
+//!   - `GET /api/docs/page?url=...&section=...` — read one page (or a section)
 //!
 //! These back the AI chat `search_docs`/`read_docs_page` tools, the MCP
 //! `searchDocs`/`readDocsPage` tools, and the `wmill docs` CLI. The routes are
@@ -41,7 +41,7 @@ struct SearchResponse {
 
 #[derive(Deserialize)]
 struct PageQuery {
-    /// A page's `Source` URL (as returned by search_docs); a bare `/docs/...`
+    /// A page's `Source` URL (as returned by the docs search tool); a bare `/docs/...`
     /// path is also accepted and canonicalized before lookup.
     url: String,
     section: Option<String>,
@@ -85,7 +85,7 @@ async fn read_docs_page(Query(q): Query<PageQuery>) -> JsonResult<PageResponse> 
     let url = q.url.trim();
     if url.is_empty() {
         return Ok(Json(PageResponse {
-            text: "No documentation page URL was provided. Provide a `url` — e.g. a `Source` URL returned by search_docs.".to_string(),
+            text: "No documentation page URL was provided. Provide a `url` — e.g. a `Source` URL returned by the docs search tool.".to_string(),
             source_url: String::new(),
         }));
     }
@@ -110,7 +110,7 @@ async fn read_docs_page(Query(q): Query<PageQuery>) -> JsonResult<PageResponse> 
             }
             None => PageResponse {
                 text: format!(
-                    "No documentation page found for \"{}\". Use search_docs to find the correct Source URL first.",
+                    "No documentation page found for \"{}\". Use the docs search tool to find the correct Source URL first.",
                     url
                 ),
                 source_url: search::canonical_docs_page_url(&url),

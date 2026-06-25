@@ -91,6 +91,9 @@ fn render_page_returns_outline_for_large_page() {
     let large = format!("# Big\n\n{}\n\n## Tail\n\nmore", "x".repeat(25_000));
     let result = render_docs_page_result(&large, None);
     assert!(result.contains("This documentation page is large"));
+    assert!(result.contains("same `url` argument"));
+    assert!(!result.contains("same path"));
+    assert!(!result.contains("read_docs_page"));
     assert!(result.contains("- Big (~"));
     assert!(result.contains("- Tail (~"));
 }
@@ -243,4 +246,22 @@ fn empty_query_returns_no_results() {
 fn format_search_results_no_matches() {
     let out = format_docs_search_results("zzz", &[]);
     assert!(out.contains("No documentation pages matched \"zzz\""));
+}
+
+#[test]
+fn format_search_results_uses_caller_neutral_followup_guidance() {
+    let out = format_docs_search_results(
+        "jobs",
+        &[DocsSearchResult {
+            url: "https://www.windmill.dev/docs/core_concepts/jobs".to_string(),
+            title: "Jobs".to_string(),
+            score: 1,
+            snippets: vec!["Jobs run scripts and flows.".to_string()],
+        }],
+    );
+
+    assert!(out.contains("Source: https://www.windmill.dev/docs/core_concepts/jobs"));
+    assert!(out.contains("Source URL as its `url` argument"));
+    assert!(!out.contains("read_docs_page"));
+    assert!(!out.contains("readDocsPage"));
 }
