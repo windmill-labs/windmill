@@ -70,13 +70,13 @@ jobs:
           Rename-Item -Path ".\backend\target\release\windmill.exe" -NewName "windmill-ee.exe"
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windmill-ee-binary
           path: ./backend/target/release/windmill-ee.exe
 
       - name: Upload dynamic libraries artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windmill_duckdb_ffi_internal.dll
           path: ./backend/windmill-duckdb-ffi-internal/target/release/windmill_duckdb_ffi_internal.dll
