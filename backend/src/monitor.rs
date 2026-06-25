@@ -2716,6 +2716,9 @@ pub async fn monitor_db(
                 if let Err(e) = cleanup_debounce_orphaned_keys(&db).await {
                     tracing::error!("Error cleaning up debounce keys: {:?}", e);
                 }
+                if let Err(e) = cleanup_consumed_debounce_batches(&db).await {
+                    tracing::error!("Error cleaning up consumed debounce batches: {:?}", e);
+                }
             }
         }
     };
@@ -4414,6 +4417,40 @@ RETURNING key,job_id
                 row.job_id
             );
         }
+    }
+    Ok(())
+}
+
+/// GC for claim-based debounce batches: once a batch row has been consumed (its
+/// args accumulated into some survivor's run), it only lingers to let a later-pulled
+/// survivor of the same batch tell "already consumed" from "never batched". A generous
+/// grace period (>> any debounce window) makes that decision safe; after it, the rows
+/// are dead weight. A re-pulled survivor whose row was GC'd correctly falls back to its
+/// own (already-accumulated, persisted) args, so the grace period is not correctness-
+/// critical.
+async fn cleanup_consumed_debounce_batches(db: &DB) -> error::Result<()> {
+    // Only reclaim a consumed row once its job has LEFT the queue. A consumed sibling
+    // (its contribution already accumulated by another survivor) can sit queued well
+    // past any time-based grace under a concurrency limit / worker backlog; removing its
+    // row while still queued would make its eventual pull treat it as never-batched and
+    // re-run its item (a duplicate). Keeping the row until the job is no longer queued
+    // guarantees that pull still sees "already consumed" and runs empty. The age floor
+    // is just a safety margin on top.
+    let deleted = sqlx::query_scalar!(
+        "WITH del AS (
+            DELETE FROM v2_job_debounce_batch
+            WHERE consumed_at IS NOT NULL
+              AND consumed_at < now() - interval '10 minutes'
+              AND id NOT IN (SELECT id FROM v2_job_queue)
+            RETURNING 1
+        ) SELECT count(*) FROM del"
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
+
+    if deleted > 0 {
+        tracing::info!("Cleaned up {deleted} consumed debounce batch rows");
     }
     Ok(())
 }
