@@ -13845,6 +13845,7 @@ dependencies = [
  "windmill-parser-ts",
  "windmill-queue",
  "windmill-runtime-nativets",
+ "windmill-store",
  "windmill-test-utils",
  "windmill-trigger",
  "windmill-trigger-azure",

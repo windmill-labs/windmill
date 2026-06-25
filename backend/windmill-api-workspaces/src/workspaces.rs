@@ -2696,8 +2696,24 @@ async fn edit_git_sync_repository(
         .find(|repo| repo.git_repo_resource_path == new_config.git_repo_resource_path);
 
     if let Some(existing_repo) = repo_found {
-        // Update existing repository
-        *existing_repo = new_config.repository;
+        // Update existing repository, but preserve server-owned auto-pull state
+        // (synced sha, last pull status, webhook id/secret) so a settings save
+        // from the UI cannot revert what the poller/webhook layer wrote.
+        let mut updated = new_config.repository;
+        match (updated.auto_pull.as_mut(), existing_repo.auto_pull.as_ref()) {
+            (Some(new_ap), Some(old_ap)) => {
+                new_ap.last_synced_sha = old_ap.last_synced_sha.clone();
+                new_ap.last_pull_status = old_ap.last_pull_status.clone();
+                new_ap.webhook_id = old_ap.webhook_id;
+                new_ap.webhook_secret = old_ap.webhook_secret.clone();
+            }
+            // UI omitted auto_pull (e.g. older client): keep existing config.
+            (None, Some(_)) => {
+                updated.auto_pull = existing_repo.auto_pull.clone();
+            }
+            _ => {}
+        }
+        *existing_repo = updated;
     } else {
         // Repository doesn't exist, add it as a new repository
         git_sync_settings.repositories.push(new_config.repository);

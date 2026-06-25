@@ -7,11 +7,7 @@
 		savedWithoutInit?: boolean
 	}
 
-	let {
-		open = $bindable(false),
-		savedWithoutInit = false
-	}: Props = $props()
-
+	let { open = $bindable(false), savedWithoutInit = false }: Props = $props()
 </script>
 
 <Modal bind:open title="Git Sync Connection Saved" class="sm:max-w-4xl" cancelText="Close">
@@ -23,7 +19,9 @@
 			</div>
 			<div>
 				<h3 class="text-lg font-semibold text-primary">Git sync connection saved successfully!</h3>
-				<p class="text-sm text-secondary mt-1">Your repository is now configured to receive changes from Windmill.</p>
+				<p class="text-sm text-secondary mt-1"
+					>Your repository is now configured to receive changes from Windmill.</p
+				>
 			</div>
 		</div>
 
@@ -32,7 +30,8 @@
 			<div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
 				<h4 class="font-medium text-blue-900 mb-2">Repository saved without initialization</h4>
 				<p class="text-sm text-blue-800">
-					Only new changes will be pushed to this repository. Existing content in Windmill has not been initialized to the repository.
+					Only new changes will be pushed to this repository. Existing content in Windmill has not
+					been initialized to the repository.
 				</p>
 			</div>
 		{/if}
@@ -41,17 +40,17 @@
 		<div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
 			<h4 class="font-medium text-amber-900 mb-2 flex items-center gap-2">
 				<ArrowRight class="h-4 w-4" />
-				Optional: Enable automatic deployment from Git to Windmill
+				Deploy changes from Git back to Windmill
 			</h4>
 			<p class="text-sm text-amber-800 mb-3">
-				To automatically deploy changes from your Git repository back to Windmill (when PRs are merged), you can set up GitHub Actions or similar CI/CD workflows.
+				Turn on "Automatically deploy changes from Git" on the repository to have Windmill pull new
+				commits into this workspace for you.
 			</p>
 			<div class="flex flex-col gap-2">
-				<p class="text-sm text-amber-700">This setup enables:</p>
-				<ul class="text-sm text-amber-700 ml-4 list-disc space-y-1">
-					<li>Automatic deployment to Windmill when PRs are merged</li>
-					<li>Full bidirectional sync between Git and Windmill</li>
-				</ul>
+				<p class="text-sm text-amber-700">
+					Prefer to control deployment from your own pipeline (tests, custom gating, deploy on PR
+					merge)? Set up GitHub Actions or similar CI/CD workflows instead.
+				</p>
 				<div class="mt-3">
 					<a
 						href="https://www.windmill.dev/docs/advanced/deploy_gh_gl#github-actions-setup"
@@ -59,11 +58,10 @@
 						class="text-sm text-amber-700 hover:text-amber-900 underline flex items-center gap-1"
 					>
 						<ExternalLink class="h-3 w-3" />
-						Learn more
+						Learn more about CI-based deployment
 					</a>
 				</div>
 			</div>
 		</div>
-
 	</div>
 </Modal>

@@ -20,6 +20,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import { ResourceService, VariableService } from '$lib/gen'
 
 	let {
@@ -49,6 +50,22 @@
 	const validation = $derived(idx !== null ? gitSyncContext.getValidation(idx) : null)
 	const gitSyncTestJob = $derived(idx !== null ? gitSyncContext.gitSyncTestJobs?.[idx] : null)
 	let confirmingDelete = $state(false)
+
+	// Enable/disable automatic repo → workspace pulls, managing the optional
+	// auto_pull object without binding into a possibly-undefined value.
+	function setAutoPullEnabled(enabled: boolean) {
+		if (!repo) return
+		if (enabled) {
+			repo.auto_pull = {
+				...(repo.auto_pull ?? {}),
+				enabled: true,
+				mode: repo.auto_pull?.mode ?? 'auto'
+			}
+		} else if (repo.auto_pull) {
+			repo.auto_pull = { ...repo.auto_pull, enabled: false }
+		}
+	}
+
 	let targetBranch = $state<string | undefined>(undefined) // Default to main, will be updated when resource is available
 	let resourceInfo = $state<{ url?: string; error?: string } | null>(null)
 	let loadingResourceInfo = $state(false)
@@ -517,6 +534,41 @@
 							</div>
 						{/if}
 					</div>
+
+					<!-- Automatic deployment from Git (repo to workspace) -->
+					{#if !emptyString(repo.git_repo_resource_path) && !repo.legacyImported}
+						<div class="mt-4 border-t border-gray-200 pt-3 dark:border-gray-700">
+							<Toggle
+								checked={repo.auto_pull?.enabled ?? false}
+								options={{
+									right: 'Automatically deploy changes from Git',
+									rightTooltip:
+										'Windmill periodically checks the tracked branch and pulls new commits into this workspace. Repositories connected through the GitHub App will sync via webhooks in a future update.'
+								}}
+								on:change={(e) => setAutoPullEnabled(e.detail)}
+							/>
+							{#if repo.auto_pull?.enabled}
+								<div class="text-2xs text-secondary mt-2">
+									{#if repo.auto_pull?.last_pull_status}
+										{#if repo.auto_pull.last_pull_status.success}
+											Last synced{repo.auto_pull.last_pull_status.synced_sha
+												? ` to ${repo.auto_pull.last_pull_status.synced_sha.slice(0, 7)}`
+												: ''}. Windmill checks the tracked branch about every minute.
+										{:else}
+											<span class="text-red-600 dark:text-red-400">
+												Last sync failed{repo.auto_pull.last_pull_status.error
+													? `: ${repo.auto_pull.last_pull_status.error}`
+													: ''}.
+											</span>
+										{/if}
+									{:else}
+										Windmill checks the tracked branch about every minute and deploys new commits
+										automatically.
+									{/if}
+								</div>
+							{/if}
+						</div>
+					{/if}
 				{/if}
 			{/if}
 		{:else}
