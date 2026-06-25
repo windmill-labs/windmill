@@ -38,7 +38,7 @@ java = ["dep:windmill-parser-java"]
 ruby = ["dep:windmill-parser-ruby"]
 rlang = ["dep:windmill-parser-r"]
 duckdb = ["dep:libloading"]
-quickjs = ["windmill-jseval/quickjs"]
+quickjs = ["windmill-jseval/quickjs", "windmill-queue/quickjs"]
 bedrock = ["windmill-ai/bedrock"]
 
 [dependencies]

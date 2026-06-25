@@ -303,6 +303,7 @@ pub struct UnifiedJob {
     pub preprocessed: Option<bool>,
     pub worker: Option<String>,
     pub runnable_settings_handle: Option<i64>,
+    pub is_retry: Option<bool>,
 }
 
 const CJ_FIELDS: &[&str] = &[
@@ -344,6 +345,7 @@ const CJ_FIELDS: &[&str] = &[
     "v2_job.preprocessed",
     "v2_job_completed.worker",
     "null as runnable_settings_handle",
+    "EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = v2_job.id) as is_retry",
 ];
 
 const QJ_FIELDS: &[&str] = &[
@@ -385,6 +387,7 @@ const QJ_FIELDS: &[&str] = &[
     "v2_job.preprocessed",
     "v2_job_queue.worker",
     "v2_job_queue.runnable_settings_handle",
+    "EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = v2_job.id) as is_retry",
 ];
 
 impl UnifiedJob {
@@ -438,6 +441,7 @@ impl From<UnifiedJob> for Job {
                     priority: uj.priority,
                     labels: uj.labels,
                     preprocessed: uj.preprocessed,
+                    is_retry: uj.is_retry,
                 },
             )),
             "QueuedJob" => Job::QueuedJob(JobExtended::new(
@@ -487,6 +491,7 @@ impl From<UnifiedJob> for Job {
                     preprocessed: uj.preprocessed,
                     runnable_settings_handle: uj.runnable_settings_handle,
                     labels: uj.labels,
+                    is_retry: uj.is_retry,
                 },
             )),
             t => panic!("job type {} not valid", t),
