@@ -102,7 +102,10 @@ export class StepsInputArgs {
 		}
 		let parentModule: FlowModule | undefined = undefined
 		if (modules.length > 1) {
-			parentModule = modules[modules.length - 1]
+			// dfs returns [module, direct_parent, grandparent, ...], so the direct
+			// parent is modules[1]. Using the last element would pick the outermost
+			// ancestor and miss inner-loop iter values for nested loops.
+			parentModule = modules[1]
 		}
 		const stepPropPicker = getStepPropPicker(
 			flowState,
@@ -177,7 +180,10 @@ export class StepsInputArgs {
 		}
 		let parentModule: FlowModule | undefined = undefined
 		if (modules.length > 1) {
-			parentModule = modules[modules.length - 1]
+			// dfs returns [module, direct_parent, grandparent, ...], so the direct
+			// parent is modules[1]. Using the last element would pick the outermost
+			// ancestor and miss inner-loop iter values for nested loops.
+			parentModule = modules[1]
 		}
 		const stepPropPicker = getStepPropPicker(
 			flowState,
