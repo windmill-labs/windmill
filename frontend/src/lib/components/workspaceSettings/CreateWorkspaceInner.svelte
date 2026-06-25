@@ -14,7 +14,8 @@
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logoutKit'
 	import { page } from '$app/state'
-	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
 	import { Button } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -47,6 +48,14 @@
 	// lock the parent ("prod") against direct edits.
 	let createAsDevWorkspace = $state(false)
 	let lockProd = $state(true)
+
+	// The dev-workspace option is only offered when forking a root workspace that doesn't already
+	// have one: a workspace gets at most one dev, and dev workspaces don't nest (a dev of a dev).
+	let existingDevWorkspace = $derived(findCanonicalDevWorkspace($workspaceStore, $userWorkspaces))
+	let currentIsRoot = $derived(
+		!$userWorkspaces.find((w) => w.id === $workspaceStore)?.parent_workspace_id
+	)
+	let canDesignateDevWorkspace = $derived(currentIsRoot && !existingDevWorkspace)
 
 	let id = $state('')
 	let name = $state('')
@@ -486,7 +495,7 @@
 				<!-- svelte-ignore a11y_autofocus -->
 				<TextInput inputProps={{ autofocus: true }} bind:value={name} />
 			</label>
-			{#if isFork}
+			{#if isFork && canDesignateDevWorkspace}
 				<Label label="Persistent dev workspace">
 					<span class="text-xs text-secondary">
 						Create a standing dev workspace (no <code>wm-fork-</code> prefix) paired with this workspace
@@ -502,6 +511,11 @@
 						{/if}
 					</div>
 				</Label>
+			{:else if isFork && existingDevWorkspace}
+				<span class="text-xs text-secondary">
+					This workspace already has a dev workspace (<b>{existingDevWorkspace.name}</b>). This will
+					be a throwaway fork; detach the existing dev workspace first to designate a new one.
+				</span>
 			{/if}
 			<label class="flex flex-col gap-1">
 				<span class="text-xs font-semibold text-emphasis">Workspace ID</span>

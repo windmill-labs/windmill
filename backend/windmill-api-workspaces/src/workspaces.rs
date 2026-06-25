@@ -4900,6 +4900,7 @@ async fn create_workspace_fork_branch(
 
     if nw.is_dev_workspace {
         validate_dev_workspace_id(&nw.id)?;
+        ensure_dev_parent_is_root(&db, &w_id).await?;
     } else {
         validate_fork_workspace_id(&nw.id)?;
     }
@@ -5078,6 +5079,7 @@ async fn create_workspace_fork(
     }
 
     if nw.is_dev_workspace {
+        ensure_dev_parent_is_root(&db, &parent_workspace_id).await?;
         // Locking prod mutates the parent's protection rules, which is an admin-only action
         // everywhere else; gate it the same way here so forking can't be used to escalate.
         if nw.lock_prod {
@@ -6427,6 +6429,25 @@ async fn ensure_no_existing_dev_workspace(db: &DB, parent_w_id: &str) -> Result<
         return Err(Error::BadRequest(format!(
             "Workspace '{}' already has a dev workspace ('{}'). Detach it before creating another.",
             parent_w_id, existing
+        )));
+    }
+    Ok(())
+}
+
+/// A dev workspace pairs with a root prod workspace; nesting dev workspaces (a dev of a dev) isn't
+/// supported and would muddle the prod<->dev relationship.
+async fn ensure_dev_parent_is_root(db: &DB, parent_w_id: &str) -> Result<()> {
+    let parent_is_fork = sqlx::query_scalar!(
+        r#"SELECT (parent_workspace_id IS NOT NULL) AS "is_fork!" FROM workspace WHERE id = $1"#,
+        parent_w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(false);
+    if parent_is_fork {
+        return Err(Error::BadRequest(format!(
+            "Cannot create a dev workspace of '{}' because it is itself a fork or dev workspace.",
+            parent_w_id
         )));
     }
     Ok(())
