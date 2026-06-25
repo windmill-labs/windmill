@@ -5368,85 +5368,121 @@ mod debounce {
     #[sqlx::test(migrations = "../migrations", fixtures("base"))]
     #[ignore]
     async fn bench_debounce_full_path(db: Pool<Postgres>) -> anyhow::Result<()> {
-        const CONCURRENCY: usize = 4;
-        const CYCLES_PER_TASK: usize = 300;
-        const BURST: usize = 3;
+        fn env_usize(k: &str, default: usize) -> usize {
+            std::env::var(k)
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(default)
+        }
+        let concurrency = env_usize("BENCH_CONCURRENCY", 4);
+        let cycles_per_task = env_usize("BENCH_CYCLES", 300);
+        let burst = env_usize("BENCH_BURST", 3);
+        // MODE=lifecycle: distinct key per cycle (independent collapse+pull, no advisory
+        //   contention) — measures end-to-end capacity / scaling.
+        // MODE=hotkey: every push targets ONE shared key (advisory lock serializes them)
+        //   — measures push throughput on a single hammered debounced endpoint.
+        let hotkey = std::env::var("BENCH_MODE")
+            .map(|m| m == "hotkey")
+            .unwrap_or(false);
 
-        let settings = DebouncingSettings {
+        let base = DebouncingSettings {
             debounce_delay_s: Some(5),
             debounce_key: Some("bench_key".to_string()),
             debounce_args_to_accumulate: Some(vec!["items".to_string()]),
             ..Default::default()
         };
-        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+        let rs_handle = setup_debouncing_settings(&db, &base).await;
 
         let start = std::time::Instant::now();
-        let tasks: Vec<_> = (0..CONCURRENCY)
-            .map(|t| {
-                let db = db.clone();
-                let settings = DebouncingSettings {
-                    // distinct key space per task so bursts collapse independently
-                    debounce_key: Some(format!("bench_key_{t}")),
-                    ..settings.clone()
-                };
-                tokio::spawn(async move {
-                    for c in 0..CYCLES_PER_TASK {
-                        // Fresh key per cycle so each cycle is one full collapse+pull.
-                        let key = format!("bench_{t}_{c}");
-                        let settings = DebouncingSettings {
-                            debounce_key: Some(key.clone()),
-                            ..settings.clone()
-                        };
-                        let mut survivor = Uuid::new_v4();
-                        for b in 0..BURST {
-                            let id = Uuid::new_v4();
-                            survivor = id;
-                            let args_val = serde_json::json!({ "items": [b as i64] });
-                            insert_script_job_with_args(
-                                &db, id, "test-workspace", "f/test/script", &args_val,
-                            )
-                            .await;
-                            sqlx::query!(
-                                "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
-                                rs_handle, id,
-                            )
-                            .execute(&db)
-                            .await
-                            .unwrap();
-                            let hm: HashMap<String, Box<RawValue>> =
-                                serde_json::from_value(args_val).unwrap();
-                            let mut sf = None;
-                            let mut tx = db.begin().await.unwrap();
-                            windmill_queue::jobs_ee::maybe_debounce(
-                                &settings, &mut sf, &Some("f/test/script".to_string()),
-                                "test-workspace", JobKind::Script, id, &PushArgs::from(&hm), &mut tx,
-                            )
-                            .await
-                            .unwrap();
-                            tx.commit().await.unwrap();
-                        }
-                        // Survivor pull: claim + accumulate + consume.
+        let mut handles = Vec::new();
+        for t in 0..concurrency {
+            let db = db.clone();
+            let base = base.clone();
+            handles.push(tokio::spawn(async move {
+                for c in 0..cycles_per_task {
+                    let key = if hotkey {
+                        "bench_hot".to_string()
+                    } else {
+                        format!("bench_{t}_{c}")
+                    };
+                    let settings = DebouncingSettings { debounce_key: Some(key), ..base.clone() };
+                    let mut survivor = Uuid::new_v4();
+                    for b in 0..burst {
+                        let id = Uuid::new_v4();
+                        survivor = id;
+                        let args_val = serde_json::json!({ "items": [b as i64] });
+                        insert_script_job_with_args(
+                            &db,
+                            id,
+                            "test-workspace",
+                            "f/test/script",
+                            &args_val,
+                        )
+                        .await;
+                        sqlx::query!(
+                            "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+                            rs_handle,
+                            id,
+                        )
+                        .execute(&db)
+                        .await
+                        .unwrap();
+                        let hm: HashMap<String, Box<RawValue>> =
+                            serde_json::from_value(args_val).unwrap();
+                        let mut sf = None;
+                        let mut tx = db.begin().await.unwrap();
+                        windmill_queue::jobs_ee::maybe_debounce(
+                            &settings,
+                            &mut sf,
+                            &Some("f/test/script".to_string()),
+                            "test-workspace",
+                            JobKind::Script,
+                            id,
+                            &PushArgs::from(&hm),
+                            &mut tx,
+                        )
+                        .await
+                        .unwrap();
+                        tx.commit().await.unwrap();
+                    }
+                    // In hotkey mode pulls would race on the single shared survivor and mostly
+                    // no-op; we isolate push contention there and drain once at the end instead.
+                    if !hotkey {
                         let mut res = make_pulled_job_result(
-                            survivor, "test-workspace", "f/test/script",
+                            survivor,
+                            "test-workspace",
+                            "f/test/script",
                             &serde_json::json!({ "items": [] }),
-                            JobKind::Script, "deno", rs_handle,
+                            JobKind::Script,
+                            "deno",
+                            rs_handle,
                         );
                         res.maybe_apply_debouncing(&db).await.unwrap();
                     }
-                })
-            })
-            .collect();
-        for t in tasks {
-            t.await.unwrap();
+                }
+            }));
+        }
+        for h in handles {
+            h.await.unwrap();
         }
         let elapsed = start.elapsed();
-        let cycles = CONCURRENCY * CYCLES_PER_TASK;
-        let jobs = cycles * BURST;
+        let cycles = concurrency * cycles_per_task;
+        let jobs = cycles * burst;
+        let mode = if hotkey {
+            "hotkey(1 key)"
+        } else {
+            "lifecycle(distinct keys)"
+        };
         eprintln!(
-            "BENCH full debounce path: {cycles} cycles ({jobs} pushed jobs + {cycles} pulls) in {:.2?} | {:.0} pushes/s | {:.0} pulls/s",
+            "BENCH {mode} c={concurrency} burst={burst}: {jobs} pushes{} in {:.2?} | {:.0} pushes/s{}",
+            if hotkey { String::new() } else { format!(" + {cycles} pulls") },
             elapsed,
             jobs as f64 / elapsed.as_secs_f64(),
-            cycles as f64 / elapsed.as_secs_f64(),
+            if hotkey {
+                String::new()
+            } else {
+                format!(" | {:.0} pulls/s", cycles as f64 / elapsed.as_secs_f64())
+            },
         );
         Ok(())
     }
