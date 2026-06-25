@@ -4430,6 +4430,127 @@ mod debounce {
         Ok(())
     }
 
+    /// Helper: mark a queued job as running (simulates a survivor that the
+    /// concurrency limiter has just started executing).
+    async fn set_running(db: &Pool<Postgres>, job_id: &Uuid) {
+        sqlx::query!(
+            "UPDATE v2_job_queue SET running = true WHERE id = $1",
+            job_id,
+        )
+        .execute(db)
+        .await
+        .expect("set running");
+    }
+
+    /// Test: a message that arrives while its debounce survivor is already running
+    /// must start a new batch, not be folded into the running survivor and dropped.
+    /// A survivor that has pulled its batch and begun executing can no longer
+    /// accumulate, so the late message's args would otherwise be lost with no error.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_post_preprocessing_debounce_into_running_survivor_loses_message(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some("running_survivor_key".to_string()),
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        // --- Wave 1: a single message becomes the survivor and starts running. ---
+        let survivor = Uuid::new_v4();
+        let survivor_args = serde_json::json!({ "items": [1] });
+        insert_flow_job_with_preprocessor(
+            &db,
+            survivor,
+            "test-workspace",
+            "f/test/flow_run",
+            true,
+            0,
+        )
+        .await;
+        sqlx::query!(
+            "UPDATE v2_job SET args = $2 WHERE id = $1",
+            survivor,
+            survivor_args
+        )
+        .execute(&db)
+        .await?;
+
+        let survivor_args_hm: HashMap<String, Box<RawValue>> =
+            serde_json::from_value(survivor_args.clone()).unwrap();
+        windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+            &settings,
+            &Some("f/test/flow_run".to_string()),
+            "test-workspace",
+            survivor,
+            &PushArgs::from(&survivor_args_hm),
+            &db,
+        )
+        .await?;
+        assert!(is_queued(&db, &survivor).await, "survivor should be queued");
+
+        // Worker pulls the survivor: accumulate its own [1], consume the batch, run.
+        sqlx::query!(
+            "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+            rs_handle,
+            survivor,
+        )
+        .execute(&db)
+        .await?;
+        let mut pulled = make_pulled_job_result(
+            survivor,
+            "test-workspace",
+            "f/test/flow_run",
+            &survivor_args,
+            JobKind::Flow,
+            "flow",
+            rs_handle,
+        );
+        pulled.maybe_apply_debouncing(&db).await?;
+        assert_accumulated_items(&pulled, &[1], "items");
+        set_running(&db, &survivor).await; // survivor is now RUNNING
+
+        // --- Wave 2: a new message arrives while the survivor is running. ---
+        let late = Uuid::new_v4();
+        let late_args = serde_json::json!({ "items": [2] });
+        insert_flow_job_with_preprocessor(&db, late, "test-workspace", "f/test/flow_run", true, 0)
+            .await;
+        sqlx::query!("UPDATE v2_job SET args = $2 WHERE id = $1", late, late_args)
+            .execute(&db)
+            .await?;
+
+        let late_args_hm: HashMap<String, Box<RawValue>> =
+            serde_json::from_value(late_args.clone()).unwrap();
+        windmill_queue::jobs_ee::maybe_debounce_post_preprocessing(
+            &settings,
+            &Some("f/test/flow_run".to_string()),
+            "test-workspace",
+            late,
+            &PushArgs::from(&late_args_hm),
+            &db,
+        )
+        .await?;
+
+        // The late message must survive (new batch): still queued, and the
+        // debounce_key moved off the already-running survivor. Currently it is
+        // instead folded in as "Debounced Running by <survivor>" and its [2] lost.
+        let late_survived = is_queued(&db, &late).await && !is_completed(&db, &late).await;
+        let dk = get_debounce_key(&db, "running_survivor_key").await;
+        let key_moved_off_running_survivor =
+            dk.map(|(job_id, _, _)| job_id != survivor).unwrap_or(true);
+
+        assert!(
+            late_survived && key_moved_off_running_survivor,
+            "message arriving while the survivor is running must start a new batch \
+             (survive), not be folded into the running survivor and dropped. \
+             late_survived={late_survived}, key_moved_off_running_survivor={key_moved_off_running_survivor}"
+        );
+
+        Ok(())
+    }
+
     // =========================================================================
     // Tests for maybe_debounce_flow_node (flow node debouncing)
     // =========================================================================
