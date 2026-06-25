@@ -2,7 +2,7 @@
 	import { untrack, getContext, onMount, type Snippet } from 'svelte'
 	import { cubicOut } from 'svelte/easing'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { Search } from 'lucide-svelte'
+	import { Search, Maximize2, Minimize2 } from 'lucide-svelte'
 	import { page } from '$app/state'
 	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
@@ -50,6 +50,21 @@
 		}
 		requestAnimationFrame(step)
 	})
+
+	// Full-screen panel: collapse the session chrome (rail + chat) to 0 so the
+	// embedded page fills the viewport. Stash the prior size to restore on exit.
+	let panelFullscreen = $state(false)
+	let savedChatSize = $state(CHAT_PANE_SIZE)
+	function togglePanelFullscreen() {
+		if (!panelFullscreen) {
+			savedChatSize = chatPaneSize
+			chatPaneSize = 0
+			panelFullscreen = true
+		} else {
+			panelFullscreen = false
+			chatPaneSize = savedChatSize
+		}
+	}
 
 	// Resolve the selected session, but only if its record actually exists.
 	// A stale currentSessionId can outlive its session (e.g. a transient draft
@@ -99,7 +114,11 @@
 		<!-- Pane 1 = session chrome (sessions rail + chat). The fixed-width rail
 		     plus a flex chat means dragging the (hidden) splitter resizes the chat.
 		     The inner wrapper slides in from the left when session mode opens. -->
-		<Pane bind:size={chatPaneSize} minSize={introDone ? 26 : 0} class="flex min-h-0">
+		<Pane
+			bind:size={chatPaneSize}
+			minSize={panelFullscreen ? 0 : introDone ? 26 : 0}
+			class="flex min-h-0"
+		>
 			<div class="flex flex-row w-full min-h-0">
 				<!-- Sessions rail, replacing the global nav sidebar. -->
 				<div class="w-56 shrink-0 flex flex-col border-r border-light bg-surface-secondary min-h-0">
@@ -145,9 +164,11 @@
 		<Pane minSize={30} class="flex flex-col min-h-0">
 			<!-- pl-0: the card's left edge sits flush against the splitter, so the
 			     invisible handle sticks to the panel (matching the session editor pane). -->
-			<div class="flex-1 min-h-0 flex flex-col p-2 pl-0">
+			<div class="flex-1 min-h-0 flex flex-col {panelFullscreen ? 'p-0' : 'p-2 pl-0'}">
 				<div
-					class="flex flex-col flex-1 min-h-0 rounded-md border border-light overflow-hidden relative bg-surface"
+					class="flex flex-col flex-1 min-h-0 overflow-hidden relative bg-surface {panelFullscreen
+						? ''
+						: 'rounded-md border border-light'}"
 				>
 					<!-- Viewing breadcrumb: full-width panel header, on top of the nav sidebar. -->
 					<div
@@ -155,6 +176,19 @@
 					>
 						<span class="text-tertiary">Viewing</span>
 						<span class="font-mono truncate">{page.url.pathname}</span>
+						<button
+							type="button"
+							onclick={togglePanelFullscreen}
+							title={panelFullscreen ? 'Exit full screen' : 'Full screen'}
+							aria-label={panelFullscreen ? 'Exit full screen' : 'Full screen'}
+							class="ml-auto shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
+						>
+							{#if panelFullscreen}
+								<Minimize2 size={14} />
+							{:else}
+								<Maximize2 size={14} />
+							{/if}
+						</button>
 					</div>
 					<div class="flex flex-row flex-1 min-h-0">
 						<!-- Temporary nav sidebar so the panel stays navigable. Mirrors the global
