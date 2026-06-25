@@ -6365,7 +6365,8 @@ async fn list_protection_rules(
 }
 
 /// Reserved protection-rule name applied to a prod workspace when it is paired with a dev workspace.
-/// It carries `DisableDirectDeployment` so direct edits in prod are blocked and funneled through dev.
+/// It carries `DisableDirectDeployment` + `DisableWorkspaceForking` so non-admins can neither deploy
+/// directly nor fork prod, and are funneled through the single dev workspace.
 pub(crate) const DEV_WORKSPACE_LOCK_RULE_NAME: &str = "dev_workspace_lock";
 
 /// Insert or replace a protection ruleset within an existing transaction. Unlike the
@@ -6400,13 +6401,18 @@ async fn upsert_protection_rule(
     Ok(())
 }
 
-/// Lock a prod workspace against direct deployment by applying the reserved dev-workspace lock rule.
+/// Lock a prod workspace by applying the reserved dev-workspace lock rule. It disables both direct
+/// deployment and ad-hoc forking, so non-admins are funneled through the one dev workspace; admins
+/// bypass both (their existing escape hatch).
 async fn lock_prod_workspace(tx: &mut Transaction<'_, Postgres>, prod_w_id: &str) -> Result<()> {
     upsert_protection_rule(
         tx,
         prod_w_id,
         DEV_WORKSPACE_LOCK_RULE_NAME,
-        ProtectionRules::from(&vec![ProtectionRuleKind::DisableDirectDeployment]),
+        ProtectionRules::from(&vec![
+            ProtectionRuleKind::DisableDirectDeployment,
+            ProtectionRuleKind::DisableWorkspaceForking,
+        ]),
         &[],
         &[],
     )

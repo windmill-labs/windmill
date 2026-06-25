@@ -2,12 +2,13 @@
 	import { tick, type Snippet } from 'svelte'
 	import {
 		enterpriseLicense,
+		userStore,
 		userWorkspaces,
 		workspaceStore,
 		type UserWorkspace
 	} from '$lib/stores'
 	import { findWorkspaceDescendants } from '$lib/utils/workspaceHierarchy'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { canCreateFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -65,7 +66,7 @@
 	// when closed (cloud / DisableWorkspaceForking rule / admins workspace) the
 	// fork affordance is hidden entirely.
 	const forksGateOpen = $derived(
-		!isCloudHosted() && !isRuleActive('DisableWorkspaceForking') && $workspaceStore !== 'admins'
+		!isCloudHosted() && canCreateFork($userStore) && $workspaceStore !== 'admins'
 	)
 	// A fork is a new workspace, so it's subject to the community-edition cap on
 	// the number of non-'admins' workspaces (backend _check_nb_of_workspaces,

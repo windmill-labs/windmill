@@ -11,7 +11,7 @@
 		clearWorkspaceFromStorage,
 		globalForkModal
 	} from '$lib/stores'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { canCreateFork } from '$lib/utils/editInFork'
 	import { Building, Plus, Settings, GitFork } from 'lucide-svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
@@ -204,7 +204,7 @@
 					</MenuItem>
 				</div>
 			{/if}
-			{#if !strictWorkspaceSelect && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking') && $workspaceStore !== 'admins'}
+			{#if !strictWorkspaceSelect && !isCloudHosted() && canCreateFork($userStore) && $workspaceStore !== 'admins'}
 				<div class="py-1" role="none">
 					<MenuItem
 						class={itemClass}
