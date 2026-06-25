@@ -1255,6 +1255,14 @@
       "created_at": "2026-06-24T02:00:54Z",
       "repoId": 488804911,
       "pullRequestNo": 9749
+    },
+    {
+      "name": "kiivanova",
+      "id": 31586617,
+      "comment_id": 4797635666,
+      "created_at": "2026-06-25T09:12:33Z",
+      "repoId": 488804911,
+      "pullRequestNo": 9781
     }
   ]
 }
