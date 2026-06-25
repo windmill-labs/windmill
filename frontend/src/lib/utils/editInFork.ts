@@ -21,14 +21,13 @@ export function editInForkAllowed(
 	)
 }
 
-/** Label for the affordance: "Edit in dev workspace" when routed to a canonical dev, else "Edit in fork". */
+/** Label for the affordance: "Edit in <dev name>" when routed to a canonical dev, else "Edit in fork". */
 export function editInForkLabel(
 	currentWorkspaceId: string | undefined,
 	allWorkspaces: UserWorkspace[]
 ): string {
-	return findCanonicalDevWorkspace(currentWorkspaceId, allWorkspaces)
-		? 'Edit in dev workspace'
-		: 'Edit in fork'
+	const dev = findCanonicalDevWorkspace(currentWorkspaceId, allWorkspaces)
+	return dev ? `Edit in ${dev.name}` : 'Edit in fork'
 }
 
 /**

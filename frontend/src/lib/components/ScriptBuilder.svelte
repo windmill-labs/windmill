@@ -26,6 +26,7 @@
 		enterpriseLicense,
 		usedTriggerKinds,
 		userStore,
+		userWorkspaces,
 		workerTags,
 		workspaceStore
 	} from '$lib/stores'
@@ -97,8 +98,7 @@
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
 	import type { ButtonType } from './common/button/model'
 	import DebounceLimit from './flows/DebounceLimit.svelte'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import OnBehalfOfSelector, { type OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
@@ -761,10 +761,10 @@
 											window.open(`/scripts/add?template=${initialPath}`)
 										}
 									},
-									...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
+									...(!isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)
 										? [
 												{
-													label: 'Edit in workspace fork',
+													label: editInForkLabel($workspaceStore, $userWorkspaces),
 													onClick: () => {
 														window.open(buildForkEditUrl('script', initialPath))
 													}

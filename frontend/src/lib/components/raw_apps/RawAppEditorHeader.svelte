@@ -9,7 +9,13 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
 	import { rawAppToHubUrl } from '$lib/hub'
-	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		hubBaseUrlStore,
+		userStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
 	import YAML from 'yaml'
 	import {
 		Bug,
@@ -69,8 +75,7 @@
 	// the preview to the deployed version.
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
 	import type { RawAppData } from './dataTableRefUtils'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
 	// async function hash(message) {
@@ -880,10 +885,10 @@
 								window.open(`/apps/add?template=${appPath}`)
 							}
 						},
-						...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
+						...(!isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)
 							? [
 									{
-										label: 'Edit in workspace fork',
+										label: editInForkLabel($workspaceStore, $userWorkspaces),
 										onClick: () => {
 											window.open(buildForkEditUrl('raw_app', appPath))
 										}
