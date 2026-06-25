@@ -4488,6 +4488,93 @@ mod debounce {
         Ok(())
     }
 
+    /// Regression: a push that would chain onto a queued holder must not error if the
+    /// worker pull path concurrently deletes that holder's debounce_key
+    /// (`DELETE ... WHERE job_id = ...`, which does NOT take the push advisory lock).
+    /// The upsert is a single atomic `INSERT ... ON CONFLICT`, so a deleted holder simply
+    /// yields a fresh window rather than a "no row updated" failure. Races the two and
+    /// asserts the push always succeeds and leaves a consistent key.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn test_debounce_push_races_key_deletion_by_pull(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        let key = "push_vs_pull_key";
+        let settings = DebouncingSettings {
+            debounce_delay_s: Some(5),
+            debounce_key: Some(key.to_string()),
+            debounce_args_to_accumulate: Some(vec!["items".to_string()]),
+            ..Default::default()
+        };
+        let rs_handle = setup_debouncing_settings(&db, &settings).await;
+
+        // 50 rounds to give the interleaving a chance to land in the read/write window
+        // that the old split read+UPDATE path would have failed on.
+        for round in 0..50 {
+            sqlx::query!("DELETE FROM debounce_key WHERE key = $1", key)
+                .execute(&db)
+                .await?;
+            let holder = Uuid::new_v4();
+            push_debounced_script(&db, holder, vec![round], &settings, rs_handle).await;
+
+            let late = Uuid::new_v4();
+            let late_args = serde_json::json!({ "items": [round * 1000] });
+            insert_script_job_with_args(&db, late, "test-workspace", "f/test/script", &late_args)
+                .await;
+            sqlx::query!(
+                "UPDATE v2_job_queue SET runnable_settings_handle = $1 WHERE id = $2",
+                rs_handle,
+                late,
+            )
+            .execute(&db)
+            .await?;
+
+            // Race: push the late arrival (chains onto `holder`) against the worker pull
+            // cleanup deleting `holder`'s key.
+            let push = {
+                let db = db.clone();
+                let settings = settings.clone();
+                async move {
+                    let args_hm: HashMap<String, Box<RawValue>> =
+                        serde_json::from_value(serde_json::json!({ "items": [round * 1000] }))
+                            .unwrap();
+                    let push_args = PushArgs::from(&args_hm);
+                    let mut scheduled_for = None;
+                    let mut tx = db.begin().await.unwrap();
+                    let res = windmill_queue::jobs_ee::maybe_debounce(
+                        &settings,
+                        &mut scheduled_for,
+                        &Some("f/test/script".to_string()),
+                        "test-workspace",
+                        JobKind::Script,
+                        late,
+                        &push_args,
+                        &mut tx,
+                    )
+                    .await;
+                    if res.is_ok() {
+                        tx.commit().await.unwrap();
+                    }
+                    res
+                }
+            };
+            let delete = {
+                let db = db.clone();
+                async move {
+                    sqlx::query!("DELETE FROM debounce_key WHERE job_id = $1", holder)
+                        .execute(&db)
+                        .await
+                }
+            };
+            let (push_res, _) = tokio::join!(push, delete);
+            assert!(
+                push_res.is_ok(),
+                "round {round}: push must not error when the holder key is concurrently deleted: {push_res:?}"
+            );
+        }
+
+        Ok(())
+    }
+
     /// Test: Push-time (script) debounce with max_total_debounces_amount=2.
     /// 5 calls, each sending {x: [i]}. Expected:
     ///   Call 1: debounced (scheduled_for set)
