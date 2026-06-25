@@ -116,6 +116,7 @@
 							<WorkspaceIcon
 								workspaceColor={workspace.color}
 								{isForked}
+								isDevWorkspace={workspace.is_dev_workspace}
 								parentName={workspace.parent_workspace_id ?? undefined}
 								size={12}
 							/>
