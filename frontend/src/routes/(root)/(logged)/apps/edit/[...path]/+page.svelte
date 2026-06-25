@@ -49,6 +49,10 @@
 	let othersModalOpen = $state(false)
 	let draftSavedAt = $state<string | undefined>(undefined)
 	let deployedAt = $state<string | undefined>(undefined)
+	// The app_version the draft was forked from (pinned), + the deployed head, for
+	// the precise staleness check in DraftEditorModals (vs the drifting timestamp).
+	let draftBaseVersion = $state<number | undefined>(undefined)
+	let deployedHeadVersion = $state<number | undefined>(undefined)
 
 	/** Increments per `loadApp` call. Stale loads (e.g. when picker
 	 * navigation races a draft-discard reload) bail at the next checkpoint
@@ -275,6 +279,13 @@
 		// `no_deployed` — no baseline to be older than.
 		draftSavedAt = backendApp.draft_saved_at as string | undefined
 		deployedAt = backendApp.no_deployed ? undefined : (backendApp.created_at as string | undefined)
+		// `parent_version` rides on the persisted draft (pinned at fork); undefined
+		// for a pre-feature draft. Head = the last entry of the deployed `versions`.
+		draftBaseVersion = savedDraftApp?.parent_version
+		deployedHeadVersion =
+			backendApp.no_deployed || !backendApp.versions
+				? undefined
+				: backendApp.versions[backendApp.versions.length - 1]
 		const backendApp_ = structuredClone(stateSnapshot(backendApp))
 		savedApp = {
 			summary: backendApp_.summary,
@@ -422,6 +433,8 @@
 	bind:othersModalOpen
 	{draftSavedAt}
 	{deployedAt}
+	{draftBaseVersion}
+	{deployedHeadVersion}
 	onLoadLatestDeploy={async () => {
 		if (!$workspaceStore) return
 		await runResetToDeployed({

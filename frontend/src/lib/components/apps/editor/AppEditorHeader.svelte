@@ -419,7 +419,12 @@
 
 	let onLatest = $state(true)
 	async function compareVersions() {
-		if (version === undefined) {
+		// Compare the draft's pinned fork base (`$app.parent_version`) against the
+		// current head when editing a draft, else the load-time head. Catches both a
+		// concurrent deploy (head moved since open) AND a stale draft reopened after a
+		// deploy (head == load-time head, but the draft was forked from an older one).
+		const base = $app?.parent_version ?? version
+		if (base === undefined) {
 			return
 		}
 		try {
@@ -427,7 +432,7 @@
 				workspace: $workspaceStore!,
 				path: $appPath
 			})
-			onLatest = appVersion?.version === undefined || version === appVersion?.version
+			onLatest = appVersion?.version === undefined || base === appVersion?.version
 		} catch (e) {
 			console.error('Error comparing versions', e)
 			onLatest = true
