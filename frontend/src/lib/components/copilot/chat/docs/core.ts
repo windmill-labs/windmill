@@ -13,14 +13,14 @@ const READ_DOCS_PAGE_TOOL: ChatCompletionTool = {
 	function: {
 		name: 'read_docs_page',
 		description:
-			'Fetch the raw markdown of a single Windmill documentation page. Provide the `path` (or full URL) of a page found via search_docs. If the page is large, this returns its list of section headings instead of the full content; call again with the `section` argument set to one of those headings to read that section.',
+			'Fetch the raw markdown of a single Windmill documentation page. Provide the `url` of a page found via search_docs (its Source URL). If the page is large, this returns its list of section headings instead of the full content; call again with the `section` argument set to one of those headings to read that section.',
 		parameters: {
 			type: 'object',
 			properties: {
-				path: {
+				url: {
 					type: 'string',
 					description:
-						'The docs page to read, as a path (e.g. /docs/core_concepts/jobs) or full URL (e.g. https://www.windmill.dev/docs/core_concepts/jobs).'
+						'The docs page to read, as a Source URL returned by search_docs (e.g. https://www.windmill.dev/docs/core_concepts/jobs). A bare path (e.g. /docs/core_concepts/jobs) is also accepted.'
 				},
 				section: {
 					type: 'string',
@@ -28,7 +28,7 @@ const READ_DOCS_PAGE_TOOL: ChatCompletionTool = {
 						'Optional. A heading title from the page outline to read just that section instead of the full page.'
 				}
 			},
-			required: ['path']
+			required: ['url']
 		}
 	}
 }
@@ -36,17 +36,17 @@ const READ_DOCS_PAGE_TOOL: ChatCompletionTool = {
 export const readDocsPageTool: Tool<{}> = {
 	def: READ_DOCS_PAGE_TOOL,
 	fn: async ({ args, toolId, toolCallbacks }) => {
-		const path = typeof args?.path === 'string' ? args.path : ''
+		const url = typeof args?.url === 'string' ? args.url : ''
 		const section =
 			typeof args?.section === 'string' && args.section.trim() ? args.section : undefined
 		toolCallbacks.setToolStatus(toolId, {
 			content: section ? `Reading docs section "${section}"...` : 'Reading documentation page...'
 		})
 		try {
-			if (!path.trim()) {
-				return 'No documentation page path was provided. Provide a `path` — e.g. a `Source` URL returned by search_docs.'
+			if (!url.trim()) {
+				return 'No documentation page URL was provided. Provide a `url` — e.g. a `Source` URL returned by search_docs.'
 			}
-			const res = await DocumentationService.readDocsPage({ path, section })
+			const res = await DocumentationService.readDocsPage({ url, section })
 			toolCallbacks.setToolStatus(toolId, { content: 'Read documentation page' })
 			return res.text
 		} catch (error) {

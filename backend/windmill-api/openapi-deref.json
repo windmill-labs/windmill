@@ -248,7 +248,7 @@
     },
     "/docs/page": {
       "get": {
-        "summary": "Fetch the markdown of a single Windmill documentation page. Provide the `path` (or full URL) of a page found via searchDocs. If the page is large, this returns its list of section headings instead of the full content; call again with the `section` argument set to one of those headings to read that section.",
+        "summary": "Fetch the markdown of a single Windmill documentation page. Provide the `url` of a page found via searchDocs (its Source URL). If the page is large, this returns its list of section headings instead of the full content; call again with the `section` argument set to one of those headings to read that section.",
         "operationId": "readDocsPage",
         "x-mcp-tool": true,
         "tags": [
@@ -256,8 +256,8 @@
         ],
         "parameters": [
           {
-            "name": "path",
-            "description": "The docs page to read, as a path (e.g. /docs/core_concepts/jobs) or full URL. Use a Source URL returned by searchDocs.",
+            "name": "url",
+            "description": "The docs page to read, as a Source URL returned by searchDocs (e.g. https://www.windmill.dev/docs/core_concepts/jobs). A bare path (e.g. /docs/core_concepts/jobs) is also accepted.",
             "in": "query",
             "required": true,
             "schema": {

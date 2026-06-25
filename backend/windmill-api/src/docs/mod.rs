@@ -41,7 +41,9 @@ struct SearchResponse {
 
 #[derive(Deserialize)]
 struct PageQuery {
-    path: String,
+    /// A page's `Source` URL (as returned by search_docs); a bare `/docs/...`
+    /// path is also accepted and canonicalized before lookup.
+    url: String,
     section: Option<String>,
 }
 
@@ -80,21 +82,21 @@ async fn search_docs(Query(q): Query<SearchQuery>) -> JsonResult<SearchResponse>
 }
 
 async fn read_docs_page(Query(q): Query<PageQuery>) -> JsonResult<PageResponse> {
-    let path = q.path.trim();
-    if path.is_empty() {
+    let url = q.url.trim();
+    if url.is_empty() {
         return Ok(Json(PageResponse {
-            text: "No documentation page path was provided. Provide a `path` — e.g. a `Source` URL returned by search_docs.".to_string(),
+            text: "No documentation page URL was provided. Provide a `url` — e.g. a `Source` URL returned by search_docs.".to_string(),
             source_url: String::new(),
         }));
     }
 
-    let path = path.to_string();
+    let url = url.to_string();
     let section = q.section.filter(|s| !s.trim().is_empty());
 
     // Corpus init + page sanitize/render are CPU-bound; keep them off the runtime.
     let resp = tokio::task::spawn_blocking(move || {
         let corpus = corpus::corpus();
-        match corpus.find_page(&path) {
+        match corpus.find_page(&url) {
             Some(page) => {
                 // Rewrite docusaurus source-file links to canonical published URLs
                 // so the model never echoes a broken `.mdx` path.
@@ -109,9 +111,9 @@ async fn read_docs_page(Query(q): Query<PageQuery>) -> JsonResult<PageResponse> 
             None => PageResponse {
                 text: format!(
                     "No documentation page found for \"{}\". Use search_docs to find the correct Source URL first.",
-                    path
+                    url
                 ),
-                source_url: search::canonical_docs_page_url(&path),
+                source_url: search::canonical_docs_page_url(&url),
             },
         }
     })

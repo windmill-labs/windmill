@@ -32,7 +32,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     },
     EndpointTool {
         name: Cow::Borrowed("readDocsPage"),
-        description: Cow::Borrowed("Fetch the markdown of a single Windmill documentation page. Provide the `path` (or full URL) of a page found via searchDocs. If the page is large, this returns its list of section headings instead of the full content; call again with the `section` argument set to one of those headings to read that section."),
+        description: Cow::Borrowed("Fetch the markdown of a single Windmill documentation page. Provide the `url` of a page found via searchDocs (its Source URL). If the page is large, this returns its list of section headings instead of the full content; call again with the `section` argument set to one of those headings to read that section."),
         instructions: Cow::Borrowed(""),
         path: Cow::Borrowed("/docs/page"),
         method: Cow::Borrowed("GET"),
@@ -40,9 +40,9 @@ pub fn all_tools() -> Vec<EndpointTool> {
         query_params_schema: Some(serde_json::json!({
         "type": "object",
         "properties": {
-                "path": {
+                "url": {
                         "type": "string",
-                        "description": "The docs page to read, as a path (e.g. /docs/core_concepts/jobs) or full URL. Use a Source URL returned by searchDocs."
+                        "description": "The docs page to read, as a Source URL returned by searchDocs (e.g. https://www.windmill.dev/docs/core_concepts/jobs). A bare path (e.g. /docs/core_concepts/jobs) is also accepted."
                 },
                 "section": {
                         "type": "string",
@@ -50,7 +50,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 }
         },
         "required": [
-                "path"
+                "url"
         ]
 })),
         body_schema: None,
