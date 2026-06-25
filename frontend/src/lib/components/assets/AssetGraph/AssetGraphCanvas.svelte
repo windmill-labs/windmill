@@ -18,6 +18,7 @@
 	import PanToNode from './PanToNode.svelte'
 	import { layoutAssetGraph } from './assetGraphLayout'
 	import { buildDownstreamMap } from './graphTraversal'
+	import { buildLineageDownstreamMap } from './boundedCascade'
 	import type { AssetGraphResponse, AssetGraphSelection, NativeTriggerKind } from './types'
 	import type { RunnableRunState } from './activeRunnables.svelte'
 	import type { AssetKind } from '$lib/gen'
@@ -140,6 +141,24 @@
 		// editor passes it, so the asset-graph page is unaffected. The page
 		// clears it once the pan has had time to settle.
 		panToNodeId?: string | undefined
+		// Script paths eligible to *start* a bounded-cascade run (schedule
+		// roots + manual roots — see boundedCascade.validStarts). When a path is
+		// in this set and `onStartBoundedRun` is wired, its node's cascade menu
+		// gains a "Run downstream up to…" entry.
+		validStartPaths?: ReadonlySet<string>
+		onStartBoundedRun?: (startPath: string) => void
+		// Active bounded-run pick mode. Ids are in *canvas* space (`script:path`
+		// for runnables, `asset:${kind}:${path}` for assets). When set the canvas
+		// dims nodes outside `eligible ∪ {start}`, rings the `bounded` set, marks
+		// `ends`, and routes clicks on eligible nodes to `onPickEnd` instead of
+		// selecting.
+		boundPick?: {
+			start: string
+			eligible: ReadonlySet<string>
+			ends: ReadonlySet<string>
+			bounded: ReadonlySet<string>
+		}
+		onPickEnd?: (canvasNodeId: string) => void
 	}
 	let {
 		graph,
@@ -161,7 +180,11 @@
 		onOpenDataUpload,
 		hoveredPaths,
 		selectedRunPaths,
-		panToNodeId
+		panToNodeId,
+		validStartPaths,
+		onStartBoundedRun,
+		boundPick,
+		onPickEnd
 	}: Props = $props()
 
 	// `${kind}:${path}` ids for the hovered / pinned runs (both script and flow
@@ -273,6 +296,13 @@
 			downstreamByScript.set(path, set.size)
 			downstreamUnsavedByScript.set(path, [...set].filter((s) => unsavedRunnables.has(s)).length)
 		}
+		// Read-aware downstream presence for the bounded-run gate. The bounded
+		// engine treats pure-read `asset → script` edges as downstream, but the
+		// subscriber-only `downstreamByScript` above does not — so a start whose
+		// only downstream is a pure reader would otherwise be denied the menu
+		// item even though its bounded set is non-empty. Mirror of the engine's
+		// own adjacency (boundedCascade.buildLineageDownstreamMap).
+		const hasLineageDownstream = new Set<string>(buildLineageDownstreamMap(g).keys())
 
 		for (const a of g.assets) {
 			const assetId = `asset:${a.kind}:${a.path}`
@@ -351,6 +381,16 @@
 					downstreamCount: downstreamByScript.get(r.path) ?? 0,
 					downstreamUnsavedCount: downstreamUnsavedByScript.get(r.path) ?? 0,
 					runState,
+					// Bounded-cascade entrypoint: only valid starts (schedule /
+					// manual roots) with downstream get the "Run downstream up
+					// to…" menu item.
+					onStartBoundedRun:
+						r.usage_kind === 'script' &&
+						onStartBoundedRun &&
+						validStartPaths?.has(r.path) &&
+						hasLineageDownstream.has(r.path)
+							? () => onStartBoundedRun(r.path)
+							: undefined,
 					onRequestRemove: onRunnableMenuRemove
 						? () =>
 								onRunnableMenuRemove({
@@ -424,7 +464,13 @@
 				kind: TriggerNodeKind
 				ref: string
 				missing: boolean
+				// First target script (drives the per-script create/edit flows).
 				runnable_path?: string
+				// Every target script: a single (kind, ref) — e.g. one schedule —
+				// can be shared across scripts and dedupes to one node with N
+				// edges. The bounded-run action must consider all of them, not
+				// just the first.
+				runnable_paths: string[]
 			}
 		>()
 		function recordSourceTrigger(
@@ -437,9 +483,19 @@
 		) {
 			const prev = triggerSourceNodes.get(id)
 			if (!prev) {
-				triggerSourceNodes.set(id, { allUnsaved: unsaved, kind, ref, missing, runnable_path })
+				triggerSourceNodes.set(id, {
+					allUnsaved: unsaved,
+					kind,
+					ref,
+					missing,
+					runnable_path,
+					runnable_paths: runnable_path ? [runnable_path] : []
+				})
 			} else {
 				prev.allUnsaved = prev.allUnsaved && unsaved
+				if (runnable_path && !prev.runnable_paths.includes(runnable_path)) {
+					prev.runnable_paths.push(runnable_path)
+				}
 			}
 		}
 
@@ -498,6 +554,14 @@
 			})
 		}
 		for (const [id, info] of triggerSourceNodes) {
+			// Bounded-run targets among this trigger's scripts: valid starts that
+			// also have read-aware downstream. A shared schedule may have several
+			// targets; only offer the action when exactly one qualifies, so the
+			// run starts from an unambiguous script (rather than the arbitrary
+			// first-seen one). Multi-eligible nodes suppress it rather than guess.
+			const eligibleStarts = onStartBoundedRun
+				? info.runnable_paths.filter((p) => validStartPaths?.has(p) && hasLineageDownstream.has(p))
+				: []
 			nodes.push({
 				id,
 				type: 'trigger',
@@ -514,7 +578,14 @@
 					onEditTrigger,
 					onDeleteTrigger,
 					onOpenWebhook,
-					onOpenDataUpload
+					onOpenDataUpload,
+					// View-mode bounded-run entry: offer it on the trigger node
+					// when exactly one target script is a valid start with
+					// downstream (see eligibleStarts above).
+					onStartBoundedRun:
+						onStartBoundedRun && eligibleStarts.length === 1
+							? () => onStartBoundedRun(eligibleStarts[0])
+							: undefined
 				}
 			})
 		}
@@ -622,12 +693,22 @@
 					: assetEmph === 'input'
 						? 'wm-asset-input'
 						: undefined
+			// Bounded-run pick overlay takes precedence over the activity rings
+			// (it's a transient, modal selection). start ring > end mark > in-set
+			// ring > eligible (clickable, no style) > dimmed (out of reach).
+			let boundClass: string | undefined
+			if (boundPick && n.type !== 'add' && n.type !== 'trigger') {
+				if (n.id === boundPick.start) boundClass = 'wm-bound-start'
+				else if (boundPick.ends.has(n.id)) boundClass = 'wm-bound-end'
+				else if (boundPick.bounded.has(n.id)) boundClass = 'wm-bound-in'
+				else if (!boundPick.eligible.has(n.id)) boundClass = 'wm-bound-dim'
+			}
 			return {
 				id: n.id,
 				type: n.type,
 				position: { x: p.x + xCenter + xShift, y: p.y + 40 },
 				data: n.data,
-				class: runClass ?? assetClass,
+				class: boundClass ?? runClass ?? assetClass,
 				selected: n.id === selectedId,
 				// All nodes non-draggable: the layout is sugiyama-computed,
 				// dragging would fight the reactive re-layout. Selection is
@@ -856,6 +937,17 @@
 	}
 
 	function handleNodeClick({ node }: { node: Node }) {
+		// Bounded-run pick mode intercepts clicks: an eligible (downstream)
+		// node toggles as an end bound; the start, dimmed nodes, and
+		// triggers/+ are inert. Selection (details pane) is suppressed so the
+		// modal pick stays focused.
+		if (boundPick && onPickEnd) {
+			if (node.type !== 'asset' && node.type !== 'runnable') return
+			if (node.id === boundPick.start) return
+			if (!boundPick.eligible.has(node.id)) return
+			onPickEnd(node.id)
+			return
+		}
 		if (!onselect) return
 		const data = node.data as any
 		if (node.type === 'asset') {
@@ -936,5 +1028,21 @@
 	}
 	:global(.svelte-flow__node.wm-asset-input .drop-shadow-sm) {
 		@apply outline outline-2 outline-gray-400;
+	}
+	/* Bounded-run pick mode. The start is a solid blue ring; chosen end
+	   bounds get a thicker amber ring; nodes inside the path-between set ring
+	   blue; everything out of reach fades back so the matched subset reads at
+	   a glance. */
+	:global(.svelte-flow__node.wm-bound-start .drop-shadow-sm) {
+		@apply outline outline-2 outline-blue-500;
+	}
+	:global(.svelte-flow__node.wm-bound-in .drop-shadow-sm) {
+		@apply outline outline-2 outline-blue-400/70;
+	}
+	:global(.svelte-flow__node.wm-bound-end .drop-shadow-sm) {
+		@apply outline outline-[3px] outline-amber-500;
+	}
+	:global(.svelte-flow__node.wm-bound-dim) {
+		@apply opacity-30;
 	}
 </style>
