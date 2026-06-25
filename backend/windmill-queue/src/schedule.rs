@@ -377,8 +377,9 @@ pub async fn push_scheduled_job<'c>(
             // driven from the terminal attempt, and the per-occurrence
             // failure/recovery counting queries (apply_schedule_handlers) resolve
             // terminal status across the retry chain — so on_failure/on_recovery
-            // (incl. multi-count/exact) are all handled. `retry_if` policies fall
-            // back to the flow path inside `push` when quickjs is unavailable.
+            // (incl. multi-count/exact) are all handled. A `retry_if` gate is
+            // evaluated at failure time; on a worker built without quickjs it
+            // cannot be evaluated and fails closed (no retry).
             (
                 JobPayload::SingleStepFlow {
                     path: schedule.script_path.clone(),
