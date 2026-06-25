@@ -9,6 +9,7 @@
 use crate::db::{Authable, UserDB};
 use crate::error::{self, Error};
 use crate::scripts::ScriptHash;
+use crate::secret_backend::{get_secret_value, is_external_stored_value};
 use crate::utils::WarnAfterExt;
 use crate::worker::Connection;
 use crate::{worker::WORKER_GROUP, BASE_URL, DB};
@@ -234,13 +235,17 @@ pub async fn get_secret_value_as_admin(
     let r = if variable.is_secret {
         let value = variable.value;
         if !value.is_empty() {
-            let mc = build_crypt(db, w_id).await?;
-            decrypt(&mc, value).map_err(|e| {
-                crate::error::Error::internal_err(format!(
-                    "Error decrypting variable {}: {}",
-                    variable.path, e
-                ))
-            })?
+            if is_external_stored_value(&value) {
+                get_secret_value(db, w_id, &variable.path, &value).await?
+            } else {
+                let mc = build_crypt(db, w_id).await?;
+                decrypt(&mc, value).map_err(|e| {
+                    crate::error::Error::internal_err(format!(
+                        "Error decrypting variable {}: {}",
+                        variable.path, e
+                    ))
+                })?
+            }
         } else {
             "".to_string()
         }
@@ -546,10 +551,14 @@ pub async fn get_variable_or_self(
     if let Some(record) = record {
         let mut value = record.value;
         if record.is_secret {
-            let mc = build_crypt(db, w_id).await?;
-            value = decrypt(&mc, value).map_err(|e| {
-                Error::internal_err(format!("Error decrypting variable {}: {}", path, e))
-            })?;
+            if is_external_stored_value(&value) {
+                value = get_secret_value(db, w_id, &path, &value).await?;
+            } else {
+                let mc = build_crypt(db, w_id).await?;
+                value = decrypt(&mc, value).map_err(|e| {
+                    Error::internal_err(format!("Error decrypting variable {}: {}", path, e))
+                })?;
+            }
         }
 
         Ok(value)
@@ -591,10 +600,14 @@ pub async fn get_variable_or_self_as<T: Authable + Sync>(
     if let Some(record) = record {
         let mut value = record.value;
         if record.is_secret {
-            let mc = build_crypt(db, w_id).await?;
-            value = decrypt(&mc, value).map_err(|e| {
-                Error::internal_err(format!("Error decrypting variable {}: {}", var_path, e))
-            })?;
+            if is_external_stored_value(&value) {
+                value = get_secret_value(db, w_id, &var_path, &value).await?;
+            } else {
+                let mc = build_crypt(db, w_id).await?;
+                value = decrypt(&mc, value).map_err(|e| {
+                    Error::internal_err(format!("Error decrypting variable {}: {}", var_path, e))
+                })?;
+            }
         }
 
         Ok(value)
