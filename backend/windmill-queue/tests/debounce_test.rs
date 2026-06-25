@@ -4952,29 +4952,48 @@ mod debounce {
         let old = Uuid::new_v4();
         let recent = Uuid::new_v4();
         let unconsumed = Uuid::new_v4();
+        // A consumed-long-ago sibling that is STILL QUEUED (e.g. stuck behind a
+        // concurrency limit): its marker must survive GC so its eventual pull still sees
+        // "already consumed" and runs empty (no duplicate).
+        let queued_old = Uuid::new_v4();
+        insert_script_job_with_args(
+            &db,
+            queued_old,
+            "test-workspace",
+            "f/test/script",
+            &serde_json::json!({ "items": [9] }),
+        )
+        .await;
         sqlx::query!(
             "INSERT INTO v2_job_debounce_batch (id, debounce_batch, consumed_at) VALUES
                 ($1, nextval('debounce_batch_seq'), now() - interval '20 minutes'),
                 ($2, nextval('debounce_batch_seq'), now() - interval '1 minute'),
-                ($3, nextval('debounce_batch_seq'), NULL)",
+                ($3, nextval('debounce_batch_seq'), NULL),
+                ($4, nextval('debounce_batch_seq'), now() - interval '20 minutes')",
             old,
             recent,
             unconsumed,
+            queued_old,
         )
         .execute(&db)
         .await?;
 
-        // Mirror the monitor GC sweep.
+        // Mirror the monitor GC sweep (age floor + only-if-no-longer-queued).
         let deleted = sqlx::query_scalar!(
             "WITH del AS (
                 DELETE FROM v2_job_debounce_batch
-                WHERE consumed_at IS NOT NULL AND consumed_at < now() - interval '10 minutes'
+                WHERE consumed_at IS NOT NULL
+                  AND consumed_at < now() - interval '10 minutes'
+                  AND id NOT IN (SELECT id FROM v2_job_queue)
                 RETURNING 1
             ) SELECT count(*) as \"c!\" FROM del"
         )
         .fetch_one(&db)
         .await?;
-        assert_eq!(deleted, 1, "only the old consumed row is GC'd");
+        assert_eq!(
+            deleted, 1,
+            "only the old, no-longer-queued consumed row is GC'd"
+        );
 
         let exists = |id: Uuid, db: Pool<Postgres>| async move {
             sqlx::query_scalar!(
@@ -4991,6 +5010,10 @@ mod debounce {
             "recently consumed row kept"
         );
         assert!(exists(unconsumed, db.clone()).await, "unconsumed row kept");
+        assert!(
+            exists(queued_old, db.clone()).await,
+            "old consumed row whose job is still queued must be kept"
+        );
         Ok(())
     }
 
@@ -5006,7 +5029,7 @@ mod debounce {
         .expect("set running");
     }
 
-    /// Customer regression (ported from #9781): post-preprocessing debounce with
+    /// Regression (ref #9781): post-preprocessing debounce with
     /// `debounce_args_to_accumulate` under a concurrency limit. A survivor accumulates
     /// its own element and starts running; a later same-key message must start a NEW
     /// batch (survive) rather than be folded into the running survivor and silently

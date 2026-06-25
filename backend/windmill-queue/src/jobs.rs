@@ -3195,6 +3195,12 @@ impl PulledJobResult {
                 //   - its own earlier claim on re-pull -> keep its accumulated args,
                 //   - never batched (CE / workers behind v2) -> keep its own args.
                 // Consumed rows are GC'd by the monitor.
+                // Claim + accumulate + persist atomically: a crash between stamping the
+                // batch rows consumed_by=self and persisting the merged args would
+                // otherwise let a zombie re-pull see its own prior claim and keep only
+                // its own args (dropping the siblings it had claimed). One transaction
+                // makes the claim and the merged-args write commit together (or neither).
+                let mut tx = db.begin().await?;
                 let claim = sqlx::query!(
                     "WITH mine AS (
                         SELECT debounce_batch, consumed_by FROM v2_job_debounce_batch WHERE id = $1
@@ -3216,7 +3222,7 @@ impl PulledJobResult {
                     ",
                     j_id,
                 )
-                .fetch_one(db)
+                .fetch_one(&mut *tx)
                 .await?;
 
                 let consumed_by_other =
@@ -3249,7 +3255,7 @@ impl PulledJobResult {
                             j_id,
                             args as &Json<HashMap<String, Box<RawValue>>>,
                         )
-                        .execute(db)
+                        .execute(&mut *tx)
                         .await?;
                     }
                 } else if claim.claimed_batch.is_some() {
@@ -3273,7 +3279,7 @@ impl PulledJobResult {
                         &ids,
                         arg_name_to_accumulate,
                     )
-                    .fetch_all(db)
+                    .fetch_all(&mut *tx)
                     .await?
                     .into_iter()
                     {
@@ -3329,13 +3335,14 @@ impl PulledJobResult {
                                 j_id,
                                 args as &Json<HashMap<String, Box<RawValue>>>,
                             )
-                            .execute(db)
+                            .execute(&mut *tx)
                             .await?;
                         }
                     }
                 }
                 // else: claimed_batch is None but it was our own prior claim (re-pull) —
                 // keep the args we already persisted on the first pull.
+                tx.commit().await?;
             } else {
                 // Debounced but no args to accumulate (plain debounce / dependency job):
                 // consume the batch by removing this job's rows.

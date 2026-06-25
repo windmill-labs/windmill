@@ -4404,13 +4404,19 @@ RETURNING key,job_id
 /// own (already-accumulated, persisted) args, so the grace period is not correctness-
 /// critical.
 async fn cleanup_consumed_debounce_batches(db: &DB) -> error::Result<()> {
-    // 10 minutes is far longer than any debounce window, so any survivor that could
-    // still reference a consumed row has been pulled well before then; keeping it short
-    // bounds table growth under high-throughput debounce.
+    // Only reclaim a consumed row once its job has LEFT the queue. A consumed sibling
+    // (its contribution already accumulated by another survivor) can sit queued well
+    // past any time-based grace under a concurrency limit / worker backlog; removing its
+    // row while still queued would make its eventual pull treat it as never-batched and
+    // re-run its item (a duplicate). Keeping the row until the job is no longer queued
+    // guarantees that pull still sees "already consumed" and runs empty. The age floor
+    // is just a safety margin on top.
     let deleted = sqlx::query_scalar!(
         "WITH del AS (
             DELETE FROM v2_job_debounce_batch
-            WHERE consumed_at IS NOT NULL AND consumed_at < now() - interval '10 minutes'
+            WHERE consumed_at IS NOT NULL
+              AND consumed_at < now() - interval '10 minutes'
+              AND id NOT IN (SELECT id FROM v2_job_queue)
             RETURNING 1
         ) SELECT count(*) FROM del"
     )

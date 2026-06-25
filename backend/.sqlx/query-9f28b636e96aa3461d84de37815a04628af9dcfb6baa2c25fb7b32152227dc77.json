@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH del AS (\n            DELETE FROM v2_job_debounce_batch\n            WHERE consumed_at IS NOT NULL\n              AND consumed_at < now() - interval '10 minutes'\n              AND id NOT IN (SELECT id FROM v2_job_queue)\n            RETURNING 1\n        ) SELECT count(*) FROM del",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9f28b636e96aa3461d84de37815a04628af9dcfb6baa2c25fb7b32152227dc77"
+}
