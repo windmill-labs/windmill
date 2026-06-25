@@ -75,6 +75,7 @@ use windmill_common::{
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
     },
     indexer::load_indexer_config,
+    jobs::delete_jobs,
     jwt::JWT_SECRET,
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_smtp_config,
@@ -1674,10 +1675,7 @@ async fn delete_expired_jobs_batch(
             tracing::error!("Error deleting native retry markers: {:?}", e);
         }
 
-        if let Err(e) = sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", &deleted_jobs)
-            .execute(&mut *tx)
-            .await
-        {
+        if let Err(e) = delete_jobs(&mut *tx, &deleted_jobs).await {
             tracing::error!("Error deleting job: {:?}", e);
         }
 

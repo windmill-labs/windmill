@@ -613,7 +613,9 @@ pub async fn clear_schedule<'c>(
     w_id: &str,
 ) -> Result<()> {
     tracing::info!("Clearing schedule {}", path);
-    sqlx::query!(
+    // Delete the queued jobs (cascading their v2_job_queue-keyed side tables), then route the
+    // freed ids through delete_jobs so v2_job and its no-longer-cascading side tables go too.
+    let deleted_ids: Vec<uuid::Uuid> = sqlx::query_scalar!(
         "WITH to_delete AS (
             SELECT id FROM v2_job_queue
                 JOIN v2_job j USING (id)
@@ -623,15 +625,16 @@ pub async fn clear_schedule<'c>(
                 AND flow_step_id IS NULL
                 AND running = false
             FOR UPDATE
-        ), deleted AS (
-            DELETE FROM v2_job_queue
-            WHERE id IN (SELECT id FROM to_delete)
-            RETURNING id
-        ) DELETE FROM v2_job WHERE id IN (SELECT id FROM deleted)",
+        )
+        DELETE FROM v2_job_queue
+        WHERE id IN (SELECT id FROM to_delete)
+        RETURNING id",
         path,
         w_id
     )
-    .execute(&mut **tx)
+    .fetch_all(&mut **tx)
     .await?;
+
+    windmill_common::jobs::delete_jobs(&mut **tx, &deleted_ids).await?;
     Ok(())
 }
