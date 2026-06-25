@@ -234,8 +234,11 @@ pub struct QueuedJob {
     pub labels: Option<Vec<String>>,
     // True when this job is a native retry attempt (has a native_retry_attempt
     // marker). Lets the run-page chain distinguish real retries from other
-    // same-script children (e.g. WAC inline children).
+    // same-script children (e.g. WAC inline children). Only the list endpoint
+    // selects it; `#[sqlx(default)]` lets other queries (e.g. single-job GET)
+    // omit the column and default to None.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
     pub is_retry: Option<bool>,
 }
 
@@ -370,8 +373,11 @@ pub struct CompletedJob {
     pub preprocessed: Option<bool>,
     // True when this job is a native retry attempt (has a native_retry_attempt
     // marker). Lets the run-page chain distinguish real retries from other
-    // same-script children (e.g. WAC inline children).
+    // same-script children (e.g. WAC inline children). Only the list endpoint
+    // selects it; `#[sqlx(default)]` lets other queries (e.g. single-job GET)
+    // omit the column and default to None.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
     pub is_retry: Option<bool>,
 }
 
