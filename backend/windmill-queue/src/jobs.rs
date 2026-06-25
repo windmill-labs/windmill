@@ -3201,6 +3201,10 @@ impl PulledJobResult {
                 // its own args (dropping the siblings it had claimed). One transaction
                 // makes the claim and the merged-args write commit together (or neither).
                 let mut tx = db.begin().await?;
+                // Emitted AFTER the transaction commits — writing logs via a second pool
+                // connection while the claim tx + row locks are held risks pool-exhaustion
+                // stalls under concurrent debounced pulls.
+                let mut accumulation_log: Option<String> = None;
                 let claim = sqlx::query!(
                     "WITH mine AS (
                         SELECT debounce_batch, consumed_by FROM v2_job_debounce_batch WHERE id = $1
@@ -3311,16 +3315,10 @@ impl PulledJobResult {
                             .map(|v| v.get().to_string())
                             .unwrap_or_else(|| "null".to_string());
 
-                        append_logs(
-                            &j_id,
-                            &j.workspace_id,
-                            format!(
-                                "Accumulating debounced argument `{arg_name_to_accumulate}`:\n  original: {original_value}\n  accumulated: {}\n\n",
-                                &new_value
-                            ),
-                            &(db.into()),
-                        )
-                        .await;
+                        accumulation_log = Some(format!(
+                            "Accumulating debounced argument `{arg_name_to_accumulate}`:\n  original: {original_value}\n  accumulated: {}\n\n",
+                            &new_value
+                        ));
 
                         j.args
                             .get_or_insert(Json(Default::default()))
@@ -3343,6 +3341,10 @@ impl PulledJobResult {
                 // else: claimed_batch is None but it was our own prior claim (re-pull) —
                 // keep the args we already persisted on the first pull.
                 tx.commit().await?;
+
+                if let Some(msg) = accumulation_log {
+                    append_logs(&j_id, &j.workspace_id, msg, &(db.into())).await;
+                }
             } else {
                 // Debounced but no args to accumulate (plain debounce / dependency job):
                 // consume the batch by removing this job's rows.
