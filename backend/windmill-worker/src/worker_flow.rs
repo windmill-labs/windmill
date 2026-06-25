@@ -1054,7 +1054,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     let r = sqlx::query_scalar!(
                          "DELETE FROM parallel_monitor_lock WHERE parent_flow_id = $1 RETURNING last_ping",
                          flow,
-                     ).fetch_optional(db).await.map_err(|e| {
+                     ).fetch_optional(&mut *tx).await.map_err(|e| {
                          Error::internal_err(format!(
                              "error while deleting parallel_monitor_lock: {e:#}"
                          ))
