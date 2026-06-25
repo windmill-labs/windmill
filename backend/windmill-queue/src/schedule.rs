@@ -353,10 +353,15 @@ pub async fn push_scheduled_job<'c>(
         .warn_after_seconds_with_sql(1, "get_latest_hash_for_path".to_string())
         .await?;
 
+        // NB: read on the non-RLS pool (`db`), not `tx`. push_scheduled_job is
+        // also invoked with an RLS user_db transaction (api-schedule/api-flows),
+        // under which these lookups would resolve against the caller's row
+        // visibility rather than the full table. The dual-connection here is
+        // intentional and required for correctness.
         let (debouncing_settings, concurrency_settings) =
-            windmill_common::runnable_settings::prefetch_cached_from_handle_tx(
+            windmill_common::runnable_settings::prefetch_cached_from_handle(
                 runnable_settings_handle,
-                &mut tx,
+                db,
             )
             .await?;
 
@@ -486,7 +491,7 @@ pub async fn push_scheduled_job<'c>(
         let resolved_email = windmill_common::users::get_email_from_permissioned_as(
             &permissioned_as,
             &schedule.workspace_id,
-            &mut *tx,
+            db,
         )
         .await?;
         (resolved_email, permissioned_as, authed, false)
@@ -510,7 +515,7 @@ pub async fn push_scheduled_job<'c>(
 
     if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
         check_tag_available_for_workspace_internal(
-            &mut *tx,
+            db,
             &schedule.workspace_id,
             &tag,
             &email,

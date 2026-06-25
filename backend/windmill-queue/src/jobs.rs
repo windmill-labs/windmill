@@ -5611,16 +5611,16 @@ async fn push_inner<'c, 'd>(
                 // but the SingleStepFlow payload doesn't — resolve it from the
                 // script row so a dedicated-worker script keeps its dedicated pool.
                 let dedicated_worker = if let Some(h) = &hash {
-                    // Reuse the held isolation connection (see fetch_scalar_isolated!)
-                    // instead of grabbing a second one from the pool while `tx` is open.
-                    fetch_scalar_isolated!(
-                        sqlx::query_scalar::<_, Option<bool>>(
-                            "SELECT dedicated_worker FROM script WHERE hash = $1 AND workspace_id = $2",
-                        )
-                        .bind(h.0)
-                        .bind(workspace_id),
-                        tx
-                    )?
+                    // Read on the non-RLS pool: push_inner is also entered with RLS
+                    // isolation variants under which the script row may be invisible,
+                    // which would mis-resolve dedicated_worker routing.
+                    sqlx::query_scalar::<_, Option<bool>>(
+                        "SELECT dedicated_worker FROM script WHERE hash = $1 AND workspace_id = $2",
+                    )
+                    .bind(h.0)
+                    .bind(workspace_id)
+                    .fetch_optional(db)
+                    .await?
                     .flatten()
                 } else {
                     None

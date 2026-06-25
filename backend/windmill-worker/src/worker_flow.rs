@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use sqlx::types::Json;
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{Acquire, FromRow, Postgres, Transaction};
 use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::auth::get_job_perms;
@@ -977,8 +977,15 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .and_then(|x| x.stop_after_all_iters_if.as_ref())
                     {
                         let args = from_result_to_args(args.as_ref().await.get_ref())?;
-                        if let Err(e) = evaluate_stop_after_all_iters_if(
-                            &mut tx,
+                        // Isolate the reads in a savepoint on the same connection: the
+                        // caller below swallows our error and keeps using `tx`, so a DB
+                        // read failure must not leave the outer transaction aborted (that
+                        // would fail the later commit). On error we roll back to the
+                        // savepoint, matching the previous pool-read behaviour where a
+                        // failed read left `tx` usable and the iteration was marked failed.
+                        let mut sp = tx.begin().await?;
+                        let eval_res = evaluate_stop_after_all_iters_if(
+                            &mut sp,
                             stop_after_all_iters_if,
                             module_status,
                             w_id,
@@ -993,15 +1000,19 @@ pub async fn update_flow_status_after_job_completion_internal(
                             flow,
                             &old_status,
                         )
-                        .await
-                        {
-                            tracing::error!("error evaluating stop_after_all_iters_if: {e:#}");
-                            stop_early = true;
-                            skip_if_stop_early = false;
-                            stop_early_err_msg = Some(format!(
-                                "Error evaluating stop_after_all_iters_if expression `{}`: {e:#}",
-                                stop_after_all_iters_if.expr
-                            ));
+                        .await;
+                        match eval_res {
+                            Ok(()) => sp.commit().await?,
+                            Err(e) => {
+                                let _ = sp.rollback().await;
+                                tracing::error!("error evaluating stop_after_all_iters_if: {e:#}");
+                                stop_early = true;
+                                skip_if_stop_early = false;
+                                stop_early_err_msg = Some(format!(
+                                    "Error evaluating stop_after_all_iters_if expression `{}`: {e:#}",
+                                    stop_after_all_iters_if.expr
+                                ));
+                            }
                         }
                     }
 
@@ -1199,8 +1210,12 @@ pub async fn update_flow_status_after_job_completion_internal(
                     {
                         let args = from_result_to_args(args.as_ref().await.get_ref())?;
 
-                        if let Err(e) = evaluate_stop_after_all_iters_if(
-                            &mut tx,
+                        // See the matching savepoint comment above: isolate the reads so a
+                        // DB read failure (whose error the caller swallows) cannot abort
+                        // the outer transaction and break the later commit.
+                        let mut sp = tx.begin().await?;
+                        let eval_res = evaluate_stop_after_all_iters_if(
+                            &mut sp,
                             stop_after_all_iters_if,
                             module_status,
                             w_id,
@@ -1215,14 +1230,18 @@ pub async fn update_flow_status_after_job_completion_internal(
                             flow,
                             &old_status,
                         )
-                        .await
-                        {
-                            stop_early = true;
-                            skip_if_stop_early = false;
-                            stop_early_err_msg = Some(format!(
-                                "Error evaluating stop_after_all_iters_if expression `{}`: {e:#}",
-                                stop_after_all_iters_if.expr
-                            ));
+                        .await;
+                        match eval_res {
+                            Ok(()) => sp.commit().await?,
+                            Err(e) => {
+                                let _ = sp.rollback().await;
+                                stop_early = true;
+                                skip_if_stop_early = false;
+                                stop_early_err_msg = Some(format!(
+                                    "Error evaluating stop_after_all_iters_if expression `{}`: {e:#}",
+                                    stop_after_all_iters_if.expr
+                                ));
+                            }
                         }
                     }
                 }

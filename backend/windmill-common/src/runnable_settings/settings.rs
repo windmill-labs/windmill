@@ -57,16 +57,6 @@ pub async fn prefetch_cached_tx(
     ))
 }
 
-/// Like [`prefetch_cached_from_handle`], but reuses a held transaction's
-/// connection instead of checking out a second one from the pool.
-pub async fn prefetch_cached_from_handle_tx(
-    hash: Option<i64>,
-    tx: &mut sqlx::Transaction<'_, Postgres>,
-) -> error::Result<(DebouncingSettings, ConcurrencySettings)> {
-    let rs = from_handle(hash, &mut **tx).await?;
-    prefetch_cached_tx(&rs, tx).await
-}
-
 /// Resolve the retry policy (if any) for a job from its `runnable_settings_handle`.
 /// Returns `None` when the job carries no retry policy. Read lazily on the
 /// failure path only — never on the hot job-pull path.
