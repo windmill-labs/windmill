@@ -82,6 +82,11 @@
 			loadedFromDraft = false
 			draftSavedAt = undefined
 			deployedAt = undefined
+			// New-draft returns before the version assignment below, so clear the
+			// previous app's version-staleness inputs, else they bleed across the
+			// reused route and falsely trip the stale-draft modal.
+			draftBaseVersion = undefined
+			deployedHeadVersion = undefined
 			// Brand-new app: no deployed baseline, so never discard-on-equal.
 			deployedBaseline = undefined
 			const templatePath = page.url.searchParams.get('template')

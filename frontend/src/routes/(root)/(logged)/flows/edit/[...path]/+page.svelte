@@ -155,6 +155,11 @@
 			loadedFromDraft = false
 			draftSavedAt = undefined
 			deployedAt = undefined
+			// New-draft skips the deployed/draft fetches, so the version-staleness
+			// inputs are never reassigned — clear the previous flow's values, else they
+			// bleed across the reused route and falsely trip the stale-draft modal.
+			version = undefined
+			draftBaseVersion = undefined
 			// Brand-new flow: no deployed baseline, so never discard-on-equal.
 			deployedBaseline = undefined
 			// Suspend autosave around the bootstrap cascade: the Path widget's
