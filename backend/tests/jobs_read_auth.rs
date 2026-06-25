@@ -106,6 +106,10 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         ),
         ("get_flow_all_logs", format!("get_flow_all_logs/{VICTIM}")),
         (
+            "get_flow_all_logs_structured",
+            format!("get_flow_all_logs_structured/{VICTIM}"),
+        ),
+        (
             "completed/get_timing",
             format!("completed/get_timing/{VICTIM}"),
         ),
