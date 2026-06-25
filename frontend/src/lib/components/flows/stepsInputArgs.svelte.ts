@@ -100,9 +100,11 @@ export class StepsInputArgs {
 		if (modules.length < 1) {
 			return
 		}
+		// dfs returns [step, immediate parent, ..., root]; the prop picker needs the
+		// immediate parent so nested loops resolve flow_input.iter to the innermost loop.
 		let parentModule: FlowModule | undefined = undefined
 		if (modules.length > 1) {
-			parentModule = modules[modules.length - 1]
+			parentModule = modules[1]
 		}
 		const stepPropPicker = getStepPropPicker(
 			flowState,
@@ -175,9 +177,11 @@ export class StepsInputArgs {
 		if (modules.length < 1) {
 			return
 		}
+		// dfs returns [step, immediate parent, ..., root]; the prop picker needs the
+		// immediate parent so nested loops resolve flow_input.iter to the innermost loop.
 		let parentModule: FlowModule | undefined = undefined
 		if (modules.length > 1) {
-			parentModule = modules[modules.length - 1]
+			parentModule = modules[1]
 		}
 		const stepPropPicker = getStepPropPicker(
 			flowState,
