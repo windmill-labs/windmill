@@ -350,7 +350,7 @@ async function run(
     }
     if (!starts.has(resolved)) {
       throw new Error(
-        `--from '${opts.from}' is not a valid bounded-run start. Starts must be schedule-triggered or manual roots; event-triggered scripts (kafka/webhook/…) fan out per-event and can't be bounded.`,
+        `--from '${opts.from}' is not a valid bounded-run start. Starts must be schedule-triggered or manual roots; row-backed event triggers (kafka/mqtt/nats/postgres/sqs/gcp/email) fan out per-event and can't be bounded.`,
       );
     }
     start = resolved;
