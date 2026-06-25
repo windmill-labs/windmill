@@ -511,11 +511,6 @@
 						{/if}
 					</div>
 				</Label>
-			{:else if isFork && existingDevWorkspace}
-				<span class="text-xs text-secondary">
-					This workspace already has a dev workspace (<b>{existingDevWorkspace.name}</b>). This will
-					be a throwaway fork; detach the existing dev workspace first to designate a new one.
-				</span>
 			{/if}
 			<label class="flex flex-col gap-1">
 				<span class="text-xs font-semibold text-emphasis">Workspace ID</span>
