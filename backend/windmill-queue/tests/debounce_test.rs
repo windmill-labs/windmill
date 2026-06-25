@@ -4727,7 +4727,7 @@ mod debounce {
         .execute(db)
         .await
         .unwrap();
-        sqlx::query!(
+        let inserted = sqlx::query!(
             "INSERT INTO v2_job_debounce_batch (id, debounce_batch)
              SELECT $1, debounce_batch FROM v2_job_debounce_batch WHERE id = $2",
             id,
@@ -4736,6 +4736,13 @@ mod debounce {
         .execute(db)
         .await
         .unwrap();
+        // `of_job` must already have a batch row, else this no-ops and the test would
+        // pass vacuously (the job would end up never-batched, keeping its own args).
+        assert_eq!(
+            inserted.rows_affected(),
+            1,
+            "add_survivor_to_batch_of: {of_job} has no batch row to share"
+        );
         args
     }
 

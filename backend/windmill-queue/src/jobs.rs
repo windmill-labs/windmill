@@ -3514,29 +3514,27 @@ impl PulledJobResult {
                 let claim = sqlx::query!(
                     "WITH mine AS (
                         SELECT debounce_batch, consumed_by FROM v2_job_debounce_batch WHERE id = $1
-                    ), claim_self AS (
+                    ), claimed AS (
+                        -- Claim the whole batch in ONE update so concurrent same-batch
+                        -- survivors lock rows in identical scan order (no lock-ordering
+                        -- deadlock); each re-evaluates `consumed_at IS NULL` under EvalPlanQual
+                        -- and skips rows the other already took. A claim therefore consumes
+                        -- every still-unclaimed row of the batch atomically.
                         UPDATE v2_job_debounce_batch SET consumed_at = now(), consumed_by = $1
-                        WHERE id = $1 AND consumed_at IS NULL
-                        RETURNING debounce_batch
-                    ), claim_rest AS (
-                        UPDATE v2_job_debounce_batch SET consumed_at = now(), consumed_by = $1
-                        WHERE debounce_batch = (SELECT debounce_batch FROM claim_self)
-                          AND id <> $1 AND consumed_at IS NULL
+                        WHERE debounce_batch = (SELECT debounce_batch FROM mine)
+                          AND consumed_at IS NULL
                         RETURNING id
                     )
                     SELECT
                         EXISTS (SELECT 1 FROM mine) AS \"had_row!\",
-                        (SELECT debounce_batch FROM claim_self) AS claimed_batch,
                         (SELECT consumed_by FROM mine) AS prev_consumed_by,
-                        ARRAY(SELECT id FROM claim_rest) AS \"claimed_ids!\"
+                        ARRAY(SELECT id FROM claimed) AS \"claimed_ids!\",
+                        EXISTS (SELECT 1 FROM claimed WHERE id = $1) AS \"claimed_self!\"
                     ",
                     j_id,
                 )
                 .fetch_one(&mut *tx)
                 .await?;
-
-                let consumed_by_other =
-                    claim.claimed_batch.is_none() && claim.prev_consumed_by != Some(j_id);
 
                 if !claim.had_row {
                     // Never batched (CE / workers behind v2): keep the job's own args.
@@ -3544,36 +3542,10 @@ impl PulledJobResult {
                         job_id = %j_id,
                         "Debounce: no batch row, keeping original args"
                     );
-                } else if consumed_by_other {
-                    // Another survivor of this batch already accumulated this job's
-                    // contribution; run as a no-op so its items are not reprocessed.
-                    tracing::info!(
-                        job_id = %j_id,
-                        arg_name = arg_name_to_accumulate,
-                        "Debounce: contribution already consumed by a concurrent survivor, running empty"
-                    );
-                    j.args
-                        .get_or_insert(Json(Default::default()))
-                        .as_mut()
-                        .insert(
-                            arg_name_to_accumulate.to_owned(),
-                            to_raw_value(&Vec::<Box<RawValue>>::new()),
-                        );
-                    if let Some(ref args) = j.args {
-                        sqlx::query!(
-                            "UPDATE v2_job SET args = $2 WHERE id = $1",
-                            j_id,
-                            args as &Json<HashMap<String, Box<RawValue>>>,
-                        )
-                        .execute(&mut *tx)
-                        .await?;
-                    }
-                } else if claim.claimed_batch.is_some() {
-                    // We claimed our own row (+ any unclaimed siblings): accumulate the
-                    // args of exactly the rows we own.
-                    let mut ids: Vec<Uuid> = Vec::with_capacity(claim.claimed_ids.len() + 1);
-                    ids.push(j_id);
-                    ids.extend(claim.claimed_ids.iter().copied());
+                } else if claim.claimed_self {
+                    // We claimed our own row; since a claim takes the whole batch, this also
+                    // swept any not-yet-claimed siblings. Accumulate exactly the rows we own.
+                    let ids = claim.claimed_ids;
 
                     tracing::debug!(
                         job_id = %j_id,
@@ -3643,9 +3615,35 @@ impl PulledJobResult {
                             .await?;
                         }
                     }
+                } else if claim.prev_consumed_by == Some(j_id) {
+                    // Our own prior claim seen again on a re-pull (e.g. crash recovery):
+                    // keep the args we already persisted on the first pull.
+                } else {
+                    // Another survivor already accumulated this job's contribution
+                    // (consumed_by a different job); run as a no-op so its items are not
+                    // reprocessed.
+                    tracing::info!(
+                        job_id = %j_id,
+                        arg_name = arg_name_to_accumulate,
+                        "Debounce: contribution already consumed by a concurrent survivor, running empty"
+                    );
+                    j.args
+                        .get_or_insert(Json(Default::default()))
+                        .as_mut()
+                        .insert(
+                            arg_name_to_accumulate.to_owned(),
+                            to_raw_value(&Vec::<Box<RawValue>>::new()),
+                        );
+                    if let Some(ref args) = j.args {
+                        sqlx::query!(
+                            "UPDATE v2_job SET args = $2 WHERE id = $1",
+                            j_id,
+                            args as &Json<HashMap<String, Box<RawValue>>>,
+                        )
+                        .execute(&mut *tx)
+                        .await?;
+                    }
                 }
-                // else: claimed_batch is None but it was our own prior claim (re-pull) —
-                // keep the args we already persisted on the first pull.
                 tx.commit().await?;
 
                 if let Some(msg) = accumulation_log {
