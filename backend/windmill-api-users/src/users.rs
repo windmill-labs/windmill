@@ -1844,7 +1844,7 @@ async fn delete_workspace_user(
         username_to_delete,
         &w_id,
     )
-    .fetch_optional(&db)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let email_to_delete = not_found_if_none(email_to_delete_o, "User", &username_to_delete)?;
@@ -2025,8 +2025,6 @@ async fn refresh_token(
     authed: ApiAuthed,
     cookies: Cookies,
 ) -> Result<String> {
-    let mut tx = db.begin().await?;
-
     if let Some(thresh_s) = query.if_expiring_in_less_than_s {
         let t_hash = windmill_common::auth::hash_token(&token);
         let not_expired = sqlx::query_scalar!("SELECT true FROM token WHERE token_hash = $1 and expiration IS NOT NULL and expiration > now() + $2::int * '1 sec'::interval", &t_hash, thresh_s)
@@ -2038,6 +2036,8 @@ async fn refresh_token(
             return Ok("token expiry is far enough".to_string());
         }
     }
+
+    let mut tx = db.begin().await?;
 
     let super_admin = sqlx::query_scalar!(
         "SELECT super_admin FROM password WHERE email = $1 AND disabled = false",

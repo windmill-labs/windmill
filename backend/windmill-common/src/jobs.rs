@@ -343,8 +343,8 @@ lazy_static::lazy_static! {
     ).unwrap_or(false);
 }
 
-pub async fn check_tag_available_for_workspace_internal(
-    db: &DB,
+pub async fn check_tag_available_for_workspace_internal<'c>(
+    db: impl sqlx::PgExecutor<'c>,
     w_id: &str,
     tag: &str,
     email: &str,

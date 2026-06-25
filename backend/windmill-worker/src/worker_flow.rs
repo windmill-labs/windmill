@@ -332,14 +332,14 @@ fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<
     return (false, None, false);
 }
 
-async fn get_id_ctx_for_expr(
+async fn get_id_ctx_for_expr<'c>(
     expr: &str,
     flow: uuid::Uuid,
-    db: &DB,
+    e: impl sqlx::PgExecutor<'c>,
     status: &FlowStatus,
 ) -> error::Result<Option<IdContext>> {
     if expr.contains("results.") || expr.contains("results[") || expr.contains("results?.") {
-        let flow_job = get_mini_pulled_job(db, &flow).await?;
+        let flow_job = get_mini_pulled_job(e, &flow).await?;
         if let Some(flow_job) = flow_job {
             Ok(Some(get_transform_context(&flow_job, "", &status)))
         } else {
@@ -351,7 +351,7 @@ async fn get_id_ctx_for_expr(
 }
 
 async fn evaluate_stop_after_all_iters_if(
-    db: &DB,
+    tx: &mut Transaction<'_, Postgres>,
     stop_after_all_iters_if: &StopAfterIf,
     module_status: &FlowStatusModule,
     w_id: &str,
@@ -368,7 +368,7 @@ async fn evaluate_stop_after_all_iters_if(
 ) -> error::Result<()> {
     let iters_result = match &module_status {
         FlowStatusModule::InProgress { flow_jobs: Some(flow_jobs), .. } => {
-            Arc::new(retrieve_flow_jobs_results(db, w_id, flow_jobs).await?)
+            Arc::new(retrieve_flow_jobs_results(&mut **tx, w_id, flow_jobs).await?)
         }
         _ => {
             return Err(Error::internal_err(format!(
@@ -379,7 +379,8 @@ async fn evaluate_stop_after_all_iters_if(
 
     *nresult = Some(iters_result.clone()); // as an optimization, we store the result of all jobs as when stop_early_after_all_iters evaluates to false, it would have to be computed (finished loop/branchall)
 
-    let id_ctx = get_id_ctx_for_expr(&stop_after_all_iters_if.expr, flow, db, status).await?;
+    let id_ctx =
+        get_id_ctx_for_expr(&stop_after_all_iters_if.expr, flow, &mut **tx, status).await?;
 
     let stop_early_after_all_iters = compute_bool_from_expr(
         &stop_after_all_iters_if.expr,
@@ -977,7 +978,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     {
                         let args = from_result_to_args(args.as_ref().await.get_ref())?;
                         if let Err(e) = evaluate_stop_after_all_iters_if(
-                            db,
+                            &mut tx,
                             stop_after_all_iters_if,
                             module_status,
                             w_id,
@@ -1199,7 +1200,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         let args = from_result_to_args(args.as_ref().await.get_ref())?;
 
                         if let Err(e) = evaluate_stop_after_all_iters_if(
-                            db,
+                            &mut tx,
                             stop_after_all_iters_if,
                             module_status,
                             w_id,
@@ -1462,7 +1463,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             match &new_status {
                 Some(FlowStatusModule::Success { flow_jobs: Some(jobs), .. })
                 | Some(FlowStatusModule::Failure { flow_jobs: Some(jobs), .. }) => {
-                    Arc::new(retrieve_flow_jobs_results(db, w_id, jobs).await?)
+                    Arc::new(retrieve_flow_jobs_results(&mut *tx, w_id, jobs).await?)
                 }
                 _ => result.clone(),
             }
@@ -2274,8 +2275,8 @@ async fn set_success_and_duration_in_flow_job_success<'c>(
     Ok(())
 }
 
-async fn retrieve_flow_jobs_results(
-    db: &DB,
+async fn retrieve_flow_jobs_results<'c>(
+    e: impl sqlx::PgExecutor<'c>,
     w_id: &str,
     job_uuids: &Vec<Uuid>,
 ) -> error::Result<Box<RawValue>> {
@@ -2286,7 +2287,7 @@ async fn retrieve_flow_jobs_results(
         job_uuids.as_slice(),
         w_id
     )
-    .fetch_all(db)
+    .fetch_all(e)
     .await?
     .into_iter()
     .map(|br| (br.id, br.result))
@@ -4327,7 +4328,7 @@ async fn push_next_flow_job(
             .filter(|t| !t.is_empty() && *t != flow_job.tag.as_str())
         {
             check_tag_available_for_workspace_internal(
-                &db,
+                db,
                 &flow_job.workspace_id,
                 tag_str,
                 email,

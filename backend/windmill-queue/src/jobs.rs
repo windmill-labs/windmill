@@ -1076,6 +1076,19 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         return value;
     }
 
+    // Resolve the concurrency-limit settings on the pool *before* opening the
+    // completion transaction: doing it inside the tx would hold a second
+    // simultaneous connection from the small per-worker pool.
+    let has_concurrent_limit = completed_job.concurrent_limit.is_some()
+        || windmill_common::runnable_settings::prefetch_cached_from_handle(
+            completed_job.runnable_settings_handle,
+            db,
+        )
+        .await?
+        .1
+        .concurrent_limit
+        .is_some();
+
     let mut tx = db.begin().warn_after_seconds(10).await?;
 
     let duration =  sqlx::query_scalar!(
@@ -1382,16 +1395,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         }
     }
 
-    if completed_job.concurrent_limit.is_some()
-        || windmill_common::runnable_settings::prefetch_cached_from_handle(
-            completed_job.runnable_settings_handle,
-            db,
-        )
-        .await?
-        .1
-        .concurrent_limit
-        .is_some()
-    {
+    if has_concurrent_limit {
         let concurrency_key = sqlx::query_scalar!(
             "SELECT key FROM concurrency_key WHERE job_id = $1",
             &completed_job.id
@@ -2301,7 +2305,7 @@ pub async fn try_schedule_next_job<'c>(
     let email = match windmill_common::users::get_email_from_permissioned_as(
         &permissioned_as,
         &job.workspace_id,
-        db,
+        &mut *tx,
     )
     .await
     {
@@ -5607,13 +5611,16 @@ async fn push_inner<'c, 'd>(
                 // but the SingleStepFlow payload doesn't — resolve it from the
                 // script row so a dedicated-worker script keeps its dedicated pool.
                 let dedicated_worker = if let Some(h) = &hash {
-                    sqlx::query_scalar::<_, Option<bool>>(
-                        "SELECT dedicated_worker FROM script WHERE hash = $1 AND workspace_id = $2",
-                    )
-                    .bind(h.0)
-                    .bind(workspace_id)
-                    .fetch_optional(db)
-                    .await?
+                    // Reuse the held isolation connection (see fetch_scalar_isolated!)
+                    // instead of grabbing a second one from the pool while `tx` is open.
+                    fetch_scalar_isolated!(
+                        sqlx::query_scalar::<_, Option<bool>>(
+                            "SELECT dedicated_worker FROM script WHERE hash = $1 AND workspace_id = $2",
+                        )
+                        .bind(h.0)
+                        .bind(workspace_id),
+                        tx
+                    )?
                     .flatten()
                 } else {
                     None

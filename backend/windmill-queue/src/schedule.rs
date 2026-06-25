@@ -354,9 +354,9 @@ pub async fn push_scheduled_job<'c>(
         .await?;
 
         let (debouncing_settings, concurrency_settings) =
-            windmill_common::runnable_settings::prefetch_cached_from_handle(
+            windmill_common::runnable_settings::prefetch_cached_from_handle_tx(
                 runnable_settings_handle,
-                db,
+                &mut tx,
             )
             .await?;
 
@@ -486,7 +486,7 @@ pub async fn push_scheduled_job<'c>(
         let resolved_email = windmill_common::users::get_email_from_permissioned_as(
             &permissioned_as,
             &schedule.workspace_id,
-            db,
+            &mut *tx,
         )
         .await?;
         (resolved_email, permissioned_as, authed, false)
@@ -510,7 +510,7 @@ pub async fn push_scheduled_job<'c>(
 
     if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
         check_tag_available_for_workspace_internal(
-            &db,
+            &mut *tx,
             &schedule.workspace_id,
             &tag,
             &email,

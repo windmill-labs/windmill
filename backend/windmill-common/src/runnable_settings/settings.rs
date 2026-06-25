@@ -1,5 +1,3 @@
-use std::future::Future;
-
 use sqlx::{Pool, Postgres};
 
 use crate::{
@@ -38,6 +36,37 @@ pub async fn prefetch_cached_from_handle(
     prefetch_cached(&rs, db).await
 }
 
+/// Like [`prefetch_cached`], but reuses a held transaction's connection instead
+/// of checking out a second one from the pool. Use this on paths that already
+/// hold an open `tx` to avoid dual-connection pool contention.
+pub async fn prefetch_cached_tx(
+    rs: &RunnableSettings,
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+) -> error::Result<(DebouncingSettings, ConcurrencySettings)> {
+    Ok((
+        if let Some(hash) = rs.debouncing_settings {
+            DebouncingSettings::get(hash, &mut **tx).await?
+        } else {
+            Default::default()
+        },
+        if let Some(hash) = rs.concurrency_settings {
+            ConcurrencySettings::get(hash, &mut **tx).await?
+        } else {
+            Default::default()
+        },
+    ))
+}
+
+/// Like [`prefetch_cached_from_handle`], but reuses a held transaction's
+/// connection instead of checking out a second one from the pool.
+pub async fn prefetch_cached_from_handle_tx(
+    hash: Option<i64>,
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+) -> error::Result<(DebouncingSettings, ConcurrencySettings)> {
+    let rs = from_handle(hash, &mut **tx).await?;
+    prefetch_cached_tx(&rs, tx).await
+}
+
 /// Resolve the retry policy (if any) for a job from its `runnable_settings_handle`.
 /// Returns `None` when the job carries no retry policy. Read lazily on the
 /// failure path only — never on the hot job-pull path.
@@ -55,27 +84,25 @@ pub async fn prefetch_retry_from_handle(
 
 /// Returns error if provided `hash` has no corresponding entry in db
 /// If `hash` is None, returns Default
-pub fn from_handle<'a>(
+pub async fn from_handle<'e>(
     hash: Option<i64>,
-    db: &'a DB,
-) -> impl Future<Output = error::Result<RunnableSettings>> + 'a {
-    async move {
-        if let Some(hash) = hash {
-            super::RUNNABLE_SETTINGS_REFERENCES
-                .get_or_insert_async(hash, async {
-                    sqlx::query_as!(
-                        RunnableSettings,
-                        r#"SELECT concurrency_settings, debouncing_settings, retry_settings FROM runnable_settings WHERE hash = $1"#,
-                        hash
-                    )
-                    .fetch_one(db)
-                    .await
-                    .map_err(error::Error::from)
-                })
+    db: impl sqlx::PgExecutor<'e>,
+) -> error::Result<RunnableSettings> {
+    if let Some(hash) = hash {
+        super::RUNNABLE_SETTINGS_REFERENCES
+            .get_or_insert_async(hash, async {
+                sqlx::query_as!(
+                    RunnableSettings,
+                    r#"SELECT concurrency_settings, debouncing_settings, retry_settings FROM runnable_settings WHERE hash = $1"#,
+                    hash
+                )
+                .fetch_one(db)
                 .await
-        } else {
-            Ok(RunnableSettings::default())
-        }
+                .map_err(error::Error::from)
+            })
+            .await
+    } else {
+        Ok(RunnableSettings::default())
     }
 }
 

@@ -1069,7 +1069,7 @@ async fn create_resource(
             w_id,
             authed.username,
         )
-        .execute(&db)
+        .execute(&mut *tx)
         .await?;
     } else if resource.path.starts_with("f/app_custom/") {
         sqlx::query!(
@@ -1077,7 +1077,7 @@ async fn create_resource(
             w_id,
             authed.username,
         )
-        .execute(&db)
+        .execute(&mut *tx)
         .await?;
     } else if resource.path.starts_with("f/app_groups/") {
         sqlx::query!(
@@ -1085,7 +1085,7 @@ async fn create_resource(
             w_id,
             authed.username,
         )
-        .execute(&db)
+        .execute(&mut *tx)
         .await?;
     }
     sqlx::query!(
