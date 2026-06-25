@@ -17,8 +17,8 @@ benchmark = ["windmill-common/benchmark"]
 failpoints = []
 prometheus = ["dep:prometheus"]
 smtp = []
-# Enables native evaluation of `retry_if` expressions on the job-failure path
-# (otherwise such policies fall back to the one-step-flow retry path).
+# Enables native evaluation of `retry_if` expressions on the job-failure path.
+# Without it, a `retry_if` gate cannot be evaluated and the job does not retry.
 quickjs = ["dep:windmill-jseval", "windmill-jseval/quickjs"]
 
 [dependencies]

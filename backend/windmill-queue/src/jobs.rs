@@ -1326,10 +1326,10 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
                 // Defer schedule completion handlers (on_failure/on_success/
                 // on_recovery) while a native retry is pending: only the terminal
-                // attempt should drive them. Native retry is restricted (in
-                // schedule.rs) to schedules whose handlers don't need
-                // per-occurrence failure/recovery counting, since each attempt is
-                // its own completed job.
+                // attempt should drive them. apply_schedule_handlers resolves
+                // per-occurrence failure/recovery status across the whole retry
+                // chain, so multi-count/exact handler policies work even though
+                // each attempt is its own completed job.
                 #[cfg(all(feature = "enterprise", feature = "private"))]
                 if !retry_pending {
                     if let Err(err) = crate::jobs_ee::apply_schedule_handlers(
