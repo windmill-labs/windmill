@@ -3359,15 +3359,23 @@ describe('prepareGlobalUserMessage', () => {
 				path: 'f/flows/reporting',
 				title: 'f/flows/reporting',
 				summary: 'Reporting flow'
+			},
+			{
+				type: 'workspace_app',
+				path: 'f/apps/dashboard',
+				title: 'f/apps/dashboard',
+				summary: 'Dashboard raw app'
 			}
 		])
 
 		expect(message.content).toContain('## SELECTED CONTEXT')
 		expect(message.content).toContain('- type: script, path: f/scripts/report')
 		expect(message.content).toContain('- type: flow, path: f/flows/reporting')
+		expect(message.content).toContain('- type: raw_app, path: f/apps/dashboard')
 		expect(message.content).toContain('## INSTRUCTIONS:\nUpdate these items')
 		expect(message.content).not.toContain('Report script')
 		expect(message.content).not.toContain('Reporting flow')
+		expect(message.content).not.toContain('Dashboard raw app')
 	})
 
 	it('omits selected context section when no workspace item is selected', () => {

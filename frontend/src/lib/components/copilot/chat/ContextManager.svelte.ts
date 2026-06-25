@@ -77,7 +77,10 @@ export default class ContextManager {
 		}
 		this.workspace = workspace
 		this.selectedContext = currentlySelectedContext.filter(
-			(context) => context.type === 'workspace_script' || context.type === 'workspace_flow'
+			(context) =>
+				context.type === 'workspace_script' ||
+				context.type === 'workspace_flow' ||
+				context.type === 'workspace_app'
 		)
 	}
 
@@ -158,6 +161,7 @@ export default class ContextManager {
 					(c) =>
 						c.type === 'workspace_script' ||
 						c.type === 'workspace_flow' ||
+						c.type === 'workspace_app' ||
 						newAvailableContext.some((ac) => ac.type === c.type && ac.title === c.title)
 				)
 				.map((c) =>
@@ -219,7 +223,10 @@ export default class ContextManager {
 				})
 			}
 
-			if (scriptOptions.lastDeployedCode && scriptOptions.lastDeployedCode !== scriptOptions.getCode()) {
+			if (
+				scriptOptions.lastDeployedCode &&
+				scriptOptions.lastDeployedCode !== scriptOptions.getCode()
+			) {
 				newAvailableContext.push({
 					type: 'diff',
 					title: 'diff_with_last_deployed_version',
@@ -283,6 +290,7 @@ export default class ContextManager {
 						// availableContext; preserve so badges survive editor refreshes.
 						c.type === 'workspace_script' ||
 						c.type === 'workspace_flow' ||
+						c.type === 'workspace_app' ||
 						newAvailableContext.some((ac) => ac.type === c.type && ac.title === c.title)
 				)
 				.map((c) => {
@@ -403,7 +411,10 @@ export default class ContextManager {
 							type: 'diff' as const,
 							title: 'diff_with_last_deployed_version',
 							content: this.scriptOptions.lastDeployedCode ?? '',
-							diff: diffLines(this.scriptOptions.lastDeployedCode ?? '', this.scriptOptions.getCode()),
+							diff: diffLines(
+								this.scriptOptions.lastDeployedCode ?? '',
+								this.scriptOptions.getCode()
+							),
 							lang: this.scriptOptions.lang
 						}
 					]

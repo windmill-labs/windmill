@@ -4433,7 +4433,10 @@ export function prepareGlobalUserMessage(
 	options: GlobalUserMessageOptions = {}
 ): ChatCompletionUserMessageParam {
 	const selectedWorkspaceItems = selectedContext.filter(
-		(context) => context.type === 'workspace_script' || context.type === 'workspace_flow'
+		(context) =>
+			context.type === 'workspace_script' ||
+			context.type === 'workspace_flow' ||
+			context.type === 'workspace_app'
 	)
 	const activeEditor =
 		options.activeEditor ??
@@ -4450,7 +4453,13 @@ export function prepareGlobalUserMessage(
 	if (selectedWorkspaceItems.length > 0) {
 		content += '## SELECTED CONTEXT\n'
 		for (const context of selectedWorkspaceItems) {
-			content += `- type: ${context.type === 'workspace_script' ? 'script' : 'flow'}, path: ${context.path}\n`
+			const itemType =
+				context.type === 'workspace_script'
+					? 'script'
+					: context.type === 'workspace_flow'
+						? 'flow'
+						: 'raw_app'
+			content += `- type: ${itemType}, path: ${context.path}\n`
 		}
 		content += '\n'
 	}
