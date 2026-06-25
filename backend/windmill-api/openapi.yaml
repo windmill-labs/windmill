@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.738.0
+  version: 1.739.0
   title: Windmill API
 
   contact:
@@ -23146,6 +23146,8 @@ components:
           type: number
         preprocessed:
           type: boolean
+        is_retry:
+          type: boolean
         worker:
           type: string
       required:
@@ -23265,6 +23267,8 @@ components:
         aggregate_wait_time_ms:
           type: number
         preprocessed:
+          type: boolean
+        is_retry:
           type: boolean
         worker:
           type: string

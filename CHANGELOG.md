@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.739.0](https://github.com/windmill-labs/windmill/compare/v1.738.0...v1.739.0) (2026-06-24)
+
+
+### Features
+
+* add /compact session chat command ([#9764](https://github.com/windmill-labs/windmill/issues/9764)) ([83cc553](https://github.com/windmill-labs/windmill/commit/83cc5533ee92e59356a117eefeaf42dad23287f6))
+* add session chat slash commands ([#9748](https://github.com/windmill-labs/windmill/issues/9748)) ([24b95e9](https://github.com/windmill-labs/windmill/commit/24b95e9fe12ba4abdfe1ff6e9f9fe42cb2ded011))
+* **ai-chat:** add /clear session command to start a fresh conversation ([#9769](https://github.com/windmill-labs/windmill/issues/9769)) ([3fafac2](https://github.com/windmill-labs/windmill/commit/3fafac275d2100a6f89924040650cf959945d209))
+* **ai-chat:** context usage gauge + unified model settings menu ([#9763](https://github.com/windmill-labs/windmill/issues/9763)) ([2e020b2](https://github.com/windmill-labs/windmill/commit/2e020b2ccc7a649a5923bff72a98f07d4fc85381))
+* **apps:** show raw-app fork diffs as per-file tree items ([#9491](https://github.com/windmill-labs/windmill/issues/9491)) ([e98df38](https://github.com/windmill-labs/windmill/commit/e98df38ac43823ee85209a4b09cd70690469302d))
+* **frontend:** add filter submenu to collapsed AI sessions popover ([#9757](https://github.com/windmill-labs/windmill/issues/9757)) ([3d48ba7](https://github.com/windmill-labs/windmill/commit/3d48ba7738c3d3356539b5fc44a871f6b7f9d548))
+* **frontend:** restore raw app 'open preview in separate window' ([#9765](https://github.com/windmill-labs/windmill/issues/9765)) ([a116715](https://github.com/windmill-labs/windmill/commit/a116715c418c39d48a91e6c0b4484a31537dff38))
+* **frontend:** show approval wait as a distinct segment in flow timeline ([#9756](https://github.com/windmill-labs/windmill/issues/9756)) ([2a70ccc](https://github.com/windmill-labs/windmill/commit/2a70ccc38675c7c2353807a4f85764a8a35224e2))
+* scope AI sessions per workspace root with lifecycle reconcile ([#9734](https://github.com/windmill-labs/windmill/issues/9734)) ([42c5e7a](https://github.com/windmill-labs/windmill/commit/42c5e7a3fc9b74256de8806ec0d7b62e8bbf029c))
+
+
+### Bug Fixes
+
+* **ai-chat:** strip unclosed &lt;summary&gt; tag leaking into compaction summary ([#9750](https://github.com/windmill-labs/windmill/issues/9750)) ([250a05f](https://github.com/windmill-labs/windmill/commit/250a05f544ae397bb91af5fc83bf408cfe1c554d))
+* **apps:** realign legacy raw-app drafts to raw_app draft kind ([#9761](https://github.com/windmill-labs/windmill/issues/9761)) ([288318a](https://github.com/windmill-labs/windmill/commit/288318ac269714fc03b15622dbb86b1c28268a36))
+* **backend:** resolve folder_labels search_path on non-public (PG_SCHEMA) schemas ([#9758](https://github.com/windmill-labs/windmill/issues/9758)) ([f582878](https://github.com/windmill-labs/windmill/commit/f5828780fd6a8be070b2933ebd41ee6dff98a9e1))
+* forbid superadmin job tokens from global user and token management ([#9715](https://github.com/windmill-labs/windmill/issues/9715)) ([043c2c0](https://github.com/windmill-labs/windmill/commit/043c2c05b7678c49faca0ccb28e5f6393567ba4d))
+* **frontend:** highlight the runtime-chosen branch in flow graph viewer ([#9755](https://github.com/windmill-labs/windmill/issues/9755)) ([de6192b](https://github.com/windmill-labs/windmill/commit/de6192bec1695883a07452f7db2fb51c94dbfd43))
+* **frontend:** keep #content portal target present on AI-session route ([#9754](https://github.com/windmill-labs/windmill/issues/9754)) ([5e09c50](https://github.com/windmill-labs/windmill/commit/5e09c501713ebbe05b28ce0084eca641f0dbe95c))
+* **frontend:** show AI skills settings only when global mode enabled ([#9747](https://github.com/windmill-labs/windmill/issues/9747)) ([c017f7f](https://github.com/windmill-labs/windmill/commit/c017f7f8919a51292ddf01574961d1774bc1ba23))
+* **frontend:** stop flow step id generation from being poisoned by non-canonical keys ([#9766](https://github.com/windmill-labs/windmill/issues/9766)) ([4dbf873](https://github.com/windmill-labs/windmill/commit/4dbf8737238ccc4dc2c67365e6d43f04f46c75b5))
+* persist on-behalf-of user across app deploy paths ([#9773](https://github.com/windmill-labs/windmill/issues/9773)) ([f99781c](https://github.com/windmill-labs/windmill/commit/f99781ca5f77248206c951935cc44acfa5f072eb))
+* reject symlink traversal in job-dir path validation ([#9713](https://github.com/windmill-labs/windmill/issues/9713)) ([b5bd824](https://github.com/windmill-labs/windmill/commit/b5bd8245d81b84fc14d3ea955bf1e66ac576bf37))
+
+
+### Performance Improvements
+
+* **audit:** adaptive timestamp floor for S3 audit-log export ([#9752](https://github.com/windmill-labs/windmill/issues/9752)) ([55bed4a](https://github.com/windmill-labs/windmill/commit/55bed4abcfce2a611b16054573980d2eb613ccb3))
+* **monitor:** vacuum job_perms/job_result_stream right after each orphan sweep ([#9753](https://github.com/windmill-labs/windmill/issues/9753)) ([8912e21](https://github.com/windmill-labs/windmill/commit/8912e21d1571e57b5cf21b7d4d9520e20a28e70d))
+
 ## [1.738.0](https://github.com/windmill-labs/windmill/compare/v1.737.0...v1.738.0) (2026-06-23)
 
 

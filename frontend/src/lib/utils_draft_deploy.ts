@@ -370,15 +370,20 @@ export async function deployDraft(
 			// undefined so the backend preserves the existing route. The draft has no
 			// custom_path, so admins fall back to the deployed route (`''` when none).
 			const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
+			const policy = r.policy ?? { execution_mode: 'publisher' }
 			const requestBody = {
 				value: appValue,
 				summary: draftSummary ?? r.summary ?? '',
-				policy: r.policy ?? { execution_mode: 'publisher' },
+				policy,
 				// Honor the draft's intended path; `draft_path` holds the user-typed path
 				// for a never-deployed app parked at a `u/{user}/draft_{uuid}` storage key.
 				path: draftPath ?? r.path ?? path,
 				custom_path: isAdmin ? (r.custom_path ?? '') : undefined,
-				deployment_message: deploymentMessage
+				deployment_message: deploymentMessage,
+				// The draft carries no on-behalf-of selector — the policy comes straight
+				// from the deployed app. Preserve its on_behalf_of (the backend resets it
+				// to the deploying user without this flag, gated by can_preserve_on_behalf_of).
+				preserve_on_behalf_of: policy?.on_behalf_of ? true : undefined
 			}
 			// Same as flows: draft-only apps have no app row → create;
 			// drafts on a deployed app update it.

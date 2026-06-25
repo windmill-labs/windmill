@@ -419,6 +419,11 @@ inspect asset-driven pipelines (scripts marked `// pipeline`, wired by `// on <s
   - `--json` - Output as JSON (for piping to jq)
 - `pipeline show <folder:string>` - render a pipeline folder's DAG (sources, lineage, subscriptions) in the terminal
   - `--json` - Output the raw asset graph as JSON
+- `pipeline run <folder:string>` - run a bounded cascade: from a schedule/manual root, fan downstream up to the --to end node(s)
+  - `--from <script:string>` - Start script (short name or path). Defaults to the folder's sole schedule/manual root.
+  - `--to <node:string>` - End node(s) to stop at — script names/paths or asset URIs (e.g. datatable://main/staged). Repeatable or comma-separated. Omit to run the full downstream.
+  - `--dry-run` - Print the topological run plan without executing.
+  - `--json` - Output the plan as JSON (for piping to jq).
 
 ### protection-rules
 

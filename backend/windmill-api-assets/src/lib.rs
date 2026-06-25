@@ -450,6 +450,33 @@ struct GraphRunnableNode {
     // pipeline-member visual state on the frontend.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     in_pipeline: bool,
+    // Annotation badges parsed from the deployed script body, so the canvas
+    // shows partition/freshness/tag/retry/data-test chips on *deployed* nodes
+    // (not only on live-edited drafts, which the frontend parses itself). Kept
+    // in lockstep with the TS `AssetGraphRunnableNode` fields the node renders.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    partition_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    freshness: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    retry: Option<windmill_common::assets::RetrySpec>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    data_tests: Vec<windmill_common::assets::DataTest>,
+}
+
+// The partition's kind word for the node badge (the full PartitionSpec carries
+// tz/format/start, which the badge doesn't need).
+fn partition_kind_word(kind: &windmill_common::assets::PartitionKind) -> &'static str {
+    use windmill_common::assets::PartitionKind::*;
+    match kind {
+        Daily => "daily",
+        Hourly => "hourly",
+        Weekly => "weekly",
+        Monthly => "monthly",
+        Dynamic { .. } => "dynamic",
+    }
 }
 
 // Lineage edge from parsed r/w usages. One per (runnable, asset, access_type)
@@ -642,15 +669,21 @@ async fn asset_graph(
     .await?;
 
     // Which scripts in scope are pipeline members (have `// pipeline`).
+    // Pipeline members + their latest deployed body, so the graph can surface
+    // annotation badges (partition/freshness/tag/retry/data_test) on deployed
+    // nodes. `DISTINCT ON (path) … ORDER BY created_at DESC` picks the newest
+    // non-archived version per path (a redeploy archives the prior one, but be
+    // defensive against transient overlaps).
     let pipeline_member_paths = sqlx::query!(
         r#"
-        SELECT path AS "path!"
+        SELECT DISTINCT ON (path) path AS "path!", content AS "content!"
         FROM script
         WHERE workspace_id = $1
           AND auto_kind = 'pipeline'
           AND archived = false
           AND deleted = false
           AND ($2::text IS NULL OR path LIKE $2)
+        ORDER BY path, created_at DESC
         "#,
         &w_id,
         folder_filter.as_deref(),
@@ -681,6 +714,20 @@ async fn asset_graph(
 
     tx.commit().await?;
 
+    // Parse each pipeline member's body once into its badge annotations, keyed
+    // by path, for the runnable-node construction below.
+    let annotations_by_path: std::collections::HashMap<
+        String,
+        windmill_common::assets::PipelineAnnotations,
+    > = pipeline_member_paths
+        .iter()
+        .map(|r| {
+            (
+                r.path.clone(),
+                windmill_common::assets::parse_pipeline_annotations(&r.content),
+            )
+        })
+        .collect();
     let pipeline_member_script_paths: std::collections::HashSet<String> =
         pipeline_member_paths.into_iter().map(|r| r.path).collect();
     let existing_script_paths: std::collections::HashSet<String> =
@@ -804,7 +851,26 @@ async fn asset_graph(
         .map(|(usage_kind, path)| {
             let in_pipeline = usage_kind == AssetUsageKind::Script
                 && pipeline_member_script_paths.contains(&path);
-            GraphRunnableNode { path, usage_kind, in_pipeline }
+            // Annotation badges, only for pipeline-member scripts (the only
+            // bodies we parsed). Gate on the runnable kind too: a flow sharing a
+            // path with a pipeline script must not inherit its badges.
+            let ann = (usage_kind == AssetUsageKind::Script)
+                .then(|| annotations_by_path.get(&path))
+                .flatten();
+            GraphRunnableNode {
+                in_pipeline,
+                partition_kind: ann
+                    .and_then(|a| a.partition.as_ref())
+                    .map(|p| partition_kind_word(&p.kind).to_string()),
+                freshness: ann
+                    .and_then(|a| a.freshness.as_ref())
+                    .map(|f| f.duration.clone()),
+                tag: ann.and_then(|a| a.tag.clone()),
+                retry: ann.and_then(|a| a.retry.clone()),
+                data_tests: ann.map(|a| a.data_tests.clone()).unwrap_or_default(),
+                path,
+                usage_kind,
+            }
         })
         .collect();
     runnables.sort_by(|a, b| a.path.cmp(&b.path));

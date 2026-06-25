@@ -4,7 +4,10 @@ use sqlx::{PgExecutor, Postgres, Transaction};
 
 use crate::{error, scripts::ScriptHash};
 
-pub use windmill_parser::asset_parser::{parse_pipeline_annotations, TriggerSpec, PARTITION_TOKEN};
+pub use windmill_parser::asset_parser::{
+    parse_pipeline_annotations, DataTest, PartitionKind, PipelineAnnotations, RetrySpec,
+    TriggerSpec, PARTITION_TOKEN,
+};
 pub use windmill_types::assets::*;
 
 #[derive(sqlx::Type, Debug, Clone, Copy, PartialEq)]

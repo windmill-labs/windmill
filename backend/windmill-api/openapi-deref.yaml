@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  version: 1.738.0
+  version: 1.739.0
   title: Windmill API
   contact:
     name: Windmill Team
@@ -19965,6 +19965,8 @@ paths:
                       type: number
                     preprocessed:
                       type: boolean
+                    is_retry:
+                      type: boolean
                     worker:
                       type: string
                   required: &ref_198
@@ -20859,6 +20861,8 @@ paths:
                     aggregate_wait_time_ms:
                       type: number
                     preprocessed:
+                      type: boolean
+                    is_retry:
                       type: boolean
                     worker:
                       type: string

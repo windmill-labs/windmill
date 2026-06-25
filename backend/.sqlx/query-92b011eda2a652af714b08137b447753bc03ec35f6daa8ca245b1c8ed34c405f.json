@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM zombie_job_counter WHERE job_id IN (SELECT id FROM v2_job WHERE workspace_id = $1 AND id = ANY($2))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "92b011eda2a652af714b08137b447753bc03ec35f6daa8ca245b1c8ed34c405f"
+}

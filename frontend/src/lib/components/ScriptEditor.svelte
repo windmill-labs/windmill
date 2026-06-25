@@ -52,6 +52,7 @@
 		Play,
 		PlayIcon,
 		Plus,
+		Target,
 		Terminal,
 		Pencil,
 		WandSparkles,
@@ -1912,15 +1913,18 @@
 								<div class="absolute top-1 left-2 z-10">
 									{#if testIsLoading}
 										{@render cancelTestButton('sm', 'shadow-md')}
-									{:else if (customUi?.previewPanel?.downstreamSubscribers ?? 0) > 0}
+									{:else if (customUi?.previewPanel?.downstreamSubscribers ?? 0) > 0 || customUi?.previewPanel?.onBoundedRun}
 										<!-- Split button: primary "Test" runs just this step
 									     (skips the asset-trigger cascade); the caret
 									     opens a popover with the cascade option labelled
 									     by the downstream count. The active mode is
 									     reflected in both the button label and the
 									     check-mark on the menu item so the user always
-									     knows whether the next run will fan out. -->
-										{@const downstream = customUi!.previewPanel!.downstreamSubscribers!}
+									     knows whether the next run will fan out. A
+									     pure-reader-only root has no subscriber downstream
+									     but still gets `onBoundedRun`, so the split button
+									     also opens for it (with the cascade item hidden). -->
+										{@const downstream = customUi?.previewPanel?.downstreamSubscribers ?? 0}
 										<div class="flex items-stretch shadow-md rounded-md overflow-hidden">
 											<Button
 												on:click={() => runTest()}
@@ -1983,31 +1987,55 @@
 																>
 															</div>
 														</button>
-														<button
-															type="button"
-															class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2"
-															onclick={() => {
-																cascadeDownstream = true
-																close()
-																void runTest()
-															}}
-														>
-															<Zap
-																size={14}
-																class="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"
-															/>
-															<div class="flex flex-col min-w-0">
-																<span class="font-medium">
-																	Test + trigger {downstream} downstream {cascadeDownstream
-																		? '(current)'
-																		: ''}
-																</span>
-																<span class="text-2xs text-secondary">
-																	Let the asset-trigger cascade fan out to the {downstream}
-																	subscribed script{downstream === 1 ? '' : 's'} after this run succeeds.
-																</span>
-															</div>
-														</button>
+														{#if downstream > 0}
+															<button
+																type="button"
+																class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2"
+																onclick={() => {
+																	cascadeDownstream = true
+																	close()
+																	void runTest()
+																}}
+															>
+																<Zap
+																	size={14}
+																	class="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"
+																/>
+																<div class="flex flex-col min-w-0">
+																	<span class="font-medium">
+																		Test + trigger {downstream} downstream {cascadeDownstream
+																			? '(current)'
+																			: ''}
+																	</span>
+																	<span class="text-2xs text-secondary">
+																		Let the asset-trigger cascade fan out to the {downstream}
+																		subscribed script{downstream === 1 ? '' : 's'} after this run succeeds.
+																	</span>
+																</div>
+															</button>
+														{/if}
+														{#if customUi?.previewPanel?.onBoundedRun}
+															<button
+																type="button"
+																class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2 border-t"
+																onclick={() => {
+																	close()
+																	customUi!.previewPanel!.onBoundedRun!()
+																}}
+															>
+																<Target
+																	size={14}
+																	class="mt-0.5 shrink-0 text-blue-600 dark:text-blue-400"
+																/>
+																<div class="flex flex-col min-w-0">
+																	<span class="font-medium">Run downstream up to…</span>
+																	<span class="text-2xs text-secondary">
+																		Pick end node(s) on the graph, then run only the cascade between
+																		this script and them.
+																	</span>
+																</div>
+															</button>
+														{/if}
 													</div>
 												{/snippet}
 											</Popover>

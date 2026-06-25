@@ -29,7 +29,7 @@
 	import type { Modules } from './RawAppModules.svelte'
 	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
-	import { onMount, untrack } from 'svelte'
+	import { onMount, onDestroy, untrack } from 'svelte'
 	import type {
 		AppDatatableMetadata,
 		LintResult,
@@ -38,7 +38,14 @@
 	import { createAppSelectedContext, type AppCodeSelectionElement } from '../copilot/chat/context'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas } from '$lib/stores'
-	import { MousePointerSquareDashed, RefreshCw, Columns2, ChevronDown, Eye } from 'lucide-svelte'
+	import {
+		MousePointerSquareDashed,
+		RefreshCw,
+		Columns2,
+		ChevronDown,
+		Eye,
+		SquareArrowOutUpRight
+	} from 'lucide-svelte'
 	import DraggableTabs, { type TabItem } from '$lib/components/common/tabs/DraggableTabs.svelte'
 	import { runScriptAndPollResult } from '../jobs/utils'
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
@@ -240,6 +247,10 @@
 	let previewIframe: HTMLIFrameElement | undefined = $state(undefined)
 	let previewIframeLoaded = $state(false)
 	let lastBuild: { css: string; js: string } | undefined = undefined
+	// Detached preview tab/window rendering the same app-preview bundle as the
+	// inline pane. Kept live-synced: every build is replayed into it until the
+	// user closes it. Not reactive — it's a window handle, not UI state.
+	let externalPreviewWindow: Window | null = null
 	let inspectorEnabled = $state(false)
 	let bundlerType: 'esbuild' | 'rolldown' = $state('esbuild')
 
@@ -982,6 +993,22 @@
 	}
 
 	function listener(e: MessageEvent) {
+		// The detached preview window asks for the build every time it (re)loads,
+		// including a manual browser refresh — its app-preview.html shell starts
+		// blank and the one-shot `load` feed can't survive the tab reloading
+		// itself. Re-feed it here so it repaints. Gated to our own window handle
+		// AND a same-origin sender: the preview runs user app code that can
+		// navigate the window away, and a cross-origin doc must not be able to
+		// trigger a bundle replay (the build can carry app source/secrets).
+		if (
+			e.data?.type === 'appPreviewReady' &&
+			e.source === externalPreviewWindow &&
+			e.origin === window.location.origin
+		) {
+			feedExternalPreview()
+			return
+		}
+
 		// Two children speak to us now: the UI Builder iframe (source editor)
 		// and the preview iframe (rendered user app). Gate by source so they
 		// can't be confused or spoofed.
@@ -997,6 +1024,7 @@
 				{ type: 'preview', css: e.data.css, js: e.data.js },
 				'*'
 			)
+			syncExternalPreview()
 			return
 		}
 
@@ -1095,6 +1123,67 @@
 				}
 			}
 		}
+	}
+
+	function postToExternalPreview(msg: Record<string, unknown>) {
+		if (!externalPreviewWindow || externalPreviewWindow.closed) {
+			externalPreviewWindow = null
+			return
+		}
+		// Restrict to our own origin: the detached window loads same-origin
+		// app-preview.html, but user app code can navigate it elsewhere — don't
+		// post the build (potential app source/secrets) to a cross-origin doc.
+		externalPreviewWindow.postMessage(msg, window.location.origin)
+	}
+
+	function syncExternalPreview() {
+		if (lastBuild) {
+			postToExternalPreview({ type: 'preview', css: lastBuild.css, js: lastBuild.js })
+		}
+	}
+
+	// Full (re)feed of the detached window: theme first, then the build. Used
+	// when (re)attaching to a window — open, focus-reuse, load, handshake — so
+	// it always matches the editor's current state. Plain rebuilds use
+	// `syncExternalPreview` alone (the theme hasn't changed).
+	function feedExternalPreview() {
+		postToExternalPreview({ type: 'setDarkMode', dark: darkMode })
+		syncExternalPreview()
+	}
+
+	onDestroy(() => {
+		// Don't leave a detached preview behind when the editor unmounts: it
+		// would stop receiving builds and, once refreshed, has no opener to
+		// re-feed it — a permanently blank orphan.
+		if (externalPreviewWindow && !externalPreviewWindow.closed) externalPreviewWindow.close()
+		externalPreviewWindow = null
+	})
+
+	function openExternalPreview() {
+		// Reuse an already-open window instead of spawning duplicates.
+		if (externalPreviewWindow && !externalPreviewWindow.closed) {
+			externalPreviewWindow.focus()
+			feedExternalPreview()
+			return
+		}
+		// Scope the window name per app path so two open editors don't fight over
+		// (or take over / close) one shared OS-level preview window.
+		const win = window.open(
+			'/ui_builder/app-preview.html',
+			`windmillRawAppPreview:${encodeURIComponent(path)}`
+		)
+		if (!win) {
+			sendUserToast('Could not open the preview window (popup blocked?)', true)
+			return
+		}
+		externalPreviewWindow = win
+		// Initial feed: fires once when the freshly opened tab loads. This is the
+		// only feed path against an app-preview.html that predates the
+		// `appPreviewReady` handshake, so the window isn't blank on first open
+		// regardless of the pinned UI Builder artifact. A manual refresh is
+		// covered separately by the handshake in `listener` (this listener is
+		// bound to the now-stale document and won't fire again).
+		win.addEventListener('load', () => feedExternalPreview())
 	}
 
 	let getBundleResolve: (({ css, js }: { css: string; js: string }) => void) | undefined = undefined
@@ -1226,6 +1315,7 @@
 		if (previewIframe && previewIframeLoaded) {
 			previewIframe.contentWindow?.postMessage({ type: 'setDarkMode', dark: darkMode }, '*')
 		}
+		postToExternalPreview({ type: 'setDarkMode', dark: darkMode })
 	})
 	$effect(() => {
 		// Match VS Code's editor font size to Windmill's text-xs.
@@ -1497,6 +1587,7 @@
 	{runnables}
 	{path}
 	gateJobIds={false}
+	extraSourceWindow={() => externalPreviewWindow}
 />
 <div class="max-h-screen overflow-hidden h-screen min-h-0 flex flex-col">
 	<RawAppEditorHeader
@@ -1760,6 +1851,14 @@
 												}}
 											>
 												<RefreshCw size={14} />
+											</button>
+											<button
+												class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center"
+												title="Open preview in a separate window"
+												aria-label="Open preview in a separate window"
+												onclick={openExternalPreview}
+											>
+												<SquareArrowOutUpRight size={14} />
 											</button>
 											<button
 												title={splitWithPreview

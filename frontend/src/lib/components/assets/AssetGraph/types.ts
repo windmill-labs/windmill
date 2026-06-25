@@ -1,4 +1,5 @@
 import type { AssetKind } from '$lib/gen'
+import type { DataTest } from './parsePipelineAnnotations'
 
 export type GraphUsageKind = 'script' | 'flow'
 
@@ -28,6 +29,10 @@ export interface AssetGraphRunnableNode {
 	// duration string (`"5s"`, `"30s"`); absent = back-to-back. Surfaced as
 	// a badge so retry-enabled scripts are visible without opening the pane.
 	retry?: { count: number; delay?: string }
+	// `// data_test <kind> …` data-quality checks run against the materialized
+	// asset. Surfaced as a count badge (with a per-test breakdown in the title)
+	// so test coverage is visible on the node without opening the pane.
+	data_tests?: DataTest[]
 	// Synthesized by the page from a local draft; the script doesn't exist
 	// in the DB yet. Drives a dashed/lower-opacity rendering to mirror how
 	// unsaved triggers are styled — visually distinct from persisted nodes.

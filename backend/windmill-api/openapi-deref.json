@@ -1,7 +1,7 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "version": "1.738.0",
+    "version": "1.739.0",
     "title": "Windmill API",
     "contact": {
       "name": "Windmill Team",
@@ -37719,6 +37719,9 @@
           "preprocessed": {
             "type": "boolean"
           },
+          "is_retry": {
+            "type": "boolean"
+          },
           "worker": {
             "type": "string"
           }
@@ -37874,6 +37877,9 @@
             "type": "number"
           },
           "preprocessed": {
+            "type": "boolean"
+          },
+          "is_retry": {
             "type": "boolean"
           },
           "worker": {

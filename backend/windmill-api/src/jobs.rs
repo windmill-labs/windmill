@@ -1419,6 +1419,7 @@ macro_rules! get_job_query {
             @impl "v2_job_completed", ($($opts)*),
             "v2_job_completed.duration_ms, v2_job_completed.completed_at, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, \
             v2_job.labels, \
+            EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = v2_job.id) as is_retry, \
             CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result",
             "",
         )
@@ -1428,7 +1429,8 @@ macro_rules! get_job_query {
             @impl "v2_job_queue", ($($opts)*),
             "scheduled_for, running, ping as last_ping, suspend, suspend_until, same_worker, pre_run_error, visible_to_owner, \
             flow_innermost_root_job  AS root_job, flow_leaf_jobs AS leaf_jobs, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, \
-            script_entrypoint_override, v2_job.labels",
+            script_entrypoint_override, v2_job.labels, \
+            EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = v2_job.id) as is_retry",
             "LEFT JOIN v2_job_runtime ON v2_job_runtime.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id",
         )
     };
