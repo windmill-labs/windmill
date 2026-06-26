@@ -104,10 +104,18 @@ drives the graph surface, never a runtime probe.
 
 Surfaced two ways in the asset graph: a count badge on the
 producer→materialized-asset write-edge, and a column-to-column diagram
-(`ColumnLineageView.svelte`) in the asset details pane. Inference runs at the
-graph endpoint (deployed nodes) and at deploy via `parse_assets`; the TS live
-parser has no SQL AST, so an *unsaved* draft shows annotation-derived lineage
-until deploy. The `dbt docs serve`-style static lineage *site* is still TODO.
+(`ColumnLineageView.svelte`) in the asset details pane.
+
+SQL-AST inference runs **server-side** — at the graph endpoint and at deploy via
+`parse_assets` — so it lights up on *deployed* pipeline members, which is where
+column lineage matters. An *unsaved draft* shows only its `// column`
+annotations until it deploys: the live preview's body inference uses a pinned
+prebuilt WASM build of the parser that predates this feature and doesn't yet
+read `column_lineage`. Wiring inference into the live preview (republish the
+`windmill-parser-wasm-asset` package + consume its `column_lineage` in
+`resolveGraph`) is a deliberate follow-up, not a blocker — drafts keep the
+annotation path meanwhile. The `dbt docs serve`-style static lineage *site* is
+also still TODO.
 
 ### 4. Snapshots / SCD2
 
