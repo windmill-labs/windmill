@@ -105,6 +105,7 @@
 			label={'Favorites'}
 			{isCollapsed}
 			{lightMode}
+			showChevron
 			{trigger}
 		/>
 	{/snippet}

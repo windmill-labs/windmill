@@ -114,11 +114,14 @@
 		return buildWorkspaceHierarchy($userWorkspaces)
 	})
 
+	// The active workspace's record — used to show its name (not its id) in the trigger.
+	const currentWorkspace = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
+
 	const itemClass =
 		'text-primary w-full flex flex-row gap-2 px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 </script>
 
-<Menu {createMenu} usePointerDownOutside>
+<Menu {createMenu} usePointerDownOutside placement="bottom-start">
 	{#snippet triggr({ trigger })}
 		{@const forkedWorkspace = getForkedWorkspace($workspaceStore ?? '')}
 		{@const parentWorkspace = forkedWorkspace
@@ -127,23 +130,25 @@
 		{@const iconColor = getContrastTextColor($workspaceColor)}
 		{#if forkedWorkspace && parentWorkspace}
 			<MenuButton
-				class="!text-xs"
 				icon={GitFork}
 				iconProps={iconColor ? { style: `color: ${iconColor}` } : undefined}
-				label={removePrefix($workspaceStore ?? '', 'wm-fork-')}
+				label={forkedWorkspace.name ?? removePrefix($workspaceStore ?? '', 'wm-fork-')}
 				sublabel={parentWorkspace?.name ? `Fork of ${parentWorkspace.name}` : undefined}
 				{isCollapsed}
 				color={$workspaceColor}
+				showChevron
+				emphasizeLabel
 				{trigger}
 			/>
 		{:else}
 			<MenuButton
-				class="!text-xs"
 				icon={Building}
 				iconProps={iconColor ? { style: `color: ${iconColor}` } : undefined}
-				label={$workspaceStore ?? ''}
+				label={currentWorkspace?.name ?? $workspaceStore ?? ''}
 				{isCollapsed}
 				color={$workspaceColor}
+				showChevron
+				emphasizeLabel
 				{trigger}
 			/>
 		{/if}

@@ -759,6 +759,7 @@
 												{...menuLink}
 												{isCollapsed}
 												{notificationsCount}
+												showChevron
 												{trigger}
 											/>
 										{/snippet}
@@ -815,7 +816,13 @@
 													}
 												}}
 											>
-												<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} {trigger} />
+												<MenuButton
+													class="!text-2xs"
+													{...menuLink}
+													{isCollapsed}
+													showChevron
+													{trigger}
+												/>
 												{#if menuLink.label === 'Help' && hasNewChangelogs}
 													<span
 														class={twMerge(

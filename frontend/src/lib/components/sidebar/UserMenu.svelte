@@ -42,6 +42,7 @@
 			label={`User (${$userStore?.username ?? $userStore?.email})`}
 			{isCollapsed}
 			{lightMode}
+			showChevron
 			{trigger}
 		/>
 	{/snippet}

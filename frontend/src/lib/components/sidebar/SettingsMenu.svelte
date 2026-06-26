@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Settings, User, ServerCog, Logs, HelpCircle, LogOut } from 'lucide-svelte'
+	import { Settings, User, ServerCog, Logs, HelpCircle, LogOut, ChevronDown } from 'lucide-svelte'
 	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
 	import { type Item } from '$lib/utils'
@@ -38,7 +38,10 @@
 				: ''}"
 		>
 			<Settings size={16} />
-			{#if !isCollapsed}Settings{/if}
+			{#if !isCollapsed}
+				Settings
+				<ChevronDown size={14} class="ml-auto flex-shrink-0 text-tertiary" />
+			{/if}
 		</span>
 	{/snippet}
 </DropdownV2>

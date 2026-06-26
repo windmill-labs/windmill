@@ -576,18 +576,19 @@
 									class="h-full flex flex-col"
 									style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 								>
-									<div class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-emphasis w-40">
-										<WindmillIcon white={darkMode} height="20px" width="20px" />
-										{#if $whitelabelNameStore}
-											{$whitelabelNameStore}
-										{:else}
-											Windmill
-										{/if}
-									</div>
-									<div class="px-2 py-4 border-y border-light dark:border-gray-700">
-										<Menubar>
+									<!-- Workspace picker as the drawer header (replaces the Windmill logo). -->
+									<div
+										class="flex-shrink-0 px-2 h-12 w-40 flex items-center border-b border-light dark:border-gray-700"
+									>
+										<Menubar class="w-full">
 											{#snippet children({ createMenu })}
 												<WorkspaceMenu {createMenu} />
+											{/snippet}
+										</Menubar>
+									</div>
+									<div class="px-2 py-4 border-b border-light dark:border-gray-700">
+										<Menubar>
+											{#snippet children({ createMenu })}
 												<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
 											{/snippet}
 										</Menubar>
@@ -628,7 +629,7 @@
 						id="sidebar"
 						class={classNames(
 							'flex flex-col fixed inset-y-0 transition-all ease-in-out duration-200 z-40 ',
-							isCollapsed ? 'w-12' : 'w-40',
+							isCollapsed ? 'w-12' : 'w-48',
 							devOnly ? '!hidden' : ''
 						)}
 					>
@@ -636,31 +637,19 @@
 							class="flex-1 flex flex-col min-h-0 h-screen border-r border-light dark:border-gray-700"
 							style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 						>
-							<button
-								onclick={() => {
-									goto('/')
-								}}
+							<!-- Workspace picker as the sidebar header (replaces the Windmill logo). -->
+							<div
+								class="flex-shrink-0 px-2 h-12 flex items-center border-b border-light dark:border-gray-700"
 							>
-								<div
-									class="flex-row flex-shrink-0 px-3.5 py-3.5 text-opacity-70 h-12 flex items-center gap-1.5"
-									class:w-40={!isCollapsed}
-								>
-									<div class:mr-1={!isCollapsed}>
-										<WindmillIcon white={darkMode} height="20px" width="20px" />
-									</div>
-									{#if !isCollapsed}
-										<div class="text-sm mt-0.5 text-emphasis">
-											{#if $whitelabelNameStore}{capitalize(
-													$whitelabelNameStore
-												)}{:else}Windmill{/if}
-										</div>
-									{/if}
-								</div>
-							</button>
-							<div class="px-2 py-4 border-y border-light dark:border-gray-700 flex flex-col gap-1">
-								<Menubar class="flex flex-col gap-1">
+								<Menubar class="w-full">
 									{#snippet children({ createMenu })}
 										<WorkspaceMenu {createMenu} {isCollapsed} />
+									{/snippet}
+								</Menubar>
+							</div>
+							<div class="px-2 py-4 border-b border-light dark:border-gray-700 flex flex-col gap-1">
+								<Menubar class="flex flex-col gap-1">
+									{#snippet children({ createMenu })}
 										<FavoriteMenu
 											{createMenu}
 											favoriteLinks={favoriteManager.current}
