@@ -145,7 +145,16 @@ export type Session = {
 	// current message count to derive the unread badge (see sessionUnread).
 	// Travels on the record so it is scoped, migrated, and deleted with it.
 	lastSeenCount?: number
+	// Preview tabs the user opened in the sessions page, restored when the
+	// session is reopened. The first tab is pinned to the session's own view.
+	previewTabs?: SessionPreviewTab[]
+	// Which preview tab was active. Falls back to the first tab on restore.
+	activePreviewTabId?: string
 }
+
+// One preview tab: `url` is the URL we command the iframe to load, `loc` the
+// last observed location (see the sessions page for the url/loc split).
+export type SessionPreviewTab = { id: string; url: string; loc: string; pinned?: boolean }
 
 // Sessions live in one per-user IndexedDB, one record per session in the
 // `sessions` store keyed by `id`. IndexedDB is the sole store — no localStorage
@@ -711,6 +720,16 @@ export function setSessionTarget(id: string, target: SessionTarget, summary?: st
 		s.summary = summary
 		s.summarySource = 'generated'
 	}
+	void putSession(s)
+}
+
+// Persist the session's preview tabs. Fire-and-forget write-behind; no-ops for
+// transient sessions (putSession skips them) until they materialise on send.
+export function setSessionTabs(id: string, tabs: SessionPreviewTab[], activeTabId: string): void {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return
+	s.previewTabs = tabs.map((t) => ({ ...t }))
+	s.activePreviewTabId = activeTabId
 	void putSession(s)
 }
 

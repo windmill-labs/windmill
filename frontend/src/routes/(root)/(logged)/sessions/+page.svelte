@@ -22,7 +22,9 @@
 		createSession,
 		selectSession,
 		sessionState,
-		syncWorkspaceTo
+		setSessionTabs,
+		syncWorkspaceTo,
+		type SessionPreviewTab
 	} from '$lib/components/sessions/sessionState.svelte'
 	import {
 		getOrCreateRuntime,
@@ -149,36 +151,59 @@
 	// is the *observed* location reported back on load. Keeping them separate is
 	// what lets a tab stay mounted: navigating inside the iframe updates `loc`
 	// only, so the `src`-bound `url` doesn't change and the frame never reloads.
-	type PreviewTab = { id: string; url: string; loc: string; pinned?: boolean }
+	type PreviewTab = SessionPreviewTab
 	let tabs = $state<PreviewTab[]>([])
 	let activeTabId = $state('session')
 	const activeTab = $derived(tabs.find((t) => t.id === activeTabId) ?? tabs[0])
-	// The first tab is pinned to the session's own view; reset on session change.
+	// On session change, restore the session's saved tabs from IndexedDB; if it
+	// has none yet, seed a single pinned tab on the session's own view.
 	$effect(() => {
-		void activeSession?.id
+		const s = activeSession
 		untrack(() => {
-			tabs = [{ id: 'session', url: previewUrl, loc: previewUrl, pinned: true }]
-			activeTabId = 'session'
+			if (s?.previewTabs && s.previewTabs.length > 0) {
+				tabs = s.previewTabs.map((t) => ({ ...t }))
+				const saved = s.activePreviewTabId
+				activeTabId = saved && tabs.some((t) => t.id === saved) ? saved : tabs[0].id
+			} else {
+				tabs = [{ id: 'session', url: previewUrl, loc: previewUrl, pinned: true }]
+				activeTabId = 'session'
+			}
 		})
 	})
+
+	// Write-behind tab state onto the session record (debounced — `loc` churns as
+	// the user browses inside a tab). The session id is captured in the closure so
+	// a pending write always lands on the session it was scheduled for.
+	let persistHandle: ReturnType<typeof setTimeout> | undefined
+	function persistTabs() {
+		const id = activeSession?.id
+		if (!id) return
+		const snapshot = tabs.map((t) => ({ id: t.id, url: t.url, loc: t.loc, pinned: t.pinned }))
+		const active = activeTabId
+		clearTimeout(persistHandle)
+		persistHandle = setTimeout(() => setSessionTabs(id, snapshot, active), 400)
+	}
 
 	function targetUrl(target: PreviewTarget): string {
 		return target.type === 'page' ? target.href : `${base}${editPathFor(target.item)}`
 	}
 	function selectTab(id: string) {
 		activeTabId = id
+		persistTabs()
 	}
 	function openInNewTab(target: PreviewTarget) {
 		const id = randomUUID()
 		const url = targetUrl(target)
 		tabs.push({ id, url, loc: url })
 		activeTabId = id
+		persistTabs()
 	}
 	function closeTab(id: string) {
 		const idx = tabs.findIndex((t) => t.id === id)
 		if (idx < 0 || tabs[idx].pinned) return
 		tabs.splice(idx, 1)
 		if (activeTabId === id) activeTabId = (tabs[idx] ?? tabs[idx - 1] ?? tabs[0])?.id ?? 'session'
+		persistTabs()
 	}
 	let newTabOpen = $state(false)
 
@@ -224,6 +249,7 @@
 			const u = new URL(loc.href)
 			u.searchParams.delete('nomenubar')
 			tab.loc = u.pathname + u.search
+			persistTabs()
 		} catch {
 			// Best-effort: the preview is same-origin, but reading location could
 			// still throw mid-navigation — keep the seeded path in that case.
@@ -287,6 +313,7 @@
 		const url = targetUrl(target)
 		t.url = url
 		t.loc = url
+		persistTabs()
 	}
 
 	// Short tab label: a known page's name, else the item's leaf name, else path.
