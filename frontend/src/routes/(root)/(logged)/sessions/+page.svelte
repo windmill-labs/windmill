@@ -9,13 +9,16 @@
 		ExternalLink,
 		PanelRightClose,
 		PanelRightOpen,
+		ChevronDown,
 		X
 	} from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { slide } from 'svelte/transition'
 	import { Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import PreviewRouterPicker from '$lib/components/sessions/PreviewRouterPicker.svelte'
+	import PreviewRouterPicker, {
+		type Scope
+	} from '$lib/components/sessions/PreviewRouterPicker.svelte'
 	import { randomUUID } from '$lib/utils/uuid'
 	import { goto } from '$lib/navigation'
 	import SessionWrapper from '$lib/components/sessions/SessionWrapper.svelte'
@@ -36,9 +39,8 @@
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
 	import { sessionPreviewUrl, withMenuHidden } from '$lib/components/sessions/sessionMode.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
-	import { userWorkspaces, type UserWorkspace } from '$lib/stores'
+	import { userWorkspaces } from '$lib/stores'
 	import { base } from '$lib/base'
-	import PreviewRouterSegment from '$lib/components/sessions/PreviewRouterSegment.svelte'
 	import {
 		matchPreviewPage,
 		pageKey,
@@ -46,10 +48,7 @@
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
 	import {
-		dirKey,
 		editPathFor,
-		KIND_LABEL_LOWER,
-		kindKey,
 		leafKeyFor,
 		type WorkspaceItem,
 		type WorkspaceItemKind
@@ -197,6 +196,7 @@
 	function selectTab(id: string) {
 		activeTabId = id
 		mountedTabIds.add(id)
+		activeTabPickerOpen = false
 		persistTabs()
 	}
 	function openInNewTab(target: PreviewTarget) {
@@ -205,6 +205,7 @@
 		tabs.push({ id, url, loc: url })
 		activeTabId = id
 		mountedTabIds.add(id)
+		activeTabPickerOpen = false
 		persistTabs()
 	}
 	function closeTab(id: string) {
@@ -223,33 +224,6 @@
 	let fullscreen = $state(false)
 	// Collapse the preview panel to give the chat the full width.
 	let previewCollapsed = $state(false)
-
-	// Workspace breadcrumb shown in the preview header: the session's family · fork.
-	function findSessionRoot(id: string | undefined): UserWorkspace | undefined {
-		if (!id) return undefined
-		let current = $userWorkspaces.find((w) => w.id === id)
-		while (current?.parent_workspace_id) {
-			const parent = $userWorkspaces.find((w) => w.id === current!.parent_workspace_id)
-			if (!parent) break
-			current = parent
-		}
-		return current
-	}
-	const sessionWsId = $derived(
-		activeSession ? (activeSession.workspace_id ?? activeSession.pending_workspace_id) : undefined
-	)
-	const sessionWs = $derived(
-		sessionWsId ? $userWorkspaces.find((w) => w.id === sessionWsId) : undefined
-	)
-	const sessionRoot = $derived(findSessionRoot(sessionWsId))
-	const sessionFamilyName = $derived(sessionRoot?.name ?? sessionWs?.name ?? sessionWsId)
-	const sessionIsFork = $derived(
-		!!activeSession?.pending_fork ||
-			(!!sessionWs && !!sessionRoot && sessionWs.id !== sessionRoot.id)
-	)
-	const sessionForkName = $derived(
-		activeSession?.pending_fork?.name ?? (sessionIsFork ? sessionWs?.name : 'main')
-	)
 
 	// Page path shown after the workspace breadcrumb — the active tab's observed
 	// location, so the breadcrumb tracks where the user browses inside the tab.
@@ -313,10 +287,27 @@
 		raw_app: parsedRoute?.raw_app ?? false
 	})
 
-	// On a non-item page, identify the known workspace page so the fallback
-	// segment shows its name (e.g. "Workspace settings") and the picker
-	// highlights it.
+	// On a non-item page, identify the known workspace page so the tab shows its
+	// name (e.g. "Workspace settings") and the picker highlights it.
 	const currentPage = $derived(parsedRoute ? undefined : matchPreviewPage(displayPath))
+
+	// The active tab's picker lands on its current location: an item is scoped
+	// into its folder and highlighted; a known page is highlighted at root.
+	const activePickerScope = $derived<Scope>(
+		parsedRoute
+			? segments && segments.dirs.length > 0
+				? { kind: 'all', dir: segments.dirs[segments.dirs.length - 1].fullPath }
+				: { kind: 'all' }
+			: undefined
+	)
+	const activePickerHighlight = $derived(
+		parsedRoute
+			? leafKeyFor(parsedRoute.kind, parsedRoute.itemPath)
+			: currentPage
+				? pageKey(currentPage.path)
+				: undefined
+	)
+	let activeTabPickerOpen = $state(false)
 
 	// Breadcrumb picks steer the *active* tab; the "+" picker opens new ones.
 	// Set `loc` too so the breadcrumb updates immediately, before the reload.
@@ -395,30 +386,106 @@
 									? ''
 									: 'rounded-md border border-light'}"
 							>
+								{#if !fullscreen}
+									<!-- Collapse the preview panel — floats over the top-left corner so
+									     the tab strip keeps the full width. -->
+									<button
+										type="button"
+										onclick={() => (previewCollapsed = true)}
+										title="Collapse preview"
+										aria-label="Collapse preview"
+										class="absolute top-1 left-1 z-30 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
+									>
+										<PanelRightClose size={14} />
+									</button>
+								{/if}
+
+								<!-- Open-in-full-page + full-screen toggle, floating over the top-right
+								     corner to mirror the collapse control. -->
+								<div class="absolute top-1 right-1 z-30 flex items-center gap-0.5">
+									<a
+										href={activeTab?.url ?? previewUrl}
+										title="Open full page"
+										aria-label="Open full page"
+										class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
+									>
+										<ExternalLink size={14} />
+									</a>
+									<button
+										type="button"
+										onclick={() => (fullscreen = !fullscreen)}
+										title={fullscreen ? 'Exit full screen' : 'Full screen'}
+										aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
+										class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover bg-surface-secondary"
+									>
+										{#if fullscreen}
+											<Minimize2 size={14} />
+										{:else}
+											<Maximize2 size={14} />
+										{/if}
+									</button>
+								</div>
+
 								<!-- Tab strip: open preview pages. The first tab is pinned to the
 								     session's own view; "+" opens the router picker to add more. -->
 								<div
-									class="flex items-center gap-1 px-1.5 h-8 border-b border-light shrink-0 bg-surface-secondary overflow-x-auto"
+									class="flex items-center gap-1 h-8 border-b border-light shrink-0 bg-surface-secondary overflow-x-auto {fullscreen
+										? 'pl-1.5'
+										: 'pl-9'} pr-16"
 								>
 									{#each tabs as tab (tab.id)}
 										<div
-											class="group/tab flex items-center gap-1 shrink-0 max-w-[12rem] h-6 pl-2 pr-1 rounded-md text-xs border transition-colors {tab.id ===
+											class="group/tab flex items-center gap-1 shrink-0 max-w-[14rem] h-6 pl-2 pr-1 rounded-md text-xs border transition-colors {tab.id ===
 											activeTabId
 												? 'bg-surface text-primary border-light'
 												: 'text-secondary border-transparent hover:bg-surface-hover'}"
 										>
-											<button
-												type="button"
-												class="flex items-center gap-1.5 min-w-0"
-												onclick={() => selectTab(tab.id)}
-												title={tabLabel(tab.loc)}
-											>
-												{#if tab.pinned}
-													<span class="w-1.5 h-1.5 rounded-full bg-current opacity-50 shrink-0"
-													></span>
-												{/if}
-												<span class="truncate">{tabLabel(tab.loc)}</span>
-											</button>
+											{#if tab.id === activeTabId}
+												<!-- Active tab doubles as its own breadcrumb picker. -->
+												<Popover
+													placement="bottom-start"
+													usePointerDownOutside
+													excludeSelectors=".drawer"
+													disableFocusTrap
+													closeOnOtherPopoverOpen
+													bind:isOpen={activeTabPickerOpen}
+													openFocus="[data-workspace-picker-search]"
+													class="flex items-center gap-1.5 min-w-0 cursor-pointer"
+												>
+													{#snippet trigger()}
+														{#if tab.pinned}
+															<span class="w-1.5 h-1.5 rounded-full bg-current opacity-50 shrink-0"
+															></span>
+														{/if}
+														<span class="truncate">{tabLabel(tab.loc)}</span>
+														<ChevronDown size={12} class="shrink-0 text-tertiary" />
+													{/snippet}
+													{#snippet content()}
+														<PreviewRouterPicker
+															initialScope={activePickerScope}
+															initialHighlight={activePickerHighlight}
+															{currentItem}
+															onPick={(t) => {
+																activeTabPickerOpen = false
+																navigatePreviewTo(t)
+															}}
+														/>
+													{/snippet}
+												</Popover>
+											{:else}
+												<button
+													type="button"
+													class="flex items-center gap-1.5 min-w-0"
+													onclick={() => selectTab(tab.id)}
+													title={tabLabel(tab.loc)}
+												>
+													{#if tab.pinned}
+														<span class="w-1.5 h-1.5 rounded-full bg-current opacity-50 shrink-0"
+														></span>
+													{/if}
+													<span class="truncate">{tabLabel(tab.loc)}</span>
+												</button>
+											{/if}
 											{#if !tab.pinned}
 												<button
 													type="button"
@@ -456,113 +523,6 @@
 									</Popover>
 								</div>
 
-								<!-- Workspace breadcrumb: the session's family · fork + active tab path. -->
-								<div
-									class="pl-1 pr-3 h-8 flex items-center gap-1.5 border-b border-light shrink-0 text-xs text-secondary"
-								>
-									{#if !fullscreen}
-										<!-- Collapse the preview panel (top-left), matching the legacy
-										     session editor's collapse control. -->
-										<button
-											type="button"
-											onclick={() => (previewCollapsed = true)}
-											title="Collapse preview"
-											aria-label="Collapse preview"
-											class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
-										>
-											<PanelRightClose size={14} />
-										</button>
-									{/if}
-									<span class="shrink-0 whitespace-nowrap">
-										<span class="text-primary font-medium">{sessionFamilyName}</span>
-										<span class="text-tertiary px-1">·</span>
-										<span class={sessionIsFork ? 'text-accent font-medium' : 'text-tertiary'}>
-											{sessionForkName}
-										</span>
-									</span>
-									{#if parsedRoute}
-										<nav
-											aria-label="Breadcrumb"
-											class="flex items-center min-w-0 font-mono text-secondary"
-										>
-											<PreviewRouterSegment
-												label={KIND_LABEL_LOWER[parsedRoute.kind]}
-												initialScope={undefined}
-												initialHighlight={kindKey(parsedRoute.kind)}
-												isCurrent={!segments}
-												{currentItem}
-												onPick={navigatePreviewTo}
-											/>
-											{#if segments}
-												{#each segments.dirs as dir, i (dir.fullPath)}
-													{@const dKey = dirKey('all', dir.fullPath)}
-													<PreviewRouterSegment
-														label={dir.name}
-														withChevron
-														extraClass={i === 0 ? 'gap-0.5 min-w-0 max-w-[40%]' : 'gap-0.5 min-w-0'}
-														initialScope={i === 0
-															? { kind: 'all' }
-															: { kind: 'all', dir: segments.dirs[i - 1].fullPath }}
-														initialHighlight={dKey}
-														{currentItem}
-														onPick={navigatePreviewTo}
-													/>
-												{/each}
-												{@const leafKey = leafKeyFor(parsedRoute.kind, segments.leaf.fullPath)}
-												{@const leafParent = segments.dirs[segments.dirs.length - 1]?.fullPath}
-												<PreviewRouterSegment
-													label={segments.leaf.name}
-													withChevron
-													extraClass="gap-0.5 min-w-0"
-													initialScope={leafParent
-														? { kind: 'all', dir: leafParent }
-														: { kind: 'all' }}
-													initialHighlight={leafKey}
-													isCurrent
-													{currentItem}
-													onPick={navigatePreviewTo}
-												/>
-											{/if}
-										</nav>
-									{:else}
-										<!-- Non-item page (home, runs, settings, …): the segment is still a
-										     full router so you can jump anywhere from here. -->
-										<nav
-											aria-label="Breadcrumb"
-											class="flex items-center min-w-0 font-mono text-secondary"
-										>
-											<PreviewRouterSegment
-												label={currentPage?.label ?? (displayPath || '/')}
-												extraClass="min-w-0 truncate"
-												initialHighlight={currentPage ? pageKey(currentPage.path) : undefined}
-												isCurrent
-												{currentItem}
-												onPick={navigatePreviewTo}
-											/>
-										</nav>
-									{/if}
-									<a
-										href={activeTab?.url ?? previewUrl}
-										title="Open full page"
-										aria-label="Open full page"
-										class="ml-auto shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
-									>
-										<ExternalLink size={14} />
-									</a>
-									<button
-										type="button"
-										onclick={() => (fullscreen = !fullscreen)}
-										title={fullscreen ? 'Exit full screen' : 'Full screen'}
-										aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
-										class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
-									>
-										{#if fullscreen}
-											<Minimize2 size={14} />
-										{:else}
-											<Maximize2 size={14} />
-										{/if}
-									</button>
-								</div>
 								<!-- One iframe per tab, stacked and visibility-toggled so every
 								     tab stays mounted (switching never reloads). -->
 								<div class="relative flex-1 min-h-0">
