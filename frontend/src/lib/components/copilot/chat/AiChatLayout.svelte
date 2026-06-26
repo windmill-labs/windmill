@@ -17,6 +17,7 @@
 		isCollapsed?: boolean
 		isMobile?: boolean
 		children: any
+		topBar?: import('svelte').Snippet
 		onMenuOpen?: () => void
 		disableAi?: boolean
 	}
@@ -25,6 +26,7 @@
 		isCollapsed = false,
 		isMobile = false,
 		children,
+		topBar,
 		onMenuOpen,
 		disableAi
 	}: Props = $props()
@@ -81,6 +83,7 @@
 			>
 				<main class="flex-1 flex flex-col min-h-0">
 					<div class="relative w-full flex-1 flex flex-col min-h-0">
+						{@render topBar?.()}
 						{@render burgerRow()}
 						<div class="flex-1 min-h-0">
 							{@render children?.()}
@@ -108,6 +111,7 @@
 			'transition-all ease-in-out duration-200'
 		)}
 	>
+		{@render topBar?.()}
 		{@render burgerRow()}
 		<div class="flex-1 min-h-0 flex flex-col">
 			{@render children?.()}

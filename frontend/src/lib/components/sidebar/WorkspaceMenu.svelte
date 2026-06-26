@@ -9,7 +9,8 @@
 		workspaceUsageStore,
 		workspaceColor,
 		clearWorkspaceFromStorage,
-		globalForkModal
+		globalForkModal,
+		type UserWorkspace
 	} from '$lib/stores'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { Building, Plus, Settings, GitFork } from 'lucide-svelte'
@@ -34,13 +35,6 @@
 		createMenu: MenubarBuilders['createMenu']
 		// When used outside of the side bar, where links to workspace settings and such don't make as much sense.
 		strictWorkspaceSelect?: boolean
-	}
-
-	function removePrefix(str: string, prefix: string): string {
-		if (str.startsWith(prefix)) {
-			return str.substring(prefix.length)
-		}
-		return str
 	}
 
 	let { isCollapsed = false, createMenu, strictWorkspaceSelect = false }: Props = $props()
@@ -98,24 +92,28 @@
 		toggleSwitchWorkspace(workspace.id)
 	}
 
-	function getForkedWorkspace(workspaceId: string) {
-		if (!$userWorkspaces) return undefined
-		return $userWorkspaces.find((w) => w.id === workspaceId && w.parent_workspace_id != null)
-	}
-
-	function getParentWorkspace(parentId: string) {
-		if (!$userWorkspaces) return undefined
-		return $userWorkspaces.find((w) => w.id === parentId)
-	}
-
-	// Group workspaces into parent-child hierarchy using Svelte 5 derived and the new utility
-	const groupedWorkspaces = $derived.by(() => {
+	// Family-only picker: list the workspace families (roots), never their
+	// forks. Fork selection moved to the global breadcrumb (WorkspaceBreadcrumb).
+	const familyWorkspaces = $derived.by(() => {
 		if (!$userWorkspaces) return []
-		return buildWorkspaceHierarchy($userWorkspaces)
+		return buildWorkspaceHierarchy($userWorkspaces).filter((w) => w.depth === 0)
 	})
 
-	// The active workspace's record — used to show its name (not its id) in the trigger.
-	const currentWorkspace = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
+	function findRoot(id: string | undefined): UserWorkspace | undefined {
+		if (!id || !$userWorkspaces) return undefined
+		let current = $userWorkspaces.find((w) => w.id === id)
+		while (current?.parent_workspace_id) {
+			const parent = $userWorkspaces.find((w) => w.id === current!.parent_workspace_id)
+			if (!parent) break
+			current = parent
+		}
+		return current
+	}
+
+	// The active workspace's family root — shown in the trigger so a forked
+	// active workspace still surfaces its family name here (the fork itself is
+	// shown in the breadcrumb).
+	const currentFamily = $derived(findRoot($workspaceStore ?? undefined))
 
 	const itemClass =
 		'text-primary w-full flex flex-row gap-2 px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
@@ -123,41 +121,23 @@
 
 <Menu {createMenu} usePointerDownOutside placement="bottom-start">
 	{#snippet triggr({ trigger })}
-		{@const forkedWorkspace = getForkedWorkspace($workspaceStore ?? '')}
-		{@const parentWorkspace = forkedWorkspace
-			? getParentWorkspace(forkedWorkspace.parent_workspace_id!)
-			: null}
 		{@const iconColor = getContrastTextColor($workspaceColor)}
-		{#if forkedWorkspace && parentWorkspace}
-			<MenuButton
-				icon={GitFork}
-				iconProps={iconColor ? { style: `color: ${iconColor}` } : undefined}
-				label={forkedWorkspace.name ?? removePrefix($workspaceStore ?? '', 'wm-fork-')}
-				sublabel={parentWorkspace?.name ? `Fork of ${parentWorkspace.name}` : undefined}
-				{isCollapsed}
-				color={$workspaceColor}
-				showChevron
-				emphasizeLabel
-				{trigger}
-			/>
-		{:else}
-			<MenuButton
-				icon={Building}
-				iconProps={iconColor ? { style: `color: ${iconColor}` } : undefined}
-				label={currentWorkspace?.name ?? $workspaceStore ?? ''}
-				{isCollapsed}
-				color={$workspaceColor}
-				showChevron
-				emphasizeLabel
-				{trigger}
-			/>
-		{/if}
+		<MenuButton
+			icon={Building}
+			iconProps={iconColor ? { style: `color: ${iconColor}` } : undefined}
+			label={currentFamily?.name ?? $workspaceStore ?? ''}
+			{isCollapsed}
+			color={$workspaceColor}
+			showChevron
+			emphasizeLabel
+			{trigger}
+		/>
 	{/snippet}
 
 	{#snippet children({ item })}
 		<div class="divide-y" role="none">
 			<div class="py-1">
-				{#each groupedWorkspaces as { workspace, depth, isForked, parentName }}
+				{#each familyWorkspaces as { workspace, depth, isForked, parentName }}
 					{@const isSelected = $workspaceStore === workspace.id}
 					<MenuItem
 						class={twMerge(

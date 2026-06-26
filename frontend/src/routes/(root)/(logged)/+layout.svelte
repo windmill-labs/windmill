@@ -68,6 +68,7 @@
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
 	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
+	import WorkspaceBreadcrumb from '$lib/components/sidebar/WorkspaceBreadcrumb.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
@@ -842,7 +843,13 @@
 				onMenuOpen={() => {
 					menuOpen = true
 				}}
-			/>
+			>
+				{#snippet topBar()}
+					{#if !menuHidden && !devOnly && !$userStore?.operator}
+						<WorkspaceBreadcrumb />
+					{/if}
+				{/snippet}
+			</AiChatLayout>
 		</div>
 	</div>
 {:else}
