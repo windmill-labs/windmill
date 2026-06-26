@@ -68,8 +68,6 @@
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
 	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
-	import SessionShell from '$lib/components/sessions/SessionShell.svelte'
-	import { sessionLayout } from '$lib/components/sessions/sessionMode.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
@@ -516,353 +514,347 @@
 		<CriticalAlertModal bind:muteSettings bind:numUnacknowledgedCriticalAlerts />
 	{/if}
 	<div class="h-screen flex flex-col">
-		{#if sessionLayout.on && !$userStore?.operator && !menuHidden}
-			<SessionShell>{@render children?.()}</SessionShell>
-		{:else}
-			{#if !menuHidden}
-				{#if !$userStore?.operator}
-					{#if innerWidth < 768}
+		{#if !menuHidden}
+			{#if !$userStore?.operator}
+				{#if innerWidth < 768}
+					<div
+						class={classNames(
+							'relative',
+							menuOpen ? 'z-40' : 'pointer-events-none',
+							devOnly ? 'hidden' : ''
+						)}
+						role="dialog"
+						aria-modal="true"
+					>
 						<div
 							class={classNames(
-								'relative',
-								menuOpen ? 'z-40' : 'pointer-events-none',
-								devOnly ? 'hidden' : ''
+								'fixed inset-0 bg-black/50 transition-opacity ease-linear duration-300 z-40',
+
+								menuOpen ? 'opacity-100' : 'opacity-0'
 							)}
-							role="dialog"
-							aria-modal="true"
-						>
+						></div>
+
+						<div class="fixed inset-0 flex z-40">
 							<div
 								class={classNames(
-									'fixed inset-0 bg-black/50 transition-opacity ease-linear duration-300 z-40',
-
-									menuOpen ? 'opacity-100' : 'opacity-0'
+									'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-300 transform',
+									menuOpen ? 'translate-x-0' : '-translate-x-full'
 								)}
-							></div>
-
-							<div class="fixed inset-0 flex z-40">
+							>
 								<div
 									class={classNames(
-										'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-300 transform',
-										menuOpen ? 'translate-x-0' : '-translate-x-full'
+										'absolute top-0 right-4 -mr-12 pt-2 ease-in-out duration-300',
+										menuOpen ? 'opacity-100' : 'opacity-0'
 									)}
 								>
-									<div
-										class={classNames(
-											'absolute top-0 right-4 -mr-12 pt-2 ease-in-out duration-300',
-											menuOpen ? 'opacity-100' : 'opacity-0'
-										)}
-									>
-										<button
-											type="button"
-											onclick={() => {
-												menuOpen = !menuOpen
-											}}
-											class="ml-1 flex items-center justify-center h-6 w-6 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
-											aria-label="Close"
-										>
-											<svg
-												class="h-4 w-4 text-white"
-												xmlns="http://www.w3.org/2000/svg"
-												fill="none"
-												viewBox="0 0 24 24"
-												stroke-width="2"
-												stroke="currentColor"
-												aria-hidden="true"
-											>
-												<path
-													stroke-linecap="round"
-													stroke-linejoin="round"
-													d="M6 18L18 6M6 6l12 12"
-												/>
-											</svg>
-										</button>
-									</div>
-									<div
-										class="h-full flex flex-col"
-										style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
-									>
-										<div class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-emphasis w-40">
-											<WindmillIcon white={darkMode} height="20px" width="20px" />
-											{#if $whitelabelNameStore}
-												{$whitelabelNameStore}
-											{:else}
-												Windmill
-											{/if}
-										</div>
-										<div class="px-2 py-4 border-y border-light dark:border-gray-700">
-											<Menubar>
-												{#snippet children({ createMenu })}
-													<WorkspaceMenu {createMenu} />
-													<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
-												{/snippet}
-											</Menubar>
-											<MenuButton
-												stopPropagationOnClick={true}
-												on:click={() => openSearchModal()}
-												isCollapsed={false}
-												icon={Search}
-												label="Search"
-												class="!text-xs"
-												shortcut={`${getModifierKey()}k`}
-											/>
-										</div>
-
-										<!-- w-40 cap: the drawer is max-w-min, and long session titles
-									     (nowrap before truncation) would otherwise inflate its
-									     min-content width to the full text width. -->
-										<div class="w-40">
-											<SessionPicker isCollapsed={false} />
-										</div>
-
-										<SidebarContent
-											isCollapsed={false}
-											showSecondary={false}
-											numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
-												? 0
-												: numUnacknowledgedCriticalAlerts}
-										/>
-										<div class="px-2 pb-2">
-											<SettingsMenu isCollapsed={false} />
-										</div>
-									</div>
-								</div>
-							</div>
-						</div>
-					{:else}
-						<div
-							id="sidebar"
-							class={classNames(
-								'flex flex-col fixed inset-y-0 transition-all ease-in-out duration-200 z-40 ',
-								isCollapsed ? 'w-12' : 'w-40',
-								devOnly ? '!hidden' : ''
-							)}
-						>
-							<div
-								class="flex-1 flex flex-col min-h-0 h-screen border-r border-light dark:border-gray-700"
-								style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
-							>
-								<button
-									onclick={() => {
-										goto('/')
-									}}
-								>
-									<div
-										class="flex-row flex-shrink-0 px-3.5 py-3.5 text-opacity-70 h-12 flex items-center gap-1.5"
-										class:w-40={!isCollapsed}
-									>
-										<div class:mr-1={!isCollapsed}>
-											<WindmillIcon white={darkMode} height="20px" width="20px" />
-										</div>
-										{#if !isCollapsed}
-											<div class="text-sm mt-0.5 text-emphasis">
-												{#if $whitelabelNameStore}{capitalize(
-														$whitelabelNameStore
-													)}{:else}Windmill{/if}
-											</div>
-										{/if}
-									</div>
-								</button>
-								<div
-									class="px-2 py-4 border-y border-light dark:border-gray-700 flex flex-col gap-1"
-								>
-									<Menubar class="flex flex-col gap-1">
-										{#snippet children({ createMenu })}
-											<WorkspaceMenu {createMenu} {isCollapsed} />
-											<FavoriteMenu
-												{createMenu}
-												favoriteLinks={favoriteManager.current}
-												{isCollapsed}
-											/>
-										{/snippet}
-									</Menubar>
-									<MenuButton
-										stopPropagationOnClick={true}
-										on:click={() => openSearchModal()}
-										{isCollapsed}
-										icon={Search}
-										label="Search"
-										class="!text-xs"
-										shortcut={`${getModifierKey()}k`}
-									/>
-								</div>
-
-								<SessionPicker {isCollapsed} />
-
-								<SidebarContent
-									{isCollapsed}
-									showSecondary={false}
-									numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
-										? 0
-										: numUnacknowledgedCriticalAlerts}
-								/>
-
-								<div class="px-2 pb-1">
-									<SettingsMenu {isCollapsed} />
-								</div>
-
-								<div class="flex-shrink-0 flex px-4 pb-3.5">
 									<button
+										type="button"
 										onclick={() => {
-											isCollapsed = !isCollapsed
+											menuOpen = !menuOpen
 										}}
+										class="ml-1 flex items-center justify-center h-6 w-6 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
+										aria-label="Close"
 									>
-										<ArrowLeft
-											size={16}
-											class={classNames(
-												'flex-shrink-0 h-4 w-4 transition-all ease-in-out duration-200 text-secondary',
-												isCollapsed ? 'rotate-180' : 'rotate-0'
-											)}
-										/>
+										<svg
+											class="h-4 w-4 text-white"
+											xmlns="http://www.w3.org/2000/svg"
+											fill="none"
+											viewBox="0 0 24 24"
+											stroke-width="2"
+											stroke="currentColor"
+											aria-hidden="true"
+										>
+											<path
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												d="M6 18L18 6M6 6l12 12"
+											/>
+										</svg>
 									</button>
 								</div>
+								<div
+									class="h-full flex flex-col"
+									style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
+								>
+									<div class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-emphasis w-40">
+										<WindmillIcon white={darkMode} height="20px" width="20px" />
+										{#if $whitelabelNameStore}
+											{$whitelabelNameStore}
+										{:else}
+											Windmill
+										{/if}
+									</div>
+									<div class="px-2 py-4 border-y border-light dark:border-gray-700">
+										<Menubar>
+											{#snippet children({ createMenu })}
+												<WorkspaceMenu {createMenu} />
+												<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
+											{/snippet}
+										</Menubar>
+										<MenuButton
+											stopPropagationOnClick={true}
+											on:click={() => openSearchModal()}
+											isCollapsed={false}
+											icon={Search}
+											label="Search"
+											class="!text-xs"
+											shortcut={`${getModifierKey()}k`}
+										/>
+									</div>
+
+									<!-- w-40 cap: the drawer is max-w-min, and long session titles
+									     (nowrap before truncation) would otherwise inflate its
+									     min-content width to the full text width. -->
+									<div class="w-40">
+										<SessionPicker isCollapsed={false} />
+									</div>
+
+									<SidebarContent
+										isCollapsed={false}
+										showSecondary={false}
+										numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+											? 0
+											: numUnacknowledgedCriticalAlerts}
+									/>
+									<div class="px-2 pb-2">
+										<SettingsMenu isCollapsed={false} />
+									</div>
+								</div>
 							</div>
 						</div>
-					{/if}
-				{:else}
-					<div class="absolute top-1 left-1 z5000">
-						<OperatorMenu favoriteLinks={favoriteManager.current} />
 					</div>
-				{/if}
-				<!-- Legacy menu -->
-				<div
-					class={classNames(
-						'fixed inset-0 bg-black/50 transition-opacity ease-linear duration-300',
-						'opacity-0 pointer-events-none'
-					)}
-				>
-					<div class={twMerge('fixed inset-0 flex ', '-z-0')}>
+				{:else}
+					<div
+						id="sidebar"
+						class={classNames(
+							'flex flex-col fixed inset-y-0 transition-all ease-in-out duration-200 z-40 ',
+							isCollapsed ? 'w-12' : 'w-40',
+							devOnly ? '!hidden' : ''
+						)}
+					>
 						<div
-							class={classNames(
-								'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-100 transform',
-								'-translate-x-full'
-							)}
+							class="flex-1 flex flex-col min-h-0 h-screen border-r border-light dark:border-gray-700"
+							style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 						>
-							<div
-								class={classNames(
-									'absolute top-0 right-0 -mr-12 pt-2 ease-in-out duration-100',
-									'opacity-0'
-								)}
+							<button
+								onclick={() => {
+									goto('/')
+								}}
 							>
-								<button
-									type="button"
-									onclick={() => {
-										// menuSlide = !menuSlide
-									}}
-									aria-label="Close"
-									class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
-								>
-									<svg
-										class="h-6 w-6 text-white"
-										xmlns="http://www.w3.org/2000/svg"
-										fill="none"
-										viewBox="0 0 24 24"
-										stroke-width="2"
-										stroke="currentColor"
-										aria-hidden="true"
-									>
-										<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-									</svg>
-								</button>
-							</div>
-							<div class="h-full" style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
 								<div
-									class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-emphasis w-10"
+									class="flex-row flex-shrink-0 px-3.5 py-3.5 text-opacity-70 h-12 flex items-center gap-1.5"
 									class:w-40={!isCollapsed}
 								>
-									<WindmillIcon white={darkMode} height="20px" width="20px" />
-									{#if !isCollapsed}{#if $whitelabelNameStore}{capitalize(
-												$whitelabelNameStore
-											)}{:else}Windmill{/if}{/if}
+									<div class:mr-1={!isCollapsed}>
+										<WindmillIcon white={darkMode} height="20px" width="20px" />
+									</div>
+									{#if !isCollapsed}
+										<div class="text-sm mt-0.5 text-emphasis">
+											{#if $whitelabelNameStore}{capitalize(
+													$whitelabelNameStore
+												)}{:else}Windmill{/if}
+										</div>
+									{/if}
 								</div>
-
-								<div class="px-2 py-4 space-y-2 border-y border-light dark:border-gray-700">
-									<Menubar>
-										{#snippet children({ createMenu })}
-											<WorkspaceMenu {createMenu} />
-											<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
-										{/snippet}
-									</Menubar>
-									<MenuButton
-										stopPropagationOnClick={true}
-										on:click={() => openSearchModal()}
-										{isCollapsed}
-										icon={Search}
-										label="Search"
-										class="!text-xs"
-										shortcut={`${getModifierKey()}k`}
-									/>
-									<MenuButton
-										stopPropagationOnClick={true}
-										on:click={() => aiChatManager.toggleOpen()}
-										{isCollapsed}
-										icon={WandSparkles}
-										iconProps={{
-											forceDarkMode: true
-										}}
-										label="Ask AI"
-										class="!text-xs"
-										iconClasses="!text-ai"
-										shortcut={`${getModifierKey()}L`}
-									/>
-								</div>
-
-								<SidebarContent
+							</button>
+							<div class="px-2 py-4 border-y border-light dark:border-gray-700 flex flex-col gap-1">
+								<Menubar class="flex flex-col gap-1">
+									{#snippet children({ createMenu })}
+										<WorkspaceMenu {createMenu} {isCollapsed} />
+										<FavoriteMenu
+											{createMenu}
+											favoriteLinks={favoriteManager.current}
+											{isCollapsed}
+										/>
+									{/snippet}
+								</Menubar>
+								<MenuButton
+									stopPropagationOnClick={true}
+									on:click={() => openSearchModal()}
 									{isCollapsed}
-									numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
-										? 0
-										: numUnacknowledgedCriticalAlerts}
+									icon={Search}
+									label="Search"
+									class="!text-xs"
+									shortcut={`${getModifierKey()}k`}
 								/>
 							</div>
+
+							<SessionPicker {isCollapsed} />
+
+							<SidebarContent
+								{isCollapsed}
+								showSecondary={false}
+								numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+									? 0
+									: numUnacknowledgedCriticalAlerts}
+							/>
+
+							<div class="px-2 pb-1">
+								<SettingsMenu {isCollapsed} />
+							</div>
+
+							<div class="flex-shrink-0 flex px-4 pb-3.5">
+								<button
+									onclick={() => {
+										isCollapsed = !isCollapsed
+									}}
+								>
+									<ArrowLeft
+										size={16}
+										class={classNames(
+											'flex-shrink-0 h-4 w-4 transition-all ease-in-out duration-200 text-secondary',
+											isCollapsed ? 'rotate-180' : 'rotate-0'
+										)}
+									/>
+								</button>
+							</div>
+						</div>
+					</div>
+				{/if}
+			{:else}
+				<div class="absolute top-1 left-1 z5000">
+					<OperatorMenu favoriteLinks={favoriteManager.current} />
+				</div>
+			{/if}
+			<!-- Legacy menu -->
+			<div
+				class={classNames(
+					'fixed inset-0 bg-black/50 transition-opacity ease-linear duration-300',
+					'opacity-0 pointer-events-none'
+				)}
+			>
+				<div class={twMerge('fixed inset-0 flex ', '-z-0')}>
+					<div
+						class={classNames(
+							'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-100 transform',
+							'-translate-x-full'
+						)}
+					>
+						<div
+							class={classNames(
+								'absolute top-0 right-0 -mr-12 pt-2 ease-in-out duration-100',
+								'opacity-0'
+							)}
+						>
+							<button
+								type="button"
+								onclick={() => {
+									// menuSlide = !menuSlide
+								}}
+								aria-label="Close"
+								class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
+							>
+								<svg
+									class="h-6 w-6 text-white"
+									xmlns="http://www.w3.org/2000/svg"
+									fill="none"
+									viewBox="0 0 24 24"
+									stroke-width="2"
+									stroke="currentColor"
+									aria-hidden="true"
+								>
+									<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+								</svg>
+							</button>
+						</div>
+						<div class="h-full" style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
+							<div
+								class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-emphasis w-10"
+								class:w-40={!isCollapsed}
+							>
+								<WindmillIcon white={darkMode} height="20px" width="20px" />
+								{#if !isCollapsed}{#if $whitelabelNameStore}{capitalize(
+											$whitelabelNameStore
+										)}{:else}Windmill{/if}{/if}
+							</div>
+
+							<div class="px-2 py-4 space-y-2 border-y border-light dark:border-gray-700">
+								<Menubar>
+									{#snippet children({ createMenu })}
+										<WorkspaceMenu {createMenu} />
+										<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
+									{/snippet}
+								</Menubar>
+								<MenuButton
+									stopPropagationOnClick={true}
+									on:click={() => openSearchModal()}
+									{isCollapsed}
+									icon={Search}
+									label="Search"
+									class="!text-xs"
+									shortcut={`${getModifierKey()}k`}
+								/>
+								<MenuButton
+									stopPropagationOnClick={true}
+									on:click={() => aiChatManager.toggleOpen()}
+									{isCollapsed}
+									icon={WandSparkles}
+									iconProps={{
+										forceDarkMode: true
+									}}
+									label="Ask AI"
+									class="!text-xs"
+									iconClasses="!text-ai"
+									shortcut={`${getModifierKey()}L`}
+								/>
+							</div>
+
+							<SidebarContent
+								{isCollapsed}
+								numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+									? 0
+									: numUnacknowledgedCriticalAlerts}
+							/>
 						</div>
 					</div>
 				</div>
-			{/if}
-			<div class="flex flex-col h-full w-full">
-				{#if $userStore?.is_service_account}
-					<div
-						class="bg-yellow-100 dark:bg-yellow-900/50 border-b border-yellow-300 dark:border-yellow-700 px-4 py-2 text-sm text-yellow-800 dark:text-yellow-200 flex items-center justify-center gap-4 shrink-0"
-					>
-						<span>
-							Viewing workspace on behalf of <strong>{$userStore.username}</strong>
-							<span class="text-yellow-600 dark:text-yellow-400"
-								>(impersonated by {$userStore.impersonating_email})</span
-							>
-						</span>
-						<button
-							class="px-3 py-1 text-xs font-medium bg-yellow-200 dark:bg-yellow-800 hover:bg-yellow-300 dark:hover:bg-yellow-700 rounded transition-colors"
-							onclick={async () => {
-								const savedToken = sessionStorage.getItem('pre_impersonation_token')
-								if (savedToken && $workspaceStore) {
-									try {
-										await UserService.exitImpersonation({
-											workspace: $workspaceStore,
-											requestBody: { token: savedToken }
-										})
-									} catch (e) {
-										console.error('Failed to exit impersonation', e)
-									}
-									sessionStorage.removeItem('pre_impersonation_token')
-									sessionStorage.removeItem('pre_impersonation_email')
-								}
-								window.location.href = '/workspace_settings?tab=users'
-							}}
-						>
-							Exit impersonation
-						</button>
-					</div>
-				{/if}
-				<AiChatLayout
-					{children}
-					noPadding={devOnly}
-					disableAi={true}
-					{isCollapsed}
-					isMobile={innerWidth < 768}
-					onMenuOpen={() => {
-						menuOpen = true
-					}}
-				/>
 			</div>
 		{/if}
+		<div class="flex flex-col h-full w-full">
+			{#if $userStore?.is_service_account}
+				<div
+					class="bg-yellow-100 dark:bg-yellow-900/50 border-b border-yellow-300 dark:border-yellow-700 px-4 py-2 text-sm text-yellow-800 dark:text-yellow-200 flex items-center justify-center gap-4 shrink-0"
+				>
+					<span>
+						Viewing workspace on behalf of <strong>{$userStore.username}</strong>
+						<span class="text-yellow-600 dark:text-yellow-400"
+							>(impersonated by {$userStore.impersonating_email})</span
+						>
+					</span>
+					<button
+						class="px-3 py-1 text-xs font-medium bg-yellow-200 dark:bg-yellow-800 hover:bg-yellow-300 dark:hover:bg-yellow-700 rounded transition-colors"
+						onclick={async () => {
+							const savedToken = sessionStorage.getItem('pre_impersonation_token')
+							if (savedToken && $workspaceStore) {
+								try {
+									await UserService.exitImpersonation({
+										workspace: $workspaceStore,
+										requestBody: { token: savedToken }
+									})
+								} catch (e) {
+									console.error('Failed to exit impersonation', e)
+								}
+								sessionStorage.removeItem('pre_impersonation_token')
+								sessionStorage.removeItem('pre_impersonation_email')
+							}
+							window.location.href = '/workspace_settings?tab=users'
+						}}
+					>
+						Exit impersonation
+					</button>
+				</div>
+			{/if}
+			<AiChatLayout
+				{children}
+				noPadding={devOnly || menuHidden}
+				disableAi={true}
+				{isCollapsed}
+				isMobile={innerWidth < 768}
+				onMenuOpen={() => {
+					menuOpen = true
+				}}
+			/>
+		</div>
 	</div>
 {:else}
 	<CenteredModal title="Loading user..." loading={true}></CenteredModal>

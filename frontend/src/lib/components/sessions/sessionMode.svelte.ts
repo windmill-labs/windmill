@@ -2,40 +2,41 @@ import { BROWSER } from 'esm-env'
 import { base } from '$app/paths'
 import type { SessionTarget } from './sessionState.svelte'
 
-// Session mode is an optional layout wrapper, not a route: it can be toggled
-// on over whatever Windmill page is currently shown. The flag is sticky across
-// reloads/navigations so the wrapped layout survives a refresh.
-const STORAGE_KEY = 'wm_session_mode'
+// The sessions page previews a live Windmill page in an iframe. Each session
+// remembers which URL to show: a session opened from a page captures the page
+// the user was on ("the current view becomes the session's target"); otherwise
+// the preview falls back to the session's editor target, then the home page.
+const STORAGE_KEY = 'wm_session_preview_urls'
 
-function readInitial(): boolean {
-	if (!BROWSER) return false
+function readInitial(): Record<string, string> {
+	if (!BROWSER) return {}
 	try {
-		return localStorage.getItem(STORAGE_KEY) === '1'
+		const raw = localStorage.getItem(STORAGE_KEY)
+		return raw ? (JSON.parse(raw) as Record<string, string>) : {}
 	} catch {
-		return false
+		return {}
 	}
 }
 
-export const sessionLayout = $state<{ on: boolean }>({ on: readInitial() })
+const previewUrls = $state<Record<string, string>>(readInitial())
 
-export function setSessionMode(on: boolean): void {
-	sessionLayout.on = on
+function persist(): void {
 	if (!BROWSER) return
 	try {
-		if (on) localStorage.setItem(STORAGE_KEY, '1')
-		else localStorage.removeItem(STORAGE_KEY)
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(previewUrls))
 	} catch {
-		// localStorage can throw in private mode — the in-memory flag still drives the layout.
+		// localStorage can throw in private mode — the in-memory map still drives the preview.
 	}
 }
 
-export function toggleSessionMode(): void {
-	setSessionMode(!sessionLayout.on)
+// Remember the page a session should preview. Called when a session is opened
+// from a Windmill page so the preview keeps showing that page.
+export function captureSessionView(sessionId: string, url: string): void {
+	previewUrls[sessionId] = url
+	persist()
 }
 
 // Maps a session's editor target to the canonical full-page Windmill route.
-// Clicking a session navigates the embedded panel here; non-editor targets
-// (or none) return undefined so the panel just keeps its current page.
 export function sessionTargetHref(target: SessionTarget | undefined): string | undefined {
 	if (!target) return undefined
 	const seg =
@@ -48,4 +49,26 @@ export function sessionTargetHref(target: SessionTarget | undefined): string | u
 					: undefined
 	if (!seg) return undefined
 	return `${base}/${seg}/${target.path}`
+}
+
+// The URL the sessions page should iframe for a session: the explicitly
+// captured view, else its editor target's route, else the home page.
+export function sessionPreviewUrl(
+	session: { id: string; target?: SessionTarget } | undefined
+): string {
+	if (!session) return `${base}/`
+	return previewUrls[session.id] ?? sessionTargetHref(session.target) ?? `${base}/`
+}
+
+// Force the global sidebar off in the previewed page (the sessions page already
+// has its own navigation rail) by setting Windmill's `nomenubar` query flag.
+// Returns a relative URL so the iframe stays same-origin.
+export function withMenuHidden(url: string): string {
+	try {
+		const u = new URL(url, 'http://_')
+		u.searchParams.set('nomenubar', 'true')
+		return u.pathname + u.search + u.hash
+	} catch {
+		return url
+	}
 }

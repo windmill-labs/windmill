@@ -54,7 +54,9 @@
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { currentWorkspaceRootId, workspaceRootId } from './sessionScope.svelte'
-	import { sessionLayout, setSessionMode, sessionTargetHref } from './sessionMode.svelte'
+	import { captureSessionView } from './sessionMode.svelte'
+	import { page } from '$app/state'
+	import { base } from '$app/paths'
 
 	// Look up the cached fork comparison for a session through its runtime
 	// (if any). The deriveForkStatus helper handles the "no runtime yet"
@@ -90,9 +92,10 @@
 	// the feature flag is off, the sidebar section is hidden entirely.
 	const globalEnabled = isGlobalAiEnabled()
 
-	// Only highlight the active session while session mode is on — outside it
+	// Only highlight the active session while the sessions page is open — elsewhere
 	// `currentSessionId` lingers but no row should appear selected.
-	const sessionActive = $derived(sessionLayout.on)
+	const onSessionsPage = $derived(page.url.pathname.startsWith(`${base}/sessions`))
+	const sessionActive = $derived(onSessionsPage)
 
 	interface Props {
 		isCollapsed?: boolean
@@ -311,12 +314,9 @@
 		// session after editing items elsewhere in the SPA, where neither
 		// the visibility-change nor the AI-loading signal would fire.
 		void getRuntime(session.id)?.refreshForkComparison()
-		// Clicking a session enters session mode and navigates the embedded
-		// panel to its target (if any). Sessions with no editor target just
-		// activate and leave the panel on its current page.
-		setSessionMode(true)
-		const href = sessionTargetHref(session.target)
-		if (href) await goto(href)
+		// Open the dedicated sessions page; its preview panel iframes the
+		// session's view (captured page / editor target).
+		await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
 		if (restoreFocus) {
 			// goto() resets focus to <body> — put it back on the active session button
 			// so subsequent arrow keys keep navigating the list.
@@ -330,7 +330,14 @@
 	}
 
 	async function createAndOpen() {
-		await activate(createSession())
+		const fresh = createSession()
+		// A new session opened from a Windmill page adopts that page as its
+		// preview target. Skip when already on the sessions page (nothing
+		// meaningful to capture) so the preview falls back to home.
+		if (!onSessionsPage) {
+			captureSessionView(fresh.id, page.url.pathname + page.url.search)
+		}
+		await activate(fresh)
 	}
 
 	let editingId: string | undefined = $state(undefined)

@@ -50,9 +50,9 @@
 	import { goto } from '$lib/navigation'
 	import { slide } from 'svelte/transition'
 
-	// hideEditor: never mount the inline editor pane. Used by SessionShell, where
-	// the edited item is shown as the live full-page route in the layout panel
-	// instead, so the wrapper contributes only its chat column.
+	// hideEditor: never mount the inline editor pane. Used by the sessions page,
+	// where the edited item is shown in a live page preview (iframe) beside the
+	// chat instead, so the wrapper contributes only its chat column.
 	// onExit (when provided): a collapse-pane button on the header's top-right that
 	// dismisses the session layout. Lives here so it sits in the chat header.
 	// headerInset: extra left padding on the chat header so it clears a floating
