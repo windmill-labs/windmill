@@ -103,8 +103,11 @@ annotation family after `// data_test` — same head-then-tail parse shape (see
 drives the graph surface, never a runtime probe.
 
 Surfaced two ways in the asset graph: a count badge on the
-producer→materialized-asset write-edge, and a column-to-column diagram
-(`ColumnLineageView.svelte`) in the asset details pane.
+producer→materialized-asset write-edge, and a **transitive column-lineage
+trace** (`ColumnLineageTrace.svelte`, over the cross-script graph built by
+`columnLineageGraph.ts`) in the asset details pane — select an asset to see its
+columns and their full upstream/downstream lineage, click any column to
+highlight its complete impact set across the pipeline (forward + backward).
 
 SQL-AST inference runs both **server-side** (the graph endpoint + deploy via
 `parse_assets`, for *deployed* members) and **in the live editor** — the same

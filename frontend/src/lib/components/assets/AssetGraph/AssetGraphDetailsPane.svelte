@@ -30,7 +30,8 @@
 		type ColumnLineage,
 		type PipelineAnnotations
 	} from './parsePipelineAnnotations'
-	import ColumnLineageView from './ColumnLineageView.svelte'
+	import ColumnLineageTrace from './ColumnLineageTrace.svelte'
+	import { assetColumnNodes, type ColumnLineageGraph } from './columnLineageGraph'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import S3FilePreview from '$lib/components/S3FilePreview.svelte'
 	import DataTablePreview from './DataTablePreview.svelte'
@@ -123,10 +124,10 @@
 			path: string
 			unsaved?: boolean
 		}>
-		// Declared `// column` lineage for the selected asset, merged across its
-		// producers by the parent page (same provenance as selectionProducers).
-		// Drives the column-lineage diagram shown for a materialized asset.
-		selectionColumnLineage?: ColumnLineage[]
+		// Pipeline-wide column-lineage graph (built by the parent page from the
+		// resolved graph). Drives the transitive column-lineage trace shown for a
+		// selected materialized asset.
+		selectionColumnGraph?: ColumnLineageGraph
 		// Bumped by the parent after dispatching a run so the runs panel
 		// re-fetches the listing immediately (rather than waiting on its
 		// background poll tick).
@@ -227,7 +228,7 @@
 		onScriptRenamed,
 		onScriptRemoved,
 		selectionProducers = [],
-		selectionColumnLineage = [],
+		selectionColumnGraph,
 		runsRefreshKey,
 		runsPendingJobId,
 		onRunCompleted,
@@ -1014,10 +1015,12 @@
 								     selected snapshot / tab instead of carrying state across. -->
 								{#key selection.path}
 									<div class="flex flex-col h-full overflow-auto">
-										{#if selectionColumnLineage.length > 0}
+										{#if selectionColumnGraph && assetColumnNodes(selectionColumnGraph, selection.asset_kind, selection.path).length > 0}
 											<div class="border-b shrink-0">
-												<ColumnLineageView
-													lineage={selectionColumnLineage}
+												<ColumnLineageTrace
+													graph={selectionColumnGraph}
+													assetKind={selection.asset_kind}
+													assetPath={selection.path}
 													targetLabel={selection.path}
 												/>
 											</div>

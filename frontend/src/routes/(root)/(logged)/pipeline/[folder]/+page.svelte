@@ -36,6 +36,10 @@
 		type ColumnLineage,
 		type PipelineAnnotations
 	} from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
+	import {
+		buildColumnGraph,
+		type ColumnLineageGraph
+	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
 	import {
 		computeDownstreamClosure,
@@ -1971,19 +1975,18 @@
 			.map((e) => ({ kind: e.runnable_kind, path: e.runnable_path, unsaved: e.unsaved }))
 	})
 
-	// Declared `// column` lineage for the selected asset: the column lineage of
-	// every script that writes to it, concatenated. The annotations describe the
-	// producing script's materialized output, so a producer of this asset owns
-	// this asset's column lineage. Same provenance as `selectionProducers`.
-	let selectionColumnLineage = $derived.by(() => {
-		const producers = selectionProducers
-		if (producers.length === 0) return []
-		return producers.flatMap(
-			(p) =>
-				graphWithDraft.runnables.find((r) => r.usage_kind === p.kind && r.path === p.path)
-					?.column_lineage ?? []
-		)
-	})
+	// Pipeline-wide column-lineage graph, stitched across every producer's
+	// (inferred + annotated) `column_lineage` and the asset write-edges. Drives
+	// the transitive column trace in the details pane. Built from the resolved
+	// graph (incl. live draft overlays), so the trace is live-aware.
+	let columnGraph = $derived(buildColumnGraph(graphWithDraft))
+	// Passed to the pane while a draft is actively edited, mirroring how the
+	// other selection overlays blank out (the trace re-appears on plain select).
+	const EMPTY_COLUMN_GRAPH: ColumnLineageGraph = {
+		nodes: new Map(),
+		up: new Map(),
+		down: new Map()
+	}
 
 	// Downstream subscriber count for the currently-edited script. Drives
 	// the Test button's cascade UX: when > 0, ScriptEditor renders a split
@@ -2558,7 +2561,7 @@
 								onRunByPath={runByPathLegit}
 								selection={activeDraft ? undefined : selection}
 								selectionProducers={activeDraft ? [] : selectionProducers}
-								selectionColumnLineage={activeDraft ? [] : selectionColumnLineage}
+								selectionColumnGraph={activeDraft ? EMPTY_COLUMN_GRAPH : columnGraph}
 								{runsRefreshKey}
 								{runsPendingJobId}
 								{activeRunnable}
