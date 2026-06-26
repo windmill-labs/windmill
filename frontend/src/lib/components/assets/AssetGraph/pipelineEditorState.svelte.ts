@@ -113,8 +113,14 @@ export class PipelineEditorState {
 				this.drafts = next
 				return
 			}
+			// `?? 0` is load-bearing: an undefined `outputAssets` (a no-output draft)
+			// vs an empty inferred `writes` both mean "no writes". Without the
+			// coalesce, `undefined === 0` is false, so this never short-circuits —
+			// every persist re-writes the drafts Map with an equivalent object,
+			// re-triggering the pane's emit → graph re-derive → persist, an infinite
+			// microtask loop (hangs the tab without an effect-depth throw).
 			const writesEqual =
-				d.outputAssets?.length === snapshot.writes.length &&
+				(d.outputAssets?.length ?? 0) === snapshot.writes.length &&
 				(d.outputAssets ?? []).every(
 					(a, i) => a.kind === snapshot.writes[i]?.kind && a.path === snapshot.writes[i]?.path
 				)
