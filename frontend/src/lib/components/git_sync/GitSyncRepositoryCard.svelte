@@ -548,12 +548,16 @@
 								on:change={(e) => setAutoPullEnabled(e.detail)}
 							/>
 							{#if repo.auto_pull?.enabled}
+								{@const viaWebhook = repo.auto_pull?.webhook_id != null}
 								<div class="text-2xs text-secondary mt-2">
 									{#if repo.auto_pull?.last_pull_status}
 										{#if repo.auto_pull.last_pull_status.success}
 											Last synced{repo.auto_pull.last_pull_status.synced_sha
 												? ` to ${repo.auto_pull.last_pull_status.synced_sha.slice(0, 7)}`
-												: ''}. Windmill checks the tracked branch about every minute.
+												: ''}.
+											{viaWebhook
+												? ' Syncing instantly via webhook.'
+												: ' Checking the tracked branch about every minute.'}
 										{:else}
 											<span class="text-red-600 dark:text-red-400">
 												Last sync failed{repo.auto_pull.last_pull_status.error
@@ -562,8 +566,9 @@
 											</span>
 										{/if}
 									{:else}
-										Windmill checks the tracked branch about every minute and deploys new commits
-										automatically.
+										{viaWebhook
+											? 'Connected via webhook. New commits to the tracked branch deploy instantly.'
+											: 'Checking the tracked branch about every minute. New commits deploy automatically.'}
 									{/if}
 								</div>
 							{/if}
