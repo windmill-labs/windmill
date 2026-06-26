@@ -172,9 +172,14 @@
 			: editor.selection
 	)
 	let activeDraft = $derived(editor.activeDraft)
+	// Edit mode opens the right pane only for a selection/draft; view mode keeps it
+	// open permanently (it shows the activity idlePane when nothing is selected,
+	// and swaps to the details pane on node select). Matches the route page's
+	// original behaviour — NOT "always open in edit mode".
 	let detailsPaneOpen = $derived(
-		!panelHidden &&
-			(mode === 'edit' || editor.selection != undefined || editor.activeDraftPath != undefined)
+		mode === 'edit'
+			? (editor.selection != undefined || editor.activeDraftPath != undefined) && !panelHidden
+			: !panelHidden
 	)
 	let idleView = $derived(
 		mode !== 'edit' && editor.selection == undefined && editor.activeDraftPath == undefined

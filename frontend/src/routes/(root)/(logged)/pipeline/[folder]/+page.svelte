@@ -2066,7 +2066,6 @@
 				persistDrafts={true}
 				{displayGraph}
 				{mode}
-				{isOperator}
 				workspace={$workspaceStore}
 				{pathPrefix}
 				defaultPathSuffix={DEFAULT_PATH_SUFFIX}

@@ -1,10 +1,7 @@
 <script lang="ts">
 	import { resource } from 'runed'
 	import { Loader2, Workflow } from 'lucide-svelte'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
-	import AssetGraphDetailsPane from '$lib/components/assets/AssetGraph/AssetGraphDetailsPane.svelte'
-	import GlobalReviewButtons from '$lib/components/copilot/chat/GlobalReviewButtons.svelte'
+	import PipelineGraphEditor from '$lib/components/assets/AssetGraph/PipelineGraphEditor.svelte'
 	import { getAiChatManager } from '$lib/components/copilot/chat/aiChatManagerContext'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
 	import type {
@@ -30,7 +27,7 @@
 	// The session's scoped chat manager (falls back to the singleton off-session).
 	const aiChatManager = getAiChatManager()
 
-	// Externalized editor state, shared with the route page's editor.
+	// Externalized editor state — the same store the route page editor uses.
 	const pe = new PipelineEditorState()
 
 	const EMPTY_GRAPH: AssetGraphResponse = { assets: [], runnables: [], edges: [], triggers: [] }
@@ -46,10 +43,11 @@
 	// Deployed graph + the in-flight draft overlay (AI proposals render dashed +
 	// accent-ringed via the shared resolveGraph aiPending threading). The session
 	// skips the route page's folder-wide asset prefetch (empty inferred maps); the
-	// open script's live overlays still feed the graph.
+	// open script's live overlays still feed the graph. (resolveGraph's base is the
+	// pipeline runnables subset; the 'job' usage_kind of the wire type never appears.)
 	let resolvedGraph = $derived.by<AssetGraphResponse>(() =>
 		resolveGraph({
-			base: graphRes.current ?? EMPTY_GRAPH,
+			base: (graphRes.current ?? EMPTY_GRAPH) as AssetGraphResponse,
 			drafts: pe.drafts,
 			liveBodyAssets: pe.liveBodyAssets,
 			liveAnnotations: pe.liveAnnotations,
@@ -57,13 +55,6 @@
 			inferredReadsByPath: EMPTY_PATH_MAP,
 			annotatedNativeKindsByPath: EMPTY_NATIVE_MAP
 		})
-	)
-
-	let hasAiPending = $derived([...pe.drafts.values()].some((d) => d.aiPending))
-	let activeDraft = $derived(pe.activeDraftPath ? pe.drafts.get(pe.activeDraftPath) : undefined)
-	let detailsOpen = $derived(
-		pe.activeDraftPath != undefined ||
-			(pe.selection?.kind === 'runnable' && pe.selection.runnable_kind === 'script')
 	)
 
 	const { helpers, acceptAll, rejectAll } = createPipelineAiHelpers({
@@ -130,50 +121,37 @@
 				Failed to load pipeline: {graphRes.error.message}
 			</div>
 		{:else}
-			<Splitpanes class="!h-full">
-				<Pane size={detailsOpen ? 60 : 100}>
-					<div class="relative h-full">
-						<AssetGraphCanvas
-							graph={resolvedGraph}
-							selection={pe.selection}
-							pathPrefix={`f/${path}/`}
-							onselect={handleCanvasSelect}
-						/>
-						{#if hasAiPending}
-							<GlobalReviewButtons onAcceptAll={acceptAll} onRejectAll={rejectAll} />
-						{/if}
-					</div>
-				</Pane>
-				{#if detailsOpen}
-					<Pane size={40} minSize={25}>
-						<AssetGraphDetailsPane
-							mode="edit"
-							workspace={workspaceId}
-							selection={activeDraft ? undefined : pe.selection}
-							draftScript={activeDraft?.script}
-							pathPrefix={`f/${path}/`}
-							onAnnotationsChange={pe.handleAnnotationsChange}
-							onAssetsChange={pe.handleAssetsChange}
-							onContentChange={pe.handleContentChange}
-							onDraftPersist={pe.handleDraftPersist}
-							onDiscard={() => {
-								if (pe.activeDraftPath) pe.discardDraft(pe.activeDraftPath)
-							}}
-							onDraftSaved={afterSaved}
-							onPersistedSaved={afterSaved}
-							onScriptRemoved={async (removedPath) => {
-								pe.forgetPath(removedPath)
-								await graphRes.refetch()
-							}}
-							onclose={() => {
-								pe.selection = undefined
-								pe.activeDraftPath = undefined
-								pe.clearLiveOverlays()
-							}}
-						/>
-					</Pane>
-				{/if}
-			</Splitpanes>
+			<!-- The session preview shares the route page's editor body. It opts out of
+			     persistence (persistDrafts=false) and the run/cascade/trigger/bounded
+			     affordances (their callbacks are omitted, so the canvas/pane hide them);
+			     building + the diff/approval review still work via the AI helpers. -->
+			<PipelineGraphEditor
+				editor={pe}
+				folder={path}
+				persistDrafts={false}
+				displayGraph={resolvedGraph}
+				mode="edit"
+				workspace={workspaceId}
+				pathPrefix={`f/${path}/`}
+				hasAiPending={pe.hasAiPending}
+				onAcceptAllProposals={acceptAll}
+				onRejectAllProposals={rejectAll}
+				onSelect={handleCanvasSelect}
+				onDraftSaved={afterSaved}
+				onPersistedSaved={afterSaved}
+				onScriptRemoved={async (removedPath) => {
+					pe.forgetPath(removedPath)
+					await graphRes.refetch()
+				}}
+				onDiscard={() => {
+					if (pe.activeDraftPath) pe.discardDraft(pe.activeDraftPath)
+				}}
+				onClose={() => {
+					pe.selection = undefined
+					pe.activeDraftPath = undefined
+					pe.clearLiveOverlays()
+				}}
+			/>
 		{/if}
 	</div>
 </div>
