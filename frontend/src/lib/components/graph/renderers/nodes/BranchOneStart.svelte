@@ -34,7 +34,7 @@
 				setTimeout(() => data?.eventHandlers?.select(data.id))
 			}}
 		/>
-		{#if data.insertable}
+		{#if data.insertable && data.branchIndex >= 0}
 			<button
 				title="Delete branch"
 				class="z-50 absolute -translate-y-[100%] top-1 -right-1 rounded-md p-1 center-center text-primary
