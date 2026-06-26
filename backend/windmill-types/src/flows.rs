@@ -155,6 +155,19 @@ fn validate_retry(retry: &Retry, module_id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Script/sub-flow step references must be workspace paths (`u/`, `f/`, `g/`) or a hub
+/// reference (`hub/`). Empty is tolerated for intermediate/incomplete steps. This blocks
+/// absolute or local filesystem paths (e.g. `/tmp/.../ops/scripts/...` baked in by a
+/// `wmill sync push` from a feature-branch checkout) from being persisted into a flow,
+/// where they silently mis-resolve to an unrelated script at runtime (#9751).
+fn is_workspace_runnable_path(path: &str) -> bool {
+    path.is_empty()
+        || path.starts_with("u/")
+        || path.starts_with("f/")
+        || path.starts_with("g/")
+        || path.starts_with("hub/")
+}
+
 fn validate_flow_value<'de, D>(deserializer: D) -> Result<Box<RawValue>, D::Error>
 where
     D: Deserializer<'de>,
@@ -167,6 +180,19 @@ where
     FlowModule::traverse_modules(&flow_value.modules, &mut |module| {
         if let Some(ref retry) = module.retry {
             validate_retry(retry, &module.id)?;
+        }
+        if let Ok(FlowModuleValue::Script { path, .. } | FlowModuleValue::Flow { path, .. }) =
+            module.get_value()
+        {
+            if !is_workspace_runnable_path(&path) {
+                return Err(anyhow::anyhow!(
+                    "step '{}' references '{}', which is not a workspace path (expected u/, \
+                     f/, g/ or hub/). Absolute or local filesystem paths are not allowed in \
+                     flow steps.",
+                    module.id,
+                    path
+                ));
+            }
         }
         return Ok(());
     })
@@ -1226,6 +1252,84 @@ mod tests {
         });
         let val: FlowValue = serde_json::from_value(input).unwrap();
         assert_eq!(val.modules.len(), 1);
+    }
+
+    #[test]
+    fn flow_rejects_absolute_step_path() {
+        // #9751: an absolute local path baked into a step must be rejected on deploy.
+        let bad = json!({
+            "path": "f/test/flow",
+            "summary": "",
+            "value": { "modules": [{
+                "id": "validate_onboard_target",
+                "value": {
+                    "type": "script",
+                    "path": "/tmp/tmp.X/f/ops/scripts/clean_device/pre_clean",
+                    "input_transforms": {}
+                }
+            }]}
+        });
+        let err = serde_json::from_value::<NewFlow>(bad)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("not a workspace path"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            err.contains("validate_onboard_target"),
+            "error should name the step: {err}"
+        );
+    }
+
+    #[test]
+    fn flow_rejects_absolute_step_path_in_nested_module() {
+        let bad = json!({
+            "path": "f/test/flow",
+            "summary": "",
+            "value": { "modules": [{
+                "id": "loop",
+                "value": {
+                    "type": "forloopflow",
+                    "iterator": {"type": "javascript", "expr": "[1]"},
+                    "modules": [{
+                        "id": "inner",
+                        "value": {"type": "script", "path": "/abs/path", "input_transforms": {}}
+                    }]
+                }
+            }]}
+        });
+        let err = serde_json::from_value::<NewFlow>(bad)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("not a workspace path"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn flow_accepts_workspace_step_paths() {
+        for p in [
+            "f/ops/scripts/x",
+            "u/me/y",
+            "g/grp/z",
+            "hub/123/foo",
+            "", // tolerated for incomplete steps
+        ] {
+            let ok = json!({
+                "path": "f/test/flow",
+                "summary": "",
+                "value": { "modules": [{
+                    "id": "a",
+                    "value": {"type": "script", "path": p, "input_transforms": {}}
+                }]}
+            });
+            assert!(
+                serde_json::from_value::<NewFlow>(ok).is_ok(),
+                "path {p:?} should be accepted"
+            );
+        }
     }
 
     #[test]

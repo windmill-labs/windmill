@@ -1189,11 +1189,34 @@ const _: () = {
             use std::fs::OpenOptions;
             use std::io::Write;
 
+            // Write to a unique sibling temp file then atomically rename over the target.
+            // A plain `write+create` (no truncate) leaves stale trailing bytes when the
+            // new value is shorter than the old, and concurrent writers interleave into a
+            // torn file — both yield a corrupt cache entry that imports as wrong content.
+            // rename(2) within the same directory is atomic, so a reader sees either the
+            // old or the new file whole, never a partial write. The temp name carries the
+            // pid + a counter so two processes sharing a cache volume can't clobber each
+            // other's in-flight write.
+            static PUT_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let final_path = item.path(self);
+            let tmp_path = final_path.with_extension(format!(
+                "tmp.{}.{}",
+                std::process::id(),
+                PUT_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
             OpenOptions::new()
                 .write(true)
                 .create(true)
-                .open(item.path(self))
-                .and_then(|mut file| file.write_all(data.as_ref()))
+                .truncate(true)
+                .open(&tmp_path)
+                .and_then(|mut file| {
+                    file.write_all(data.as_ref())?;
+                    file.sync_all()
+                })
+                .and_then(|()| std::fs::rename(&tmp_path, &final_path))
+                .inspect_err(|_| {
+                    let _ = std::fs::remove_file(&tmp_path);
+                })
         }
     }
 
@@ -1236,6 +1259,33 @@ const _: () = {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn fs_cache_put_overwrites_without_stale_tail() {
+        // Regression for the non-truncating, non-atomic `put`: overwriting a value with a
+        // shorter one must not leave stale trailing bytes (which imported as corrupt/wrong
+        // content — the #9751 worker-cache hazard).
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        root.put("k", b"a-long-cached-value-0123456789").unwrap();
+        assert_eq!(root.get("k").unwrap(), b"a-long-cached-value-0123456789");
+
+        root.put("k", b"short").unwrap();
+        assert_eq!(
+            root.get("k").unwrap(),
+            b"short",
+            "shorter overwrite must fully replace, no stale tail"
+        );
+
+        // No temp files left behind after a successful write.
+        let leftover: Vec<_> = std::fs::read_dir(root)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
+            .collect();
+        assert!(leftover.is_empty(), "temp files must be renamed/cleaned up");
+    }
 
     #[test]
     fn flow_data_extras_preserves_notes_and_groups() {

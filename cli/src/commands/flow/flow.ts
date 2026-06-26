@@ -190,6 +190,20 @@ export async function pushFlow(
     );
   }
 
+  // Reject script/sub-flow steps whose path is not a workspace path (u/, f/, g/ or hub/).
+  // A flow.yaml generated from a feature-branch checkout can carry absolute local paths
+  // (e.g. /tmp/.../ops/scripts/...); pushed, they silently mis-resolve at runtime (#9751).
+  const badStepPaths = collectPathScriptPaths(localFlow.value).filter(
+    (p) => p !== "" && !/^(u|f|g|hub)\//.test(p)
+  );
+  if (badStepPaths.length > 0) {
+    throw new Error(
+      `Cannot push flow ${remotePath}: step(s) reference non-workspace path(s): ${badStepPaths.join(", ")}. ` +
+      `Flow step paths must be workspace paths (u/, f/, g/ or hub/), not absolute or local filesystem paths. ` +
+      `This usually means flow.yaml was generated with paths from a checkout directory.`
+    );
+  }
+
   const hasOnBehalfOf = (localFlow as any).has_on_behalf_of ?? !!localFlow.on_behalf_of_email;
   delete (localFlow as any).has_on_behalf_of;
 
