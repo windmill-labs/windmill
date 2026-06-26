@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import {
 		Archive,
@@ -111,6 +110,9 @@
 		onBrowseWorkspace?: (workspaceId: string) => void
 		// Clicking a session row → leave browse mode (bring the chat back).
 		onSelectSession?: () => void
+		// Drop the section's own outer padding/border so it sits flush inside a
+		// parent container (e.g. gathered with Favorites/Search in the sidebar).
+		embedded?: boolean
 	}
 
 	let {
@@ -119,7 +121,8 @@
 		workspaceTree = false,
 		browsedWorkspaceId = undefined,
 		onBrowseWorkspace = undefined,
-		onSelectSession = undefined
+		onSelectSession = undefined,
+		embedded = false
 	}: Props = $props()
 
 	const sectionCollapsed = useLocalStorageValue(
@@ -448,7 +451,7 @@
 	     the section still shows — the per-session chat input is disabled with an
 	     explanatory message, mirroring the sidebar AI chat. -->
 {:else if isCollapsed}
-	<div class="px-2 pt-3 pb-2 border-b border-light dark:border-gray-700">
+	<div class={embedded ? '' : 'px-2 pt-3 pb-2 border-b border-light dark:border-gray-700'}>
 		<Menubar>
 			{#snippet children({ createMenu })}
 				<Menu {createMenu} usePointerDownOutside submenuSafe>
@@ -554,10 +557,19 @@
 	</div>
 {:else}
 	<div
-		class="px-2 pt-3 pb-2 flex flex-col gap-1 {collapsible
+		class="flex flex-col gap-1 {embedded ? '' : 'px-2 pt-3 pb-2'} {!embedded && collapsible
 			? 'border-b border-light dark:border-gray-700'
 			: ''}"
 	>
+		<!-- New-session action styled like the other sidebar entries (Favorites,
+		     Search) — replaces the small header "+" affordance. -->
+		<MenuButton
+			on:click={createAndOpen}
+			{isCollapsed}
+			icon={Plus}
+			label="New AI session"
+			class="!text-xs"
+		/>
 		<div class="flex flex-row items-center justify-between pl-1 pr-0.5">
 			{#if collapsible && visibleSessions.length > 0}
 				<button
@@ -614,14 +626,6 @@
 						</div>
 					{/snippet}
 				</Popover>
-				<Button
-					variant="subtle"
-					size="xs2"
-					iconOnly
-					startIcon={{ icon: Plus }}
-					onclick={createAndOpen}
-					title="New session"
-				/>
 			</div>
 		</div>
 		{#if !collapsible || !sectionCollapsed.val}

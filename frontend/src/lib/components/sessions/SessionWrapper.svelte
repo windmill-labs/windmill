@@ -19,8 +19,7 @@
 		PanelRightClose,
 		PanelRightOpen,
 		Pencil,
-		Trash2,
-		X
+		Trash2
 	} from 'lucide-svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -53,19 +52,15 @@
 	// hideEditor: never mount the inline editor pane. Used by the sessions page,
 	// where the edited item is shown in a live page preview (iframe) beside the
 	// chat instead, so the wrapper contributes only its chat column.
-	// onExit (when provided): a close (X) button on the header's top-right that
-	// leaves the sessions page. Lives here so it sits in the chat header.
 	// headerInset: extra left padding on the chat header so it clears a floating
 	// control (the collapsed-rail launcher) sitting at the screen's top-left.
 	let {
 		sessionId,
 		hideEditor = false,
-		onExit,
 		headerInset = false
 	}: {
 		sessionId: string
 		hideEditor?: boolean
-		onExit?: () => void
 		headerInset?: boolean
 	} = $props()
 
@@ -438,17 +433,6 @@
 							<PanelRightClose size={14} />
 						</button>
 					</div>
-				{/if}
-				{#if onExit}
-					<button
-						type="button"
-						onclick={onExit}
-						title="Exit sessions"
-						aria-label="Exit sessions"
-						class="ml-auto inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
-					>
-						<X size={16} />
-					</button>
 				{/if}
 			</header>
 			<div class="flex-1 min-h-0 w-full flex flex-col {hasFirstUserMessage ? '' : 'pt-8'}">

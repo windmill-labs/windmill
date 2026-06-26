@@ -586,7 +586,7 @@
 											{/snippet}
 										</Menubar>
 									</div>
-									<div class="px-2 py-4 border-b border-light dark:border-gray-700">
+									<div class="px-2 py-4">
 										<Menubar>
 											{#snippet children({ createMenu })}
 												<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
@@ -647,7 +647,7 @@
 									{/snippet}
 								</Menubar>
 							</div>
-							<div class="px-2 py-4 border-b border-light dark:border-gray-700 flex flex-col gap-1">
+							<div class="px-2 py-4 flex flex-col gap-1">
 								<Menubar class="flex flex-col gap-1">
 									{#snippet children({ createMenu })}
 										<FavoriteMenu
@@ -666,9 +666,9 @@
 									class="!text-xs"
 									shortcut={`${getModifierKey()}k`}
 								/>
-							</div>
 
-							<SessionPicker {isCollapsed} />
+								<SessionPicker {isCollapsed} embedded />
+							</div>
 
 							<SidebarContent
 								{isCollapsed}

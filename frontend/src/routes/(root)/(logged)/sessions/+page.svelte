@@ -1,8 +1,16 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
-	import { Plus, Maximize2, Minimize2, ExternalLink } from 'lucide-svelte'
+	import {
+		Plus,
+		Maximize2,
+		Minimize2,
+		ExternalLink,
+		PanelRightClose,
+		PanelRightOpen
+	} from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { slide } from 'svelte/transition'
 	import { Button } from '$lib/components/common'
 	import { goto } from '$lib/navigation'
 	import SessionWrapper from '$lib/components/sessions/SessionWrapper.svelte'
@@ -117,6 +125,8 @@
 	const previewUrl = $derived(sessionPreviewUrl(activeSession))
 	const iframeSrc = $derived(withMenuHidden(previewUrl))
 	let fullscreen = $state(false)
+	// Collapse the preview panel to give the chat the full width.
+	let previewCollapsed = $state(false)
 
 	// Path shown in the breadcrumb. Seeded from the preview URL, then refreshed
 	// from the iframe on navigation (same-origin) so it tracks where the user
@@ -163,77 +173,109 @@
 			<Button size="xs" startIcon={{ icon: Plus }} onclick={startNewSession}>New session</Button>
 		</div>
 	{:else}
-		<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
-			{#if !fullscreen}
-				<!-- Chat column. Warm sessions stay mounted (stacked, visibility-toggled)
-				     so switching between them preserves chat scroll/draft state. -->
-				<Pane size={38} minSize={24} class="flex flex-col min-h-0">
-					<div class="relative flex-1 min-h-0">
-						{#each warmSessions as s (s.id)}
-							<div
-								class="absolute inset-0 flex flex-col {s.id === activeSession?.id
-									? 'z-10 opacity-100 pointer-events-auto'
-									: 'z-0 opacity-0 pointer-events-none'}"
-								aria-hidden={s.id !== activeSession?.id}
-							>
-								<SessionWrapper
-									sessionId={s.id}
-									hideEditor
-									onExit={() => goto(sessionPreviewUrl(s))}
-								/>
-							</div>
-						{/each}
-					</div>
-				</Pane>
-			{/if}
-
-			<!-- Preview panel: the live Windmill page, framed like the editor pane. -->
-			<Pane minSize={30} class="flex flex-col min-h-0">
-				<div class="flex-1 min-h-0 flex flex-col {fullscreen ? 'p-0' : 'p-2 pl-0'}">
-					<div
-						class="flex flex-col flex-1 min-h-0 overflow-hidden relative bg-surface {fullscreen
-							? ''
-							: 'rounded-md border border-light'}"
-					>
-						<!-- Breadcrumb: reflects what the preview iframe is showing. -->
-						<div
-							class="px-3 h-8 flex items-center gap-2 border-b border-light shrink-0 text-xs text-secondary"
-						>
-							<span class="text-tertiary">Viewing</span>
-							<span class="font-mono truncate">{displayPath}</span>
-							<a
-								href={previewUrl}
-								title="Open full page"
-								aria-label="Open full page"
-								class="ml-auto shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
-							>
-								<ExternalLink size={14} />
-							</a>
-							<button
-								type="button"
-								onclick={() => (fullscreen = !fullscreen)}
-								title={fullscreen ? 'Exit full screen' : 'Full screen'}
-								aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
-								class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
-							>
-								{#if fullscreen}
-									<Minimize2 size={14} />
-								{:else}
-									<Maximize2 size={14} />
-								{/if}
-							</button>
+		<div class="flex-1 min-h-0 flex flex-row relative">
+			<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
+				{#if !fullscreen}
+					<!-- Chat column. Warm sessions stay mounted (stacked, visibility-toggled)
+					     so switching between them preserves chat scroll/draft state. -->
+					<!-- No explicit `size`: Splitpanes auto-distributes — when the preview
+				     pane unmounts on collapse the chat fills 100%; with both panes it
+				     splits evenly. An explicit size would pin the chat and leave a gap. -->
+					<Pane minSize={25} class="flex flex-col min-h-0">
+						<div class="relative flex-1 min-h-0">
+							{#each warmSessions as s (s.id)}
+								<div
+									class="absolute inset-0 flex flex-col {s.id === activeSession?.id
+										? 'z-10 opacity-100 pointer-events-auto'
+										: 'z-0 opacity-0 pointer-events-none'}"
+									aria-hidden={s.id !== activeSession?.id}
+								>
+									<SessionWrapper sessionId={s.id} hideEditor />
+								</div>
+							{/each}
 						</div>
-						<iframe
-							bind:this={previewFrame}
-							src={iframeSrc}
-							onload={onPreviewLoad}
-							title="Session preview"
-							class="flex-1 min-h-0 w-full border-0 bg-surface"
-						></iframe>
-					</div>
+					</Pane>
+				{/if}
+
+				<!-- Preview panel: the live Windmill page, framed like the editor pane. -->
+				{#if !previewCollapsed}
+					<Pane minSize={30} class="flex flex-col min-h-0">
+						<div class="flex-1 min-h-0 flex flex-col {fullscreen ? 'p-0' : 'p-2 pl-0'}">
+							<div
+								transition:slide={{ axis: 'x', duration: 200 }}
+								class="flex flex-col flex-1 min-h-0 overflow-hidden relative bg-surface {fullscreen
+									? ''
+									: 'rounded-md border border-light'}"
+							>
+								<!-- Breadcrumb: reflects what the preview iframe is showing. -->
+								<div
+									class="pl-1 pr-3 h-8 flex items-center gap-1.5 border-b border-light shrink-0 text-xs text-secondary"
+								>
+									{#if !fullscreen}
+										<!-- Collapse the preview panel (top-left), matching the legacy
+										     session editor's collapse control. -->
+										<button
+											type="button"
+											onclick={() => (previewCollapsed = true)}
+											title="Collapse preview"
+											aria-label="Collapse preview"
+											class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
+										>
+											<PanelRightClose size={14} />
+										</button>
+									{/if}
+									<span class="text-tertiary">Viewing</span>
+									<span class="font-mono truncate">{displayPath}</span>
+									<a
+										href={previewUrl}
+										title="Open full page"
+										aria-label="Open full page"
+										class="ml-auto shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
+									>
+										<ExternalLink size={14} />
+									</a>
+									<button
+										type="button"
+										onclick={() => (fullscreen = !fullscreen)}
+										title={fullscreen ? 'Exit full screen' : 'Full screen'}
+										aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
+										class="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
+									>
+										{#if fullscreen}
+											<Minimize2 size={14} />
+										{:else}
+											<Maximize2 size={14} />
+										{/if}
+									</button>
+								</div>
+								<iframe
+									bind:this={previewFrame}
+									src={iframeSrc}
+									onload={onPreviewLoad}
+									title="Session preview"
+									class="flex-1 min-h-0 w-full border-0 bg-surface"
+								></iframe>
+							</div>
+						</div>
+					</Pane>
+				{/if}
+			</Splitpanes>
+			{#if previewCollapsed && !fullscreen}
+				<!-- Collapsed preview: no rail — a floating launcher in the top-right to
+				     reopen the side panel, mirroring the previous collapsed-rail launcher. -->
+				<div class="absolute top-2 right-3 z-50">
+					<Button
+						variant="subtle"
+						unifiedSize="sm"
+						startIcon={{ icon: PanelRightOpen }}
+						title="Open side panel"
+						onclick={() => (previewCollapsed = false)}
+					>
+						Open side panel
+					</Button>
 				</div>
-			</Pane>
-		</Splitpanes>
+			{/if}
+		</div>
 	{/if}
 </div>
 
