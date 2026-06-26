@@ -551,10 +551,22 @@ pub fn materialize_result_sql(
             String::new(),
         )
     };
+    // Capture the materialized output schema (gap #2a) in the same summary row —
+    // no extra round-trip. `DESCRIBE SELECT * FROM <target>` yields one row per
+    // column (`column_name`, `column_type`); fold them into an ordered
+    // list-of-struct the worker reads back and persists as asset metadata. The
+    // write just committed, so the latest snapshot (no `AT (VERSION)` needed) is
+    // exactly the slice recorded in `snapshot_id`. `list(...)` preserves the
+    // DESCRIBE row order (column order); the read is a single small row.
+    let schema_capture = format!(
+        "(SELECT list({{'name': column_name, 'type': column_type}}) \
+         FROM (DESCRIBE SELECT * FROM {target_qualified})) AS output_schema"
+    );
     let base_cols = format!(
         "'ducklake://{asset_path}' AS materialized, \
          {partition_sel}{count_expr} AS rows, \
-         (SELECT max(snapshot_id) FROM ducklake_snapshots('{TARGET_ALIAS}')) AS snapshot_id"
+         (SELECT max(snapshot_id) FROM ducklake_snapshots('{TARGET_ALIAS}')) AS snapshot_id, \
+         {schema_capture}"
     );
     if checks.is_empty() {
         return format!("SELECT {base_cols};");
@@ -1366,5 +1378,12 @@ mod tests {
         );
         assert!(plain.starts_with("SELECT 'ducklake://analytics/orders' AS materialized"));
         assert!(!plain.contains("data_tests"));
+        // Schema capture (gap #2a) is in every summary, tests or not.
+        for s in [&sql, &plain] {
+            assert!(s.contains(
+                "(SELECT list({'name': column_name, 'type': column_type}) \
+                 FROM (DESCRIBE SELECT * FROM _wm_target.orders)) AS output_schema"
+            ));
+        }
     }
 }

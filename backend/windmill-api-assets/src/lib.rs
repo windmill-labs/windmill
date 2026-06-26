@@ -23,6 +23,7 @@ pub fn workspaced_service() -> Router {
         .route("/graph", get(asset_graph))
         .route("/pipelines", get(list_pipeline_folders))
         .route("/partitions", get(list_partitions))
+        .route("/asset_schemas", get(list_asset_schemas))
         .route("/record_materialization", post(record_materialization))
 }
 
@@ -53,17 +54,40 @@ async fn list_partitions(
     Ok(Json(rows))
 }
 
+// Per-asset captured output schema versions for a ducklake asset (gap #2a) —
+// the schema-evolution history persisted after each managed `// materialize`.
+// Newest version first; materialization targets are ducklake-only in v1, so the
+// kind is fixed.
+async fn list_asset_schemas(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+    Query(q): Query<PartitionsQuery>,
+) -> JsonResult<Vec<windmill_common::materialization::AssetSchemaVersion>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = windmill_common::materialization::list_asset_schemas(
+        &mut *tx,
+        &w_id,
+        AssetKind::Ducklake,
+        &q.path,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(rows))
+}
+
 // Record a materialization outcome from a polyglot (Python/TS) `wmill.ducklake`
 // helper running as a pipeline step. The DuckDB `// materialize` engine records
 // this itself; the SDK helpers post here instead so SDK-materialized slices show
-// up in the grid identically. RLS-scoped to the caller's workspace.
+// up in the grid identically. When the helper also captured the output schema,
+// that schema version is upserted too. RLS-scoped to the caller's workspace.
 async fn record_materialization(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
     Json(req): Json<windmill_common::materialization::RecordMaterializationRequest>,
 ) -> JsonResult<()> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = user_db.clone().begin(&authed).await?;
     windmill_common::materialization::record_materialization(
         &mut *tx,
         &w_id,
@@ -78,6 +102,31 @@ async fn record_materialization(
     )
     .await?;
     tx.commit().await?;
+    // Schema capture is independently best-effort (its own transaction for the
+    // per-asset advisory lock) and must never roll back the partition record
+    // above — mirroring the worker's `record_mat`. A lost schema version
+    // degrades the history, not the run.
+    if let Some(columns) = req.schema.as_ref() {
+        let res: windmill_common::error::Result<()> = async {
+            let mut tx = user_db.clone().begin(&authed).await?;
+            windmill_common::materialization::record_asset_schema(
+                &mut tx,
+                &w_id,
+                req.asset_kind,
+                &req.asset_path,
+                columns,
+                req.snapshot_id,
+                req.job_id,
+            )
+            .await?;
+            tx.commit().await?;
+            Ok(())
+        }
+        .await;
+        if let Err(e) = res {
+            tracing::warn!("failed to record captured asset schema: {e:#}");
+        }
+    }
     Ok(Json(()))
 }
 
