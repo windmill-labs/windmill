@@ -1,23 +1,18 @@
--- Re-anchor the audit→object-store export cursor on every enable (including a
--- re-enable after a disable), and anchor a *recent* timestamp floor instead of
--- the epoch sentinel.
+-- Anchors the audit→object-store export cursor when the setting is enabled.
 --
--- The previous version wrote `last_ts = epoch` and used `ON CONFLICT DO NOTHING`
--- (preserve the old cursor). Two consequences hurt large instances:
---   * the epoch floor disables partition pruning, so the first export run
---     sequentially scans the entire `audit_partitioned` table — under a
---     `statement_timeout` (e.g. Aiven) it never completes, so the cursor never
---     advances and nothing is ever exported;
---   * preserving the cursor across a long disable means re-enabling tries to
---     backfill the whole disabled window by the same unindexable `age(xmin)`
---     scan, with the same outcome.
+-- `last_ts`/`last_oldest_inflight_ts` must be a *recent* floor, not epoch: the
+-- export's `timestamp >= floor` predicate is the only partition-pruning bound (the
+-- `age(xmin)` cursor is unindexable), so an epoch floor would scan the whole
+-- `audit_partitioned` table on the first run and never finish under a
+-- `statement_timeout`. The floor must be at or below the timestamp of any row whose
+-- xid >= this snapshot xmin; the oldest in-flight `xact_start` is that bound when
+-- stats are visible (no restricted role / prepared 2PC txn), else a bounded 7-day
+-- window.
 --
--- Now the anchor records a recent floor (the oldest in-flight `xact_start` when
--- the stats privilege is available — a sound lower bound for any row whose xid
--- >= this snapshot xmin — else a bounded 7-day window), and `ON CONFLICT DO
--- UPDATE` advances the cursor to the current snapshot xmin on re-enable (never
--- backwards, so it stays HA-safe). Exporting the gap a disable left behind is
--- the job of the opt-in historical backfill, not this steady-state cursor.
+-- `ON CONFLICT DO UPDATE ... WHERE last_xmin <` keeps the cursor monotonic: a
+-- re-enable re-anchors it forward (so the export resumes from ~now rather than
+-- rescanning the disabled gap — that gap is the backfill's job), but it never moves
+-- backwards, so it is HA-safe and can't be regressed by a slower concurrent writer.
 --
 -- The task name literal must match
 -- `windmill_common::global_settings::AUDIT_LOGS_S3_EXPORT_TASK`.
@@ -54,16 +49,12 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- One-time recovery for an instance upgrading while a legacy epoch-sentinel
--- checkpoint is still in place (enabled on the old code but never drained — e.g.
--- the very full-table scan this migration removes left it stuck). Such a
--- checkpoint cannot be safely resumed: its un-drained backlog can be arbitrarily
--- old, so stamping a recent floor over the old xmin would prune the older rows
--- while the cursor advanced past them (silent loss), and keeping the epoch floor
--- would reintroduce the full scan. Instead re-anchor it to now, exactly like a
--- fresh enable — the export resumes cleanly from ~now, and the pre-upgrade window
--- (which was never successfully exported) is recovered with the opt-in historical
--- backfill rather than silently dropped.
+-- Recovery for a legacy epoch-sentinel checkpoint (`last_ts = epoch`, never
+-- drained). It cannot be safely resumed: its un-drained backlog can be arbitrarily
+-- old, so stamping a recent floor over the old xmin would prune the older rows while
+-- the cursor advanced past them (silent loss), and keeping the epoch floor would
+-- reintroduce the full scan. Re-anchor it to now like a fresh enable; the pre-anchor
+-- window is recoverable via the opt-in backfill, not silently dropped.
 UPDATE background_task_state
 SET value = jsonb_build_object(
         'last_xmin', txid_snapshot_xmin(txid_current_snapshot())::bigint,

@@ -25,8 +25,8 @@
 //!
 //! Scope: like the steady-state export, this reads only `audit_partitioned`. The
 //! pre-partitioning `audit` table is intentionally not exported; a window that
-//! starts before the earliest partitioned row is rejected (see [`try_start`]) so a
-//! backfill never silently reports success while omitting those legacy rows.
+//! overlaps any legacy `audit` row is rejected (see [`try_start`]) so a backfill
+//! never silently reports success while omitting them.
 //!
 //! Progress is persisted in `background_task_state` (name [`TASK_NAME`]) so any
 //! API replica can serve the status endpoint, mirroring `log_cleanup`.
@@ -218,25 +218,25 @@ pub async fn try_start(db: &DB, from: DateTime<Utc>, to: DateTime<Utc>) -> error
     }
     // The backfill (like the steady-state export) reads only `audit_partitioned`. Audit
     // history from before partitioning was introduced lives in the legacy `audit` table
-    // and is intentionally not exported. Reject a window that reaches before the earliest
-    // partitioned row, so a backfill can't report success while silently omitting those
-    // legacy rows (every legacy row predates the partition cutover, so a `from` at or
-    // after the earliest partitioned timestamp can never overlap them). Non-macro query:
-    // no compile-time-checked entry needed.
-    let partition_floor: Option<DateTime<Utc>> = sqlx::query_scalar::<_, Option<DateTime<Utc>>>(
-        "SELECT min(timestamp) FROM audit_partitioned",
+    // and is intentionally not exported. If the requested window overlaps any legacy row,
+    // reject — otherwise a "completed" backfill would silently omit them. Checking the
+    // legacy table directly (rather than min(audit_partitioned)) also covers an upgraded
+    // instance whose `audit_partitioned` is still empty, where a min() guard would no-op.
+    // Non-macro query: no compile-time-checked entry needed.
+    let overlaps_legacy: bool = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM audit WHERE timestamp >= $1 AND timestamp < $2)",
     )
+    .bind(from)
+    .bind(to)
     .fetch_one(db)
     .await?;
-    if let Some(floor) = partition_floor {
-        if from < floor {
-            return Err(error::Error::BadRequest(format!(
-                "audit backfill: `from` ({from}) is before the earliest partitioned audit row \
-                 ({floor}). Audit logs from before audit-log partitioning was introduced live in \
-                 the legacy `audit` table and are not exported to object storage; set `from` >= \
-                 {floor}."
-            )));
-        }
+    if overlaps_legacy {
+        return Err(error::Error::BadRequest(
+            "audit backfill: the requested window overlaps rows in the legacy (pre-partitioning) \
+             `audit` table, which is not exported to object storage. Restrict the window to the \
+             partitioned era (after audit-log partitioning was introduced)."
+                .to_string(),
+        ));
     }
     let claimed = background_task::try_claim(
         db,
@@ -667,29 +667,43 @@ mod tests {
         Ok(())
     }
 
-    // A window reaching before the earliest partitioned row is rejected: those
-    // pre-partitioning rows live in the legacy `audit` table and are not exported,
-    // so the backfill must not report success while silently omitting them.
-    #[sqlx::test(migrations = "../migrations")]
-    async fn backfill_rejects_pre_partition_window(db: DB) -> anyhow::Result<()> {
-        // Earliest partitioned row ~3 days ago.
-        insert_audit_days_ago(&db, "boundary", 3).await;
+    /// Insert a row into the legacy (non-partitioned) `audit` table at an exact time.
+    async fn insert_legacy_audit_at(db: &DB, operation: &str, ts: DateTime<Utc>) {
+        sqlx::query(
+            "INSERT INTO audit (workspace_id, username, operation, action_kind, parameters, timestamp)
+             VALUES ('test-ws','tester',$1,'create'::action_kind,'{}'::jsonb,$2)",
+        )
+        .bind(operation)
+        .bind(ts)
+        .execute(db)
+        .await
+        .expect("insert legacy audit row");
+    }
 
-        // `from` before the boundary -> rejected.
-        let from = Utc::now() - chrono::Duration::days(10);
+    // A window overlapping rows in the legacy (non-partitioned) `audit` table is rejected:
+    // those rows are not exported, so the backfill must not report success while silently
+    // omitting them. Covers the empty-`audit_partitioned` case (a min(partitioned) guard
+    // would no-op there).
+    #[sqlx::test(migrations = "../migrations")]
+    async fn backfill_rejects_window_overlapping_legacy(db: DB) -> anyhow::Result<()> {
+        // A legacy row ~5 days ago, and no partitioned rows at all.
+        insert_legacy_audit_at(&db, "legacy.row", Utc::now() - chrono::Duration::days(5)).await;
+
+        // A window covering it is rejected.
+        let from = Utc::now() - chrono::Duration::days(6);
         let to = Utc::now() - chrono::Duration::days(2);
         let err = try_start(&db, from, to).await.unwrap_err();
         assert!(
             matches!(err, error::Error::BadRequest(_)),
-            "a window starting before the earliest partitioned row must be rejected, got {err:?}"
+            "a window overlapping legacy audit rows must be rejected, got {err:?}"
         );
 
-        // `from` within the partitioned era (after the boundary) -> accepted.
-        let from_ok = Utc::now() - chrono::Duration::hours(60); // ~2.5d ago, > boundary
-        let to_ok = Utc::now() - chrono::Duration::days(2);
+        // A window clear of any legacy row is accepted.
+        let from_ok = Utc::now() - chrono::Duration::days(2);
+        let to_ok = Utc::now() - chrono::Duration::days(1);
         try_start(&db, from_ok, to_ok)
             .await
-            .expect("a window within the partitioned era is accepted");
+            .expect("a window with no legacy overlap is accepted");
         Ok(())
     }
 }
