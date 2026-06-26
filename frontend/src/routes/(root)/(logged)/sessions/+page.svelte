@@ -39,6 +39,7 @@
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
 	import { sessionPreviewUrl, withMenuHidden } from '$lib/components/sessions/sessionMode.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
+	import { setToolCompletionListener } from '$lib/components/copilot/chat/shared'
 	import { userWorkspaces } from '$lib/stores'
 	import { base } from '$lib/base'
 	import {
@@ -242,6 +243,36 @@
 			// still throw mid-navigation — keep the seeded path in that case.
 		}
 	}
+
+	// Reload every mounted preview tab so it reflects what a chat tool just wrote,
+	// deployed, or deleted. Mutating tools share a verb prefix; read/test/navigate
+	// tools (read_*, get_*, list_*, test_run_*, open_preview, …) don't match and
+	// so don't trigger a reload.
+	const tabFrames: Record<string, HTMLIFrameElement | undefined> = {}
+	const MUTATING_TOOL_RE = /^(write_|patch_|delete_|deploy_|discard_|set_|create_|update_|remove_)/
+	let reloadHandle: ReturnType<typeof setTimeout> | undefined
+	function reloadAllTabs() {
+		for (const tab of tabs) {
+			if (!mountedTabIds.has(tab.id)) continue
+			try {
+				tabFrames[tab.id]?.contentWindow?.location.reload()
+			} catch {
+				// Cross-navigation timing — skip; the next mutation reloads again.
+			}
+		}
+	}
+	$effect(() => {
+		// Debounced so a burst of writes (the AI editing several files) reloads once.
+		setToolCompletionListener((name) => {
+			if (!MUTATING_TOOL_RE.test(name)) return
+			clearTimeout(reloadHandle)
+			reloadHandle = setTimeout(reloadAllTabs, 500)
+		})
+		return () => {
+			clearTimeout(reloadHandle)
+			setToolCompletionListener(undefined)
+		}
+	})
 
 	// Editor-style breadcrumb over the previewed page. We only render clickable
 	// segments when the preview is sitting on a script/flow/app route — for any
@@ -529,6 +560,7 @@
 									{#each tabs as tab (tab.id)}
 										{#if mountedTabIds.has(tab.id)}
 											<iframe
+												bind:this={tabFrames[tab.id]}
 												src={withMenuHidden(tab.url)}
 												onload={(e) => onTabLoad(tab, e.currentTarget as HTMLIFrameElement)}
 												title="Session preview: {tabLabel(tab.loc)}"
