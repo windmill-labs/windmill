@@ -1189,21 +1189,12 @@ const _: () = {
             use std::fs::OpenOptions;
             use std::io::Write;
 
-            // Write to a unique sibling temp file then atomically rename over the target.
-            // A plain `write+create` (no truncate) leaves stale trailing bytes when the
-            // new value is shorter than the old, and concurrent writers interleave into a
-            // torn file — both yield a corrupt cache entry that imports as wrong content.
-            // rename(2) within the same directory is atomic, so a reader sees either the
-            // old or the new file whole, never a partial write. The temp name carries the
-            // pid + a counter so two processes sharing a cache volume can't clobber each
-            // other's in-flight write.
-            static PUT_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            // Atomic write: truncate+write a uniquely-named temp file (UUID, not pid — pids
+            // collide across container PID namespaces on a shared cache volume), fsync, then
+            // rename(2) over the target. Without this a shorter overwrite leaves a stale tail
+            // and concurrent writers tear the file — a corrupt entry a reader would import.
             let final_path = item.path(self);
-            let tmp_path = final_path.with_extension(format!(
-                "tmp.{}.{}",
-                std::process::id(),
-                PUT_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            ));
+            let tmp_path = final_path.with_extension(format!("tmp.{}", Uuid::new_v4()));
             OpenOptions::new()
                 .write(true)
                 .create(true)
