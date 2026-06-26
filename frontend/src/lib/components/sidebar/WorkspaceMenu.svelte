@@ -9,11 +9,9 @@
 		workspaceUsageStore,
 		workspaceColor,
 		clearWorkspaceFromStorage,
-		globalForkModal,
 		type UserWorkspace
 	} from '$lib/stores'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { Building, Plus, Settings, GitFork } from 'lucide-svelte'
+	import { Building, Plus } from 'lucide-svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
 	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
@@ -121,13 +119,16 @@
 
 <Menu {createMenu} usePointerDownOutside placement="bottom-start">
 	{#snippet triggr({ trigger })}
-		{@const iconColor = getContrastTextColor($workspaceColor)}
+		<!-- Family header reflects the family (root) color, not the active
+		     workspace's — switching into a fork must not recolor it. -->
+		{@const familyColor = currentFamily?.color ?? $workspaceColor}
+		{@const iconColor = getContrastTextColor(familyColor)}
 		<MenuButton
 			icon={Building}
 			iconProps={iconColor ? { style: `color: ${iconColor}` } : undefined}
 			label={currentFamily?.name ?? $workspaceStore ?? ''}
 			{isCollapsed}
-			color={$workspaceColor}
+			color={familyColor}
 			showChevron
 			emphasizeLabel
 			{trigger}
@@ -189,18 +190,6 @@
 					</MenuItem>
 				</div>
 			{/if}
-			{#if !strictWorkspaceSelect && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking') && $workspaceStore !== 'admins'}
-				<div class="py-1" role="none">
-					<MenuItem
-						class={itemClass}
-						{item}
-						onClick={() => (globalForkModal.val = { opened: true })}
-					>
-						<GitFork size={16} />
-						Fork current workspace
-					</MenuItem>
-				</div>
-			{/if}
 			{#if !strictWorkspaceSelect}
 				<div class="py-1" role="none">
 					<MenuItem
@@ -210,14 +199,6 @@
 						{item}
 					>
 						All workspaces
-					</MenuItem>
-				</div>
-			{/if}
-			{#if ($userStore?.is_admin || $superadmin) && !strictWorkspaceSelect}
-				<div class="py-1" role="none">
-					<MenuItem href="{base}/workspace_settings" class={itemClass} {item}>
-						<Settings size={16} />
-						Workspace settings
 					</MenuItem>
 				</div>
 			{/if}

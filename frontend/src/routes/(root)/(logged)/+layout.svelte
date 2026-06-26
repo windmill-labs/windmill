@@ -68,6 +68,7 @@
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
 	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
+	import WorkspaceScopeHeader from '$lib/components/sidebar/WorkspaceScopeHeader.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
@@ -577,16 +578,31 @@
 									style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 								>
 									<!-- Workspace picker as the drawer header (replaces the Windmill logo). -->
-									<div
-										class="flex-shrink-0 px-2 h-12 w-40 flex items-center border-b border-light dark:border-gray-700"
-									>
+									<div class="flex-shrink-0 px-2 h-12 w-40 flex items-center">
 										<Menubar class="w-full">
 											{#snippet children({ createMenu })}
 												<WorkspaceMenu {createMenu} />
 											{/snippet}
 										</Menubar>
 									</div>
-									<div class="px-2 py-4">
+									<!-- Family-scoped region: New AI session + the session list.
+									     w-40 cap: the drawer is max-w-min, and long session titles
+									     (nowrap before truncation) would otherwise inflate its
+									     min-content width to the full text width. -->
+									<div class="px-2 py-3 w-40">
+										<SessionPicker isCollapsed={false} embedded />
+									</div>
+
+									<!-- Divider: family-scoped region above, workspace-scoped below. -->
+									<div class="mx-3 border-t border-light dark:border-gray-700"></div>
+
+									<!-- Workspace scope: names the active root/fork. -->
+									<div class="pt-2 w-40">
+										<WorkspaceScopeHeader isCollapsed={false} />
+									</div>
+
+									<!-- Workspace-scoped region: Favorites + Search + workspace items. -->
+									<div class="px-2 pt-1 pb-2 w-40">
 										<Menubar>
 											{#snippet children({ createMenu })}
 												<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
@@ -601,13 +617,6 @@
 											class="!text-xs"
 											shortcut={`${getModifierKey()}k`}
 										/>
-									</div>
-
-									<!-- w-40 cap: the drawer is max-w-min, and long session titles
-									     (nowrap before truncation) would otherwise inflate its
-									     min-content width to the full text width. -->
-									<div class="w-40">
-										<SessionPicker isCollapsed={false} />
 									</div>
 
 									<SidebarContent
@@ -629,7 +638,7 @@
 						id="sidebar"
 						class={classNames(
 							'flex flex-col fixed inset-y-0 transition-all ease-in-out duration-200 z-40 ',
-							isCollapsed ? 'w-12' : 'w-48',
+							isCollapsed ? 'w-12' : 'w-52',
 							devOnly ? '!hidden' : ''
 						)}
 					>
@@ -638,16 +647,30 @@
 							style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 						>
 							<!-- Workspace picker as the sidebar header (replaces the Windmill logo). -->
-							<div
-								class="flex-shrink-0 px-2 h-12 flex items-center border-b border-light dark:border-gray-700"
-							>
+							<div class="flex-shrink-0 px-2 h-12 flex items-center">
 								<Menubar class="w-full">
 									{#snippet children({ createMenu })}
 										<WorkspaceMenu {createMenu} {isCollapsed} />
 									{/snippet}
 								</Menubar>
 							</div>
-							<div class="px-2 py-4 flex flex-col gap-1">
+							<!-- Family-scoped region: New AI session + the session list. These
+							     belong to the workspace family and don't change with the fork. -->
+							<div class="px-2 py-3 flex flex-col gap-1">
+								<SessionPicker {isCollapsed} embedded />
+							</div>
+
+							<!-- Divider: family-scoped region above, workspace-scoped below. -->
+							<div class="border-t border-light dark:border-gray-700"></div>
+
+							<!-- Workspace scope: names the active root/fork. Everything below
+							     reflects the selected workspace. -->
+							<div class="pt-2">
+								<WorkspaceScopeHeader {isCollapsed} />
+							</div>
+
+							<!-- Workspace-scoped region: Favorites + Search + workspace items. -->
+							<div class="px-2 pt-1 pb-2 flex flex-col gap-1">
 								<Menubar class="flex flex-col gap-1">
 									{#snippet children({ createMenu })}
 										<FavoriteMenu
@@ -666,8 +689,6 @@
 									class="!text-xs"
 									shortcut={`${getModifierKey()}k`}
 								/>
-
-								<SessionPicker {isCollapsed} embedded />
 							</div>
 
 							<SidebarContent

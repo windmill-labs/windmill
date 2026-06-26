@@ -13,7 +13,7 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import InputError from '$lib/components/InputError.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { Building, Check, GitFork, Plus } from 'lucide-svelte'
+	import { Building, Check, GitFork, Plus, Settings } from 'lucide-svelte'
 
 	type PendingFork = { id: string; name: string }
 	type ForkRequest = { parent_workspace_id: string; id: string; name: string }
@@ -28,19 +28,37 @@
 		pendingFork,
 		onPick,
 		onCreateFork,
+		// Alternative to onCreateFork's inline staging: when set, the
+		// "Create new fork…" row becomes a one-shot button that delegates to
+		// this callback (e.g. opening the global fork modal) instead of
+		// revealing the inline name input. Used where there's no pending draft
+		// to stage (the sidebar scope picker).
+		onRequestCreateFork,
 		allowCreateFork = true,
 		// Optional caption rendered under the new-fork input. Lets the
 		// consumer differentiate "staged for first send" vs. "will be
 		// created immediately" semantics.
 		createForkCaption = '',
+		// Forwarded to the dropdown trigger wrapper — e.g. `min-w-0` so the
+		// trigger can shrink and its label truncate inside a narrow container.
+		class: triggerClass = undefined,
+		// Optional settings link rendered at the very bottom of the menu (e.g.
+		// "<workspace> settings"). The consumer decides visibility (admin gate)
+		// and target href.
+		settingsHref,
+		settingsLabel,
 		trigger
 	}: {
 		selectedId?: string
 		pendingFork?: PendingFork
 		onPick: (workspaceId: string) => void | Promise<void>
 		onCreateFork?: (fork: ForkRequest) => void | Promise<void>
+		onRequestCreateFork?: () => void
 		allowCreateFork?: boolean
 		createForkCaption?: string
+		class?: string
+		settingsHref?: string
+		settingsLabel?: string
 		trigger: Snippet<[{ open: boolean }]>
 	} = $props()
 
@@ -81,9 +99,17 @@
 	// The interactive create-fork row is shown unless the cap is reached;
 	// otherwise (structural gate open but cap hit) we surface a disabled row
 	// explaining the limit — never stage a fork the backend would reject.
-	const forkAffordanceOpen = $derived(allowCreateFork && forksGateOpen && !!onCreateFork && !!root)
-	const showCreateFork = $derived(forkAffordanceOpen && !ceWorkspaceCapReached)
-	const showForkUpsell = $derived(forkAffordanceOpen && ceWorkspaceCapReached)
+	const forkAffordanceOpen = $derived(
+		allowCreateFork && forksGateOpen && (!!onCreateFork || !!onRequestCreateFork) && !!root
+	)
+	// The upsell (CE workspace cap) only applies to in-place inline creation;
+	// onRequestCreateFork delegates to a flow that enforces its own limits.
+	const showCreateFork = $derived(
+		forkAffordanceOpen && (!ceWorkspaceCapReached || !!onRequestCreateFork)
+	)
+	const showForkUpsell = $derived(
+		forkAffordanceOpen && ceWorkspaceCapReached && !onRequestCreateFork
+	)
 
 	let dropdownOpen = $state(false)
 	let creatingFork = $state(false)
@@ -106,9 +132,21 @@
 
 	function activateRow(row: NavRow) {
 		if (row.kind === 'create') {
-			void enterCreateMode()
+			requestCreateFork()
 		} else if (row.kind === 'root' || row.kind === 'fork') {
 			void pick(row.id)
+		}
+	}
+
+	// Delegated-create mode (onRequestCreateFork) closes the dropdown and hands
+	// off; inline mode reveals the name input.
+	function requestCreateFork() {
+		if (onRequestCreateFork) {
+			dropdownOpen = false
+			creatingFork = false
+			onRequestCreateFork()
+		} else {
+			void enterCreateMode()
 		}
 	}
 
@@ -222,6 +260,7 @@
 	placement="bottom-start"
 	fixedHeight={false}
 	usePointerDownOutside
+	class={triggerClass}
 >
 	{#snippet buttonReplacement()}
 		{@render trigger({ open: dropdownOpen })}
@@ -287,7 +326,7 @@
 						type="button"
 						class={`${rowBase} ${keyArrowPos === createIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
 						onmouseenter={() => (keyArrowPos = createIdx)}
-						onclick={() => enterCreateMode()}
+						onclick={() => requestCreateFork()}
 					>
 						<Plus size={14} class="shrink-0 text-tertiary" />
 						<span>Create new fork…</span>
@@ -341,6 +380,17 @@
 					<span class="truncate">{pendingFork.name}</span>
 					<span class="text-2xs text-tertiary italic shrink-0 ml-auto">New</span>
 				</div>
+			{/if}
+			{#if settingsHref}
+				<div class="my-1 border-t border-border-light shrink-0"></div>
+				<a
+					href={settingsHref}
+					onclick={() => (dropdownOpen = false)}
+					class={`${rowBase} hover:bg-surface-hover text-secondary`}
+				>
+					<Settings size={14} class="shrink-0 text-tertiary" />
+					<span class="truncate">{settingsLabel ?? 'Workspace settings'}</span>
+				</a>
 			{/if}
 		</div>
 	{/snippet}

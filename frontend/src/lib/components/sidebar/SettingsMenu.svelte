@@ -1,17 +1,39 @@
 <script lang="ts">
-	import { Settings, User, ServerCog, Logs, HelpCircle, LogOut, ChevronDown } from 'lucide-svelte'
+	import {
+		Settings,
+		User,
+		ServerCog,
+		Logs,
+		HelpCircle,
+		LogOut,
+		ChevronDown,
+		Building
+	} from 'lucide-svelte'
 	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
 	import { type Item } from '$lib/utils'
 	import { logout } from '$lib/logoutKit'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { USER_SETTINGS_HASH, SUPERADMIN_SETTINGS_HASH } from './settings'
+	import { userWorkspaces, workspaceStore, userStore, superadmin } from '$lib/stores'
 
 	let { isCollapsed = false }: { isCollapsed?: boolean } = $props()
 
+	const currentWs = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
+	const canManageWorkspace = $derived($userStore?.is_admin || $superadmin)
+
 	// Account / instance actions gathered under one "Settings" dropdown, shared by
 	// the session rail and the global sidebar so both expose the same entry point.
-	const items: Item[] = [
+	const items = $derived<Item[]>([
+		...(canManageWorkspace
+			? [
+					{
+						displayName: `${currentWs?.name ?? $workspaceStore ?? 'Workspace'} settings`,
+						icon: Building,
+						href: `${base}/workspace_settings`
+					}
+				]
+			: []),
 		{ displayName: 'User', icon: User, action: () => goto(USER_SETTINGS_HASH) },
 		{
 			displayName: 'Instance settings',
@@ -27,7 +49,7 @@
 			hrefTarget: '_blank'
 		},
 		{ displayName: 'Logout', icon: LogOut, action: () => logout(), separatorTop: true }
-	]
+	])
 </script>
 
 <DropdownV2 {items} placement="top-start" class="w-full">

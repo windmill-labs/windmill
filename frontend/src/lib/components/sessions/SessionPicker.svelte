@@ -10,6 +10,7 @@
 		Filter,
 		GitFork,
 		MessageSquare,
+		MessageSquarePlus,
 		Pencil,
 		PencilLine,
 		Plus,
@@ -562,11 +563,11 @@
 			: ''}"
 	>
 		<!-- New-session action styled like the other sidebar entries (Favorites,
-		     Search) — replaces the small header "+" affordance. -->
+		     Search). -->
 		<MenuButton
 			on:click={createAndOpen}
 			{isCollapsed}
-			icon={Plus}
+			icon={MessageSquarePlus}
 			label="New AI session"
 			class="!text-xs"
 		/>

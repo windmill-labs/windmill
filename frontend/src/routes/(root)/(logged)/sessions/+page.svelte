@@ -29,7 +29,7 @@
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
 	import { sessionPreviewUrl, withMenuHidden } from '$lib/components/sessions/sessionMode.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
-	import { userWorkspaces } from '$lib/stores'
+	import { userWorkspaces, type UserWorkspace } from '$lib/stores'
 
 	const globalEnabled = isGlobalAiEnabled()
 
@@ -128,9 +128,36 @@
 	// Collapse the preview panel to give the chat the full width.
 	let previewCollapsed = $state(false)
 
-	// Path shown in the breadcrumb. Seeded from the preview URL, then refreshed
-	// from the iframe on navigation (same-origin) so it tracks where the user
-	// browses inside the preview.
+	// Workspace breadcrumb shown in the preview header: the session's family · fork.
+	function findSessionRoot(id: string | undefined): UserWorkspace | undefined {
+		if (!id) return undefined
+		let current = $userWorkspaces.find((w) => w.id === id)
+		while (current?.parent_workspace_id) {
+			const parent = $userWorkspaces.find((w) => w.id === current!.parent_workspace_id)
+			if (!parent) break
+			current = parent
+		}
+		return current
+	}
+	const sessionWsId = $derived(
+		activeSession ? (activeSession.workspace_id ?? activeSession.pending_workspace_id) : undefined
+	)
+	const sessionWs = $derived(
+		sessionWsId ? $userWorkspaces.find((w) => w.id === sessionWsId) : undefined
+	)
+	const sessionRoot = $derived(findSessionRoot(sessionWsId))
+	const sessionFamilyName = $derived(sessionRoot?.name ?? sessionWs?.name ?? sessionWsId)
+	const sessionIsFork = $derived(
+		!!activeSession?.pending_fork ||
+			(!!sessionWs && !!sessionRoot && sessionWs.id !== sessionRoot.id)
+	)
+	const sessionForkName = $derived(
+		activeSession?.pending_fork?.name ?? (sessionIsFork ? sessionWs?.name : 'main')
+	)
+
+	// Page path shown after the workspace breadcrumb. Seeded from the preview URL,
+	// then refreshed from the iframe on navigation (same-origin) so it tracks where
+	// the user browses inside the preview.
 	let displayPath = $state('')
 	$effect(() => {
 		displayPath = previewUrl
@@ -207,7 +234,7 @@
 									? ''
 									: 'rounded-md border border-light'}"
 							>
-								<!-- Breadcrumb: reflects what the preview iframe is showing. -->
+								<!-- Workspace breadcrumb: the session's family · fork. -->
 								<div
 									class="pl-1 pr-3 h-8 flex items-center gap-1.5 border-b border-light shrink-0 text-xs text-secondary"
 								>
@@ -224,8 +251,14 @@
 											<PanelRightClose size={14} />
 										</button>
 									{/if}
-									<span class="text-tertiary">Viewing</span>
-									<span class="font-mono truncate">{displayPath}</span>
+									<span class="shrink-0 whitespace-nowrap">
+										<span class="text-primary font-medium">{sessionFamilyName}</span>
+										<span class="text-tertiary px-1">·</span>
+										<span class={sessionIsFork ? 'text-accent font-medium' : 'text-tertiary'}>
+											{sessionForkName}
+										</span>
+									</span>
+									<span class="font-mono truncate min-w-0">{displayPath}</span>
 									<a
 										href={previewUrl}
 										title="Open full page"
