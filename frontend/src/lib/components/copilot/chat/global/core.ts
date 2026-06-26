@@ -55,6 +55,7 @@ import { createInlineScriptSession } from '../flow/inlineScriptsUtils'
 import {
 	getDatatableSdkReference,
 	getFlowPrompt,
+	getPipelinePrompt,
 	getRawAppPrompt,
 	getResourcePrompt,
 	getScriptPrompt
@@ -137,7 +138,9 @@ const INSTRUCTION_SUBJECTS = [
 ] as const satisfies readonly WorkspaceItemType[]
 // `datatable` is not a workspace item type, but the model can request the
 // datatable SDK reference (the wmill.datatable() runnable API) the same way.
-const INSTRUCTION_SUBJECTS_EXTRA = ['datatable'] as const
+// `pipeline` likewise isn't an item type — a data pipeline is a set of
+// annotated scripts in a folder, so it gets authoring guidance, not a CRUD type.
+const INSTRUCTION_SUBJECTS_EXTRA = ['datatable', 'pipeline'] as const
 const ALL_INSTRUCTION_SUBJECTS = [...INSTRUCTION_SUBJECTS, ...INSTRUCTION_SUBJECTS_EXTRA] as const
 const MAX_LIST_LIMIT = 100
 type ActiveGlobalEditorType = Extract<WorkspaceItemType, 'script' | 'flow' | 'app'>
@@ -170,7 +173,7 @@ const scriptLangSchema = z.enum($ScriptLang.enum)
 
 const getInstructionsSchema = z.object({
 	subject: instructionSubjectSchema.describe(
-		'What to get authoring instructions for: a workspace item type (script, flow, resource, app) or "datatable" for the wmill.datatable() SQL SDK used inside runnables. Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
+		'What to get authoring instructions for: a workspace item type (script, flow, resource, app), "pipeline" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or "datatable" for the wmill.datatable() SQL SDK used inside runnables. Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
 	),
 	language: scriptLangSchema
 		.optional()
@@ -774,6 +777,7 @@ Rules:
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
 - Use search_resource_types before write_resource.
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
+- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via \`// pipeline\` / \`// on\` annotations. When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
@@ -1556,6 +1560,10 @@ Datatables are workspace-scoped managed PostgreSQL databases. In chat, explore a
 ${getDatatableSdkReference(lang)}`
 }
 
+function getPipelineInstructions(): string {
+	return getPipelinePrompt()
+}
+
 function getInstructions(subject: InstructionSubject, language?: ScriptLang): string {
 	switch (subject) {
 		case 'script':
@@ -1568,6 +1576,8 @@ function getInstructions(subject: InstructionSubject, language?: ScriptLang): st
 			return getAppInstructions()
 		case 'datatable':
 			return getDatatableInstructions(language)
+		case 'pipeline':
+			return getPipelineInstructions()
 	}
 }
 
@@ -1620,7 +1630,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			getInstructionsSchema,
 			'get_instructions',
-			'Get authoring guidance for scripts, flows, resources, apps, or the datatable SQL SDK (wmill.datatable()) used inside runnables.'
+			'Get authoring guidance for scripts, flows, data pipelines, resources, apps, or the datatable SQL SDK (wmill.datatable()) used inside runnables.'
 		),
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsed = getInstructionsSchema.parse(args)
