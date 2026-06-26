@@ -105,8 +105,14 @@ async fn record_materialization(
     // Schema capture is independently best-effort (its own transaction for the
     // per-asset advisory lock) and must never roll back the partition record
     // above — mirroring the worker's `record_mat`. A lost schema version
-    // degrades the history, not the run.
-    if let Some(columns) = req.schema.as_ref() {
+    // degrades the history, not the run. Only a successful (`Materialized`) write
+    // advances the recorded schema — a failed/running write must not (and a
+    // client shouldn't be able to bump the history by attaching a schema to one).
+    let is_materialized = matches!(
+        req.status,
+        windmill_common::materialization::MaterializationStatus::Materialized
+    );
+    if let (true, Some(columns)) = (is_materialized, req.schema.as_ref()) {
         let res: windmill_common::error::Result<()> = async {
             let mut tx = user_db.clone().begin(&authed).await?;
             windmill_common::materialization::record_asset_schema(
