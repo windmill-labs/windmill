@@ -30,6 +30,23 @@
 	import { sessionPreviewUrl, withMenuHidden } from '$lib/components/sessions/sessionMode.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { userWorkspaces, type UserWorkspace } from '$lib/stores'
+	import { base } from '$lib/base'
+	import PreviewRouterSegment from '$lib/components/sessions/PreviewRouterSegment.svelte'
+	import {
+		matchPreviewPage,
+		pageKey,
+		stripBase,
+		type PreviewTarget
+	} from '$lib/components/sessions/previewRouter'
+	import {
+		dirKey,
+		editPathFor,
+		KIND_LABEL_LOWER,
+		kindKey,
+		leafKeyFor,
+		type WorkspaceItem,
+		type WorkspaceItemKind
+	} from '$lib/components/workspacePicker'
 
 	const globalEnabled = isGlobalAiEnabled()
 
@@ -123,7 +140,15 @@
 	// `iframeSrc` hides the previewed page's own sidebar (the sessions page
 	// already provides navigation).
 	const previewUrl = $derived(sessionPreviewUrl(activeSession))
-	const iframeSrc = $derived(withMenuHidden(previewUrl))
+	// Lets the breadcrumb picker steer the preview to another item without
+	// leaving the sessions page. Cleared whenever the active session changes so
+	// each session re-opens on its own captured/target view.
+	let previewOverrideUrl = $state<string | undefined>(undefined)
+	$effect(() => {
+		void activeSession?.id
+		untrack(() => (previewOverrideUrl = undefined))
+	})
+	const iframeSrc = $derived(withMenuHidden(previewOverrideUrl ?? previewUrl))
 	let fullscreen = $state(false)
 	// Collapse the preview panel to give the chat the full width.
 	let previewCollapsed = $state(false)
@@ -175,6 +200,59 @@
 			// Best-effort: the preview is same-origin, but reading location could
 			// still throw mid-navigation — keep the seeded path in that case.
 		}
+	}
+
+	// Editor-style breadcrumb over the previewed page. We only render clickable
+	// segments when the preview is sitting on a script/flow/app route — for any
+	// other page (home, runs, …) there's no item to drill into, so we fall back
+	// to the plain path.
+	type ParsedRoute = { kind: WorkspaceItemKind; raw_app: boolean; itemPath: string }
+	function parseItemRoute(fullPath: string): ParsedRoute | null {
+		const p = stripBase(fullPath)
+		const m = p.match(/^\/(scripts|flows|apps|apps_raw)\/(?:edit|get)\/(.+)$/)
+		if (!m) return null
+		const itemPath = decodeURIComponent(m[2])
+		if (m[1] === 'scripts') return { kind: 'script', raw_app: false, itemPath }
+		if (m[1] === 'flows') return { kind: 'flow', raw_app: false, itemPath }
+		if (m[1] === 'apps_raw') return { kind: 'app', raw_app: true, itemPath }
+		return { kind: 'app', raw_app: false, itemPath }
+	}
+
+	const parsedRoute = $derived(parseItemRoute(displayPath))
+
+	// Split the item path into breadcrumb dirs + leaf, mirroring EditorHeader:
+	// scope (`f/<folder>` | `u/<user>`) → subfolders → item name.
+	const segments = $derived.by(() => {
+		const itemPath = parsedRoute?.itemPath
+		if (!itemPath) return null
+		const parts = itemPath.split('/')
+		if (parts.length < 3) return null
+		const scope = parts.slice(0, 2).join('/')
+		const slug = parts.slice(2)
+		const dirs: { name: string; fullPath: string }[] = [{ name: scope, fullPath: scope }]
+		let acc = scope
+		for (let i = 0; i < slug.length - 1; i++) {
+			acc = `${acc}/${slug[i]}`
+			dirs.push({ name: slug[i], fullPath: acc })
+		}
+		const leaf = { name: slug[slug.length - 1], fullPath: itemPath }
+		return { dirs, leaf }
+	})
+
+	const currentItem = $derived<WorkspaceItem & { savedPath?: string }>({
+		path: parsedRoute?.itemPath ?? '',
+		summary: '',
+		kind: parsedRoute?.kind ?? 'script',
+		raw_app: parsedRoute?.raw_app ?? false
+	})
+
+	// On a non-item page, identify the known workspace page so the fallback
+	// segment shows its name (e.g. "Workspace settings") and the picker
+	// highlights it.
+	const currentPage = $derived(parsedRoute ? undefined : matchPreviewPage(displayPath))
+
+	function navigatePreviewTo(target: PreviewTarget) {
+		previewOverrideUrl = target.type === 'page' ? target.href : `${base}${editPathFor(target.item)}`
 	}
 </script>
 
@@ -258,7 +336,67 @@
 											{sessionForkName}
 										</span>
 									</span>
-									<span class="font-mono truncate min-w-0">{displayPath}</span>
+									{#if parsedRoute}
+										<nav
+											aria-label="Breadcrumb"
+											class="flex items-center min-w-0 font-mono text-secondary"
+										>
+											<PreviewRouterSegment
+												label={KIND_LABEL_LOWER[parsedRoute.kind]}
+												initialScope={undefined}
+												initialHighlight={kindKey(parsedRoute.kind)}
+												isCurrent={!segments}
+												{currentItem}
+												onPick={navigatePreviewTo}
+											/>
+											{#if segments}
+												{#each segments.dirs as dir, i (dir.fullPath)}
+													{@const dKey = dirKey('all', dir.fullPath)}
+													<PreviewRouterSegment
+														label={dir.name}
+														withChevron
+														extraClass={i === 0 ? 'gap-0.5 min-w-0 max-w-[40%]' : 'gap-0.5 min-w-0'}
+														initialScope={i === 0
+															? { kind: 'all' }
+															: { kind: 'all', dir: segments.dirs[i - 1].fullPath }}
+														initialHighlight={dKey}
+														{currentItem}
+														onPick={navigatePreviewTo}
+													/>
+												{/each}
+												{@const leafKey = leafKeyFor(parsedRoute.kind, segments.leaf.fullPath)}
+												{@const leafParent = segments.dirs[segments.dirs.length - 1]?.fullPath}
+												<PreviewRouterSegment
+													label={segments.leaf.name}
+													withChevron
+													extraClass="gap-0.5 min-w-0"
+													initialScope={leafParent
+														? { kind: 'all', dir: leafParent }
+														: { kind: 'all' }}
+													initialHighlight={leafKey}
+													isCurrent
+													{currentItem}
+													onPick={navigatePreviewTo}
+												/>
+											{/if}
+										</nav>
+									{:else}
+										<!-- Non-item page (home, runs, settings, …): the segment is still a
+										     full router so you can jump anywhere from here. -->
+										<nav
+											aria-label="Breadcrumb"
+											class="flex items-center min-w-0 font-mono text-secondary"
+										>
+											<PreviewRouterSegment
+												label={currentPage?.label ?? (displayPath || '/')}
+												extraClass="min-w-0 truncate"
+												initialHighlight={currentPage ? pageKey(currentPage.path) : undefined}
+												isCurrent
+												{currentItem}
+												onPick={navigatePreviewTo}
+											/>
+										</nav>
+									{/if}
 									<a
 										href={previewUrl}
 										title="Open full page"
