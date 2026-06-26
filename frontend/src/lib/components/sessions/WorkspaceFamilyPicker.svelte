@@ -79,11 +79,12 @@
 	const isAdmin = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin)
 	const rootDisabled = $derived(!isAdmin && !!devOfRoot)
 
-	// Structural gate, same as the sidebar WorkspaceMenu / SessionWorkspaceBar:
-	// when closed (cloud / DisableWorkspaceForking rule / admins workspace) the
-	// fork affordance is hidden entirely.
+	// Structural gate: hidden on cloud, in the admins workspace, or when the user
+	// can't fork. DisableWorkspaceForking on the active workspace (a locked prod)
+	// doesn't apply when there's a dev to fork from instead — the dev isn't
+	// locked, and devOfRoot only resolves when the user is a member of it.
 	const forksGateOpen = $derived(
-		!isCloudHosted() && canCreateFork($userStore) && $workspaceStore !== 'admins'
+		!isCloudHosted() && $workspaceStore !== 'admins' && (canCreateFork($userStore) || !!devOfRoot)
 	)
 	// A fork is a new workspace, so it's subject to the community-edition cap on
 	// the number of non-'admins' workspaces (backend _check_nb_of_workspaces,
@@ -107,6 +108,10 @@
 	let creatingFork = $state(false)
 	let newForkName = $state('')
 	let forkInput: TextInput | undefined = $state(undefined)
+	// Admins get a second entry to fork the prod root directly (the default forks
+	// the dev). `forkFromRoot` tracks which source the create input is for.
+	let forkFromRoot = $state(false)
+	const effectiveForkSource = $derived(forkFromRoot ? root : forkSource)
 
 	// Manual keyboard navigation, modelled after SelectDropdown. melt's
 	// menu API couples Enter/Space to closing the menu, which we explicitly
@@ -151,7 +156,8 @@
 		await onPick(id)
 	}
 
-	async function enterCreateMode(initialName?: string) {
+	async function enterCreateMode(initialName?: string, fromRoot = false) {
+		forkFromRoot = fromRoot
 		creatingFork = true
 		newForkName = initialName ?? defaultForkName()
 		await tick()
@@ -162,6 +168,7 @@
 	function cancelCreate() {
 		creatingFork = false
 		newForkName = ''
+		forkFromRoot = false
 	}
 
 	function slugForkBaseId(name: string): string {
@@ -186,15 +193,16 @@
 
 	async function stageNewFork() {
 		const name = newForkName.trim()
-		if (!forkSource || !name || forkNameError || !onCreateFork) return
+		if (!effectiveForkSource || !name || forkNameError || !onCreateFork) return
 		const baseId = slugForkBaseId(name)
 		if (!baseId) return
 		const prefixed = `${WM_FORK_PREFIX}${baseId}`
 		// Close optimistically; consumer can re-open + toast on error.
 		creatingFork = false
 		newForkName = ''
+		forkFromRoot = false
 		dropdownOpen = false
-		await onCreateFork({ parent_workspace_id: forkSource.id, id: prefixed, name })
+		await onCreateFork({ parent_workspace_id: effectiveForkSource.id, id: prefixed, name })
 	}
 
 	function isSelected(id: string): boolean {
@@ -312,6 +320,16 @@
 						<Plus size={14} class="shrink-0 text-tertiary" />
 						<span>{createForkLabel}</span>
 					</button>
+					{#if isAdmin && devOfRoot}
+						<button
+							type="button"
+							class={`${rowBase} hover:bg-surface-hover`}
+							onclick={() => enterCreateMode(undefined, true)}
+						>
+							<Plus size={14} class="shrink-0 text-tertiary" />
+							<span>Fork from {root?.name}</span>
+						</button>
+					{/if}
 				{/if}
 				<div class="my-1 border-t border-border-light shrink-0"></div>
 			{:else if showForkUpsell}

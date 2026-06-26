@@ -6,6 +6,7 @@
 		isRuleActive
 	} from '$lib/workspaceProtectionRules.svelte'
 	import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
+	import { canCreateFork } from '$lib/utils/editInFork'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { Alert, Button } from './common'
 	import { GitFork } from 'lucide-svelte'
@@ -13,6 +14,14 @@
 	let activeDeployRulesets = $derived(getActiveRulesetsForKind('DisableDirectDeployment'))
 	let canBypass = $derived(canUserBypassRuleKind('DisableDirectDeployment', $userStore))
 	let canonicalDev = $derived(findCanonicalDevWorkspace($workspaceStore, $userWorkspaces))
+	// Forking may itself be blocked by DisableWorkspaceForking, so only suggest it
+	// when the user can actually fork this workspace.
+	let canFork = $derived(canCreateFork($userStore))
+	let editAdvice = $derived(
+		canFork
+			? 'You will need to either fork the workspace, or make your changes locally and submit a PR to an authorized user.'
+			: 'You will need to make your changes locally and submit a PR to an authorized user.'
+	)
 	let overrideChecked = $state(false)
 	let canEdit = $derived(!isRuleActive('DisableDirectDeployment') || (canBypass && overrideChecked))
 
@@ -55,9 +64,8 @@
 					<p>
 						The rule{activeDeployRulesets.length > 1 ? 's' : ''}
 						<b>{activeDeployRulesets.map((r) => r.name).join(', ')}</b>
-						restrict{activeDeployRulesets.length > 1 ? '' : 's'} direct edits to this workspace. You
-						will need to either fork the workspace, or make your changes locally and submit a PR to an
-						authorized user.
+						restrict{activeDeployRulesets.length > 1 ? '' : 's'} direct edits to this workspace.
+						{editAdvice}
 					</p>
 				{/if}
 				{#if canBypass}
