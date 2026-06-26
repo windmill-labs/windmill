@@ -27,6 +27,7 @@
 	import FlowEditorView from './FlowEditorView.svelte'
 	import ScriptEditorView from './ScriptEditorView.svelte'
 	import RawAppEditorView from './RawAppEditorView.svelte'
+	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
 	import SessionForkBar from './SessionForkBar.svelte'
 	import SessionDraftBar from './SessionDraftBar.svelte'
 	import {
@@ -276,6 +277,9 @@
 	{@const hasEditor = mountEditor && hasTarget && editorVisible && !hideEditor}
 
 	{#snippet inputPreface()}
+		{#if !hasFirstUserMessage}
+			<SessionWorkspaceBar {session} />
+		{/if}
 		<!-- gap-1 (4px) spaces the fork bar and draft bar when both are visible.
 		     Each bar renders a single in-flow root (or nothing); the draft drawer
 		     is position:fixed, so it doesn't count as a flex item — no stray gap

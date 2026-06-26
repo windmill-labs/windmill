@@ -28,12 +28,6 @@
 		pendingFork,
 		onPick,
 		onCreateFork,
-		// Alternative to onCreateFork's inline staging: when set, the
-		// "Create new fork…" row becomes a one-shot button that delegates to
-		// this callback (e.g. opening the global fork modal) instead of
-		// revealing the inline name input. Used by the global breadcrumb's
-		// direct (non-session) mode where there's no pending draft to stage.
-		onRequestCreateFork,
 		allowCreateFork = true,
 		// Optional caption rendered under the new-fork input. Lets the
 		// consumer differentiate "staged for first send" vs. "will be
@@ -45,7 +39,6 @@
 		pendingFork?: PendingFork
 		onPick: (workspaceId: string) => void | Promise<void>
 		onCreateFork?: (fork: ForkRequest) => void | Promise<void>
-		onRequestCreateFork?: () => void
 		allowCreateFork?: boolean
 		createForkCaption?: string
 		trigger: Snippet<[{ open: boolean }]>
@@ -88,17 +81,9 @@
 	// The interactive create-fork row is shown unless the cap is reached;
 	// otherwise (structural gate open but cap hit) we surface a disabled row
 	// explaining the limit — never stage a fork the backend would reject.
-	const forkAffordanceOpen = $derived(
-		allowCreateFork && forksGateOpen && (!!onCreateFork || !!onRequestCreateFork) && !!root
-	)
-	// The upsell (CE workspace cap) only applies to in-place inline creation;
-	// onRequestCreateFork delegates to a flow that enforces its own limits.
-	const showCreateFork = $derived(
-		forkAffordanceOpen && (!ceWorkspaceCapReached || !!onRequestCreateFork)
-	)
-	const showForkUpsell = $derived(
-		forkAffordanceOpen && ceWorkspaceCapReached && !onRequestCreateFork
-	)
+	const forkAffordanceOpen = $derived(allowCreateFork && forksGateOpen && !!onCreateFork && !!root)
+	const showCreateFork = $derived(forkAffordanceOpen && !ceWorkspaceCapReached)
+	const showForkUpsell = $derived(forkAffordanceOpen && ceWorkspaceCapReached)
 
 	let dropdownOpen = $state(false)
 	let creatingFork = $state(false)
@@ -121,21 +106,9 @@
 
 	function activateRow(row: NavRow) {
 		if (row.kind === 'create') {
-			requestCreateFork()
+			void enterCreateMode()
 		} else if (row.kind === 'root' || row.kind === 'fork') {
 			void pick(row.id)
-		}
-	}
-
-	// Delegated-create mode (onRequestCreateFork) closes the dropdown and hands
-	// off; inline mode reveals the name input.
-	function requestCreateFork() {
-		if (onRequestCreateFork) {
-			dropdownOpen = false
-			creatingFork = false
-			onRequestCreateFork()
-		} else {
-			void enterCreateMode()
 		}
 	}
 
@@ -314,7 +287,7 @@
 						type="button"
 						class={`${rowBase} ${keyArrowPos === createIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
 						onmouseenter={() => (keyArrowPos = createIdx)}
-						onclick={() => requestCreateFork()}
+						onclick={() => enterCreateMode()}
 					>
 						<Plus size={14} class="shrink-0 text-tertiary" />
 						<span>Create new fork…</span>
