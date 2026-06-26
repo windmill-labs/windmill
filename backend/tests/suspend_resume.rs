@@ -630,9 +630,8 @@ mod suspend_resume {
     }
 
     /// A step that declares a `suspend` but is skipped via `skip_if` never arms
-    /// its approval, so it must not gate the following step. Before the fix,
-    /// `needs_resume` treated the skipped step's `Success` status as a real
-    /// suspend and parked the flow forever waiting for a resume that never came.
+    /// its approval, so it must not gate the following step. If it did, the flow
+    /// would park forever waiting for a resume event that is never dispatched.
     #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base"))]
     async fn skipped_suspend_step_does_not_block_next_step(
