@@ -177,7 +177,7 @@ where
     let flow_value: FlowValue = serde_json::from_str(raw_value.get())
         .map_err(|e| serde::de::Error::custom(format!("Invalid flow value: {}", e)))?;
 
-    FlowModule::traverse_modules(&flow_value.modules, &mut |module| {
+    let mut validate_module = |module: &FlowModule| -> anyhow::Result<()> {
         if let Some(ref retry) = module.retry {
             validate_retry(retry, &module.id)?;
         }
@@ -194,17 +194,21 @@ where
                 ));
             }
         }
-        return Ok(());
-    })
-    .map_err(|e| serde::de::Error::custom(e.to_string()))?;
+        Ok(())
+    };
 
-    if let Some(ref _failure_module) = flow_value.failure_module {
-        //add validation logic here for failure module
-    }
-
-    if let Some(ref _preprocessor_module) = flow_value.preprocessor_module {
-        //add validation logic here for preprocessor module
-    }
+    // The API is the authoritative guard (it can be called directly, bypassing the CLI), so
+    // it must cover every step that resolves a path: the main modules AND the failure /
+    // preprocessor modules (which can themselves be sub-flows/loops/branches).
+    let extra_modules: Vec<FlowModule> = flow_value
+        .failure_module
+        .iter()
+        .chain(flow_value.preprocessor_module.iter())
+        .map(|m| (**m).clone())
+        .collect();
+    FlowModule::traverse_modules(&flow_value.modules, &mut validate_module)
+        .and_then(|()| FlowModule::traverse_modules(&extra_modules, &mut validate_module))
+        .map_err(|e| serde::de::Error::custom(e.to_string()))?;
 
     Ok(raw_value)
 }
@@ -1306,6 +1310,30 @@ mod tests {
             err.contains("not a workspace path"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn flow_rejects_absolute_path_in_failure_and_preprocessor_modules() {
+        for slot in ["failure_module", "preprocessor_module"] {
+            let bad = json!({
+                "path": "f/test/flow",
+                "summary": "",
+                "value": {
+                    "modules": [],
+                    slot: {
+                        "id": slot,
+                        "value": {"type": "script", "path": "/abs/path", "input_transforms": {}}
+                    }
+                }
+            });
+            let err = serde_json::from_value::<NewFlow>(bad)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains("not a workspace path"),
+                "{slot} should be validated, got: {err}"
+            );
+        }
     }
 
     #[test]
