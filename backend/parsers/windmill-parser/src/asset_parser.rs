@@ -376,6 +376,28 @@ impl ParseAssetsOutput {
     }
 }
 
+// Combine column lineage inferred from the body (SQL AST) with lineage declared
+// via `// column` annotations. The annotation is the *override*: where both
+// describe the same output column, the explicit declaration wins and the
+// inferred entry is dropped. Inferred entries are also deduped by output column
+// among themselves (first wins). Used by the language asset-parsers so a
+// `// column` line can correct a mis-inferred edge without disabling inference
+// for the rest of the columns.
+pub fn merge_column_lineage(
+    inferred: Vec<ColumnLineage>,
+    annotated: Vec<ColumnLineage>,
+) -> Vec<ColumnLineage> {
+    let mut seen: std::collections::HashSet<String> =
+        annotated.iter().map(|c| c.column.clone()).collect();
+    let mut out = annotated;
+    for c in inferred {
+        if seen.insert(c.column.clone()) {
+            out.push(c);
+        }
+    }
+    out
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct DelegateToGitRepoDetails {
     pub resource: String,
@@ -1704,6 +1726,44 @@ mod pipeline_annotation_tests {
                 }],
             }]
         );
+    }
+
+    #[test]
+    fn merge_column_lineage_annotation_overrides_inferred() {
+        let inferred = vec![
+            ColumnLineage {
+                column: "total".to_string(),
+                inputs: vec![ColumnRef {
+                    from_kind: AssetKind::Ducklake,
+                    from_path: "w/o".to_string(),
+                    from_column: "amount".to_string(),
+                }],
+            },
+            ColumnLineage {
+                column: "qty".to_string(),
+                inputs: vec![ColumnRef {
+                    from_kind: AssetKind::Ducklake,
+                    from_path: "w/o".to_string(),
+                    from_column: "qty".to_string(),
+                }],
+            },
+        ];
+        // Annotation redefines `total` (wins) and leaves `qty` to inference.
+        let annotated = vec![ColumnLineage {
+            column: "total".to_string(),
+            inputs: vec![ColumnRef {
+                from_kind: AssetKind::DataTable,
+                from_path: "prod/x".to_string(),
+                from_column: "grand_total".to_string(),
+            }],
+        }];
+        let merged = merge_column_lineage(inferred, annotated);
+        assert_eq!(merged.len(), 2);
+        // Annotation entry kept first and authoritative.
+        assert_eq!(merged[0].column, "total");
+        assert_eq!(merged[0].inputs[0].from_column, "grand_total");
+        // Inferred `qty` survives (no annotation for it); inferred `total` dropped.
+        assert_eq!(merged[1].column, "qty");
     }
 
     #[test]

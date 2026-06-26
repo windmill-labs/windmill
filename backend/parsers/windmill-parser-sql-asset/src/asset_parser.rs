@@ -9,8 +9,9 @@ use sqlparser::{
     parser::Parser,
 };
 use windmill_parser::asset_parser::{
-    asset_was_used, merge_assets, parse_asset_syntax, parse_pipeline_annotations, AssetKind,
-    AssetUsageAccessType, ParseAssetsOutput, ParseAssetsResult,
+    asset_was_used, merge_assets, merge_column_lineage, parse_asset_syntax,
+    parse_pipeline_annotations, AssetKind, AssetUsageAccessType, ColumnLineage, ColumnRef,
+    ParseAssetsOutput, ParseAssetsResult,
 };
 use AssetUsageAccessType::*;
 
@@ -33,7 +34,11 @@ pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
         }
     }
 
-    let pipeline = parse_pipeline_annotations(input);
+    let mut pipeline = parse_pipeline_annotations(input);
+    // Body-inferred column lineage, with `// column` annotations taking
+    // precedence per output column (explicit declaration overrides inference).
+    pipeline.column_lineage =
+        merge_column_lineage(collector.column_lineage, pipeline.column_lineage);
     Ok(ParseAssetsOutput::new(
         merge_assets(collector.assets),
         Vec::new(),
@@ -54,6 +59,13 @@ struct AssetCollector {
     cte_name_stack: Vec<HashSet<String>>,
     // Locally created tables (not attached to an asset)
     local_table_names: HashSet<String>,
+    // Inferred column-level lineage: one entry per output column of an
+    // output-producing query (CTAS / CREATE VIEW / top-level SELECT — the
+    // managed-materialize form), mapping it to the upstream source columns its
+    // expression reads. Merged with `// column` annotations (annotation wins) in
+    // `parse_assets`. Best-effort: dynamic/raw SQL and non-projection forms
+    // (INSERT … SELECT positional mapping, wildcards) are left to annotations.
+    column_lineage: Vec<ColumnLineage>,
 }
 
 impl AssetCollector {
@@ -65,6 +77,7 @@ impl AssetCollector {
             currently_used_asset: None,
             cte_name_stack: Vec::new(),
             local_table_names: HashSet::new(),
+            column_lineage: Vec::new(),
         }
     }
 
@@ -277,6 +290,7 @@ impl AssetCollector {
                 self.handle_table_with_joins(t, Some(R));
             }
             self.extract_column_assets(&select.projection, &select.from);
+            self.infer_column_lineage(&select.projection, &select.from);
         }
     }
 
@@ -302,12 +316,17 @@ impl AssetCollector {
         }
     }
 
-    // Extract columns from SELECT items and create individual asset results for each column
-    // Only processes columns that reference known assets to avoid false positives
-    fn extract_column_assets(
-        &mut self,
-        projection: &[SelectItem],
+    // Resolve a query's FROM clause into (single-table asset, alias→asset map).
+    // `single_table` is `Some` only for an unambiguous one-table FROM (so bare
+    // column refs can be attributed); `table_to_asset` keys by alias/table name
+    // for qualified refs. Shared by `extract_column_assets` (read columns) and
+    // `infer_column_lineage` (output→input edges) so both resolve identically.
+    fn build_from_maps(
+        &self,
         from_tables: &[sqlparser::ast::TableWithJoins],
+    ) -> (
+        Option<ParseAssetsResult>,
+        BTreeMap<String, ParseAssetsResult>,
     ) {
         // Check if this is a single-table SELECT (to avoid ambiguity).
         // For S3 table functions (read_parquet/read_csv/read_json), detect the asset even
@@ -374,6 +393,17 @@ impl AssetCollector {
                 }
             }
         }
+        (single_table, table_to_asset)
+    }
+
+    // Extract columns from SELECT items and create individual asset results for each column
+    // Only processes columns that reference known assets to avoid false positives
+    fn extract_column_assets(
+        &mut self,
+        projection: &[SelectItem],
+        from_tables: &[sqlparser::ast::TableWithJoins],
+    ) {
+        let (single_table, table_to_asset) = self.build_from_maps(from_tables);
 
         // Process each SELECT item
         for item in projection {
@@ -445,6 +475,135 @@ impl AssetCollector {
                 }
             }
         }
+    }
+
+    // Infer column-level lineage for an output-producing query's projection:
+    // each *named* output column → the upstream source columns its expression
+    // reads. Covers passthroughs (`amount`) and computed columns
+    // (`amount + tax AS total`) alike. Skipped: wildcards and unaliased
+    // expressions (no stable output name), and inputs that don't resolve to a
+    // known asset. A column with no resolved inputs is dropped.
+    //
+    // Best-effort and intentionally flat: results from every output query in the
+    // script accumulate into one list (the graph hangs them off the materialize
+    // write-edge), with no per-output-table association. This is exact for the
+    // common single-output member (a managed-materialize SELECT, or one CTAS),
+    // but a multi-statement script that stages through a TEMP table reports the
+    // *intermediate* column names (the final SELECT reads the temp table, whose
+    // columns don't resolve to an asset, so they drop out). A `// column`
+    // annotation overrides any output column where inference is wrong or coarse.
+    fn infer_column_lineage(
+        &mut self,
+        projection: &[SelectItem],
+        from_tables: &[sqlparser::ast::TableWithJoins],
+    ) {
+        let (single_table, table_to_asset) = self.build_from_maps(from_tables);
+        for item in projection {
+            let (out_col, expr) = match item {
+                SelectItem::ExprWithAlias { expr, alias } => (alias.value.clone(), expr),
+                SelectItem::UnnamedExpr(expr @ Expr::Identifier(id)) => (id.value.clone(), expr),
+                SelectItem::UnnamedExpr(expr @ Expr::CompoundIdentifier(parts)) => {
+                    match parts.last() {
+                        Some(last) => (last.value.clone(), expr),
+                        None => continue,
+                    }
+                }
+                _ => continue,
+            };
+            let mut collector = ColumnIdentCollector { refs: Vec::new(), query_depth: 0 };
+            let _ = expr.visit(&mut collector);
+            let mut inputs: Vec<ColumnRef> = Vec::new();
+            for parts in &collector.refs {
+                if let Some(cr) = self.resolve_column_ref(parts, &single_table, &table_to_asset) {
+                    if !inputs.contains(&cr) {
+                        inputs.push(cr);
+                    }
+                }
+            }
+            if !inputs.is_empty() {
+                self.column_lineage
+                    .push(ColumnLineage { column: out_col, inputs });
+            }
+        }
+    }
+
+    // Resolve identifier `parts` (e.g. `["t","amount"]` or `["amount"]`) to the
+    // source asset column it reads, mirroring `extract_column_assets`'
+    // resolution: a bare ident needs an unambiguous single-table FROM; a
+    // qualified ident resolves its prefix via the alias map, or (≥3 parts) as a
+    // db/schema-qualified object name.
+    fn resolve_column_ref(
+        &self,
+        parts: &[String],
+        single_table: &Option<ParseAssetsResult>,
+        table_to_asset: &BTreeMap<String, ParseAssetsResult>,
+    ) -> Option<ColumnRef> {
+        let asset_to_ref = |asset: &ParseAssetsResult, col: &str| ColumnRef {
+            from_kind: asset.kind,
+            from_path: asset.path.clone(),
+            from_column: col.to_string(),
+        };
+        match parts {
+            [col] => single_table.as_ref().map(|a| asset_to_ref(a, col)),
+            [.., col] => {
+                let prefix = parts.first()?;
+                if let Some(asset) = table_to_asset.get(prefix) {
+                    Some(asset_to_ref(asset, col))
+                } else if parts.len() >= 3 {
+                    let obj_parts: Vec<ObjectNamePart> = parts[..parts.len() - 1]
+                        .iter()
+                        .map(|p| ObjectNamePart::Identifier(sqlparser::ast::Ident::new(p.clone())))
+                        .collect();
+                    let asset =
+                        self.get_associated_asset_from_obj_name(&ObjectName(obj_parts), Some(R))?;
+                    Some(asset_to_ref(&asset, col))
+                } else {
+                    None
+                }
+            }
+            [] => None,
+        }
+    }
+}
+
+// Collects the identifier paths an expression reads, for column-lineage
+// inference: `Expr::Identifier(a)` → `["a"]`, `Expr::CompoundIdentifier(t.a)` →
+// `["t","a"]`. The derived `Visit` walk recurses through operators, functions,
+// casts and CASE, so every leaf identifier of the outer expression is captured.
+struct ColumnIdentCollector {
+    refs: Vec<Vec<String>>,
+    // Depth of nested (sub)queries inside the expression. Identifiers are only
+    // captured at depth 0: a scalar/correlated subquery's columns belong to ITS
+    // own FROM, not the outer projection's, so descending would misattribute
+    // (e.g. `(SELECT x FROM other) AS c FROM orders` must NOT bind `c` to
+    // `orders.x`). Subquery-derived columns are simply left to annotations.
+    query_depth: usize,
+}
+
+impl Visitor for ColumnIdentCollector {
+    type Break = ();
+
+    fn pre_visit_query(&mut self, _query: &sqlparser::ast::Query) -> std::ops::ControlFlow<()> {
+        self.query_depth += 1;
+        std::ops::ControlFlow::Continue(())
+    }
+
+    fn post_visit_query(&mut self, _query: &sqlparser::ast::Query) -> std::ops::ControlFlow<()> {
+        self.query_depth = self.query_depth.saturating_sub(1);
+        std::ops::ControlFlow::Continue(())
+    }
+
+    fn pre_visit_expr(&mut self, expr: &Expr) -> std::ops::ControlFlow<Self::Break> {
+        if self.query_depth == 0 {
+            match expr {
+                Expr::Identifier(id) => self.refs.push(vec![id.value.clone()]),
+                Expr::CompoundIdentifier(parts) => self
+                    .refs
+                    .push(parts.iter().map(|id| id.value.clone()).collect()),
+                _ => {}
+            }
+        }
+        std::ops::ControlFlow::Continue(())
     }
 }
 
@@ -1920,8 +2079,9 @@ mod ctas_read_tests {
             assets
         );
         assert!(
-            assets.iter().any(|a| a.path == "main/exciting_809"
-                && a.access_type == Some(W)),
+            assets
+                .iter()
+                .any(|a| a.path == "main/exciting_809" && a.access_type == Some(W)),
             "expected write of main/exciting_809, got {:?}",
             assets
         );
@@ -1935,9 +2095,135 @@ mod ctas_read_tests {
         "#;
         let assets = parse_assets(input).unwrap().assets;
         assert!(
-            assets.iter().any(|a| a.path == "main/fx_rates" && a.access_type == Some(R)),
+            assets
+                .iter()
+                .any(|a| a.path == "main/fx_rates" && a.access_type == Some(R)),
             "expected read of main/fx_rates, got {:?}",
             assets
+        );
+    }
+
+    fn lineage(input: &str) -> Vec<ColumnLineage> {
+        parse_assets(input).unwrap().column_lineage
+    }
+
+    #[test]
+    fn test_infer_lineage_computed_and_passthrough() {
+        // CTAS with a computed column (amount + tax) and a passthrough (id).
+        let input = r#"
+            ATTACH 'ducklake://warehouse' AS dl;
+            CREATE TABLE dl.orders_daily AS
+            SELECT dl.orders.id, dl.orders.amount + dl.orders.tax AS order_total
+            FROM dl.orders;
+        "#;
+        let got = lineage(input);
+        assert_eq!(
+            got,
+            vec![
+                ColumnLineage {
+                    column: "id".to_string(),
+                    inputs: vec![ColumnRef {
+                        from_kind: AssetKind::Ducklake,
+                        from_path: "warehouse/orders".to_string(),
+                        from_column: "id".to_string(),
+                    }],
+                },
+                ColumnLineage {
+                    column: "order_total".to_string(),
+                    inputs: vec![
+                        ColumnRef {
+                            from_kind: AssetKind::Ducklake,
+                            from_path: "warehouse/orders".to_string(),
+                            from_column: "amount".to_string(),
+                        },
+                        ColumnRef {
+                            from_kind: AssetKind::Ducklake,
+                            from_path: "warehouse/orders".to_string(),
+                            from_column: "tax".to_string(),
+                        },
+                    ],
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_infer_lineage_bare_column_single_table() {
+        // Managed-materialize form: a plain top-level SELECT, bare columns
+        // attributed to the single FROM table.
+        let input = r#"
+            ATTACH 'ducklake://warehouse' AS dl;
+            USE dl;
+            SELECT amount AS revenue FROM orders;
+        "#;
+        let got = lineage(input);
+        assert_eq!(
+            got,
+            vec![ColumnLineage {
+                column: "revenue".to_string(),
+                inputs: vec![ColumnRef {
+                    from_kind: AssetKind::Ducklake,
+                    from_path: "warehouse/orders".to_string(),
+                    from_column: "amount".to_string(),
+                }],
+            }]
+        );
+    }
+
+    #[test]
+    fn test_infer_lineage_annotation_overrides() {
+        // The `// column` annotation for `order_total` wins; `id` stays inferred.
+        let input = r#"
+            -- column order_total <- datatable://prod/manual.grand_total
+            ATTACH 'ducklake://warehouse' AS dl;
+            CREATE TABLE dl.orders_daily AS
+            SELECT dl.orders.id, dl.orders.amount + dl.orders.tax AS order_total
+            FROM dl.orders;
+        "#;
+        let got = lineage(input);
+        // Annotation entry is authoritative and listed first.
+        assert_eq!(got[0].column, "order_total");
+        assert_eq!(got[0].inputs[0].from_path, "prod/manual");
+        assert_eq!(got[0].inputs[0].from_column, "grand_total");
+        // Inferred `id` survives; inferred `order_total` dropped (no dup).
+        assert!(got.iter().any(|c| c.column == "id"));
+        assert_eq!(got.iter().filter(|c| c.column == "order_total").count(), 1);
+    }
+
+    #[test]
+    fn test_infer_lineage_wildcard_yields_nothing() {
+        // `SELECT *` has no enumerable output columns → no inferred lineage.
+        let input = r#"
+            ATTACH 'ducklake://warehouse' AS dl;
+            CREATE TABLE dl.orders_daily AS SELECT * FROM dl.orders;
+        "#;
+        assert!(lineage(input).is_empty());
+    }
+
+    #[test]
+    fn test_infer_lineage_does_not_descend_into_subqueries() {
+        // A scalar subquery's bare column (`amount`) belongs to the subquery's
+        // own FROM, NOT the outer `dl.orders` — it must not be attributed to the
+        // outer table. The subquery column is left to annotations; the
+        // passthrough `id` still resolves.
+        let input = r#"
+            ATTACH 'ducklake://warehouse' AS dl;
+            CREATE TABLE dl.orders_daily AS
+            SELECT dl.orders.id, (SELECT amount FROM dl.other LIMIT 1) AS c
+            FROM dl.orders;
+        "#;
+        let got = lineage(input);
+        assert_eq!(
+            got,
+            vec![ColumnLineage {
+                column: "id".to_string(),
+                inputs: vec![ColumnRef {
+                    from_kind: AssetKind::Ducklake,
+                    from_path: "warehouse/orders".to_string(),
+                    from_column: "id".to_string(),
+                }],
+            }],
+            "subquery column `c` must be dropped, not misattributed to orders"
         );
     }
 }

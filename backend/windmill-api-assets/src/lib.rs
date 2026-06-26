@@ -681,7 +681,8 @@ async fn asset_graph(
     // defensive against transient overlaps).
     let pipeline_member_paths = sqlx::query!(
         r#"
-        SELECT DISTINCT ON (path) path AS "path!", content AS "content!"
+        SELECT DISTINCT ON (path) path AS "path!", content AS "content!",
+               language AS "language!: windmill_common::scripts::ScriptLang"
         FROM script
         WHERE workspace_id = $1
           AND auto_kind = 'pipeline'
@@ -731,6 +732,30 @@ async fn asset_graph(
                 r.path.clone(),
                 windmill_common::assets::parse_pipeline_annotations(&r.content),
             )
+        })
+        .collect();
+    // Column-level lineage per member. For DuckDB scripts we run the full SQL
+    // asset parser, which infers output→input column edges from the AST and
+    // merges them with `// column` annotations (annotation wins); other
+    // languages have no AST column-lineage inference yet, so they fall back to
+    // the annotation-only lineage already parsed above.
+    let column_lineage_by_path: std::collections::HashMap<
+        String,
+        Vec<windmill_common::assets::ColumnLineage>,
+    > = pipeline_member_paths
+        .iter()
+        .map(|r| {
+            let lineage = if r.language == windmill_common::scripts::ScriptLang::DuckDb {
+                windmill_parser_sql_asset::parse_assets(&r.content)
+                    .map(|o| o.column_lineage)
+                    .unwrap_or_default()
+            } else {
+                annotations_by_path
+                    .get(&r.path)
+                    .map(|a| a.column_lineage.clone())
+                    .unwrap_or_default()
+            };
+            (r.path.clone(), lineage)
         })
         .collect();
     let pipeline_member_script_paths: std::collections::HashSet<String> =
@@ -873,7 +898,13 @@ async fn asset_graph(
                 tag: ann.and_then(|a| a.tag.clone()),
                 retry: ann.and_then(|a| a.retry.clone()),
                 data_tests: ann.map(|a| a.data_tests.clone()).unwrap_or_default(),
-                column_lineage: ann.map(|a| a.column_lineage.clone()).unwrap_or_default(),
+                // Inferred (DuckDB AST) + annotation column lineage, gated to
+                // scripts like the badges above.
+                column_lineage: (usage_kind == AssetUsageKind::Script)
+                    .then(|| column_lineage_by_path.get(&path))
+                    .flatten()
+                    .cloned()
+                    .unwrap_or_default(),
                 path,
                 usage_kind,
             }

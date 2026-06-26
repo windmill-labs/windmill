@@ -11,6 +11,7 @@ path = "src/lib.rs"
 [dependencies]
 windmill-api-auth.workspace = true
 windmill-common = { workspace = true, default-features = false }
+windmill-parser-sql-asset.workspace = true
 axum.workspace = true
 chrono.workspace = true
 serde.workspace = true

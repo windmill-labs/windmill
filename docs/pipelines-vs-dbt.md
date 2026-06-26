@@ -84,21 +84,30 @@ See [Incremental deep-dive](#incremental-deep-dive) below.
 dbt: SQL-AST parsing for column-level deps; `dbt docs serve` produces a
 static lineage site with descriptions.
 
-**Shipped** (the annotation + graph surface) via the `// column` annotation:
-`// column <out_col> <- <asset-uri>.<col>[, …]` declares, per output column of
-the script's materialized asset, the upstream source columns it derives from.
-It is the second *extensible* annotation family after `// data_test` — same
-head-then-tail parse shape (see `ColumnLineage`/`ColumnRef` in
-`asset_parser.rs`) — but pure metadata: it drives the column-lineage graph
-surface, never a runtime probe. dbt derives column lineage from a uniform SQL
-AST; Windmill is polyglot, so the declaration is explicit (the same
-"annotations are real comments parsed strictly" stance as the rest of the
-grammar). Surfaced two ways in the asset graph: a count badge on the
+**Shipped**, inferred-first. For DuckDB scripts the column lineage is **derived
+automatically from the SQL AST** — `windmill-parser-sql-asset` walks each
+output-producing query's projection and maps every output column to the source
+columns its expression reads (passthroughs *and* computed columns like
+`amount + tax AS total`), resolving each input to its asset via the same
+`ATTACH`/alias machinery the asset parser already uses. This is the dbt-style
+AST lineage, and it needs no annotation.
+
+The `// column <out_col> <- <asset-uri>.<col>[, …]` annotation is the
+**override / escape hatch**, for the cases inference can't reach: polyglot
+transforms (Python/TS/Bash — no SQL AST), dynamic SQL (`${sql.raw(...)}`, flagged
+by `SqlQueryDetails.has_raw_interpolation`), or correcting a mis-inferred edge.
+Inferred and annotated lineage are merged per output column with the annotation
+winning (`merge_column_lineage`). The annotation is the second *extensible*
+annotation family after `// data_test` — same head-then-tail parse shape (see
+`ColumnLineage`/`ColumnRef` in `asset_parser.rs`) — and is pure metadata: it
+drives the graph surface, never a runtime probe.
+
+Surfaced two ways in the asset graph: a count badge on the
 producer→materialized-asset write-edge, and a column-to-column diagram
-(`ColumnLineageView.svelte`) in the asset details pane. Body-inferred per-asset
-column *sets* (`columns` on `ParseAssetsResult`) complement it but can't express
-column→column edges. The `dbt docs serve`-style static lineage *site* is still
-TODO; no abstraction stands in the way.
+(`ColumnLineageView.svelte`) in the asset details pane. Inference runs at the
+graph endpoint (deployed nodes) and at deploy via `parse_assets`; the TS live
+parser has no SQL AST, so an *unsaved* draft shows annotation-derived lineage
+until deploy. The `dbt docs serve`-style static lineage *site* is still TODO.
 
 ### 4. Snapshots / SCD2
 

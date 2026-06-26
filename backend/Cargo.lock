@@ -14032,6 +14032,7 @@ dependencies = [
  "sqlx",
  "windmill-api-auth",
  "windmill-common",
+ "windmill-parser-sql-asset",
 ]
 
 [[package]]
