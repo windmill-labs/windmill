@@ -2,6 +2,7 @@ import {
 	AppService,
 	AzureTriggerService,
 	FlowService,
+	FolderService,
 	GcpTriggerService,
 	HttpTriggerService,
 	JobService,
@@ -696,6 +697,19 @@ const initAppSchema = z.object({
 		)
 })
 
+// Mirrors the backend VALID_FOLDER_NAME check so an invalid name fails before the
+// network round-trip (the server enforces the same rule).
+const VALID_FOLDER_NAME = /^[a-zA-Z_0-9-]+$/
+
+const createFolderSchema = z.object({
+	name: z
+		.string()
+		.describe(
+			'Folder name — letters, digits, underscores or hyphens only. The folder becomes addressable as `f/<name>/<item>`.'
+		),
+	summary: z.string().optional().describe('Optional human-readable description of the folder.')
+})
+
 type FolderPromptContext = { folders: string[]; foldersRead: string[]; isAdmin: boolean }
 
 // Renders the folders the current user can act on into the system prompt so the
@@ -723,17 +737,17 @@ function buildFolderGuidance(username: string, ctx?: FolderPromptContext): strin
 			writable.length > 0
 				? ` Folders here include ${fmt(writable)} (you can also write to others not listed).`
 				: ''
-		return `- As a workspace admin you can write to any existing folder.${known} If the user names a folder, use it; otherwise ask them.`
+		return `- As a workspace admin you can write to any existing folder.${known} If the user names a folder, use it; if they explicitly ask for a new folder, create it with \`create_folder\`; otherwise ask them which folder to use rather than guessing or creating one unprompted.`
 	}
 	const readOnly = (ctx.foldersRead ?? []).filter((f) => !writable.includes(f))
 	const lines: string[] = []
 	if (writable.length > 0) {
 		lines.push(
-			`- Folders you can write to in this workspace: ${fmt(writable)}. For shared/team work, pick the one whose purpose matches the request; if none clearly fits, ask which folder to use (askUserQuestion) rather than inventing one.`
+			`- Folders you can write to in this workspace: ${fmt(writable)}. For shared/team work, pick the one whose purpose matches the request; if none clearly fits, ask which folder to use (askUserQuestion) rather than inventing a path. Use \`create_folder\` only when the user explicitly asks for a new folder.`
 		)
 	} else {
 		lines.push(
-			`- You have no shared folders you can write to in this workspace, so use \`u/${username}/<name>\`. If shared placement is needed, ask the user to create or grant access to a folder first.`
+			`- You have no shared folders you can write to in this workspace, so use \`u/${username}/<name>\`. If the user explicitly asks for a shared folder, create one with \`create_folder\` (you become an owner); otherwise ask before placing shared work rather than inventing an \`f/<folder>/...\` path.`
 		)
 	}
 	if (readOnly.length > 0) {
@@ -763,7 +777,7 @@ Path conventions:
   - \`u/${username}/<name>\` — your personal scope. Default for ad-hoc, exploratory, or scratch work.
   - \`f/<folder>/<name>\` — a shared folder scope; the <folder> must already exist (a bare \`f/<name>\` with no folder segment is INVALID and will fail).
 - If the user supplies a fully qualified \`f/<folder>/...\` path, use that exact path; they have already chosen the folder. Do not ask for folder confirmation or substitute a \`u/${username}/...\` path unless a tool rejects it.
-- Default a bare name with no namespace prefix (e.g. "create a flow called myflow") to \`u/${username}/<name>\`. Never invent an \`f/<folder>/...\` path for a folder that does not exist.${folderGuidanceBlock}
+- Default a bare name with no namespace prefix (e.g. "create a flow called myflow") to \`u/${username}/<name>\`. Never invent an \`f/<folder>/...\` path for a folder that does not exist; create one with \`create_folder\` only when the user explicitly asks for a new folder.${folderGuidanceBlock}
 
 Rules:
 - Draft tools create or update drafts only; they do not deploy or mutate deployed workspace items.
@@ -1758,6 +1772,46 @@ export const globalTools: Tool<{}>[] = [
 			const item = await readWorkspaceItem(parsed.type, parsed.path, workspace, parsed.trigger_kind)
 			toolCallbacks.setToolStatus(toolId, { content: `Read ${parsed.type} "${parsed.path}"` })
 			return JSON.stringify(serializeWorkspaceItemForRead(item), null, 2)
+		}
+	},
+	{
+		def: createToolDef(
+			createFolderSchema,
+			'create_folder',
+			'Create a new shared folder (addressable as f/<name>/) in the workspace. The current user is added as an owner.'
+		),
+		requiresConfirmation: true,
+		confirmationMessage: 'Create folder',
+		showDetails: true,
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			const parsed = createFolderSchema.parse(args)
+			if (!VALID_FOLDER_NAME.test(parsed.name)) {
+				const error =
+					'Folder name can only contain alphanumeric characters, underscores, and hyphens.'
+				toolCallbacks.setToolStatus(toolId, { content: error, error })
+				return JSON.stringify({ success: false, error })
+			}
+			toolCallbacks.setToolStatus(toolId, { content: `Creating folder \`f/${parsed.name}\`...` })
+			try {
+				await FolderService.createFolder({
+					workspace,
+					requestBody: { name: parsed.name, summary: parsed.summary }
+				})
+				// Reflect the new folder in the path-convention context for the rest of this
+				// session, matching FolderPicker's local update (avoids userStore.set()).
+				const user = get(userStore)
+				if (user) {
+					if (!user.folders) user.folders = []
+					if (!user.folders.includes(parsed.name)) user.folders.push(parsed.name)
+				}
+				const message = `Created folder \`f/${parsed.name}\`. You can now write items to \`f/${parsed.name}/<name>\`.`
+				toolCallbacks.setToolStatus(toolId, { content: message })
+				return JSON.stringify({ success: true, message })
+			} catch (e) {
+				const error = e instanceof Error ? e.message : String(e)
+				toolCallbacks.setToolStatus(toolId, { content: `Error: ${error}`, error })
+				return JSON.stringify({ success: false, error })
+			}
 		}
 	},
 	{
