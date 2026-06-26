@@ -166,6 +166,13 @@ pub struct AssetSchemaVersion {
 
 /// Record the captured output schema of a freshly-materialized asset.
 ///
+/// **Authorization:** like the sibling `record_materialization`, this performs
+/// no access control of its own — it writes the row for whatever `workspace_id`
+/// it is given. Callers MUST pass a workspace-authorized executor and a
+/// `workspace_id` the caller is allowed to write: an RLS-scoped `user_db`
+/// transaction for API / agent-worker entry points, or the trusted worker DB
+/// pool for the in-worker recorder. Do not expose it to an unauthenticated path.
+///
 /// Versioning across re-materializations: a new `version` row is inserted only
 /// when `columns` differs from the latest stored version; an unchanged
 /// re-materialize re-affirms the latest row in place (updates its
@@ -249,6 +256,11 @@ pub async fn record_asset_schema(
 }
 
 /// All captured schema versions for one asset, newest version first.
+///
+/// **Authorization:** performs no access control (mirrors
+/// `list_materialized_partitions`); the caller must pass a workspace-authorized
+/// executor (an RLS-scoped `user_db` transaction on the API read path) and a
+/// `workspace_id` it is allowed to read.
 pub async fn list_asset_schemas<'e>(
     executor: impl PgExecutor<'e>,
     workspace_id: &str,

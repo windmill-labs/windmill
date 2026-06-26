@@ -748,8 +748,17 @@ pub async fn do_duckdb(
             let tests = extract_data_tests(&result);
             // Captured output schema (gap #2a) — recorded only on the successful
             // path below, not on the failure paths (a failed run shouldn't
-            // advance the asset's recorded schema version).
-            let schema = extract_schema(&result);
+            // advance the asset's recorded schema version). Managed mode ONLY:
+            // in `// materialize manual` the result is the user's own query
+            // output (we generate no summary), so an `output_schema` field there
+            // is caller-shaped and must not be trusted — `materialize` is
+            // `Some((Some(_), _))` for managed, `Some((None, _))` for manual.
+            let is_managed = matches!(&materialize, Some((Some(_), _)));
+            let schema = if is_managed {
+                extract_schema(&result)
+            } else {
+                None
+            };
             // Defense-in-depth: codegen embedded `n_data_tests` checks, so the
             // summary row must carry that many outcomes. Recovering fewer means
             // the `data_tests` column was dropped/reshaped before we read it —
